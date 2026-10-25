@@ -276,8 +276,7 @@ export function browserTools(
           );
           return read.result === undefined ? capped : { result: read.result, ...capped };
         },
-        false,
-        reviewed ? (input as Record<string, unknown>) : undefined,
+        { capped: false, reviewed: reviewed ? (input as Record<string, unknown>) : undefined },
       );
 
   return [

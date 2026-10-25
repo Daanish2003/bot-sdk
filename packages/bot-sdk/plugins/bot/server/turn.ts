@@ -1280,7 +1280,7 @@ function turnTools(
           sendFilesActivity,
           context?.toolCallId,
           (computer, live) => copyFilesToStorage(deps, computer, turn.botId, files, live),
-          false,
+          { capped: false },
         );
         if ("error" in copied) return copied;
         control = { kind: "files", files: copied.files };

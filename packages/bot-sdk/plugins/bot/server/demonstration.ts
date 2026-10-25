@@ -148,7 +148,7 @@ export function watchUserTool(deps: BotSdkContext, turn: Watcher, kit: LoopKit) 
           await computer.setScreenControl(screen, "control");
           return { opened: true };
         },
-        false,
+        { capped: false },
       );
     } catch (error) {
       // A Stop or the loop's deadline: the Demonstration never started, so it lets go of the Screen.
