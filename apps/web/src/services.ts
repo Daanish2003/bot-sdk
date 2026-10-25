@@ -3,10 +3,7 @@ import { chatgptAccessToken } from "@ai-chat/auth/chatgpt";
 import { createDb } from "@ai-chat/db";
 import { createBotSdk, redisRuntime, redisStore } from "@ai-chat/bot-sdk/core/server";
 import { emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
-import { memory } from "@ai-chat/bot-sdk/plugins/memory/server";
-import { knowledge } from "@ai-chat/bot-sdk/plugins/knowledge/server";
 import { mcp } from "@ai-chat/bot-sdk/plugins/mcp/server";
-import { skills } from "@ai-chat/bot-sdk/plugins/skills/server";
 import { fakeImageAdapter } from "@ai-chat/bot-sdk/plugins/models/server";
 import { log } from "evlog";
 
@@ -25,6 +22,7 @@ import {
 import { linkedCredentialsHook } from "./chatgpt-link";
 import { cachedTokenFor, linkedCredentialsOf } from "./linked-credentials";
 import { computerProviderOf } from "./computer";
+import { computerFeatures } from "./features";
 import { mcpServersOf } from "./mcp-server";
 import { trustedIpHeadersOf } from "./trusted-ip";
 
@@ -41,6 +39,11 @@ const e2b =
   ENV.E2B_API_KEY && ENV.E2B_API_URL && ENV.E2B_SANDBOX_URL
     ? { apiKey: ENV.E2B_API_KEY, apiUrl: ENV.E2B_API_URL, sandboxUrl: ENV.E2B_SANDBOX_URL }
     : undefined;
+
+// The Bots' Computer (spec #519): on only when self-hosted E2B is configured.
+const computer = await computerProviderOf(e2b, computerTemplate);
+// Whether the Bot page shows Memory, Skills and Knowledge: they are listed only with a Computer.
+export const computerFeaturesOn = computer !== undefined;
 
 export const db = createDb(ENV);
 // The OAuth values are optional outside production (see .env.schema); an empty id makes the
@@ -123,8 +126,7 @@ export const sdk = (shared.botSdk ??= createBotSdk({
   },
   // Background jobs (ADR 0011): no runner slot, so the in-process runner runs them.
 
-  // The Bots' Computer (spec #519): on only when self-hosted E2B is configured.
-  computer: await computerProviderOf(e2b, computerTemplate),
+  computer,
   // Channels (spec #761): each Bot's own email address. Mail comes in through Mailpit
   // (MAILPIT_API_URL, #773), which vouches for DMARC for every mail it holds, so it is for a Host
   // that only listens on localhost. With no Mailpit, the inbound route refuses every mail: the
@@ -146,12 +148,8 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     return row?.emailVerified ? row.email : null;
   },
   features: [
-    // Memory (ADR 0022): the Bots' file memory and the user's Memory switch.
-    memory(),
-    // Skills (spec #713): each Bot's SKILL.md files, listed in its prompt; a Host turns it on or off.
-    skills(),
-    // Knowledge (spec #737): the user's shared Knowledge files on their Computer, and text extraction; a Host turns it on or off.
-    knowledge(),
+    // Memory, Skills and Knowledge need the Computer, so a Host without one lists none of them.
+    ...computerFeatures(computer),
     // MCP (ADR 0027): the users' Connections to the Host's MCP servers (`MCP_SERVER_*`).
     mcp({ servers: mcpServersOf(ENV) }),
   ],
