@@ -88,6 +88,7 @@ async function seenSince(
 export async function featureSectionsNow(
   deps: BotSdkContext,
   turn: FeatureTurn,
+  startedAt: Date,
 ): Promise<FeatureSection[]> {
   const prompting = enabledFeatures(deps).filter(({ feature }) => feature.prompt);
   if (!prompting.length) return [];
@@ -97,7 +98,7 @@ export async function featureSectionsNow(
   for (const { feature, context } of prompting) {
     try {
       const read = await feature.prompt!(
-        { ...turn, built: built.get(feature.id) ?? null, told, earlier },
+        { ...turn, built: built.get(feature.id) ?? null, told, startedAt, earlier },
         context,
       );
       if (read) {
@@ -139,6 +140,8 @@ export async function featureTools(
     signal: AbortSignal;
     /** Records a feature's listing as the Turn's activity, named for the feature. */
     record: <T>(featureId: string, list: () => Promise<T>) => Promise<T>;
+    /** The loop's Computer call, for the tools a feature lists in `computerTools`. */
+    computerCall: LoopKit["computerCall"];
   },
   only?: string,
 ): Promise<FeatureToolSet> {
@@ -161,6 +164,8 @@ export async function featureTools(
           signal: kit.signal,
           record: (list) => kit.record(feature.id, list),
           taken: new Set(names),
+          computerCall: (name, toolCallId, operate) =>
+            kit.computerCall(name, toolCallId, (computer, live) => operate(computer, live)),
           secretMask: async () =>
             secretMasker((await loadSecretValues(deps, turn.userId, decrypted)).values()),
         },
@@ -169,7 +174,9 @@ export async function featureTools(
       deps.logger.error(`Feature "${feature.id}" failed to give its tools`, error);
       continue;
     }
-    const { tools, missing } = Array.isArray(given) ? { tools: given, missing: undefined } : given;
+    const { tools, missing, computerTools } = Array.isArray(given)
+      ? { tools: given, missing: undefined, computerTools: undefined }
+      : given;
     if (missing) missings.push(missing);
     for (const tool of tools) {
       if (names.has(tool.name)) {
@@ -182,6 +189,10 @@ export async function featureTools(
       const execute = tool.execute;
       if (!execute) {
         set.tools.push(tool);
+        continue;
+      }
+      if (computerTools?.includes(tool.name)) {
+        set.tools.push(rest as AnyServerTool);
         continue;
       }
       set.tools.push({

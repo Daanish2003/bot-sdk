@@ -514,6 +514,7 @@ async function playHelper(
               {
                 signal: connections.signal,
                 record: (featureId, list) => ctx.activity(`${featureId}:tools`, list),
+                computerCall: kit.computerCall,
               },
               "mcp",
             )

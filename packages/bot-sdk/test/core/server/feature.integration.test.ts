@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import { botTurn } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { deleteUserData, exportUserData } from "../../../core/server/user-data";
 import { bot } from "../../../plugins/bot/server/plugin";
@@ -230,6 +231,36 @@ describe("a feature built with defineFeature", { timeout: 30_000 }, () => {
     expect(first).toContain("lens_tool");
     // A call through run_tool is the named tool's call.
     expect(newestOf(fake.calls[2])).toContain("Lens saw: pin_note(buy milk)");
+  });
+
+  it("gets the Turn's start, and its Change notes come in the order the features are listed", async () => {
+    const starts: Date[] = [];
+    const named = (id: string, onPrompt?: (startedAt: Date) => void) =>
+      defineFeature({
+        id,
+        prompt: async (turn) => {
+          onPrompt?.(turn.startedAt);
+          return { section: `[${id}]`, changeNotes: [`note from ${id}`] };
+        },
+      });
+    const { fake, client, botId } = await botWithPins(
+      [round(), round()],
+      [named("zeta", (startedAt) => starts.push(startedAt)), named("alpha")],
+    );
+
+    await send(client, botId, "hi");
+    await send(client, botId, "again");
+
+    const [turn] = await getTestDb()
+      .select({ startedAt: botTurn.startedAt })
+      .from(botTurn)
+      .where(eq(botTurn.botId, botId))
+      .orderBy(botTurn.startedAt)
+      .limit(1);
+    expect(starts[0]).toEqual(turn!.startedAt);
+    const newest = newestOf(fake.calls[1]);
+    expect(newest.indexOf("note from zeta")).toBeGreaterThanOrEqual(0);
+    expect(newest.indexOf("note from zeta")).toBeLessThan(newest.indexOf("note from alpha"));
   });
 
   it("takes part in the user's export and delete", async () => {

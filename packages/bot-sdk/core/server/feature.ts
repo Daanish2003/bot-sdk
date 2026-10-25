@@ -75,6 +75,20 @@ export type FeatureToolKit = {
   taken: ReadonlySet<string>;
   /** Masks the user's Secrets in a text; reads them on each call. */
   secretMask: () => Promise<(text: string) => string>;
+  /**
+   * A call on the user's Computer, as tool call `toolCallId` of the tool `name` (list the name
+   * in `computerTools`): the Turn's own Computer call, which is recorded and re-run after a crash,
+   * stopped by a Stop and the time limit, masks Secrets, cuts a long result, and tells the Bot of a
+   * rebuild of its Computer in the result. A failed wake or operation is its `{ error }`.
+   */
+  computerCall: <T extends object>(
+    name: string,
+    toolCallId: string | undefined,
+    operate: (
+      computer: ReturnType<ComputerApi["forUser"]>,
+      live: { signal?: AbortSignal; deadline?: Date },
+    ) => Promise<T>,
+  ) => Promise<T | { error: string }>;
 };
 
 /** What a feature's `tools` gives: its tools, and for a Turn that lists them, what it says of a missing one. */
@@ -84,6 +98,11 @@ export type FeatureTools =
       tools: AnyServerTool[];
       /** The error for a tool of the feature that isn't among `tools` this Turn, else `undefined`. */
       missing?: (name: string) => string | undefined;
+      /**
+       * The names of the tools that make their own live call through `kit.computerCall`: the core
+       * doesn't wrap them in a live request of its own.
+       */
+      computerTools?: readonly string[];
     };
 
 /** What `prompt` is called with: the Turn, and what the Bot has seen of the feature's section. */
@@ -99,6 +118,8 @@ export type FeaturePromptTurn = FeatureTurn & {
    * among them.
    */
   told: readonly string[];
+  /** When the Turn started (for a Summary written while away, now): what ages and days count from. */
+  startedAt: Date;
   /** The Bot's Turns since its Prompt start, oldest first: `told` by Turn, with their tool calls. */
   earlier: readonly FeatureEarlierTurn[];
 };

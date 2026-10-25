@@ -3,8 +3,6 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { defineFeature } from "../../../core/server/feature";
-import { computerOperationError, computerUnavailableError } from "../../bot/server/computer-tools";
-import { ComputerOperationError, ComputerUnavailableError } from "../../computer/server/plugin";
 import { botMemoryPassJob, enqueueBotMemoryPass } from "./bot-pass";
 import { botMemorySnapshot, botsOf, exportBotMemory, memoryDirectory } from "./bot-memory";
 import { memoryChangeNotes } from "./change-notes";
@@ -46,32 +44,24 @@ export function memory() {
       // Read once and recorded, so a replay lists what its attempt did, even if the switch moved.
       const enabled = () => memoryEnabledFor(context, turn.userId);
       if (!(await (kit ? kit.record(enabled) : enabled()))) return [];
-      return [
-        searchMemoryDefinition.server(async ({ query }) => {
-          try {
-            const results = await searchBotMemory(context.computer.forUser(turn.userId), {
+      const search = searchMemoryDefinition.server(async ({ query }, options) => {
+        // Only a Turn's tool list is called; a list read for its definitions never runs a tool.
+        if (!kit) throw new Error("search_memory was called without a Turn");
+        return kit.computerCall(
+          searchMemoryToolName,
+          options?.toolCallId,
+          async (computer, live) => ({
+            results: await searchBotMemory(computer, {
               botId: turn.botId,
               bots: await botsOf(context, turn.userId),
               query,
               now: context.clock(),
-              signal: kit?.signal,
-            });
-            // A Secret the Bot saved into its memory never comes back as it is.
-            const mask = await kit?.secretMask();
-            return {
-              results: mask ? results.map((hit) => ({ ...hit, text: mask(hit.text) })) : results,
-            };
-          } catch (caught) {
-            if (caught instanceof ComputerUnavailableError) {
-              return { error: computerUnavailableError };
-            }
-            if (caught instanceof ComputerOperationError) {
-              return { error: computerOperationError(caught.message) };
-            }
-            throw caught;
-          }
-        }),
-      ];
+              signal: live.signal,
+            }),
+          }),
+        );
+      });
+      return { tools: [search], computerTools: [searchMemoryToolName] };
     },
     // The memory block as a Turn starts, from the user's Computer; none with Memory off or when
     // the Computer can't be read, and the Turn goes on without it.
@@ -83,7 +73,7 @@ export function memory() {
         block = await botMemorySnapshot(context, {
           userId: turn.userId,
           botId: turn.botId,
-          now: context.clock(),
+          now: turn.startedAt,
           computer: context.computer.forUser(turn.userId),
         });
       } catch (error) {

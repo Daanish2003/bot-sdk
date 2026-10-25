@@ -159,7 +159,7 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
     conversationId: seen.conversationId,
   });
   const features: FeatureSection[] = enabledFeatures(deps).length
-    ? await ctx.activity("features", () => featureSectionsNow(deps, facts))
+    ? await ctx.activity("features", () => featureSectionsNow(deps, facts, deps.clock()))
     : [];
   // Set only by a live write: a replayed one changed nothing, so hints nothing.
   let wrote = false;

@@ -1093,6 +1093,7 @@ async function playTurn(
         turnSetup(deps, turn, kit, db, renderNewest, {
           signal: connections.signal,
           record: (featureId, list) => ctx.activity(`${featureId}:tools`, list),
+          computerCall: kit.computerCall,
         }),
     });
   } finally {
@@ -1117,6 +1118,7 @@ async function turnSetup(
   connections: {
     signal: AbortSignal;
     record: <T>(featureId: string, list: () => Promise<T>) => Promise<T>;
+    computerCall: LoopKit["computerCall"];
   },
 ): Promise<LoopSetup> {
   let endTurn = false;
@@ -1144,7 +1146,7 @@ async function turnSetup(
     ? await kit.liveRequest(
         "features",
         undefined,
-        () => featureSectionsNow(deps, facts),
+        () => featureSectionsNow(deps, facts, turn.startedAt),
         async () => {},
       )
     : [];
