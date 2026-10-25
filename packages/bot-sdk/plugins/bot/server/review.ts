@@ -369,7 +369,7 @@ export async function closeWaitingReviews(
 
 /** The meter a review on `model` bills. */
 async function reviewMeter(deps: BotSdkContext, userId: string, model: string) {
-  const call = await deps.plugin("models").resolveModelCall(userId, model);
+  const call = await deps.models.resolveModelCall(userId, model);
   return meterOf(deps, userId, model, call?.meter);
 }
 
@@ -380,7 +380,7 @@ function meterOf(
   model: string,
   meter: ModelMeter | undefined,
 ): ModelMeter {
-  return meter?.onHost ? meter : deps.plugin("models").freeModelMeter(userId, model);
+  return meter?.onHost ? meter : deps.models.freeModelMeter(userId, model);
 }
 
 /** What the Model gets for a blocked call: why, what came of its Approval, and what to do next. */
@@ -418,7 +418,7 @@ export async function judge(
   },
   onMeter: (meter: ModelMeter) => void,
 ): Promise<RecordedReview> {
-  const models = deps.plugin("models");
+  const models = deps.models;
   const named = deps.plugin("bot").reviewModel;
   const namedCall = named ? await models.resolveModelCall(owner.userId, named) : null;
   const model = namedCall ? named! : owner.model;

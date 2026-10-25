@@ -425,7 +425,7 @@ export async function sendToBot(
   }
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-  const call = await deps.plugin("models").resolveModelCall(userId, found.model);
+  const call = await deps.models.resolveModelCall(userId, found.model);
   if (!call) {
     throw rpcError(
       "BAD_REQUEST",
@@ -1405,7 +1405,7 @@ function turnTools(
     ...(searchMemory ? [searchMemory] : []),
     ...(withComputer ? [...kit.computerTools, ...helperTools(deps, turn, liveActivity)] : []),
     // Deferred, and listed on two Host settings, so the tool list never changes (spec #801).
-    ...(withComputer && deps.plugin("models").hasHostImageModels
+    ...(withComputer && deps.models.hasHostImageModels
       ? [generateImageTool(deps, turn, kit.liveRequest)]
       : []),
     // A Demonstration teaches a Skill, so it comes with a feature that says so (spec #713).
