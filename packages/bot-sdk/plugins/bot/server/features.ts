@@ -120,7 +120,11 @@ export async function featureTools(
   const decrypted: DecryptedSecrets = new Map();
   const set: FeatureToolSet = { tools: [], missing: () => undefined, connectorNames: new Set() };
   const missings: Array<(name: string) => string | undefined> = [];
-  for (const { feature, context } of enabledFeatures(deps)) {
+  // Connector tools last, so they never shadow another feature's tool.
+  const listed = [...enabledFeatures(deps)].sort(
+    (a, b) => Number(a.feature.connectorTools ?? false) - Number(b.feature.connectorTools ?? false),
+  );
+  for (const { feature, context } of listed) {
     if (!feature.tools || (only !== undefined && feature.id !== only)) continue;
     const given = await feature.tools(
       turn,
