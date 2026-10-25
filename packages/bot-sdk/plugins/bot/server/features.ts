@@ -110,6 +110,10 @@ export async function featureSectionsNow(
   return sections;
 }
 
+/** Whether an enabled feature is taught by Demonstrations: the Bot then gets `watch_user`. */
+export const featuresDemonstrate = (deps: BotSdkContext): boolean =>
+  enabledFeatures(deps).some(({ feature }) => feature.demonstrations);
+
 /** The enabled features' tools for a Turn, and what the Turn needs to know of them. */
 export type FeatureToolSet = {
   tools: AnyServerTool[];

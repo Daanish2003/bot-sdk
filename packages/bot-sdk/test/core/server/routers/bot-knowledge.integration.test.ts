@@ -79,8 +79,8 @@ async function botWith(
   });
   deps = createTestSdk({
     ...(withComputer && { computer: computerFake.provider }),
-    plugins: [bot(), skills()],
-    features: withKnowledge ? [knowledge()] : [],
+    plugins: [bot()],
+    features: [...(withComputer ? [skills()] : []), ...(withKnowledge ? [knowledge()] : [])],
     memory: withMemory,
     jobs,
     adapterFor: () => fake.adapter,

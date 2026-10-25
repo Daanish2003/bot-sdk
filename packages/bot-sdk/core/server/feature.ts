@@ -138,6 +138,11 @@ export type FeatureDefinition<
    * or changed them.
    */
   connectorTools?: boolean;
+  /**
+   * Whether a Demonstration teaches this feature (Skills): the core offers the Bot `watch_user`
+   * while an enabled feature says so.
+   */
+  demonstrations?: boolean;
   /** The feature's section of the Prompt start, and its Change notes, as a Turn starts. */
   prompt?: (
     turn: FeaturePromptTurn,

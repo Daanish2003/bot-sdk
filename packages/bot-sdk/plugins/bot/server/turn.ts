@@ -9,7 +9,6 @@ import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import { searchTextOf } from "../../../core/shared/message-parts";
 import type { MessageUsage } from "../../models/shared/usage";
-import type { SkillLine } from "../../skills/server/skills";
 import { defineJob, PermanentJobError } from "../../runner/server/jobs/define";
 import { loadHistory } from "../../runner/server/jobs/history";
 import { createWorkflow, type WorkflowContext } from "../../runner/server/workflow/engine";
@@ -28,6 +27,7 @@ import { enabledFeatures } from "../../../core/server/feature";
 import {
   type FeatureSection,
   featureSectionsNow,
+  featuresDemonstrate,
   featureTools,
   featureTurnOf,
   takenNames,
@@ -1145,10 +1145,6 @@ async function turnSetup(
   const withComputer = Boolean(deps.computer);
   const memory =
     withComputer && deps.hasPlugin("memory") ? await memorySnapshot(deps, turn, kit) : null;
-  // The Skills, read in the same wake as the memory snapshot; on whatever the Memory switch says.
-  const skills =
-    withComputer && deps.hasPlugin("skills") ? await skillsSnapshot(deps, turn, kit) : null;
-  const skillsBlock = skills && deps.plugin("skills").prompt(turn.botId, skills);
   const facts = featureTurnOf(turn);
   // The features' sections and Change notes (spec #871), read once: a replay reads the recorded
   // ones. With no feature, there is no activity, so the histories of Turns without one don't change.
@@ -1189,7 +1185,6 @@ async function turnSetup(
       withComputer,
       withConnectors: deps.hasPlugin("mcp"),
       memory,
-      skills: skillsBlock,
       features,
       routines,
     });
@@ -1205,11 +1200,10 @@ async function turnSetup(
   const seenSince: EarlierTurn[] = earlier.map((row) =>
     summary?.kind === "mid_turn" && row.id === summary.turnId ? { ...row, promptStartId: id } : row,
   );
-  // What changed since the Prompt start, from what this Turn read: the memory block, the Skills,
+  // What changed since the Prompt start, from what this Turn read: the memory block,
   // the Knowledge and the Routines as recorded above, and the live tools.
   const changeNotes = await changeNotesFor(db, id, seenSince, {
     memory,
-    skills,
     features,
     routines: routines ?? null,
     tools: definitionsOf(tools),
@@ -1234,7 +1228,7 @@ async function turnSetup(
 /**
  * The Bot's tools for a Turn, run through the loop's `kit`: SendToUser, the Routine and Check-in
  * tools, web search, `search_memory` with `withMemorySearch`, and with `withComputer` the
- * Computer's tools and the Helper tools, and `watch_user` too with the `skills` plugin. `onLastMessage` runs when SendToUser sends the Turn's last
+ * Computer's tools and the Helper tools, and `watch_user` too with a feature Demonstrations teach. `onLastMessage` runs when SendToUser sends the Turn's last
  * Message.
  */
 function turnTools(
@@ -1408,8 +1402,8 @@ function turnTools(
     ...(withComputer && deps.models.hasHostImageModels
       ? [generateImageTool(deps, turn, kit.liveRequest)]
       : []),
-    // A Demonstration teaches a Skill, so it comes with the `skills` plugin (spec #713).
-    ...(withComputer && deps.hasPlugin("skills") ? [watchUserTool(deps, turn, kit)] : []),
+    // A Demonstration teaches a Skill, so it comes with a feature that says so (spec #713).
+    ...(withComputer && featuresDemonstrate(deps) ? [watchUserTool(deps, turn, kit)] : []),
   ];
 }
 
@@ -1426,7 +1420,6 @@ function startParts(
     withComputer,
     withConnectors,
     memory,
-    skills,
     features,
     routines,
   }: {
@@ -1435,8 +1428,6 @@ function startParts(
     /** Whether the Host installs `mcp`, which puts connectors in the ladder. */
     withConnectors: boolean;
     memory: string | null;
-    /** The Skills block, null without the `skills` plugin or when it couldn't be read. */
-    skills: string | null;
     /** The enabled features' sections, each named by its feature's id (spec #871). */
     features: FeatureSection[];
     routines: string | null;
@@ -1450,7 +1441,6 @@ function startParts(
       { name: "rules", text: rules! },
       ...(computerBlock ? [{ name: "computer", text: computerBlock }] : []),
       ...(memory ? [{ name: "memory", text: memory }] : []),
-      ...(skills ? [{ name: "skills", text: skills }] : []),
       ...features.flatMap(({ name, section }) => (section ? [{ name, text: section }] : [])),
       ...(routines ? [{ name: "routines", text: routines }] : []),
     ],
@@ -1469,8 +1459,7 @@ const definitionOnly = (): never => {
 /**
  * What a Summary written while the user is away builds its Prompt start from, at `now`: the Bot's
  * tools and system blocks as a Turn starting now reads them, the Routines read in `tx`,
- * `memory`, the memory block read just before (null with Memory off or unreadable), and `skills`,
- * the Skills block read with it (null without the `skills` plugin or unreadable). `turn`
+ * `memory`, the memory block read just before (null with Memory off or unreadable). `turn`
  * is the Bot's newest Turn, which the Summary follows.
  */
 export async function awayStartParts(
@@ -1479,7 +1468,6 @@ export async function awayStartParts(
   turn: Omit<TurnFacts, "startedAt" | "jobId">,
   now: Date,
   memory: string | null,
-  skills: string | null,
   features: FeatureSection[],
 ): Promise<PromptStartParts> {
   const withComputer = Boolean(deps.computer);
@@ -1507,7 +1495,6 @@ export async function awayStartParts(
     withComputer,
     withConnectors: deps.hasPlugin("mcp"),
     memory,
-    skills,
     features,
     routines,
   });
@@ -1547,26 +1534,6 @@ async function memorySnapshot(
     }),
   }));
   return "error" in read ? null : read.prompt;
-}
-
-/**
- * The Bot's Skills as the Turn starts (spec #713), read once from the Computer like the memory
- * snapshot, as a Computer call of the loop's: a replay reads the recorded list. Null when the
- * Computer can't be woken or read, so the Turn goes on without them.
- */
-async function skillsSnapshot(
-  deps: BotSdkContext,
-  turn: TurnFacts,
-  kit: LoopKit,
-): Promise<SkillLine[] | null> {
-  const read = await kit.computerCall("skills", undefined, async (_computer, live) => ({
-    skills: await deps.plugin("skills").botSkills({
-      botId: turn.botId,
-      computer: computerOf(deps, turn.userId),
-      signal: live.signal,
-    }),
-  }));
-  return "error" in read ? null : read.skills;
 }
 
 /** How a Turn ended, and why when it failed: a limit's code or the Provider's error. */

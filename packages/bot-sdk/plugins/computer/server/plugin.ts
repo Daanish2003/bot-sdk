@@ -261,7 +261,7 @@ export type ComputerApi = {
 
 declare module "../../../core/server/plugin" {
   interface PluginApis {
-    /** Until #880 and #882 move Memory and Skills onto the feature context: `sdk.computer`. */
+    /** Until #882 moves Memory onto the feature context: `sdk.computer`. */
     computer: ComputerApi;
   }
 }

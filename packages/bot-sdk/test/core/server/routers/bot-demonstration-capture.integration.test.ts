@@ -178,7 +178,8 @@ async function demonstrating(path = "/") {
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
   deps = createTestSdk({
     computer: computerFake.provider,
-    plugins: [bot(), skills()],
+    plugins: [bot()],
+    features: [skills()],
     jobs,
     adapterFor: () => fake.adapter,
     memory: false,

@@ -11,8 +11,11 @@ import {
   type InProcessRunner,
   systemClock,
 } from "../../../../plugins/runner/server/jobs/in-process";
+import { claimJob } from "../../../../plugins/runner/server/jobs/store";
 import { skills } from "../../../../plugins/skills/server/plugin";
+import { readSkillsScript } from "../../../../plugins/skills/server/skills";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
+import { fakeJobClock } from "../../../support/jobs";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
@@ -90,7 +93,8 @@ async function botWith(
   });
   deps = createTestSdk({
     ...(withComputer && { computer: computerFake.provider }),
-    plugins: [bot(), ...(withSkills ? [skills()] : [])],
+    plugins: [bot()],
+    features: withSkills && withComputer ? [skills()] : [],
     memory: withMemory,
     jobs,
     adapterFor: () => fake.adapter,
@@ -333,6 +337,74 @@ describe("the Skills block", { timeout: 30_000 }, () => {
       expect(systemOf(turnCalls(fake.calls)[0]).join("\n")).not.toContain("Your Skills");
       expect(await sectionNames(botId)).not.toContain("skills");
     }
+  });
+});
+
+describe("the Skills read", { timeout: 30_000 }, () => {
+  it("is cancelled by a Stop, and the Turn ends stopped", async () => {
+    let reading: () => void = () => {};
+    const readStarted = new Promise<void>((resolve) => (reading = resolve));
+    const fake = createFakeAdapter({ rounds: [round()] });
+    const computerFake = fakeComputerProvider({
+      // The Skills read runs until it is killed.
+      holds: (command) => command.includes(readSkillsScript),
+      onCommand: ({ signal }) => {
+        reading();
+        return new Promise<CommandResult>((_resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            reject(new Error("killed"));
+          });
+        });
+      },
+    });
+    const timer = fakeJobClock(new Date());
+    let deps: TestDeps | undefined;
+    // Never started: the test claims the Turn's job and runs its one attempt by hand.
+    const jobs = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      clock: timer.clock,
+      drainMs: 1_000,
+      deps: () => deps!,
+    });
+    started.push(jobs);
+    deps = createTestSdk({
+      computer: computerFake.provider,
+      plugins: [bot()],
+      features: [skills()],
+      jobs,
+      adapterFor: () => fake.adapter,
+      memory: false,
+    });
+    const user = await insertUser();
+    await saveCredentials(deps, user.id, {
+      service: "openai",
+      fields: { apiKey: "openai-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+    const client = chatRpc({ user, deps });
+    const { id: botId } = await client.bot.create({ name: "Ada", model });
+    const stream = await followSend(client, {
+      botId,
+      id: uuidv7(),
+      text: "hi",
+      timeZone: "Europe/London",
+    });
+    const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: false });
+    if (!claimed) throw new Error("Nothing to claim");
+    const running = jobs.runClaimed(claimed);
+    await readStarted;
+
+    await client.bot.stop({ botId });
+    // The running attempt sees the cancel at its next heartbeat.
+    timer.tick();
+    await running;
+
+    const events = [];
+    for await (const event of stream) events.push(event);
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "stopped" });
+    expect(computerFake.callsOf("kill")).toHaveLength(1);
   });
 });
 
@@ -804,11 +876,10 @@ describe("the skills router", { timeout: 30_000 }, () => {
     await expect(client.skills.remove({ botId, name: "invoices" })).rejects.toMatchObject(refused);
   });
 
-  it("says no Computer, and refuses the rest, without the computer plugin", async () => {
-    const { client, botId } = await botWithRouter({ withComputer: false });
-
-    expect(await client.skills.status()).toEqual({ available: false });
-    await expect(client.skills.list({ botId })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  it("can't be turned on without a Computer: the factory throws", () => {
+    expect(() => createTestSdk({ plugins: [bot()], features: [skills()] })).toThrow(
+      /needs the Computer/,
+    );
   });
 
   it("tells the Bot of a user's changes as Change notes in its next Turn", async () => {

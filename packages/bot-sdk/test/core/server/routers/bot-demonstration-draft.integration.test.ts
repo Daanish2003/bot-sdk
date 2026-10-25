@@ -123,7 +123,8 @@ async function demonstrating({
   });
   deps = createTestSdk({
     computer: computerFake.provider,
-    plugins: [bot(), skills()],
+    plugins: [bot()],
+    features: [skills()],
     memory: false,
     jobs,
     adapterFor: () => fake.adapter,

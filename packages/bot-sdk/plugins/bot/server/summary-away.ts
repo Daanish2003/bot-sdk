@@ -147,10 +147,6 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
   const memory = await ctx.activity("memory", () =>
     memoryNow(deps, botId, seen.userId, ctx.signal),
   );
-  // And the Skills block, read the same way.
-  const skills = await ctx.activity("skills", () =>
-    skillsNow(deps, botId, seen.userId, ctx.signal),
-  );
   // And the features' sections (spec #871); with no feature, no activity, as before.
   const facts = featureTurnOf({
     id: seen.turnId,
@@ -179,7 +175,6 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
       },
       now,
       memory,
-      skills,
       features,
     );
     const id = await writeSummary(tx, { parts, prose: written.prose, kind: "away" });
@@ -298,29 +293,6 @@ async function memoryNow(
       computer: computerOf(deps, userId),
       signal,
     });
-  } catch {
-    signal.throwIfAborted();
-    return null;
-  }
-}
-
-/**
- * The Bot's Skills block as of now (spec #713), read through its Computer, or null without the
- * `computer` or `skills` plugin, or when it can't be read, as a Turn carries on with none.
- */
-async function skillsNow(
-  deps: BotSdkContext,
-  botId: string,
-  userId: string,
-  signal: AbortSignal,
-): Promise<string | null> {
-  if (!deps.computer || !deps.hasPlugin("skills")) return null;
-  const api = deps.plugin("skills");
-  try {
-    return api.prompt(
-      botId,
-      await api.botSkills({ botId, computer: computerOf(deps, userId), signal }),
-    );
   } catch {
     signal.throwIfAborted();
     return null;
