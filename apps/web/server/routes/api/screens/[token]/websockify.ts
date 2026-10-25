@@ -7,4 +7,4 @@ import { sdk } from "../../../../../src/services";
  * token server-side. No sign-in: the view token in the path is the authentication, and an upgrade
  * without a valid one is refused with 403.
  */
-export default defineWebSocketHandler(sdk.plugin("bot").screenSocket);
+export default defineWebSocketHandler(sdk.bot.screenSocket);

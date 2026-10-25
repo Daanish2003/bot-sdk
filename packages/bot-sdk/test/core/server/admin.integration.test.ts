@@ -298,7 +298,7 @@ describe("Admin over a Bot's Turns", () => {
   });
 });
 
-describe('a Ban: chat.plugin("bot").stopTurns', () => {
+describe("a Ban: chat.bot.stopTurns", () => {
   afterEach(stopBotRunners);
 
   it("ends the banned user's Turn stopped, and leaves another user's Turn alone", async () => {
@@ -313,7 +313,7 @@ describe('a Ban: chat.plugin("bot").stopTurns', () => {
       await followSend(client, { botId, id: uuidv7(), text: "Hi" });
     }
 
-    await deps.plugin("bot").stopTurns(owner.id);
+    await deps.bot.stopTurns(owner.id);
 
     const statusOf = async (botId: string) =>
       (await getTestDb().select().from(botTurn).where(eq(botTurn.botId, botId))).map(

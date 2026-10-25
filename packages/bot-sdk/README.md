@@ -354,7 +354,7 @@ channel({
 });
 ```
 
-The Host mounts `sdk.plugin("channel").inbound("email", request)` at `POST /api/channels/email`, with no sign-in. It answers 202 to any mail the provider can read, whether it woke the Bot or was dropped, and 400 to one it can't, so a sender learns nothing.
+The Host mounts `sdk.channels.inbound("email", request)` at `POST /api/channels/email`, with no sign-in. It answers 202 to any mail the provider can read, whether it woke the Bot or was dropped, and 400 to one it can't, so a sender learns nothing.
 
 A mail is a Trigger only when it is from the user's verified email, is addressed to a Bot's address, carries a DMARC pass, and is not a Bot's own or an automatic reply; the Quota and the Ban apply as for a webhook. The Bot reads the new text only (quoted history is stripped), the subject as a first line unless the mail replies to the Bot's thread, one line naming the attachments (they aren't kept), and anything forwarded in an untrusted fenced block that Auto-review never takes as permission.
 
@@ -489,7 +489,7 @@ A Bot's Routine can run whenever an outside service calls its secret URL (ADR 00
 
 ```ts
 // For example, a TanStack Start route at /api/routines/webhook/$token
-const handle = ({ request }: { request: Request }) => sdk.plugin("bot").webhookHandler(request);
+const handle = ({ request }: { request: Request }) => sdk.bot.webhookHandler(request);
 ```
 
 It answers `202` at once, `413` to a body over 64 KB, and `404` to a token that matches no active Routine. With an `Idempotency-Key` header, a retried delivery wakes the Bot once. The token is stored only as a hash, so the app shows a Routine's URL once, after it is approved or rotated.

@@ -749,7 +749,7 @@ describe("Stop and deletion", () => {
     );
     await send(client, botId, "go");
 
-    await deps.plugin("bot").stopTurns(user.id);
+    await deps.bot.stopTurns(user.id);
 
     expect((await helpersOf(botId)).map((row) => row.status)).toEqual(["stopped"]);
     const helperJobs = await getTestDb()

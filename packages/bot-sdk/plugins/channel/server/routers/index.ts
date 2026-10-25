@@ -17,7 +17,7 @@ export const channelRouter = {
       const address = await emailAddressOf(context.sdk, {
         userId: context.user.id,
         botId: input.botId,
-        domain: context.sdk.plugin("channel").emailDomain(),
+        domain: context.sdk.channels.emailDomain(),
       });
       return { address, nextChannel: await lastUsedChannel(context.sdk.db, input) };
     }),
@@ -27,7 +27,7 @@ export const channelRouter = {
       address: await rotateEmailAddress(context.sdk, {
         userId: context.user.id,
         botId: input.botId,
-        domain: context.sdk.plugin("channel").emailDomain(),
+        domain: context.sdk.channels.emailDomain(),
       }),
     })),
   },

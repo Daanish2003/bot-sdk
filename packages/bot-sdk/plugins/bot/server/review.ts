@@ -419,7 +419,7 @@ export async function judge(
   onMeter: (meter: ModelMeter) => void,
 ): Promise<RecordedReview> {
   const models = deps.models;
-  const named = deps.plugin("bot").reviewModel;
+  const named = deps.bot.reviewModel;
   const namedCall = named ? await models.resolveModelCall(owner.userId, named) : null;
   const model = namedCall ? named! : owner.model;
   const failed = (bill: RecordedReview["bill"] = null): RecordedReview => ({

@@ -61,7 +61,7 @@ export const banUser = createServerFn({ method: "POST" })
       reason: data.reason,
       endsAt: endsAt?.toISOString() ?? null,
     });
-    await sdk.plugin("bot").stopTurns(data.userId);
+    await sdk.bot.stopTurns(data.userId);
 
     return { endsAt: endsAt?.toISOString() ?? null };
   });

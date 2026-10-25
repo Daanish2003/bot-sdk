@@ -105,7 +105,7 @@ async function emailBot(
   };
   /** Mails the Bot from its owner. */
   const inbound = async (messageId: string, fields: { subject?: string; text?: string } = {}) => {
-    await deps!.plugin("channel").inbound(
+    await deps!.channels.inbound(
       "email",
       email.request({
         from: `Ada <${ownerEmail}>`,

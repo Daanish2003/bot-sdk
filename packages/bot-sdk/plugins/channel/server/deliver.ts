@@ -231,7 +231,7 @@ async function filesOf(
 export const deliveryJob = defineJob({
   name: deliveryJobName,
   payload: deliveryPayload,
-  run: async (payload, { deps }) => deps.plugin("channel").sendDelivery(payload),
+  run: async (payload, { deps }) => deps.channels.sendDelivery(payload),
   onFailed: (payload, error, deps) => {
     deps.logger.error(`Couldn't email Bot Message ${payload.messageId}`, error);
   },

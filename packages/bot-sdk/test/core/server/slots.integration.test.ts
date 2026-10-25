@@ -12,6 +12,8 @@ import {
 import { buildBotSdk } from "../../../core/server/create-chat";
 import { blob, bot } from "../../../core/server/db/schema";
 import type { ComputerApi } from "../../../plugins/computer/server/plugin";
+import { fakeEmailProvider } from "../../../plugins/channel/fake/index";
+import { emailChannel } from "../../../plugins/channel/server/index";
 import { models } from "../../../plugins/models/server/plugin";
 import { isInProcessRunner } from "../../../plugins/runner/server/jobs/in-process";
 import type { JobRunner } from "../../../plugins/runner/server/jobs/runner";
@@ -77,6 +79,36 @@ describe("createBotSdk with flat slots", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("serves the Bots as sdk.bot and the channels slot's adapters as sdk.channels", async () => {
+    const email = fakeEmailProvider();
+    const sdk = createBotSdk(
+      slots({
+        databaseUrl: testDatabaseUrl,
+        channels: [emailChannel({ provider: email.provider, domain: "bots.example", appUrl: "" })],
+      }),
+    );
+
+    const unknownToken = await sdk.bot.webhookHandler(
+      new Request("http://localhost/api/routines/webhook/nope", { method: "POST", body: "{}" }),
+    );
+    const stranger = await sdk.channels.inbound(
+      "email",
+      email.request({ from: "x@example.com", to: ["nobody@bots.example"], text: "hi" }),
+    );
+
+    expect(unknownToken.status).toBe(404);
+    expect(stranger.status).toBe(202);
+    expect(typeof sdk.bot.stopTurns).toBe("function");
+  });
+
+  it("has no Channel besides web when the channels slot is empty", async () => {
+    const sdk = createBotSdk(slots({ databaseUrl: testDatabaseUrl }));
+
+    const inbound = await sdk.channels.inbound("email", new Request("http://localhost/"));
+
+    expect(inbound.status).toBe(404);
   });
 
   it("falls back to the in-process runner, Postgres blobs and no Computer", async () => {
@@ -153,7 +185,7 @@ describe("createBotSdk with flat slots", () => {
 });
 
 describe("a feature's id", () => {
-  it.each(["then", "bot", "models", "runner", "channel", "core"])(
+  it.each(["then", "bot", "models", "runner", "channel", "channels", "core"])(
     "can't be %s, which the instance or the core holds",
     (id) => {
       expect(() => createBotSdk(slots({ features: [defineFeature({ id })] }))).toThrow(

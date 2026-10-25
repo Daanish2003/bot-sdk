@@ -34,8 +34,13 @@ import {
 import { defaultRateLimits, rateLimitedFor, rpcRateLimits, type RateLimit } from "./rate-limits";
 import { memoryRuntime, type BotSdkRuntime } from "./runtime";
 import { deleteUserData, exportUserData, type UserExport } from "./user-data";
-import { bot } from "../../plugins/bot/server/plugin";
-import { channel, type ChannelAdapter } from "../../plugins/channel/server/plugin";
+import { bot, type BotApi } from "../../plugins/bot/server/plugin";
+import {
+  channel,
+  createChannels,
+  type ChannelAdapter,
+  type ChannelApi,
+} from "../../plugins/channel/server/plugin";
 import { createComputer } from "../../plugins/computer/server/plugin";
 import type { ComputerProvider } from "../../plugins/computer/server/provider";
 import {
@@ -162,6 +167,13 @@ export type BotSdk = {
   plugin: BotSdkContext["plugin"];
   /** The core's Models (spec #871): metering, the Quota and the Admin views' usage reads. */
   models: ModelsApi;
+  /**
+   * The core's Bots (spec #871): the Routines' webhook handler, the live view's handler and
+   * socket, and `stopTurns` for a Ban.
+   */
+  bot: BotApi;
+  /** The core's Channels (spec #871): the inbound handler of each adapter in the channels slot. */
+  channels: ChannelApi;
   /** Creates the `chat` schema and applies the bundled migrations. Run it at deploy time. */
   migrate: () => Promise<void>;
   /**
@@ -223,7 +235,10 @@ function exportResponse(document: UserExport) {
 
 /** The parts of the core context a test may give instead of having them built. */
 export type GivenContext = Partial<
-  Omit<BotSdkContext, "plugin" | "hasPlugin" | "rateLimit" | "models" | "runner" | "computer">
+  Omit<
+    BotSdkContext,
+    "plugin" | "hasPlugin" | "rateLimit" | "models" | "runner" | "computer" | "bot" | "channels"
+  >
 >;
 
 /**
@@ -319,6 +334,8 @@ export function buildBotSdk(
   const runner = createRunner(sdk, options.runner);
   sdk.runner = runner.api;
   sdk.computer = options.computer ? createComputer(sdk, options.computer) : null;
+  // No Channel besides web, until the channels slot's init sets its adapters.
+  sdk.channels = createChannels(sdk, { adapters: [], verifiedEmail: async () => null });
   // Until #882 moves Memory onto the feature context, which reaches the
   // services as `sdk.runner` and `sdk.computer`.
   apis.set("runner", sdk.runner);
@@ -332,6 +349,8 @@ export function buildBotSdk(
     runner: sdk.runner,
     plugin: sdk.plugin,
     models: sdk.models,
+    bot: sdk.bot,
+    channels: sdk.channels,
     migrate: () =>
       migrateSchema(options.databaseUrl, {
         blobStore: options.blobs ?? options.blobStore,
@@ -397,7 +416,7 @@ function buildContext(
   ruleDefaults: ReturnType<typeof mergeRateLimits>,
   enabledIds: ReadonlySet<string>,
   plugin: (id: string) => object,
-): Omit<BotSdkContext, "runner" | "computer"> {
+): Omit<BotSdkContext, "runner" | "computer" | "channels"> {
   const logger = options.logger ?? console;
   const db = given.db ?? createDb({ DATABASE_URL: options.databaseUrl }, logger);
   const runtime = given.runtime ?? options.pubsub ?? options.runtime ?? memoryRuntime();
@@ -435,6 +454,8 @@ function buildContext(
     },
     // Set by the Models' init, which `pluginsOf` runs before every other plugin's.
     models: modelsUnconfigured,
+    // Set by the Bots' init, which the slots always enable.
+    bot: botsUnconfigured,
     plugin: <Id extends keyof PluginApis>(id: Id) => plugin(id) as PluginApis[Id],
     // From the plugin list, so it holds already in an `init` that runs before the other plugin's.
     hasPlugin: (id) => enabledIds.has(id),
@@ -481,6 +502,24 @@ const modelsUnconfigured = new Proxy({} as ModelsApi, {
     return undefined;
   },
 });
+
+/** The `bot` service of an instance whose plugin list has no `bot()`: reading its API throws. */
+const botsUnconfigured = new Proxy({} as BotApi, {
+  get: (_target, key) => {
+    if (typeof key === "string" && botApiKeys.has(key)) {
+      throw new Error("The Bots aren't enabled: build the SDK with the slots");
+    }
+    return undefined;
+  },
+});
+
+const botApiKeys = new Set<string>([
+  "webhookHandler",
+  "stopTurns",
+  "screenHandler",
+  "screenSocket",
+  "reviewModel",
+] satisfies (keyof BotApi)[]);
 
 function createHandler(
   { basePath, getUser, logger = console }: BotSdkOptions,

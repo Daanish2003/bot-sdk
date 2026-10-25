@@ -8,6 +8,8 @@ import type { ChatUser } from "./context";
 import type { Database } from "./db/index";
 import type { RateLimit } from "./rate-limits";
 import type { BotSdkRuntime } from "./runtime";
+import type { BotApi } from "../../plugins/bot/server/plugin";
+import type { ChannelApi } from "../../plugins/channel/server/plugin";
 import type { ComputerApi } from "../../plugins/computer/server/plugin";
 import type { ModelsApi } from "../../plugins/models/server/plugin";
 import type { RunnerApi } from "../../plugins/runner/server/plugin";
@@ -53,6 +55,13 @@ export type BotSdkContext = {
    * which credentials, the Models a user can pick, metering and the Quota.
    */
   models: ModelsApi;
+  /** The core's Bots (spec #871): the Host's handlers and the Ban's stop. */
+  bot: BotApi;
+  /**
+   * The core's Channels besides web (spec #871), over the channels slot's adapters. With none,
+   * every inbound answers 404 and no reply goes out by email.
+   */
+  channels: ChannelApi;
   /** An enabled plugin's API. Throws for a plugin that isn't enabled. */
   plugin: <Id extends keyof PluginApis>(id: Id) => PluginApis[Id];
   /** Whether the instance enabled plugin `id`, for a plugin that uses another softly, without `requires`. */
