@@ -55,7 +55,7 @@ export async function queueAwaySummary(
   { botId, lastInput, endedAt }: { botId: string; lastInput: number | undefined; endedAt: Date },
 ): Promise<void> {
   if (lastInput === undefined || lastInput <= awaySummaryTokens) return;
-  const runner = deps.plugin("runner");
+  const runner = deps.runner;
   await runner.cancelIn(tx, awaySummaryKey(botId));
   await runner.enqueueIn(
     tx,
@@ -74,7 +74,7 @@ export async function cancelAwaySummary(
   tx: Transaction,
   botId: string,
 ): Promise<void> {
-  await deps.plugin("runner").cancelIn(tx, awaySummaryKey(botId));
+  await deps.runner.cancelIn(tx, awaySummaryKey(botId));
 }
 
 const sentTime: Intl.DateTimeFormatOptions = {

@@ -147,7 +147,7 @@ async function main() {
         : { ...real, linkedCredentials: plan?.linkedCredentials },
   });
   // A Helper's job waits a day, so it never runs: the run scores the main agent's choice.
-  const runner = sdk.plugin("runner");
+  const runner = sdk.runner;
   const enqueueIn = runner.enqueueIn;
   runner.enqueueIn = (tx, name, payload, options = {}) =>
     enqueueIn(

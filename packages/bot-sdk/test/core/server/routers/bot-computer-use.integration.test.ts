@@ -16,7 +16,6 @@ import {
 import { reapStaleJobs } from "../../../../plugins/runner/server/jobs/store";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import type { ReviewVerdict } from "../../../../plugins/bot/server/review";
-import { computer } from "../../../../plugins/computer/server/plugin";
 import type { CommandResult } from "../../../../plugins/computer/server/provider";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import type { HostProvider } from "../../../../plugins/models/server/types";
@@ -109,7 +108,8 @@ async function userWith(
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [bot(), computer({ provider: computerFake.provider })],
+    computer: computerFake.provider,
+    plugins: [bot()],
     jobs,
     clock,
     adapterFor: () => adapter,

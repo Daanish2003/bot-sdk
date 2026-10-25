@@ -8,7 +8,6 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import type { HostProvider } from "../../../../plugins/models/server/types";
 import { webSearchUnavailableError } from "../../../../plugins/bot/server/web-search";
 import { bot } from "../../../../plugins/bot/server/plugin";
-import { computer } from "../../../../plugins/computer/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { quotaLookup } from "../../../../plugins/models/server/quota";
 import {
@@ -115,7 +114,8 @@ async function botWith(
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
   deps = createTestSdk({
-    plugins: withComputer ? [bot(), computer({ provider: computerFake.provider })] : [bot()],
+    ...(withComputer && { computer: computerFake.provider }),
+    plugins: [bot()],
     jobs,
     adapterFor: () => adapter,
     fetch: tavily.fetch,

@@ -100,7 +100,7 @@ export async function runLadderCase(
         });
       });
       turnId = turnIdOf(taken);
-      env.sdk.plugin("runner").wake();
+      env.sdk.runner.wake();
     }
     const turn = await waitForTurn(env, turnId);
     reply = sentTexts(turn.transcript);

@@ -301,7 +301,7 @@ async function finish(
     return true;
   });
   if (!ended) return;
-  deps.plugin("runner").wake();
+  deps.runner.wake();
   await hintChanged(deps, demonstration.conversationId);
 }
 

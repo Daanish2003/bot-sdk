@@ -9,7 +9,6 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import type { HostProvider } from "../../../../plugins/models/server/types";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { findBot } from "../../../../plugins/bot/server/store";
-import { computer } from "../../../../plugins/computer/server/plugin";
 import { botMemoryPassJob } from "../../../../plugins/memory/server/bot-pass";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { quotaLookup } from "../../../../plugins/models/server/quota";
@@ -88,7 +87,8 @@ async function botsWith(
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [bot(), computer({ provider: computerFake.provider })],
+    computer: computerFake.provider,
+    plugins: [bot()],
     jobs,
     adapterFor: () => fake.adapter,
     clock,

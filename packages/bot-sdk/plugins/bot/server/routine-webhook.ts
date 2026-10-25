@@ -38,7 +38,7 @@ export async function handleRoutineWebhook(
   const received = await receiveWebhook(deps, { tokenHash: webhookTokenHash(token), key, payload });
   if (received === undefined) return new Response("Not found", { status: 404 });
   if (received) {
-    deps.plugin("runner").wake();
+    deps.runner.wake();
     await hintChanged(deps, received);
   }
   return new Response(null, { status: 202 });

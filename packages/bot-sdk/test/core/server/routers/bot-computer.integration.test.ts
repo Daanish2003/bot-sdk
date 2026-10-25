@@ -19,7 +19,6 @@ import {
 } from "../../../../plugins/bot/server/computer-tools";
 import { turnTimeLimitMs } from "../../../../plugins/bot/server/store";
 import { botSystemPrompt } from "../../../../plugins/bot/server/turn";
-import { computer } from "../../../../plugins/computer/server/plugin";
 import type { CommandResult } from "../../../../plugins/computer/server/provider";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
@@ -75,7 +74,8 @@ async function botWith(
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
   deps = createTestSdk({
-    plugins: withComputer ? [bot(), computer({ provider: computerFake.provider })] : [bot()],
+    ...(withComputer && { computer: computerFake.provider }),
+    plugins: [bot()],
     jobs,
     adapterFor: () => fake.adapter,
     memory: withMemory,
@@ -475,7 +475,8 @@ describe("a shell call whose attempt is cut off", () => {
       });
       started.push(jobs);
       deps = createTestSdk({
-        plugins: [bot(), computer({ provider: computerFake.provider })],
+        computer: computerFake.provider,
+        plugins: [bot()],
         jobs,
         adapterFor: () => fake.adapter,
         memory: false,
@@ -571,7 +572,7 @@ describe("a shell call whose attempt is cut off", () => {
     ]);
     const { fake, computerFake, deps, user, attempt, timer, instance, client, botId } = setup;
     // The user's Computer is asleep, and its sandbox is lost: the Turn's first call rebuilds it.
-    await deps.plugin("computer").forUser(user.id).list("/home/user");
+    await deps.computer!.forUser(user.id).list("/home/user");
     await getTestDb()
       .update(computerTable)
       .set({ state: "asleep" })
@@ -1075,7 +1076,7 @@ describe("a rebuilt Computer", () => {
       round(),
     ]);
     // The Computer was never synced, so its rebuild starts empty; then a sync stores new files.
-    const handle = deps.plugin("computer").forUser(user.id);
+    const handle = deps.computer!.forUser(user.id);
     await handle.list("/home/user");
     await getTestDb()
       .update(computerTable)

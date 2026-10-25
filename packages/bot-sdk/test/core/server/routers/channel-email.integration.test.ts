@@ -7,7 +7,6 @@ import { bot } from "../../../../plugins/bot/server/plugin";
 import { findBot } from "../../../../plugins/bot/server/store";
 import { fakeEmailProvider } from "../../../../plugins/channel/fake/index";
 import { channel, emailChannel, type InboundMail } from "../../../../plugins/channel/server/index";
-import { computer } from "../../../../plugins/computer/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -59,9 +58,9 @@ async function emailBot({
   });
   const user = await insertUser();
   deps = createTestSdk({
+    ...(withComputer && { computer: fakeComputerProvider().provider }),
     plugins: [
       bot(),
-      ...(withComputer ? [computer({ provider: fakeComputerProvider().provider })] : []),
       channel({
         adapters: [
           emailChannel({ provider: email.provider, domain, appUrl: "https://app.example" }),
@@ -231,7 +230,7 @@ describe("an email to a Bot's address", () => {
     expect(messages[0]!.text).toBe("Plans\nBook me a table for Friday");
     timer.advance(500);
     await runDue();
-    const handle = deps.plugin("computer").forUser(user.id);
+    const handle = deps.computer!.forUser(user.id);
     expect(
       new TextDecoder().decode(
         (await handle.readFile(`/home/user/bots/${botId}/uploads/notes.txt`))!,

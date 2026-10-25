@@ -294,7 +294,7 @@ async function memoryNow(
   userId: string,
   signal: AbortSignal,
 ): Promise<string | null> {
-  if (!deps.hasPlugin("computer") || !deps.hasPlugin("memory")) return null;
+  if (!deps.computer || !deps.hasPlugin("memory")) return null;
   try {
     return await deps.plugin("memory").botSnapshot({
       userId,
@@ -319,7 +319,7 @@ async function skillsNow(
   userId: string,
   signal: AbortSignal,
 ): Promise<string | null> {
-  if (!deps.hasPlugin("computer") || !deps.hasPlugin("skills")) return null;
+  if (!deps.computer || !deps.hasPlugin("skills")) return null;
   const api = deps.plugin("skills");
   try {
     return api.prompt(
@@ -341,7 +341,7 @@ async function knowledgeNow(
   userId: string,
   signal: AbortSignal,
 ): Promise<string | null> {
-  if (!deps.hasPlugin("computer") || !deps.hasPlugin("knowledge")) return null;
+  if (!deps.computer || !deps.hasPlugin("knowledge")) return null;
   const api = deps.plugin("knowledge");
   try {
     return api.prompt(await api.readablePaths({ computer: computerOf(deps, userId), signal }));

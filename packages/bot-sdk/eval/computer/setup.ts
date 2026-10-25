@@ -15,7 +15,7 @@ import { resolveRateLimits } from "../../core/server/rate-limits";
 import { memoryRuntime } from "../../core/server/runtime";
 import { createBotSdkOver } from "../../core/server/over";
 import { e2bProvider } from "../../plugins/computer/e2b";
-import { computer, type ComputerProvider } from "../../plugins/computer/server";
+import type { ComputerProvider } from "../../plugins/computer/server";
 import { productionDeps } from "../../plugins/models/server/plugin";
 import type { ModelsDeps } from "../../plugins/models/server/types";
 
@@ -89,7 +89,8 @@ export function createComputerSdk(options: {
         rateLimits: resolveRateLimits(),
       },
       models: models ? models(real) : real,
-      plugins: [computer({ provider }), ...more],
+      computer: provider,
+      plugins: more,
     },
     { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
   ).sdk;

@@ -144,7 +144,7 @@ async function deliver(
     );
     return handed ? "no Bot has the address" : redelivery;
   }
-  sdk.plugin("runner").wake();
+  sdk.runner.wake();
   await hintChanged(sdk, handed);
   return null;
 }

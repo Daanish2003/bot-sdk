@@ -20,7 +20,7 @@ export const checkInFireJob = defineJob({
     const deps = ctx.deps;
     const fired = await ctx.activity("fire", (tx) => fireCheckIn(deps, tx, checkInId));
     if (!fired) return;
-    if (fired.woke) deps.plugin("runner").wake();
+    if (fired.woke) deps.runner.wake();
     await hintChanged(deps, fired.conversationId);
   },
   // A fire that failed for good marked nothing (its Checkpoint rolled back): mark it `failed` here,

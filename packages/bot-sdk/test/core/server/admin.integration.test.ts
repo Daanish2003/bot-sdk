@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
 import { bot as botPlugin } from "../../../plugins/bot/server/plugin";
-import { runner } from "../../../plugins/runner/server/plugin";
 import { models } from "../../../plugins/models/server/plugin";
 import { botTurn, usage } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
@@ -102,7 +101,7 @@ describe('chat.plugin("models").usageTotals', () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
-      plugins: [models(), runner(), botPlugin()],
+      plugins: [models(), botPlugin()],
     });
     const totals = await chat.plugin("models").usageTotals({ since, until });
 
@@ -172,7 +171,7 @@ describe('chat.plugin("models").usage', () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
-      plugins: [models(), runner(), botPlugin()],
+      plugins: [models(), botPlugin()],
     });
 
     expect(await chat.plugin("models").usage({ userId: owner.id, since, until })).toEqual([
@@ -221,7 +220,6 @@ describe('chat.plugin("models").quota', () => {
         models({
           getQuota: (userId) => (userId === owner.id ? { budgetUsd: 1, window: "day" } : null),
         }),
-        runner(),
         botPlugin(),
       ],
     });
@@ -245,7 +243,6 @@ describe('chat.plugin("models").quota', () => {
         models({
           getQuota: () => null,
         }),
-        runner(),
         botPlugin(),
       ],
     });

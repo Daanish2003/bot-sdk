@@ -126,7 +126,7 @@ async function main() {
   try {
     // 1. Write a file and start a process.
     console.log("1. write a file and start a process");
-    const handle = sdk.plugin("computer").forUser(userId);
+    const handle = sdk.computer!.forUser(userId);
     const started = Date.now();
     await handle.writeFile(filePath, fileContent);
     const create = Date.now() - started;
@@ -193,7 +193,7 @@ async function main() {
     // one is paused fails to place it. So the old one is killed first; the rebuild is the same, since
     // a changed template never resumes the old sandbox, and the kill it ends with is then a no-op.
     if (asleep?.sandboxId) await localE2bProvider(template).kill(asleep.sandboxId);
-    const rebuildHandle = rebuilt.plugin("computer").forUser(userId);
+    const rebuildHandle = rebuilt.computer!.forUser(userId);
     const rebuildStarted = Date.now();
     const restored = await rebuildHandle.readFile(filePath);
     const rebuildMs = Date.now() - rebuildStarted;

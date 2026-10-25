@@ -118,7 +118,7 @@ export async function stopHelpers(
       ),
     )
     .returning({ id: botHelper.id, screen: botHelper.screen });
-  const runner = deps.plugin("runner");
+  const runner = deps.runner;
   for (const { id, screen } of rows) {
     if (owner) await recordBotChange(tx, owner, "helper", id, now);
     await runner.cancelIn(tx, helperJobKey(id));
@@ -145,7 +145,7 @@ export async function stopBotHelpers(
   helperId?: string,
 ): Promise<{ stopped: string[] } | { error: string }> {
   const result = await deps.db.transaction((tx) => stopHelpers(deps, tx, botId, helperId));
-  deps.plugin("runner").wake();
+  deps.runner.wake();
   if ("stopped" in result && result.stopped.length > 0) {
     const [owner] = await deps.db
       .select({ conversationId: bot.conversationId })
@@ -196,7 +196,7 @@ export function helperTools(
     const result = await liveActivity(stopHelpersToolName, context?.toolCallId, (tx) =>
       stopHelpers(deps, tx, turn.botId, helperId),
     );
-    deps.plugin("runner").wake();
+    deps.runner.wake();
     return result;
   });
 

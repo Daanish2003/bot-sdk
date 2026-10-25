@@ -12,7 +12,9 @@ import {
 import { buildBotSdk } from "../../../core/server/create-chat";
 import { blob, bot } from "../../../core/server/db/schema";
 import type { ComputerApi } from "../../../plugins/computer/server/plugin";
+import { models } from "../../../plugins/models/server/plugin";
 import { isInProcessRunner } from "../../../plugins/runner/server/jobs/in-process";
+import type { JobRunner } from "../../../plugins/runner/server/jobs/runner";
 import { runnerJobs } from "../../../plugins/runner/server/plugin";
 import { fakeComputerProvider } from "../../plugins/computer/server/fake-provider";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
@@ -62,10 +64,33 @@ describe("createBotSdk with flat slots", () => {
     });
 
     expect(isInProcessRunner(runnerJobs(context))).toBe(true);
-    expect(context.hasPlugin("computer")).toBe(false);
+    expect(context.computer !== null).toBe(false);
     const rows = await getTestDb().select().from(blob).where(eq(blob.key, "slots-test"));
     expect(rows).toHaveLength(1);
     await getTestDb().delete(blob).where(eq(blob.key, "slots-test"));
+  });
+
+  it("serves the runner slot's runner as the instance's runner, for a Host's own worker", async () => {
+    const jobs: JobRunner = {
+      enqueue: vi.fn(async () => "job-id"),
+      cancel: vi.fn(async () => {}),
+      status: vi.fn(async () => undefined),
+      schedule: vi.fn(async () => {}),
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+    };
+    // Without the Bots, which refuse a runner other than the in-process one.
+    const sdk = createBotSdk({ ...shared, plugins: [models()], runner: jobs });
+
+    expect(await sdk.runner.enqueue("slots.job", { n: 1 })).toBe("job-id");
+    expect(jobs.enqueue).toHaveBeenCalledWith("slots.job", { n: 1 }, undefined);
+    await expect(sdk.runner.runJob("slots.unknown", {})).rejects.toThrow(/Unknown job/);
+  });
+
+  it("gives the context the computer slot's Computer", () => {
+    const { context } = buildBotSdk(slots({ computer: fakeComputerProvider().provider }), {});
+
+    expect(context.computer !== null).toBe(true);
   });
 
   it("warns at start that in-memory pub/sub works in one process only, unless pubsub is given", async () => {

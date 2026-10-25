@@ -284,13 +284,11 @@ describe("a scheduled Routine", () => {
     await runDue();
 
     // The slot's job ran, so its key is free again: a second fire of it is queued.
-    await deps
-      .plugin("runner")
-      .enqueue(
-        routineFireJobName,
-        { routineId, slot: mondaySlot },
-        { idempotencyKey: `routine:${routineId}:${mondaySlot}` },
-      );
+    await deps.runner.enqueue(
+      routineFireJobName,
+      { routineId, slot: mondaySlot },
+      { idempotencyKey: `routine:${routineId}:${mondaySlot}` },
+    );
     await runDue();
 
     expect(await routineTriggers(conversationId)).toHaveLength(1);

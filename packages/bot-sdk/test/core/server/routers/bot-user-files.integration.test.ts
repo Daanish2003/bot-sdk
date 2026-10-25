@@ -7,7 +7,6 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
 import { sentFileBlobKey, sentFileResponse } from "../../../../plugins/bot/server/files";
 import { bot } from "../../../../plugins/bot/server/plugin";
-import { computer } from "../../../../plugins/computer/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -54,7 +53,8 @@ async function botWith({
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [bot(), ...(withComputer ? [computer({ provider: computerFake.provider })] : [])],
+    ...(withComputer && { computer: computerFake.provider }),
+    plugins: [bot()],
     jobs,
     adapterFor: () => fake.adapter,
     memory: false,
@@ -146,7 +146,7 @@ describe("Files from the user", () => {
     expect(await getTestDb().select().from(botUpload)).toEqual([]);
     expect((await sentFileResponse(deps, user.id, notes.id)).status).toBe(200);
 
-    const handle = deps.plugin("computer").forUser(user.id);
+    const handle = deps.computer!.forUser(user.id);
     expect([...(await handle.readFile(`/home/user/bots/${botId}/uploads/receipt.jpg`))!]).toEqual([
       ...jpeg,
     ]);
@@ -209,7 +209,7 @@ describe("Files from the user", () => {
     const two = await client.bot.upload({ file: fileOf("a.txt", "two", "text/plain") });
     await sendAndWait(client, { botId, text: "both", files: [one.id, two.id] });
     await turnsEnded(botId);
-    const handle = deps.plugin("computer").forUser(user.id);
+    const handle = deps.computer!.forUser(user.id);
     expect(await handle.readFile(`/home/user/bots/${botId}/uploads/a (2).txt`)).not.toBeNull();
     expect(textOf(newestUser(fake.calls[0]))).toContain(
       "uploads/a.txt (text/plain, 3 B), uploads/a (2).txt",
@@ -248,7 +248,7 @@ describe("Files from the user", () => {
     await sendAndWait(client, { botId, text: "second", files: [two.id] });
     await turnsEnded(botId);
 
-    const handle = deps.plugin("computer").forUser(user.id);
+    const handle = deps.computer!.forUser(user.id);
     const read = async (name: string) =>
       new TextDecoder().decode(
         (await handle.readFile(`/home/user/bots/${botId}/uploads/${name}`))!,

@@ -54,14 +54,12 @@ export async function saveCheckIn(
     createdAt: now,
     updatedAt: now,
   });
-  await deps
-    .plugin("runner")
-    .enqueueIn(
-      tx,
-      checkInFireJobName,
-      { checkInId: id },
-      { idempotencyKey: checkInKey(id), runAfter: at },
-    );
+  await deps.runner.enqueueIn(
+    tx,
+    checkInFireJobName,
+    { checkInId: id },
+    { idempotencyKey: checkInKey(id), runAfter: at },
+  );
   await recordBotChange(tx, { conversationId }, "check_in", id, now);
   return { saved: { id, at: at.toISOString() } };
 }
@@ -99,7 +97,7 @@ async function cancelPending(
     .returning({ id: botCheckIn.id });
   if (!row) return false;
   await recordBotChange(tx, { conversationId }, "check_in", checkInId, deps.clock());
-  await deps.plugin("runner").cancelIn(tx, checkInKey(checkInId));
+  await deps.runner.cancelIn(tx, checkInKey(checkInId));
   return true;
 }
 
@@ -166,7 +164,7 @@ export async function cancelUserCheckIns(
     .from(botCheckIn)
     .innerJoin(bot, eq(bot.id, botCheckIn.botId))
     .where(and(eq(bot.userId, userId), eq(botCheckIn.state, "pending")));
-  const runner = deps.plugin("runner");
+  const runner = deps.runner;
   for (const { id } of rows) await runner.cancelIn(tx, checkInKey(id));
 }
 

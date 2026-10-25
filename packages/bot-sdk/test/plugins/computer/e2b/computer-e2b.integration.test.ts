@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { computer as computerTable } from "../../../../core/server/db/schema";
 import { e2bProvider } from "../../../../plugins/computer/e2b";
-import { computer, computerIdleMs } from "../../../../plugins/computer/server/plugin";
+import { computerIdleMs } from "../../../../plugins/computer/server/plugin";
 import { createTestSdk } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";
 import { getTestDb } from "../../../support/test-database";
@@ -37,13 +37,14 @@ describe.skipIf(!apiKey || !apiUrl || !sandboxUrl)("the computer plugin on real 
     const clock = { now: new Date() };
     const logged: unknown[][] = [];
     const sdk = createTestSdk({
-      plugins: [computer({ provider: provider() })],
+      computer: provider(),
+      plugins: [],
       clock: () => clock.now,
       logger: { error: (...args: unknown[]) => logged.push(args) },
     });
     const user = await insertUser();
     users.push(user.id);
-    const handle = sdk.plugin("computer").forUser(user.id);
+    const handle = sdk.computer!.forUser(user.id);
 
     expect(await handle.run("echo hi")).toMatchObject({ exitCode: 0, stdout: "hi\n" });
     await handle.writeFile("/home/user/bots/a/note.txt", "remember");

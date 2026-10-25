@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { botTurn } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { bot } from "../../../../plugins/bot/server/plugin";
-import { computer } from "../../../../plugins/computer/server/plugin";
 import { knowledge } from "../../../../plugins/knowledge/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
@@ -56,7 +55,8 @@ async function botWith(turnRounds: ReturnType<typeof round>[]) {
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [bot(), computer({ provider: computerFake.provider }), knowledge()],
+    computer: computerFake.provider,
+    plugins: [bot(), knowledge()],
     jobs,
     adapterFor: () => fake.adapter,
     clock,

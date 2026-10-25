@@ -1,18 +1,18 @@
 // The Trigger.dev job runner (ADR 0011). Optional: a Host on Trigger.dev copies this folder next to
-// core/ and passes the runner to runner({ jobs }). The Host owns this file once copied. The SDK never
+// core/ and passes the runner to the runner slot. The Host owns this file once copied. The SDK never
 // imports it, so @trigger.dev/sdk is a Host dependency only.
 import { tasks } from "@trigger.dev/sdk";
 
 import type { EnqueueOptions, JobRunner } from "../../plugins/runner/server/index";
 
 export type TriggerJobRunnerOptions = {
-  /** The id of the Host's Trigger.dev task that calls `chat.plugin("runner").runJob(name, payload)`. */
+  /** The id of the Host's Trigger.dev task that calls `chat.runner.runJob(name, payload)`. */
   taskId: string;
 };
 
 /**
  * A JobRunner that hands each job to Trigger.dev. The Host's task receives `{ name, payload }` and
- * calls `chat.plugin("runner").runJob(name, payload)`. Trigger.dev runs the attempts and retries, so `start()` and
+ * calls `chat.runner.runJob(name, payload)`. Trigger.dev runs the attempts and retries, so `start()` and
  * `stop()` do nothing here.
  *
  * Only `enqueue` works. `cancel`, `status` and `schedule` throw until a ticket needs them.

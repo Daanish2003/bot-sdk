@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { botPromptStart, botTurn } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { bot } from "../../../../plugins/bot/server/plugin";
-import { computer } from "../../../../plugins/computer/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -90,11 +89,8 @@ async function botWith(
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [
-      bot(),
-      ...(withComputer ? [computer({ provider: computerFake.provider })] : []),
-      ...(withSkills ? [skills()] : []),
-    ],
+    ...(withComputer && { computer: computerFake.provider }),
+    plugins: [bot(), ...(withSkills ? [skills()] : [])],
     memory: withMemory,
     jobs,
     adapterFor: () => fake.adapter,

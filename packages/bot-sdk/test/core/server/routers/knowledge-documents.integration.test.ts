@@ -3,7 +3,6 @@ import { crc32, deflateRawSync } from "node:zlib";
 
 import { describe, expect, it } from "vitest";
 
-import { computer } from "../../../../plugins/computer/server/plugin";
 import { knowledge } from "../../../../plugins/knowledge/server/plugin";
 import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
 import { createTestSdk } from "../../../support/deps";
@@ -71,7 +70,8 @@ function docxWithText(text: string, name = "long.docx") {
 async function setup() {
   const computerFake = fakeComputerProvider();
   const deps = createTestSdk({
-    plugins: [computer({ provider: computerFake.provider }), knowledge()],
+    computer: computerFake.provider,
+    plugins: [knowledge()],
   });
   const client = chatRpc({ user: await insertUser(), deps });
   return { computerFake, client };

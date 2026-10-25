@@ -74,7 +74,7 @@ export async function saveSecret(
       receivedAt: now,
     });
   });
-  if (mayWake) sdk.plugin("runner").wake();
+  if (mayWake) sdk.runner.wake();
   await hintChanged(sdk, found.conversationId);
 }
 

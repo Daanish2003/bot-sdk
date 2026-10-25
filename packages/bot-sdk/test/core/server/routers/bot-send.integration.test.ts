@@ -1867,7 +1867,7 @@ describe("a Turn that resumes after a crash", () => {
     // The end_turn Checkpoint holds the Conversation's row lock, so `bot.stop` would wait for it:
     // this is a stop whose cancel committed just before that Checkpoint began.
     const [turnBefore] = await turnsOf(botId);
-    await instance().plugin("runner").cancel(turnBefore!.id);
+    await instance().runner.cancel(turnBefore!.id);
     await turnRow.release();
     await running;
     await stopRunner();

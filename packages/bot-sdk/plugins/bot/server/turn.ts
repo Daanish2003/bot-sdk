@@ -482,7 +482,7 @@ export async function sendToBot(
     const ended = waitsFor ? await cancelTurn(deps, tx, waitsFor) : false;
     return { userMessage: toBotMessage(row), started: true, ended };
   });
-  if (sent.started) deps.plugin("runner").wake();
+  if (sent.started) deps.runner.wake();
   // Other tabs fetch the new Message (and the Turn this send interrupted, if any).
   if (sent.started) await hintChanged(deps, found.conversationId);
   return sent.userMessage;
@@ -534,7 +534,7 @@ export async function stopBot(deps: BotSdkContext, userId: string, botId: string
     return cancelTurn(deps, tx, running);
   });
   if (!ended) return;
-  deps.plugin("runner").wake();
+  deps.runner.wake();
   await hintChanged(deps, found.conversationId);
 }
 
@@ -567,7 +567,7 @@ export async function cancelTurn(
   tx: Transaction,
   turnId: string,
 ): Promise<boolean> {
-  const cancelled = await deps.plugin("runner").cancelIn(tx, turnId);
+  const cancelled = await deps.runner.cancelIn(tx, turnId);
   // Cancelled first: under the job's row lock, a `waiting` row's Checkpoint either committed
   // before the denial reads it, or fails its fence and rolls back.
   await closeWaitingReviews(deps, tx, { turnId }, "denied");
@@ -682,7 +682,7 @@ async function runTurnJob(
     if (ctx.signal.aborted) await stopIfCancelled(deps, turn, played);
     throw caught;
   }
-  deps.plugin("runner").wake();
+  deps.runner.wake();
   await hintChanged(deps, turn.conversationId);
 }
 
@@ -693,7 +693,7 @@ async function runTurnJob(
  * resumes it.
  */
 async function stopIfCancelled(deps: BotSdkContext, turn: TurnFacts, played: PlayedTurn) {
-  const cancelled = turn.jobId && (await deps.plugin("runner").status(turn.jobId));
+  const cancelled = turn.jobId && (await deps.runner.status(turn.jobId));
   if (!cancelled || cancelled.status !== "cancelled") return;
   await endRunningTurn(deps, turn, { status: "stopped", error: null }, played);
 }
@@ -768,7 +768,7 @@ async function endRunningTurn(
     await turnEnded(deps, tx, turn.id);
     return true;
   });
-  if (ended) deps.plugin("runner").wake();
+  if (ended) deps.runner.wake();
   await hintChanged(deps, turn.conversationId);
 }
 
@@ -1049,7 +1049,7 @@ async function playTurn(
       : ctx.activity(
           "trigger_text",
           async () => {
-            const computer = deps.hasPlugin("computer") ? computerOf(deps, turn.userId) : undefined;
+            const computer = deps.computer !== null ? computerOf(deps, turn.userId) : undefined;
             return capText(
               text,
               spillPath(turn.botId, id),
@@ -1072,7 +1072,7 @@ async function playTurn(
       ctx.activity(
         "user_files",
         async () =>
-          deps.hasPlugin("computer")
+          deps.computer !== null
             ? copyUploads(deps, computerOf(deps, turn.userId), turn.botId, files, attempt)
             : files.map(() => null),
         { yields: false },
@@ -1143,7 +1143,7 @@ async function turnSetup(
   );
   // The Computer's tools and Helpers, whenever `computer` is on: the tool set never changes
   // mid-conversation.
-  const withComputer = deps.hasPlugin("computer");
+  const withComputer = deps.computer !== null;
   const memory =
     withComputer && deps.hasPlugin("memory") ? await memorySnapshot(deps, turn, kit) : null;
   // The Skills, read in the same wake as the memory snapshot; on whatever the Memory switch says.
@@ -1499,7 +1499,7 @@ export async function awayStartParts(
   knowledge: string | null,
   features: FeatureSection[],
 ): Promise<PromptStartParts> {
-  const withComputer = deps.hasPlugin("computer");
+  const withComputer = deps.computer !== null;
   const kit: LoopKit = {
     liveActivity: definitionOnly,
     liveRequest: definitionOnly,

@@ -95,7 +95,7 @@ export function jobNamesInLane(lane: JobLane): string[] {
 
 /**
  * Runs a registered job's handler in this process, with its payload validated against the job's
- * schema. `chat.plugin("runner").runJob` calls it, so a Host's own worker (such as a Trigger.dev task) can run a job.
+ * schema. `chat.runner.runJob` calls it, so a Host's own worker (such as a Trigger.dev task) can run a job.
  * Errors reach the caller, which decides about retries. With no `chat.job` row, nothing is
  * recorded: every workflow call runs for real.
  */

@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { botHelper, botReview, botTurn } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { bot } from "../../../../plugins/bot/server/plugin";
-import { computer } from "../../../../plugins/computer/server/plugin";
 import { mcpClient } from "../../../../plugins/mcp/client/index";
 import { mcp } from "../../../../plugins/mcp/server/plugin";
 import type { McpServerConfig } from "../../../../plugins/mcp/server/servers";
@@ -110,11 +109,8 @@ async function world({
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [
-      bot(),
-      computer({ provider: fakeComputerProvider().provider }),
-      mcp({ servers: [linear] }),
-    ],
+    computer: fakeComputerProvider().provider,
+    plugins: [bot(), mcp({ servers: [linear] })],
     fetch,
     jobs,
     adapterFor: () => adapter,

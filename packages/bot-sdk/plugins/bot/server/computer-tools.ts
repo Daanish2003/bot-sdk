@@ -55,9 +55,10 @@ export const timedOutHint =
   "The command was killed at its time limit. Break the work up into shorter commands, or give a " +
   "longer timeoutSeconds if this turn has time left.";
 
-/** The user's Computer. Call it only with `computer` on (`hasPlugin("computer")`). */
+/** The user's Computer. Call it only with the computer slot set (`deps.computer`). */
 export function computerOf(deps: BotSdkContext, userId: string): ComputerHandle {
-  return deps.plugin("computer").forUser(userId);
+  if (!deps.computer) throw new Error("The computer slot isn't set");
+  return deps.computer.forUser(userId);
 }
 
 /** The directory the user's Bots share on their Computer. */

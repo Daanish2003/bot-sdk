@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { deleteBlobsBestEffort } from "../../../core/server/blob/store";
 import { computer as computerTable } from "../../../core/server/db/schema";
-import type { BotSdkContext, BotSdkPlugin, Transaction } from "../../../core/server/plugin";
+import type { BotSdkContext, Transaction, UserDeleteHooks } from "../../../core/server/plugin";
 import { defineJob } from "../../runner/server/jobs/define";
 import { isInProcessRunner } from "../../runner/server/jobs/in-process";
 import { cancelQueuedJobsIn } from "../../runner/server/jobs/store";
@@ -103,11 +103,6 @@ function assertSlot(slot: number) {
 
 /** The self-chaining sleep check's job name. */
 const sleepJobName = "computer.sleep";
-
-export type ComputerOptions = {
-  /** What runs the Computers: E2B, or the tests' fake. */
-  provider: ComputerProvider;
-};
 
 /**
  * Whether something still uses the user's Computer, whose last activity was at `lastActiveAt`.
@@ -248,7 +243,7 @@ export class ScreenNotOpenError extends Error {
   }
 }
 
-/** The `computer` plugin's API (`sdk.plugin("computer")`). */
+/** The Computer, a core service (`sdk.computer`, spec #871), when the Host sets the computer slot. */
 export type ComputerApi = {
   forUser: (userId: string) => ComputerHandle;
   /**
@@ -266,14 +261,21 @@ export type ComputerApi = {
 
 declare module "../../../core/server/plugin" {
   interface PluginApis {
+    /** Until #880–#883 move Memory, Skills and Knowledge onto the feature context: `sdk.computer`. */
     computer: ComputerApi;
   }
 }
 
-export type ComputerPlugin = BotSdkPlugin<"computer", never, never>;
+// Each instance's sleep check and provider, keyed by its `computer` service.
+const sleepChecks = new WeakMap<ComputerApi, (userId: string) => Promise<void>>();
+const providers = new WeakMap<ComputerApi, ComputerProvider>();
 
-// Each instance's sleep check, keyed by its `computer` API, which `plugin("computer")` returns.
-const sleepChecks = new WeakMap<object, (userId: string) => Promise<void>>();
+/** The provider the instance's Computer runs on. The test seam reuses it. */
+export function computerProvider(computer: ComputerApi): ComputerProvider {
+  const provider = providers.get(computer);
+  if (!provider) throw new Error("The Computer wasn't built by createBotSdk");
+  return provider;
+}
 
 /**
  * The sleep check (#508): puts the user's Computer to sleep once it is idle and nothing holds it,
@@ -285,9 +287,9 @@ export const computerSleepJob = defineJob({
   payload: z.object({ userId: z.string() }),
   run: async ({ userId }, { deps }) => {
     // A check queued before the Host turned computer off ends its chain.
-    if (!deps.hasPlugin("computer")) return;
-    const check = sleepChecks.get(deps.plugin("computer"));
-    if (!check) throw new Error("The computer plugin wasn't initialised");
+    if (!deps.computer) return;
+    const check = sleepChecks.get(deps.computer);
+    if (!check) throw new Error("The Computer wasn't built by createBotSdk");
     await check(userId);
   },
   onFailed: async ({ userId }, error, deps) => {
@@ -297,168 +299,162 @@ export const computerSleepJob = defineJob({
 });
 
 /**
- * The `computer` plugin (ADR 0020): one Computer per user, shared by all their Bots, on the
- * `provider`. It exposes operations, not tools: `bot` builds its tools from them.
+ * The Computer (spec #871), a core service: one Computer per user, shared by all their Bots, on
+ * `provider` (the computer slot). It exposes operations, not tools: `bot` builds its tools from them.
  */
-export function computer({ provider }: ComputerOptions): ComputerPlugin {
-  return {
-    id: "computer",
-    requires: ["runner"],
-    init: (sdk) => {
-      // A wake queues its sleep check in its own transaction, which only the in-process runner reads.
-      if (!isInProcessRunner(runnerJobs(sdk))) {
-        throw new Error(
-          "The computer plugin needs the in-process runner: a wake queues its sleep check in its transaction",
-        );
-      }
-      const busyChecks: BusyCheck[] = [];
-      const ownerChecks: OwnerCheck[] = [];
-      const api: ComputerApi = {
-        forUser: (userId) => {
-          let latestRebuild: Rebuild | null = null;
-          const operate = async <T>(
-            act: (sandboxId: string) => Promise<T>,
-            signal?: AbortSignal,
-          ) => {
-            let woken = await startOperation(sdk, provider, ownerChecks, userId);
-            const heartbeat = startHeartbeat(sdk, userId);
+export function createComputer(sdk: BotSdkContext, provider: ComputerProvider): ComputerApi {
+  // A wake queues its sleep check in its own transaction, which only the in-process runner reads.
+  if (!isInProcessRunner(runnerJobs(sdk))) {
+    throw new Error(
+      "The computer slot needs the in-process runner: a wake queues its sleep check in its transaction",
+    );
+  }
+  const busyChecks: BusyCheck[] = [];
+  const ownerChecks: OwnerCheck[] = [];
+  const api: ComputerApi = {
+    forUser: (userId) => {
+      let latestRebuild: Rebuild | null = null;
+      const operate = async <T>(act: (sandboxId: string) => Promise<T>, signal?: AbortSignal) => {
+        let woken = await startOperation(sdk, provider, ownerChecks, userId);
+        const heartbeat = startHeartbeat(sdk, userId);
+        try {
+          for (let retried = false; ; retried = true) {
+            latestRebuild = woken.rebuild;
             try {
-              for (let retried = false; ; retried = true) {
-                latestRebuild = woken.rebuild;
-                try {
-                  return await act(woken.sandboxId);
-                } catch (caught) {
-                  if (signal?.aborted) throw caught;
-                  if (caught instanceof SandboxGoneError) {
-                    // A rebuilt sandbox gone too: the Computer couldn't start.
-                    if (retried) throw new ComputerUnavailableError(userId, caught);
-                    // The row said awake, but the sandbox is gone: the wake rebuilds it, once.
-                    await markAsleep(sdk, userId, woken.sandboxId);
-                    woken = await wake(sdk, provider, userId);
-                    continue;
-                  }
-                  throw new ComputerOperationError(caught);
-                }
+              return await act(woken.sandboxId);
+            } catch (caught) {
+              if (signal?.aborted) throw caught;
+              if (caught instanceof SandboxGoneError) {
+                // A rebuilt sandbox gone too: the Computer couldn't start.
+                if (retried) throw new ComputerUnavailableError(userId, caught);
+                // The row said awake, but the sandbox is gone: the wake rebuilds it, once.
+                await markAsleep(sdk, userId, woken.sandboxId);
+                woken = await wake(sdk, provider, userId);
+                continue;
               }
-            } finally {
-              await heartbeat.stop();
-              await recordActivity(sdk, userId);
+              throw new ComputerOperationError(caught);
             }
-          };
-          /** Runs the template's `ai-chat-screen` script, failing on a non-zero exit. */
-          const screenCommand = (id: string, args: string) =>
-            provider
-              .run(id, `${screenScript} ${args}`, { timeoutMs: screenCommandTimeoutMs })
-              .then((result) => {
-                if ("timedOut" in result || result.exitCode !== 0) {
-                  const detail = "timedOut" in result ? "timed out" : result.stderr.trim();
-                  throw new Error(`${screenScript} ${args} failed: ${detail}`);
-                }
-              });
-          return {
-            rebuild: () => latestRebuild,
-            openScreen: async (slot, profileKey) => {
-              assertSlot(slot);
-              assertProfileKey(profileKey);
-              return operate(async (id) => {
-                await provider.writeFile(
-                  id,
-                  screenTokenPath(slot),
-                  randomBytes(24).toString("hex"),
-                );
-                await screenCommand(id, `start ${slot} ${profileKey}`);
-              });
-            },
-            closeScreen: async (slot) => {
-              assertSlot(slot);
-              return operate((id) => screenCommand(id, `stop ${slot}`));
-            },
-            screenUrls: async (slot) => {
-              assertSlot(slot);
-              return operate(async (id) => {
-                const token = await provider.readFile(id, screenTokenPath(slot));
-                if (!token) throw new ScreenNotOpenError(slot);
-                const [novnc, cdp] = await Promise.all([
-                  provider.endpoint(id, novncPort(slot)),
-                  provider.endpoint(id, cdpPort(slot)),
-                ]);
-                const query = new URLSearchParams({
-                  path: `websockify?token=${new TextDecoder().decode(token)}`,
-                  autoconnect: "1",
-                  resize: "scale",
-                });
-                return { cdp, novnc: { ...novnc, url: `${novnc.url}/vnc.html?${query}` } };
-              });
-            },
-            setScreenControl: async (slot, mode) => {
-              assertSlot(slot);
-              return operate((id) => screenCommand(id, `${mode} ${slot}`));
-            },
-            heartbeat: () => recordActivity(sdk, userId),
-            run: (
-              command,
-              { cwd, timeoutMs = defaultCommandTimeoutMs, deadline, signal, envs, redact } = {},
-            ) =>
-              operate((id) => {
-                // A stop during the wake runs nothing.
-                signal?.throwIfAborted();
-                const left = deadline ? deadline.getTime() - sdk.clock().getTime() : timeoutMs;
-                const limitMs = Math.max(0, Math.min(timeoutMs, left));
-                return provider.run(id, command, {
-                  cwd,
-                  timeoutMs: limitMs,
-                  signal,
-                  ...(envs && { envs }),
-                  ...(redact && { redact }),
-                });
-              }, signal),
-            // A stop during the wake reaches no provider call, as with `run`.
-            readFile: (path, { signal } = {}) =>
-              operate((id) => {
-                signal?.throwIfAborted();
-                return provider.readFile(id, path);
-              }, signal),
-            writeFile: (path, content, { signal } = {}) =>
-              operate((id) => {
-                signal?.throwIfAborted();
-                return provider.writeFile(id, path, content);
-              }, signal),
-            list: (path, { signal } = {}) =>
-              operate((id) => {
-                signal?.throwIfAborted();
-                return provider.list(id, path);
-              }, signal),
-          };
-        },
-        addBusyCheck: (check) => {
-          busyChecks.push(check);
-        },
-        addOwnerCheck: (check) => {
-          ownerChecks.push(check);
-        },
+          }
+        } finally {
+          await heartbeat.stop();
+          await recordActivity(sdk, userId);
+        }
       };
-      sleepChecks.set(api, (userId) => sleepCheck(sdk, provider, busyChecks, userId));
-      return { api };
+      /** Runs the template's `ai-chat-screen` script, failing on a non-zero exit. */
+      const screenCommand = (id: string, args: string) =>
+        provider
+          .run(id, `${screenScript} ${args}`, { timeoutMs: screenCommandTimeoutMs })
+          .then((result) => {
+            if ("timedOut" in result || result.exitCode !== 0) {
+              const detail = "timedOut" in result ? "timed out" : result.stderr.trim();
+              throw new Error(`${screenScript} ${args} failed: ${detail}`);
+            }
+          });
+      return {
+        rebuild: () => latestRebuild,
+        openScreen: async (slot, profileKey) => {
+          assertSlot(slot);
+          assertProfileKey(profileKey);
+          return operate(async (id) => {
+            await provider.writeFile(id, screenTokenPath(slot), randomBytes(24).toString("hex"));
+            await screenCommand(id, `start ${slot} ${profileKey}`);
+          });
+        },
+        closeScreen: async (slot) => {
+          assertSlot(slot);
+          return operate((id) => screenCommand(id, `stop ${slot}`));
+        },
+        screenUrls: async (slot) => {
+          assertSlot(slot);
+          return operate(async (id) => {
+            const token = await provider.readFile(id, screenTokenPath(slot));
+            if (!token) throw new ScreenNotOpenError(slot);
+            const [novnc, cdp] = await Promise.all([
+              provider.endpoint(id, novncPort(slot)),
+              provider.endpoint(id, cdpPort(slot)),
+            ]);
+            const query = new URLSearchParams({
+              path: `websockify?token=${new TextDecoder().decode(token)}`,
+              autoconnect: "1",
+              resize: "scale",
+            });
+            return { cdp, novnc: { ...novnc, url: `${novnc.url}/vnc.html?${query}` } };
+          });
+        },
+        setScreenControl: async (slot, mode) => {
+          assertSlot(slot);
+          return operate((id) => screenCommand(id, `${mode} ${slot}`));
+        },
+        heartbeat: () => recordActivity(sdk, userId),
+        run: (
+          command,
+          { cwd, timeoutMs = defaultCommandTimeoutMs, deadline, signal, envs, redact } = {},
+        ) =>
+          operate((id) => {
+            // A stop during the wake runs nothing.
+            signal?.throwIfAborted();
+            const left = deadline ? deadline.getTime() - sdk.clock().getTime() : timeoutMs;
+            const limitMs = Math.max(0, Math.min(timeoutMs, left));
+            return provider.run(id, command, {
+              cwd,
+              timeoutMs: limitMs,
+              signal,
+              ...(envs && { envs }),
+              ...(redact && { redact }),
+            });
+          }, signal),
+        // A stop during the wake reaches no provider call, as with `run`.
+        readFile: (path, { signal } = {}) =>
+          operate((id) => {
+            signal?.throwIfAborted();
+            return provider.readFile(id, path);
+          }, signal),
+        writeFile: (path, content, { signal } = {}) =>
+          operate((id) => {
+            signal?.throwIfAborted();
+            return provider.writeFile(id, path, content);
+          }, signal),
+        list: (path, { signal } = {}) =>
+          operate((id) => {
+            signal?.throwIfAborted();
+            return provider.list(id, path);
+          }, signal),
+      };
     },
-    // The row goes with its user, with its queued sleep checks, and its sandbox id is collected.
-    // After the commit the sandbox is killed and the archive deleted, both best-effort. A check
-    // that runs anyway finds no row and ends. Deleting a Bot never reaches here: its files stay.
-    deleteUser: {
-      before: async (sdk, { userId, tx }) => {
-        await cancelQueuedJobsIn(tx, sleepJobName, { field: "userId", value: userId }, sdk.clock());
-        const [deleted] = await tx
-          .delete(computerTable)
-          .where(eq(computerTable.userId, userId))
-          .returning({ sandboxId: computerTable.sandboxId });
-        return deleted?.sandboxId ?? null;
-      },
-      after: async (sdk, { userId, collected }) => {
-        if (typeof collected === "string") await killBestEffort(sdk, provider, userId, collected);
-        await deleteBlobsBestEffort(sdk, [computerBlobKey(userId)]);
-      },
+    addBusyCheck: (check) => {
+      busyChecks.push(check);
+    },
+    addOwnerCheck: (check) => {
+      ownerChecks.push(check);
     },
   };
+  sleepChecks.set(api, (userId) => sleepCheck(sdk, provider, busyChecks, userId));
+  providers.set(api, provider);
+  return api;
 }
+
+/**
+ * The Computer's part of a user's delete, run after every plugin's (their owner checks' locks come
+ * first). The row goes with its user, with its queued sleep checks, and its sandbox id is
+ * collected. After the commit the sandbox is killed and the archive deleted, both best-effort. A
+ * check that runs anyway finds no row and ends. Deleting a Bot never reaches here: its files stay.
+ */
+export const computerUserDelete: UserDeleteHooks = {
+  before: async (sdk, { userId, tx }) => {
+    await cancelQueuedJobsIn(tx, sleepJobName, { field: "userId", value: userId }, sdk.clock());
+    const [deleted] = await tx
+      .delete(computerTable)
+      .where(eq(computerTable.userId, userId))
+      .returning({ sandboxId: computerTable.sandboxId });
+    return deleted?.sandboxId ?? null;
+  },
+  after: async (sdk, { userId, collected }) => {
+    if (typeof collected === "string" && sdk.computer) {
+      await killBestEffort(sdk, computerProvider(sdk.computer), userId, collected);
+    }
+    await deleteBlobsBestEffort(sdk, [computerBlobKey(userId)]);
+  },
+};
 
 /** What an operation's start reads of the row. */
 const startColumns = {
@@ -497,8 +493,8 @@ async function startOperation(
  * Creates the user's row on their first operation, while an owner check holds, in one
  * transaction with the checks' locks: a user delete that removed what they hold makes it throw
  * `ComputerUnavailableError`, and one that waits for this commit deletes the row it creates. That
- * needs the owners' `deleteUser.before` to run before this plugin's, as a plugin that `uses`
- * computer does (the hooks run in reverse dependency order).
+ * needs the owners' `deleteUser.before` to run before the Computer's, which runs after every
+ * plugin's (`computerUserDelete`).
  */
 async function createRow(
   sdk: BotSdkContext,
@@ -855,7 +851,7 @@ async function armSleepCheck(
   runAfter: Date,
   tx?: Transaction,
 ): Promise<void> {
-  const runner = sdk.plugin("runner");
+  const { runner } = sdk;
   if (tx) await runner.enqueueIn(tx, sleepJobName, { userId }, { runAfter });
   else await runner.enqueue(sleepJobName, { userId }, { runAfter });
 }

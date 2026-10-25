@@ -9,8 +9,10 @@ import {
 import { enabledPlugins, type BotSdkContext, type BotSdkPlugin } from "./plugin";
 import { modelsOver } from "../../plugins/models/server/plugin";
 import type { ModelsDeps } from "../../plugins/models/server/types";
+import { computerProvider } from "../../plugins/computer/server/plugin";
+import type { ComputerProvider } from "../../plugins/computer/server/provider";
 import type { JobRunner } from "../../plugins/runner/server/jobs/runner";
-import { runner, runnerJobs } from "../../plugins/runner/server/plugin";
+import { runnerJobs } from "../../plugins/runner/server/plugin";
 
 type OverOptions = Pick<BotSdkOptions, "basePath" | "getUser" | "logger">;
 
@@ -21,17 +23,19 @@ type OverOptions = Pick<BotSdkOptions, "basePath" | "getUser" | "logger">;
 export type SdkOver = BotSdkContext & ModelsDeps;
 
 /**
- * A real instance whose core context, `models` and `runner` plugins take the given parts in place
- * of built ones: the seam the tests and evals drive with fakes. Returns the instance and its
+ * A real instance whose core context, `models` plugin, runner and Computer take the given parts in
+ * place of built ones: the seam the tests and evals drive with fakes. Returns the instance and its
  * context with the `models` bundle.
  */
 export function createBotSdkOver(
   given: {
     context: GivenContext;
     models: ModelsDeps;
-    /** The `runner` plugin's jobs runner; the in-process runner by default. */
+    /** The runner slot's jobs runner; the in-process runner by default. */
     jobs?: JobRunner;
-    /** More plugins, enabled after `models` and `runner`. */
+    /** The computer slot's provider; no Computer by default. */
+    computer?: ComputerProvider;
+    /** More plugins, enabled after `models`. */
     plugins?: readonly BotSdkPlugin[];
     /** The features, as the `features` slot takes them. */
     features?: readonly FeatureEntry[];
@@ -43,7 +47,9 @@ export function createBotSdkOver(
       ...options,
       databaseUrl: "",
       keyEncryptionSecrets: given.context.keyring ?? given.models.keyEncryptionSecrets,
-      plugins: [modelsOver(given.models), runner({ jobs: given.jobs }), ...(given.plugins ?? [])],
+      plugins: [modelsOver(given.models), ...(given.plugins ?? [])],
+      runner: given.jobs,
+      computer: given.computer,
       features: given.features,
     },
     given.context,
@@ -53,11 +59,18 @@ export function createBotSdkOver(
 
 /**
  * The handler of a new instance over `sdk`'s parts (a `createBotSdkOver` context, or a copy of one
- * with some parts replaced): its core context, `models` bundle and jobs runner, and the other
- * plugins `sdk` enabled.
+ * with some parts replaced): its core context, `models` bundle, jobs runner and Computer provider,
+ * and the other plugins `sdk` enabled.
  */
 export function createChatHandler(sdk: SdkOver, options: OverOptions): ChatHandler {
-  const { plugin: _plugin, hasPlugin: _hasPlugin, rateLimit: _rateLimit, ...context } = sdk;
+  const {
+    plugin: _plugin,
+    hasPlugin: _hasPlugin,
+    rateLimit: _rateLimit,
+    runner: _runner,
+    computer,
+    ...context
+  } = sdk;
   // Its own sources: the plugins register theirs again when the new instance runs their inits.
   const models = {
     ...sdk,
@@ -65,7 +78,15 @@ export function createChatHandler(sdk: SdkOver, options: OverOptions): ChatHandl
     keyEncryptionSecrets: sdk.keyring,
     recentModelSources: [],
   };
-  const plugins = enabledPlugins(sdk).filter(({ id }) => !["models", "runner"].includes(id));
-  return createBotSdkOver({ context, models, jobs: runnerJobs(sdk), plugins }, options).instance
-    .handler;
+  const plugins = enabledPlugins(sdk).filter(({ id }) => id !== "models");
+  return createBotSdkOver(
+    {
+      context,
+      models,
+      jobs: runnerJobs(sdk),
+      ...(computer && { computer: computerProvider(computer) }),
+      plugins,
+    },
+    options,
+  ).instance.handler;
 }

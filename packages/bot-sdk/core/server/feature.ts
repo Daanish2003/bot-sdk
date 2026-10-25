@@ -190,9 +190,9 @@ const serviceNames: Record<CoreService, string> = { computer: "the Computer" };
 
 /**
  * Throws when a feature's id is reserved, a table of its schema is a core table, or a service it
- * needs isn't configured (`enabledIds` holds the instance's plugin ids).
+ * needs isn't configured (`services` holds the instance's core services).
  */
-export function checkFeature(feature: AnyFeature, enabledIds: ReadonlySet<string>): void {
+export function checkFeature(feature: AnyFeature, services: ReadonlySet<string>): void {
   if (reservedIds.has(feature.id) || instanceKeys.has(feature.id)) {
     throw new Error(`Feature id "${feature.id}" is reserved by the core`);
   }
@@ -205,7 +205,7 @@ export function checkFeature(feature: AnyFeature, enabledIds: ReadonlySet<string
     }
   }
   for (const need of (feature.needs ?? []) as CoreService[]) {
-    if (!enabledIds.has(need)) {
+    if (!services.has(need)) {
       throw new Error(
         `Feature "${feature.id}" needs ${serviceNames[need]}, which isn't configured: set the ${need} slot`,
       );
@@ -235,13 +235,13 @@ function contextOf(sdk: BotSdkContext, needs: readonly CoreService[]): FeatureCo
     clock: sdk.clock,
     jobs: {
       enqueueIn: (tx, job, payload, options) =>
-        sdk.plugin("runner").enqueueIn(tx, job.name, payload, options),
-      wake: () => sdk.plugin("runner").wake(),
+        sdk.runner.enqueueIn(tx, job.name, payload, options),
+      wake: () => sdk.runner.wake(),
     },
   };
   return {
     ...base,
-    ...(needs.includes("computer") && { computer: sdk.plugin("computer") }),
+    ...(needs.includes("computer") && { computer: sdk.computer }),
   } as FeatureContext<CoreService>;
 }
 
@@ -263,7 +263,6 @@ export function featurePlugin(feature: AnyFeature): BotSdkPlugin {
   const exportPart = userData?.export;
   return {
     id: feature.id,
-    requires: ["runner", ...(feature.needs ?? [])],
     router: feature.router,
     init: (sdk) => {
       const context = contextOf(sdk, feature.needs ?? []);

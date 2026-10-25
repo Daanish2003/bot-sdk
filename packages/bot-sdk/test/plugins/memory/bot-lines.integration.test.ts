@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { memorySettings } from "../../../core/server/db/schema";
 import { bot } from "../../../plugins/bot/server/plugin";
-import { computer } from "../../../plugins/computer/server/plugin";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { createTestSdk } from "../../support/deps";
 import { chatRpc } from "../../support/sdk";
@@ -19,7 +18,8 @@ const dir = (botId: string) => `/home/user/bots/${botId}/memory`;
 async function setup({ withComputer = true } = {}) {
   const computerFake = fakeComputerProvider();
   const deps = createTestSdk({
-    plugins: withComputer ? [bot(), computer({ provider: computerFake.provider })] : [bot()],
+    ...(withComputer && { computer: computerFake.provider }),
+    plugins: [bot()],
     clock: () => now,
   });
   const make = async () => {
