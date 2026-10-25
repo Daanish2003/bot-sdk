@@ -5,11 +5,11 @@ A personal app for always-on Bots: signed-in users have Bots that work for them 
 ## Language
 
 **Bot SDK**:
-The one reusable SDK a Host embeds: Conversations at its core, and every feature (Bots, Memory, Knowledge, Skills, the Computer, Channels, Connections) a plugin the Host turns on. It knows users only by id.
-_Avoid_: Chat SDK, agent SDK, library, chat module
+The reusable SDK others install to give their users Bots. Bots, their Conversations, Turns, Routines, Helpers, Channels and the Computer are its core. Memory, Skills, Knowledge and Connections are optional features a Host turns on, and anyone can write another. It knows users only by id.
+_Avoid_: Chat SDK, agent SDK, library, chat module, plugin
 
 **Host**:
-An app that embeds the Bot SDK and supplies its users, its routes and a Postgres database. The web app in this repo is one Host.
+An app that embeds the Bot SDK and supplies its users and a Postgres database. It signs its users in itself and decides whether, and where, the Bot SDK's routes are served. The web app in this repo is one Host.
 _Avoid_: Consumer, client app, integrator
 
 **Conversation**:

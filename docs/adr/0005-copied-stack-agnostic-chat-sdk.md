@@ -1,5 +1,5 @@
 ---
-Status: accepted
+Status: accepted, amended by ADR 0029 (copying, `createChat` and the Host-owned `ui/` rule are superseded; auth from the Host, Postgres and SDK-shipped migrations still hold)
 ---
 
 # The chat SDK is a copied, stack-agnostic core with Host-owned UI
