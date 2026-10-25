@@ -1156,7 +1156,7 @@ async function turnSetup(
     ? await kit.liveRequest(
         "features",
         undefined,
-        () => featureSectionsNow(deps, facts),
+        () => featureSectionsNow(deps, facts, kit.signal),
         async () => {},
       )
     : [];
@@ -1487,6 +1487,7 @@ export async function awayStartParts(
     liveActivity: definitionOnly,
     liveRequest: definitionOnly,
     computerCall: definitionOnly,
+    signal: new AbortController().signal,
     computerTools: computerToolDefinitions.map((definition) => definition.server(definitionOnly)),
   };
   const facts: TurnFacts = { ...turn, startedAt: now, jobId: null };

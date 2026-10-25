@@ -18,7 +18,9 @@ export function knowledge() {
     router: { knowledge: knowledgeRouter },
     // A Computer that can't be read throws: the Turn goes on without a Knowledge section.
     prompt: async (turn, { computer }) => {
-      const paths = await readKnowledgePaths(computer.forUser(turn.userId));
+      const paths = await readKnowledgePaths(computer.forUser(turn.userId), {
+        signal: turn.signal,
+      });
       return {
         section: knowledgePrompt(paths),
         changeNotes: knowledgeNotes(turn.botId, turn.built, turn.earlier, paths),

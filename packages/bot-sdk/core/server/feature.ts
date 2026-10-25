@@ -93,6 +93,8 @@ export type FeaturePromptTurn = FeatureTurn & {
    * and what it did (its transcript), for a feature to count what the Bot did itself as seen.
    */
   earlier: ReadonlyArray<{ notes: readonly string[]; transcript: readonly ModelMessage[] }>;
+  /** Aborts on a Stop or the time limit: whatever the feature reads for its section stops then. */
+  signal: AbortSignal;
 };
 
 /**

@@ -107,6 +107,8 @@ export type LoopKit = {
   ) => Promise<T | string | { error: string }>;
   /** The Computer's tools: Shell, then the file tools Read, Write, Edit and List. */
   computerTools: AnyServerTool[];
+  /** Aborts on a Stop or the loop's time limit. */
+  signal: AbortSignal;
   /**
    * A Computer tool call of the loop's, as tool call `toolCallId`: one activity, re-run after a
    * crash, that `operate`s live on the Computer. A failed wake or operation is its result, and
@@ -890,7 +892,13 @@ export async function runLoop(
   /** What the loop's model calls and tool calls added to its input, in order. */
   const messages: ModelMessage[] = [];
   try {
-    const setup = await options.setup({ liveActivity, liveRequest, computerTools, computerCall });
+    const setup = await options.setup({
+      liveActivity,
+      liveRequest,
+      computerTools,
+      signal: abortController.signal,
+      computerCall,
+    });
     const { tools, ended = () => false } = setup;
     promptStart = setup.promptStart;
     summarize = setup.promptStart ? setup.summarize : undefined;
