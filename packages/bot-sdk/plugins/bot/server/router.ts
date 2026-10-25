@@ -13,6 +13,7 @@ import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { recordBotChange } from "./thread-change";
 import { cancelAwaySummary } from "./summary";
+import { featuresAfterTurn } from "./features";
 
 /** The runner job that runs one Turn (`botTurnJob` in `turn.ts`). */
 export const botTurnJobName = "bot.turn";
@@ -145,13 +146,14 @@ export async function turnEnded(
   turnId: string,
 ): Promise<string | undefined> {
   const [ended] = await tx
-    .select({ conversationId: bot.conversationId })
+    .select({ conversationId: bot.conversationId, botId: bot.id, userId: bot.userId })
     .from(botTurn)
     .innerJoin(bot, eq(bot.id, botTurn.botId))
     .where(eq(botTurn.id, turnId));
   if (!ended) return undefined;
   await lockConversation(tx, ended.conversationId);
   if (deps.hasPlugin("memory")) await deps.plugin("memory").afterTurn(tx, turnId);
+  await featuresAfterTurn(deps, tx, { id: turnId, ...ended });
   return startTurn(deps, tx, ended.conversationId);
 }
 

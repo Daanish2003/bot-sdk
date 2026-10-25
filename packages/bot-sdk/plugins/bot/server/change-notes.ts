@@ -19,6 +19,7 @@ import {
 } from "../../skills/server/skills";
 import { resolvePath } from "./computer-tools";
 import type { PromptStartTool } from "./db/bot-prompt-start";
+import type { FeatureSection } from "./features";
 import { canonicalJson, firstMessageSection, listedToolNames, sha256 } from "./prompt-start";
 import { createRoutineToolName, deleteRoutineToolName, updateRoutineToolName } from "./routine";
 import { describeToolName, runToolName } from "./tool-search";
@@ -61,6 +62,11 @@ export type CurrentState = {
    * The readable Knowledge paths, sorted, or null without the `knowledge` plugin or unreadable.
    */
   knowledge: string[] | null;
+  /**
+   * The enabled features' sections and their Change notes (spec #871). Each feature computes its
+   * notes from its section in the Prompt start and the notes told since, so they are told as given.
+   */
+  features?: FeatureSection[];
   /** The Routines block, or null when the Bot has none. */
   routines: string | null;
   /** The definitions of every tool the code has now, deferred ones included. */
@@ -221,7 +227,7 @@ function descriptionIn(text: string): string | undefined {
  * message is rendered with notices, and the notes follow the time line in its first block, which
  * holds no user text: a notes header a user wrote anywhere is never read as one.
  */
-function notesIn(input: ModelMessage[]): string[] {
+export function notesIn(input: ModelMessage[]): string[] {
   const last = input.at(-1)?.content;
   // With the user's images (spec #801), the text is the first part.
   const first = Array.isArray(last) ? last[0] : undefined;
@@ -516,6 +522,8 @@ export async function changeNotesFor(
       notes.push(note);
     }
   }
+  // The features' notes, as each computed them from what the Bot has seen.
+  for (const { changeNotes } of current.features ?? []) notes.push(...changeNotes);
   const routines = routinesOf(current.routines);
   for (const [name, line] of routines) {
     const before = seen.routines.get(name);

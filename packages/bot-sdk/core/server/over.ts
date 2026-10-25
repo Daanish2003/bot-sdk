@@ -3,6 +3,7 @@ import {
   type BotSdk,
   type BotSdkOptions,
   type ChatHandler,
+  type FeatureEntry,
   type GivenContext,
 } from "./create-chat";
 import { enabledPlugins, type BotSdkContext, type BotSdkPlugin } from "./plugin";
@@ -32,6 +33,8 @@ export function createBotSdkOver(
     jobs?: JobRunner;
     /** More plugins, enabled after `models` and `runner`. */
     plugins?: readonly BotSdkPlugin[];
+    /** The features, as the `features` slot takes them. */
+    features?: readonly FeatureEntry[];
   },
   options: OverOptions,
 ): { instance: BotSdk; sdk: SdkOver } {
@@ -41,6 +44,7 @@ export function createBotSdkOver(
       databaseUrl: "",
       keyEncryptionSecrets: given.context.keyring ?? given.models.keyEncryptionSecrets,
       plugins: [modelsOver(given.models), runner({ jobs: given.jobs }), ...(given.plugins ?? [])],
+      features: given.features,
     },
     given.context,
   );

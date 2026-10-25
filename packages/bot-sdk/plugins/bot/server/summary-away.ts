@@ -35,6 +35,8 @@ import {
   writeSummary,
 } from "./summary";
 import { awayStartParts, hintChanged } from "./turn";
+import { enabledFeatures } from "../../../core/server/feature";
+import { type FeatureSection, featureSectionsNow, featureTurnOf } from "./features";
 
 /**
  * Background work due this soon wakes the Bot anyway, with its context still cached, so a Summary
@@ -153,6 +155,16 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
   const knowledge = await ctx.activity("knowledge", () =>
     knowledgeNow(deps, seen.userId, ctx.signal),
   );
+  // And the features' sections (spec #871); with no feature, no activity, as before.
+  const facts = featureTurnOf({
+    id: seen.turnId,
+    userId: seen.userId,
+    botId,
+    conversationId: seen.conversationId,
+  });
+  const features: FeatureSection[] = enabledFeatures(deps).length
+    ? await ctx.activity("features", () => featureSectionsNow(deps, facts))
+    : [];
   // Set only by a live write: a replayed one changed nothing, so hints nothing.
   let wrote = false;
   await ctx.activity("summary:write", async (tx) => {
@@ -173,6 +185,7 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
       memory,
       skills,
       knowledge,
+      features,
     );
     const id = await writeSummary(tx, { parts, prose: written.prose, kind: "away" });
     wrote = true;

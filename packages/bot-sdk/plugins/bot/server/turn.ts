@@ -24,6 +24,14 @@ import {
   waitingIn,
 } from "./router";
 import { type EarlierTurn, changeNotesFor } from "./change-notes";
+import { enabledFeatures } from "../../../core/server/feature";
+import {
+  type FeatureSection,
+  featureSectionsNow,
+  featureTools,
+  featureTurnOf,
+  takenNames,
+} from "./features";
 import { hintChanged, recordBotChange } from "./thread-change";
 import type { PromptStartTool } from "./db/bot-prompt-start";
 import { cancelCheckInTool, pendingCheckIns, saveCheckIn } from "./check-in";
@@ -1146,7 +1154,19 @@ async function turnSetup(
   const knowledge =
     withComputer && deps.hasPlugin("knowledge") ? await knowledgeSnapshot(deps, turn, kit) : null;
   const knowledgeBlock = knowledge && deps.plugin("knowledge").prompt(knowledge);
-  const ownTools = turnTools(deps, turn, kit, {
+  const facts = featureTurnOf(turn);
+  // The features' sections and Change notes (spec #871), read once: a replay reads the recorded
+  // ones. With no feature, there is no activity, so the histories of Turns without one don't change.
+  const read = enabledFeatures(deps).length
+    ? await kit.liveRequest(
+        "features",
+        undefined,
+        () => featureSectionsNow(deps, facts),
+        async () => {},
+      )
+    : [];
+  const features = Array.isArray(read) ? read : [];
+  const coreTools = turnTools(deps, turn, kit, {
     withComputer,
     // Present whenever the snapshot is: it reads through the Computer like the snapshot does.
     withMemorySearch: memory !== null,
@@ -1154,12 +1174,17 @@ async function turnSetup(
       endTurn = true;
     },
   });
+  // The features' tools, never shadowing the core's.
+  const ownTools = [
+    ...coreTools,
+    ...featureTools(deps, facts, kit.liveRequest, takenNames(coreTools)),
+  ];
   // The Connector tools, listed once as the Turn starts: nothing is kept from an earlier Turn.
   const connectors = deps.hasPlugin("mcp")
     ? await connectorTools(deps, turn.userId, {
         ...connections,
         liveRequest: kit.liveRequest,
-        taken: new Set(["describe_tool", "run_tool", ...ownTools.map((tool) => tool.name)]),
+        taken: takenNames(ownTools),
       })
     : undefined;
   const tools = [...ownTools, ...(connectors?.tools ?? [])];
@@ -1175,6 +1200,7 @@ async function turnSetup(
       memory,
       skills: skillsBlock,
       knowledge: knowledgeBlock,
+      features,
       routines,
     });
   // Recorded, so a replay sends the row its attempt chose.
@@ -1195,6 +1221,7 @@ async function turnSetup(
     memory,
     skills,
     knowledge,
+    features,
     routines: routines ?? null,
     tools: definitionsOf(tools),
     connectors: new Set(connectors?.tools.map((tool) => tool.name)),
@@ -1412,6 +1439,7 @@ function startParts(
     memory,
     skills,
     knowledge,
+    features,
     routines,
   }: {
     tools: AnyServerTool[];
@@ -1423,6 +1451,8 @@ function startParts(
     skills: string | null;
     /** The Knowledge block, null without the `knowledge` plugin or when it couldn't be read. */
     knowledge: string | null;
+    /** The enabled features' sections, each named by its feature's id (spec #871). */
+    features: FeatureSection[];
     routines: string | null;
   },
 ): PromptStartParts {
@@ -1436,6 +1466,7 @@ function startParts(
       ...(memory ? [{ name: "memory", text: memory }] : []),
       ...(skills ? [{ name: "skills", text: skills }] : []),
       ...(knowledge ? [{ name: "knowledge", text: knowledge }] : []),
+      ...features.flatMap(({ name, section }) => (section ? [{ name, text: section }] : [])),
       ...(routines ? [{ name: "routines", text: routines }] : []),
     ],
     tools: [...tools.filter(isDirectTool), ...toolSearchTools(tools)],
@@ -1466,6 +1497,7 @@ export async function awayStartParts(
   memory: string | null,
   skills: string | null,
   knowledge: string | null,
+  features: FeatureSection[],
 ): Promise<PromptStartParts> {
   const withComputer = deps.hasPlugin("computer");
   const kit: LoopKit = {
@@ -1475,11 +1507,15 @@ export async function awayStartParts(
     computerTools: computerToolDefinitions.map((definition) => definition.server(definitionOnly)),
   };
   const facts: TurnFacts = { ...turn, startedAt: now, jobId: null };
-  const tools = turnTools(deps, facts, kit, {
+  const ownTools = turnTools(deps, facts, kit, {
     withComputer,
     withMemorySearch: memory !== null,
     onLastMessage: definitionOnly,
   });
+  const tools = [
+    ...ownTools,
+    ...featureTools(deps, featureTurnOf(facts), definitionOnly, takenNames(ownTools)),
+  ];
   const routines = (await routinesPrompt(tx, turn.botId)) ?? null;
   // The Connector tools are listed by a Turn, never here: the next Turn notes them as added.
   return startParts(facts, now, {
@@ -1489,6 +1525,7 @@ export async function awayStartParts(
     memory,
     skills,
     knowledge,
+    features,
     routines,
   });
 }

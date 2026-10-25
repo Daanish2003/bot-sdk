@@ -6,7 +6,7 @@ import { postgresBlobStore } from "../../core/server/blob/postgres";
 import { createMemoryCounters } from "../../core/server/chat/counters";
 import { createHookEmitter, type HookEmitter } from "../../core/server/chat/hooks";
 import { createMemoryPubSub } from "../../core/server/chat/pubsub";
-import type { GivenContext } from "../../core/server/create-chat";
+import type { FeatureEntry, GivenContext } from "../../core/server/create-chat";
 import type { BotSdkPlugin } from "../../core/server/plugin";
 import { createBotSdkOver, type SdkOver } from "../../core/server/over";
 import { memory } from "../../plugins/memory/server/plugin";
@@ -31,6 +31,8 @@ export type TestDepsOverrides = Partial<
       jobs: JobRunner;
       /** More plugins, enabled after `models` and `runner`. */
       plugins: readonly BotSdkPlugin[];
+      /** The features, as the `features` slot takes them. */
+      features: readonly FeatureEntry[];
       /** Whether the `memory` plugin is installed; `true` by default. */
       memory: boolean;
       /**
@@ -50,7 +52,11 @@ const passingReviewer = fakeReviewer().adapter;
  * Bot-only: `models`, `runner`, `memory` and the given `plugins`. Pass overrides for the parts a
  * test scripts (for example `adapterFor` returning a fake adapter).
  */
-export function createTestSdk({ plugins, ...overrides }: TestDepsOverrides = {}): TestDeps {
+export function createTestSdk({
+  plugins,
+  features,
+  ...overrides
+}: TestDepsOverrides = {}): TestDeps {
   const db = overrides.db ?? getTestDb();
   // Silent, like the handler's logger in `support/sdk.ts`: the tests assert on rows, not logs.
   const logger = overrides.logger ?? { error: () => {} };
@@ -112,7 +118,7 @@ export function createTestSdk({ plugins, ...overrides }: TestDepsOverrides = {})
   };
   const installed = [...(overrides.memory === false ? [] : [memory()]), ...(plugins ?? [])];
   return createBotSdkOver(
-    { context, models, jobs: overrides.jobs, plugins: installed },
+    { context, models, jobs: overrides.jobs, plugins: installed, features },
     { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
   ).sdk;
 }

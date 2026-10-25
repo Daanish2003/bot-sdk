@@ -2,10 +2,22 @@ export {
   createBotSdk,
   type BotSdk,
   type BotSdkOptions,
+  type FeatureEntry,
+  type SlotOptions,
   type GetUser,
   type Logger,
 } from "./create-chat";
-export type { BotSdkContext, BotSdkPlugin, PluginApis, Route } from "./plugin";
+export type { BotSdkContext, BotSdkPlugin, PluginApis, Route, Transaction } from "./plugin";
+export {
+  defineFeature,
+  type CoreService,
+  type Feature,
+  type FeatureContext,
+  type FeatureDefinition,
+  type FeaturePrompt,
+  type FeaturePromptTurn,
+  type FeatureTurn,
+} from "./feature";
 export type { EventHooks, ConversationDeletedEvent } from "./chat/hooks";
 export {
   memoryRuntime,
