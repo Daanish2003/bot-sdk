@@ -25,7 +25,7 @@ import { fakeComputerProvider } from "../../../plugins/computer/server/fake-prov
 vi.setConfig({ testTimeout: 30_000 });
 
 const silent = { error: () => {} };
-const seeing = "openai:gpt-5.6";
+const seeing = "openai:gpt-6-luna";
 const blind = "mistral:mistral-large-latest";
 
 const started: InProcessRunner[] = [];

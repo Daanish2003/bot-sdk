@@ -27,7 +27,7 @@ const providerNames: Record<string, string> = {
  */
 export const listAdminUsers = createServerFn({ method: "GET" })
   .middleware([adminMiddleware])
-  .inputValidator((input: unknown) => querySchema.parse(input ?? {}))
+  .validator((input: unknown) => querySchema.parse(input ?? {}))
   .handler(async ({ data }): Promise<AdminUser[]> => {
     const [users, accounts] = await Promise.all([
       db

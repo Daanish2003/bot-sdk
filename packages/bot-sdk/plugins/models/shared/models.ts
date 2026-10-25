@@ -60,12 +60,23 @@ export type CuratedModel = {
   images: boolean;
   pdfs: boolean;
   tools: boolean;
+  /** Can run a Computer-use Helper (ADR 0028): see `canUseComputer`. */
+  computerUse: boolean;
   /** Tokens the Model reads in one request. `null` when unknown: never a guess. */
   contextWindow: number | null;
   /** Tokens the Model writes in one reply. `null` when unknown. */
   maxOutputTokens: number | null;
   reasoning: ReasoningSupport;
 };
+
+/**
+ * Whether a Provider's Models can run a Computer-use Helper (ADR 0028): only direct Anthropic and
+ * direct OpenAI (Responses API), whose adapters swap in a native computer tool. Bedrock, gateways
+ * and every other Provider can't, even when the Model underneath is Claude.
+ */
+export function canUseComputer(provider: string): boolean {
+  return provider === "anthropic" || provider === "openai";
+}
 
 /** A Model the user can pick (`models.list`). `onHostCredentials`: a Host pays for it (ADR 0007). */
 export type ListedModel = CuratedModel & { onHostCredentials: boolean };
@@ -84,6 +95,7 @@ function model(
     modelId,
     label,
     ...capabilities,
+    computerUse: canUseComputer(provider),
     contextWindow: limits?.contextWindow ?? null,
     maxOutputTokens: limits?.maxOutputTokens ?? null,
     reasoning: limits
@@ -107,7 +119,6 @@ export const curatedModels: CuratedModel[] = [
   model("anthropic", "claude-haiku-4-5", "Claude Haiku 4.5", anthropic),
   model("openai", "gpt-6.1-sol", "GPT-6.1 Sol", openai),
   model("openai", "gpt-6-luna", "GPT-6 Luna", openai),
-  model("openai", "gpt-5.6", "GPT-5.6", openai),
   model("openai", "gpt-5.4-mini", "GPT-5.4 mini", openai),
   model("gemini", "gemini-3.8-flash", "Gemini 3.8 Flash", all),
   model("gemini", "gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite", all),
@@ -119,15 +130,8 @@ export const curatedModels: CuratedModel[] = [
   model("mistral", "magistral-medium-latest", "Magistral Medium", textAndTools),
   model("mistral", "codestral-latest", "Codestral", textAndTools),
   model("groq", "openai/gpt-oss-120b", "GPT-OSS 120B", textAndTools),
-  model("groq", "llama-3.3-70b-versatile", "Llama 3.3 70B", textAndTools),
-  model(
-    "groq",
-    "meta-llama/llama-4-maverick-17b-128e-instruct",
-    "Llama 4 Maverick",
-    imagesAndTools,
-  ),
-  model("groq", "moonshotai/kimi-k2-instruct-0905", "Kimi K2", textAndTools),
-  model("groq", "qwen/qwen3-32b", "Qwen3 32B", textAndTools),
+  model("groq", "openai/gpt-oss-20b", "GPT-OSS 20B", textAndTools),
+  model("groq", "qwen/qwen3.8-27b", "Qwen3.8 27B", imagesAndTools),
   model("grok", "grok-4.7", "Grok 4.7", all),
   model("grok", "grok-4.6", "Grok 4.6", all),
   model("grok", "grok-4.3", "Grok 4.3", imagesAndTools),
@@ -199,7 +203,7 @@ export function isKnownModel(id: string) {
 /** The Model a new Conversation starts on when the Provider is the first one the user added. */
 const providerDefaults: Partial<Record<ProviderId, string>> = {
   anthropic: "anthropic:claude-sonnet-5-5",
-  openai: "openai:gpt-5.6",
+  openai: "openai:gpt-6-luna",
   gemini: "gemini:gemini-3.8-flash",
   openrouter: "openrouter:anthropic/claude-sonnet-5.5",
   mistral: "mistral:mistral-medium-latest",

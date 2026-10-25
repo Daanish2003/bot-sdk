@@ -1,7 +1,6 @@
 import { chat, type ModelMessage } from "@tanstack/ai";
 import type { z } from "zod";
 
-import { parseModelId } from "../../models/shared/models";
 import { promptCharactersOf, reportedUsageOf } from "../../models/server/run-usage";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import type { ModelCall } from "../../models/server/credentials/resolve";
@@ -13,19 +12,21 @@ import type { ModelCall } from "../../models/server/credentials/resolve";
 export async function askBackground(
   deps: BotSdkContext,
   {
+    botId,
     plan,
     system,
     user,
-  }: { plan: { model: string; call: ModelCall }; system: string; user: string },
+  }: { botId: string; plan: { model: string; call: ModelCall }; system: string; user: string },
 ): Promise<string> {
   const messages: ModelMessage[] = [{ role: "user", content: user }];
   const result = await chat({
     adapter: deps.plugin("models").adapterForCall(plan.model, plan.call),
+    threadId: botId,
     systemPrompts: [system],
     messages,
     stream: false,
   });
-  const reported = reportedUsageOf(parseModelId(plan.model)?.provider ?? "", result.chunks);
+  const reported = reportedUsageOf(result.chunks);
   await plan.call.meter.record({
     kind: "memory",
     usage: deps.plugin("models").messageUsage(reported.usage, {

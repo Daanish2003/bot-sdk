@@ -40,7 +40,7 @@ import {
 } from "../../../plugins/computer/server/fake-provider";
 import { followSend } from "../../../support/follow-send";
 
-const model = "openai:gpt-5.6";
+const model = "openai:gpt-6-luna";
 const silent = { error: () => {} };
 const minuteMs = 60_000;
 const start = new Date("2030-03-15T12:00:00.000Z");

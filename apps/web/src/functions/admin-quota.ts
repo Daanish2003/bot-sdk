@@ -52,7 +52,7 @@ const quotaInput = z
  */
 export const getAdminUserDetail = createServerFn({ method: "GET" })
   .middleware([adminMiddleware])
-  .inputValidator((input: unknown) => userInput.parse(input))
+  .validator((input: unknown) => userInput.parse(input))
   .handler(async ({ data }): Promise<AdminUserDetail> => {
     const target = await db.query.user.findFirst({
       where: { id: data.userId },
@@ -93,7 +93,7 @@ export const getAdminUserDetail = createServerFn({ method: "GET" })
  */
 export const setUserQuota = createServerFn({ method: "POST" })
   .middleware([adminMiddleware])
-  .inputValidator((input: unknown) => quotaInput.parse(input))
+  .validator((input: unknown) => quotaInput.parse(input))
   .handler(async ({ data, context }) => {
     const target = await db.query.user.findFirst({
       where: { id: data.userId },

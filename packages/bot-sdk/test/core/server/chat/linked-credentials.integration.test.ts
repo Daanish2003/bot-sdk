@@ -120,13 +120,13 @@ describe("A linked ChatGPT plan in a Bot's Turn (ADR 0023)", () => {
   });
 
   it("never uses the link for an OpenAI Model the plan doesn't offer", async () => {
-    const offered = await setup({ deps: { hostProviders: hostOffers("gpt-5.6") } });
-    const { client, botId } = await botOf(offered.deps, offered.owner, "openai:gpt-5.6");
+    const offered = await setup({ deps: { hostProviders: hostOffers("gpt-5.4-mini") } });
+    const { client, botId } = await botOf(offered.deps, offered.owner, "openai:gpt-5.4-mini");
     await sendToTurnEnd(client, botId);
     expect(offered.adapterCalls.map((call) => call.credentials)).toEqual([hostCredentials]);
 
     const notOffered = await setup({});
-    const refused = await botOf(notOffered.deps, notOffered.owner, "openai:gpt-5.6").then(
+    const refused = await botOf(notOffered.deps, notOffered.owner, "openai:gpt-5.4-mini").then(
       () => null,
       (caught: unknown) => caught as { status?: number },
     );
@@ -196,7 +196,7 @@ describe("A linked ChatGPT plan in the Model picker and the Keys page (ADR 0023)
 
   it("offers the plan's Models as the user's own, not the Host's, and starts a new Conversation on one", async () => {
     const { client } = await clientWith(linked, {
-      hostProviders: hostOffers("gpt-6.1-sol", "gpt-5.6"),
+      hostProviders: hostOffers("gpt-6.1-sol", "gpt-5.4-mini"),
     });
 
     const { models, defaultModel } = await client.models.list();
@@ -204,9 +204,9 @@ describe("A linked ChatGPT plan in the Model picker and the Keys page (ADR 0023)
     expect(models.map((model) => [model.id, model.onHostCredentials])).toEqual([
       ["openai:gpt-6.1-sol", false],
       ["openai:gpt-6-luna", false],
-      ["openai:gpt-5.6", true],
+      ["openai:gpt-5.4-mini", true],
     ]);
-    expect(defaultModel).toBe("openai:gpt-6.1-sol");
+    expect(defaultModel).toBe("openai:gpt-6-luna");
   });
 
   it("offers no plan Models with nothing linked, or with byok off", async () => {
@@ -215,23 +215,23 @@ describe("A linked ChatGPT plan in the Model picker and the Keys page (ADR 0023)
 
     const byokOff = await clientWith(linked, {
       byok: false,
-      hostProviders: hostOffers("gpt-5.6"),
+      hostProviders: hostOffers("gpt-5.4-mini"),
     });
     expect((await byokOff.client.models.list()).models.map((model) => model.id)).toEqual([
-      "openai:gpt-5.6",
+      "openai:gpt-5.4-mini",
     ]);
   });
 
   it("keeps the picker and the Keys page working when the Host's hook fails, showing no link", async () => {
     const { client } = await clientWith(null, {
-      hostProviders: hostOffers("gpt-5.6"),
+      hostProviders: hostOffers("gpt-5.4-mini"),
       linkedCredentials: async () => {
         throw new Error("The auth database is down");
       },
     });
 
     expect((await client.models.list()).models.map((model) => model.id)).toEqual([
-      "openai:gpt-5.6",
+      "openai:gpt-5.4-mini",
     ]);
     expect(await client.credentials.openaiState()).toBe("none");
   });

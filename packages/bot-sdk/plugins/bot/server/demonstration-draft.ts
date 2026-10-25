@@ -6,7 +6,6 @@ import { deleteBlobsBestEffort } from "../../../core/server/blob/store";
 import { bot, botDemonstration, botDemonstrationEvent } from "../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import type { ComputerHandle } from "../../computer/server/plugin";
-import { parseModelId } from "../../models/shared/models";
 import { promptCharactersOf, reportedUsageOf } from "../../models/server/run-usage";
 import { defineJob } from "../../runner/server/jobs/define";
 import { nameLimit, problemOf, skillsDirectory } from "../../skills/server/skills";
@@ -172,12 +171,12 @@ export async function draftSkill(
   try {
     const result = await chat({
       adapter: models.adapterForCall(demonstration.model, call),
+      threadId: demonstration.botId,
       systemPrompts: [draftPrompt],
       messages,
       stream: false,
     });
-    const provider = parseModelId(demonstration.model)?.provider ?? "";
-    const reported = reportedUsageOf(provider, result.chunks);
+    const reported = reportedUsageOf(result.chunks);
     await call.meter.record({
       kind: "skill_draft",
       usage: models.messageUsage(reported.usage, {

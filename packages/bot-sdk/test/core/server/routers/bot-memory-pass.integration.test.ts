@@ -28,7 +28,7 @@ import { insertUser } from "../../../support/users";
 import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
 import { followSend } from "../../../support/follow-send";
 
-const model = "openai:gpt-5.6";
+const model = "openai:gpt-6-luna";
 const silent = { error: () => {} };
 const passJob = "memory.bot-pass";
 
@@ -203,6 +203,7 @@ describe("the post-turn memory pass", () => {
     await send(client, ada, "I'm vegan now, and I signed the lease");
     await passesEnded(1);
 
+    expect(fake.calls[1]?.threadId).toBe(ada);
     const shown = userTextOf(fake.calls[1]);
     expect(shown).toContain("I'm vegan now, and I signed the lease");
     expect(shown).toContain("1. Prefers long replies");

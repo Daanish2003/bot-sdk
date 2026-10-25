@@ -161,6 +161,7 @@ async function runBotMemoryPass(
       const transcript = await turnTranscript(deps.db, turnId, turn.transcript ?? []);
       try {
         const reply = await askBackground(deps, {
+          botId: turn.botId,
           plan: { model: turn.model, call },
           system: passPrompt(dayOf(deps.clock())),
           user: passInput(transcript, shown),

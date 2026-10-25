@@ -22,7 +22,7 @@ import { withCacheControl } from "../../models/server/cache-control";
 import { parseModelId } from "../../models/shared/models";
 import { defineJob, type JobContext } from "../../runner/server/jobs/define";
 import { computerOf } from "./computer-tools";
-import { pruneScreenshots, resolveImageRefs } from "./desktop-tools";
+import { pruneScreenshots, resolveImageRefs } from "./image-refs";
 import { callUsage } from "./loop";
 import { latestPromptStartId, loopPromptStart } from "./prompt-start";
 import { lockConversation, waitingIn } from "./router";
@@ -107,6 +107,7 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
     try {
       for await (const chunk of chat({
         adapter,
+        threadId: botId,
         messages,
         systemPrompts: start.system.map((block) => block.text),
         abortController,
@@ -118,7 +119,7 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
     }
     // A cut-off call records nothing: the cancelled job ends here.
     ctx.signal.throwIfAborted();
-    const bill = callUsage(deps, provider, chunks, messages);
+    const bill = callUsage(deps, chunks, messages);
     if (bill) {
       const onUsage = await deps.db.transaction((tx) =>
         meter.recordIn(tx, {

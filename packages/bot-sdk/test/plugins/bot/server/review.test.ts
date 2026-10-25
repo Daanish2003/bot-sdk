@@ -20,7 +20,7 @@ describe("a review's replay", () => {
         outcome: "pass",
         reason: "The user asked for it.",
         summary: "List the files",
-        model: "openai:gpt-5.6",
+        model: "openai:gpt-6-luna",
         bill: { usage: { inputTokens: 10, outputTokens: 2 } },
       },
       "review:write": "0199f000-0000-7000-8000-000000000001",
@@ -36,7 +36,7 @@ describe("a review's replay", () => {
     } as unknown as ReviewKit;
 
     const blocked = await reviewToolCall(deps, kit, {
-      owner: { userId: "u1", botId: "b1", model: "openai:gpt-5.6" },
+      owner: { userId: "u1", botId: "b1", model: "openai:gpt-6-luna" },
       source: { turnId: "t1", conversationId: "c1" },
       toolCallId: "call-1",
       tool: "shell",

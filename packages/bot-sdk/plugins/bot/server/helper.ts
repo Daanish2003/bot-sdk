@@ -6,6 +6,7 @@ import { bot, botDemonstration, botHelper, botHelperMessage } from "../../../cor
 import type { Database } from "../../../core/server/db/index";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
+import { canUseComputer, providerOf } from "../../models/shared/models";
 import type { MessageUsage } from "../../models/shared/usage";
 import { defineJob, PermanentJobError } from "../../runner/server/jobs/define";
 import { loadHistory } from "../../runner/server/jobs/history";
@@ -17,9 +18,9 @@ import {
 } from "../../computer/server/plugin";
 import { liveDemonstrationStates } from "../shared/demonstration";
 import { BrowserSession, browserTools } from "./browser-tools";
-import { desktopTools } from "./desktop-tools";
 import { storeScreenshot } from "./screenshots";
 import { computerOf } from "./computer-tools";
+import { computerUseTool } from "./computer-use-tool";
 import { connectorTools } from "./connector-tools";
 import { type LoopKit, type LoopResult, runLoop, totalUsage } from "./loop";
 import { closeWaitingReviews } from "./review";
@@ -61,6 +62,9 @@ export const tooManyGeneralHelpersError =
 export const computerUseHelperTakenError =
   "A Computer-use Helper is already running; check on or stop it first.";
 
+export const computerUseModelError =
+  "This Bot's Model can't run a Computer-use Helper; tell the user to switch the Bot to a direct Anthropic or OpenAI Model.";
+
 export const screensInUseError = "All 4 Screens are in use; try again later.";
 
 export const demonstrationHoldsScreenError =
@@ -89,7 +93,7 @@ const connectorsPrompt =
 /** The Computer-use Helper's system prompt (#573). */
 export const computerUseHelperPrompt =
   `${helperPromptOpening} Use the browser tools first: read the page with \`browser_snapshot\` ` +
-  "and act by ref. Use `desktop` only for what the browser can't reach, such as desktop apps and " +
+  "and act by ref. Use `computer` only for what the browser can't reach, such as desktop apps and " +
   "system dialogs. At a login, verification code, captcha or payment, stop and call `ask_user` " +
   "with where you are and what the user needs to do; never type a password or a code yourself.";
 
@@ -149,6 +153,9 @@ export function startHelperTool(
 ) {
   return startHelperDefinition.server(async ({ type, task }, context) => {
     const result = await liveActivity(startHelperToolName, context?.toolCallId, async (tx) => {
+      if (type === "computer_use" && !canUseComputer(providerOf(turn.model))) {
+        return { error: computerUseModelError };
+      }
       // Checked here only, so a resumed Helper is never refused.
       const call = await deps.plugin("models").resolveModelCall(turn.userId, turn.model);
       if (call && !(await call.meter.mayRun()).ok) return { error: helperQuotaSpentError };
@@ -532,7 +539,8 @@ async function playHelper(
         systemPrompts: [computerUseHelperPrompt],
         tools: [
           ...browserTools(session, helper.botId, kit.computerCall),
-          ...desktopTools(
+          computerUseTool(
+            helper.id,
             session.slot,
             kit.computerCall,
             async () => {

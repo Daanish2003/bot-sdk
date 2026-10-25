@@ -107,7 +107,7 @@ describe("models.setImageModel", () => {
     const { user, client } = await signedIn();
     await addCredentials(user, "openai");
 
-    await expect(client.models.setImageModel({ imageModel: "openai:gpt-5.6" })).rejects.toThrow(
+    await expect(client.models.setImageModel({ imageModel: "openai:gpt-6-luna" })).rejects.toThrow(
       /not an available Image Model/,
     );
   });

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { modelGroups } from "../../../plugins/models/client/models";
 
 const available = [
-  "openai:gpt-5.6",
+  "openai:gpt-6-luna",
   "anthropic:claude-sonnet-5-5",
   "anthropic:claude-haiku-4-5",
   "openai:gpt-5.4-mini",
@@ -16,7 +16,7 @@ describe("modelGroups", () => {
 
     expect(groups.map((group) => [group.label, group.models.map((model) => model.id)])).toEqual([
       ["Anthropic", ["anthropic:claude-sonnet-5-5", "anthropic:claude-haiku-4-5"]],
-      ["OpenAI", ["openai:gpt-5.6", "openai:gpt-5.4-mini"]],
+      ["OpenAI", ["openai:gpt-6-luna", "openai:gpt-5.4-mini"]],
     ]);
   });
 
@@ -49,6 +49,7 @@ const liveModel = (provider: "openrouter" | "ollama", modelId: string) => ({
   images: false,
   pdfs: false,
   tools: true,
+  computerUse: false,
   contextWindow: null,
   maxOutputTokens: null,
   reasoning: unknownReasoning(),

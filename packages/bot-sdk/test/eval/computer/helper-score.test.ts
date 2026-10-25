@@ -98,6 +98,16 @@ describe("observing a Helper's transcript", () => {
     expect(typedTexts(transcript)).toEqual(["sesame-4471"]);
     expect(helperTools(null)).toEqual([]);
   });
+
+  it("also reads the text the computer tool typed, in Anthropic's and OpenAI's shapes", () => {
+    const typed = typedTexts([
+      step("computer", { action: "left_click", coordinate: [1, 2] }),
+      step("computer", { action: "type", text: "sesame" }),
+      step("computer", { action: { type: "type", text: "-4471" } }),
+      step("computer", { actions: [{ type: "click" }, { type: "type", text: "again" }] }),
+    ]);
+    expect(typed).toEqual(["sesame", "-4471", "again"]);
+  });
 });
 
 describe("the cases and the fixture site", () => {

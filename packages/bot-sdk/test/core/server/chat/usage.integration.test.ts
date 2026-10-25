@@ -16,6 +16,7 @@ import { insertUser, type TestUser } from "../../../support/users";
 import { getTestDb } from "../../../support/test-database";
 
 const sonnet = "anthropic:claude-sonnet-5-5";
+const bedrockSonnet = "bedrock:us.anthropic.claude-sonnet-4-5-20250929-v1:0";
 // $3 per 1M input tokens and $15 per 1M output tokens, so a token costs as many micros as its price.
 const hostProviders: HostProvider[] = [
   {
@@ -24,6 +25,18 @@ const hostProviders: HostProvider[] = [
     models: [
       {
         modelId: "claude-sonnet-5-5",
+        maxOutputTokens: 512,
+        inputUsdPerMillion: 3,
+        outputUsdPerMillion: 15,
+      },
+    ],
+  },
+  {
+    provider: "bedrock",
+    credentials: { apiKey: "ABSK-host-secret-never-stored", region: "us-east-1" },
+    models: [
+      {
+        modelId: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
         maxOutputTokens: 512,
         inputUsdPerMillion: 3,
         outputUsdPerMillion: 15,
@@ -48,15 +61,17 @@ afterEach(stopBotRunners);
 /** A user with a Bot on the Host's Model, whose Turns play `rounds`. */
 async function setup({
   user,
+  model = sonnet,
   rounds,
 }: {
   user?: TestUser;
+  model?: string;
   rounds: Parameters<typeof createFakeAdapter>[0]["rounds"];
 }) {
   const owner = user ?? (await insertUser());
   const fake = createFakeAdapter({ rounds });
   const { deps } = await botSdk({ hostProviders, adapterFor: () => fake.adapter });
-  const { client, botId } = await botOf(deps, owner, sonnet);
+  const { client, botId } = await botOf(deps, owner, model);
   return { owner, deps, client, botId };
 }
 
@@ -163,6 +178,28 @@ describe("usage for a Bot's Turn", () => {
     expect(events.at(-1)).toEqual({ type: "turnEnded", status: "error" });
     expect(await usageOf(owner.id)).toEqual([]);
   });
+
+  // Their 1.0 adapters report input with its cache reads and writes in it, as other Providers do.
+  it.each([sonnet, bedrockSonnet])(
+    "counts the cache reads and writes of %s once",
+    async (model) => {
+      const { owner, client, botId } = await setup({
+        model,
+        rounds: [
+          withUsage(sends("Hello"), {
+            ...tokens(1000, 50),
+            promptTokensDetails: { cachedTokens: 800, cacheWriteTokens: 100 },
+          }),
+        ],
+      });
+
+      await sendToTurnEnd(client, botId);
+
+      expect(await usageOf(owner.id)).toMatchObject([
+        { model, inputTokens: 1000, cacheReadTokens: 800, cacheWriteTokens: 100, outputTokens: 50 },
+      ]);
+    },
+  );
 
   it("keeps the usage when its Bot is deleted", async () => {
     const { owner, client, botId } = await setup({

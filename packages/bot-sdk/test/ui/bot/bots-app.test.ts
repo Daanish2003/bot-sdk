@@ -20,8 +20,8 @@ afterEach(() => {
 });
 
 const createdAt = new Date("2026-10-17T09:00:00.000Z");
-const inbox = { id: "b1", name: "Inbox Manager", model: "openai:gpt-5.6", createdAt };
-const ada = { id: "b2", name: "Ada", model: "openai:gpt-5.6", createdAt };
+const inbox = { id: "b1", name: "Inbox Manager", model: "openai:gpt-6-luna", createdAt };
+const ada = { id: "b2", name: "Ada", model: "openai:gpt-6-luna", createdAt };
 const idle = { turnStatus: null, lastMessage: null };
 
 const listed = (id: string, label: string): ListedModel => ({
@@ -32,6 +32,7 @@ const listed = (id: string, label: string): ListedModel => ({
   images: true,
   pdfs: true,
   tools: true,
+  computerUse: true,
   contextWindow: null,
   maxOutputTokens: null,
   onHostCredentials: false,
@@ -44,8 +45,8 @@ function seed(queryClient: QueryClient, client: BotSdkClient) {
     { ...ada, ...idle },
   ]);
   queryClient.setQueryData(client.orpc.models.list.queryKey(), {
-    models: [listed("openai:gpt-5.5", "GPT-5.5"), listed("openai:gpt-5.6", "GPT-5.6")],
-    defaultModel: "openai:gpt-5.6",
+    models: [listed("openai:gpt-5.5", "GPT-5.5"), listed("openai:gpt-6-luna", "GPT-6 Luna")],
+    defaultModel: "openai:gpt-6-luna",
     imageModels: [],
     defaultImageModel: null,
     webSearchOnHost: false,
@@ -152,14 +153,14 @@ describe("the New Bot dialog", () => {
     mount(createElement(BotSidebar), { fetch, navigate });
 
     fireEvent.click(screen.getByRole("button", { name: "New Bot" }));
-    expect(screen.getByRole("button", { name: "Model" }).textContent).toContain("GPT-5.6");
+    expect(screen.getByRole("button", { name: "Model" }).textContent).toContain("GPT-6 Luna");
     fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
       target: { value: "Scout" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
     await waitFor(() => expect(navigate).toHaveBeenCalledWith({ to: "bots", id: "b9" }));
-    expect(bodies).toEqual([{ json: { name: "Scout", model: "openai:gpt-5.6" } }]);
+    expect(bodies).toEqual([{ json: { name: "Scout", model: "openai:gpt-6-luna" } }]);
   });
 
   it("won't create a Bot without a name", () => {

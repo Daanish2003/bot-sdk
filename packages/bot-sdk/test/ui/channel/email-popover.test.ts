@@ -127,7 +127,7 @@ describe("Messages that went by email", () => {
           bot: {
             id: "b1",
             name: "Ada",
-            model: "openai:gpt-5.6",
+            model: "openai:gpt-6-luna",
             createdAt: at(0),
             turnStatus: null,
           },

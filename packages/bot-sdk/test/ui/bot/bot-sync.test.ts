@@ -22,7 +22,7 @@ afterEach(() => {
 });
 
 const createdAt = new Date("2026-10-22T09:00:00.000Z");
-const ada = { id: "b2", name: "Ada", model: "openai:gpt-5.6", createdAt };
+const ada = { id: "b2", name: "Ada", model: "openai:gpt-6-luna", createdAt };
 
 let tick = 0;
 const said = (id: string, role: BotMessage["role"], text: string): BotMessage => ({

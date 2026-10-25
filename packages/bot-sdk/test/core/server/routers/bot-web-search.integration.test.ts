@@ -23,7 +23,7 @@ import { insertUser } from "../../../support/users";
 import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
 import { followSend } from "../../../support/follow-send";
 
-const model = "openai:gpt-5.6";
+const model = "openai:gpt-6-luna";
 const hostModel = "anthropic:claude-sonnet-5-5";
 const silent = { error: () => {} };
 

@@ -95,6 +95,7 @@ export function planJudgeCompletion(model: string, plan: ChatgptPlan) {
     const adapter = adapterFor(model, { apiKey: await plan.token() }, { linked: true });
     const result = await chat({
       adapter,
+      threadId: "eval-judge",
       messages: [{ role: "user", content: prompt }],
       stream: false,
     });

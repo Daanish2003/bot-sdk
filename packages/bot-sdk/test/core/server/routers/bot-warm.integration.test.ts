@@ -118,6 +118,7 @@ describe("bot.warm", () => {
 
     expect(fake.calls).toHaveLength(2);
     const [turnCall, warm] = fake.calls as [TextOptions, TextOptions];
+    expect(warm.threadId).toBe(botId);
     const [start] = await getTestDb()
       .select()
       .from(botPromptStart)
@@ -184,14 +185,17 @@ describe("bot.warm", () => {
 
     const rows = await getTestDb().select().from(usage).where(eq(usage.userId, user.id));
     const warm = rows.find((row) => row.kind === "warm");
-    expect(warm).toMatchObject({ sourceId: botId, cacheWriteTokens: 40, inputTokens: 80 });
+    expect(warm).toMatchObject({ sourceId: botId, cacheWriteTokens: 40, inputTokens: 40 });
     expect((await client.bot.get({ botId })).warmings).toEqual([
       { id: warm!.id, at: warm!.createdAt, costMicros: warm!.costMicros },
     ]);
   });
 
-  it("warms an OpenAI GPT-5.6 Bot with prompt_cache_options.prewarm and its prompt_cache_key", async () => {
-    const { fake, user, client, botId } = await botWith([round(), warmRound()], "openai:gpt-5.6");
+  it("warms an OpenAI GPT-6 Luna Bot with prompt_cache_options.prewarm and its prompt_cache_key", async () => {
+    const { fake, user, client, botId } = await botWith(
+      [round(), warmRound()],
+      "openai:gpt-6-luna",
+    );
     await send(client, botId, "hi");
     await ageCalls(user.id, 26);
 
@@ -214,7 +218,7 @@ describe("bot.warm", () => {
     });
     expect(anthropic.fake.calls).toHaveLength(1);
 
-    const openai = await botWith([round(), warmRound()], "openai:gpt-5.6");
+    const openai = await botWith([round(), warmRound()], "openai:gpt-6-luna");
     await send(openai.client, openai.botId, "hi");
     await ageCalls(openai.user.id, 24);
     expect(await openai.client.bot.warm({ botId: openai.botId })).toEqual({
@@ -278,7 +282,10 @@ describe("bot.warm", () => {
   });
 
   it("skips while a Turn runs", async () => {
-    const { fake, user, client, botId } = await botWith([round(), warmRound()], "openai:gpt-5.6");
+    const { fake, user, client, botId } = await botWith(
+      [round(), warmRound()],
+      "openai:gpt-6-luna",
+    );
     await send(client, botId, "hi");
     await ageCalls(user.id, 60);
     await getTestDb().update(botTurn).set({ status: "running" }).where(eq(botTurn.botId, botId));
@@ -326,7 +333,10 @@ describe("bot.warm", () => {
   });
 
   it("is refused for another user's Bot", async () => {
-    const { deps, user, client, botId } = await botWith([round(), warmRound()], "openai:gpt-5.6");
+    const { deps, user, client, botId } = await botWith(
+      [round(), warmRound()],
+      "openai:gpt-6-luna",
+    );
     await send(client, botId, "hi");
     await ageCalls(user.id, 60);
     const other = chatRpc({ user: await insertUser(), deps });

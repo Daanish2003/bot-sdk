@@ -31,7 +31,7 @@ import { insertUser } from "../../../support/users";
 import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
 import { followSend } from "../../../support/follow-send";
 
-const model = "openai:gpt-5.6";
+const model = "openai:gpt-6-luna";
 const hostModel = "anthropic:claude-sonnet-5-5";
 const hostProviders: HostProvider[] = [
   {
@@ -272,7 +272,7 @@ const hasImage = (call: TextOptions) =>
 
 describe("the drafting pass", { timeout: 30_000 }, () => {
   it("makes one call with no tools on the Bot's model, given the goal, inputs, steps and screenshots", async () => {
-    const { fake, done } = await demonstrating({
+    const { fake, done, botId } = await demonstrating({
       drafts: [round(text(skillText("copy-payouts")))],
     });
 
@@ -281,6 +281,7 @@ describe("the drafting pass", { timeout: 30_000 }, () => {
     const drafts = fake.calls.filter(isDraft);
     expect(drafts).toHaveLength(1);
     const [call] = drafts;
+    expect(call!.threadId).toBe(botId);
     expect(call!.tools ?? []).toEqual([]);
     const input = textOf((call!.messages ?? []) as ModelMessage[]);
     expect(input).toContain(goal);

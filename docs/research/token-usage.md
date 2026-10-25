@@ -18,7 +18,7 @@ How to read the sources:
    - **Don't use `onFinish`.** Its `usage` holds only the last iteration.
    - **When usage is missing.** It is absent whenever a run errors, is stopped, or (on several adapters) hits the output cap. So a quota that needs a number must fall back to an estimate for those runs: characters ÷ 4 for the prompt plus the streamed text.
 2. **Normalise usage before you price or count it.**
-   - **Cache tokens.** Anthropic and Bedrock report `promptTokens` _without_ cache reads and writes. The OpenAI-shaped adapters (Responses and Chat Completions) and Gemini report it _with_ cached tokens.
+   - **Cache tokens.** Anthropic and Bedrock report `promptTokens` _without_ cache reads and writes. The OpenAI-shaped adapters (Responses and Chat Completions) and Gemini report it _with_ cached tokens. _Update (#844): since TanStack AI 1.0, Anthropic and Bedrock count them in `promptTokens` too, so nothing is added back._
    - **Reasoning tokens.** These sit inside `completionTokens` everywhere they are reported. Gemini may be the exception (see §1).
    - **Cost.** No adapter except OpenRouter fills `cost`. Compute cost yourself from a price table.
 3. **Keep context window, max output and price on the curated Model list, seeded from models.dev.**
@@ -193,7 +193,7 @@ On the wire (AG-UI) it travels as `usage[]` with `inputTokens`, `outputTokens`, 
 
 **What makes it inconsistent:**
 
-- **Prompt totals.** `promptTokens` means "uncached input" on Anthropic and Bedrock, and "all input" elsewhere.
+- **Prompt totals.** `promptTokens` means "uncached input" on Anthropic and Bedrock, and "all input" elsewhere. _(Before TanStack AI 1.0; it means "all input" everywhere since, #844.)_
 - **Totals.** `totalTokens` is computed on Anthropic and Ollama, and reported by the Provider elsewhere.
 - **Cost.** Only OpenRouter fills `cost`.
 

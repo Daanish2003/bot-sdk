@@ -8,23 +8,20 @@ import {
 
 import type { MessageUsage } from "../shared/usage";
 
-/** Providers that report input without its cache reads and writes, so those are added back. */
-const cacheApartProviders = new Set(["anthropic", "bedrock"]);
-
 /** A Run's usage so far, with input including cached tokens. */
 export type RunUsage = Omit<MessageUsage, "estimated">;
 
-/** One model iteration's usage as `RUN_FINISHED` reports it, normalised across Providers. */
-export function normalizeUsage(provider: string, usage: TokenUsage): RunUsage {
-  const cached = usage.promptTokensDetails?.cachedTokens ?? 0;
-  const cacheWritten = usage.promptTokensDetails?.cacheWriteTokens ?? 0;
-  const cacheApart = cacheApartProviders.has(provider);
+/**
+ * One model iteration's usage as `RUN_FINISHED` reports it. Every Provider's input already counts
+ * its cache reads and writes (Anthropic's and Bedrock's too since TanStack AI 1.0).
+ */
+export function normalizeUsage(usage: TokenUsage): RunUsage {
   return {
-    input: usage.promptTokens + (cacheApart ? cached + cacheWritten : 0),
+    input: usage.promptTokens,
     output: usage.completionTokens,
     reasoning: usage.completionTokensDetails?.reasoningTokens ?? 0,
-    cached,
-    cacheWrite: cacheWritten,
+    cached: usage.promptTokensDetails?.cachedTokens ?? 0,
+    cacheWrite: usage.promptTokensDetails?.cacheWriteTokens ?? 0,
   };
 }
 
@@ -44,10 +41,7 @@ export function addUsage(total: RunUsage | undefined, next: RunUsage): RunUsage 
  * The usage and the Provider's reported cost of a call that returned its chunks whole (a title).
  * Summed over its `RUN_FINISHED` chunks as a Run's are; the cost only when every one reports one.
  */
-export function reportedUsageOf(
-  provider: string,
-  chunks: StreamChunk[],
-): { usage?: RunUsage; cost?: number } {
+export function reportedUsageOf(chunks: StreamChunk[]): { usage?: RunUsage; cost?: number } {
   let usage: RunUsage | undefined;
   let cost: number | undefined;
   let costComplete = true;
@@ -56,7 +50,7 @@ export function reportedUsageOf(
     // The AG-UI array form is converted back to TanStack's shape first.
     const tokens = Array.isArray(chunk.usage) ? fromSpecTokenUsage(chunk.usage) : chunk.usage;
     if (!tokens) continue;
-    usage = addUsage(usage, normalizeUsage(provider, tokens));
+    usage = addUsage(usage, normalizeUsage(tokens));
     if (tokens.cost === undefined) costComplete = false;
     else cost = (cost ?? 0) + tokens.cost;
   }

@@ -203,7 +203,7 @@ async function record(script: Script, databaseUrl: string) {
   const env: TurnEnv = {
     db,
     sdk,
-    model: "openai:gpt-5.6",
+    model: "openai:gpt-6-luna",
     credentialsFor: () => ({ apiKey: "sk-fake" }),
   };
   try {

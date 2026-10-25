@@ -14,7 +14,7 @@ import { auth, db } from "@/services";
  */
 export const turnOffTwoFactor = createServerFn({ method: "POST" })
   .middleware([adminMiddleware])
-  .inputValidator((input: unknown) => twoFactorOffInput.parse(input))
+  .validator((input: unknown) => twoFactorOffInput.parse(input))
   .handler(async ({ data, context }) => {
     await turnOffUserTwoFactor(
       {

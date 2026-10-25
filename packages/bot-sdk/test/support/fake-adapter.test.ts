@@ -30,7 +30,12 @@ describe("createFakeAdapter", () => {
   it("streams a scripted text reply through chat()", async () => {
     const fake = createFakeAdapter({ rounds: [round(text("Hi ", "there"))] });
 
-    const reply = await chat({ adapter: fake.adapter, messages: hello, stream: false });
+    const reply = await chat({
+      threadId: "test-thread",
+      adapter: fake.adapter,
+      messages: hello,
+      stream: false,
+    });
 
     expect(reply.text).toBe("Hi there");
     expect(fake.calls).toHaveLength(1);
@@ -39,7 +44,9 @@ describe("createFakeAdapter", () => {
   it("streams thinking as REASONING_* events", async () => {
     const fake = createFakeAdapter({ rounds: [round(thinking("Let me think"), text("Done"))] });
 
-    const chunks = await collect(chat({ adapter: fake.adapter, messages: hello }));
+    const chunks = await collect(
+      chat({ threadId: "test-thread", adapter: fake.adapter, messages: hello }),
+    );
 
     expect(deltas(chunks, EventType.REASONING_MESSAGE_CONTENT)).toEqual(["Let me think"]);
     expect(deltas(chunks, EventType.TEXT_MESSAGE_CONTENT)).toEqual(["Done"]);
@@ -63,6 +70,7 @@ describe("createFakeAdapter", () => {
     });
 
     const reply = await chat({
+      threadId: "test-thread",
       adapter: fake.adapter,
       messages: hello,
       tools: [lookup],
@@ -80,7 +88,9 @@ describe("createFakeAdapter", () => {
       rounds: [round(text("Partial"), runError("Rate limited", "rate_limited"))],
     });
 
-    const chunks = await collect(chat({ adapter: fake.adapter, messages: hello }));
+    const chunks = await collect(
+      chat({ threadId: "test-thread", adapter: fake.adapter, messages: hello }),
+    );
 
     expect(chunks.at(-1)).toMatchObject({ type: "RUN_ERROR", message: "Rate limited" });
     expect(chunks.some((chunk) => chunk.type === "RUN_FINISHED")).toBe(false);
@@ -90,7 +100,11 @@ describe("createFakeAdapter", () => {
     const fake = createFakeAdapter({ rounds: [round(text("a", "b"))], manual: true });
     const received: string[] = [];
     const done = (async () => {
-      for await (const chunk of chat({ adapter: fake.adapter, messages: hello })) {
+      for await (const chunk of chat({
+        threadId: "test-thread",
+        adapter: fake.adapter,
+        messages: hello,
+      })) {
         if (chunk.type === "TEXT_MESSAGE_CONTENT") received.push(chunk.delta);
       }
     })();
@@ -110,7 +124,7 @@ describe("createFakeAdapter", () => {
       rounds: [round(text("a"), runError("Boom")), round(text("unused"))],
       manual: true,
     });
-    const done = collect(chat({ adapter: fake.adapter, messages: hello }));
+    const done = collect(chat({ threadId: "test-thread", adapter: fake.adapter, messages: hello }));
 
     await fake.releaseAll();
     const chunks = await done;
@@ -121,7 +135,9 @@ describe("createFakeAdapter", () => {
   it("stops streaming when the run is aborted while a chunk is held", async () => {
     const fake = createFakeAdapter({ rounds: [round(text("never"))], manual: true });
     const abortController = new AbortController();
-    const done = collect(chat({ adapter: fake.adapter, messages: hello, abortController }));
+    const done = collect(
+      chat({ threadId: "test-thread", adapter: fake.adapter, messages: hello, abortController }),
+    );
 
     await fake.release(); // RUN_STARTED
     abortController.abort();
@@ -134,7 +150,9 @@ describe("createFakeAdapter", () => {
     const usage = { promptTokens: 12, completionTokens: 5, totalTokens: 17 };
     const fake = createFakeAdapter({ rounds: [withUsage(round(text("Hi")), usage)] });
 
-    const chunks = await collect(chat({ adapter: fake.adapter, messages: hello }));
+    const chunks = await collect(
+      chat({ threadId: "test-thread", adapter: fake.adapter, messages: hello }),
+    );
 
     expect(chunks.find((chunk) => chunk.type === "RUN_FINISHED")).toMatchObject({ usage });
   });
@@ -156,7 +174,9 @@ describe("createFakeAdapter", () => {
       ],
     });
 
-    const chunks = await collect(chat({ adapter: fake.adapter, messages: hello, tools: [lookup] }));
+    const chunks = await collect(
+      chat({ threadId: "test-thread", adapter: fake.adapter, messages: hello, tools: [lookup] }),
+    );
     const finishes = chunks.filter((chunk) => chunk.type === "RUN_FINISHED");
 
     expect(finishes).toHaveLength(2);

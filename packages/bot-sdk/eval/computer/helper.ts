@@ -17,7 +17,9 @@ import { computerOf } from "../../plugins/bot/server/computer-tools";
 import { bot } from "../../plugins/bot/server/plugin";
 import { job as jobTable } from "../../plugins/runner/server/db/job";
 import { runnerJobs } from "../../plugins/runner/server/plugin";
+import { chatgptPlanFromEnv } from "../chatgpt-plan";
 import { freshBot } from "../turn/case";
+import { keyFor } from "../turn/judge-model";
 import { helperStarts } from "../turn/ladder-score";
 import { helperCases } from "./helper-cases";
 import { helperTools, scoreHelperRun, typedTexts } from "./helper-score";
@@ -38,14 +40,6 @@ const resultsDir = join(here, "results");
 /** The longest a Helper may take to finish or hand off before the run is scored without it. */
 const helperDeadlineMs = 8 * 60_000;
 
-/** The API key variable of each Provider the eval may use. */
-const keyVariables: Record<string, string> = {
-  anthropic: "ANTHROPIC_API_KEY",
-  openai: "OPENAI_API_KEY",
-  gemini: "GEMINI_API_KEY",
-  openrouter: "OPENROUTER_API_KEY",
-};
-
 const percent = (rate: number | null) =>
   rate === null ? "   n/a" : `${(rate * 100).toFixed(1).padStart(5)}%`;
 
@@ -58,9 +52,9 @@ async function main() {
   if (cases.length === 0) fail(`No case named ${only}`);
   const model = process.env.EVAL_BOT_MODEL;
   if (!model) fail("EVAL_BOT_MODEL is not set. See packages/bot-sdk/eval/computer/README.md.");
-  const provider = model.split(":")[0]!;
-  const apiKey = process.env[keyVariables[provider] ?? ""];
-  if (!apiKey) fail(`${keyVariables[provider] ?? `A key for ${provider}`} is not set`);
+  // `null`: the Model runs on the owner's ChatGPT plan (eval/chatgpt-plan.ts), not on a key.
+  const plan = await chatgptPlanFromEnv();
+  const apiKey = keyFor(model, plan);
 
   const db = await prepareSchema(databaseUrlFromEnv());
   const computerProvider = localE2bProvider(process.env.EVAL_TEMPLATE ?? defaultTemplate);
@@ -84,12 +78,17 @@ async function main() {
       let observed: Record<string, unknown> = {};
       // Its own SDK and runner per run, stopped before the Computer is dropped: the Helper's report
       // starts a follow-up Turn that would otherwise wake the dropped Computer.
-      const sdk = createComputerSdk({ db, provider: computerProvider, more: [bot()] });
+      const sdk = createComputerSdk({
+        db,
+        provider: computerProvider,
+        more: [bot()],
+        models: (real) => ({ ...real, linkedCredentials: plan?.linkedCredentials }),
+      });
       const jobs = runnerJobs(sdk);
       await jobs.start();
       try {
         const fresh = await freshBot(
-          { db, sdk, model, credentialsFor: () => ({ apiKey }) },
+          { db, sdk, model, credentialsFor: () => (apiKey === null ? null : { apiKey }) },
           evalCase.id,
           repeat,
         );

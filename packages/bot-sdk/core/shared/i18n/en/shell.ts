@@ -16,6 +16,7 @@ export const shellMessages = {
   "shell.noMatchingModels": "No matching Models",
   "shell.readsImages": "Reads images",
   "shell.readsPdfs": "Reads PDFs",
+  "shell.usesComputer": "Can run a Computer-use Helper",
   "shell.usesTools": "Uses tools (web search)",
   "shell.installTitle": "Install ai-chat",
   "shell.install": "Install",

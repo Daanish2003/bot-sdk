@@ -23,7 +23,7 @@ import { insertUser } from "../../../support/users";
 
 vi.setConfig({ testTimeout: 30_000 });
 
-const model = "openai:gpt-5.6";
+const model = "openai:gpt-6-luna";
 const silent = { error: () => {} };
 const question = "Which color?";
 

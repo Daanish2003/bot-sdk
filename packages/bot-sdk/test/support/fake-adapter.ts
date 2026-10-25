@@ -81,7 +81,6 @@ export function toolCall({
       type: EventType.TOOL_CALL_START,
       toolCallId,
       toolCallName: name,
-      toolName: name,
       timestamp: Date.now(),
     },
     ...deltas.map((delta): AdapterYieldChunk => ({

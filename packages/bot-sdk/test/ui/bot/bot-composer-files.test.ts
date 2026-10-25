@@ -13,7 +13,7 @@ import { providerFor } from "../fake-dictionary";
 afterEach(cleanup);
 
 const createdAt = new Date("2026-10-23T09:00:00.000Z");
-const ada = { id: "b2", name: "Ada", model: "openai:gpt-5.6", createdAt };
+const ada = { id: "b2", name: "Ada", model: "openai:gpt-6-luna", createdAt };
 const fileId = (n: number) => `0199c8a0-0000-7000-8000-00000000000${n}`;
 
 type Upload = { file: File; finish: (result: string | { code: string; params: object }) => void };

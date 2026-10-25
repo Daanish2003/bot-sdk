@@ -16,7 +16,7 @@ import { withCacheControl } from "../../models/server/cache-control";
 import type { BotWarming } from "../shared/turn";
 import { promptCharactersOf, reportedUsageOf } from "../../models/server/run-usage";
 import { parseModelId } from "../../models/shared/models";
-import { pruneScreenshots, resolveImageRefs } from "./desktop-tools";
+import { pruneScreenshots, resolveImageRefs } from "./image-refs";
 import { latestPromptStart, loopPromptStart } from "./prompt-start";
 import { findBot, latestTurnStatus } from "./store";
 import { historyAfter } from "./summary";
@@ -192,6 +192,7 @@ async function warmCall(
     const chunks: StreamChunk[] = [];
     for await (const chunk of chat({
       adapter,
+      threadId: botId,
       messages,
       systemPrompts: start.system.map((block) => block.text),
     })) {
@@ -209,7 +210,7 @@ async function warmCall(
     deps.logger.error(`Warming the cache of Bot ${botId} failed`, caught);
     return "unavailable";
   }
-  const reported = reportedUsageOf(provider, finished);
+  const reported = reportedUsageOf(finished);
   // In a savepoint: the call is made, so a row that fails to save is logged, as `meter.record`
   // does, and never fails the warm.
   try {

@@ -44,7 +44,7 @@ import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import { followSend, sendAndFollow } from "../../../support/follow-send";
 
-const model = "openai:gpt-5.6";
+const model = "openai:gpt-6-luna";
 const sendToUser = "send_to_user";
 
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
@@ -326,6 +326,14 @@ describe("bot.send", () => {
     // The reminder Step answered with no text, so the reminder is the transcript's last entry.
     expect(turn?.transcript?.map((entry) => entry.role)).toEqual(["assistant", "user"]);
     expect(String(turn?.transcript?.at(-1)?.content)).toMatch(/not delivered/i);
+  });
+
+  it("runs every model call of a Turn on its Bot's thread", async () => {
+    const { client, botId, fake } = await botWith([round(text("Nothing to add here.")), round()]);
+
+    await send(client, botId, "ok");
+
+    expect(fake.calls.map((call) => call.threadId)).toEqual([botId, botId]);
   });
 
   it("appends one Message per SendToUser call, never the Model's plain text", async () => {
@@ -1462,10 +1470,10 @@ describe("a Turn's Quota and usage", () => {
 
   it("records an Anthropic Turn's cache reads and writes, with input as the total, at the cache prices", async () => {
     const cachedTurn = withUsage(round(sends({ text: "Hello!", endTurn: true })), {
-      // Anthropic reports input without its cache reads and writes.
-      promptTokens: 10,
+      // Anthropic reports input with its cache reads and writes in it.
+      promptTokens: 100,
       completionTokens: 10,
-      totalTokens: 20,
+      totalTokens: 110,
       promptTokensDetails: { cachedTokens: 80, cacheWriteTokens: 10 },
     });
     const { client, user, botId } = await hostBotWith([cachedTurn]);
