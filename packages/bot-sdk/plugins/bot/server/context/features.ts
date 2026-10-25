@@ -141,7 +141,8 @@ export type FeatureToolSet = {
  * `needsApproval` is Auto-reviewed instead of asked of the user. A tool named like one in `taken`
  * is left out and logged. A feature whose `tools` throws ends the Turn `error`, as a Connection
  * whose listing failed did. Each feature gets the section it gave in `sections`. Without `kit`,
- * only the definitions are read, as an away Summary does.
+ * only the definitions are read, as an away Summary does, and a feature whose `tools` throws is
+ * logged and left out.
  */
 export async function featureTools(
   deps: BotSdkContext,
@@ -168,19 +169,28 @@ export async function featureTools(
   );
   for (const { feature, context } of listed) {
     if (!feature.tools || (connectorsOnly && !feature.connectorTools)) continue;
-    const given = await feature.tools(
-      { ...turn, section: sections.find((read) => read.name === feature.id)?.section ?? null },
-      context,
-      kit && {
-        signal: kit.signal,
-        record: (list) => kit.record(feature.id, list),
-        taken: new Set(names),
-        computerCall: (name, toolCallId, operate) =>
-          kit.computerCall(name, toolCallId, (computer, live) => operate(computer, live)),
-        secretMask: async () =>
-          secretMasker((await loadSecretValues(deps, turn.userId, decrypted)).values()),
-      },
-    );
+    const section = sections.find((read) => read.name === feature.id)?.section ?? null;
+    let given: Awaited<ReturnType<NonNullable<typeof feature.tools>>>;
+    try {
+      given = await feature.tools(
+        { ...turn, section },
+        context,
+        kit && {
+          signal: kit.signal,
+          record: (list) => kit.record(feature.id, list),
+          taken: new Set(names),
+          computerCall: (name, toolCallId, operate) =>
+            kit.computerCall(name, toolCallId, (computer, live) => operate(computer, live)),
+          secretMask: async () =>
+            secretMasker((await loadSecretValues(deps, turn.userId, decrypted)).values()),
+        },
+      );
+    } catch (error) {
+      // A Turn's listing that throws ends it; only the definitions go on without this feature's.
+      if (kit) throw error;
+      deps.logger.error(`Feature "${feature.id}" failed to give its tools`, error);
+      continue;
+    }
     const { tools, missing, computerTools } = Array.isArray(given)
       ? { tools: given, missing: undefined, computerTools: undefined }
       : given;

@@ -17,7 +17,7 @@ export function skills() {
     demonstrations: true,
     router: { skills: skillsRouter },
     // Read once as a Turn starts: the section the Prompt start keeps, and what changed since.
-    prompt: async (turn, { computer }) => {
+    prompt: async (turn, { computer, logger }) => {
       // A Computer that can't be woken or read leaves the Turn without a Skills section; any
       // other failure, or a Stop or the time limit, throws.
       let lines;
@@ -27,6 +27,7 @@ export function skills() {
         });
       } catch (error) {
         if (turn.signal.aborted || !isComputerFailure(error)) throw error;
+        logger.error(`Reading the Skills of Bot ${turn.botId} failed`, error);
         return null;
       }
       return {

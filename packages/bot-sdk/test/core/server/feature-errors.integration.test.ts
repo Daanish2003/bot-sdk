@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { defineFeature } from "../../../core/server/index";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
-import { featureSectionsNow } from "../../../plugins/bot/server/context";
-import { ComputerUnavailableError } from "../../../plugins/computer/server/internal";
+import { featureSectionsNow, featureTools } from "../../../plugins/bot/server/context";
+import {
+  ComputerOperationError,
+  ComputerUnavailableError,
+} from "../../../plugins/computer/server/internal";
 import { knowledge } from "../../../plugins/knowledge/server/plugin";
 import { memory } from "../../../plugins/memory/server/feature";
 import { skills } from "../../../plugins/skills/server/plugin";
@@ -33,7 +36,8 @@ const failingComputer = (error: Error) => ({
     new Proxy(
       {},
       {
-        get: () => () => Promise.reject(error),
+        // Not a thenable: an awaited handle resolves to itself.
+        get: (_target, key) => (key === "then" ? undefined : () => Promise.reject(error)),
       },
     ),
 });
@@ -62,13 +66,15 @@ async function promptWith(feature: "memory" | "skills" | "knowledge", error: Err
 }
 
 describe("a feature's failure", { timeout: 30_000 }, () => {
-  it.each(["memory", "skills", "knowledge"] as const)(
-    "%s: a Computer that can't be woken leaves the Turn without the section",
-    async (feature) => {
-      const read = await promptWith(feature, new ComputerUnavailableError("u", new Error("down")));
-      expect(read?.section ?? null).toBeNull();
-    },
-  );
+  it.each(
+    (["memory", "skills", "knowledge"] as const).flatMap((feature) => [
+      [feature, "can't be woken", new ComputerUnavailableError("u", new Error("down"))] as const,
+      [feature, "can't be read", new ComputerOperationError(new Error("exit 1"))] as const,
+    ]),
+  )("%s: a Computer that %s leaves the Turn without the section", async (feature, _how, error) => {
+    const read = await promptWith(feature, error);
+    expect(read?.section ?? null).toBeNull();
+  });
 
   it.each(["memory", "skills", "knowledge"] as const)(
     "%s: any other failure throws, so the job retries",
@@ -101,5 +107,23 @@ describe("a feature's failure", { timeout: 30_000 }, () => {
     const context = { db: getTestDb(), logger: silent, clock: () => new Date() };
     const listed = await memory().tools!({ ...turnOf(user.id), section: null }, context as never);
     expect(listed).toEqual([]);
+  });
+
+  it("leaves out a feature whose tools throw when only the definitions are read, as an away Summary does", async () => {
+    const broken = defineFeature({
+      id: "broken",
+      tools: async () => {
+        throw new Error("tools failed");
+      },
+    });
+    const deps = createTestSdk({ features: [broken], logger: silent });
+    const user = await insertUser();
+    const definitionOnly = () => {
+      throw new Error("not called");
+    };
+
+    const listed = await featureTools(deps, turnOf(user.id), definitionOnly, new Set(), []);
+
+    expect(listed.tools).toEqual([]);
   });
 });

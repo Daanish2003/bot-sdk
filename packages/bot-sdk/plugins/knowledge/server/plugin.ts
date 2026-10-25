@@ -19,12 +19,13 @@ export function knowledge() {
     router: { knowledge: knowledgeRouter },
     // A Computer that can't be woken or read leaves the Turn without a Knowledge section; any
     // other failure, or a Stop or the time limit, throws.
-    prompt: async (turn, { computer }) => {
+    prompt: async (turn, { computer, logger }) => {
       let paths;
       try {
         paths = await readKnowledgePaths(computer.forUser(turn.userId), { signal: turn.signal });
       } catch (error) {
         if (turn.signal.aborted || !isComputerFailure(error)) throw error;
+        logger.error(`Reading the Knowledge of user ${turn.userId} failed`, error);
         return null;
       }
       return {
