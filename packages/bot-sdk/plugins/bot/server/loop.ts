@@ -101,12 +101,14 @@ export type LoopKit = {
   liveRequest: <T>(
     name: string,
     toolCallId: string | undefined,
-    run: (signal: AbortSignal) => Promise<T>,
+    run: () => Promise<T>,
     write: (tx: Transaction, result: T | string) => Promise<void>,
     reviewed?: Record<string, unknown>,
   ) => Promise<T | string | { error: string }>;
   /** The Computer's tools: Shell, then the file tools Read, Write, Edit and List. */
   computerTools: AnyServerTool[];
+  /** Aborts on a Stop or the loop's time limit. */
+  signal: AbortSignal;
   /**
    * A Computer tool call of the loop's, as tool call `toolCallId`: one activity, re-run after a
    * crash, that `operate`s live on the Computer. A failed wake or operation is its result, and
@@ -652,7 +654,7 @@ export async function runLoop(
       if (blocked) return blocked;
       const result = await ctx.activity(name, async () => {
         beforeLiveTool();
-        return capLong(await run(abortController.signal), toolCallId);
+        return capLong(await run(), toolCallId);
       });
       // Not past a limit or a Stop: what `run` did is written, whenever it ran.
       await ctx.activity(`${name}:write`, async (tx) => {
@@ -890,7 +892,13 @@ export async function runLoop(
   /** What the loop's model calls and tool calls added to its input, in order. */
   const messages: ModelMessage[] = [];
   try {
-    const setup = await options.setup({ liveActivity, liveRequest, computerTools, computerCall });
+    const setup = await options.setup({
+      liveActivity,
+      liveRequest,
+      computerTools,
+      signal: abortController.signal,
+      computerCall,
+    });
     const { tools, ended = () => false } = setup;
     promptStart = setup.promptStart;
     summarize = setup.promptStart ? setup.summarize : undefined;

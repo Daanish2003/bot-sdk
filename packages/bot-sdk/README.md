@@ -154,8 +154,8 @@ const chat = createBotSdk({
   getUser,
   keyEncryptionSecrets,
   basePath: "/api/chat",
-  plugins: [models(), runner(), memory(), knowledge(), bot()],
-  features: [skills(), mcp({ servers })],
+  plugins: [models(), runner(), memory(), bot()],
+  features: [skills(), knowledge(), mcp({ servers })],
 });
 
 // one catch-all route on your framework, for every chat call
@@ -242,7 +242,7 @@ export const chat = createBotSdk({
 
 The `memory` plugin keeps each Bot's file memory (ADR 0022), its post-turn pass, and the user's Memory switch. It requires `models` and `runner`: `plugins: [models(), runner(), memory(), bot()]`, with `memoryClient()` on the client. It's imported from `@ai-chat/bot-sdk/plugins/memory/server` (and `/client`, `/ui`). A Host turns Memory off by leaving it out: Bots then keep no Memory, and the keys page shows no Memory section.
 
-The `skills` feature (each Bot's `SKILL.md` files, spec #713, listed in `features`) and the `knowledge` plugin (a user's Knowledge as plain files, spec #737) keep their files on the user's Computer, so they need `computer`. Without it, Bots have no Knowledge, and `skills()` makes the factory throw.
+The `skills` feature (each Bot's `SKILL.md` files, spec #713) and the `knowledge` feature (a user's Knowledge as plain files, spec #737), both listed in `features`, keep their files on the user's Computer, so they need `computer`. Without it, `createBotSdk` throws for `skills()` and `knowledge()`.
 
 ## A Computer for Bots: `computer`
 

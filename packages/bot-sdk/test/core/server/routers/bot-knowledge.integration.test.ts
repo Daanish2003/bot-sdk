@@ -79,12 +79,8 @@ async function botWith(
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [
-      bot(),
-      ...(withComputer ? [computer({ provider: computerFake.provider })] : []),
-      ...(withKnowledge ? [knowledge()] : []),
-    ],
-    features: withComputer ? [skills()] : [],
+    plugins: [bot(), ...(withComputer ? [computer({ provider: computerFake.provider })] : [])],
+    features: [...(withComputer ? [skills()] : []), ...(withKnowledge ? [knowledge()] : [])],
     memory: withMemory,
     jobs,
     adapterFor: () => fake.adapter,
@@ -262,7 +258,10 @@ describe("the Knowledge block", { timeout: 30_000 }, () => {
   });
 
   it("is absent without the knowledge plugin, or without a Computer", async () => {
-    for (const options of [{ withKnowledge: false }, { withComputer: false, withMemory: false }]) {
+    for (const options of [
+      { withKnowledge: false },
+      { withComputer: false, withKnowledge: false, withMemory: false },
+    ]) {
       const { fake, client, botId } = await botWith([round()], options);
       await send(client, botId, "hi");
       expect(systemOf(turnCalls(fake.calls)[0]).join("\n")).not.toContain("Knowledge is in");

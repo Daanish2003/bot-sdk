@@ -347,12 +347,11 @@ describe("the Skills read", { timeout: 30_000 }, () => {
     const fake = createFakeAdapter({ rounds: [round()] });
     const computerFake = fakeComputerProvider({
       // The Skills read runs until it is killed.
-      onCommand: ({ command, signal }) => {
-        if (!command.includes(readSkillsScript)) return { exitCode: 0, stdout: "", stderr: "" };
+      holds: (command) => command.includes(readSkillsScript),
+      onCommand: ({ signal }) => {
         reading();
         return new Promise<CommandResult>((_resolve, reject) => {
           signal.addEventListener("abort", () => {
-            console.log("ABORT at", Date.now());
             reject(new Error("killed"));
           });
         });
@@ -394,29 +393,15 @@ describe("the Skills read", { timeout: 30_000 }, () => {
     const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: false });
     if (!claimed) throw new Error("Nothing to claim");
     const running = jobs.runClaimed(claimed);
-    await Promise.race([readStarted, new Promise((r) => setTimeout(r, 5000))]);
-    console.log(
-      "READ?",
-      computerFake.calls?.length,
-      computerFake.callsOf("run").map((c) => c.command.slice(0, 60)),
-    );
+    await readStarted;
 
-    console.log("STOP at", Date.now());
     await client.bot.stop({ botId });
-    console.log("STOPPED at", Date.now());
     // The running attempt sees the cancel at its next heartbeat.
     timer.tick();
     await running;
 
     const events = [];
     for await (const event of stream) events.push(event);
-    console.log(
-      "DBG",
-      JSON.stringify(events.map((e) => e.type)),
-      JSON.stringify(computerFake.callsOf("kill")),
-      JSON.stringify(await getTestDb().select().from(botTurn)).slice(0, 1500),
-      JSON.stringify(events).slice(0, 800),
-    );
     expect(events.at(-1)).toEqual({ type: "turnEnded", status: "stopped" });
     expect(computerFake.callsOf("kill")).toHaveLength(1);
   });

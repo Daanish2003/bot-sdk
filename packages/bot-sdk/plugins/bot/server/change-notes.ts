@@ -3,16 +3,7 @@ import { eq } from "drizzle-orm";
 
 import { botPromptStart } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
-import type { FeatureCall } from "../../../core/server/feature";
 import type { Transaction } from "../../../core/server/plugin";
-import {
-  byCodeUnit,
-  isMoreKnowledge,
-  knowledgeBlockLimit,
-  promptSafePath,
-} from "../../knowledge/server/prompt";
-import { knowledgeDirectory, readableCopyPath } from "../../knowledge/shared/folder";
-import { resolvePath } from "./computer-tools";
 import type { PromptStartTool } from "./db/bot-prompt-start";
 import type { FeatureSection } from "./features";
 import { canonicalJson, firstMessageSection, listedToolNames, sha256 } from "./prompt-start";
@@ -21,7 +12,7 @@ import { describeToolName, runToolName } from "./tool-search";
 
 /*
  * Change notes (slide 31, ADR 0022 amended): the Prompt start freezes the memory snapshot, the
- * Knowledge paths, the Routines and the tool definitions, so a Turn tells the Bot what changed since in
+ * Skills, the Knowledge paths, the Routines and the tool definitions, so a Turn tells the Bot what changed since in
  * short lines after the time in its newest message. What the Bot has already seen is the Prompt start plus
  * the notes already in the stored inputs of the Turns since, so nothing is stored for it.
  */
@@ -44,14 +35,13 @@ export type EarlierTurn = {
   promptStartId: string | null;
 };
 
-/** What a Turn reads now, as recorded activities: the memory block, the Routines and the tools. */
+/**
+ * What a Turn reads now, as recorded activities: the memory block, the Routines and the
+ * tools.
+ */
 export type CurrentState = {
   /** The memory block, or null with Memory off or unreadable. */
   memory: string | null;
-  /**
-   * The readable Knowledge paths, sorted, or null without the `knowledge` plugin or unreadable.
-   */
-  knowledge: string[] | null;
   /**
    * The enabled features' sections and their Change notes (spec #871). Each feature computes its
    * notes from its section in the Prompt start and the notes told since, so they are told as given.
@@ -75,10 +65,11 @@ const tierLabel: Record<Tier, string> = { profile: "Profile", log: "Log", notes:
 
 type MemoryLines = Record<Tier, string[]>;
 
-/** What the Bot has seen: the memory lines (null without a memory block), Routines and tools. */
+/**
+ * What the Bot has seen: the memory lines (null without a memory block), Routines and tools.
+ */
 type Seen = {
   memory: MemoryLines | null;
-  knowledge: SeenKnowledge | null;
   routines: Map<string, string>;
   /** Each sent tool's definition hash, and each deferred one's the Bot loaded with describe_tool. */
   tools: Map<string, string>;
@@ -100,31 +91,6 @@ function memoryLinesOf(block: string): MemoryLines {
     else if (tier && line.startsWith("- ")) lines[tier].push(line.slice(2));
   }
   return lines;
-}
-
-/**
- * The Knowledge paths a Knowledge block lists. A capped block lists only the first paths:
- * `listedUpTo` is then the last one it lists, and the Bot was told of none after it.
- */
-type SeenKnowledge = { paths: Set<string>; listedUpTo: string | undefined };
-
-/** A Knowledge block's paths. */
-function knowledgeOf(block: string): SeenKnowledge {
-  const paths = new Set<string>();
-  let capped = false;
-  for (const line of block.split("\n")) {
-    if (isMoreKnowledge(line)) capped = true;
-    if (line.startsWith("- ")) paths.add(line.slice(2));
-  }
-  return { paths, listedUpTo: capped ? [...paths].at(-1) : undefined };
-}
-
-/** The path inside the Knowledge folder that `path` is, resolved as the write tool resolves it. */
-function knowledgeTarget(botId: string, path: string): string | undefined {
-  const resolved = resolvePath(botId, path);
-  return resolved.startsWith(`${knowledgeDirectory}/`)
-    ? resolved.slice(knowledgeDirectory.length + 1)
-    : undefined;
 }
 
 /** A Routines block's lines by Routine name. */
@@ -190,9 +156,6 @@ function applyNotes(seen: Seen, notes: string[]) {
       else removeOne(lines, memory[3]!);
       continue;
     }
-    const knowledge = /^Knowledge (added|removed): (.*)$/.exec(note);
-    if (knowledge && knowledge[1] === "added") seen.knowledge?.paths.add(knowledge[2]!);
-    if (knowledge && knowledge[1] === "removed") seen.knowledge?.paths.delete(knowledge[2]!);
     const routine = /^Routine (?:created|approved|changed): (.*)$/.exec(note);
     if (routine) seen.routines.set(routine[1]!.split("  ")[0]!, routine[1]!);
     const deleted = /^Routine deleted: (.*)$/.exec(note);
@@ -246,40 +209,6 @@ function describedTool(content: ModelMessage["content"]): PromptStartTool | unde
 }
 
 /**
- * The calls in an earlier Turn's `transcript` that came back without an error (one that came back
- * with one changed nothing), in order. A call through `run_tool` is the named tool's call.
- */
-export function successfulCalls(transcript: ModelMessage[]): FeatureCall[] {
-  const failed = new Set(
-    transcript.flatMap((entry) =>
-      entry.role === "tool" && entry.toolCallId && resultFailed(entry.content)
-        ? [entry.toolCallId]
-        : [],
-    ),
-  );
-  const calls: FeatureCall[] = [];
-  for (const call of transcript.flatMap((entry) => entry.toolCalls ?? [])) {
-    if (failed.has(call.id)) continue;
-    try {
-      let tool = call.function.name;
-      let args: unknown = JSON.parse(call.function.arguments);
-      if (tool === runToolName) {
-        const wrapped = args as { name?: unknown; args?: unknown };
-        if (typeof wrapped.name !== "string") continue;
-        tool = wrapped.name;
-        args = wrapped.args;
-      }
-      if (typeof args === "object" && args !== null) {
-        calls.push({ tool, args: args as Record<string, unknown> });
-      }
-    } catch {
-      continue;
-    }
-  }
-  return calls;
-}
-
-/**
  * Applies the Bot's own memory writes and Routine tool calls in an earlier Turn's `transcript` to
  * `seen`: it knows what it did, so it gets no note for it. Only its `write` and `edit` calls count
  * for memory, not a shell command. A tool it loaded with `describe_tool` is seen as loaded, so a
@@ -299,10 +228,31 @@ function applyOwnCalls(botId: string, seen: Seen, transcript: ModelMessage[]) {
     const tool = describedTool(entry.content);
     if (tool) seen.tools.set(tool.name, toolHash(tool));
   }
-  for (const { tool: toolName, args } of successfulCalls(transcript) as Array<{
-    tool: string;
-    args: CallArguments;
-  }>) {
+  // A call that came back with an error changed nothing.
+  const failed = new Set(
+    transcript.flatMap((entry) =>
+      entry.role === "tool" && entry.toolCallId && resultFailed(entry.content)
+        ? [entry.toolCallId]
+        : [],
+    ),
+  );
+  for (const call of transcript.flatMap((entry) => entry.toolCalls ?? [])) {
+    if (failed.has(call.id)) continue;
+    let args: CallArguments;
+    let toolName = call.function.name;
+    try {
+      args = JSON.parse(call.function.arguments) as CallArguments;
+      // A call through `run_tool` is the named tool's call.
+      if (toolName === runToolName) {
+        const wrapped = args as { name?: unknown; args?: unknown };
+        if (typeof wrapped.name !== "string" || typeof wrapped.args !== "object" || !wrapped.args)
+          continue;
+        toolName = wrapped.name;
+        args = wrapped.args as CallArguments;
+      }
+    } catch {
+      continue;
+    }
     if (typeof args.name === "string") {
       if (toolName === createRoutineToolName || toolName === updateRoutineToolName) {
         seen.routines.set(args.name, ownRoutine);
@@ -311,13 +261,6 @@ function applyOwnCalls(botId: string, seen: Seen, transcript: ModelMessage[]) {
       }
     }
     if (toolName !== "write" && toolName !== "edit") continue;
-    // The Bot knows the Knowledge files it saved.
-    const saved = typeof args.path === "string" ? knowledgeTarget(botId, args.path) : undefined;
-    if (saved !== undefined) {
-      // A path the Knowledge block never lists is never noted either.
-      if (promptSafePath(saved)) seen.knowledge?.paths.add(saved);
-      continue;
-    }
     if (!memory) continue;
     const target = typeof args.path === "string" ? memoryTarget(botId, args.path) : undefined;
     if (!target) continue;
@@ -362,10 +305,8 @@ export async function changeNotesFor(
   if (!start) return undefined;
   const block = (name: string) => start.sections.find((section) => section.name === name)?.text;
   const memoryBlock = block("memory");
-  const knowledgeBlock = block("knowledge");
   const seen: Seen = {
     memory: memoryBlock === undefined ? null : memoryLinesOf(memoryBlock),
-    knowledge: knowledgeBlock === undefined ? null : knowledgeOf(knowledgeBlock),
     routines: routinesOf(block("routines")),
     tools: new Map(start.tools.map((tool) => [tool.name, toolHash(tool)])),
     listed: listedToolNames(block(firstMessageSection) ?? ""),
@@ -392,37 +333,6 @@ export async function changeNotesFor(
   }
   // The features' notes, as each computed them from what the Bot has seen.
   for (const { changeNotes } of current.features ?? []) notes.push(...changeNotes);
-  if (seen.knowledge && current.knowledge !== null) {
-    const { paths, listedUpTo } = seen.knowledge;
-    const now = new Set(current.knowledge);
-    // A path past a capped block's last line was never listed, so it is no news. A content edit
-    // needs no note either: the Bot reads the file fresh.
-    const knowledgeNotes = [
-      ...current.knowledge
-        .filter((path) => !paths.has(path))
-        .filter((path) => listedUpTo === undefined || byCodeUnit(path, listedUpTo) < 0)
-        .map((path) => `Knowledge added: ${path}`),
-      // A file converted since is still there: its readable copy, noted as added, stands for it.
-      ...[...paths]
-        .filter((path) => {
-          const copy = readableCopyPath(path);
-          return !now.has(path) && (copy === undefined || !now.has(copy));
-        })
-        .map((path) => `Knowledge removed: ${path}`),
-    ];
-    // Capped like the block: the notes left out are told again next Turn, until a Summary.
-    let length = 0;
-    for (const [index, note] of knowledgeNotes.entries()) {
-      length += note.length + 1;
-      if (length > knowledgeBlockLimit) {
-        notes.push(
-          `Knowledge changes: ${knowledgeNotes.length - index} more; use \`list\` to see them`,
-        );
-        break;
-      }
-      notes.push(note);
-    }
-  }
   const routines = routinesOf(current.routines);
   for (const [name, line] of routines) {
     const before = seen.routines.get(name);

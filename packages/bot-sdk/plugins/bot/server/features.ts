@@ -5,11 +5,11 @@ import { botPromptStart, botTurn } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import {
   enabledFeatures,
-  type FeatureEarlierTurn,
+  type FeaturePromptTurn,
   type FeatureTurn,
 } from "../../../core/server/feature";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
-import { notesIn, successfulCalls } from "./change-notes";
+import { notesIn } from "./change-notes";
 import type { LoopKit } from "./loop";
 import { latestPromptStartId } from "./prompt-start";
 import { summaryOf } from "./summary";
@@ -36,40 +36,39 @@ export const takenNames = (tools: readonly AnyServerTool[]): ReadonlySet<string>
   new Set(["describe_tool", "run_tool", ...tools.map((tool) => tool.name)]);
 
 /**
- * The sections of the Bot's latest Prompt start, by name, and the Turns since (but `turnId`): what
- * they were told and what the Bot did in them, which is what the Bot has seen. A mid-Turn Summary's
- * Turn counts too, since its Prompt start was built from what that Turn read at its start. Nothing
- * before the Bot's first Prompt start.
+ * The sections of the Bot's latest Prompt start, by name, and the Turns since (but `turnId`):
+ * what the Bot has seen. Nothing before the Bot's first Prompt start.
  */
 async function seenSince(
   db: Database,
   botId: string,
   turnId: string,
-): Promise<{ sections: Map<string, string>; earlier: FeatureEarlierTurn[] }> {
+): Promise<{ sections: Map<string, string>; earlier: FeaturePromptTurn["earlier"] }> {
   const id = await latestPromptStartId(db, botId);
   if (!id) return { sections: new Map(), earlier: [] };
-  const summary = await summaryOf(db, id);
-  const midTurn = summary?.kind === "mid_turn" ? summary.turnId : undefined;
   const [row] = await db
     .select({ sections: botPromptStart.sections })
     .from(botPromptStart)
     .where(eq(botPromptStart.id, id));
+  // A mid-Turn Summary's Prompt start was built from what its Turn read at its start, so what the
+  // Bot saw and did in that Turn counts as seen since it too.
+  const summary = await summaryOf(db, id);
+  const mid = summary?.kind === "mid_turn" ? summary : undefined;
   const turns = await db
     .select({ input: botTurn.input, transcript: botTurn.transcript })
     .from(botTurn)
     .where(
       and(
-        eq(botTurn.botId, botId),
-        or(eq(botTurn.promptStartId, id), midTurn ? eq(botTurn.id, midTurn) : undefined),
+        or(eq(botTurn.promptStartId, id), mid?.turnId ? eq(botTurn.id, mid.turnId) : undefined),
         ne(botTurn.id, turnId),
       ),
     )
-    .orderBy(asc(botTurn.startedAt), asc(botTurn.id));
+    .orderBy(asc(botTurn.startedAt));
   return {
     sections: new Map((row?.sections ?? []).map(({ name, text }) => [name, text])),
     earlier: turns.map((turn) => ({
-      told: notesIn(turn.input ?? []),
-      calls: successfulCalls(turn.transcript ?? []),
+      notes: notesIn(turn.input ?? []),
+      transcript: turn.transcript ?? [],
     })),
   };
 }
@@ -87,7 +86,7 @@ export async function featureSectionsNow(
   const prompting = enabledFeatures(deps).filter(({ feature }) => feature.prompt);
   if (!prompting.length) return [];
   const { sections: built, earlier } = await seenSince(deps.db, turn.botId, turn.id);
-  const told = earlier.flatMap((turn) => turn.told);
+  const told = earlier.flatMap((earlierTurn) => earlierTurn.notes);
   const sections: FeatureSection[] = [];
   for (const { feature, context } of prompting) {
     try {
@@ -103,7 +102,7 @@ export async function featureSectionsNow(
         });
       }
     } catch (error) {
-      // A Stop ends the Turn; it is not the feature failing.
+      // A Stop or the time limit ends the Turn, not just the feature.
       signal.throwIfAborted();
       deps.logger.error(`Feature "${feature.id}" failed to give its Prompt start section`, error);
     }

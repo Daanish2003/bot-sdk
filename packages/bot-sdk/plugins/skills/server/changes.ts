@@ -1,5 +1,8 @@
-import type { FeatureEarlierTurn } from "../../../core/server/feature";
+import type { ModelMessage } from "@tanstack/ai";
+
+import type { FeaturePromptTurn } from "../../../core/server/feature";
 import { resolvePath } from "../../bot/server/computer-tools";
+import { runToolName } from "../../bot/server/tool-search";
 import { isSkillFile, type SkillLine, skillLineOf, skillsDirectory } from "./skills";
 
 /*
@@ -56,6 +59,53 @@ function descriptionIn(text: string): string | undefined {
   return value === undefined ? undefined : (/^(["'])(.*)\1$/.exec(value)?.[2] ?? value);
 }
 
+/** Whether a tool message's content is an error result. */
+function resultFailed(content: ModelMessage["content"]): boolean {
+  if (typeof content !== "string") return false;
+  try {
+    const result: unknown = JSON.parse(content);
+    return typeof result === "object" && result !== null && "error" in result;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The calls in an earlier Turn's `transcript` that came back without an error (one that came back
+ * with one changed nothing), in order. A call through `run_tool` is the named tool's call.
+ */
+function successfulCalls(
+  transcript: readonly ModelMessage[],
+): Array<{ tool: string; args: Record<string, unknown> }> {
+  const failed = new Set(
+    transcript.flatMap((entry) =>
+      entry.role === "tool" && entry.toolCallId && resultFailed(entry.content)
+        ? [entry.toolCallId]
+        : [],
+    ),
+  );
+  const calls: Array<{ tool: string; args: Record<string, unknown> }> = [];
+  for (const call of transcript.flatMap((entry) => entry.toolCalls ?? [])) {
+    if (failed.has(call.id)) continue;
+    try {
+      let tool = call.function.name;
+      let args: unknown = JSON.parse(call.function.arguments);
+      if (tool === runToolName) {
+        const wrapped = args as { name?: unknown; args?: unknown };
+        if (typeof wrapped.name !== "string") continue;
+        tool = wrapped.name;
+        args = wrapped.args;
+      }
+      if (typeof args === "object" && args !== null) {
+        calls.push({ tool, args: args as Record<string, unknown> });
+      }
+    } catch {
+      continue;
+    }
+  }
+  return calls;
+}
+
 /**
  * The Change notes for Bot `botId`'s Skills `now`, given the Skills block its Prompt start holds
  * (`built`) and the `earlier` Turns since: nothing without that block. The Bot was told the notes
@@ -65,20 +115,20 @@ function descriptionIn(text: string): string | undefined {
 export function skillChangeNotes(
   botId: string,
   built: string | null,
-  earlier: readonly FeatureEarlierTurn[],
+  earlier: FeaturePromptTurn["earlier"],
   now: SkillLine[],
 ): string[] {
   if (built === null) return [];
   const { lines, listedUpTo } = skillsOf(built);
   for (const turn of earlier) {
-    for (const note of turn.told) {
+    for (const note of turn.notes) {
       const changed = /^Skill (?:added|changed): (.*)$/.exec(note);
       const parts = changed && skillParts(changed[1]!);
       if (parts) lines.set(...parts);
       const removed = /^Skill removed: (.*)$/.exec(note);
       if (removed) lines.delete(removed[1]!);
     }
-    for (const { tool, args } of turn.calls) {
+    for (const { tool, args } of successfulCalls(turn.transcript)) {
       if (tool !== "write" && tool !== "edit") continue;
       const skill = typeof args.path === "string" ? skillTarget(botId, args.path) : undefined;
       if (skill === undefined) continue;

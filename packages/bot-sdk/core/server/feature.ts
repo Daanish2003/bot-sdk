@@ -1,5 +1,5 @@
 import type { AnyRouter } from "@orpc/server";
-import type { AnyServerTool } from "@tanstack/ai";
+import type { AnyServerTool, ModelMessage } from "@tanstack/ai";
 import { is } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 
@@ -75,17 +75,6 @@ export type FeatureTools =
       missing?: (name: string) => string | undefined;
     };
 
-/** A tool call the Bot made and that succeeded; a call through `run_tool` is the named tool's own. */
-export type FeatureCall = { tool: string; args: Record<string, unknown> };
-
-/** What the Bot saw and did in one earlier Turn since its Prompt start. */
-export type FeatureEarlierTurn = {
-  /** The Change notes the Turn was told. */
-  told: readonly string[];
-  /** The Bot's own successful tool calls in the Turn, in order. */
-  calls: readonly FeatureCall[];
-};
-
 /** What `prompt` is called with: the Turn, and what the Bot has seen of the feature's section. */
 export type FeaturePromptTurn = FeatureTurn & {
   /**
@@ -99,13 +88,13 @@ export type FeaturePromptTurn = FeatureTurn & {
    * among them.
    */
   told: readonly string[];
-  /** Aborts when the Turn is stopped: a read the feature makes outside the database ends then. */
-  signal: AbortSignal;
   /**
-   * The Bot's Turns since its Prompt start, oldest first, with what each was told and what the Bot
-   * did: it knows its own work, so a feature leaves that out of its Change notes.
+   * The Bot's Turns since its Prompt start was built, oldest first: the Change notes each was told
+   * and what it did (its transcript), for a feature to count what the Bot did itself as seen.
    */
-  earlier: readonly FeatureEarlierTurn[];
+  earlier: ReadonlyArray<{ notes: readonly string[]; transcript: readonly ModelMessage[] }>;
+  /** Aborts on a Stop or the time limit: whatever the feature reads for its section stops then. */
+  signal: AbortSignal;
 };
 
 /**

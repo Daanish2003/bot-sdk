@@ -147,10 +147,6 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
   const memory = await ctx.activity("memory", () =>
     memoryNow(deps, botId, seen.userId, ctx.signal),
   );
-  // And the Knowledge block.
-  const knowledge = await ctx.activity("knowledge", () =>
-    knowledgeNow(deps, seen.userId, ctx.signal),
-  );
   // And the features' sections (spec #871); with no feature, no activity, as before.
   const facts = featureTurnOf({
     id: seen.turnId,
@@ -179,7 +175,6 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
       },
       now,
       memory,
-      knowledge,
       features,
     );
     const id = await writeSummary(tx, { parts, prose: written.prose, kind: "away" });
@@ -298,25 +293,6 @@ async function memoryNow(
       computer: computerOf(deps, userId),
       signal,
     });
-  } catch {
-    signal.throwIfAborted();
-    return null;
-  }
-}
-
-/**
- * The Knowledge block as of now (spec #737), read through the user's Computer, or null without
- * the `computer` or `knowledge` plugin, or when it can't be read, as a Turn carries on with none.
- */
-async function knowledgeNow(
-  deps: BotSdkContext,
-  userId: string,
-  signal: AbortSignal,
-): Promise<string | null> {
-  if (!deps.hasPlugin("computer") || !deps.hasPlugin("knowledge")) return null;
-  const api = deps.plugin("knowledge");
-  try {
-    return api.prompt(await api.readablePaths({ computer: computerOf(deps, userId), signal }));
   } catch {
     signal.throwIfAborted();
     return null;

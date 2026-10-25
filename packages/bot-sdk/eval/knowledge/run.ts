@@ -111,7 +111,8 @@ async function main() {
   const sdk = createComputerSdk({
     db,
     provider: computerProvider,
-    more: [bot(), knowledge()],
+    more: [bot()],
+    features: [knowledge()],
     models: (real) =>
       fake
         ? {
