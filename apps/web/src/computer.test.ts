@@ -39,3 +39,18 @@ describe("computerProviderOf", () => {
     expect(provider).toEqual({ kind: "e2b-provider" });
   });
 });
+
+describe("e2bConfigOf", () => {
+  it("is none when E2B is unset, the config when all three are set, and fails on a partial config", async () => {
+    const { e2bConfigOf } = await import("./computer");
+    expect(e2bConfigOf({})).toBeUndefined();
+    expect(
+      e2bConfigOf({
+        E2B_API_KEY: e2b.apiKey,
+        E2B_API_URL: e2b.apiUrl,
+        E2B_SANDBOX_URL: e2b.sandboxUrl,
+      }),
+    ).toEqual(e2b);
+    expect(() => e2bConfigOf({ E2B_API_KEY: e2b.apiKey })).toThrow(/set together or not at all/);
+  });
+});

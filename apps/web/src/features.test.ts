@@ -15,7 +15,7 @@ const sdkWith = (computer: ComputerProvider | undefined) =>
     models: {},
     channels: [],
     computer,
-    features: [...computerFeatures(computer), mcp({ servers: [] })],
+    features: [...computerFeatures(computer !== undefined), mcp({ servers: [] })],
   });
 
 // Spec #871 user story 8: a Host with no Computer still starts, without the features that need one.
@@ -26,12 +26,12 @@ describe("computerFeatures", () => {
     expect("skills" in sdk).toBe(false);
     expect("knowledge" in sdk).toBe(false);
     expect("mcp" in sdk).toBe(true);
-    expect(computerFeatures(undefined)).toEqual([]);
+    expect(computerFeatures(false)).toEqual([]);
   });
 
   it("lists Memory, Skills and Knowledge, in that order, with a Computer", () => {
     const computer = { kind: "stub" } as unknown as ComputerProvider;
-    expect(computerFeatures(computer).map((entry) => entry.id)).toEqual([
+    expect(computerFeatures(true).map((entry) => entry.id)).toEqual([
       "memory",
       "skills",
       "knowledge",

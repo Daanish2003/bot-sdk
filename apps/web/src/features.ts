@@ -1,4 +1,3 @@
-import type { ComputerProvider } from "@ai-chat/bot-sdk/plugins/computer/server";
 import { knowledge } from "@ai-chat/bot-sdk/plugins/knowledge/server";
 import { memory } from "@ai-chat/bot-sdk/plugins/memory/server";
 import { skills } from "@ai-chat/bot-sdk/plugins/skills/server";
@@ -9,6 +8,6 @@ import { skills } from "@ai-chat/bot-sdk/plugins/skills/server";
  * Knowledge (spec #737), the user's shared Knowledge files and text extraction. A Host with no
  * Computer lists none of them, so it still starts and its Bots still work.
  */
-export function computerFeatures(computer: ComputerProvider | undefined) {
-  return computer ? [memory(), skills(), knowledge()] : [];
+export function computerFeatures(computerOn: boolean) {
+  return computerOn ? [memory(), skills(), knowledge()] : [];
 }

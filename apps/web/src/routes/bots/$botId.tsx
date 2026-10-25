@@ -3,19 +3,18 @@ import { EmailPopover } from "@ai-chat/bot-sdk/plugins/channel/ui";
 import { KnowledgeChip, KnowledgePopover } from "@ai-chat/bot-sdk/plugins/knowledge/ui";
 import { BotMemoryChip, BotMemoryPopover } from "@ai-chat/bot-sdk/plugins/memory/ui";
 import { BotSkillChip, BotSkillsPopover } from "@ai-chat/bot-sdk/plugins/skills/ui";
-import { createFileRoute } from "@tanstack/react-router";
-
-import { getComputerFeaturesOn } from "@/functions/computer-features";
+import { createFileRoute, getRouteApi } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/bots/$botId")({
   component: BotPage,
-  // Memory, Skills and Knowledge are features only with a Computer; without one, their controls are hidden.
-  loader: () => getComputerFeaturesOn(),
 });
+
+const botsRoute = getRouteApi("/bots");
 
 function BotPage() {
   const { botId } = Route.useParams();
-  const computerFeaturesOn = Route.useLoaderData();
+  // Memory, Skills and Knowledge are features only with a Computer; without one, their controls are hidden.
+  const { computerFeaturesOn } = botsRoute.useLoaderData();
   return (
     <BotConversation
       botId={botId}

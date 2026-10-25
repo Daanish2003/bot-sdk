@@ -21,7 +21,7 @@ import {
 } from "./host-models";
 import { linkedCredentialsHook } from "./chatgpt-link";
 import { cachedTokenFor, linkedCredentialsOf } from "./linked-credentials";
-import { computerProviderOf } from "./computer";
+import { computerProviderOf, e2bConfigOf } from "./computer";
 import { computerFeatures } from "./features";
 import { mcpServersOf } from "./mcp-server";
 import { trustedIpHeadersOf } from "./trusted-ip";
@@ -30,20 +30,8 @@ import { trustedIpHeadersOf } from "./trusted-ip";
 // Dockerfile, built into E2B as this name; changing it rebuilds every Computer on its next wake.
 export const computerTemplate = "ai-chat-computer-v3";
 
-// The three E2B values are set together or not at all, so a typo does not silently turn Computers off.
-const e2bValues = [ENV.E2B_API_KEY, ENV.E2B_API_URL, ENV.E2B_SANDBOX_URL];
-if (e2bValues.some(Boolean) && !e2bValues.every(Boolean)) {
-  throw new Error("E2B_API_KEY, E2B_API_URL and E2B_SANDBOX_URL are set together or not at all");
-}
-const e2b =
-  ENV.E2B_API_KEY && ENV.E2B_API_URL && ENV.E2B_SANDBOX_URL
-    ? { apiKey: ENV.E2B_API_KEY, apiUrl: ENV.E2B_API_URL, sandboxUrl: ENV.E2B_SANDBOX_URL }
-    : undefined;
-
-// The Bots' Computer (spec #519): on only when self-hosted E2B is configured.
-const computer = await computerProviderOf(e2b, computerTemplate);
-// Whether the Bot page shows Memory, Skills and Knowledge: they are listed only with a Computer.
-export const computerFeaturesOn = computer !== undefined;
+// The self-hosted E2B the Computers run on, or none; a partial config fails the start.
+const e2b = e2bConfigOf(ENV);
 
 export const db = createDb(ENV);
 // The OAuth values are optional outside production (see .env.schema); an empty id makes the
@@ -126,7 +114,8 @@ export const sdk = (shared.botSdk ??= createBotSdk({
   },
   // Background jobs (ADR 0011): no runner slot, so the in-process runner runs them.
 
-  computer,
+  // The Bots' Computer (spec #519): on only when self-hosted E2B is configured.
+  computer: await computerProviderOf(e2b, computerTemplate),
   // Channels (spec #761): each Bot's own email address. Mail comes in through Mailpit
   // (MAILPIT_API_URL, #773), which vouches for DMARC for every mail it holds, so it is for a Host
   // that only listens on localhost. With no Mailpit, the inbound route refuses every mail: the
@@ -149,7 +138,7 @@ export const sdk = (shared.botSdk ??= createBotSdk({
   },
   features: [
     // Memory, Skills and Knowledge need the Computer, so a Host without one lists none of them.
-    ...computerFeatures(computer),
+    ...computerFeatures(e2b !== undefined),
     // MCP (ADR 0027): the users' Connections to the Host's MCP servers (`MCP_SERVER_*`).
     mcp({ servers: mcpServersOf(ENV) }),
   ],
