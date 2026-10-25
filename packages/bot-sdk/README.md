@@ -116,11 +116,11 @@ The `runner` and `memory` plugins and the `skills` feature need nothing beyond `
 - The SDK's tables live in the `chat` schema of the Host's database, not in your ORM's schema. Your ORM's migrations never touch them.
 - The SDK's migrations are expand-then-contract: they add tables, columns and indexes, and never drop or rename one in the same release. The version still running during a deploy keeps working against the migrated schema.
 
-## File storage: `blobStore`
+## File storage: `blobs`
 
-File bytes go to a `BlobStore`, which `createBotSdk({ blobStore })` takes: the files a user sends their Bot and the files a Bot sends back. Names, types, sizes and owners stay in Postgres either way. The store holds bytes only, under keys the SDK makes up, such as `bot-file/<id>`.
+File bytes go to a `BlobStore`, which `createBotSdk({ blobs })` takes: the files a user sends their Bot and the files a Bot sends back. Names, types, sizes and owners stay in Postgres either way. The store holds bytes only, under keys the SDK makes up, such as `bot-file/<id>`.
 
-- **`postgresBlobStore()`** is the default: bytes in the `chat.blob` table of your database. Leave `blobStore` out and nothing changes.
+- **`postgresBlobStore()`** is the default: bytes in the `chat.blob` table of your database. Leave `blobs` out and nothing changes.
 - **`s3BlobStore({ endpoint, bucket, region, accessKeyId, secretAccessKey, forcePathStyle? })`** keeps bytes in any S3-compatible bucket, such as Cloudflare R2 (`region: "auto"`) or RustFS. It needs an existing bucket: the store never creates one, so the app needs no bucket-admin rights. It is built on `aws4fetch`, and `forcePathStyle` defaults to `true`.
 
 ```ts
@@ -130,7 +130,9 @@ const chat = createBotSdk({
   databaseUrl,
   getUser,
   keyEncryptionSecrets,
-  blobStore: s3BlobStore({
+  basePath: "/api/chat",
+  models: {},
+  blobs: s3BlobStore({
     endpoint: process.env.S3_ENDPOINT!,
     bucket: process.env.S3_BUCKET!,
     region: "auto",
@@ -498,7 +500,7 @@ It answers `202` at once, `413` to a body over 64 KB, and `404` to a token that 
 
 ## Several processes: `redisRuntime()`
 
-The processes of your app share signals (the data-less hints that a Bot's thread changed, ADR 0026) and rate-limit counters through the `runtime`. The default, `memoryRuntime()`, keeps them in one process's memory, which is fine for local development and for a Host that runs as a single process.
+The processes of your app share signals (the data-less hints that a Bot's thread changed, ADR 0026) and rate-limit counters through the `pubsub` slot. The default, `memoryRuntime()`, keeps them in one process's memory, which is fine for local development and for a Host that runs as a single process.
 
 **Use `redisRuntime()` when more than one process can serve requests, including the overlap of a zero-downtime deploy.** Without it, a tab connected to the other process misses the hints until it fetches the changes on its own, and each process counts rate limits by itself.
 
@@ -508,7 +510,8 @@ const chat = createBotSdk({
   getUser,
   keyEncryptionSecrets,
   basePath: "/api/chat",
-  runtime: redisRuntime({ url: process.env.REDIS_URL! }),
+  models: {},
+  pubsub: redisRuntime({ url: process.env.REDIS_URL! }),
 });
 ```
 
@@ -587,7 +590,7 @@ With no `servers`, the keys page shows no Connections section and connecting is 
 
 ## Rate limits
 
-The SDK limits a few actions per user, and the counters live in the `runtime`, so a limit holds across every process that shares it. An action over its limit answers 429 with `Retry-After` (in seconds).
+The SDK limits a few actions per user, and the counters live in the `pubsub` slot's runtime, so a limit holds across every process that shares it. An action over its limit answers 429 with `Retry-After` (in seconds).
 
 - `attachmentUpload`: Knowledge uploads and the files a user sends their Bot, together. Default 30 per 10 minutes.
 - `credentialSave`: Provider and Tool credential saves, each of which runs a check. Default 10 a minute.
