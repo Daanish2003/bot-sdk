@@ -1,5 +1,5 @@
 import type { AnyServerTool } from "@tanstack/ai";
-import { and, asc, eq, ne, or } from "drizzle-orm";
+import { and, asc, eq, lt, ne, or } from "drizzle-orm";
 
 import { botPromptStart, botTurn } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
@@ -49,6 +49,7 @@ async function seenSince(
   db: Database,
   botId: string,
   turnId: string,
+  startedAt: Date,
 ): Promise<{ sections: Map<string, string>; earlier: FeaturePromptTurn["earlier"] }> {
   const id = await latestPromptStartId(db, botId);
   if (!id) return { sections: new Map(), earlier: [] };
@@ -67,6 +68,8 @@ async function seenSince(
       and(
         or(eq(botTurn.promptStartId, id), mid?.turnId ? eq(botTurn.id, mid.turnId) : undefined),
         ne(botTurn.id, turnId),
+        // Only the Turns that started before this one: a later Turn is not seen by it.
+        lt(botTurn.startedAt, startedAt),
       ),
     )
     .orderBy(asc(botTurn.startedAt));
@@ -92,7 +95,7 @@ export async function featureSectionsNow(
 ): Promise<FeatureSection[]> {
   const prompting = enabledFeatures(deps).filter(({ feature }) => feature.prompt);
   if (!prompting.length) return [];
-  const { sections: built, earlier } = await seenSince(deps.db, turn.botId, turn.id);
+  const { sections: built, earlier } = await seenSince(deps.db, turn.botId, turn.id, startedAt);
   const told = earlier.flatMap((earlierTurn) => earlierTurn.notes);
   const sections: FeatureSection[] = [];
   for (const { feature, context } of prompting) {

@@ -264,6 +264,28 @@ describe("a feature built with defineFeature", { timeout: 30_000 }, () => {
     expect(newest.indexOf("note from zeta")).toBeLessThan(newest.indexOf("note from alpha"));
   });
 
+  it("counts only the Turns that started before the Turn it builds as seen", async () => {
+    const counts: number[] = [];
+    const watcher = defineFeature({
+      id: "watcher",
+      prompt: async (turn) => {
+        counts.push(turn.earlier.length);
+        return { section: "[Watcher]" };
+      },
+    });
+    const { client, botId } = await botWithPins([round(), round()], [watcher]);
+    await send(client, botId, "hi");
+    // A Turn of the same Prompt start that started after the next one: not yet seen by it.
+    const [first] = await getTestDb().select().from(botTurn).where(eq(botTurn.botId, botId));
+    await getTestDb()
+      .insert(botTurn)
+      .values({ ...first!, id: uuidv7(), startedAt: new Date(Date.now() + 3_600_000) });
+
+    await send(client, botId, "again");
+
+    expect(counts).toEqual([0, 1]);
+  });
+
   it("takes part in the user's export and delete", async () => {
     const { client, botId, user, deps } = await botWithPins([round(pinNote("buy milk")), round()]);
     await send(client, botId, "remember to buy milk");
