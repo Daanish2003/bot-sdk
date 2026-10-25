@@ -120,7 +120,6 @@ export const cancelCheckInToolName = "cancel_check_in";
 /** The Bot tool that lists its pending Check-ins (#540). */
 export const listCheckInsToolName = "list_check_ins";
 
-/** The tool that searches the Bot's memory files (ADR 0022). */
 export const searchMemoryToolName = "search_memory";
 
 const promptOpening =
@@ -361,17 +360,6 @@ const cancelCheckInDefinition = toolDefinition({
   description:
     "Cancel one of your pending Check-ins, by the id list_check_ins or set_check_in gave.",
   inputSchema: z.object({ id: z.uuid().meta({ description: "The Check-in id." }) }),
-});
-
-const searchMemoryDefinition = toolDefinition({
-  name: searchMemoryToolName,
-  description:
-    "Search your memory: your Profile, every Log month and your Notes, and all the Bots' " +
-    "Profiles. Returns the 10 best matching lines with file and date. Use it for what the " +
-    "memory in your prompt doesn't hold.",
-  inputSchema: z.object({
-    query: z.string().min(1).meta({ description: "What to look for in your memory" }),
-  }),
 });
 
 const listCheckInsDefinition = toolDefinition({
@@ -1144,13 +1132,11 @@ async function turnSetup(
   // The Computer's tools and Helpers, whenever `computer` is on: the tool set never changes
   // mid-conversation.
   const withComputer = deps.hasPlugin("computer");
-  const memory =
-    withComputer && deps.hasPlugin("memory") ? await memorySnapshot(deps, turn, kit) : null;
-  // The Skills, read in the same wake as the memory snapshot; on whatever the Memory switch says.
+  // The Skills, read in the same wake as the features' sections.
   const skills =
     withComputer && deps.hasPlugin("skills") ? await skillsSnapshot(deps, turn, kit) : null;
   const skillsBlock = skills && deps.plugin("skills").prompt(turn.botId, skills);
-  // The user's Knowledge, read in the same wake too; on whatever the Memory switch says.
+  // The user's Knowledge, read in the same wake too.
   const knowledge =
     withComputer && deps.hasPlugin("knowledge") ? await knowledgeSnapshot(deps, turn, kit) : null;
   const knowledgeBlock = knowledge && deps.plugin("knowledge").prompt(knowledge);
@@ -1168,8 +1154,6 @@ async function turnSetup(
   const features = Array.isArray(read) ? read : [];
   const coreTools = turnTools(deps, turn, kit, {
     withComputer,
-    // Present whenever the snapshot is: it reads through the Computer like the snapshot does.
-    withMemorySearch: memory !== null,
     onLastMessage: () => {
       endTurn = true;
     },
@@ -1177,7 +1161,7 @@ async function turnSetup(
   // The features' tools, never shadowing the core's.
   const ownTools = [
     ...coreTools,
-    ...featureTools(deps, facts, kit.liveRequest, takenNames(coreTools)),
+    ...(await featureTools(deps, facts, kit.liveRequest, takenNames(coreTools))),
   ];
   // The Connector tools, listed once as the Turn starts: nothing is kept from an earlier Turn.
   const connectors = deps.hasPlugin("mcp")
@@ -1197,7 +1181,6 @@ async function turnSetup(
       tools,
       withComputer,
       withConnectors: deps.hasPlugin("mcp"),
-      memory,
       skills: skillsBlock,
       knowledge: knowledgeBlock,
       features,
@@ -1215,10 +1198,9 @@ async function turnSetup(
   const seenSince: EarlierTurn[] = earlier.map((row) =>
     summary?.kind === "mid_turn" && row.id === summary.turnId ? { ...row, promptStartId: id } : row,
   );
-  // What changed since the Prompt start, from what this Turn read: the memory block, the Skills,
+  // What changed since the Prompt start, from what this Turn read: the features' sections, the Skills,
   // the Knowledge and the Routines as recorded above, and the live tools.
   const changeNotes = await changeNotesFor(db, id, seenSince, {
-    memory,
     skills,
     knowledge,
     features,
@@ -1244,7 +1226,7 @@ async function turnSetup(
 
 /**
  * The Bot's tools for a Turn, run through the loop's `kit`: SendToUser, the Routine and Check-in
- * tools, web search, `search_memory` with `withMemorySearch`, and with `withComputer` the
+ * tools, web search, and with `withComputer` the
  * Computer's tools and the Helper tools, and `watch_user` too with the `skills` plugin. `onLastMessage` runs when SendToUser sends the Turn's last
  * Message.
  */
@@ -1252,11 +1234,7 @@ function turnTools(
   deps: BotSdkContext,
   turn: TurnFacts,
   kit: LoopKit,
-  {
-    withComputer,
-    withMemorySearch,
-    onLastMessage,
-  }: { withComputer: boolean; withMemorySearch: boolean; onLastMessage: () => void },
+  { withComputer, onLastMessage }: { withComputer: boolean; onLastMessage: () => void },
 ): AnyServerTool[] {
   const { liveActivity } = kit;
   const sendToUser = sendToUserDefinition.server(
@@ -1390,20 +1368,6 @@ function turnTools(
     })),
   );
 
-  const searchMemory = withMemorySearch
-    ? searchMemoryDefinition.server(async ({ query }, context) =>
-        kit.computerCall(searchMemoryToolName, context?.toolCallId, async (_computer, live) => ({
-          results: await deps.plugin("memory").searchBotMemory({
-            userId: turn.userId,
-            botId: turn.botId,
-            query,
-            now: deps.clock(),
-            computer: computerOf(deps, turn.userId),
-            signal: live.signal,
-          }),
-        })),
-      )
-    : null;
   return [
     sendToUser,
     createRoutine,
@@ -1413,7 +1377,6 @@ function turnTools(
     cancelCheckInToolImpl,
     listCheckInsTool,
     webSearchTool(deps, turn.userId, kit.liveRequest),
-    ...(searchMemory ? [searchMemory] : []),
     ...(withComputer ? [...kit.computerTools, ...helperTools(deps, turn, liveActivity)] : []),
     // Deferred, and listed on two Host settings, so the tool list never changes (spec #801).
     ...(withComputer && deps.plugin("models").hasHostImageModels
@@ -1436,7 +1399,6 @@ function startParts(
     tools,
     withComputer,
     withConnectors,
-    memory,
     skills,
     knowledge,
     features,
@@ -1446,7 +1408,6 @@ function startParts(
     withComputer: boolean;
     /** Whether the Host installs `mcp`, which puts connectors in the ladder. */
     withConnectors: boolean;
-    memory: string | null;
     /** The Skills block, null without the `skills` plugin or when it couldn't be read. */
     skills: string | null;
     /** The Knowledge block, null without the `knowledge` plugin or when it couldn't be read. */
@@ -1463,16 +1424,17 @@ function startParts(
     system: [
       { name: "rules", text: rules! },
       ...(computerBlock ? [{ name: "computer", text: computerBlock }] : []),
-      ...(memory ? [{ name: "memory", text: memory }] : []),
+      ...features.flatMap(({ name, section }) => (section ? [{ name, text: section }] : [])),
       ...(skills ? [{ name: "skills", text: skills }] : []),
       ...(knowledge ? [{ name: "knowledge", text: knowledge }] : []),
-      ...features.flatMap(({ name, section }) => (section ? [{ name, text: section }] : [])),
       ...(routines ? [{ name: "routines", text: routines }] : []),
     ],
     tools: [...tools.filter(isDirectTool), ...toolSearchTools(tools)],
     deferred: definitionsOf(tools.filter((tool) => !isDirectTool(tool))),
     computer: withComputer,
-    memory: Boolean(memory),
+    features: features.flatMap(({ environment }) =>
+      environment === undefined ? [] : [environment],
+    ),
   };
 }
 
@@ -1484,7 +1446,7 @@ const definitionOnly = (): never => {
 /**
  * What a Summary written while the user is away builds its Prompt start from, at `now`: the Bot's
  * tools and system blocks as a Turn starting now reads them, the Routines read in `tx`,
- * `memory`, the memory block read just before (null with Memory off or unreadable), and `skills`,
+ * `skills`,
  * the Skills block read with it (null without the `skills` plugin or unreadable), and `knowledge`,
  * the Knowledge block read with them (null without the `knowledge` plugin or unreadable). `turn`
  * is the Bot's newest Turn, which the Summary follows.
@@ -1494,7 +1456,6 @@ export async function awayStartParts(
   tx: Transaction,
   turn: Omit<TurnFacts, "startedAt" | "jobId">,
   now: Date,
-  memory: string | null,
   skills: string | null,
   knowledge: string | null,
   features: FeatureSection[],
@@ -1509,12 +1470,11 @@ export async function awayStartParts(
   const facts: TurnFacts = { ...turn, startedAt: now, jobId: null };
   const ownTools = turnTools(deps, facts, kit, {
     withComputer,
-    withMemorySearch: memory !== null,
     onLastMessage: definitionOnly,
   });
   const tools = [
     ...ownTools,
-    ...featureTools(deps, featureTurnOf(facts), definitionOnly, takenNames(ownTools)),
+    ...(await featureTools(deps, featureTurnOf(facts), definitionOnly, takenNames(ownTools))),
   ];
   const routines = (await routinesPrompt(tx, turn.botId)) ?? null;
   // The Connector tools are listed by a Turn, never here: the next Turn notes them as added.
@@ -1522,7 +1482,6 @@ export async function awayStartParts(
     tools,
     withComputer,
     withConnectors: deps.hasPlugin("mcp"),
-    memory,
     skills,
     knowledge,
     features,
@@ -1541,30 +1500,6 @@ const retiredTool = (stored: PromptStartTool) =>
       `${stored.name} is no longer available (a deploy removed it, or the feature behind it is ` +
       "off). Don't call it again; use another tool for the job, or tell the user it can't be done.",
   }));
-
-/**
- * The Bot's memory block as the Turn starts (ADR 0022), read once from the Computer as a Computer
- * call of the loop's, so a Stop or the time limit stops it: a replay reads the recorded block.
- * It reads through its own handle, so a rebuild is still told in the first tool result (#553).
- * Null with Memory off, or when the Computer can't be woken or read, so the Turn goes on without
- * it.
- */
-async function memorySnapshot(
-  deps: BotSdkContext,
-  turn: TurnFacts,
-  kit: LoopKit,
-): Promise<string | null> {
-  const read = await kit.computerCall("memory", undefined, async (_computer, live) => ({
-    prompt: await deps.plugin("memory").botSnapshot({
-      userId: turn.userId,
-      botId: turn.botId,
-      now: turn.startedAt,
-      computer: computerOf(deps, turn.userId),
-      signal: live.signal,
-    }),
-  }));
-  return "error" in read ? null : read.prompt;
-}
 
 /**
  * The Bot's Skills as the Turn starts (spec #713), read once from the Computer like the memory

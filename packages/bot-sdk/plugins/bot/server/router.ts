@@ -135,8 +135,8 @@ async function enqueueTurnJob(
 }
 
 /**
- * Chains the next Turn (#499), in the transaction that ended `turnId`: queues its memory pass with
- * `memory` on (ADR 0022), and if Triggers wait in its Conversation queue, a new Turn takes all of
+ * Chains the next Turn (#499), in the transaction that ended `turnId`: runs the features' `afterTurn`
+ * (the memory pass, ADR 0022), and if Triggers wait in its Conversation queue, a new Turn takes all of
  * them. Returns that Turn's id, or `undefined` when the
  * queue is empty. Call the runner's `wake()` once `tx` has committed.
  */
@@ -152,7 +152,6 @@ export async function turnEnded(
     .where(eq(botTurn.id, turnId));
   if (!ended) return undefined;
   await lockConversation(tx, ended.conversationId);
-  if (deps.hasPlugin("memory")) await deps.plugin("memory").afterTurn(tx, turnId);
   await featuresAfterTurn(deps, tx, { id: turnId, ...ended });
   return startTurn(deps, tx, ended.conversationId);
 }

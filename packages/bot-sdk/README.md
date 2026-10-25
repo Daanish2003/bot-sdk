@@ -154,7 +154,8 @@ const chat = createBotSdk({
   getUser,
   keyEncryptionSecrets,
   basePath: "/api/chat",
-  plugins: [models(), runner(), memory(), skills(), knowledge(), mcp(), bot()],
+  plugins: [models(), runner(), computer({ provider }), skills(), knowledge(), mcp(), bot()],
+  features: [memory()],
 });
 
 // one catch-all route on your framework, for every chat call
@@ -231,7 +232,7 @@ export const chatJob = task({
 // src/lib/chat.ts (where createBotSdk is called)
 export const chat = createBotSdk({
   /* ...as before */
-  plugins: [models(), runner({ jobs: triggerJobRunner({ taskId: "chat-job" }) }), memory()],
+  plugins: [models(), runner({ jobs: triggerJobRunner({ taskId: "chat-job" }) })],
 });
 ```
 
@@ -239,7 +240,7 @@ export const chat = createBotSdk({
 
 ## Memory: `memory`
 
-The `memory` plugin keeps each Bot's file memory (ADR 0022), its post-turn pass, and the user's Memory switch. It requires `models` and `runner`: `plugins: [models(), runner(), memory(), bot()]`, with `memoryClient()` on the client. It's imported from `@ai-chat/bot-sdk/plugins/memory/server` (and `/client`, `/ui`). A Host turns Memory off by leaving it out: Bots then keep no Memory, and the keys page shows no Memory section.
+The `memory` feature keeps each Bot's file memory (ADR 0022), its post-turn pass, the `search_memory` tool and the user's Memory switch. A Host turns it on in `features`: `features: [memory()]`, with `memoryClient()` on the client. It needs a Computer, where the files live: `createBotSdk` throws at construction when the `computer` plugin is missing. It's imported from `@ai-chat/bot-sdk/plugins/memory/server` (and `/client`, `/ui`). A Host turns Memory off by leaving it out: Bots then keep no Memory, and the keys page shows no Memory section.
 
 The `skills` plugin (each Bot's `SKILL.md` files, spec #713) and the `knowledge` plugin (a user's Knowledge as plain files, spec #737) keep their files on the user's Computer, so they need `computer`. Without it, Bots have no Skills and no Knowledge.
 

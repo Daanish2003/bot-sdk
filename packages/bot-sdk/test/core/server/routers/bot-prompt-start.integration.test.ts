@@ -211,7 +211,7 @@ describe("a Bot's Prompt start", () => {
     }
   });
 
-  it("says Computer, Memory and Helpers are off with no computer plugin", async () => {
+  it("says Computer and Helpers are off, and nothing of Memory, with no computer plugin", async () => {
     const { fake, client, botId } = await botWith([round()], { withComputer: false });
 
     await send(client, botId, "hi");
@@ -219,7 +219,8 @@ describe("a Bot's Prompt start", () => {
     const first = firstMessageOf(turnCalls(fake.calls)[0]);
     expect(first).toContain("The user's time zone: UTC");
     expect(first).toContain("Computer: off.");
-    expect(first).toContain("Memory: off.");
+    // Without the Memory feature the Prompt start says nothing about Memory.
+    expect(first).not.toContain("Memory:");
     expect(first).toContain("Helpers: off.");
     expect(first).not.toContain("/home/user");
   });

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
-import { bot, memorySettings } from "../../../core/server/db/schema";
+import { bot } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { exportUserData } from "../../../core/server/user-data";
 import { bot as botPlugin } from "../../../plugins/bot/server/plugin";
@@ -18,7 +18,8 @@ import {
   profilePath,
   type ExportedBotMemory,
 } from "../../../plugins/memory/server/bot-memory";
-import { memory as memoryPlugin } from "../../../plugins/memory/server/plugin";
+import { memorySettings } from "../../../plugins/memory/server/schema";
+import { memory } from "../../../plugins/memory/server/feature";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { models } from "../../../plugins/models/server/plugin";
 import { runner } from "../../../plugins/runner/server/plugin";
@@ -44,7 +45,14 @@ function chatFor() {
     getUser: () => null,
     keyEncryptionSecrets: [testKey],
     basePath: "/api/chat",
-    plugins: [models(), runner(), memoryPlugin(), botPlugin(), mcp()],
+    plugins: [
+      models(),
+      runner(),
+      computer({ provider: fakeComputerProvider().provider }),
+      botPlugin(),
+      mcp(),
+    ],
+    features: [memory()],
   });
 }
 

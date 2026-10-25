@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 
-import { memorySettings } from "../../../core/server/db/schema";
+import { memorySettings } from "./db/settings";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 
 /** What the Memory switch shows: the switch, and whether Bots can have memory. */

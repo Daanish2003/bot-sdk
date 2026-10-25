@@ -143,11 +143,7 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
   // A reply with no summary replaces nothing.
   if (!written?.prose.trim()) return;
 
-  // The memory block as a Turn starting now reads it, for the new Prompt start.
-  const memory = await ctx.activity("memory", () =>
-    memoryNow(deps, botId, seen.userId, ctx.signal),
-  );
-  // And the Skills block, read the same way.
+  // The Skills block as a Turn starting now reads it, for the new Prompt start.
   const skills = await ctx.activity("skills", () =>
     skillsNow(deps, botId, seen.userId, ctx.signal),
   );
@@ -182,7 +178,6 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
         model: seen.model,
       },
       now,
-      memory,
       skills,
       knowledge,
       features,
@@ -282,31 +277,6 @@ async function turnedSince(tx: Transaction, botId: string, seen: Seen): Promise<
   const newest = await newestTurn(tx, botId);
   if (newest?.id !== seen.turnId) return true;
   return (await latestPromptStartId(tx, botId)) !== seen.promptStartId;
-}
-
-/**
- * The Bot's memory block as of now (ADR 0022), read through its Computer, or null with Memory off,
- * or when it can't be read, as a Turn carries on with none.
- */
-async function memoryNow(
-  deps: BotSdkContext,
-  botId: string,
-  userId: string,
-  signal: AbortSignal,
-): Promise<string | null> {
-  if (!deps.hasPlugin("computer") || !deps.hasPlugin("memory")) return null;
-  try {
-    return await deps.plugin("memory").botSnapshot({
-      userId,
-      botId,
-      now: deps.clock(),
-      computer: computerOf(deps, userId),
-      signal,
-    });
-  } catch {
-    signal.throwIfAborted();
-    return null;
-  }
 }
 
 /**

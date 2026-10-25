@@ -1,13 +1,18 @@
 import type { AnyServerTool } from "@tanstack/ai";
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq, ne, or } from "drizzle-orm";
 
 import { botPromptStart, botTurn } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
-import { enabledFeatures, type FeatureTurn } from "../../../core/server/feature";
+import {
+  enabledFeatures,
+  type FeatureEarlierTurn,
+  type FeatureTurn,
+} from "../../../core/server/feature";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
-import { notesIn } from "./change-notes";
+import { notesIn, successfulCalls } from "./change-notes";
 import type { LoopKit } from "./loop";
 import { latestPromptStartId } from "./prompt-start";
+import { summaryOf } from "./summary";
 
 /*
  * The core's calls into the enabled features (spec #871): their tools and Prompt start sections
@@ -15,7 +20,13 @@ import { latestPromptStartId } from "./prompt-start";
  */
 
 /** A feature's part of a Turn's Prompt start: its section now, and its Change notes to tell. */
-export type FeatureSection = { name: string; section: string | null; changeNotes: string[] };
+export type FeatureSection = {
+  name: string;
+  section: string | null;
+  changeNotes: string[];
+  /** The feature's line for the first message's environment, if it gave one. */
+  environment?: string;
+};
 
 /** The Turn as a feature sees it (spec #871). */
 export const featureTurnOf = ({ id, userId, botId, conversationId }: FeatureTurn): FeatureTurn => ({
@@ -31,27 +42,40 @@ export const takenNames = (tools: readonly AnyServerTool[]): ReadonlySet<string>
 
 /**
  * The sections of the Bot's latest Prompt start, by name, and the Change notes the Turns since
- * (but `turnId`) were told: what the Bot has seen. Nothing before the Bot's first Prompt start.
+ * (but `turnId`) were told and did: what the Bot has seen. Nothing before the Bot's first Prompt
+ * start. The Turn a mid-Turn Summary was written in counts too: its Prompt start was built from what
+ * it read at its start.
  */
 async function seenSince(
   db: Database,
   botId: string,
   turnId: string,
-): Promise<{ sections: Map<string, string>; told: string[] }> {
+): Promise<{ sections: Map<string, string>; earlier: FeatureEarlierTurn[] }> {
   const id = await latestPromptStartId(db, botId);
-  if (!id) return { sections: new Map(), told: [] };
+  if (!id) return { sections: new Map(), earlier: [] };
   const [row] = await db
     .select({ sections: botPromptStart.sections })
     .from(botPromptStart)
     .where(eq(botPromptStart.id, id));
+  const summary = await summaryOf(db, id);
+  const midTurn = summary?.kind === "mid_turn" ? summary.turnId : null;
   const turns = await db
-    .select({ input: botTurn.input })
+    .select({ input: botTurn.input, transcript: botTurn.transcript })
     .from(botTurn)
-    .where(and(eq(botTurn.promptStartId, id), ne(botTurn.id, turnId)))
+    .where(
+      and(
+        or(eq(botTurn.promptStartId, id), midTurn ? eq(botTurn.id, midTurn) : undefined),
+        ne(botTurn.id, turnId),
+        eq(botTurn.botId, botId),
+      ),
+    )
     .orderBy(asc(botTurn.startedAt));
   return {
     sections: new Map((row?.sections ?? []).map(({ name, text }) => [name, text])),
-    told: turns.flatMap((turn) => notesIn(turn.input ?? [])),
+    earlier: turns.map((turn) => ({
+      notes: notesIn(turn.input ?? []),
+      calls: successfulCalls(turn.transcript ?? []),
+    })),
   };
 }
 
@@ -66,12 +90,13 @@ export async function featureSectionsNow(
 ): Promise<FeatureSection[]> {
   const prompting = enabledFeatures(deps).filter(({ feature }) => feature.prompt);
   if (!prompting.length) return [];
-  const { sections: built, told } = await seenSince(deps.db, turn.botId, turn.id);
+  const { sections: built, earlier } = await seenSince(deps.db, turn.botId, turn.id);
+  const told = earlier.flatMap(({ notes }) => notes);
   const sections: FeatureSection[] = [];
   for (const { feature, context } of prompting) {
     try {
       const read = await feature.prompt!(
-        { ...turn, built: built.get(feature.id) ?? null, told },
+        { ...turn, built: built.get(feature.id) ?? null, told, earlier },
         context,
       );
       if (read) {
@@ -79,6 +104,7 @@ export async function featureSectionsNow(
           name: feature.id,
           section: read.section,
           changeNotes: read.changeNotes ?? [],
+          ...(read.environment !== undefined && { environment: read.environment }),
         });
       }
     } catch (error) {
@@ -90,38 +116,49 @@ export async function featureSectionsNow(
 
 /**
  * The enabled features' tools for a Turn. Each call is a live request of the loop's, so a replay
- * reads its recorded result. A tool named like one in `taken` is left out and logged.
+ * reads its recorded result. A tool named like one in `taken` is left out and logged, and so are
+ * a feature's tools when it throws.
  */
-export function featureTools(
+export async function featureTools(
   deps: BotSdkContext,
   turn: FeatureTurn,
   liveRequest: LoopKit["liveRequest"],
   taken: ReadonlySet<string>,
-): AnyServerTool[] {
+): Promise<AnyServerTool[]> {
   const names = new Set(taken);
-  return enabledFeatures(deps).flatMap(({ feature, context }) =>
-    (feature.tools?.(turn, context) ?? []).flatMap((tool): AnyServerTool[] => {
+  const tools: AnyServerTool[] = [];
+  for (const { feature, context } of enabledFeatures(deps)) {
+    let given: AnyServerTool[];
+    try {
+      given = (await feature.tools?.(turn, context)) ?? [];
+    } catch (error) {
+      deps.logger.error(`Feature "${feature.id}" failed to give its tools`, error);
+      continue;
+    }
+    for (const tool of given) {
       if (names.has(tool.name)) {
         deps.logger.error(`Feature "${feature.id}" has a tool named like another: ${tool.name}`);
-        return [];
+        continue;
       }
       names.add(tool.name);
       const execute = tool.execute;
-      if (!execute) return [tool];
-      return [
-        {
-          ...tool,
-          execute: (args: unknown, options?: { toolCallId?: string }) =>
-            liveRequest(
-              tool.name,
-              options?.toolCallId,
-              () => execute(args, options as never),
-              async () => {},
-            ),
-        } as AnyServerTool,
-      ];
-    }),
-  );
+      if (!execute) {
+        tools.push(tool);
+        continue;
+      }
+      tools.push({
+        ...tool,
+        execute: (args: unknown, options?: { toolCallId?: string }) =>
+          liveRequest(
+            tool.name,
+            options?.toolCallId,
+            () => execute(args, options as never),
+            async () => {},
+          ),
+      } as AnyServerTool);
+    }
+  }
+  return tools;
 }
 
 /**

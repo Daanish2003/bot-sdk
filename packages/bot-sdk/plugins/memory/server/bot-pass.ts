@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { bot, botTrigger, botTurn, message } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
+import type { FeatureContext } from "../../../core/server/feature";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { searchTextOf } from "../../../core/shared/message-parts";
 import { lockConversation } from "../../bot/server/router";
@@ -93,11 +94,10 @@ export const botMemoryPassJob = defineJob<PassPayload>({
 
 /**
  * Queues Turn `turnId`'s pass in `tx`, the transaction that ends it, when it ended `complete` or
- * `stopped` and the user's Memory is on with a `computer` plugin. Call the runner's `wake()` once
- * `tx` has committed.
+ * `stopped` and the user's Memory is on. The runner is woken once `tx` has committed.
  */
 export async function enqueueBotMemoryPass(
-  deps: BotSdkContext,
+  { jobs }: Pick<FeatureContext<"computer">, "jobs">,
   tx: Transaction,
   turnId: string,
 ): Promise<void> {
@@ -107,10 +107,13 @@ export async function enqueueBotMemoryPass(
     .innerJoin(bot, eq(bot.id, botTurn.botId))
     .where(eq(botTurn.id, turnId));
   if (!turn || (turn.status !== "complete" && turn.status !== "stopped")) return;
-  if (!deps.hasPlugin("computer") || !(await memoryEnabledFor({ db: tx }, turn.userId))) return;
-  await deps
-    .plugin("runner")
-    .enqueueIn(tx, botMemoryPassJob.name, { turnId }, { idempotencyKey: `memory-pass:${turnId}` });
+  if (!(await memoryEnabledFor({ db: tx }, turn.userId))) return;
+  await jobs.enqueueIn(
+    tx,
+    botMemoryPassJob,
+    { turnId },
+    { idempotencyKey: `memory-pass:${turnId}` },
+  );
 }
 
 /**

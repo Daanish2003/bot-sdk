@@ -7,6 +7,7 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 
 import { postgresBlobStore } from "../../core/server/blob/postgres";
 import { createHookEmitter } from "../../core/server/chat/hooks";
+import type { FeatureEntry } from "../../core/server/create-chat";
 import { createDb, type Database } from "../../core/server/db/index";
 import { createGuardedFetch } from "../../core/server/lib/guarded-fetch";
 import { migrate as migrateChatSchema } from "../../core/server/migrate";
@@ -63,10 +64,12 @@ export function createComputerSdk(options: {
   db: Database;
   provider: ComputerProvider;
   more?: readonly BotSdkPlugin[];
+  /** Features, such as `memory()`; they get the Computer. */
+  features?: readonly FeatureEntry[];
   models?: (real: ModelsDeps) => ModelsDeps;
   wrapFetch?: (real: typeof globalThis.fetch) => typeof globalThis.fetch;
 }) {
-  const { db, provider, more = [], models, wrapFetch } = options;
+  const { db, provider, more = [], features, models, wrapFetch } = options;
   const logger: Pick<Console, "error"> = console;
   const events = createHookEmitter(undefined, logger);
   const guarded = createGuardedFetch({ schemes: "http-and-https" });
@@ -90,6 +93,7 @@ export function createComputerSdk(options: {
       },
       models: models ? models(real) : real,
       plugins: [computer({ provider }), ...more],
+      features,
     },
     { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
   ).sdk;

@@ -1,6 +1,7 @@
-import type { ModelMessage, TextOptions } from "@tanstack/ai";
+import { type ModelMessage, type TextOptions, toolDefinition } from "@tanstack/ai";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { deleteUserData, exportUserData } from "../../../core/server/user-data";
@@ -193,6 +194,42 @@ describe("a feature built with defineFeature", { timeout: 30_000 }, () => {
     // Inside the end's transaction, the Turn's row already holds its ended status.
     expect(await rowsOf(user.id, "turn_end")).toEqual(["complete"]);
     await expect.poll(() => rowsOf(user.id, "digest"), { timeout: 10_000 }).toEqual(["buy milk"]);
+  });
+
+  it("gives its tools asynchronously, a line of the first message's environment, and the earlier Turns' tool calls", async () => {
+    const lens = defineFeature({
+      id: "lens",
+      tools: async () => [
+        toolDefinition({
+          name: "lens_tool",
+          description: "Looks.",
+          inputSchema: z.object({}),
+        }).server(async () => ({ looked: true })),
+      ],
+      prompt: async (turn) => ({
+        section: "[Lens]",
+        environment: "Lens: on.",
+        changeNotes: [
+          `Lens saw: ${turn.earlier
+            .flatMap((earlier) => earlier.calls)
+            .map((call) => `${call.name}(${String(call.args.text)})`)
+            .join(", ")}`,
+        ],
+      }),
+    });
+    const { fake, client, botId } = await botWithPins(
+      [round(pinNote("buy milk")), round(), round()],
+      [pins(), lens],
+    );
+
+    await send(client, botId, "remember to buy milk");
+    await send(client, botId, "anything new?");
+
+    const first = textOf(((fake.calls[0]?.messages ?? []) as ModelMessage[])[0]?.content);
+    expect(first).toContain("Lens: on.");
+    expect(first).toContain("lens_tool");
+    // A call through run_tool is the named tool's call.
+    expect(newestOf(fake.calls[2])).toContain("Lens saw: pin_note(buy milk)");
   });
 
   it("takes part in the user's export and delete", async () => {

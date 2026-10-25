@@ -10,7 +10,10 @@ import { z } from "zod";
 export const describeToolName = "describe_tool";
 export const runToolName = "run_tool";
 
-/** The tools every call sends. Everything else the Bot has is deferred, plugin and connector tools included. */
+/**
+ * The tools every call sends. Everything else the Bot has is deferred, plugin and connector tools
+ * included. `search_memory` is the Memory feature's, sent on every call by name.
+ */
 const directToolNames: ReadonlySet<string> = new Set([
   "send_to_user",
   "web_search",

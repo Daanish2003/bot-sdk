@@ -25,7 +25,7 @@ import { createBot } from "../../plugins/bot/server/store";
 import { sendToUserToolName } from "../../plugins/bot/server/turn";
 import type { ComputerHandle } from "../../plugins/computer/server/plugin";
 import { dayOf, memoryDirectory } from "../../plugins/memory/server/bot-memory";
-import { memory } from "../../plugins/memory/server/plugin";
+import { memory } from "../../plugins/memory/server/feature";
 import { saveCredentials } from "../../plugins/models/server/credentials/store";
 import { job } from "../../plugins/runner/server/db/job";
 import { runnerJobs } from "../../plugins/runner/server/plugin";
@@ -142,7 +142,8 @@ async function main() {
   const sdk = createComputerSdk({
     db,
     provider: computerFake.provider,
-    more: [bot(), memory()],
+    more: [bot()],
+    features: [memory()],
     models: (real) =>
       fake
         ? {

@@ -42,6 +42,17 @@ export type FeatureContext<Needs extends CoreService = never> = {
 /** The Turn a feature's `tools` and `afterTurn` are called for. */
 export type FeatureTurn = { id: string; userId: string; botId: string; conversationId: string };
 
+/** A tool call of the Bot's that came back without an error, a `run_tool` call unwrapped. */
+export type FeatureCall = { name: string; args: Record<string, unknown> };
+
+/** What one of the Bot's Turns since its Prompt start told it, and what it did. */
+export type FeatureEarlierTurn = {
+  /** The Change notes the Turn was told. */
+  notes: readonly string[];
+  /** The tool calls the Turn made, in order: the Bot knows what it did itself. */
+  calls: readonly FeatureCall[];
+};
+
 /** What `prompt` is called with: the Turn, and what the Bot has seen of the feature's section. */
 export type FeaturePromptTurn = FeatureTurn & {
   /**
@@ -55,6 +66,8 @@ export type FeaturePromptTurn = FeatureTurn & {
    * among them.
    */
   told: readonly string[];
+  /** The Bot's Turns since its Prompt start, oldest first: `told` by Turn, with their tool calls. */
+  earlier: readonly FeatureEarlierTurn[];
 };
 
 /**
@@ -62,7 +75,15 @@ export type FeaturePromptTurn = FeatureTurn & {
  * built, and the Change notes that tell the Bot what changed since what it has seen (`built` and
  * `told`). The core tells them as given; a `null` section still tells its notes.
  */
-export type FeaturePrompt = { section: string | null; changeNotes?: string[] };
+export type FeaturePrompt = {
+  section: string | null;
+  changeNotes?: string[];
+  /**
+   * A line for the Bot's environment, in the first message of its Prompt start (for example
+   * "Memory: on."). Told even when `section` is null.
+   */
+  environment?: string;
+};
 
 /**
  * A feature, as `defineFeature` takes it. Every part is optional but `id`, which names its API on
@@ -83,8 +104,14 @@ export type FeatureDefinition<
   schema?: Record<string, PgTable>;
   /** User-scoped methods: each takes the user's id. The Host calls them as `sdk.<id>.<method>`. */
   api?: (context: FeatureContext<Needs>) => Api;
-  /** The tools the feature adds to a Turn. Deferred: the Prompt start lists them by name. */
-  tools?: (turn: FeatureTurn, context: FeatureContext<Needs>) => AnyServerTool[];
+  /**
+   * The tools the feature adds to a Turn, none when it is off for the user. Deferred: the Prompt
+   * start lists them by name.
+   */
+  tools?: (
+    turn: FeatureTurn,
+    context: FeatureContext<Needs>,
+  ) => AnyServerTool[] | Promise<AnyServerTool[]>;
   /** The feature's section of the Prompt start, and its Change notes, as a Turn starts. */
   prompt?: (
     turn: FeaturePromptTurn,
