@@ -90,11 +90,8 @@ async function botWith(
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [
-      bot(),
-      ...(withComputer ? [computer({ provider: computerFake.provider })] : []),
-      ...(withSkills ? [skills()] : []),
-    ],
+    plugins: [bot(), ...(withComputer ? [computer({ provider: computerFake.provider })] : [])],
+    features: withSkills && withComputer ? [skills()] : [],
     memory: withMemory,
     jobs,
     adapterFor: () => fake.adapter,
@@ -808,11 +805,10 @@ describe("the skills router", { timeout: 30_000 }, () => {
     await expect(client.skills.remove({ botId, name: "invoices" })).rejects.toMatchObject(refused);
   });
 
-  it("says no Computer, and refuses the rest, without the computer plugin", async () => {
-    const { client, botId } = await botWithRouter({ withComputer: false });
-
-    expect(await client.skills.status()).toEqual({ available: false });
-    await expect(client.skills.list({ botId })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  it("can't be turned on without a Computer: the factory throws", () => {
+    expect(() => createTestSdk({ plugins: [bot()], features: [skills()] })).toThrow(
+      /needs the Computer/,
+    );
   });
 
   it("tells the Bot of a user's changes as Change notes in its next Turn", async () => {

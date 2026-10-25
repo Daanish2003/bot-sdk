@@ -75,6 +75,17 @@ export type FeatureTools =
       missing?: (name: string) => string | undefined;
     };
 
+/** A tool call the Bot made and that succeeded; a call through `run_tool` is the named tool's own. */
+export type FeatureCall = { tool: string; args: Record<string, unknown> };
+
+/** What the Bot saw and did in one earlier Turn since its Prompt start. */
+export type FeatureEarlierTurn = {
+  /** The Change notes the Turn was told. */
+  told: readonly string[];
+  /** The Bot's own successful tool calls in the Turn, in order. */
+  calls: readonly FeatureCall[];
+};
+
 /** What `prompt` is called with: the Turn, and what the Bot has seen of the feature's section. */
 export type FeaturePromptTurn = FeatureTurn & {
   /**
@@ -88,6 +99,11 @@ export type FeaturePromptTurn = FeatureTurn & {
    * among them.
    */
   told: readonly string[];
+  /**
+   * The Bot's Turns since its Prompt start, oldest first, with what each was told and what the Bot
+   * did: it knows its own work, so a feature leaves that out of its Change notes.
+   */
+  earlier: readonly FeatureEarlierTurn[];
 };
 
 /**
@@ -131,6 +147,11 @@ export type FeatureDefinition<
    * or changed them.
    */
   connectorTools?: boolean;
+  /**
+   * Whether a Demonstration teaches this feature (Skills): the core offers the Bot `watch_user`
+   * while an enabled feature says so.
+   */
+  demonstrations?: boolean;
   /** The feature's section of the Prompt start, and its Change notes, as a Turn starts. */
   prompt?: (
     turn: FeaturePromptTurn,

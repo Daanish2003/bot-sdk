@@ -1,13 +1,18 @@
 import type { AnyServerTool } from "@tanstack/ai";
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq, ne, or } from "drizzle-orm";
 
 import { botPromptStart, botTurn } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
-import { enabledFeatures, type FeatureTurn } from "../../../core/server/feature";
+import {
+  enabledFeatures,
+  type FeatureEarlierTurn,
+  type FeatureTurn,
+} from "../../../core/server/feature";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
-import { notesIn } from "./change-notes";
+import { notesIn, successfulCalls } from "./change-notes";
 import type { LoopKit } from "./loop";
 import { latestPromptStartId } from "./prompt-start";
+import { summaryOf } from "./summary";
 import { type DecryptedSecrets, loadSecretValues, secretMasker } from "./secret-values";
 
 /*
@@ -31,28 +36,41 @@ export const takenNames = (tools: readonly AnyServerTool[]): ReadonlySet<string>
   new Set(["describe_tool", "run_tool", ...tools.map((tool) => tool.name)]);
 
 /**
- * The sections of the Bot's latest Prompt start, by name, and the Change notes the Turns since
- * (but `turnId`) were told: what the Bot has seen. Nothing before the Bot's first Prompt start.
+ * The sections of the Bot's latest Prompt start, by name, and the Turns since (but `turnId`): what
+ * they were told and what the Bot did in them, which is what the Bot has seen. A mid-Turn Summary's
+ * Turn counts too, since its Prompt start was built from what that Turn read at its start. Nothing
+ * before the Bot's first Prompt start.
  */
 async function seenSince(
   db: Database,
   botId: string,
   turnId: string,
-): Promise<{ sections: Map<string, string>; told: string[] }> {
+): Promise<{ sections: Map<string, string>; earlier: FeatureEarlierTurn[] }> {
   const id = await latestPromptStartId(db, botId);
-  if (!id) return { sections: new Map(), told: [] };
+  if (!id) return { sections: new Map(), earlier: [] };
+  const summary = await summaryOf(db, id);
+  const midTurn = summary?.kind === "mid_turn" ? summary.turnId : undefined;
   const [row] = await db
     .select({ sections: botPromptStart.sections })
     .from(botPromptStart)
     .where(eq(botPromptStart.id, id));
   const turns = await db
-    .select({ input: botTurn.input })
+    .select({ input: botTurn.input, transcript: botTurn.transcript })
     .from(botTurn)
-    .where(and(eq(botTurn.promptStartId, id), ne(botTurn.id, turnId)))
-    .orderBy(asc(botTurn.startedAt));
+    .where(
+      and(
+        eq(botTurn.botId, botId),
+        or(eq(botTurn.promptStartId, id), midTurn ? eq(botTurn.id, midTurn) : undefined),
+        ne(botTurn.id, turnId),
+      ),
+    )
+    .orderBy(asc(botTurn.startedAt), asc(botTurn.id));
   return {
     sections: new Map((row?.sections ?? []).map(({ name, text }) => [name, text])),
-    told: turns.flatMap((turn) => notesIn(turn.input ?? [])),
+    earlier: turns.map((turn) => ({
+      told: notesIn(turn.input ?? []),
+      calls: successfulCalls(turn.transcript ?? []),
+    })),
   };
 }
 
@@ -67,12 +85,13 @@ export async function featureSectionsNow(
 ): Promise<FeatureSection[]> {
   const prompting = enabledFeatures(deps).filter(({ feature }) => feature.prompt);
   if (!prompting.length) return [];
-  const { sections: built, told } = await seenSince(deps.db, turn.botId, turn.id);
+  const { sections: built, earlier } = await seenSince(deps.db, turn.botId, turn.id);
+  const told = earlier.flatMap((turn) => turn.told);
   const sections: FeatureSection[] = [];
   for (const { feature, context } of prompting) {
     try {
       const read = await feature.prompt!(
-        { ...turn, built: built.get(feature.id) ?? null, told },
+        { ...turn, built: built.get(feature.id) ?? null, told, earlier },
         context,
       );
       if (read) {
@@ -88,6 +107,10 @@ export async function featureSectionsNow(
   }
   return sections;
 }
+
+/** Whether an enabled feature is taught by Demonstrations: the Bot then gets `watch_user`. */
+export const featuresDemonstrate = (deps: BotSdkContext): boolean =>
+  enabledFeatures(deps).some(({ feature }) => feature.demonstrations);
 
 /** The enabled features' tools for a Turn, and what the Turn needs to know of them. */
 export type FeatureToolSet = {

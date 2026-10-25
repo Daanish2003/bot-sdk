@@ -82,9 +82,9 @@ async function botWith(
     plugins: [
       bot(),
       ...(withComputer ? [computer({ provider: computerFake.provider })] : []),
-      skills(),
       ...(withKnowledge ? [knowledge()] : []),
     ],
+    features: withComputer ? [skills()] : [],
     memory: withMemory,
     jobs,
     adapterFor: () => fake.adapter,

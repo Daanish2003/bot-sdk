@@ -195,7 +195,8 @@ async function record(script: Script, databaseUrl: string) {
   const sdk = createComputerSdk({
     db,
     provider: computerFake.provider,
-    more: [bot(), skills()],
+    more: [bot()],
+    features: [skills()],
     models: (real) => ({ ...real, adapterFor: () => fake.adapter }),
   });
   const jobs = runnerJobs(sdk);

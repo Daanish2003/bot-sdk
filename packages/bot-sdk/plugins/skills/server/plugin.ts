@@ -1,46 +1,33 @@
-import type { BotSdkPlugin } from "../../../core/server/plugin";
-import type { ComputerHandle } from "../../computer/server/plugin";
+import { defineFeature } from "../../../core/server/feature";
+import { skillChangeNotes } from "./changes";
 import { skillsRouter } from "./routers/index";
 import { readBotSkills, type SkillLine, skillsPrompt } from "./skills";
 
-/** The `skills` plugin's API (`sdk.plugin("skills")`): a Bot's Skills and its Skills block. */
-export type SkillsApi = {
-  /**
-   * Bot `botId`'s Skills, read from its user's Computer, waking it: one line per Skill folder,
-   * sorted by name, a broken one as `(not usable: <reason>)`. A Computer failure throws.
-   */
-  botSkills: (args: {
-    botId: string;
-    computer: ComputerHandle;
-    signal?: AbortSignal;
-  }) => Promise<SkillLine[]>;
-  /** The Skills block of Bot `botId`'s Prompt start, listing `skills`. */
-  prompt: (botId: string, skills: SkillLine[]) => string;
-};
-
-declare module "../../../core/server/plugin" {
-  interface PluginApis {
-    skills: SkillsApi;
-  }
-}
-
-export type SkillsPlugin = BotSdkPlugin<"skills", never, never>;
-
 /**
- * The `skills` plugin (spec #713): each Bot's Skills, plain `SKILL.md` files in its folder on the
- * Computer, and the Skills block that points to them. It needs `computer`: without it, Bots have
- * no Skills. It doesn't follow the user's Memory switch.
+ * The `skills` feature (spec #713, #871): each Bot's Skills, plain `SKILL.md` files in its folder
+ * on the Computer, and the Skills block that points to them. It needs the Computer: without one,
+ * the factory throws. It doesn't follow the user's Memory switch. A Host turns it on with
+ * `skills()` in `features`.
  */
-export function skills(): SkillsPlugin {
-  return {
+export function skills() {
+  return defineFeature({
     id: "skills",
-    uses: ["computer"],
+    needs: ["computer"],
+    demonstrations: true,
     router: { skills: skillsRouter },
-    init: () => ({
-      api: {
-        botSkills: ({ botId, computer, signal }) => readBotSkills(computer, botId, { signal }),
-        prompt: skillsPrompt,
-      } satisfies SkillsApi,
-    }),
-  };
+    // Read once as a Turn starts: the section the Prompt start keeps, and what changed since.
+    prompt: async (turn, { computer }) => {
+      let lines: SkillLine[];
+      try {
+        lines = await readBotSkills(computer.forUser(turn.userId), turn.botId);
+      } catch {
+        // The Computer can't be woken or read: the Turn goes on without Skills.
+        return null;
+      }
+      return {
+        section: skillsPrompt(turn.botId, lines),
+        changeNotes: skillChangeNotes(turn.botId, turn.built, turn.earlier, lines),
+      };
+    },
+  });
 }
