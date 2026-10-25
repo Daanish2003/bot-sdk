@@ -48,17 +48,6 @@ export type FeatureContext<Needs extends CoreService = never> = {
 /** The Turn a feature's `tools` and `afterTurn` are called for. */
 export type FeatureTurn = { id: string; userId: string; botId: string; conversationId: string };
 
-/** A tool call of the Bot's that came back without an error, a `run_tool` call unwrapped. */
-export type FeatureCall = { name: string; args: Record<string, unknown> };
-
-/** What one of the Bot's Turns since its Prompt start told it, and what it did. */
-export type FeatureEarlierTurn = {
-  /** The Change notes the Turn was told. */
-  notes: readonly string[];
-  /** The tool calls the Turn made, in order: the Bot knows what it did itself. */
-  calls: readonly FeatureCall[];
-};
-
 /**
  * What the core gives `tools` for a Turn (or a Helper), when the tools are read for one. It is
  * absent when only their definitions are read (a Summary written while the user is away).
