@@ -14,7 +14,6 @@ import {
   botDemonstration,
   botSecret,
   job,
-  mcpConnection,
   usage,
   modelSettings,
 } from "../../../core/server/db/schema";
@@ -27,6 +26,7 @@ import { loadSecretValues, secretEncryption } from "../../../plugins/bot/server/
 import type { BotExport } from "../../../plugins/bot/server/store";
 import { computer, computerBlobKey } from "../../../plugins/computer/server/plugin";
 import { readTokens, saveTokens } from "../../../plugins/mcp/server/connections";
+import { mcpConnection } from "../../../plugins/mcp/server/db/connection";
 import { mcp } from "../../../plugins/mcp/server/plugin";
 import { profilePath } from "../../../plugins/memory/server/bot-memory";
 import { memorySettings } from "../../../plugins/memory/server/schema";
@@ -54,8 +54,8 @@ function fakeBlobStore() {
   return { store, held };
 }
 
-/** Every table of the composed schema, and of the Memory feature, with a `user_id` column, with that column. */
-const userTables = [...Object.values(schema), memorySettings].flatMap((value) => {
+/** Every table of the composed schema and the mcp and memory features' with a `user_id` column, with that column. */
+const userTables = [...Object.values(schema), mcpConnection, memorySettings].flatMap((value) => {
   if (!is(value, PgTable)) return [];
   const { name, columns } = getTableConfig(value);
   const column = columns.find((candidate) => candidate.name === "user_id");
@@ -181,7 +181,8 @@ describe("deleteUser across plugins", () => {
     const fake = fakeComputerProvider();
     const deps = createTestSdk({
       blobStore: store,
-      plugins: [botPlugin(), computer({ provider: fake.provider }), mcp()],
+      plugins: [botPlugin(), computer({ provider: fake.provider })],
+      features: [mcp()],
     });
     const owner = await insertUser();
     const other = await insertUser();
@@ -414,7 +415,8 @@ describe("rotateKeys across plugins", () => {
       keyEncryptionSecrets: [keyB, keyA],
       basePath: "/api/chat",
       logger,
-      plugins: [models(), runner(), botPlugin(), mcp()],
+      plugins: [models(), runner(), botPlugin()],
+      features: [mcp()],
     });
 
     await expect(sdk.rotateKeys()).resolves.toEqual({ reencrypted: 3, unreadable: 2 });

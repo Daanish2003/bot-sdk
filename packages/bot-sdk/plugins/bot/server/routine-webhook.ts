@@ -83,7 +83,7 @@ async function receiveWebhook(
   if (!owner) return undefined;
   // The Quota and the Ban are read outside the transaction, so a slow read never holds up the
   // Conversation.
-  const call = await deps.plugin("models").resolveModelCall(owner.userId, owner.model);
+  const call = await deps.models.resolveModelCall(owner.userId, owner.model);
   if (call && !(await call.meter.mayRun()).ok) return null;
   if (await deps.isUserBlocked(owner.userId)) return null;
 

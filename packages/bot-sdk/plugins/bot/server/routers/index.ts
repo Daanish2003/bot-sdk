@@ -60,7 +60,7 @@ const botRouter = {
   create: protectedProcedure
     .input(z.object({ name: z.string().trim().min(1).max(100), model: z.string() }))
     .handler(async ({ context, input }) => {
-      const { models } = await context.sdk.plugin("models").listAvailableModels(context.user.id);
+      const { models } = await context.sdk.models.listAvailableModels(context.user.id);
       if (!models.some((model) => model.id === input.model)) {
         throw rpcError(
           "BAD_REQUEST",

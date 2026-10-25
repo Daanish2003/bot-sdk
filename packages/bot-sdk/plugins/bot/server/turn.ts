@@ -95,7 +95,6 @@ import {
 } from "./routine";
 import { formatterIn, knownZone, timeNotice } from "./time-zone";
 import { checkedTool, isDirectTool, toolSearchTools } from "./tool-search";
-import { type ConnectorListing, connectorTools } from "./connector-tools";
 import { generateImageTool } from "./generate-image";
 import { webSearchTool } from "./web-search";
 
@@ -119,8 +118,6 @@ export const cancelCheckInToolName = "cancel_check_in";
 
 /** The Bot tool that lists its pending Check-ins (#540). */
 export const listCheckInsToolName = "list_check_ins";
-
-export const searchMemoryToolName = "search_memory";
 
 const promptOpening =
   "You are a Bot the user talks to in a messenger. The user never sees your text replies or your " +
@@ -414,7 +411,7 @@ export async function sendToBot(
   }
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-  const call = await deps.plugin("models").resolveModelCall(userId, found.model);
+  const call = await deps.models.resolveModelCall(userId, found.model);
   if (!call) {
     throw rpcError(
       "BAD_REQUEST",
@@ -1075,7 +1072,7 @@ async function playTurn(
       return rendered;
     });
   };
-  // The Connector tools' clients stay open for the Turn's loop, and close when it ends.
+  // The features' tools' clients (the Connector tools') stay open for the Turn's loop, and close when it ends.
   const connections = new AbortController();
   try {
     return await runLoop(deps, ctx, {
@@ -1095,7 +1092,7 @@ async function playTurn(
       setup: (kit) =>
         turnSetup(deps, turn, kit, db, renderNewest, {
           signal: connections.signal,
-          record: (list) => ctx.activity("connectors", list),
+          record: (featureId, list) => ctx.activity(`${featureId}:tools`, list),
         }),
     });
   } finally {
@@ -1119,7 +1116,7 @@ async function turnSetup(
   renderNewest: (changeNotes: string | undefined) => Promise<ModelMessage[]>,
   connections: {
     signal: AbortSignal;
-    record: (list: () => Promise<ConnectorListing[]>) => Promise<ConnectorListing[]>;
+    record: <T>(featureId: string, list: () => Promise<T>) => Promise<T>;
   },
 ): Promise<LoopSetup> {
   let endTurn = false;
@@ -1158,23 +1155,19 @@ async function turnSetup(
       endTurn = true;
     },
   });
-  // The features' tools, never shadowing the core's.
-  const ownTools = [
-    ...coreTools,
-    ...(await featureTools(deps, facts, kit.liveRequest, takenNames(coreTools))),
-  ];
-  // The Connector tools, listed once as the Turn starts: nothing is kept from an earlier Turn.
-  const connectors = deps.hasPlugin("mcp")
-    ? await connectorTools(deps, turn.userId, {
-        ...connections,
-        liveRequest: kit.liveRequest,
-        taken: takenNames(ownTools),
-      })
-    : undefined;
-  const tools = [...ownTools, ...(connectors?.tools ?? [])];
+  // The features' tools, never shadowing the core's, listed once as the Turn starts: nothing is
+  // kept from an earlier Turn.
+  const fromFeatures = await featureTools(
+    deps,
+    facts,
+    kit.liveRequest,
+    takenNames(coreTools),
+    connections,
+  );
+  const tools = [...coreTools, ...fromFeatures.tools];
   // `describe_tool` and `run_tool`, which reach the tools the Prompt start lists by name only. A
   // Connector tool whose Connection listed nothing this Turn is still answered, with its error.
-  const searchTools = toolSearchTools(tools, connectors?.missing);
+  const searchTools = toolSearchTools(tools, fromFeatures.missing);
   /** What a Prompt start is built from now: by the Bot's first Turn, or by a Summary. */
   const parts = (): PromptStartParts =>
     startParts(turn, deps.clock(), {
@@ -1206,7 +1199,7 @@ async function turnSetup(
     features,
     routines: routines ?? null,
     tools: definitionsOf(tools),
-    connectors: new Set(connectors?.tools.map((tool) => tool.name)),
+    connectors: fromFeatures.connectorNames,
   });
   // A tool a deploy removed stays defined, as the Prompt start sends it, and says it is gone.
   const known = new Set([...tools, ...searchTools].map((tool) => tool.name));
@@ -1379,7 +1372,7 @@ function turnTools(
     webSearchTool(deps, turn.userId, kit.liveRequest),
     ...(withComputer ? [...kit.computerTools, ...helperTools(deps, turn, liveActivity)] : []),
     // Deferred, and listed on two Host settings, so the tool list never changes (spec #801).
-    ...(withComputer && deps.plugin("models").hasHostImageModels
+    ...(withComputer && deps.models.hasHostImageModels
       ? [generateImageTool(deps, turn, kit.liveRequest)]
       : []),
     // A Demonstration teaches a Skill, so it comes with the `skills` plugin (spec #713).
@@ -1474,7 +1467,7 @@ export async function awayStartParts(
   });
   const tools = [
     ...ownTools,
-    ...(await featureTools(deps, featureTurnOf(facts), definitionOnly, takenNames(ownTools))),
+    ...(await featureTools(deps, featureTurnOf(facts), definitionOnly, takenNames(ownTools))).tools,
   ];
   const routines = (await routinesPrompt(tx, turn.botId)) ?? null;
   // The Connector tools are listed by a Turn, never here: the next Turn notes them as added.

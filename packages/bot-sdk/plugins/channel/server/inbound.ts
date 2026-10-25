@@ -64,7 +64,7 @@ async function deliver(
   }
   if (mail.authentication.dmarc !== "pass") return "no DMARC pass";
   // The Quota and the Ban as for a webhook: read outside the transaction, and the mail is dropped.
-  const call = await sdk.plugin("models").resolveModelCall(owner.userId, owner.model);
+  const call = await sdk.models.resolveModelCall(owner.userId, owner.model);
   if (!call) return "the Bot's Model isn't available";
   if (!(await call.meter.mayRun()).ok) return "the user's Quota is spent";
   if (await sdk.isUserBlocked(owner.userId)) return "the user is Banned";

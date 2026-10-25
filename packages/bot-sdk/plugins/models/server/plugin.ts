@@ -79,7 +79,7 @@ export type ModelsOptions = {
 };
 
 /**
- * The `models` plugin's API (`sdk.plugin("models")`): who pays for a call and with which
+ * The core's Models (`sdk.models`, spec #871): who pays for a call and with which
  * credentials, the Models a user can pick, metering and the Quota.
  */
 export type ModelsApi = {
@@ -146,12 +146,6 @@ export type ModelsApi = {
   quota: (userId: string) => Promise<QuotaState | null>;
 };
 
-declare module "../../../core/server/plugin" {
-  interface PluginApis {
-    models: ModelsApi;
-  }
-}
-
 /** The rate-limit rules the `models` plugin declares, and their defaults. */
 const modelsRateLimits = {
   credentialSave: defaultRateLimits.credentialSave,
@@ -160,6 +154,13 @@ const modelsRateLimits = {
 export type ModelsRule = keyof typeof modelsRateLimits;
 
 export type ModelsPlugin = BotSdkPlugin<"models", ModelsRule, "onUsage">;
+
+const modelsBrand = Symbol("models");
+
+/** Whether `plugin` is the core's Models (`models()` or `modelsOver()`), which the core inits first. */
+export function isModelsPlugin(plugin: BotSdkPlugin): boolean {
+  return modelsBrand in plugin;
+}
 
 /**
  * The `models` plugin (ADR 0020): Provider and Tool credentials, who pays for each call, the
@@ -200,15 +201,16 @@ function modelsPlugin(
     }
     return deps;
   };
-  return {
+  const plugin: ModelsPlugin = {
     id: "models",
     router: modelsPluginRouter,
     rateLimits: modelsRateLimits,
+    // The core's `models` service, set before any plugin that calls it is initialised.
     init: (sdk) => {
       const deps = ready(sdk);
       const api = modelsApi(deps);
       bindModelsDeps(api, deps);
-      return { api };
+      sdk.models = api;
     },
     start: async (sdk) => {
       await start?.(sdk, ready(sdk));
@@ -228,6 +230,7 @@ function modelsPlugin(
       return { reencrypted, unreadable: unreadableCount };
     },
   };
+  return Object.assign(plugin, { [modelsBrand]: true });
 }
 
 /** The production `ModelsDeps`, over the core context. Exported for its test. */

@@ -154,8 +154,8 @@ const chat = createBotSdk({
   getUser,
   keyEncryptionSecrets,
   basePath: "/api/chat",
-  plugins: [models(), runner(), computer({ provider }), skills(), knowledge(), mcp(), bot()],
-  features: [memory()],
+  plugins: [models(), runner(), computer({ provider }), skills(), knowledge(), bot()],
+  features: [memory(), mcp({ servers })],
 });
 
 // one catch-all route on your framework, for every chat call
@@ -517,14 +517,14 @@ Nothing connects when you build `createBotSdk` or `redisRuntime()`. The first us
 Stored Provider and Tool credentials, Bot Secrets and MCP Connection tokens are encrypted under `keyEncryptionSecrets`: the first secret encrypts, and every secret decrypts (ADR 0010). Rotate on an event, such as a suspected leak or someone with access leaving, not on a schedule. Rotating is a runbook, not an outage:
 
 1. Put the new secret first in `keyEncryptionSecrets` (in `apps/web`, `KEY_ENCRYPTION_SECRET` becomes the new one and the old one moves to `KEY_ENCRYPTION_SECRET_PREVIOUS`), and deploy. Every process must hold the new keyring before the next step.
-2. Run `await chat.rotateKeys()` once (it re-encrypts what each installed plugin stores: `models`, `bot` and `mcp`), as a one-off command from your image (in `apps/web`: `node scripts/rotate-keys.ts`). Never run it in the pre-deploy step: the old version still running writes under the old key until the deploy finishes. It works in batches and is safe to re-run. It returns `{ reencrypted, unreadable }`.
+2. Run `await chat.rotateKeys()` once (it re-encrypts what each installed plugin stores: `models`, `bot` and the `mcp` feature), as a one-off command from your image (in `apps/web`: `node scripts/rotate-keys.ts`). Never run it in the pre-deploy step: the old version still running writes under the old key until the deploy finishes. It works in batches and is safe to re-run. It returns `{ reencrypted, unreadable }`.
 3. If `unreadable` is 0, remove the old secret and deploy again. If it isn't, find the rows under a key you no longer hold before removing it: a row under a removed key reads as missing, so its user re-enters the credential, Secret or Connection.
 
 `start()` never refuses to boot because rows are unreadable; it logs the counts instead.
 
 ## Who pays for Model calls
 
-These options go to the `models` plugin, `models({ hostProviders, byok, defaultImageModel, getQuota })`. It also answers an Admin's spend questions: `chat.plugin("models").usage({ userId, since, until })`, `.usageTotals({ since, until })` and `.quota(userId)`.
+These options go in the `models` slot, `createBotSdk({ models: { hostProviders, byok, defaultImageModel, getQuota } })`. The core's Models also answer an Admin's spend questions: `chat.models.usage({ userId, since, until })`, `.usageTotals({ since, until })` and `.quota(userId)`.
 
 - `hostProviders` are the Host's own credentials, from your environment (never stored): `[{ provider, credentials, models: [...] }]`. Each model is `{ modelId, label?, images?, pdfs?, tools?, maxOutputTokens, inputUsdPerMillion, outputUsdPerMillion, cacheReadUsdPerMillion?, cacheWriteUsdPerMillion? }`. `maxOutputTokens` is required: the Host's output cap for a call on that model, handed to `adapterFor` (the production adapters don't apply it yet). The prices are per 1M tokens and kept with the model; the cache prices are for input read from and written to the Provider's prompt cache, and are the input price when unset. Capability flags default to off unless the model is curated, in which case its curated flags apply. A Tool goes in the same list as `{ tool: "tavily", credentials, pricePerSearchUsd }`: a Host Tavily key that searches for users with no Tavily key of their own, each search recorded at that fixed price.
 - `defaultImageModel` (optional) is a `"provider:model"` id of one of your `hostProviders` `imageModels`. Generated images use it for users who pick no Image Model; without it they get no Host images. `start()` throws when it isn't one of your Image Models, or when an Image Model has no `pricePerImageUsd`.
@@ -582,11 +582,11 @@ const chat = createBotSdk({
 
 ## Connections to MCP servers
 
-The `mcp` plugin lists remote MCP servers your users may sign in to: `mcp({ servers: [{ key, name, url, oauth: { clientId, clientSecret } }] })`, with `mcpClient()` on the client and its `ConnectionsSection` on the keys page. It's imported from `@ai-chat/bot-sdk/plugins/mcp/server` (and `/client`, `/ui`). Only Streamable HTTP servers on HTTPS are accepted; a `url` that isn't HTTPS throws when `createBotSdk` runs. `key` names the server in storage (letters, digits, `_` and `-`). Register your OAuth client with each server ahead of time: the SDK doesn't use Dynamic Client Registration.
+The `mcp` feature (listed in `features`) lists remote MCP servers your users may sign in to: `mcp({ servers: [{ key, name, url, oauth: { clientId, clientSecret } }] })`, with `mcpClient()` on the client and its `ConnectionsSection` on the keys page. It's imported from `@ai-chat/bot-sdk/plugins/mcp/server` (and `/client`, `/ui`). Only Streamable HTTP servers on HTTPS are accepted; a `url` that isn't HTTPS throws when `createBotSdk` runs. `key` names the server in storage (letters, digits, `_` and `-`). Register your OAuth client with each server ahead of time: the SDK doesn't use Dynamic Client Registration.
 
 Register this redirect URI with each server, with your app's origin in place of the host: `https://<your-app>/<basePath>/mcp/callback`, for example `https://app.example/api/chat/mcp/callback`. The SDK serves the sign-in start (`<basePath>/mcp/connect`) and this callback through the same handler, so the Host mounts no new route.
 
-With no `servers`, the keys page shows no Connections section and connecting is refused. A user's Connection is stored encrypted under the keyring (ADR 0010). A Connection whose tokens no longer decrypt shows as "Reconnect needed". `deleteUser` removes the user's Connections. Discovery and token requests go through the guarded `fetch`. `sdk.plugin("mcp").forUser(userId).tools({ signal })` gives a user's connected servers' tools, named `<key>_<tool>`, with their clients open until `signal` aborts; it refreshes expired tokens and skips a server that is down. Bots use a user's connected servers' tools as connectors.
+With no `servers`, the keys page shows no Connections section and connecting is refused. A user's Connection is stored encrypted under the keyring (ADR 0010). A Connection whose tokens no longer decrypt shows as "Reconnect needed". `deleteUser` removes the user's Connections. Discovery and token requests go through the guarded `fetch`. `sdk.mcp.forUser(userId).tools({ signal })` gives a user's connected servers' tools, named `<key>_<tool>`, with their clients open until `signal` aborts; it refreshes expired tokens and skips a server that is down. Bots use a user's connected servers' tools as connectors.
 
 ## Rate limits
 

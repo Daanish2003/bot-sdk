@@ -5,7 +5,7 @@ import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 
 import * as coreTables from "./db/schema";
 import type { Database } from "./db/index";
-import type { BotSdkContext, BotSdkPlugin, Transaction } from "./plugin";
+import type { BotSdkContext, BotSdkPlugin, Route, Transaction } from "./plugin";
 import type { ComputerApi } from "../../plugins/computer/server/plugin";
 import { type JobDefinition, registerJob } from "../../plugins/runner/server/jobs/define";
 import type { EnqueueOptions } from "../../plugins/runner/server/jobs/runner";
@@ -26,6 +26,12 @@ export type FeatureContext<Needs extends CoreService = never> = {
   db: Database;
   logger: Pick<Console, "error">;
   clock: () => Date;
+  /** The guarded `fetch`: it refuses private addresses and plain HTTP unless `fetchAllowHosts` lists the host. */
+  fetch: BotSdkContext["fetch"];
+  /** The `host` or `host:port` entries the guarded `fetch` may reach (a test-only config). */
+  fetchAllowHosts: BotSdkContext["fetchAllowHosts"];
+  /** The keyring (ADR 0010) a feature encrypts its secrets under: the first encrypts, every entry decrypts. */
+  keyring: BotSdkContext["keyring"];
   /** The runner's jobs: queue one of the feature's `jobs` in the caller's transaction. */
   jobs: {
     enqueueIn: <P>(
@@ -52,6 +58,33 @@ export type FeatureEarlierTurn = {
   /** The tool calls the Turn made, in order: the Bot knows what it did itself. */
   calls: readonly FeatureCall[];
 };
+
+/**
+ * What the core gives `tools` for a Turn (or a Helper), when the tools are read for one. It is
+ * absent when only their definitions are read (a Summary written while the user is away).
+ */
+export type FeatureToolKit = {
+  /** Aborts when the Turn ends: whatever the feature opened for its tools closes then. */
+  signal: AbortSignal;
+  /**
+   * Lists once, as the Turn's recorded activity: a replay reads what its attempt listed, and
+   * only a live Turn calls `list`.
+   */
+  record: <T>(list: () => Promise<T>) => Promise<T>;
+  /** The names the Turn's other tools have: a tool named like one is left out. */
+  taken: ReadonlySet<string>;
+  /** Masks the user's Secrets in a text; reads them on each call. */
+  secretMask: () => Promise<(text: string) => string>;
+};
+
+/** What a feature's `tools` gives: its tools, and for a Turn that lists them, what it says of a missing one. */
+export type FeatureTools =
+  | AnyServerTool[]
+  | {
+      tools: AnyServerTool[];
+      /** The error for a tool of the feature that isn't among `tools` this Turn, else `undefined`. */
+      missing?: (name: string) => string | undefined;
+    };
 
 /** What `prompt` is called with: the Turn, and what the Bot has seen of the feature's section. */
 export type FeaturePromptTurn = FeatureTurn & {
@@ -105,13 +138,20 @@ export type FeatureDefinition<
   /** User-scoped methods: each takes the user's id. The Host calls them as `sdk.<id>.<method>`. */
   api?: (context: FeatureContext<Needs>) => Api;
   /**
-   * The tools the feature adds to a Turn, none when it is off for the user. Deferred: the Prompt
-   * start lists them by name.
+   * The tools the feature adds to a Turn. Deferred: the Prompt start lists them by name. Each call
+   * is a live request of the Turn's loop; a tool with `needsApproval` is Auto-reviewed (spec #691)
+   * instead of asked of the user. With a `kit`, a feature may list tools from the outside world.
    */
   tools?: (
     turn: FeatureTurn,
     context: FeatureContext<Needs>,
-  ) => AnyServerTool[] | Promise<AnyServerTool[]>;
+    kit?: FeatureToolKit,
+  ) => FeatureTools | Promise<FeatureTools>;
+  /**
+   * Whether its tools are Connector tools: the Change notes say a Connection, not a deploy, added
+   * or changed them.
+   */
+  connectorTools?: boolean;
   /** The feature's section of the Prompt start, and its Change notes, as a Turn starts. */
   prompt?: (
     turn: FeaturePromptTurn,
@@ -139,6 +179,12 @@ export type FeatureDefinition<
     /** Read in the export's snapshot; stored under the feature's id. */
     export?: (tx: Transaction, userId: string, context: FeatureContext<Needs>) => Promise<object>;
   };
+  /** Non-RPC routes, under `basePath`, until spec 3 replaces them. They get the whole core context. */
+  routes?: Route[];
+  /** Re-encrypts what the feature stores under the keyring's first secret (`sdk.rotateKeys`). */
+  rotateKeys?: (
+    context: FeatureContext<Needs>,
+  ) => Promise<{ reencrypted: number; unreadable: number }>;
   /**
    * oRPC routers, served under `<basePath>/rpc/<key>` beside the core's. Until spec 3 replaces
    * them with contracts; their procedures still reach the SDK through `context.sdk`.
@@ -260,6 +306,9 @@ function contextOf(sdk: BotSdkContext, needs: readonly CoreService[]): FeatureCo
     db: sdk.db,
     logger: sdk.logger,
     clock: sdk.clock,
+    fetch: sdk.fetch,
+    fetchAllowHosts: sdk.fetchAllowHosts,
+    keyring: sdk.keyring,
     jobs: {
       enqueueIn: (tx, job, payload, options) =>
         sdk.plugin("runner").enqueueIn(tx, job.name, payload, options),
@@ -292,6 +341,7 @@ export function featurePlugin(feature: AnyFeature): BotSdkPlugin {
     id: feature.id,
     requires: ["runner", ...(feature.needs ?? [])],
     router: feature.router,
+    routes: feature.routes,
     init: (sdk) => {
       const context = contextOf(sdk, feature.needs ?? []);
       contexts.set(sdk.plugin, context);
@@ -299,6 +349,9 @@ export function featurePlugin(feature: AnyFeature): BotSdkPlugin {
       featuresOf.set(sdk.plugin, [...enabled, { feature, context }]);
       return { api: feature.api?.(context) ?? {} };
     },
+    ...(feature.rotateKeys && {
+      rotateKeys: (sdk: BotSdkContext) => feature.rotateKeys!(contextFor(sdk)),
+    }),
     ...(remove && {
       deleteUser: {
         before: (sdk, { tx, userId }) => remove.before(tx, userId, contextFor(sdk)),

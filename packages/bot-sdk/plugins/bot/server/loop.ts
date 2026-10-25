@@ -349,7 +349,7 @@ export async function runLoop(
   let live: Promise<{ adapter: AnyTextAdapter; record: ModelCallRecorder }> | undefined;
   const liveCall = () =>
     (live ??= (async () => {
-      const models = deps.plugin("models");
+      const models = deps.models;
       const call = await models.resolveModelCall(owner.userId, owner.model);
       if (!call) throw new Error(`"${owner.model}" is not an available Model`);
       // On the user's own key or plan, a call is still recorded, at cost 0, so its cache use shows.
@@ -1016,13 +1016,12 @@ export async function runLoop(
  * asked again the next time.
  */
 export function seesImagesOnce(
-  deps: Pick<BotSdkContext, "plugin">,
+  deps: Pick<BotSdkContext, "models">,
   owner: { userId: string; model: string },
 ): () => Promise<boolean> {
   let sees: Promise<boolean> | undefined;
   return () =>
-    (sees ??= deps
-      .plugin("models")
+    (sees ??= deps.models
       .resolveModel(owner.userId, owner.model)
       .then((model) => model?.images ?? false)
       .catch((caught: unknown) => {
@@ -1046,7 +1045,7 @@ export function callUsage(
     )
     .join("");
   return {
-    usage: deps.plugin("models").messageUsage(reported.usage, {
+    usage: deps.models.messageUsage(reported.usage, {
       promptCharacters: promptCharactersOf(messages),
       parts: [{ type: "text", text: output }],
     }),

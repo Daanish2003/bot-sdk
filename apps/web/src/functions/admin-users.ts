@@ -49,8 +49,8 @@ export const listAdminUsers = createServerFn({ method: "GET" })
     const now = new Date();
     const window = quotaOf(ENV)?.window ?? "day";
     const [totals, quotas] = await Promise.all([
-      sdk.plugin("models").usageTotals({ since: windowStart(window, now), until: now }),
-      Promise.all(users.map((row) => sdk.plugin("models").quota(row.id))),
+      sdk.models.usageTotals({ since: windowStart(window, now), until: now }),
+      Promise.all(users.map((row) => sdk.models.quota(row.id))),
     ]);
     const spentBy = new Map(totals.map((total) => [total.userId, total.costMicros]));
 

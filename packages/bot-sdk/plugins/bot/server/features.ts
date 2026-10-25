@@ -13,6 +13,7 @@ import { notesIn, successfulCalls } from "./change-notes";
 import type { LoopKit } from "./loop";
 import { latestPromptStartId } from "./prompt-start";
 import { summaryOf } from "./summary";
+import { type DecryptedSecrets, loadSecretValues, secretMasker } from "./secret-values";
 
 /*
  * The core's calls into the enabled features (spec #871): their tools and Prompt start sections
@@ -114,51 +115,96 @@ export async function featureSectionsNow(
   return sections;
 }
 
+/** The enabled features' tools for a Turn, and what the Turn needs to know of them. */
+export type FeatureToolSet = {
+  tools: AnyServerTool[];
+  /** The error for a tool of a feature that listed none this Turn (a Connection that is down). */
+  missing: (name: string) => string | undefined;
+  /** The names of the tools whose features say they are Connector tools. */
+  connectorNames: Set<string>;
+};
+
 /**
- * The enabled features' tools for a Turn. Each call is a live request of the loop's, so a replay
- * reads its recorded result. A tool named like one in `taken` is left out and logged, and so are
- * a feature's tools when it throws.
+ * The enabled features' tools for a Turn (or, with `only`, one feature's, for a Helper). Each
+ * call is a live request of the loop's, so a replay reads its recorded result; a tool with
+ * `needsApproval` is Auto-reviewed instead of asked of the user. A tool named like one in `taken`
+ * is left out and logged, and so are a feature's tools when it throws. Without `kit`, only the definitions are read, as an away Summary does.
  */
 export async function featureTools(
   deps: BotSdkContext,
   turn: FeatureTurn,
   liveRequest: LoopKit["liveRequest"],
   taken: ReadonlySet<string>,
-): Promise<AnyServerTool[]> {
+  kit?: {
+    signal: AbortSignal;
+    /** Records a feature's listing as the Turn's activity, named for the feature. */
+    record: <T>(featureId: string, list: () => Promise<T>) => Promise<T>;
+  },
+  only?: string,
+): Promise<FeatureToolSet> {
   const names = new Set(taken);
-  const tools: AnyServerTool[] = [];
-  for (const { feature, context } of enabledFeatures(deps)) {
-    let given: AnyServerTool[];
+  const decrypted: DecryptedSecrets = new Map();
+  const set: FeatureToolSet = { tools: [], missing: () => undefined, connectorNames: new Set() };
+  const missings: Array<(name: string) => string | undefined> = [];
+  // Connector tools last, so they never shadow another feature's tool.
+  const listed = [...enabledFeatures(deps)].sort(
+    (a, b) => Number(a.feature.connectorTools ?? false) - Number(b.feature.connectorTools ?? false),
+  );
+  for (const { feature, context } of listed) {
+    if (!feature.tools || (only !== undefined && feature.id !== only)) continue;
+    let given: Awaited<ReturnType<NonNullable<typeof feature.tools>>>;
     try {
-      given = (await feature.tools?.(turn, context)) ?? [];
+      given = await feature.tools(
+        turn,
+        context,
+        kit && {
+          signal: kit.signal,
+          record: (list) => kit.record(feature.id, list),
+          taken: new Set(names),
+          secretMask: async () =>
+            secretMasker((await loadSecretValues(deps, turn.userId, decrypted)).values()),
+        },
+      );
     } catch (error) {
       deps.logger.error(`Feature "${feature.id}" failed to give its tools`, error);
       continue;
     }
-    for (const tool of given) {
+    const { tools, missing } = Array.isArray(given) ? { tools: given, missing: undefined } : given;
+    if (missing) missings.push(missing);
+    for (const tool of tools) {
       if (names.has(tool.name)) {
         deps.logger.error(`Feature "${feature.id}" has a tool named like another: ${tool.name}`);
         continue;
       }
       names.add(tool.name);
+      if (feature.connectorTools) set.connectorNames.add(tool.name);
+      const { needsApproval, ...rest } = tool;
       const execute = tool.execute;
       if (!execute) {
-        tools.push(tool);
+        set.tools.push(tool);
         continue;
       }
-      tools.push({
-        ...tool,
+      set.tools.push({
+        ...rest,
         execute: (args: unknown, options?: { toolCallId?: string }) =>
           liveRequest(
             tool.name,
             options?.toolCallId,
             () => execute(args, options as never),
             async () => {},
+            needsApproval ? ((args ?? {}) as Record<string, unknown>) : undefined,
           ),
       } as AnyServerTool);
     }
   }
-  return tools;
+  set.missing = (name) => {
+    for (const missing of missings) {
+      const error = missing(name);
+      if (error !== undefined) return error;
+    }
+    return undefined;
+  };
+  return set;
 }
 
 /**

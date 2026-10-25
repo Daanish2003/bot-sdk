@@ -79,7 +79,7 @@ declare module "../../../core/server/plugin" {
 export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
   return {
     id: "bot",
-    requires: ["models", "runner"],
+    requires: ["runner"],
     // Softly: with computer on, a Turn has its tools, and a running Turn keeps the Computer awake.
     // With skills on, a Bot has its Skills (spec #713), with knowledge on, the user's Knowledge
     // (spec #737), and with mcp on, its user's Connections as Connector tools (spec #801).
@@ -106,7 +106,7 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
         computer.addOwnerCheck(userHasBot);
       }
       // The default Model of the user's pickers is the newest Bot's.
-      sdk.plugin("models").addRecentModelSource((userId) => newestBotModel(sdk.db, userId));
+      sdk.models.addRecentModelSource((userId) => newestBotModel(sdk.db, userId));
       const api: BotApi = {
         webhookHandler: (request) => handleRoutineWebhook(sdk, request),
         stopTurns: async (userId) => {

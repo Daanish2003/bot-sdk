@@ -42,18 +42,24 @@ export function memory() {
       isEnabled: (userId: string) => memoryEnabledFor(context, userId),
     }),
     // Sent on every call, by name (`isDirectTool`), only with the user's Memory on.
-    tools: async (turn, context) => {
-      if (!(await memoryEnabledFor(context, turn.userId))) return [];
+    tools: async (turn, context, kit) => {
+      // Read once and recorded, so a replay lists what its attempt did, even if the switch moved.
+      const enabled = () => memoryEnabledFor(context, turn.userId);
+      if (!(await (kit ? kit.record(enabled) : enabled()))) return [];
       return [
         searchMemoryDefinition.server(async ({ query }) => {
           try {
+            const results = await searchBotMemory(context.computer.forUser(turn.userId), {
+              botId: turn.botId,
+              bots: await botsOf(context, turn.userId),
+              query,
+              now: context.clock(),
+              signal: kit?.signal,
+            });
+            // A Secret the Bot saved into its memory never comes back as it is.
+            const mask = await kit?.secretMask();
             return {
-              results: await searchBotMemory(context.computer.forUser(turn.userId), {
-                botId: turn.botId,
-                bots: await botsOf(context, turn.userId),
-                query,
-                now: context.clock(),
-              }),
+              results: mask ? results.map((hit) => ({ ...hit, text: mask(hit.text) })) : results,
             };
           } catch (caught) {
             if (caught instanceof ComputerUnavailableError) {

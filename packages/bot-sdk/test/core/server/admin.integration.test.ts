@@ -64,7 +64,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('chat.plugin("models").usageTotals', () => {
+describe("chat.models.usageTotals", () => {
   it("sums each user's calls in the range, and leaves out calls outside it", async () => {
     const heavy: TestUser = await insertUser();
     const light: TestUser = await insertUser();
@@ -104,7 +104,7 @@ describe('chat.plugin("models").usageTotals', () => {
       basePath,
       plugins: [models(), runner(), botPlugin()],
     });
-    const totals = await chat.plugin("models").usageTotals({ since, until });
+    const totals = await chat.models.usageTotals({ since, until });
 
     expect(totals.find((row) => row.userId === heavy.id)).toEqual({
       userId: heavy.id,
@@ -123,7 +123,7 @@ describe('chat.plugin("models").usageTotals', () => {
   });
 });
 
-describe('chat.plugin("models").usage', () => {
+describe("chat.models.usage", () => {
   it("groups one user's calls by UTC day and Model, in range, and leaves out other users", async () => {
     const owner = await insertUser();
     const other = await insertUser();
@@ -175,7 +175,7 @@ describe('chat.plugin("models").usage', () => {
       plugins: [models(), runner(), botPlugin()],
     });
 
-    expect(await chat.plugin("models").usage({ userId: owner.id, since, until })).toEqual([
+    expect(await chat.models.usage({ userId: owner.id, since, until })).toEqual([
       { day: "2040-01-01", model: haiku, costMicros: 7, inputTokens: 1, outputTokens: 2, calls: 1 },
       {
         day: "2040-01-01",
@@ -197,7 +197,7 @@ describe('chat.plugin("models").usage', () => {
   });
 });
 
-describe('chat.plugin("models").quota', () => {
+describe("chat.models.quota", () => {
   it("reports the budget and this window's spend in micros, with the reset time", async () => {
     vi.setSystemTime(new Date("2026-10-10T18:00:00Z"));
     const owner = await insertUser();
@@ -226,7 +226,7 @@ describe('chat.plugin("models").quota', () => {
       ],
     });
 
-    expect(await chat.plugin("models").quota(owner.id)).toEqual({
+    expect(await chat.models.quota(owner.id)).toEqual({
       budgetMicros: 1_000_000,
       spentMicros: 300_000,
       window: "day",
@@ -250,7 +250,7 @@ describe('chat.plugin("models").quota', () => {
       ],
     });
 
-    expect(await chat.plugin("models").quota(free.id)).toBeNull();
+    expect(await chat.models.quota(free.id)).toBeNull();
   });
 });
 
@@ -280,7 +280,7 @@ describe("Admin over a Bot's Turns", () => {
     await sendToTurnEnd(client, botId);
 
     const until = new Date(Date.now() + 60_000);
-    const modelsApi = deps.plugin("models");
+    const modelsApi = deps.models;
     // 100 × $3/M + 50 × $15/M = 1050 micros.
     expect(
       (await modelsApi.usageTotals({ since, until })).find((row) => row.userId === owner.id),

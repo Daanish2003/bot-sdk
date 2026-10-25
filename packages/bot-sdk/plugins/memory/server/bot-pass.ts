@@ -154,7 +154,7 @@ async function runBotMemoryPass(
     // planned, even once Memory is off or the Quota is spent.
     const planned = await activity("memory_ops", async () => {
       if (!deps.hasPlugin("computer") || !(await memoryEnabledFor(deps, turn.userId))) return null;
-      const call = await deps.plugin("models").resolveModelCall(turn.userId, turn.model);
+      const call = await deps.models.resolveModelCall(turn.userId, turn.model);
       if (!call || !(await call.meter.mayRun()).ok) return null;
       const shown = await shownLines(computer(), {
         botId: turn.botId,

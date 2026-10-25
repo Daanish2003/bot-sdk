@@ -57,10 +57,16 @@ export function createBotSdkOver(
  * plugins `sdk` enabled.
  */
 export function createChatHandler(sdk: SdkOver, options: OverOptions): ChatHandler {
-  const { plugin: _plugin, hasPlugin: _hasPlugin, rateLimit: _rateLimit, ...context } = sdk;
+  const {
+    plugin: _plugin,
+    hasPlugin: _hasPlugin,
+    rateLimit: _rateLimit,
+    models: _models,
+    ...context
+  } = sdk;
   // Its own sources: the plugins register theirs again when the new instance runs their inits.
   const models = {
-    ...sdk,
+    ...context,
     hooks: sdk.events,
     keyEncryptionSecrets: sdk.keyring,
     recentModelSources: [],
