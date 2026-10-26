@@ -12,6 +12,10 @@ import type { BotApi } from "../../plugins/bot/server/plugin";
 import type { ConversationsApi } from "../../plugins/bot/server/conversations-api";
 import type { ScreensApi } from "../../plugins/bot/server/screens-api";
 import type { SecretsApi } from "../../plugins/bot/server/secrets-api";
+import type { CheckInsApi, RoutinesApi } from "../../plugins/bot/server/routines-api";
+import type { DemonstrationsApi } from "../../plugins/bot/server/demonstrations-api";
+import type { HelpersApi } from "../../plugins/bot/server/helpers-api";
+import type { ReviewsApi } from "../../plugins/bot/server/reviews-api";
 import type { ChannelApi } from "../../plugins/channel/server/internal";
 import type { ComputerApi } from "../../plugins/computer/server/internal";
 import type { ModelsApi } from "../../plugins/models/server/internal";
@@ -59,6 +63,12 @@ export type BotSdkContext = {
   secrets: SecretsApi;
   /** The Computer's Screen methods (spec #873): the live view of a Helper's Screen. */
   screens: ScreensApi;
+  /** The core's Routines, Check-ins, Helpers, Demonstrations and Auto-reviews (spec #873). */
+  routines: RoutinesApi;
+  checkIns: CheckInsApi;
+  helpers: HelpersApi;
+  demonstrations: DemonstrationsApi;
+  reviews: ReviewsApi;
   /**
    * The core's Channels besides web (spec #871), over the channels slot's adapters. With none,
    * every inbound answers 404 and no reply goes out by email.

@@ -40,6 +40,10 @@ import { botsApi, type BotsApi } from "./bots-api";
 import { conversationsApi } from "./conversations-api";
 import { screensApi } from "./screens-api";
 import { secretsApi } from "./secrets-api";
+import { checkInsApi, routinesApi } from "./routines-api";
+import { demonstrationsApi } from "./demonstrations-api";
+import { helpersApi } from "./helpers-api";
+import { reviewsApi } from "./reviews-api";
 import { rotateSecretKeys } from "./safety";
 
 export type BotPlugin = BotSdkPlugin<"bot", never, never>;
@@ -131,6 +135,11 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
       sdk.conversations = conversationsApi(sdk);
       sdk.secrets = secretsApi(sdk);
       sdk.screens = screensApi(sdk);
+      sdk.routines = routinesApi(sdk);
+      sdk.checkIns = checkInsApi(sdk);
+      sdk.helpers = helpersApi(sdk);
+      sdk.demonstrations = demonstrationsApi(sdk);
+      sdk.reviews = reviewsApi(sdk);
     },
     // Repairs a Routine whose chain of fires broke, now and then hourly (#578).
     start: startRoutineReconcile,
