@@ -279,7 +279,6 @@ const reservedIds = new Set([
  * against `BotSdk`, so a new namespace on the instance fails to compile until it is listed here.
  */
 const instanceKeys: Record<keyof BotSdk, true> = {
-  handler: true,
   runner: true,
   models: true,
   bots: true,
