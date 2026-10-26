@@ -4,6 +4,7 @@ import { memoryClient } from "../../plugins/memory/client/index";
 import { skillsClient } from "../../plugins/skills/client/index";
 import { knowledgeClient } from "../../plugins/knowledge/client/index";
 import { mcpClient } from "../../plugins/mcp/client/index";
+import { channelClient } from "../../plugins/channel/client/index";
 import type { HttpHandlerOptions } from "../../core/http";
 import { createChatHandler } from "../../core/server/over";
 import { createTestSdk } from "./deps";
@@ -32,7 +33,7 @@ export function createTestChat({
     rateLimits,
   });
   return createBotSdkClient({
-    features: [memoryClient(), skillsClient(), knowledgeClient(), mcpClient()],
+    features: [memoryClient(), skillsClient(), knowledgeClient(), mcpClient(), channelClient()],
     baseUrl: `http://localhost${basePath}`,
     fetch: handler,
   });

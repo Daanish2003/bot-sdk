@@ -24,6 +24,7 @@
     "./plugins/skills/ui": "./plugins/skills/ui/index.ts",
     "./plugins/skills/server": "./plugins/skills/server/index.ts",
     "./plugins/channel/server": "./plugins/channel/server/index.ts",
+    "./plugins/channel/client": "./plugins/channel/client/index.ts",
     "./plugins/channel/ui": "./plugins/channel/ui/index.ts",
     "./plugins/channel/fake": "./plugins/channel/fake/index.ts",
     "./plugins/channel/mailpit": "./plugins/channel/mailpit/index.ts",

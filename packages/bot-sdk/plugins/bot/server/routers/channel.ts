@@ -2,12 +2,12 @@ import { implement } from "@orpc/server";
 
 import type { Context } from "../../../../core/server/context";
 import { requireAuth } from "../../../../core/server/procedures";
-import { botContract } from "../../shared/contract";
+import { channelsContract } from "../../shared/contract";
 import { emailAddressOf, rotateEmailAddress, lastUsedChannel } from "../conversation";
 
-const os = implement(botContract).$context<Context>().use(requireAuth);
+const os = implement({ channels: channelsContract }).$context<Context>().use(requireAuth);
 
-/** The email Channel's procedures: it implements the contract's `channels` (spec #761). */
+/** The email Channel's procedures: it implements `channelsContract` (spec #761). */
 export const channelRouter = os.channels.router({
   email: {
     address: os.channels.email.address.handler(async ({ context, input }) => {

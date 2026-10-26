@@ -34,6 +34,33 @@ describe("createBotSdk features", () => {
     ).toThrow('Feature "first" has no API method for its procedure nested.pong');
   });
 
+  it("serves a contract procedure whose API method is a class's", async () => {
+    class Notes {
+      count({ userId }: { userId: string }) {
+        return `3 for ${userId}`;
+      }
+    }
+    const sdk = createBotSdk({
+      ...core,
+      features: [
+        defineFeature({
+          id: "notes",
+          contract: { count: oc.output(type<string>()) },
+          api: () => new Notes(),
+        }),
+      ],
+    });
+    const response = await createHttpHandler(sdk, { basePath, getUser: () => ({ id: "user" }) })(
+      new Request(`http://localhost${basePath}/rpc/notes/count`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }),
+    );
+
+    expect(await response.json()).toEqual({ json: "3 for user" });
+  });
+
   it("throws when a feature claims a core route", () => {
     const route = { method: "GET", path: "/export", handle: async () => new Response() } as const;
     expect(() =>

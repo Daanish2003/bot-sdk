@@ -9,6 +9,7 @@ import {
   type FeaturesContract,
 } from "../../core/client/chat-client";
 import type { CoreContract } from "../../core/client/contract";
+import type { ChannelsClient } from "../../plugins/channel/client/index";
 import type { KnowledgeFeatureClient } from "../../plugins/knowledge/client/index";
 import type { McpFeatureClient } from "../../plugins/mcp/client/index";
 import type { MemoryFeatureClient } from "../../plugins/memory/client/index";
@@ -86,7 +87,13 @@ export function renderWrapped(ui: ReactElement, options: WrapOptions = {}) {
 export type TestClient = BotSdkClient<
   CoreContract &
     FeaturesContract<
-      [MemoryFeatureClient, SkillsFeatureClient, KnowledgeFeatureClient, McpFeatureClient]
+      [
+        MemoryFeatureClient,
+        SkillsFeatureClient,
+        KnowledgeFeatureClient,
+        McpFeatureClient,
+        ChannelsClient,
+      ]
     >
 >;
 

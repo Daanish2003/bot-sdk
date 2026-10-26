@@ -9,6 +9,7 @@ import { z } from "zod";
 import type { BotMessage } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { EmailPopover } from "../../../plugins/channel/ui/email-popover";
+import { channelClient } from "../../../plugins/channel/client/index";
 import { providerFor } from "../fake-dictionary";
 
 afterEach(() => {
@@ -50,6 +51,7 @@ function fakeChannelServer(nextChannel: "web" | "email" = "web") {
 function openPopover(server: ReturnType<typeof fakeChannelServer>) {
   render(
     providerFor(createElement(EmailPopover, { botId: "b1" }), {
+      features: [channelClient()],
       fetch: server.fetch,
       messages: {},
     }),

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { createBotSdkClient } from "../../../core/client/chat-client";
 import { coreContract } from "../../../core/client/contract";
+import { channelClient } from "../../../plugins/channel/client/index";
 import { knowledgeClient } from "../../../plugins/knowledge/client/index";
 import { mcpClient } from "../../../plugins/mcp/client/index";
 import { memoryClient } from "../../../plugins/memory/client/index";
@@ -16,7 +17,13 @@ import { skillsClient } from "../../../plugins/skills/client/index";
  */
 
 const base = "http://localhost/api/chat";
-const features = [memoryClient(), skillsClient(), knowledgeClient(), mcpClient()] as const;
+const features = [
+  memoryClient(),
+  skillsClient(),
+  knowledgeClient(),
+  mcpClient(),
+  channelClient(),
+] as const;
 const botId = "0190f0c4-6b7a-7c3e-8f00-000000000001";
 const sent = {
   id: botId,
@@ -87,7 +94,7 @@ describe("the client composed from contracts", () => {
   it("lists its features in order, with the core URLs and the features' URLs", () => {
     const client = testClient();
 
-    expect(client.features).toEqual(["memory", "skills", "knowledge", "mcp"]);
+    expect(client.features).toEqual(["memory", "skills", "knowledge", "mcp", "channels"]);
     expect(client).toMatchObject({
       exportUrl: `${base}/export`,
       eventsUrl: `${base}/events`,

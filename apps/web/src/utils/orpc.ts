@@ -1,4 +1,5 @@
 import { createBotSdkClient } from "@ai-chat/bot-sdk/core/client";
+import { channelClient } from "@ai-chat/bot-sdk/plugins/channel/client";
 import { knowledgeClient } from "@ai-chat/bot-sdk/plugins/knowledge/client";
 import { mcpClient } from "@ai-chat/bot-sdk/plugins/mcp/client";
 import { memoryClient } from "@ai-chat/bot-sdk/plugins/memory/client";
@@ -30,7 +31,13 @@ export function createQueryClient() {
 }
 
 // The client is built from the core's contract and each enabled feature's client part.
-const features = [memoryClient(), skillsClient(), knowledgeClient(), mcpClient()] as const;
+const features = [
+  memoryClient(),
+  skillsClient(),
+  knowledgeClient(),
+  mcpClient(),
+  channelClient(),
+] as const;
 
 type ChatClient = ReturnType<typeof createBotSdkClient<typeof features>>;
 

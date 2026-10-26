@@ -162,7 +162,7 @@ export type FeatureDefinition<
   Id extends string = string,
   Needs extends CoreService = never,
   Api extends object = object,
-  Contract extends AnyContractRouter = AnyContractRouter,
+  Contract extends Record<string, AnyContractRouter> = Record<string, AnyContractRouter>,
 > = {
   id: Id;
   /** The core services the feature uses. The factory throws when one isn't configured. */
@@ -265,7 +265,7 @@ export function defineFeature<
   const Id extends string,
   const Needs extends CoreService = never,
   Api extends object = object,
-  Contract extends AnyContractRouter = Record<never, never>,
+  Contract extends Record<string, AnyContractRouter> = Record<never, never>,
 >(
   definition: FeatureDefinition<Id, Needs, Api, Contract> & {
     api?: (context: FeatureContext<Needs>) => ContractApi<Contract>;
@@ -510,11 +510,14 @@ function checkImplements(feature: AnyFeature, api: object): void {
   if (feature.contract) visit(feature.contract, []);
 }
 
-/** The value at `path` in `api`, through its own keys only. */
+/**
+ * The value at `path` in `api`: its own keys or its class's methods, never what every object
+ * inherits (`constructor`, `toString`).
+ */
 function lookup(api: object, path: readonly string[]): unknown {
   return path.reduce<unknown>(
     (node, key) =>
-      node !== null && typeof node === "object" && Object.hasOwn(node, key)
+      node !== null && typeof node === "object" && key in node && !(key in Object.prototype)
         ? (node as Record<string, unknown>)[key]
         : undefined,
     api,

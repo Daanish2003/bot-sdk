@@ -288,8 +288,11 @@ const computer = {
   control: oc.input(screenControlInput).output(type<void>()),
 };
 
-/** The email Channel (spec #761): a Bot's address, to copy or rotate. */
-const channels = {
+/**
+ * The email Channel (spec #761): a Bot's address, to copy or rotate. Served under `channels` only
+ * when the Host fills the `channels` slot, so the client adds it with `channelClient()`.
+ */
+export const channelsContract = {
   email: {
     /** The Bot's address, made on the first read, and the Channel its next Message goes by. */
     address: oc.input(botInput).output(type<{ address: string; nextChannel: "web" | "email" }>()),
@@ -308,7 +311,8 @@ export const botContract = {
   secrets,
   demonstrations,
   computer,
-  channels,
 };
 
 export type BotContract = typeof botContract;
+
+export type ChannelsContract = typeof channelsContract;

@@ -192,7 +192,7 @@ On the client, build a headless client from the core's contract and your feature
 ```tsx
 const client = createBotSdkClient({
   baseUrl: "/api/chat",
-  features: [memoryClient(), skillsClient(), knowledgeClient(), mcpClient()],
+  features: [memoryClient(), skillsClient(), knowledgeClient(), mcpClient(), channelClient()],
 });
 
 <ChatProvider client={client} router={router}>
