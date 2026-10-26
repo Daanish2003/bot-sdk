@@ -254,11 +254,12 @@ export function isFeature(value: unknown): value is AnyFeature {
 
 /**
  * The Prompt start sections the core writes itself, the core's export keys, the built-in plugin
- * ids, and `then`.
+ * ids, `then` and `toJSON`.
  */
 const reservedIds = new Set([
-  // An instance with a `then` would be awaited as a promise.
+  // An instance with a `then` would be awaited as a promise, and one with `toJSON` serialised by it.
   "then",
+  "toJSON",
   "rules",
   "computer",
   "routines",
@@ -312,7 +313,12 @@ const serviceNames: Record<CoreService, string> = { computer: "the Computer" };
  * needs isn't configured (`services` holds the instance's core services).
  */
 export function checkFeature(feature: AnyFeature, services: ReadonlySet<string>): void {
-  if (reservedIds.has(feature.id) || Object.hasOwn(instanceKeys, feature.id)) {
+  if (
+    reservedIds.has(feature.id) ||
+    Object.hasOwn(instanceKeys, feature.id) ||
+    // A name every object inherits (`__proto__`, `constructor`) isn't the feature's own key.
+    feature.id in Object.prototype
+  ) {
     throw new Error(`Feature id "${feature.id}" is reserved by the core`);
   }
   for (const table of Object.values(feature.schema ?? {})) {
