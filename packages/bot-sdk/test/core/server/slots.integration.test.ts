@@ -10,7 +10,7 @@ import {
   type BotSdkOptions,
 } from "../../../core/server/index";
 import { buildBotSdk } from "../../../core/server/create-chat";
-import { blob, bot } from "../../../core/server/storage";
+import { blob, bot, job } from "../../../core/server/storage";
 import type { ComputerApi } from "../../../plugins/computer/server/internal";
 import { fakeEmailProvider } from "../../../plugins/channel/fake/index";
 import { emailChannel } from "../../../plugins/channel/server/index";
@@ -151,6 +151,7 @@ describe("createBotSdk with flat slots", () => {
       });
 
       // No runner slot, yet a queued job runs: the in-process runner is the default.
+      slotsRan.length = 0;
       await instance.start();
       try {
         const id = await instance.runner.enqueue("slots.job", { n: 7 });
@@ -158,13 +159,14 @@ describe("createBotSdk with flat slots", () => {
           .poll(async () => (await instance.runner.status(id))?.status, { timeout: 10_000 })
           .toBe("succeeded");
         expect(slotsRan).toEqual([7]);
+        expect(context.computer !== null).toBe(false);
+        const rows = await getTestDb().select().from(blob).where(eq(blob.key, "slots-test"));
+        expect(rows).toHaveLength(1);
       } finally {
         await instance.stop();
+        await getTestDb().delete(blob).where(eq(blob.key, "slots-test"));
+        await getTestDb().delete(job).where(eq(job.name, "slots.job"));
       }
-      expect(context.computer !== null).toBe(false);
-      const rows = await getTestDb().select().from(blob).where(eq(blob.key, "slots-test"));
-      expect(rows).toHaveLength(1);
-      await getTestDb().delete(blob).where(eq(blob.key, "slots-test"));
     },
   );
 
