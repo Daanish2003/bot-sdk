@@ -29,6 +29,7 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **Merge, then verify, never both at once (#801):** a merge and a background verify were sent as parallel tool calls. The merge conflicted, and the verify had already started on the half-merged tree, so it had to be stopped. Read the merge's result (and `git status` for `UU` files) before starting a verify.
 - **Start a dependent ticket from its blocker's branch (#801):** #809, #807, #808, #810, #811 and #812 each started from their blocker's unpushed tip (`worktree add -b <branch> <path> <blocker-branch or SHA>`) instead of waiting for that blocker's merge and verify. No rework came of it. Put the base SHA in the prompt and tell the agent to review `<SHA>..HEAD`.
 - **A parallel ticket edits a folder another ticket deletes (#813):** #814 hand-copied its change into `examples/next-prisma` while #817 deleted that folder. The merge raised 11 modify/delete and rename/delete conflicts, resolved with `git rm -r examples`. When one ticket in a wave deletes a folder, tell the others in their prompts to leave it alone.
+- **A wide refactor running alongside feature slices conflicts again and again (#871):** #884 (about 130 lookups) ran next to four feature tickets touching the same Turn files. Its merge conflicted twice (9 files, then 8). Each time, aborting the merge and having #884's own agent merge the new tip worked; resolving it yourself would mean judging both tickets' seams. Merge the wide refactor before the feature slices that touch its seam, and tell the slices to merge its SHA.
 
 ## Databases and services
 
@@ -121,6 +122,11 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
   - copy.test "gives a Host core and ui only…" (5 s timeout in a full verify, 3/3 alone)
   - e2e account "the user menu links to the Account page" (twice under `--workers=2`, 3/3 with `--repeat-each=3`)
   - e2e bots "a user sends a Bot a file, and the Bot's reply uses it" (once under `--workers=2`, passed alone)
+- **A construction-time throw only the e2e sees (#871):** after #886, every unit and integration test was green, but the e2e web server threw at startup (`Feature "skills" needs the Computer`), because the Host listed `skills()` without E2B configured, and tests always pass a fake Computer. Run the full e2e right after any ticket that changes how `apps/web` builds the SDK, not only at the end.
+- **Refactors that "change no behaviour" still did (#871):** the brief's no-behaviour-change rule made implementers list most differences. The branch review still found features' read errors swallowed (main retried them) and the user's Secrets no longer masked in the Memory, Skills and Knowledge sections. In the brief for a refactor, name what to diff against main: error classes (what retries and what ends the Turn), masking, signals, and timestamps.
+- **Skipped code-review, again (#871):** #880 reported done with no review, and #882 reviewed "by hand". Both were sent back to run the skill. Check `checks` for the skill run before merging, every time.
+- **CI flakes (#871):** on PR #920, `bot-hand-off` "shows on the to-do list as waiting for the user" failed once in CI (it sends right after the Helper waits, and the first Turn may still be running), then passed 5/5 alone locally. The rerun hit the known `bot-demonstration-capture` 200-steps flake; the third attempt was green.
+- **oxlint `no-restricted-imports` overrides (#889):** a later override replaces the rule instead of merging it, and `!` negations apply across all of the rule's patterns. The boundary rule therefore needs one full override per module (about 1,000 generated lines in `.oxlintrc.json`). Regenerate it rather than editing it by hand.
 
 ## Slots
 
@@ -150,6 +156,7 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **Create the eval database first (#842):** `eval:computer:helper` migrates `EVAL_DATABASE_URL` but doesn't create it, and failed with `database "ai-chat_eval_849" does not exist`. The eval script creates it (with `vector`) before running.
 - **The ChatGPT plan has no computer tool (#842):** a Computer-use Helper on `openai:gpt-6.1-sol` through `EVAL_CHATGPT_USER_ID` got `400 Unsupported tool type: computer` on every call. The native-computer evals need a real `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, and `apps/web/.env` has neither (2026-10-25). Ask the owner for keys before a run depends on one.
 - **Real-credential evals can be denied (#842):** the classifier denied, with no reason given, running a helper eval on the owner's ChatGPT plan, although the owner had said "you can run the eval when ready". Write the script to the scratchpad and give the owner one `! bash <script>` line.
+- **Read the runs before calling a regression (#871):** `eval:turn` scored routine-recurring and routine-check-back 0/3, yet the Model called `create_routine` and `set_check_in` correctly in every run. The scorer (`routine-score.ts`) didn't unwrap calls made through `run_tool`, an old bug since tool search; it was fixed in 0d92bd66. When a case fails with "nothing to judge", open the results JSON and check the calls first. In the #871 run the classifier allowed the ChatGPT-plan eval script after the owner chose it in AskUserQuestion.
 
 ## Permissions
 
