@@ -77,6 +77,7 @@ export function createChatHandler(sdk: SdkOver, options: OverOptions): ChatHandl
     runner: _runner,
     computer,
     bots: _bots,
+    conversations: _conversations,
     channels: _channels,
     ...context
   } = sdk;

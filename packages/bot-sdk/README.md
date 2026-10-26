@@ -346,6 +346,24 @@ Every change to a Bot's thread (a Message, a Turn starting or ending, a Secret, 
 
 The server's only live signal is the data-less `{ "type": "changed" }` hint on the SSE `/events` route; a Bot app never takes data from it. A tab fetches the changes on a hint, when the stream (re)connects, when the window gets focus back and, while a Turn runs, every 30 seconds. `useBotSync` does this for the Bot components; a Host with its own UI calls `bot.changes` the same way and applies the changes in order.
 
+## Calling the SDK from the Host's own server code
+
+Every Bot operation is also a domain method on the instance, grouped by namespace (spec #873). Each takes one object with the user's id and no request; the RPC procedures are wrappers that pass the signed-in user's id. A method refuses another user's data as its procedure does, and in-process calls are not rate-limited.
+
+```ts
+const bot = await sdk.bots.create({ userId, name: "Ada", model: "openai:gpt-6-luna" });
+await sdk.bots.send({ userId, botId: bot.id, id: uuidv7(), text: "Hi" });
+
+const { conversationId, lastSeq } = await sdk.bots.get({ userId, botId: bot.id });
+const hints = await sdk.conversations.watch({ userId, conversationId, signal });
+for await (const hint of hints) {
+  const result = await sdk.conversations.changes({ userId, conversationId, since: lastSeq });
+  // Apply the changes, or read the thread afresh on `reload`, and move the cursor.
+}
+```
+
+`sdk.bots` has `create`, `list`, `get`, `send`, `upload`, `stop`, `warm`, `choose` and `react`. `sdk.conversations.watch` resolves once its subscription is in place, so `changes` read after it misses nothing; it ends when `signal` aborts or the loop stops.
+
 ## Host hooks
 
 `createBotSdk({ hooks })` takes the Host's callbacks into the SDK. Every hook is optional.

@@ -36,6 +36,8 @@ import { stopUserTurns, turnJobs } from "./turn";
 import { demonstrationJobs, stopUserDemonstrations } from "./demonstrations";
 
 import { botPluginRouter } from "./routers";
+import { botsApi, type BotsApi } from "./bots-api";
+import { conversationsApi } from "./conversations-api";
 import { rotateSecretKeys } from "./safety";
 
 export type BotPlugin = BotSdkPlugin<"bot", never, never>;
@@ -50,8 +52,11 @@ export const botJobs = [
   deliveryJob,
 ];
 
-/** The core's Bots, as the Host reaches them (`sdk.bots`, spec #871). */
-export type BotApi = {
+/**
+ * The core's Bots, as the Host reaches them (`sdk.bots`, spec #871): the domain methods (spec #873)
+ * and the Host's handlers.
+ */
+export type BotApi = BotsApi & {
   /**
    * The inbound webhook handler of webhook Routines (ADR 0021), Request → Response. The Host mounts
    * it at `/api/routines/webhook/<token>` with no sign-in: the token is the authentication.
@@ -108,6 +113,7 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
       // The default Model of the user's pickers is the newest Bot's.
       sdk.models.addRecentModelSource((userId) => newestBotModel(sdk.db, userId));
       const api: BotApi = {
+        ...botsApi(sdk),
         webhookHandler: (request) => handleRoutineWebhook(sdk, request),
         stopTurns: async (userId) => {
           // The Turns first, so none starts a Helper after its Helpers are stopped.
@@ -120,6 +126,7 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
         reviewModel,
       };
       sdk.bots = api;
+      sdk.conversations = conversationsApi(sdk);
     },
     // Repairs a Routine whose chain of fires broke, now and then hourly (#578).
     start: startRoutineReconcile,

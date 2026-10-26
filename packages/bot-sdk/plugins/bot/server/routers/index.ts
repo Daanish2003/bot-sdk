@@ -1,27 +1,10 @@
 import { z } from "zod";
 
-import { lastSeqOf } from "../../../../core/server/chat/change-log";
 import { protectedProcedure } from "../../../../core/server/procedures";
 import { rpcError } from "../../../../core/server/rpc-error";
-import {
-  botMessages,
-  createBot,
-  findBot,
-  latestTurnStatus,
-  listBots,
-  userTurnStatus,
-  isTimeZone,
-  uploadBotFile,
-} from "../conversation";
+import { findBot } from "../conversation";
 import { botMessageSchema } from "../../shared/turn";
-import {
-  turnProvenance,
-  decideReview,
-  listReviews,
-  deleteSecret,
-  listSecrets,
-  saveSecret,
-} from "../safety";
+import { decideReview, listReviews, deleteSecret, listSecrets, saveSecret } from "../safety";
 import {
   approveRoutine,
   declineRoutine,
@@ -34,10 +17,6 @@ import {
   listCheckIns,
 } from "../routines";
 import { botChanges } from "../changes";
-import { answerChoice, reactToMessage } from "../triggers";
-
-import { emojiSchema } from "../../shared/reaction";
-import { maxChoiceOptionLength, maxChoiceOtherLength } from "../../shared/choice";
 
 import { listHelpers, helperDone, stopBotHelpers, screenControl, screenView } from "../helpers";
 
@@ -45,10 +24,14 @@ import { secretNameSchema } from "../../shared/secret";
 
 import type { DemonstrationAction } from "../../shared/demonstration";
 import { actOnDemonstration, demonstrationSteps } from "../demonstrations";
-
-import { botSummaries, botWarmings, warmBot } from "../context";
-
-import { sendToBot, stopBot } from "../turn";
+import {
+  botInput,
+  chooseInput,
+  createBotInput,
+  reactInput,
+  sendInput,
+  uploadInput,
+} from "../bots-api";
 
 /** A route that applies `action` to one of the caller's Demonstrations. */
 const demonstrationAction = (action: DemonstrationAction) =>
@@ -64,57 +47,20 @@ const botRouter = {
    * doesn't greet: its Conversation starts with no Message.
    */
   create: protectedProcedure
-    .input(z.object({ name: z.string().trim().min(1).max(100), model: z.string() }))
-    .handler(async ({ context, input }) => {
-      const { models } = await context.sdk.models.listAvailableModels(context.user.id);
-      if (!models.some((model) => model.id === input.model)) {
-        throw rpcError(
-          "BAD_REQUEST",
-          "error.modelNotAvailable",
-          `"${input.model}" is not an available Model`,
-          { model: input.model },
-        );
-      }
-      return createBot(context.sdk.db, context.user.id, input, context.sdk.clock());
-    }),
+    .input(createBotInput)
+    .handler(({ context, input }) =>
+      context.sdk.bots.create({ userId: context.user.id, ...input }),
+    ),
 
   /** The caller's Bots, the newest activity first, with their last sent Message and Turn status. */
-  list: protectedProcedure.handler(({ context }) => listBots(context.sdk.db, context.user.id)),
+  list: protectedProcedure.handler(({ context }) =>
+    context.sdk.bots.list({ userId: context.user.id }),
+  ),
 
-  /**
-   * One of the caller's Bots with its latest Turn's status and the status of the Turn that took the
-   * user's last Message, its Conversation's id and Messages, its Turns' provenance, its Summaries and its cache warmings,
-   * and `lastSeq`, the cursor to follow its thread with `changes` from; another user's is not found.
-   */
+  /** One of the caller's Bots and its thread (`sdk.bots.get`); another user's is not found. */
   get: protectedProcedure
-    .input(z.object({ botId: z.uuid() }))
-    .handler(async ({ context, input }) => {
-      const found = await findBot(context.sdk.db, context.user.id, input.botId);
-      if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-      const { conversationId, ...bot } = found;
-      // Read before the thread, so no change committed meanwhile falls behind the cursor.
-      const lastSeq = await lastSeqOf(context.sdk.db, conversationId);
-      const [messages, turnStatus] = await Promise.all([
-        botMessages(context.sdk.db, conversationId),
-        latestTurnStatus(context.sdk.db, bot.id),
-      ]);
-      // Each Turn's Triggers and whether it sent anything, for the dividers of Routine runs.
-      const [turns, userStatus, summaries, warmings] = await Promise.all([
-        turnProvenance(context.sdk.db, context.user.id, bot.id, messages),
-        userTurnStatus(context.sdk.db, messages),
-        botSummaries(context.sdk.db, bot.id, conversationId),
-        botWarmings(context.sdk, context.user.id, bot.id),
-      ]);
-      return {
-        bot: { ...bot, turnStatus, userTurnStatus: userStatus },
-        conversationId,
-        messages,
-        turns,
-        summaries,
-        warmings,
-        lastSeq,
-      };
-    }),
+    .input(botInput)
+    .handler(({ context, input }) => context.sdk.bots.get({ userId: context.user.id, ...input })),
 
   /**
    * The changes to the caller's Bot's thread after seq `since` (ADR 0026), oldest first, each
@@ -129,91 +75,40 @@ const botRouter = {
       botChanges(context.sdk, context.user.id, input.botId, input.since),
     ),
 
-  /**
-   * Sends the caller's Message to their Bot and returns the saved user Message. The Turn that takes
-   * it runs as a runner job; every tab, this one too, follows it through `changes` (ADR 0026). A
-   * send while a Turn runs waits in the Conversation queue for the next Turn. `id` is the client's
-   * uuidv7 for the Message: a resend with the same `id` saves nothing new and returns the Message
-   * saved first. `files` are ids from `upload`: the Message carries them as its `files` part, and the
-   * Turn that takes it copies them onto the Bot's Computer. With files, the text may be empty.
-   */
+  /** Sends the caller's Message to their Bot (`sdk.bots.send`) and returns the saved user Message. */
   send: protectedProcedure
-    .input(
-      z
-        .object({
-          botId: z.uuid(),
-          // Lowercased, as the Trigger's text id holds it, so an uppercase resend still re-joins.
-          id: z.uuidv7().transform((id) => id.toLowerCase()),
-          text: z.string().trim(),
-          files: z.array(z.uuid()).optional(),
-          // The client's IANA zone; the Turn's newest input shows the time in it (UTC when absent).
-          timeZone: z.string().refine(isTimeZone, "Not an IANA time zone").optional(),
-        })
-        .refine((input) => input.text !== "" || !!input.files?.length, {
-          error: "A message needs text or files",
-          path: ["text"],
-        }),
-    )
+    .input(sendInput)
     .output(botMessageSchema)
-    .handler(({ context, input }) => sendToBot(context.sdk, { userId: context.user.id, ...input })),
+    .handler(({ context, input }) => context.sdk.bots.send({ userId: context.user.id, ...input })),
 
-  /**
-   * Stores a file the caller will send their Bot, of any type up to 25 MB, and returns its id for
-   * `send`'s `files`. One no Message sends is deleted after 24 hours. Rate-limited like attachments.
-   */
+  /** Stores a file the caller will send their Bot (`sdk.bots.upload`). Rate-limited like attachments. */
   upload: protectedProcedure
-    .input(z.object({ file: z.file() }))
-    .handler(({ context, input }) => uploadBotFile(context.sdk, context.user.id, input.file)),
-
-  /**
-   * Stops the caller's Bot's running Turn: a queued one ends `stopped` at once, a running one as
-   * its attempt aborts. The Messages already sent stay. Does nothing when no Turn is running.
-   */
-  stop: protectedProcedure
-    .input(z.object({ botId: z.uuid() }))
-    .handler(({ context, input }) => stopBot(context.sdk, context.user.id, input.botId)),
-
-  /**
-   * Warms the cache of the caller's Bot (slide 32), which the Bot page asks for when the
-   * Conversation opens and on the first keystroke of a draft. It does nothing while a Turn runs,
-   * while the cache is still warm, or for a Model with no warming call; `skipped` says which.
-   * Another user's Bot is not found.
-   */
-  warm: protectedProcedure
-    .input(z.object({ botId: z.uuid() }))
-    .handler(({ context, input }) => warmBot(context.sdk, context.user.id, input.botId)),
-
-  /**
-   * Answers the choice a Bot asked in Message `messageId` (spec #761): an `option` or the free text
-   * of `other`. It wakes the Bot with one Trigger, even if the Bot has moved on. The first answer
-   * wins; a later one is refused as answered. Another user's Bot is not found.
-   */
-  choose: protectedProcedure
-    .input(
-      z.object({
-        botId: z.uuid(),
-        messageId: z.uuid(),
-        answer: z.union([
-          z.object({ option: z.string().max(maxChoiceOptionLength) }),
-          z.object({ other: z.string().max(maxChoiceOtherLength) }),
-        ]),
-      }),
-    )
+    .input(uploadInput)
     .handler(({ context, input }) =>
-      answerChoice(context.sdk, context.user.id, {
-        botId: input.botId,
-        messageId: input.messageId,
-        answer: input.answer,
-      }),
+      context.sdk.bots.upload({ userId: context.user.id, ...input }),
     ),
 
-  /**
-   * Puts the user's emoji on a Bot reply, replacing their earlier one, or takes it off with a null
-   * `emoji` (spec #761). A state change only: it wakes no Turn. Another user's Bot is not found.
-   */
+  /** Stops the caller's Bot's running Turn (`sdk.bots.stop`). */
+  stop: protectedProcedure
+    .input(botInput)
+    .handler(({ context, input }) => context.sdk.bots.stop({ userId: context.user.id, ...input })),
+
+  /** Warms the cache of the caller's Bot (`sdk.bots.warm`), on opening and on a draft's first keystroke. */
+  warm: protectedProcedure
+    .input(botInput)
+    .handler(({ context, input }) => context.sdk.bots.warm({ userId: context.user.id, ...input })),
+
+  /** Answers the choice a Bot asked in Message `messageId` (`sdk.bots.choose`). */
+  choose: protectedProcedure
+    .input(chooseInput)
+    .handler(({ context, input }) =>
+      context.sdk.bots.choose({ userId: context.user.id, ...input }),
+    ),
+
+  /** Puts the user's emoji on a Bot reply, or takes it off (`sdk.bots.react`). */
   react: protectedProcedure
-    .input(z.object({ botId: z.uuid(), messageId: z.uuid(), emoji: emojiSchema.nullable() }))
-    .handler(({ context, input }) => reactToMessage(context.sdk, context.user.id, input)),
+    .input(reactInput)
+    .handler(({ context, input }) => context.sdk.bots.react({ userId: context.user.id, ...input })),
 
   /** The Routines of the caller's Bots (#538). Approving or declining one never wakes the Bot. */
   routine: {

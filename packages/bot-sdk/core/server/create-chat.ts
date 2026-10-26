@@ -32,6 +32,7 @@ import { defaultRateLimits, rateLimitedFor, rpcRateLimits, type RateLimit } from
 import { memoryRuntime, type BotSdkRuntime } from "./runtime";
 import { deleteUserData, exportUserData, type UserExport } from "./user-data";
 import { bot, botJobs, type BotApi } from "../../plugins/bot/server/plugin";
+import type { ConversationsApi } from "../../plugins/bot/server/conversations-api";
 import { channel, createChannels } from "../../plugins/bot/server/channels";
 import type { ChannelAdapter, ChannelApi } from "../../plugins/channel/server/internal";
 import { computerSleepJob, createComputer } from "../../plugins/computer/server/internal";
@@ -155,6 +156,11 @@ export type BotSdk = {
    * socket, and `stopTurns` for a Ban.
    */
   bots: BotApi;
+  /**
+   * The core's Conversations (spec #873): `watch` for a Conversation's change hints and `changes`
+   * for what changed since a cursor.
+   */
+  conversations: ConversationsApi;
   /** The core's Channels (spec #871): the inbound handler of each adapter in the channels slot. */
   channels: ChannelApi;
   /** Creates the `chat` schema and applies the bundled migrations. Run it at deploy time. */
@@ -220,7 +226,7 @@ function exportResponse(document: UserExport) {
 export type GivenContext = Partial<
   Omit<
     BotSdkContext,
-    "parts" | "rateLimit" | "models" | "runner" | "computer" | "bots" | "channels"
+    "parts" | "rateLimit" | "models" | "runner" | "computer" | "bots" | "conversations" | "channels"
   > & {
     /** A runner built by the test seam, in place of one over the runner slot's Executor. */
     jobs: JobRunner;
@@ -331,6 +337,7 @@ export function buildBotSdk(
     runner: sdk.runner,
     models: sdk.models,
     bots: sdk.bots,
+    conversations: sdk.conversations,
     channels: sdk.channels,
     migrate: () =>
       migrateSchema(options.databaseUrl, {
@@ -435,6 +442,7 @@ function buildContext(
     models: modelsUnconfigured,
     // Set by the Bots' init, which the core always runs.
     bots: botsUnconfigured,
+    conversations: conversationsUnconfigured,
   };
 }
 
@@ -489,8 +497,27 @@ const botsUnconfigured = new Proxy({} as BotApi, {
   },
 });
 
+/** The `conversations` service of an instance whose core parts have no `bot()`: reading it throws. */
+const conversationsUnconfigured = new Proxy({} as ConversationsApi, {
+  get: (_target, key) => {
+    if (key === "watch" || key === "changes") {
+      throw new Error("The Bots aren't enabled: build the SDK with the slots");
+    }
+    return undefined;
+  },
+});
+
 /** Every name of the Bots' API, so the stand-in throws on those alone. */
 const botApiKeys: Record<keyof BotApi, true> = {
+  create: true,
+  list: true,
+  get: true,
+  send: true,
+  upload: true,
+  stop: true,
+  warm: true,
+  choose: true,
+  react: true,
   webhookHandler: true,
   stopTurns: true,
   screenHandler: true,

@@ -9,6 +9,7 @@ import type { RateLimit } from "./rate-limits";
 import type { BotSdkRuntime } from "./runtime";
 import type { EnabledFeature } from "./feature";
 import type { BotApi } from "../../plugins/bot/server/plugin";
+import type { ConversationsApi } from "../../plugins/bot/server/conversations-api";
 import type { ChannelApi } from "../../plugins/channel/server/internal";
 import type { ComputerApi } from "../../plugins/computer/server/internal";
 import type { ModelsApi } from "../../plugins/models/server/internal";
@@ -50,6 +51,8 @@ export type BotSdkContext = {
   models: ModelsApi;
   /** The core's Bots (spec #871): the Host's handlers and the Ban's stop. */
   bots: BotApi;
+  /** The core's Conversations (spec #873): their change hints and change log. */
+  conversations: ConversationsApi;
   /**
    * The core's Channels besides web (spec #871), over the channels slot's adapters. With none,
    * every inbound answers 404 and no reply goes out by email.

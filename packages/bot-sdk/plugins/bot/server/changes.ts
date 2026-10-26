@@ -1,7 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 
 import { changesSince } from "../../../core/server/chat/change-log";
-import { botReview, botSecret, botTurn, message } from "../../../core/server/storage";
+import { bot, botReview, botSecret, botTurn, message } from "../../../core/server/storage";
 import type { Database } from "../../../core/server/storage";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
@@ -18,9 +18,8 @@ const idsOf = (changes: { kind: string; refId: string }[], kind: BotChangeKind) 
 ];
 
 /**
- * The changes to the user's Bot `botId`'s thread after seq `since`, oldest first, each with what it
- * points at as it is now; or `reload` once the log no longer holds them all. Another user's Bot is
- * not found.
+ * The changes to the user's Bot `botId`'s thread after seq `since`: its Conversation's changes
+ * (`conversationChanges`). Another user's Bot is not found.
  */
 export async function botChanges(
   deps: BotSdkContext,
@@ -30,10 +29,31 @@ export async function botChanges(
 ): Promise<BotChanges> {
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-  const logged = await changesSince(deps.db, found.conversationId, since);
+  return deps.conversations.changes({ userId, conversationId: found.conversationId, since });
+}
+
+/**
+ * The changes to the thread of the user's Bot Conversation `conversationId` after seq `since`,
+ * oldest first, each with what it points at as it is now; or `reload` once the log no longer holds
+ * them all. Another user's Conversation, or one that isn't a Bot's, is not found.
+ */
+export async function conversationChanges(
+  deps: BotSdkContext,
+  userId: string,
+  conversationId: string,
+  since: number,
+): Promise<BotChanges> {
+  const [found] = await deps.db
+    .select({ botId: bot.id })
+    .from(bot)
+    .where(and(eq(bot.conversationId, conversationId), eq(bot.userId, userId)));
+  if (!found) {
+    throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
+  }
+  const logged = await changesSince(deps.db, conversationId, since);
   if (logged.reload) return logged;
   const { changes } = logged;
-  const data = await changeData(deps.db, { userId, botId, ...found }, changes);
+  const data = await changeData(deps.db, { userId, botId: found.botId, conversationId }, changes);
   return {
     reload: false,
     changes: changes.map(
