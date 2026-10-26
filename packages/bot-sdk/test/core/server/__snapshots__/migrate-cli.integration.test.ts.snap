@@ -378,12 +378,14 @@ ALTER TABLE "botsdk"."bot_turn" ADD CONSTRAINT "bot_turn_prompt_start_id_bot_pro
 ALTER TABLE "botsdk"."channel_email_address" ADD CONSTRAINT "channel_email_address_bot_id_bot_id_fkey" FOREIGN KEY ("bot_id") REFERENCES "botsdk"."bot"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "botsdk"."job_event" ADD CONSTRAINT "job_event_job_id_job_id_fkey" FOREIGN KEY ("job_id") REFERENCES "botsdk"."job"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "botsdk"."conversation_change" ADD CONSTRAINT "conversation_change_conversation_id_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "botsdk"."conversation"("id") ON DELETE CASCADE;
+;
 insert into botsdk.__migrations (feature, migration) values ('core', '20261026182921_botsdk_baseline');
 commit;
 
 -- notes/0001_note
 begin;
-create table botsdk.test_note (id text primary key, bot_id uuid references botsdk.bot(id) on delete cascade);
+create table botsdk.test_note (id text primary key, bot_id uuid references botsdk.bot(id) on delete cascade)
+;
 insert into botsdk.__migrations (feature, migration) values ('notes', '0001_note');
 commit;
 "

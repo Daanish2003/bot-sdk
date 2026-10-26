@@ -24,3 +24,6 @@ if (positionals[0] !== "migrate") {
 const { runMigrate } = await import("../core/server/migrate-cli.ts");
 const config = (await import(pathToFileURL(resolve(values.config)).href)).default;
 await runMigrate(config, values, (text) => process.stdout.write(text));
+// A Host's own pool or other handles in its config must not keep the CLI alive.
+await new Promise((done) => process.stdout.write("", done));
+process.exit(0);

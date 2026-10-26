@@ -35,7 +35,7 @@ export function printSql(pending: readonly PendingMigration[]): string {
   ].join("\n");
   const steps = pending.map(
     ({ feature, name, sql }) =>
-      `-- ${feature}/${name}\nbegin;\n${sql.trim().replace(/;$/, "")};\n` +
+      `-- ${feature}/${name}\nbegin;\n${sql.trim()}\n;\n` +
       `insert into botsdk.__migrations (feature, migration) values (${quote(feature)}, ${quote(name)});\ncommit;`,
   );
   return [prelude, ...steps].join("\n\n") + "\n";
@@ -51,12 +51,14 @@ export function dropSql(feature: AnyFeature, enabled: readonly AnyFeature[]): st
   }
   const drops = Object.values(feature.schema?.tables ?? {}).map((table) => {
     const { name, schema } = getTableConfig(table);
-    return `drop table if exists "${schema ?? "public"}"."${name}" cascade;`;
+    const id = (text: string) => `"${text.replaceAll('"', '""')}"`;
+    return `drop table if exists ${id(schema ?? "public")}.${id(name)} cascade;`;
   });
   return [
     "begin;",
     ...drops,
-    `delete from botsdk.__migrations where feature = ${quote(feature.id)};`,
+    // The journal is missing on a database that was never migrated.
+    `do $$ begin if to_regclass('botsdk.__migrations') is not null then delete from botsdk.__migrations where feature = ${quote(feature.id)}; end if; end $$;`,
     "commit;",
   ].join("\n");
 }
