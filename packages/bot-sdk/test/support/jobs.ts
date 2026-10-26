@@ -1,5 +1,10 @@
 import type { Database } from "../../core/server/storage";
-import { inProcessRunner, type JobClock, claimJob } from "../../plugins/runner/server/internal";
+import {
+  inProcessRunner,
+  type JobClock,
+  type JobTable,
+  claimJob,
+} from "../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "./deps";
 import { getTestDb } from "./test-database";
 
@@ -10,6 +15,8 @@ export type DrainJobsOptions = {
    * deps its Run used, so the fakes are the same. Defaults to fresh test deps.
    */
   deps?: TestDeps;
+  /** The jobs the drain runs, for a test's own. Defaults to the jobs of `deps`. */
+  jobs?: JobTable;
   /**
    * `false` (the default) runs every queued job now, even one in its retry backoff, so a test
    * need not move a clock. `true` runs only the jobs due at the real time, then returns.
@@ -30,12 +37,14 @@ export async function drainJobs({
   respectRunAfter = false,
   now,
   deps,
+  jobs,
 }: DrainJobsOptions = {}): Promise<number> {
   const silent = { error: () => {} };
   const jobDeps = deps ?? createTestSdk({ db });
   // Never started: it runs the attempts claimed here, and its `stop()` waits for their handlers.
   // A handler still running 5 s after its abort is reported, not waited on for the default 250 s.
-  const runner = inProcessRunner({ db, logger: silent, drainMs: 5_000, deps: () => jobDeps });
+  const table = jobs ?? jobDeps.parts.jobs;
+  const runner = inProcessRunner({ db, logger: silent, drainMs: 5_000, jobs: () => table });
   let ran = 0;
   try {
     for (;;) {

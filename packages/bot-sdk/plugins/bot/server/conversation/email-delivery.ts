@@ -4,7 +4,7 @@ import { bot, botTrigger, message } from "../../../../core/server/storage";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
 import { sentFileBlobKey } from "./files";
 import { controlOf, subjectOf, toBotMessage } from "./store";
-import { defineJob, PermanentJobError } from "../../../runner/server/internal";
+import { defineCoreJob, PermanentJobError } from "../../../runner/server/internal";
 import { emailAddressOf } from "./email-address";
 import {
   deliveryPayload,
@@ -222,11 +222,11 @@ async function filesOf(
  * The job that emails one Bot Message. The runner retries a failed send; once it gives up, the
  * failure is logged and nothing else happens (bounces and a failed-delivery marker are out of scope).
  */
-export const deliveryJob = defineJob({
+export const deliveryJob = defineCoreJob({
   name: deliveryJobName,
   payload: deliveryPayload,
   run: async (payload, { deps }) => deps.channels.sendDelivery(payload),
-  onFailed: (payload, error, deps) => {
+  onFailed: (payload, error, { deps }) => {
     deps.logger.error(`Couldn't email Bot Message ${payload.messageId}`, error);
   },
 });

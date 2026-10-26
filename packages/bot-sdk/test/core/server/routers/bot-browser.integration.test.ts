@@ -144,7 +144,7 @@ async function userWith(
     db: getTestDb(),
     logger: silent,
     drainMs: 50,
-    deps: () => deps!,
+    jobs: () => deps!.parts.jobs,
   });
   deps = createTestSdk({
     computer: computerFake.provider,

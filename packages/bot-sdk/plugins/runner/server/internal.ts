@@ -1,11 +1,14 @@
 // The runner service's entry point inside the SDK (#889): the core imports it only through this
 // file. index.ts stays the public package export.
 export {
+  type CoreJobServices,
+  defineCoreJob,
   defineJob,
   type JobContext,
   type JobDefinition,
+  jobTable,
+  type JobTable,
   PermanentJobError,
-  registerJob,
 } from "./jobs/define";
 export { loadHistory, unrecordedStore } from "./jobs/history";
 export type { Executor } from "./jobs/executor";

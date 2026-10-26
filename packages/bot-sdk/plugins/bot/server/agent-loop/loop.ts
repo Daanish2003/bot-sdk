@@ -427,7 +427,7 @@ export async function runLoop(
     let fire: (() => void) | undefined;
     let result: T;
     try {
-      result = await ctx.activity(name, (tx) =>
+      result = await ctx.step(name, (tx) =>
         write(tx, (onUsage) => {
           fire = onUsage;
         }),
@@ -518,7 +518,7 @@ export async function runLoop(
       lastChatOptions = chatOptions;
       let recorded: RecordedModelCall;
       try {
-        recorded = await ctx.activity("model", async (): Promise<RecordedModelCall> => {
+        recorded = await ctx.step("model", async (): Promise<RecordedModelCall> => {
           const sent = sentOptions(chatOptions);
           let hashes: PromptHash[] | undefined;
           if (promptStart) {
@@ -583,7 +583,7 @@ export async function runLoop(
     if (lastInput === undefined || lastInput <= summaryThreshold * contextWindow) return false;
     const { write, load } = summarize;
     const sent = sentOptions({ ...lastChatOptions, messages: all });
-    const written = await ctx.activity(
+    const written = await ctx.step(
       "summary",
       async (): Promise<{ prose: string; usage: RecordedModelCall["usage"] }> => {
         const messages: ModelMessage[] = [
@@ -662,7 +662,7 @@ export async function runLoop(
   };
   const liveActivity: LoopKit["liveActivity"] = (name, toolCallId, write) =>
     toolCall(toolCallId, async () => {
-      const result = await ctx.activity(name, async (tx) => {
+      const result = await ctx.step(name, async (tx) => {
         beforeLiveTool();
         return await write(tx);
       });
@@ -671,20 +671,20 @@ export async function runLoop(
       // must not hold the write's row locks. Its Checkpoint holds the cut form, so a replay never
       // saves again; a short result, or one recorded already cut, adds no activity.
       if (toolCallId === undefined || !isLong(result)) return result;
-      return ctx.activity(`${name}:cut`, () => capLong(result, toolCallId));
+      return ctx.step(`${name}:cut`, () => capLong(result, toolCallId));
     });
   const liveRequest: LoopKit["liveRequest"] = (name, toolCallId, run, write, reviewed) =>
     toolCall(toolCallId, async () => {
       // Auto-review first: a blocked call never runs.
       const blocked = reviewed && (await review(name, toolCallId, reviewed));
       if (blocked) return blocked;
-      const result = await ctx.activity(name, async () => {
+      const result = await ctx.step(name, async () => {
         beforeLiveTool();
         return capLong(await run(), toolCallId);
       });
       // Not past a limit or a Stop: what `run` did is written, whenever it ran.
       if (!write) return result;
-      await ctx.activity(`${name}:write`, async (tx) => {
+      await ctx.step(`${name}:write`, async (tx) => {
         await write(tx, result);
         return null;
       });
@@ -771,7 +771,7 @@ export async function runLoop(
     return reviewToolCall(
       deps,
       {
-        activity: ctx.activity,
+        step: ctx.step,
         billing,
         now: ctx.now,
         beforeLive: () => {
@@ -799,7 +799,7 @@ export async function runLoop(
       // the marker never stands for a command that didn't start. No transaction: the command runs
       // on the Computer, not in the database.
       let startedHere = false;
-      await ctx.activity(
+      await ctx.step(
         shellStartActivity,
         async () => {
           beforeLiveTool();
@@ -808,7 +808,7 @@ export async function runLoop(
         },
         { yields: false },
       );
-      const result = await ctx.activity(shellToolName, async () => {
+      const result = await ctx.step(shellToolName, async () => {
         beforeLiveTool();
         if (!startedHere) return { error: interruptedShellError };
         // The user's Secrets, read for this one command: it gets only the ones it names, and the
@@ -857,7 +857,7 @@ export async function runLoop(
     toolCall(toolCallId, async () => {
       // A call that can't run is told so before its review, so it never waits for an Approval.
       if (unless) {
-        const refused = await ctx.activity(`${name}:unless`, async () => {
+        const refused = await ctx.step(`${name}:unless`, async () => {
           beforeLiveTool();
           return unless();
         });
@@ -867,7 +867,7 @@ export async function runLoop(
       const blocked = reviewed && (await review(name, toolCallId, reviewed, ask));
       if (blocked) return blocked;
       return recordTold(
-        await ctx.activity(name, async () => {
+        await ctx.step(name, async () => {
           beforeLiveTool();
           // A Computer tool's result may hold a Secret's value (a file, a page): masked, like `shell`.
           const values = [...(await loadSecretValues(deps, owner.userId, decrypted)).values()];
@@ -968,7 +968,7 @@ export async function runLoop(
               const added: ModelMessage[] = [];
               try {
                 if (inbox) {
-                  const arrived = await ctx.activity("inbox", inbox);
+                  const arrived = await ctx.step("inbox", inbox);
                   await options.afterInbox?.();
                   added.push(...arrived.map((content) => ({ role: "user" as const, content })));
                 }

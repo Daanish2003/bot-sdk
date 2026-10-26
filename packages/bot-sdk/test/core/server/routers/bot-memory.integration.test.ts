@@ -62,7 +62,7 @@ async function botsWith(
     logger: silent,
     drainMs: 50,
     clock: { ...systemClock, now: clock },
-    deps: () => deps!,
+    jobs: () => deps!.parts.jobs,
   });
   deps = createTestSdk({
     ...(withComputer && { computer: computerFake.provider }),
@@ -332,7 +332,7 @@ describe("a Turn that resumes after a crash", () => {
         logger: silent,
         clock: timer.clock,
         drainMs: 1_000,
-        deps: () => deps!,
+        jobs: () => deps!.parts.jobs,
       });
       started.push(jobs);
       deps = createTestSdk({
@@ -373,7 +373,7 @@ describe("a Turn that resumes after a crash", () => {
       new TextEncoder().encode("- Prefers long replies\n"),
     );
     timer.advance(61_000);
-    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps);
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps.parts.jobs);
     timer.tick();
     await lost;
 

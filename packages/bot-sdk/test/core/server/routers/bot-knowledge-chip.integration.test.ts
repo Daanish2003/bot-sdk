@@ -51,7 +51,7 @@ async function botWith(turnRounds: ReturnType<typeof round>[]) {
     logger: silent,
     drainMs: 50,
     clock: { ...systemClock, now: clock },
-    deps: () => deps!,
+    jobs: () => deps!.parts.jobs,
   });
   deps = createTestSdk({
     computer: computerFake.provider,

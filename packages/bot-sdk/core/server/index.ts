@@ -17,6 +17,12 @@ export {
   type FeaturePromptTurn,
   type FeatureTurn,
 } from "./feature";
+export {
+  defineJob,
+  type JobContext,
+  type JobDefinition,
+  PermanentJobError,
+} from "../../plugins/runner/server/internal";
 export type { EventHooks, ConversationDeletedEvent } from "./chat/hooks";
 export {
   memoryRuntime,

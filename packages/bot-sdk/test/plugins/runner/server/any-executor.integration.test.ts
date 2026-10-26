@@ -46,7 +46,7 @@ async function setup(rounds: Parameters<typeof createFakeAdapter>[0]["rounds"] =
     drainMs: 50,
     clock: timer.clock,
     executor: manual.executor,
-    deps: () => deps,
+    jobs: () => deps.parts.jobs,
   });
   const deps = createTestSdk({
     jobs,

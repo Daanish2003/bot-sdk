@@ -317,7 +317,7 @@ export async function newestRenderer(
   const cutTrigger = (id: string, text: string) =>
     text.length <= spillThreshold
       ? Promise.resolve(text)
-      : ctx.activity(
+      : ctx.step(
           "trigger_text",
           async () => {
             const computer = deps.computer ? computerOf(deps, turn.userId) : undefined;
@@ -332,7 +332,7 @@ export async function newestRenderer(
   const since = await lastInputAt(db, turn);
   const userFiles = {
     place: (files: SentFile[]) =>
-      ctx.activity(
+      ctx.step(
         "user_files",
         async () =>
           deps.computer
@@ -344,7 +344,7 @@ export async function newestRenderer(
   };
   return async (changeNotes) => {
     const rendered = await newestInput(db, turn, since, todo, changeNotes, cutTrigger, userFiles);
-    return ctx.activity(turnInputActivity, async (tx) => {
+    return ctx.step(turnInputActivity, async (tx) => {
       await tx.update(botTurn).set({ input: rendered }).where(eq(botTurn.id, turn.id));
       return rendered;
     });

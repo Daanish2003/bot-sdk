@@ -96,7 +96,7 @@ async function main() {
     // goes on until this user is asleep. It is bounded because a check that keeps the Computer awake
     // queues its follow-up inside the window.
     // Never started: it runs the checks claimed here, and its `stop()` waits for their handlers.
-    const runner = inProcessRunner({ db, logger: console, deps: () => over });
+    const runner = inProcessRunner({ db, logger: console, jobs: () => over.parts.jobs });
     try {
       for (let ran = 0; ran < 1000; ran++) {
         if ((await row())?.state === "asleep") break;

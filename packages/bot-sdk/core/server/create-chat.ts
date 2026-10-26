@@ -9,6 +9,7 @@ import type { ChatUser, Context } from "./context";
 import { createGuardedFetch } from "./lib/guarded-fetch";
 import {
   checkFeature,
+  contextOf,
   enableFeature,
   featurePlugin,
   type AnyFeature,
@@ -30,10 +31,10 @@ import {
 import { defaultRateLimits, rateLimitedFor, rpcRateLimits, type RateLimit } from "./rate-limits";
 import { memoryRuntime, type BotSdkRuntime } from "./runtime";
 import { deleteUserData, exportUserData, type UserExport } from "./user-data";
-import { bot, type BotApi } from "../../plugins/bot/server/plugin";
+import { bot, botJobs, type BotApi } from "../../plugins/bot/server/plugin";
 import { channel, createChannels } from "../../plugins/bot/server/channels";
 import type { ChannelAdapter, ChannelApi } from "../../plugins/channel/server/internal";
-import { createComputer } from "../../plugins/computer/server/internal";
+import { computerSleepJob, createComputer } from "../../plugins/computer/server/internal";
 import type { ComputerProvider } from "../../plugins/computer/server/internal";
 import {
   models,
@@ -41,8 +42,13 @@ import {
   type ModelsOptions,
   type ModelsPlugin,
 } from "../../plugins/models/server/internal";
-import type { Executor, JobRunner } from "../../plugins/runner/server/internal";
-import { createRunner, type RunnerApi } from "../../plugins/runner/server/internal";
+import type {
+  CoreJobServices,
+  Executor,
+  JobDefinition,
+  JobRunner,
+} from "../../plugins/runner/server/internal";
+import { createRunner, jobTable, type RunnerApi } from "../../plugins/runner/server/internal";
 
 export type ChatHandler = (request: Request) => Promise<Response>;
 
@@ -106,6 +112,12 @@ export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly Fe
    * which polls Postgres and needs nothing else.
    */
   runner?: Executor;
+  /**
+   * The Host's own jobs, built with `defineJob` (spec #872): they run on the SDK's runner, each
+   * with the core services a feature with no `needs` gets. A job name can be listed once.
+   */
+  // oxlint-disable-next-line typescript/no-explicit-any -- each job has its own payload
+  jobs?: readonly JobDefinition<any>[];
   /** Each user's Computer. With none, Bots have no Computer and no feature that needs one. */
   computer?: ComputerProvider;
   /** The Models: Host credentials, user keys, Quota, linked credentials, default Image Model. */
@@ -302,7 +314,14 @@ export function buildBotSdk(
   // Each feature in the Host's order, with the core services it needs.
   const enabled = features.map((feature) => enableFeature(sdk, feature));
   const plugins = [...core, ...enabled.map(featurePlugin)];
-  sdk.parts = { all: plugins, features: enabled };
+  // Every job the runner runs: the core's, each feature's with its context, then the Host's.
+  const coreServices: CoreJobServices = { deps: sdk };
+  const jobs = jobTable([
+    { jobs: [...botJobs, computerSleepJob], services: coreServices },
+    ...enabled.map(({ feature, context }) => ({ jobs: feature.jobs ?? [], services: context })),
+    { jobs: options.jobs ?? [], services: contextOf(sdk, []) },
+  ]);
+  sdk.parts = { all: plugins, features: enabled, jobs };
   // In order: the core's parts first, then each feature's API.
   const apis = new Map<string, object>();
   for (const plugin of plugins) apis.set(plugin.id, plugin.init?.(sdk)?.api ?? {});

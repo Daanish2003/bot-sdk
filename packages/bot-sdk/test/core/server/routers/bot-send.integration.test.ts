@@ -109,7 +109,7 @@ async function sdkWithRunner(
     logger: silent,
     drainMs: 50,
     clock: jobClock,
-    deps: () => deps!,
+    jobs: () => deps!.parts.jobs,
   });
   const pubsub = countingPubSub(overrides.pubsub ?? createMemoryPubSub());
   deps = createTestSdk({ jobs, ...overrides, pubsub });
@@ -1582,7 +1582,7 @@ describe("a Turn that resumes after a crash", () => {
         logger: silent,
         clock: timer.clock,
         drainMs: 1_000,
-        deps: () => deps!,
+        jobs: () => deps!.parts.jobs,
       });
       started.push(jobs);
       deps = createTestSdk({
@@ -1637,7 +1637,7 @@ describe("a Turn that resumes after a crash", () => {
        */
       crash: async () => {
         timer.advance(61_000);
-        await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps);
+        await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps.parts.jobs);
         timer.tick();
       },
       /**
@@ -1646,7 +1646,7 @@ describe("a Turn that resumes after a crash", () => {
        */
       die: async () => {
         timer.advance(61_000);
-        await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps);
+        await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps.parts.jobs);
       },
       tick: () => timer.tick(),
     };
@@ -2241,7 +2241,7 @@ describe("the bot plugin on a runner that is not in-process", () => {
   it("fails at startup, because a retry there starts over and would send Messages again", () => {
     const elsewhere = createJobRunner({
       db: getTestDb(),
-      deps: () => createTestSdk(),
+      jobs: () => createTestSdk().parts.jobs,
       executor: manualExecutor().executor,
     });
 

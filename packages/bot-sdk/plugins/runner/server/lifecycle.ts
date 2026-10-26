@@ -22,10 +22,12 @@ export function createRunnerLifecycle(deps: BotSdkContext, jobs: JobRunner): Run
   let lastPrune = Number.NEGATIVE_INFINITY;
   const reap = async () => {
     const now = new Date();
-    const requeued = await reapStaleJobs(deps.db, now, logger, deps).catch((error: unknown) => {
-      logger.error("Reaping background jobs failed", error);
-      return [];
-    });
+    const requeued = await reapStaleJobs(deps.db, now, logger, deps.parts.jobs).catch(
+      (error: unknown) => {
+        logger.error("Reaping background jobs failed", error);
+        return [];
+      },
+    );
     for (const jobId of requeued) jobs.requeued(jobId, now);
     if (Date.now() - lastPrune < JOB_PRUNE_MS) return;
     lastPrune = Date.now();

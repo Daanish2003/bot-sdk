@@ -174,7 +174,12 @@ async function demonstrating(path = "/") {
       port > 9222 ? chrome.proxied : `https://${port}-${sandboxId}.fake.test`,
   });
   let deps: TestDeps | undefined;
-  const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
+  const jobs = inProcessRunner({
+    db: getTestDb(),
+    logger: silent,
+    drainMs: 50,
+    jobs: () => deps!.parts.jobs,
+  });
   deps = createTestSdk({
     computer: computerFake.provider,
     features: [skills()],

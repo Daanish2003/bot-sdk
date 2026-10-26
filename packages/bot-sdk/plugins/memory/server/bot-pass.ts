@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { bot, botTrigger, botTurn, message } from "../../../core/server/storage";
 import type { Database } from "../../../core/server/storage";
-import type { FeatureContext } from "../../../core/server/feature";
+import { coreContextOf, type FeatureContext } from "../../../core/server/feature";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { searchTextOf } from "../../../core/shared/message-parts";
 import { lockConversation } from "../../bot/server/triggers";
@@ -86,10 +86,11 @@ export type ShownLine = {
 };
 
 /** The job that runs a Turn's pass. Its key is `memory-pass:<turnId>`. */
-export const botMemoryPassJob = defineJob<PassPayload>({
+export const botMemoryPassJob = defineJob<PassPayload, FeatureContext<"computer">>({
   name: "memory.bot-pass",
   payload: passPayload,
-  run: (payload, context) => runBotMemoryPass(context.deps, payload.turnId, context),
+  // It still reads the core's Models and Bots, which a feature's context doesn't carry.
+  run: (payload, context) => runBotMemoryPass(coreContextOf(context), payload.turnId, context),
 });
 
 /**
@@ -126,7 +127,7 @@ export async function enqueueBotMemoryPass(
 async function runBotMemoryPass(
   deps: BotSdkContext,
   turnId: string,
-  { activity, signal }: Pick<JobContext, "activity" | "signal">,
+  { step, signal }: Pick<JobContext, "step" | "signal">,
 ): Promise<void> {
   const [turn] = await deps.db
     .select({
@@ -152,7 +153,7 @@ async function runBotMemoryPass(
     );
     // The checks are part of the recorded call: a retry applies the operations its first attempt
     // planned, even once Memory is off or the Quota is spent.
-    const planned = await activity("memory_ops", async () => {
+    const planned = await step("memory_ops", async () => {
       if (!deps.computer || !(await memoryEnabledFor(deps, turn.userId))) return null;
       const call = await deps.models.resolveModelCall(turn.userId, turn.model);
       if (!call || !(await call.meter.mayRun()).ok) return null;
@@ -177,7 +178,7 @@ async function runBotMemoryPass(
     });
     if (!planned) return [];
     // The writes and the change list, once: a retry after the Checkpoint reads the change list.
-    return activity("memory_apply", async (tx) => {
+    return step("memory_apply", async (tx) => {
       const applied = await applyMemoryOps(computer(), {
         botId: turn.botId,
         ...planned,

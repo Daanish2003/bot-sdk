@@ -34,7 +34,7 @@ async function botWith(rounds: Round[]) {
     db: getTestDb(),
     logger: { error: () => {} },
     drainMs: 50,
-    deps: () => deps!,
+    jobs: () => deps!.parts.jobs,
   });
   deps = createTestSdk({ jobs, adapterFor: () => fake.adapter });
   await jobs.start();
