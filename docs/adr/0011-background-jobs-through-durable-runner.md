@@ -80,7 +80,7 @@ Step 2 lets a Turn survive a crash or a deploy by resuming from its last **Check
 - **A deploy hands work back at a Checkpoint.** `stop()` asks each running workflow to yield. Its next `ctx.activity` saves, then yields. The runner puts the row back as `queued` with `run_after = now`, without counting the attempt, under the same fence, so another process resumes it at once instead of a lease later. A job still running after `drainMs` is aborted as before.
 - **Cancel is unchanged.** The row becomes `cancelled`, and the attempt aborts at its next heartbeat or, sooner, at its next write's fence.
 - **Polling stays.** There's still a 2 s poll plus a wake-up on `enqueue`, and no LISTEN/NOTIFY.
-- **Trigger.dev records nothing.** Under the Trigger.dev adapter there's no `chat.job` row, so every `ctx` call runs for real and saves nothing, and Trigger.dev's own retries apply. Whether Turns need the in-process runner is decided with [A Turn as a durable workflow](https://github.com/Daanish2003/ai-chat/issues/482).
+- **Trigger.dev records nothing.** Under the Trigger.dev adapter there's no `chat.job` row, so every `ctx` call runs for real and saves nothing, and Trigger.dev's own retries apply. Turns run on any Executor, as the amendment below settles; it was first decided with [A Turn as a durable workflow](https://github.com/Daanish2003/ai-chat/issues/482).
 - **Left to later work:** an activity that commits a same-database write in its own transaction, for exactly-once (ticket 482).
 
 ### Considered options

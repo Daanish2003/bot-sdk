@@ -189,7 +189,7 @@ describe("the Bots and the Computer on a manual Executor", () => {
       await deps.computer!.forUser(user.id).run("true");
       expect(manual.notified.at(-1)?.runAfter).toEqual(new Date(sunday.getTime() + 5 * minuteMs));
       timer.advance(5 * minuteMs + 1);
-      await runQueued("computer.sleep");
+      expect(await runQueued("computer.sleep")).toBe(1);
 
       expect(provider.callsOf("pause")).toHaveLength(1);
       const [row] = await getTestDb().select().from(computer).where(eq(computer.userId, user.id));
