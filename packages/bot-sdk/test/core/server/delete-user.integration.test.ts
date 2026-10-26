@@ -166,9 +166,7 @@ describe("createBotSdk().users.delete", () => {
     await seedOwner(other, deps);
     const chat = createBotSdk({
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets: [testKey],
-      basePath: "/api/chat",
       models: {},
     });
 

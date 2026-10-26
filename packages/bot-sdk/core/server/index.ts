@@ -3,7 +3,6 @@ export {
   type BotSdk,
   type BotSdkOptions,
   type FeatureEntry,
-  type GetUser,
   type Logger,
   type UsersSlot,
 } from "./create-chat";

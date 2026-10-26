@@ -231,9 +231,7 @@ describe("deleteUser across plugins", () => {
       .values({ userId: owner.id, imageModel: "openai:gpt-image-2" });
     const sdk = createBotSdk({
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets: [testKey],
-      basePath: "/api/chat",
       models: {},
     });
 
@@ -342,9 +340,7 @@ describe("exportUser across plugins", () => {
   it("has the core's version and timestamp, and the models plugin's section, on an instance of models alone", async () => {
     const options = {
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets: [testKey],
-      basePath: "/api/chat",
       models: {},
     };
     // The Models alone, without the Bots the factory always has.
@@ -398,9 +394,7 @@ describe("sdk.users on a Host's instance", () => {
     });
     const sdk = createBotSdk({
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets: [testKey],
-      basePath: "/api/chat",
       models: {},
       features: [extra],
     });
@@ -455,9 +449,7 @@ describe("rotateKeys across plugins", () => {
     const logger = { error: vi.fn() };
     const sdk = createBotSdk({
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets: [keyB, keyA],
-      basePath: "/api/chat",
       logger,
       models: {},
       features: [mcp()],

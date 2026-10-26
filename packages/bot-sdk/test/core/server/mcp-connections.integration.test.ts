@@ -55,9 +55,7 @@ describe("mcp({ servers })", () => {
   it("refuses a server URL that isn't HTTPS", () => {
     const options: BotSdkOptions = {
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets: [testKeyEncryptionSecret],
-      basePath: "/api/chat",
       models: {},
       features: [mcp({ servers: [{ ...linear, url: "http://mcp.test/mcp" }] })],
     };

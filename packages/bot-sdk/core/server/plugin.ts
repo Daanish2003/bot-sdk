@@ -42,10 +42,6 @@ export type BotSdkContext = {
   /** Set by `stop()`. */
   lifecycle: { stopping: boolean };
   isUserBlocked: (userId: string) => boolean | Promise<boolean>;
-  /** Every enabled plugin's rate-limit rules, defaults and the root `rateLimits` merged. */
-  rateLimits: Readonly<Record<string, RateLimit | false>>;
-  /** Counts a hit on a rule; the seconds to wait once it is over its limit, else `null`. */
-  rateLimit: (rule: string, key: string) => Promise<number | null>;
   /** The runner (ADR 0011): the background jobs, from the runner slot or the in-process runner. */
   runner: RunnerApi;
   /** Each user's Computer, on the computer slot's provider, or `null` when the slot isn't set. */
@@ -146,7 +142,7 @@ export type Route = {
 /**
  * One part of an instance, internal to the SDK: the core's Models, Bots and Channels, and the
  * plugin each feature runs as. `Rule` names its rate-limit rules and `Event` the event hooks it
- * fires; the root `rateLimits` and `hooks` options are typed by them.
+ * fires; `createHttpHandler`'s `rateLimits` and the root `hooks` are typed by them.
  */
 export type BotSdkPlugin<
   Id extends string = string,
@@ -157,7 +153,7 @@ export type BotSdkPlugin<
   /** oRPC routers, served under `<basePath>/rpc/<key>`. A key two plugins claim throws. */
   router?: Record<string, AnyRouter>;
   routes?: readonly Route[];
-  /** This plugin's rate-limit rules and their defaults; the root `rateLimits` overrides them. */
+  /** This plugin's rate-limit rules and their defaults; `createHttpHandler`'s `rateLimits` overrides them. */
   rateLimits?: Record<Rule, RateLimit>;
   /** Runs once, in order, when the instance is built. It must open no connection. */
   init?: (sdk: BotSdkContext) => { api?: object } | void;
@@ -198,7 +194,7 @@ type RuleOf<Plugin> =
   Plugin extends BotSdkPlugin<string, infer Rule, keyof EventHooks> ? Rule : never;
 type EventOf<Plugin> = Plugin extends BotSdkPlugin<string, string, infer Event> ? Event : never;
 
-/** The root `rateLimits`: any core or enabled plugin's rule, overridden or turned off with `false`. */
+/** `createHttpHandler`'s `rateLimits`: any core or enabled plugin's rule, overridden or turned off with `false`. */
 export type RateLimitsOf<Plugins extends readonly BotSdkPlugin[]> = Partial<
   Record<CoreRule | RuleOf<Plugins[number]>, RateLimit | false>
 >;

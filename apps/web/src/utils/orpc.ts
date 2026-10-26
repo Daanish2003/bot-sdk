@@ -12,7 +12,7 @@ import { getRequest } from "@tanstack/react-start/server";
 import { toast } from "sonner";
 
 import { ENV } from "../env.server";
-import { sdk } from "../services";
+import { http } from "../services";
 
 export function createQueryClient() {
   return new QueryClient({
@@ -53,7 +53,7 @@ const getChatClient = createIsomorphicFn()
         const headers = new Headers(request.headers);
         const cookie = getRequest().headers.get("cookie");
         if (cookie) headers.set("cookie", cookie);
-        return sdk.handler(new Request(request, { headers }));
+        return http(new Request(request, { headers }));
       },
     }),
   )

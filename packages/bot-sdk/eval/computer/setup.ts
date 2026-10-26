@@ -11,7 +11,6 @@ import type { FeatureEntry } from "../../core/server/create-chat";
 import { createGuardedFetch } from "../../core/server/lib/guarded-fetch";
 import { migrate as migrateChatSchema } from "../../core/server/migrate";
 import type { BotSdkContext } from "../../core/server/plugin";
-import { resolveRateLimits } from "../../core/server/rate-limits";
 import { memoryRuntime } from "../../core/server/runtime";
 import { createBotSdkOver, type OverSlots } from "../../core/server/over";
 import { e2bProvider } from "../../plugins/computer/e2b";
@@ -89,7 +88,6 @@ export function createComputerSdk(
         events,
         fetch,
         keyring,
-        rateLimits: resolveRateLimits(),
       },
       models: models ? models(real) : real,
       computer: provider,
@@ -98,7 +96,7 @@ export function createComputerSdk(
       reviewModel,
       features,
     },
-    { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
+    { logger: { error: () => {} } },
   ).sdk;
 }
 

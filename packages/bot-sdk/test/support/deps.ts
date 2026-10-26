@@ -13,7 +13,6 @@ import { memory } from "../../plugins/memory/server/feature";
 import type { ComputerProvider } from "../../plugins/computer/server/internal";
 import type { ModelsDeps } from "../../plugins/models/server/internal";
 import type { JobRunner } from "../../plugins/runner/server/internal";
-import { resolveRateLimits } from "../../core/server/rate-limits";
 import { fakeReviewer, withReviewer } from "./fake-reviewer";
 
 /** The `test` value of `KEY_ENCRYPTION_SECRET` in `apps/web/.env.schema`. */
@@ -89,7 +88,6 @@ export function createTestSdk({
     clock: overrides.clock ?? (() => new Date()),
     keyring,
     lifecycle: overrides.lifecycle ?? { stopping: false },
-    rateLimits: overrides.rateLimits ?? resolveRateLimits(),
   };
   const models: ModelsDeps = {
     db,
@@ -134,7 +132,7 @@ export function createTestSdk({
       reviewModel,
       features: [...(withMemory ? [memory()] : []), ...(features ?? [])],
     },
-    { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
+    { logger: { error: () => {} } },
   ).sdk;
 }
 

@@ -1,6 +1,7 @@
 import { createAuth } from "@ai-chat/auth";
 import { chatgptAccessToken } from "@ai-chat/auth/chatgpt";
 import { createDb } from "@ai-chat/db";
+import { createHttpHandler } from "@ai-chat/bot-sdk/core/http";
 import { createBotSdk, redisRuntime, redisStore } from "@ai-chat/bot-sdk/core/server";
 import { emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
 import { mcp } from "@ai-chat/bot-sdk/plugins/mcp/server";
@@ -79,7 +80,6 @@ export const sdk = (shared.botSdk ??= createBotSdk({
   // Shared through Redis when REDIS_URL is set; in memory otherwise, for one process only.
   pubsub: ENV.REDIS_URL ? redisRuntime({ url: ENV.REDIS_URL }) : undefined,
   logger: log,
-  basePath: "/api/chat",
   fetchAllowHosts: ssrfAllowHosts,
   // File bytes go to the S3 store when S3_* is set, and to Postgres otherwise (ADR 0015).
   blobs: blobStoreOf(ENV),
@@ -100,10 +100,6 @@ export const sdk = (shared.botSdk ??= createBotSdk({
       });
       return row?.emailVerified ? row.email : null;
     },
-  },
-  getUser: async (request) => {
-    const session = await auth.api.getSession({ headers: request.headers });
-    return session?.user ? { id: session.user.id } : null;
   },
   models: {
     // The Host's Models and their Quota (ADR 0007); unset, users chat only on their own keys.
@@ -145,3 +141,12 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     mcp({ servers: mcpServersOf(ENV) }),
   ],
 }));
+
+// The Bot SDK over HTTP (spec #873): every RPC call and route under /api/chat, for the signed-in user.
+export const http = createHttpHandler(sdk, {
+  basePath: "/api/chat",
+  getUser: async (request) => {
+    const session = await auth.api.getSession({ headers: request.headers });
+    return session?.user ? { id: session.user.id } : null;
+  },
+});

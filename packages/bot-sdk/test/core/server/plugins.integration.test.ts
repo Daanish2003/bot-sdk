@@ -1,6 +1,7 @@
 import { os } from "@orpc/server";
 import { describe, expect, it } from "vitest";
 
+import { createHttpHandler } from "../../../core/http";
 import { buildBotSdk, createBotSdk } from "../../../core/server/create-chat";
 import { defineFeature } from "../../../core/server/feature";
 import type { BotSdkPlugin } from "../../../core/server/plugin";
@@ -11,9 +12,7 @@ import { testDatabaseUrl } from "../../support/test-database";
 const basePath = "/api/chat";
 const core = {
   databaseUrl: testDatabaseUrl,
-  getUser: () => ({ id: "user" }),
   keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-  basePath,
   models: {},
 };
 
@@ -59,7 +58,7 @@ describe("createBotSdk features", () => {
       ],
     });
 
-    const response = await sdk.handler(
+    const response = await createHttpHandler(sdk, { basePath, getUser: () => ({ id: "user" }) })(
       new Request(`http://localhost${basePath}/rpc/greeting/hello`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -111,16 +110,21 @@ describe("createBotSdk features", () => {
     expect(() => buildBotSdk(core, {}, [part, models()])).toThrow(/start with Models/);
   });
 
-  it("types hooks and rateLimits by the core", () => {
+  it("types hooks and the HTTP layer's rateLimits by the core", () => {
+    const sdk = createBotSdk({
+      ...core,
+      hooks: {
+        onUsage: () => {},
+        // @ts-expect-error onNothing is no event of the core's.
+        onNothing: () => {},
+      },
+    });
     expect(() =>
-      createBotSdk({
-        ...core,
-        hooks: {
-          onUsage: () => {},
-          // @ts-expect-error onNothing is no event of the core's.
-          onNothing: () => {},
-        },
+      createHttpHandler(sdk, {
+        basePath,
+        getUser: () => null,
         rateLimits: {
+          credentialSave: false,
           // @ts-expect-error nothing is no rule of the core's.
           nothing: false,
         },

@@ -88,9 +88,7 @@ describe("redisRuntime without Redis", () => {
       const runtime = redisRuntime({ url: server.url });
       createBotSdk({
         databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
-        getUser: () => null,
         keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-        basePath: "/api/chat",
         pubsub: runtime,
         models: {},
       });
@@ -108,9 +106,7 @@ describe("redisRuntime without Redis", () => {
       const runtime = redisRuntime({ url: server.url });
       const chat = createBotSdk({
         databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
-        getUser: () => null,
         keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-        basePath: "/api/chat",
         pubsub: runtime,
         models: {},
       });

@@ -1,11 +1,7 @@
-import { onError } from "@orpc/server";
-import { RPCHandler } from "@orpc/server/fetch";
-
 import { postgresBlobStore, createDb } from "./storage";
 import type { BlobStore } from "./storage";
 import { handleConversationEvents } from "./chat/conversation-events";
 import { createHookEmitter } from "./chat/hooks";
-import type { ChatUser, Context } from "./context";
 import { createGuardedFetch } from "./lib/guarded-fetch";
 import {
   checkFeature,
@@ -17,7 +13,6 @@ import {
 } from "./feature";
 import { assertMigrated, migrate as migrateSchema } from "./migrate";
 import {
-  matchPath,
   mergeRateLimits,
   mergeRouters,
   mergeRoutes,
@@ -25,10 +20,9 @@ import {
   type BotSdkPlugin,
   type CoreRule,
   type HooksOf,
-  type RateLimitsOf,
   type Route,
 } from "./plugin";
-import { defaultRateLimits, rateLimitedFor, rpcRateLimits, type RateLimit } from "./rate-limits";
+import { defaultRateLimits, type RateLimit } from "./rate-limits";
 import { memoryRuntime, type BotSdkRuntime } from "./runtime";
 import { usersApi, type UserExport, type UsersApi } from "./user-data";
 import { bot, botJobs, type BotApi } from "../../plugins/bot/server/plugin";
@@ -57,12 +51,8 @@ import type {
 } from "../../plugins/runner/server/internal";
 import { createRunner, jobTable, type RunnerApi } from "../../plugins/runner/server/internal";
 
-export type ChatHandler = (request: Request) => Promise<Response>;
-
 /** Where the RPC calls' errors go, and the SDK's warnings when it has `warn`. */
 export type Logger = Pick<Console, "error"> & Partial<Pick<Console, "warn">>;
-
-export type GetUser = (request: Request) => ChatUser | null | Promise<ChatUser | null>;
 
 /** What the `features` slot takes: features built with `defineFeature`. */
 export type FeatureEntry = AnyFeature;
@@ -88,15 +78,11 @@ export type UsersSlot = {
  */
 export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly FeatureEntry[]> = {
   databaseUrl: string;
-  /** Who the request is from. `null` answers 401, except on a public route. */
-  getUser: GetUser;
   /**
    * The keyring (ADR 0010), at least one secret. The first encrypts Provider and Tool credentials
    * at rest; every entry decrypts, so a key can be added in front of the old one.
    */
   keyEncryptionSecrets: string[];
-  /** Where the handler is mounted, for example `/api/chat`. */
-  basePath: string;
   /**
    * What the SDK shares across processes: pub/sub and the rate-limit counters (`redisRuntime`).
    * Defaults to in-memory, which works in one process only; `start()` warns about it.
@@ -149,8 +135,6 @@ export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly Fe
    * use, the Bot's own Model reviews, in a fresh context.
    */
   reviewModel?: string;
-  /** Overrides for the core's rate limits (spec 87). Each rule is optional; `false` turns it off. */
-  rateLimits?: RateLimitsOf<[ModelsPlugin]>;
   /**
    * The Host's callbacks into the SDK. Each hook is optional and runs after its change is written,
    * never awaited, at most once and without retries (README, "Host hooks").
@@ -159,7 +143,6 @@ export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly Fe
 };
 
 export type BotSdk = {
-  handler: ChatHandler;
   /** The runner's jobs. */
   runner: RunnerApi;
   /** The core's Models (spec #871): metering, the Quota and the Admin views' usage reads. */
@@ -251,7 +234,6 @@ export type GivenContext = Partial<
   Omit<
     BotSdkContext,
     | "parts"
-    | "rateLimit"
     | "models"
     | "runner"
     | "computer"
@@ -318,9 +300,6 @@ export function buildBotSdk(
   if (options.keyEncryptionSecrets.length === 0) {
     throw new Error("keyEncryptionSecrets must hold at least one secret");
   }
-  if (!options.basePath.startsWith("/")) {
-    throw new Error(`basePath must start with "/": ${options.basePath}`);
-  }
   const core = parts ?? coreParts(options);
   if (core[0]?.id !== "models") throw new Error("The core's parts must start with Models");
   const features: readonly AnyFeature[] = options.features ?? [];
@@ -348,7 +327,7 @@ export function buildBotSdk(
   const ruleDefaults = mergeRateLimits([own, ...core]);
 
   // Building the context opens nothing: the pool and the runtime connect on first use.
-  const sdk = buildContext(options, given, ruleDefaults) as BotSdkContext;
+  const sdk = buildContext(options, given) as BotSdkContext;
   // The core services, over the context they belong to, before any part's `init` runs.
   const runner = createRunner(sdk, options.runner, given.jobs);
   sdk.runner = runner.api;
@@ -371,7 +350,6 @@ export function buildBotSdk(
   for (const plugin of plugins) apis.set(plugin.id, plugin.init?.(sdk)?.api ?? {});
 
   const instance: BotSdk = {
-    handler: createHandler(options, router, routes, sdk),
     runner: sdk.runner,
     models: sdk.models,
     bots: sdk.bots,
@@ -438,27 +416,42 @@ export function buildBotSdk(
   };
   // Each feature's API, as `sdk.<id>`.
   for (const feature of features) Object.assign(instance, { [feature.id]: apis.get(feature.id) });
+  // What the HTTP layer serves, kept off the instance's typed and enumerable keys.
+  const http: HttpParts = { context: sdk, router, routes, rateLimits: ruleDefaults };
+  Object.defineProperty(instance, httpPartsKey, { value: http });
   return { instance, context: sdk };
+}
+
+/**
+ * What `createHttpHandler` serves of an instance: its core context, every part's routers and routes,
+ * and the default of each rate-limit rule.
+ */
+export type HttpParts = {
+  context: BotSdkContext;
+  router: ReturnType<typeof mergeRouters>;
+  routes: readonly Route[];
+  rateLimits: Readonly<Record<string, RateLimit>>;
+};
+
+// A registered symbol, so a copy of this module in another bundle (the Host's Nitro plugin) finds it.
+const httpPartsKey = Symbol.for("@ai-chat/bot-sdk/http");
+
+/** The HTTP parts of an instance `createBotSdk` built; throws for anything else. */
+export function httpPartsOf(sdk: BotSdk): HttpParts {
+  const parts = (sdk as { [httpPartsKey]?: HttpParts } | null)?.[httpPartsKey];
+  if (!parts) throw new Error("createHttpHandler takes an instance that createBotSdk built");
+  return parts;
 }
 
 /** The core context: the infrastructure from the options, with any `given` part in its place. */
 function buildContext(
   options: BotSdkOptions,
   given: GivenContext,
-  ruleDefaults: ReturnType<typeof mergeRateLimits>,
 ): Omit<BotSdkContext, "runner" | "computer" | "channels" | "parts"> {
   const logger = options.logger ?? console;
   const db = given.db ?? createDb({ DATABASE_URL: options.databaseUrl }, logger);
   const runtime = given.runtime ?? options.pubsub ?? memoryRuntime();
   const counters = given.counters ?? runtime.counters;
-  const overrides: Partial<Record<string, RateLimit | false>> = options.rateLimits ?? {};
-  // A given rule replaces its default; the rest keep theirs, so `rateLimit` finds every rule.
-  const rateLimits = {
-    ...Object.fromEntries(
-      Object.entries(ruleDefaults).map(([rule, limit]) => [rule, overrides[rule] ?? limit]),
-    ),
-    ...given.rateLimits,
-  };
   const fetchAllowHosts = given.fetchAllowHosts ?? options.fetchAllowHosts ?? [];
   return {
     db,
@@ -475,13 +468,6 @@ function buildContext(
     keyring: given.keyring ?? options.keyEncryptionSecrets,
     lifecycle: given.lifecycle ?? { stopping: false },
     isUserBlocked: given.isUserBlocked ?? options.users?.isBlocked ?? (() => false),
-    rateLimits,
-    rateLimit: (rule, key) => {
-      const limit = rateLimits[rule];
-      if (limit === undefined)
-        throw new Error(`Nothing in the instance declares the rate limit "${rule}"`);
-      return rateLimitedFor(counters, limit, key);
-    },
     // Set by the Models' init, which runs before every other part's.
     models: modelsUnconfigured,
     // Set by the Bots' init, which the core always runs.
@@ -609,78 +595,3 @@ const botApiKeys: Record<keyof BotApi, true> = {
   screenSocket: true,
   reviewModel: true,
 };
-
-function createHandler(
-  { basePath, getUser, logger = console }: BotSdkOptions,
-  router: ReturnType<typeof mergeRouters>,
-  routes: readonly Route[],
-  sdk: BotSdkContext,
-): ChatHandler {
-  const prefix = basePath.replace(/\/+$/, "");
-  const rpcPrefix = `${prefix}/rpc` as `/${string}`;
-  const rpc = new RPCHandler(router, {
-    interceptors: [onError((error) => logger.error(error))],
-  });
-  const matchRoute = (request: Request, path: string | null, isPublic: boolean) => {
-    if (path === null) return null;
-    for (const route of routes) {
-      if (route.method !== request.method || Boolean(route.public) !== isPublic) continue;
-      const params = matchPath(route.path, path);
-      if (params) return { route, params };
-    }
-    return null;
-  };
-
-  return async (request) => {
-    const { pathname } = new URL(request.url);
-    const path = pathname.startsWith(`${prefix}/`) ? pathname.slice(prefix.length) : null;
-    const publicRoute = matchRoute(request, path, true);
-    if (publicRoute?.route.public) {
-      const { route, params } = publicRoute;
-      return route.handle(request, { user: null, sdk, params, basePath: prefix });
-    }
-    const user = await getUser(request);
-    if (!user) return unauthorized();
-
-    if (pathname === rpcPrefix || pathname.startsWith(`${rpcPrefix}/`)) {
-      const refused = await rpcRateLimitRefusal(sdk, user.id, pathname.slice(rpcPrefix.length));
-      if (refused) return refused;
-      const context: Context = { user, sdk };
-      const result = await rpc.handle(request, { prefix: rpcPrefix, context });
-      return result.matched ? result.response : notFound();
-    }
-    const privateRoute = matchRoute(request, path, false);
-    if (privateRoute && !privateRoute.route.public) {
-      const { route, params } = privateRoute;
-      return route.handle(request, { user, sdk, params, basePath: prefix });
-    }
-    return notFound();
-  };
-}
-
-/** Counts a hit on a limited RPC route and answers 429 with `Retry-After` once it is over its limit. */
-async function rpcRateLimitRefusal(
-  sdk: BotSdkContext,
-  userId: string,
-  route: string,
-): Promise<Response | null> {
-  const rule = rpcRateLimits[route];
-  if (!rule || !(rule in sdk.rateLimits)) return null;
-  return tooManyRequests(await sdk.rateLimit(rule, `${rule}:${userId}`));
-}
-
-function tooManyRequests(retryAfter: number | null): Response | null {
-  if (retryAfter === null) return null;
-  return Response.json(
-    { code: "error.tooManyRequests", params: {} },
-    { status: 429, headers: { "Retry-After": String(retryAfter) } },
-  );
-}
-
-function unauthorized() {
-  return Response.json({ code: "error.unauthorized", params: {} }, { status: 401 });
-}
-
-function notFound() {
-  return new Response("Not found", { status: 404 });
-}

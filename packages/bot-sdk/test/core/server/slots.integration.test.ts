@@ -3,6 +3,7 @@ import { pgSchema, text } from "drizzle-orm/pg-core";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { z } from "zod";
 
+import { createHttpHandler } from "../../../core/http/index";
 import {
   createBotSdk,
   defineFeature,
@@ -30,7 +31,7 @@ const basePath = "/api/chat";
 const keyEncryptionSecrets = ["test-key-encryption-secret-not-for-production"];
 const unreachable = "postgresql://nobody:nothing@127.0.0.1:1/unreachable";
 
-const shared = { databaseUrl: unreachable, getUser: () => null, keyEncryptionSecrets, basePath };
+const shared = { databaseUrl: unreachable, keyEncryptionSecrets };
 
 const slots = (options: Partial<BotSdkOptions> = {}) =>
   ({ ...shared, models: {}, ...options }) as BotSdkOptions;
@@ -49,17 +50,14 @@ describe("createBotSdk with flat slots", () => {
     const user = await insertUser();
     const sdk = createBotSdk({
       databaseUrl: testDatabaseUrl,
-      getUser: () => ({ id: user.id }),
       keyEncryptionSecrets,
-      basePath,
       models: {},
       channels: [],
     });
 
+    const http = createHttpHandler(sdk, { basePath, getUser: () => ({ id: user.id }) });
     const call = (path: string) =>
-      sdk.handler(
-        new Request(`http://localhost${basePath}/rpc/${path}`, { method: "POST", body: "{}" }),
-      );
+      http(new Request(`http://localhost${basePath}/rpc/${path}`, { method: "POST", body: "{}" }));
     const [bots, mode] = [await call("bot/list"), await call("credentials/mode")];
 
     expect([bots.status, mode.status]).toEqual([200, 200]);

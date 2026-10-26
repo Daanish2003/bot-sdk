@@ -38,9 +38,7 @@ afterEach(stopBotRunners);
 function chatFor() {
   return createBotSdk({
     databaseUrl: testDatabaseUrl,
-    getUser: () => null,
     keyEncryptionSecrets: [testKey],
-    basePath: "/api/chat",
     computer: fakeComputerProvider().provider,
     models: {},
     features: [memory(), mcp()],

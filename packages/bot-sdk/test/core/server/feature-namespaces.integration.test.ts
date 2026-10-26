@@ -32,9 +32,7 @@ afterAll(() => dropPinsTable(getTestDb()));
 
 const options = {
   databaseUrl: testDatabaseUrl,
-  getUser: () => null,
   keyEncryptionSecrets: [testKey],
-  basePath: "/api/chat",
   models: {},
 };
 

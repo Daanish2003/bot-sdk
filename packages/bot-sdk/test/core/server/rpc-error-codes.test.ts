@@ -7,9 +7,10 @@ import { en } from "../../../core/shared/i18n";
 
 const sdkDir = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 const serverDir = join(sdkDir, "core/server");
-// The server code: the core's, and each plugin's.
+// The server code: the core's, its HTTP layer's, and each plugin's.
 const serverDirs = [
   serverDir,
+  join(sdkDir, "core/http"),
   ...readdirSync(join(sdkDir, "plugins")).map((name) => join(sdkDir, "plugins", name, "server")),
 ];
 

@@ -10,8 +10,6 @@ const sdkWith = (computer: ComputerProvider | undefined) =>
   createBotSdk({
     databaseUrl: "postgresql://postgres:password@127.0.0.1:1/unused",
     keyEncryptionSecrets: ["test-key-encryption-secret"],
-    getUser: () => null,
-    basePath: "/api/chat",
     models: {},
     channels: [],
     computer,

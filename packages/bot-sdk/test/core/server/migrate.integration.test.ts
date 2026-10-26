@@ -22,9 +22,7 @@ const keyEncryptionSecrets = ["test-key-encryption-secret-not-for-production"];
 function chatFor(databaseUrl: string) {
   return createBotSdk({
     databaseUrl,
-    getUser: () => null,
     keyEncryptionSecrets,
-    basePath: "/api/chat",
     models: {},
   });
 }
@@ -599,9 +597,7 @@ describe("the contract migration (#819)", () => {
 
     const chat = createBotSdk({
       databaseUrl: url,
-      getUser: () => null,
       keyEncryptionSecrets,
-      basePath: "/api/chat",
       blobs: store,
       models: {},
     });
@@ -629,9 +625,7 @@ describe("the contract migration (#819)", () => {
 
     await createBotSdk({
       databaseUrl: url,
-      getUser: () => null,
       keyEncryptionSecrets,
-      basePath: "/api/chat",
       blobs: store,
       logger,
       models: {},

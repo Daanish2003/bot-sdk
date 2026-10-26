@@ -127,9 +127,7 @@ import { createBotSdk, s3BlobStore } from "@ai-chat/bot-sdk/core/server";
 
 const chat = createBotSdk({
   databaseUrl,
-  getUser,
   keyEncryptionSecrets,
-  basePath: "/api/chat",
   models: {},
   blobs: s3BlobStore({
     endpoint: process.env.S3_ENDPOINT!,
@@ -153,9 +151,7 @@ const chat = createBotSdk({
 // `computer` slot
 const chat = createBotSdk({
   databaseUrl,
-  getUser,
   keyEncryptionSecrets,
-  basePath: "/api/chat",
   computer: e2bProvider({ apiKey, apiUrl, sandboxUrl, template }),
   models: {},
   features: [memory(), skills(), knowledge(), mcp({ servers })],
@@ -164,8 +160,10 @@ const chat = createBotSdk({
   users: { isBlocked: (userId) => isBanned(userId) },
 });
 
-// one catch-all route on your framework, for every chat call
-export const handler = (request: Request) => chat.handler(request);
+// the optional HTTP layer (`@ai-chat/bot-sdk/core/http`): one catch-all route on your framework,
+// for every chat call; sign-in and the 401 are yours through `getUser`
+export const handler = createHttpHandler(chat, { basePath: "/api/chat", getUser });
+// on an Express-style Node server instead: app.all("/api/chat/*", toNodeHandler(handler))
 
 // deploy step, once per deploy
 await chat.migrate();
@@ -205,7 +203,7 @@ const client = createBotSdkClient({
 </ChatProvider>;
 ```
 
-- `getUser(request)` returns `{ id } | null`. The handler answers 401 when it returns `null`.
+- `getUser(request)` returns `{ id } | null`. The HTTP handler answers 401 when it returns `null`. The core never sees a request: its own methods (`chat.bots.send({ userId, ... })`) take the user's id.
 - `reviewModel` (optional) is the Model that Auto-reviews each Bot's risky tool calls before they run, a `"provider:model"` id from the Models' list, resolved per user: `createBotSdk({ reviewModel: "openai:gpt-5.4-mini" })`. Unset, or one the user can't use, the Bot's own Model reviews, in a fresh context.
 - The `router` adapter maps the SDK's pages (`keys`, and `bots` with an optional Bot `id`) to your URLs. It provides `Link` and `navigate(page)`. Pass your own TanStack Query client as `queryClient` if you have one; otherwise the provider creates its own.
 - The Bots app is `BotsApp` from `plugins/bot/ui`, with the Host's account menu at the foot of its sidebar (`accountMenu`); the keys page is `KeySettingsPage` from `plugins/models/ui`.
@@ -510,9 +508,7 @@ The processes of your app share signals (the data-less hints that a Bot's thread
 ```ts
 const chat = createBotSdk({
   databaseUrl,
-  getUser,
   keyEncryptionSecrets,
-  basePath: "/api/chat",
   models: {},
   pubsub: redisRuntime({ url: process.env.REDIS_URL! }),
 });
@@ -560,9 +556,7 @@ Three modes, chosen by those two options:
 ```ts
 const chat = createBotSdk({
   databaseUrl,
-  getUser,
   keyEncryptionSecrets,
-  basePath: "/api/chat",
   models: {
     hostProviders: [
       {
@@ -593,15 +587,15 @@ With no `servers`, the keys page shows no Connections section and connecting is 
 
 ## Rate limits
 
-The SDK limits a few actions per user, and the counters live in the `pubsub` slot's runtime, so a limit holds across every process that shares it. An action over its limit answers 429 with `Retry-After` (in seconds).
+The HTTP handler limits a few actions per user (in-process calls are never limited), and the counters live in the `pubsub` slot's runtime, so a limit holds across every process that shares it. An action over its limit answers 429 with `Retry-After` (in seconds).
 
 - `attachmentUpload`: Knowledge uploads and the files a user sends their Bot, together. Default 30 per 10 minutes.
 - `credentialSave`: Provider and Tool credential saves, each of which runs a check. Default 10 a minute.
 
-Override a limit in `createBotSdk`. Each limit is optional, and `false` turns it off:
+Override a limit in `createHttpHandler`. Each limit is optional, and `false` turns it off:
 
 ```ts
-const chat = createBotSdk({
+const handler = createHttpHandler(chat, {
   // ...
   rateLimits: { attachmentUpload: { limit: 60, windowSeconds: 600 } },
 });

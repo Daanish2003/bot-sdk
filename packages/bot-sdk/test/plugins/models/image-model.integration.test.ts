@@ -140,9 +140,7 @@ describe("createBotSdk().users.export, the models plugin", () => {
   const exportFor = (userId: string) =>
     createBotSdk({
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-      basePath: "/api/chat",
       models: {},
     }).users.export({ userId });
 

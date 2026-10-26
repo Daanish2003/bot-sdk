@@ -7,6 +7,7 @@ import { skillsClient } from "../../plugins/skills/client/index";
 import { knowledgeClient } from "../../plugins/knowledge/client/index";
 import { channelClient } from "../../plugins/channel/client/index";
 import { modelsClient } from "../../plugins/models/client/index";
+import type { HttpHandlerOptions } from "../../core/http";
 import { createChatHandler } from "../../core/server/over";
 import { createTestSdk } from "./deps";
 import type { TestUser } from "./users";
@@ -16,22 +17,25 @@ const basePath = "/api/chat";
 /**
  * The SDK as a test drives it: the headless client whose fetch is the handler, built over the
  * test dependencies. `user` is who `getUser` returns; leave it out for a signed-out caller.
- * `clientPlugins` are added after the Bot-only ones (for example `mcpClient()`).
- * Errors are not logged, since the tests assert on the responses.
+ * `clientPlugins` are added after the Bot-only ones (for example `mcpClient()`), and `rateLimits`
+ * are the handler's. Errors are not logged (the test context's logger is silent), since the tests
+ * assert on the responses.
  */
 export function createTestChat({
   user,
   deps = createTestSdk(),
   clientPlugins = [],
+  rateLimits,
 }: {
   user?: TestUser | null;
   deps?: TestDeps;
   clientPlugins?: BotSdkClientPlugin[];
+  rateLimits?: HttpHandlerOptions["rateLimits"];
 } = {}): BotSdkClient {
   const handler = createChatHandler(deps, {
     basePath,
     getUser: () => (user ? { id: user.id } : null),
-    logger: { error: () => {} },
+    rateLimits,
   });
   return createBotSdkClient({
     plugins: [
@@ -49,7 +53,7 @@ export function createTestChat({
 }
 
 /** The typed RPC client of `createTestChat`, for the procedures. */
-export function chatRpc(options: { user?: TestUser | null; deps?: TestDeps } = {}) {
+export function chatRpc(options: Parameters<typeof createTestChat>[0] = {}) {
   return createTestChat(options).rpc;
 }
 
