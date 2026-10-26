@@ -50,7 +50,7 @@ function mailpit(held: Record<string, unknown> = { [webhook.ID]: message }) {
 }
 
 const post = (body: unknown) =>
-  new Request("http://localhost/api/channels/email", {
+  new Request("http://localhost/api/chat/channels/email", {
     method: "POST",
     body: typeof body === "string" ? body : JSON.stringify(body),
   });

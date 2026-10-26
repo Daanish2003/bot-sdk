@@ -36,8 +36,18 @@ export async function receiveRoutineWebhook(
 ): Promise<WebhookReceipt> {
   const key = idempotencyKeyOf(new Headers(headers));
   if (key === tooLong) return "idempotencyKeyTooLong";
-  if (Buffer.byteLength(body, "utf8") > webhookBodyLimit) return "payloadTooLarge";
-  return handOver(deps, { token, key, body });
+  if (new TextEncoder().encode(body).byteLength > webhookBodyLimit) return "payloadTooLarge";
+  const received = await receiveWebhook(deps, {
+    tokenHash: webhookTokenHash(token),
+    key,
+    payload: body,
+  });
+  if (received === undefined) return "notFound";
+  if (received) {
+    deps.runner.wake();
+    await hintChanged(deps, received);
+  }
+  return "accepted";
 }
 
 /** The HTTP answer to each receipt. */
@@ -59,12 +69,13 @@ export async function handleRoutineWebhook(
   request: Request,
   token: string,
 ): Promise<Response> {
-  const key = idempotencyKeyOf(request.headers);
-  if (key === tooLong) return receiptResponse.idempotencyKeyTooLong();
+  // Checked before the body is read, which the domain method checks again.
+  if (idempotencyKeyOf(request.headers) === tooLong) return receiptResponse.idempotencyKeyTooLong();
   // Measured as bytes while it is read, so a huge body is never held in memory.
   const body = await readBody(request, webhookBodyLimit);
   if (body === null) return receiptResponse.payloadTooLarge();
-  return receiptResponse[await handOver(deps, { token, key, body })]();
+  const receipt = await receiveRoutineWebhook(deps, { token, body, headers: request.headers });
+  return receiptResponse[receipt]();
 }
 
 /** What `idempotencyKeyOf` gives for a key over 255 characters. */
@@ -74,24 +85,6 @@ const tooLong = Symbol("too long");
 function idempotencyKeyOf(headers: Headers): string | null | typeof tooLong {
   const key = headers.get("Idempotency-Key")?.trim() || null;
   return key && key.length > idempotencyKeyLimit ? tooLong : key;
-}
-
-/** Hands the Router the delivery's Trigger, once its key and size are checked. */
-async function handOver(
-  deps: BotSdkContext,
-  { token, key, body }: { token: string; key: string | null; body: string },
-): Promise<"accepted" | "notFound"> {
-  const received = await receiveWebhook(deps, {
-    tokenHash: webhookTokenHash(token),
-    key,
-    payload: body,
-  });
-  if (received === undefined) return "notFound";
-  if (received) {
-    deps.runner.wake();
-    await hintChanged(deps, received);
-  }
-  return "accepted";
 }
 
 /** The body as text, or `null` once it is over `limit` bytes. */

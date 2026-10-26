@@ -133,6 +133,8 @@ async function main() {
   });
   const jobs = runnerJobs(sdk);
   await jobs.start();
+  // The HTTP layer, for the mail's inbound route; built once for every case.
+  const inbound = createChatHandler(sdk, { basePath: "/api/chat", getUser: () => null });
 
   const env: TurnEnv = {
     db,
@@ -201,10 +203,7 @@ async function main() {
           domain: inboundDomain,
         });
         const messageId = `eval-${evalCase.id}-${repeat}-${randomUUID()}@mail.example`;
-        const response = await createChatHandler(sdk, {
-          basePath: "/api/chat",
-          getUser: () => null,
-        })(
+        const response = await inbound(
           email.request({
             from: `Eval <${userId}@eval.invalid>`,
             to: [address],

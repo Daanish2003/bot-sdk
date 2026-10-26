@@ -47,7 +47,7 @@ const helper: BotHelper = {
 
 /** The live-view link the stand-in's `screen.view` gives on its `n`th call. */
 const linkOf = (n: number) =>
-  `/api/screens/token-${n}/vnc.html?autoconnect=1&path=api%2Fscreens%2Ftoken-${n}%2Fwebsockify`;
+  `/api/chat/screens/token-${n}/vnc.html?autoconnect=1&path=api%2Fchat%2Fscreens%2Ftoken-${n}%2Fwebsockify`;
 
 /**
  * A stand-in for the server's `bot` router: the Conversation `messages()` gives, one Helper, a

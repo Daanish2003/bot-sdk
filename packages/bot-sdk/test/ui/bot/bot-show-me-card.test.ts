@@ -41,7 +41,7 @@ const showMe = (state: DemonstrationState, steps = 0): BotMessage => {
   return { ...said("m3", "assistant", goal), control: demonstration };
 };
 
-const linkOf = (n: number) => `/api/screens/token-${n}/vnc.html?autoconnect=1`;
+const linkOf = (n: number) => `/api/chat/screens/token-${n}/vnc.html?autoconnect=1`;
 
 /**
  * A stand-in for the server's `bot` router: the Conversation `messages()` gives, and the

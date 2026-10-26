@@ -12,7 +12,7 @@ export function createChannels(
   sdk: BotSdkContext,
   { adapters, verifiedEmail }: ChannelOptions,
 ): ChannelApi {
-  const email = adapters.find((adapter) => adapter.id === "email");
+  const email = emailAdapterOf(adapters);
   return {
     receive: async (id, mail) => {
       if (id !== "email" || !email) throw new Error("The channel plugin has no email adapter");
@@ -30,6 +30,11 @@ export function createChannels(
       await sendDelivery(sdk, email, verifiedEmail, payload);
     },
   };
+}
+
+/** The email adapter among `adapters`, if any. */
+function emailAdapterOf(adapters: ChannelOptions["adapters"]) {
+  return adapters.find((adapter) => adapter.id === "email");
 }
 
 /**
@@ -55,7 +60,7 @@ export function channel(options: ChannelOptions): ChannelPlugin {
  * without an email adapter.
  */
 function emailInboundRoutes(adapters: ChannelOptions["adapters"]): Route[] {
-  const email = adapters.find((adapter) => adapter.id === "email");
+  const email = emailAdapterOf(adapters);
   if (!email) return [];
   return [
     {

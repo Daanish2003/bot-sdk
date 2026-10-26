@@ -150,7 +150,9 @@ async function ownedScreen(sdk: BotSdkContext, userId: string, holder: ScreenHol
 function screensBase(sdk: BotSdkContext): string {
   const { basePath } = sdk.mount;
   if (basePath === null) {
-    throw new Error("The live view is served by the HTTP layer: call createHttpHandler first");
+    throw new Error(
+      "The live view is served by the HTTP layer: call createHttpHandler or createScreenSocket first",
+    );
   }
   return `${basePath}${screenViewPath}`;
 }
