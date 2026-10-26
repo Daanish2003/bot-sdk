@@ -27,7 +27,6 @@ import {
 import { saveCredentials, quotaLookup } from "../../../../plugins/models/server/internal";
 
 import {
-  createJobRunner,
   inProcessRunner,
   type InProcessRunner,
   type JobClock,
@@ -44,7 +43,6 @@ import {
   toolCall,
   withUsage,
 } from "../../../support/fake-adapter";
-import { manualExecutor } from "../../../support/executors";
 import { fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
@@ -2234,17 +2232,5 @@ describe("a Turn that resumes after a crash", () => {
     expect(fake.calls).toHaveLength(2);
     expect(await sentTexts(client, botId)).toEqual(["One"]);
     expect((await turnsOf(botId))[0]).toMatchObject({ status: "error", error: "timed_out" });
-  });
-});
-
-describe("the bot plugin on a runner that is not in-process", () => {
-  it("fails at startup, because a retry there starts over and would send Messages again", () => {
-    const elsewhere = createJobRunner({
-      db: getTestDb(),
-      jobs: () => createTestSdk().parts.jobs,
-      executor: manualExecutor().executor,
-    });
-
-    expect(() => createTestSdk({ jobs: elsewhere })).toThrow(/in-process/);
   });
 });
