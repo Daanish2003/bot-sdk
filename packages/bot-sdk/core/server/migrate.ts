@@ -54,7 +54,8 @@ export async function migrate(
         ]);
         await client.query("commit");
       } catch (cause) {
-        await client.query("rollback");
+        // A failed rollback (a dropped connection) mustn't hide which migration failed.
+        await client.query("rollback").catch(() => undefined);
         throw new Error(`Migration ${pending.name} of "${pending.feature}" failed`, { cause });
       }
     }
@@ -63,8 +64,9 @@ export async function migrate(
 }
 
 /**
- * What `migrate` would apply now for these features, in order: for a Host that applies the SQL
- * with its own tools. Only reads.
+ * What `migrate` would apply now for these features, in order, with each one's part and SQL. Only
+ * reads. `start()` checks with it; the `botsdk migrate --print` CLI (#906) is to print it, with
+ * the journal rows a Host applying the SQL itself must add.
  */
 export async function pendingMigrations(
   database: PostgresDatabase,
@@ -73,16 +75,26 @@ export async function pendingMigrations(
   return pendingIn(await withConnection(database, journalOf), features);
 }
 
-/** The core's and the features' migrations that `applied` lacks, the core's first. */
+/**
+ * The core's and the features' migrations that `applied` lacks, the core's first. Throws when a
+ * part names two migrations alike: the journal would take the second for the first.
+ */
 function pendingIn(
   applied: ReadonlySet<string>,
   features: readonly FeatureMigrations[],
 ): PendingMigration[] {
-  return [core, ...features].flatMap(({ feature, migrations }) =>
-    migrations
+  return [core, ...features].flatMap(({ feature, migrations }) => {
+    const names = new Set<string>();
+    for (const { name } of migrations) {
+      if (names.has(name)) {
+        throw new Error(`Feature "${feature}" has two migrations named "${name}"`);
+      }
+      names.add(name);
+    }
+    return migrations
       .filter(({ name }) => !applied.has(journalKey(feature, name)))
-      .map((migration) => ({ ...migration, feature })),
-  );
+      .map((migration) => ({ ...migration, feature }));
+  });
 }
 
 const journalKey = (feature: string, migration: string) => `${feature}/${migration}`;

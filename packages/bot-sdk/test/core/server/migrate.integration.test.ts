@@ -273,6 +273,15 @@ describe("chat.migrate()", () => {
     expect(await rows(url, "select id from botsdk.test_note")).toEqual([]);
   });
 
+  it("refuses a feature that names two migrations alike, applying neither", async () => {
+    const url = await scratchDatabase("dup_name");
+
+    await expect(
+      chatFor(url, [notes([createNote, { ...addNoteText, name: createNote.name }])]).migrate(),
+    ).rejects.toThrow(/Feature "notes" has two migrations named "0001_note"/);
+    expect(await tablesOf(url)).not.toContain("test_note");
+  });
+
   it("does nothing when run again", async () => {
     const url = await scratchDatabase("rerun");
     const chat = chatFor(url);

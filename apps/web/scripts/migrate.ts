@@ -34,8 +34,23 @@ const DROP_OLD_CHAT_SCHEMA = `
   drop schema if exists chat cascade;
 `;
 
+// A `botsdk` schema whose journal has no `feature` column came from #904's single baseline, before
+// per-feature migrations (#905): its tables would collide with the new baselines. Development data
+// only, so it is dropped and made again.
+const DROP_SINGLE_BASELINE_SCHEMA = `
+  do $$ begin
+    if to_regclass('botsdk.__migrations') is not null and not exists (
+      select 1 from information_schema.columns
+      where table_schema = 'botsdk' and table_name = '__migrations' and column_name = 'feature'
+    ) then
+      drop schema botsdk cascade;
+    end if;
+  end $$;
+`;
+
 const db = drizzle(databaseUrl);
 try {
+  await db.$client.query(DROP_SINGLE_BASELINE_SCHEMA);
   await migrate(db, {
     migrationsFolder: fileURLToPath(
       new URL("../../../packages/db/src/migrations", import.meta.url),
