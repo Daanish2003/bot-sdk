@@ -49,19 +49,21 @@ export async function migrate(
   database: PostgresDatabase,
   { blobStore, logger = console }: { blobStore?: Pick<BlobStore, "delete">; logger?: Logger } = {},
 ): Promise<void> {
-  await withConnection(database, async (client) => {
+  const assistantKeys = await withConnection(database, async (client) => {
     await client.query("select pg_advisory_lock($1)", [MIGRATION_LOCK_ID]);
     await createChatSchema(client);
     await createTrigramExtension(client);
-    const assistantKeys = blobStore ? await assistantBlobKeys(client) : [];
+    const keys = blobStore ? await assistantBlobKeys(client) : [];
     await applyMigrations(drizzle({ client }), {
       migrationsFolder: migrationsFolder(),
       migrationsSchema: "chat",
       migrationsTable: "__migrations",
     });
     await client.query("select pg_advisory_unlock($1)", [MIGRATION_LOCK_ID]);
-    if (blobStore) await deleteAssistantBlobs(assistantKeys, blobStore, logger);
+    return keys;
   });
+  // Once the connection is back: the deletes can take a while on the Host's store.
+  if (blobStore) await deleteAssistantBlobs(assistantKeys, blobStore, logger);
 }
 
 /**

@@ -9,18 +9,14 @@ import type pg from "pg";
 export type PostgresPool = pg.Pool;
 
 /** The `database` slot: the Postgres the SDK keeps its data in, as `postgres()` makes it. */
-export type PostgresDatabase =
-  | { kind: "postgres"; connectionString: string }
-  | { kind: "postgres"; pool: PostgresPool };
+export type PostgresDatabase = { connectionString: string } | { pool: PostgresPool };
 
 /**
  * The `database` slot's value. With a connection string, the SDK opens its own pool on first use;
  * with the Host's `pool`, it queries through that pool and never ends it.
  */
-export function postgres(
-  options: { connectionString: string } | { pool: PostgresPool },
-): PostgresDatabase {
+export function postgres(options: PostgresDatabase): PostgresDatabase {
   return "pool" in options
-    ? { kind: "postgres", pool: options.pool }
-    : { kind: "postgres", connectionString: options.connectionString };
+    ? { pool: options.pool }
+    : { connectionString: options.connectionString };
 }

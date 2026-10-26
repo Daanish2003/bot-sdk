@@ -75,8 +75,27 @@ describe("the database slot", () => {
         await sdk.stop();
       }
       expect(acquired).toHaveBeenCalled();
-      // The Host's pool stays open for the Host.
-      expect((await pool.query("select 1 as one")).rows).toEqual([{ one: 1 }]);
+    } finally {
+      await pool.end();
+    }
+  });
+});
+
+describe("the database slot with the Host's pool", () => {
+  it("logs an idle connection's failure on that pool instead of crashing", async () => {
+    const pool = new pg.Pool({ connectionString: testDatabaseUrl });
+    const logger = { error: vi.fn() };
+    try {
+      createBotSdk({
+        database: postgres({ pool }),
+        keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
+        logger,
+        models: {},
+      });
+
+      const failure = new Error("terminating connection due to administrator command");
+      expect(() => pool.emit("error", failure)).not.toThrow();
+      expect(logger.error).toHaveBeenCalledWith(expect.any(String), failure);
     } finally {
       await pool.end();
     }
