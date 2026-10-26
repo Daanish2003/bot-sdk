@@ -1,13 +1,20 @@
 import type { AnyServerTool } from "@tanstack/ai";
 import { eq } from "drizzle-orm";
+import type { z } from "zod";
 
 import { defineFeature } from "../../../core/server/feature";
 import type { Route } from "../../../core/server/plugin";
-import { rotateConnectionKeys } from "./connections";
+import { parseInput } from "../../../core/server/rpc-error";
+import {
+  deleteConnection,
+  listConnections,
+  rotateConnectionKeys,
+  type ConnectionSummary,
+} from "./connections";
 import { connectorTools } from "./connector-tools";
 import { mcpConnection } from "./db/connection";
 import { callbackRoute, connectRoute } from "./routes";
-import { connectionsRouter, type McpRouter } from "./routers/index";
+import { connectionsRouter, disconnectInput, type McpRouter } from "./routers/index";
 import { checkMcpServers, type McpServerConfig } from "./servers";
 import { openMcpTools } from "./tools";
 
@@ -22,6 +29,10 @@ export type McpOptions = {
 
 /** The `mcp` feature's API (`sdk.mcp`): a user's Connections as tools. */
 export type McpApi = {
+  /** The user's Connection to each of the Host's servers, in the Host's order (spec #873). */
+  listConnections: (input: { userId: string }) => Promise<ConnectionSummary[]>;
+  /** Removes the user's Connection to one server: its tokens and any sign-in in flight. */
+  disconnect: (input: { userId: string } & z.input<typeof disconnectInput>) => Promise<void>;
   /** The servers the Host offers, by key and name: what a tool named `<key>_<tool>` belongs to. */
   servers: ReadonlyArray<{ key: string; name: string }>;
   forUser: (userId: string) => {
@@ -45,12 +56,16 @@ export function mcp(options: McpOptions = {}) {
     id: "mcp",
     schema: { mcpConnection },
     connectorTools: true,
-    router: { connections: connectionsRouter(servers) } satisfies McpRouter,
+    router: { connections: connectionsRouter() } satisfies McpRouter,
     routes: mcpRoutes(servers),
     api: (context): McpApi => {
       // At construction, so a misconfigured server fails the Host's boot (spec #91).
       checkMcpServers(servers, context.fetchAllowHosts);
       return {
+        listConnections: ({ userId }) => listConnections(context, servers, userId),
+        disconnect: async ({ userId, ...rest }) => {
+          await deleteConnection(context, userId, parseInput(disconnectInput, rest).key);
+        },
         servers: servers.map(({ key, name }) => ({ key, name })),
         forUser: (userId) => ({
           tools: ({ signal }) => openMcpTools(context, servers, userId, signal),

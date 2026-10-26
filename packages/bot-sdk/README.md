@@ -368,6 +368,8 @@ for await (const _hint of hints) await sync();
 
 `sdk.bots` has `create`, `list`, `get`, `send`, `upload`, `stop`, `warm`, `choose` and `react`. `sdk.conversations.watch` resolves once its subscription is in place, so `changes` read after it misses nothing; it ends when `signal` aborts or the loop stops. Pass a `signal` unless you always iterate the hints.
 
+Each enabled feature's methods are `sdk.<feature id>`, typed from the `features` you pass, and absent when the feature is off: `sdk.memory` (`status`, `isEnabled`, `setEnabled`, `botList`, `botAddLine`, `botEditLine`, `botDeleteLine`, `botReadFile`, `botSaveFile`), `sdk.skills` (`status`, `list`, `read`, `save`, `remove`), `sdk.knowledge` (`status`, `list`, `read`, `upload`, `uploadDocument`, `remove`, `createFolder`) and `sdk.mcp` (`listConnections`, `disconnect`, `forUser`). A feature you write with `defineFeature` gets its `api` the same way.
+
 ## Host hooks
 
 `createBotSdk({ hooks })` takes the Host's callbacks into the SDK. Every hook is optional.

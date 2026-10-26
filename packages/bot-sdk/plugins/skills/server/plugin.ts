@@ -1,7 +1,8 @@
-import { defineFeature } from "../../../core/server/feature";
+import { coreContextOf, defineFeature } from "../../../core/server/feature";
 import { isComputerFailure } from "../../computer/server/internal";
 import { skillChangeNotes } from "./changes";
 import { skillsRouter } from "./routers/index";
+import { skillsApi } from "./skills-api";
 import { readBotSkills, skillsPrompt } from "./skills";
 
 /**
@@ -16,6 +17,8 @@ export function skills() {
     needs: ["computer"],
     demonstrations: true,
     router: { skills: skillsRouter },
+    // The domain methods: `sdk.skills` (spec #873).
+    api: (context) => skillsApi(coreContextOf(context)),
     // Read once as a Turn starts: the section the Prompt start keeps, and what changed since.
     prompt: async (turn, { computer, logger }) => {
       // A Computer that can't be woken or read leaves the Turn without a Skills section; any
