@@ -64,8 +64,13 @@ test("add a passkey, sign out, sign in with it, rename, delete; the notice arriv
   // Sign out, then sign in with the passkey alone: no password, and no second-factor prompt.
   // A POST needs a body (`data`) to send its JSON content type; without one the server answers 415.
   await page.request.post("/api/auth/sign-out", { headers: { origin: baseURL }, data: {} });
+  // The ceremony's answer is waited on: in a full run it can outlast the URL check's 5 seconds (#873).
+  const verified = page.waitForResponse((response) =>
+    response.url().endsWith("/api/auth/passkey/verify-authentication"),
+  );
   await signInWithPasskey(page);
-  await expect(page).toHaveURL(/\/bots$/);
+  expect((await verified).status()).toBe(200);
+  await expect(page).toHaveURL(/\/bots$/, { timeout: 15_000 });
 
   // Rename it.
   await page.goto(ACCOUNT);
