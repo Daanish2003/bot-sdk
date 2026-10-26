@@ -117,7 +117,7 @@ async function main() {
       }),
     ],
     // freshBot gives each user this address, and the injection cases mail from it.
-    verifiedEmail: async (userId) => `${userId}@eval.invalid`,
+    users: { verifiedEmail: async (userId) => `${userId}@eval.invalid` },
     models: (real) =>
       fake
         ? {

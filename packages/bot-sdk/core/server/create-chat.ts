@@ -30,7 +30,7 @@ import {
 } from "./plugin";
 import { defaultRateLimits, rateLimitedFor, rpcRateLimits, type RateLimit } from "./rate-limits";
 import { memoryRuntime, type BotSdkRuntime } from "./runtime";
-import { deleteUserData, exportUserData, type UserExport } from "./user-data";
+import { usersApi, type UserExport, type UsersApi } from "./user-data";
 import { bot, botJobs, type BotApi } from "../../plugins/bot/server/plugin";
 import type { ConversationsApi } from "../../plugins/bot/server/conversations-api";
 import { channel, createChannels } from "../../plugins/bot/server/channels";
@@ -60,6 +60,21 @@ export type GetUser = (request: Request) => ChatUser | null | Promise<ChatUser |
 
 /** What the `features` slot takes: features built with `defineFeature`. */
 export type FeatureEntry = AnyFeature;
+
+/** The `users` slot: what the SDK asks the Host about a user, by id. Users stay opaque ids. */
+export type UsersSlot = {
+  /**
+   * Whether the Host has banned the user (spec #277). A banned owner's Routine fires, Check-in
+   * fires, Routine webhooks and inbound email start no Turns; in-process calls are trusted.
+   * Unset, nobody is blocked.
+   */
+  isBlocked?: (userId: string) => boolean | Promise<boolean>;
+  /**
+   * The user's verified account email, or `null` when they have none: only mail from it reaches
+   * their Bots. Unset, none does.
+   */
+  verifiedEmail?: (userId: string) => Promise<string | null>;
+};
 
 /**
  * The factory's options (spec #871): the Bot core is always on, Models are configured in `models`,
@@ -98,11 +113,8 @@ export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly Fe
    * stay where they are.
    */
   blobs?: BlobStore;
-  /**
-   * Whether the Host has banned a user (spec #277). A banned owner's Routines, Check-ins and
-   * Channel messages don't start Turns. Unset, nobody is blocked.
-   */
-  isUserBlocked?: (userId: string) => boolean | Promise<boolean>;
+  /** What the SDK asks the Host about a user (spec #873). */
+  users?: UsersSlot;
   /**
    * The optional capabilities (spec #871): features built with `defineFeature`, each API served
    * as `sdk.<id>`.
@@ -125,11 +137,6 @@ export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly Fe
   models: ModelsOptions;
   /** The Channels besides web, each an adapter (email). With none, Bots talk on the web only. */
   channels?: readonly ChannelAdapter[];
-  /**
-   * The user's verified account email, or `null` when they have none: only mail from it reaches
-   * their Bots. Unset, none does.
-   */
-  verifiedEmail?: (userId: string) => Promise<string | null>;
   /**
    * The Model that reviews each Bot's risky tool calls before they run (Auto-review), a
    * `"provider:model"` id from the Models' list, resolved per user. Unset, or one the user can't
@@ -178,13 +185,8 @@ export type BotSdk = {
    * error is rethrown once the runtime closes. Call it on SIGTERM.
    */
   stop: () => Promise<void>;
-  /** Deletes everything the core and the features hold for a user, in one transaction. Idempotent. */
-  deleteUser: (userId: string) => Promise<void>;
-  /**
-   * Everything the SDK keeps for a user, as one document (`version: 2`): the core's `version`
-   * and `exportedAt`, and each exporting part under its id (`bot`, `models`, a feature's). Empty for an unknown id.
-   */
-  exportUser: (userId: string) => Promise<UserExport>;
+  /** The core's users (spec #873): `delete` and `export` of a user's data across every part. */
+  users: UsersApi;
   /**
    * Re-encrypts every stored secret under the keyring's first secret (ADR 0010). Batched and safe
    * to re-run. `unreadable` counts rows no key can read; they are left in place and logged. Run it
@@ -199,7 +201,7 @@ const coreRateLimits: Record<CoreRule, RateLimit> = {
 };
 
 /** The core's non-RPC routes, under `basePath`. */
-function coreRoutes(exportUser: BotSdk["exportUser"]): Route[] {
+function coreRoutes(exportUser: UsersApi["export"]): Route[] {
   return [
     {
       method: "GET",
@@ -209,7 +211,7 @@ function coreRoutes(exportUser: BotSdk["exportUser"]): Route[] {
     {
       method: "GET",
       path: "/export",
-      handle: async (_request, { user }) => exportResponse(await exportUser(user.id)),
+      handle: async (_request, { user }) => exportResponse(await exportUser({ userId: user.id })),
     },
   ];
 }
@@ -260,7 +262,7 @@ export function coreParts(options: BotSdkOptions, modelsPart?: BotSdkPlugin): Bo
       ? [
           channel({
             adapters: options.channels,
-            verifiedEmail: options.verifiedEmail ?? (async () => null),
+            verifiedEmail: options.users?.verifiedEmail ?? (async () => null),
           }),
         ]
       : []),
@@ -297,7 +299,7 @@ export function buildBotSdk(
   // The core serves its own routes and rules beside its parts', so no part can claim them.
   const own: BotSdkPlugin = {
     id: "core",
-    routes: coreRoutes((userId) => instance.exportUser(userId)),
+    routes: coreRoutes((input) => instance.users.export(input)),
     rateLimits: coreRateLimits,
   };
   const declared = [
@@ -380,8 +382,7 @@ export function buildBotSdk(
       if (errors.length === 1) throw errors[0];
       if (errors.length > 1) throw new AggregateError(errors, "Several parts failed to stop");
     },
-    deleteUser: (userId) => deleteUserData(sdk, userId),
-    exportUser: (userId) => exportUserData(sdk, userId),
+    users: usersApi(sdk),
     rotateKeys: async () => {
       const total = { reencrypted: 0, unreadable: 0 };
       for (const plugin of plugins) {
@@ -430,7 +431,7 @@ function buildContext(
     clock: given.clock ?? (() => new Date()),
     keyring: given.keyring ?? options.keyEncryptionSecrets,
     lifecycle: given.lifecycle ?? { stopping: false },
-    isUserBlocked: given.isUserBlocked ?? options.isUserBlocked ?? (() => false),
+    isUserBlocked: given.isUserBlocked ?? options.users?.isBlocked ?? (() => false),
     rateLimits,
     rateLimit: (rule, key) => {
       const limit = rateLimits[rule];

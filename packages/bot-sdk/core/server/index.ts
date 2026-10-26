@@ -5,6 +5,7 @@ export {
   type FeatureEntry,
   type GetUser,
   type Logger,
+  type UsersSlot,
 } from "./create-chat";
 export type { BotSdkContext, Route, Transaction } from "./plugin";
 export {

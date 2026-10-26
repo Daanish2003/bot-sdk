@@ -36,6 +36,23 @@ export async function deleteUserData(given: BotSdkContext, userId: string): Prom
   }
 }
 
+/** The `users` namespace's domain methods (spec #873): a user's data across the core and the features. */
+export function usersApi(sdk: BotSdkContext) {
+  return {
+    /** Deletes everything the core and the features hold for the user, in one transaction. Idempotent. */
+    delete: ({ userId }: { userId: string }) => deleteUserData(sdk, userId),
+    /**
+     * Everything the SDK keeps for the user, as one document (`version: 2`): the core's `version`
+     * and `exportedAt`, and each exporting part under its id (`bot`, `models`, a feature's).
+     * Empty for an unknown id.
+     */
+    export: ({ userId }: { userId: string }) => exportUserData(sdk, userId),
+  };
+}
+
+/** The `users` namespace's domain methods. */
+export type UsersApi = ReturnType<typeof usersApi>;
+
 /**
  * A user's export: the core's envelope, and one key per exporting plugin, its plugin id, holding
  * that plugin's part. The core holds the parts as unknown; each plugin types its own.

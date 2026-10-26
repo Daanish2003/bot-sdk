@@ -432,7 +432,7 @@ export async function newestTimeZone(
 }
 
 /**
- * The `bot` plugin's part of `sdk.deleteUser`: the user's Bot Conversations, through the core's
+ * The `bot` plugin's part of `sdk.users.delete`: the user's Bot Conversations, through the core's
  * delete, and their Bots with them by cascade. Nothing is left for after the commit but its hooks.
  */
 export const botUserDelete: UserDeleteHooks<() => Promise<void>> = {
@@ -454,7 +454,7 @@ export const botUserDelete: UserDeleteHooks<() => Promise<void>> = {
 /** What the `bot` plugin adds to a user's export: each Bot with its Conversation's Messages. */
 export type BotExport = { bots: (Bot & { messages: BotMessage[] })[] };
 
-/** The `bot` plugin's part of `sdk.exportUser`, read in the export's snapshot `tx`. */
+/** The `bot` plugin's part of `sdk.users.export`, read in the export's snapshot `tx`. */
 export async function exportBots(tx: Transaction, userId: string): Promise<BotExport> {
   const rows = await tx
     .select({ ...botColumns, conversationId: bot.conversationId })

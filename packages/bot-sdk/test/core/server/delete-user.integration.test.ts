@@ -157,7 +157,7 @@ describe("deleteUserData, with Bots", () => {
   });
 });
 
-describe("createBotSdk().deleteUser", () => {
+describe("createBotSdk().users.delete", () => {
   it("removes the user's rows through the Host's entry point", async () => {
     const deps = await helloSdk();
     const owner = await insertUser();
@@ -172,7 +172,7 @@ describe("createBotSdk().deleteUser", () => {
       models: {},
     });
 
-    await chat.deleteUser(owner.id);
+    await chat.users.delete({ userId: owner.id });
 
     expect(await ownedRows(owner.id)).toEqual(emptyRows);
     expect((await ownedRows(other.id)).bots).toBe(1);

@@ -66,7 +66,7 @@ export type BotApi = BotsApi & {
    * Stops the running Turn and the running and waiting Helpers of each of the user's Bots, closing
    * their Screens. The Host calls it when it Bans the user.
    */
-  stopTurns: (userId: string) => Promise<void>;
+  stopTurns: (input: { userId: string }) => Promise<void>;
   /**
    * The live view's page proxy (#597), Request → Response. The Host mounts it for GET and HEAD at
    * `screenViewPath/<view token>/*` (`/api/screens`) with no sign-in: the view token that
@@ -115,7 +115,7 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
       const api: BotApi = {
         ...botsApi(sdk),
         webhookHandler: (request) => handleRoutineWebhook(sdk, request),
-        stopTurns: async (userId) => {
+        stopTurns: async ({ userId }) => {
           // The Turns first, so none starts a Helper after its Helpers are stopped.
           await stopUserTurns(sdk, userId);
           await stopUserHelpers(sdk, userId);

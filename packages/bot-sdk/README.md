@@ -159,6 +159,9 @@ const chat = createBotSdk({
   computer: e2bProvider({ apiKey, apiUrl, sandboxUrl, template }),
   models: {},
   features: [memory(), skills(), knowledge(), mcp({ servers })],
+  // what the SDK asks you about a user: a banned owner's Routine fires, Check-in fires, Routine
+  // webhooks and inbound email start no Turns (in-process calls are trusted)
+  users: { isBlocked: (userId) => isBanned(userId) },
 });
 
 // one catch-all route on your framework, for every chat call
@@ -173,10 +176,13 @@ await chat.start();
 process.on("SIGTERM", () => void chat.stop().finally(() => process.exit(0)));
 
 // when your app deletes a user
-await chat.deleteUser(String(user.id));
+await chat.users.delete({ userId: String(user.id) });
 
 // when your app exports a user's data: one JSON-ready document (version 2), never credentials; each plugin's part sits under its plugin id (`copy.bot`, `copy.memory`)
-const copy = await chat.exportUser(String(user.id));
+const copy = await chat.users.export({ userId: String(user.id) });
+
+// when your app bans a user: their running Turns, Helpers and Demonstrations stop
+await chat.bots.stopTurns({ userId: String(user.id) });
 ```
 
 On the client, build a headless client from the plugins' clients and wrap your pages in the provider:
@@ -327,7 +333,7 @@ createBotSdk({
     }),
   ],
   // Only mail from the user's verified account email reaches their Bots.
-  verifiedEmail: async (userId) => (await readVerifiedEmail(userId)) ?? null,
+  users: { verifiedEmail: async (userId) => (await readVerifiedEmail(userId)) ?? null },
 });
 ```
 

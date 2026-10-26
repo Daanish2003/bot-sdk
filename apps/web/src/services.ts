@@ -54,7 +54,7 @@ export const auth = createAuth(
   log,
   {
     // Runs before the user is deleted: a failure aborts the account delete, so the user can retry.
-    deleteChatData: (userId) => sdk.deleteUser(userId),
+    deleteChatData: (userId) => sdk.users.delete({ userId }),
   },
   {
     // Limits are on, as in production; counted in Redis when REDIS_URL is set, so both processes share them.
@@ -83,13 +83,23 @@ export const sdk = (shared.botSdk ??= createBotSdk({
   fetchAllowHosts: ssrfAllowHosts,
   // File bytes go to the S3 store when S3_* is set, and to Postgres otherwise (ADR 0015).
   blobs: blobStoreOf(ENV),
-  // A banned user's Routines, Check-ins and Channel messages start no Turns while the Ban holds (spec #277).
-  isUserBlocked: async (userId) => {
-    const row = await db.query.user.findFirst({
-      where: { id: userId },
-      columns: { banned: true, banExpires: true },
-    });
-    return row ? isBanActive(row, new Date()) : false;
+  users: {
+    // A banned user's Routines, Check-ins, webhooks and Channel messages start no Turns while the Ban holds (spec #277).
+    isBlocked: async (userId) => {
+      const row = await db.query.user.findFirst({
+        where: { id: userId },
+        columns: { banned: true, banExpires: true },
+      });
+      return row ? isBanActive(row, new Date()) : false;
+    },
+    // Only mail from the user's verified account email reaches their Bots.
+    verifiedEmail: async (userId) => {
+      const row = await db.query.user.findFirst({
+        where: { id: userId },
+        columns: { email: true, emailVerified: true },
+      });
+      return row?.emailVerified ? row.email : null;
+    },
   },
   getUser: async (request) => {
     const session = await auth.api.getSession({ headers: request.headers });
@@ -128,14 +138,6 @@ export const sdk = (shared.botSdk ??= createBotSdk({
       appUrl: ENV.BETTER_AUTH_URL,
     }),
   ],
-  // Only mail from the user's verified account email reaches their Bots.
-  verifiedEmail: async (userId) => {
-    const row = await db.query.user.findFirst({
-      where: { id: userId },
-      columns: { email: true, emailVerified: true },
-    });
-    return row?.emailVerified ? row.email : null;
-  },
   features: [
     // Memory, Skills and Knowledge need the Computer, so a Host without one lists none of them.
     ...computerFeatures(e2b !== undefined),

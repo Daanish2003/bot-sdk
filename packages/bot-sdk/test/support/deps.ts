@@ -58,7 +58,7 @@ export function createTestSdk({
   features,
   computer,
   channels,
-  verifiedEmail,
+  users,
   reviewModel,
   ...overrides
 }: TestDepsOverrides = {}): TestDeps {
@@ -88,7 +88,6 @@ export function createTestSdk({
     clock: overrides.clock ?? (() => new Date()),
     keyring,
     lifecycle: overrides.lifecycle ?? { stopping: false },
-    isUserBlocked: overrides.isUserBlocked ?? (async () => false),
     rateLimits: overrides.rateLimits ?? resolveRateLimits(),
   };
   const models: ModelsDeps = {
@@ -130,7 +129,7 @@ export function createTestSdk({
       jobs: overrides.jobs,
       computer,
       channels,
-      verifiedEmail,
+      users,
       reviewModel,
       features: [...(withMemory ? [memory()] : []), ...(features ?? [])],
     },

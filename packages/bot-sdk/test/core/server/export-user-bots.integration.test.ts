@@ -47,14 +47,14 @@ function chatFor() {
   });
 }
 
-describe("createBotSdk().exportUser, with Bots", () => {
+describe("createBotSdk().users.export, with Bots", () => {
   it("has the format version and each installed plugin's part, and only the user's Bots", async () => {
     const owner = await insertUser();
     const other = await insertUser();
     await insertBot(owner, "Ada", new Date("2026-10-01T10:00:00Z"));
     await insertBot(other, "Bea", new Date("2026-10-02T10:00:00Z"));
 
-    const document = await chatFor().exportUser(owner.id);
+    const document = await chatFor().users.export({ userId: owner.id });
 
     expect(document.version).toBe(2);
     expect(document.exportedAt).toBeInstanceOf(Date);
@@ -85,7 +85,7 @@ describe("createBotSdk().exportUser, with Bots", () => {
     await saveSecret(deps, owner.id, { botId, name: "GITHUB_TOKEN", value: secretValue });
     await saveTokens(deps, owner.id, "linear", { accessToken, tokenType: "Bearer", scope: "" });
 
-    const document = await chatFor().exportUser(owner.id);
+    const document = await chatFor().users.export({ userId: owner.id });
 
     const text = JSON.stringify(document);
     // Positive control: the Bot those were saved for is in it.
@@ -97,7 +97,7 @@ describe("createBotSdk().exportUser, with Bots", () => {
   });
 
   it("exports an empty document for an unknown user id", async () => {
-    const document = await chatFor().exportUser(randomUUID());
+    const document = await chatFor().users.export({ userId: randomUUID() });
 
     expect(document).toMatchObject({
       version: 2,
@@ -110,7 +110,7 @@ describe("createBotSdk().exportUser, with Bots", () => {
     const owner = await insertUser();
     await getTestDb().insert(memorySettings).values({ userId: owner.id, enabled: false });
 
-    const document = await chatFor().exportUser(owner.id);
+    const document = await chatFor().users.export({ userId: owner.id });
 
     expect(document.memory).toEqual({ memoryEnabled: false, botMemory: [] });
   });

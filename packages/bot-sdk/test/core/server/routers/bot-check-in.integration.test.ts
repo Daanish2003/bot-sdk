@@ -69,13 +69,13 @@ async function botTurn({
   host = false,
   linked = false,
   getQuota,
-  isUserBlocked,
+  users,
 }: {
   rounds: Round[];
   host?: boolean;
   /** The Bot is on a ChatGPT plan Model and the user has a linked plan, not a key (ADR 0023). */
   linked?: boolean;
-} & Pick<TestDepsOverrides, "getQuota" | "isUserBlocked">) {
+} & Pick<TestDepsOverrides, "getQuota" | "users">) {
   const timer = fakeJobClock(monday);
   const fake = createFakeAdapter({ rounds });
   let deps: TestDeps | undefined;
@@ -97,7 +97,7 @@ async function botTurn({
     ...(host && { hostProviders }),
     ...(linked && { linkedCredentials: async () => planCredentials }),
     getQuota,
-    isUserBlocked,
+    users,
   });
   started.push(jobs);
   const user = await insertUser();
@@ -332,7 +332,7 @@ describe("a Check-in", () => {
     let banned = false;
     const { conversationId, runDue, advanceTo } = await botTurn({
       rounds: [round(setCheckIn(setThursday)), round()],
-      isUserBlocked: async () => banned,
+      users: { isBlocked: async () => banned },
     });
     banned = true;
 

@@ -71,7 +71,7 @@ async function emailBot(
   const user = await insertUser();
   deps = createTestSdk({
     channels: [emailChannel({ provider, domain, appUrl })],
-    verifiedEmail: async (userId) => (userId === user.id ? ownerEmail : null),
+    users: { verifiedEmail: async (userId) => (userId === user.id ? ownerEmail : null) },
     jobs,
     adapterFor: () => fake.adapter,
     clock: timer.clock.now,

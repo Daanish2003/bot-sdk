@@ -36,13 +36,20 @@ const at = new Date("2026-10-22T09:00:00.000Z");
 /**
  * A Bot named "Ada Lovelace" with the `channel` plugin's email adapter over the fake provider, on
  * an idle runner and a fixed clock. The owner's verified email is `ownerEmail`, or none when
- * `verified` is false. `runDue()` runs every job due until none is left.
+ * `verified` is false; the Host's users slot says they are Banned while `isBlocked` does. `runDue()`
+ * runs every job due until none is left.
  */
 async function emailBot({
   verified = true,
   name = "Ada Lovelace",
   withComputer = false,
-}: { verified?: boolean; name?: string; withComputer?: boolean } = {}) {
+  isBlocked,
+}: {
+  verified?: boolean;
+  name?: string;
+  withComputer?: boolean;
+  isBlocked?: () => Promise<boolean>;
+} = {}) {
   const timer = fakeJobClock(at);
   const fake = createFakeAdapter({ rounds: [round(), round(), round()] });
   const email = fakeEmailProvider();
@@ -59,7 +66,10 @@ async function emailBot({
   deps = createTestSdk({
     ...(withComputer && { computer: fakeComputerProvider().provider }),
     channels: [emailChannel({ provider: email.provider, domain, appUrl: "https://app.example" })],
-    verifiedEmail: async (userId) => (verified && userId === user.id ? ownerEmail : null),
+    users: {
+      isBlocked,
+      verifiedEmail: async (userId) => (verified && userId === user.id ? ownerEmail : null),
+    },
     jobs,
     adapterFor: () => fake.adapter,
     clock: timer.clock.now,
@@ -163,6 +173,21 @@ describe("an email to a Bot's address", () => {
     await runDue();
     expect(fake.calls).toHaveLength(1);
     expect(JSON.stringify(fake.calls[0]!.messages)).toContain("Book me a table for Friday");
+  }, 30_000);
+
+  it("from a Banned owner answers 202 and makes no Message or Trigger, until the Ban ends", async () => {
+    let banned = true;
+    const { conversationId, deliver } = await emailBot({ isBlocked: async () => banned });
+
+    const response = await deliver();
+
+    expect(response.status).toBe(202);
+    expect(await triggersOf(conversationId)).toEqual([]);
+    expect(await userMessagesOf(conversationId)).toEqual([]);
+
+    banned = false;
+    await deliver({ messageId: "<second@mail.example>" });
+    expect(await triggersOf(conversationId)).toHaveLength(1);
   }, 30_000);
 
   it("drops a redelivery of the same Message-ID", async () => {
