@@ -5,11 +5,10 @@ import { sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Client } from "pg";
 
-import { createDb, type Database } from "../../core/server/storage";
+import { databaseOf, type Database } from "../../core/server/storage";
 import { postgres } from "../../core/server/database";
-import { type FeatureMigrations, migrate as migrateBotSdk } from "../../core/server/migrate";
-import mcpMigrations from "../../plugins/mcp/server/migrations.json" with { type: "json" };
-import memoryMigrations from "../../plugins/memory/server/migrations.json" with { type: "json" };
+import { migrate as migrateBotSdk } from "../../core/server/migrate";
+import { sdkFeatureMigrations } from "../../scripts/migration-parts";
 
 const DEFAULT_TEST_DATABASE_URL = "postgresql://postgres:password@localhost:5432/ai-chat_test";
 
@@ -43,15 +42,6 @@ export const testDatabaseUrl = process.env.VITEST_POOL_ID
   ? workerDatabaseUrl(process.env.VITEST_POOL_ID)
   : baseTestDatabaseUrl;
 
-/**
- * The migrations of every feature the SDK ships with tables: the test database has their tables, so
- * any test may enable them.
- */
-export const sdkFeatureMigrations: FeatureMigrations[] = [
-  { feature: "memory", migrations: memoryMigrations },
-  { feature: "mcp", migrations: mcpMigrations },
-];
-
 /** Better Auth's tables are in `public`; the SDK's tables reference none of them. */
 const authMigrationsFolder = fileURLToPath(new URL("../../../db/src/migrations", import.meta.url));
 
@@ -62,13 +52,14 @@ const authMigrationsFolder = fileURLToPath(new URL("../../../db/src/migrations",
  */
 export async function prepareTestDatabases(workers: number) {
   await createDatabaseIfMissing(baseTestDatabaseUrl);
-  const db = createDb({ DATABASE_URL: baseTestDatabaseUrl });
+  const db = databaseOf(postgres({ connectionString: baseTestDatabaseUrl }));
   try {
     await migrate(db, { migrationsFolder: authMigrationsFolder });
   } finally {
     await db.$client.end();
   }
-  await migrateBotSdk(postgres({ connectionString: baseTestDatabaseUrl }), sdkFeatureMigrations);
+  // Every SDK feature's tables, so any test may enable any feature.
+  await migrateBotSdk(postgres({ connectionString: baseTestDatabaseUrl }), sdkFeatureMigrations());
 
   const template = quoteIdentifier(databaseName(baseTestDatabaseUrl));
   const client = await serverClient(baseTestDatabaseUrl);
@@ -165,7 +156,7 @@ let db: Database | undefined;
 
 /** One connection pool to the test database per test file. */
 export function getTestDb(): Database {
-  db ??= createDb({ DATABASE_URL: testDatabaseUrl });
+  db ??= databaseOf(postgres({ connectionString: testDatabaseUrl }));
   return db;
 }
 

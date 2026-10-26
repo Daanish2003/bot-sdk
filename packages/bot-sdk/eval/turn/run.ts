@@ -13,12 +13,12 @@ import { fileURLToPath } from "node:url";
 import type { AnyTextAdapter } from "@tanstack/ai";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 
-import { postgresBlobStore, createDb, type Database } from "../../core/server/storage";
+import { databaseOf, postgresBlobStore, type Database } from "../../core/server/storage";
 import { createHookEmitter } from "../../core/server/chat/hooks";
 import { createGuardedFetch } from "../../core/server/lib/guarded-fetch";
 import { postgres } from "../../core/server/database";
 import { migrate as migrateBotSdk } from "../../core/server/migrate";
-import { sdkFeatureMigrations } from "../../test/support/test-database";
+import { sdkFeatureMigrations } from "../../scripts/migration-parts";
 import type { BotSdkContext } from "../../core/server/plugin";
 import { memoryRuntime } from "../../core/server/runtime";
 import { createBotSdkOver } from "../../core/server/over";
@@ -46,11 +46,11 @@ const evalKeySecret = "eval-turn-key-secret-not-for-production";
 
 /** Makes the database's tables, as the test database does: the auth tables first, then the `botsdk` schema. */
 async function prepareSchema(url: string): Promise<Database> {
-  const db = createDb({ DATABASE_URL: url });
+  const db = databaseOf(postgres({ connectionString: url }));
   await migrate(db, {
     migrationsFolder: fileURLToPath(new URL("../../../db/src/migrations", import.meta.url)),
   });
-  await migrateBotSdk(postgres({ connectionString: url }), sdkFeatureMigrations);
+  await migrateBotSdk(postgres({ connectionString: url }), sdkFeatureMigrations());
   return db;
 }
 

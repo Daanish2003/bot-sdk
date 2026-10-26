@@ -1,22 +1,25 @@
 import { getTableConfig } from "drizzle-orm/pg-core";
 
+import type { BotSdkOptions } from "./create-chat";
 import type { PostgresDatabase } from "./database";
 import type { AnyFeature } from "./feature";
 import { featureMigrations } from "./feature";
-import { JOURNAL_DDL, migrate, pendingMigrations, withConnection } from "./migrate";
+import { inTransaction, JOURNAL_DDL, migrate, pendingMigrations, withConnection } from "./migrate";
 import type { PendingMigration } from "./migrate";
 
 /*
- * The `botsdk migrate` CLI's work (spec #874, #906), apart from loading the Host's config: what the
- * bin calls once it has the config's `database` and `features`.
+ * The `botsdk migrate` CLI's work (spec #874, #906), apart from loading the Host's config module:
+ * what the bin calls once it has loaded it.
  */
 
-/** What the Host's config module default-exports: the factory's `database` and `features`. */
-export type MigrateConfig = {
-  database: PostgresDatabase;
-  /** The enabled features: what `migrate` applies. */
-  features?: readonly AnyFeature[];
-  /** Features the Host once enabled, which `--drop` may remove the tables of. */
+/**
+ * A Host's config module (`botsdk.config.ts`), as `botsdk migrate` loads it. Its default export is
+ * the factory's options, the ones the Host passes `createBotSdk`: `migrate` reads their `database`
+ * and `features`. It may also export `disabled`: features the Host once enabled, whose tables
+ * `--drop <id>` may remove.
+ */
+export type MigrateConfigModule = {
+  default: Pick<BotSdkOptions, "database" | "features">;
   disabled?: readonly AnyFeature[];
 };
 
@@ -42,25 +45,74 @@ export function printSql(pending: readonly PendingMigration[]): string {
 }
 
 /**
- * The SQL that removes a feature's tables and its journal rows, so enabling it again migrates it
- * from its baseline. Throws for a feature in `enabled`: removal is for a disabled feature.
+ * The statements that remove a feature's tables, the enums and sequences they used that nothing
+ * else uses (its own: a sequence a table owns goes with it), and its journal rows, so enabling it
+ * again migrates it from its baseline. Throws for a feature in `enabled`: removal is for a disabled
+ * feature.
  */
-export function dropSql(feature: AnyFeature, enabled: readonly AnyFeature[]): string {
+function dropStatements(feature: AnyFeature, enabled: readonly AnyFeature[]): string {
   if (enabled.some(({ id }) => id === feature.id)) {
     throw new Error(`Feature "${feature.id}" is enabled: turn it off before removing its tables`);
   }
-  const drops = Object.values(feature.schema?.tables ?? {}).map((table) => {
+  const id = (text: string) => `"${text.replaceAll('"', '""')}"`;
+  const tables = Object.values(feature.schema?.tables ?? {}).map((table) => {
     const { name, schema } = getTableConfig(table);
-    const id = (text: string) => `"${text.replaceAll('"', '""')}"`;
-    return `drop table if exists ${id(schema ?? "public")}.${id(name)} cascade;`;
+    return quote(`${id(schema ?? "public")}.${id(name)}`);
   });
-  return [
-    "begin;",
-    ...drops,
-    // The journal is missing on a database that was never migrated.
-    `do $$ begin if to_regclass('botsdk.__migrations') is not null then delete from botsdk.__migrations where feature = ${quote(feature.id)}; end if; end $$;`,
-    "commit;",
-  ].join("\n");
+  return `do $$
+declare
+  dropped regclass[] := array(
+    select to_regclass(listed) from unnest(array[${tables.join(", ")}]::text[]) as listed
+    where to_regclass(listed) is not null
+  );
+  enums oid[];
+  sequences oid[];
+  entry oid;
+begin
+  -- The enums the tables' columns (or arrays of them) are of, and the sequences their defaults use.
+  select coalesce(array_agg(distinct element.oid), '{}') into enums
+  from pg_attribute column_
+  join pg_type type_ on type_.oid = column_.atttypid
+  join pg_type element on element.typtype = 'e'
+    and element.oid = case when type_.typcategory = 'A' then type_.typelem else type_.oid end
+  where column_.attrelid = any(dropped) and column_.attnum > 0 and not column_.attisdropped;
+  select coalesce(array_agg(distinct used.refobjid), '{}') into sequences
+  from pg_attrdef default_
+  join pg_depend used on used.classid = 'pg_attrdef'::regclass and used.objid = default_.oid
+    and used.refclassid = 'pg_class'::regclass
+  join pg_class sequence_ on sequence_.oid = used.refobjid and sequence_.relkind = 'S'
+  where default_.adrelid = any(dropped);
+
+  for i in 1 .. coalesce(array_length(dropped, 1), 0) loop
+    execute format('drop table if exists %s cascade', dropped[i]);
+  end loop;
+  -- Only what no other table still uses: a type or sequence shared with the core stays.
+  foreach entry in array sequences loop
+    if exists (select 1 from pg_class where oid = entry) and not exists (
+      select 1 from pg_depend where refobjid = entry and classid = 'pg_attrdef'::regclass
+    ) then
+      execute format('drop sequence %s', entry::regclass);
+    end if;
+  end loop;
+  foreach entry in array enums loop
+    if not exists (
+      select 1 from pg_attribute column_ join pg_type type_ on type_.oid = column_.atttypid
+      where not column_.attisdropped and (type_.oid = entry or type_.typelem = entry)
+    ) then
+      execute format('drop type %s', entry::regtype);
+    end if;
+  end loop;
+
+  -- The journal is missing on a database that was never migrated.
+  if to_regclass('botsdk.__migrations') is not null then
+    delete from botsdk.__migrations where feature = ${quote(feature.id)};
+  end if;
+end $$;`;
+}
+
+/** The SQL `dropFeatureTables` runs, in one transaction: what `--drop --print` gives. */
+export function dropSql(feature: AnyFeature, enabled: readonly AnyFeature[]): string {
+  return ["begin;", dropStatements(feature, enabled), "commit;"].join("\n");
 }
 
 /** Runs `dropSql` on the database. It never runs on its own: only a Host's call asks for it. */
@@ -69,39 +121,40 @@ export async function dropFeatureTables(
   feature: AnyFeature,
   enabled: readonly AnyFeature[] = [],
 ): Promise<void> {
-  const sql = dropSql(feature, enabled);
-  await withConnection(database, async (client) => {
-    try {
-      await client.query(sql);
-    } catch (error) {
-      await client.query("rollback").catch(() => undefined);
-      throw error;
-    }
-  });
+  const statements = dropStatements(feature, enabled);
+  await withConnection(database, (client) =>
+    inTransaction(client, async () => {
+      await client.query(statements);
+    }),
+  );
 }
 
 /**
- * Runs `botsdk migrate` over a loaded config: migrates, or with `print` writes the pending SQL to
- * `out`; with `drop` (a feature id of the config's `disabled`) removes its tables, or with `print`
- * writes that SQL.
+ * Runs `botsdk migrate` over a loaded config module: migrates the default export's features, or
+ * with `print` writes the pending SQL to `out`; with `drop` (the id of a feature the module exports
+ * in `disabled`) removes its tables, or with `print` writes that SQL.
  */
 export async function runMigrate(
-  config: MigrateConfig,
+  config: MigrateConfigModule,
   options: { print?: boolean; drop?: string },
   out: (text: string) => void,
 ): Promise<void> {
-  const features = config.features ?? [];
+  const { database } = config.default;
+  const features = config.default.features ?? [];
   if (options.drop !== undefined) {
     const feature = [...features, ...(config.disabled ?? [])].find(({ id }) => id === options.drop);
-    if (!feature)
-      throw new Error(`No feature "${options.drop}" in the config's features or disabled`);
+    if (!feature) {
+      throw new Error(
+        `No feature "${options.drop}" in the config's features or its disabled export`,
+      );
+    }
     if (options.print) out(dropSql(feature, features) + "\n");
-    else await dropFeatureTables(config.database, feature, features);
+    else await dropFeatureTables(database, feature, features);
     return;
   }
   if (options.print) {
-    out(printSql(await pendingMigrations(config.database, featureMigrations(features))));
+    out(printSql(await pendingMigrations(database, featureMigrations(features))));
     return;
   }
-  await migrate(config.database, featureMigrations(features));
+  await migrate(database, featureMigrations(features));
 }

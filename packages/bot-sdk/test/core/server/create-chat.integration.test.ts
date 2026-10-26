@@ -2,7 +2,7 @@ import pg from "pg";
 import { describe, expect, it, vi } from "vitest";
 
 import { createHttpHandler } from "../../../core/http";
-import { createBotSdk } from "../../../core/server/create-chat";
+import { createBotSdk, httpPartsOf } from "../../../core/server/create-chat";
 import { postgres } from "../../../core/server/database";
 import { saveCredentials } from "../../../plugins/models/server/internal";
 import { createTestSdk } from "../../support/deps";
@@ -81,24 +81,50 @@ describe("the database slot", () => {
   });
 });
 
-describe("the database slot with the Host's pool", () => {
-  it("logs an idle connection's failure on that pool instead of crashing", async () => {
-    const pool = new pg.Pool({ connectionString: testDatabaseUrl });
-    const logger = { error: vi.fn() };
-    try {
-      createBotSdk({
-        database: postgres({ pool }),
-        keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-        logger,
-        models: {},
-      });
+describe("the pool the SDK owns", () => {
+  const keyEncryptionSecrets = ["test-key-encryption-secret-not-for-production"];
 
-      const failure = new Error("terminating connection due to administrator command");
-      expect(() => pool.emit("error", failure)).not.toThrow();
-      expect(logger.error).toHaveBeenCalledWith(expect.any(String), failure);
+  it("leaves the Host's pool alone: no error listener, and stop() never ends it", async () => {
+    const pool = new pg.Pool({ connectionString: testDatabaseUrl });
+    try {
+      const listeners = pool.listenerCount("error");
+      const sdk = createBotSdk({ database: postgres({ pool }), keyEncryptionSecrets, models: {} });
+      expect(pool.listenerCount("error")).toBe(listeners);
+
+      await sdk.stop();
+      expect(pool.ended).toBe(false);
+      await expect(pool.query("select 1")).resolves.toBeDefined();
     } finally {
       await pool.end();
     }
+  });
+
+  it("logs an idle connection's failure on its own pool instead of crashing", () => {
+    const logger = { error: vi.fn() };
+    const sdk = createBotSdk({
+      database: postgres({ connectionString: testDatabaseUrl }),
+      keyEncryptionSecrets,
+      logger,
+      models: {},
+    });
+    const own = httpPartsOf(sdk).context.db.$client;
+
+    const failure = new Error("terminating connection due to administrator command");
+    expect(() => own.emit("error", failure)).not.toThrow();
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("botsdk"), failure);
+  });
+
+  it("ends the pool it opened from a connection string on stop()", async () => {
+    const sdk = createBotSdk({
+      database: postgres({ connectionString: testDatabaseUrl }),
+      keyEncryptionSecrets,
+      models: {},
+    });
+    const own = httpPartsOf(sdk).context.db.$client;
+    await own.query("select 1");
+
+    await sdk.stop();
+    expect(own.ended).toBe(true);
   });
 });
 

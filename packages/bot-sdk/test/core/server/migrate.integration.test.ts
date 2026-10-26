@@ -5,11 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createBotSdk } from "../../../core/server/create-chat";
 import { type AnyFeature, defineFeature } from "../../../core/server/feature";
 import type { Migration } from "../../../core/server/migrate";
-import coreMigrations from "../../../core/server/migrations.json" with { type: "json" };
-import mcpMigrations from "../../../plugins/mcp/server/migrations.json" with { type: "json" };
-import memoryMigrations from "../../../plugins/memory/server/migrations.json" with { type: "json" };
 import { mcp } from "../../../plugins/mcp/server";
-import { migrationParts, migrationsOf } from "../../../scripts/migrations-json";
+import { migrationParts, migrationsOf, shippedMigrations } from "../../../scripts/migration-parts";
 import {
   dropScratchDatabase,
   freshDatabaseUrl,
@@ -294,6 +291,62 @@ describe("chat.migrate()", () => {
     expect(after).toEqual(before);
   });
 
+  it(
+    "makes a second run wait on the lock while the first applies",
+    { timeout: 60_000 },
+    async () => {
+      const url = await scratchDatabase("serialized");
+      // A feature whose migration waits until the test lets it go, so the first run holds the
+      // migration lock for as long as the test wants.
+      const gateId = 7_270_042;
+      const gated = defineFeature({
+        id: "gated",
+        schema: {
+          migrations: [
+            {
+              name: "0001_gate",
+              sql: `select pg_advisory_xact_lock(${gateId}); create table botsdk.test_gate (id int)`,
+            },
+          ],
+        },
+      });
+      const gate = new Client({ connectionString: url });
+      await gate.connect();
+      try {
+        await gate.query("select pg_advisory_lock($1)", [gateId]);
+        const chat = chatFor(url, [gated]);
+        const first = chat.migrate();
+        // The first run is inside the gated migration before the second starts.
+        const waitingOn = async (query: string) =>
+          (
+            await gate.query<{ count: string }>(
+              `select count(*) from pg_stat_activity
+             where datname = current_database() and wait_event_type = 'Lock' and query like $1`,
+              [query],
+            )
+          ).rows[0]?.count;
+        await expect
+          .poll(() => waitingOn("%pg_advisory_xact_lock%"), { timeout: 10_000 })
+          .toBe("1");
+        const second = chat.migrate();
+
+        // The second waits for the migration lock, not inside the migration.
+        await expect
+          .poll(() => waitingOn("select pg_advisory_lock($1)"), { timeout: 10_000 })
+          .toBe("1");
+        expect(await waitingOn("%pg_advisory_xact_lock%")).toBe("1");
+
+        await gate.query("select pg_advisory_unlock($1)", [gateId]);
+        await Promise.all([first, second]);
+      } finally {
+        await gate.end();
+      }
+      expect((await journal(url)).filter(({ feature }) => feature === "gated")).toEqual([
+        { feature: "gated", migration: "0001_gate" },
+      ]);
+    },
+  );
+
   it("lets two concurrent runs both succeed, with the migrations applied once", async () => {
     const url = await scratchDatabase("concurrent");
     const chat = chatFor(url, [notes()]);
@@ -364,15 +417,9 @@ describe("chat.migrate()", () => {
 
 describe("chat.start()", () => {
   it("checks against each part's migrations.json, which match its drizzle-kit folders", () => {
-    const json: Record<string, unknown> = {
-      "core/server": coreMigrations,
-      "plugins/memory/server": memoryMigrations,
-      "plugins/mcp/server": mcpMigrations,
-    };
-
-    for (const part of migrationParts) {
-      expect(json[part], `run \`node scripts/migrations-json.ts\` for ${part}`).toEqual(
-        migrationsOf(part),
+    for (const { folder } of migrationParts) {
+      expect(shippedMigrations(folder), `run \`pnpm db:generate\` for ${folder}`).toEqual(
+        migrationsOf(folder),
       );
     }
   });

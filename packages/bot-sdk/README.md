@@ -112,10 +112,36 @@ The `runner` and `memory` plugins and the `skills` feature need nothing beyond `
 ## Postgres
 
 - The database needs the `pg_trgm` extension. `chat.migrate()` runs `CREATE EXTENSION IF NOT EXISTS pg_trgm` before its migrations and fails naming it, so a role allowed to create extensions (or a database that already has it) is needed.
-- The `database` slot takes `postgres({ connectionString })`, and the SDK opens its own pool on first use, or `postgres({ pool })` with your own node-postgres-compatible pool (`pg`, or a Neon serverless `Pool`), which the SDK queries through and never ends. `migrate()` holds a session advisory lock on one of its connections, so the pool must reach Postgres directly or through a session-mode pooler, not a transaction-mode one (PgBouncer in transaction mode, Neon's `-pooler` host).
+- The `database` slot takes `postgres({ connectionString })`, and the SDK opens its own pool on first use, or `postgres({ pool })` with your own node-postgres-compatible pool (`pg`, or a Neon serverless `Pool`). The SDK owns only the pool it opened: it listens for that pool's `error` events (an idle connection Postgres closed is logged to `logger`, not thrown) and ends it in `stop()`. Your own pool it only queries through: it adds no listener (handle `error` on it yourself, or an idle connection's failure crashes the process) and never ends it. `migrate()` holds a session advisory lock on one of its connections, so the pool must reach Postgres directly or through a session-mode pooler, not a transaction-mode one (PgBouncer in transaction mode, Neon's `-pooler` host).
 - The SDK's tables live in the `botsdk` schema of the Host's database, not in your ORM's schema. Your ORM's migrations never touch them.
 - The core and each feature ship their own migrations. `migrate()` applies the core's, then each enabled feature's in your `features` order, and records each one in `botsdk.__migrations` by feature and name, so enabling a feature later applies only its migrations. Turning a feature off leaves its tables and rows as they are. A feature you write with `defineFeature` lists its tables and its SQL migrations, oldest first, in `schema: { tables, migrations: [{ name, sql }] }`; its tables may have foreign keys into the core's, since the core migrates first.
 - The SDK's migrations are expand-then-contract: they add tables, columns and indexes, and never drop or rename one in the same release. The version still running during a deploy keeps working against the migrated schema. The one exception is the move to the `botsdk` schema and its fresh baseline: data in the old `chat` schema is not carried over.
+
+### Migrating: `botsdk migrate`
+
+The package's `botsdk` bin migrates from a config module, by default `botsdk.config.ts` in the working directory. Its default export is the options you pass `createBotSdk` (at least `database` and `features`), so the server and the migration read one list of features:
+
+```ts
+// botsdk.config.ts
+import { postgres } from "@ai-chat/bot-sdk/core/server";
+import { mcp } from "@ai-chat/bot-sdk/plugins/mcp/server";
+import { memory } from "@ai-chat/bot-sdk/plugins/memory/server";
+
+export default {
+  database: postgres({ connectionString: process.env.DATABASE_URL! }),
+  features: [mcp({ servers })],
+};
+
+// optional: features you once enabled, whose tables `--drop` may remove
+export const disabled = [memory()];
+
+// server: createBotSdk({ ...config, keyEncryptionSecrets, models, ... })
+```
+
+- `botsdk migrate [--config <file>]` does what `chat.migrate()` does for the config's features.
+- `--print` applies nothing: it writes the pending SQL to stdout (the schema, `pg_trgm`, the journal, then each pending migration in its own transaction with its `botsdk.__migrations` row), for a Host that applies SQL with its own tool.
+- `--drop <feature>` removes a disabled feature's tables, the enums and sequences they used that nothing else uses, and its journal rows, so enabling it again migrates it from its baseline. The feature must be in the module's `disabled` export (it refuses one the default export enables). With `--print`, it writes that SQL instead. It deletes data, so it never runs on its own; `dropFeatureTables(database, feature, enabled)` from `core/server` does the same from code.
+- The bin loads the config with Node's type stripping and a resolve hook for extensionless relative imports, so a config in TypeScript needs no build step.
 
 ## File storage: `blobs`
 
@@ -209,7 +235,7 @@ const client = createBotSdkClient({
 - The Bots app is `BotsApp` from `plugins/bot/ui`, with the Host's account menu at the foot of its sidebar (`accountMenu`); the keys page is `KeySettingsPage` from `plugins/models/ui`.
 - `GET <basePath>/export` answers the signed-in user's export as a JSON download (`chat-export-<date>.json`), the same document as `users.export`. The `ExportDataButton` in `ui/settings/export-data-button.tsx` calls it.
 - `start()` refuses to run while the core's or an enabled feature's migrations aren't all applied.
-- `stop()` stops the plugins (the runner takes no new jobs and waits for the running ones), then closes the runtime's connections.
+- `stop()` stops the plugins (the runner takes no new jobs and waits for the running ones), then closes the runtime's connections and ends the database pool the SDK opened from a connection string (never your own pool).
 
 ## Background jobs: `runner`
 

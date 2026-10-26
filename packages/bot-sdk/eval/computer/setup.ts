@@ -5,13 +5,13 @@ import { fileURLToPath } from "node:url";
 
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 
-import { postgresBlobStore, createDb, type Database } from "../../core/server/storage";
+import { databaseOf, postgresBlobStore, type Database } from "../../core/server/storage";
 import { createHookEmitter } from "../../core/server/chat/hooks";
 import type { FeatureEntry } from "../../core/server/create-chat";
 import { createGuardedFetch } from "../../core/server/lib/guarded-fetch";
 import { postgres } from "../../core/server/database";
 import { migrate as migrateBotSdk } from "../../core/server/migrate";
-import { sdkFeatureMigrations } from "../../test/support/test-database";
+import { sdkFeatureMigrations } from "../../scripts/migration-parts";
 import type { BotSdkContext } from "../../core/server/plugin";
 import { memoryRuntime } from "../../core/server/runtime";
 import { createBotSdkOver, type OverSlots } from "../../core/server/over";
@@ -47,11 +47,11 @@ export function e2bFromEnv() {
 
 /** Makes the database's tables, as the test database does: the auth tables first, then the `botsdk` schema. */
 export async function prepareSchema(url: string): Promise<Database> {
-  const db = createDb({ DATABASE_URL: url });
+  const db = databaseOf(postgres({ connectionString: url }));
   await migrate(db, {
     migrationsFolder: fileURLToPath(new URL("../../../db/src/migrations", import.meta.url)),
   });
-  await migrateBotSdk(postgres({ connectionString: url }), sdkFeatureMigrations);
+  await migrateBotSdk(postgres({ connectionString: url }), sdkFeatureMigrations());
   return db;
 }
 

@@ -84,6 +84,7 @@ export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly Fe
   /**
    * The Postgres the SDK keeps its data in: `postgres({ connectionString })`, or
    * `postgres({ pool })` with the Host's own node-postgres-compatible pool (`pg`, Neon serverless).
+   * The SDK ends only a pool it opened (on `stop()`), and listens for `error` only on that one.
    */
   database: PostgresDatabase;
   /**
@@ -203,7 +204,8 @@ export type BotSdk = {
   start: () => Promise<void>;
   /**
    * Sets `stopping`, stops the core's parts in reverse order, then closes the runtime's
-   * connections. The runner drains its jobs for up to 250 s, then aborts the rest and waits up to
+   * connections and ends the pool the SDK opened from a connection string (a Host's own pool is
+   * left open). The runner drains its jobs for up to 250 s, then aborts the rest and waits up to
    * 250 s more for their handlers to end. A part whose stop throws doesn't stop the others; its
    * error is rethrown once the runtime closes. Call it on SIGTERM.
    */
@@ -350,6 +352,7 @@ export function buildBotSdk(
 
   // Building the context opens nothing: the pool and the runtime connect on first use.
   const sdk = buildContext(options, given) as BotSdkContext;
+  const ownsPool = !given.db && !("pool" in options.database);
   // The core services, over the context they belong to, before any part's `init` runs.
   const runner = createRunner(sdk, options.runner, given.jobs);
   sdk.runner = runner.api;
@@ -418,6 +421,8 @@ export function buildBotSdk(
         errors.push(error);
       }
       await options.pubsub?.close?.();
+      // The pool the SDK opened from a connection string is its own to end; a Host's pool is the Host's.
+      if (ownsPool && !sdk.db.$client.ended) await sdk.db.$client.end();
       if (errors.length === 1) throw errors[0];
       if (errors.length > 1) throw new AggregateError(errors, "Several parts failed to stop");
     },

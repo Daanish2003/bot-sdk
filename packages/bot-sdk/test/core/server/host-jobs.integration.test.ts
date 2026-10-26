@@ -10,7 +10,7 @@ import {
   type Database,
 } from "../../../core/server/index";
 import { buildBotSdk, type BotSdk } from "../../../core/server/create-chat";
-import { createDb, job, jobEvent } from "../../../core/server/storage";
+import { databaseOf, job, jobEvent } from "../../../core/server/storage";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { postgres } from "../../../core/server/database";
 
@@ -144,7 +144,7 @@ describe("a Host job registered through the factory", () => {
       await sdk.start();
       // Another pool on the same database: its transactions aren't the SDK's, so nothing notifies
       // the Executor and the in-process poll picks the job up.
-      const hostDb = createDb({ DATABASE_URL: testDatabaseUrl });
+      const hostDb = databaseOf(postgres({ connectionString: testDatabaseUrl }));
       try {
         const committed = await hostDb.transaction((tx) =>
           sdk.runner.enqueueIn(tx, "host.note", { id: "own", text: "x" }),

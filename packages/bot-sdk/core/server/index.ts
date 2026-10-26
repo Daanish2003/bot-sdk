@@ -19,7 +19,7 @@ export {
   type FeaturePromptTurn,
   type FeatureTurn,
 } from "./feature";
-export { dropFeatureTables, type MigrateConfig } from "./migrate-cli";
+export { dropFeatureTables, type MigrateConfigModule } from "./migrate-cli";
 export {
   defineJob,
   type JobContext,
@@ -36,7 +36,7 @@ export {
 export { redisStore, type RedisStore } from "./chat/redis-store";
 export type { PubSub } from "./chat/pubsub";
 export type { RateLimit, RateLimits } from "./rate-limits";
-export { createDb, type Database } from "./storage";
+export type { Database } from "./storage";
 export type { BlobStore } from "./storage";
 export { postgresBlobStore } from "./storage";
 export { s3BlobStore, type S3BlobStoreOptions } from "./storage";

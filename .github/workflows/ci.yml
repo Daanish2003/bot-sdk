@@ -89,14 +89,15 @@ jobs:
       - name: Typecheck
         run: pnpm check-types
 
-      # The composed `botsdk` schema must equal the last migration's snapshot (spec #439): generate
-      # writes nothing, so the migrations folder stays unchanged.
+      # Every part's schema (the core's and each feature's, scripts/migration-parts.ts) must equal its
+      # last migration's snapshot, and its migrations.json its migration folders (spec #439, #874):
+      # `db:generate` writes nothing, so the parts stay unchanged.
       - name: No unmigrated schema change
         working-directory: packages/bot-sdk
         run: |
-          pnpm exec drizzle-kit generate
-          git status --porcelain -- core/server/migrations
-          test -z "$(git status --porcelain -- core/server/migrations)"
+          pnpm db:generate
+          git status --porcelain -- core/server plugins
+          test -z "$(git status --porcelain -- core/server plugins)"
 
       - name: Create the RustFS test bucket
         env:

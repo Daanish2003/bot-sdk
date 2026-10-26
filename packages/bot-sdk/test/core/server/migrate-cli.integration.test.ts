@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { pgSchema, text, uuid } from "drizzle-orm/pg-core";
+import { integer, pgSchema, text, uuid } from "drizzle-orm/pg-core";
 import { Client } from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -28,6 +28,33 @@ const notes = defineFeature({
       {
         name: "0001_note",
         sql: "create table botsdk.test_note (id text primary key, bot_id uuid references botsdk.bot(id) on delete cascade)",
+      },
+    ],
+  },
+});
+
+// A feature with its own enum and a sequence no table owns: --drop removes both, so enabling it
+// again creates them anew.
+const botsdk = pgSchema("botsdk");
+const tagKind = botsdk.enum("test_tag_kind", ["red", "blue"]);
+const tags = defineFeature({
+  id: "tags",
+  schema: {
+    tables: {
+      tag: botsdk.table("test_tag", {
+        id: text("id").primaryKey(),
+        kind: tagKind("kind").notNull(),
+        position: integer("position"),
+      }),
+    },
+    migrations: [
+      {
+        name: "0001_tag",
+        sql: [
+          "create type botsdk.test_tag_kind as enum ('red', 'blue');",
+          "create sequence botsdk.test_tag_position;",
+          "create table botsdk.test_tag (id text primary key, kind botsdk.test_tag_kind not null, position integer default nextval('botsdk.test_tag_position'));",
+        ].join(" "),
       },
     ],
   },
@@ -70,7 +97,7 @@ const journalOf = (url: string) =>
 async function printed(url: string, features = [notes]) {
   let sql = "";
   await runMigrate(
-    { database: postgres({ connectionString: url }), features },
+    { default: { database: postgres({ connectionString: url }), features } },
     { print: true },
     (text) => {
       sql += text;
@@ -115,7 +142,7 @@ describe("botsdk migrate", () => {
     async function migratedWithNotes(suffix: string) {
       const url = await scratchDatabase(suffix);
       await runMigrate(
-        { database: postgres({ connectionString: url }), features: [notes] },
+        { default: { database: postgres({ connectionString: url }), features: [notes] } },
         {},
         () => {},
       );
@@ -126,30 +153,72 @@ describe("botsdk migrate", () => {
       const url = await migratedWithNotes("cli_drop");
       const database = postgres({ connectionString: url });
       // Left out of the features, the tables stay.
-      await runMigrate({ database, features: [], disabled: [notes] }, {}, () => {});
+      await runMigrate({ default: { database, features: [] }, disabled: [notes] }, {}, () => {});
       expect(await tablesOf(url)).toContain("test_note");
       // --print shows the SQL and changes nothing.
       let out = "";
       await runMigrate(
-        { database, features: [], disabled: [notes] },
+        { default: { database, features: [] }, disabled: [notes] },
         { drop: "notes", print: true },
         (t) => (out += t),
       );
-      expect(out).toContain('drop table if exists "botsdk"."test_note"');
+      expect(out).toContain(`'"botsdk"."test_note"'`);
       expect(await tablesOf(url)).toContain("test_note");
-      await runMigrate({ database, features: [], disabled: [notes] }, { drop: "notes" }, () => {});
+      await runMigrate(
+        { default: { database, features: [] }, disabled: [notes] },
+        { drop: "notes" },
+        () => {},
+      );
       expect(await tablesOf(url)).not.toContain("test_note");
       expect((await journalOf(url)).map((row) => row.feature)).not.toContain("notes");
       // Enabled again, it migrates from its baseline.
-      await runMigrate({ database, features: [notes] }, {}, () => {});
+      await runMigrate({ default: { database, features: [notes] } }, {}, () => {});
       expect(await tablesOf(url)).toContain("test_note");
+    }, 60_000);
+
+    it("removes the feature's own enums and unowned sequences, so enabling it again migrates", async () => {
+      const url = await scratchDatabase("cli_drop_types");
+      const database = postgres({ connectionString: url });
+      await runMigrate({ default: { database, features: [tags] } }, {}, () => {});
+      const typesOf = async () =>
+        (
+          await rows<{ name: string }>(
+            url,
+            "select typname as name from pg_type t join pg_namespace n on n.oid = t.typnamespace where n.nspname = 'botsdk' and t.typname like 'test_tag%' union select relname from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'botsdk' and c.relkind = 'S' and c.relname like 'test_tag%' order by 1",
+          )
+        ).map((row) => row.name);
+      expect(await typesOf()).toEqual(
+        expect.arrayContaining(["test_tag_kind", "test_tag_position"]),
+      );
+
+      await runMigrate(
+        { default: { database, features: [] }, disabled: [tags] },
+        { drop: "tags" },
+        () => {},
+      );
+      expect(await typesOf()).toEqual([]);
+      // The core's enums are still there.
+      expect(await tablesOf(url)).toContain("bot_check_in");
+
+      await runMigrate({ default: { database, features: [tags] } }, {}, () => {});
+      expect(await tablesOf(url)).toContain("test_tag");
+    }, 60_000);
+
+    it("takes the feature to drop from the config module's `disabled` export", async () => {
+      const url = await scratchDatabase("cli_drop_bin");
+      const { stdout } = await promisify(execFile)(
+        process.execPath,
+        [bin, "migrate", "--config", config, "--drop", "memory", "--print"],
+        { env: { ...process.env, BOTSDK_TEST_DATABASE_URL: url } },
+      );
+      expect(stdout).toContain('"botsdk"."memory_settings"');
     }, 60_000);
 
     it("refuses a feature that is enabled", async () => {
       const url = await migratedWithNotes("cli_drop_enabled");
       await expect(
         runMigrate(
-          { database: postgres({ connectionString: url }), features: [notes] },
+          { default: { database: postgres({ connectionString: url }), features: [notes] } },
           { drop: "notes" },
           () => {},
         ),

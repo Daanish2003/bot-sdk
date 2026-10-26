@@ -48,17 +48,15 @@ export async function migrate(
     await createTrigramExtension(client);
     await client.query(JOURNAL_DDL);
     for (const pending of pendingIn(await journalOf(client), features)) {
-      await client.query("begin");
       try {
-        await client.query(pending.sql);
-        await client.query("insert into botsdk.__migrations (feature, migration) values ($1, $2)", [
-          pending.feature,
-          pending.name,
-        ]);
-        await client.query("commit");
+        await inTransaction(client, async () => {
+          await client.query(pending.sql);
+          await client.query(
+            "insert into botsdk.__migrations (feature, migration) values ($1, $2)",
+            [pending.feature, pending.name],
+          );
+        });
       } catch (cause) {
-        // A failed rollback (a dropped connection) mustn't hide which migration failed.
-        await client.query("rollback").catch(() => undefined);
         throw new Error(`Migration ${pending.name} of "${pending.feature}" failed`, { cause });
       }
     }
@@ -142,6 +140,21 @@ export async function withConnection<T>(
     return await use(client);
   } finally {
     await client.end();
+  }
+}
+
+/**
+ * Runs `work` in a transaction on `client`: commits, or rolls back and rethrows its error. A failed
+ * rollback (a dropped connection) mustn't hide that error.
+ */
+export async function inTransaction(client: Connection, work: () => Promise<void>): Promise<void> {
+  await client.query("begin");
+  try {
+    await work();
+    await client.query("commit");
+  } catch (error) {
+    await client.query("rollback").catch(() => undefined);
+    throw error;
   }
 }
 

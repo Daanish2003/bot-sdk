@@ -1,20 +1,17 @@
 /// <reference types="node" />
 /**
- * Migrates the app's database: Better Auth's tables first, then the Bot SDK's `botsdk` schema
- * through its `migrate()` (the core's tables and its features'), then drops the chat tables and
- * enums the app used to keep in `public`, and the SDK's schema from before the `botsdk` baseline
- * (#904). That data was development data only, so nothing is copied.
+ * Migrates the app's database: Better Auth's tables first, then the Bot SDK's `botsdk` schema for
+ * the features `botsdk.config.ts` lists, the config `src/services.ts` builds the SDK from. It runs
+ * what `botsdk migrate` runs, over the same module.
  *
  * `pnpm db:migrate` runs it with DATABASE_URL from Varlock; the e2e server runs it with its own URL.
- * Plain Node (type stripping), so imports keep their extensions.
+ * Plain Node (type stripping): the config and the SDK import without extensions, so the SDK's
+ * resolve hook is registered before they load.
  */
-import { createRequire } from "node:module";
+import { createRequire, register } from "node:module";
 import { fileURLToPath } from "node:url";
 
-import { postgres } from "../../../packages/bot-sdk/core/server/database.ts";
-import { migrate as migrateBotSdk } from "../../../packages/bot-sdk/core/server/migrate.ts";
-import mcpMigrations from "../../../packages/bot-sdk/plugins/mcp/server/migrations.json" with { type: "json" };
-import memoryMigrations from "../../../packages/bot-sdk/plugins/memory/server/migrations.json" with { type: "json" };
+register("../../../packages/bot-sdk/bin/ts-extensionless.mjs", import.meta.url);
 
 // Drizzle is the db package's dependency, not the web app's.
 const dbRequire = createRequire(new URL("../../../packages/db/package.json", import.meta.url));
@@ -24,33 +21,8 @@ const { migrate } = dbRequire("drizzle-orm/node-postgres/migrator");
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("Set DATABASE_URL");
 
-// The chat tables and enums of the app's old `public` schema (the chat migrations before the SDK
-// owned them), and the SDK's old `chat` schema. `IF EXISTS`, so re-running does nothing.
-const DROP_OLD_CHAT_SCHEMA = `
-  drop table if exists public.message_attachment, public.attachment_blob, public.attachment,
-    public.shared_link, public.message, public.conversation,
-    public.user_credentials, public.user_settings cascade;
-  drop type if exists public.message_error_reason, public.message_role, public.message_status;
-  drop schema if exists chat cascade;
-`;
-
-// A `botsdk` schema whose journal has no `feature` column came from #904's single baseline, before
-// per-feature migrations (#905): its tables would collide with the new baselines. Development data
-// only, so it is dropped and made again.
-const DROP_SINGLE_BASELINE_SCHEMA = `
-  do $$ begin
-    if to_regclass('botsdk.__migrations') is not null and not exists (
-      select 1 from information_schema.columns
-      where table_schema = 'botsdk' and table_name = '__migrations' and column_name = 'feature'
-    ) then
-      drop schema botsdk cascade;
-    end if;
-  end $$;
-`;
-
 const db = drizzle(databaseUrl);
 try {
-  await db.$client.query(DROP_SINGLE_BASELINE_SCHEMA);
   await migrate(db, {
     migrationsFolder: fileURLToPath(
       new URL("../../../packages/db/src/migrations", import.meta.url),
@@ -60,16 +32,5 @@ try {
   await db.$client.end();
 }
 
-// The features the app may enable that have tables (`src/features.ts`, `src/services.ts`): Memory
-// only runs with the Computer configured, but its tables are made either way.
-await migrateBotSdk(postgres({ connectionString: databaseUrl }), [
-  { feature: "memory", migrations: memoryMigrations },
-  { feature: "mcp", migrations: mcpMigrations },
-]);
-
-const cleanup = drizzle(databaseUrl);
-try {
-  await cleanup.$client.query(DROP_OLD_CHAT_SCHEMA);
-} finally {
-  await cleanup.$client.end();
-}
+const { runMigrate } = await import("../../../packages/bot-sdk/core/server/migrate-cli.ts");
+await runMigrate(await import("../botsdk.config.ts"), {}, (text) => process.stdout.write(text));

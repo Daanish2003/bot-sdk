@@ -1,4 +1,5 @@
-// A Node resolve hook for register-ts.mjs: a relative import that doesn't exist as written is tried
+// A Node resolve hook for the SDK's TypeScript in plain Node (the `botsdk` bin, the evals'
+// register-ts.mjs, a Host's scripts): a relative import that doesn't exist as written is tried
 // with `.ts`, then as a folder's `index.ts`.
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";

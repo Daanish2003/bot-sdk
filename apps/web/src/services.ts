@@ -2,12 +2,12 @@ import { createAuth } from "@ai-chat/auth";
 import { chatgptAccessToken } from "@ai-chat/auth/chatgpt";
 import { createDb } from "@ai-chat/db";
 import { createHttpHandler, createScreenSocket } from "@ai-chat/bot-sdk/core/http";
-import { createBotSdk, postgres, redisRuntime, redisStore } from "@ai-chat/bot-sdk/core/server";
+import { createBotSdk, redisRuntime, redisStore } from "@ai-chat/bot-sdk/core/server";
 import { emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
-import { mcp } from "@ai-chat/bot-sdk/plugins/mcp/server";
 import { fakeImageAdapter } from "@ai-chat/bot-sdk/plugins/models/server";
 import { log } from "evlog";
 
+import botsdkConfig from "../botsdk.config";
 import { isBanActive } from "./admin/ban";
 import { appName, sender } from "./email";
 import { emailProviderOf } from "./email-provider";
@@ -23,8 +23,6 @@ import {
 import { linkedCredentialsHook } from "./chatgpt-link";
 import { cachedTokenFor, linkedCredentialsOf } from "./linked-credentials";
 import { computerProviderOf, e2bConfigOf } from "./computer";
-import { computerFeatures } from "./features";
-import { mcpServersOf } from "./mcp-server";
 import { trustedIpHeadersOf } from "./trusted-ip";
 
 // The template Computers are built from, named by its version (spec #519). It matches the SDK's
@@ -73,7 +71,8 @@ void quotaOf(ENV);
 // routes subscribe to (#290).
 const shared = globalThis as typeof globalThis & { botSdk?: ReturnType<typeof createBotSdk> };
 export const sdk = (shared.botSdk ??= createBotSdk({
-  database: postgres({ connectionString: ENV.DATABASE_URL }),
+  // Its database and features (botsdk.config.ts), which the migrate script migrates.
+  ...botsdkConfig,
   keyEncryptionSecrets: [ENV.KEY_ENCRYPTION_SECRET, ENV.KEY_ENCRYPTION_SECRET_PREVIOUS].filter(
     (secret): secret is string => Boolean(secret),
   ),
@@ -133,12 +132,6 @@ export const sdk = (shared.botSdk ??= createBotSdk({
       // A Bot's emails link to its page in this app.
       appUrl: ENV.BETTER_AUTH_URL,
     }),
-  ],
-  features: [
-    // Memory, Skills and Knowledge need the Computer, so a Host without one lists none of them.
-    ...computerFeatures(e2b !== undefined),
-    // MCP (ADR 0027): the users' Connections to the Host's MCP servers (`MCP_SERVER_*`).
-    mcp({ servers: mcpServersOf(ENV) }),
   ],
 }));
 
