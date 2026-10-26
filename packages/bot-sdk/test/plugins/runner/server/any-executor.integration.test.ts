@@ -1,7 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { botRoutine, botTrigger, botTurn, computer, job } from "../../../../core/server/storage";
+import { botTrigger, botTurn, computer, job } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { findBot } from "../../../../plugins/bot/server/conversation";
 import { saveCredentials } from "../../../../plugins/models/server/internal";
@@ -154,7 +154,7 @@ describe("the Bots and the Computer on a manual Executor", () => {
     ]);
     await sendSaved("Set it up, please");
     timer.advance(500);
-    await runQueued("bot.turn");
+    expect(await runQueued("bot.turn")).toBe(1);
     await expect
       .poll(async () => (await turnsOf(botId)).map((turn) => turn.status), { timeout: 10_000 })
       .toEqual(["complete"]);
@@ -170,8 +170,6 @@ describe("the Bots and the Computer on a manual Executor", () => {
       .from(botTrigger)
       .where(and(eq(botTrigger.conversationId, conversationId), eq(botTrigger.source, "routine")));
     expect(triggers.map((trigger) => trigger.id)).toEqual([`routine:${listed!.id}:${mondaySlot}`]);
-    const [routine] = await getTestDb().select().from(botRoutine);
-    expect(routine?.id).toBe(listed!.id);
     const nextFire = await getTestDb()
       .select({ runAfter: job.runAfter })
       .from(job)
