@@ -10,7 +10,7 @@ import {
   type Database,
 } from "../../../core/server/index";
 import { buildBotSdk, type BotSdk } from "../../../core/server/create-chat";
-import { job, jobEvent } from "../../../core/server/storage";
+import { createDb, job, jobEvent } from "../../../core/server/storage";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 
 /*
@@ -134,6 +134,37 @@ describe("a Host job registered through the factory", () => {
       await expect.poll(() => statusOf(sdk, committed), poll).toBe("succeeded");
       expect(await statusOf(sdk, rolledBack!)).toBeUndefined();
       expect(await notes()).toEqual(["kept"]);
+    },
+  );
+
+  it(
+    "is queued in a transaction of the Host's own Drizzle instance, runs after commit, and never after a rollback",
+    { timeout: 30_000 },
+    async () => {
+      const sdk = hostSdk();
+      await sdk.start();
+      // Another pool on the same database: its transactions aren't the SDK's, so nothing notifies
+      // the Executor and the in-process poll picks the job up.
+      const hostDb = createDb({ DATABASE_URL: testDatabaseUrl });
+      try {
+        const committed = await hostDb.transaction((tx) =>
+          sdk.runner.enqueueIn(tx, "host.note", { id: "own", text: "x" }),
+        );
+        let rolledBack: string | undefined;
+        await hostDb
+          .transaction(async (tx) => {
+            rolledBack = await sdk.runner.enqueueIn(tx, "host.note", { id: "undone", text: "x" });
+            throw new Error("The Host's write failed");
+          })
+          .catch(() => {});
+
+        await expect.poll(() => statusOf(sdk, committed), poll).toBe("succeeded");
+        expect(rolledBack).toBeDefined();
+        expect(await statusOf(sdk, rolledBack!)).toBeUndefined();
+        expect(await notes()).toEqual(["own"]);
+      } finally {
+        await hostDb.$client.end();
+      }
     },
   );
 

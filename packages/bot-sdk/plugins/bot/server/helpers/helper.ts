@@ -294,15 +294,16 @@ export async function lockScreen(tx: Transaction, userId: string, slot: number) 
   );
 }
 
+/** The Helpers and the Demonstration captures run for long: four at once, beside the rest (#602). */
+export const helperJobBudget = { budget: "helper", concurrency: 4 } as const;
+
 /**
  * The runner job of one Helper, keyed by `helper:<id>` (ADR 0011, the #565 amendment). The job of a
  * Helper the user's Done resumed has `waitedSince`, when it began to wait.
  */
 export const botHelperJob = defineCoreJob({
   name: botHelperJobName,
-  // The Helpers and the Demonstration captures run for long: four at once, beside the rest (#602).
-  budget: "helper",
-  concurrency: 4,
+  ...helperJobBudget,
   payload: z.object({ helperId: z.uuid(), waitedSince: z.iso.datetime().optional() }),
   run: ({ helperId, waitedSince }, ctx) => runHelperJob(ctx.deps, helperId, ctx, waitedSince),
   onFailed: ({ helperId, waitedSince }, _error, { deps }) =>

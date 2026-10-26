@@ -7,7 +7,7 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   systemClock,
   claimJob,
   reapStaleJobs,
@@ -29,7 +29,7 @@ type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 /** The fake clock's "now": every Turn starts a few milliseconds after it. */
 const now = new Date("2030-03-15T12:00:00Z");
 
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();
@@ -348,7 +348,7 @@ describe("a Turn that resumes after a crash", () => {
   it("sends the Prompt start its first attempt chose, not a newer one", async () => {
     const fake = createFakeAdapter({ rounds: [round(), round()], manual: true });
     const timer = fakeJobClock(now);
-    const runners = new Map<TestDeps, InProcessRunner>();
+    const runners = new Map<TestDeps, JobRunner>();
     const instance = () => {
       let deps: TestDeps | undefined;
       const jobs = inProcessRunner({

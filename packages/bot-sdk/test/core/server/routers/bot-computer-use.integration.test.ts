@@ -17,7 +17,7 @@ import { keptScreenshots, removedScreenshot } from "../../../../plugins/bot/serv
 import {
   reapStaleJobs,
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   systemClock,
 } from "../../../../plugins/runner/server/internal";
 import type { ReviewVerdict } from "../../../../plugins/bot/server/safety";
@@ -39,7 +39,7 @@ const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
 
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();

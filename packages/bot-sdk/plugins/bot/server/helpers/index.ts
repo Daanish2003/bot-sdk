@@ -24,6 +24,7 @@ export {
   hasLiveDemonstration,
   hasRunningHelper,
   helperEndings,
+  helperJobBudget,
   helperMessagePrefix,
   helperQuotaSpentError,
   helperStepLimit,

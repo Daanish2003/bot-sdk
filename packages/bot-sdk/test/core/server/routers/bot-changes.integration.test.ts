@@ -15,7 +15,7 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { findBot } from "../../../../plugins/bot/server/conversation";
 import type { BotChange } from "../../../../plugins/bot/shared/changes";
 import { deleteCredentials, saveCredentials } from "../../../../plugins/models/server/internal";
-import { inProcessRunner, type InProcessRunner } from "../../../../plugins/runner/server/internal";
+import { inProcessRunner, type JobRunner } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { chatRpc } from "../../../support/sdk";
@@ -31,7 +31,7 @@ const poll = { timeout: 10_000 };
 
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();
 });

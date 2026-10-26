@@ -39,7 +39,7 @@ import { saveCredentials, quotaLookup } from "../../../../plugins/models/server/
 
 import {
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   claimJob,
   reapStaleJobs,
 } from "../../../../plugins/runner/server/internal";
@@ -60,7 +60,7 @@ const silent = { error: () => {} };
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 /** The runners the tests started, stopped after each test. */
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();

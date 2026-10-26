@@ -28,7 +28,7 @@ import { saveCredentials, quotaLookup } from "../../../../plugins/models/server/
 
 import {
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   type JobClock,
   claimJob,
   reapStaleJobs,
@@ -57,7 +57,7 @@ type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 const silent = { error: () => {} };
 
 /** The runners the tests started, stopped after each test. */
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 /** The subscriptions on the tests' Pub/Sub that are still open: one per stream a send is following. */
 let openFollowers = 0;
@@ -1570,7 +1570,7 @@ describe("a Turn that resumes after a crash", () => {
     // One pub/sub across the processes, as Redis is.
     const pubsub = countingPubSub(createMemoryPubSub());
     // Each process's runner, which runs its attempts.
-    const runners = new Map<TestDeps, InProcessRunner>();
+    const runners = new Map<TestDeps, JobRunner>();
     const instance = () => {
       let deps: TestDeps | undefined;
       // Never started: the test claims and runs each attempt. Stopped after the test, which

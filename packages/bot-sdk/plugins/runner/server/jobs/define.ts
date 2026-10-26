@@ -59,10 +59,13 @@ export function defineJob<P, Services extends object = FeatureContext>(
 }
 
 /**
- * One of the core's own jobs. Jobs with one `budget` share their `concurrency` budget, as the
- * Helpers and the Demonstration captures do (#602); without it, a job's budget is its own.
+ * What only the core's own jobs set. Jobs with one `budget` share their `concurrency` budget, as
+ * the Helpers and the Demonstration captures do (#602); without it, a job's budget is its own.
  */
-export type CoreJobDefinition<P> = JobDefinition<P, CoreJobServices> & { budget?: string };
+type CoreOnly = { budget?: string };
+
+/** One of the core's own jobs. */
+export type CoreJobDefinition<P> = JobDefinition<P, CoreJobServices> & CoreOnly;
 
 /** Declares one of the core's own jobs, whose context and hooks get the core context as `deps`. */
 export function defineCoreJob<P>(definition: CoreJobDefinition<P>): CoreJobDefinition<P> {
@@ -78,7 +81,7 @@ export function budgetsOf(jobs: JobTable): JobBudget[] {
   for (const { definition } of jobs.values()) {
     const { name, concurrency } = definition;
     if (concurrency === undefined) continue;
-    const key = (definition as { budget?: string }).budget ?? name;
+    const key = definition.budget ?? name;
     const budget = budgets.get(key);
     if (!budget) budgets.set(key, { names: [name], concurrency });
     else if (budget.concurrency === concurrency) budget.names.push(name);
@@ -90,7 +93,7 @@ export function budgetsOf(jobs: JobTable): JobBudget[] {
 /** A job as an instance's runner holds it: its payload type erased, with its services. */
 export type JobEntry = {
   // oxlint-disable-next-line typescript/no-explicit-any -- each job has its own payload and services
-  definition: JobDefinition<unknown, any>;
+  definition: JobDefinition<unknown, any> & CoreOnly;
   /** What its context, `onFailed` and `onCancelled` get. */
   services: object;
 };

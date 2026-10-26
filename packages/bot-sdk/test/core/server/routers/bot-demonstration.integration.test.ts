@@ -22,7 +22,7 @@ import { findBot } from "../../../../plugins/bot/server/conversation";
 import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   claimJob,
 } from "../../../../plugins/runner/server/internal";
 import { skills } from "../../../../plugins/skills/server/plugin";
@@ -43,7 +43,7 @@ const screenScript = "/usr/local/bin/ai-chat-screen";
 
 type Round = ReturnType<typeof round>;
 
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();

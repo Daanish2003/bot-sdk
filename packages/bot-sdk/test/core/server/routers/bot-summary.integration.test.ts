@@ -7,7 +7,7 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   systemClock,
   claimJob,
   reapStaleJobs,
@@ -35,7 +35,7 @@ type Round = ReturnType<typeof round>;
 
 const now = new Date("2030-03-15T12:00:00Z");
 
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();
@@ -321,7 +321,7 @@ describe("a Turn that crashes after its Summary", () => {
       manual: true,
     });
     const timer = fakeJobClock(now);
-    const runners = new Map<TestDeps, InProcessRunner>();
+    const runners = new Map<TestDeps, JobRunner>();
     const instance = () => {
       let deps: TestDeps | undefined;
       const jobs = inProcessRunner({

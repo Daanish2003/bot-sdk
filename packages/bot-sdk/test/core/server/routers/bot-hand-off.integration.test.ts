@@ -16,7 +16,7 @@ import { findBot } from "../../../../plugins/bot/server/conversation";
 import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   systemClock,
 } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
@@ -33,7 +33,7 @@ const silent = { error: () => {} };
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 /** The runners the tests started, stopped after each test. */
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();

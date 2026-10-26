@@ -10,7 +10,7 @@ import {
   quotaLookup,
 } from "../../../../plugins/models/server/internal";
 import type { HostProvider } from "../../../../plugins/models/server/internal";
-import { inProcessRunner, type InProcessRunner } from "../../../../plugins/runner/server/internal";
+import { inProcessRunner, type JobRunner } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { followSend } from "../../../support/follow-send";
@@ -26,7 +26,7 @@ const hostModel = "anthropic:claude-sonnet-5-5";
 const imageModelId = "openai:gpt-image-1-mini";
 const silent = { error: () => {} };
 
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();

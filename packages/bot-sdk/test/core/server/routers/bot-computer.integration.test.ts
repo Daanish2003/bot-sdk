@@ -23,7 +23,7 @@ import type { CommandResult } from "../../../../plugins/computer/server/internal
 import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   claimJob,
   reapStaleJobs,
 } from "../../../../plugins/runner/server/internal";
@@ -44,7 +44,7 @@ const silent = { error: () => {} };
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 /** The runners the tests started, stopped after each test. */
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();
@@ -468,7 +468,7 @@ describe("a shell call whose attempt is cut off", () => {
     const computerFake = fakeComputerProvider({ onCommand: command.onCommand });
     const timer = fakeJobClock(new Date());
     // Each instance's runner, which runs its attempts.
-    const runners = new Map<TestDeps, InProcessRunner>();
+    const runners = new Map<TestDeps, JobRunner>();
     const instance = () => {
       let deps: TestDeps | undefined;
       // Never started: the test claims and runs each attempt. Stopped after the test, which

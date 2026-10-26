@@ -9,7 +9,7 @@ import { deleteUserData, exportUserData } from "../../../core/server/user-data";
 import { saveCredentials } from "../../../plugins/models/server/internal";
 import {
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   systemClock,
 } from "../../../plugins/runner/server/internal";
 import { fakeComputerProvider } from "../../support/fake-computer-provider";
@@ -34,7 +34,7 @@ const silent = { error: () => {} };
 
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 beforeAll(() => createPinsTable(getTestDb()));
 // The table is the test's alone: other files in this worker check every `user_id` table.

@@ -24,7 +24,7 @@ import {
 } from "../../../../plugins/bot/server/safety";
 import type { CommandResult } from "../../../../plugins/computer/server/internal";
 import { saveCredentials } from "../../../../plugins/models/server/internal";
-import { inProcessRunner, type InProcessRunner } from "../../../../plugins/runner/server/internal";
+import { inProcessRunner, type JobRunner } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { fakeReviewer } from "../../../support/fake-reviewer";
@@ -40,7 +40,7 @@ const token = "ghp_s3cr3t-Value+/=42";
 
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 afterEach(async () => {
   vi.useRealTimers();

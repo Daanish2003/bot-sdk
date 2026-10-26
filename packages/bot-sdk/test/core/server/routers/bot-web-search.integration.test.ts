@@ -8,7 +8,7 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import type { HostProvider } from "../../../../plugins/models/server/internal";
 import { webSearchUnavailableError } from "../../../../plugins/bot/server/agent-loop";
 import { saveCredentials, quotaLookup } from "../../../../plugins/models/server/internal";
-import { inProcessRunner, type InProcessRunner } from "../../../../plugins/runner/server/internal";
+import { inProcessRunner, type JobRunner } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { chatRpc } from "../../../support/sdk";
@@ -21,7 +21,7 @@ const model = "openai:gpt-6-luna";
 const hostModel = "anthropic:claude-sonnet-5-5";
 const silent = { error: () => {} };
 
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();

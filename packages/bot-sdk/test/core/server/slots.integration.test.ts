@@ -15,7 +15,7 @@ import type { ComputerApi } from "../../../plugins/computer/server/internal";
 import { fakeEmailProvider } from "../../../plugins/channel/fake/index";
 import { emailChannel } from "../../../plugins/channel/server/index";
 import { models } from "../../../plugins/models/server/internal";
-import { defineJob, isInProcessRunner, runnerJobs } from "../../../plugins/runner/server/internal";
+import { defineJob } from "../../../plugins/runner/server/internal";
 import { manualExecutor } from "../../support/executors";
 import { fakeComputerProvider } from "../../support/fake-computer-provider";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
@@ -38,8 +38,11 @@ const slots = (options: Partial<BotSdkOptions> = {}) =>
 const slotsJob = defineJob({
   name: "slots.job",
   payload: z.object({ n: z.number() }),
-  run: async () => {},
+  run: async ({ n }) => {
+    slotsRan.push(n);
+  },
 });
+const slotsRan: number[] = [];
 
 describe("createBotSdk with flat slots", () => {
   it("serves the Bots, Models and Channels with no plugin listed", async () => {
@@ -134,19 +137,36 @@ describe("createBotSdk with flat slots", () => {
     expect(inbound.status).toBe(404);
   });
 
-  it("falls back to the in-process runner, Postgres blobs and no Computer", async () => {
-    const { context } = buildBotSdk(slots({ databaseUrl: testDatabaseUrl }), {});
+  it(
+    "falls back to the in-process runner, Postgres blobs and no Computer",
+    { timeout: 30_000 },
+    async () => {
+      const { context, instance } = buildBotSdk(
+        slots({ databaseUrl: testDatabaseUrl, jobs: [slotsJob] }),
+        {},
+      );
 
-    await context.blobStore.put("slots-test", new TextEncoder().encode("bytes"), {
-      contentType: "text/plain",
-    });
+      await context.blobStore.put("slots-test", new TextEncoder().encode("bytes"), {
+        contentType: "text/plain",
+      });
 
-    expect(isInProcessRunner(runnerJobs(context))).toBe(true);
-    expect(context.computer !== null).toBe(false);
-    const rows = await getTestDb().select().from(blob).where(eq(blob.key, "slots-test"));
-    expect(rows).toHaveLength(1);
-    await getTestDb().delete(blob).where(eq(blob.key, "slots-test"));
-  });
+      // No runner slot, yet a queued job runs: the in-process runner is the default.
+      await instance.start();
+      try {
+        const id = await instance.runner.enqueue("slots.job", { n: 7 });
+        await expect
+          .poll(async () => (await instance.runner.status(id))?.status, { timeout: 10_000 })
+          .toBe("succeeded");
+        expect(slotsRan).toEqual([7]);
+      } finally {
+        await instance.stop();
+      }
+      expect(context.computer !== null).toBe(false);
+      const rows = await getTestDb().select().from(blob).where(eq(blob.key, "slots-test"));
+      expect(rows).toHaveLength(1);
+      await getTestDb().delete(blob).where(eq(blob.key, "slots-test"));
+    },
+  );
 
   it("wakes the instance's jobs up through the runner slot's Executor", async () => {
     const manual = manualExecutor();

@@ -44,11 +44,9 @@ export function trackCommits(db: Database): void {
 }
 
 /**
- * Runs `hook` once `tx` commits, or never if it rolls back. Throws for a transaction of a database
- * no `trackCommits` call covers, whose commit nothing would see.
+ * Runs `hook` once `tx` commits, or never if it rolls back. For a transaction no `trackCommits`
+ * call covers (a Host's own Drizzle instance), whose commit nothing sees, it never runs.
  */
 export function afterCommit(tx: Transaction, hook: () => void): void {
-  const hooks = hooksOf.get(tx);
-  if (!hooks) throw new Error("This transaction isn't on the SDK's database");
-  hooks.push(hook);
+  hooksOf.get(tx)?.push(hook);
 }

@@ -12,7 +12,7 @@ import type { McpServerConfig } from "../../../../plugins/mcp/server/servers";
 import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   systemClock,
 } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
@@ -46,7 +46,7 @@ const mcpOrigin = new URL(fakeMcpResource).origin;
 
 type Round = ReturnType<typeof round>;
 
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();

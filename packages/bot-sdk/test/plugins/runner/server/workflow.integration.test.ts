@@ -13,7 +13,7 @@ import {
   type JobTable,
   type JobContext,
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   claimJob,
   reapStaleJobs,
   NonDeterminismError,
@@ -239,7 +239,7 @@ beforeEach(() => {
 const db = () => getTestDb();
 
 /** Each test's runners, keyed by their clock. Never started: the tests run each attempt. */
-const runners = new Map<ReturnType<typeof fakeJobClock>, InProcessRunner>();
+const runners = new Map<ReturnType<typeof fakeJobClock>, JobRunner>();
 
 // Stopping a runner waits for its attempts' handlers, lost ones included.
 afterEach(async () => {

@@ -9,7 +9,7 @@ import { emailChannel, type InboundMail } from "../../../../plugins/channel/serv
 import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   claimJob,
 } from "../../../../plugins/runner/server/internal";
 import { fakeComputerProvider } from "../../../support/fake-computer-provider";
@@ -25,7 +25,7 @@ const silent = { error: () => {} };
 const domain = "bots.example";
 const ownerEmail = "ada.owner@example.com";
 
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();

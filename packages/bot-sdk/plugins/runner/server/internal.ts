@@ -10,14 +10,9 @@ export {
   type JobTable,
   PermanentJobError,
 } from "./jobs/define";
-export { loadHistory, unrecordedStore } from "./jobs/history";
+export { loadHistory } from "./jobs/history";
 export type { Executor } from "./jobs/executor";
-export {
-  inProcessExecutor,
-  inProcessRunner,
-  type InProcessRunner,
-  isInProcessRunner,
-} from "./jobs/in-process";
+export { inProcessExecutor, inProcessRunner } from "./jobs/in-process";
 export {
   createJobRunner,
   type EnqueueOptions,

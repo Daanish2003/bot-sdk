@@ -125,9 +125,6 @@ export type InProcessRunnerOptions = InProcessExecutorOptions & {
   jobs: () => JobTable;
 };
 
-/** The core's runner on the in-process Executor: what the runner slot defaults to. */
-export type InProcessRunner = JobRunner;
-
 /** The core's runner on a new in-process Executor (see `inProcessExecutor` and `JobRunner`). */
 export function inProcessRunner({
   db,
@@ -136,7 +133,7 @@ export function inProcessRunner({
   clock,
   jobs,
   ...executorOptions
-}: InProcessRunnerOptions): InProcessRunner {
+}: InProcessRunnerOptions): JobRunner {
   return createJobRunner({
     db,
     logger,
@@ -145,9 +142,4 @@ export function inProcessRunner({
     jobs,
     executor: inProcessExecutor({ logger, clock, ...executorOptions }),
   });
-}
-
-/** Whether `jobs` runs on the in-process Executor. */
-export function isInProcessRunner(jobs: JobRunner): boolean {
-  return wakeable.has(jobs.executor);
 }

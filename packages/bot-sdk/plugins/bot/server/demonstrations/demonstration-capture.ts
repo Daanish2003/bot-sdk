@@ -17,6 +17,7 @@ import { computerOf } from "../agent-loop";
 import { demonstrationCaptureJobName, move, rewriteCard, startCapture } from "./demonstration";
 import { lockConversation } from "../triggers";
 import { hintChanged } from "../conversation";
+import { helperJobBudget } from "../helpers";
 
 /*
  * Capture (spec #713, ticket #719): while a Demonstration records, a listener in every page and frame
@@ -449,8 +450,7 @@ async function connect(
  */
 export const demonstrationCaptureJob = defineCoreJob({
   name: demonstrationCaptureJobName,
-  budget: "helper",
-  concurrency: 4,
+  ...helperJobBudget,
   payload: z.object({ demonstrationId: z.uuid(), round: z.number().int().min(1).default(1) }),
   run: async ({ demonstrationId, round }, { deps, signal }) => {
     const live = async () => {

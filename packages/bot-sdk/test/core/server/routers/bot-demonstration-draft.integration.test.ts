@@ -18,7 +18,7 @@ import {
 import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   claimJob,
 } from "../../../../plugins/runner/server/internal";
 
@@ -56,7 +56,7 @@ const dayMs = 24 * 60 * 60_000;
 const start = new Date("2030-03-15T12:00:00.000Z");
 const png = new Uint8Array([137, 80, 78, 71, 1, 2, 3]);
 
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();

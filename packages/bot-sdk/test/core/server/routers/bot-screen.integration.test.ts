@@ -9,7 +9,7 @@ import type { ScreenPeer } from "../../../../plugins/bot/server/helpers";
 import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   systemClock,
 } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
@@ -78,7 +78,7 @@ async function waitingHelper(
     ...(onCommand && { onCommand }),
   });
   let deps: TestDeps | undefined;
-  const jobs: InProcessRunner = inProcessRunner({
+  const jobs: JobRunner = inProcessRunner({
     db: getTestDb(),
     logger: silent,
     drainMs: 50,

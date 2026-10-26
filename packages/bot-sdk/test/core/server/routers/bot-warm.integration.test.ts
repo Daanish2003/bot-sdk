@@ -7,7 +7,7 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   systemClock,
   claimJob,
 } from "../../../../plugins/runner/server/internal";
@@ -22,7 +22,7 @@ const silent = { error: () => {} };
 const minute = 60_000;
 const oneHour = { type: "ephemeral", ttl: "1h" };
 
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();

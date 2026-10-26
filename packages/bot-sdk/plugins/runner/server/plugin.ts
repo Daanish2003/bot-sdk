@@ -8,7 +8,10 @@ import { createRunnerLifecycle, type RunnerLifecycle } from "./lifecycle";
 export type RunnerApi = Pick<JobRunner, "enqueue" | "cancel" | "status"> & {
   /**
    * Queues a job in the caller's transaction, so it exists only if that transaction commits, and
-   * returns its id. The Executor is notified once the transaction has committed.
+   * returns its id. The Executor is notified once the transaction has committed, when it is the
+   * SDK's own transaction; a Host's own Drizzle instance on the same Postgres skips the notify, and
+   * the in-process poll picks the job up within its interval. An Executor that doesn't poll needs
+   * a transaction of the SDK's database (`ctx.db` in a job or a feature).
    */
   enqueueIn: (
     tx: Transaction,

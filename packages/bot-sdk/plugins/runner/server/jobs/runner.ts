@@ -64,8 +64,10 @@ export type JobRunner = {
   enqueue: (name: string, payload: unknown, options?: EnqueueOptions) => Promise<string>;
   /**
    * Queues a job in the caller's transaction, so it exists only if that transaction commits, and
-   * returns its id. The Executor is notified once the transaction has committed. `now` defaults
-   * to the runner's clock.
+   * returns its id. The Executor is notified once the transaction has committed, when it is a
+   * transaction of the SDK's database instance; one of another Drizzle instance on the same
+   * Postgres skips the notify, and the in-process poll picks the job up (an Executor that doesn't
+   * poll needs the SDK's transaction). `now` defaults to the runner's clock.
    */
   enqueueIn: (
     tx: Transaction,
@@ -92,7 +94,8 @@ export type JobRunner = {
   /**
    * In the caller's transaction, replaces the queued job `name` with this key, if it hasn't started,
    * by one with `payload` (`replaceJobIfNotStartedIn`), and returns its id. The Executor is
-   * notified once the transaction has committed. Returns undefined, changing nothing, when no such
+   * notified once the transaction has committed, as with `enqueueIn` (only for the SDK's
+   * transaction; otherwise the poll picks it up). Returns undefined, changing nothing, when no such
    * job is active or it has started. `now` defaults to the runner's clock.
    */
   replaceIfNotStarted: (
