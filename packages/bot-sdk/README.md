@@ -356,13 +356,17 @@ await sdk.bots.send({ userId, botId: bot.id, id: uuidv7(), text: "Hi" });
 
 const { conversationId, lastSeq } = await sdk.bots.get({ userId, botId: bot.id });
 const hints = await sdk.conversations.watch({ userId, conversationId, signal });
-for await (const hint of hints) {
-  const result = await sdk.conversations.changes({ userId, conversationId, since: lastSeq });
-  // Apply the changes, or read the thread afresh on `reload`, and move the cursor.
-}
+let since = lastSeq;
+const sync = async () => {
+  const result = await sdk.conversations.changes({ userId, conversationId, since });
+  // Apply the changes and move `since` to the last one's seq, or read the thread afresh on `reload`.
+};
+// Once now, for what changed before the subscription, then on each hint.
+await sync();
+for await (const _hint of hints) await sync();
 ```
 
-`sdk.bots` has `create`, `list`, `get`, `send`, `upload`, `stop`, `warm`, `choose` and `react`. `sdk.conversations.watch` resolves once its subscription is in place, so `changes` read after it misses nothing; it ends when `signal` aborts or the loop stops.
+`sdk.bots` has `create`, `list`, `get`, `send`, `upload`, `stop`, `warm`, `choose` and `react`. `sdk.conversations.watch` resolves once its subscription is in place, so `changes` read after it misses nothing; it ends when `signal` aborts or the loop stops. Pass a `signal` unless you always iterate the hints.
 
 ## Host hooks
 

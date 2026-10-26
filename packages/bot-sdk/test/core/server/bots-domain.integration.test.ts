@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
+import { createMemoryPubSub, type PubSub } from "../../../core/server/chat/pubsub";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { saveCredentials } from "../../../plugins/models/server/internal";
 import { botSdk, stopBotRunners } from "../../support/bot-turns";
@@ -126,5 +127,45 @@ describe("sdk.conversations, called in-process with a userId (#895)", () => {
     await expect(
       deps.conversations.changes({ userId, conversationId, since: 0 }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  }, 30_000);
+
+  it("ends the subscription when an iteration that never started is returned", async () => {
+    const pubsub = createMemoryPubSub();
+    let subscribed = 0;
+    const counting: PubSub = {
+      publish: (channel, message) => pubsub.publish(channel, message),
+      subscribe: async (channel, handler) => {
+        const unsubscribe = await pubsub.subscribe(channel, handler);
+        subscribed += 1;
+        return async () => {
+          subscribed -= 1;
+          await unsubscribe();
+        };
+      },
+    };
+    const deps = createTestSdk({ pubsub: counting });
+    const { userId } = await aUser(deps);
+    const { id: botId } = await deps.bots.create({ userId, name: "Ada", model });
+    const { conversationId } = await deps.bots.get({ userId, botId });
+
+    const hints = await deps.conversations.watch({ userId, conversationId });
+    expect(subscribed).toBe(1);
+    await hints[Symbol.asyncIterator]().return?.();
+
+    expect(subscribed).toBe(0);
+  }, 30_000);
+});
+
+describe("domain methods' invalid input (#895)", () => {
+  it("is refused BAD_REQUEST, as the procedures refuse it", async () => {
+    const deps = createTestSdk();
+    const { userId, client } = await aUser(deps);
+    const badRequest = { code: "BAD_REQUEST", message: "Input validation failed" };
+
+    await expect(deps.bots.create({ userId, name: "  ", model })).rejects.toMatchObject(badRequest);
+    await expect(client.bot.create({ name: "  ", model })).rejects.toMatchObject(badRequest);
+    await expect(
+      deps.conversations.changes({ userId, conversationId: "not-a-uuid", since: 0 }),
+    ).rejects.toMatchObject(badRequest);
   }, 30_000);
 });

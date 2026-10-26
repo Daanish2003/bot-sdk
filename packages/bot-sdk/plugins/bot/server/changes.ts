@@ -18,8 +18,8 @@ const idsOf = (changes: { kind: string; refId: string }[], kind: BotChangeKind) 
 ];
 
 /**
- * The changes to the user's Bot `botId`'s thread after seq `since`: its Conversation's changes
- * (`conversationChanges`). Another user's Bot is not found.
+ * The changes to the user's Bot `botId`'s thread after seq `since`, as `conversationChanges` reads
+ * them for its Conversation. Another user's Bot is not found.
  */
 export async function botChanges(
   deps: BotSdkContext,
@@ -29,7 +29,26 @@ export async function botChanges(
 ): Promise<BotChanges> {
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-  return deps.conversations.changes({ userId, conversationId: found.conversationId, since });
+  return threadChanges(deps, { userId, botId, conversationId: found.conversationId }, since);
+}
+
+/**
+ * The Bot that Conversation `conversationId` belongs to, when it is one of the user's Bots'.
+ * Another user's Conversation, or one that isn't a Bot's, is not found.
+ */
+async function botConversationOf(
+  deps: BotSdkContext,
+  userId: string,
+  conversationId: string,
+): Promise<{ botId: string }> {
+  const [found] = await deps.db
+    .select({ botId: bot.id })
+    .from(bot)
+    .where(and(eq(bot.conversationId, conversationId), eq(bot.userId, userId)));
+  if (!found) {
+    throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
+  }
+  return found;
 }
 
 /**
@@ -43,17 +62,20 @@ export async function conversationChanges(
   conversationId: string,
   since: number,
 ): Promise<BotChanges> {
-  const [found] = await deps.db
-    .select({ botId: bot.id })
-    .from(bot)
-    .where(and(eq(bot.conversationId, conversationId), eq(bot.userId, userId)));
-  if (!found) {
-    throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
-  }
-  const logged = await changesSince(deps.db, conversationId, since);
+  const { botId } = await botConversationOf(deps, userId, conversationId);
+  return threadChanges(deps, { userId, botId, conversationId }, since);
+}
+
+/** The changes to a Bot's thread after seq `since`, with their data, for its known owner. */
+async function threadChanges(
+  deps: BotSdkContext,
+  owner: { userId: string; botId: string; conversationId: string },
+  since: number,
+): Promise<BotChanges> {
+  const logged = await changesSince(deps.db, owner.conversationId, since);
   if (logged.reload) return logged;
   const { changes } = logged;
-  const data = await changeData(deps.db, { userId, botId: found.botId, conversationId }, changes);
+  const data = await changeData(deps.db, owner, changes);
   return {
     reload: false,
     changes: changes.map(

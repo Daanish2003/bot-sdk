@@ -497,10 +497,13 @@ const botsUnconfigured = new Proxy({} as BotApi, {
   },
 });
 
+/** Every name of the Conversations' API, so the stand-in throws on those alone. */
+const conversationsApiKeys: Record<keyof ConversationsApi, true> = { watch: true, changes: true };
+
 /** The `conversations` service of an instance whose core parts have no `bot()`: reading it throws. */
 const conversationsUnconfigured = new Proxy({} as ConversationsApi, {
   get: (_target, key) => {
-    if (key === "watch" || key === "changes") {
+    if (typeof key === "string" && key in conversationsApiKeys) {
       throw new Error("The Bots aren't enabled: build the SDK with the slots");
     }
     return undefined;

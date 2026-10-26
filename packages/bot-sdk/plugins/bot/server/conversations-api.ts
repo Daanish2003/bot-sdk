@@ -4,7 +4,7 @@ import { z } from "zod";
 import { conversationChannel } from "../../../core/server/chat/conversation-events";
 import type { PubSub } from "../../../core/server/chat/pubsub";
 import type { BotSdkContext } from "../../../core/server/plugin";
-import { rpcError } from "../../../core/server/rpc-error";
+import { parseInput, rpcError } from "../../../core/server/rpc-error";
 import { conversation } from "../../../core/server/storage";
 import { conversationChanges } from "./changes";
 
@@ -34,8 +34,9 @@ export function conversationsApi(sdk: BotSdkContext) {
     /**
      * The user's Conversation's change hints, from now until `signal` aborts or the caller stops
      * iterating. It resolves once the subscription is in place, so `changes` read after it misses
-     * no change. Hints are delivered at most once, to watchers present when they are sent. Another
-     * user's Conversation is not found.
+     * no change. Hints are delivered at most once, to watchers present when they are sent. Pass a
+     * `signal` unless the hints are always iterated: the subscription holds until one of them ends
+     * it. Another user's Conversation is not found.
      */
     watch: async ({
       userId,
@@ -44,7 +45,7 @@ export function conversationsApi(sdk: BotSdkContext) {
     }: WithUser<typeof watchInput> & { signal?: AbortSignal }): Promise<
       AsyncIterable<ConversationHint>
     > => {
-      const { conversationId } = watchInput.parse(rest);
+      const { conversationId } = parseInput(watchInput, rest);
       const [owned] = await sdk.db
         .select({ id: conversation.id })
         .from(conversation)
@@ -62,8 +63,8 @@ export function conversationsApi(sdk: BotSdkContext) {
      * changed. A cursor the change log no longer holds, or one past its newest change, gets
      * `reload`: read the thread afresh with `bots.get`. Another user's Conversation is not found.
      */
-    changes: ({ userId, ...rest }: WithUser<typeof changesInput>) => {
-      const { conversationId, since } = changesInput.parse(rest);
+    changes: async ({ userId, ...rest }: WithUser<typeof changesInput>) => {
+      const { conversationId, since } = parseInput(changesInput, rest);
       return conversationChanges(sdk, userId, conversationId, since);
     },
   };
@@ -99,7 +100,7 @@ async function subscribeHints(
   if (signal?.aborted) close();
   else signal?.addEventListener("abort", close, { once: true });
 
-  async function* hints(): AsyncGenerator<ConversationHint> {
+  async function* read(): AsyncGenerator<ConversationHint> {
     try {
       for (;;) {
         while (queued.length > 0) yield queued.shift()!;
@@ -113,5 +114,17 @@ async function subscribeHints(
       close();
     }
   }
-  return hints();
+  return {
+    [Symbol.asyncIterator]: () => {
+      const hints = read();
+      // A generator never started skips its `finally` on `return`: this ends the subscription too.
+      return {
+        next: () => hints.next(),
+        return: (value?: unknown) => {
+          close();
+          return hints.return(value as undefined);
+        },
+      };
+    },
+  };
 }

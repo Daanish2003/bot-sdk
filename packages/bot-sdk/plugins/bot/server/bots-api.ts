@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { lastSeqOf } from "../../../core/server/chat/change-log";
 import type { BotSdkContext } from "../../../core/server/plugin";
-import { rpcError } from "../../../core/server/rpc-error";
+import { parseInput, rpcError } from "../../../core/server/rpc-error";
 import {
   botMessages,
   createBot,
@@ -82,7 +82,7 @@ export function botsApi(sdk: BotSdkContext) {
      * doesn't greet: its Conversation starts with no Message.
      */
     create: async ({ userId, ...rest }: WithUser<typeof createBotInput>) => {
-      const input = createBotInput.parse(rest);
+      const input = parseInput(createBotInput, rest);
       const { models } = await sdk.models.listAvailableModels(userId);
       if (!models.some((model) => model.id === input.model)) {
         throw rpcError(
@@ -96,7 +96,7 @@ export function botsApi(sdk: BotSdkContext) {
     },
 
     /** The user's Bots, the newest activity first, with their last sent Message and Turn status. */
-    list: ({ userId }: { userId: string }) => listBots(sdk.db, userId),
+    list: async ({ userId }: { userId: string }) => listBots(sdk.db, userId),
 
     /**
      * One of the user's Bots with its latest Turn's status and the status of the Turn that took the
@@ -105,7 +105,7 @@ export function botsApi(sdk: BotSdkContext) {
      * `conversations.changes` from; another user's is not found.
      */
     get: async ({ userId, ...rest }: WithUser<typeof botInput>) => {
-      const { botId } = botInput.parse(rest);
+      const { botId } = parseInput(botInput, rest);
       const found = await findBot(sdk.db, userId, botId);
       if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
       const { conversationId, ...bot } = found;
@@ -142,46 +142,46 @@ export function botsApi(sdk: BotSdkContext) {
      * `files` part, and the Turn that takes it copies them onto the Bot's Computer. With files, the
      * text may be empty.
      */
-    send: ({ userId, ...rest }: WithUser<typeof sendInput>) =>
-      sendToBot(sdk, { userId, ...sendInput.parse(rest) }),
+    send: async ({ userId, ...rest }: WithUser<typeof sendInput>) =>
+      sendToBot(sdk, { userId, ...parseInput(sendInput, rest) }),
 
     /**
      * Stores a file the user will send their Bot, of any type up to 25 MB, and returns its id for
      * `send`'s `files`. One no Message sends is deleted after 24 hours. Rate-limited over HTTP
      * only, like attachments.
      */
-    upload: ({ userId, ...rest }: WithUser<typeof uploadInput>) =>
-      uploadBotFile(sdk, userId, uploadInput.parse(rest).file),
+    upload: async ({ userId, ...rest }: WithUser<typeof uploadInput>) =>
+      uploadBotFile(sdk, userId, parseInput(uploadInput, rest).file),
 
     /**
      * Stops the user's Bot's running Turn: a queued one ends `stopped` at once, a running one as
      * its attempt aborts. The Messages already sent stay. Does nothing when no Turn is running.
      */
-    stop: ({ userId, ...rest }: WithUser<typeof botInput>) =>
-      stopBot(sdk, userId, botInput.parse(rest).botId),
+    stop: async ({ userId, ...rest }: WithUser<typeof botInput>) =>
+      stopBot(sdk, userId, parseInput(botInput, rest).botId),
 
     /**
      * Warms the cache of the user's Bot (slide 32). It does nothing while a Turn runs, while the
      * cache is still warm, or for a Model with no warming call; `skipped` says which. Another
      * user's Bot is not found.
      */
-    warm: ({ userId, ...rest }: WithUser<typeof botInput>) =>
-      warmBot(sdk, userId, botInput.parse(rest).botId),
+    warm: async ({ userId, ...rest }: WithUser<typeof botInput>) =>
+      warmBot(sdk, userId, parseInput(botInput, rest).botId),
 
     /**
      * Answers the choice a Bot asked in Message `messageId` (spec #761): an `option` or the free
      * text of `other`. It wakes the Bot with one Trigger, even if the Bot has moved on. The first
      * answer wins; a later one is refused as answered. Another user's Bot is not found.
      */
-    choose: ({ userId, ...rest }: WithUser<typeof chooseInput>) =>
-      answerChoice(sdk, userId, chooseInput.parse(rest)),
+    choose: async ({ userId, ...rest }: WithUser<typeof chooseInput>) =>
+      answerChoice(sdk, userId, parseInput(chooseInput, rest)),
 
     /**
      * Puts the user's emoji on a Bot reply, replacing their earlier one, or takes it off with a null
      * `emoji` (spec #761). A state change only: it wakes no Turn. Another user's Bot is not found.
      */
-    react: ({ userId, ...rest }: WithUser<typeof reactInput>) =>
-      reactToMessage(sdk, userId, reactInput.parse(rest)),
+    react: async ({ userId, ...rest }: WithUser<typeof reactInput>) =>
+      reactToMessage(sdk, userId, parseInput(reactInput, rest)),
   };
 }
 

@@ -32,7 +32,9 @@ export async function handleConversationEvents(
   if (!hints) {
     return Response.json({ code: "error.conversationNotFound", params: {} }, { status: 404 });
   }
-  request.signal.addEventListener("abort", () => stop.abort(), { once: true });
+  // Aborted while `watch` subscribed: a listener added now would never fire.
+  if (request.signal.aborted) stop.abort();
+  else request.signal.addEventListener("abort", () => stop.abort(), { once: true });
 
   const encoder = new TextEncoder();
   let open = true;
