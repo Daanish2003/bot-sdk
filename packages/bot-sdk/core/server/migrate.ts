@@ -12,6 +12,14 @@ import coreMigrations from "./migrations.json" with { type: "json" };
 /** Any fixed number: every `chat.migrate()` on one database uses it. */
 const MIGRATION_LOCK_ID = 727_770_001;
 
+/** Makes the journal: shared with the SQL `botsdk migrate --print` gives a Host that applies it itself. */
+export const JOURNAL_DDL = `create table if not exists botsdk.__migrations (
+  feature text not null,
+  migration text not null,
+  applied_at timestamp with time zone not null default clock_timestamp(),
+  primary key (feature, migration)
+)`;
+
 /** One SQL migration of the core or a feature. Its `name` is unique within its part. */
 export type Migration = { name: string; sql: string };
 
@@ -38,12 +46,7 @@ export async function migrate(
     await client.query("select pg_advisory_lock($1)", [MIGRATION_LOCK_ID]);
     await createSchema(client);
     await createTrigramExtension(client);
-    await client.query(`create table if not exists botsdk.__migrations (
-      feature text not null,
-      migration text not null,
-      applied_at timestamp with time zone not null default clock_timestamp(),
-      primary key (feature, migration)
-    )`);
+    await client.query(JOURNAL_DDL);
     for (const pending of pendingIn(await journalOf(client), features)) {
       await client.query("begin");
       try {
@@ -65,8 +68,8 @@ export async function migrate(
 
 /**
  * What `migrate` would apply now for these features, in order, with each one's part and SQL. Only
- * reads. `start()` checks with it; the `botsdk migrate --print` CLI (#906) is to print it, with
- * the journal rows a Host applying the SQL itself must add.
+ * reads. `start()` checks with it; the `botsdk migrate --print` CLI prints it, with the
+ * journal rows a Host applying the SQL itself must add.
  */
 export async function pendingMigrations(
   database: PostgresDatabase,
@@ -116,7 +119,7 @@ async function journalOf(client: Connection): Promise<Set<string>> {
  * lock): its own client for a connection string, or a client checked out of the Host's pool,
  * which goes back to the pool afterwards, or is destroyed when `use` throws.
  */
-async function withConnection<T>(
+export async function withConnection<T>(
   database: PostgresDatabase,
   use: (client: Connection) => Promise<T>,
 ): Promise<T> {
@@ -143,7 +146,7 @@ async function withConnection<T>(
 }
 
 /** A connection `withConnection` lends. */
-type Connection = pg.Client | pg.PoolClient;
+export type Connection = pg.Client | pg.PoolClient;
 
 /** Only creates the schema when it is missing, so a Host may create it itself with fewer rights. */
 async function createSchema(client: Connection) {

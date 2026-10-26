@@ -19,6 +19,7 @@ export {
   type FeaturePromptTurn,
   type FeatureTurn,
 } from "./feature";
+export { dropFeatureTables, type MigrateConfig } from "./migrate-cli";
 export {
   defineJob,
   type JobContext,
