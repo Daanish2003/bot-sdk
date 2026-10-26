@@ -25,7 +25,7 @@ describe("a review's replay", () => {
     };
     const replay = async (name: string) => recorded[name];
     const kit = {
-      activity: replay,
+      step: replay,
       billing: replay,
       now: async () => new Date("2030-01-01T00:00:00Z"),
       beforeLive: () => {},
