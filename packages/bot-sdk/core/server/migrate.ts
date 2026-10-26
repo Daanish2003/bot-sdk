@@ -108,7 +108,8 @@ async function createTrigramExtension(client: Connection) {
  */
 export async function assertMigrated(database: PostgresDatabase): Promise<void> {
   const latest = folderMillis(LATEST_MIGRATION);
-  await withConnection(database, async (client) => {
+  // Thrown after the connection is back, so a behind schema doesn't cost the Host's pool one.
+  const appliedUpTo = await withConnection(database, async (client) => {
     const journal = await client.query<{ present: boolean }>(
       "select to_regclass('botsdk.__migrations') is not null as present",
     );
@@ -117,11 +118,11 @@ export async function assertMigrated(database: PostgresDatabase): Promise<void> 
           "select max(created_at) as created_at from botsdk.__migrations",
         )
       : undefined;
-    const appliedUpTo = Number(applied?.rows[0]?.created_at ?? 0);
-    if (appliedUpTo < latest) {
-      throw new Error(
-        "The `botsdk` schema is behind the bundled migrations: run chat.migrate() before start().",
-      );
-    }
+    return Number(applied?.rows[0]?.created_at ?? 0);
   });
+  if (appliedUpTo < latest) {
+    throw new Error(
+      "The `botsdk` schema is behind the bundled migrations: run chat.migrate() before start().",
+    );
+  }
 }

@@ -1,7 +1,7 @@
 import { readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { Client } from "pg";
+import { Client, Pool } from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
@@ -194,7 +194,46 @@ describe("chat.migrate()", () => {
 
     await expect(chatFor(roleUrl.toString()).migrate()).rejects.toThrow(/pg_trgm/);
   });
+
+  it(
+    "leaves the lock free after a run that fails over the Host's pool",
+    { timeout: 30_000 },
+    async () => {
+      const url = await scratchDatabase("pool_fail");
+      await rows(url, "create schema botsdk");
+      await rows(
+        testDatabaseUrl,
+        `do $$ begin
+           create role chat_no_create login password 'password';
+         exception when duplicate_object then null; end $$`,
+      );
+      const roleUrl = new URL(url);
+      roleUrl.username = "chat_no_create";
+      roleUrl.password = "password";
+      // No idle timeout, so a connection returned with the lock would keep it.
+      const pool = new Pool({ connectionString: roleUrl.toString(), idleTimeoutMillis: 0 });
+      try {
+        const failing = createBotSdk({
+          database: postgres({ pool }),
+          keyEncryptionSecrets,
+          models: {},
+        });
+        await expect(failing.migrate()).rejects.toThrow(/pg_trgm/);
+
+        // The Host's pool is still open; a run on another connection gets the lock.
+        await chatFor(url).migrate();
+        const applied = await rows<{ count: string }>(
+          url,
+          "select count(*) from botsdk.__migrations",
+        );
+        expect(applied).toEqual([{ count: "1" }]);
+      } finally {
+        await pool.end();
+      }
+    },
+  );
 });
+
 describe("chat.start()", () => {
   it("checks against the newest migration folder, which the bundle can't read", () => {
     const migrationsFolder = fileURLToPath(

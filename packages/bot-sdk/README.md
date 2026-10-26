@@ -112,7 +112,7 @@ The `runner` and `memory` plugins and the `skills` feature need nothing beyond `
 ## Postgres
 
 - The database needs the `pg_trgm` extension. `chat.migrate()` runs `CREATE EXTENSION IF NOT EXISTS pg_trgm` before its migrations and fails naming it, so a role allowed to create extensions (or a database that already has it) is needed.
-- The `database` slot takes `postgres({ connectionString })`, and the SDK opens its own pool on first use, or `postgres({ pool })` with your own node-postgres-compatible pool (`pg`, or a Neon serverless `Pool`), which the SDK queries through and never ends.
+- The `database` slot takes `postgres({ connectionString })`, and the SDK opens its own pool on first use, or `postgres({ pool })` with your own node-postgres-compatible pool (`pg`, or a Neon serverless `Pool`), which the SDK queries through and never ends. `migrate()` holds a session advisory lock on one of its connections, so the pool must reach Postgres directly or through a session-mode pooler, not a transaction-mode one (PgBouncer in transaction mode, Neon's `-pooler` host).
 - The SDK's tables live in the `botsdk` schema of the Host's database, not in your ORM's schema. Your ORM's migrations never touch them.
 - The SDK's migrations are expand-then-contract: they add tables, columns and indexes, and never drop or rename one in the same release. The version still running during a deploy keeps working against the migrated schema. The one exception is the move to the `botsdk` schema and its fresh baseline: data in the old `chat` schema is not carried over.
 
