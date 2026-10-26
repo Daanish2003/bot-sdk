@@ -483,7 +483,7 @@ describe("the Demonstration's routes", { timeout: 30_000 }, () => {
 
     const { url } = await client.bot.demonstration.view({ demonstrationId });
 
-    expect(url).toMatch(/^\/api\/screens\/[\w-]+\.[\w-]+\//);
+    expect(url).toMatch(/^\/api\/chat\/screens\/[\w-]+\.[\w-]+\//);
   });
 });
 
