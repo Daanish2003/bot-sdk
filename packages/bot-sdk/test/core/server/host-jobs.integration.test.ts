@@ -196,6 +196,17 @@ describe("a Host job registered through the factory", () => {
       'A job named "host.note" is defined twice',
     );
   });
+
+  it.each([0, -1, 1.5, Number.NaN])(
+    "throws at construction for a concurrency of %s, which would never run",
+    (concurrency) => {
+      const stuck = defineJob({ ...unlisted, name: "host.stuck", concurrency });
+
+      expect(() => hostSdk({ jobs: [stuck] })).toThrow(
+        `The job "host.stuck" has a concurrency of ${concurrency}: it must be a whole number above 0`,
+      );
+    },
+  );
 });
 
 describe("a feature's job", () => {

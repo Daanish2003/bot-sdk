@@ -27,7 +27,7 @@ const silent = { error: () => {} };
 /** The jobs this file defines, which its runners run. They take no core services. */
 // oxlint-disable-next-line typescript/no-explicit-any -- each job has its own payload
 const testJobs: JobDefinition<any, object>[] = [];
-const listed = <P>(definition: JobDefinition<P, object>) => {
+const listed = <P>(definition: JobDefinition<P, object> & { budget?: string }) => {
   testJobs.push(definition);
   return definition;
 };
@@ -131,16 +131,20 @@ listed({
 /** Released by the test that holds `test.helper` jobs; until then each one keeps running. */
 let helperGate: Promise<void> | undefined;
 
-listed({
-  name: "test.helper",
-  concurrency: 4,
-  payload: z.object({ label: z.string() }),
-  run: async ({ label }) => {
-    started.push(label);
-    await helperGate;
-    ran.push(label);
-  },
-});
+for (const name of ["test.helper", "test.capture"]) {
+  listed({
+    name,
+    // One budget of four, as the Helpers and the Demonstration captures share (#602).
+    budget: "helper",
+    concurrency: 4,
+    payload: z.object({ label: z.string() }),
+    run: async ({ label }) => {
+      started.push(label);
+      await helperGate;
+      ran.push(label);
+    },
+  });
+}
 
 /** Every `chat.job` row, read straight from the test database. */
 const jobRows = () => getTestDb().select().from(job);
@@ -382,6 +386,30 @@ describe("the in-process runner", () => {
     expect(started.filter((label) => !label.startsWith("h"))).toHaveLength(2);
     releaseOthers();
     await expect.poll(() => ran.length).toBe(8);
+    await runner.stop();
+  });
+
+  it("holds the jobs of one budget to it together: four of them at once", async () => {
+    const runner = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      jobs: testTable,
+      clock: fakeJobClock(start).clock,
+    });
+    let releaseHelpers!: () => void;
+    helperGate = new Promise((resolve) => {
+      releaseHelpers = resolve;
+    });
+    for (const label of ["h1", "h2", "h3"]) await runner.enqueue("test.helper", { label });
+    for (const label of ["c1", "c2", "c3"]) await runner.enqueue("test.capture", { label });
+
+    await runner.start();
+    await expect.poll(() => started.length).toBe(4);
+    await sleep(50);
+    expect(started).toHaveLength(4);
+
+    releaseHelpers();
+    await expect.poll(() => ran.length).toBe(6);
     await runner.stop();
   });
 

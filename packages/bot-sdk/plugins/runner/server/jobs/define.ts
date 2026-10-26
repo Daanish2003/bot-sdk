@@ -60,11 +60,33 @@ export function defineJob<P, Services extends object = FeatureContext>(
   return definition;
 }
 
+/**
+ * One of the core's own jobs. Jobs with one `budget` share their `concurrency` budget, as the
+ * Helpers and the Demonstration captures do (#602); without it, a job's budget is its own.
+ */
+export type CoreJobDefinition<P> = JobDefinition<P, CoreJobServices> & { budget?: string };
+
 /** Declares one of the core's own jobs, whose context and hooks get the core context as `deps`. */
-export function defineCoreJob<P>(
-  definition: JobDefinition<P, CoreJobServices>,
-): JobDefinition<P, CoreJobServices> {
+export function defineCoreJob<P>(definition: CoreJobDefinition<P>): CoreJobDefinition<P> {
   return definition;
+}
+
+/** A concurrency budget: at most `concurrency` of the jobs it names run at once in one process. */
+export type JobBudget = { names: string[]; concurrency: number };
+
+/** The budgets of the jobs with a `concurrency`, one per `budget` key, or per job without one. */
+export function budgetsOf(jobs: JobTable): JobBudget[] {
+  const budgets = new Map<string, { names: string[]; concurrency: number }>();
+  for (const { definition } of jobs.values()) {
+    const { name, concurrency } = definition;
+    if (concurrency === undefined) continue;
+    const key = (definition as { budget?: string }).budget ?? name;
+    const budget = budgets.get(key);
+    if (!budget) budgets.set(key, { names: [name], concurrency });
+    else if (budget.concurrency === concurrency) budget.names.push(name);
+    else throw new Error(`The jobs of the budget "${key}" have different concurrencies`);
+  }
+  return [...budgets.values()];
 }
 
 /** A job as an instance's runner holds it: its payload type erased, with its services. */
@@ -88,6 +110,12 @@ export function jobTable(
     for (const definition of jobs) {
       if (table.has(definition.name)) {
         throw new Error(`A job named "${definition.name}" is defined twice`);
+      }
+      const { concurrency } = definition;
+      if (concurrency !== undefined && !(Number.isInteger(concurrency) && concurrency > 0)) {
+        throw new Error(
+          `The job "${definition.name}" has a concurrency of ${concurrency}: it must be a whole number above 0`,
+        );
       }
       table.set(definition.name, { definition, services });
     }

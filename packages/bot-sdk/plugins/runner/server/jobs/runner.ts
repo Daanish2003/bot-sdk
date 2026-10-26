@@ -1,7 +1,7 @@
 import type { Transaction } from "../../../../core/server/plugin";
 import type { Database, JobRow } from "../../../../core/server/storage";
 import { afterCommit, trackCommits } from "./commit";
-import type { JobTable } from "./define";
+import { budgetsOf, type JobBudget, type JobTable } from "./define";
 import type { Executor } from "./executor";
 import {
   type JobNames,
@@ -155,12 +155,12 @@ export const wakeable = new WeakMap<Executor, () => void>();
  */
 export const claimNext = Symbol("claimNext");
 
-/** The in-process Executor's other way in: each job with a `concurrency`, by name, with its budget. */
+/** The in-process Executor's other way in: the budgets of the jobs with a `concurrency`. */
 export const jobBudgets = Symbol("jobBudgets");
 
 export type CoreRun = ((jobId: string) => Promise<void>) & {
   [claimNext]?: (names: JobNames) => Promise<{ name: string; attempt: Promise<void> } | undefined>;
-  [jobBudgets]?: () => ReadonlyMap<string, number>;
+  [jobBudgets]?: () => readonly JobBudget[];
 };
 
 /** The core's runner over `executor` (see `JobRunner`). Nothing runs before `start()`. */
@@ -229,12 +229,7 @@ export function createJobRunner({
     const job = await claimed;
     return job && { name: job.name, attempt: work };
   };
-  runJob[jobBudgets] = () =>
-    new Map(
-      [...jobs().values()].flatMap(({ definition: { name, concurrency } }) =>
-        concurrency === undefined ? [] : [[name, concurrency] as const],
-      ),
-    );
+  runJob[jobBudgets] = () => budgetsOf(jobs());
 
   return {
     executor,

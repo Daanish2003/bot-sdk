@@ -26,10 +26,9 @@ export type InProcessExecutorOptions = {
 
 /**
  * The default Executor (ADR 0011, ADR 0029): polls `chat.job` every `pollMs` for due jobs, and at
- * once on a `notify`, and runs up to `concurrency` jobs at once, plus, for each job with a
- * `concurrency` of its own (spec #872), up to that many in its own budget, so no budget takes
- * another's slots. Each claim is
- * one `FOR UPDATE SKIP LOCKED` statement, through the core's `run`. A re-queued job whose lease
+ * once on a `notify`, and runs up to `concurrency` jobs at once, plus, for each budget of jobs with
+ * a `concurrency` of their own (spec #872), up to that many in it, so no budget takes another's
+ * slots. Each claim is one `FOR UPDATE SKIP LOCKED` statement, through the core's `run`. A re-queued job whose lease
  * expired is due again, so the poll picks it up too. Nothing polls until `start()`, and `stop()`
  * stops polling; the core drains the running jobs.
  */
@@ -40,22 +39,20 @@ export function inProcessExecutor({
   clock = systemClock,
 }: InProcessExecutorOptions): Executor {
   let claim: NonNullable<CoreRun[typeof claimNext]> | undefined;
-  let budgets: NonNullable<CoreRun[typeof jobBudgets]> = () => new Map();
+  // The budgets of the jobs with a `concurrency` (spec #872), read once the Executor starts, each
+  // with its jobs in flight. The other jobs share `concurrency`.
+  let budgets: { names: string[]; concurrency: number; inFlight: Set<Promise<void>> }[] = [];
+  let budgeted: string[] = [];
   let timer: unknown;
   // Claims run one after another on this chain, so no lane's budget is ever exceeded.
   let claims: Promise<void> = Promise.resolve();
-  // Each job with a budget of its own, by name, and the jobs that share `concurrency`.
-  const ownInFlight = new Map<string, Set<Promise<void>>>();
   const othersInFlight = new Set<Promise<void>>();
 
   const claimUpToConcurrency = async () => {
-    const own = budgets();
-    for (const [name, budget] of own) {
-      let inFlight = ownInFlight.get(name);
-      if (!inFlight) ownInFlight.set(name, (inFlight = new Set()));
-      await claimInto(inFlight, budget, { only: [name] });
+    for (const { names, concurrency: budget, inFlight } of budgets) {
+      await claimInto(inFlight, budget, { only: names });
     }
-    await claimInto(othersInFlight, concurrency, { except: [...own.keys()] });
+    await claimInto(othersInFlight, concurrency, { except: budgeted });
   };
 
   const claimInto = async (lane: Set<Promise<void>>, budget: number, names: JobNames) => {
@@ -87,9 +84,13 @@ export function inProcessExecutor({
     async start(run: CoreRun) {
       if (claim) return;
       // Only the core's runner starts it, and its `run` claims by name in one statement.
+      if (!run[claimNext]) {
+        throw new Error("The in-process Executor runs only under the core's runner");
+      }
+      const listed = run[jobBudgets]?.() ?? [];
+      budgets = listed.map((budget) => ({ ...budget, inFlight: new Set() }));
+      budgeted = listed.flatMap(({ names }) => names);
       claim = run[claimNext];
-      if (!claim) throw new Error("The in-process Executor runs only under the core's runner");
-      budgets = run[jobBudgets] ?? budgets;
       timer = clock.setInterval(requestClaim, pollMs);
       requestClaim();
       await claims;

@@ -439,8 +439,8 @@ async function connect(
 }
 
 /**
- * The capture of one Demonstration (#719), queued once its Screen opened, in the `helper` lane since
- * it runs for as long as the user shows: in rounds of up to `captureRoundMs`, each one job holding
+ * The capture of one Demonstration (#719), queued once its Screen opened, in the Helpers' budget
+ * since it runs for as long as the user shows: in rounds of up to `captureRoundMs`, each one job holding
  * a CDP connection to the Screen's Chrome while the Demonstration is live, so no attempt nears the
  * runner's attempt cap and a deploy's drain waits for one round at most. A round that ends with the
  * Demonstration still live queues the next; one whose Chrome it can't reach, or whose connection
@@ -449,6 +449,7 @@ async function connect(
  */
 export const demonstrationCaptureJob = defineCoreJob({
   name: demonstrationCaptureJobName,
+  budget: "helper",
   concurrency: 4,
   payload: z.object({ demonstrationId: z.uuid(), round: z.number().int().min(1).default(1) }),
   run: async ({ demonstrationId, round }, { deps, signal }) => {

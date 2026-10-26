@@ -300,6 +300,8 @@ export async function lockScreen(tx: Transaction, userId: string, slot: number) 
  */
 export const botHelperJob = defineCoreJob({
   name: botHelperJobName,
+  // The Helpers and the Demonstration captures run for long: four at once, beside the rest (#602).
+  budget: "helper",
   concurrency: 4,
   payload: z.object({ helperId: z.uuid(), waitedSince: z.iso.datetime().optional() }),
   run: ({ helperId, waitedSince }, ctx) => runHelperJob(ctx.deps, helperId, ctx, waitedSince),

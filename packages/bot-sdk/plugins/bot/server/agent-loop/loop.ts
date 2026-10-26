@@ -771,7 +771,7 @@ export async function runLoop(
     return reviewToolCall(
       deps,
       {
-        activity: ctx.step,
+        step: ctx.step,
         billing,
         now: ctx.now,
         beforeLive: () => {
