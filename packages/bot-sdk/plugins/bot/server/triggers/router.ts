@@ -1,14 +1,6 @@
-import { and, eq, isNull, max, min, type SQL } from "drizzle-orm";
+import { and, eq, isNull, max, min, or, type SQL } from "drizzle-orm";
 
-import {
-  bot,
-  botTrigger,
-  botTurn,
-  conversation,
-  job,
-  jobEvent,
-  message,
-} from "../../../../core/server/storage";
+import { bot, botTrigger, botTurn, conversation, message } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
 import { recordBotChange } from "../conversation";
@@ -74,55 +66,42 @@ export async function receive(
   await lockConversation(tx, trigger.conversationId);
   await tx.insert(botTrigger).values(trigger);
   const [running] = await tx
-    .select({ id: botTurn.id, jobId: botTurn.jobId })
+    .select({ id: botTurn.id })
     .from(botTurn)
     .innerJoin(bot, eq(bot.id, botTurn.botId))
     .where(and(eq(bot.conversationId, trigger.conversationId), eq(botTurn.status, "running")))
     .limit(1);
   if (!running) return { takenBy: await startTurn(deps, tx, trigger.conversationId) };
-  if (!(await jobNotStarted(tx, running.jobId))) return { waitsFor: running.id };
+  // While the running Turn's job hasn't started (`replaceIfNotStarted`), it is replaced in this
+  // transaction by one that also takes the Trigger, and the Turn is relinked to it.
+  const runAfter = await batchClosesAt(
+    deps,
+    tx,
+    or(eq(botTrigger.turnId, running.id), eq(botTrigger.id, trigger.id)),
+  );
+  const jobId = await deps.runner.replaceIfNotStarted(
+    tx,
+    running.id,
+    botTurnJobName,
+    { turnId: running.id },
+    { runAfter: new Date(runAfter) },
+  );
+  if (!jobId) return { waitsFor: running.id };
+  wakeWhenDue(deps, runAfter);
   await tx.update(botTrigger).set({ turnId: running.id }).where(eq(botTrigger.id, trigger.id));
-  // The runner has no reschedule: the queued job is cancelled and a replacement queued, in this
-  // transaction, and the Turn is relinked to it.
-  const runner = deps.runner;
-  await runner.cancelIn(tx, running.id);
-  const jobId = await enqueueTurnJob(deps, tx, running.id, eq(botTrigger.turnId, running.id));
   await tx.update(botTurn).set({ jobId }).where(eq(botTurn.id, running.id));
   return { takenBy: running.id };
 }
 
 /**
- * Whether a Turn's job is queued, has used no attempt and has recorded no Checkpoint, so replacing
- * it loses nothing. The job's row is locked, so no runner claims it before this transaction ends. A
- * job queued again after an attempt is never replaced: a retry or a crash used an attempt, which a
- * replacement would give back, and a deploy's yield (which puts its attempt back) kept Checkpoints.
+ * When the batch of `triggers` closes (#501), in ms: `batchQuietMs` after the newest, and no later
+ * than `batchLongestMs` after the first.
  */
-async function jobNotStarted(tx: Transaction, jobId: string | null): Promise<boolean> {
-  if (!jobId) return false;
-  const [row] = await tx
-    .select({ status: job.status, attempts: job.attempts })
-    .from(job)
-    .where(eq(job.id, jobId))
-    .for("update");
-  if (row?.status !== "queued" || row.attempts > 0) return false;
-  const [recorded] = await tx
-    .select({ seq: jobEvent.seq })
-    .from(jobEvent)
-    .where(eq(jobEvent.jobId, jobId))
-    .limit(1);
-  return !recorded;
-}
-
-/**
- * Queues the job of Turn `turnId`, to run once the batch of `triggers` is closed (#501): `batchQuietMs`
- * after the newest, and no later than `batchLongestMs` after the first. Returns the job's id.
- */
-async function enqueueTurnJob(
+async function batchClosesAt(
   deps: BotSdkContext,
   tx: Transaction,
-  turnId: string,
   triggers: SQL | undefined,
-): Promise<string> {
+): Promise<number> {
   const [batch] = await tx
     .select({ first: min(botTrigger.receivedAt), newest: max(botTrigger.receivedAt) })
     .from(botTrigger)
@@ -130,17 +109,36 @@ async function enqueueTurnJob(
   const now = deps.clock().getTime();
   const first = batch?.first?.getTime() ?? now;
   const newest = batch?.newest?.getTime() ?? now;
-  const runAfter = Math.min(newest + batchQuietMs, first + batchLongestMs);
-  const runner = deps.runner;
-  const jobId = await runner.enqueueIn(
+  return Math.min(newest + batchQuietMs, first + batchLongestMs);
+}
+
+/**
+ * The runner polls every few seconds, so it is woken when a Turn's job falls due at `runAfter`. By
+ * then the transaction that queued it has long committed; if not, the next poll claims the job.
+ */
+function wakeWhenDue(deps: BotSdkContext, runAfter: number): void {
+  const now = deps.clock().getTime();
+  if (runAfter > now) setTimeout(() => deps.runner.wake(), runAfter - now).unref?.();
+}
+
+/**
+ * Queues the job of Turn `turnId`, to run once the batch of `triggers` is closed (#501), and
+ * returns the job's id.
+ */
+async function enqueueTurnJob(
+  deps: BotSdkContext,
+  tx: Transaction,
+  turnId: string,
+  triggers: SQL | undefined,
+): Promise<string> {
+  const runAfter = await batchClosesAt(deps, tx, triggers);
+  const jobId = await deps.runner.enqueueIn(
     tx,
     botTurnJobName,
     { turnId },
     { idempotencyKey: turnId, runAfter: new Date(runAfter) },
   );
-  // The runner polls every few seconds, so it is woken when the job falls due. By then `tx` has
-  // long committed; if not, the next poll claims the job.
-  if (runAfter > now) setTimeout(() => runner.wake(), runAfter - now).unref?.();
+  wakeWhenDue(deps, runAfter);
   return jobId;
 }
 

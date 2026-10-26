@@ -80,6 +80,19 @@ defineJob({
   },
 });
 
+let failures = 0;
+
+defineJob({
+  name: "conformance.fail-once",
+  payload: z.object({ label: z.string() }),
+  run: async ({ label }) => {
+    started.push(label);
+    failures += 1;
+    if (failures === 1) throw new Error("The first attempt fails");
+    ran.push(label);
+  },
+});
+
 const SLOT_MS = 60_000;
 const recurKey = (slot: string) => `conformance.recur:${slot}`;
 
@@ -150,6 +163,7 @@ describe.each(executors)("$name", ({ build }) => {
 
   beforeEach(async () => {
     for (const list of [ran, started, aborted, fires]) list.length = 0;
+    failures = 0;
     steps.a = 0;
     steps.b = 0;
     gate = undefined;
@@ -278,6 +292,141 @@ describe.each(executors)("$name", ({ build }) => {
     await harness.deliver(id);
 
     await expect.poll(() => ran, poll).toEqual(["a"]);
+  });
+
+  describe("replaceIfNotStarted", () => {
+    /** Replaces the job with key `key` by a `conformance.record` labelled `label`, in a transaction. */
+    const replace = (key: string, label: string, runAfter?: Date) =>
+      getTestDb().transaction((tx) =>
+        jobs.replaceIfNotStarted(tx, key, "conformance.record", { label }, { runAfter }),
+      );
+
+    it(
+      "replaces a queued job that hasn't started, notifying only once it commits",
+      { timeout: 30_000 },
+      async () => {
+        // Not due yet, so that the in-process Executor doesn't start it at once.
+        const later = new Date(timer.clock.now().getTime() + 1_000);
+        const old = await jobs.enqueue(
+          "conformance.record",
+          { label: "old" },
+          { idempotencyKey: "turn", runAfter: later },
+        );
+        const runAfter = new Date(later.getTime() + 1_000);
+
+        let replacement: string | undefined;
+        await getTestDb().transaction(async (tx) => {
+          replacement = await jobs.replaceIfNotStarted(
+            tx,
+            "turn",
+            "conformance.record",
+            { label: "new" },
+            { runAfter },
+          );
+          expect(harness.notified).toEqual([{ jobId: old, runAfter: later }]);
+        });
+
+        expect(replacement).toEqual(expect.any(String));
+        expect(replacement).not.toBe(old);
+        expect(harness.notified).toEqual([
+          { jobId: old, runAfter: later },
+          { jobId: replacement, runAfter },
+        ]);
+        expect((await jobs.status(old))?.status).toBe("cancelled");
+        expect((await jobs.status(replacement!))?.runAfter).toEqual(runAfter);
+        // The replacement holds the key, as the job it replaced did.
+        expect(
+          await jobs.enqueue("conformance.record", { label: "x" }, { idempotencyKey: "turn" }),
+        ).toBe(replacement);
+
+        timer.advance(2_000);
+        await harness.deliver(old);
+        await harness.deliver(replacement!);
+        await expect.poll(() => ran, poll).toEqual(["new"]);
+        expect((await jobs.status(old))?.status).toBe("cancelled");
+      },
+    );
+
+    it("keeps the job when the replacing transaction rolls back", { timeout: 30_000 }, async () => {
+      const later = new Date(timer.clock.now().getTime() + 1_000);
+      const old = await jobs.enqueue(
+        "conformance.record",
+        { label: "old" },
+        { idempotencyKey: "turn", runAfter: later },
+      );
+      await expect(
+        getTestDb().transaction(async (tx) => {
+          await jobs.replaceIfNotStarted(tx, "turn", "conformance.record", { label: "new" });
+          throw new Error("rolled back");
+        }),
+      ).rejects.toThrow("rolled back");
+
+      expect(harness.notified).toEqual([{ jobId: old, runAfter: later }]);
+      timer.advance(1_000);
+      await harness.deliver(old);
+      await expect.poll(() => ran, poll).toEqual(["old"]);
+    });
+
+    it("leaves a running job alone", { timeout: 30_000 }, async () => {
+      let open!: () => void;
+      gate = new Promise((resolve) => (open = resolve));
+      const old = await jobs.enqueue(
+        "conformance.record",
+        { label: "old" },
+        { idempotencyKey: "turn" },
+      );
+      const run = harness.deliver(old);
+      await expect.poll(() => started, poll).toEqual(["old"]);
+
+      expect(await replace("turn", "new")).toBeUndefined();
+
+      open();
+      await run;
+      await expect.poll(async () => (await jobs.status(old))?.status, poll).toBe("succeeded");
+      expect(ran).toEqual(["old"]);
+    });
+
+    it("leaves a job queued again after an attempt", { timeout: 30_000 }, async () => {
+      const old = await jobs.enqueue(
+        "conformance.fail-once",
+        { label: "old" },
+        { idempotencyKey: "turn" },
+      );
+      await harness.deliver(old);
+      await expect.poll(async () => (await jobs.status(old))?.attempts, poll).toBe(1);
+      expect((await jobs.status(old))?.status).toBe("queued");
+
+      expect(await replace("turn", "new")).toBeUndefined();
+      expect((await jobs.status(old))?.status).toBe("queued");
+    });
+
+    it("leaves a job a deploy handed back with its Checkpoints", { timeout: 30_000 }, async () => {
+      let open!: () => void;
+      gate = new Promise((resolve) => (open = resolve));
+      const deploying = manualExecutor();
+      const elsewhere = await runnerOver(deploying.executor);
+      const old = await elsewhere.enqueue(
+        "conformance.steps",
+        { label: "old" },
+        { idempotencyKey: "turn" },
+      );
+      const attempt = deploying.run(old);
+      await expect.poll(() => started, poll).toEqual(["old"]);
+      // The deploy's stop has the workflow yield at its next Checkpoint.
+      const stopping = elsewhere.stop();
+      open();
+      await stopping;
+      await attempt;
+      expect(await jobs.status(old)).toMatchObject({ status: "queued", attempts: 0 });
+
+      expect(await replace("turn", "new")).toBeUndefined();
+      expect((await jobs.status(old))?.status).toBe("queued");
+    });
+
+    it("queues nothing when no job holds the key", { timeout: 30_000 }, async () => {
+      expect(await replace("turn", "new")).toBeUndefined();
+      expect(harness.notified).toEqual([]);
+    });
   });
 
   it("fires a recurring schedule once per slot", { timeout: 30_000 }, async () => {

@@ -9,6 +9,7 @@ import {
   claimJob,
   enqueueJob,
   readJob,
+  replaceJobIfNotStartedIn,
   runClaimedJob,
   type ClaimedJob,
 } from "./store";
@@ -87,6 +88,20 @@ export type JobRunner = {
     idempotencyKey: string,
     now?: Date,
   ) => Promise<"queued" | "running" | undefined>;
+  /**
+   * In the caller's transaction, cancels the queued job with this key if it hasn't started (no
+   * attempt used, no Checkpoint recorded), and queues its replacement, `name` with `payload`, under
+   * the same key. Returns the replacement's id; the Executor is notified once the transaction has
+   * committed. Returns undefined, changing nothing, when no job with the key is active or it has
+   * started. `now` defaults to the runner's clock.
+   */
+  replaceIfNotStarted: (
+    tx: Transaction,
+    idempotencyKey: string,
+    name: string,
+    payload: unknown,
+    options?: { runAfter?: Date; now?: Date },
+  ) => Promise<string | undefined>;
   status: (jobId: string) => Promise<JobStatus | undefined>;
   /** Recurring jobs. Built with Synced sources (spec 2); the runner throws until then. */
   schedule: (name: string, options: { everyMs: number }) => Promise<void>;
@@ -248,6 +263,15 @@ export function createJobRunner({
     },
 
     cancelIn: (tx, idempotencyKey, now = clock.now()) => cancelJobIn(tx, idempotencyKey, now),
+
+    async replaceIfNotStarted(tx, idempotencyKey, name, payload, options = {}) {
+      const id = await replaceJobIfNotStartedIn(tx, idempotencyKey, name, payload, {
+        runAfter: options.runAfter,
+        now: options.now ?? clock.now(),
+      });
+      if (id) afterCommit(tx, () => notify(id, options.runAfter));
+      return id;
+    },
 
     status: (jobId) => readJob(db, jobId),
 

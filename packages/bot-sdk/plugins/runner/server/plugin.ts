@@ -28,6 +28,19 @@ export type RunnerApi = Pick<JobRunner, "enqueue" | "cancel" | "status"> & {
    * none is active.
    */
   cancelIn: (tx: Transaction, idempotencyKey: string) => Promise<"queued" | "running" | undefined>;
+  /**
+   * In the caller's transaction, cancels the queued job with this key if it hasn't started (no
+   * attempt used, no Checkpoint recorded), and queues its replacement under the same key. Returns
+   * the replacement's id, or undefined, changing nothing, when no job with the key is active or it
+   * has started. The Executor is notified once the transaction has committed.
+   */
+  replaceIfNotStarted: (
+    tx: Transaction,
+    idempotencyKey: string,
+    name: string,
+    payload: unknown,
+    options?: Pick<EnqueueOptions, "runAfter">,
+  ) => Promise<string | undefined>;
   /** Has the in-process runner claim due jobs now instead of at its next poll. */
   wake: () => void;
 };
@@ -67,6 +80,11 @@ export function createRunner(
     enqueueIn: (tx, name, payload, enqueueOptions) =>
       jobs.enqueueIn(tx, name, payload, { ...enqueueOptions, now: sdk.clock() }),
     cancelIn: (tx, idempotencyKey) => jobs.cancelIn(tx, idempotencyKey, sdk.clock()),
+    replaceIfNotStarted: (tx, idempotencyKey, name, payload, options) =>
+      jobs.replaceIfNotStarted(tx, idempotencyKey, name, payload, {
+        ...options,
+        now: sdk.clock(),
+      }),
     wake: () => jobs.wake(),
   };
   jobRunners.set(api, jobs);

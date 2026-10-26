@@ -2,7 +2,7 @@ import { and, eq, gte, inArray, isNull, lt, notInArray, or, sql } from "drizzle-
 
 import type { Database } from "../../../../core/server/storage";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
-import { job } from "../../../../core/server/storage";
+import { job, jobEvent } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { NonDeterminismError, WorkflowYieldedError, createWorkflow } from "../workflow/engine";
 import { JOB_TIMING, PermanentJobError, backoffAfter, registeredJob } from "./define";
@@ -459,6 +459,40 @@ export async function cancelJobIn(
     .set({ status: "cancelled", heartbeatAt: heartbeatOnCancel, updatedAt: now })
     .where(eq(job.id, active.id));
   return active.status === "queued" ? "queued" : "running";
+}
+
+/**
+ * In the caller's transaction, cancels the active job with this key if it hasn't started, and
+ * queues its replacement under the same key. Returns the replacement's id, or undefined, changing
+ * nothing, when no job with the key is active or it has started. A job has started once it runs,
+ * has used an attempt, or has recorded a Checkpoint: a retry or a crash used an attempt, which a
+ * replacement would give back, and a deploy's yield (which puts its attempt back) kept Checkpoints.
+ * The job's row is locked, so no runner claims it before the transaction ends.
+ */
+export async function replaceJobIfNotStartedIn(
+  tx: Transaction,
+  idempotencyKey: string,
+  name: string,
+  payload: unknown,
+  options: { runAfter?: Date; now: Date },
+): Promise<string | undefined> {
+  const [active] = await tx
+    .select({ id: job.id, status: job.status, attempts: job.attempts })
+    .from(job)
+    .where(and(eq(job.idempotencyKey, idempotencyKey), inArray(job.status, [...ACTIVE])))
+    .for("update");
+  if (active?.status !== "queued" || active.attempts > 0) return undefined;
+  const [recorded] = await tx
+    .select({ seq: jobEvent.seq })
+    .from(jobEvent)
+    .where(eq(jobEvent.jobId, active.id))
+    .limit(1);
+  if (recorded) return undefined;
+  await tx
+    .update(job)
+    .set({ status: "cancelled", heartbeatAt: null, updatedAt: options.now })
+    .where(eq(job.id, active.id));
+  return enqueueJob(tx, name, payload, { ...options, idempotencyKey });
 }
 
 /** Deletes succeeded and cancelled jobs ended over 7 days ago, and failed ones over 30 days ago. */
