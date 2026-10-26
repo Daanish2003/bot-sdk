@@ -42,7 +42,7 @@ function fakeBotServer(
 ) {
   const cancelled: string[] = [];
   const router = {
-    bot: {
+    bots: {
       get: os.handler(() => ({ bot: { ...ada, turnStatus: null }, messages, turns })),
       stop: os.handler(() => {}),
       send: os
@@ -53,14 +53,14 @@ function fakeBotServer(
           text: input.text,
           createdAt: new Date(),
         })),
-      routine: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
-      checkIn: {
-        list: os.input(z.object({ botId: z.string() })).handler(() => [...checkIns]),
-        cancel: os.input(z.object({ checkInId: z.string() })).handler(({ input }) => {
-          cancelled.push(input.checkInId);
-          checkIns.find((row) => row.id === input.checkInId)!.state = "cancelled";
-        }),
-      },
+    },
+    routines: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
+    checkIns: {
+      list: os.input(z.object({ botId: z.string() })).handler(() => [...checkIns]),
+      cancel: os.input(z.object({ checkInId: z.string() })).handler(({ input }) => {
+        cancelled.push(input.checkInId);
+        checkIns.find((row) => row.id === input.checkInId)!.state = "cancelled";
+      }),
     },
   };
   const handler = new RPCHandler(router);

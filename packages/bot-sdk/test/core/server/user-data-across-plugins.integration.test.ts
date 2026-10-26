@@ -231,13 +231,11 @@ describe("deleteUser across plugins", () => {
       .values({ userId: owner.id, imageModel: "openai:gpt-image-2" });
     const sdk = createBotSdk({
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets: [testKey],
-      basePath: "/api/chat",
       models: {},
     });
 
-    await sdk.deleteUser(owner.id);
+    await sdk.users.delete({ userId: owner.id });
 
     expect(await rowsByTable(owner.id)).toMatchObject({
       user_credentials: 0,
@@ -342,15 +340,13 @@ describe("exportUser across plugins", () => {
   it("has the core's version and timestamp, and the models plugin's section, on an instance of models alone", async () => {
     const options = {
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets: [testKey],
-      basePath: "/api/chat",
       models: {},
     };
     // The Models alone, without the Bots the factory always has.
     const sdk = buildBotSdk(options, {}, [models()]).instance;
 
-    expect(await sdk.exportUser(randomUUID())).toEqual({
+    expect(await sdk.users.export({ userId: randomUUID() })).toEqual({
       version: 2,
       exportedAt: expect.any(Date),
       // The models plugin always contributes its section.
@@ -373,6 +369,47 @@ describe("exportUser across plugins", () => {
     expect(exported.bot as BotExport).toEqual({ bots: [] });
     expect(exported).not.toHaveProperty("memory");
     expect(exported).not.toHaveProperty("savedPrompts");
+  });
+});
+
+describe("sdk.users on a Host's instance", () => {
+  it("exports and deletes the core's and a feature's data for the user", async () => {
+    const owner = await insertUser();
+    await saveCredentials(createTestSdk(), owner.id, {
+      service: "anthropic",
+      fields: { apiKey: "sk-ant-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+    const steps: string[] = [];
+    const extra = defineFeature({
+      id: "extra",
+      userData: {
+        export: async (_tx, userId) => ({ owner: userId }),
+        delete: {
+          before: async (_tx, userId) => void steps.push(`before ${userId}`),
+          after: async (userId) => void steps.push(`after ${userId}`),
+        },
+      },
+    });
+    const sdk = createBotSdk({
+      databaseUrl: testDatabaseUrl,
+      keyEncryptionSecrets: [testKey],
+      models: {},
+      features: [extra],
+    });
+
+    const exported = await sdk.users.export({ userId: owner.id });
+    expect(exported).toMatchObject({
+      version: 2,
+      bot: { bots: [] },
+      models: { imageModel: null },
+      extra: { owner: owner.id },
+    });
+
+    await sdk.users.delete({ userId: owner.id });
+    expect(steps).toEqual([`before ${owner.id}`, `after ${owner.id}`]);
+    expect(await rowsByTable(owner.id)).toMatchObject({ user_credentials: 0 });
   });
 });
 
@@ -412,9 +449,7 @@ describe("rotateKeys across plugins", () => {
     const logger = { error: vi.fn() };
     const sdk = createBotSdk({
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets: [keyB, keyA],
-      basePath: "/api/chat",
       logger,
       models: {},
       features: [mcp()],

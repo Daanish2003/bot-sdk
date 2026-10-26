@@ -79,7 +79,7 @@ async function botWith(turns: Round[] = [], helpers: Round[] = []) {
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model });
+  const { id: botId } = await client.bots.create({ name: "Ada", model });
   const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
   return { deps, client, user, botId, conversationId };
 }
@@ -93,8 +93,9 @@ async function send(client: Client, botId: string, message: string, id = uuidv7(
 
 /** The changes after `since`, which must not need a reload. */
 async function changesAfter(client: Client, botId: string, since: number): Promise<BotChange[]> {
-  const result = await client.bot.changes({ botId, since });
-  if (result.reload) throw new Error(`bot.changes since ${since} asked for a reload`);
+  const { conversationId } = await client.bots.get({ botId });
+  const result = await client.conversations.changes({ conversationId, since });
+  if (result.reload) throw new Error(`conversations.changes since ${since} asked for a reload`);
   return result.changes;
 }
 
@@ -148,7 +149,7 @@ describe("bot.changes", () => {
       expect(await changesAfter(client, botId, 2)).toEqual(changes.slice(2));
       expect(await changesAfter(client, botId, 5)).toEqual([]);
       // `get` gives the cursor to follow the thread from.
-      expect((await client.bot.get({ botId })).lastSeq).toBe(5);
+      expect((await client.bots.get({ botId })).lastSeq).toBe(5);
     },
     timeout,
   );
@@ -169,7 +170,10 @@ describe("bot.changes", () => {
       await expect(followSend(other, { botId, id: uuidv7(), text: "Hi" })).rejects.toThrow(
         "Bot not found",
       );
-      await expect(other.bot.changes({ botId, since: 0 })).rejects.toThrow("Bot not found");
+      const { conversationId } = await client.bots.get({ botId });
+      await expect(other.conversations.changes({ conversationId, since: 0 })).rejects.toThrow(
+        "Conversation not found",
+      );
       await deleteCredentials(deps, user.id, "openai");
       await expect(followSend(client, { botId, id: uuidv7(), text: "Hi" })).rejects.toThrow(
         "is not an available Model",
@@ -183,7 +187,7 @@ describe("bot.changes", () => {
     "writes one secret change when a Secret is saved, never its value, and one when it is deleted",
     async () => {
       const { client, botId } = await botWith([round(sends("Thanks, got it."))]);
-      await client.bot.secret.save({ botId, name: "GITHUB_TOKEN", value: "ghp_secret-value-123" });
+      await client.secrets.save({ botId, name: "GITHUB_TOKEN", value: "ghp_secret-value-123" });
       await settled(botId);
 
       const changes = await changesAfter(client, botId, 0);
@@ -197,9 +201,9 @@ describe("bot.changes", () => {
       expect(JSON.stringify(changes)).not.toContain("ghp_secret-value-123");
 
       const cursor = await cursorOf(client, botId);
-      await client.bot.secret.delete({ name: "GITHUB_TOKEN" });
+      await client.secrets.delete({ name: "GITHUB_TOKEN" });
       // Deleting it again changes nothing, so it writes no change.
-      await client.bot.secret.delete({ name: "GITHUB_TOKEN" });
+      await client.secrets.delete({ name: "GITHUB_TOKEN" });
       expect(await changesAfter(client, botId, cursor)).toEqual([
         expect.objectContaining({
           seq: cursor + 1,
@@ -235,7 +239,7 @@ describe("bot.changes", () => {
         .orderBy(asc(botRoutine.name));
 
       let cursor = await cursorOf(client, botId);
-      await client.bot.routine.approve({ routineId: morning!.id });
+      await client.routines.approve({ routineId: morning!.id });
       expect(await changesAfter(client, botId, cursor)).toEqual([
         expect.objectContaining({
           seq: cursor + 1,
@@ -246,7 +250,7 @@ describe("bot.changes", () => {
       ]);
 
       cursor += 1;
-      await client.bot.routine.decline({ routineId: evening!.id });
+      await client.routines.decline({ routineId: evening!.id });
       expect(await changesAfter(client, botId, cursor)).toEqual([
         expect.objectContaining({
           seq: cursor + 1,
@@ -280,7 +284,7 @@ describe("bot.changes", () => {
       ]);
 
       const cursor = await cursorOf(client, botId);
-      await client.bot.checkIn.cancel({ checkInId: row!.id });
+      await client.checkIns.cancel({ checkInId: row!.id });
       expect(await changesAfter(client, botId, cursor)).toEqual([
         expect.objectContaining({
           seq: cursor + 1,
@@ -317,9 +321,9 @@ describe("bot.changes", () => {
         });
       const cursor = await cursorOf(client, botId);
 
-      await client.bot.review.allow({ reviewId });
+      await client.reviews.allow({ reviewId });
       // A second answer changes nothing, so it writes no change.
-      await client.bot.review.deny({ reviewId });
+      await client.reviews.deny({ reviewId });
 
       expect(await changesAfter(client, botId, cursor)).toEqual([
         expect.objectContaining({
@@ -368,7 +372,7 @@ describe("bot.changes", () => {
       const names = Array.from({ length: 10 }, (_, index) => `TOKEN_${index}`);
 
       await Promise.all(
-        names.map((name) => client.bot.secret.save({ botId, name, value: "a-long-secret-value" })),
+        names.map((name) => client.secrets.save({ botId, name, value: "a-long-secret-value" })),
       );
       await settled(botId);
 
@@ -400,9 +404,15 @@ describe("bot.changes", () => {
 
       const oldest = total - retainedChanges;
       expect(await changesAfter(client, botId, oldest)).toHaveLength(retainedChanges);
-      expect(await client.bot.changes({ botId, since: oldest - 1 })).toEqual({ reload: true });
-      expect(await client.bot.changes({ botId, since: 0 })).toEqual({ reload: true });
-      expect(await client.bot.changes({ botId, since: total + 1 })).toEqual({ reload: true });
+      expect(await client.conversations.changes({ conversationId, since: oldest - 1 })).toEqual({
+        reload: true,
+      });
+      expect(await client.conversations.changes({ conversationId, since: 0 })).toEqual({
+        reload: true,
+      });
+      expect(await client.conversations.changes({ conversationId, since: total + 1 })).toEqual({
+        reload: true,
+      });
       expect(await changesAfter(client, botId, total)).toEqual([]);
     },
     timeout,

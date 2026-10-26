@@ -1,6 +1,7 @@
 import { createAuth } from "@ai-chat/auth";
 import { chatgptAccessToken } from "@ai-chat/auth/chatgpt";
 import { createDb } from "@ai-chat/db";
+import { createHttpHandler, createScreenSocket } from "@ai-chat/bot-sdk/core/http";
 import { createBotSdk, redisRuntime, redisStore } from "@ai-chat/bot-sdk/core/server";
 import { emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
 import { mcp } from "@ai-chat/bot-sdk/plugins/mcp/server";
@@ -54,7 +55,7 @@ export const auth = createAuth(
   log,
   {
     // Runs before the user is deleted: a failure aborts the account delete, so the user can retry.
-    deleteChatData: (userId) => sdk.deleteUser(userId),
+    deleteChatData: (userId) => sdk.users.delete({ userId }),
   },
   {
     // Limits are on, as in production; counted in Redis when REDIS_URL is set, so both processes share them.
@@ -79,21 +80,26 @@ export const sdk = (shared.botSdk ??= createBotSdk({
   // Shared through Redis when REDIS_URL is set; in memory otherwise, for one process only.
   pubsub: ENV.REDIS_URL ? redisRuntime({ url: ENV.REDIS_URL }) : undefined,
   logger: log,
-  basePath: "/api/chat",
   fetchAllowHosts: ssrfAllowHosts,
   // File bytes go to the S3 store when S3_* is set, and to Postgres otherwise (ADR 0015).
   blobs: blobStoreOf(ENV),
-  // A banned user's Routines, Check-ins and Channel messages start no Turns while the Ban holds (spec #277).
-  isUserBlocked: async (userId) => {
-    const row = await db.query.user.findFirst({
-      where: { id: userId },
-      columns: { banned: true, banExpires: true },
-    });
-    return row ? isBanActive(row, new Date()) : false;
-  },
-  getUser: async (request) => {
-    const session = await auth.api.getSession({ headers: request.headers });
-    return session?.user ? { id: session.user.id } : null;
+  users: {
+    // A banned user's Routines, Check-ins, webhooks and Channel messages start no Turns while the Ban holds (spec #277).
+    isBlocked: async (userId) => {
+      const row = await db.query.user.findFirst({
+        where: { id: userId },
+        columns: { banned: true, banExpires: true },
+      });
+      return row ? isBanActive(row, new Date()) : false;
+    },
+    // Only mail from the user's verified account email reaches their Bots.
+    verifiedEmail: async (userId) => {
+      const row = await db.query.user.findFirst({
+        where: { id: userId },
+        columns: { email: true, emailVerified: true },
+      });
+      return row?.emailVerified ? row.email : null;
+    },
   },
   models: {
     // The Host's Models and their Quota (ADR 0007); unset, users chat only on their own keys.
@@ -128,14 +134,6 @@ export const sdk = (shared.botSdk ??= createBotSdk({
       appUrl: ENV.BETTER_AUTH_URL,
     }),
   ],
-  // Only mail from the user's verified account email reaches their Bots.
-  verifiedEmail: async (userId) => {
-    const row = await db.query.user.findFirst({
-      where: { id: userId },
-      columns: { email: true, emailVerified: true },
-    });
-    return row?.emailVerified ? row.email : null;
-  },
   features: [
     // Memory, Skills and Knowledge need the Computer, so a Host without one lists none of them.
     ...computerFeatures(e2b !== undefined),
@@ -143,3 +141,20 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     mcp({ servers: mcpServersOf(ENV) }),
   ],
 }));
+
+// Where the Bot SDK's HTTP layer is mounted (src/routes/api/chat/$.ts).
+const basePath = "/api/chat";
+
+// The Bot SDK over HTTP (spec #873): every RPC call and route under /api/chat, for the signed-in
+// user, and the public ones (the Routine webhook, email inbound, the live view's pages).
+export const http = createHttpHandler(sdk, {
+  basePath,
+  getUser: async (request) => {
+    const session = await auth.api.getSession({ headers: request.headers });
+    return session?.user ? { id: session.user.id } : null;
+  },
+});
+
+// The live view's socket (#597), crossws hooks under the same basePath
+// (server/routes/api/chat/screens/[token]/websockify.ts).
+export const screenSocket = createScreenSocket(sdk, { basePath });

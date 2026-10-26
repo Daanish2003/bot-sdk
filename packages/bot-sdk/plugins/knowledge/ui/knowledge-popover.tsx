@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { useI18n, useOrpc } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
+import type { KnowledgeContract } from "../shared/contract";
 
 const kib = 1024;
 const mib = kib * kib;
@@ -47,7 +48,7 @@ type Replacing = { outgoing: Outgoing; folder: string; path: string };
 export function KnowledgePopover() {
   const i18n = useI18n();
   const { t } = i18n;
-  const orpc = useOrpc();
+  const orpc = useOrpc<{ knowledge: KnowledgeContract }>();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState("");
@@ -420,7 +421,7 @@ export function KnowledgePopover() {
 /** A converted file's readable copy: what the Bots read, with its page markers. */
 function ReadableText({ path }: { path: string }) {
   const i18n = useI18n();
-  const orpc = useOrpc();
+  const orpc = useOrpc<{ knowledge: KnowledgeContract }>();
   const readable = useQuery(orpc.knowledge.read.queryOptions({ input: { path } }));
   return (
     <div className="basis-full">

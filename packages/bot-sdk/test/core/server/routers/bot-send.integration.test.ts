@@ -144,7 +144,7 @@ async function botWith(
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const created = await client.bot.create({ name: "Ada", model });
+  const created = await client.bots.create({ name: "Ada", model });
   return { fake, deps, jobs, client, user, botId: created.id };
 }
 
@@ -178,7 +178,7 @@ async function hostBotWith(rounds: Round[], overrides: Pick<TestDepsOverrides, "
   });
   const user = await insertUser();
   const client = chatRpc({ user, deps });
-  const created = await client.bot.create({ name: "Ada", model: hostModel });
+  const created = await client.bots.create({ name: "Ada", model: hostModel });
   return { fake, client, user, botId: created.id };
 }
 
@@ -323,7 +323,7 @@ describe("bot.send", () => {
       { type: "message", role: "user", text: "ok" },
       { type: "turnEnded", status: "complete" },
     ]);
-    expect((await client.bot.get({ botId })).messages.map((row) => row.role)).toEqual(["user"]);
+    expect((await client.bots.get({ botId })).messages.map((row) => row.role)).toEqual(["user"]);
     const [turn] = await turnsOf(botId);
     expect(turn).toMatchObject({ status: "complete" });
     expect(turn?.endedAt).toBeInstanceOf(Date);
@@ -353,7 +353,7 @@ describe("bot.send", () => {
       { type: "message", role: "assistant", text: "Hello!" },
       { type: "turnEnded", status: "complete" },
     ]);
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
     expect(messages.map((row) => [row.role, row.text])).toEqual([
       ["user", "hi"],
       ["assistant", "Hello!"],
@@ -611,7 +611,7 @@ describe("a Step that ends in plain text", () => {
 
     expect(fake.calls).toHaveLength(10);
     expect(
-      (await client.bot.get({ botId })).messages.filter((row) => row.role === "assistant"),
+      (await client.bots.get({ botId })).messages.filter((row) => row.role === "assistant"),
     ).toHaveLength(9);
     const [turn] = await turnsOf(botId);
     expect(turn).toMatchObject({ status: "error", error: "step_limit" });
@@ -651,7 +651,7 @@ describe("a Turn's limits", () => {
 
     expect(fake.calls).toHaveLength(10);
     expect(events.at(-1)).toEqual({ type: "turnEnded", status: "error" });
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
     expect(messages.filter((row) => row.role === "assistant").map((row) => row.text)).toEqual(
       Array.from({ length: 10 }, (_, step) => `Step ${step + 1}`),
     );
@@ -678,7 +678,7 @@ describe("a Turn's limits", () => {
     vi.useRealTimers();
 
     expect(shapes([...before, ...after]).at(-1)).toEqual({ type: "turnEnded", status: "error" });
-    expect((await client.bot.get({ botId })).messages.map((row) => row.text)).toEqual([
+    expect((await client.bots.get({ botId })).messages.map((row) => row.text)).toEqual([
       "take your time",
       "On it…",
     ]);
@@ -711,7 +711,7 @@ describe("a Turn off the request", () => {
     await fake.releaseAll();
 
     expect(await endedTurn(botId)).toMatchObject({ status: "complete", error: null });
-    expect((await client.bot.get({ botId })).messages.map((row) => row.text)).toEqual([
+    expect((await client.bots.get({ botId })).messages.map((row) => row.text)).toEqual([
       "hi",
       "On it…",
       "Done.",
@@ -728,7 +728,7 @@ describe("a Turn off the request", () => {
     await stream.return(undefined);
 
     expect(await endedTurn(botId)).toMatchObject({ status: "complete", error: null });
-    expect((await client.bot.get({ botId })).messages.map((row) => row.text)).toEqual([
+    expect((await client.bots.get({ botId })).messages.map((row) => row.text)).toEqual([
       "hi",
       "Back.",
     ]);
@@ -769,7 +769,7 @@ describe("bot.stop", () => {
     const { client, botId, fake } = await botWith([round(text("Never."))], { idle: true });
     await sendSaved(client, botId, "hi");
 
-    await client.bot.stop({ botId });
+    await client.bots.stop({ botId });
 
     const [turn] = await turnsOf(botId);
     expect(turn).toMatchObject({ status: "stopped", error: null });
@@ -777,7 +777,7 @@ describe("bot.stop", () => {
     const [row] = await getTestDb().select().from(job).where(eq(job.id, turn!.jobId!));
     expect(row).toMatchObject({ status: "cancelled", attempts: 0 });
     expect(fake.calls).toHaveLength(0);
-    expect((await client.bot.get({ botId })).bot.turnStatus).toBe("stopped");
+    expect((await client.bots.get({ botId })).bot.turnStatus).toBe("stopped");
   });
 
   it("ends a running Turn stopped as its attempt aborts, and the Messages already sent stay", async () => {
@@ -793,11 +793,11 @@ describe("bot.stop", () => {
       (event) => event.type === "message" && event.message.role === "assistant",
     );
 
-    await client.bot.stop({ botId });
+    await client.bots.stop({ botId });
     await fake.releaseAll();
 
     expect(await endedTurn(botId)).toMatchObject({ status: "stopped", error: null });
-    expect((await client.bot.get({ botId })).messages.map((row) => row.text)).toEqual([
+    expect((await client.bots.get({ botId })).messages.map((row) => row.text)).toEqual([
       "hi",
       "On it…",
     ]);
@@ -808,7 +808,7 @@ describe("bot.stop", () => {
   it("does nothing when no Turn is running", async () => {
     const { client, botId } = await botWith([]);
 
-    await client.bot.stop({ botId });
+    await client.bots.stop({ botId });
 
     expect(await turnsOf(botId)).toEqual([]);
   });
@@ -817,15 +817,15 @@ describe("bot.stop", () => {
     const { botId, deps } = await botWith([]);
     const other = chatRpc({ user: await insertUser(), deps });
 
-    await expect(other.bot.stop({ botId })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(other.bots.stop({ botId })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   it("stopTurns, on a Ban, ends the running Turn of each of the user's Bots stopped", async () => {
     const { client, deps, user, botId, fake } = await botWith([], { idle: true });
-    const { id: otherBotId } = await client.bot.create({ name: "Grace", model });
+    const { id: otherBotId } = await client.bots.create({ name: "Grace", model });
     for (const id of [botId, otherBotId]) await sendSaved(client, id, "hi");
 
-    await deps.bots.stopTurns(user.id);
+    await deps.bots.stopTurns({ userId: user.id });
 
     for (const id of [botId, otherBotId]) {
       expect(await turnsOf(id)).toMatchObject([{ status: "stopped", error: null }]);
@@ -896,8 +896,8 @@ describe("one Turn at a time", () => {
     const { client, botId } = await botWith([]);
     await insertRunningTurn(botId);
 
-    expect((await client.bot.get({ botId })).bot.turnStatus).toBe("running");
-    expect((await client.bot.list()).find((listed) => listed.id === botId)?.turnStatus).toBe(
+    expect((await client.bots.get({ botId })).bot.turnStatus).toBe("running");
+    expect((await client.bots.list()).find((listed) => listed.id === botId)?.turnStatus).toBe(
       "running",
     );
   });
@@ -962,7 +962,7 @@ describe("skipping the line", () => {
       { source: "user", channel: "web", turnId: turns[0]!.id },
       { id: savedId, messageId: savedId, source: "user", channel: "web", turnId: turns[1]!.id },
     ]);
-    expect((await client.bot.get({ botId })).messages.map((row) => row.text)).toEqual([
+    expect((await client.bots.get({ botId })).messages.map((row) => row.text)).toEqual([
       "Book the meeting for Wednesday",
       "On it…",
       "Actually, make it Thursday",
@@ -1020,7 +1020,7 @@ describe("skipping the line", () => {
     const two = await followSend(client, { botId, id: twoId, text: "two" });
     await two.next();
 
-    await client.bot.stop({ botId });
+    await client.bots.stop({ botId });
     // Every chunk goes through, the next Turn's too, so this resolves only once that Turn has run.
     const released = fake.releaseAll();
 
@@ -1447,7 +1447,7 @@ describe("a Turn's Quota and usage", () => {
       status: 402,
       data: { code: "error.quotaSpent" },
     });
-    expect((await client.bot.get({ botId })).messages).toEqual([]);
+    expect((await client.bots.get({ botId })).messages).toEqual([]);
     expect(await turnsOf(botId)).toEqual([]);
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
     expect(await triggersOf(conversationId)).toEqual([]);
@@ -1604,7 +1604,7 @@ describe("a Turn that resumes after a crash", () => {
       });
     }
     const client = chatRpc({ user, deps });
-    const created = await client.bot.create({ name: "Ada", model: host ? hostModel : model });
+    const created = await client.bots.create({ name: "Ada", model: host ? hostModel : model });
     return {
       fake,
       client,
@@ -1656,7 +1656,7 @@ describe("a Turn that resumes after a crash", () => {
     messages.map(({ id: _id, createdAt: _at, ...sent }) => sent);
 
   const sentTexts = async (client: ReturnType<typeof chatRpc>, botId: string) =>
-    (await client.bot.get({ botId })).messages
+    (await client.bots.get({ botId })).messages
       .filter((row) => row.role === "assistant")
       .map((row) => row.text);
 
@@ -1868,7 +1868,7 @@ describe("a Turn that resumes after a crash", () => {
 
     await fake.releaseAll();
     await expect.poll(waitingOnLocks).toBe(1);
-    // The end_turn Checkpoint holds the Conversation's row lock, so `bot.stop` would wait for it:
+    // The end_turn Checkpoint holds the Conversation's row lock, so `bots.stop` would wait for it:
     // this is a stop whose cancel committed just before that Checkpoint began.
     const [turnBefore] = await turnsOf(botId);
     await instance().runner.cancel(turnBefore!.id);
@@ -1939,7 +1939,7 @@ describe("a Turn that resumes after a crash", () => {
     ]);
     const { lost, savedId } = await interruptedTurn(fake, client, botId, attempt);
 
-    await client.bot.stop({ botId });
+    await client.bots.stop({ botId });
     await die();
 
     const turns = await turnsOf(botId);
@@ -1977,7 +1977,7 @@ describe("a Turn that resumes after a crash", () => {
       (await getTestDb().select().from(job).where(eq(job.id, queued!.jobId!)))[0],
     ).toMatchObject({ status: "queued" });
 
-    await client.bot.stop({ botId });
+    await client.bots.stop({ botId });
 
     const [turn] = await turnsOf(botId);
     expect(turn).toMatchObject({ status: "stopped", error: null });

@@ -2,10 +2,9 @@ import type { QueryClient } from "@tanstack/react-query";
 import { createElement, type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import type { BotSdkClient } from "../../../core/client/chat-client";
 import type { ListedModel } from "../../../plugins/models/shared/models";
 import { HostKeysPage } from "../host-keys-page";
-import { renderWrapped, untranslated } from "../fake-dictionary";
+import { renderWrapped, untranslated, type TestClient } from "../fake-dictionary";
 
 const model: ListedModel = {
   id: "anthropic:claude-haiku-4-5",
@@ -47,7 +46,7 @@ const ownedContent = [
   "Web search",
 ];
 
-function seedModels(queryClient: QueryClient, client: BotSdkClient) {
+function seedModels(queryClient: QueryClient, client: TestClient) {
   queryClient.setQueryData(client.orpc.models.list.queryKey(), {
     models: [model],
     defaultModel: null,
@@ -59,7 +58,7 @@ function seedModels(queryClient: QueryClient, client: BotSdkClient) {
 
 function expectTranslated(
   ui: ReactElement,
-  seed?: (queryClient: QueryClient, client: BotSdkClient) => void,
+  seed?: (queryClient: QueryClient, client: TestClient) => void,
 ) {
   const html = renderWrapped(ui, { seed });
   expect(untranslated(html, ownedContent)).toEqual([]);
@@ -69,10 +68,10 @@ function expectTranslated(
 describe("the keys page with the dictionary", () => {
   it("shows no untranslated text on the keys page, with credentials on", () => {
     expectTranslated(createElement(HostKeysPage), (queryClient, client) => {
-      queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok: true });
-      queryClient.setQueryData(client.orpc.credentials.list.queryKey(), []);
+      queryClient.setQueryData(client.orpc.models.credentials.mode.queryKey(), { byok: true });
+      queryClient.setQueryData(client.orpc.models.credentials.list.queryKey(), []);
       queryClient.setQueryData(client.orpc.models.imageModel.queryKey(), { imageModel: null });
-      queryClient.setQueryData(client.orpc.connections.list.queryKey(), { servers: [] });
+      queryClient.setQueryData(client.orpc.mcp.listConnections.queryKey(), []);
       seedModels(queryClient, client);
     });
   });
@@ -83,14 +82,14 @@ describe("the keys page with the dictionary", () => {
       const html = expectTranslated(
         createElement(HostKeysPage, { linkedCredentials }),
         (queryClient, client) => {
-          queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok: true });
+          queryClient.setQueryData(client.orpc.models.credentials.mode.queryKey(), { byok: true });
           queryClient.setQueryData(
-            client.orpc.credentials.list.queryKey(),
+            client.orpc.models.credentials.list.queryKey(),
             state === "key" ? [{ service: "openai", hint: "abcd", verified: true }] : [],
           );
-          queryClient.setQueryData(client.orpc.credentials.openaiState.queryKey(), state);
+          queryClient.setQueryData(client.orpc.models.credentials.openaiState.queryKey(), state);
           queryClient.setQueryData(client.orpc.models.imageModel.queryKey(), { imageModel: null });
-          queryClient.setQueryData(client.orpc.connections.list.queryKey(), { servers: [] });
+          queryClient.setQueryData(client.orpc.mcp.listConnections.queryKey(), []);
           seedModels(queryClient, client);
         },
       );

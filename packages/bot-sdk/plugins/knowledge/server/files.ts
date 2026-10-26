@@ -19,6 +19,7 @@ import {
   readableCopyPath,
 } from "../shared/folder";
 import { ExtractionFailure, extractKnowledgeText, pdfMediaType, wordMediaType } from "./extract";
+import type { KnowledgeFile, KnowledgeListing } from "../shared/contract";
 
 /*
  * The user's view of their Knowledge (spec #737): plain files in `shared/knowledge/` on their
@@ -32,26 +33,7 @@ const uploadsPath = "/home/user/shared/.knowledge-uploads.json";
 
 const shellQuote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
 
-/** A file in the Knowledge tree, by its path relative to the Knowledge folder;
- * `botName` is the Bot a recorded Turn says saved it, when there is one. */
-export type KnowledgeFile = {
-  path: string;
-  size: number;
-  savedBy: "user" | "bot";
-  botName?: string;
-  /** For a PDF or DOCX, the path of its readable copy, which the read route returns. */
-  readable?: string;
-};
-
-export type KnowledgeListing = {
-  files: KnowledgeFile[];
-  /** Every folder, as relative paths, sorted. */
-  folders: string[];
-  /** Bytes all files hold. */
-  usage: number;
-  /** Bytes all of Knowledge may hold. */
-  limit: number;
-};
+export type { KnowledgeFile, KnowledgeListing };
 
 /** Whether the user can have Knowledge, which needs the computer slot. */
 export function knowledgeAvailable(deps: BotSdkContext): boolean {

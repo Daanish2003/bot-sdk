@@ -6,7 +6,6 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { botClient } from "../../../plugins/bot/client/index";
 import type { BotMessage } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { providerFor } from "../fake-dictionary";
@@ -37,7 +36,7 @@ function mount(
   } = {},
 ) {
   const router = {
-    bot: {
+    bots: {
       get: os.handler(() => ({ bot: { ...ada, turnStatus: null }, messages, turns: [] })),
       stop: os.handler(() => {}),
       send: os
@@ -54,11 +53,11 @@ function mount(
           throw new ORPCError("CONFLICT", { data: { code: "error.choiceAnswered" } });
         }
       }),
-      routine: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
-      checkIn: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
-      helper: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
-      secret: { list: os.handler(() => []) },
     },
+    routines: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
+    checkIns: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
+    helpers: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
+    secrets: { list: os.handler(() => []) },
   };
   const handler = new RPCHandler(router);
   const fetch = async (request: Request) =>
@@ -68,7 +67,6 @@ function mount(
     providerFor(createElement(BotConversation, { botId: ada.id, controls }), {
       fetch,
       messages: {},
-      plugins: [botClient()],
     }),
   );
 }

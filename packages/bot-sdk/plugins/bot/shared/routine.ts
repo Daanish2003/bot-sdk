@@ -52,12 +52,6 @@ export const routineApprovalSchema = z.object({
 
 export type RoutineApproval = z.infer<typeof routineApprovalSchema>;
 
-/**
- * Where a Host mounts the Bot SDK's webhook handler (ADR 0021): a webhook Routine's URL is this
- * path, then its token.
- */
-export const routineWebhookPath = "/api/routines/webhook";
-
 const weekdays: readonly RoutineDay[] = ["mon", "tue", "wed", "thu", "fri"];
 
 /**

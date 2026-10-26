@@ -119,7 +119,7 @@ describe("Host credentials in a Bot's Turn", () => {
 
     // A new Bot on it is refused.
     expect(
-      await refusal(client.bot.create({ name: "Ada", model: "openai:gpt-6-luna" })),
+      await refusal(client.bots.create({ name: "Ada", model: "openai:gpt-6-luna" })),
     ).toMatchObject({ status: 400, data: { code: "error.modelNotAvailable" } });
 
     // So is a send to a Bot whose Model the user's credentials no longer offer.

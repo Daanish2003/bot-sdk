@@ -87,7 +87,7 @@ async function approvedRoutine({
   host = false,
   linked = false,
   getQuota,
-  isUserBlocked,
+  users,
 }: {
   at: Date;
   routine?: RoutineInput;
@@ -97,7 +97,7 @@ async function approvedRoutine({
   host?: boolean;
   /** The Bot is on a ChatGPT plan Model and the user has a linked plan, not a key (ADR 0023). */
   linked?: boolean;
-} & Pick<TestDepsOverrides, "getQuota" | "isUserBlocked">) {
+} & Pick<TestDepsOverrides, "getQuota" | "users">) {
   const timer = fakeJobClock(at);
   const creation = [round(createRoutine(routine)), round()];
   const fake = createFakeAdapter({ rounds: [...creation, ...rounds], manual });
@@ -120,7 +120,7 @@ async function approvedRoutine({
     ...(host && { hostProviders }),
     ...(linked && { linkedCredentials: async () => planCredentials }),
     getQuota,
-    isUserBlocked,
+    users,
   });
   started.push(jobs);
   const user = await insertUser();
@@ -133,7 +133,7 @@ async function approvedRoutine({
     });
   }
   const client = chatRpc({ user, deps });
-  const created = await client.bot.create({
+  const created = await client.bots.create({
     name: "Ada",
     model: host ? hostModel : linked ? planModel : model,
   });
@@ -160,8 +160,8 @@ async function approvedRoutine({
   await sendSaved("Set it up, please");
   timer.advance(500);
   await runDue();
-  const [listed] = await client.bot.routine.list({ botId });
-  await client.bot.routine.approve({ routineId: listed!.id });
+  const [listed] = await client.routines.list({ botId });
+  await client.routines.approve({ routineId: listed!.id });
 
   return {
     fake,
@@ -230,7 +230,7 @@ describe("a scheduled Routine", () => {
     });
     expect(await queuedFires(routineId)).toEqual([mondaySlot]);
     // The approved divider shows it.
-    expect((await client.bot.routine.list({ botId }))[0]?.nextRunAt).toEqual(new Date(mondaySlot));
+    expect((await client.routines.list({ botId }))[0]?.nextRunAt).toEqual(new Date(mondaySlot));
 
     advanceTo("2026-10-19T06:59:59.000Z");
     await runDue();
@@ -249,7 +249,7 @@ describe("a scheduled Routine", () => {
       }),
     ]);
     expect(await queuedFires(routineId)).toEqual(["2026-10-20T07:00:00.000Z"]);
-    expect((await client.bot.routine.list({ botId }))[0]?.nextRunAt).toEqual(
+    expect((await client.routines.list({ botId }))[0]?.nextRunAt).toEqual(
       new Date("2026-10-20T07:00:00.000Z"),
     );
   });
@@ -317,7 +317,7 @@ describe("a scheduled Routine", () => {
     expect(input[0]?.content).toMatch(
       /^\[Current time: Sunday, 18 October 2026 at 11:00 \(Europe\/London\)\]\n\n\[The user's message id, to react to it: [^\]]+\]\n\nSet it up, please$/,
     );
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
     expect(messages.filter((sent) => sent.role === "user").map((sent) => sent.text)).toEqual([
       "Set it up, please",
     ]);
@@ -403,13 +403,13 @@ describe("a scheduled Routine", () => {
       at: sunday,
       rounds: [round()],
     });
-    const before = (await client.bot.get({ botId })).messages;
+    const before = (await client.bots.get({ botId })).messages;
     advanceTo(mondaySlot);
     await runDue();
     advanceTo("2026-10-19T07:00:00.500Z");
     await runDue();
 
-    const read = await client.bot.get({ botId });
+    const read = await client.bots.get({ botId });
     expect(read.messages).toEqual(before);
     expect(read.turns.at(-1)).toMatchObject({
       status: "complete",
@@ -435,18 +435,18 @@ describe("a scheduled Routine", () => {
       rounds: [round()],
     });
     await sendSaved("Anything for me?");
-    await client.bot.stop({ botId });
+    await client.bots.stop({ botId });
     advanceTo(mondaySlot);
     await runDue();
     advanceTo("2026-10-19T07:00:00.500Z");
     await runDue();
 
-    const read = await client.bot.get({ botId });
+    const read = await client.bots.get({ botId });
     expect(read.bot).toMatchObject({ turnStatus: "complete", userTurnStatus: "stopped" });
 
     // The user's next Message reads as its own Turn's.
     await sendSaved("Hello?");
-    expect((await client.bot.get({ botId })).bot.userTurnStatus).toBe("running");
+    expect((await client.bots.get({ botId })).bot.userTurnStatus).toBe("running");
   });
 
   it("reads a run that sent a Message as sent, beside each earlier Turn with its own Triggers", async () => {
@@ -459,7 +459,7 @@ describe("a scheduled Routine", () => {
     advanceTo("2026-10-19T07:00:00.500Z");
     await runDue();
 
-    const { turns } = await client.bot.get({ botId });
+    const { turns } = await client.bots.get({ botId });
     expect(turns.map(({ sent, triggers }) => ({ sent, triggers }))).toEqual([
       {
         sent: false,
@@ -597,7 +597,7 @@ describe("a scheduled Routine", () => {
     let banned = false;
     const { conversationId, routineId, runDue, advanceTo } = await approvedRoutine({
       at: sunday,
-      isUserBlocked: async () => banned,
+      users: { isBlocked: async () => banned },
     });
     banned = true;
 
@@ -647,7 +647,7 @@ describe("changing a Routine", () => {
     advanceTo("2026-10-18T10:00:01.000Z");
     await runDue();
 
-    const [edited] = await client.bot.routine.list({ botId });
+    const [edited] = await client.routines.list({ botId });
     expect(edited).toMatchObject({
       state: "pending",
       schedule: { days: weekdays, at: "09:00" },
@@ -660,7 +660,7 @@ describe("changing a Routine", () => {
 
     // Monday 08:30 in London: approved again, the next run is Tuesday's 09:00.
     advanceTo("2026-10-19T07:30:00.000Z");
-    await client.bot.routine.approve({ routineId });
+    await client.routines.approve({ routineId });
     expect(await queuedFires(routineId)).toEqual(["2026-10-19T08:00:00.000Z"]);
     advanceTo("2026-10-19T08:00:00.000Z");
     await runDue();
@@ -706,7 +706,7 @@ describe("changing a Routine", () => {
     advanceTo("2026-10-18T10:00:01.000Z");
     await runDue();
 
-    expect((await client.bot.routine.list({ botId }))[0]).toMatchObject({ state: "active" });
+    expect((await client.routines.list({ botId }))[0]).toMatchObject({ state: "active" });
     expect(await queuedFires(routineId)).toEqual([mondaySlot]);
   });
 
@@ -720,7 +720,7 @@ describe("changing a Routine", () => {
     advanceTo("2026-10-18T10:00:01.000Z");
     await runDue();
 
-    expect(await client.bot.routine.list({ botId })).toEqual([]);
+    expect(await client.routines.list({ botId })).toEqual([]);
     expect(await queuedFires(routineId)).toEqual([]);
     advanceTo("2026-10-21T12:00:00.000Z");
     await runDue();
@@ -745,11 +745,11 @@ describe("pausing, resuming and deleting a Routine", () => {
       expect.objectContaining({ turnId: null }),
     ]);
 
-    await client.bot.routine.pause({ routineId });
+    await client.routines.pause({ routineId });
 
     expect(await routineTriggers(conversationId)).toEqual([]);
     expect(await queuedFires(routineId)).toEqual([]);
-    expect((await client.bot.routine.list({ botId }))[0]).toMatchObject({
+    expect((await client.routines.list({ botId }))[0]).toMatchObject({
       state: "paused",
       nextRunAt: null,
     });
@@ -771,7 +771,7 @@ describe("pausing, resuming and deleting a Routine", () => {
     const running = runDue();
     await expect.poll(() => fake.calls.length).toBe(3);
 
-    await client.bot.routine.pause({ routineId });
+    await client.routines.pause({ routineId });
     await fake.releaseAll();
     await running;
 
@@ -780,7 +780,7 @@ describe("pausing, resuming and deleting a Routine", () => {
     expect(await routineTriggers(conversationId)).toEqual([
       expect.objectContaining({ turnId: turns[1]!.id }),
     ]);
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
     expect(messages.at(-1)?.text).toBe("Three meetings today.");
   });
 
@@ -789,14 +789,14 @@ describe("pausing, resuming and deleting a Routine", () => {
       at: sunday,
       rounds: [round()],
     });
-    await client.bot.routine.pause({ routineId });
+    await client.routines.pause({ routineId });
     // Monday's slot passes while it is paused.
     advanceTo("2026-10-19T12:00:00.000Z");
     await runDue();
 
-    await client.bot.routine.resume({ routineId });
+    await client.routines.resume({ routineId });
 
-    expect((await client.bot.routine.list({ botId }))[0]).toMatchObject({ state: "active" });
+    expect((await client.routines.list({ botId }))[0]).toMatchObject({ state: "active" });
     expect(await queuedFires(routineId)).toEqual(["2026-10-20T07:00:00.000Z"]);
     advanceTo("2026-10-20T07:00:00.000Z");
     await runDue();
@@ -810,9 +810,9 @@ describe("pausing, resuming and deleting a Routine", () => {
       at: sunday,
     });
 
-    await client.bot.routine.delete({ routineId });
+    await client.routines.delete({ routineId });
 
-    expect(await client.bot.routine.list({ botId })).toEqual([]);
+    expect(await client.routines.list({ botId })).toEqual([]);
     expect(await queuedFires(routineId)).toEqual([]);
     advanceTo("2026-10-23T12:00:00.000Z");
     await runDue();
@@ -823,11 +823,7 @@ describe("pausing, resuming and deleting a Routine", () => {
     const { deps, routineId } = await approvedRoutine({ at: sunday });
     const other = chatRpc({ user: await insertUser(), deps });
 
-    for (const call of [
-      other.bot.routine.pause,
-      other.bot.routine.resume,
-      other.bot.routine.delete,
-    ]) {
+    for (const call of [other.routines.pause, other.routines.resume, other.routines.delete]) {
       await expect(call({ routineId })).rejects.toMatchObject({ code: "NOT_FOUND" });
     }
     expect(await queuedFires(routineId)).toEqual([mondaySlot]);
@@ -885,7 +881,7 @@ describe("a Routine whose chain of fires broke", () => {
   it("leaves a paused Routine and one whose fire is queued as they are", async () => {
     const queued = await approvedRoutine({ at: sunday });
     const paused = await approvedRoutine({ at: sunday });
-    await paused.client.bot.routine.pause({ routineId: paused.routineId });
+    await paused.client.routines.pause({ routineId: paused.routineId });
 
     await bot().start!(queued.deps);
     await queued.runDue();

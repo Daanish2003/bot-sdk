@@ -6,12 +6,10 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { botClient } from "../../../plugins/bot/client/index";
 import type { BotMessage } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
-import { channelClient } from "../../../plugins/channel/client/index";
 import { EmailPopover } from "../../../plugins/channel/ui/email-popover";
-import { modelsClient } from "../../../plugins/models/client/index";
+import { channelClient } from "../../../plugins/channel/client/index";
 import { providerFor } from "../fake-dictionary";
 
 afterEach(() => {
@@ -19,7 +17,6 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const plugins = [modelsClient(), channelClient(), botClient()];
 const first = "ada.k3x9q2mz@bots.example";
 const second = "ada.p7w4n1cv@bots.example";
 
@@ -31,7 +28,7 @@ function fakeChannelServer(nextChannel: "web" | "email" = "web") {
   let address = first;
   const rotated: unknown[] = [];
   const router = {
-    channel: {
+    channels: {
       email: {
         address: os
           .input(z.object({ botId: z.string() }))
@@ -54,9 +51,9 @@ function fakeChannelServer(nextChannel: "web" | "email" = "web") {
 function openPopover(server: ReturnType<typeof fakeChannelServer>) {
   render(
     providerFor(createElement(EmailPopover, { botId: "b1" }), {
+      features: [channelClient()],
       fetch: server.fetch,
       messages: {},
-      plugins,
     }),
   );
   fireEvent.click(screen.getByRole("button", { name: "Email" }));
@@ -122,7 +119,7 @@ describe("Messages that went by email", () => {
     ];
     const list = os.handler(() => []);
     const handler = new RPCHandler({
-      bot: {
+      bots: {
         get: os.handler(() => ({
           bot: {
             id: "b1",
@@ -138,12 +135,12 @@ describe("Messages that went by email", () => {
         })),
         send: os.handler((): BotMessage => ({}) as BotMessage),
         warm: os.handler(() => ({ warmed: false as const, skipped: "still_warm" as const })),
-        routine: { list },
-        checkIn: { list },
-        helper: { list },
-        review: { list },
-        secret: { list },
       },
+      routines: { list },
+      checkIns: { list },
+      helpers: { list },
+      reviews: { list },
+      secrets: { list },
     });
     render(
       providerFor(createElement(BotConversation, { botId: "b1" }), {

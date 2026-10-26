@@ -1021,9 +1021,7 @@ describe("the runner slot", () => {
     const chat = buildBotSdk(
       {
         databaseUrl: testDatabaseUrl,
-        getUser: () => null,
         keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-        basePath: "/api/chat",
         logger: silent,
         models: {},
         runner: jobs,

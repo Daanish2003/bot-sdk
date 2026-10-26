@@ -4,7 +4,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { createBotSdkClient } from "../../core/client/chat-client";
-import { modelsClient } from "../../plugins/models/client/index";
 import {
   ChatProvider,
   type ChatLinkProps,
@@ -13,7 +12,6 @@ import {
 import { HostKeysPage } from "./host-keys-page";
 
 const client = createBotSdkClient({
-  plugins: [modelsClient()],
   baseUrl: "http://localhost/api/chat",
   fetch: async () => {
     throw new Error("Unexpected request in a render test");
@@ -29,9 +27,9 @@ const router: ChatRouter = {
 function render(ui: ReturnType<typeof createElement>, byok: boolean | undefined) {
   const queryClient = new QueryClient();
   if (byok !== undefined) {
-    queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok });
+    queryClient.setQueryData(client.orpc.models.credentials.mode.queryKey(), { byok });
   }
-  queryClient.setQueryData(client.orpc.credentials.list.queryKey(), []);
+  queryClient.setQueryData(client.orpc.models.credentials.list.queryKey(), []);
   return renderToStaticMarkup(
     createElement(ChatProvider, { client, router, queryClient, children: ui }),
   );

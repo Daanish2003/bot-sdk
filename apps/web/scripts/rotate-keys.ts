@@ -46,8 +46,6 @@ const sdk = createBotSdk({
   keyEncryptionSecrets: [newest, process.env.KEY_ENCRYPTION_SECRET_PREVIOUS].filter(
     (secret): secret is string => Boolean(secret),
   ),
-  basePath: "/api/chat",
-  getUser: () => null,
   logger: log,
   models: {},
   features: [mcp()],

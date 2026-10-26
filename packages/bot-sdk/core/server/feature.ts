@@ -1,11 +1,21 @@
-import type { AnyRouter } from "@orpc/server";
+import {
+  type AnyContractRouter,
+  type ContractProcedure,
+  type InferSchemaInput,
+  type InferSchemaOutput,
+  isContractProcedure,
+} from "@orpc/contract";
+import { type AnyRouter, implement } from "@orpc/server";
 import type { AnyServerTool, ModelMessage } from "@tanstack/ai";
 import { is } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 
 import { schema as coreTables } from "./storage";
 import type { Database } from "./storage";
+import type { BotSdk } from "./create-chat";
+import type { Context } from "./context";
 import type { BotSdkContext, BotSdkPlugin, Route, Transaction } from "./plugin";
+import { requireAuth } from "./procedures";
 import type { ComputerApi } from "../../plugins/computer/server/internal";
 import type { EnqueueOptions, JobDefinition } from "../../plugins/runner/server/internal";
 
@@ -152,6 +162,7 @@ export type FeatureDefinition<
   Id extends string = string,
   Needs extends CoreService = never,
   Api extends object = object,
+  Contract extends Record<string, AnyContractRouter> = Record<string, AnyContractRouter>,
 > = {
   id: Id;
   /** The core services the feature uses. The factory throws when one isn't configured. */
@@ -199,7 +210,7 @@ export type FeatureDefinition<
    */
   // oxlint-disable-next-line typescript/no-explicit-any -- each job has its own payload
   jobs?: readonly JobDefinition<any, FeatureContext<Needs>>[];
-  /** The feature's part of a user's delete and export (`sdk.deleteUser`, `sdk.exportUser`). */
+  /** The feature's part of a user's delete and export (`sdk.users.delete`, `sdk.users.export`). */
   userData?: {
     delete?: {
       /** In the delete's transaction, before the core's rows go; its result reaches `after`. */
@@ -217,11 +228,21 @@ export type FeatureDefinition<
     context: FeatureContext<Needs>,
   ) => Promise<{ reencrypted: number; unreadable: number }>;
   /**
-   * oRPC routers, served under `<basePath>/rpc/<key>` beside the core's. Until spec 3 replaces
-   * them with contracts; their procedures still reach the SDK through `context.sdk`.
+   * The feature's oRPC contract (spec #873): `createHttpHandler` serves it under
+   * `<basePath>/rpc/<id>`, each procedure calling the API method at the same path with the
+   * signed-in user's id, so the feature writes no route code. Publish it for the browser client.
    */
-  router?: Record<string, AnyRouter>;
+  contract?: Contract;
 };
+
+/** A contract's API: at each procedure's path, a method taking its input and the user's id. */
+export type ContractApi<Contract> =
+  // oxlint-disable-next-line typescript/no-explicit-any -- any error map and meta
+  Contract extends ContractProcedure<infer Input, infer Output, any, any>
+    ? (
+        input: InferSchemaOutput<Input> & { userId: string },
+      ) => InferSchemaInput<Output> | Promise<InferSchemaInput<Output>>
+    : { [K in keyof Contract]: ContractApi<Contract[K]> };
 
 const brand = Symbol("botSdkFeature");
 
@@ -237,13 +258,19 @@ export type AnyFeature = Feature<string, CoreService, object>;
 
 /**
  * Defines a feature (spec #871): one object literal. `needs` is const-typed, so the services it
- * names arrive non-optional in every callback's context, and no other service does.
+ * names arrive non-optional in every callback's context, and no other service does. With a
+ * `contract`, `api` must implement it (`ContractApi`): each procedure's method at its path.
  */
 export function defineFeature<
   const Id extends string,
   const Needs extends CoreService = never,
   Api extends object = object,
->(definition: FeatureDefinition<Id, Needs, Api>): Feature<Id, Needs, Api> {
+  Contract extends Record<string, AnyContractRouter> = Record<never, never>,
+>(
+  definition: FeatureDefinition<Id, Needs, Api, Contract> & {
+    api?: (context: FeatureContext<Needs>) => ContractApi<Contract>;
+  },
+): Feature<Id, Needs, Api> {
   return { ...definition, [brand]: true } as Feature<Id, Needs, Api>;
 }
 
@@ -252,10 +279,13 @@ export function isFeature(value: unknown): value is AnyFeature {
 }
 
 /**
- * The Prompt start sections the core writes itself, the core's export keys and the built-in plugin
- * ids.
+ * The Prompt start sections the core writes itself, the core's export keys, the built-in plugin
+ * ids, `then` and `toJSON`.
  */
 const reservedIds = new Set([
+  // An instance with a `then` would be awaited as a promise, and one with `toJSON` serialised by it.
+  "then",
+  "toJSON",
   "rules",
   "computer",
   "routines",
@@ -270,22 +300,29 @@ const reservedIds = new Set([
   "channels",
 ]);
 
-/** The names the SDK instance has, or must not have, which a feature's API can't take. */
-const instanceKeys = new Set([
-  // An instance with a `then` would be awaited as a promise.
-  "then",
-  "handler",
-  "migrate",
-  "start",
-  "stop",
-  "deleteUser",
-  "exportUser",
-  "rotateKeys",
-  "runner",
-  "models",
-  "bots",
-  "channels",
-]);
+/**
+ * The names the SDK instance has, or must not have, which a feature's API can't take. Typed
+ * against `BotSdk`, so a new namespace on the instance fails to compile until it is listed here.
+ */
+const instanceKeys: Record<keyof BotSdk, true> = {
+  runner: true,
+  models: true,
+  bots: true,
+  conversations: true,
+  secrets: true,
+  computer: true,
+  routines: true,
+  checkIns: true,
+  helpers: true,
+  demonstrations: true,
+  reviews: true,
+  channels: true,
+  migrate: true,
+  start: true,
+  stop: true,
+  users: true,
+  rotateKeys: true,
+};
 
 /** The core's tables, by name: a feature declares none of them. */
 const coreTableNames = new Set(
@@ -301,7 +338,12 @@ const serviceNames: Record<CoreService, string> = { computer: "the Computer" };
  * needs isn't configured (`services` holds the instance's core services).
  */
 export function checkFeature(feature: AnyFeature, services: ReadonlySet<string>): void {
-  if (reservedIds.has(feature.id) || instanceKeys.has(feature.id)) {
+  if (
+    reservedIds.has(feature.id) ||
+    Object.hasOwn(instanceKeys, feature.id) ||
+    // A name every object inherits (`__proto__`, `constructor`) isn't the feature's own key.
+    feature.id in Object.prototype
+  ) {
     throw new Error(`Feature id "${feature.id}" is reserved by the core`);
   }
   for (const table of Object.values(feature.schema ?? {})) {
@@ -380,8 +422,9 @@ export function contextOf(
 }
 
 /**
- * The part an enabled feature runs as: its `init` builds the feature's API, and its routes,
- * routers, key rotation, delete and export are the instance's.
+ * The part an enabled feature runs as: its `init` builds the feature's API (checked against its
+ * contract), and its routes, key rotation, delete and export are the instance's. Its router is
+ * `featureRouter`'s, which the factory serves.
  */
 export function featurePlugin({ feature, context }: EnabledFeature): BotSdkPlugin {
   const { userData } = feature;
@@ -389,9 +432,12 @@ export function featurePlugin({ feature, context }: EnabledFeature): BotSdkPlugi
   const exportPart = userData?.export;
   return {
     id: feature.id,
-    router: feature.router,
     routes: feature.routes,
-    init: () => ({ api: feature.api?.(context) ?? {} }),
+    init: () => {
+      const api = feature.api?.(context) ?? {};
+      checkImplements(feature, api);
+      return { api };
+    },
     ...(feature.rotateKeys && { rotateKeys: () => feature.rotateKeys!(context) }),
     ...(remove && {
       deleteUser: {
@@ -405,6 +451,13 @@ export function featurePlugin({ feature, context }: EnabledFeature): BotSdkPlugi
   };
 }
 
+/** An enabled feature's API, as `sdk.<id>` serves it: what its procedures call (spec #873). */
+export function featureApi<Api extends object>(sdk: Pick<BotSdkContext, "parts">, id: string): Api {
+  const api = sdk.parts.apis.get(id);
+  if (!api) throw new Error(`Feature "${id}" is not enabled`);
+  return api as Api;
+}
+
 /** The Host's typed access to each feature's API: `sdk.<id>`. */
 export type FeatureApis<Entries extends readonly unknown[]> = {
   [F in Extract<Entries[number], AnyFeature> as F["id"]]: F extends {
@@ -413,3 +466,66 @@ export type FeatureApis<Entries extends readonly unknown[]> = {
     ? Api
     : never;
 };
+
+/**
+ * A feature's router (spec #873), from its contract alone: under its id, each procedure calls the
+ * API method at the same path with its input and the signed-in user's id. None without a contract.
+ */
+export function featureRouter(feature: AnyFeature): Record<string, AnyRouter> | undefined {
+  const { id, contract } = feature;
+  if (!contract) return undefined;
+  const build = (node: AnyContractRouter, path: readonly string[]): AnyRouter =>
+    isContractProcedure(node)
+      ? implement(node)
+          .$context<Context>()
+          .use(requireAuth)
+          .handler(({ context, input }) =>
+            methodAt(
+              featureApi(context.sdk, id),
+              path,
+            )({
+              ...(input as object),
+              userId: context.user.id,
+            }),
+          )
+      : Object.fromEntries(
+          Object.entries(node).map(([key, child]) => [key, build(child, [...path, key])]),
+        );
+  return { [id]: build(contract, []) };
+}
+
+/** Throws when a feature's API has no method at one of its contract's procedure paths. */
+function checkImplements(feature: AnyFeature, api: object): void {
+  const visit = (node: AnyContractRouter, path: readonly string[]) => {
+    if (!isContractProcedure(node)) {
+      for (const [key, child] of Object.entries(node)) visit(child, [...path, key]);
+      return;
+    }
+    if (typeof lookup(api, path) !== "function") {
+      throw new Error(
+        `Feature "${feature.id}" has no API method for its procedure ${path.join(".")}`,
+      );
+    }
+  };
+  if (feature.contract) visit(feature.contract, []);
+}
+
+/**
+ * The value at `path` in `api`: its own keys or its class's methods, never what every object
+ * inherits (`constructor`, `toString`).
+ */
+function lookup(api: object, path: readonly string[]): unknown {
+  return path.reduce<unknown>(
+    (node, key) =>
+      node !== null && typeof node === "object" && key in node && !(key in Object.prototype)
+        ? (node as Record<string, unknown>)[key]
+        : undefined,
+    api,
+  );
+}
+
+/** The API method at `path`, called on the object that holds it. */
+function methodAt(api: object, path: readonly string[]): (input: object) => unknown {
+  const owner = lookup(api, path.slice(0, -1)) as Record<string, (input: object) => unknown>;
+  return (input) => owner[path.at(-1)!]!(input);
+}

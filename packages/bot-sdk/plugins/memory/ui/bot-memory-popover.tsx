@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { useI18n, useOrpc } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
+import type { MemoryContract } from "../shared/contract";
 
 type Tier = "profile" | "log" | "notes";
 
@@ -41,7 +42,7 @@ type Row = {
 export function BotMemoryPopover({ botId }: { botId: string }) {
   const i18n = useI18n();
   const { t } = i18n;
-  const orpc = useOrpc();
+  const orpc = useOrpc<{ memory: MemoryContract }>();
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const status = useQuery(orpc.memory.status.queryOptions());
@@ -134,7 +135,7 @@ export function BotMemoryPopover({ botId }: { botId: string }) {
 
 /** Refetches the Bot's lists after a change to its files. */
 function useRefresh() {
-  const orpc = useOrpc();
+  const orpc = useOrpc<{ memory: MemoryContract }>();
   const queryClient = useQueryClient();
   return () =>
     Promise.all([
@@ -162,7 +163,7 @@ function Section({
 }) {
   const i18n = useI18n();
   const { t } = i18n;
-  const orpc = useOrpc();
+  const orpc = useOrpc<{ memory: MemoryContract }>();
   const refresh = useRefresh();
   const [draft, setDraft] = useState("");
   const [viewing, setViewing] = useState(false);
@@ -248,7 +249,7 @@ function Section({
 function LineRow({ row }: { row: Row }) {
   const i18n = useI18n();
   const { t } = i18n;
-  const orpc = useOrpc();
+  const orpc = useOrpc<{ memory: MemoryContract }>();
   const refresh = useRefresh();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(row.text);
@@ -367,7 +368,7 @@ function FileView({
 }) {
   const i18n = useI18n();
   const { t } = i18n;
-  const orpc = useOrpc();
+  const orpc = useOrpc<{ memory: MemoryContract }>();
   const refresh = useRefresh();
   const [month, setMonth] = useState(initial.month);
   const file: FileRef = { ...initial, month };

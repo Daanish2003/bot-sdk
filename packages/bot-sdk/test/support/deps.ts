@@ -13,7 +13,6 @@ import { memory } from "../../plugins/memory/server/feature";
 import type { ComputerProvider } from "../../plugins/computer/server/internal";
 import type { ModelsDeps } from "../../plugins/models/server/internal";
 import type { JobRunner } from "../../plugins/runner/server/internal";
-import { resolveRateLimits } from "../../core/server/rate-limits";
 import { fakeReviewer, withReviewer } from "./fake-reviewer";
 
 /** The `test` value of `KEY_ENCRYPTION_SECRET` in `apps/web/.env.schema`. */
@@ -24,7 +23,8 @@ export type TestDeps = SdkOver;
 
 /** What a test may override in `createTestSdk`: a part of the core context or of `models`. */
 export type TestDepsOverrides = Partial<
-  Omit<GivenContext, "events" | "keyring"> &
+  // The Ban goes through the `users` slot, as a Host's does.
+  Omit<GivenContext, "events" | "keyring" | "isUserBlocked"> &
     OverSlots &
     Omit<ModelsDeps, "hooks"> & {
       /** The core's event emitter (`BotSdkContext.events`). */
@@ -58,8 +58,9 @@ export function createTestSdk({
   features,
   computer,
   channels,
-  verifiedEmail,
+  users,
   reviewModel,
+  liveViewBase,
   ...overrides
 }: TestDepsOverrides = {}): TestDeps {
   const db = overrides.db ?? getTestDb();
@@ -88,8 +89,6 @@ export function createTestSdk({
     clock: overrides.clock ?? (() => new Date()),
     keyring,
     lifecycle: overrides.lifecycle ?? { stopping: false },
-    isUserBlocked: overrides.isUserBlocked ?? (async () => false),
-    rateLimits: overrides.rateLimits ?? resolveRateLimits(),
   };
   const models: ModelsDeps = {
     db,
@@ -130,11 +129,12 @@ export function createTestSdk({
       jobs: overrides.jobs,
       computer,
       channels,
-      verifiedEmail,
+      users,
       reviewModel,
+      liveViewBase,
       features: [...(withMemory ? [memory()] : []), ...(features ?? [])],
     },
-    { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
+    { logger: { error: () => {} } },
   ).sdk;
 }
 

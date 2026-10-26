@@ -1,26 +1,17 @@
-import type { BotSdkClient } from "../../../core/client/chat-client";
-import type { BotSdkClientPlugin } from "../../../core/client/plugin";
-import type { McpRouter } from "../server/routers/index";
+import type { FeatureClient } from "../../../core/client/chat-client";
+import { mcpContract, type McpContract } from "../shared/contract";
 
-declare module "../../../core/client/plugin" {
-  interface PluginRouters {
-    mcp: McpRouter;
-  }
-}
+export type { McpContract };
 
-declare module "../../../core/client/chat-client" {
-  /** The URL the `mcp` plugin adds to the client. */
-  interface BotSdkClient {
-    /** Where the MCP sign-in starts (`GET ?server=<key>&returnTo=<path>`) and finishes. */
-    connectionsUrl: string;
-  }
-}
-
-export type McpClientPlugin = BotSdkClientPlugin<"mcp", McpRouter> & {
-  urls: (base: string) => Pick<BotSdkClient, "connectionsUrl">;
+/** The URL the `mcp` feature adds to the client. */
+export type McpUrls = {
+  /** Where the MCP sign-in starts (`GET ?server=<key>&returnTo=<path>`) and finishes. */
+  connectionsUrl: string;
 };
 
-/** The `mcp` plugin's client: its router is `connections`, and it adds the MCP sign-in URL. */
-export function mcpClient(): McpClientPlugin {
-  return { id: "mcp", urls: (base) => ({ connectionsUrl: `${base}/mcp` }) };
+export type McpFeatureClient = FeatureClient<"mcp", McpContract, McpUrls>;
+
+/** The `mcp` feature's client part: its contract, served under `mcp`, and the MCP sign-in URL. */
+export function mcpClient(): McpFeatureClient {
+  return { id: "mcp", contract: mcpContract, urls: (base) => ({ connectionsUrl: `${base}/mcp` }) };
 }

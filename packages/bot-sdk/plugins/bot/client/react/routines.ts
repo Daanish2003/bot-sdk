@@ -14,7 +14,7 @@ import { useItemActions, useRefreshAfterTurns } from "./turn-list";
  */
 export function useBotRoutines(botId: string, working: boolean) {
   const { orpc } = useChatAdapter();
-  const options = orpc.bot.routine.list.queryOptions({ input: { botId } });
+  const options = orpc.routines.list.queryOptions({ input: { botId } });
   const query = useQuery(options);
   const [webhookTokens, setWebhookTokens] = useState<Record<string, string>>({});
   const { acting, act } = useItemActions(useRefreshAfterTurns(options.queryKey, working));
@@ -29,11 +29,11 @@ export function useBotRoutines(botId: string, working: boolean) {
     routines: query.data ?? [],
     webhookTokens,
     acting,
-    approve: action((input) => orpc.bot.routine.approve.call(input)),
-    decline: action((input) => orpc.bot.routine.decline.call(input)),
-    pause: action((input) => orpc.bot.routine.pause.call(input)),
-    resume: action((input) => orpc.bot.routine.resume.call(input)),
-    remove: action((input) => orpc.bot.routine.delete.call(input)),
-    rotate: action((input) => orpc.bot.routine.rotate.call(input)),
+    approve: action((input) => orpc.routines.approve.call(input)),
+    decline: action((input) => orpc.routines.decline.call(input)),
+    pause: action((input) => orpc.routines.pause.call(input)),
+    resume: action((input) => orpc.routines.resume.call(input)),
+    remove: action((input) => orpc.routines.delete.call(input)),
+    rotate: action((input) => orpc.routines.rotate.call(input)),
   };
 }

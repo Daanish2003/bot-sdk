@@ -9,14 +9,12 @@ import {
   type ChatLinkProps,
   type ChatRouter,
 } from "../../core/client/react/provider";
-import { botClient } from "../../plugins/bot/client/index";
 import { mcpClient } from "../../plugins/mcp/client/index";
 import { memoryClient } from "../../plugins/memory/client/index";
-import { modelsClient } from "../../plugins/models/client/index";
 import { HostKeysPage } from "./host-keys-page";
 
 const client = createBotSdkClient({
-  plugins: [modelsClient(), botClient(), mcpClient(), memoryClient()],
+  features: [mcpClient(), memoryClient()],
   baseUrl: "http://localhost/api/chat",
   fetch: async () => {
     throw new Error("Unexpected request in a render test");
@@ -30,12 +28,12 @@ const router: ChatRouter = {
 
 function renderKeys() {
   const queryClient = new QueryClient();
-  queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok: true });
-  queryClient.setQueryData(client.orpc.credentials.list.queryKey(), []);
+  queryClient.setQueryData(client.orpc.models.credentials.mode.queryKey(), { byok: true });
+  queryClient.setQueryData(client.orpc.models.credentials.list.queryKey(), []);
   queryClient.setQueryData(client.orpc.models.imageModel.queryKey(), { imageModel: null });
-  queryClient.setQueryData(client.orpc.connections.list.queryKey(), {
-    servers: [{ key: "tracker", name: "E2E Tracker", state: "disconnected", scopes: [] }],
-  });
+  queryClient.setQueryData(client.orpc.mcp.listConnections.queryKey(), [
+    { key: "tracker", name: "E2E Tracker", state: "disconnected", scopes: [] },
+  ]);
   return renderToStaticMarkup(
     createElement(ChatProvider, {
       client,

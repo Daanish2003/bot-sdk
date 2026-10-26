@@ -17,12 +17,13 @@ function seedKeys(state?: OpenaiCredentialsState, saved = state === "key") {
     queryClient: Parameters<NonNullable<Parameters<typeof renderWrapped>[1]>["seed"] & {}>[0],
     client: Parameters<NonNullable<Parameters<typeof renderWrapped>[1]>["seed"] & {}>[1],
   ) => {
-    queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok: true });
+    queryClient.setQueryData(client.orpc.models.credentials.mode.queryKey(), { byok: true });
     queryClient.setQueryData(
-      client.orpc.credentials.list.queryKey(),
+      client.orpc.models.credentials.list.queryKey(),
       saved ? [{ service: "openai", hint: "…abcd", verified: true }] : [],
     );
-    if (state) queryClient.setQueryData(client.orpc.credentials.openaiState.queryKey(), state);
+    if (state)
+      queryClient.setQueryData(client.orpc.models.credentials.openaiState.queryKey(), state);
   };
 }
 

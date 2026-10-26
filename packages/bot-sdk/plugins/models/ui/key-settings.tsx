@@ -62,7 +62,7 @@ export function CredentialsSections({
   const orpc = useOrpc();
   const byok = useByok();
   const { t } = useI18n();
-  const credentials = useQuery(orpc.credentials.list.queryOptions());
+  const credentials = useQuery(orpc.models.credentials.list.queryOptions());
   const [editing, setEditing] = useState<CredentialService | null>(null);
   const rows = providerRows(credentials.data ?? []);
 
@@ -133,7 +133,7 @@ function ProviderRowItem({
   const i18n = useI18n();
   const { t } = i18n;
   const remove = useMutation(
-    orpc.credentials.delete.mutationOptions({
+    orpc.models.credentials.delete.mutationOptions({
       onSuccess: () => invalidateCredentials(queryClient, orpc),
       onError: (error) => toast.error(serverErrorText(i18n, error)),
     }),
@@ -204,13 +204,13 @@ function ProviderRowItem({
   );
 }
 
-/** The OpenAI row's ChatGPT plan, by `credentials.openaiState`: a saved key wins over a link. */
+/** The OpenAI row's ChatGPT plan, by `models.credentials.openaiState`: a saved key wins over a link. */
 function ChatgptLink({ host }: { host: LinkedCredentialsHost }) {
   const queryClient = useQueryClient();
   const orpc = useOrpc();
   const i18n = useI18n();
   const { t } = i18n;
-  const state = useQuery(orpc.credentials.openaiState.queryOptions());
+  const state = useQuery(orpc.models.credentials.openaiState.queryOptions());
   const connect = useMutation({
     mutationFn: () => Promise.resolve(host.connect()),
     onError: (error) => toast.error(serverErrorText(i18n, error)),
@@ -276,7 +276,7 @@ function ChatgptLink({ host }: { host: LinkedCredentialsHost }) {
 /** Saved or deleted credentials change the Key settings rows and which Models can be picked. */
 function invalidateCredentials(queryClient: QueryClient, orpc: BotSdkOrpc) {
   return Promise.all([
-    queryClient.invalidateQueries({ queryKey: orpc.credentials.key() }),
+    queryClient.invalidateQueries({ queryKey: orpc.models.credentials.key() }),
     queryClient.invalidateQueries({ queryKey: orpc.models.key() }),
   ]);
 }
@@ -291,7 +291,7 @@ function CredentialForm({ service, onDone }: { service: CredentialService; onDon
     Object.fromEntries(form.fields.map((field) => [field.name, ""])),
   );
   const save = useMutation(
-    orpc.credentials.save.mutationOptions({
+    orpc.models.credentials.save.mutationOptions({
       onSuccess: async (saved) => {
         await invalidateCredentials(queryClient, orpc);
         toast.success(saved.verified ? t("pages.credentialsChecked") : t("pages.unverified"));

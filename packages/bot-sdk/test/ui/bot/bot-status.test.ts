@@ -39,8 +39,8 @@ type ServerBot = {
 };
 
 /**
- * A stand-in for the server's `bot` router. `bot.list` and `bot.get` answer from `state`, `bot.send`
- * saves the user's Message to Ada and starts her Turn, and `bot.changes` answers from her change log.
+ * A stand-in for the server's `bot` router. `bots.list` and `bots.get` answer from `state`, `bots.send`
+ * saves the user's Message to Ada and starts her Turn, and `conversations.changes` answers from her change log.
  */
 function fakeBotServer(state: Record<string, ServerBot> = {}) {
   const log = changeLog();
@@ -49,7 +49,12 @@ function fakeBotServer(state: Record<string, ServerBot> = {}) {
   const turnChange = (status: BotTurnStatus) =>
     log.record("turn", "t1", { id: "t1", status, startedAt: createdAt, endedAt: null });
   const router = {
-    bot: {
+    conversations: {
+      changes: os
+        .input(z.object({ conversationId: z.string(), since: z.number() }))
+        .handler(({ input }) => log.since(input.since)),
+    },
+    bots: {
       list: os.handler(() =>
         bots.map((bot) => ({
           ...bot,
@@ -68,9 +73,6 @@ function fakeBotServer(state: Record<string, ServerBot> = {}) {
         messages: state[input.botId]?.messages ?? [],
         lastSeq: input.botId === "b2" ? log.last : 0,
       })),
-      changes: os
-        .input(z.object({ botId: z.string(), since: z.number() }))
-        .handler(({ input }) => log.since(input.since)),
       send: os
         .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }).loose())
         .handler(({ input }) => {
@@ -165,7 +167,7 @@ describe("a Turn that outlives the Conversation view", () => {
     expect(screen.getByRole("status", { name: "Typing" })).toBeTruthy();
 
     await server.end("complete");
-    // The sidebar row clears once its refetch of `bot.list` answers.
+    // The sidebar row clears once its refetch of `bots.list` answers.
     await waitFor(() => expect(screen.queryByText("Working…")).toBeNull());
     expect(screen.queryByRole("status", { name: "Typing" })).toBeNull();
   });

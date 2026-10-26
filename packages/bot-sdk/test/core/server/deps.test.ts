@@ -16,8 +16,6 @@ function buildDeps(): BotSdkContext {
   return buildBotSdk(
     {
       databaseUrl: "postgresql://unused@127.0.0.1:9/unused",
-      basePath: "/api/chat",
-      getUser: () => null,
       keyEncryptionSecrets: ["test-secret"],
       logger: { error: () => {} },
       models: {},

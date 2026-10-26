@@ -69,13 +69,13 @@ async function botTurn({
   host = false,
   linked = false,
   getQuota,
-  isUserBlocked,
+  users,
 }: {
   rounds: Round[];
   host?: boolean;
   /** The Bot is on a ChatGPT plan Model and the user has a linked plan, not a key (ADR 0023). */
   linked?: boolean;
-} & Pick<TestDepsOverrides, "getQuota" | "isUserBlocked">) {
+} & Pick<TestDepsOverrides, "getQuota" | "users">) {
   const timer = fakeJobClock(monday);
   const fake = createFakeAdapter({ rounds });
   let deps: TestDeps | undefined;
@@ -97,7 +97,7 @@ async function botTurn({
     ...(host && { hostProviders }),
     ...(linked && { linkedCredentials: async () => planCredentials }),
     getQuota,
-    isUserBlocked,
+    users,
   });
   started.push(jobs);
   const user = await insertUser();
@@ -110,7 +110,7 @@ async function botTurn({
     });
   }
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({
+  const { id: botId } = await client.bots.create({
     name: "Ada",
     model: host ? hostModel : linked ? planModel : model,
   });
@@ -246,18 +246,18 @@ describe("a Check-in", () => {
     const { deps, client, botId, conversationId, runDue, advanceTo } = await botTurn({
       rounds: [round(setCheckIn(setThursday)), round()],
     });
-    const [listed] = await client.bot.checkIn.list({ botId });
+    const [listed] = await client.checkIns.list({ botId });
     expect(listed).toMatchObject({ note, state: "pending", at: new Date(thursdayUtc) });
     expect(listed!.afterMessageId).toEqual(expect.any(String));
 
     const other = chatRpc({ user: await insertUser(), deps });
-    await expect(other.bot.checkIn.cancel({ checkInId: listed!.id })).rejects.toMatchObject({
+    await expect(other.checkIns.cancel({ checkInId: listed!.id })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
     expect((await checkIns(botId))[0]?.state).toBe("pending");
 
-    await client.bot.checkIn.cancel({ checkInId: listed!.id });
-    expect((await client.bot.checkIn.list({ botId }))[0]?.state).toBe("cancelled");
+    await client.checkIns.cancel({ checkInId: listed!.id });
+    expect((await client.checkIns.list({ botId }))[0]?.state).toBe("cancelled");
     expect(await queuedJobs()).toEqual([]);
     advanceTo(thursdayUtc);
     await runDue();
@@ -268,13 +268,13 @@ describe("a Check-in", () => {
     const { deps, client, botId, conversationId } = await botTurn({
       rounds: [round(setCheckIn(setThursday)), round()],
     });
-    const [listed] = await client.bot.checkIn.list({ botId });
+    const [listed] = await client.checkIns.list({ botId });
     const events: string[] = [];
     await deps.pubsub.subscribe(conversationChannel(conversationId), (message) => {
       events.push(message);
     });
 
-    await client.bot.checkIn.cancel({ checkInId: listed!.id });
+    await client.checkIns.cancel({ checkInId: listed!.id });
 
     await expect
       .poll(() => events, { timeout: 10_000 })
@@ -332,7 +332,7 @@ describe("a Check-in", () => {
     let banned = false;
     const { conversationId, runDue, advanceTo } = await botTurn({
       rounds: [round(setCheckIn(setThursday)), round()],
-      isUserBlocked: async () => banned,
+      users: { isBlocked: async () => banned },
     });
     banned = true;
 

@@ -1,5 +1,5 @@
 import { deleteBlobsBestEffort } from "../../../core/server/storage";
-import type { BotSdkPlugin } from "../../../core/server/plugin";
+import type { BotSdkPlugin, Route } from "../../../core/server/plugin";
 
 import {
   cancelUserCheckIns,
@@ -27,15 +27,22 @@ import {
   hasLiveDemonstration,
   hasRunningHelper,
   handleScreenRequest,
-  type ScreenSocketHooks,
-  screenSocketHooks,
   stopUserHelpers,
 } from "./helpers";
 
+import { screensPath, screenViewPath } from "../shared/helper";
 import { stopUserTurns, turnJobs } from "./turn";
 import { demonstrationJobs, stopUserDemonstrations } from "./demonstrations";
 
 import { botPluginRouter } from "./routers";
+import { botsApi, type BotsApi } from "./bots-api";
+import { conversationsApi } from "./conversations-api";
+import { screensApi } from "./screens-api";
+import { secretsApi } from "./secrets-api";
+import { checkInsApi, routinesApi } from "./routines-api";
+import { demonstrationsApi } from "./demonstrations-api";
+import { helpersApi } from "./helpers-api";
+import { reviewsApi } from "./reviews-api";
 import { rotateSecretKeys } from "./safety";
 
 export type BotPlugin = BotSdkPlugin<"bot", never, never>;
@@ -50,29 +57,16 @@ export const botJobs = [
   deliveryJob,
 ];
 
-/** The core's Bots, as the Host reaches them (`sdk.bots`, spec #871). */
-export type BotApi = {
-  /**
-   * The inbound webhook handler of webhook Routines (ADR 0021), Request → Response. The Host mounts
-   * it at `/api/routines/webhook/<token>` with no sign-in: the token is the authentication.
-   */
-  webhookHandler: (request: Request) => Promise<Response>;
+/**
+ * The core's Bots, as the Host reaches them (`sdk.bots`, spec #871): the domain methods (spec #873)
+ * and the Ban's stop. The webhook and the live view are served by the HTTP layer.
+ */
+export type BotApi = BotsApi & {
   /**
    * Stops the running Turn and the running and waiting Helpers of each of the user's Bots, closing
    * their Screens. The Host calls it when it Bans the user.
    */
-  stopTurns: (userId: string) => Promise<void>;
-  /**
-   * The live view's page proxy (#597), Request → Response. The Host mounts it for GET and HEAD at
-   * `screenViewPath/<view token>/*` (`/api/screens`) with no sign-in: the view token that
-   * `bot.screen.view` mints is the authentication, and a request without a valid one answers 403.
-   */
-  screenHandler: (request: Request) => Promise<Response>;
-  /**
-   * The live view's socket proxy (#597): WebSocket hooks in crossws's shape, which the Host mounts
-   * at `screenViewPath/<view token>/websockify` (Nitro: `defineWebSocketHandler(screenSocket)`).
-   */
-  screenSocket: ScreenSocketHooks;
+  stopTurns: (input: { userId: string }) => Promise<void>;
   /** The Model that reviews the Bots' risky tool calls, as the `reviewModel` option named it, if any. */
   reviewModel: string | undefined;
 };
@@ -108,18 +102,24 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
       // The default Model of the user's pickers is the newest Bot's.
       sdk.models.addRecentModelSource((userId) => newestBotModel(sdk.db, userId));
       const api: BotApi = {
-        webhookHandler: (request) => handleRoutineWebhook(sdk, request),
-        stopTurns: async (userId) => {
+        ...botsApi(sdk),
+        stopTurns: async ({ userId }) => {
           // The Turns first, so none starts a Helper after its Helpers are stopped.
           await stopUserTurns(sdk, userId);
           await stopUserHelpers(sdk, userId);
           await stopUserDemonstrations(sdk, userId);
         },
-        screenHandler: (request) => handleScreenRequest(sdk, request),
-        screenSocket: screenSocketHooks(sdk),
         reviewModel,
       };
       sdk.bots = api;
+      sdk.conversations = conversationsApi(sdk);
+      sdk.secrets = secretsApi(sdk);
+      sdk.screens = screensApi(sdk);
+      sdk.routines = routinesApi(sdk);
+      sdk.checkIns = checkInsApi(sdk);
+      sdk.helpers = helpersApi(sdk);
+      sdk.demonstrations = demonstrationsApi(sdk);
+      sdk.reviews = reviewsApi(sdk);
     },
     // Repairs a Routine whose chain of fires broke, now and then hourly (#578).
     start: startRoutineReconcile,
@@ -138,6 +138,23 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
         handle: (_request, { user, sdk, params }) =>
           sentFileResponse(sdk, user.id, params.id!, { inline: true }),
       },
+      {
+        // A webhook Routine's URL (ADR 0021): no sign-in, the token is the authentication.
+        method: "POST",
+        path: "/routines/webhook/:token",
+        public: true,
+        handle: (request, { sdk, params }) => handleRoutineWebhook(sdk, request, params.token!),
+      },
+      // The live view's noVNC page and files (#597), fetched from the Screen with the traffic token
+      // added server-side. No sign-in: the view token in the path is the authentication, and a
+      // request without a valid one answers 403. Its socket is `createScreenSocket`'s hooks.
+      ...(["GET", "HEAD"] as const).map((method): Route => ({
+        method,
+        path: `${screenViewPath}/*`,
+        public: true,
+        handle: (request, { sdk, basePath }) =>
+          handleScreenRequest(sdk, request, screensPath(basePath)),
+      })),
     ],
     deleteUser: {
       // No Routine, Check-in or Helper runs for a deleted user: its jobs are cancelled.

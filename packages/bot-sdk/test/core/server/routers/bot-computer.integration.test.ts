@@ -98,7 +98,7 @@ async function botWith(
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const created = await client.bot.create({ name: "Ada", model });
+  const created = await client.bots.create({ name: "Ada", model });
   return { fake, computerFake, deps, client, user, botId: created.id };
 }
 
@@ -499,7 +499,7 @@ describe("a shell call whose attempt is cut off", () => {
       verified: true,
     });
     const client = chatRpc({ user, deps });
-    const { id: botId } = await client.bot.create({ name: "Ada", model });
+    const { id: botId } = await client.bots.create({ name: "Ada", model });
     return {
       fake,
       computerFake,
@@ -528,7 +528,7 @@ describe("a shell call whose attempt is cut off", () => {
     const running = attempt();
     await commandStarted;
 
-    await client.bot.stop({ botId });
+    await client.bots.stop({ botId });
     // The running attempt sees the cancel at its next heartbeat.
     timer.tick();
     await running;
@@ -723,7 +723,7 @@ describe("the file tools", () => {
       ),
       round(),
     ]);
-    const other = await client.bot.create({ name: "Bo", model });
+    const other = await client.bots.create({ name: "Bo", model });
 
     await send(client, botId, "go");
 
@@ -1144,7 +1144,7 @@ describe("a rebuilt Computer", () => {
       round(file("list", {})),
       round(),
     ]);
-    const { id: otherId } = await client.bot.create({ name: "Bo", model });
+    const { id: otherId } = await client.bots.create({ name: "Bo", model });
     await send(client, botId, "take a note");
     await getTestDb()
       .update(computerTable)
@@ -1165,7 +1165,7 @@ describe("a rebuilt Computer", () => {
     await send(client, botId, "look again");
     expect(toolResultsOf(fake.calls[7]).at(-1)).not.toHaveProperty("note");
     // A Bot created after the rebuild had nothing on the Computer to lose.
-    const { id: laterId } = await client.bot.create({ name: "Cy", model });
+    const { id: laterId } = await client.bots.create({ name: "Cy", model });
     await send(client, laterId, "look");
     expect(toolResultsOf(fake.calls[9]).at(-1)).not.toHaveProperty("note");
     expect(computerFake.callsOf("create")).toHaveLength(2);

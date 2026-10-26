@@ -11,20 +11,15 @@ import { rotateInPasses } from "../../../core/server/credentials/rotation";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import type { TokenSet } from "./oauth";
 import type { McpServerConfig } from "./servers";
+import type { ConnectionSummary } from "../shared/contract";
 
 /**
  * A user's Connections to the Host's MCP servers (spec #91, ADR 0010 for their key). A Connection's
- * tokens and its pending sign-in are encrypted; the client only ever sees the summary below.
+ * tokens and its pending sign-in are encrypted; the client only ever sees their summary.
  */
 type Deps = Pick<BotSdkContext, "db" | "keyring">;
 
-export type ConnectionSummary = {
-  key: string;
-  name: string;
-  /** `reconnect`: a row whose tokens no longer decrypt (a key changed, or the row was damaged). */
-  state: "connected" | "reconnect" | "disconnected";
-  scopes: string[];
-};
+export type { ConnectionSummary };
 
 /** A sign-in is only honoured this long after it began. */
 const signInTtlMs = 10 * 60_000;

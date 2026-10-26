@@ -136,15 +136,13 @@ describe("models.setImageModel", () => {
   });
 });
 
-describe("createBotSdk().exportUser, the models plugin", () => {
+describe("createBotSdk().users.export, the models plugin", () => {
   const exportFor = (userId: string) =>
     createBotSdk({
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-      basePath: "/api/chat",
       models: {},
-    }).exportUser(userId);
+    }).users.export({ userId });
 
   it("exports the Image Model under the models section", async () => {
     const user = await insertUser();

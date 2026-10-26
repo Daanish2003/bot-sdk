@@ -4,12 +4,9 @@ import { memorySettings } from "./db/settings";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 
 /** What the Memory switch shows: the switch, and whether Bots can have memory. */
-export type MemoryStatus = {
-  /** The user's "Use and make Memories" switch. */
-  enabled: boolean;
-  /** Whether Bots can have memory, which needs the `computer` plugin (ADR 0022). */
-  botMemoryAvailable: boolean;
-};
+import type { MemoryStatus } from "../shared/contract";
+
+export type { MemoryStatus };
 
 /** The user's Memory switch: on for a user who never saved it. */
 export async function memoryEnabledFor(

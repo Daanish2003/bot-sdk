@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { botHelper, botReview, botTurn } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { mcpClient } from "../../../../plugins/mcp/client/index";
 import { mcp } from "../../../../plugins/mcp/server/plugin";
 import type { McpServerConfig } from "../../../../plugins/mcp/server/servers";
 import { saveCredentials } from "../../../../plugins/models/server/internal";
@@ -126,7 +125,7 @@ async function world({
     hint: "…-key",
     verified: true,
   });
-  const chat = createTestChat({ user, deps, clientPlugins: [mcpClient()] });
+  const chat = createTestChat({ user, deps });
   const start = await chat.fetch(
     new Request(`${basePath}/mcp/connect?server=linear&returnTo=/settings/keys`, {
       redirect: "manual",
@@ -136,7 +135,7 @@ async function world({
     new Request(auth.approve(start.headers.get("location") ?? ""), { redirect: "manual" }),
   );
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model });
+  const { id: botId } = await client.bots.create({ name: "Ada", model });
   const runDue = async () => {
     for (;;) {
       const claimed = await claimJob(getTestDb(), timer!.clock.now(), { respectRunAfter: true });
@@ -251,8 +250,8 @@ describe("Connector tools in a Routine Turn", () => {
     await stream.return(undefined);
     timer!.advance(500);
     await runDue();
-    const [listed] = await client.bot.routine.list({ botId });
-    await client.bot.routine.approve({ routineId: listed!.id });
+    const [listed] = await client.routines.list({ botId });
+    await client.routines.approve({ routineId: listed!.id });
 
     timer!.advance(new Date("2026-10-19T07:00:00.000Z").getTime() - timer!.clock.now().getTime());
     await runDue();

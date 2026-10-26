@@ -24,3 +24,7 @@ This amends ADR 0017 ("no public HTTP contract yet") for this one route. ADR 001
 
 - The route's path, status codes and the `Idempotency-Key` header become a contract that callers depend on.
 - A leaked URL lets anyone wake the Routine until the user rotates it. There's no rate limit yet (step 9 or a real need), but the Conversation queue batches a flood into few Turns.
+
+## Amendment: the webhook is served by the HTTP layer (2026-10-26, [#873](https://github.com/Daanish2003/bot-sdk/issues/873))
+
+The Host no longer mounts a webhook handler of its own. `createHttpHandler` serves the webhook at `<basePath>/routines/webhook/<token>`, with no sign-in (in `apps/web`, `/api/chat/routines/webhook/<token>`). A Host that serves no HTTP calls the domain method `sdk.routines.receiveWebhook` instead. The token, dedup, body limits and status codes above are unchanged, and a method other than `POST` still gets `405`. The old `/api/routines/webhook/<token>` path has no alias: nothing was deployed on it.

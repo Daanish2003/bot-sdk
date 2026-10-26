@@ -32,9 +32,7 @@ describe("chat.rotateKeys()", () => {
     });
     const chat = createBotSdk({
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets: [keyB, keyA],
-      basePath: "/api/chat",
       logger: { error: vi.fn() },
       models: {},
     });
@@ -90,9 +88,7 @@ describe("chat.rotateKeys()", () => {
     const logger = { error: vi.fn() };
     const chat = createBotSdk({
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets: [keyB, keyA],
-      basePath: "/api/chat",
       logger,
       models: {},
     });
@@ -108,9 +104,7 @@ describe("chat.rotateKeys()", () => {
     expect(rows.find((row) => row.service === "mistral")).toBeDefined();
     const onlyNew = createBotSdk({
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets: [keyB],
-      basePath: "/api/chat",
       logger,
       models: {},
     });

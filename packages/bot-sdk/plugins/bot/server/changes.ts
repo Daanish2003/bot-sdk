@@ -1,7 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 
 import { changesSince } from "../../../core/server/chat/change-log";
-import { botReview, botSecret, botTurn, message } from "../../../core/server/storage";
+import { bot, botReview, botSecret, botTurn, message } from "../../../core/server/storage";
 import type { Database } from "../../../core/server/storage";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
@@ -10,7 +10,7 @@ import { listCheckIns, listRoutines } from "./routines";
 import { listHelpers } from "./helpers";
 import { reviewFields } from "./safety";
 import { botSummaries } from "./context";
-import { findBot, toBotMessage } from "./conversation";
+import { toBotMessage } from "./conversation";
 
 /** The ids of `changes` of `kind`, once each. */
 const idsOf = (changes: { kind: string; refId: string }[], kind: BotChangeKind) => [
@@ -18,22 +18,49 @@ const idsOf = (changes: { kind: string; refId: string }[], kind: BotChangeKind) 
 ];
 
 /**
- * The changes to the user's Bot `botId`'s thread after seq `since`, oldest first, each with what it
- * points at as it is now; or `reload` once the log no longer holds them all. Another user's Bot is
- * not found.
+ * The Bot that Conversation `conversationId` belongs to, when it is one of the user's Bots'.
+ * Another user's Conversation, or one that isn't a Bot's, is not found.
  */
-export async function botChanges(
+async function botConversationOf(
   deps: BotSdkContext,
   userId: string,
-  botId: string,
+  conversationId: string,
+): Promise<{ botId: string }> {
+  const [found] = await deps.db
+    .select({ botId: bot.id })
+    .from(bot)
+    .where(and(eq(bot.conversationId, conversationId), eq(bot.userId, userId)));
+  if (!found) {
+    throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
+  }
+  return found;
+}
+
+/**
+ * The changes to the thread of the user's Bot Conversation `conversationId` after seq `since`,
+ * oldest first, each with what it points at as it is now; or `reload` once the log no longer holds
+ * them all. Another user's Conversation, or one that isn't a Bot's, is not found.
+ */
+export async function conversationChanges(
+  deps: BotSdkContext,
+  userId: string,
+  conversationId: string,
   since: number,
 ): Promise<BotChanges> {
-  const found = await findBot(deps.db, userId, botId);
-  if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-  const logged = await changesSince(deps.db, found.conversationId, since);
+  const { botId } = await botConversationOf(deps, userId, conversationId);
+  return threadChanges(deps, { userId, botId, conversationId }, since);
+}
+
+/** The changes to a Bot's thread after seq `since`, with their data, for its known owner. */
+async function threadChanges(
+  deps: BotSdkContext,
+  owner: { userId: string; botId: string; conversationId: string },
+  since: number,
+): Promise<BotChanges> {
+  const logged = await changesSince(deps.db, owner.conversationId, since);
   if (logged.reload) return logged;
   const { changes } = logged;
-  const data = await changeData(deps.db, { userId, botId, ...found }, changes);
+  const data = await changeData(deps.db, owner, changes);
   return {
     reload: false,
     changes: changes.map(

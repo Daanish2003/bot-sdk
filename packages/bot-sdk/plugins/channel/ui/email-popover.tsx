@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { useI18n, useOrpc } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
+import type { ChannelsContract } from "../../bot/shared/contract";
 
 /**
  * The Bot header's **Email** button (spec #761, prototype variant A): a popover with the Bot's own
@@ -18,13 +19,13 @@ import { serverErrorText } from "../../../core/client/rpc-error";
 export function EmailPopover({ botId }: { botId: string }) {
   const i18n = useI18n();
   const { t } = i18n;
-  const orpc = useOrpc();
+  const orpc = useOrpc<{ channels: ChannelsContract }>();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const addressQuery = orpc.channel.email.address.queryOptions({ input: { botId } });
+  const addressQuery = orpc.channels.email.address.queryOptions({ input: { botId } });
   const address = useQuery({ ...addressQuery, enabled: open });
-  const rotate = useMutation(orpc.channel.email.rotate.mutationOptions());
+  const rotate = useMutation(orpc.channels.email.rotate.mutationOptions());
   const refused = (error: unknown) => toast.error(serverErrorText(i18n, error));
 
   const copy = (text: string) =>

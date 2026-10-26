@@ -10,14 +10,14 @@ import { useItemActions, useRefreshAfterTurns } from "./turn-list";
  */
 export function useBotCheckIns(botId: string, working: boolean) {
   const { orpc } = useChatAdapter();
-  const options = orpc.bot.checkIn.list.queryOptions({ input: { botId } });
+  const options = orpc.checkIns.list.queryOptions({ input: { botId } });
   const query = useQuery(options);
   const { acting, act } = useItemActions(useRefreshAfterTurns(options.queryKey, working));
   return {
     checkIns: query.data ?? [],
     acting,
     cancel: async (checkInId: string) => {
-      await act(checkInId, () => orpc.bot.checkIn.cancel.call({ checkInId }));
+      await act(checkInId, () => orpc.checkIns.cancel.call({ checkInId }));
     },
   };
 }

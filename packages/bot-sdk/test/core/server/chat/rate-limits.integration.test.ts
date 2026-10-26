@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { createHttpHandler } from "../../../../core/http";
 import { createBotSdk } from "../../../../core/server/create-chat";
 import { knowledge } from "../../../../plugins/knowledge/server/plugin";
 import { memoryRuntime } from "../../../../core/server/runtime";
@@ -7,7 +8,7 @@ import { resolveRateLimits, type RateLimits } from "../../../../core/server/rate
 import { RateLimitedError } from "../../../../core/client/rate-limit";
 import { createTestSdk } from "../../../support/deps";
 import { fakeComputerProvider } from "../../../support/fake-computer-provider";
-import { chatRpc, sendAs } from "../../../support/sdk";
+import { chatRpc, createTestChat } from "../../../support/sdk";
 import { testDatabaseUrl } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 
@@ -15,7 +16,7 @@ import { insertUser } from "../../../support/users";
 const rpcCases = [
   {
     name: "credential save and check",
-    route: "credentials/save",
+    route: "models/credentials/save",
     rateLimits: { credentialSave: { limit: 1, windowSeconds: 60 } },
   },
   {
@@ -30,7 +31,7 @@ const rpcCases = [
   },
   {
     name: "Bot file upload (shares the attachment bucket)",
-    route: "bot/upload",
+    route: "bots/upload",
     rateLimits: { attachmentUpload: { limit: 1, windowSeconds: 60 } },
   },
 ];
@@ -49,14 +50,12 @@ describe.each(rpcCases)("$name rate limits", ({ route, rateLimits }) => {
   it("answers 429 with Retry-After once a user passes the limit, and another user is unaffected", async () => {
     const user = await insertUser();
     const other = await insertUser();
-    const deps = createTestSdk({
-      ...botOnly(),
-      rateLimits: resolveRateLimits(rateLimits),
-    });
+    const deps = createTestSdk(botOnly());
+    const as = (caller: typeof user) => createTestChat({ user: caller, deps, rateLimits }).fetch;
 
-    const first = await sendAs(rpcCall(route), user, deps);
-    const limited = await sendAs(rpcCall(route), user, deps);
-    const others = await sendAs(rpcCall(route), other, deps);
+    const first = await as(user)(rpcCall(route));
+    const limited = await as(user)(rpcCall(route));
+    const others = await as(other)(rpcCall(route));
 
     expect(first.status).not.toBe(404);
     expect(first.status).not.toBe(429);
@@ -72,31 +71,33 @@ describe.each(rpcCases)("$name rate limits", ({ route, rateLimits }) => {
     const off = Object.fromEntries(
       Object.keys(rateLimits).map((key) => [key, false]),
     ) as RateLimits;
-    const deps = createTestSdk({ ...botOnly(), rateLimits: resolveRateLimits(off) });
+    const fetch = createTestChat({ user, deps: createTestSdk(botOnly()), rateLimits: off }).fetch;
 
     const statuses: number[] = [];
     for (let attempt = 0; attempt < 5; attempt++) {
-      statuses.push((await sendAs(rpcCall(route), user, deps)).status);
+      statuses.push((await fetch(rpcCall(route))).status);
     }
 
     expect(statuses.every((status) => status !== 429)).toBe(true);
   });
 });
 
-it("takes its limit from createBotSdk's rateLimits override", async () => {
+it("takes its limit from createHttpHandler's rateLimits override", async () => {
   const user = await insertUser();
   const chat = createBotSdk({
     databaseUrl: testDatabaseUrl,
-    getUser: () => ({ id: user.id }),
     keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-    basePath: "/api/chat",
     pubsub: memoryRuntime(),
-    rateLimits: { credentialSave: { limit: 1, windowSeconds: 60 } },
     models: {},
   });
+  const http = createHttpHandler(chat, {
+    basePath: "/api/chat",
+    getUser: () => ({ id: user.id }),
+    rateLimits: { credentialSave: { limit: 1, windowSeconds: 60 } },
+  });
 
-  const first = await chat.handler(rpcCall("credentials/save"));
-  const second = await chat.handler(rpcCall("credentials/save"));
+  const first = await http(rpcCall("models/credentials/save"));
+  const second = await http(rpcCall("models/credentials/save"));
 
   expect(first.status).not.toBe(429);
   expect(second.status).toBe(429);
@@ -113,12 +114,10 @@ it("surfaces the limit to the typed client as a RateLimitedError with the retry 
   const user = await insertUser();
   const client = chatRpc({
     user,
-    deps: createTestSdk({
-      rateLimits: resolveRateLimits({ attachmentUpload: { limit: 0, windowSeconds: 60 } }),
-    }),
+    rateLimits: { attachmentUpload: { limit: 0, windowSeconds: 60 } },
   });
 
-  const caught = await client.bot
+  const caught = await client.bots
     .upload({ file: new File(["hi"], "a.txt", { type: "text/plain" }) })
     .catch((error: unknown) => error);
 

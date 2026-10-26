@@ -12,7 +12,6 @@ import { insertUser, type TestUser } from "../../support/users";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 
 const keyEncryptionSecrets = ["test-key-encryption-secret-not-for-production"];
-const basePath = "/api/chat";
 const sonnet = "anthropic:claude-sonnet-5-5";
 const hostProviders: HostProvider[] = [
   {
@@ -96,9 +95,7 @@ describe("chat.models.usageTotals", () => {
 
     const chat = createBotSdk({
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets,
-      basePath,
       models: {},
     });
     const totals = await chat.models.usageTotals({ since, until });
@@ -166,9 +163,7 @@ describe("chat.models.usage", () => {
     });
     const chat = createBotSdk({
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets,
-      basePath,
       models: {},
     });
 
@@ -211,9 +206,7 @@ describe("chat.models.quota", () => {
     });
     const chat = createBotSdk({
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets,
-      basePath,
       models: {
         getQuota: (userId) => (userId === owner.id ? { budgetUsd: 1, window: "day" } : null),
       },
@@ -231,9 +224,7 @@ describe("chat.models.quota", () => {
     const free = await insertUser();
     const chat = createBotSdk({
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets,
-      basePath,
       models: {
         getQuota: () => null,
       },
@@ -305,7 +296,7 @@ describe("a Ban: chat.bots.stopTurns", () => {
       await followSend(client, { botId, id: uuidv7(), text: "Hi" });
     }
 
-    await deps.bots.stopTurns(owner.id);
+    await deps.bots.stopTurns({ userId: owner.id });
 
     const statusOf = async (botId: string) =>
       (await getTestDb().select().from(botTurn).where(eq(botTurn.botId, botId))).map(

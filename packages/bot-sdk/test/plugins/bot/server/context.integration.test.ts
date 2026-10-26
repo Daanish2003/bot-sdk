@@ -34,7 +34,7 @@ async function fixtureBot(): Promise<{
     hint: "…-key",
     verified: true,
   });
-  const { id: botId } = await chatRpc({ user, deps }).bot.create({ name: "Ada", model });
+  const { id: botId } = await chatRpc({ user, deps }).bots.create({ name: "Ada", model });
   const [row] = await getTestDb()
     .select({ conversationId: bot.conversationId })
     .from(bot)

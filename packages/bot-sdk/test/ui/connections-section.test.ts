@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 
 import { createBotSdkClient } from "../../core/client/chat-client";
 import { mcpClient } from "../../plugins/mcp/client/index";
-import { modelsClient } from "../../plugins/models/client/index";
 import {
   ChatProvider,
   type ChatLinkProps,
@@ -14,7 +13,7 @@ import {
 import { HostKeysPage } from "./host-keys-page";
 
 const client = createBotSdkClient({
-  plugins: [modelsClient(), mcpClient()],
+  features: [mcpClient()],
   baseUrl: "http://localhost/api/chat",
   fetch: async () => {
     throw new Error("Unexpected request in a render test");
@@ -36,9 +35,9 @@ function renderKeys(
   }>,
 ) {
   const queryClient = new QueryClient();
-  queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok: true });
-  queryClient.setQueryData(client.orpc.credentials.list.queryKey(), []);
-  queryClient.setQueryData(client.orpc.connections.list.queryKey(), { servers });
+  queryClient.setQueryData(client.orpc.models.credentials.mode.queryKey(), { byok: true });
+  queryClient.setQueryData(client.orpc.models.credentials.list.queryKey(), []);
+  queryClient.setQueryData(client.orpc.mcp.listConnections.queryKey(), servers);
   return renderToStaticMarkup(
     createElement(ChatProvider, {
       client,

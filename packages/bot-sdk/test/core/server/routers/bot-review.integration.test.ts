@@ -118,7 +118,7 @@ async function botWith(
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model });
+  const { id: botId } = await client.bots.create({ name: "Ada", model });
   return {
     fake,
     helperFake,
@@ -153,7 +153,7 @@ function denyingEach(client: ReturnType<typeof chatRpc>, botId: string) {
   const loop = (async () => {
     while (!stopped) {
       for (const row of await reviewsOf(botId)) {
-        if (row.state === "waiting") await client.bot.review.deny({ reviewId: row.id });
+        if (row.state === "waiting") await client.reviews.deny({ reviewId: row.id });
       }
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
@@ -310,7 +310,7 @@ describe("Auto-review of the Bot's shell commands", () => {
     const reviewer = fakeReviewer();
     const { client, botId } = await botWith([round(shell("git push")), round()], { reviewer });
 
-    await client.bot.secret.save({ botId, name: "GITHUB_TOKEN", value: "ghp_0123456789" });
+    await client.secrets.save({ botId, name: "GITHUB_TOKEN", value: "ghp_0123456789" });
     await expect
       .poll(async () => (await turnsOf(botId))[0]?.status, { timeout: 10_000 })
       .toBe("complete");
@@ -342,17 +342,14 @@ describe("Auto-review of the Bot's shell commands", () => {
       { reviewer },
     );
     await send(client, botId, "watch my payouts");
-    const [routine] = await client.bot.routine.list({ botId });
-    const { webhookToken } = await client.bot.routine.approve({ routineId: routine!.id });
+    const [routine] = await client.routines.list({ botId });
+    const { webhookToken } = await client.routines.approve({ routineId: routine!.id });
 
-    const response = await deps.bots.webhookHandler(
-      new Request(`https://bots.example/api/routines/webhook/${webhookToken}`, {
-        method: "POST",
-        body: JSON.stringify({ note: injected }),
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-    expect(response.status).toBeLessThan(300);
+    const receipt = await deps.routines.receiveWebhook({
+      token: webhookToken!,
+      body: JSON.stringify({ note: injected }),
+    });
+    expect(receipt).toBe("accepted");
     await expect
       .poll(async () => (await turnsOf(botId)).at(-1)?.status, { timeout: 10_000 })
       .toBe("complete");
@@ -442,7 +439,7 @@ describe("Auto-review of the Bot's shell commands", () => {
     expect(expired!.decidedAt).toEqual(expect.any(Date));
 
     // A late yes changes nothing, and says the request is closed.
-    expect(await client.bot.review.allow({ reviewId: waiting.id })).toEqual({
+    expect(await client.reviews.allow({ reviewId: waiting.id })).toEqual({
       decided: false,
       state: "expired",
     });
@@ -458,8 +455,8 @@ describe("Auto-review of the Bot's shell commands", () => {
 
     const stream = await followSend(client, { botId, id: uuidv7(), text: "ship it" });
     const waiting = await waitingReview(botId);
-    const { messages } = await client.bot.get({ botId });
-    await client.bot.review.deny({ reviewId: waiting.id });
+    const { messages } = await client.bots.get({ botId });
+    await client.reviews.deny({ reviewId: waiting.id });
     for await (const _event of stream) {
       // Read to the end of the Turn.
     }
@@ -471,7 +468,8 @@ describe("Auto-review of the Bot's shell commands", () => {
         control: { kind: "review_approval", reviewId: waiting.id },
       }),
     ]);
-    const changed = await client.bot.changes({ botId, since: 0 });
+    const { conversationId } = await client.bots.get({ botId });
+    const changed = await client.conversations.changes({ conversationId, since: 0 });
     if (changed.reload) throw new Error("expected changes");
     const decided = changed.changes.filter(
       (change) => change.kind === "review" && change.refId === waiting.id,
@@ -479,7 +477,7 @@ describe("Auto-review of the Bot's shell commands", () => {
     expect(decided).toHaveLength(2);
     // A pass puts nothing in the thread.
     expect(
-      (await client.bot.get({ botId })).messages.filter(
+      (await client.bots.get({ botId })).messages.filter(
         (sent) => sent.control?.kind === "review_approval",
       ),
     ).toHaveLength(1);
@@ -496,7 +494,7 @@ describe("Auto-review of the Bot's shell commands", () => {
 
     const stream = await followSend(client, { botId, id: uuidv7(), text: "ship it" });
     const waiting = await waitingReview(botId);
-    expect(await client.bot.review.allow({ reviewId: waiting.id })).toEqual({
+    expect(await client.reviews.allow({ reviewId: waiting.id })).toEqual({
       decided: true,
       state: "allowed",
     });
@@ -509,7 +507,7 @@ describe("Auto-review of the Bot's shell commands", () => {
     const [allowed] = await reviewsOf(botId);
     expect(allowed).toMatchObject({ state: "allowed", decidedAt: expect.any(Date) });
     // Decided once: a second answer is closed.
-    expect(await client.bot.review.deny({ reviewId: waiting.id })).toEqual({
+    expect(await client.reviews.deny({ reviewId: waiting.id })).toEqual({
       decided: false,
       state: "allowed",
     });
@@ -528,10 +526,10 @@ describe("Auto-review of the Bot's shell commands", () => {
     const waiting = await waitingReview(botId);
     // Another user's request is not found.
     const stranger = chatRpc({ user: await insertUser(), deps });
-    await expect(stranger.bot.review.allow({ reviewId: waiting.id })).rejects.toMatchObject({
+    await expect(stranger.reviews.allow({ reviewId: waiting.id })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
-    expect(await client.bot.review.deny({ reviewId: waiting.id })).toEqual({
+    expect(await client.reviews.deny({ reviewId: waiting.id })).toEqual({
       decided: true,
       state: "denied",
     });
@@ -560,7 +558,7 @@ describe("Auto-review of the Bot's shell commands", () => {
 
     const stream = await followSend(client, { botId, id: uuidv7(), text: "ship it" });
     const waiting = await waitingReview(botId);
-    await client.bot.stop({ botId });
+    await client.bots.stop({ botId });
     const events = [];
     for await (const event of stream) events.push(event);
 
@@ -569,7 +567,7 @@ describe("Auto-review of the Bot's shell commands", () => {
     expect(await reviewsOf(botId)).toEqual([
       expect.objectContaining({ id: waiting.id, state: "denied", decidedAt: expect.any(Date) }),
     ]);
-    expect(await client.bot.review.allow({ reviewId: waiting.id })).toEqual({
+    expect(await client.reviews.allow({ reviewId: waiting.id })).toEqual({
       decided: false,
       state: "denied",
     });
@@ -635,7 +633,7 @@ describe("Auto-review of the Bot's shell commands", () => {
     await vi.advanceTimersByTimeAsync(reviewTimeoutMs);
     // The block asks the user; a deny ends the wait at its next poll.
     const waiting = await waitingReview(botId);
-    await client.bot.review.deny({ reviewId: waiting.id });
+    await client.reviews.deny({ reviewId: waiting.id });
     await vi.advanceTimersByTimeAsync(1_000);
     vi.useRealTimers();
     for await (const _event of stream) {
@@ -767,7 +765,7 @@ describe("an Approval wait cut off by a crash", () => {
       verified: true,
     });
     const client = chatRpc({ user, deps });
-    const { id: botId } = await client.bot.create({ name: "Ada", model });
+    const { id: botId } = await client.bots.create({ name: "Ada", model });
     return {
       fake,
       reviewer,
@@ -803,7 +801,7 @@ describe("an Approval wait cut off by a crash", () => {
     expect(waiting.deadline).toEqual(new Date(start.getTime() + 15_000));
     await crash(lost);
     const resumed = attempt(instance());
-    await client.bot.review.allow({ reviewId: waiting.id });
+    await client.reviews.allow({ reviewId: waiting.id });
     await resumed;
 
     expect(reviewer.calls).toHaveLength(1);
@@ -849,7 +847,7 @@ describe("an Approval wait cut off by a crash", () => {
 
     const lost = attempt();
     const waiting = await waitingReview(botId);
-    await client.bot.review.allow({ reviewId: waiting.id });
+    await client.reviews.allow({ reviewId: waiting.id });
     await commandRan;
     await crash(lost);
     await attempt(instance());
@@ -940,12 +938,12 @@ describe("Auto-review of a Helper's calls", () => {
     expect((await turnsOf(botId)).map((turn) => turn.status)).toEqual(["complete"]);
     const [helper] = await helpersOf(botId);
     expect(waiting).toMatchObject({ helperId: helper!.id, turnId: null, tool: "shell" });
-    expect(await client.bot.review.list({ botId })).toEqual([
+    expect(await client.reviews.list({ botId })).toEqual([
       expect.objectContaining({ id: waiting.id, helperId: helper!.id, state: "waiting" }),
     ]);
     expect(computerFake.callsOf("run")).toEqual([]);
 
-    await client.bot.review.allow({ reviewId: waiting.id });
+    await client.reviews.allow({ reviewId: waiting.id });
     expect(await helperEnded(botId)).toMatchObject({ status: "complete", report: "Deployed." });
 
     expect(computerFake.callsOf("run").map((run) => run.command)).toEqual(["make deploy"]);
@@ -966,13 +964,13 @@ describe("Auto-review of a Helper's calls", () => {
 
     await send(client, botId, "run the tests");
     const waiting = await waitingReview(botId);
-    await client.bot.helper.stop({ botId, helperId: waiting.helperId! });
+    await client.helpers.stop({ botId, helperId: waiting.helperId! });
 
     expect(await helperEnded(botId)).toMatchObject({ status: "stopped" });
     expect(await reviewsOf(botId)).toEqual([
       expect.objectContaining({ id: waiting.id, state: "denied", decidedAt: expect.any(Date) }),
     ]);
-    expect(await client.bot.review.allow({ reviewId: waiting.id })).toEqual({
+    expect(await client.reviews.allow({ reviewId: waiting.id })).toEqual({
       decided: false,
       state: "denied",
     });
@@ -986,7 +984,7 @@ describe("bot.review.list", () => {
     await send(client, botId, "list my files");
     const [turn] = await turnsOf(botId);
 
-    const reviews = await client.bot.review.list({ botId });
+    const reviews = await client.reviews.list({ botId });
 
     expect(reviews).toEqual([
       expect.objectContaining({
@@ -999,7 +997,7 @@ describe("bot.review.list", () => {
       }),
     ]);
     const stranger = chatRpc({ user: await insertUser(), deps });
-    await expect(stranger.bot.review.list({ botId })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(stranger.reviews.list({ botId })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   it("lists only the newest reviews, and every waiting one however old", async () => {
@@ -1023,7 +1021,7 @@ describe("bot.review.list", () => {
       .insert(botReview)
       .values([waiting, ...passes]);
 
-    const listed = await client.bot.review.list({ botId });
+    const listed = await client.reviews.list({ botId });
 
     expect(listed.map((review) => review.id)).toEqual([
       waiting.id,

@@ -3,17 +3,14 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { botClient } from "../../../plugins/bot/client/index";
 import type { BotSummary } from "../../../plugins/bot/shared/turn";
 import { SummaryCard } from "../../../plugins/bot/ui/summary-card";
-import { modelsClient } from "../../../plugins/models/client/index";
 import { providerFor } from "../fake-dictionary";
 
 afterEach(cleanup);
 
-const plugins = [modelsClient(), botClient()];
 const show = (summary: BotSummary) =>
-  render(providerFor(createElement(SummaryCard, { summary }), { messages: {}, plugins }));
+  render(providerFor(createElement(SummaryCard, { summary }), { messages: {} }));
 
 /** 14:10 in the test's own time zone, as the card shows it. */
 const at = new Date(2026, 9, 21, 14, 10);

@@ -57,7 +57,7 @@ Install these in the Host. There is one `package.json` for the whole SDK, and ve
 - `redis` (the Redis client, used by `redisRuntime()`)
 - `undici` and `ipaddr.js`, for the SSRF-guarded `fetch` (`core/server/lib/guarded-fetch.ts`). `undici` pins each connection to the address that was checked, and `ipaddr.js` classifies that address. Install `undici` at the major your Node bundles (7.x on Node 24): undici 8's dispatcher is rejected by Node's built-in `fetch`.
 - `aws4fetch`, which signs requests for `s3BlobStore`
-- `@orpc/client`, `@orpc/server`, `@orpc/tanstack-query`
+- `@orpc/client`, `@orpc/contract`, `@orpc/server`, `@orpc/tanstack-query`
 - `zod`
 
 **What the `models` plugin needs (on top of `core/`):**
@@ -89,7 +89,7 @@ Install these in the Host. There is one `package.json` for the whole SDK, and ve
 
 The `runner` and `memory` plugins and the `skills` feature need nothing beyond `core/` (and `lucide-react` for the `ui/` folders).
 
-`core/` imports only npm packages and its own files, so a Host outside this repo can copy and compile it.
+`core/` is not self-contained: `core/server`, `core/http` and `core/client` import the `plugins/` they compose (the Bot core, Models, Runner, Computer and Channel, and the features' parts), so a Host outside this repo copies `core/` together with `plugins/`.
 
 ## shadcn components
 
@@ -127,9 +127,7 @@ import { createBotSdk, s3BlobStore } from "@ai-chat/bot-sdk/core/server";
 
 const chat = createBotSdk({
   databaseUrl,
-  getUser,
   keyEncryptionSecrets,
-  basePath: "/api/chat",
   models: {},
   blobs: s3BlobStore({
     endpoint: process.env.S3_ENDPOINT!,
@@ -153,16 +151,23 @@ const chat = createBotSdk({
 // `computer` slot
 const chat = createBotSdk({
   databaseUrl,
-  getUser,
   keyEncryptionSecrets,
-  basePath: "/api/chat",
   computer: e2bProvider({ apiKey, apiUrl, sandboxUrl, template }),
   models: {},
   features: [memory(), skills(), knowledge(), mcp({ servers })],
+  // what the SDK asks you about a user: a banned owner's Routine fires, Check-in fires, Routine
+  // webhooks and inbound email start no Turns (in-process calls are trusted)
+  users: { isBlocked: (userId) => isBanned(userId) },
 });
 
-// one catch-all route on your framework, for every chat call
-export const handler = (request: Request) => chat.handler(request);
+// the optional HTTP layer (`@ai-chat/bot-sdk/core/http`): one catch-all route on your framework,
+// for every chat call; sign-in and the 401 are yours through `getUser`
+export const handler = createHttpHandler(chat, { basePath: "/api/chat", getUser });
+// on a Node server instead, ahead of any body parser: app.use("/api/chat", toNodeHandler(handler))
+// the live view's socket, crossws hooks for <basePath>/screens/<token>/websockify (on Nitro,
+// `defineWebSocketHandler(screenSocket)` at that path); webhooks, inbound email, the live view's
+// pages and MCP OAuth callbacks are routes of the handler above
+export const screenSocket = createScreenSocket(chat, { basePath: "/api/chat" });
 
 // deploy step, once per deploy
 await chat.migrate();
@@ -173,25 +178,21 @@ await chat.start();
 process.on("SIGTERM", () => void chat.stop().finally(() => process.exit(0)));
 
 // when your app deletes a user
-await chat.deleteUser(String(user.id));
+await chat.users.delete({ userId: String(user.id) });
 
 // when your app exports a user's data: one JSON-ready document (version 2), never credentials; each plugin's part sits under its plugin id (`copy.bot`, `copy.memory`)
-const copy = await chat.exportUser(String(user.id));
+const copy = await chat.users.export({ userId: String(user.id) });
+
+// when your app bans a user: their running Turns, Helpers and Demonstrations stop
+await chat.bots.stopTurns({ userId: String(user.id) });
 ```
 
-On the client, build a headless client from the plugins' clients and wrap your pages in the provider:
+On the client, build a headless client from the core's contract and your features' client parts, and wrap your pages in the provider:
 
 ```tsx
 const client = createBotSdkClient({
   baseUrl: "/api/chat",
-  plugins: [
-    modelsClient(),
-    memoryClient(),
-    skillsClient(),
-    knowledgeClient(),
-    mcpClient(),
-    botClient(),
-  ],
+  features: [memoryClient(), skillsClient(), knowledgeClient(), mcpClient(), channelClient()],
 });
 
 <ChatProvider client={client} router={router}>
@@ -199,11 +200,12 @@ const client = createBotSdkClient({
 </ChatProvider>;
 ```
 
-- `getUser(request)` returns `{ id } | null`. The handler answers 401 when it returns `null`.
+- `getUser(request)` returns `{ id } | null`. The HTTP handler answers 401 when it returns `null`. The core never sees a request: its own methods (`chat.bots.send({ userId, ... })`) take the user's id.
 - `reviewModel` (optional) is the Model that Auto-reviews each Bot's risky tool calls before they run, a `"provider:model"` id from the Models' list, resolved per user: `createBotSdk({ reviewModel: "openai:gpt-5.4-mini" })`. Unset, or one the user can't use, the Bot's own Model reviews, in a fresh context.
+- The client is typed by contracts alone (spec #873): the core's (`coreContract` in `core/client`) and each feature's (`plugins/<name>/shared/contract.ts`), so no server code reaches the browser bundle, not even a type. It mirrors the instance: `client.rpc.bots.send` is `sdk.bots.send`, and a feature's procedures are under its id (`client.rpc.memory.status`). One link carries them all.
 - The `router` adapter maps the SDK's pages (`keys`, and `bots` with an optional Bot `id`) to your URLs. It provides `Link` and `navigate(page)`. Pass your own TanStack Query client as `queryClient` if you have one; otherwise the provider creates its own.
 - The Bots app is `BotsApp` from `plugins/bot/ui`, with the Host's account menu at the foot of its sidebar (`accountMenu`); the keys page is `KeySettingsPage` from `plugins/models/ui`.
-- `GET <basePath>/export` answers the signed-in user's export as a JSON download (`chat-export-<date>.json`), the same document as `exportUser`. The `ExportDataButton` in `ui/settings/export-data-button.tsx` calls it.
+- `GET <basePath>/export` answers the signed-in user's export as a JSON download (`chat-export-<date>.json`), the same document as `users.export`. The `ExportDataButton` in `ui/settings/export-data-button.tsx` calls it.
 - `start()` refuses to run while the `chat` schema is behind the bundled migrations.
 - `stop()` stops the plugins (the runner takes no new jobs and waits for the running ones), then closes the runtime's connections.
 
@@ -327,11 +329,11 @@ createBotSdk({
     }),
   ],
   // Only mail from the user's verified account email reaches their Bots.
-  verifiedEmail: async (userId) => (await readVerifiedEmail(userId)) ?? null,
+  users: { verifiedEmail: async (userId) => (await readVerifiedEmail(userId)) ?? null },
 });
 ```
 
-The Host mounts `sdk.channels.inbound("email", request)` at `POST /api/channels/email`, with no sign-in. It answers 202 to any mail the provider can read, whether it woke the Bot or was dropped, and 400 to one it can't, so a sender learns nothing.
+The HTTP layer (`createHttpHandler`) serves the inbound route at `POST <basePath>/channels/email`, with no sign-in; point the provider's webhook there. Without HTTP, hand a mail the provider parsed to `sdk.channels.receive("email", mail)`. The route answers 202 to any mail the provider can read, whether it woke the Bot or was dropped, and 400 to one it can't, so a sender learns nothing.
 
 A mail is a Trigger only when it is from the user's verified email, is addressed to a Bot's address, carries a DMARC pass, and is not a Bot's own or an automatic reply; the Quota and the Ban apply as for a webhook. The Bot reads the new text only (quoted history is stripped), the subject as a first line unless the mail replies to the Bot's thread, one line naming the attachments (they aren't kept), and anything forwarded in an untrusted fenced block that Auto-review never takes as permission.
 
@@ -340,11 +342,37 @@ A provider is the seam to a mail service (`EmailProvider`: `parseInbound` and `s
 - `plugins/channel/mailpit`: a local Mailpit. Its received-message webhook POSTs to the inbound route, and the provider fetches that mail from Mailpit's REST API, so it refuses a webhook for a message Mailpit doesn't hold. Mailpit gives no SPF, DKIM or DMARC verdict, so the provider vouches for every mail it holds: use it only on a Host that listens on localhost.
 - `plugins/channel/fake`: for tests and evals. An inbound request's body is the mail as JSON, with its own `authentication`, and each sent mail is kept in `sent`. It vouches for whatever it is sent, so never mount it on a route others can reach.
 
-## Keeping a Bot's thread in sync: `bot.changes`
+## Keeping a Bot's thread in sync: `conversations.changes`
 
-Every change to a Bot's thread (a Message, a Turn starting or ending, a Secret, Routine, review, Helper, Check-in or Summary) is written to the Conversation's change log in the same transaction, with a sequence number (ADR 0026). `bot.get` returns the thread with its newest number as `lastSeq`, the cursor. `bot.changes({ botId, since })` returns the changes after the cursor, oldest first, each with what it points at as it is now, or `{ reload: true }` when the log (the newest 500 per Conversation) no longer holds them all, so the thread must be read afresh with `bot.get`.
+Every change to a Bot's thread (a Message, a Turn starting or ending, a Secret, Routine, review, Helper, Check-in or Summary) is written to the Conversation's change log in the same transaction, with a sequence number (ADR 0026). `bots.get` returns the thread with its newest number as `lastSeq`, the cursor. `conversations.changes({ conversationId, since })` (the thread's `conversationId` from `bots.get`) returns the changes after the cursor, oldest first, each with what it points at as it is now, or `{ reload: true }` when the log (the newest 500 per Conversation) no longer holds them all, so the thread must be read afresh with `bots.get`.
 
-The server's only live signal is the data-less `{ "type": "changed" }` hint on the SSE `/events` route; a Bot app never takes data from it. A tab fetches the changes on a hint, when the stream (re)connects, when the window gets focus back and, while a Turn runs, every 30 seconds. `useBotSync` does this for the Bot components; a Host with its own UI calls `bot.changes` the same way and applies the changes in order.
+The server's only live signal is the data-less `{ "type": "changed" }` hint on the SSE `/events` route; a Bot app never takes data from it. A tab fetches the changes on a hint, when the stream (re)connects, when the window gets focus back and, while a Turn runs, every 30 seconds. `useBotSync` does this for the Bot components; a Host with its own UI calls `conversations.changes` the same way and applies the changes in order.
+
+## Calling the SDK from the Host's own server code
+
+Every Bot operation is also a domain method on the instance, grouped by namespace (spec #873). Each takes one object with the user's id and no request; the RPC procedures are wrappers that pass the signed-in user's id. A method refuses another user's data as its procedure does, and in-process calls are not rate-limited.
+
+```ts
+const bot = await sdk.bots.create({ userId, name: "Ada", model: "openai:gpt-6-luna" });
+await sdk.bots.send({ userId, botId: bot.id, id: uuidv7(), text: "Hi" });
+
+const { conversationId, lastSeq } = await sdk.bots.get({ userId, botId: bot.id });
+const hints = await sdk.conversations.watch({ userId, conversationId, signal });
+let since = lastSeq;
+const sync = async () => {
+  const result = await sdk.conversations.changes({ userId, conversationId, since });
+  // Apply the changes and move `since` to the last one's seq, or read the thread afresh on `reload`.
+};
+// Once now, for what changed before the subscription, then on each hint.
+await sync();
+for await (const _hint of hints) await sync();
+```
+
+`sdk.bots` has `create`, `list`, `get`, `send`, `upload`, `stop`, `warm`, `choose` and `react`. `sdk.secrets` has `save`, `list` and `delete`; a value never comes out. `sdk.computer` has `view` and `control` for a Helper's Screen (the instance's `computer` holds these only, not the Computer provider the features get). `sdk.models` has `list`, `imageModel`, `setImageModel` and `credentials` (`list`, `openaiState`, `save`, `delete`) beside its metering, `usage` and Quota reads. `sdk.conversations.watch` resolves once its subscription is in place, so `changes` read after it misses nothing; it ends when `signal` aborts or the loop stops. Pass a `signal` unless you always iterate the hints.
+
+Each enabled feature's methods are `sdk.<feature id>`, typed from the `features` you pass, and absent when the feature is off: `sdk.memory` (`status`, `isEnabled`, `setEnabled`, `botList`, `botAddLine`, `botEditLine`, `botDeleteLine`, `botReadFile`, `botSaveFile`), `sdk.skills` (`status`, `list`, `read`, `save`, `remove`), `sdk.knowledge` (`status`, `list`, `read`, `upload`, `uploadDocument`, `remove`, `createFolder`) and `sdk.mcp` (`listConnections`, `disconnect`, `forUser`). A feature you write with `defineFeature` gets its `api` the same way.
+
+A feature serves its methods over HTTP through its `contract` (oRPC's `oc` from `@orpc/contract`), under `<basePath>/rpc/<id>`: each procedure calls the `api` method at the same path with its validated input and the signed-in user's `userId`, and `createBotSdk` throws when the `api` has no method for one. On the client, its part is `{ id, contract, urls? }`, passed in `features`, and its UI reads it through `useOrpc<{ <id>: typeof contract }>()`.
 
 ## Host hooks
 
@@ -462,14 +490,14 @@ User-configured webhooks, where a user enters a URL in settings, are out of scop
 
 ## Inbound webhooks for Routines
 
-A Bot's Routine can run whenever an outside service calls its secret URL (ADR 0021). The core serves the handler as `sdk.bots.webhookHandler`. Mount it for `POST` at `/api/routines/webhook/<token>`, outside the chat handler and with no sign-in, since the token is the authentication:
+A Bot's Routine can run whenever an outside service calls its secret URL (ADR 0021). The HTTP layer (`createHttpHandler`) serves it at `POST <basePath>/routines/webhook/<token>` with no sign-in, since the token is the authentication. Without HTTP, call the domain method:
 
 ```ts
-// For example, a TanStack Start route at /api/routines/webhook/$token
-const handle = ({ request }: { request: Request }) => sdk.bots.webhookHandler(request);
+const receipt = await sdk.routines.receiveWebhook({ token, body, headers });
+// "accepted" | "notFound" | "payloadTooLarge" | "idempotencyKeyTooLong"
 ```
 
-It answers `202` at once, `413` to a body over 64 KB, and `404` to a token that matches no active Routine. With an `Idempotency-Key` header, a retried delivery wakes the Bot once. The token is stored only as a hash, so the app shows a Routine's URL once, after it is approved or rotated.
+The route answers `202` at once, `413` to a body over 64 KB, and `404` to a token that matches no active Routine. With an `Idempotency-Key` header, a retried delivery wakes the Bot once. The token is stored only as a hash, so the app shows a Routine's URL once, after it is approved or rotated.
 
 ## Several processes: `redisRuntime()`
 
@@ -480,9 +508,7 @@ The processes of your app share signals (the data-less hints that a Bot's thread
 ```ts
 const chat = createBotSdk({
   databaseUrl,
-  getUser,
   keyEncryptionSecrets,
-  basePath: "/api/chat",
   models: {},
   pubsub: redisRuntime({ url: process.env.REDIS_URL! }),
 });
@@ -512,7 +538,7 @@ These options go in the `models` slot, `createBotSdk({ models: { hostProviders, 
 - `byok` (default `true`) lets users run on their own Provider credentials. Set it independently of `hostProviders`: `byok: false` with `hostProviders` is a company Host that runs only its own keys.
 - A user's own key for a Provider always wins over the Host's. The Model list marks the Models that run on Host credentials.
 - `start()` throws with neither `hostProviders` nor `byok`.
-- `getQuota` caps what each user may spend on Host credentials. It is a function `(userId) => { budgetUsd, window: 'day' | 'month' } | null`, or one fixed Quota for everyone. `null` (or leaving it out) is unlimited. Windows are fixed UTC days or calendar months. Spend is measured in money from each call's cost (the Provider's reported cost, else tokens times the model's price). A call on Host credentials is refused once the window's spend reaches the budget. A Turn that has started finishes, so it can go over the budget by one Turn's cost. A user's own key is never checked. Users read their Quota as a percentage, the window and its reset time through the `quota.read` procedure, never as money. At the limit the Model picker disables the Host Models and shows the reset time.
+- `getQuota` caps what each user may spend on Host credentials. It is a function `(userId) => { budgetUsd, window: 'day' | 'month' } | null`, or one fixed Quota for everyone. `null` (or leaving it out) is unlimited. Windows are fixed UTC days or calendar months. Spend is measured in money from each call's cost (the Provider's reported cost, else tokens times the model's price). A call on Host credentials is refused once the window's spend reaches the budget. A Turn that has started finishes, so it can go over the budget by one Turn's cost. A user's own key is never checked. Users read their Quota as a percentage, the window and its reset time through the `models.readQuota` procedure, never as money. At the limit the Model picker disables the Host Models and shows the reset time.
 
 ```ts
 const chat = createBotSdk({
@@ -530,9 +556,7 @@ Three modes, chosen by those two options:
 ```ts
 const chat = createBotSdk({
   databaseUrl,
-  getUser,
   keyEncryptionSecrets,
-  basePath: "/api/chat",
   models: {
     hostProviders: [
       {
@@ -563,15 +587,15 @@ With no `servers`, the keys page shows no Connections section and connecting is 
 
 ## Rate limits
 
-The SDK limits a few actions per user, and the counters live in the `pubsub` slot's runtime, so a limit holds across every process that shares it. An action over its limit answers 429 with `Retry-After` (in seconds).
+The HTTP handler limits a few actions per user (in-process calls are never limited), and the counters live in the `pubsub` slot's runtime, so a limit holds across every process that shares it. An action over its limit answers 429 with `Retry-After` (in seconds).
 
 - `attachmentUpload`: Knowledge uploads and the files a user sends their Bot, together. Default 30 per 10 minutes.
 - `credentialSave`: Provider and Tool credential saves, each of which runs a check. Default 10 a minute.
 
-Override a limit in `createBotSdk`. Each limit is optional, and `false` turns it off:
+Override a limit in `createHttpHandler`. Each limit is optional, and `false` turns it off:
 
 ```ts
-const chat = createBotSdk({
+const handler = createHttpHandler(chat, {
   // ...
   rateLimits: { attachmentUpload: { limit: 60, windowSeconds: 600 } },
 });

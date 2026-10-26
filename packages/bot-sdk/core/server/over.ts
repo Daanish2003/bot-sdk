@@ -3,10 +3,16 @@ import {
   coreParts,
   type BotSdk,
   type BotSdkOptions,
-  type ChatHandler,
   type FeatureEntry,
   type GivenContext,
 } from "./create-chat";
+import {
+  createHttpHandler,
+  createScreenSocket,
+  type HttpHandler,
+  type HttpHandlerOptions,
+  type ScreenSocketHooks,
+} from "../http";
 import { enabledFeatures } from "./feature";
 import { enabledPlugins, type BotSdkContext } from "./plugin";
 import { modelsOver } from "../../plugins/models/server/internal";
@@ -16,10 +22,10 @@ import type { ComputerProvider } from "../../plugins/computer/server/internal";
 import type { JobRunner } from "../../plugins/runner/server/internal";
 import { runnerJobs } from "../../plugins/runner/server/internal";
 
-type OverOptions = Pick<BotSdkOptions, "basePath" | "getUser" | "logger">;
+type OverOptions = Pick<BotSdkOptions, "logger">;
 
 /** The factory's options the seam passes on as they are. */
-export type OverSlots = Pick<BotSdkOptions, "channels" | "verifiedEmail" | "reviewModel">;
+export type OverSlots = Pick<BotSdkOptions, "channels" | "users" | "reviewModel" | "liveViewBase">;
 
 /**
  * What the tests and evals drive: the core context of an instance over fakes, with its Models
@@ -53,8 +59,9 @@ export function createBotSdkOver(
     computer: given.computer,
     features: given.features,
     channels: given.channels,
-    verifiedEmail: given.verifiedEmail,
+    users: given.users,
     reviewModel: given.reviewModel,
+    liveViewBase: given.liveViewBase,
   };
   const { instance, context } = buildBotSdk(
     slots,
@@ -65,18 +72,38 @@ export function createBotSdkOver(
 }
 
 /**
- * The handler of a new instance over `sdk`'s parts (a `createBotSdkOver` context, or a copy of one
- * with some parts replaced): its core context, Models bundle, jobs runner and Computer provider,
- * and the same core parts and features.
+ * The HTTP handler (`createHttpHandler`) of a new instance over `sdk`'s parts (a `createBotSdkOver`
+ * context, or a copy of one with some parts replaced): its core context, Models bundle, jobs runner
+ * and Computer provider, and the same core parts and features.
  */
-export function createChatHandler(sdk: SdkOver, options: OverOptions): ChatHandler {
+export function createHttpHandlerOver(sdk: SdkOver, options: HttpHandlerOptions): HttpHandler {
+  return createHttpHandler(instanceOver(sdk), options);
+}
+
+/** The live view's socket hooks (`createScreenSocket`) of a new instance over `sdk`'s parts, as above. */
+export function createScreenSocketOver(
+  sdk: SdkOver,
+  options: { basePath: string },
+): ScreenSocketHooks {
+  return createScreenSocket(instanceOver(sdk), options);
+}
+
+/** A new instance over `sdk`'s parts, for `createHttpHandlerOver` and `createScreenSocketOver`. */
+function instanceOver(sdk: SdkOver): BotSdk {
   const {
     parts: _parts,
-    rateLimit: _rateLimit,
     models: _models,
     runner: _runner,
     computer,
     bots: _bots,
+    conversations: _conversations,
+    secrets: _secrets,
+    screens: _screens,
+    routines: _routines,
+    checkIns: _checkIns,
+    helpers: _helpers,
+    demonstrations: _demonstrations,
+    reviews: _reviews,
     channels: _channels,
     ...context
   } = sdk;
@@ -91,10 +118,10 @@ export function createChatHandler(sdk: SdkOver, options: OverOptions): ChatHandl
   const featureIds = new Set(features.map(({ id }) => id));
   // The Bots and Channels as `sdk` built them, after Models over the new bundle.
   const core = enabledPlugins(sdk).filter(({ id }) => id !== "models" && !featureIds.has(id));
-  return buildBotSdk(
+  const { instance } = buildBotSdk(
     {
-      ...options,
       databaseUrl: "",
+      logger: sdk.logger,
       keyEncryptionSecrets: sdk.keyring,
       models: {},
       ...(computer && { computer: computerProvider(computer) }),
@@ -102,5 +129,6 @@ export function createChatHandler(sdk: SdkOver, options: OverOptions): ChatHandl
     },
     { ...context, jobs: runnerJobs(sdk) },
     [modelsOver(models), ...core],
-  ).instance.handler;
+  );
+  return instance;
 }

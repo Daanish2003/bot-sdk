@@ -9,6 +9,13 @@ import type { RateLimit } from "./rate-limits";
 import type { BotSdkRuntime } from "./runtime";
 import type { EnabledFeature } from "./feature";
 import type { BotApi } from "../../plugins/bot/server/plugin";
+import type { ConversationsApi } from "../../plugins/bot/server/conversations-api";
+import type { ScreensApi } from "../../plugins/bot/server/screens-api";
+import type { SecretsApi } from "../../plugins/bot/server/secrets-api";
+import type { CheckInsApi, RoutinesApi } from "../../plugins/bot/server/routines-api";
+import type { DemonstrationsApi } from "../../plugins/bot/server/demonstrations-api";
+import type { HelpersApi } from "../../plugins/bot/server/helpers-api";
+import type { ReviewsApi } from "../../plugins/bot/server/reviews-api";
 import type { ChannelApi } from "../../plugins/channel/server/internal";
 import type { ComputerApi } from "../../plugins/computer/server/internal";
 import type { ModelsApi } from "../../plugins/models/server/internal";
@@ -34,11 +41,13 @@ export type BotSdkContext = {
   keyring: string[];
   /** Set by `stop()`. */
   lifecycle: { stopping: boolean };
+  /**
+   * The path the live view's links point under (`<base>/screens/…`), without a trailing slash:
+   * `createBotSdk`'s `liveViewBase`, else the `basePath` of the first HTTP handler or screen
+   * socket made over the instance, or `null` before either.
+   */
+  liveView: { base: string | null };
   isUserBlocked: (userId: string) => boolean | Promise<boolean>;
-  /** Every enabled plugin's rate-limit rules, defaults and the root `rateLimits` merged. */
-  rateLimits: Readonly<Record<string, RateLimit | false>>;
-  /** Counts a hit on a rule; the seconds to wait once it is over its limit, else `null`. */
-  rateLimit: (rule: string, key: string) => Promise<number | null>;
   /** The runner (ADR 0011): the background jobs, from the runner slot or the in-process runner. */
   runner: RunnerApi;
   /** Each user's Computer, on the computer slot's provider, or `null` when the slot isn't set. */
@@ -50,6 +59,18 @@ export type BotSdkContext = {
   models: ModelsApi;
   /** The core's Bots (spec #871): the Host's handlers and the Ban's stop. */
   bots: BotApi;
+  /** The core's Conversations (spec #873): their change hints and change log. */
+  conversations: ConversationsApi;
+  /** The core's Secrets (spec #873): the user's Secrets, shared by all their Bots. */
+  secrets: SecretsApi;
+  /** The Computer's Screen methods (spec #873): the live view of a Helper's Screen. */
+  screens: ScreensApi;
+  /** The core's Routines, Check-ins, Helpers, Demonstrations and Auto-reviews (spec #873). */
+  routines: RoutinesApi;
+  checkIns: CheckInsApi;
+  helpers: HelpersApi;
+  demonstrations: DemonstrationsApi;
+  reviews: ReviewsApi;
   /**
    * The core's Channels besides web (spec #871), over the channels slot's adapters. With none,
    * every inbound answers 404 and no reply goes out by email.
@@ -60,7 +81,13 @@ export type BotSdkContext = {
    * every part in order (the core's, then a plugin for each feature), the enabled features, and
    * the jobs the runner runs: the core's, the features' and the Host's (spec #872).
    */
-  parts: { all: readonly BotSdkPlugin[]; features: readonly EnabledFeature[]; jobs: JobTable };
+  parts: {
+    all: readonly BotSdkPlugin[];
+    features: readonly EnabledFeature[];
+    jobs: JobTable;
+    /** Every part's API by part id, filled as the parts' `init` runs (spec #873). */
+    apis: ReadonlyMap<string, object>;
+  };
 };
 
 /** A transaction on the core's database. */
@@ -84,7 +111,7 @@ export type ConversationDeleteHooks<Collected = unknown> = {
 };
 
 /**
- * A plugin's hooks on a user's delete (`sdk.deleteUser`, spec #439). `before` runs in the delete's
+ * A plugin's hooks on a user's delete (`sdk.users.delete`, spec #439). `before` runs in the delete's
  * transaction and returns what it collected; a throw rolls the whole delete back. `after` runs after
  * the commit with that value; a throw is logged and swallowed.
  */
@@ -102,9 +129,12 @@ type RouteArgs<User> = {
   basePath: string;
 };
 
-/** A non-RPC HTTP route, under `basePath`. A `:name` segment of `path` matches any one segment. */
+/**
+ * A non-RPC HTTP route, under `basePath`. A `:name` segment of `path` matches any one segment, and
+ * a last `*` segment the rest of the path.
+ */
 export type Route = {
-  method: "GET" | "POST";
+  method: "GET" | "HEAD" | "POST";
   path: `/${string}`;
 } & (
   | {
@@ -121,7 +151,7 @@ export type Route = {
 /**
  * One part of an instance, internal to the SDK: the core's Models, Bots and Channels, and the
  * plugin each feature runs as. `Rule` names its rate-limit rules and `Event` the event hooks it
- * fires; the root `rateLimits` and `hooks` options are typed by them.
+ * fires; `createHttpHandler`'s `rateLimits` and the root `hooks` are typed by them.
  */
 export type BotSdkPlugin<
   Id extends string = string,
@@ -132,7 +162,7 @@ export type BotSdkPlugin<
   /** oRPC routers, served under `<basePath>/rpc/<key>`. A key two plugins claim throws. */
   router?: Record<string, AnyRouter>;
   routes?: readonly Route[];
-  /** This plugin's rate-limit rules and their defaults; the root `rateLimits` overrides them. */
+  /** This plugin's rate-limit rules and their defaults; `createHttpHandler`'s `rateLimits` overrides them. */
   rateLimits?: Record<Rule, RateLimit>;
   /** Runs once, in order, when the instance is built. It must open no connection. */
   init?: (sdk: BotSdkContext) => { api?: object } | void;
@@ -148,13 +178,13 @@ export type BotSdkPlugin<
   /** Hooks on deletes of core rows, run by the core's delete (`deleteConversations`). */
   databaseHooks?: { conversation?: { delete?: ConversationDeleteHooks } };
   /**
-   * Deletes this plugin's data for a user (`sdk.deleteUser`): `before` in the delete's transaction,
+   * Deletes this plugin's data for a user (`sdk.users.delete`): `before` in the delete's transaction,
    * in reverse order, ahead of the core's Conversation and Attachment deletes; `after`
    * once it commits.
    */
   deleteUser?: UserDeleteHooks;
   /**
-   * This plugin's part of a user's export (`sdk.exportUser`), read in the export's snapshot `tx`.
+   * This plugin's part of a user's export (`sdk.users.export`), read in the export's snapshot `tx`.
    * The core stores it under this plugin's id and holds it as unknown, so the plugin types its own
    * part.
    */
@@ -173,7 +203,7 @@ type RuleOf<Plugin> =
   Plugin extends BotSdkPlugin<string, infer Rule, keyof EventHooks> ? Rule : never;
 type EventOf<Plugin> = Plugin extends BotSdkPlugin<string, string, infer Event> ? Event : never;
 
-/** The root `rateLimits`: any core or enabled plugin's rule, overridden or turned off with `false`. */
+/** `createHttpHandler`'s `rateLimits`: any core or enabled plugin's rule, overridden or turned off with `false`. */
 export type RateLimitsOf<Plugins extends readonly BotSdkPlugin[]> = Partial<
   Record<CoreRule | RuleOf<Plugins[number]>, RateLimit | false>
 >;
@@ -243,10 +273,25 @@ export function mergeRateLimits(plugins: readonly BotSdkPlugin[]): Record<string
   return merged;
 }
 
-/** The `:name` segments of `pattern` when `path` matches it, else `null`. */
+/** `basePath` without a trailing slash; one that doesn't start with "/" throws. */
+export function normalizeBasePath(basePath: string): string {
+  if (!basePath.startsWith("/")) throw new Error(`basePath must start with "/": ${basePath}`);
+  return basePath.replace(/\/+$/, "");
+}
+
+/**
+ * The `:name` segments of `pattern` when `path` matches it, else `null`. A `:name` segment matches
+ * one segment that isn't empty. A last `*` segment matches the rest of `path`, one segment or more
+ * whose first isn't empty, given as the param `*`.
+ */
 export function matchPath(pattern: string, path: string): Record<string, string> | null {
   const expected = pattern.split("/");
-  const actual = path.split("/");
+  let actual = path.split("/");
+  if (expected.at(-1) === "*") {
+    if (actual.length < expected.length || !actual[expected.length - 1]) return null;
+    actual = [...actual.slice(0, expected.length - 1), actual.slice(expected.length - 1).join("/")];
+    expected[expected.length - 1] = ":*";
+  }
   if (expected.length !== actual.length) return null;
   const params: Record<string, string> = {};
   for (const [index, segment] of expected.entries()) {

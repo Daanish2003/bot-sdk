@@ -25,6 +25,7 @@ catalog:
   tailwindcss: ^4.3.3
   "@orpc/server": ^1.15.0
   "@orpc/client": ^1.15.0
+  "@orpc/contract": ^1.15.0
   better-auth: 1.7.7
   "@types/react": ^19.2.18
   "@types/react-dom": ^19.2.7

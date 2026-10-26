@@ -70,7 +70,7 @@ async function botWith({
     });
   }
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model });
+  const { id: botId } = await client.bots.create({ name: "Ada", model });
   return { fake, deps, client, user, botId };
 }
 
@@ -121,8 +121,8 @@ const imagesOf = (entry: ModelMessage) =>
 describe("Files from the user", () => {
   it("stores a files part, copies the files into uploads/ and names them in the Turn, with images for a Model that sees", async () => {
     const { client, botId, deps, user, fake } = await botWith();
-    const receipt = await client.bot.upload({ file: fileOf("receipt.jpg", jpeg, "image/jpeg") });
-    const notes = await client.bot.upload({
+    const receipt = await client.bots.upload({ file: fileOf("receipt.jpg", jpeg, "image/jpeg") });
+    const notes = await client.bots.upload({
       file: fileOf("notes.txt", "milk, eggs", "text/plain"),
     });
     expect(receipt).toMatchObject({ name: "receipt.jpg", size: 8, mediaType: "image/jpeg" });
@@ -130,7 +130,7 @@ describe("Files from the user", () => {
     await sendAndWait(client, { botId, text: "what did I spend?", files: [receipt.id, notes.id] });
     await turnsEnded(botId);
 
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
     const sent = messages.find((entry) => entry.role === "user")!;
     expect(sent.text).toBe("what did I spend?");
     expect(sent.control).toEqual({
@@ -177,7 +177,7 @@ describe("Files from the user", () => {
 
   it("sends no image parts to a Model that can't see, and the next Turn's history keeps the line", async () => {
     const { client, botId, fake } = await botWith({ model: blind });
-    const receipt = await client.bot.upload({ file: fileOf("receipt.jpg", jpeg, "image/jpeg") });
+    const receipt = await client.bots.upload({ file: fileOf("receipt.jpg", jpeg, "image/jpeg") });
 
     await sendAndWait(client, { botId, text: "", files: [receipt.id] });
     await turnsEnded(botId);
@@ -203,8 +203,8 @@ describe("Files from the user", () => {
 
   it("names a file of the same name twice apart, and names files without a path when there is no Computer", async () => {
     const { client, botId, deps, user, fake } = await botWith();
-    const one = await client.bot.upload({ file: fileOf("a.txt", "one", "text/plain") });
-    const two = await client.bot.upload({ file: fileOf("a.txt", "two", "text/plain") });
+    const one = await client.bots.upload({ file: fileOf("a.txt", "one", "text/plain") });
+    const two = await client.bots.upload({ file: fileOf("a.txt", "two", "text/plain") });
     await sendAndWait(client, { botId, text: "both", files: [one.id, two.id] });
     await turnsEnded(botId);
     const handle = deps.computer!.forUser(user.id);
@@ -214,7 +214,7 @@ describe("Files from the user", () => {
     );
 
     const bare = await botWith({ withComputer: false });
-    const file = await bare.client.bot.upload({ file: fileOf("a.txt", "one", "text/plain") });
+    const file = await bare.client.bots.upload({ file: fileOf("a.txt", "one", "text/plain") });
     await sendAndWait(bare.client, { botId: bare.botId, text: "here", files: [file.id] });
     await turnsEnded(bare.botId);
     expect(textOf(newestUser(bare.fake.calls[0]))).toContain(
@@ -224,7 +224,7 @@ describe("Files from the user", () => {
 
   it("leaves the history's images out for a Model that can't see them", async () => {
     const { client, botId, fake } = await botWith();
-    const receipt = await client.bot.upload({ file: fileOf("receipt.jpg", jpeg, "image/jpeg") });
+    const receipt = await client.bots.upload({ file: fileOf("receipt.jpg", jpeg, "image/jpeg") });
     await sendAndWait(client, { botId, text: "look", files: [receipt.id] });
     await turnsEnded(botId);
     // The Bot's Model is now one that can't see; the first Turn's stored input holds the image's ref.
@@ -239,10 +239,10 @@ describe("Files from the user", () => {
 
   it("names a file apart from one of the same name an earlier Message put in uploads/", async () => {
     const { client, botId, deps, user } = await botWith();
-    const one = await client.bot.upload({ file: fileOf("a.txt", "one", "text/plain") });
+    const one = await client.bots.upload({ file: fileOf("a.txt", "one", "text/plain") });
     await sendAndWait(client, { botId, text: "first", files: [one.id] });
     await turnsEnded(botId);
-    const two = await client.bot.upload({ file: fileOf("a.txt", "two", "text/plain") });
+    const two = await client.bots.upload({ file: fileOf("a.txt", "two", "text/plain") });
     await sendAndWait(client, { botId, text: "second", files: [two.id] });
     await turnsEnded(botId);
 
@@ -257,8 +257,8 @@ describe("Files from the user", () => {
 
   it("stores a file typed as an image whose bytes aren't one as application/octet-stream", async () => {
     const { client } = await botWith();
-    const fake = await client.bot.upload({ file: fileOf("x.png", "not a png", "image/png") });
-    const real = await client.bot.upload({ file: fileOf("y.png", jpeg, "image/png") });
+    const fake = await client.bots.upload({ file: fileOf("x.png", "not a png", "image/png") });
+    const real = await client.bots.upload({ file: fileOf("y.png", jpeg, "image/png") });
     expect(fake.mediaType).toBe("application/octet-stream");
     // A real image keeps an image type, its own: these bytes are a JPEG.
     expect(real.mediaType).toBe("image/jpeg");
@@ -266,10 +266,10 @@ describe("Files from the user", () => {
 
   it("cuts a long name to 200 UTF-8 bytes without splitting a character", async () => {
     const { client } = await botWith();
-    const cjk = await client.bot.upload({
+    const cjk = await client.bots.upload({
       file: fileOf(`${"日".repeat(300)}.txt`, "x", "text/plain"),
     });
-    const emoji = await client.bot.upload({ file: fileOf("😀".repeat(150), "x", "text/plain") });
+    const emoji = await client.bots.upload({ file: fileOf("😀".repeat(150), "x", "text/plain") });
     for (const { name } of [cjk, emoji]) {
       const bytes = new TextEncoder().encode(name);
       expect(bytes.length).toBeLessThanOrEqual(200);
@@ -281,7 +281,7 @@ describe("Files from the user", () => {
   it("refuses a file over 25 MB, more than 10 files, and ids that aren't the user's uploads", async () => {
     const { client, botId } = await botWith();
     await expect(
-      client.bot.upload({
+      client.bots.upload({
         file: fileOf("big.bin", new Uint8Array(25 * 1024 * 1024 + 1), "application/octet-stream"),
       }),
     ).rejects.toMatchObject({
@@ -291,29 +291,29 @@ describe("Files from the user", () => {
 
     const ids = Array.from({ length: 11 }, () => uuidv7());
     await expect(
-      client.bot.send({ botId, id: uuidv7(), text: "eleven", files: ids }),
+      client.bots.send({ botId, id: uuidv7(), text: "eleven", files: ids }),
     ).rejects.toMatchObject({ data: { code: "error.botFilesTooMany" } });
 
     const other = await botWith();
-    const theirs = await other.client.bot.upload({ file: fileOf("x.txt", "x", "text/plain") });
+    const theirs = await other.client.bots.upload({ file: fileOf("x.txt", "x", "text/plain") });
     await expect(
-      client.bot.send({ botId, id: uuidv7(), text: "steal", files: [theirs.id] }),
+      client.bots.send({ botId, id: uuidv7(), text: "steal", files: [theirs.id] }),
     ).rejects.toMatchObject({ data: { code: "error.botFileNotFound" } });
     // Nothing was saved, and their upload is still theirs to send.
-    expect((await client.bot.get({ botId })).messages).toEqual([]);
+    expect((await client.bots.get({ botId })).messages).toEqual([]);
     expect(
       await getTestDb().select().from(botUpload).where(eq(botUpload.id, theirs.id)),
     ).toHaveLength(1);
 
     // A file sent once can't be sent again; the refusal names it, and not the one still uploaded.
-    const mine = await client.bot.upload({ file: fileOf("y.txt", "y", "text/plain") });
+    const mine = await client.bots.upload({ file: fileOf("y.txt", "y", "text/plain") });
     await sendAndWait(client, { botId, text: "once", files: [mine.id] });
-    const fresh = await client.bot.upload({ file: fileOf("z.txt", "z", "text/plain") });
+    const fresh = await client.bots.upload({ file: fileOf("z.txt", "z", "text/plain") });
     await expect(
-      client.bot.send({ botId, id: uuidv7(), text: "twice", files: [fresh.id, mine.id] }),
+      client.bots.send({ botId, id: uuidv7(), text: "twice", files: [fresh.id, mine.id] }),
     ).rejects.toMatchObject({ data: { code: "error.botFileNotFound", missing: [mine.id] } });
     // A Message needs text or files.
-    await expect(client.bot.send({ botId, id: uuidv7(), text: " " })).rejects.toMatchObject({
+    await expect(client.bots.send({ botId, id: uuidv7(), text: " " })).rejects.toMatchObject({
       code: "BAD_REQUEST",
     });
   });
@@ -321,11 +321,11 @@ describe("Files from the user", () => {
   it("deletes an upload no Message sent after 24 hours, when the next upload comes", async () => {
     let now = Date.now();
     const { client, deps } = await botWith({ clock: () => new Date(now) });
-    const orphan = await client.bot.upload({ file: fileOf("old.txt", "old", "text/plain") });
+    const orphan = await client.bots.upload({ file: fileOf("old.txt", "old", "text/plain") });
     now += 12 * 60 * 60 * 1000;
-    const fresh = await client.bot.upload({ file: fileOf("new.txt", "new", "text/plain") });
+    const fresh = await client.bots.upload({ file: fileOf("new.txt", "new", "text/plain") });
     now += 12 * 60 * 60 * 1000 + 1;
-    await client.bot.upload({ file: fileOf("newer.txt", "newer", "text/plain") });
+    await client.bots.upload({ file: fileOf("newer.txt", "newer", "text/plain") });
     expect(await deps.blobStore.get(sentFileBlobKey(orphan.id))).toBeNull();
     expect(await deps.blobStore.get(sentFileBlobKey(fresh.id))).not.toBeNull();
     const left = await getTestDb().select({ id: botUpload.id }).from(botUpload);
@@ -335,8 +335,8 @@ describe("Files from the user", () => {
 
   it("deletes the user's sent and unsent files with the user", async () => {
     const { client, botId, deps, user } = await botWith();
-    const kept = await client.bot.upload({ file: fileOf("kept.txt", "kept", "text/plain") });
-    const sent = await client.bot.upload({ file: fileOf("sent.txt", "sent", "text/plain") });
+    const kept = await client.bots.upload({ file: fileOf("kept.txt", "kept", "text/plain") });
+    const sent = await client.bots.upload({ file: fileOf("sent.txt", "sent", "text/plain") });
     await sendAndWait(client, { botId, text: "here", files: [sent.id] });
     await turnsEnded(botId);
     await deleteUserData(deps, user.id);

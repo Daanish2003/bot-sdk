@@ -24,7 +24,7 @@ async function userWithABotAndAnotherConversation() {
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const ada = await client.bot.create({ name: "Ada", model });
+  const ada = await client.bots.create({ name: "Ada", model });
   const other = await insertConversation(user, { kind: "other" });
   await insertMessage({ conversationId: other.id, role: "user", text: "otters", active: true });
   return { deps, user, ada, other };

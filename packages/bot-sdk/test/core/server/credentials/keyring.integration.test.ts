@@ -67,9 +67,7 @@ describe("the keyring", () => {
     const logger = { error: vi.fn() };
     const chat = createBotSdk({
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets: [keyB],
-      basePath: "/api/chat",
       logger,
       models: {},
     });

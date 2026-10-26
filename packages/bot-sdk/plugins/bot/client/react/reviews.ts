@@ -11,17 +11,17 @@ import { useItemActions, useRefreshAfterTurns } from "./turn-list";
  */
 export function useBotReviews(botId: string, working: boolean) {
   const { orpc } = useChatAdapter();
-  const options = orpc.bot.review.list.queryOptions({ input: { botId } });
+  const options = orpc.reviews.list.queryOptions({ input: { botId } });
   const query = useQuery(options);
   const { acting, act } = useItemActions(useRefreshAfterTurns(options.queryKey, working));
   return {
     reviews: query.data ?? [],
     acting,
     allow: async (reviewId: string) => {
-      await act(reviewId, () => orpc.bot.review.allow.call({ reviewId }));
+      await act(reviewId, () => orpc.reviews.allow.call({ reviewId }));
     },
     deny: async (reviewId: string) => {
-      await act(reviewId, () => orpc.bot.review.deny.call({ reviewId }));
+      await act(reviewId, () => orpc.reviews.deny.call({ reviewId }));
     },
   };
 }

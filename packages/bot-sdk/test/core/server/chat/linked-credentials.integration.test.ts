@@ -233,7 +233,7 @@ describe("A linked ChatGPT plan in the Model picker and the Keys page (ADR 0023)
     expect((await client.models.list()).models.map((model) => model.id)).toEqual([
       "openai:gpt-5.4-mini",
     ]);
-    expect(await client.credentials.openaiState()).toBe("none");
+    expect(await client.models.credentials.openaiState()).toBe("none");
   });
 
   it("reports the OpenAI row as key, linked, needs reconnect or none", async () => {
@@ -244,13 +244,13 @@ describe("A linked ChatGPT plan in the Model picker and the Keys page (ADR 0023)
       hint: "…enai",
       verified: true,
     });
-    expect(await withKey.client.credentials.openaiState()).toBe("key");
+    expect(await withKey.client.models.credentials.openaiState()).toBe("key");
 
-    expect(await (await clientWith(linked)).client.credentials.openaiState()).toBe("linked");
-    expect(await (await clientWith("needs-reconnect")).client.credentials.openaiState()).toBe(
-      "needs-reconnect",
-    );
-    expect(await (await clientWith(null)).client.credentials.openaiState()).toBe("none");
+    expect(await (await clientWith(linked)).client.models.credentials.openaiState()).toBe("linked");
+    expect(
+      await (await clientWith("needs-reconnect")).client.models.credentials.openaiState(),
+    ).toBe("needs-reconnect");
+    expect(await (await clientWith(null)).client.models.credentials.openaiState()).toBe("none");
     // With byok off, neither a link nor a key is used.
     const byokOff = await clientWith(linked, { byok: false });
     await saveCredentials(byokOff.deps, byokOff.user.id, {
@@ -259,11 +259,11 @@ describe("A linked ChatGPT plan in the Model picker and the Keys page (ADR 0023)
       hint: "…enai",
       verified: true,
     });
-    expect(await byokOff.client.credentials.openaiState()).toBe("none");
+    expect(await byokOff.client.models.credentials.openaiState()).toBe("none");
 
     // A Host without the hook: only the stored key counts.
     const user = await insertUser();
     const noHook = chatRpc({ user, deps: createTestSdk() });
-    expect(await noHook.credentials.openaiState()).toBe("none");
+    expect(await noHook.models.credentials.openaiState()).toBe("none");
   });
 });

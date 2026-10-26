@@ -24,6 +24,7 @@ import { pruneScreenshots, resolveImageRefs, findBot, latestTurnStatus } from ".
 import { latestPromptStart, loopPromptStart } from "./prompt-start";
 
 import { historyAfter } from "./summary";
+import type { WarmResult } from "../../shared/contract";
 
 const minute = 60_000;
 
@@ -33,20 +34,7 @@ const cacheLifetimeMs = { anthropic: 60 * minute, openai: 30 * minute } as const
 /** A cache this close to expiring (or closer) is warmed again. */
 const warmMarginMs = 5 * minute;
 
-/** Why a warm did nothing; `warmed` is false with one of these. */
-export type WarmSkipped =
-  /** A Turn is running, which keeps the cache warm itself. */
-  | "running"
-  /** The Bot has no Prompt start yet: nothing is cached. */
-  | "nothing_cached"
-  /** The Bot's last model call is recent enough that the cache is still warm. */
-  | "still_warm"
-  /** The Model has no warming call: Gemini, the ChatGPT plan, and the other Providers. */
-  | "unsupported"
-  /** The Quota is used up, or the call failed. */
-  | "unavailable";
-
-export type WarmResult = { warmed: true } | { warmed: false; skipped: WarmSkipped };
+export type { WarmResult, WarmSkipped } from "../../shared/contract";
 
 /** The Provider of `model` when it has a warming call (slide 32): Anthropic, and OpenAI's GPT-5.6+. */
 function warmableProvider(model: string): "anthropic" | "openai" | undefined {

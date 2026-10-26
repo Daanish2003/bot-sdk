@@ -65,7 +65,7 @@ export function fakeEmailProvider(): {
     mail: Partial<Omit<InboundMail, "files">> = {},
     files?: { name: string; contentType: string; content: string | Uint8Array }[],
   ) =>
-    new Request("http://localhost/api/channels/email", {
+    new Request("http://localhost/api/chat/channels/email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

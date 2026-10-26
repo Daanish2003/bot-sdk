@@ -71,7 +71,7 @@ async function emailBot(
   const user = await insertUser();
   deps = createTestSdk({
     channels: [emailChannel({ provider, domain, appUrl })],
-    verifiedEmail: async (userId) => (userId === user.id ? ownerEmail : null),
+    users: { verifiedEmail: async (userId) => (userId === user.id ? ownerEmail : null) },
     jobs,
     adapterFor: () => fake.adapter,
     clock: timer.clock.now,
@@ -86,8 +86,8 @@ async function emailBot(
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada Lovelace", model });
-  const { address } = await client.channel.email.address({ botId });
+  const { id: botId } = await client.bots.create({ name: "Ada Lovelace", model });
+  const { address } = await client.channels.email.address({ botId });
 
   /** Runs the jobs due now, one at a time; `limit` stops after that many. */
   const runDue = async (limit = Infinity) => {
@@ -99,8 +99,7 @@ async function emailBot(
   };
   /** Mails the Bot from its owner. */
   const inbound = async (messageId: string, fields: { subject?: string; text?: string } = {}) => {
-    await deps!.channels.inbound(
-      "email",
+    const parsed = await email.provider.parseInbound(
       email.request({
         from: `Ada <${ownerEmail}>`,
         to: [address],
@@ -110,6 +109,8 @@ async function emailBot(
         authentication: { spf: "pass", dkim: "pass", dmarc: "pass" },
       }),
     );
+    if ("rejected" in parsed) throw new Error(parsed.rejected);
+    await deps!.channels.receive("email", parsed);
   };
   /** Mails the Bot from its owner, then runs the Turn it starts. */
   const mail = async (messageId: string, fields: { subject?: string; text?: string } = {}) => {
@@ -119,12 +120,12 @@ async function emailBot(
   };
   /** Sends the Bot a web Message, then runs the Turn it starts. */
   const write = async (text: string) => {
-    await client.bot.send({ botId, id: uuidv7(), text });
+    await client.bots.send({ botId, id: uuidv7(), text });
     timer.advance(3_000);
     await runDue();
   };
   const assistantMessages = async () =>
-    (await client.bot.get({ botId })).messages.filter((entry) => entry.role === "assistant");
+    (await client.bots.get({ botId })).messages.filter((entry) => entry.role === "assistant");
   const deliveryJobs = () =>
     getTestDb()
       .select({ key: job.idempotencyKey, status: job.status, attempts: job.attempts })
@@ -264,12 +265,12 @@ describe("where a Bot's reply goes", () => {
     const { inbound, timer, runDue, client, botId, sent, deliveryJobs } = await emailBot(rounds);
 
     await inbound("thanks@mail.example", { text: "thanks!" });
-    const [thanks] = (await client.bot.get({ botId })).messages;
+    const [thanks] = (await client.bots.get({ botId })).messages;
     rounds.push(round(says("", { react: { messageId: thanks!.id, emoji: "👍" } })));
     timer.advance(3_000);
     await runDue();
 
-    const [reacted] = (await client.bot.get({ botId })).messages;
+    const [reacted] = (await client.bots.get({ botId })).messages;
     expect(reacted!.reactions?.bot?.emoji).toBe("👍");
     expect(await deliveryJobs()).toEqual([]);
     expect(sent).toEqual([]);
@@ -280,11 +281,11 @@ describe("the channel's view of the next Bot-initiated Message", () => {
   it("names the Channel the user last wrote from", async () => {
     const { client, botId, mail, write } = await emailBot([round(says("A.")), round(says("B."))]);
 
-    expect((await client.channel.email.address({ botId })).nextChannel).toBe("web");
+    expect((await client.channels.email.address({ botId })).nextChannel).toBe("web");
     await mail("first@mail.example");
-    expect((await client.channel.email.address({ botId })).nextChannel).toBe("email");
+    expect((await client.channels.email.address({ botId })).nextChannel).toBe("email");
     await write("from the app");
-    expect((await client.channel.email.address({ botId })).nextChannel).toBe("web");
+    expect((await client.channels.email.address({ botId })).nextChannel).toBe("web");
   });
 });
 
@@ -341,7 +342,7 @@ describe("delivery failures", () => {
     expect(turn!.status).toBe("complete");
     expect(await deliveryJobs()).toEqual([expect.objectContaining({ status: "queued" })]);
     expect(sent).toEqual([]);
-    expect((await client.bot.get({ botId })).messages.at(-1)).toMatchObject({ channel: "email" });
+    expect((await client.bots.get({ botId })).messages.at(-1)).toMatchObject({ channel: "email" });
   });
 
   it("retries a failed send, and sends once it goes through", async () => {

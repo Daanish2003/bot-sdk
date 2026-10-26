@@ -11,7 +11,6 @@ import type { FeatureEntry } from "../../core/server/create-chat";
 import { createGuardedFetch } from "../../core/server/lib/guarded-fetch";
 import { migrate as migrateChatSchema } from "../../core/server/migrate";
 import type { BotSdkContext } from "../../core/server/plugin";
-import { resolveRateLimits } from "../../core/server/rate-limits";
 import { memoryRuntime } from "../../core/server/runtime";
 import { createBotSdkOver, type OverSlots } from "../../core/server/over";
 import { e2bProvider } from "../../plugins/computer/e2b";
@@ -69,8 +68,7 @@ export function createComputerSdk(
     wrapFetch?: (real: typeof globalThis.fetch) => typeof globalThis.fetch;
   },
 ) {
-  const { db, provider, channels, verifiedEmail, reviewModel, features, models, wrapFetch } =
-    options;
+  const { db, provider, channels, users, reviewModel, features, models, wrapFetch } = options;
   const logger: Pick<Console, "error"> = console;
   const events = createHookEmitter(undefined, logger);
   const guarded = createGuardedFetch({ schemes: "http-and-https" });
@@ -90,16 +88,15 @@ export function createComputerSdk(
         events,
         fetch,
         keyring,
-        rateLimits: resolveRateLimits(),
       },
       models: models ? models(real) : real,
       computer: provider,
       channels,
-      verifiedEmail,
+      users,
       reviewModel,
       features,
     },
-    { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
+    { logger: { error: () => {} } },
   ).sdk;
 }
 

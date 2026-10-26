@@ -1,15 +1,11 @@
-import type { BotSdkClientPlugin } from "../../../core/client/plugin";
-import type { KnowledgeRouter } from "../server/routers/index";
+import type { FeatureClient } from "../../../core/client/chat-client";
+import { knowledgeContract, type KnowledgeContract } from "../shared/contract";
 
-declare module "../../../core/client/plugin" {
-  interface PluginRouters {
-    knowledge: KnowledgeRouter;
-  }
-}
+export type { KnowledgeContract };
 
-export type KnowledgeClientPlugin = BotSdkClientPlugin<"knowledge", KnowledgeRouter>;
+export type KnowledgeFeatureClient = FeatureClient<"knowledge", KnowledgeContract>;
 
-/** The `knowledge` plugin's client: its router is `knowledge`. It adds no URLs. */
-export function knowledgeClient(): KnowledgeClientPlugin {
-  return { id: "knowledge" };
+/** The `knowledge` feature's client part: its contract, served under `knowledge`. It adds no URLs. */
+export function knowledgeClient(): KnowledgeFeatureClient {
+  return { id: "knowledge", contract: knowledgeContract };
 }

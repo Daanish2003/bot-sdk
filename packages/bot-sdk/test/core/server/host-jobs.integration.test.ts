@@ -55,9 +55,7 @@ function hostSdk(options: Partial<BotSdkOptions> = {}): BotSdk {
   const { instance } = buildBotSdk(
     {
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-      basePath: "/api/chat",
       logger: { error: () => {} },
       models: {},
       jobs: [noteJob, slowJob],

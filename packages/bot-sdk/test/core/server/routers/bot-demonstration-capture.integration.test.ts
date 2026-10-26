@@ -198,7 +198,7 @@ async function demonstrating(path = "/") {
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const botId = (await client.bot.create({ name: "Ada", model })).id;
+  const botId = (await client.bots.create({ name: "Ada", model })).id;
 
   hands = await chromium.connectOverCDP(chrome.url);
   const context = hands.contexts()[0]!;
@@ -326,11 +326,11 @@ describe("capturing a Demonstration", () => {
     }
 
     // The card counts the steps, and the user reads them back.
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
     expect(
       messages.find((message) => message.control?.kind === "demonstration")?.control,
     ).toMatchObject({ steps: 5 });
-    const { steps } = await client.bot.demonstration.steps({ demonstrationId });
+    const { steps } = await client.demonstrations.steps({ demonstrationId });
     expect(steps.map((step) => [step.kind, step.label, step.value])).toEqual([
       ["navigation", "Payouts", null],
       ["click", "Go now", null],
@@ -340,7 +340,7 @@ describe("capturing a Demonstration", () => {
     ]);
 
     // The screenshots go with their user.
-    await client.bot.demonstration.cancel({ demonstrationId });
+    await client.demonstrations.cancel({ demonstrationId });
     await deleteUserData(deps, user.id);
     for (const event of events) expect(await deps.blobStore.get(event.screenshotKey!)).toBeNull();
   }, 60_000);
@@ -414,11 +414,11 @@ describe("capturing a Demonstration", () => {
   it("captures nothing while paused, and marks the gap", async () => {
     const { deps, client, demonstrationId, page } = await demonstrating();
 
-    await client.bot.demonstration.pause({ demonstrationId });
+    await client.demonstrations.pause({ demonstrationId });
     await page.locator("#name").fill("secret code");
     await page.locator("#go").click();
     await page.waitForTimeout(1_500);
-    await client.bot.demonstration.resume({ demonstrationId });
+    await client.demonstrations.resume({ demonstrationId });
     await page.locator("#go").click();
 
     await expect
@@ -440,10 +440,10 @@ describe("capturing a Demonstration", () => {
     await expect.poll(() => puts.started, poll).toBe(2);
 
     // Taken while paused, and queued behind the held step until after the Resume.
-    await client.bot.demonstration.pause({ demonstrationId });
+    await client.demonstrations.pause({ demonstrationId });
     await page.locator("#name").click();
     await page.waitForTimeout(500);
-    await client.bot.demonstration.resume({ demonstrationId });
+    await client.demonstrations.resume({ demonstrationId });
     open();
     await page.locator("#go").click();
 
@@ -554,7 +554,7 @@ describe("capturing a Demonstration", () => {
       .toBe("drafting");
     await page.waitForTimeout(500);
     expect(await eventsOf(demonstrationId)).toHaveLength(demonstrationEventLimit);
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
     expect(
       messages.find((message) => message.control?.kind === "demonstration")?.control,
     ).toMatchObject({

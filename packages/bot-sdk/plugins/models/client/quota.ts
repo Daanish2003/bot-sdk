@@ -1,4 +1,4 @@
-/** A user's Quota as `quota.read` answers it: the used percentage, never money (ADR 0007). */
+/** A user's Quota as `models.readQuota` answers it: the used percentage, never money (ADR 0007). */
 export type QuotaRead = { usedPercent: number; window: "day" | "month"; resetsAt: Date | string };
 
 /** Whether the Quota is spent. The server refuses a Host Model's Run from then on (HTTP 402). */

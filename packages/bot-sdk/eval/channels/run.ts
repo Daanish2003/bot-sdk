@@ -26,6 +26,7 @@ import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { emailAddressOf } from "../../plugins/bot/server/conversation";
 import { fakeEmailProvider } from "../../plugins/channel/fake/index";
 import { emailChannel } from "../../plugins/channel/server/index";
+import { createHttpHandlerOver } from "../../core/server/over";
 import { runnerJobs } from "../../plugins/runner/server/internal";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
 import { isReviewCall, passVerdict, verdictRound } from "../../test/support/fake-reviewer";
@@ -117,7 +118,7 @@ async function main() {
       }),
     ],
     // freshBot gives each user this address, and the injection cases mail from it.
-    verifiedEmail: async (userId) => `${userId}@eval.invalid`,
+    users: { verifiedEmail: async (userId) => `${userId}@eval.invalid` },
     models: (real) =>
       fake
         ? {
@@ -132,6 +133,8 @@ async function main() {
   });
   const jobs = runnerJobs(sdk);
   await jobs.start();
+  // The HTTP layer, for the mail's inbound route; built once for every case.
+  const inbound = createHttpHandlerOver(sdk, { basePath: "/api/chat", getUser: () => null });
 
   const env: TurnEnv = {
     db,
@@ -200,8 +203,7 @@ async function main() {
           domain: inboundDomain,
         });
         const messageId = `eval-${evalCase.id}-${repeat}-${randomUUID()}@mail.example`;
-        const response = await sdk.channels.inbound(
-          "email",
+        const response = await inbound(
           email.request({
             from: `Eval <${userId}@eval.invalid>`,
             to: [address],

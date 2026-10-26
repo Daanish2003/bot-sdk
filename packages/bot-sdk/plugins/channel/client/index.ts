@@ -1,15 +1,14 @@
-import type { BotSdkClientPlugin } from "../../../core/client/plugin";
-import type { ChannelRouter } from "../../bot/server/routers/index";
+import type { FeatureClient } from "../../../core/client/chat-client";
+import { type ChannelsContract, channelsContract } from "../../bot/shared/contract";
 
-declare module "../../../core/client/plugin" {
-  interface PluginRouters {
-    channel: ChannelRouter;
-  }
-}
+export type { ChannelsContract };
 
-export type ChannelClientPlugin = BotSdkClientPlugin<"channel", ChannelRouter>;
+export type ChannelsClient = FeatureClient<"channels", ChannelsContract>;
 
-/** The `channel` plugin's client: its router is `channel`. It adds no URLs. */
-export function channelClient(): ChannelClientPlugin {
-  return { id: "channel" };
+/**
+ * The email Channel's client part: its contract, served under `channels` when the Host fills the
+ * `channels` slot. It adds no URLs.
+ */
+export function channelClient(): ChannelsClient {
+  return { id: "channels", contract: channelsContract };
 }

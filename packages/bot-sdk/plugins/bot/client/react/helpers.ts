@@ -18,11 +18,11 @@ export const allHelpers = "all";
 export function useBotHelpers(botId: string, working: boolean) {
   const { orpc } = useChatAdapter();
   const queryClient = useQueryClient();
-  const options = orpc.bot.helper.list.queryOptions({ input: { botId } });
+  const options = orpc.helpers.list.queryOptions({ input: { botId } });
   const query = useQuery(options);
   const refreshHelpers = useRefreshAfterTurns(options.queryKey, working);
   const refreshConversation = () =>
-    queryClient.invalidateQueries({ queryKey: orpc.bot.get.queryKey({ input: { botId } }) });
+    queryClient.invalidateQueries({ queryKey: orpc.bots.get.queryKey({ input: { botId } }) });
   const { acting, act } = useItemActions(async () => {
     await Promise.all([refreshHelpers(), refreshConversation()]);
   });
@@ -41,10 +41,10 @@ export function useBotHelpers(botId: string, working: boolean) {
     helpers: query.data ?? [],
     acting,
     stop: async (helperId?: string) => {
-      await act(helperId ?? allHelpers, () => orpc.bot.helper.stop.call({ botId, helperId }));
+      await act(helperId ?? allHelpers, () => orpc.helpers.stop.call({ botId, helperId }));
     },
     done: async (helperId: string) => {
-      await act(helperId, () => orpc.bot.helper.done.call({ helperId }));
+      await act(helperId, () => orpc.helpers.done.call({ helperId }));
     },
   };
 }
@@ -53,7 +53,7 @@ export function useBotHelpers(botId: string, working: boolean) {
 export type ScreenMode = "view" | "control";
 
 /**
- * The live view of a waiting Helper's Screen (#597): a fresh link from `bot.screen.view` on mount
+ * The live view of a waiting Helper's Screen (#597): a fresh link from `computer.view` on mount
  * (never stored), then Take control (`control`) when `startMode` asks for it. `switchTo` takes or
  * gives back control. Control taken here is given back when the view unmounts, even when it was
  * still being taken. `failed` once the link couldn't be had.
@@ -70,7 +70,7 @@ export function useLiveView(helperId: string, startMode: ScreenMode = "view") {
   const send = (next: ScreenMode) => {
     const call = sent.current
       .catch(() => {})
-      .then(() => orpc.bot.screen.control.call({ helperId, mode: next }));
+      .then(() => orpc.computer.control.call({ helperId, mode: next }));
     sent.current = call;
     return call;
   };
@@ -78,7 +78,7 @@ export function useLiveView(helperId: string, startMode: ScreenMode = "view") {
     let current = true;
     void (async () => {
       try {
-        const view = await orpc.bot.screen.view.call({ helperId });
+        const view = await orpc.computer.view.call({ helperId });
         if (startMode === "control") {
           controlling.current = true;
           await send("control");
@@ -120,7 +120,7 @@ export function useLiveView(helperId: string, startMode: ScreenMode = "view") {
 export function useFreshLink(helperId: string) {
   const { orpc } = useChatAdapter();
   return async () => {
-    const view = await orpc.bot.screen.view.call({ helperId });
+    const view = await orpc.computer.view.call({ helperId });
     return new URL(view.url, window.location.origin).href;
   };
 }

@@ -68,7 +68,7 @@ async function botsWith(
   });
   const client = chatRpc({ user, deps });
   const botIds: string[] = [];
-  for (const name of names) botIds.push((await client.bot.create({ name, model })).id);
+  for (const name of names) botIds.push((await client.bots.create({ name, model })).id);
   const seed = (botId: string, file: string, lines: string[]) =>
     computerFake.files.set(
       memoryPath(botId, file),

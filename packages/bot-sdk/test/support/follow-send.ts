@@ -20,7 +20,7 @@ const pollMs = 20;
 
 /**
  * Follows the Turn that takes the saved user Message `saved`, from Postgres: yields the Message,
- * then each Message sent after it, then `turnEnded` once a Turn has taken it and ended. `bot.send`
+ * then each Message sent after it, then `turnEnded` once a Turn has taken it and ended. `bots.send`
  * returns only the saved Message (ADR 0026), so tests and evals that wait for a Turn use this.
  */
 export async function* followSaved(
@@ -62,12 +62,12 @@ export async function* followSaved(
 }
 
 /**
- * Calls `bot.send` on `client` and follows its Turn. `options.signal` goes to the call and ends the
+ * Calls `bots.send` on `client` and follows its Turn. `options.signal` goes to the call and ends the
  * follow.
  */
 export async function followSend(
   client: {
-    bot: {
+    bots: {
       send: (
         input: { botId: string; id: string; text: string; files?: string[]; timeZone?: string },
         options?: { signal?: AbortSignal },
@@ -77,7 +77,7 @@ export async function followSend(
   input: { botId: string; id: string; text: string; files?: string[]; timeZone?: string },
   options?: { signal?: AbortSignal },
 ): Promise<AsyncGenerator<BotSendEvent>> {
-  return followSaved(getTestDb(), await client.bot.send(input, options), options?.signal);
+  return followSaved(getTestDb(), await client.bots.send(input, options), options?.signal);
 }
 
 /** `sendToBot`, then follows its Turn. */

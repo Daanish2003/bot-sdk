@@ -18,7 +18,6 @@ import { createHookEmitter } from "../../core/server/chat/hooks";
 import { createGuardedFetch } from "../../core/server/lib/guarded-fetch";
 import { migrate as migrateChatSchema } from "../../core/server/migrate";
 import type { BotSdkContext } from "../../core/server/plugin";
-import { resolveRateLimits } from "../../core/server/rate-limits";
 import { memoryRuntime } from "../../core/server/runtime";
 import { createBotSdkOver } from "../../core/server/over";
 import { runnerJobs } from "../../plugins/runner/server/internal";
@@ -194,11 +193,10 @@ async function main() {
         events,
         fetch,
         keyring,
-        rateLimits: resolveRateLimits(),
       },
       models: modelsDeps,
     },
-    { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
+    { logger: { error: () => {} } },
   );
 
   // A Turn runs as a job, on the default in-process runner.

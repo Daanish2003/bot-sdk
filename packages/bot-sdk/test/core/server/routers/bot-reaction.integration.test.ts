@@ -59,7 +59,7 @@ async function botWith(rounds: Round[]) {
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model });
+  const { id: botId } = await client.bots.create({ name: "Ada", model });
   return { fake, deps, client, user, botId };
 }
 
@@ -90,7 +90,7 @@ const turnsEnded = (botId: string, count: number) =>
     .toBe(true);
 
 const messageOf = async (client: Client, botId: string, id: string) =>
-  (await client.bot.get({ botId })).messages.find((entry) => entry.id === id)!;
+  (await client.bots.get({ botId })).messages.find((entry) => entry.id === id)!;
 
 const inputOf = (call: { messages: unknown } | undefined) => JSON.stringify(call?.messages);
 
@@ -99,47 +99,50 @@ describe("Reactions", () => {
     const { client, botId } = await botWith([round(says("Hello."))]);
     await send(client, botId, "hi");
     await turnsEnded(botId, 1);
-    const reply = (await client.bot.get({ botId })).messages.find(
+    const reply = (await client.bots.get({ botId })).messages.find(
       (entry) => entry.role === "assistant",
     )!;
-    const { lastSeq } = await client.bot.get({ botId });
+    const { lastSeq, conversationId } = await client.bots.get({ botId });
 
-    await client.bot.react({ botId, messageId: reply.id, emoji: "👍" });
+    await client.bots.react({ botId, messageId: reply.id, emoji: "👍" });
     expect((await messageOf(client, botId, reply.id)).reactions).toMatchObject({
       user: { emoji: "👍" },
     });
-    await client.bot.react({ botId, messageId: reply.id, emoji: "❤️" });
+    await client.bots.react({ botId, messageId: reply.id, emoji: "❤️" });
 
     const after = await messageOf(client, botId, reply.id);
     expect(after.reactions).toMatchObject({ user: { emoji: "❤️" } });
     expect(after.text).toBe("Hello.");
     // A state change in the log, so every tab hears of it; and no Turn started.
-    const { changes } = (await client.bot.changes({ botId, since: lastSeq })) as {
+    const { changes } = (await client.conversations.changes({
+      conversationId,
+      since: lastSeq,
+    })) as {
       changes: { kind: string; refId: string }[];
     };
     expect(changes.filter((change) => change.refId === reply.id)).toHaveLength(2);
     expect(await getTestDb().select().from(botTrigger)).toHaveLength(1);
     expect(await turnCount(botId)).toBe(1);
 
-    await client.bot.react({ botId, messageId: reply.id, emoji: null });
+    await client.bots.react({ botId, messageId: reply.id, emoji: null });
     expect((await messageOf(client, botId, reply.id)).reactions).toBeUndefined();
   });
 
   it("refuses another user, the user's own Message and a word that is no emoji", async () => {
     const { client, botId, deps } = await botWith([round(says("Hello."))]);
     await send(client, botId, "hi");
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
     const reply = messages.find((entry) => entry.role === "assistant")!;
     const mine = messages.find((entry) => entry.role === "user")!;
     const intruder = chatRpc({ user: await insertUser(), deps });
 
     await expect(
-      intruder.bot.react({ botId, messageId: reply.id, emoji: "👍" }),
+      intruder.bots.react({ botId, messageId: reply.id, emoji: "👍" }),
     ).rejects.toMatchObject({ data: { code: "error.botNotFound" } });
     await expect(
-      client.bot.react({ botId, messageId: mine.id, emoji: "👍" }),
+      client.bots.react({ botId, messageId: mine.id, emoji: "👍" }),
     ).rejects.toMatchObject({ data: { code: "error.messageNotFound" } });
-    await expect(client.bot.react({ botId, messageId: reply.id, emoji: "yes" })).rejects.toThrow();
+    await expect(client.bots.react({ botId, messageId: reply.id, emoji: "yes" })).rejects.toThrow();
   });
 
   it("tells the Bot of the user's reaction in its next Turn's input, once", async () => {
@@ -150,10 +153,10 @@ describe("Reactions", () => {
     ]);
     await send(client, botId, "plan please");
     await turnsEnded(botId, 1);
-    const reply = (await client.bot.get({ botId })).messages.find(
+    const reply = (await client.bots.get({ botId })).messages.find(
       (entry) => entry.role === "assistant",
     )!;
-    await client.bot.react({ botId, messageId: reply.id, emoji: "🎉" });
+    await client.bots.react({ botId, messageId: reply.id, emoji: "🎉" });
 
     await send(client, botId, "next");
     await turnsEnded(botId, 2);
@@ -176,7 +179,7 @@ describe("Reactions", () => {
 
     await send(client, botId, "thanks!", id);
     await turnsEnded(botId, 1);
-    const { lastSeq, messages } = await client.bot.get({ botId });
+    const { lastSeq, messages, conversationId } = await client.bots.get({ botId });
     expect(messages).toHaveLength(1);
     expect(messages[0]).toMatchObject({ id, role: "user", reactions: { bot: { emoji: "🙏" } } });
     // The Bot was told which Message to react to.
@@ -187,11 +190,14 @@ describe("Reactions", () => {
     expect((await messageOf(client, botId, id)).reactions).toMatchObject({
       bot: { emoji: "❤️" },
     });
-    const { changes } = (await client.bot.changes({ botId, since: lastSeq })) as {
+    const { changes } = (await client.conversations.changes({
+      conversationId,
+      since: lastSeq,
+    })) as {
       changes: { kind: string; refId: string }[];
     };
     expect(changes).toContainEqual(expect.objectContaining({ kind: "message", refId: id }));
-    expect((await client.bot.get({ botId })).messages).toHaveLength(2);
+    expect((await client.bots.get({ botId })).messages).toHaveLength(2);
   });
 
   it("refuses a reaction with text, with a control, or to a Message that is not the user's", async () => {
@@ -234,12 +240,12 @@ describe("Reactions", () => {
     ]);
     await send(client, botId, "pick");
     await turnsEnded(botId, 1);
-    const asked = (await client.bot.get({ botId })).messages.find(
+    const asked = (await client.bots.get({ botId })).messages.find(
       (entry) => entry.control?.kind === "choice",
     )!;
-    await client.bot.react({ botId, messageId: asked.id, emoji: "👍" });
+    await client.bots.react({ botId, messageId: asked.id, emoji: "👍" });
 
-    await client.bot.choose({ botId, messageId: asked.id, answer: { option: "Red" } });
+    await client.bots.choose({ botId, messageId: asked.id, answer: { option: "Red" } });
 
     expect(await messageOf(client, botId, asked.id)).toMatchObject({
       control: { answer: { text: "Red" } },

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import { useI18n, useOrpc } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
+import type { MemoryContract } from "../shared/contract";
 
 /**
  * Settings: the Memory switch, which turns the Bots' memory on and off (ADR 0022). Each Bot's
@@ -11,7 +12,7 @@ import { serverErrorText } from "../../../core/client/rpc-error";
  * plugin.
  */
 export function MemorySection() {
-  const orpc = useOrpc();
+  const orpc = useOrpc<{ memory: MemoryContract }>();
   const i18n = useI18n();
   const { t } = i18n;
   const queryClient = useQueryClient();

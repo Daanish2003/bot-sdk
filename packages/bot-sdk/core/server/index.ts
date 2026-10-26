@@ -3,9 +3,10 @@ export {
   type BotSdk,
   type BotSdkOptions,
   type FeatureEntry,
-  type GetUser,
   type Logger,
+  type UsersSlot,
 } from "./create-chat";
+export type { UserExport, UsersApi } from "./user-data";
 export type { BotSdkContext, Route, Transaction } from "./plugin";
 export {
   defineFeature,

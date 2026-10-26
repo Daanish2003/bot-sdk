@@ -4,20 +4,17 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { BotSdkClient } from "../../../core/client/chat-client";
-import { botClient } from "../../../plugins/bot/client/index";
-import { modelsClient } from "../../../plugins/models/client/index";
 import { skillsClient } from "../../../plugins/skills/client/index";
 import { BotSkillChip } from "../../../plugins/skills/ui/bot-skill-chip";
 import { BotSkillsPopover } from "../../../plugins/skills/ui/bot-skills-popover";
-import { providerFor } from "../fake-dictionary";
+import { providerFor, type TestClient } from "../fake-dictionary";
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
 
-const plugins = [modelsClient(), skillsClient(), botClient()];
+const features = [skillsClient()];
 const modified = new Date("2030-03-15T12:00:00Z");
 const path = (name: string) => `/home/user/bots/ada/skills/${name}/SKILL.md`;
 const invoices =
@@ -54,7 +51,7 @@ const calledWith = (calls: { url: string; body: string }[], procedure: string) =
 
 /** Seeds the Bot's Skills, and the SKILL.md of each in `files`. */
 function seeded(files: Record<string, string>, available = true) {
-  return (queryClient: QueryClient, client: BotSdkClient) => {
+  return (queryClient: QueryClient, client: TestClient) => {
     queryClient.setQueryData(client.orpc.skills.status.queryKey(), { available });
     queryClient.setQueryData(client.orpc.skills.list.queryKey({ input: { botId: "ada" } }), list);
     for (const [name, content] of Object.entries(files)) {
@@ -72,7 +69,7 @@ function renderPopover(fetch = recordingFetch().fetch, available = true) {
       seed: seeded({ invoices, bare: "No frontmatter." }, available),
       fetch,
       messages: {},
-      plugins,
+      features,
     }),
   );
   const button = screen.queryByRole("button", { name: /^Skills/ });
@@ -208,7 +205,7 @@ describe("BotSkillChip editor", () => {
           botId: "ada",
           changes: [{ kind: "updated", name: "invoices" }],
         }),
-        { seed: seeded({ invoices }), messages: {}, plugins },
+        { seed: seeded({ invoices }), messages: {}, features },
       ),
     );
     expect(screen.queryByRole("textbox", { name: "SKILL.md" })).toBeNull();

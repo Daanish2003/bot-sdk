@@ -2,14 +2,15 @@ import { toolDefinition } from "@tanstack/ai";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { defineFeature } from "../../../core/server/feature";
+import { coreContextOf, defineFeature } from "../../../core/server/feature";
 import { isComputerFailure } from "../../computer/server/internal";
 import { botMemoryPassJob, enqueueBotMemoryPass } from "./bot-pass";
 import { botMemorySnapshot, botsOf, exportBotMemory, memoryDirectory } from "./bot-memory";
 import { memoryChangeNotes } from "./change-notes";
 import { memorySettings } from "./db/settings";
 import { memoryEnabledFor } from "./manage";
-import { memoryRouter } from "./routers/index";
+import { memoryApi } from "./memory-api";
+import { memoryContract } from "../shared/contract";
 import { searchBotMemory } from "./search";
 
 /** The tool that searches the Bot's memory files (ADR 0022). */
@@ -27,7 +28,7 @@ const searchMemoryDefinition = toolDefinition({
 });
 
 /**
- * The Memory feature (ADR 0022): the Bots' file memory, its post-Turn pass, the Memory routers and
+ * The Memory feature (ADR 0022): the Bots' file memory, its post-Turn pass, the Memory contract and
  * the user's Memory switch. A Host turns Memory on with `memory()` in `features`; it needs the
  * Computer, where the files live.
  */
@@ -36,10 +37,8 @@ export function memory() {
     id: "memory",
     needs: ["computer"],
     schema: { memorySettings },
-    api: (context) => ({
-      /** The user's Memory switch: on for a user who never saved it. */
-      isEnabled: (userId: string) => memoryEnabledFor(context, userId),
-    }),
+    // The domain methods: `sdk.memory` (spec #873).
+    api: (context) => memoryApi(coreContextOf(context)),
     // Sent on every call, by name (`isDirectTool`), only with the user's Memory on.
     tools: async (turn, context, kit) => {
       // Read once and recorded, so a replay lists what its attempt did, even if the switch moved.
@@ -108,6 +107,6 @@ export function memory() {
         botMemory: await exportBotMemory(context, tx, userId),
       }),
     },
-    router: { memory: memoryRouter },
+    contract: memoryContract,
   });
 }

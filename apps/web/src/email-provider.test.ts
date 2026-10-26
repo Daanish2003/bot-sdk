@@ -32,7 +32,7 @@ describe("emailProviderOf", () => {
     expect(fetcher).not.toHaveBeenCalled();
 
     // A webhook naming a message Mailpit doesn't hold is refused.
-    const hook = new Request("http://localhost/api/channels/email", {
+    const hook = new Request("http://localhost/api/chat/channels/email", {
       method: "POST",
       body: JSON.stringify({ ID: "abc123" }),
     });

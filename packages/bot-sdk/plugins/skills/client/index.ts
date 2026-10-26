@@ -1,15 +1,11 @@
-import type { BotSdkClientPlugin } from "../../../core/client/plugin";
-import type { SkillsRouter } from "../server/routers/index";
+import type { FeatureClient } from "../../../core/client/chat-client";
+import { skillsContract, type SkillsContract } from "../shared/contract";
 
-declare module "../../../core/client/plugin" {
-  interface PluginRouters {
-    skills: SkillsRouter;
-  }
-}
+export type { SkillsContract };
 
-export type SkillsClientPlugin = BotSdkClientPlugin<"skills", SkillsRouter>;
+export type SkillsFeatureClient = FeatureClient<"skills", SkillsContract>;
 
-/** The `skills` plugin's client: its router is `skills`. It adds no URLs. */
-export function skillsClient(): SkillsClientPlugin {
-  return { id: "skills" };
+/** The `skills` feature's client part: its contract, served under `skills`. It adds no URLs. */
+export function skillsClient(): SkillsFeatureClient {
+  return { id: "skills", contract: skillsContract };
 }

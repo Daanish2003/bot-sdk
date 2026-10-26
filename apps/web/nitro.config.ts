@@ -3,7 +3,7 @@ import { defineConfig } from "nitro";
 
 export default defineConfig({
   serverDir: "./server",
-  // The live view's socket (#597), server/routes/api/screens/[token]/websockify.ts.
+  // The live view's socket (#597), server/routes/api/chat/screens/[token]/websockify.ts.
   features: {
     websocket: true,
   },

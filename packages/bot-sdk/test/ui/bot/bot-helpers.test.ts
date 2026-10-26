@@ -46,7 +46,7 @@ const helper = (afterMessageId: string, extra: Partial<BotHelper> = {}): BotHelp
 
 /**
  * A stand-in for the server's `bot` router, with the Helpers (and Routines) a test gives it.
- * `bot.helper.stop` records its input in `stops` and stops them as the server does.
+ * `helpers.stop` records its input in `stops` and stops them as the server does.
  */
 function mount(
   messages: BotMessage[],
@@ -58,7 +58,12 @@ function mount(
   }: { routines?: BotRoutine[]; stops?: unknown[]; log?: ReturnType<typeof changeLog> } = {},
 ) {
   const router = {
-    bot: {
+    conversations: {
+      changes: os
+        .input(z.object({ conversationId: z.string(), since: z.number() }))
+        .handler(({ input }) => log.since(input.since)),
+    },
+    bots: {
       get: os.handler(() => ({
         bot: { ...ada, turnStatus: null },
         conversationId: "c1",
@@ -66,9 +71,6 @@ function mount(
         turns: [],
         lastSeq: log.last,
       })),
-      changes: os
-        .input(z.object({ botId: z.string(), since: z.number() }))
-        .handler(({ input }) => log.since(input.since)),
       stop: os.handler(() => {}),
       send: os
         .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }).loose())
@@ -78,24 +80,22 @@ function mount(
           text: input.text,
           createdAt: new Date(),
         })),
-      routine: { list: os.input(z.object({ botId: z.string() })).handler(() => routines) },
-      checkIn: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
-      helper: {
-        list: os
-          .input(z.object({ botId: z.string() }))
-          .handler(() => helpers.map((h) => ({ ...h }))),
-        stop: os
-          .input(z.object({ botId: z.string(), helperId: z.string().optional() }))
-          .handler(({ input }) => {
-            stops.push(input);
-            helpers.forEach((h, index) => {
-              const live = h.status === "running" || h.status === "waiting";
-              if (live && (!input.helperId || input.helperId === h.id)) {
-                helpers[index] = { ...h, status: "stopped", latest: null };
-              }
-            });
-          }),
-      },
+    },
+    routines: { list: os.input(z.object({ botId: z.string() })).handler(() => routines) },
+    checkIns: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
+    helpers: {
+      list: os.input(z.object({ botId: z.string() })).handler(() => helpers.map((h) => ({ ...h }))),
+      stop: os
+        .input(z.object({ botId: z.string(), helperId: z.string().optional() }))
+        .handler(({ input }) => {
+          stops.push(input);
+          helpers.forEach((h, index) => {
+            const live = h.status === "running" || h.status === "waiting";
+            if (live && (!input.helperId || input.helperId === h.id)) {
+              helpers[index] = { ...h, status: "stopped", latest: null };
+            }
+          });
+        }),
     },
   };
   const handler = new RPCHandler(router);

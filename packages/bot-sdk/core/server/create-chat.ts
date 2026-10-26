@@ -1,38 +1,41 @@
-import { onError } from "@orpc/server";
-import { RPCHandler } from "@orpc/server/fetch";
-
 import { postgresBlobStore, createDb } from "./storage";
 import type { BlobStore } from "./storage";
 import { handleConversationEvents } from "./chat/conversation-events";
 import { createHookEmitter } from "./chat/hooks";
-import type { ChatUser, Context } from "./context";
 import { createGuardedFetch } from "./lib/guarded-fetch";
 import {
   checkFeature,
   contextOf,
   enableFeature,
   featurePlugin,
+  featureRouter,
   type AnyFeature,
   type FeatureApis,
 } from "./feature";
 import { assertMigrated, migrate as migrateSchema } from "./migrate";
 import {
-  matchPath,
   mergeRateLimits,
   mergeRouters,
   mergeRoutes,
+  normalizeBasePath,
   type BotSdkContext,
   type BotSdkPlugin,
   type CoreRule,
   type HooksOf,
-  type RateLimitsOf,
   type Route,
 } from "./plugin";
-import { defaultRateLimits, rateLimitedFor, rpcRateLimits, type RateLimit } from "./rate-limits";
+import { defaultRateLimits, type RateLimit } from "./rate-limits";
 import { memoryRuntime, type BotSdkRuntime } from "./runtime";
-import { deleteUserData, exportUserData, type UserExport } from "./user-data";
+import { usersApi, type UserExport, type UsersApi } from "./user-data";
 import { bot, botJobs, type BotApi } from "../../plugins/bot/server/plugin";
-import { channel, createChannels } from "../../plugins/bot/server/channels";
+import type { ConversationsApi } from "../../plugins/bot/server/conversations-api";
+import type { ScreensApi } from "../../plugins/bot/server/screens-api";
+import type { SecretsApi } from "../../plugins/bot/server/secrets-api";
+import type { CheckInsApi, RoutinesApi } from "../../plugins/bot/server/routines-api";
+import type { DemonstrationsApi } from "../../plugins/bot/server/demonstrations-api";
+import type { HelpersApi } from "../../plugins/bot/server/helpers-api";
+import type { ReviewsApi } from "../../plugins/bot/server/reviews-api";
+import { channel, createChannels, noChannels } from "../../plugins/bot/server/channels";
 import type { ChannelAdapter, ChannelApi } from "../../plugins/channel/server/internal";
 import { computerSleepJob, createComputer } from "../../plugins/computer/server/internal";
 import type { ComputerProvider } from "../../plugins/computer/server/internal";
@@ -50,15 +53,26 @@ import type {
 } from "../../plugins/runner/server/internal";
 import { createRunner, jobTable, type RunnerApi } from "../../plugins/runner/server/internal";
 
-export type ChatHandler = (request: Request) => Promise<Response>;
-
 /** Where the RPC calls' errors go, and the SDK's warnings when it has `warn`. */
 export type Logger = Pick<Console, "error"> & Partial<Pick<Console, "warn">>;
 
-export type GetUser = (request: Request) => ChatUser | null | Promise<ChatUser | null>;
-
 /** What the `features` slot takes: features built with `defineFeature`. */
 export type FeatureEntry = AnyFeature;
+
+/** The `users` slot: what the SDK asks the Host about a user, by id. Users stay opaque ids. */
+export type UsersSlot = {
+  /**
+   * Whether the Host has banned the user (spec #277). A banned owner's Routine fires, Check-in
+   * fires, Routine webhooks and inbound email start no Turns; in-process calls are trusted.
+   * Unset, nobody is blocked.
+   */
+  isBlocked?: (userId: string) => boolean | Promise<boolean>;
+  /**
+   * The user's verified account email, or `null` when they have none: only mail from it reaches
+   * their Bots. Unset, none does.
+   */
+  verifiedEmail?: (userId: string) => Promise<string | null>;
+};
 
 /**
  * The factory's options (spec #871): the Bot core is always on, Models are configured in `models`,
@@ -66,15 +80,11 @@ export type FeatureEntry = AnyFeature;
  */
 export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly FeatureEntry[]> = {
   databaseUrl: string;
-  /** Who the request is from. `null` answers 401, except on a public route. */
-  getUser: GetUser;
   /**
    * The keyring (ADR 0010), at least one secret. The first encrypts Provider and Tool credentials
    * at rest; every entry decrypts, so a key can be added in front of the old one.
    */
   keyEncryptionSecrets: string[];
-  /** Where the handler is mounted, for example `/api/chat`. */
-  basePath: string;
   /**
    * What the SDK shares across processes: pub/sub and the rate-limit counters (`redisRuntime`).
    * Defaults to in-memory, which works in one process only; `start()` warns about it.
@@ -97,11 +107,16 @@ export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly Fe
    * stay where they are.
    */
   blobs?: BlobStore;
+  /** What the SDK asks the Host about a user (spec #873). */
+  users?: UsersSlot;
   /**
-   * Whether the Host has banned a user (spec #277). A banned owner's Routines, Check-ins and
-   * Channel messages don't start Turns. Unset, nobody is blocked.
+   * The path the HTTP layer is served at (its `basePath`, for example `/api/chat`), under which
+   * the live view's links to a Screen point: `<liveViewBase>/screens/…`. Set it to make links
+   * with `computer.view` and `demonstrations.view` in a process that serves no HTTP. Unset, the
+   * first `createHttpHandler` or `createScreenSocket` made over the instance sets it to its
+   * `basePath`, and a link before then throws.
    */
-  isUserBlocked?: (userId: string) => boolean | Promise<boolean>;
+  liveViewBase?: string;
   /**
    * The optional capabilities (spec #871): features built with `defineFeature`, each API served
    * as `sdk.<id>`.
@@ -125,18 +140,11 @@ export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly Fe
   /** The Channels besides web, each an adapter (email). With none, Bots talk on the web only. */
   channels?: readonly ChannelAdapter[];
   /**
-   * The user's verified account email, or `null` when they have none: only mail from it reaches
-   * their Bots. Unset, none does.
-   */
-  verifiedEmail?: (userId: string) => Promise<string | null>;
-  /**
    * The Model that reviews each Bot's risky tool calls before they run (Auto-review), a
    * `"provider:model"` id from the Models' list, resolved per user. Unset, or one the user can't
    * use, the Bot's own Model reviews, in a fresh context.
    */
   reviewModel?: string;
-  /** Overrides for the core's rate limits (spec 87). Each rule is optional; `false` turns it off. */
-  rateLimits?: RateLimitsOf<[ModelsPlugin]>;
   /**
    * The Host's callbacks into the SDK. Each hook is optional and runs after its change is written,
    * never awaited, at most once and without retries (README, "Host hooks").
@@ -145,16 +153,35 @@ export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly Fe
 };
 
 export type BotSdk = {
-  handler: ChatHandler;
   /** The runner's jobs. */
   runner: RunnerApi;
   /** The core's Models (spec #871): metering, the Quota and the Admin views' usage reads. */
   models: ModelsApi;
   /**
-   * The core's Bots (spec #871): the Routines' webhook handler, the live view's handler and
-   * socket, and `stopTurns` for a Ban.
+   * The core's Bots (spec #871): the domain methods (spec #873) and `stopTurns` for a Ban.
    */
   bots: BotApi;
+  /**
+   * The core's Conversations (spec #873): `watch` for a Conversation's change hints and `changes`
+   * for what changed since a cursor.
+   */
+  conversations: ConversationsApi;
+  /** The core's Secrets (spec #873): `save`, `list` and `delete`. The value never comes out. */
+  secrets: SecretsApi;
+  /**
+   * The Computer's Screens (spec #873): `view` for a live-view link to a Helper's Screen and
+   * `control` to take control or give back.
+   */
+  computer: ScreensApi;
+  /**
+   * The core's Routines, Check-ins, Helpers, Demonstrations and Auto-reviews (spec #873), the
+   * user's side of each: list, approve, pause, stop, allow and so on, by `userId`.
+   */
+  routines: RoutinesApi;
+  checkIns: CheckInsApi;
+  helpers: HelpersApi;
+  demonstrations: DemonstrationsApi;
+  reviews: ReviewsApi;
   /** The core's Channels (spec #871): the inbound handler of each adapter in the channels slot. */
   channels: ChannelApi;
   /** Creates the `chat` schema and applies the bundled migrations. Run it at deploy time. */
@@ -172,13 +199,8 @@ export type BotSdk = {
    * error is rethrown once the runtime closes. Call it on SIGTERM.
    */
   stop: () => Promise<void>;
-  /** Deletes everything the core and the features hold for a user, in one transaction. Idempotent. */
-  deleteUser: (userId: string) => Promise<void>;
-  /**
-   * Everything the SDK keeps for a user, as one document (`version: 2`): the core's `version`
-   * and `exportedAt`, and each exporting part under its id (`bot`, `models`, a feature's). Empty for an unknown id.
-   */
-  exportUser: (userId: string) => Promise<UserExport>;
+  /** The core's users (spec #873): `delete` and `export` of a user's data across every part. */
+  users: UsersApi;
   /**
    * Re-encrypts every stored secret under the keyring's first secret (ADR 0010). Batched and safe
    * to re-run. `unreadable` counts rows no key can read; they are left in place and logged. Run it
@@ -193,7 +215,7 @@ const coreRateLimits: Record<CoreRule, RateLimit> = {
 };
 
 /** The core's non-RPC routes, under `basePath`. */
-function coreRoutes(exportUser: BotSdk["exportUser"]): Route[] {
+function coreRoutes(exportUser: UsersApi["export"]): Route[] {
   return [
     {
       method: "GET",
@@ -203,7 +225,7 @@ function coreRoutes(exportUser: BotSdk["exportUser"]): Route[] {
     {
       method: "GET",
       path: "/export",
-      handle: async (_request, { user }) => exportResponse(await exportUser(user.id)),
+      handle: async (_request, { user }) => exportResponse(await exportUser({ userId: user.id })),
     },
   ];
 }
@@ -220,7 +242,20 @@ function exportResponse(document: UserExport) {
 export type GivenContext = Partial<
   Omit<
     BotSdkContext,
-    "parts" | "rateLimit" | "models" | "runner" | "computer" | "bots" | "channels"
+    | "parts"
+    | "models"
+    | "runner"
+    | "computer"
+    | "bots"
+    | "conversations"
+    | "secrets"
+    | "screens"
+    | "routines"
+    | "checkIns"
+    | "helpers"
+    | "demonstrations"
+    | "reviews"
+    | "channels"
   > & {
     /** A runner built by the test seam, in place of one over the runner slot's Executor. */
     jobs: JobRunner;
@@ -240,8 +275,8 @@ export function createBotSdk<const Features extends readonly FeatureEntry[] = []
 
 /**
  * The core's parts the slots configure: Models (`modelsPart`, by default the models slot's), the
- * Bots, and the Channels when their slot is set. Models come first, so every other part's `init`
- * finds `sdk.models` set.
+ * Bots, and the Channels (with only the email inbound route, answering 404, when their slot isn't
+ * set). Models come first, so every other part's `init` finds `sdk.models` set.
  */
 export function coreParts(options: BotSdkOptions, modelsPart?: BotSdkPlugin): BotSdkPlugin[] {
   if (!modelsPart && !options.models) {
@@ -254,10 +289,10 @@ export function coreParts(options: BotSdkOptions, modelsPart?: BotSdkPlugin): Bo
       ? [
           channel({
             adapters: options.channels,
-            verifiedEmail: options.verifiedEmail ?? (async () => null),
+            verifiedEmail: options.users?.verifiedEmail ?? (async () => null),
           }),
         ]
-      : []),
+      : [noChannels()]),
   ];
 }
 
@@ -274,9 +309,6 @@ export function buildBotSdk(
   if (options.keyEncryptionSecrets.length === 0) {
     throw new Error("keyEncryptionSecrets must hold at least one secret");
   }
-  if (!options.basePath.startsWith("/")) {
-    throw new Error(`basePath must start with "/": ${options.basePath}`);
-  }
   const core = parts ?? coreParts(options);
   if (core[0]?.id !== "models") throw new Error("The core's parts must start with Models");
   const features: readonly AnyFeature[] = options.features ?? [];
@@ -291,20 +323,24 @@ export function buildBotSdk(
   // The core serves its own routes and rules beside its parts', so no part can claim them.
   const own: BotSdkPlugin = {
     id: "core",
-    routes: coreRoutes((userId) => instance.exportUser(userId)),
+    routes: coreRoutes((input) => instance.users.export(input)),
     rateLimits: coreRateLimits,
   };
   const declared = [
     own,
     ...core,
-    ...features.map(({ id, router, routes }): BotSdkPlugin => ({ id, router, routes })),
+    ...features.map((feature): BotSdkPlugin => ({
+      id: feature.id,
+      router: featureRouter(feature),
+      routes: feature.routes,
+    })),
   ];
   const router = mergeRouters(declared);
   const routes = mergeRoutes(declared);
   const ruleDefaults = mergeRateLimits([own, ...core]);
 
   // Building the context opens nothing: the pool and the runtime connect on first use.
-  const sdk = buildContext(options, given, ruleDefaults) as BotSdkContext;
+  const sdk = buildContext(options, given) as BotSdkContext;
   // The core services, over the context they belong to, before any part's `init` runs.
   const runner = createRunner(sdk, options.runner, given.jobs);
   sdk.runner = runner.api;
@@ -321,16 +357,23 @@ export function buildBotSdk(
     ...enabled.map(({ feature, context }) => ({ jobs: feature.jobs ?? [], services: context })),
     { jobs: options.jobs ?? [], services: contextOf(sdk, []) },
   ]);
-  sdk.parts = { all: plugins, features: enabled, jobs };
-  // In order: the core's parts first, then each feature's API.
   const apis = new Map<string, object>();
+  sdk.parts = { all: plugins, features: enabled, jobs, apis };
+  // In order: the core's parts first, then each feature's API.
   for (const plugin of plugins) apis.set(plugin.id, plugin.init?.(sdk)?.api ?? {});
 
   const instance: BotSdk = {
-    handler: createHandler(options, router, routes, sdk),
     runner: sdk.runner,
     models: sdk.models,
     bots: sdk.bots,
+    conversations: sdk.conversations,
+    secrets: sdk.secrets,
+    computer: sdk.screens,
+    routines: sdk.routines,
+    checkIns: sdk.checkIns,
+    helpers: sdk.helpers,
+    demonstrations: sdk.demonstrations,
+    reviews: sdk.reviews,
     channels: sdk.channels,
     migrate: () =>
       migrateSchema(options.databaseUrl, {
@@ -373,8 +416,7 @@ export function buildBotSdk(
       if (errors.length === 1) throw errors[0];
       if (errors.length > 1) throw new AggregateError(errors, "Several parts failed to stop");
     },
-    deleteUser: (userId) => deleteUserData(sdk, userId),
-    exportUser: (userId) => exportUserData(sdk, userId),
+    users: usersApi(sdk),
     rotateKeys: async () => {
       const total = { reencrypted: 0, unreadable: 0 };
       for (const plugin of plugins) {
@@ -387,27 +429,42 @@ export function buildBotSdk(
   };
   // Each feature's API, as `sdk.<id>`.
   for (const feature of features) Object.assign(instance, { [feature.id]: apis.get(feature.id) });
+  // What the HTTP layer serves, kept off the instance's typed and enumerable keys.
+  const http: HttpParts = { context: sdk, router, routes, rateLimits: ruleDefaults };
+  Object.defineProperty(instance, httpPartsKey, { value: http });
   return { instance, context: sdk };
+}
+
+/**
+ * What `createHttpHandler` serves of an instance: its core context, every part's routers and routes,
+ * and the default of each rate-limit rule.
+ */
+export type HttpParts = {
+  context: BotSdkContext;
+  router: ReturnType<typeof mergeRouters>;
+  routes: readonly Route[];
+  rateLimits: Readonly<Record<string, RateLimit>>;
+};
+
+// A registered symbol, so a copy of this module in another bundle (the Host's Nitro plugin) finds it.
+const httpPartsKey = Symbol.for("@ai-chat/bot-sdk/http");
+
+/** The HTTP parts of an instance `createBotSdk` built; throws for anything else. */
+export function httpPartsOf(sdk: BotSdk): HttpParts {
+  const parts = (sdk as { [httpPartsKey]?: HttpParts } | null)?.[httpPartsKey];
+  if (!parts) throw new Error("createHttpHandler takes an instance that createBotSdk built");
+  return parts;
 }
 
 /** The core context: the infrastructure from the options, with any `given` part in its place. */
 function buildContext(
   options: BotSdkOptions,
   given: GivenContext,
-  ruleDefaults: ReturnType<typeof mergeRateLimits>,
 ): Omit<BotSdkContext, "runner" | "computer" | "channels" | "parts"> {
   const logger = options.logger ?? console;
   const db = given.db ?? createDb({ DATABASE_URL: options.databaseUrl }, logger);
   const runtime = given.runtime ?? options.pubsub ?? memoryRuntime();
   const counters = given.counters ?? runtime.counters;
-  const overrides: Partial<Record<string, RateLimit | false>> = options.rateLimits ?? {};
-  // A given rule replaces its default; the rest keep theirs, so `rateLimit` finds every rule.
-  const rateLimits = {
-    ...Object.fromEntries(
-      Object.entries(ruleDefaults).map(([rule, limit]) => [rule, overrides[rule] ?? limit]),
-    ),
-    ...given.rateLimits,
-  };
   const fetchAllowHosts = given.fetchAllowHosts ?? options.fetchAllowHosts ?? [];
   return {
     db,
@@ -423,23 +480,47 @@ function buildContext(
     clock: given.clock ?? (() => new Date()),
     keyring: given.keyring ?? options.keyEncryptionSecrets,
     lifecycle: given.lifecycle ?? { stopping: false },
-    isUserBlocked: given.isUserBlocked ?? options.isUserBlocked ?? (() => false),
-    rateLimits,
-    rateLimit: (rule, key) => {
-      const limit = rateLimits[rule];
-      if (limit === undefined)
-        throw new Error(`Nothing in the instance declares the rate limit "${rule}"`);
-      return rateLimitedFor(counters, limit, key);
+    liveView: given.liveView ?? {
+      base: options.liveViewBase === undefined ? null : normalizeBasePath(options.liveViewBase),
     },
+    isUserBlocked: given.isUserBlocked ?? options.users?.isBlocked ?? (() => false),
     // Set by the Models' init, which runs before every other part's.
     models: modelsUnconfigured,
     // Set by the Bots' init, which the core always runs.
     bots: botsUnconfigured,
+    conversations: conversationsUnconfigured,
+    secrets: botsStub<SecretsApi>({ save: true, list: true, delete: true }),
+    screens: botsStub<ScreensApi>({ view: true, control: true }),
+    routines: botsStub<RoutinesApi>({
+      list: true,
+      approve: true,
+      decline: true,
+      pause: true,
+      resume: true,
+      delete: true,
+      rotate: true,
+      receiveWebhook: true,
+    }),
+    checkIns: botsStub<CheckInsApi>({ list: true, cancel: true }),
+    helpers: botsStub<HelpersApi>({ list: true, done: true, stop: true }),
+    demonstrations: botsStub<DemonstrationsApi>({
+      pause: true,
+      resume: true,
+      done: true,
+      cancel: true,
+      view: true,
+      steps: true,
+    }),
+    reviews: botsStub<ReviewsApi>({ list: true, allow: true, deny: true }),
   };
 }
 
 /** Every name of the Models' API, so the unconfigured stand-in throws on those alone. */
 const modelsApiKeys: Record<keyof ModelsApi, true> = {
+  list: true,
+  imageModel: true,
+  setImageModel: true,
+  credentials: true,
   resolveModelCall: true,
   resolveToolCall: true,
   resolvePayer: true,
@@ -489,86 +570,42 @@ const botsUnconfigured = new Proxy({} as BotApi, {
   },
 });
 
+/** Every name of the Conversations' API, so the stand-in throws on those alone. */
+const conversationsApiKeys: Record<keyof ConversationsApi, true> = { watch: true, changes: true };
+
+/** The `conversations` service of an instance whose core parts have no `bot()`: reading it throws. */
+const conversationsUnconfigured = new Proxy({} as ConversationsApi, {
+  get: (_target, key) => {
+    if (typeof key === "string" && key in conversationsApiKeys) {
+      throw new Error("The Bots aren't enabled: build the SDK with the slots");
+    }
+    return undefined;
+  },
+});
+
+/** The stand-in of a Bots namespace on an instance whose core parts have no `bot()`: its methods throw. */
+function botsStub<Api extends object>(keys: Record<keyof Api, true>): Api {
+  return new Proxy({} as Api, {
+    get: (_target, key) => {
+      if (typeof key === "string" && key in keys) {
+        throw new Error("The Bots aren't enabled: build the SDK with the slots");
+      }
+      return undefined;
+    },
+  });
+}
+
 /** Every name of the Bots' API, so the stand-in throws on those alone. */
 const botApiKeys: Record<keyof BotApi, true> = {
-  webhookHandler: true,
+  create: true,
+  list: true,
+  get: true,
+  send: true,
+  upload: true,
+  stop: true,
+  warm: true,
+  choose: true,
+  react: true,
   stopTurns: true,
-  screenHandler: true,
-  screenSocket: true,
   reviewModel: true,
 };
-
-function createHandler(
-  { basePath, getUser, logger = console }: BotSdkOptions,
-  router: ReturnType<typeof mergeRouters>,
-  routes: readonly Route[],
-  sdk: BotSdkContext,
-): ChatHandler {
-  const prefix = basePath.replace(/\/+$/, "");
-  const rpcPrefix = `${prefix}/rpc` as `/${string}`;
-  const rpc = new RPCHandler(router, {
-    interceptors: [onError((error) => logger.error(error))],
-  });
-  const matchRoute = (request: Request, path: string | null, isPublic: boolean) => {
-    if (path === null) return null;
-    for (const route of routes) {
-      if (route.method !== request.method || Boolean(route.public) !== isPublic) continue;
-      const params = matchPath(route.path, path);
-      if (params) return { route, params };
-    }
-    return null;
-  };
-
-  return async (request) => {
-    const { pathname } = new URL(request.url);
-    const path = pathname.startsWith(`${prefix}/`) ? pathname.slice(prefix.length) : null;
-    const publicRoute = matchRoute(request, path, true);
-    if (publicRoute?.route.public) {
-      const { route, params } = publicRoute;
-      return route.handle(request, { user: null, sdk, params, basePath: prefix });
-    }
-    const user = await getUser(request);
-    if (!user) return unauthorized();
-
-    if (pathname === rpcPrefix || pathname.startsWith(`${rpcPrefix}/`)) {
-      const refused = await rpcRateLimitRefusal(sdk, user.id, pathname.slice(rpcPrefix.length));
-      if (refused) return refused;
-      const context: Context = { user, sdk };
-      const result = await rpc.handle(request, { prefix: rpcPrefix, context });
-      return result.matched ? result.response : notFound();
-    }
-    const privateRoute = matchRoute(request, path, false);
-    if (privateRoute && !privateRoute.route.public) {
-      const { route, params } = privateRoute;
-      return route.handle(request, { user, sdk, params, basePath: prefix });
-    }
-    return notFound();
-  };
-}
-
-/** Counts a hit on a limited RPC route and answers 429 with `Retry-After` once it is over its limit. */
-async function rpcRateLimitRefusal(
-  sdk: BotSdkContext,
-  userId: string,
-  route: string,
-): Promise<Response | null> {
-  const rule = rpcRateLimits[route];
-  if (!rule || !(rule in sdk.rateLimits)) return null;
-  return tooManyRequests(await sdk.rateLimit(rule, `${rule}:${userId}`));
-}
-
-function tooManyRequests(retryAfter: number | null): Response | null {
-  if (retryAfter === null) return null;
-  return Response.json(
-    { code: "error.tooManyRequests", params: {} },
-    { status: 429, headers: { "Retry-After": String(retryAfter) } },
-  );
-}
-
-function unauthorized() {
-  return Response.json({ code: "error.unauthorized", params: {} }, { status: 401 });
-}
-
-function notFound() {
-  return new Response("Not found", { status: 404 });
-}

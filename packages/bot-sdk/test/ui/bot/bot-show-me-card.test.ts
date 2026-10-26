@@ -41,7 +41,7 @@ const showMe = (state: DemonstrationState, steps = 0): BotMessage => {
   return { ...said("m3", "assistant", goal), control: demonstration };
 };
 
-const linkOf = (n: number) => `/api/screens/token-${n}/vnc.html?autoconnect=1`;
+const linkOf = (n: number) => `/api/chat/screens/token-${n}/vnc.html?autoconnect=1`;
 
 /**
  * A stand-in for the server's `bot` router: the Conversation `messages()` gives, and the
@@ -62,7 +62,7 @@ function mount(
       return { state: "recording" as const };
     });
   const router = {
-    bot: {
+    bots: {
       get: os.handler(() => ({
         bot: { ...ada, turnStatus: null },
         messages: messages(),
@@ -77,22 +77,22 @@ function mount(
           text: input.text,
           createdAt: new Date(),
         })),
-      routine: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
-      checkIn: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
-      helper: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
-      demonstration: {
-        pause: action("pause"),
-        resume: action("resume"),
-        done: action("done"),
-        cancel: action("cancel"),
-        steps: os
-          .input(z.object({ demonstrationId: z.string() }))
-          .handler(() => ({ steps: steps() })),
-        view: os.input(z.object({ demonstrationId: z.string() })).handler(({ input }) => {
-          viewCalls.push(input);
-          return { url: linkOf(viewCalls.length) };
-        }),
-      },
+    },
+    routines: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
+    checkIns: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
+    helpers: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
+    demonstrations: {
+      pause: action("pause"),
+      resume: action("resume"),
+      done: action("done"),
+      cancel: action("cancel"),
+      steps: os
+        .input(z.object({ demonstrationId: z.string() }))
+        .handler(() => ({ steps: steps() })),
+      view: os.input(z.object({ demonstrationId: z.string() })).handler(({ input }) => {
+        viewCalls.push(input);
+        return { url: linkOf(viewCalls.length) };
+      }),
     },
   };
   const handler = new RPCHandler(router);

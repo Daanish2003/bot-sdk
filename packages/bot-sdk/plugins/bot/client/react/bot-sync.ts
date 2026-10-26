@@ -31,9 +31,9 @@ function stateOf(queryClient: QueryClient, botId: string): SyncState {
 }
 
 /**
- * Fetches Bot `botId`'s thread changes after the cursor (the cached `bot.get`'s `lastSeq`) and
+ * Fetches Bot `botId`'s thread changes after the cursor (the cached `bots.get`'s `lastSeq`) and
  * applies them in seq order (ADR 0026). A cursor the log no longer holds, or a gap in the numbers,
- * reads the thread afresh with `bot.get`. One fetch runs at a time per Bot; a call made meanwhile
+ * reads the thread afresh with `bots.get`. One fetch runs at a time per Bot; a call made meanwhile
  * makes it fetch once more, so the result holds everything committed before that call. It never
  * rejects: a fetch that fails is tried again on the next signal.
  */
@@ -58,26 +58,27 @@ export function syncBot(queryClient: QueryClient, orpc: BotSdkOrpc, botId: strin
 }
 
 async function fetchOnce(queryClient: QueryClient, orpc: BotSdkOrpc, botId: string) {
-  const getKey = orpc.bot.get.queryOptions({ input: { botId } }).queryKey;
-  const since = queryClient.getQueryData(getKey)?.lastSeq;
-  // Nothing loaded yet: the first `bot.get` is the thread.
-  if (since === undefined) return;
+  const getKey = orpc.bots.get.queryOptions({ input: { botId } }).queryKey;
+  const loaded = queryClient.getQueryData(getKey);
+  // Nothing loaded yet: the first `bots.get` is the thread.
+  if (!loaded) return;
+  const { conversationId, lastSeq: since } = loaded;
   let result;
   try {
-    result = await orpc.bot.changes.call({ botId, since });
+    result = await orpc.conversations.changes.call({ conversationId, since });
   } catch {
     return;
   }
   const lists = listKeys(orpc, botId);
   if (result.reload || !consecutive(since, result.changes)) {
-    for (const queryKey of [getKey, orpc.bot.list.queryKey(), ...Object.values(lists)]) {
+    for (const queryKey of [getKey, orpc.bots.list.queryKey(), ...Object.values(lists)]) {
       void queryClient.invalidateQueries({ queryKey });
     }
     return;
   }
   const { changes } = result;
   if (changes.length === 0) return;
-  // A `bot.get` that started before these writes would answer after them with an older thread: it
+  // A `bots.get` that started before these writes would answer after them with an older thread: it
   // is cancelled, and asked for again below.
   let rereadThread = queryClient.isFetching({ queryKey: getKey }) > 0;
   await queryClient.cancelQueries({ queryKey: getKey });
@@ -112,7 +113,7 @@ async function fetchOnce(queryClient: QueryClient, orpc: BotSdkOrpc, botId: stri
     (thread) => thread && { ...thread, lastSeq: Math.max(thread.lastSeq, changes.at(-1)!.seq) },
   );
   if (rereadThread) void queryClient.invalidateQueries({ queryKey: getKey });
-  void queryClient.invalidateQueries({ queryKey: orpc.bot.list.queryKey() });
+  void queryClient.invalidateQueries({ queryKey: orpc.bots.list.queryKey() });
 }
 
 /** Whether `changes` run on from `since` with no number missing. */
@@ -124,11 +125,11 @@ function consecutive(since: number, changes: BotChange[]) {
 function listKeys(orpc: BotSdkOrpc, botId: string) {
   const input = { input: { botId } };
   return {
-    secret: orpc.bot.secret.list.queryKey(),
-    routine: orpc.bot.routine.list.queryKey(input),
-    review: orpc.bot.review.list.queryKey(input),
-    helper: orpc.bot.helper.list.queryKey(input),
-    check_in: orpc.bot.checkIn.list.queryKey(input),
+    secret: orpc.secrets.list.queryKey(),
+    routine: orpc.routines.list.queryKey(input),
+    review: orpc.reviews.list.queryKey(input),
+    helper: orpc.helpers.list.queryKey(input),
+    check_in: orpc.checkIns.list.queryKey(input),
   };
 }
 

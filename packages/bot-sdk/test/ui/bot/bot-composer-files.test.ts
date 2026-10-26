@@ -6,7 +6,6 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { botClient } from "../../../plugins/bot/client/index";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { providerFor } from "../fake-dictionary";
 
@@ -26,7 +25,7 @@ function mount({ refusals = [] }: { refusals?: { code: string; missing?: string[
   const uploads: Upload[] = [];
   const sends: { text: string; files?: string[] }[] = [];
   const router = {
-    bot: {
+    bots: {
       get: os.handler(() => ({ bot: { ...ada, turnStatus: null }, messages: [], turns: [] })),
       stop: os.handler(() => {}),
       send: os
@@ -57,11 +56,11 @@ function mount({ refusals = [] }: { refusals?: { code: string; missing?: string[
             ...(files.length > 0 && { control: { kind: "files" as const, files } }),
           };
         }),
-      routine: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
-      checkIn: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
-      helper: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
-      secret: { list: os.handler(() => []) },
     },
+    routines: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
+    checkIns: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
+    helpers: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
+    secrets: { list: os.handler(() => []) },
   };
   const handler = new RPCHandler(router);
   // jsdom's File can't go through a multipart body, so an upload is answered here, when the test
@@ -73,7 +72,7 @@ function mount({ refusals = [] }: { refusals?: { code: string; missing?: string[
       headers: { "Content-Type": "application/json" },
     });
   const fetch = async (request: Request) => {
-    if (request.url.endsWith("/bot/upload")) {
+    if (request.url.endsWith("/bots/upload")) {
       const file = attached[uploads.length]!;
       return new Promise<Response>((resolve) => {
         uploads.push({
@@ -107,7 +106,6 @@ function mount({ refusals = [] }: { refusals?: { code: string; missing?: string[
     providerFor(createElement(BotConversation, { botId: ada.id }), {
       fetch,
       messages: {},
-      plugins: [botClient()],
     }),
   );
   const { container } = view;

@@ -1,8 +1,7 @@
-import { and, eq } from "drizzle-orm";
+import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
 import type { ChatUser } from "../context";
-import { conversation } from "../storage";
 import type { BotSdkContext } from "../plugin";
 
 /** The pub/sub channel of a Conversation: any plugin publishes its live events here (#290, #625). */
@@ -12,9 +11,8 @@ export const conversationChannel = (conversationId: string) => `conversation:${c
 const heartbeatMs = 25_000;
 
 /**
- * `GET ${basePath}/events?conversationId=…`: the owner's live stream of a Conversation's events
- * (a Bot's data-less `changed` hints), as server-sent events, until the page
- * closes it.
+ * `GET ${basePath}/events?conversationId=…`: the owner's change hints of a Conversation
+ * (`conversations.watch`), as server-sent events, until the page closes it.
  */
 export async function handleConversationEvents(
   request: Request,
@@ -22,43 +20,50 @@ export async function handleConversationEvents(
   deps: BotSdkContext,
 ): Promise<Response> {
   const id = z.uuid().safeParse(new URL(request.url).searchParams.get("conversationId"));
-  const [owned] = id.success
-    ? await deps.db
-        .select({ id: conversation.id })
-        .from(conversation)
-        .where(and(eq(conversation.id, id.data), eq(conversation.userId, user.id)))
-    : [];
-  if (!owned) {
+  const stop = new AbortController();
+  const hints = id.success
+    ? await deps.conversations
+        .watch({ userId: user.id, conversationId: id.data, signal: stop.signal })
+        .catch((error: unknown) => {
+          if (error instanceof ORPCError && error.code === "NOT_FOUND") return null;
+          throw error;
+        })
+    : null;
+  if (!hints) {
     return Response.json({ code: "error.conversationNotFound", params: {} }, { status: 404 });
   }
+  // Aborted while `watch` subscribed: a listener added now would never fire.
+  if (request.signal.aborted) stop.abort();
+  else request.signal.addEventListener("abort", () => stop.abort(), { once: true });
 
   const encoder = new TextEncoder();
-  let close = () => {};
+  let open = true;
   const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      let open = true;
-      const unsubscribe = await deps.pubsub.subscribe(conversationChannel(owned.id), (message) => {
-        if (open) controller.enqueue(encoder.encode(`data: ${message}\n\n`));
-      });
-      const heartbeat = setInterval(() => {
-        if (open) controller.enqueue(encoder.encode(": ping\n\n"));
-      }, heartbeatMs);
-      close = () => {
-        if (!open) return;
-        open = false;
-        clearInterval(heartbeat);
-        void unsubscribe();
-        // Throws when the stream was cancelled first, which already closed it.
-        try {
-          controller.close();
-        } catch {
-          // Already closed.
-        }
+    start(controller) {
+      const send = (chunk: string) => {
+        if (open) controller.enqueue(encoder.encode(chunk));
       };
-      request.signal.addEventListener("abort", close, { once: true });
+      const heartbeat = setInterval(() => send(": ping\n\n"), heartbeatMs);
+      void (async () => {
+        try {
+          for await (const hint of hints) send(`data: ${JSON.stringify(hint)}\n\n`);
+        } finally {
+          clearInterval(heartbeat);
+          // Throws when the stream was cancelled first, which already closed it.
+          if (open) {
+            open = false;
+            try {
+              controller.close();
+            } catch {
+              // Already closed.
+            }
+          }
+        }
+      })();
     },
     cancel() {
-      close();
+      open = false;
+      stop.abort();
     },
   });
   return new Response(stream, {

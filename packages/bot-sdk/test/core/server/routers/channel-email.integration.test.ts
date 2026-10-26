@@ -16,7 +16,7 @@ import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round } from "../../../support/fake-adapter";
 import { fakeJobClock } from "../../../support/jobs";
-import { chatRpc } from "../../../support/sdk";
+import { chatRpc, createTestChat } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 
@@ -36,13 +36,20 @@ const at = new Date("2026-10-22T09:00:00.000Z");
 /**
  * A Bot named "Ada Lovelace" with the `channel` plugin's email adapter over the fake provider, on
  * an idle runner and a fixed clock. The owner's verified email is `ownerEmail`, or none when
- * `verified` is false. `runDue()` runs every job due until none is left.
+ * `verified` is false; the Host's users slot says they are Banned while `isBlocked` does. `runDue()`
+ * runs every job due until none is left.
  */
 async function emailBot({
   verified = true,
   name = "Ada Lovelace",
   withComputer = false,
-}: { verified?: boolean; name?: string; withComputer?: boolean } = {}) {
+  isBlocked,
+}: {
+  verified?: boolean;
+  name?: string;
+  withComputer?: boolean;
+  isBlocked?: () => Promise<boolean>;
+} = {}) {
   const timer = fakeJobClock(at);
   const fake = createFakeAdapter({ rounds: [round(), round(), round()] });
   const email = fakeEmailProvider();
@@ -59,7 +66,10 @@ async function emailBot({
   deps = createTestSdk({
     ...(withComputer && { computer: fakeComputerProvider().provider }),
     channels: [emailChannel({ provider: email.provider, domain, appUrl: "https://app.example" })],
-    verifiedEmail: async (userId) => (verified && userId === user.id ? ownerEmail : null),
+    users: {
+      isBlocked,
+      verifiedEmail: async (userId) => (verified && userId === user.id ? ownerEmail : null),
+    },
     jobs,
     adapterFor: () => fake.adapter,
     clock: timer.clock.now,
@@ -73,9 +83,9 @@ async function emailBot({
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name, model });
+  const { id: botId } = await client.bots.create({ name, model });
   const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
-  const { address } = await client.channel.email.address({ botId });
+  const { address } = await client.channels.email.address({ botId });
 
   const runDue = async () => {
     for (;;) {
@@ -84,13 +94,15 @@ async function emailBot({
       await jobs.runClaimed(claimed);
     }
   };
-  /** Delivers a mail from the owner to the Bot's address, with `mail` overriding any field. */
+  /**
+   * Delivers a mail from the owner to the Bot's address, with `mail` overriding any field, as the
+   * provider posts it: through the HTTP handler, signed out.
+   */
   const deliver = (
     mail: Parameters<typeof email.request>[0] = {},
     files?: Parameters<typeof email.request>[1],
   ) =>
-    deps!.channels.inbound(
-      "email",
+    createTestChat({ deps }).fetch(
       email.request(
         {
           from: `Ada <${ownerEmail}>`,
@@ -134,6 +146,45 @@ const userMessagesOf = (conversationId: string) =>
     .from(message)
     .where(and(eq(message.conversationId, conversationId), eq(message.role, "user")));
 
+describe("channels.receive, called in-process with no request (#901)", () => {
+  it("takes a parsed mail from the owner as the inbound route does, and drops a stranger's", async () => {
+    const { deps, conversationId, address } = await emailBot();
+    const { provider, request } = fakeEmailProvider();
+    const parsed = async (fields: Parameters<typeof request>[0]) => {
+      const mail = await provider.parseInbound(request(fields));
+      if ("rejected" in mail) throw new Error(mail.rejected);
+      return mail;
+    };
+    const fields = {
+      to: [address],
+      subject: "Plans",
+      text: "Book me a table for Friday",
+      authentication: { spf: "pass", dkim: "pass", dmarc: "pass" } as const,
+    };
+
+    await deps.channels.receive(
+      "email",
+      await parsed({ ...fields, from: "x@example.com", messageId: "<stranger@mail.example>" }),
+    );
+    expect(await triggersOf(conversationId)).toEqual([]);
+    await deps.channels.receive(
+      "email",
+      await parsed({ ...fields, from: `Ada <${ownerEmail}>`, messageId: "<first@mail.example>" }),
+    );
+
+    expect(await triggersOf(conversationId)).toEqual([
+      expect.objectContaining({ id: "email:first@mail.example", channel: "email" }),
+    ]);
+  }, 30_000);
+
+  it("throws on an instance with no email adapter", async () => {
+    const deps = createTestSdk();
+    const mail = {} as InboundMail;
+
+    await expect(deps.channels.receive("email", mail)).rejects.toThrow(/no email adapter/);
+  });
+});
+
 describe("an email to a Bot's address", () => {
   it("from the owner starts a Turn with one email Trigger carrying a new user Message", async () => {
     const { fake, client, botId, conversationId, deliver, timer, runDue } = await emailBot();
@@ -149,7 +200,7 @@ describe("an email to a Bot's address", () => {
       channel: "email",
       turnId: expect.any(String),
     });
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
     expect(messages).toEqual([
       expect.objectContaining({
         id: trigger!.messageId,
@@ -163,6 +214,21 @@ describe("an email to a Bot's address", () => {
     await runDue();
     expect(fake.calls).toHaveLength(1);
     expect(JSON.stringify(fake.calls[0]!.messages)).toContain("Book me a table for Friday");
+  }, 30_000);
+
+  it("from a Banned owner answers 202 and makes no Message or Trigger, until the Ban ends", async () => {
+    let banned = true;
+    const { conversationId, deliver } = await emailBot({ isBlocked: async () => banned });
+
+    const response = await deliver();
+
+    expect(response.status).toBe(202);
+    expect(await triggersOf(conversationId)).toEqual([]);
+    expect(await userMessagesOf(conversationId)).toEqual([]);
+
+    banned = false;
+    await deliver({ messageId: "<second@mail.example>" });
+    expect(await triggersOf(conversationId)).toHaveLength(1);
   }, 30_000);
 
   it("drops a redelivery of the same Message-ID", async () => {
@@ -196,7 +262,7 @@ describe("an email to a Bot's address", () => {
       attachments: ["invoice.pdf"],
     });
 
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
     expect(messages).toEqual([
       expect.objectContaining({
         text:
@@ -214,7 +280,7 @@ describe("an email to a Bot's address", () => {
 
     await deliver({}, [{ name: "notes.txt", contentType: "text/plain", content: "milk, eggs" }]);
 
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
     expect(messages[0]!.control).toEqual({
       kind: "files",
       files: [{ id: expect.any(String), name: "notes.txt", size: 10, mediaType: "text/plain" }],
@@ -270,7 +336,7 @@ describe("an email to a Bot's address", () => {
       },
     ]);
 
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
     expect((messages[0]!.control as { files: unknown[] }).files).toHaveLength(10);
     expect(messages[0]!.text).toContain("Attachments (not kept): f10.txt, huge.bin");
   }, 30_000);
@@ -328,7 +394,7 @@ describe("an email to a Bot's address", () => {
   it("drops mail to the old address once it is rotated, and takes it at the new one", async () => {
     const { client, botId, conversationId, address, deliver } = await emailBot();
 
-    const rotated = await client.channel.email.rotate({ botId });
+    const rotated = await client.channels.email.rotate({ botId });
     await deliver({ to: [address], messageId: "<old@mail.example>" });
 
     expect(rotated.address).not.toBe(address);
@@ -341,9 +407,8 @@ describe("an email to a Bot's address", () => {
   it("answers 400 to a request the provider can't read, and makes nothing", async () => {
     const { deps, conversationId } = await emailBot();
 
-    const response = await deps.channels.inbound(
-      "email",
-      new Request("https://host.example/api/channels/email", {
+    const response = await createTestChat({ deps }).fetch(
+      new Request("https://host.example/api/chat/channels/email", {
         method: "POST",
         body: "not json",
       }),
@@ -363,9 +428,8 @@ describe("an email to a Bot's address", () => {
     async (_name, fields) => {
       const { deps, conversationId } = await emailBot();
 
-      const response = await deps.channels.inbound(
-        "email",
-        new Request("https://host.example/api/channels/email", {
+      const response = await createTestChat({ deps }).fetch(
+        new Request("https://host.example/api/chat/channels/email", {
           method: "POST",
           body: JSON.stringify({ from: ownerEmail, to: ["x@bots.example"], ...fields }),
         }),
@@ -383,7 +447,7 @@ describe("channel.email", () => {
     const { client, botId, address } = await emailBot();
 
     expect(address).toMatch(/^ada-lovelace\.[a-z0-9]{8}@bots\.example$/);
-    expect((await client.channel.email.address({ botId })).address).toBe(address);
+    expect((await client.channels.email.address({ botId })).address).toBe(address);
   }, 30_000);
 
   it("spells an accented name without its marks", async () => {
@@ -395,21 +459,21 @@ describe("channel.email", () => {
   it("rotates to a new address", async () => {
     const { client, botId, address } = await emailBot();
 
-    const { address: rotated } = await client.channel.email.rotate({ botId });
+    const { address: rotated } = await client.channels.email.rotate({ botId });
 
     expect(rotated).toMatch(/^ada-lovelace\.[a-z0-9]{8}@bots\.example$/);
     expect(rotated).not.toBe(address);
-    expect((await client.channel.email.address({ botId })).address).toBe(rotated);
+    expect((await client.channels.email.address({ botId })).address).toBe(rotated);
   }, 30_000);
 
   it("refuses another user's Bot", async () => {
     const { deps, botId } = await emailBot();
     const stranger = chatRpc({ user: await insertUser(), deps });
 
-    await expect(stranger.channel.email.address({ botId })).rejects.toMatchObject({
+    await expect(stranger.channels.email.address({ botId })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
-    await expect(stranger.channel.email.rotate({ botId })).rejects.toMatchObject({
+    await expect(stranger.channels.email.rotate({ botId })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
   }, 30_000);

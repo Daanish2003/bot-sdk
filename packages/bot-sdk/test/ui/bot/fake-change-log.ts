@@ -61,11 +61,11 @@ export const hint = () =>
     await new Promise((resolve) => setTimeout(resolve, 20));
   });
 
-/** A Bot's change log as the server keeps it, for a stubbed `bot.changes`. */
+/** A Bot's change log as the server keeps it, for a stubbed `conversations.changes`. */
 export function changeLog() {
   const entries: BotChange[] = [];
   let seq = 0;
-  /** The `since` of each `bot.changes` call. */
+  /** The `since` of each `conversations.changes` call. */
   const calls: number[] = [];
   return {
     calls,
@@ -80,7 +80,7 @@ export function changeLog() {
       entries.push({ seq: ++seq, kind, refId, at: new Date(), data } as BotChange);
       return seq;
     },
-    /** What `bot.changes` answers: `reload` for a cursor the log doesn't hold. */
+    /** What `conversations.changes` answers: `reload` for a cursor the log doesn't hold. */
     since(since: number): BotChanges {
       calls.push(since);
       if (since > seq) return { reload: true };

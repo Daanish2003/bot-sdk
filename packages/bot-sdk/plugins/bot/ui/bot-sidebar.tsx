@@ -17,7 +17,7 @@ export function BotSidebar({ accountMenu }: { accountMenu?: ReactNode }) {
   const [creating, setCreating] = useState(false);
   // Kept fresh by the open Bot's change log (`useBotSync` invalidates it) and on window focus; it
   // isn't polled (ADR 0026).
-  const bots = useQuery(orpc.bot.list.queryOptions());
+  const bots = useQuery(orpc.bots.list.queryOptions());
 
   const working = (bot: { id: string; turnStatus: string | null }) =>
     sending.has(bot.id) || bot.turnStatus === "running";

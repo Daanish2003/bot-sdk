@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { createHttpHandler } from "../../../core/http";
 import { createBotSdk } from "../../../core/server/create-chat";
 import { saveCredentials } from "../../../plugins/models/server/internal";
 import { createTestSdk } from "../../support/deps";
@@ -15,9 +16,7 @@ describe("createBotSdk", () => {
     expect(() =>
       createBotSdk({
         databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
-        getUser: () => null,
         keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-        basePath,
         models: {},
       }),
     ).not.toThrow();
@@ -27,9 +26,7 @@ describe("createBotSdk", () => {
     expect(() =>
       createBotSdk({
         databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
-        getUser: () => null,
         keyEncryptionSecrets: [],
-        basePath,
         models: {},
       }),
     ).toThrow(/at least one/);
@@ -41,9 +38,7 @@ describe("createBotSdk start", () => {
   it("refuses to start with neither Host credentials nor BYOK", async () => {
     const chat = createBotSdk({
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-      basePath,
       models: {
         byok: false,
       },
@@ -55,9 +50,7 @@ describe("createBotSdk start", () => {
   it("refuses a defaultImageModel that is not one of the Host's Image Models", async () => {
     const chat = createBotSdk({
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-      basePath,
       models: {
         hostProviders: [
           {
@@ -84,9 +77,7 @@ describe("createBotSdk start", () => {
   it("refuses a Host Image Model without a pricePerImageUsd", async () => {
     const chat = createBotSdk({
       databaseUrl: testDatabaseUrl,
-      getUser: () => null,
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-      basePath,
       models: {
         hostProviders: [
           {
@@ -111,14 +102,14 @@ describe("an instance with no feature", () => {
     const user = await insertUser();
     const chat = createBotSdk({
       databaseUrl: testDatabaseUrl,
-      getUser: () => ({ id: user.id }),
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-      basePath,
       models: {},
     });
 
-    const response = await chat.handler(
-      new Request(`${baseUrl}/rpc/credentials/mode`, { method: "POST", body: "{}" }),
+    const http = createHttpHandler(chat, { basePath, getUser: () => ({ id: user.id }) });
+
+    const response = await http(
+      new Request(`${baseUrl}/rpc/models/credentials/mode`, { method: "POST", body: "{}" }),
     );
 
     expect(response.status).toBe(200);
@@ -131,7 +122,7 @@ describe("the chat handler", () => {
     const client = createTestChat({ user: null, deps: createTestSdk() });
 
     const rpc = await client.fetch(
-      new Request(`${baseUrl}/rpc/bot/list`, { method: "POST", body: "{}" }),
+      new Request(`${baseUrl}/rpc/bots/list`, { method: "POST", body: "{}" }),
     );
     const route = await client.fetch(new Request(`${baseUrl}/bot-files/x`));
 
@@ -148,8 +139,8 @@ describe("the chat handler", () => {
       hint: "…-key",
       verified: true,
     });
-    const { id } = await client.bot.create({ name: "Ada", model: "anthropic:claude-sonnet-5-5" });
+    const { id } = await client.bots.create({ name: "Ada", model: "anthropic:claude-sonnet-5-5" });
 
-    expect((await client.bot.list()).map((listed) => listed.id)).toEqual([id]);
+    expect((await client.bots.list()).map((listed) => listed.id)).toEqual([id]);
   });
 });

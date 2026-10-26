@@ -18,7 +18,7 @@ export type ProviderRow = {
   service: CredentialService | null;
 };
 
-/** One Keys & settings row per Provider, in Provider order, from `credentials.list`. */
+/** One Keys & settings row per Provider, in Provider order, from `models.credentials.list`. */
 export function providerRows(credentials: CredentialSummary[]): ProviderRow[] {
   return providers.map(({ id, label }) => {
     if (!isCredentialService(id)) {
@@ -39,7 +39,7 @@ export function providerRows(credentials: CredentialSummary[]): ProviderRow[] {
 /** A Keys & settings row for a Tool credential. */
 export type ToolRow = Omit<ProviderRow, "id"> & { id: string; description: string };
 
-/** One Keys & settings row per Tool that needs a Tool credential, from `credentials.list`. */
+/** One Keys & settings row per Tool that needs a Tool credential, from `models.credentials.list`. */
 export function toolRows(credentials: CredentialSummary[]): ToolRow[] {
   return toolServices.map(({ id, label, description }) => {
     const saved = credentials.find((credential) => credential.service === id);

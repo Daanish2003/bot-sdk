@@ -9,11 +9,9 @@ import {
   type ChatLinkProps,
   type ChatRouter,
 } from "../../core/client/react/provider";
-import { modelsClient } from "../../plugins/models/client/index";
 import { CredentialsSections, KeySettingsPage } from "../../plugins/models/ui/key-settings";
 
 const client = createBotSdkClient({
-  plugins: [modelsClient()],
   baseUrl: "http://localhost/api/chat",
   fetch: async () => {
     throw new Error("Unexpected request in a render test");
@@ -27,8 +25,8 @@ const router: ChatRouter = {
 
 function render(children: ReturnType<typeof createElement>[]) {
   const queryClient = new QueryClient();
-  queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok: true });
-  queryClient.setQueryData(client.orpc.credentials.list.queryKey(), []);
+  queryClient.setQueryData(client.orpc.models.credentials.mode.queryKey(), { byok: true });
+  queryClient.setQueryData(client.orpc.models.credentials.list.queryKey(), []);
   return renderToStaticMarkup(
     createElement(ChatProvider, {
       client,

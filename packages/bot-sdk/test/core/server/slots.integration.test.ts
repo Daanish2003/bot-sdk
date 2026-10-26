@@ -3,6 +3,7 @@ import { pgSchema, text } from "drizzle-orm/pg-core";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { z } from "zod";
 
+import { createHttpHandler } from "../../../core/http/index";
 import {
   createBotSdk,
   defineFeature,
@@ -13,7 +14,7 @@ import { buildBotSdk } from "../../../core/server/create-chat";
 import { blob, bot, job } from "../../../core/server/storage";
 import type { ComputerApi } from "../../../plugins/computer/server/internal";
 import { fakeEmailProvider } from "../../../plugins/channel/fake/index";
-import { emailChannel } from "../../../plugins/channel/server/index";
+import { emailChannel, type InboundMail } from "../../../plugins/channel/server/index";
 import { models } from "../../../plugins/models/server/internal";
 import { defineJob } from "../../../plugins/runner/server/internal";
 import { manualExecutor } from "../../support/executors";
@@ -30,7 +31,7 @@ const basePath = "/api/chat";
 const keyEncryptionSecrets = ["test-key-encryption-secret-not-for-production"];
 const unreachable = "postgresql://nobody:nothing@127.0.0.1:1/unreachable";
 
-const shared = { databaseUrl: unreachable, getUser: () => null, keyEncryptionSecrets, basePath };
+const shared = { databaseUrl: unreachable, keyEncryptionSecrets };
 
 const slots = (options: Partial<BotSdkOptions> = {}) =>
   ({ ...shared, models: {}, ...options }) as BotSdkOptions;
@@ -49,18 +50,15 @@ describe("createBotSdk with flat slots", () => {
     const user = await insertUser();
     const sdk = createBotSdk({
       databaseUrl: testDatabaseUrl,
-      getUser: () => ({ id: user.id }),
       keyEncryptionSecrets,
-      basePath,
       models: {},
       channels: [],
     });
 
+    const http = createHttpHandler(sdk, { basePath, getUser: () => ({ id: user.id }) });
     const call = (path: string) =>
-      sdk.handler(
-        new Request(`http://localhost${basePath}/rpc/${path}`, { method: "POST", body: "{}" }),
-      );
-    const [bots, mode] = [await call("bot/list"), await call("credentials/mode")];
+      http(new Request(`http://localhost${basePath}/rpc/${path}`, { method: "POST", body: "{}" }));
+    const [bots, mode] = [await call("bots/list"), await call("models/credentials/mode")];
 
     expect([bots.status, mode.status]).toEqual([200, 200]);
     expect(await bots.json()).toEqual({ json: [] });
@@ -98,16 +96,14 @@ describe("createBotSdk with flat slots", () => {
       }),
     );
 
-    const unknownToken = await sdk.bots.webhookHandler(
-      new Request("http://localhost/api/routines/webhook/nope", { method: "POST", body: "{}" }),
-    );
-    const stranger = await sdk.channels.inbound(
-      "email",
+    const unknownToken = await sdk.routines.receiveWebhook({ token: "nope", body: "{}" });
+    const stranger = await email.provider.parseInbound(
       email.request({ from: "x@example.com", to: ["nobody@bots.example"], text: "hi" }),
     );
+    if ("rejected" in stranger) throw new Error(stranger.rejected);
 
-    expect(unknownToken.status).toBe(404);
-    expect(stranger.status).toBe(202);
+    expect(unknownToken).toBe("notFound");
+    await expect(sdk.channels.receive("email", stranger)).resolves.toBeUndefined();
   });
 
   it("gives Auto-review the reviewModel option's Model, and none when it's unset", () => {
@@ -132,9 +128,9 @@ describe("createBotSdk with flat slots", () => {
   it("has no Channel besides web when the channels slot is empty", async () => {
     const sdk = createBotSdk(slots({ databaseUrl: testDatabaseUrl }));
 
-    const inbound = await sdk.channels.inbound("email", new Request("http://localhost/"));
-
-    expect(inbound.status).toBe(404);
+    await expect(sdk.channels.receive("email", {} as InboundMail)).rejects.toThrow(
+      /no email adapter/,
+    );
   });
 
   it(
@@ -228,14 +224,26 @@ describe("createBotSdk with flat slots", () => {
 });
 
 describe("a feature's id", () => {
-  it.each(["then", "bot", "models", "runner", "channel", "channels", "bots", "core"])(
-    "can't be %s, which the instance or the core holds",
-    (id) => {
-      expect(() => createBotSdk(slots({ features: [defineFeature({ id })] }))).toThrow(
-        `Feature id "${id}" is reserved by the core`,
-      );
-    },
+  const refuses = (id: string) =>
+    expect(() => createBotSdk(slots({ features: [defineFeature({ id })] }))).toThrow(
+      `Feature id "${id}" is reserved by the core`,
+    );
+
+  it.each(["then", "bot", "core", "channel", "rules", "first_message", "version", "exportedAt"])(
+    "can't be %s, which the core holds",
+    refuses,
   );
+
+  it.each(["__proto__", "constructor", "toString", "hasOwnProperty", "toJSON"])(
+    "can't be %s, which every object inherits",
+    refuses,
+  );
+
+  it("can't be any namespace of the instance", () => {
+    const namespaces = Object.keys(createBotSdk(slots()));
+    expect(namespaces).toContain("users");
+    for (const id of namespaces) refuses(id);
+  });
 });
 
 describe("a feature's enabling", () => {

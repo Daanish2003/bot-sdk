@@ -1,6 +1,8 @@
-import { os } from "@orpc/server";
+import { oc, type } from "@orpc/contract";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
+import { createHttpHandler } from "../../../core/http";
 import { buildBotSdk, createBotSdk } from "../../../core/server/create-chat";
 import { defineFeature } from "../../../core/server/feature";
 import type { BotSdkPlugin } from "../../../core/server/plugin";
@@ -11,24 +13,52 @@ import { testDatabaseUrl } from "../../support/test-database";
 const basePath = "/api/chat";
 const core = {
   databaseUrl: testDatabaseUrl,
-  getUser: () => ({ id: "user" }),
   keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-  basePath,
   models: {},
 };
 
 describe("createBotSdk features", () => {
-  it("throws when two features claim the same router key", () => {
-    const procedure = os.handler(() => "ok");
+  it("throws when a feature's API has no method for a procedure of its contract", () => {
+    const contract = {
+      ping: oc.output(type<string>()),
+      nested: { pong: oc.output(type<string>()) },
+    };
     expect(() =>
       createBotSdk({
         ...core,
         features: [
-          defineFeature({ id: "first", router: { shared: { ping: procedure } } }),
-          defineFeature({ id: "second", router: { shared: { pong: procedure } } }),
+          // @ts-expect-error the API leaves out nested.pong, which the contract names.
+          defineFeature({ id: "first", contract, api: () => ({ ping: () => "ok", nested: {} }) }),
         ],
       }),
-    ).toThrow(/shared.*first.*second/);
+    ).toThrow('Feature "first" has no API method for its procedure nested.pong');
+  });
+
+  it("serves a contract procedure whose API method is a class's", async () => {
+    class Notes {
+      count({ userId }: { userId: string }) {
+        return `3 for ${userId}`;
+      }
+    }
+    const sdk = createBotSdk({
+      ...core,
+      features: [
+        defineFeature({
+          id: "notes",
+          contract: { count: oc.output(type<string>()) },
+          api: () => new Notes(),
+        }),
+      ],
+    });
+    const response = await createHttpHandler(sdk, { basePath, getUser: () => ({ id: "user" }) })(
+      new Request(`http://localhost${basePath}/rpc/notes/count`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }),
+    );
+
+    expect(await response.json()).toEqual({ json: "3 for user" });
   });
 
   it("throws when a feature claims a core route", () => {
@@ -51,24 +81,36 @@ describe("createBotSdk features", () => {
     ).toThrow(/GET \/thing.*first.*second/);
   });
 
-  it("serves each feature's router under <basePath>/rpc/<key>", async () => {
+  it("serves each feature's contract under <basePath>/rpc/<id>, calling its API with the user's id", async () => {
+    const contract = {
+      greeting: { hello: oc.input(z.object({ name: z.string() })).output(type<string>()) },
+    };
     const sdk = createBotSdk({
       ...core,
       features: [
-        defineFeature({ id: "first", router: { greeting: { hello: os.handler(() => "hi") } } }),
+        defineFeature({
+          id: "first",
+          contract,
+          api: () => ({
+            greeting: {
+              hello: ({ name, userId }: { name: string; userId: string }) =>
+                `hi ${name} from ${userId}`,
+            },
+          }),
+        }),
       ],
     });
 
-    const response = await sdk.handler(
-      new Request(`http://localhost${basePath}/rpc/greeting/hello`, {
+    const response = await createHttpHandler(sdk, { basePath, getUser: () => ({ id: "user" }) })(
+      new Request(`http://localhost${basePath}/rpc/first/greeting/hello`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ json: { name: "Ada" } }),
       }),
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ json: "hi" });
+    expect(await response.json()).toEqual({ json: "hi Ada from user" });
   });
 
   it("starts the core's parts in order and stops them in reverse", async () => {
@@ -111,16 +153,21 @@ describe("createBotSdk features", () => {
     expect(() => buildBotSdk(core, {}, [part, models()])).toThrow(/start with Models/);
   });
 
-  it("types hooks and rateLimits by the core", () => {
+  it("types hooks and the HTTP layer's rateLimits by the core", () => {
+    const sdk = createBotSdk({
+      ...core,
+      hooks: {
+        onUsage: () => {},
+        // @ts-expect-error onNothing is no event of the core's.
+        onNothing: () => {},
+      },
+    });
     expect(() =>
-      createBotSdk({
-        ...core,
-        hooks: {
-          onUsage: () => {},
-          // @ts-expect-error onNothing is no event of the core's.
-          onNothing: () => {},
-        },
+      createHttpHandler(sdk, {
+        basePath,
+        getUser: () => null,
         rateLimits: {
+          credentialSave: false,
           // @ts-expect-error nothing is no rule of the core's.
           nothing: false,
         },

@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { mcpClient } from "../../../plugins/mcp/client/index";
 import { listConnections, readTokens, saveTokens } from "../../../plugins/mcp/server/connections";
 import { enabledFeatures } from "../../../core/server/feature";
 import { mcp, type McpApi } from "../../../plugins/mcp/server/plugin";
@@ -71,7 +70,7 @@ function mcpApi(deps: TestDeps): McpApi {
 
 /** Signs `user` in to the Linear server through the plugin's OAuth routes (the redirect and callback). */
 async function connect(user: TestUser, deps: TestDeps, auth: ReturnType<typeof createFakeMcpAuth>) {
-  const client = createTestChat({ user, deps, clientPlugins: [mcpClient()] });
+  const client = createTestChat({ user, deps });
   const start = await client.fetch(
     new Request(`${basePath}/mcp/connect?server=linear&returnTo=/settings/keys`, {
       redirect: "manual",

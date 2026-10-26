@@ -23,20 +23,14 @@ import {
 } from "../../shared/rich-control";
 import type { Reactions } from "../../shared/reaction";
 import type { BotMessage, BotTurnStatus } from "../../shared/turn";
+import type { Bot, ListedBot } from "../../shared/contract";
 
 /** The `kind` of every Bot's Conversation: the plugin's id. */
 export const botKind = "bot";
 
 const botColumns = { id: bot.id, name: bot.name, model: bot.model, createdAt: bot.createdAt };
 
-/** A Bot as the client sees it. */
-export type Bot = { id: string; name: string; model: string; createdAt: Date };
-
-/** A Bot with the status of its latest Turn (`null` before its first). */
-export type BotWithStatus = Bot & { turnStatus: BotTurnStatus | null };
-
-/** A Bot in the list: its last sent Message's text and time (`null` before it has sent one). */
-export type ListedBot = BotWithStatus & { lastMessage: { text: string; at: Date } | null };
+export type { Bot, BotWithStatus, ListedBot } from "../../shared/contract";
 
 export type { BotMessage };
 
@@ -432,7 +426,7 @@ export async function newestTimeZone(
 }
 
 /**
- * The `bot` plugin's part of `sdk.deleteUser`: the user's Bot Conversations, through the core's
+ * The `bot` plugin's part of `sdk.users.delete`: the user's Bot Conversations, through the core's
  * delete, and their Bots with them by cascade. Nothing is left for after the commit but its hooks.
  */
 export const botUserDelete: UserDeleteHooks<() => Promise<void>> = {
@@ -454,7 +448,7 @@ export const botUserDelete: UserDeleteHooks<() => Promise<void>> = {
 /** What the `bot` plugin adds to a user's export: each Bot with its Conversation's Messages. */
 export type BotExport = { bots: (Bot & { messages: BotMessage[] })[] };
 
-/** The `bot` plugin's part of `sdk.exportUser`, read in the export's snapshot `tx`. */
+/** The `bot` plugin's part of `sdk.users.export`, read in the export's snapshot `tx`. */
 export async function exportBots(tx: Transaction, userId: string): Promise<BotExport> {
   const rows = await tx
     .select({ ...botColumns, conversationId: bot.conversationId })
