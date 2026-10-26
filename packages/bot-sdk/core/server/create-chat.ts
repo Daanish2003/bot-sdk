@@ -473,26 +473,26 @@ function buildContext(
     // Set by the Bots' init, which the core always runs.
     bots: botsUnconfigured,
     conversations: conversationsUnconfigured,
-    routines: botsStub<RoutinesApi>([
-      "list",
-      "approve",
-      "decline",
-      "pause",
-      "resume",
-      "delete",
-      "rotate",
-    ]),
-    checkIns: botsStub<CheckInsApi>(["list", "cancel"]),
-    helpers: botsStub<HelpersApi>(["list", "done", "stop"]),
-    demonstrations: botsStub<DemonstrationsApi>([
-      "pause",
-      "resume",
-      "done",
-      "cancel",
-      "view",
-      "steps",
-    ]),
-    reviews: botsStub<ReviewsApi>(["list", "allow", "deny"]),
+    routines: botsStub<RoutinesApi>({
+      list: true,
+      approve: true,
+      decline: true,
+      pause: true,
+      resume: true,
+      delete: true,
+      rotate: true,
+    }),
+    checkIns: botsStub<CheckInsApi>({ list: true, cancel: true }),
+    helpers: botsStub<HelpersApi>({ list: true, done: true, stop: true }),
+    demonstrations: botsStub<DemonstrationsApi>({
+      pause: true,
+      resume: true,
+      done: true,
+      cancel: true,
+      view: true,
+      steps: true,
+    }),
+    reviews: botsStub<ReviewsApi>({ list: true, allow: true, deny: true }),
   };
 }
 
@@ -561,10 +561,10 @@ const conversationsUnconfigured = new Proxy({} as ConversationsApi, {
 });
 
 /** The stand-in of a Bots namespace on an instance whose core parts have no `bot()`: its methods throw. */
-function botsStub<Api extends object>(keys: readonly (keyof Api & string)[]): Api {
+function botsStub<Api extends object>(keys: Record<keyof Api, true>): Api {
   return new Proxy({} as Api, {
     get: (_target, key) => {
-      if (typeof key === "string" && (keys as readonly string[]).includes(key)) {
+      if (typeof key === "string" && key in keys) {
         throw new Error("The Bots aren't enabled: build the SDK with the slots");
       }
       return undefined;

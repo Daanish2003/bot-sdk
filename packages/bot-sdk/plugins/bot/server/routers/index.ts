@@ -17,13 +17,14 @@ import {
   sendInput,
   uploadInput,
 } from "../bots-api";
+import type { DemonstrationAction } from "../../shared/demonstration";
 import { demonstrationInput } from "../demonstrations-api";
 import { helperDoneInput, helperListInput, helperStopInput } from "../helpers-api";
 import { reviewDecisionInput, reviewListInput } from "../reviews-api";
 import { botScopeInput, checkInInput, routineInput } from "../routines-api";
 
 /** A route that applies `action` to one of the caller's Demonstrations. */
-const demonstrationAction = (action: "pause" | "resume" | "done" | "cancel") =>
+const demonstrationAction = (action: Exclude<DemonstrationAction, "view">) =>
   protectedProcedure
     .input(demonstrationInput)
     .handler(({ context, input }) =>
