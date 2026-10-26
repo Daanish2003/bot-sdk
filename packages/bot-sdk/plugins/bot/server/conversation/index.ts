@@ -1,7 +1,7 @@
 // The conversation module's entry point (#889): other modules import it only through this file.
 export { botDirectory, resolvePath, sharedDirectory } from "./bot-folder";
 export { emailAddressOf, rotateEmailAddress } from "./email-address";
-export { deliverIn, lastUsedChannel, sendDelivery } from "./email-delivery";
+export { deliverIn, deliveryJob, lastUsedChannel, sendDelivery } from "./email-delivery";
 export {
   botFileRef,
   copyFilesToStorage,

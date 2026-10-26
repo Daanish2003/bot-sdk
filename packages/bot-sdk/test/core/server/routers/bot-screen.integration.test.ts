@@ -82,7 +82,7 @@ async function waitingHelper(
     db: getTestDb(),
     logger: silent,
     drainMs: 50,
-    deps: () => deps!,
+    jobs: () => deps!.parts.jobs,
     clock: { ...systemClock, now: clock },
   });
   deps = createTestSdk({

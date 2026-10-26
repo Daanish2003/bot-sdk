@@ -1,11 +1,11 @@
 import { and, eq, gte, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 
 import type { Database } from "../../../../core/server/storage";
-import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
+import type { Transaction } from "../../../../core/server/plugin";
 import { job, jobEvent } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { NonDeterminismError, WorkflowYieldedError, createWorkflow } from "../workflow/engine";
-import { JOB_TIMING, PermanentJobError, backoffAfter, registeredJob } from "./define";
+import { JOB_TIMING, type JobTable, PermanentJobError, backoffAfter } from "./define";
 import { heartbeatJob, jobHistoryStore, loadHistory, ownAttempt } from "./history";
 import type { EnqueueOptions, JobClock, JobStatus } from "./runner";
 
@@ -31,11 +31,12 @@ export type ClaimedJob = {
  */
 export async function enqueueJob(
   db: Database | Transaction,
+  jobs: JobTable,
   name: string,
   payload: unknown,
   options: EnqueueOptions & { now: Date },
 ): Promise<string> {
-  const definition = registeredJob(name);
+  const definition = jobs.get(name)?.definition;
   if (!definition) throw new Error(`No job named "${name}" is defined`);
   const { now, idempotencyKey, runAfter = now } = options;
   const id = uuidv7(now.getTime());
@@ -137,9 +138,9 @@ async function recordOutcome(
   {
     now,
     logger,
-    deps,
+    jobs,
     requeued,
-  }: { now: Date; logger: Logger; deps: BotSdkContext; requeued: Requeued },
+  }: { now: Date; logger: Logger; jobs: JobTable; requeued: Requeued },
 ): Promise<void> {
   if (!failure) {
     await db.update(job).set({ status: "succeeded", updatedAt: now }).where(ownAttempt(claimed));
@@ -180,7 +181,8 @@ async function recordOutcome(
     .returning({ id: job.id });
   if (ended.length === 0) return;
   try {
-    await registeredJob(claimed.name)?.onFailed?.(claimed.payload, error, deps);
+    const entry = jobs.get(claimed.name);
+    await entry?.definition.onFailed?.(claimed.payload, error, entry.services);
   } catch (onFailedError) {
     logger.error(`onFailed for job "${claimed.name}" failed`, onFailedError);
   }
@@ -209,7 +211,7 @@ export async function runClaimedJob(
   {
     clock,
     logger,
-    deps,
+    jobs,
     drain,
     shutdown,
     handlers,
@@ -217,14 +219,16 @@ export async function runClaimedJob(
   }: {
     clock: JobClock;
     logger: Logger;
-    deps: () => BotSdkContext;
+    /** The instance's jobs, read when the attempt starts. */
+    jobs: () => JobTable;
     drain?: AbortSignal;
     shutdown?: AbortSignal;
     handlers: Set<Promise<void>>;
     requeued: Requeued;
   },
 ): Promise<void> {
-  const definition = registeredJob(claimed.name);
+  const table = jobs();
+  const entry = table.get(claimed.name);
   const attempt = new AbortController();
   const startedAt = clock.now().getTime();
   let heartbeat: unknown;
@@ -256,7 +260,7 @@ export async function runClaimedJob(
       await recordOutcome(db, claimed, failure, {
         now: clock.now(),
         logger,
-        deps: deps(),
+        jobs: table,
         requeued,
       });
     } catch (error) {
@@ -294,7 +298,8 @@ export async function runClaimedJob(
   else shutdown?.addEventListener("abort", onShutdown, { once: true });
   if (!decided) {
     const run = (async () => {
-      if (!definition) throw new Error(`No job named "${claimed.name}" is defined`);
+      if (!entry) throw new Error(`No job named "${claimed.name}" is defined`);
+      const { definition, services } = entry;
       // A retried or re-claimed job replays its history and carries on after its last entry.
       const workflow = createWorkflow({
         history: await loadHistory(db, claimed.id),
@@ -306,9 +311,9 @@ export async function runClaimedJob(
       });
       try {
         await definition.run(definition.payload.parse(claimed.payload), {
+          ...services,
           ...workflow.context,
           signal: attempt.signal,
-          deps: deps(),
         });
       } catch (error) {
         throw workflow.raised() ?? error;
@@ -344,7 +349,7 @@ export async function reapStaleJobs(
   db: Database,
   now: Date,
   logger: Logger,
-  deps: BotSdkContext,
+  jobs: JobTable,
 ): Promise<string[]> {
   const cutoff = new Date(now.getTime() - JOB_TIMING.leaseMs);
   const expired = and(
@@ -364,7 +369,8 @@ export async function reapStaleJobs(
     .returning({ name: job.name, payload: job.payload });
   for (const row of lost) {
     try {
-      await registeredJob(row.name)?.onFailed?.(row.payload, new Error(lastError), deps);
+      const entry = jobs.get(row.name);
+      await entry?.definition.onFailed?.(row.payload, new Error(lastError), entry.services);
     } catch (onFailedError) {
       logger.error(`onFailed for job "${row.name}" failed`, onFailedError);
     }
@@ -380,7 +386,8 @@ export async function reapStaleJobs(
     .returning({ name: job.name, payload: job.payload });
   for (const row of abandoned) {
     try {
-      await registeredJob(row.name)?.onCancelled?.(row.payload, deps);
+      const entry = jobs.get(row.name);
+      await entry?.definition.onCancelled?.(row.payload, entry.services);
     } catch (onCancelledError) {
       logger.error(`onCancelled for job "${row.name}" failed`, onCancelledError);
     }
@@ -471,13 +478,14 @@ export async function cancelJobIn(
  */
 export async function replaceJobIfNotStartedIn(
   tx: Transaction,
+  jobs: JobTable,
   idempotencyKey: string,
   name: string,
   payload: unknown,
   options: { runAfter?: Date; now: Date },
 ): Promise<string | undefined> {
   // Checked before anything changes, so a bad replacement leaves the job as it was.
-  const definition = registeredJob(name);
+  const definition = jobs.get(name)?.definition;
   if (!definition) throw new Error(`No job named "${name}" is defined`);
   definition.payload.parse(payload);
   const [active] = await tx
@@ -502,7 +510,7 @@ export async function replaceJobIfNotStartedIn(
     .update(job)
     .set({ status: "cancelled", heartbeatAt: heartbeatOnCancel, updatedAt: options.now })
     .where(eq(job.id, active.id));
-  return enqueueJob(tx, name, payload, { ...options, idempotencyKey });
+  return enqueueJob(tx, jobs, name, payload, { ...options, idempotencyKey });
 }
 
 /** Deletes succeeded and cancelled jobs ended over 7 days ago, and failed ones over 30 days ago. */

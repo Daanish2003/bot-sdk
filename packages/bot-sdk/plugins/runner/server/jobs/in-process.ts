@@ -1,9 +1,9 @@
 import type { Database } from "../../../../core/server/storage";
-import type { BotSdkContext } from "../../../../core/server/plugin";
-import { jobNamesInLane } from "./define";
+import type { JobTable } from "./define";
 import type { Executor } from "./executor";
 import {
   claimNext,
+  jobBudgets,
   type CoreRun,
   createJobRunner,
   type JobClock,
@@ -17,10 +17,8 @@ type Logger = Pick<Console, "error">;
 
 export type InProcessExecutorOptions = {
   logger?: Logger;
-  /** Jobs outside the `helper` lane run at once in this process (ADR 0011). */
+  /** Jobs with no `concurrency` of their own run at once in this process (ADR 0011). */
   concurrency?: number;
-  /** `helper` lane jobs run at once in this process, beside the others (#602). */
-  helperConcurrency?: number;
   /** How often an idle Executor polls `chat.job`. A `notify` wakes it sooner. */
   pollMs?: number;
   clock?: JobClock;
@@ -28,32 +26,33 @@ export type InProcessExecutorOptions = {
 
 /**
  * The default Executor (ADR 0011, ADR 0029): polls `chat.job` every `pollMs` for due jobs, and at
- * once on a `notify`, and runs up to `concurrency` jobs at once, plus up to `helperConcurrency`
- * `helper` lane jobs in their own budget, so neither lane takes the other's slots. Each claim is
- * one `FOR UPDATE SKIP LOCKED` statement, through the core's `run`. A re-queued job whose lease
+ * once on a `notify`, and runs up to `concurrency` jobs at once, plus, for each budget of jobs with
+ * a `concurrency` of their own (spec #872), up to that many in it, so no budget takes another's
+ * slots. Each claim is one `FOR UPDATE SKIP LOCKED` statement, through the core's `run`. A re-queued job whose lease
  * expired is due again, so the poll picks it up too. Nothing polls until `start()`, and `stop()`
  * stops polling; the core drains the running jobs.
  */
 export function inProcessExecutor({
   logger = console,
   concurrency = 2,
-  helperConcurrency = 4,
   pollMs = 2_000,
   clock = systemClock,
 }: InProcessExecutorOptions): Executor {
   let claim: NonNullable<CoreRun[typeof claimNext]> | undefined;
+  // The budgets of the jobs with a `concurrency` (spec #872), read once the Executor starts, each
+  // with its jobs in flight. The other jobs share `concurrency`.
+  let budgets: { names: string[]; concurrency: number; inFlight: Set<Promise<void>> }[] = [];
+  let budgeted: string[] = [];
   let timer: unknown;
   // Claims run one after another on this chain, so no lane's budget is ever exceeded.
   let claims: Promise<void> = Promise.resolve();
-  const helpersInFlight = new Set<Promise<void>>();
   const othersInFlight = new Set<Promise<void>>();
 
   const claimUpToConcurrency = async () => {
-    const helperNames = jobNamesInLane("helper");
-    if (helperNames.length > 0) {
-      await claimInto(helpersInFlight, helperConcurrency, { only: helperNames });
+    for (const { names, concurrency: budget, inFlight } of budgets) {
+      await claimInto(inFlight, budget, { only: names });
     }
-    await claimInto(othersInFlight, concurrency, { except: helperNames });
+    await claimInto(othersInFlight, concurrency, { except: budgeted });
   };
 
   const claimInto = async (lane: Set<Promise<void>>, budget: number, names: JobNames) => {
@@ -85,8 +84,13 @@ export function inProcessExecutor({
     async start(run: CoreRun) {
       if (claim) return;
       // Only the core's runner starts it, and its `run` claims by name in one statement.
+      if (!run[claimNext]) {
+        throw new Error("The in-process Executor runs only under the core's runner");
+      }
+      const listed = run[jobBudgets]?.() ?? [];
+      budgets = listed.map((budget) => ({ ...budget, inFlight: new Set() }));
+      budgeted = listed.flatMap(({ names }) => names);
       claim = run[claimNext];
-      if (!claim) throw new Error("The in-process Executor runs only under the core's runner");
       timer = clock.setInterval(requestClaim, pollMs);
       requestClaim();
       await claims;
@@ -117,8 +121,8 @@ export type InProcessRunnerOptions = InProcessExecutorOptions & {
    * it waits for the aborted handlers to end.
    */
   drainMs?: number;
-  /** The core context, read when a job runs. The core passes its instance's. */
-  deps: () => BotSdkContext;
+  /** The instance's jobs (spec #872), read when one is queued or run. */
+  jobs: () => JobTable;
 };
 
 /** The core's runner on the in-process Executor: what the runner slot defaults to. */
@@ -130,7 +134,7 @@ export function inProcessRunner({
   logger,
   drainMs,
   clock,
-  deps,
+  jobs,
   ...executorOptions
 }: InProcessRunnerOptions): InProcessRunner {
   return createJobRunner({
@@ -138,7 +142,7 @@ export function inProcessRunner({
     logger,
     drainMs,
     clock,
-    deps,
+    jobs,
     executor: inProcessExecutor({ logger, clock, ...executorOptions }),
   });
 }

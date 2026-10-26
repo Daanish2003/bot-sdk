@@ -12,7 +12,7 @@ import type { BotApi } from "../../plugins/bot/server/plugin";
 import type { ChannelApi } from "../../plugins/channel/server/internal";
 import type { ComputerApi } from "../../plugins/computer/server/internal";
 import type { ModelsApi } from "../../plugins/models/server/internal";
-import type { RunnerApi } from "../../plugins/runner/server/internal";
+import type { JobTable, RunnerApi } from "../../plugins/runner/server/internal";
 
 /** What the core gives its parts: the infrastructure and the core services. */
 export type BotSdkContext = {
@@ -57,9 +57,10 @@ export type BotSdkContext = {
   channels: ChannelApi;
   /**
    * The instance's parts, for the core's work across them (deletes, exports, a Turn's features):
-   * every part in order (the core's, then a plugin for each feature), and the enabled features.
+   * every part in order (the core's, then a plugin for each feature), the enabled features, and
+   * the jobs the runner runs: the core's, the features' and the Host's (spec #872).
    */
-  parts: { all: readonly BotSdkPlugin[]; features: readonly EnabledFeature[] };
+  parts: { all: readonly BotSdkPlugin[]; features: readonly EnabledFeature[]; jobs: JobTable };
 };
 
 /** A transaction on the core's database. */

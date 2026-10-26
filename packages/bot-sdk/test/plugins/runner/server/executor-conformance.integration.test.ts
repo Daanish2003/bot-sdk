@@ -3,13 +3,14 @@ import { z } from "zod";
 
 import {
   createJobRunner,
-  defineJob,
+  type JobDefinition,
+  jobTable,
+  type JobTable,
   type Executor,
   inProcessExecutor,
   type JobRunner,
   reapStaleJobs,
 } from "../../../../plugins/runner/server/internal";
-import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { manualExecutor, recordingNotify } from "../../../support/executors";
 import { fakeJobClock } from "../../../support/jobs";
 import { getTestDb } from "../../../support/test-database";
@@ -23,8 +24,15 @@ import { getTestDb } from "../../../support/test-database";
 
 const silent = { error: () => {} };
 const poll = { timeout: 10_000 };
-let testDeps: TestDeps | undefined;
-const jobDeps = () => (testDeps ??= createTestSdk({ db: getTestDb() }));
+/** The jobs this file defines, which its runners run. They take no core services. */
+// oxlint-disable-next-line typescript/no-explicit-any -- each job has its own payload
+const testJobs: JobDefinition<any, object>[] = [];
+const listed = <P>(definition: JobDefinition<P, object>) => {
+  testJobs.push(definition);
+  return definition;
+};
+let table: JobTable | undefined;
+const testTable = () => (table ??= jobTable([{ jobs: testJobs, services: {} }]));
 
 const ran: string[] = [];
 const started: string[] = [];
@@ -35,7 +43,7 @@ let gate: Promise<void> | undefined;
 /** The runner the recurring job queues its next slot on. */
 let current: JobRunner | undefined;
 
-defineJob({
+listed({
   name: "conformance.record",
   payload: z.object({ label: z.string() }),
   run: async ({ label }) => {
@@ -45,24 +53,24 @@ defineJob({
   },
 });
 
-defineJob({
+listed({
   name: "conformance.steps",
   payload: z.object({ label: z.string() }),
   run: async ({ label }, ctx) => {
-    await ctx.activity("a", async () => {
+    await ctx.step("a", async () => {
       steps.a += 1;
     });
     started.push(label);
     // A crash: the process stops here, and the handler never sees its abort.
     await gate;
-    await ctx.activity("b", async () => {
+    await ctx.step("b", async () => {
       steps.b += 1;
     });
     ran.push(label);
   },
 });
 
-defineJob({
+listed({
   name: "conformance.hold",
   payload: z.object({ label: z.string() }),
   run: async ({ label }, { signal }) => {
@@ -82,7 +90,7 @@ defineJob({
 
 let failures = 0;
 
-defineJob({
+listed({
   name: "conformance.fail-once",
   payload: z.object({ label: z.string() }),
   run: async ({ label }) => {
@@ -96,12 +104,12 @@ defineJob({
 const SLOT_MS = 60_000;
 const recurKey = (slot: string) => `conformance.recur:${slot}`;
 
-defineJob({
+listed({
   name: "conformance.recur",
   payload: z.object({ slot: z.iso.datetime() }),
   run: async ({ slot }, ctx) => {
     // The fire and the next slot's job commit with this Checkpoint, or not at all.
-    await ctx.activity("fire", async (tx) => {
+    await ctx.step("fire", async (tx) => {
       fires.push(slot);
       const next = new Date(new Date(slot).getTime() + SLOT_MS).toISOString();
       await current!.enqueueIn(
@@ -151,7 +159,7 @@ describe.each(executors)("$name", ({ build }) => {
     const runner = createJobRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       executor,
       clock,
       drainMs: 20,
@@ -250,7 +258,7 @@ describe.each(executors)("$name", ({ build }) => {
     await expect.poll(() => started, poll).toEqual(["a"]);
     // It stops without the handler seeing its abort, and leaves its lease to expire.
     await elsewhere.stop();
-    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, jobDeps());
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, testTable());
 
     gate = undefined;
     await harness.deliver(id);

@@ -7,8 +7,7 @@ import { schema as coreTables } from "./storage";
 import type { Database } from "./storage";
 import type { BotSdkContext, BotSdkPlugin, Route, Transaction } from "./plugin";
 import type { ComputerApi } from "../../plugins/computer/server/internal";
-import { type JobDefinition, registerJob } from "../../plugins/runner/server/internal";
-import type { EnqueueOptions } from "../../plugins/runner/server/internal";
+import type { EnqueueOptions, JobDefinition } from "../../plugins/runner/server/internal";
 
 /*
  * Features (spec #871, ADR 0029): optional capabilities beside the Bot core, written against
@@ -36,7 +35,7 @@ export type FeatureContext<Needs extends CoreService = never> = {
   jobs: {
     enqueueIn: <P>(
       tx: Transaction,
-      job: JobDefinition<P>,
+      job: Pick<JobDefinition<P>, "name" | "payload">,
       payload: P,
       options?: EnqueueOptions,
     ) => Promise<string>;
@@ -195,11 +194,11 @@ export type FeatureDefinition<
    */
   afterTurn?: (tx: Transaction, turn: FeatureTurn, context: FeatureContext<Needs>) => Promise<void>;
   /**
-   * The jobs the feature queues, through the runner's internal job definition until spec 2. Define
-   * each once, at module level: a job name is held by one definition per process.
+   * The jobs the feature queues, built with `defineJob` (spec #872). Each one's context has the
+   * feature's, with the services in `needs`. A job name can be listed once per instance.
    */
   // oxlint-disable-next-line typescript/no-explicit-any -- each job has its own payload
-  jobs?: readonly JobDefinition<any>[];
+  jobs?: readonly JobDefinition<any, FeatureContext<Needs>>[];
   /** The feature's part of a user's delete and export (`sdk.deleteUser`, `sdk.exportUser`). */
   userData?: {
     delete?: {
@@ -343,8 +342,25 @@ export function enableFeature(sdk: BotSdkContext, feature: AnyFeature): EnabledF
   return { feature, context: contextOf(sdk, feature.needs ?? []) };
 }
 
-function contextOf(sdk: BotSdkContext, needs: readonly CoreService[]): FeatureContext<CoreService> {
-  const base: FeatureContext = {
+const coreContext = Symbol("coreContext");
+
+/**
+ * The whole core context behind a feature's context, or a job context that spreads one: for the
+ * SDK's own Memory feature, whose job still reads the core's Models and Bots. Never public.
+ */
+export function coreContextOf(context: object): BotSdkContext {
+  const sdk = (context as { [coreContext]?: BotSdkContext })[coreContext];
+  if (!sdk) throw new Error("Not a feature's context");
+  return sdk;
+}
+
+/** The context the core gives a feature (or the Host's jobs) that needs `needs`. */
+export function contextOf(
+  sdk: BotSdkContext,
+  needs: readonly CoreService[],
+): FeatureContext<CoreService> {
+  const base: FeatureContext & { [coreContext]: BotSdkContext } = {
+    [coreContext]: sdk,
     db: sdk.db,
     logger: sdk.logger,
     clock: sdk.clock,
@@ -368,7 +384,6 @@ function contextOf(sdk: BotSdkContext, needs: readonly CoreService[]): FeatureCo
  * routers, key rotation, delete and export are the instance's.
  */
 export function featurePlugin({ feature, context }: EnabledFeature): BotSdkPlugin {
-  for (const job of feature.jobs ?? []) registerJob(job);
   const { userData } = feature;
   const remove = userData?.delete;
   const exportPart = userData?.export;

@@ -53,7 +53,7 @@ async function emailBot({
     logger: silent,
     drainMs: 50,
     clock: timer.clock,
-    deps: () => deps!,
+    jobs: () => deps!.parts.jobs,
   });
   const user = await insertUser();
   deps = createTestSdk({

@@ -97,7 +97,12 @@ async function botWith(
         : turnFake.adapter.chatStream(options),
   } as typeof turnFake.adapter;
   let deps: TestDeps | undefined;
-  const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
+  const jobs = inProcessRunner({
+    db: getTestDb(),
+    logger: silent,
+    drainMs: 50,
+    jobs: () => deps!.parts.jobs,
+  });
   deps = createTestSdk({
     ...(withComputer && { computer: computerFake.provider }),
     jobs,

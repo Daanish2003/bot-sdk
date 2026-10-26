@@ -98,7 +98,7 @@ const sourceIdOf = (source: ReviewSource) => ("turnId" in source ? source.turnId
 
 /** What the loop lends a review: its activities, its live-call check and its Stop. */
 export type ReviewKit = {
-  activity: <T>(name: string, fn: (tx: Transaction) => Promise<T>) => Promise<T>;
+  step: <T>(name: string, fn: (tx: Transaction) => Promise<T>) => Promise<T>;
   /** An activity that bills in its Checkpoint's transaction, firing `onUsage` once it commits. */
   billing: <T>(
     name: string,
@@ -146,7 +146,7 @@ export async function reviewToolCall(
   // The meter of the call the live review made; a live write after a replayed review resolves it
   // again, and a replayed write needs none.
   let liveMeter: ModelMeter | undefined;
-  const reviewed: RecordedReview = await kit.activity("review", async () => {
+  const reviewed: RecordedReview = await kit.step("review", async () => {
     kit.beforeLive();
     if (ask) return { outcome: "block", ...ask, model: owner.model, bill: null };
     return judge(deps, kit, { owner, source, tool, input }, (meter) => (liveMeter = meter));
@@ -213,7 +213,7 @@ export async function reviewToolCall(
   if (!reviewId || !deadline) return { error: blockedError(reviewed.reason) };
   // The wait (ADR 0024): no transaction, since it holds for up to 15 seconds. Re-run after a crash
   // before its Checkpoint, it reads the row's decision, or the same deadline.
-  const decided = await kit.activity("review:wait", async () => {
+  const decided = await kit.step("review:wait", async () => {
     kit.beforeLive();
     return waitForApproval(deps, reviewId, deadline, kit.signal);
   });

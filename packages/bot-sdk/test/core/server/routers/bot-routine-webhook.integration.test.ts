@@ -68,7 +68,7 @@ async function botWithRoutine({
     logger: silent,
     drainMs: 50,
     clock: timer.clock,
-    deps: () => deps!,
+    jobs: () => deps!.parts.jobs,
   });
   deps = createTestSdk({
     ...(computerFake && { computer: computerFake.provider }),

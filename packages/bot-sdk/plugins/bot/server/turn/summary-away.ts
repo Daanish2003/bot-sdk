@@ -20,7 +20,11 @@ import {
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
 import { withCacheControl } from "../../../models/server/internal";
 import { parseModelId } from "../../../models/shared/models";
-import { defineJob, type JobContext } from "../../../runner/server/internal";
+import {
+  type CoreJobServices,
+  defineCoreJob,
+  type JobContext,
+} from "../../../runner/server/internal";
 import { pruneScreenshots, resolveImageRefs, hintChanged } from "../conversation";
 import { callUsage, summarizeInstruction } from "../agent-loop";
 import {
@@ -56,7 +60,7 @@ const wakesSoonMs = 50 * 60_000;
  * Checkpoint, so a retry never calls the Model twice. The call is billed as soon as it returns, in
  * a transaction of its own, so a job cancelled by a Turn starting still pays for it.
  */
-export const summarizeAwayJob = defineJob({
+export const summarizeAwayJob = defineCoreJob({
   name: summarizeAwayJobName,
   payload: z.object({ botId: z.uuid() }),
   run: ({ botId }, ctx) => summarizeAway(ctx.deps, botId, ctx),
@@ -71,8 +75,8 @@ type Seen = {
   promptStartId: string;
 };
 
-async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext) {
-  const seen = await ctx.activity("check", () => toSummarize(deps, botId));
+async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext<CoreJobServices>) {
+  const seen = await ctx.step("check", () => toSummarize(deps, botId));
   if (!seen) return;
   const models = deps.models;
   const call = await models.resolveModelCall(seen.userId, seen.model);
@@ -81,7 +85,7 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
   const meter = call.meter.onHost ? call.meter : models.freeModelMeter(seen.userId, seen.model);
   const provider = parseModelId(seen.model)?.provider ?? "";
 
-  const written = await ctx.activity("summary", async () => {
+  const written = await ctx.step("summary", async () => {
     if (!(await meter.mayRun()).ok) return null;
     const start = await loopPromptStart(deps.db, seen.promptStartId, async () => undefined);
     const history = await historyAfter(deps.db, botId, seen.promptStartId);
@@ -155,13 +159,13 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
     conversationId: seen.conversationId,
   });
   const features: FeatureSection[] = enabledFeatures(deps).length
-    ? await ctx.activity("features", () =>
+    ? await ctx.step("features", () =>
         featureSectionsNow(deps, facts, deps.clock(), ctx.signal, { tolerant: true }),
       )
     : [];
   // Set only by a live write: a replayed one changed nothing, so hints nothing.
   let wrote = false;
-  await ctx.activity("summary:write", async (tx) => {
+  await ctx.step("summary:write", async (tx) => {
     await lockConversation(tx, seen.conversationId);
     if (await turnedSince(tx, botId, seen)) return null;
     const now = deps.clock();

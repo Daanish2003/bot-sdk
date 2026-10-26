@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { bot, botRoutine, botTrigger, job } from "../../../../core/server/storage";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
-import { defineJob } from "../../../runner/server/internal";
+import { defineCoreJob } from "../../../runner/server/internal";
 import { fireKey, queueFire, routineFireJobName, routineSnapshot } from "./routine";
 import { lockConversation, receive } from "../triggers";
 import { nextSlot } from "./schedule";
@@ -13,21 +13,19 @@ import { hintChanged, recordBotChange } from "../conversation";
  * One scheduled fire of a Routine (ADR 0011, the #537 amendment), at `slot`. Its one Checkpoint
  * queues the next fire and hands the Router the Routine's Trigger, so both happen once.
  */
-export const routineFireJob = defineJob({
+export const routineFireJob = defineCoreJob({
   name: routineFireJobName,
   payload: z.object({ routineId: z.uuid(), slot: z.iso.datetime() }),
   run: async ({ routineId, slot }, ctx) => {
     const deps = ctx.deps;
-    const fired = await ctx.activity("fire", (tx) =>
-      fireRoutine(deps, tx, routineId, new Date(slot)),
-    );
+    const fired = await ctx.step("fire", (tx) => fireRoutine(deps, tx, routineId, new Date(slot)));
     if (!fired) return;
     if (fired.woke) deps.runner.wake();
     await hintChanged(deps, fired.conversationId);
   },
   // A fire that failed for good queued no next fire (its Checkpoint rolled back): queue it here, so
   // one bad fire never stops the Routine.
-  onFailed: async ({ routineId, slot }, _error, deps) => {
+  onFailed: async ({ routineId, slot }, _error, { deps }) => {
     const changed = await deps.db.transaction(async (tx) => {
       const [owner] = await tx
         .select({ conversationId: bot.conversationId })
@@ -159,7 +157,7 @@ const hasFire = sql`exists (select 1 from ${job} where ${and(
  * queued first, and again by `onFailed`, so one that fails never ends the chain of reconciles. A
  * Routine that fails to repair is logged and the rest are still repaired.
  */
-export const routineReconcileJob = defineJob({
+export const routineReconcileJob = defineCoreJob({
   name: routineReconcileJobName,
   payload: z.object({ at: z.iso.datetime() }),
   run: async ({ at }, { deps }) => {
@@ -174,7 +172,7 @@ export const routineReconcileJob = defineJob({
       );
     }
   },
-  onFailed: ({ at }, _error, deps) => queueNextReconcile(deps, new Date(at)),
+  onFailed: ({ at }, _error, { deps }) => queueNextReconcile(deps, new Date(at)),
 });
 
 /**
