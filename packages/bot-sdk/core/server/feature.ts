@@ -405,6 +405,13 @@ export function featurePlugin({ feature, context }: EnabledFeature): BotSdkPlugi
   };
 }
 
+/** An enabled feature's API, as `sdk.<id>` serves it: what its procedures call (spec #873). */
+export function featureApi<Api extends object>(sdk: Pick<BotSdkContext, "parts">, id: string): Api {
+  const api = sdk.parts.apis.get(id);
+  if (!api) throw new Error(`Feature "${id}" is not enabled`);
+  return api as Api;
+}
+
 /** The Host's typed access to each feature's API: `sdk.<id>`. */
 export type FeatureApis<Entries extends readonly unknown[]> = {
   [F in Extract<Entries[number], AnyFeature> as F["id"]]: F extends {

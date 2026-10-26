@@ -1,19 +1,26 @@
 import { z } from "zod";
 
-import { deleteConnection, listConnections } from "../connections";
-import type { McpServerConfig } from "../servers";
+import { featureApi } from "../../../../core/server/feature";
 import { protectedProcedure } from "../../../../core/server/procedures";
+import type { McpApi } from "../plugin";
+
+/** `mcp.disconnect`'s input, besides `userId`. */
+export const disconnectInput = z.object({ key: z.string().min(1) });
 
 /** The user's Connections to the Host's MCP servers. Tokens never leave the server (spec #91). */
-export function connectionsRouter(servers: readonly McpServerConfig[]) {
+export function connectionsRouter() {
   return {
     list: protectedProcedure.handler(async ({ context }) => ({
-      servers: await listConnections(context.sdk, servers, context.user.id),
+      servers: await featureApi<McpApi>(context.sdk, "mcp").listConnections({
+        userId: context.user.id,
+      }),
     })),
 
     disconnect: protectedProcedure
-      .input(z.object({ key: z.string().min(1) }))
-      .handler(({ context, input }) => deleteConnection(context.sdk, context.user.id, input.key)),
+      .input(disconnectInput)
+      .handler(({ context, input }) =>
+        featureApi<McpApi>(context.sdk, "mcp").disconnect({ userId: context.user.id, ...input }),
+      ),
   };
 }
 

@@ -363,9 +363,9 @@ export function buildBotSdk(
     ...enabled.map(({ feature, context }) => ({ jobs: feature.jobs ?? [], services: context })),
     { jobs: options.jobs ?? [], services: contextOf(sdk, []) },
   ]);
-  sdk.parts = { all: plugins, features: enabled, jobs };
-  // In order: the core's parts first, then each feature's API.
   const apis = new Map<string, object>();
+  sdk.parts = { all: plugins, features: enabled, jobs, apis };
+  // In order: the core's parts first, then each feature's API.
   for (const plugin of plugins) apis.set(plugin.id, plugin.init?.(sdk)?.api ?? {});
 
   const instance: BotSdk = {

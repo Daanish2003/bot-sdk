@@ -1,5 +1,6 @@
-import { defineFeature } from "../../../core/server/feature";
+import { coreContextOf, defineFeature } from "../../../core/server/feature";
 import { isComputerFailure } from "../../computer/server/internal";
+import { knowledgeApi } from "./knowledge-api";
 import { knowledgeNotes } from "./notes";
 import { knowledgePrompt, readKnowledgePaths } from "./prompt";
 import { knowledgeRouter } from "./routers/index";
@@ -17,6 +18,8 @@ export function knowledge() {
     id: "knowledge",
     needs: ["computer"],
     router: { knowledge: knowledgeRouter },
+    // The domain methods: `sdk.knowledge` (spec #873).
+    api: (context) => knowledgeApi(coreContextOf(context)),
     // A Computer that can't be woken or read leaves the Turn without a Knowledge section; any
     // other failure, or a Stop or the time limit, throws.
     prompt: async (turn, { computer, logger }) => {

@@ -2,13 +2,14 @@ import { toolDefinition } from "@tanstack/ai";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { defineFeature } from "../../../core/server/feature";
+import { coreContextOf, defineFeature } from "../../../core/server/feature";
 import { isComputerFailure } from "../../computer/server/internal";
 import { botMemoryPassJob, enqueueBotMemoryPass } from "./bot-pass";
 import { botMemorySnapshot, botsOf, exportBotMemory, memoryDirectory } from "./bot-memory";
 import { memoryChangeNotes } from "./change-notes";
 import { memorySettings } from "./db/settings";
 import { memoryEnabledFor } from "./manage";
+import { memoryApi } from "./memory-api";
 import { memoryRouter } from "./routers/index";
 import { searchBotMemory } from "./search";
 
@@ -36,10 +37,8 @@ export function memory() {
     id: "memory",
     needs: ["computer"],
     schema: { memorySettings },
-    api: (context) => ({
-      /** The user's Memory switch: on for a user who never saved it. */
-      isEnabled: (userId: string) => memoryEnabledFor(context, userId),
-    }),
+    // The domain methods: `sdk.memory` (spec #873).
+    api: (context) => memoryApi(coreContextOf(context)),
     // Sent on every call, by name (`isDirectTool`), only with the user's Memory on.
     tools: async (turn, context, kit) => {
       // Read once and recorded, so a replay lists what its attempt did, even if the switch moved.

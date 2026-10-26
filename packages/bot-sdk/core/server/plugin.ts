@@ -79,7 +79,13 @@ export type BotSdkContext = {
    * every part in order (the core's, then a plugin for each feature), the enabled features, and
    * the jobs the runner runs: the core's, the features' and the Host's (spec #872).
    */
-  parts: { all: readonly BotSdkPlugin[]; features: readonly EnabledFeature[]; jobs: JobTable };
+  parts: {
+    all: readonly BotSdkPlugin[];
+    features: readonly EnabledFeature[];
+    jobs: JobTable;
+    /** Every part's API by part id, filled as the parts' `init` runs (spec #873). */
+    apis: ReadonlyMap<string, object>;
+  };
 };
 
 /** A transaction on the core's database. */
