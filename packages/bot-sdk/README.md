@@ -163,7 +163,7 @@ const chat = createBotSdk({
 // the optional HTTP layer (`@ai-chat/bot-sdk/core/http`): one catch-all route on your framework,
 // for every chat call; sign-in and the 401 are yours through `getUser`
 export const handler = createHttpHandler(chat, { basePath: "/api/chat", getUser });
-// on an Express-style Node server instead: app.all("/api/chat/*", toNodeHandler(handler))
+// on a Node server instead, ahead of any body parser: app.use("/api/chat", toNodeHandler(handler))
 
 // deploy step, once per deploy
 await chat.migrate();

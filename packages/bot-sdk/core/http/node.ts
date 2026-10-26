@@ -7,7 +7,10 @@ import type { HttpHandler } from "./handler";
 /**
  * A Node `(req, res)` listener over a fetch handler, for `http.createServer` and Express-style
  * servers. The response body streams as it is produced (server-sent events included), and a client
- * that disconnects aborts the request's signal.
+ * that disconnects aborts the request's signal and cancels the body. Mount it before any body parser,
+ * since it reads the raw request body. A handler that throws answers 500, and a body that fails
+ * mid-stream resets the connection; neither rejects the listener (Node servers don't await it), so
+ * each error goes to `console.error`.
  */
 export function toNodeHandler(
   handler: HttpHandler,
@@ -19,10 +22,10 @@ export function toNodeHandler(
     try {
       response = await handler(requestOf(req, abort.signal));
     } catch (error) {
-      // The client gets an answer; the error still reaches the server's caller.
+      console.error(error);
       res.statusCode = 500;
       res.end();
-      throw error;
+      return;
     }
     res.statusCode = response.status;
     if (response.statusText) res.statusMessage = response.statusText;
@@ -44,21 +47,29 @@ export function toNodeHandler(
         if (!res.write(value)) await once(res, "drain", { signal: abort.signal });
       }
     } catch (error) {
-      // A client gone mid-stream is no failure; anything else is.
-      if (!abort.signal.aborted) throw error;
+      // A client gone mid-stream is no failure; anything else cuts the response short, visibly.
+      if (!abort.signal.aborted && !res.destroyed) {
+        console.error(error);
+        res.destroy(error instanceof Error ? error : new Error(String(error)));
+      }
     } finally {
-      if (abort.signal.aborted) await reader.cancel().catch(() => {});
+      // A client gone, by the close event or a destroyed response, cancels the body's producer.
+      if (abort.signal.aborted || res.destroyed) await reader.cancel().catch(() => {});
       else reader.releaseLock();
-      res.end();
+      if (!res.destroyed) res.end();
     }
   };
 }
 
-/** The fetch `Request` of a Node request, its URL on the `Host` it was sent to. */
-function requestOf(req: IncomingMessage, signal: AbortSignal): Request {
+/**
+ * The fetch `Request` of a Node request, its URL on the `Host` it was sent to. Express's
+ * `originalUrl` keeps the mount path that `app.use` strips from `url`. Forwarded headers aren't
+ * trusted: behind a proxy, the Host passes them on as it sees fit.
+ */
+function requestOf(req: IncomingMessage & { originalUrl?: string }, signal: AbortSignal): Request {
   const secure = "encrypted" in req.socket && Boolean(req.socket.encrypted);
   const url = new URL(
-    req.url ?? "/",
+    req.originalUrl ?? req.url ?? "/",
     `${secure ? "https" : "http"}://${req.headers.host ?? "localhost"}`,
   );
   const headers = new Headers();

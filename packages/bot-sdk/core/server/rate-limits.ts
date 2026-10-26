@@ -4,7 +4,7 @@ import type { CounterStore } from "./chat/counters";
 export type RateLimit = { limit: number; windowSeconds: number };
 
 /**
- * What `createBotSdk` takes: each limited action may be overridden, and `false` turns that limit off.
+ * What `createHttpHandler` takes: each limited action may be overridden, and `false` turns that limit off.
  * Every limit is per user.
  */
 export type RateLimits = {

@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createHttpHandler, toNodeHandler, type HttpHandler } from "../../../core/http";
 import { createBotSdk } from "../../../core/server/create-chat";
@@ -145,6 +145,23 @@ describe("toNodeHandler", { timeout: 30_000 }, () => {
     expect(await overNode.json()).toEqual(await direct.json());
     expect(nodeRefusal.status).toBe(401);
     expect(await nodeRefusal.json()).toEqual(await directRefusal.json());
+  });
+
+  it("answers 500 when the handler throws, and the server keeps serving", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    let calls = 0;
+    const origin = await serve(async () => {
+      calls += 1;
+      if (calls === 1) throw new Error("auth is down");
+      return new Response("ok");
+    });
+
+    const failed = await fetch(`${origin}/anything`);
+    const next = await fetch(`${origin}/anything`);
+
+    expect([failed.status, next.status]).toEqual([500, 200]);
+    expect(error).toHaveBeenCalledWith(new Error("auth is down"));
+    error.mockRestore();
   });
 
   it("streams change hints over Node", async () => {

@@ -101,6 +101,7 @@ export function createChatHandler(sdk: SdkOver, options: HttpHandlerOptions): Ht
   const { instance } = buildBotSdk(
     {
       databaseUrl: "",
+      logger: sdk.logger,
       keyEncryptionSecrets: sdk.keyring,
       models: {},
       ...(computer && { computer: computerProvider(computer) }),
