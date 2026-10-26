@@ -14,7 +14,7 @@ import { z } from "zod";
 import {
   createAbortableBedrockText,
   createAbortableMistralText,
-} from "../../../../plugins/models/server/adapters";
+} from "../../../../plugins/models/server/internal";
 
 /**
  * A Provider that takes a request and never answers it. `connectionClosed` settles when the

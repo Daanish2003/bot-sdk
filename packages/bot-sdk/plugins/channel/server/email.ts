@@ -1,6 +1,22 @@
-import { type MailFile, MailFileTooLargeError } from "../../bot/server/files";
+/** What a `MailFile`'s `read` throws past its `maxBytes`: the file is left out, as expected. */
+export class MailFileTooLargeError extends Error {
+  constructor(maxBytes: number) {
+    super(`The attachment is larger than ${maxBytes} bytes`);
+    this.name = "MailFileTooLargeError";
+  }
+}
 
-export { type MailFile, MailFileTooLargeError };
+/** One file of an inbound email: its bytes are read only once the mail is the owner's. */
+export type MailFile = {
+  name: string;
+  contentType: string;
+  size: number;
+  /**
+   * The file's bytes. A provider whose `size` may be missing or wrong stops reading, and throws,
+   * `MailFileTooLargeError` past `maxBytes`, so a huge attachment is never held in memory.
+   */
+  read: (maxBytes: number) => Promise<Uint8Array>;
+};
 
 /** A provider's verdict on one sender check of a mail it received. */
 export type AuthVerdict = "pass" | "fail" | "none";

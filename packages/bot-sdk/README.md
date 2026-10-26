@@ -88,7 +88,7 @@ Install these in the Host. There is one `package.json` for the whole SDK, and ve
 
 - `email-reply-parser` (pinned at 2.3.9), which strips the quoted history from an inbound email so the Bot reads only the new text.
 
-The `runner`, `memory` and `skills` plugins need nothing beyond `core/` (and `lucide-react` for the `ui/` folders).
+The `runner` and `memory` plugins and the `skills` feature need nothing beyond `core/` (and `lucide-react` for the `ui/` folders).
 
 `core/` imports only npm packages and its own files, so a Host outside this repo can copy and compile it.
 
@@ -116,11 +116,11 @@ The `runner`, `memory` and `skills` plugins need nothing beyond `core/` (and `lu
 - The SDK's tables live in the `chat` schema of the Host's database, not in your ORM's schema. Your ORM's migrations never touch them.
 - The SDK's migrations are expand-then-contract: they add tables, columns and indexes, and never drop or rename one in the same release. The version still running during a deploy keeps working against the migrated schema.
 
-## File storage: `blobStore`
+## File storage: `blobs`
 
-File bytes go to a `BlobStore`, which `createBotSdk({ blobStore })` takes: the files a user sends their Bot and the files a Bot sends back. Names, types, sizes and owners stay in Postgres either way. The store holds bytes only, under keys the SDK makes up, such as `bot-file/<id>`.
+File bytes go to a `BlobStore`, which `createBotSdk({ blobs })` takes: the files a user sends their Bot and the files a Bot sends back. Names, types, sizes and owners stay in Postgres either way. The store holds bytes only, under keys the SDK makes up, such as `bot-file/<id>`.
 
-- **`postgresBlobStore()`** is the default: bytes in the `chat.blob` table of your database. Leave `blobStore` out and nothing changes.
+- **`postgresBlobStore()`** is the default: bytes in the `chat.blob` table of your database. Leave `blobs` out and nothing changes.
 - **`s3BlobStore({ endpoint, bucket, region, accessKeyId, secretAccessKey, forcePathStyle? })`** keeps bytes in any S3-compatible bucket, such as Cloudflare R2 (`region: "auto"`) or RustFS. It needs an existing bucket: the store never creates one, so the app needs no bucket-admin rights. It is built on `aws4fetch`, and `forcePathStyle` defaults to `true`.
 
 ```ts
@@ -130,7 +130,9 @@ const chat = createBotSdk({
   databaseUrl,
   getUser,
   keyEncryptionSecrets,
-  blobStore: s3BlobStore({
+  basePath: "/api/chat",
+  models: {},
+  blobs: s3BlobStore({
     endpoint: process.env.S3_ENDPOINT!,
     bucket: process.env.S3_BUCKET!,
     region: "auto",
@@ -147,14 +149,17 @@ const chat = createBotSdk({
 
 ```ts
 // server: construct at module load (no side effects)
-// the Model options (Host Providers, BYOK, Quota, ...) go to `models(...)`, the background jobs
-// runner to `runner(...)`, MCP servers to `mcp(...)`, and the Computer's provider to `computer(...)`
+// the Model options (Host Providers, BYOK, Quota, ...) go to the `models` slot, MCP servers to
+// `mcp(...)`, a background jobs runner to the `runner` slot, and the Computer's provider to the
+// `computer` slot
 const chat = createBotSdk({
   databaseUrl,
   getUser,
   keyEncryptionSecrets,
   basePath: "/api/chat",
-  plugins: [models(), runner(), memory(), skills(), knowledge(), mcp(), bot()],
+  computer: e2bProvider({ apiKey, apiUrl, sandboxUrl, template }),
+  models: {},
+  features: [memory(), skills(), knowledge(), mcp({ servers })],
 });
 
 // one catch-all route on your framework, for every chat call
@@ -196,6 +201,7 @@ const client = createBotSdkClient({
 ```
 
 - `getUser(request)` returns `{ id } | null`. The handler answers 401 when it returns `null`.
+- `reviewModel` (optional) is the Model that Auto-reviews each Bot's risky tool calls before they run, a `"provider:model"` id from the Models' list, resolved per user: `createBotSdk({ reviewModel: "openai:gpt-5.4-mini" })`. Unset, or one the user can't use, the Bot's own Model reviews, in a fresh context.
 - The `router` adapter maps the SDK's pages (`keys`, and `bots` with an optional Bot `id`) to your URLs. It provides `Link` and `navigate(page)`. Pass your own TanStack Query client as `queryClient` if you have one; otherwise the provider creates its own.
 - The Bots app is `BotsApp` from `plugins/bot/ui`, with the Host's account menu at the foot of its sidebar (`accountMenu`); the keys page is `KeySettingsPage` from `plugins/models/ui`.
 - `GET <basePath>/export` answers the signed-in user's export as a JSON download (`chat-export-<date>.json`), the same document as `exportUser`. The `ExportDataButton` in `ui/settings/export-data-button.tsx` calls it.
@@ -204,9 +210,9 @@ const client = createBotSdkClient({
 
 ## Background jobs: `runner`
 
-The `runner` plugin runs the background work (ADR 0011): Bot Turns, Routines, Check-ins and Memory passes. `bot` requires it, so a Host lists it: `plugins: [models(), runner(), bot()]`. It's imported from `@ai-chat/bot-sdk/plugins/runner/server`.
+The runner is part of the core: it runs the background work (ADR 0011), Bot Turns, Routines, Check-ins and Memory passes. A Host lists nothing for it.
 
-`runner({ jobs })` takes the runner for background work. The default is the in-process runner: it keeps jobs in the `chat.job` table, which the `chat` schema already has, polls it every 2 s, runs two jobs at once and retries a failed job up to three times, after about 10 s and 1 min. `start()` starts it, and `stop()` takes no new jobs and waits for the running ones. Nothing else to configure, and no second database.
+The `runner` slot (`createBotSdk({ runner })`) takes the runner for background work. The default is the in-process runner: it keeps jobs in the `chat.job` table, which the `chat` schema already has, polls it every 2 s, runs two jobs at once and retries a failed job up to three times, after about 10 s and 1 min. `start()` starts it, and `stop()` takes no new jobs and waits for the running ones. Nothing else to configure, and no second database.
 
 A custom runner is any object with `enqueue(name, payload, options?)`, `start()` and `stop()`, and it takes the place of the default. Jobs are internal to the SDK: a Host can't declare its own.
 
@@ -224,41 +230,43 @@ import { chat } from "@/lib/chat";
 export const chatJob = task({
   id: "chat-job",
   run: async ({ name, payload }: { name: string; payload: unknown }) => {
-    await chat.plugin("runner").runJob(name, payload);
+    await chat.runner.runJob(name, payload);
   },
 });
 
 // src/lib/chat.ts (where createBotSdk is called)
 export const chat = createBotSdk({
   /* ...as before */
-  plugins: [models(), runner({ jobs: triggerJobRunner({ taskId: "chat-job" }) }), memory()],
+  runner: triggerJobRunner({ taskId: "chat-job" }),
+  models: {},
+  features: [memory()],
 });
 ```
 
-`chat.plugin("runner").runJob(name, payload)` runs a job's handler in the calling process, after validating the payload with the job's schema. It rejects an unknown name or a bad payload, and a handler's error reaches the task, so Trigger.dev's retries apply. The Trigger.dev runner supports `enqueue` only: `cancel`, `status` and `schedule` throw until they are needed. Trigger.dev's idempotency keys also match runs that have finished, so unlike the in-process runner, an `idempotencyKey` can't be reused after its job ends.
+`chat.runner.runJob(name, payload)` runs a job's handler in the calling process, after validating the payload with the job's schema. It rejects an unknown name or a bad payload, and a handler's error reaches the task, so Trigger.dev's retries apply. The Trigger.dev runner supports `enqueue` only: `cancel`, `status` and `schedule` throw until they are needed. Trigger.dev's idempotency keys also match runs that have finished, so unlike the in-process runner, an `idempotencyKey` can't be reused after its job ends.
 
 ## Memory: `memory`
 
-The `memory` plugin keeps each Bot's file memory (ADR 0022), its post-turn pass, and the user's Memory switch. It requires `models` and `runner`: `plugins: [models(), runner(), memory(), bot()]`, with `memoryClient()` on the client. It's imported from `@ai-chat/bot-sdk/plugins/memory/server` (and `/client`, `/ui`). A Host turns Memory off by leaving it out: Bots then keep no Memory, and the keys page shows no Memory section.
+The `memory` feature keeps each Bot's file memory (ADR 0022), its post-turn pass, the `search_memory` tool and the user's Memory switch. A Host turns it on in `features`: `features: [memory()]`, with `memoryClient()` on the client. It needs a Computer, where the files live: `createBotSdk` throws at construction when the `computer` slot is empty. It's imported from `@ai-chat/bot-sdk/plugins/memory/server` (and `/client`, `/ui`). A Host turns Memory off by leaving it out: Bots then keep no Memory, and the keys page shows no Memory section.
 
-The `skills` plugin (each Bot's `SKILL.md` files, spec #713) and the `knowledge` plugin (a user's Knowledge as plain files, spec #737) keep their files on the user's Computer, so they need `computer`. Without it, Bots have no Skills and no Knowledge.
+The `skills` feature (each Bot's `SKILL.md` files, spec #713) and the `knowledge` feature (a user's Knowledge as plain files, spec #737), both listed in `features`, keep their files on the user's Computer, so they need `computer`. Without it, `createBotSdk` throws for `skills()` and `knowledge()`.
 
 ## A Computer for Bots: `computer`
 
-The `computer` plugin gives each user one Computer, a real machine where their Bots run shell commands and keep files. It requires `runner`, and it is imported from `@ai-chat/bot-sdk/plugins/computer/server`. Leave it out and Bots run without a Computer: no tools, and no mention of them in the system prompt.
+The Computer is part of the core: it gives each user one Computer, a real machine where their Bots run shell commands and keep files. Leave the `computer` slot unset and Bots run without a Computer: no tools, and no mention of them in the system prompt.
 
-The plugin runs on a provider. The E2B provider is on its own subpath, so a Host that never imports it never loads the `e2b` package:
+The slot takes a provider. The E2B provider is on its own subpath, so a Host that never imports it never loads the `e2b` package:
 
 ```ts
 import { e2bProvider } from "@ai-chat/bot-sdk/plugins/computer/e2b";
-import { computer } from "@ai-chat/bot-sdk/plugins/computer/server";
 
-computer({
-  provider: e2bProvider({ apiKey, apiUrl, sandboxUrl, template: "ai-chat-computer-v3" }),
+createBotSdk({
+  // ...
+  computer: e2bProvider({ apiKey, apiUrl, sandboxUrl, template: "ai-chat-computer-v3" }),
 });
 ```
 
-`apps/web` turns `computer` on only when `E2B_API_KEY`, `E2B_API_URL` and `E2B_SANDBOX_URL` are all set.
+`apps/web` sets the `computer` slot only when `E2B_API_KEY`, `E2B_API_URL` and `E2B_SANDBOX_URL` are all set.
 
 A user's Computer is created on their first operation, and with `bot` on, only for a user who has a Bot: `bot` adds that owner check (`addOwnerCheck`), so a Turn that races its user's delete leaves no Computer behind. A plugin that uses the Computer for users without a Bot adds its own check.
 
@@ -329,16 +337,17 @@ With the three variables set and the template built, two test files run the adap
 pnpm exec vitest run --maxWorkers=1 --no-file-parallelism packages/bot-sdk/test/plugins/computer/e2b
 ```
 
-## Email for Bots: `channel`
+## Email for Bots: `channels`
 
-The `channel` plugin gives each Bot its own email address (spec #761, ADR 0026): the owner's mail to it wakes the Bot like a web Message, and the Bot's replies are emailed back. It requires `models`, `bot` and `runner`, and it is imported from `@ai-chat/bot-sdk/plugins/channel/server` (and `/client`, `/ui` for the Bot header's Email popover). Leave it out and Bots have no address.
+The core's Channels (`sdk.channels`) give each Bot its own email address (spec #761, ADR 0026): the owner's mail to it wakes the Bot like a web Message, and the Bot's replies are emailed back. Email is an adapter in the `channels` slot, imported from `@ai-chat/bot-sdk/plugins/channel/server` (and `/client`, `/ui` for the Bot header's Email popover). Leave the slot out and Bots have no address.
 
 ```ts
-import { channel, emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
+import { emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
 import { mailpitEmailProvider } from "@ai-chat/bot-sdk/plugins/channel/mailpit";
 
-channel({
-  adapters: [
+createBotSdk({
+  // …
+  channels: [
     emailChannel({
       provider: mailpitEmailProvider({ apiUrl: "http://localhost:8025" }),
       domain: "bots.localhost", // the Bots' addresses are name@<domain>
@@ -350,7 +359,7 @@ channel({
 });
 ```
 
-The Host mounts `sdk.plugin("channel").inbound("email", request)` at `POST /api/channels/email`, with no sign-in. It answers 202 to any mail the provider can read, whether it woke the Bot or was dropped, and 400 to one it can't, so a sender learns nothing.
+The Host mounts `sdk.channels.inbound("email", request)` at `POST /api/channels/email`, with no sign-in. It answers 202 to any mail the provider can read, whether it woke the Bot or was dropped, and 400 to one it can't, so a sender learns nothing.
 
 A mail is a Trigger only when it is from the user's verified email, is addressed to a Bot's address, carries a DMARC pass, and is not a Bot's own or an automatic reply; the Quota and the Ban apply as for a webhook. The Bot reads the new text only (quoted history is stripped), the subject as a first line unless the mail replies to the Bot's thread, one line naming the attachments (they aren't kept), and anything forwarded in an untrusted fenced block that Auto-review never takes as permission.
 
@@ -481,18 +490,18 @@ User-configured webhooks, where a user enters a URL in settings, are out of scop
 
 ## Inbound webhooks for Routines
 
-A Bot's Routine can run whenever an outside service calls its secret URL (ADR 0021). The `bot` plugin exports the handler. Mount it for `POST` at `/api/routines/webhook/<token>`, outside the chat handler and with no sign-in, since the token is the authentication:
+A Bot's Routine can run whenever an outside service calls its secret URL (ADR 0021). The core serves the handler as `sdk.bots.webhookHandler`. Mount it for `POST` at `/api/routines/webhook/<token>`, outside the chat handler and with no sign-in, since the token is the authentication:
 
 ```ts
 // For example, a TanStack Start route at /api/routines/webhook/$token
-const handle = ({ request }: { request: Request }) => sdk.plugin("bot").webhookHandler(request);
+const handle = ({ request }: { request: Request }) => sdk.bots.webhookHandler(request);
 ```
 
 It answers `202` at once, `413` to a body over 64 KB, and `404` to a token that matches no active Routine. With an `Idempotency-Key` header, a retried delivery wakes the Bot once. The token is stored only as a hash, so the app shows a Routine's URL once, after it is approved or rotated.
 
 ## Several processes: `redisRuntime()`
 
-The processes of your app share signals (the data-less hints that a Bot's thread changed, ADR 0026) and rate-limit counters through the `runtime`. The default, `memoryRuntime()`, keeps them in one process's memory, which is fine for local development and for a Host that runs as a single process.
+The processes of your app share signals (the data-less hints that a Bot's thread changed, ADR 0026) and rate-limit counters through the `pubsub` slot. The default, `memoryRuntime()`, keeps them in one process's memory, which is fine for local development and for a Host that runs as a single process.
 
 **Use `redisRuntime()` when more than one process can serve requests, including the overlap of a zero-downtime deploy.** Without it, a tab connected to the other process misses the hints until it fetches the changes on its own, and each process counts rate limits by itself.
 
@@ -502,7 +511,8 @@ const chat = createBotSdk({
   getUser,
   keyEncryptionSecrets,
   basePath: "/api/chat",
-  runtime: redisRuntime({ url: process.env.REDIS_URL! }),
+  models: {},
+  pubsub: redisRuntime({ url: process.env.REDIS_URL! }),
 });
 ```
 
@@ -516,14 +526,14 @@ Nothing connects when you build `createBotSdk` or `redisRuntime()`. The first us
 Stored Provider and Tool credentials, Bot Secrets and MCP Connection tokens are encrypted under `keyEncryptionSecrets`: the first secret encrypts, and every secret decrypts (ADR 0010). Rotate on an event, such as a suspected leak or someone with access leaving, not on a schedule. Rotating is a runbook, not an outage:
 
 1. Put the new secret first in `keyEncryptionSecrets` (in `apps/web`, `KEY_ENCRYPTION_SECRET` becomes the new one and the old one moves to `KEY_ENCRYPTION_SECRET_PREVIOUS`), and deploy. Every process must hold the new keyring before the next step.
-2. Run `await chat.rotateKeys()` once (it re-encrypts what each installed plugin stores: `models`, `bot` and `mcp`), as a one-off command from your image (in `apps/web`: `node scripts/rotate-keys.ts`). Never run it in the pre-deploy step: the old version still running writes under the old key until the deploy finishes. It works in batches and is safe to re-run. It returns `{ reencrypted, unreadable }`.
+2. Run `await chat.rotateKeys()` once (it re-encrypts what each installed plugin stores: `models`, `bot` and the `mcp` feature), as a one-off command from your image (in `apps/web`: `node scripts/rotate-keys.ts`). Never run it in the pre-deploy step: the old version still running writes under the old key until the deploy finishes. It works in batches and is safe to re-run. It returns `{ reencrypted, unreadable }`.
 3. If `unreadable` is 0, remove the old secret and deploy again. If it isn't, find the rows under a key you no longer hold before removing it: a row under a removed key reads as missing, so its user re-enters the credential, Secret or Connection.
 
 `start()` never refuses to boot because rows are unreadable; it logs the counts instead.
 
 ## Who pays for Model calls
 
-These options go to the `models` plugin, `models({ hostProviders, byok, defaultImageModel, getQuota })`. It also answers an Admin's spend questions: `chat.plugin("models").usage({ userId, since, until })`, `.usageTotals({ since, until })` and `.quota(userId)`.
+These options go in the `models` slot, `createBotSdk({ models: { hostProviders, byok, defaultImageModel, getQuota } })`. The core's Models also answer an Admin's spend questions: `chat.models.usage({ userId, since, until })`, `.usageTotals({ since, until })` and `.quota(userId)`.
 
 - `hostProviders` are the Host's own credentials, from your environment (never stored): `[{ provider, credentials, models: [...] }]`. Each model is `{ modelId, label?, images?, pdfs?, tools?, maxOutputTokens, inputUsdPerMillion, outputUsdPerMillion, cacheReadUsdPerMillion?, cacheWriteUsdPerMillion? }`. `maxOutputTokens` is required: the Host's output cap for a call on that model, handed to `adapterFor` (the production adapters don't apply it yet). The prices are per 1M tokens and kept with the model; the cache prices are for input read from and written to the Provider's prompt cache, and are the input price when unset. Capability flags default to off unless the model is curated, in which case its curated flags apply. A Tool goes in the same list as `{ tool: "tavily", credentials, pricePerSearchUsd }`: a Host Tavily key that searches for users with no Tavily key of their own, each search recorded at that fixed price.
 - `defaultImageModel` (optional) is a `"provider:model"` id of one of your `hostProviders` `imageModels`. Generated images use it for users who pick no Image Model; without it they get no Host images. `start()` throws when it isn't one of your Image Models, or when an Image Model has no `pricePerImageUsd`.
@@ -535,11 +545,7 @@ These options go to the `models` plugin, `models({ hostProviders, byok, defaultI
 ```ts
 const chat = createBotSdk({
   // ...
-  plugins: [
-    models({ getQuota: async (userId) => ({ budgetUsd: 0.5, window: "day" }) }),
-    runner(),
-    bot(),
-  ],
+  models: { getQuota: async (userId) => ({ budgetUsd: 0.5, window: "day" }) },
 });
 ```
 
@@ -555,41 +561,37 @@ const chat = createBotSdk({
   getUser,
   keyEncryptionSecrets,
   basePath: "/api/chat",
-  plugins: [
-    models({
-      hostProviders: [
-        {
-          provider: "anthropic",
-          credentials: { apiKey: process.env.ANTHROPIC_API_KEY! },
-          models: [
-            {
-              modelId: "claude-haiku-4-5",
-              maxOutputTokens: 1024,
-              inputUsdPerMillion: 1,
-              outputUsdPerMillion: 5,
-            },
-          ],
-        },
-      ],
-      byok: true,
-    }),
-    runner(),
-    bot(),
-  ],
+  models: {
+    hostProviders: [
+      {
+        provider: "anthropic",
+        credentials: { apiKey: process.env.ANTHROPIC_API_KEY! },
+        models: [
+          {
+            modelId: "claude-haiku-4-5",
+            maxOutputTokens: 1024,
+            inputUsdPerMillion: 1,
+            outputUsdPerMillion: 5,
+          },
+        ],
+      },
+    ],
+    byok: true,
+  },
 });
 ```
 
 ## Connections to MCP servers
 
-The `mcp` plugin lists remote MCP servers your users may sign in to: `mcp({ servers: [{ key, name, url, oauth: { clientId, clientSecret } }] })`, with `mcpClient()` on the client and its `ConnectionsSection` on the keys page. It's imported from `@ai-chat/bot-sdk/plugins/mcp/server` (and `/client`, `/ui`). Only Streamable HTTP servers on HTTPS are accepted; a `url` that isn't HTTPS throws when `createBotSdk` runs. `key` names the server in storage (letters, digits, `_` and `-`). Register your OAuth client with each server ahead of time: the SDK doesn't use Dynamic Client Registration.
+The `mcp` feature (listed in `features`) lists remote MCP servers your users may sign in to: `mcp({ servers: [{ key, name, url, oauth: { clientId, clientSecret } }] })`, with `mcpClient()` on the client and its `ConnectionsSection` on the keys page. It's imported from `@ai-chat/bot-sdk/plugins/mcp/server` (and `/client`, `/ui`). Only Streamable HTTP servers on HTTPS are accepted; a `url` that isn't HTTPS throws when `createBotSdk` runs. `key` names the server in storage (letters, digits, `_` and `-`). Register your OAuth client with each server ahead of time: the SDK doesn't use Dynamic Client Registration.
 
 Register this redirect URI with each server, with your app's origin in place of the host: `https://<your-app>/<basePath>/mcp/callback`, for example `https://app.example/api/chat/mcp/callback`. The SDK serves the sign-in start (`<basePath>/mcp/connect`) and this callback through the same handler, so the Host mounts no new route.
 
-With no `servers`, the keys page shows no Connections section and connecting is refused. A user's Connection is stored encrypted under the keyring (ADR 0010). A Connection whose tokens no longer decrypt shows as "Reconnect needed". `deleteUser` removes the user's Connections. Discovery and token requests go through the guarded `fetch`. `sdk.plugin("mcp").forUser(userId).tools({ signal })` gives a user's connected servers' tools, named `<key>_<tool>`, with their clients open until `signal` aborts; it refreshes expired tokens and skips a server that is down. Bots use a user's connected servers' tools as connectors.
+With no `servers`, the keys page shows no Connections section and connecting is refused. A user's Connection is stored encrypted under the keyring (ADR 0010). A Connection whose tokens no longer decrypt shows as "Reconnect needed". `deleteUser` removes the user's Connections. Discovery and token requests go through the guarded `fetch`. `sdk.mcp.forUser(userId).tools({ signal })` gives a user's connected servers' tools, named `<key>_<tool>`, with their clients open until `signal` aborts; it refreshes expired tokens and skips a server that is down. Bots use a user's connected servers' tools as connectors.
 
 ## Rate limits
 
-The SDK limits a few actions per user, and the counters live in the `runtime`, so a limit holds across every process that shares it. An action over its limit answers 429 with `Retry-After` (in seconds).
+The SDK limits a few actions per user, and the counters live in the `pubsub` slot's runtime, so a limit holds across every process that shares it. An action over its limit answers 429 with `Retry-After` (in seconds).
 
 - `attachmentUpload`: Knowledge uploads and the files a user sends their Bot, together. Default 30 per 10 minutes.
 - `credentialSave`: Provider and Tool credential saves, each of which runs a check. Default 10 a minute.

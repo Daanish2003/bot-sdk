@@ -17,18 +17,17 @@ import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
 import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 
-import { botTrigger, computer as computerTable } from "../../core/server/db/schema";
+import { botTrigger, computer as computerTable } from "../../core/server/storage";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { bot } from "../../plugins/bot/server/plugin";
-import { computerOf } from "../../plugins/bot/server/computer-tools";
-import { sendToUserToolName } from "../../plugins/bot/server/turn";
+import { computerOf } from "../../plugins/bot/server/agent-loop";
+import { sendToUserToolName } from "../../plugins/bot/server/context";
 import { walk } from "../../plugins/knowledge/server/files";
 import { knowledge } from "../../plugins/knowledge/server/plugin";
 import { knowledgeDirectory } from "../../plugins/knowledge/shared/folder";
-import { runnerJobs } from "../../plugins/runner/server/plugin";
+import { runnerJobs } from "../../plugins/runner/server/internal";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
 import { isReviewCall, passVerdict, verdictRound } from "../../test/support/fake-reviewer";
-import { fakeComputerProvider } from "../../test/plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../test/support/fake-computer-provider";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";
 import {
   createComputerSdk,
@@ -111,7 +110,7 @@ async function main() {
   const sdk = createComputerSdk({
     db,
     provider: computerProvider,
-    more: [bot(), knowledge()],
+    features: [knowledge()],
     models: (real) =>
       fake
         ? {

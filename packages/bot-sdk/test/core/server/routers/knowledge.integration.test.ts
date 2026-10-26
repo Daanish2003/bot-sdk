@@ -1,16 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { bot, botTurn } from "../../../../core/server/db/schema";
+import { bot, botTurn } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation } from "../../../support/conversations";
 import { getTestDb } from "../../../support/test-database";
 
-import { computer } from "../../../../plugins/computer/server/plugin";
 import { knowledge } from "../../../../plugins/knowledge/server/plugin";
 import { createTestSdk } from "../../../support/deps";
 import { chatRpc } from "../../../support/sdk";
-import { insertUser } from "../../../support/users";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { insertOwner } from "../../../support/users";
+import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 
 const folder = "/home/user/shared/knowledge";
 const limit = 50 * 1024 * 1024;
@@ -22,12 +21,10 @@ const knowledgePaths = (files: Map<string, Uint8Array>) =>
 async function setup({ withComputer = true }: { withComputer?: boolean } = {}) {
   const computerFake = fakeComputerProvider();
   const deps = createTestSdk({
-    plugins: [
-      ...(withComputer ? [computer({ provider: computerFake.provider })] : []),
-      knowledge(),
-    ],
+    ...(withComputer && { computer: computerFake.provider }),
+    features: [knowledge()],
   });
-  const user = await insertUser();
+  const user = await insertOwner();
   const client = chatRpc({ user, deps });
   return { computerFake, client, deps, user };
 }
@@ -355,14 +352,8 @@ describe("the knowledge router", { timeout: 30_000 }, () => {
     });
   });
 
-  it("refuses every route without the computer plugin", async () => {
-    const { client } = await setup({ withComputer: false });
-
-    expect(await client.knowledge.status()).toEqual({ available: false });
-    await expect(client.knowledge.list()).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    await expect(client.knowledge.upload({ name: "x.md", content: "x" })).rejects.toMatchObject({
-      code: "BAD_REQUEST",
-    });
+  it("is a configuration error without the computer plugin", async () => {
+    await expect(setup({ withComputer: false })).rejects.toThrow(/computer/);
   });
 
   it("is available with the computer plugin, whatever the Memory switch says", async () => {
@@ -373,8 +364,8 @@ describe("the knowledge router", { timeout: 30_000 }, () => {
 
   it("keeps one user's Knowledge from another", async () => {
     const { deps } = await setup();
-    const alice = chatRpc({ user: await insertUser(), deps });
-    const bob = chatRpc({ user: await insertUser(), deps });
+    const alice = chatRpc({ user: await insertOwner(), deps });
+    const bob = chatRpc({ user: await insertOwner(), deps });
     await alice.knowledge.upload({ name: "secret.md", content: "alice" });
 
     expect((await bob.knowledge.list()).files).toEqual([]);

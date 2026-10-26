@@ -1,6 +1,6 @@
 import { and, asc, eq, gt, isNotNull, or } from "drizzle-orm";
 
-import { mcpConnection } from "../../../core/server/db/schema";
+import { mcpConnection } from "./db/connection";
 import {
   decryptCredentials,
   encryptCredentials,

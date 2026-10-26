@@ -1,4 +1,4 @@
-import type { ComputerHandle, FileOperationOptions } from "../../computer/server/plugin";
+import type { ComputerHandle, FileOperationOptions } from "../../computer/server/internal";
 import { knowledgeDirectory, readableCopyPath } from "../shared/folder";
 import { walk } from "./files";
 

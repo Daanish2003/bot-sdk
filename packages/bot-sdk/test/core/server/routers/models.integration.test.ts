@@ -2,9 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { eq } from "drizzle-orm";
 
-import { bot } from "../../../../plugins/bot/server/plugin";
-import { userCredentials } from "../../../../plugins/models/server/db/credentials";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import { userCredentials } from "../../../../core/server/storage";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
 import { createTestSdk } from "../../../support/deps";
 import { liveModelsFetch } from "../../../support/live-models";
 import { getTestDb } from "../../../support/test-database";
@@ -249,7 +248,7 @@ describe("models.list with Host credentials", () => {
 });
 
 describe("models.list default with the bot plugin", () => {
-  const botDeps = createTestSdk({ plugins: [bot()], memory: false });
+  const botDeps = createTestSdk({ memory: false });
 
   async function botUser(services: Array<"anthropic" | "openai">) {
     const user = await insertUser();

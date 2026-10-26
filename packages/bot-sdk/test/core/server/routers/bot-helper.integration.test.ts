@@ -13,12 +13,13 @@ import {
   job,
   jobEvent,
   usage,
-} from "../../../../core/server/db/schema";
-import type { Database } from "../../../../core/server/db/index";
-import { relations } from "../../../../core/server/db/relations";
+  relations,
+} from "../../../../core/server/storage";
+import type { Database } from "../../../../core/server/storage";
+
 import { encryptCredentials } from "../../../../core/server/credentials/encryption";
 import { deleteUserData } from "../../../../core/server/user-data";
-import type { HostProvider } from "../../../../plugins/models/server/types";
+import type { HostProvider } from "../../../../plugins/models/server/internal";
 import {
   botHelperJob,
   computerUseModelError,
@@ -29,19 +30,20 @@ import {
   helperStepLimit,
   helperTimeLimitMs,
   tooManyGeneralHelpersError,
-} from "../../../../plugins/bot/server/helper";
-import { secretEncryption } from "../../../../plugins/bot/server/secret-values";
-import { listHelpers } from "../../../../plugins/bot/server/helper-card";
-import { bot } from "../../../../plugins/bot/server/plugin";
-import { computer } from "../../../../plugins/computer/server/plugin";
-import type { CommandResult } from "../../../../plugins/computer/server/provider";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import { quotaLookup } from "../../../../plugins/models/server/quota";
+  listHelpers,
+} from "../../../../plugins/bot/server/helpers";
+import { secretEncryption } from "../../../../plugins/bot/server/safety";
+
+import type { CommandResult } from "../../../../plugins/computer/server/internal";
+import { saveCredentials, quotaLookup } from "../../../../plugins/models/server/internal";
+
 import {
   inProcessRunner,
   type InProcessRunner,
-} from "../../../../plugins/runner/server/jobs/in-process";
-import { claimJob, reapStaleJobs } from "../../../../plugins/runner/server/jobs/store";
+  claimJob,
+  reapStaleJobs,
+} from "../../../../plugins/runner/server/internal";
+
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall, withUsage } from "../../../support/fake-adapter";
 import { fakeJobClock } from "../../../support/jobs";
@@ -49,10 +51,7 @@ import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import {
-  fakeComputerProvider,
-  type FakeCommandRun,
-} from "../../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider, type FakeCommandRun } from "../../../support/fake-computer-provider";
 import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-6-luna";
@@ -125,7 +124,7 @@ async function botWith(
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: withComputer ? [bot(), computer({ provider: computerFake.provider })] : [bot()],
+    ...(withComputer && { computer: computerFake.provider }),
     jobs,
     adapterFor: (_model, credentials) => {
       adapterCredentials.push(credentials);
@@ -438,7 +437,7 @@ describe("a Helper's limits", () => {
     });
     started.push(jobs);
     deps = createTestSdk({
-      plugins: [bot(), computer({ provider: fakeComputerProvider().provider })],
+      computer: fakeComputerProvider().provider,
       jobs,
       adapterFor: () => fakes.adapter,
       memory: false,
@@ -684,7 +683,7 @@ describe("a rebuilt Computer", () => {
       [round(shell("ls")), round(shell("ls")), round(text("No files."))],
     );
     // The user's Computer exists and sleeps, then its sandbox is lost: its next wake rebuilds it.
-    await deps.plugin("computer").forUser(user.id).run("true");
+    await deps.computer!.forUser(user.id).run("true");
     await getTestDb()
       .update(computerTable)
       .set({ state: "asleep" })
@@ -748,7 +747,7 @@ describe("Stop and deletion", () => {
     );
     await send(client, botId, "go");
 
-    await deps.plugin("bot").stopTurns(user.id);
+    await deps.bots.stopTurns(user.id);
 
     expect((await helpersOf(botId)).map((row) => row.status)).toEqual(["stopped"]);
     const helperJobs = await getTestDb()

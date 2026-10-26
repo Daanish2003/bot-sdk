@@ -69,6 +69,21 @@ export function defineJob<P>(definition: JobDefinition<P>): JobDefinition<P> {
   return definition;
 }
 
+/**
+ * Registers a job a feature lists (spec #871): a no-op for one already registered, as `defineJob`
+ * does. Throws when another job holds its name.
+ */
+export function registerJob<P>(definition: JobDefinition<P>): void {
+  const held = registry.get(definition.name);
+  if (held === (definition as unknown as RegisteredJob)) return;
+  if (held) {
+    throw new Error(
+      `A job named "${definition.name}" is already defined: define a feature's jobs once, at module level`,
+    );
+  }
+  registry.set(definition.name, definition as unknown as RegisteredJob);
+}
+
 export function registeredJob(name: string): RegisteredJob | undefined {
   return registry.get(name);
 }
@@ -80,7 +95,7 @@ export function jobNamesInLane(lane: JobLane): string[] {
 
 /**
  * Runs a registered job's handler in this process, with its payload validated against the job's
- * schema. `chat.plugin("runner").runJob` calls it, so a Host's own worker (such as a Trigger.dev task) can run a job.
+ * schema. `chat.runner.runJob` calls it, so a Host's own worker (such as a Trigger.dev task) can run a job.
  * Errors reach the caller, which decides about retries. With no `chat.job` row, nothing is
  * recorded: every workflow call runs for real.
  */

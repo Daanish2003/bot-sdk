@@ -1,5 +1,5 @@
 import type { BotSdkClientPlugin } from "../../../core/client/plugin";
-import type { ChannelRouter } from "../server/routers/index";
+import type { ChannelRouter } from "../../bot/server/routers/index";
 
 declare module "../../../core/client/plugin" {
   interface PluginRouters {

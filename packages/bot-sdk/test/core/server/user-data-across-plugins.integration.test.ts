@@ -4,39 +4,36 @@ import { count, eq, inArray, is } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import { describe, expect, it, vi } from "vitest";
 
-import type { BlobStore } from "../../../core/server/blob/store";
+import type { BlobStore } from "../../../core/server/storage";
 import { createHookEmitter } from "../../../core/server/chat/hooks";
-import { createBotSdk } from "../../../core/server/create-chat";
-import * as schema from "../../../core/server/db/schema";
+import { buildBotSdk, createBotSdk } from "../../../core/server/create-chat";
+import { defineFeature } from "../../../core/server/feature";
+import { schema } from "../../../core/server/storage";
 import { encryptCredentials } from "../../../core/server/credentials/encryption";
 import {
   bot,
   botDemonstration,
   botSecret,
   job,
-  mcpConnection,
   usage,
-  memorySettings,
   modelSettings,
-} from "../../../core/server/db/schema";
+} from "../../../core/server/storage";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
-import type { BotSdkPlugin } from "../../../core/server/plugin";
 import { deleteUserData, exportUserData } from "../../../core/server/user-data";
-import { sentFileBlobKey, uploadBotFile } from "../../../plugins/bot/server/files";
-import { bot as botPlugin } from "../../../plugins/bot/server/plugin";
-import { loadSecretValues, secretEncryption } from "../../../plugins/bot/server/secret-values";
-import type { BotExport } from "../../../plugins/bot/server/store";
-import { computer, computerBlobKey } from "../../../plugins/computer/server/plugin";
+import { sentFileBlobKey, uploadBotFile } from "../../../plugins/bot/server/conversation";
+import { loadSecretValues, secretEncryption } from "../../../plugins/bot/server/safety";
+import type { BotExport } from "../../../plugins/bot/server/conversation";
+import { computerBlobKey } from "../../../plugins/computer/server/internal";
 import { readTokens, saveTokens } from "../../../plugins/mcp/server/connections";
+import { mcpConnection } from "../../../plugins/mcp/server/db/connection";
 import { mcp } from "../../../plugins/mcp/server/plugin";
 import { profilePath } from "../../../plugins/memory/server/bot-memory";
-import { runner } from "../../../plugins/runner/server/plugin";
-import { listCredentials, saveCredentials } from "../../../plugins/models/server/credentials/store";
-import { models } from "../../../plugins/models/server/plugin";
+import { memorySettings } from "../../../plugins/memory/server/schema";
+import { listCredentials, saveCredentials, models } from "../../../plugins/models/server/internal";
 import { insertConversation, insertMessage } from "../../support/conversations";
-import { createTestSdk, type TestDeps } from "../../support/deps";
+import { createTestSdk, withPart, type TestDeps } from "../../support/deps";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
-import { fakeComputerProvider } from "../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../support/fake-computer-provider";
 import { insertUser, type TestUser } from "../../support/users";
 
 const testKey = "test-key-encryption-secret-not-for-production";
@@ -54,8 +51,8 @@ function fakeBlobStore() {
   return { store, held };
 }
 
-/** Every table of the composed schema with a `user_id` column, with that column. */
-const userTables = Object.values(schema).flatMap((value) => {
+/** Every table of the composed schema and the mcp and memory features' with a `user_id` column, with that column. */
+const userTables = [...Object.values(schema), mcpConnection, memorySettings].flatMap((value) => {
   if (!is(value, PgTable)) return [];
   const { name, columns } = getTableConfig(value);
   const column = columns.find((candidate) => candidate.name === "user_id");
@@ -141,7 +138,7 @@ async function seedEverything(
     new File(["milk, eggs"], "list.txt", { type: "text/plain" }),
   );
 
-  await deps.plugin("computer").forUser(user.id).run("true");
+  await deps.computer!.forUser(user.id).run("true");
   // The Bot's memory files, on the disk of the sandbox the run above made, and the Computer's archive.
   fake.files.set(profilePath(botId), new TextEncoder().encode("- Lives in Berlin\n"));
   await deps.blobStore.put(computerBlobKey(user.id), new Uint8Array([1]), {
@@ -181,7 +178,8 @@ describe("deleteUser across plugins", () => {
     const fake = fakeComputerProvider();
     const deps = createTestSdk({
       blobStore: store,
-      plugins: [botPlugin(), computer({ provider: fake.provider }), mcp()],
+      computer: fake.provider,
+      features: [mcp()],
     });
     const owner = await insertUser();
     const other = await insertUser();
@@ -210,7 +208,7 @@ describe("deleteUser across plugins", () => {
     expect(await activeJobsNaming(kept.ids)).toHaveLength(1);
   });
 
-  it("deletes the models plugin's rows on an instance of models alone", async () => {
+  it("deletes the models plugin's rows on an instance with no feature", async () => {
     const owner = await insertUser();
     await saveCredentials(createTestSdk(), owner.id, {
       service: "anthropic",
@@ -236,7 +234,7 @@ describe("deleteUser across plugins", () => {
       getUser: () => null,
       keyEncryptionSecrets: [testKey],
       basePath: "/api/chat",
-      plugins: [models()],
+      models: {},
     });
 
     await sdk.deleteUser(owner.id);
@@ -252,29 +250,34 @@ describe("deleteUser across plugins", () => {
     const owner = await insertUser();
     await getTestDb().insert(memorySettings).values({ userId: owner.id, enabled: false });
     const seen: string[] = [];
-    const extra: BotSdkPlugin = {
+    const extra = defineFeature({
       id: "extra",
-      deleteUser: {
-        before: async (_sdk, { userId, tx }) => {
-          const [row] = await tx
-            .select({ total: count() })
-            .from(memorySettings)
-            .where(eq(memorySettings.userId, userId));
-          // Reverse dependency order: this plugin comes after memory, so it runs first.
-          seen.push(`before: settings ${row?.total}`);
-          return "collected";
-        },
-        after: async (_sdk, { collected }) => {
-          const [row] = await getTestDb()
-            .select({ total: count() })
-            .from(memorySettings)
-            .where(eq(memorySettings.userId, owner.id));
-          seen.push(`after: ${String(collected)}, settings ${row?.total}`);
+      userData: {
+        delete: {
+          before: async (tx, userId) => {
+            const [row] = await tx
+              .select({ total: count() })
+              .from(memorySettings)
+              .where(eq(memorySettings.userId, userId));
+            // Reverse order: this feature comes after memory, so it runs first.
+            seen.push(`before: settings ${row?.total}`);
+            return "collected";
+          },
+          after: async (_userId, collected) => {
+            const [row] = await getTestDb()
+              .select({ total: count() })
+              .from(memorySettings)
+              .where(eq(memorySettings.userId, owner.id));
+            seen.push(`after: ${String(collected)}, settings ${row?.total}`);
+          },
         },
       },
-    };
+    });
 
-    await deleteUserData(createTestSdk({ plugins: [extra] }), owner.id);
+    await deleteUserData(
+      createTestSdk({ computer: fakeComputerProvider().provider, features: [extra] }),
+      owner.id,
+    );
 
     expect(seen).toEqual(["before: settings 1", "after: collected, settings 0"]);
   });
@@ -282,7 +285,7 @@ describe("deleteUser across plugins", () => {
   it("gives each plugin's hooks muted events, so a user delete reaches no Host hook (#265)", async () => {
     const owner = await insertUser();
     const onConversationDeleted = vi.fn();
-    const announce: BotSdkPlugin["deleteUser"] = {
+    const announce: Parameters<typeof withPart>[1]["deleteUser"] = {
       before: async (sdk, { userId }) => {
         sdk.events.fire("onConversationDeleted", { userId, conversationId: "before" });
       },
@@ -293,7 +296,7 @@ describe("deleteUser across plugins", () => {
     const hooks = createHookEmitter({ onConversationDeleted }, { error: () => {} });
 
     await deleteUserData(
-      createTestSdk({ hooks, plugins: [{ id: "announcer", deleteUser: announce }] }),
+      withPart(createTestSdk({ hooks }), { id: "announcer", deleteUser: announce }),
       owner.id,
     );
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -304,25 +307,32 @@ describe("deleteUser across plugins", () => {
   it("rolls everything back when a plugin's before throws, and logs an after that throws", async () => {
     const owner = await insertUser();
     await getTestDb().insert(memorySettings).values({ userId: owner.id, enabled: false });
-    const failing = (where: "before" | "after"): BotSdkPlugin => ({
-      id: "failing",
-      deleteUser: {
-        before: async () => {
-          if (where === "before") throw new Error("injected failure");
+    const failing = (where: "before" | "after") =>
+      defineFeature({
+        id: "failing",
+        userData: {
+          delete: {
+            before: async () => {
+              if (where === "before") throw new Error("injected failure");
+            },
+            after: async () => {
+              if (where === "after") throw new Error("injected failure");
+            },
+          },
         },
-        after: async () => {
-          if (where === "after") throw new Error("injected failure");
-        },
-      },
-    });
+      });
 
+    const withComputer = (feature: ReturnType<typeof failing>) => ({
+      computer: fakeComputerProvider().provider,
+      features: [feature],
+    });
     await expect(
-      deleteUserData(createTestSdk({ plugins: [failing("before")] }), owner.id),
+      deleteUserData(createTestSdk(withComputer(failing("before"))), owner.id),
     ).rejects.toThrow("injected failure");
     expect(await rowsByTable(owner.id)).toMatchObject({ memory_settings: 1 });
 
     const logger = { error: vi.fn() };
-    await deleteUserData(createTestSdk({ logger, plugins: [failing("after")] }), owner.id);
+    await deleteUserData(createTestSdk({ logger, ...withComputer(failing("after")) }), owner.id);
     expect(await rowsByTable(owner.id)).toMatchObject({ memory_settings: 0 });
     expect(logger.error).toHaveBeenCalledOnce();
   });
@@ -330,13 +340,15 @@ describe("deleteUser across plugins", () => {
 
 describe("exportUser across plugins", () => {
   it("has the core's version and timestamp, and the models plugin's section, on an instance of models alone", async () => {
-    const sdk = createBotSdk({
+    const options = {
       databaseUrl: testDatabaseUrl,
       getUser: () => null,
       keyEncryptionSecrets: [testKey],
       basePath: "/api/chat",
-      plugins: [models()],
-    });
+      models: {},
+    };
+    // The Models alone, without the Bots the factory always has.
+    const sdk = buildBotSdk(options, {}, [models()]).instance;
 
     expect(await sdk.exportUser(randomUUID())).toEqual({
       version: 2,
@@ -347,10 +359,13 @@ describe("exportUser across plugins", () => {
   });
 
   it("keeps each plugin's part under its plugin id, and no key for a plugin that is not installed", async () => {
-    const extra: BotSdkPlugin = { id: "extra", exportUser: async () => ({ savedPrompts: [] }) };
+    const extra = defineFeature({
+      id: "extra",
+      userData: { export: async () => ({ savedPrompts: [] }) },
+    });
 
     const exported = await exportUserData(
-      createTestSdk({ memory: false, plugins: [botPlugin(), extra] }),
+      createTestSdk({ memory: false, features: [extra] }),
       randomUUID(),
     );
 
@@ -401,7 +416,8 @@ describe("rotateKeys across plugins", () => {
       keyEncryptionSecrets: [keyB, keyA],
       basePath: "/api/chat",
       logger,
-      plugins: [models(), runner(), botPlugin(), mcp()],
+      models: {},
+      features: [mcp()],
     });
 
     await expect(sdk.rotateKeys()).resolves.toEqual({ reencrypted: 3, unreadable: 2 });

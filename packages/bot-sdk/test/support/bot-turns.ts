@@ -1,6 +1,5 @@
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { bot } from "../../plugins/bot/server/plugin";
-import { inProcessRunner, type InProcessRunner } from "../../plugins/runner/server/jobs/in-process";
+import { inProcessRunner, type InProcessRunner } from "../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "./deps";
 import { followSend, type BotSendEvent } from "./follow-send";
 import { chatRpc } from "./sdk";
@@ -17,12 +16,11 @@ import type { TestUser } from "./users";
 const started: InProcessRunner[] = [];
 
 /**
- * A test SDK with the `bot` plugin (and `overrides.plugins` after it), whose in-process runner runs
- * the Turns' jobs. It drains for only 50 ms, so a Turn a test leaves hanging is aborted. An `idle`
- * runner never claims a job, so a Turn stays queued.
+ * A test SDK whose in-process runner runs the Turns' jobs. It drains for only 50 ms, so a Turn a
+ * test leaves hanging is aborted. An `idle` runner never claims a job, so a Turn stays queued.
  */
 export async function botSdk(
-  { plugins = [], ...overrides }: TestDepsOverrides = {},
+  overrides: TestDepsOverrides = {},
   { idle = false }: { idle?: boolean } = {},
 ): Promise<{ deps: TestDeps; jobs: InProcessRunner }> {
   let deps: TestDeps | undefined;
@@ -32,7 +30,7 @@ export async function botSdk(
     drainMs: 50,
     deps: () => deps!,
   });
-  deps = createTestSdk({ ...overrides, plugins: [bot(), ...plugins], jobs });
+  deps = createTestSdk({ ...overrides, jobs });
   if (!idle) await jobs.start();
   started.push(jobs);
   return { deps, jobs };

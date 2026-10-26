@@ -3,20 +3,18 @@ import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { encryptCredentials } from "../../../../core/server/credentials/encryption";
-import { botReview, botSecret, botTurn } from "../../../../core/server/db/schema";
+import { botReview, botSecret, botTurn } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { bot } from "../../../../plugins/bot/server/plugin";
-import { secretEncryption } from "../../../../plugins/bot/server/secret-values";
-import { computer } from "../../../../plugins/computer/server/plugin";
+import { secretEncryption } from "../../../../plugins/bot/server/safety";
 import { mcpClient } from "../../../../plugins/mcp/client/index";
 import { mcp } from "../../../../plugins/mcp/server/plugin";
 import type { McpServerConfig } from "../../../../plugins/mcp/server/servers";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
   type InProcessRunner,
   systemClock,
-} from "../../../../plugins/runner/server/jobs/in-process";
+} from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { createFakeMcpAuth, fakeMcpResource } from "../../../support/fake-mcp-auth";
@@ -26,7 +24,7 @@ import { followSend } from "../../../support/follow-send";
 import { chatRpc, createTestChat } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser, type TestUser } from "../../../support/users";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -98,11 +96,8 @@ async function botWith(
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [
-      bot(),
-      computer({ provider: fakeComputerProvider().provider }),
-      ...(withMcp ? [mcp({ servers: [linear] })] : []),
-    ],
+    computer: fakeComputerProvider().provider,
+    features: withMcp ? [mcp({ servers: [linear] })] : [],
     fetch,
     jobs,
     adapterFor: () => fake.adapter,

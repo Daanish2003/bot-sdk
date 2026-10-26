@@ -10,28 +10,24 @@ import { asc, eq } from "drizzle-orm";
 import { chromium } from "playwright-core";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { botHelper, botTurn, computer as computerTable } from "../../../../core/server/db/schema";
+import { botHelper, botTurn, computer as computerTable } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { snapshotLimit, staleRefError } from "../../../../plugins/bot/server/browser-tools";
-import { rebuiltNote, spillPath } from "../../../../plugins/bot/server/computer-tools";
 import {
+  snapshotLimit,
+  staleRefError,
   computerUseHelperPrompt,
   computerUseHelperTakenError,
   screensInUseError,
-} from "../../../../plugins/bot/server/helper";
-import { bot } from "../../../../plugins/bot/server/plugin";
-import { computer } from "../../../../plugins/computer/server/plugin";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import {
-  inProcessRunner,
-  type InProcessRunner,
-} from "../../../../plugins/runner/server/jobs/in-process";
+} from "../../../../plugins/bot/server/helpers";
+import { rebuiltNote, spillPath } from "../../../../plugins/bot/server/agent-loop";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
+import { inProcessRunner, type InProcessRunner } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-6-luna";
@@ -151,7 +147,7 @@ async function userWith(
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [bot(), computer({ provider: computerFake.provider })],
+    computer: computerFake.provider,
     jobs,
     adapterFor: () => adapter,
     // No memory pass takes a Turn's round.

@@ -4,16 +4,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { emojiSchema } from "../../../../plugins/bot/shared/reaction";
 import { richControlJsonSchema } from "../../../../plugins/bot/shared/rich-control";
-import { botTrigger, botTurn } from "../../../../core/server/db/schema";
+import { botTrigger, botTurn } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { bot } from "../../../../plugins/bot/server/plugin";
-import { computer } from "../../../../plugins/computer/server/plugin";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import {
-  inProcessRunner,
-  type InProcessRunner,
-} from "../../../../plugins/runner/server/jobs/in-process";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
+import { inProcessRunner, type InProcessRunner } from "../../../../plugins/runner/server/internal";
+import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { followSend } from "../../../support/follow-send";
@@ -43,7 +38,7 @@ async function botWith(rounds: Round[]) {
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
   deps = createTestSdk({
-    plugins: [bot(), computer({ provider: fakeComputerProvider().provider })],
+    computer: fakeComputerProvider().provider,
     jobs,
     adapterFor: () => fake.adapter,
     reviewAdapterFor: () => reviewer.adapter,

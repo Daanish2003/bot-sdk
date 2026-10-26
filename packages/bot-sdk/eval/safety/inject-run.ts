@@ -7,11 +7,11 @@ import { randomBytes } from "node:crypto";
 
 import { and, eq } from "drizzle-orm";
 
-import { botReview, botRoutine, botTrigger, botTurn } from "../../core/server/db/schema";
+import { botReview, botRoutine, botTrigger, botTurn } from "../../core/server/storage";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { webhookTokenHash } from "../../plugins/bot/server/routine";
-import { defaultTimeZone } from "../../plugins/bot/server/time-zone";
-import type { fakeComputerProvider } from "../../test/plugins/computer/server/fake-provider";
+import { webhookTokenHash } from "../../plugins/bot/server/routines";
+import { defaultTimeZone } from "../../plugins/bot/server/conversation";
+import type { fakeComputerProvider } from "../../test/support/fake-computer-provider";
 import { freshBot, seedHistory } from "../turn/case";
 import { waitForTurn } from "../turn/routine-run";
 import { toolCallsOf } from "../turn/routine-score";
@@ -92,7 +92,7 @@ export async function runInjectionCase(
     });
 
     const before = computer.calls.length;
-    const response = await env.sdk.plugin("bot").webhookHandler(
+    const response = await env.sdk.bots.webhookHandler(
       new Request(`https://bots.example/api/routines/webhook/${token}`, {
         method: "POST",
         body: evalCase.payload,

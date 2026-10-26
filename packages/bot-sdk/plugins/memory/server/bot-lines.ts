@@ -1,6 +1,6 @@
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
-import { ComputerUnavailableError, type ComputerHandle } from "../../computer/server/plugin";
+import { ComputerUnavailableError, type ComputerHandle } from "../../computer/server/internal";
 import {
   botsOf,
   dayOf,
@@ -84,10 +84,10 @@ export function memoryFilePath({ botId, tier, month }: MemoryFileRef): string {
 
 /** The user's Computer, or the error the popover shows when there is none to read. */
 function computerOf(deps: BotSdkContext, userId: string): ComputerHandle {
-  if (!deps.hasPlugin("computer")) {
+  if (!deps.computer) {
     throw rpcError("BAD_REQUEST", "error.memoryNeedsComputer", "Bot memory needs a Computer");
   }
-  return deps.plugin("computer").forUser(userId);
+  return deps.computer.forUser(userId);
 }
 
 /** Runs a Computer operation; a Computer that can't be woken is a refusal, not a crash. */
@@ -125,7 +125,7 @@ export async function listBotMemory(
   { userId, botId, now }: { userId: string; botId: string; now: Date },
 ): Promise<BotMemoryList> {
   const bots = await requireOwnBot(deps, userId, botId);
-  const available = deps.hasPlugin("computer");
+  const available = Boolean(deps.computer);
   const enabled = await memoryEnabledFor(deps, userId);
   if (!available || !enabled) return { available, enabled, profile: [], log: [], notes: [] };
   return onComputer(async () => {

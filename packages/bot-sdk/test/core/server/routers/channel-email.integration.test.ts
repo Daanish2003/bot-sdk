@@ -1,20 +1,18 @@
 import { and, asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { botTrigger, message } from "../../../../core/server/db/schema";
+import { botTrigger, message } from "../../../../core/server/storage";
 import { maxFileBytes } from "../../../../plugins/bot/shared/files";
-import { bot } from "../../../../plugins/bot/server/plugin";
-import { findBot } from "../../../../plugins/bot/server/store";
+import { findBot } from "../../../../plugins/bot/server/conversation";
 import { fakeEmailProvider } from "../../../../plugins/channel/fake/index";
-import { channel, emailChannel, type InboundMail } from "../../../../plugins/channel/server/index";
-import { computer } from "../../../../plugins/computer/server/plugin";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import { emailChannel, type InboundMail } from "../../../../plugins/channel/server/index";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
   type InProcessRunner,
-} from "../../../../plugins/runner/server/jobs/in-process";
-import { claimJob } from "../../../../plugins/runner/server/jobs/store";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+  claimJob,
+} from "../../../../plugins/runner/server/internal";
+import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round } from "../../../support/fake-adapter";
 import { fakeJobClock } from "../../../support/jobs";
@@ -59,16 +57,9 @@ async function emailBot({
   });
   const user = await insertUser();
   deps = createTestSdk({
-    plugins: [
-      bot(),
-      ...(withComputer ? [computer({ provider: fakeComputerProvider().provider })] : []),
-      channel({
-        adapters: [
-          emailChannel({ provider: email.provider, domain, appUrl: "https://app.example" }),
-        ],
-        verifiedEmail: async (userId) => (verified && userId === user.id ? ownerEmail : null),
-      }),
-    ],
+    ...(withComputer && { computer: fakeComputerProvider().provider }),
+    channels: [emailChannel({ provider: email.provider, domain, appUrl: "https://app.example" })],
+    verifiedEmail: async (userId) => (verified && userId === user.id ? ownerEmail : null),
     jobs,
     adapterFor: () => fake.adapter,
     clock: timer.clock.now,
@@ -98,7 +89,7 @@ async function emailBot({
     mail: Parameters<typeof email.request>[0] = {},
     files?: Parameters<typeof email.request>[1],
   ) =>
-    deps!.plugin("channel").inbound(
+    deps!.channels.inbound(
       "email",
       email.request(
         {
@@ -231,7 +222,7 @@ describe("an email to a Bot's address", () => {
     expect(messages[0]!.text).toBe("Plans\nBook me a table for Friday");
     timer.advance(500);
     await runDue();
-    const handle = deps.plugin("computer").forUser(user.id);
+    const handle = deps.computer!.forUser(user.id);
     expect(
       new TextDecoder().decode(
         (await handle.readFile(`/home/user/bots/${botId}/uploads/notes.txt`))!,
@@ -350,7 +341,7 @@ describe("an email to a Bot's address", () => {
   it("answers 400 to a request the provider can't read, and makes nothing", async () => {
     const { deps, conversationId } = await emailBot();
 
-    const response = await deps.plugin("channel").inbound(
+    const response = await deps.channels.inbound(
       "email",
       new Request("https://host.example/api/channels/email", {
         method: "POST",
@@ -372,7 +363,7 @@ describe("an email to a Bot's address", () => {
     async (_name, fields) => {
       const { deps, conversationId } = await emailBot();
 
-      const response = await deps.plugin("channel").inbound(
+      const response = await deps.channels.inbound(
         "email",
         new Request("https://host.example/api/channels/email", {
           method: "POST",

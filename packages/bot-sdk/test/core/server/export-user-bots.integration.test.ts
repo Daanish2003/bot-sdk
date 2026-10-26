@@ -3,13 +3,11 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
-import { bot, memorySettings } from "../../../core/server/db/schema";
+import { bot } from "../../../core/server/storage";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { exportUserData } from "../../../core/server/user-data";
-import { bot as botPlugin } from "../../../plugins/bot/server/plugin";
-import type { BotExport } from "../../../plugins/bot/server/store";
-import { saveSecret } from "../../../plugins/bot/server/secret";
-import { computer } from "../../../plugins/computer/server/plugin";
+import type { BotExport } from "../../../plugins/bot/server/conversation";
+import { saveSecret } from "../../../plugins/bot/server/safety";
 import { saveTokens } from "../../../plugins/mcp/server/connections";
 import { mcp } from "../../../plugins/mcp/server/plugin";
 import {
@@ -18,11 +16,10 @@ import {
   profilePath,
   type ExportedBotMemory,
 } from "../../../plugins/memory/server/bot-memory";
-import { memory as memoryPlugin } from "../../../plugins/memory/server/plugin";
-import { saveCredentials } from "../../../plugins/models/server/credentials/store";
-import { models } from "../../../plugins/models/server/plugin";
-import { runner } from "../../../plugins/runner/server/plugin";
-import { fakeComputerProvider } from "../../plugins/computer/server/fake-provider";
+import { memorySettings } from "../../../plugins/memory/server/schema";
+import { memory } from "../../../plugins/memory/server/feature";
+import { saveCredentials } from "../../../plugins/models/server/internal";
+import { fakeComputerProvider } from "../../support/fake-computer-provider";
 import { botOf, botSdk, stopBotRunners } from "../../support/bot-turns";
 import { insertConversation } from "../../support/conversations";
 import { createTestSdk } from "../../support/deps";
@@ -44,7 +41,9 @@ function chatFor() {
     getUser: () => null,
     keyEncryptionSecrets: [testKey],
     basePath: "/api/chat",
-    plugins: [models(), runner(), memoryPlugin(), botPlugin(), mcp()],
+    computer: fakeComputerProvider().provider,
+    models: {},
+    features: [memory(), mcp()],
   });
 }
 
@@ -69,7 +68,7 @@ describe("createBotSdk().exportUser, with Bots", () => {
 
   it("never includes the Provider or Tool keys, a Secret's value or a Connection's tokens", async () => {
     const owner = await insertUser();
-    const { deps } = await botSdk({ plugins: [mcp()] }, { idle: true });
+    const { deps } = await botSdk({ features: [mcp()] }, { idle: true });
     await saveCredentials(deps, owner.id, {
       service: "anthropic",
       fields: { apiKey: providerKey },
@@ -135,12 +134,12 @@ async function insertBot(owner: TestUser, name: string, createdAt: Date): Promis
 describe("exportUser, Bot memory", () => {
   it("holds each Bot's profile, its Log months and its notes as the Computer has them", async () => {
     const fake = fakeComputerProvider();
-    const deps = createTestSdk({ plugins: [botPlugin(), computer({ provider: fake.provider })] });
+    const deps = createTestSdk({ computer: fake.provider });
     const owner = await insertUser();
     const ada = await insertBot(owner, "Ada", new Date("2026-10-01T10:00:00Z"));
     const bea = await insertBot(owner, "Bea", new Date("2026-10-02T10:00:00Z"));
     // Creates the user's Computer, so its disk is the one the files go on.
-    await deps.plugin("computer").forUser(owner.id).run("true");
+    await deps.computer!.forUser(owner.id).run("true");
     const text = (content: string) => new TextEncoder().encode(content);
     fake.files.set(profilePath(ada), text("- Prefers short replies\n"));
     fake.files.set(notesPath(ada), text("- 2026-10-20 Waiting on the landlord\n"));
@@ -167,11 +166,11 @@ describe("exportUser, Bot memory", () => {
 
   it("leaves out a Bot whose files the Computer fails to read, and keeps the rest", async () => {
     const fake = fakeComputerProvider();
-    const deps = createTestSdk({ plugins: [botPlugin(), computer({ provider: fake.provider })] });
+    const deps = createTestSdk({ computer: fake.provider });
     const owner = await insertUser();
     const ada = await insertBot(owner, "Ada", new Date("2026-10-01T10:00:00Z"));
     const bea = await insertBot(owner, "Bea", new Date("2026-10-02T10:00:00Z"));
-    await deps.plugin("computer").forUser(owner.id).run("true");
+    await deps.computer!.forUser(owner.id).run("true");
     // Ada's profile.md is a directory, so reading it fails.
     fake.files.set(`${profilePath(ada)}/stray.md`, new TextEncoder().encode("x"));
     fake.files.set(profilePath(bea), new TextEncoder().encode("- Works at a bakery\n"));
@@ -187,10 +186,10 @@ describe("exportUser, Bot memory", () => {
 
   it("exports the rest, with no Bot memory, when the Computer can't be woken", async () => {
     const fake = fakeComputerProvider();
-    const deps = createTestSdk({ plugins: [botPlugin(), computer({ provider: fake.provider })] });
+    const deps = createTestSdk({ computer: fake.provider });
     const owner = await insertUser();
     await insertBot(owner, "Ada", new Date("2026-10-01T10:00:00Z"));
-    await deps.plugin("computer").forUser(owner.id).run("true");
+    await deps.computer!.forUser(owner.id).run("true");
     fake.lose(fake.callsOf("create")[0]!.sandboxId);
     fake.failing.add("create");
 
@@ -203,7 +202,7 @@ describe("exportUser, Bot memory", () => {
 
   it("reads nothing and creates no Computer for a user who has none", async () => {
     const fake = fakeComputerProvider();
-    const deps = createTestSdk({ plugins: [botPlugin(), computer({ provider: fake.provider })] });
+    const deps = createTestSdk({ computer: fake.provider });
     const owner = await insertUser();
     await insertBot(owner, "Ada", new Date("2026-10-01T10:00:00Z"));
 

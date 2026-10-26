@@ -1,12 +1,2 @@
-import type { CoreTableName, PluginSchema } from "../../../core/server/db/plugin-schema";
-import { memorySettings } from "./db/settings";
-
+/** The Memory feature's table: the Memory switch. Beside the core's, it adds no fields to them. */
 export * from "./db/settings";
-
-/** The `memory` plugin's schema module: the Memory switch. It adds no fields to core tables. */
-export const memorySchema = {
-  tables: { memorySettings },
-  enums: {},
-  // Kept empty by type: core/server/db/schema.ts spreads no memory columns.
-  fields: {} satisfies Partial<Record<CoreTableName, never>>,
-} satisfies PluginSchema;

@@ -10,26 +10,18 @@ import {
   botRoutine,
   botTurn,
   conversationChange,
-} from "../../../../core/server/db/schema";
+} from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { bot } from "../../../../plugins/bot/server/plugin";
-import { findBot } from "../../../../plugins/bot/server/store";
+import { findBot } from "../../../../plugins/bot/server/conversation";
 import type { BotChange } from "../../../../plugins/bot/shared/changes";
-import { computer } from "../../../../plugins/computer/server/plugin";
-import {
-  deleteCredentials,
-  saveCredentials,
-} from "../../../../plugins/models/server/credentials/store";
-import {
-  inProcessRunner,
-  type InProcessRunner,
-} from "../../../../plugins/runner/server/jobs/in-process";
+import { deleteCredentials, saveCredentials } from "../../../../plugins/models/server/internal";
+import { inProcessRunner, type InProcessRunner } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-6-luna";
@@ -67,7 +59,7 @@ async function botWith(turns: Round[] = [], helpers: Round[] = []) {
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
   deps = createTestSdk({
-    plugins: [bot(), computer({ provider: fakeComputerProvider().provider })],
+    computer: fakeComputerProvider().provider,
     jobs,
     adapterFor: () => adapter,
     memory: false,

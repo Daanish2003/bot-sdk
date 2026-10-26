@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate as applyMigrations } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 
-import type { BlobStore } from "./blob/store";
+import type { BlobStore } from "./storage";
 import type { Logger } from "./create-chat";
 
 /**

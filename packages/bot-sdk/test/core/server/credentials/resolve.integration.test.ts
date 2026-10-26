@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { resolvedServices } from "../../../../plugins/models/server/credentials/resolve";
 import {
+  resolvedServices,
   loadCredentials,
   saveCredentials,
-} from "../../../../plugins/models/server/credentials/store";
+} from "../../../../plugins/models/server/internal";
 import { createTestSdk } from "../../../support/deps";
 import { insertUser } from "../../../support/users";
 

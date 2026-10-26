@@ -1,4 +1,4 @@
-import type { JobRow } from "../../../../core/server/db/schema";
+import type { JobRow } from "../../../../core/server/storage";
 
 export type EnqueueOptions = {
   /** A job with this key that is still queued or running makes this enqueue a no-op. */
@@ -21,7 +21,7 @@ export type JobStatus = {
 };
 
 /**
- * Runs background jobs (ADR 0011). `runner({ jobs })` takes one; the default is the
+ * Runs background jobs (ADR 0011). The runner slot takes one; the default is the
  * in-process runner, which claims jobs from `chat.job`. `start()` and `stop()` are called through
  * `chat.start()` and `chat.stop()`.
  */

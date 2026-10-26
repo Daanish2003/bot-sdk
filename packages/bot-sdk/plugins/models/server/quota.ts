@@ -1,6 +1,6 @@
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 
-import { usage } from "../../../core/server/db/schema";
+import { usage } from "../../../core/server/storage";
 import type { ModelsDeps, Quota, QuotaSetting } from "./types";
 
 /** The `getQuota` a Host passed, as the one function the SDK calls per user (ADR 0007). */

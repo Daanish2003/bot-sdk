@@ -16,21 +16,19 @@ import { fileURLToPath } from "node:url";
 import { user as userTable } from "@ai-chat/db/schema/auth";
 import { and, asc, eq } from "drizzle-orm";
 
-import { botTurn } from "../../core/server/db/schema";
-import type { Database } from "../../core/server/db/index";
+import { botTurn, job } from "../../core/server/storage";
+import type { Database } from "../../core/server/storage";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { bot } from "../../plugins/bot/server/plugin";
-import { computerOf } from "../../plugins/bot/server/computer-tools";
-import { createBot } from "../../plugins/bot/server/store";
-import { sendToUserToolName } from "../../plugins/bot/server/turn";
-import type { ComputerHandle } from "../../plugins/computer/server/plugin";
+import { computerOf } from "../../plugins/bot/server/agent-loop";
+import { createBot } from "../../plugins/bot/server/conversation";
+import { sendToUserToolName } from "../../plugins/bot/server/context";
+import type { ComputerHandle } from "../../plugins/computer/server/internal";
 import { dayOf, memoryDirectory } from "../../plugins/memory/server/bot-memory";
-import { memory } from "../../plugins/memory/server/plugin";
-import { saveCredentials } from "../../plugins/models/server/credentials/store";
-import { job } from "../../plugins/runner/server/db/job";
-import { runnerJobs } from "../../plugins/runner/server/plugin";
+import { memory } from "../../plugins/memory/server/feature";
+import { saveCredentials } from "../../plugins/models/server/internal";
+import { runnerJobs } from "../../plugins/runner/server/internal";
 import { createFakeAdapter, round, text, toolCall } from "../../test/support/fake-adapter";
-import { fakeComputerProvider } from "../../test/plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../test/support/fake-computer-provider";
 import { createComputerSdk, databaseUrlFromEnv, prepareSchema } from "../computer/setup";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";
 import { fail, judgeCompletion, keyFor } from "../turn/judge-model";
@@ -142,7 +140,7 @@ async function main() {
   const sdk = createComputerSdk({
     db,
     provider: computerFake.provider,
-    more: [bot(), memory()],
+    features: [memory()],
     models: (real) =>
       fake
         ? {

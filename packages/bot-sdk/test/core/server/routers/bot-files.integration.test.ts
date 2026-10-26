@@ -3,25 +3,20 @@ import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { botTurn, message } from "../../../../core/server/db/schema";
+import { botTurn, message } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
 import { richControlJsonSchema } from "../../../../plugins/bot/client/index";
-import { sentFileBlobKey, sentFileResponse } from "../../../../plugins/bot/server/files";
-import { bot } from "../../../../plugins/bot/server/plugin";
-import { computer } from "../../../../plugins/computer/server/plugin";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import {
-  inProcessRunner,
-  type InProcessRunner,
-} from "../../../../plugins/runner/server/jobs/in-process";
+import { sentFileBlobKey, sentFileResponse } from "../../../../plugins/bot/server/conversation";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
+import { inProcessRunner, type InProcessRunner } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { fakeReviewer } from "../../../support/fake-reviewer";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { followSend } from "../../../support/follow-send";
 
 vi.setConfig({ testTimeout: 30_000 });
@@ -45,7 +40,7 @@ async function botWith(rounds: Round[]) {
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
   deps = createTestSdk({
-    plugins: [bot(), computer({ provider: computerFake.provider })],
+    computer: computerFake.provider,
     jobs,
     adapterFor: () => fake.adapter,
     reviewAdapterFor: () => reviewer.adapter,
@@ -100,7 +95,7 @@ describe("Files from the Bot", () => {
     const { client, botId, deps, user } = await botWith([
       round(sendsFiles("Here is the report.", ["report.csv", "/home/user/shared/notes.txt"])),
     ]);
-    const handle = deps.plugin("computer").forUser(user.id);
+    const handle = deps.computer!.forUser(user.id);
     await handle.writeFile(`/home/user/bots/${botId}/report.csv`, "a,b\n1,2\n");
     await handle.writeFile("/home/user/shared/notes.txt", "hello");
 
@@ -139,7 +134,7 @@ describe("Files from the Bot", () => {
     const { client, botId, deps, user } = await botWith([
       round(sendsFiles("Here are all three.", ["chart.png", "report.csv", "logo.svg"])),
     ]);
-    const handle = deps.plugin("computer").forUser(user.id);
+    const handle = deps.computer!.forUser(user.id);
     await handle.writeFile(`/home/user/bots/${botId}/chart.png`, "png-bytes");
     await handle.writeFile(`/home/user/bots/${botId}/report.csv`, "a,b\n");
     await handle.writeFile(`/home/user/bots/${botId}/logo.svg`, "<svg/>");
@@ -175,7 +170,7 @@ describe("Files from the Bot", () => {
         toolCall({ name: "send_to_user", input: { text: "Sorry, it is gone.", endTurn: true } }),
       ),
     ]);
-    const handle = deps.plugin("computer").forUser(user.id);
+    const handle = deps.computer!.forUser(user.id);
     await handle.writeFile(`/home/user/bots/${botId}/report.csv`, "a,b\n");
 
     await send(client, botId, "send me the report");

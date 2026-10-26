@@ -2,27 +2,27 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { botPromptStart, botTurn } from "../../../../core/server/db/schema";
+import { botPromptStart, botSecret, botTurn } from "../../../../core/server/storage";
+import { encryptCredentials } from "../../../../core/server/credentials/encryption";
+import { secretEncryption } from "../../../../plugins/bot/server/safety";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { bot } from "../../../../plugins/bot/server/plugin";
-import { computer } from "../../../../plugins/computer/server/plugin";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
   type InProcessRunner,
   systemClock,
-} from "../../../../plugins/runner/server/jobs/in-process";
+  claimJob,
+} from "../../../../plugins/runner/server/internal";
 import { skills } from "../../../../plugins/skills/server/plugin";
+import { readSkillsScript } from "../../../../plugins/skills/server/skills";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
+import { fakeJobClock } from "../../../support/jobs";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import type { CommandResult } from "../../../../plugins/computer/server/provider";
-import {
-  fakeComputerProvider,
-  type FakeCommandRun,
-} from "../../../plugins/computer/server/fake-provider";
+import type { CommandResult } from "../../../../plugins/computer/server/internal";
+import { fakeComputerProvider, type FakeCommandRun } from "../../../support/fake-computer-provider";
 import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-6-luna";
@@ -90,11 +90,8 @@ async function botWith(
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [
-      bot(),
-      ...(withComputer ? [computer({ provider: computerFake.provider })] : []),
-      ...(withSkills ? [skills()] : []),
-    ],
+    ...(withComputer && { computer: computerFake.provider }),
+    features: withSkills && withComputer ? [skills()] : [],
     memory: withMemory,
     jobs,
     adapterFor: () => fake.adapter,
@@ -214,6 +211,29 @@ describe("the Skills block", { timeout: 30_000 }, () => {
       "- too-long: (not usable: description is over 200 characters)",
       "- weekly-report: Use this when the user asks for the weekly report.",
     ]);
+  });
+
+  it("masks the user's Secrets in the block, as a Computer read's result is masked", async () => {
+    const value = "ghp_skills_secret_value_1234";
+    const { fake, computerFake, client, botId, deps, user } = await botWith([round()]);
+    computerFake.files.set(
+      skillPath(botId, "deploy"),
+      encode(skillFile("deploy", `Use this when deploying with the token ${value}.`)),
+    );
+    await getTestDb()
+      .insert(botSecret)
+      .values({
+        userId: user.id,
+        name: "GITHUB_TOKEN",
+        encrypted: encryptCredentials({ value }, secretEncryption(deps, user.id, "GITHUB_TOKEN")),
+        createdAt: new Date(),
+      });
+
+    await send(client, botId, "hi");
+
+    const block = systemOf(turnCalls(fake.calls)[0]).find((text) => text.startsWith(header(botId)));
+    expect(block).toContain("Use this when deploying with the token");
+    expect(block).not.toContain(value);
   });
 
   it("reads every SKILL.md in one Computer command", async () => {
@@ -337,6 +357,73 @@ describe("the Skills block", { timeout: 30_000 }, () => {
       expect(systemOf(turnCalls(fake.calls)[0]).join("\n")).not.toContain("Your Skills");
       expect(await sectionNames(botId)).not.toContain("skills");
     }
+  });
+});
+
+describe("the Skills read", { timeout: 30_000 }, () => {
+  it("is cancelled by a Stop, and the Turn ends stopped", async () => {
+    let reading: () => void = () => {};
+    const readStarted = new Promise<void>((resolve) => (reading = resolve));
+    const fake = createFakeAdapter({ rounds: [round()] });
+    const computerFake = fakeComputerProvider({
+      // The Skills read runs until it is killed.
+      holds: (command) => command.includes(readSkillsScript),
+      onCommand: ({ signal }) => {
+        reading();
+        return new Promise<CommandResult>((_resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            reject(new Error("killed"));
+          });
+        });
+      },
+    });
+    const timer = fakeJobClock(new Date());
+    let deps: TestDeps | undefined;
+    // Never started: the test claims the Turn's job and runs its one attempt by hand.
+    const jobs = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      clock: timer.clock,
+      drainMs: 1_000,
+      deps: () => deps!,
+    });
+    started.push(jobs);
+    deps = createTestSdk({
+      computer: computerFake.provider,
+      features: [skills()],
+      jobs,
+      adapterFor: () => fake.adapter,
+      memory: false,
+    });
+    const user = await insertUser();
+    await saveCredentials(deps, user.id, {
+      service: "openai",
+      fields: { apiKey: "openai-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+    const client = chatRpc({ user, deps });
+    const { id: botId } = await client.bot.create({ name: "Ada", model });
+    const stream = await followSend(client, {
+      botId,
+      id: uuidv7(),
+      text: "hi",
+      timeZone: "Europe/London",
+    });
+    const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: false });
+    if (!claimed) throw new Error("Nothing to claim");
+    const running = jobs.runClaimed(claimed);
+    await readStarted;
+
+    await client.bot.stop({ botId });
+    // The running attempt sees the cancel at its next heartbeat.
+    timer.tick();
+    await running;
+
+    const events = [];
+    for await (const event of stream) events.push(event);
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "stopped" });
+    expect(computerFake.callsOf("kill")).toHaveLength(1);
   });
 });
 
@@ -808,11 +895,8 @@ describe("the skills router", { timeout: 30_000 }, () => {
     await expect(client.skills.remove({ botId, name: "invoices" })).rejects.toMatchObject(refused);
   });
 
-  it("says no Computer, and refuses the rest, without the computer plugin", async () => {
-    const { client, botId } = await botWithRouter({ withComputer: false });
-
-    expect(await client.skills.status()).toEqual({ available: false });
-    await expect(client.skills.list({ botId })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  it("can't be turned on without a Computer: the factory throws", () => {
+    expect(() => createTestSdk({ features: [skills()] })).toThrow(/needs the Computer/);
   });
 
   it("tells the Bot of a user's changes as Change notes in its next Turn", async () => {

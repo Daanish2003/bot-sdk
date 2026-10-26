@@ -1,8 +1,8 @@
 import type { Page } from "playwright-core";
 import { describe, expect, it, vi } from "vitest";
 
-import { BrowserSession, unreadPageNote } from "../../../../plugins/bot/server/browser-tools";
-import type { ComputerHandle } from "../../../../plugins/computer/server/plugin";
+import { BrowserSession, unreadPageNote } from "../../../../plugins/bot/server/helpers";
+import type { ComputerHandle } from "../../../../plugins/computer/server/internal";
 
 describe("BrowserSession.act", () => {
   it("reports an action that happened as done, even when the page can't be read after it", async () => {

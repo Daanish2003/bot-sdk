@@ -5,7 +5,7 @@ import {
   maskResult,
   maskSecrets,
   secretMasker,
-} from "../../../../plugins/bot/server/secret-values";
+} from "../../../../plugins/bot/server/safety";
 
 const base64 = (text: string) => Buffer.from(text, "utf8").toString("base64");
 

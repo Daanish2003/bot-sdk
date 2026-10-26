@@ -10,10 +10,9 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { bot } from "../../plugins/bot/server/plugin";
-import { memory } from "../../plugins/memory/server/plugin";
-import { runnerJobs } from "../../plugins/runner/server/plugin";
-import { fakeComputerProvider } from "../../test/plugins/computer/server/fake-provider";
+import { memory } from "../../plugins/memory/server/feature";
+import { runnerJobs } from "../../plugins/runner/server/internal";
+import { fakeComputerProvider } from "../../test/support/fake-computer-provider";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";
 import { createComputerSdk, databaseUrlFromEnv, prepareSchema } from "../computer/setup";
 import { toolSearchCases } from "./context-cases";
@@ -79,7 +78,7 @@ async function main() {
   const sdk = createComputerSdk({
     db,
     provider: fakeComputerProvider().provider,
-    more: [bot(), memory()],
+    features: [memory()],
     models: (real) =>
       fake
         ? {

@@ -11,32 +11,27 @@ import {
   job,
   jobEvent,
   message,
-} from "../../../../core/server/db/schema";
+} from "../../../../core/server/storage";
 import { encryptCredentials } from "../../../../core/server/credentials/encryption";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { richControlJsonSchema } from "../../../../plugins/bot/client/index";
 import { secretNameSchema } from "../../../../plugins/bot/shared/secret";
-import { rotateSecretKeys } from "../../../../plugins/bot/server/secret";
-import { loadSecretValues, secretEncryption } from "../../../../plugins/bot/server/secret-values";
-import { computer } from "../../../../plugins/computer/server/plugin";
-import type { CommandResult } from "../../../../plugins/computer/server/provider";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
-  inProcessRunner,
-  type InProcessRunner,
-} from "../../../../plugins/runner/server/jobs/in-process";
+  rotateSecretKeys,
+  loadSecretValues,
+  secretEncryption,
+} from "../../../../plugins/bot/server/safety";
+import type { CommandResult } from "../../../../plugins/computer/server/internal";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
+import { inProcessRunner, type InProcessRunner } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { fakeReviewer } from "../../../support/fake-reviewer";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import {
-  fakeComputerProvider,
-  type FakeCommandRun,
-} from "../../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider, type FakeCommandRun } from "../../../support/fake-computer-provider";
 import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-6-luna";
@@ -65,7 +60,7 @@ async function botWith(
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
   deps = createTestSdk({
-    plugins: [bot(), computer({ provider: computerFake.provider })],
+    computer: computerFake.provider,
     jobs,
     adapterFor: () => fake.adapter,
     reviewAdapterFor: () => reviewer.adapter,

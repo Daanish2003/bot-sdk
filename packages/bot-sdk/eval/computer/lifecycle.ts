@@ -1,4 +1,4 @@
-// The Computer lifecycle eval (spec #519, "Evals"): no Model. It drives the real `computer` plugin on
+// The Computer lifecycle eval (spec #519, "Evals"): no Model. It drives the real Computer on
 // the E2B adapter and local E2B through sleeping, waking and rebuilding, and checks that the files
 // (and, across a sleep, a running process) survive. Run it with
 // `pnpm -F @ai-chat/bot-sdk eval:computer:lifecycle`; see eval/computer/README.md.
@@ -17,12 +17,11 @@ import { fileURLToPath } from "node:url";
 import { user as userTable } from "@ai-chat/db/schema/auth";
 import { eq } from "drizzle-orm";
 
-import { computer as computerTable } from "../../core/server/db/schema";
-import { bot } from "../../plugins/bot/server/plugin";
-import { computerBlobKey, computerIdleMs } from "../../plugins/computer/server/plugin";
+import { computer as computerTable } from "../../core/server/storage";
+import { createBot } from "../../plugins/bot/server/conversation";
+import { computerBlobKey, computerIdleMs } from "../../plugins/computer/server/internal";
 import type { ComputerProvider } from "../../plugins/computer/server";
-import { inProcessRunner } from "../../plugins/runner/server/jobs/in-process";
-import { claimJob } from "../../plugins/runner/server/jobs/store";
+import { inProcessRunner, claimJob } from "../../plugins/runner/server/internal";
 import { checkScreens } from "./screens";
 import {
   createComputerSdk,
@@ -70,13 +69,6 @@ async function main() {
   const db = await prepareSchema(databaseUrlFromEnv());
   const timings = new Map<string, number[]>();
   const sdk = createComputerSdk({ db, provider: timed(localE2bProvider(template), timings) });
-  // The same Computer through an instance with the `bot` plugin, whose live view step 4 loads. A
-  // user with no Bot has no use for a Computer there, so only that step uses it.
-  const withBot = createComputerSdk({
-    db,
-    provider: timed(localE2bProvider(template), timings),
-    more: [bot()],
-  });
   const rebuilt = createComputerSdk({
     db,
     provider: timed(localE2bProvider(rebuildTemplate), timings),
@@ -84,6 +76,8 @@ async function main() {
 
   const userId = randomUUID();
   await db.insert(userTable).values({ id: userId, name: "Eval", email: `${userId}@eval.invalid` });
+  // The Bots give only a user with a Bot a Computer.
+  await createBot(db, userId, { name: "Eval", model: "openai:gpt-5.4-mini" }, new Date());
   const row = async () =>
     (await db.select().from(computerTable).where(eq(computerTable.userId, userId)))[0];
 
@@ -126,7 +120,7 @@ async function main() {
   try {
     // 1. Write a file and start a process.
     console.log("1. write a file and start a process");
-    const handle = sdk.plugin("computer").forUser(userId);
+    const handle = sdk.computer!.forUser(userId);
     const started = Date.now();
     await handle.writeFile(filePath, fileContent);
     const create = Date.now() - started;
@@ -171,7 +165,7 @@ async function main() {
     // 4. A Screen: the live view, and its displays and Chrome across a pause and resume.
     console.log("4. open a Screen, view it live, pause and resume");
     await checkScreens({
-      sdk: withBot,
+      sdk,
       db,
       userId,
       computer: handle,
@@ -193,7 +187,7 @@ async function main() {
     // one is paused fails to place it. So the old one is killed first; the rebuild is the same, since
     // a changed template never resumes the old sandbox, and the kill it ends with is then a no-op.
     if (asleep?.sandboxId) await localE2bProvider(template).kill(asleep.sandboxId);
-    const rebuildHandle = rebuilt.plugin("computer").forUser(userId);
+    const rebuildHandle = rebuilt.computer!.forUser(userId);
     const rebuildStarted = Date.now();
     const restored = await rebuildHandle.readFile(filePath);
     const rebuildMs = Date.now() - rebuildStarted;

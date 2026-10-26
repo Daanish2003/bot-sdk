@@ -1,8 +1,8 @@
 import { and, eq, gte, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 
-import type { Database } from "../../../../core/server/db/index";
+import type { Database } from "../../../../core/server/storage";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
-import { job } from "../../../../core/server/db/schema";
+import { job } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { NonDeterminismError, WorkflowYieldedError, createWorkflow } from "../workflow/engine";
 import { JOB_TIMING, PermanentJobError, backoffAfter, registeredJob } from "./define";

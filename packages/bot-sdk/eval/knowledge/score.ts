@@ -3,8 +3,8 @@
 
 import { posix } from "node:path";
 
-import { botDirectory } from "../../plugins/bot/server/computer-tools";
 import { knowledgeDirectory } from "../../plugins/knowledge/shared/folder";
+import { botDirectory } from "../../plugins/bot/server/conversation";
 
 /** One tool call of a Turn, in order, with its args (a `run_tool` call already unwrapped). */
 export type Call = { name: string; args: unknown };

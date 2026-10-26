@@ -11,24 +11,30 @@ import {
   job,
   message,
   usage,
-} from "../../../../core/server/db/schema";
+} from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import type { Transaction } from "../../../../core/server/plugin";
-import type { HostProvider } from "../../../../plugins/models/server/types";
+import type { HostProvider } from "../../../../plugins/models/server/internal";
 import { appendMessage } from "../../../../core/server/chat/message-tree";
-import { bot } from "../../../../plugins/bot/server/plugin";
-import { receive } from "../../../../plugins/bot/server/router";
-import { turnTimeLimitMs } from "../../../../plugins/bot/server/store";
-import { findBot, newestTimeZone, textParts } from "../../../../plugins/bot/server/store";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import { quotaLookup } from "../../../../plugins/models/server/quota";
+import { receive } from "../../../../plugins/bot/server/triggers";
+import {
+  turnTimeLimitMs,
+  findBot,
+  newestTimeZone,
+  textParts,
+} from "../../../../plugins/bot/server/conversation";
+
+import { saveCredentials, quotaLookup } from "../../../../plugins/models/server/internal";
+
 import {
   inProcessRunner,
   type InProcessRunner,
   type JobClock,
-} from "../../../../plugins/runner/server/jobs/in-process";
-import type { JobRunner } from "../../../../plugins/runner/server/jobs/runner";
-import { claimJob, reapStaleJobs } from "../../../../plugins/runner/server/jobs/store";
+  claimJob,
+  reapStaleJobs,
+} from "../../../../plugins/runner/server/internal";
+import type { JobRunner } from "../../../../plugins/runner/server/internal";
+
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import {
   createFakeAdapter,
@@ -105,7 +111,7 @@ async function sdkWithRunner(
     deps: () => deps!,
   });
   const pubsub = countingPubSub(overrides.pubsub ?? createMemoryPubSub());
-  deps = createTestSdk({ plugins: [bot()], jobs, ...overrides, pubsub });
+  deps = createTestSdk({ jobs, ...overrides, pubsub });
   // An idle runner never claims a job, so a Turn stays queued.
   if (!idle) await jobs.start();
   started.push(jobs);
@@ -820,7 +826,7 @@ describe("bot.stop", () => {
     const { id: otherBotId } = await client.bot.create({ name: "Grace", model });
     for (const id of [botId, otherBotId]) await sendSaved(client, id, "hi");
 
-    await deps.plugin("bot").stopTurns(user.id);
+    await deps.bots.stopTurns(user.id);
 
     for (const id of [botId, otherBotId]) {
       expect(await turnsOf(id)).toMatchObject([{ status: "stopped", error: null }]);
@@ -1579,7 +1585,6 @@ describe("a Turn that resumes after a crash", () => {
       });
       started.push(jobs);
       deps = createTestSdk({
-        plugins: [bot()],
         jobs,
         adapterFor: () => fake.adapter,
         pubsub,
@@ -1867,7 +1872,7 @@ describe("a Turn that resumes after a crash", () => {
     // The end_turn Checkpoint holds the Conversation's row lock, so `bot.stop` would wait for it:
     // this is a stop whose cancel committed just before that Checkpoint began.
     const [turnBefore] = await turnsOf(botId);
-    await instance().plugin("runner").cancel(turnBefore!.id);
+    await instance().runner.cancel(turnBefore!.id);
     await turnRow.release();
     await running;
     await stopRunner();
@@ -2242,6 +2247,6 @@ describe("the bot plugin on a runner that is not in-process", () => {
       stop: async () => {},
     };
 
-    expect(() => createTestSdk({ plugins: [bot()], jobs: elsewhere })).toThrow(/in-process/);
+    expect(() => createTestSdk({ jobs: elsewhere })).toThrow(/in-process/);
   });
 });

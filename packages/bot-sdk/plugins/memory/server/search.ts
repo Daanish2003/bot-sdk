@@ -1,4 +1,4 @@
-import type { ComputerHandle } from "../../computer/server/plugin";
+import type { ComputerHandle } from "../../computer/server/internal";
 import {
   dayOf,
   decay,

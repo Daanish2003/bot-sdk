@@ -1,7 +1,7 @@
 import { and, asc, eq, gt, lte, sql } from "drizzle-orm";
 
-import type { Database } from "../db/index";
-import { conversation, conversationChange } from "../db/schema";
+import type { Database } from "../storage";
+import { conversation, conversationChange } from "../storage";
 import type { Transaction } from "../plugin";
 
 /** How many of a Conversation's newest changes its change log keeps (ADR 0026). */

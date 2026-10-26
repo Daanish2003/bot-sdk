@@ -31,10 +31,7 @@ registerHooks({
 });
 
 const { createBotSdk } = await import("@ai-chat/bot-sdk/core/server");
-const { bot } = await import("@ai-chat/bot-sdk/plugins/bot/server");
 const { mcp } = await import("@ai-chat/bot-sdk/plugins/mcp/server");
-const { models } = await import("@ai-chat/bot-sdk/plugins/models/server");
-const { runner } = await import("@ai-chat/bot-sdk/plugins/runner/server");
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("Set DATABASE_URL");
@@ -42,8 +39,8 @@ const newest = process.env.KEY_ENCRYPTION_SECRET;
 if (!newest) throw new Error("Set KEY_ENCRYPTION_SECRET");
 
 // The keyring as apps/web/src/services.ts builds it: the newest secret first, then the previous one.
-// The plugins that store secrets: Provider and Tool credentials (models), Secrets (bot) and
-// Connection tokens (mcp); bot needs runner.
+// What stores secrets: Provider and Tool credentials (models), Secrets (the Bot core) and
+// Connection tokens (the mcp feature).
 const sdk = createBotSdk({
   databaseUrl,
   keyEncryptionSecrets: [newest, process.env.KEY_ENCRYPTION_SECRET_PREVIOUS].filter(
@@ -52,7 +49,8 @@ const sdk = createBotSdk({
   basePath: "/api/chat",
   getUser: () => null,
   logger: log,
-  plugins: [models(), runner(), bot(), mcp()],
+  models: {},
+  features: [mcp()],
 });
 
 const result = await sdk.rotateKeys();

@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { mcpClient } from "../../../plugins/mcp/client/index";
 import { listConnections, readTokens, saveTokens } from "../../../plugins/mcp/server/connections";
-import { mcp } from "../../../plugins/mcp/server/plugin";
+import { enabledFeatures } from "../../../core/server/feature";
+import { mcp, type McpApi } from "../../../plugins/mcp/server/plugin";
 import type { McpServerConfig } from "../../../plugins/mcp/server/servers";
 import { createTestSdk, type TestDeps } from "../../support/deps";
 import { createFakeMcpAuth, fakeMcpResource } from "../../support/fake-mcp-auth";
@@ -56,10 +57,16 @@ async function setup({ servers = [linear] }: { servers?: McpServerConfig[] } = {
     const isEndpoint = url.origin === mcpOrigin && url.pathname === "/mcp";
     return (isEndpoint ? server.fetch : auth.fetch)(input, init);
   }) as typeof globalThis.fetch;
-  const deps = createTestSdk({ fetch, plugins: [mcp({ servers })] });
+  const deps = createTestSdk({ fetch, features: [mcp({ servers })] });
   await connect(user, deps, auth);
-  const tools = (signal: AbortSignal) => deps.plugin("mcp").forUser(user.id).tools({ signal });
+  const tools = (signal: AbortSignal) => mcpApi(deps).forUser(user.id).tools({ signal });
   return { user, deps, auth, server, tools };
+}
+
+/** The mcp feature's API, as the instance serves it as `sdk.mcp`. */
+function mcpApi(deps: TestDeps): McpApi {
+  const { feature, context } = enabledFeatures(deps).find(({ feature }) => feature.id === "mcp")!;
+  return feature.api!(context) as McpApi;
 }
 
 /** Signs `user` in to the Linear server through the plugin's OAuth routes (the redirect and callback). */
@@ -132,10 +139,7 @@ describe("mcp's forUser(id).tools()", () => {
     const controller = new AbortController();
     const before = server.requests;
 
-    const listed = await deps
-      .plugin("mcp")
-      .forUser(stranger.id)
-      .tools({ signal: controller.signal });
+    const listed = await mcpApi(deps).forUser(stranger.id).tools({ signal: controller.signal });
 
     expect(listed).toEqual([]);
     expect(server.requests).toBe(before);

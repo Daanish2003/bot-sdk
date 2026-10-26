@@ -3,29 +3,28 @@ import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { conversationChannel } from "../../../../core/server/chat/conversation-events";
-import { botHelper, botHelperMessage, botTrigger, job } from "../../../../core/server/db/schema";
+import { botHelper, botHelperMessage, botTrigger, job } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { askUserToolName, handOffAnswers } from "../../../../plugins/bot/server/hand-off";
 import {
+  askUserToolName,
+  handOffAnswers,
   computerUseHelperPrompt,
   hasRunningHelper,
   helperMessagePrefix,
-} from "../../../../plugins/bot/server/helper";
-import { bot } from "../../../../plugins/bot/server/plugin";
-import { findBot } from "../../../../plugins/bot/server/store";
-import { computer } from "../../../../plugins/computer/server/plugin";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+} from "../../../../plugins/bot/server/helpers";
+import { findBot } from "../../../../plugins/bot/server/conversation";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
   type InProcessRunner,
   systemClock,
-} from "../../../../plugins/runner/server/jobs/in-process";
+} from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-6-luna";
@@ -71,7 +70,7 @@ async function botWith(turns: Round[], helpers: Round[], { clock }: { clock?: ()
     ...(clock && { clock: { ...systemClock, now: clock } }),
   });
   deps = createTestSdk({
-    plugins: [bot(), computer({ provider: computerFake.provider })],
+    computer: computerFake.provider,
     jobs,
     adapterFor: () => adapter,
     ...(clock && { clock }),

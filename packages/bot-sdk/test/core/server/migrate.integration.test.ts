@@ -8,10 +8,8 @@ import { migrate as applyMigrations } from "drizzle-orm/node-postgres/migrator";
 import { Client } from "pg";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { BlobStore } from "../../../core/server/blob/store";
+import type { BlobStore } from "../../../core/server/storage";
 import { createBotSdk } from "../../../core/server/create-chat";
-import { runner } from "../../../plugins/runner/server/plugin";
-import { models } from "../../../plugins/models/server/plugin";
 import { LATEST_MIGRATION } from "../../../core/server/migrate";
 import {
   dropScratchDatabase,
@@ -27,7 +25,7 @@ function chatFor(databaseUrl: string) {
     getUser: () => null,
     keyEncryptionSecrets,
     basePath: "/api/chat",
-    plugins: [models(), runner()],
+    models: {},
   });
 }
 
@@ -604,8 +602,8 @@ describe("the contract migration (#819)", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath: "/api/chat",
-      blobStore: store,
-      plugins: [models(), runner()],
+      blobs: store,
+      models: {},
     });
 
     await chat.migrate();
@@ -634,9 +632,9 @@ describe("the contract migration (#819)", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath: "/api/chat",
-      blobStore: store,
+      blobs: store,
       logger,
-      plugins: [models(), runner()],
+      models: {},
     }).migrate();
 
     expect(deleted).toEqual([assistantKeys[1]]);

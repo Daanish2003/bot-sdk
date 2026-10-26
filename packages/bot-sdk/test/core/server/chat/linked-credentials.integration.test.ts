@@ -1,9 +1,9 @@
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import { botTurn, usage } from "../../../../core/server/db/schema";
-import type { HostProvider, LinkedCredentials } from "../../../../plugins/models/server/types";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
+import { botTurn, usage } from "../../../../core/server/storage";
+import type { HostProvider, LinkedCredentials } from "../../../../plugins/models/server/internal";
 import { botOf, botSdk, sendToTurnEnd, stopBotRunners } from "../../../support/bot-turns";
 import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, runError, toolCall } from "../../../support/fake-adapter";

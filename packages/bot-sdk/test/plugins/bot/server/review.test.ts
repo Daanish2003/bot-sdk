@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { BotSdkContext } from "../../../../core/server/plugin";
-import { type ReviewKit, reviewToolCall } from "../../../../plugins/bot/server/review";
+import { type ReviewKit, reviewToolCall } from "../../../../plugins/bot/server/safety";
 
 describe("a review's replay", () => {
   it("reads its recorded verdict and write without resolving the review Model's meter", async () => {
@@ -9,10 +9,8 @@ describe("a review's replay", () => {
     const publish = vi.fn(async () => {});
     const deps = {
       pubsub: { publish },
-      plugin: (name: string) =>
-        name === "models"
-          ? { resolveModelCall, freeModelMeter: vi.fn() }
-          : { reviewModel: undefined },
+      models: { resolveModelCall, freeModelMeter: vi.fn() },
+      bots: { reviewModel: undefined },
     } as unknown as BotSdkContext;
     // Every activity was recorded: a replay returns what it saved.
     const recorded: Record<string, unknown> = {

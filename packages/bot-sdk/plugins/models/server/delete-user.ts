@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 
-import { modelSettings, usage, userCredentials } from "../../../core/server/db/schema";
+import { modelSettings, usage, userCredentials } from "../../../core/server/storage";
 import type { UserDeleteHooks } from "../../../core/server/plugin";
 
 /**

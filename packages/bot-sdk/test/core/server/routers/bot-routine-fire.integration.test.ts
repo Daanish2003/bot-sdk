@@ -2,20 +2,20 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { and, asc, eq, inArray, like } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { botRoutine, botTrigger, botTurn, job, usage } from "../../../../core/server/db/schema";
+import { botRoutine, botTrigger, botTurn, job, usage } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
-import type { HostProvider } from "../../../../plugins/models/server/types";
+import type { HostProvider } from "../../../../plugins/models/server/internal";
 import { bot } from "../../../../plugins/bot/server/plugin";
-import { changeNotesFraming } from "../../../../plugins/bot/server/change-notes";
-import { routineFireJobName } from "../../../../plugins/bot/server/routine";
-import { findBot } from "../../../../plugins/bot/server/store";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import { changeNotesFraming } from "../../../../plugins/bot/server/context";
+import { routineFireJobName } from "../../../../plugins/bot/server/routines";
+import { findBot } from "../../../../plugins/bot/server/conversation";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
   type InProcessRunner,
-} from "../../../../plugins/runner/server/jobs/in-process";
-import { claimJob } from "../../../../plugins/runner/server/jobs/store";
+  claimJob,
+} from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { fakeJobClock } from "../../../support/jobs";
@@ -111,7 +111,6 @@ async function approvedRoutine({
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [bot()],
     jobs,
     adapterFor: (_model, credentials) => {
       adapterCredentials.push(credentials);
@@ -284,13 +283,11 @@ describe("a scheduled Routine", () => {
     await runDue();
 
     // The slot's job ran, so its key is free again: a second fire of it is queued.
-    await deps
-      .plugin("runner")
-      .enqueue(
-        routineFireJobName,
-        { routineId, slot: mondaySlot },
-        { idempotencyKey: `routine:${routineId}:${mondaySlot}` },
-      );
+    await deps.runner.enqueue(
+      routineFireJobName,
+      { routineId, slot: mondaySlot },
+      { idempotencyKey: `routine:${routineId}:${mondaySlot}` },
+    );
     await runDue();
 
     expect(await routineTriggers(conversationId)).toHaveLength(1);

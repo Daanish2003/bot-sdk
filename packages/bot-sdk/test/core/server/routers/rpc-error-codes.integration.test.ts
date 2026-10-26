@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import { en } from "../../../../core/shared/i18n";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { createTestSdk } from "../../../support/deps";
 import { chatRpc } from "../../../support/sdk";
 import { insertUser } from "../../../support/users";
@@ -23,7 +22,7 @@ const missingId = "018f0000-0000-7000-8000-000000000000";
 
 describe("oRPC errors through chat.handler, on a Bot-only SDK", () => {
   it("sends the code for a Bot that isn't there", async () => {
-    const client = chatRpc({ user: await insertUser(), deps: createTestSdk({ plugins: [bot()] }) });
+    const client = chatRpc({ user: await insertUser(), deps: createTestSdk() });
 
     await expect(dataOf(client.bot.get({ botId: missingId }))).resolves.toEqual({
       code: "error.botNotFound",
@@ -31,7 +30,7 @@ describe("oRPC errors through chat.handler, on a Bot-only SDK", () => {
   });
 
   it("sends the code and the Model for a Model that isn't available", async () => {
-    const client = chatRpc({ user: await insertUser(), deps: createTestSdk({ plugins: [bot()] }) });
+    const client = chatRpc({ user: await insertUser(), deps: createTestSdk() });
 
     await expect(
       dataOf(client.bot.create({ name: "Ada", model: "openai:gpt-2" })),

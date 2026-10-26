@@ -1,17 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
-import { bot } from "../../../../plugins/bot/server/plugin";
-import { runner } from "../../../../plugins/runner/server/plugin";
-import { models } from "../../../../plugins/models/server/plugin";
-import { resolvedServices } from "../../../../plugins/models/server/credentials/resolve";
 import {
+  resolvedServices,
   listCredentials,
   loadCredentials,
   saveCredentials,
-} from "../../../../plugins/models/server/credentials/store";
+} from "../../../../plugins/models/server/internal";
 import { createTestSdk } from "../../../support/deps";
-import { userCredentials } from "../../../../core/server/db/schema";
+import { userCredentials } from "../../../../core/server/storage";
 import { insertUser } from "../../../support/users";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
 
@@ -74,7 +71,7 @@ describe("the keyring", () => {
       keyEncryptionSecrets: [keyB],
       basePath: "/api/chat",
       logger,
-      plugins: [models(), runner(), bot()],
+      models: {},
     });
 
     await chat.start();

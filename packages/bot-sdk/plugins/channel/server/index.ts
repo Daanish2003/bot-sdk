@@ -1,10 +1,6 @@
-export {
-  channel,
-  type ChannelAdapter,
-  type ChannelApi,
-  type ChannelOptions,
-  type ChannelPlugin,
-} from "./plugin";
+// The public channel export composes the Bot's channel plugin, which owns delivery and inbound mail.
+export { channel } from "../../bot/server/channels";
+export type { ChannelAdapter, ChannelApi, ChannelOptions, ChannelPlugin } from "./plugin";
 export {
   emailChannel,
   type AuthVerdict,

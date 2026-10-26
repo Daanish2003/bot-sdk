@@ -2,25 +2,23 @@ import type { TextOptions } from "@tanstack/ai";
 import { and, asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { botPromptStart, botRoutine, botTrigger } from "../../../../core/server/db/schema";
+import { botPromptStart, botRoutine, botTrigger } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { bot } from "../../../../plugins/bot/server/plugin";
-import { computer } from "../../../../plugins/computer/server/plugin";
-import { webhookTokenHash } from "../../../../plugins/bot/server/routine";
-import { findBot } from "../../../../plugins/bot/server/store";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import { webhookTokenHash } from "../../../../plugins/bot/server/routines";
+import { findBot } from "../../../../plugins/bot/server/conversation";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
   type InProcessRunner,
-} from "../../../../plugins/runner/server/jobs/in-process";
-import { claimJob } from "../../../../plugins/runner/server/jobs/store";
+  claimJob,
+} from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-6-luna";
@@ -73,7 +71,7 @@ async function botWithRoutine({
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: computerFake ? [bot(), computer({ provider: computerFake.provider })] : [bot()],
+    ...(computerFake && { computer: computerFake.provider }),
     jobs,
     adapterFor: () => fake.adapter,
     clock: timer.clock.now,
@@ -112,7 +110,7 @@ async function botWithRoutine({
   };
   /** Calls the webhook URL of `token` with `body` and `headers`, as an outside service would. */
   const call = (token: string, body: string = "{}", headers: Record<string, string> = {}) =>
-    deps!.plugin("bot").webhookHandler(
+    deps!.bots.webhookHandler(
       new Request(`https://bots.example/api/routines/webhook/${token}`, {
         method: "POST",
         body,

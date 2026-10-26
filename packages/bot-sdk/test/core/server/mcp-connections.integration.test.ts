@@ -4,10 +4,8 @@ import { describe, expect, it } from "vitest";
 import { createBotSdk, type BotSdkOptions } from "../../../core/server/create-chat";
 import { mcpClient } from "../../../plugins/mcp/client/index";
 import { mcp } from "../../../plugins/mcp/server/plugin";
-import { runner } from "../../../plugins/runner/server/plugin";
-import { models } from "../../../plugins/models/server/plugin";
 import { deleteUserData } from "../../../core/server/user-data";
-import { mcpConnection } from "../../../core/server/db/schema";
+import { mcpConnection } from "../../../plugins/mcp/server/db/connection";
 import type { McpServerConfig } from "../../../plugins/mcp/server/servers";
 import { createTestSdk, testKeyEncryptionSecret, type TestDeps } from "../../support/deps";
 import { createTestChat as createBotOnlyChat } from "../../support/sdk";
@@ -32,7 +30,7 @@ function depsWith(
 ) {
   return createTestSdk({
     fetch: auth.fetch,
-    plugins: [mcp({ servers: options.servers ?? [linear] })],
+    features: [mcp({ servers: options.servers ?? [linear] })],
     ...(options.keyEncryptionSecrets ? { keyEncryptionSecrets: options.keyEncryptionSecrets } : {}),
   });
 }
@@ -60,7 +58,8 @@ describe("mcp({ servers })", () => {
       getUser: () => null,
       keyEncryptionSecrets: [testKeyEncryptionSecret],
       basePath: "/api/chat",
-      plugins: [models(), runner(), mcp({ servers: [{ ...linear, url: "http://mcp.test/mcp" }] })],
+      models: {},
+      features: [mcp({ servers: [{ ...linear, url: "http://mcp.test/mcp" }] })],
     };
 
     expect(() => createBotSdk(options)).toThrow(/HTTPS/);

@@ -18,23 +18,25 @@ import {
   botTurn,
   message,
   usage,
-} from "../../core/server/db/schema";
-import type { Database } from "../../core/server/db/index";
+  job,
+} from "../../core/server/storage";
+import type { Database } from "../../core/server/storage";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { searchTextOf } from "../../core/shared/message-parts";
-import { computerOf } from "../../plugins/bot/server/computer-tools";
-import { lockConversation, receive } from "../../plugins/bot/server/router";
-import { routineSnapshot } from "../../plugins/bot/server/routine";
+import { computerOf } from "../../plugins/bot/server/agent-loop";
+import { lockConversation, receive, awaySummaryKey } from "../../plugins/bot/server/triggers";
+import { routineSnapshot } from "../../plugins/bot/server/routines";
 import {
-  awaySummaryKey,
   awaySummaryTokens,
   summarizeAwayJobName,
-} from "../../plugins/bot/server/summary";
-import { defaultTimeZone } from "../../plugins/bot/server/time-zone";
-import { sendToUserToolName } from "../../plugins/bot/server/turn";
-import { type WarmResult, warmBot } from "../../plugins/bot/server/warm";
+  sendToUserToolName,
+  type WarmResult,
+  warmBot,
+} from "../../plugins/bot/server/context";
+import { defaultTimeZone } from "../../plugins/bot/server/conversation";
+
 import { profilePath } from "../../plugins/memory/server/bot-memory";
-import { job } from "../../plugins/runner/server/db/job";
+
 import {
   createFakeAdapter,
   type FakeAdapter,
@@ -285,7 +287,7 @@ export async function runCacheCase(env: ContextEnv, repeat: number): Promise<Con
             receivedAt: now,
           });
         });
-        env.sdk.plugin("runner").wake();
+        env.sdk.runner.wake();
         const turnId = turnIdOf(taken);
         const ended = await waitForTurn(turnEnvOf(env, key), turnId);
         if (ended.status !== "complete")
@@ -401,7 +403,7 @@ export async function runSummaryCase(env: ContextEnv, repeat: number): Promise<C
     if (queued.status === "queued") {
       await env.db.update(job).set({ runAfter: new Date() }).where(eq(job.id, queued.id));
     }
-    env.sdk.plugin("runner").wake();
+    env.sdk.runner.wake();
     const summary = await summaryWritten(env.db, bot.id);
 
     // The Bot's last 3 Messages to the user up to the Summary, read from the Conversation itself.

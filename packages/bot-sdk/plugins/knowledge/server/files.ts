@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 
-import { bot, botTurn } from "../../../core/server/db/schema";
+import { bot, botTurn } from "../../../core/server/storage";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import {
@@ -8,7 +8,7 @@ import {
   ComputerUnavailableError,
   type ComputerHandle,
   type FileOperationOptions,
-} from "../../computer/server/plugin";
+} from "../../computer/server/internal";
 import {
   knowledgeDirectory,
   knowledgeDocumentExtensions,
@@ -53,16 +53,16 @@ export type KnowledgeListing = {
   limit: number;
 };
 
-/** Whether the user can have Knowledge, which needs the `computer` plugin. */
+/** Whether the user can have Knowledge, which needs the computer slot. */
 export function knowledgeAvailable(deps: BotSdkContext): boolean {
-  return deps.hasPlugin("computer");
+  return Boolean(deps.computer);
 }
 
 function computerOf(deps: BotSdkContext, userId: string): ComputerHandle {
-  if (!knowledgeAvailable(deps)) {
+  if (!deps.computer) {
     throw rpcError("BAD_REQUEST", "error.knowledgeNeedsComputer", "Knowledge needs a Computer");
   }
-  return deps.plugin("computer").forUser(userId);
+  return deps.computer.forUser(userId);
 }
 
 /** Runs a Computer operation; a Computer that can't be woken is a refusal, not a crash. */

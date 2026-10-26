@@ -2,9 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
-import { runner } from "../../../../plugins/runner/server/plugin";
-import { models } from "../../../../plugins/models/server/plugin";
-import { defineJob } from "../../../../plugins/runner/server/jobs/define";
+import { defineJob } from "../../../../plugins/runner/server/internal";
 import { testDatabaseUrl } from "../../../support/test-database";
 
 const silent = { error: () => {} };
@@ -23,7 +21,7 @@ function chatWithTestDb() {
     keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
     basePath: "/api/chat",
     logger: silent,
-    plugins: [models(), runner()],
+    models: {},
   });
 }
 
@@ -32,7 +30,7 @@ describe("chat.runJob", () => {
     handled.mockClear();
     const chat = chatWithTestDb();
 
-    await chat.plugin("runner").runJob("test.run-job.echo", { label: "hello" });
+    await chat.runner.runJob("test.run-job.echo", { label: "hello" });
 
     expect(handled).toHaveBeenCalledTimes(1);
     expect(handled).toHaveBeenCalledWith({ label: "hello" });
@@ -42,7 +40,7 @@ describe("chat.runJob", () => {
     handled.mockClear();
     const chat = chatWithTestDb();
 
-    await expect(chat.plugin("runner").runJob("test.run-job.echo", { label: 42 })).rejects.toThrow(
+    await expect(chat.runner.runJob("test.run-job.echo", { label: 42 })).rejects.toThrow(
       /test\.run-job\.echo.*invalid payload/,
     );
     expect(handled).not.toHaveBeenCalled();
@@ -51,7 +49,7 @@ describe("chat.runJob", () => {
   it("rejects an unknown job name", async () => {
     const chat = chatWithTestDb();
 
-    await expect(chat.plugin("runner").runJob("test.run-job.missing", {})).rejects.toThrow(
+    await expect(chat.runner.runJob("test.run-job.missing", {})).rejects.toThrow(
       /Unknown job "test\.run-job\.missing"/,
     );
   });

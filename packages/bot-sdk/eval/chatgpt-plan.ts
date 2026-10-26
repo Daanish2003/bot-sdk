@@ -8,8 +8,8 @@
 
 import { chat } from "@tanstack/ai";
 
-import { adapterFor } from "../plugins/models/server/adapters";
-import type { LinkedCredentialsHook } from "../plugins/models/server/types";
+import { adapterFor } from "../plugins/models/server/internal";
+import type { LinkedCredentialsHook } from "../plugins/models/server/internal";
 import { chatgptPlanModels } from "../plugins/models/shared/credentials/services";
 
 /** The owner's linked plan: a fresh access token on each call, and the models plugin's hook over it. */

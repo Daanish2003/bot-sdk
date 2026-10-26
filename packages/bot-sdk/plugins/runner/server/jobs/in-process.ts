@@ -1,4 +1,4 @@
-import type { Database } from "../../../../core/server/db/index";
+import type { Database } from "../../../../core/server/storage";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { jobNamesInLane } from "./define";
 import { cancelJob, claimJob, enqueueJob, readJob, runClaimedJob, type ClaimedJob } from "./store";
@@ -37,7 +37,7 @@ export type InProcessRunnerOptions = {
    */
   drainMs?: number;
   clock?: JobClock;
-  /** The core context, read when a job runs. The `runner` plugin passes its instance's. */
+  /** The core context, read when a job runs. The core passes its instance's. */
   deps: () => BotSdkContext;
 };
 

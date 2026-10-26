@@ -2,7 +2,7 @@ import { chat, toolDefinition } from "@tanstack/ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { adapterFor } from "../../../../plugins/models/server/adapters";
+import { adapterFor } from "../../../../plugins/models/server/internal";
 
 /** One server-sent event of the Responses stream. */
 const event = (data: Record<string, unknown>) =>

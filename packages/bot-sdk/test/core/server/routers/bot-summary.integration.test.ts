@@ -2,16 +2,16 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { botPromptStart, botSummary, botTurn, job, usage } from "../../../../core/server/db/schema";
+import { botPromptStart, botSummary, botTurn, job, usage } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { bot } from "../../../../plugins/bot/server/plugin";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
   type InProcessRunner,
   systemClock,
-} from "../../../../plugins/runner/server/jobs/in-process";
-import { claimJob, reapStaleJobs } from "../../../../plugins/runner/server/jobs/store";
+  claimJob,
+  reapStaleJobs,
+} from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import {
   createFakeAdapter,
@@ -64,7 +64,6 @@ async function botWith(rounds: Round[]) {
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [bot()],
     memory: false,
     jobs,
     adapterFor: () => fake.adapter,
@@ -334,7 +333,6 @@ describe("a Turn that crashes after its Summary", () => {
       });
       started.push(jobs);
       deps = createTestSdk({
-        plugins: [bot()],
         memory: false,
         jobs,
         adapterFor: () => fake.adapter,

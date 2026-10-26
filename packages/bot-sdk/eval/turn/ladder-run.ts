@@ -5,11 +5,11 @@ import { sendAndFollow } from "../../test/support/follow-send";
 
 import { eq } from "drizzle-orm";
 
-import { botTrigger } from "../../core/server/db/schema";
+import { botTrigger } from "../../core/server/storage";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { gistOf } from "../../plugins/bot/server/helper";
-import { lockConversation, receive } from "../../plugins/bot/server/router";
-import { saveCredentials } from "../../plugins/models/server/credentials/store";
+import { gistOf } from "../../plugins/bot/server/helpers";
+import { lockConversation, receive } from "../../plugins/bot/server/triggers";
+import { saveCredentials } from "../../plugins/models/server/internal";
 import { tavilyService } from "../../plugins/models/shared/credentials/services";
 import { freshBot, seedHistory, type TurnEnv } from "./case";
 import type { LadderCase } from "./ladder-cases";
@@ -100,7 +100,7 @@ export async function runLadderCase(
         });
       });
       turnId = turnIdOf(taken);
-      env.sdk.plugin("runner").wake();
+      env.sdk.runner.wake();
     }
     const turn = await waitForTurn(env, turnId);
     reply = sentTexts(turn.transcript);

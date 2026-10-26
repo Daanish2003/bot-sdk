@@ -1,16 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
-import { bot } from "../../../../plugins/bot/server/plugin";
-import { computer } from "../../../../plugins/computer/server/plugin";
 import { knowledge } from "../../../../plugins/knowledge/server/plugin";
-import { runner } from "../../../../plugins/runner/server/plugin";
-import { models } from "../../../../plugins/models/server/plugin";
 import { memoryRuntime } from "../../../../core/server/runtime";
 import { resolveRateLimits, type RateLimits } from "../../../../core/server/rate-limits";
 import { RateLimitedError } from "../../../../core/client/rate-limit";
 import { createTestSdk } from "../../../support/deps";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { chatRpc, sendAs } from "../../../support/sdk";
 import { testDatabaseUrl } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
@@ -39,12 +35,11 @@ const rpcCases = [
   },
 ];
 
-/** The Bot-only plugins that serve every route in `rpcCases`. */
-const botOnlyPlugins = () => [
-  bot(),
-  computer({ provider: fakeComputerProvider().provider }),
-  knowledge(),
-];
+/** The Bot-only plugins and features that serve every route in `rpcCases`, with the Computer they need. */
+const botOnly = () => ({
+  computer: fakeComputerProvider().provider,
+  features: [knowledge()],
+});
 
 /** An RPC call to `route`. The limit is checked before the body is read, so the body can be empty. */
 const rpcCall = (route: string) =>
@@ -55,7 +50,7 @@ describe.each(rpcCases)("$name rate limits", ({ route, rateLimits }) => {
     const user = await insertUser();
     const other = await insertUser();
     const deps = createTestSdk({
-      plugins: botOnlyPlugins(),
+      ...botOnly(),
       rateLimits: resolveRateLimits(rateLimits),
     });
 
@@ -77,7 +72,7 @@ describe.each(rpcCases)("$name rate limits", ({ route, rateLimits }) => {
     const off = Object.fromEntries(
       Object.keys(rateLimits).map((key) => [key, false]),
     ) as RateLimits;
-    const deps = createTestSdk({ plugins: botOnlyPlugins(), rateLimits: resolveRateLimits(off) });
+    const deps = createTestSdk({ ...botOnly(), rateLimits: resolveRateLimits(off) });
 
     const statuses: number[] = [];
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -95,9 +90,9 @@ it("takes its limit from createBotSdk's rateLimits override", async () => {
     getUser: () => ({ id: user.id }),
     keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
     basePath: "/api/chat",
-    runtime: memoryRuntime(),
+    pubsub: memoryRuntime(),
     rateLimits: { credentialSave: { limit: 1, windowSeconds: 60 } },
-    plugins: [models(), runner(), bot()],
+    models: {},
   });
 
   const first = await chat.handler(rpcCall("credentials/save"));
@@ -119,7 +114,6 @@ it("surfaces the limit to the typed client as a RateLimitedError with the retry 
   const client = chatRpc({
     user,
     deps: createTestSdk({
-      plugins: [bot()],
       rateLimits: resolveRateLimits({ attachmentUpload: { limit: 0, windowSeconds: 60 } }),
     }),
   });

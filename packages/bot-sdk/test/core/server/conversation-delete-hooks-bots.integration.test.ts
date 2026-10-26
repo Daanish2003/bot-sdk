@@ -3,13 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import { deleteConversations } from "../../../core/server/chat/delete-conversations";
 import { createHookEmitter } from "../../../core/server/chat/hooks";
-import { bot, conversation } from "../../../core/server/db/schema";
+import { bot, conversation } from "../../../core/server/storage";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, BotSdkPlugin } from "../../../core/server/plugin";
 import { deleteUserData } from "../../../core/server/user-data";
-import { bot as botPlugin } from "../../../plugins/bot/server/plugin";
 import { insertConversation } from "../../support/conversations";
-import { createTestSdk, type TestDeps } from "../../support/deps";
+import { createTestSdk, withPart, type TestDeps } from "../../support/deps";
 import { getTestDb } from "../../support/test-database";
 import { insertUser, type TestUser } from "../../support/users";
 
@@ -81,7 +80,7 @@ describe("the core's Conversation delete runs the delete hooks", () => {
     const ids = [(await insertConversation(user)).id, (await insertConversation(user)).id].sort();
     await insertConversation(other);
     const recorder = recordingPlugin();
-    const deps = createTestSdk({ plugins: [recorder.plugin] });
+    const deps = withPart(createTestSdk(), recorder.plugin);
 
     await deleteUserData(deps, user.id);
 
@@ -89,11 +88,11 @@ describe("the core's Conversation delete runs the delete hooks", () => {
     expect(recorder.after).toEqual([{ conversationIds: ids, userId: user.id, collected: 2 }]);
   });
 
-  it("runs them for a Bot's Conversation, which the bot plugin deletes on a user delete", async () => {
+  it("runs them for a Bot's Conversation, which the Bots delete on a user delete", async () => {
     const user = await insertUser();
     const botConversation = await insertBotConversation(user);
     const recorder = recordingPlugin();
-    const deps = createTestSdk({ plugins: [botPlugin(), recorder.plugin] });
+    const deps = withPart(createTestSdk(), recorder.plugin);
 
     await deleteUserData(deps, user.id);
 
@@ -124,7 +123,7 @@ describe("the core's Conversation delete runs the delete hooks", () => {
         },
       },
     };
-    const deps = createTestSdk({ plugins: [plugin] });
+    const deps = withPart(createTestSdk(), plugin);
 
     await deleteOwn(deps, user.id);
 
@@ -157,10 +156,10 @@ describe("the core's Conversation delete runs the delete hooks", () => {
       },
     };
     const onConversationDeleted = vi.fn();
-    const deps = createTestSdk({
-      plugins: [plugin],
-      hooks: createHookEmitter({ onConversationDeleted }, { error: () => {} }),
-    });
+    const deps = withPart(
+      createTestSdk({ hooks: createHookEmitter({ onConversationDeleted }, { error: () => {} }) }),
+      plugin,
+    );
 
     const results = await Promise.all([
       deleteOwn(deps, user.id, eq(conversation.id, conv.id)),
@@ -190,10 +189,10 @@ describe("the core's Conversation delete runs the delete hooks", () => {
       },
     };
     const onConversationDeleted = vi.fn();
-    const deps = createTestSdk({
-      plugins: [plugin],
-      hooks: createHookEmitter({ onConversationDeleted }, { error: () => {} }),
-    });
+    const deps = withPart(
+      createTestSdk({ hooks: createHookEmitter({ onConversationDeleted }, { error: () => {} }) }),
+      plugin,
+    );
 
     const { afterCommit } = await deps.db.transaction((tx) =>
       deleteConversations(deps, tx, { userId: user.id, mute: true }),
@@ -207,7 +206,7 @@ describe("the core's Conversation delete runs the delete hooks", () => {
   it("runs no hook when there is nothing to delete", async () => {
     const user = await insertUser();
     const recorder = recordingPlugin();
-    const deps = createTestSdk({ plugins: [recorder.plugin] });
+    const deps = withPart(createTestSdk(), recorder.plugin);
 
     await deleteOwn(deps, user.id);
 
@@ -221,7 +220,7 @@ describe("a delete hook that throws, on the core's delete", () => {
     const user = await insertUser();
     const conv = await insertConversation(user);
     const recorder = recordingPlugin({ beforeThrows: true });
-    const deps = createTestSdk({ plugins: [recorder.plugin] });
+    const deps = withPart(createTestSdk(), recorder.plugin);
 
     await expect(deleteOwn(deps, user.id)).rejects.toThrow("before failed");
 
@@ -234,7 +233,7 @@ describe("a delete hook that throws, on the core's delete", () => {
     const conv = await insertConversation(user);
     const recorder = recordingPlugin({ afterThrows: true });
     const error = vi.fn();
-    const deps = createTestSdk({ plugins: [recorder.plugin], logger: { error } });
+    const deps = withPart(createTestSdk({ logger: { error } }), recorder.plugin);
 
     expect(await deleteOwn(deps, user.id)).toEqual([conv.id]);
 

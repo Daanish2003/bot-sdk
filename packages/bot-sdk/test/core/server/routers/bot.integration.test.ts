@@ -1,11 +1,10 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { bot as botTable, botTurn, conversation } from "../../../../core/server/db/schema";
-import type { BotExport } from "../../../../plugins/bot/server/store";
+import { bot as botTable, botTurn, conversation } from "../../../../core/server/storage";
+import type { BotExport } from "../../../../plugins/bot/server/conversation";
 import { deleteUserData, exportUserData } from "../../../../core/server/user-data";
-import { bot } from "../../../../plugins/bot/server/plugin";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertMessage } from "../../../support/conversations";
 import { createTestSdk } from "../../../support/deps";
@@ -16,7 +15,7 @@ import { insertUser, type TestUser } from "../../../support/users";
 const model = "openai:gpt-6-luna";
 
 /** A user with an OpenAI key, so `model` is one of their Models, and their client over a Bot-enabled SDK. */
-async function signedIn(deps = createTestSdk({ plugins: [bot()] })) {
+async function signedIn(deps = createTestSdk()) {
   const user = await insertUser();
   await withOpenAiKey(user, deps);
   return { user, deps, client: chatRpc({ user, deps }) };

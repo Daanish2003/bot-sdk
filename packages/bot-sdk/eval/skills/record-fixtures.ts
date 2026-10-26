@@ -18,14 +18,13 @@ import { fileURLToPath } from "node:url";
 import { asc, eq } from "drizzle-orm";
 import { type Page, chromium } from "playwright-core";
 
-import { botDemonstration, botDemonstrationEvent } from "../../core/server/db/schema";
+import { botDemonstration, botDemonstrationEvent } from "../../core/server/storage";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { bot } from "../../plugins/bot/server/plugin";
-import { sendToUserToolName } from "../../plugins/bot/server/turn";
+import { sendToUserToolName } from "../../plugins/bot/server/context";
 import { skills } from "../../plugins/skills/server/plugin";
-import { runnerJobs } from "../../plugins/runner/server/plugin";
+import { runnerJobs } from "../../plugins/runner/server/internal";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
-import { fakeComputerProvider } from "../../test/plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../test/support/fake-computer-provider";
 import type { RecordedFixture } from "./fixtures";
 import { createComputerSdk, databaseUrlFromEnv, prepareSchema } from "../computer/setup";
 import { freshBot, type TurnEnv } from "../turn/case";
@@ -195,7 +194,7 @@ async function record(script: Script, databaseUrl: string) {
   const sdk = createComputerSdk({
     db,
     provider: computerFake.provider,
-    more: [bot(), skills()],
+    features: [skills()],
     models: (real) => ({ ...real, adapterFor: () => fake.adapter }),
   });
   const jobs = runnerJobs(sdk);

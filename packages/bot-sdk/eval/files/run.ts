@@ -17,15 +17,14 @@ import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
 import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 
-import { botTrigger, computer as computerTable } from "../../core/server/db/schema";
+import { botTrigger, computer as computerTable } from "../../core/server/storage";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { uploadBotFile } from "../../plugins/bot/server/files";
-import { bot } from "../../plugins/bot/server/plugin";
-import { runnerJobs } from "../../plugins/runner/server/plugin";
+import { uploadBotFile } from "../../plugins/bot/server/conversation";
+import { runnerJobs } from "../../plugins/runner/server/internal";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
 import { isReviewCall, passVerdict, verdictRound } from "../../test/support/fake-reviewer";
 import { sendAndFollow } from "../../test/support/follow-send";
-import { fakeComputerProvider } from "../../test/plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../test/support/fake-computer-provider";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";
 import {
   createComputerSdk,
@@ -106,7 +105,6 @@ async function main() {
   const sdk = createComputerSdk({
     db,
     provider: computerProvider,
-    more: [bot()],
     models: (real) =>
       fake
         ? {

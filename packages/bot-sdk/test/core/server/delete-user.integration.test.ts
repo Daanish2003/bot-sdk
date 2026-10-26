@@ -5,10 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
 import { deleteUserData } from "../../../core/server/user-data";
-import { bot as botPlugin } from "../../../plugins/bot/server/plugin";
-import { runner } from "../../../plugins/runner/server/plugin";
-import { models } from "../../../plugins/models/server/plugin";
-import { saveCredentials } from "../../../plugins/models/server/credentials/store";
+import { saveCredentials } from "../../../plugins/models/server/internal";
 import {
   bot,
   botTurn,
@@ -16,7 +13,7 @@ import {
   message,
   userCredentials,
   usage,
-} from "../../../core/server/db/schema";
+} from "../../../core/server/storage";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { botOf, botSdk, sendToTurnEnd, stopBotRunners } from "../../support/bot-turns";
 import type { TestDeps } from "../../support/deps";
@@ -172,7 +169,7 @@ describe("createBotSdk().deleteUser", () => {
       getUser: () => null,
       keyEncryptionSecrets: [testKey],
       basePath: "/api/chat",
-      plugins: [models(), runner(), botPlugin()],
+      models: {},
     });
 
     await chat.deleteUser(owner.id);

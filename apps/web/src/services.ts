@@ -1,20 +1,10 @@
 import { createAuth } from "@ai-chat/auth";
 import { chatgptAccessToken } from "@ai-chat/auth/chatgpt";
 import { createDb } from "@ai-chat/db";
-import {
-  createBotSdk,
-  memoryRuntime,
-  redisRuntime,
-  redisStore,
-} from "@ai-chat/bot-sdk/core/server";
-import { bot } from "@ai-chat/bot-sdk/plugins/bot/server";
-import { channel, emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
-import { memory } from "@ai-chat/bot-sdk/plugins/memory/server";
-import { knowledge } from "@ai-chat/bot-sdk/plugins/knowledge/server";
+import { createBotSdk, redisRuntime, redisStore } from "@ai-chat/bot-sdk/core/server";
+import { emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
 import { mcp } from "@ai-chat/bot-sdk/plugins/mcp/server";
-import { skills } from "@ai-chat/bot-sdk/plugins/skills/server";
-import { fakeImageAdapter, models } from "@ai-chat/bot-sdk/plugins/models/server";
-import { runner } from "@ai-chat/bot-sdk/plugins/runner/server";
+import { fakeImageAdapter } from "@ai-chat/bot-sdk/plugins/models/server";
 import { log } from "evlog";
 
 import { isBanActive } from "./admin/ban";
@@ -31,7 +21,8 @@ import {
 } from "./host-models";
 import { linkedCredentialsHook } from "./chatgpt-link";
 import { cachedTokenFor, linkedCredentialsOf } from "./linked-credentials";
-import { computerPluginsOf } from "./computer";
+import { computerProviderOf, e2bConfigOf } from "./computer";
+import { computerFeatures } from "./features";
 import { mcpServersOf } from "./mcp-server";
 import { trustedIpHeadersOf } from "./trusted-ip";
 
@@ -39,15 +30,8 @@ import { trustedIpHeadersOf } from "./trusted-ip";
 // Dockerfile, built into E2B as this name; changing it rebuilds every Computer on its next wake.
 export const computerTemplate = "ai-chat-computer-v3";
 
-// The three E2B values are set together or not at all, so a typo does not silently turn Computers off.
-const e2bValues = [ENV.E2B_API_KEY, ENV.E2B_API_URL, ENV.E2B_SANDBOX_URL];
-if (e2bValues.some(Boolean) && !e2bValues.every(Boolean)) {
-  throw new Error("E2B_API_KEY, E2B_API_URL and E2B_SANDBOX_URL are set together or not at all");
-}
-const e2b =
-  ENV.E2B_API_KEY && ENV.E2B_API_URL && ENV.E2B_SANDBOX_URL
-    ? { apiKey: ENV.E2B_API_KEY, apiUrl: ENV.E2B_API_URL, sandboxUrl: ENV.E2B_SANDBOX_URL }
-    : undefined;
+// The self-hosted E2B the Computers run on, or none; a partial config fails the start.
+const e2b = e2bConfigOf(ENV);
 
 export const db = createDb(ENV);
 // The OAuth values are optional outside production (see .env.schema); an empty id makes the
@@ -92,12 +76,13 @@ export const sdk = (shared.botSdk ??= createBotSdk({
   keyEncryptionSecrets: [ENV.KEY_ENCRYPTION_SECRET, ENV.KEY_ENCRYPTION_SECRET_PREVIOUS].filter(
     (secret): secret is string => Boolean(secret),
   ),
-  runtime: ENV.REDIS_URL ? redisRuntime({ url: ENV.REDIS_URL }) : memoryRuntime(),
+  // Shared through Redis when REDIS_URL is set; in memory otherwise, for one process only.
+  pubsub: ENV.REDIS_URL ? redisRuntime({ url: ENV.REDIS_URL }) : undefined,
   logger: log,
   basePath: "/api/chat",
   fetchAllowHosts: ssrfAllowHosts,
   // File bytes go to the S3 store when S3_* is set, and to Postgres otherwise (ADR 0015).
-  blobStore: blobStoreOf(ENV),
+  blobs: blobStoreOf(ENV),
   // A banned user's Routines, Check-ins and Channel messages start no Turns while the Ban holds (spec #277).
   isUserBlocked: async (userId) => {
     const row = await db.query.user.findFirst({
@@ -110,59 +95,51 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     const session = await auth.api.getSession({ headers: request.headers });
     return session?.user ? { id: session.user.id } : null;
   },
-  plugins: [
-    models({
-      // The Host's Models and their Quota (ADR 0007); unset, users chat only on their own keys.
-      // The Host's Image Models (`HOST_IMAGE_*`) come as one more Provider entry beside its chat Models.
-      hostProviders: [...hostProvidersOf(ENV), ...hostImageProvidersOf(ENV)],
-      // The Host's default Image Model (`HOST_DEFAULT_IMAGE_MODEL`), one of its Image Models.
-      defaultImageModel: hostDefaultImageModelOf(ENV),
-      // CI only (spec #278): HOST_IMAGE_PROVIDER=fake answers every image with the fake adapter, so no
-      // paid call is made.
-      ...(ENV.HOST_IMAGE_PROVIDER === "fake" && { imageAdapterFor: () => fakeImageAdapter() }),
-      // A user's Quota: an Admin's override, else the Host's default (spec #277).
-      getQuota: (userId) => getQuota(db, ENV, userId),
-      // A linked ChatGPT plan is the user's OpenAI credentials when they saved no key (ADR 0023).
-      ...linkedCredentialsHook(
-        ENV,
-        linkedCredentialsOf(cachedTokenFor((userId) => chatgptAccessToken(auth, db, userId))),
-      ),
+  models: {
+    // The Host's Models and their Quota (ADR 0007); unset, users chat only on their own keys.
+    // The Host's Image Models (`HOST_IMAGE_*`) come as one more Provider entry beside its chat Models.
+    hostProviders: [...hostProvidersOf(ENV), ...hostImageProvidersOf(ENV)],
+    // The Host's default Image Model (`HOST_DEFAULT_IMAGE_MODEL`), one of its Image Models.
+    defaultImageModel: hostDefaultImageModelOf(ENV),
+    // CI only (spec #278): HOST_IMAGE_PROVIDER=fake answers every image with the fake adapter, so no
+    // paid call is made.
+    ...(ENV.HOST_IMAGE_PROVIDER === "fake" && { imageAdapterFor: () => fakeImageAdapter() }),
+    // A user's Quota: an Admin's override, else the Host's default (spec #277).
+    getQuota: (userId) => getQuota(db, ENV, userId),
+    // A linked ChatGPT plan is the user's OpenAI credentials when they saved no key (ADR 0023).
+    ...linkedCredentialsHook(
+      ENV,
+      linkedCredentialsOf(cachedTokenFor((userId) => chatgptAccessToken(auth, db, userId))),
+    ),
+  },
+  // Background jobs (ADR 0011): no runner slot, so the in-process runner runs them.
+
+  // The Bots' Computer (spec #519): on only when self-hosted E2B is configured.
+  computer: await computerProviderOf(e2b, computerTemplate),
+  // Channels (spec #761): each Bot's own email address. Mail comes in through Mailpit
+  // (MAILPIT_API_URL, #773), which vouches for DMARC for every mail it holds, so it is for a Host
+  // that only listens on localhost. With no Mailpit, the inbound route refuses every mail: the
+  // fake provider takes its DMARC verdict from the request, so it is for tests and evals only.
+  channels: [
+    emailChannel({
+      provider: emailProviderOf(ENV),
+      domain: ENV.EMAIL_CHANNEL_DOMAIN ?? "bots.localhost",
+      // A Bot's emails link to its page in this app.
+      appUrl: ENV.BETTER_AUTH_URL,
     }),
-    // Background jobs (ADR 0011): the in-process runner, which Memory and the Bots share.
-    runner(),
-    // The Bots' Computer (spec #519): on only when self-hosted E2B is configured.
-    ...(await computerPluginsOf(e2b, computerTemplate)),
-    // Memory (ADR 0022): the Bots' file memory and the user's Memory switch.
-    memory(),
-    // Skills (spec #713): each Bot's SKILL.md files, listed in its prompt; a Host turns it on or off.
-    skills(),
-    // Knowledge (spec #737): the user's shared Knowledge files on their Computer, and text extraction; a Host turns it on or off.
-    knowledge(),
+  ],
+  // Only mail from the user's verified account email reaches their Bots.
+  verifiedEmail: async (userId) => {
+    const row = await db.query.user.findFirst({
+      where: { id: userId },
+      columns: { email: true, emailVerified: true },
+    });
+    return row?.emailVerified ? row.email : null;
+  },
+  features: [
+    // Memory, Skills and Knowledge need the Computer, so a Host without one lists none of them.
+    ...computerFeatures(e2b !== undefined),
     // MCP (ADR 0027): the users' Connections to the Host's MCP servers (`MCP_SERVER_*`).
     mcp({ servers: mcpServersOf(ENV) }),
-    // Bots (spec #463): the full-screen Bots app at /bots.
-    bot(),
-    // Channels (spec #761): each Bot's own email address. Mail comes in through Mailpit
-    // (MAILPIT_API_URL, #773), which vouches for DMARC for every mail it holds, so it is for a Host
-    // that only listens on localhost. With no Mailpit, the inbound route refuses every mail: the
-    // fake provider takes its DMARC verdict from the request, so it is for tests and evals only.
-    channel({
-      adapters: [
-        emailChannel({
-          provider: emailProviderOf(ENV),
-          domain: ENV.EMAIL_CHANNEL_DOMAIN ?? "bots.localhost",
-          // A Bot's emails link to its page in this app.
-          appUrl: ENV.BETTER_AUTH_URL,
-        }),
-      ],
-      // Only mail from the user's verified account email reaches their Bots.
-      verifiedEmail: async (userId) => {
-        const row = await db.query.user.findFirst({
-          where: { id: userId },
-          columns: { email: true, emailVerified: true },
-        });
-        return row?.emailVerified ? row.email : null;
-      },
-    }),
   ],
 }));

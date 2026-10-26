@@ -1,4 +1,4 @@
-import { conversation, message } from "../../core/server/db/schema";
+import { conversation, message } from "../../core/server/storage";
 import { getTestDb } from "./test-database";
 import { eq } from "drizzle-orm";
 

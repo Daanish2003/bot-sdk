@@ -1,43 +1,66 @@
 import { onError } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 
-import { postgresBlobStore } from "./blob/postgres";
-import type { BlobStore } from "./blob/store";
+import { postgresBlobStore, createDb } from "./storage";
+import type { BlobStore } from "./storage";
 import { handleConversationEvents } from "./chat/conversation-events";
 import { createHookEmitter } from "./chat/hooks";
 import type { ChatUser, Context } from "./context";
-import { createDb } from "./db/index";
 import { createGuardedFetch } from "./lib/guarded-fetch";
+import {
+  checkFeature,
+  enableFeature,
+  featurePlugin,
+  type AnyFeature,
+  type FeatureApis,
+} from "./feature";
 import { assertMigrated, migrate as migrateSchema } from "./migrate";
 import {
-  bindPlugins,
   matchPath,
   mergeRateLimits,
   mergeRouters,
   mergeRoutes,
-  orderPlugins,
   type BotSdkContext,
   type BotSdkPlugin,
   type CoreRule,
   type HooksOf,
-  type PluginApis,
   type RateLimitsOf,
   type Route,
 } from "./plugin";
 import { defaultRateLimits, rateLimitedFor, rpcRateLimits, type RateLimit } from "./rate-limits";
 import { memoryRuntime, type BotSdkRuntime } from "./runtime";
 import { deleteUserData, exportUserData, type UserExport } from "./user-data";
+import { bot, type BotApi } from "../../plugins/bot/server/plugin";
+import { channel, createChannels } from "../../plugins/bot/server/channels";
+import type { ChannelAdapter, ChannelApi } from "../../plugins/channel/server/internal";
+import { createComputer } from "../../plugins/computer/server/internal";
+import type { ComputerProvider } from "../../plugins/computer/server/internal";
+import {
+  models,
+  type ModelsApi,
+  type ModelsOptions,
+  type ModelsPlugin,
+} from "../../plugins/models/server/internal";
+import type { JobRunner } from "../../plugins/runner/server/internal";
+import { createRunner, type RunnerApi } from "../../plugins/runner/server/internal";
 
 export type ChatHandler = (request: Request) => Promise<Response>;
 
-/** Where the RPC calls' errors go. */
-export type Logger = Pick<Console, "error">;
+/** Where the RPC calls' errors go, and the SDK's warnings when it has `warn`. */
+export type Logger = Pick<Console, "error"> & Partial<Pick<Console, "warn">>;
 
 export type GetUser = (request: Request) => ChatUser | null | Promise<ChatUser | null>;
 
-export type BotSdkOptions<Plugins extends readonly BotSdkPlugin[] = readonly BotSdkPlugin[]> = {
+/** What the `features` slot takes: features built with `defineFeature`. */
+export type FeatureEntry = AnyFeature;
+
+/**
+ * The factory's options (spec #871): the Bot core is always on, Models are configured in `models`,
+ * and infrastructure goes in flat adapter slots, each with a default.
+ */
+export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly FeatureEntry[]> = {
   databaseUrl: string;
-  /** Who the request is from. `null` answers 401, except on a plugin's public route. */
+  /** Who the request is from. `null` answers 401, except on a public route. */
   getUser: GetUser;
   /**
    * The keyring (ADR 0010), at least one secret. The first encrypts Provider and Tool credentials
@@ -46,23 +69,16 @@ export type BotSdkOptions<Plugins extends readonly BotSdkPlugin[] = readonly Bot
   keyEncryptionSecrets: string[];
   /** Where the handler is mounted, for example `/api/chat`. */
   basePath: string;
-  runtime?: BotSdkRuntime;
   /**
-   * Overrides for the enabled plugins' rate limits (spec 87). Each rule is optional; `false` turns
-   * it off.
+   * What the SDK shares across processes: pub/sub and the rate-limit counters (`redisRuntime`).
+   * Defaults to in-memory, which works in one process only; `start()` warns about it.
    */
-  rateLimits?: RateLimitsOf<Plugins>;
+  pubsub?: BotSdkRuntime;
   /**
    * Where the SDK's own failures go (background writes, usage rows, the database pool, the job
    * reaper) and the RPC calls' errors. Defaults to `console`.
    */
   logger?: Logger;
-  /**
-   * The Host's callbacks into the SDK, for the events the enabled plugins fire. Each hook is
-   * optional and runs after its change is written, never awaited, at most once and without retries
-   * (README, "Host hooks").
-   */
-  hooks?: HooksOf<Plugins>;
   /**
    * Test-only: `host` or `host:port` entries the guarded `fetch` may reach over plain HTTP and at
    * a private address (the end-to-end tests' fake servers). Never set it in production; `apps/web` sets
@@ -74,40 +90,78 @@ export type BotSdkOptions<Plugins extends readonly BotSdkPlugin[] = readonly Bot
    * a Host with object storage passes its store, and then the bytes of files already stored
    * stay where they are.
    */
-  blobStore?: BlobStore;
+  blobs?: BlobStore;
   /**
    * Whether the Host has banned a user (spec #277). A banned owner's Routines, Check-ins and
    * Channel messages don't start Turns. Unset, nobody is blocked.
    */
   isUserBlocked?: (userId: string) => boolean | Promise<boolean>;
-  /** The features this instance serves (ADR 0020), such as `bot()`. */
-  plugins: Plugins;
+  /**
+   * The optional capabilities (spec #871): features built with `defineFeature`, each API served
+   * as `sdk.<id>`.
+   */
+  features?: Features;
+  /** Runs the background jobs. Defaults to the in-process runner, which needs only Postgres. */
+  runner?: JobRunner;
+  /** Each user's Computer. With none, Bots have no Computer and no feature that needs one. */
+  computer?: ComputerProvider;
+  /** The Models: Host credentials, user keys, Quota, linked credentials, default Image Model. */
+  models: ModelsOptions;
+  /** The Channels besides web, each an adapter (email). With none, Bots talk on the web only. */
+  channels?: readonly ChannelAdapter[];
+  /**
+   * The user's verified account email, or `null` when they have none: only mail from it reaches
+   * their Bots. Unset, none does.
+   */
+  verifiedEmail?: (userId: string) => Promise<string | null>;
+  /**
+   * The Model that reviews each Bot's risky tool calls before they run (Auto-review), a
+   * `"provider:model"` id from the Models' list, resolved per user. Unset, or one the user can't
+   * use, the Bot's own Model reviews, in a fresh context.
+   */
+  reviewModel?: string;
+  /** Overrides for the core's rate limits (spec 87). Each rule is optional; `false` turns it off. */
+  rateLimits?: RateLimitsOf<[ModelsPlugin]>;
+  /**
+   * The Host's callbacks into the SDK. Each hook is optional and runs after its change is written,
+   * never awaited, at most once and without retries (README, "Host hooks").
+   */
+  hooks?: HooksOf<[ModelsPlugin]>;
 };
 
 export type BotSdk = {
   handler: ChatHandler;
-  /** An enabled plugin's API. Throws for a plugin that isn't enabled. */
-  plugin: BotSdkContext["plugin"];
+  /** The runner's jobs: `runJob` is what a Host's own worker (such as a Trigger.dev task) calls. */
+  runner: RunnerApi;
+  /** The core's Models (spec #871): metering, the Quota and the Admin views' usage reads. */
+  models: ModelsApi;
+  /**
+   * The core's Bots (spec #871): the Routines' webhook handler, the live view's handler and
+   * socket, and `stopTurns` for a Ban.
+   */
+  bots: BotApi;
+  /** The core's Channels (spec #871): the inbound handler of each adapter in the channels slot. */
+  channels: ChannelApi;
   /** Creates the `chat` schema and applies the bundled migrations. Run it at deploy time. */
   migrate: () => Promise<void>;
   /**
-   * Refuses (throws) while the `chat` schema is behind the bundled migrations; then starts each
-   * plugin, in dependency order. `models` refuses with neither `hostProviders` nor `byok` on; the
+   * Refuses (throws) while the `chat` schema is behind the bundled migrations; then starts the
+   * core's parts, in order. `models` refuses with neither `hostProviders` nor `byok` on; the
    * runner starts its job reaper and the jobs runner (ADR 0011).
    */
   start: () => Promise<void>;
   /**
-   * Sets `stopping`, stops each plugin in reverse dependency order, then closes the runtime's
+   * Sets `stopping`, stops the core's parts in reverse order, then closes the runtime's
    * connections. The runner drains its jobs for up to 250 s, then aborts the rest and waits up to
-   * 250 s more for their handlers to end. A plugin whose stop throws doesn't stop the others; its
+   * 250 s more for their handlers to end. A part whose stop throws doesn't stop the others; its
    * error is rethrown once the runtime closes. Call it on SIGTERM.
    */
   stop: () => Promise<void>;
-  /** Deletes everything every plugin holds for a user, in one transaction. Idempotent. */
+  /** Deletes everything the core and the features hold for a user, in one transaction. Idempotent. */
   deleteUser: (userId: string) => Promise<void>;
   /**
    * Everything the SDK keeps for a user, as one document (`version: 2`): the core's `version`
-   * and `exportedAt`, and each exporting plugin's part under its plugin id. Empty for an unknown id.
+   * and `exportedAt`, and each exporting part under its id (`bot`, `models`, a feature's). Empty for an unknown id.
    */
   exportUser: (userId: string) => Promise<UserExport>;
   /**
@@ -148,23 +202,56 @@ function exportResponse(document: UserExport) {
 }
 
 /** The parts of the core context a test may give instead of having them built. */
-export type GivenContext = Partial<Omit<BotSdkContext, "plugin" | "hasPlugin" | "rateLimit">>;
+export type GivenContext = Partial<
+  Omit<
+    BotSdkContext,
+    "parts" | "rateLimit" | "models" | "runner" | "computer" | "bots" | "channels"
+  >
+>;
 
 /**
- * The Bot SDK for a Host: one instance over its plugins (ADR 0020). Construction checks each
- * plugin's `requires` and the router keys, then runs each plugin's `init` in dependency order.
- * Nothing connects, starts or queries until the first request, so the Host can build it at import
- * time.
+ * The Bot SDK for a Host (spec #871): the Bot core over the slots, with the listed features.
+ * Construction checks each feature's `needs` and schema, and the router keys. Nothing connects,
+ * starts or queries until the first request, so the Host can build it at import time.
  */
-export function createBotSdk<const Plugins extends readonly BotSdkPlugin[]>(
-  options: BotSdkOptions<Plugins>,
-): BotSdk {
-  return buildBotSdk(options, {}).instance;
+export function createBotSdk<const Features extends readonly FeatureEntry[] = []>(
+  options: BotSdkOptions<Features>,
+): BotSdk & FeatureApis<Features> {
+  return buildBotSdk(options, {}).instance as BotSdk & FeatureApis<Features>;
 }
 
+/**
+ * The core's parts the slots configure: Models (`modelsPart`, by default the models slot's), the
+ * Bots, and the Channels when their slot is set. Models come first, so every other part's `init`
+ * finds `sdk.models` set.
+ */
+export function coreParts(options: BotSdkOptions, modelsPart?: BotSdkPlugin): BotSdkPlugin[] {
+  if (!modelsPart && !options.models) {
+    throw new Error("Models aren't configured: set the models slot");
+  }
+  return [
+    modelsPart ?? models(options.models),
+    bot({ reviewModel: options.reviewModel }),
+    ...(options.channels
+      ? [
+          channel({
+            adapters: options.channels,
+            verifiedEmail: options.verifiedEmail ?? (async () => null),
+          }),
+        ]
+      : []),
+  ];
+}
+
+/**
+ * The instance over `options`, with any `given` part of the core context in its place, and the
+ * core's parts (`core`: by default the ones the slots configure; Models first, since the other
+ * parts' inits read them). The factory and the tests' instances share it.
+ */
 export function buildBotSdk(
   options: BotSdkOptions,
   given: GivenContext,
+  parts?: readonly BotSdkPlugin[],
 ): { instance: BotSdk; context: BotSdkContext } {
   if (options.keyEncryptionSecrets.length === 0) {
     throw new Error("keyEncryptionSecrets must hold at least one secret");
@@ -172,44 +259,76 @@ export function buildBotSdk(
   if (!options.basePath.startsWith("/")) {
     throw new Error(`basePath must start with "/": ${options.basePath}`);
   }
-  const plugins = orderPlugins(options.plugins);
-  // The core serves its own routes and rules beside the plugins', so a plugin can't claim them.
-  const core: BotSdkPlugin = {
+  const core = parts ?? coreParts(options);
+  if (core[0]?.id !== "models") throw new Error("The core's parts must start with Models");
+  const features: readonly AnyFeature[] = options.features ?? [];
+  // The core services the instance has: a feature's `needs` are checked against them.
+  const services = new Set(["runner", ...(options.computer ? ["computer"] : [])]);
+  const ids = new Set<string>();
+  for (const feature of features) {
+    if (ids.has(feature.id)) throw new Error(`Feature "${feature.id}" is enabled twice`);
+    ids.add(feature.id);
+    checkFeature(feature, services);
+  }
+  // The core serves its own routes and rules beside its parts', so no part can claim them.
+  const own: BotSdkPlugin = {
     id: "core",
     routes: coreRoutes((userId) => instance.exportUser(userId)),
     rateLimits: coreRateLimits,
   };
-  const router = mergeRouters([core, ...plugins]);
-  const routes = mergeRoutes([core, ...plugins]);
-  const ruleDefaults = mergeRateLimits([core, ...plugins]);
+  const declared = [
+    own,
+    ...core,
+    ...features.map(({ id, router, routes }): BotSdkPlugin => ({ id, router, routes })),
+  ];
+  const router = mergeRouters(declared);
+  const routes = mergeRoutes(declared);
+  const ruleDefaults = mergeRateLimits([own, ...core]);
 
-  const apis = new Map<string, object>();
   // Building the context opens nothing: the pool and the runtime connect on first use.
-  const enabledIds = new Set(plugins.map((plugin) => plugin.id));
-  const sdk = buildContext(options, given, ruleDefaults, enabledIds, (id) => {
-    const api = apis.get(id);
-    if (!api) throw new Error(`Plugin "${id}" isn't enabled`);
-    return api;
-  });
-  // In dependency order, so a plugin's `init` can call the plugins it requires.
+  const sdk = buildContext(options, given, ruleDefaults) as BotSdkContext;
+  // The core services, over the context they belong to, before any part's `init` runs.
+  const runner = createRunner(sdk, options.runner);
+  sdk.runner = runner.api;
+  sdk.computer = options.computer ? createComputer(sdk, options.computer) : null;
+  // No Channel besides web, until the channels slot's init sets its adapters.
+  sdk.channels = createChannels(sdk, { adapters: [], verifiedEmail: async () => null });
+  // Each feature in the Host's order, with the core services it needs.
+  const enabled = features.map((feature) => enableFeature(sdk, feature));
+  const plugins = [...core, ...enabled.map(featurePlugin)];
+  sdk.parts = { all: plugins, features: enabled };
+  // In order: the core's parts first, then each feature's API.
+  const apis = new Map<string, object>();
   for (const plugin of plugins) apis.set(plugin.id, plugin.init?.(sdk)?.api ?? {});
-  bindPlugins(sdk, plugins);
 
   const instance: BotSdk = {
     handler: createHandler(options, router, routes, sdk),
-    plugin: sdk.plugin,
+    runner: sdk.runner,
+    models: sdk.models,
+    bots: sdk.bots,
+    channels: sdk.channels,
     migrate: () =>
       migrateSchema(options.databaseUrl, {
-        blobStore: options.blobStore,
+        blobStore: options.blobs,
         logger: options.logger,
       }),
     start: async () => {
       await assertMigrated(options.databaseUrl);
+      if (!options.pubsub && !given.runtime && !given.pubsub) {
+        const logger = options.logger ?? console;
+        const warning =
+          "The Bot SDK's pub/sub is in memory, which works in one process only: set the pubsub slot (redisRuntime) when the Host runs more than one";
+        // Called on the logger, so a class-based one keeps its `this`.
+        if (logger.warn) logger.warn(warning);
+        else logger.error(warning);
+      }
       for (const plugin of plugins) await plugin.start?.(sdk);
+      // The reaper, then the jobs runner.
+      await runner.lifecycle.start();
     },
     stop: async () => {
       sdk.lifecycle.stopping = true;
-      // Every plugin stops even when one throws, and the runtime closes after them all, so the
+      // Every part stops even when one throws, and the runtime closes after them all, so the
       // process can still exit. The failures are thrown once it has.
       const errors: unknown[] = [];
       for (const plugin of [...plugins].reverse()) {
@@ -219,9 +338,15 @@ export function buildBotSdk(
           errors.push(error);
         }
       }
-      await options.runtime?.close?.();
+      // Drains the jobs, once the parts that queue them have stopped.
+      try {
+        await runner.lifecycle.stop();
+      } catch (error) {
+        errors.push(error);
+      }
+      await options.pubsub?.close?.();
       if (errors.length === 1) throw errors[0];
-      if (errors.length > 1) throw new AggregateError(errors, "Several plugins failed to stop");
+      if (errors.length > 1) throw new AggregateError(errors, "Several parts failed to stop");
     },
     deleteUser: (userId) => deleteUserData(sdk, userId),
     exportUser: (userId) => exportUserData(sdk, userId),
@@ -235,6 +360,8 @@ export function buildBotSdk(
       return total;
     },
   };
+  // Each feature's API, as `sdk.<id>`.
+  for (const feature of features) Object.assign(instance, { [feature.id]: apis.get(feature.id) });
   return { instance, context: sdk };
 }
 
@@ -243,12 +370,10 @@ function buildContext(
   options: BotSdkOptions,
   given: GivenContext,
   ruleDefaults: ReturnType<typeof mergeRateLimits>,
-  enabledIds: ReadonlySet<string>,
-  plugin: (id: string) => object,
-): BotSdkContext {
+): Omit<BotSdkContext, "runner" | "computer" | "channels" | "parts"> {
   const logger = options.logger ?? console;
   const db = given.db ?? createDb({ DATABASE_URL: options.databaseUrl }, logger);
-  const runtime = given.runtime ?? options.runtime ?? memoryRuntime();
+  const runtime = given.runtime ?? options.pubsub ?? memoryRuntime();
   const counters = given.counters ?? runtime.counters;
   const overrides: Partial<Record<string, RateLimit | false>> = options.rateLimits ?? {};
   // A given rule replaces its default; the rest keep theirs, so `rateLimit` finds every rule.
@@ -261,7 +386,7 @@ function buildContext(
   const fetchAllowHosts = given.fetchAllowHosts ?? options.fetchAllowHosts ?? [];
   return {
     db,
-    blobStore: given.blobStore ?? options.blobStore ?? postgresBlobStore(db),
+    blobStore: given.blobStore ?? options.blobs ?? postgresBlobStore(db),
     runtime,
     pubsub: given.pubsub ?? runtime.pubsub,
     counters,
@@ -278,14 +403,75 @@ function buildContext(
     rateLimit: (rule, key) => {
       const limit = rateLimits[rule];
       if (limit === undefined)
-        throw new Error(`No enabled plugin declares the rate limit "${rule}"`);
+        throw new Error(`Nothing in the instance declares the rate limit "${rule}"`);
       return rateLimitedFor(counters, limit, key);
     },
-    plugin: <Id extends keyof PluginApis>(id: Id) => plugin(id) as PluginApis[Id],
-    // From the plugin list, so it holds already in an `init` that runs before the other plugin's.
-    hasPlugin: (id) => enabledIds.has(id),
+    // Set by the Models' init, which runs before every other part's.
+    models: modelsUnconfigured,
+    // Set by the Bots' init, which the core always runs.
+    bots: botsUnconfigured,
   };
 }
+
+/** Every name of the Models' API, so the unconfigured stand-in throws on those alone. */
+const modelsApiKeys: Record<keyof ModelsApi, true> = {
+  resolveModelCall: true,
+  resolveToolCall: true,
+  resolvePayer: true,
+  resolveModel: true,
+  listAvailableModels: true,
+  resolveImageModel: true,
+  imageModelSetting: true,
+  saveImageModelSetting: true,
+  resolveUserImageModel: true,
+  readQuota: true,
+  messageUsage: true,
+  loadCredentials: true,
+  adapterFor: true,
+  adapterForCall: true,
+  freeModelMeter: true,
+  addRecentModelSource: true,
+  imageAdapterFor: true,
+  imageRequestFor: true,
+  byok: true,
+  defaultImageModel: true,
+  hasHostImageModels: true,
+  usageTotals: true,
+  usage: true,
+  quota: true,
+};
+
+/**
+ * The `models` service of an instance whose core parts have no `models()`: reading any part of
+ * its API throws. Other keys read as unset, so printing, serialising or awaiting it doesn't.
+ */
+const modelsUnconfigured = new Proxy({} as ModelsApi, {
+  get: (_target, key) => {
+    if (typeof key === "string" && key in modelsApiKeys) {
+      throw new Error("Models aren't configured: set the models slot");
+    }
+    return undefined;
+  },
+});
+
+/** The `bot` service of an instance whose core parts have no `bot()`: reading its API throws. */
+const botsUnconfigured = new Proxy({} as BotApi, {
+  get: (_target, key) => {
+    if (typeof key === "string" && key in botApiKeys) {
+      throw new Error("The Bots aren't enabled: build the SDK with the slots");
+    }
+    return undefined;
+  },
+});
+
+/** Every name of the Bots' API, so the stand-in throws on those alone. */
+const botApiKeys: Record<keyof BotApi, true> = {
+  webhookHandler: true,
+  stopTurns: true,
+  screenHandler: true,
+  screenSocket: true,
+  reviewModel: true,
+};
 
 function createHandler(
   { basePath, getUser, logger = console }: BotSdkOptions,

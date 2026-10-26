@@ -2,24 +2,25 @@ import type { TextOptions } from "@tanstack/ai";
 import { eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { botPromptStart, botTurn, job } from "../../../../core/server/db/schema";
+import { botPromptStart, botSecret, botTurn, job } from "../../../../core/server/storage";
+import { encryptCredentials } from "../../../../core/server/credentials/encryption";
+import { secretEncryption } from "../../../../plugins/bot/server/safety";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { bot } from "../../../../plugins/bot/server/plugin";
-import { computer } from "../../../../plugins/computer/server/plugin";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
   type InProcessRunner,
   systemClock,
-} from "../../../../plugins/runner/server/jobs/in-process";
-import { claimJob, reapStaleJobs } from "../../../../plugins/runner/server/jobs/store";
+  claimJob,
+  reapStaleJobs,
+} from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-6-luna";
@@ -64,7 +65,7 @@ async function botsWith(
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: withComputer ? [bot(), computer({ provider: computerFake.provider })] : [bot()],
+    ...(withComputer && { computer: computerFake.provider }),
     jobs,
     adapterFor: () => fake.adapter,
     clock,
@@ -141,6 +142,27 @@ describe("the memory snapshot in a Bot's Turn", () => {
     expect(prompts[2]).toContain("4,000 characters");
     expect(prompts[2]).toMatch(/write only your own files/i);
     expect(prompts[2]).toMatch(/save a preference the moment you hear it/i);
+  });
+
+  it("masks the user's Secrets in the block, as a Computer read's result is masked", async () => {
+    const value = "ghp_memory_secret_value_1234";
+    const { client, botIds, fake, seed, deps, user } = await botsWith([round(), round()]);
+    const [ada] = botIds as [string];
+    seed(ada, "profile.md", [`- Their GitHub token is ${value}`]);
+    await getTestDb()
+      .insert(botSecret)
+      .values({
+        userId: user.id,
+        name: "GITHUB_TOKEN",
+        encrypted: encryptCredentials({ value }, secretEncryption(deps, user.id, "GITHUB_TOKEN")),
+        createdAt: new Date(),
+      });
+
+    await send(client, ada, "hi");
+
+    const block = memoryBlockOf(fake.calls[0]);
+    expect(block).toContain("Their GitHub token is");
+    expect(block).not.toContain(value);
   });
 
   it("holds the Bot's own Profile first, then the other Bots' oldest first, labelled, with duplicates dropped", async () => {
@@ -314,7 +336,7 @@ describe("a Turn that resumes after a crash", () => {
       });
       started.push(jobs);
       deps = createTestSdk({
-        plugins: [bot(), computer({ provider: computerFake.provider })],
+        computer: computerFake.provider,
         jobs,
         adapterFor: () => fake.adapter,
         clock: () => timer.clock.now(),

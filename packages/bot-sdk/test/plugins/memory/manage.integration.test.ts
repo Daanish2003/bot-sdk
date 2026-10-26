@@ -1,18 +1,22 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { memorySettings } from "../../../core/server/db/schema";
+import { memorySettings } from "../../../plugins/memory/server/schema";
 import { createTestSdk } from "../../support/deps";
 import { chatRpc } from "../../support/sdk";
 import { getTestDb } from "../../support/test-database";
 import { insertUser } from "../../support/users";
+import { fakeComputerProvider } from "../../support/fake-computer-provider";
 
 describe("the Memory switch procedures", () => {
   it("gets and sets the Memory switch", async () => {
     const user = await insertUser();
-    const rpc = chatRpc({ user, deps: createTestSdk() });
+    const deps = createTestSdk({
+      computer: fakeComputerProvider().provider,
+    });
+    const rpc = chatRpc({ user, deps });
 
-    expect(await rpc.memory.status()).toEqual({ enabled: true, botMemoryAvailable: false });
+    expect(await rpc.memory.status()).toEqual({ enabled: true, botMemoryAvailable: true });
 
     await rpc.memory.setEnabled({ enabled: false });
     const [settings] = await getTestDb()

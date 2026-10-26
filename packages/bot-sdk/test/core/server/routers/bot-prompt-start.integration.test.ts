@@ -2,24 +2,23 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { botHelper, botPromptStart, botTurn, job, usage } from "../../../../core/server/db/schema";
+import { botHelper, botPromptStart, botTurn, job, usage } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { bot } from "../../../../plugins/bot/server/plugin";
-import { computer } from "../../../../plugins/computer/server/plugin";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
   type InProcessRunner,
   systemClock,
-} from "../../../../plugins/runner/server/jobs/in-process";
-import { claimJob, reapStaleJobs } from "../../../../plugins/runner/server/jobs/store";
+  claimJob,
+  reapStaleJobs,
+} from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-6-luna";
@@ -57,7 +56,7 @@ async function botWith(rounds: Round[], { withComputer = true, modelId = model }
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: withComputer ? [bot(), computer({ provider: computerFake.provider })] : [bot()],
+    ...(withComputer && { computer: computerFake.provider }),
     memory: withComputer,
     jobs,
     adapterFor: () => fake.adapter,
@@ -211,7 +210,7 @@ describe("a Bot's Prompt start", () => {
     }
   });
 
-  it("says Computer, Memory and Helpers are off with no computer plugin", async () => {
+  it("says Computer and Helpers are off, and nothing of Memory, with no computer plugin", async () => {
     const { fake, client, botId } = await botWith([round()], { withComputer: false });
 
     await send(client, botId, "hi");
@@ -219,7 +218,8 @@ describe("a Bot's Prompt start", () => {
     const first = firstMessageOf(turnCalls(fake.calls)[0]);
     expect(first).toContain("The user's time zone: UTC");
     expect(first).toContain("Computer: off.");
-    expect(first).toContain("Memory: off.");
+    // Without the Memory feature the Prompt start says nothing about Memory.
+    expect(first).not.toContain("Memory:");
     expect(first).toContain("Helpers: off.");
     expect(first).not.toContain("/home/user");
   });
@@ -360,7 +360,6 @@ describe("a Turn that resumes after a crash", () => {
       });
       started.push(jobs);
       deps = createTestSdk({
-        plugins: [bot()],
         memory: false,
         jobs,
         adapterFor: () => fake.adapter,

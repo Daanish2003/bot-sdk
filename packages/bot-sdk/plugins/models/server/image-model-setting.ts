@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 
-import { modelSettings } from "../../../core/server/db/schema";
+import { modelSettings } from "../../../core/server/storage";
 import { resolveImageModel, type ResolvedImageModel } from "./image-models";
 import type { ModelsDeps } from "./types";
 

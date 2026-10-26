@@ -2,39 +2,36 @@ import type { AnyTextAdapter, ModelMessage, TextOptions } from "@tanstack/ai";
 import { and, asc, eq, inArray, like } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { blob, botHelper, botReview, jobEvent } from "../../../../core/server/db/schema";
+import { blob, botHelper, botReview, jobEvent } from "../../../../core/server/storage";
 import { deleteUserData } from "../../../../core/server/user-data";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { noVisionError } from "../../../../plugins/bot/server/computer-use-tool";
-import { keptScreenshots, removedScreenshot } from "../../../../plugins/bot/server/image-refs";
 import {
+  noVisionError,
   botHelperJob,
   computerUseHelperPrompt,
   helperEndings,
   helperTimeLimitMs,
-} from "../../../../plugins/bot/server/helper";
-import { reapStaleJobs } from "../../../../plugins/runner/server/jobs/store";
-import { bot } from "../../../../plugins/bot/server/plugin";
-import type { ReviewVerdict } from "../../../../plugins/bot/server/review";
-import { computer } from "../../../../plugins/computer/server/plugin";
-import type { CommandResult } from "../../../../plugins/computer/server/provider";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import type { HostProvider } from "../../../../plugins/models/server/types";
+} from "../../../../plugins/bot/server/helpers";
+import { keptScreenshots, removedScreenshot } from "../../../../plugins/bot/server/conversation";
+
 import {
+  reapStaleJobs,
   inProcessRunner,
   type InProcessRunner,
   systemClock,
-} from "../../../../plugins/runner/server/jobs/in-process";
+} from "../../../../plugins/runner/server/internal";
+import type { ReviewVerdict } from "../../../../plugins/bot/server/safety";
+import type { CommandResult } from "../../../../plugins/computer/server/internal";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
+import type { HostProvider } from "../../../../plugins/models/server/internal";
+
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { fakeReviewer, passVerdict, verdictRound } from "../../../support/fake-reviewer";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import {
-  type FakeCommandRun,
-  fakeComputerProvider,
-} from "../../../plugins/computer/server/fake-provider";
+import { type FakeCommandRun, fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { followSend } from "../../../support/follow-send";
 
 const silent = { error: () => {} };
@@ -109,7 +106,7 @@ async function userWith(
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [bot(), computer({ provider: computerFake.provider })],
+    computer: computerFake.provider,
     jobs,
     clock,
     adapterFor: () => adapter,

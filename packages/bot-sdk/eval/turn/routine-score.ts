@@ -120,7 +120,9 @@ export function callsToJudge(
   let rejection: string | undefined;
   for (const entry of entries) {
     for (const call of entry.toolCalls ?? []) {
-      if (call.function.name !== tool) continue;
+      // A definition-only tool (create_routine, set_check_in) is called through run_tool.
+      const { name, arguments: text } = unwrapped(call);
+      if (name !== tool) continue;
       const result = entries.find((m) => m.role === "tool" && m.toolCallId === call.id);
       let error: string | undefined;
       if (!result) error = `${tool} has no result`;
@@ -138,7 +140,7 @@ export function callsToJudge(
         continue;
       }
       try {
-        const input = JSON.parse(call.function.arguments) as Record<string, unknown>;
+        const input = JSON.parse(text) as Record<string, unknown>;
         accepted.push(describeCall(tool, input, now, zone));
       } catch {
         rejection = `${tool} was called with arguments that are not JSON`;

@@ -5,13 +5,11 @@ import {
   maxHistoryImageBytes,
   resolveImageRefs,
   userImageLeftOut,
-} from "../../../../plugins/bot/server/image-refs";
-import {
   copyUploads,
   maxInlineImageBytes,
   sentFileBlobKey,
-} from "../../../../plugins/bot/server/files";
-import type { ComputerHandle } from "../../../../plugins/computer/server/plugin";
+} from "../../../../plugins/bot/server/conversation";
+import type { ComputerHandle } from "../../../../plugins/computer/server/internal";
 
 /** A user Message with the image of file `id`, as a Turn's input stores it. */
 const withImage = (id: string): ModelMessage => ({

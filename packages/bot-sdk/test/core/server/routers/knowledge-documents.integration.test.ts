@@ -3,12 +3,11 @@ import { crc32, deflateRawSync } from "node:zlib";
 
 import { describe, expect, it } from "vitest";
 
-import { computer } from "../../../../plugins/computer/server/plugin";
 import { knowledge } from "../../../../plugins/knowledge/server/plugin";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { createTestSdk } from "../../../support/deps";
 import { chatRpc } from "../../../support/sdk";
-import { insertUser } from "../../../support/users";
+import { insertOwner } from "../../../support/users";
 
 const folder = "/home/user/shared/knowledge";
 const fixture = (name: string) =>
@@ -71,9 +70,10 @@ function docxWithText(text: string, name = "long.docx") {
 async function setup() {
   const computerFake = fakeComputerProvider();
   const deps = createTestSdk({
-    plugins: [computer({ provider: computerFake.provider }), knowledge()],
+    computer: computerFake.provider,
+    features: [knowledge()],
   });
-  const client = chatRpc({ user: await insertUser(), deps });
+  const client = chatRpc({ user: await insertOwner(), deps });
   return { computerFake, client };
 }
 

@@ -10,9 +10,18 @@ import {
   latestTurnStatus,
   listBots,
   userTurnStatus,
-} from "../store";
+  isTimeZone,
+  uploadBotFile,
+} from "../conversation";
 import { botMessageSchema } from "../../shared/turn";
-import { turnProvenance } from "../provenance";
+import {
+  turnProvenance,
+  decideReview,
+  listReviews,
+  deleteSecret,
+  listSecrets,
+  saveSecret,
+} from "../safety";
 import {
   approveRoutine,
   declineRoutine,
@@ -21,28 +30,25 @@ import {
   removeRoutine,
   resumeRoutine,
   rotateWebhook,
-} from "../routine";
+  cancelCheckIn,
+  listCheckIns,
+} from "../routines";
 import { botChanges } from "../changes";
-import { answerChoice } from "../choice";
-import { reactToMessage } from "../reaction";
+import { answerChoice, reactToMessage } from "../triggers";
+
 import { emojiSchema } from "../../shared/reaction";
 import { maxChoiceOptionLength, maxChoiceOtherLength } from "../../shared/choice";
-import { cancelCheckIn, listCheckIns } from "../check-in";
-import { listHelpers } from "../helper-card";
-import { decideReview, listReviews } from "../review";
-import { deleteSecret, listSecrets, saveSecret } from "../secret";
+
+import { listHelpers, helperDone, stopBotHelpers, screenControl, screenView } from "../helpers";
+
 import { secretNameSchema } from "../../shared/secret";
-import { helperDone } from "../hand-off";
-import { stopBotHelpers } from "../helper-tools";
-import { screenControl, screenView } from "../screen-view";
+
 import type { DemonstrationAction } from "../../shared/demonstration";
-import { actOnDemonstration } from "../demonstration";
-import { demonstrationSteps } from "../demonstration-capture";
-import { botSummaries } from "../summary";
-import { isTimeZone } from "../time-zone";
+import { actOnDemonstration, demonstrationSteps } from "../demonstrations";
+
+import { botSummaries, botWarmings, warmBot } from "../context";
+
 import { sendToBot, stopBot } from "../turn";
-import { uploadBotFile } from "../files";
-import { botWarmings, warmBot } from "../warm";
 
 /** A route that applies `action` to one of the caller's Demonstrations. */
 const demonstrationAction = (action: DemonstrationAction) =>
@@ -60,7 +66,7 @@ const botRouter = {
   create: protectedProcedure
     .input(z.object({ name: z.string().trim().min(1).max(100), model: z.string() }))
     .handler(async ({ context, input }) => {
-      const { models } = await context.sdk.plugin("models").listAvailableModels(context.user.id);
+      const { models } = await context.sdk.models.listAvailableModels(context.user.id);
       if (!models.some((model) => model.id === input.model)) {
         throw rpcError(
           "BAD_REQUEST",
@@ -439,3 +445,6 @@ const botRouter = {
 /** The `bot` plugin's routers, served under `<basePath>/rpc/<key>`. */
 export const botPluginRouter = { bot: botRouter };
 export type BotRouter = typeof botPluginRouter;
+
+// The email Channel's router type, for the channel client (ADR 0005: clients import routers/index only).
+export type { ChannelRouter } from "./channel";

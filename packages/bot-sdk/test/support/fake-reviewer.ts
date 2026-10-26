@@ -1,8 +1,8 @@
 import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 
-import { reviewerSystemPrompt } from "../../plugins/bot/server/review";
-import type { ReviewVerdict } from "../../plugins/bot/server/review";
-import type { ModelsDeps } from "../../plugins/models/server/types";
+import { reviewerSystemPrompt } from "../../plugins/bot/server/safety";
+import type { ReviewVerdict } from "../../plugins/bot/server/safety";
+import type { ModelsDeps } from "../../plugins/models/server/internal";
 import { createFakeAdapter, round, text } from "./fake-adapter";
 
 type Chunks = ReturnType<typeof round>;

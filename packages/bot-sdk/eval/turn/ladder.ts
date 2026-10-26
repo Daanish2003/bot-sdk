@@ -16,9 +16,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { bot } from "../../plugins/bot/server/plugin";
 import type { ComputerProvider } from "../../plugins/computer/server";
-import { runnerJobs } from "../../plugins/runner/server/plugin";
+import { runnerJobs } from "../../plugins/runner/server/internal";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
 import { createComputerSdk, databaseUrlFromEnv, prepareSchema } from "../computer/setup";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";
@@ -132,7 +131,6 @@ async function main() {
   const sdk = createComputerSdk({
     db,
     provider: emptyComputer,
-    more: [bot()],
     wrapFetch: tavilyAnswered,
     models: (real) =>
       fake
@@ -147,7 +145,7 @@ async function main() {
         : { ...real, linkedCredentials: plan?.linkedCredentials },
   });
   // A Helper's job waits a day, so it never runs: the run scores the main agent's choice.
-  const runner = sdk.plugin("runner");
+  const runner = sdk.runner;
   const enqueueIn = runner.enqueueIn;
   runner.enqueueIn = (tx, name, payload, options = {}) =>
     enqueueIn(

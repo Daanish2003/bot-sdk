@@ -66,7 +66,7 @@ export const getAdminUserDetail = createServerFn({ method: "GET" })
         where: { userId: data.userId },
         columns: { budgetUsd: true },
       }),
-      sdk.plugin("models").usage({ userId: data.userId, ...spendRange(now) }),
+      sdk.models.usage({ userId: data.userId, ...spendRange(now) }),
     ]);
     const days = spendByDay(usage, lastDays(now, 30));
     const models = [...new Set(usage.map((row) => row.model))].sort();

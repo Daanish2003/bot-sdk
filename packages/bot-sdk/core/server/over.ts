@@ -1,67 +1,108 @@
 import {
   buildBotSdk,
+  coreParts,
   type BotSdk,
   type BotSdkOptions,
   type ChatHandler,
+  type FeatureEntry,
   type GivenContext,
 } from "./create-chat";
-import { enabledPlugins, type BotSdkContext, type BotSdkPlugin } from "./plugin";
-import { modelsOver } from "../../plugins/models/server/plugin";
-import type { ModelsDeps } from "../../plugins/models/server/types";
-import type { JobRunner } from "../../plugins/runner/server/jobs/runner";
-import { runner, runnerJobs } from "../../plugins/runner/server/plugin";
+import { enabledFeatures } from "./feature";
+import { enabledPlugins, type BotSdkContext } from "./plugin";
+import { modelsOver } from "../../plugins/models/server/internal";
+import type { ModelsDeps } from "../../plugins/models/server/internal";
+import { computerProvider } from "../../plugins/computer/server/internal";
+import type { ComputerProvider } from "../../plugins/computer/server/internal";
+import type { JobRunner } from "../../plugins/runner/server/internal";
+import { runnerJobs } from "../../plugins/runner/server/internal";
 
 type OverOptions = Pick<BotSdkOptions, "basePath" | "getUser" | "logger">;
 
+/** The factory's options the seam passes on as they are. */
+export type OverSlots = Pick<BotSdkOptions, "channels" | "verifiedEmail" | "reviewModel">;
+
 /**
- * What the tests and evals drive: the core context of an instance over fakes, with its `models`
- * plugin's bundle.
+ * What the tests and evals drive: the core context of an instance over fakes, with its Models
+ * bundle.
  */
 export type SdkOver = BotSdkContext & ModelsDeps;
 
 /**
- * A real instance whose core context, `models` and `runner` plugins take the given parts in place
- * of built ones: the seam the tests and evals drive with fakes. Returns the instance and its
- * context with the `models` bundle.
+ * A real instance whose core context, Models, runner and Computer take the given parts in place of
+ * built ones: the seam the tests and evals drive with fakes. The other slots are the factory's.
+ * Returns the instance and its context with the Models bundle.
  */
 export function createBotSdkOver(
-  given: {
+  given: OverSlots & {
     context: GivenContext;
     models: ModelsDeps;
-    /** The `runner` plugin's jobs runner; the in-process runner by default. */
+    /** The runner slot's jobs runner; the in-process runner by default. */
     jobs?: JobRunner;
-    /** More plugins, enabled after `models` and `runner`. */
-    plugins?: readonly BotSdkPlugin[];
+    /** The computer slot's provider; no Computer by default. */
+    computer?: ComputerProvider;
+    /** The features, as the `features` slot takes them. */
+    features?: readonly FeatureEntry[];
   },
   options: OverOptions,
 ): { instance: BotSdk; sdk: SdkOver } {
+  const slots: BotSdkOptions = {
+    ...options,
+    databaseUrl: "",
+    keyEncryptionSecrets: given.context.keyring ?? given.models.keyEncryptionSecrets,
+    models: {},
+    runner: given.jobs,
+    computer: given.computer,
+    features: given.features,
+    channels: given.channels,
+    verifiedEmail: given.verifiedEmail,
+    reviewModel: given.reviewModel,
+  };
   const { instance, context } = buildBotSdk(
-    {
-      ...options,
-      databaseUrl: "",
-      keyEncryptionSecrets: given.context.keyring ?? given.models.keyEncryptionSecrets,
-      plugins: [modelsOver(given.models), runner({ jobs: given.jobs }), ...(given.plugins ?? [])],
-    },
+    slots,
     given.context,
+    coreParts(slots, modelsOver(given.models)),
   );
   return { instance, sdk: { ...given.models, ...context } };
 }
 
 /**
  * The handler of a new instance over `sdk`'s parts (a `createBotSdkOver` context, or a copy of one
- * with some parts replaced): its core context, `models` bundle and jobs runner, and the other
- * plugins `sdk` enabled.
+ * with some parts replaced): its core context, Models bundle, jobs runner and Computer provider,
+ * and the same core parts and features.
  */
 export function createChatHandler(sdk: SdkOver, options: OverOptions): ChatHandler {
-  const { plugin: _plugin, hasPlugin: _hasPlugin, rateLimit: _rateLimit, ...context } = sdk;
-  // Its own sources: the plugins register theirs again when the new instance runs their inits.
+  const {
+    parts: _parts,
+    rateLimit: _rateLimit,
+    models: _models,
+    runner: _runner,
+    computer,
+    bots: _bots,
+    channels: _channels,
+    ...context
+  } = sdk;
+  // Its own sources: the parts register theirs again when the new instance runs their inits.
   const models = {
-    ...sdk,
+    ...context,
     hooks: sdk.events,
     keyEncryptionSecrets: sdk.keyring,
     recentModelSources: [],
   };
-  const plugins = enabledPlugins(sdk).filter(({ id }) => !["models", "runner"].includes(id));
-  return createBotSdkOver({ context, models, jobs: runnerJobs(sdk), plugins }, options).instance
-    .handler;
+  const features = enabledFeatures(sdk).map(({ feature }) => feature);
+  const featureIds = new Set(features.map(({ id }) => id));
+  // The Bots and Channels as `sdk` built them, after Models over the new bundle.
+  const core = enabledPlugins(sdk).filter(({ id }) => id !== "models" && !featureIds.has(id));
+  return buildBotSdk(
+    {
+      ...options,
+      databaseUrl: "",
+      keyEncryptionSecrets: sdk.keyring,
+      models: {},
+      runner: runnerJobs(sdk),
+      ...(computer && { computer: computerProvider(computer) }),
+      features,
+    },
+    context,
+    [modelsOver(models), ...core],
+  ).instance.handler;
 }

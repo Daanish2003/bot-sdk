@@ -1,13 +1,13 @@
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { computer as computerTable } from "../../../../core/server/db/schema";
+import { computer as computerTable } from "../../../../core/server/storage";
 import { e2bProvider } from "../../../../plugins/computer/e2b";
-import { computer, computerIdleMs } from "../../../../plugins/computer/server/plugin";
+import { computerIdleMs } from "../../../../plugins/computer/server/internal";
 import { createTestSdk } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";
 import { getTestDb } from "../../../support/test-database";
-import { insertUser } from "../../../support/users";
+import { insertOwner } from "../../../support/users";
 
 // Against a real self-hosted E2B (hand-run: see the SDK README). Skipped when it is not set up.
 const apiKey = process.env.E2B_API_KEY;
@@ -37,13 +37,13 @@ describe.skipIf(!apiKey || !apiUrl || !sandboxUrl)("the computer plugin on real 
     const clock = { now: new Date() };
     const logged: unknown[][] = [];
     const sdk = createTestSdk({
-      plugins: [computer({ provider: provider() })],
+      computer: provider(),
       clock: () => clock.now,
       logger: { error: (...args: unknown[]) => logged.push(args) },
     });
-    const user = await insertUser();
+    const user = await insertOwner();
     users.push(user.id);
-    const handle = sdk.plugin("computer").forUser(user.id);
+    const handle = sdk.computer!.forUser(user.id);
 
     expect(await handle.run("echo hi")).toMatchObject({ exitCode: 0, stdout: "hi\n" });
     await handle.writeFile("/home/user/bots/a/note.txt", "remember");

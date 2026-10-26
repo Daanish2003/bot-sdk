@@ -1,6 +1,6 @@
 import { boolean, text } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "../../../../core/server/db/chat-schema";
+import { chatSchema } from "../../../../core/server/storage";
 
 /** A user's Memory switch; a user without a row has Memory on (ADR 0022). */
 export const memorySettings = chatSchema.table("memory_settings", {

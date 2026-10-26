@@ -5,7 +5,7 @@ import {
   ComputerOperationError,
   type ComputerHandle,
   type FileOperationOptions,
-} from "../../computer/server/plugin";
+} from "../../computer/server/internal";
 
 /*
  * A Bot's Skills (spec #713): written instructions for one kind of task, each a plain `SKILL.md`

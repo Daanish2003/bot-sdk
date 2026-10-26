@@ -7,36 +7,35 @@ import {
   botTurn,
   computer as computerTable,
   job,
-} from "../../../../core/server/db/schema";
+} from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
-import { maxTextBytes } from "../../../../plugins/bot/server/computer-tools";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import {
+  maxTextBytes,
   computerUnavailableError,
   interruptedShellError,
   rebuiltNote,
-} from "../../../../plugins/bot/server/computer-tools";
-import { turnTimeLimitMs } from "../../../../plugins/bot/server/store";
-import { botSystemPrompt } from "../../../../plugins/bot/server/turn";
-import { computer } from "../../../../plugins/computer/server/plugin";
-import type { CommandResult } from "../../../../plugins/computer/server/provider";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+} from "../../../../plugins/bot/server/agent-loop";
+
+import { turnTimeLimitMs } from "../../../../plugins/bot/server/conversation";
+import { botSystemPrompt } from "../../../../plugins/bot/server/context";
+import type { CommandResult } from "../../../../plugins/computer/server/internal";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
   type InProcessRunner,
-} from "../../../../plugins/runner/server/jobs/in-process";
-import { claimJob, reapStaleJobs } from "../../../../plugins/runner/server/jobs/store";
+  claimJob,
+  reapStaleJobs,
+} from "../../../../plugins/runner/server/internal";
+
+import { knowledge } from "../../../../plugins/knowledge/server/plugin";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { drainJobs, fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import {
-  fakeComputerProvider,
-  type FakeCommandRun,
-} from "../../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider, type FakeCommandRun } from "../../../support/fake-computer-provider";
 import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-6-luna";
@@ -61,11 +60,13 @@ async function botWith(
   {
     withComputer = true,
     withMemory = false,
+    withKnowledge = false,
     onCommand,
     clock,
   }: {
     withComputer?: boolean;
     withMemory?: boolean;
+    withKnowledge?: boolean;
     clock?: () => Date;
     onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>;
   } = {},
@@ -75,7 +76,8 @@ async function botWith(
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
   deps = createTestSdk({
-    plugins: withComputer ? [bot(), computer({ provider: computerFake.provider })] : [bot()],
+    ...(withComputer && { computer: computerFake.provider }),
+    features: withKnowledge ? [knowledge()] : [],
     jobs,
     adapterFor: () => fake.adapter,
     memory: withMemory,
@@ -475,7 +477,7 @@ describe("a shell call whose attempt is cut off", () => {
       });
       started.push(jobs);
       deps = createTestSdk({
-        plugins: [bot(), computer({ provider: computerFake.provider })],
+        computer: computerFake.provider,
         jobs,
         adapterFor: () => fake.adapter,
         memory: false,
@@ -571,7 +573,7 @@ describe("a shell call whose attempt is cut off", () => {
     ]);
     const { fake, computerFake, deps, user, attempt, timer, instance, client, botId } = setup;
     // The user's Computer is asleep, and its sandbox is lost: the Turn's first call rebuilds it.
-    await deps.plugin("computer").forUser(user.id).list("/home/user");
+    await deps.computer!.forUser(user.id).list("/home/user");
     await getTestDb()
       .update(computerTable)
       .set({ state: "asleep" })
@@ -1035,6 +1037,32 @@ describe("a long list result", () => {
 });
 
 describe("a rebuilt Computer", () => {
+  it("is still told in the first tool result with Knowledge on, whose prompt reads the Computer first", async () => {
+    const { client, botId, fake, computerFake, deps, user } = await botWith(
+      [
+        round(file("write", { path: "note.txt", content: "kept" })),
+        round(),
+        round(file("read", { path: "note.txt" })),
+        round(),
+      ],
+      { withKnowledge: true },
+    );
+    await send(client, botId, "take a note");
+    await getTestDb()
+      .update(computerTable)
+      .set({ lastActiveAt: new Date(Date.now() - 10 * 60_000) })
+      .where(eq(computerTable.userId, user.id));
+    await drainJobs({ deps });
+    const synced = await computerRow(user.id);
+    computerFake.lose(computerFake.callsOf("create")[0]!.sandboxId);
+
+    await send(client, botId, "read it back");
+
+    const [read] = toolResultsOf(fake.calls[3]).slice(-1);
+    const { rebuiltAt } = (await computerRow(user.id))!;
+    expect(read.note).toBe(rebuiltNote({ rebuiltAt: rebuiltAt!, restoredAsOf: synced!.syncedAt }));
+  });
+
   it("says so once, in the first tool result after the rebuild, with the files restored", async () => {
     const { client, botId, fake, computerFake, deps, user } = await botWith([
       round(file("write", { path: "note.txt", content: "kept" })),
@@ -1075,7 +1103,7 @@ describe("a rebuilt Computer", () => {
       round(),
     ]);
     // The Computer was never synced, so its rebuild starts empty; then a sync stores new files.
-    const handle = deps.plugin("computer").forUser(user.id);
+    const handle = deps.computer!.forUser(user.id);
     await handle.list("/home/user");
     await getTestDb()
       .update(computerTable)

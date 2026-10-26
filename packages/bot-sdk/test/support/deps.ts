@@ -2,16 +2,17 @@ import type { AnyTextAdapter } from "@tanstack/ai";
 
 import { getTestDb } from "./test-database";
 
-import { postgresBlobStore } from "../../core/server/blob/postgres";
+import { postgresBlobStore } from "../../core/server/storage";
 import { createMemoryCounters } from "../../core/server/chat/counters";
 import { createHookEmitter, type HookEmitter } from "../../core/server/chat/hooks";
 import { createMemoryPubSub } from "../../core/server/chat/pubsub";
-import type { GivenContext } from "../../core/server/create-chat";
+import type { FeatureEntry, GivenContext } from "../../core/server/create-chat";
+import { createBotSdkOver, type OverSlots, type SdkOver } from "../../core/server/over";
 import type { BotSdkPlugin } from "../../core/server/plugin";
-import { createBotSdkOver, type SdkOver } from "../../core/server/over";
-import { memory } from "../../plugins/memory/server/plugin";
-import type { ModelsDeps } from "../../plugins/models/server/types";
-import type { JobRunner } from "../../plugins/runner/server/jobs/runner";
+import { memory } from "../../plugins/memory/server/feature";
+import type { ComputerProvider } from "../../plugins/computer/server/internal";
+import type { ModelsDeps } from "../../plugins/models/server/internal";
+import type { JobRunner } from "../../plugins/runner/server/internal";
 import { resolveRateLimits } from "../../core/server/rate-limits";
 import { fakeReviewer, withReviewer } from "./fake-reviewer";
 
@@ -24,14 +25,17 @@ export type TestDeps = SdkOver;
 /** What a test may override in `createTestSdk`: a part of the core context or of `models`. */
 export type TestDepsOverrides = Partial<
   Omit<GivenContext, "events" | "keyring"> &
+    OverSlots &
     Omit<ModelsDeps, "hooks"> & {
       /** The core's event emitter (`BotSdkContext.events`). */
       hooks: HookEmitter;
-      /** The `runner` plugin's jobs runner (`runner({ jobs })`). */
+      /** The runner slot's jobs runner. */
       jobs: JobRunner;
-      /** More plugins, enabled after `models` and `runner`. */
-      plugins: readonly BotSdkPlugin[];
-      /** Whether the `memory` plugin is installed; `true` by default. */
+      /** The computer slot's provider (`fakeComputerProvider().provider`); no Computer by default. */
+      computer: ComputerProvider;
+      /** The features, as the `features` slot takes them. */
+      features: readonly FeatureEntry[];
+      /** Whether the Memory feature is on; `true` by default, and only with a `computer`. */
       memory: boolean;
       /**
        * The adapter a Bot's Auto-review calls on `model` go to, in place of `adapterFor`'s: by
@@ -46,11 +50,18 @@ const passingReviewer = fakeReviewer().adapter;
 
 /**
  * A real `createBotSdk` instance for tests, over the test database and fakes, with nothing that
- * reaches the network; it returns the instance's core context with its `models` bundle. It is
- * Bot-only: `models`, `runner`, `memory` and the given `plugins`. Pass overrides for the parts a
- * test scripts (for example `adapterFor` returning a fake adapter).
+ * reaches the network; it returns the instance's core context with its `models` bundle: the Bot
+ * core, the runner, the given `computer` and `channels`, the Memory feature (with a `computer`) and
+ * the given `features`. Pass overrides for the parts a test scripts (for example `adapterFor` returning a fake adapter).
  */
-export function createTestSdk({ plugins, ...overrides }: TestDepsOverrides = {}): TestDeps {
+export function createTestSdk({
+  features,
+  computer,
+  channels,
+  verifiedEmail,
+  reviewModel,
+  ...overrides
+}: TestDepsOverrides = {}): TestDeps {
   const db = overrides.db ?? getTestDb();
   // Silent, like the handler's logger in `support/sdk.ts`: the tests assert on rows, not logs.
   const logger = overrides.logger ?? { error: () => {} };
@@ -110,9 +121,27 @@ export function createTestSdk({ plugins, ...overrides }: TestDepsOverrides = {})
     recentModelSources: [],
     getQuota: overrides.getQuota ?? (async () => null),
   };
-  const installed = [...(overrides.memory === false ? [] : [memory()]), ...(plugins ?? [])];
+  // Memory keeps its files on the Computer, so it needs one.
+  const withMemory = overrides.memory !== false && computer !== undefined;
   return createBotSdkOver(
-    { context, models, jobs: overrides.jobs, plugins: installed },
+    {
+      context,
+      models,
+      jobs: overrides.jobs,
+      computer,
+      channels,
+      verifiedEmail,
+      reviewModel,
+      features: [...(withMemory ? [memory()] : []), ...(features ?? [])],
+    },
     { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
   ).sdk;
+}
+
+/**
+ * `deps` with one more of the core's parts after its own, as the core's work across its parts (a
+ * Conversation delete's hooks, a user's delete and export) sees it: for the tests of that work.
+ */
+export function withPart(deps: TestDeps, part: BotSdkPlugin): TestDeps {
+  return { ...deps, parts: { ...deps.parts, all: [...deps.parts.all, part] } };
 }

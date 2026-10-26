@@ -1,9 +1,9 @@
 import { chat, type ModelMessage } from "@tanstack/ai";
 import type { z } from "zod";
 
-import { promptCharactersOf, reportedUsageOf } from "../../models/server/run-usage";
+import { promptCharactersOf, reportedUsageOf } from "../../models/server/internal";
 import type { BotSdkContext } from "../../../core/server/plugin";
-import type { ModelCall } from "../../models/server/credentials/resolve";
+import type { ModelCall } from "../../models/server/internal";
 
 /**
  * One call on a Bot's Model for its post-turn pass, recorded against the Quota when it is on Host
@@ -20,7 +20,7 @@ export async function askBackground(
 ): Promise<string> {
   const messages: ModelMessage[] = [{ role: "user", content: user }];
   const result = await chat({
-    adapter: deps.plugin("models").adapterForCall(plan.model, plan.call),
+    adapter: deps.models.adapterForCall(plan.model, plan.call),
     threadId: botId,
     systemPrompts: [system],
     messages,
@@ -29,7 +29,7 @@ export async function askBackground(
   const reported = reportedUsageOf(result.chunks);
   await plan.call.meter.record({
     kind: "memory",
-    usage: deps.plugin("models").messageUsage(reported.usage, {
+    usage: deps.models.messageUsage(reported.usage, {
       promptCharacters: promptCharactersOf(messages),
       parts: [{ type: "text", text: result.text }],
     }),

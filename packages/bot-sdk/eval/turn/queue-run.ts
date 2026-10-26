@@ -4,10 +4,8 @@ import { sendAndFollow } from "../../test/support/follow-send";
 
 import { and, asc, eq, inArray } from "drizzle-orm";
 
-import { botTurn } from "../../core/server/db/schema";
+import { botTurn, job, botTrigger } from "../../core/server/storage";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { job } from "../../plugins/runner/server/db/job";
-import { botTrigger } from "../../plugins/bot/server/db/bot-trigger";
 import { freshBot, type TurnEnv } from "./case";
 import type { QueueCase } from "./queue-cases";
 import { judge, scoreQueue } from "./queue-score";

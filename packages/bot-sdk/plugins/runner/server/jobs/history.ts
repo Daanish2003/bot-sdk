@@ -1,8 +1,8 @@
 import { and, asc, eq } from "drizzle-orm";
 
-import type { Database } from "../../../../core/server/db/index";
+import type { Database } from "../../../../core/server/storage";
 import type { Transaction } from "../../../../core/server/plugin";
-import { job, jobEvent } from "../../../../core/server/db/schema";
+import { job, jobEvent } from "../../../../core/server/storage";
 import type { HistoryEntry, HistoryStore } from "../workflow/engine";
 import type { ClaimedJob } from "./store";
 

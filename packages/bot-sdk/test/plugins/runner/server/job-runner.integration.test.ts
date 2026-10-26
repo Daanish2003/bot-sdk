@@ -2,19 +2,19 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { createBotSdk } from "../../../../core/server/create-chat";
-import { runner } from "../../../../plugins/runner/server/plugin";
-import { models } from "../../../../plugins/models/server/plugin";
-import { job } from "../../../../core/server/db/schema";
-import { defineJob, PermanentJobError } from "../../../../plugins/runner/server/jobs/define";
-import { inProcessRunner } from "../../../../plugins/runner/server/jobs/in-process";
-import type { JobRunner } from "../../../../plugins/runner/server/jobs/runner";
+import { buildBotSdk } from "../../../../core/server/create-chat";
+import { models } from "../../../../plugins/models/server/internal";
+import { job } from "../../../../core/server/storage";
 import {
+  defineJob,
+  PermanentJobError,
+  inProcessRunner,
   cancelJob,
   claimJob,
   pruneFinishedJobs,
   reapStaleJobs,
-} from "../../../../plugins/runner/server/jobs/store";
+} from "../../../../plugins/runner/server/internal";
+import type { JobRunner } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { drainJobs, fakeJobClock } from "../../../support/jobs";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
@@ -974,7 +974,7 @@ describe("schedule", () => {
   });
 });
 
-describe("runner({ jobs })", () => {
+describe("the runner slot", () => {
   it("starts and stops the Host's runner with chat.start() and chat.stop()", async () => {
     const jobs: JobRunner = {
       enqueue: vi.fn(async () => "job-id"),
@@ -984,14 +984,20 @@ describe("runner({ jobs })", () => {
       start: vi.fn(async () => {}),
       stop: vi.fn(async () => {}),
     };
-    const chat = createBotSdk({
-      databaseUrl: testDatabaseUrl,
-      getUser: () => null,
-      keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-      basePath: "/api/chat",
-      logger: silent,
-      plugins: [models(), runner({ jobs })],
-    });
+    // Models alone, without the Bots, which refuse a runner other than the in-process one.
+    const chat = buildBotSdk(
+      {
+        databaseUrl: testDatabaseUrl,
+        getUser: () => null,
+        keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
+        basePath: "/api/chat",
+        logger: silent,
+        models: {},
+        runner: jobs,
+      },
+      {},
+      [models()],
+    ).instance;
 
     await chat.start();
     expect(jobs.start).toHaveBeenCalledTimes(1);

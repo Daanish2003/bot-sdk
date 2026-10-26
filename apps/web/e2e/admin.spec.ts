@@ -1,7 +1,7 @@
 import { createDb } from "@ai-chat/db";
 import { expect, type Page, test } from "@playwright/test";
 
-import { usage } from "../../../packages/bot-sdk/core/server/db/schema";
+import { usage } from "../../../packages/bot-sdk/core/server/storage/schema";
 import { uuidv7 } from "../../../packages/bot-sdk/core/server/lib/uuidv7";
 
 import { e2eDatabaseUrl } from "./database";

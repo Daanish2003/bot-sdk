@@ -1,35 +1,48 @@
-import { deleteBlobsBestEffort } from "../../../core/server/blob/store";
+import { deleteBlobsBestEffort } from "../../../core/server/storage";
 import type { BotSdkPlugin } from "../../../core/server/plugin";
-import { isInProcessRunner } from "../../runner/server/jobs/in-process";
-import { runnerJobs } from "../../runner/server/plugin";
-import { cancelUserCheckIns } from "./check-in";
-import { deleteUserUploads, sentFileResponse } from "./files";
-import { screenshotsConversationDelete } from "./screenshots";
-import { cancelUserHelpers, hasLiveDemonstration, hasRunningHelper } from "./helper";
-import { cancelUserFires } from "./routine";
-import { startRoutineReconcile } from "./routine-fire";
-import "./check-in-fire";
-import "./summary-away";
-import "./demonstration-capture";
-import "./demonstration-draft";
-import { handleRoutineWebhook } from "./routine-webhook";
-import { botPluginRouter } from "./routers/index";
-import { rotateSecretKeys } from "./secret";
-import { handleScreenRequest, type ScreenSocketHooks, screenSocketHooks } from "./screen-view";
+import { isInProcessRunner, runnerJobs } from "../../runner/server/internal";
+
 import {
+  cancelUserCheckIns,
+  cancelUserFires,
+  startRoutineReconcile,
+  handleRoutineWebhook,
+} from "./routines";
+import {
+  deleteUserUploads,
+  sentFileResponse,
+  screenshotsConversationDelete,
   botUserDelete,
   exportBots,
   hasTurnUsingComputer,
   newestBotModel,
   userHasBot,
-} from "./store";
-import { stopUserDemonstrations } from "./demonstration";
-import { stopUserHelpers } from "./helper-tools";
+} from "./conversation";
+
+import {
+  cancelUserHelpers,
+  hasLiveDemonstration,
+  hasRunningHelper,
+  handleScreenRequest,
+  type ScreenSocketHooks,
+  screenSocketHooks,
+  stopUserHelpers,
+} from "./helpers";
+
 import { stopUserTurns } from "./turn";
+import { stopUserDemonstrations } from "./demonstrations";
+// The entries of these modules load the files that register jobs at import time: check-in fire,
+// the away Summary, Demonstration capture and draft.
+import "./routines";
+import "./turn";
+import "./demonstrations";
+
+import { botPluginRouter } from "./routers";
+import { rotateSecretKeys } from "./safety";
 
 export type BotPlugin = BotSdkPlugin<"bot", never, never>;
 
-/** What the `bot` plugin gives the Host (`sdk.plugin("bot")`). */
+/** The core's Bots, as the Host reaches them (`sdk.bots`, spec #871). */
 export type BotApi = {
   /**
    * The inbound webhook handler of webhook Routines (ADR 0021), Request → Response. The Host mounts
@@ -52,39 +65,23 @@ export type BotApi = {
    * at `screenViewPath/<view token>/websockify` (Nitro: `defineWebSocketHandler(screenSocket)`).
    */
   screenSocket: ScreenSocketHooks;
-  /** The Model that reviews the Bots' risky tool calls, as `bot({ reviewModel })` named it, if any. */
+  /** The Model that reviews the Bots' risky tool calls, as the `reviewModel` option named it, if any. */
   reviewModel: string | undefined;
 };
 
-/** How the Host sets up the `bot` plugin. */
+/** How the core sets up its Bots, from the factory's options. */
 export type BotOptions = {
-  /**
-   * The Model that reviews each Bot's risky tool calls before they run (Auto-review), a
-   * `"provider:model"` id from the `models` plugin's list, resolved per user. With none, or one
-   * the user can't use, the Bot's own Model reviews, in a fresh context.
-   */
+  /** The factory's `reviewModel` option: the Model that Auto-reviews the Bots' risky tool calls. */
   reviewModel?: string;
 };
 
-declare module "../../../core/server/plugin" {
-  interface PluginApis {
-    bot: BotApi;
-  }
-}
-
 /**
- * The `bot` plugin (ADR 0020): always-on Bots, each a name and a Model talking to its user in one
- * Conversation of kind `bot`.
+ * The core's Bots (spec #871): always-on Bots, each a name and a Model talking to its user in one
+ * Conversation of kind `bot`. Its `init` sets `sdk.bots`; the slots always enable it.
  */
 export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
   return {
     id: "bot",
-    requires: ["models", "runner"],
-    // Softly: with computer on, a Turn has its tools, and a running Turn keeps the Computer awake.
-    // With memory on, a Bot has its memory (ADR 0022), with skills on, its Skills (spec #713), and
-    // with knowledge on, the user's Knowledge (spec #737), and with mcp on, its user's Connections
-    // as Connector tools (spec #801).
-    uses: ["computer", "memory", "skills", "knowledge", "mcp"],
     init: (sdk) => {
       // A Turn replays from the history `chat.job` holds. Trigger.dev records nothing and its retry
       // starts over, which would send the Messages again (ADR 0011, the #482 amendment).
@@ -93,8 +90,9 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
           "The bot plugin needs the in-process runner: a Trigger.dev retry starts a Turn over and would send its Messages again",
         );
       }
-      if (sdk.hasPlugin("computer")) {
-        const computer = sdk.plugin("computer");
+      // With a Computer, a Turn has its tools, and a running Turn keeps the Computer awake.
+      const { computer } = sdk;
+      if (computer) {
         // Never mid-Turn (#508): a Turn that started before the Computer's last activity holds it.
         computer.addBusyCheck((userId, lastActiveAt) =>
           hasTurnUsingComputer(sdk.db, userId, lastActiveAt),
@@ -107,7 +105,7 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
         computer.addOwnerCheck(userHasBot);
       }
       // The default Model of the user's pickers is the newest Bot's.
-      sdk.plugin("models").addRecentModelSource((userId) => newestBotModel(sdk.db, userId));
+      sdk.models.addRecentModelSource((userId) => newestBotModel(sdk.db, userId));
       const api: BotApi = {
         webhookHandler: (request) => handleRoutineWebhook(sdk, request),
         stopTurns: async (userId) => {
@@ -120,7 +118,7 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
         screenSocket: screenSocketHooks(sdk),
         reviewModel,
       };
-      return { api };
+      sdk.bots = api;
     },
     // Repairs a Routine whose chain of fires broke, now and then hourly (#578).
     start: startRoutineReconcile,
