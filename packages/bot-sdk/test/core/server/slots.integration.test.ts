@@ -226,14 +226,26 @@ describe("createBotSdk with flat slots", () => {
 });
 
 describe("a feature's id", () => {
-  it.each(["then", "bot", "models", "runner", "channel", "channels", "bots", "users", "core"])(
-    "can't be %s, which the instance or the core holds",
-    (id) => {
-      expect(() => createBotSdk(slots({ features: [defineFeature({ id })] }))).toThrow(
-        `Feature id "${id}" is reserved by the core`,
-      );
-    },
+  const refuses = (id: string) =>
+    expect(() => createBotSdk(slots({ features: [defineFeature({ id })] }))).toThrow(
+      `Feature id "${id}" is reserved by the core`,
+    );
+
+  it.each(["then", "bot", "core", "channel", "rules", "first_message", "version", "exportedAt"])(
+    "can't be %s, which the core holds",
+    refuses,
   );
+
+  it.each(["__proto__", "constructor", "toString", "hasOwnProperty", "toJSON"])(
+    "can't be %s, which every object inherits",
+    refuses,
+  );
+
+  it("can't be any namespace of the instance", () => {
+    const namespaces = Object.keys(createBotSdk(slots()));
+    expect(namespaces).toContain("users");
+    for (const id of namespaces) refuses(id);
+  });
 });
 
 describe("a feature's enabling", () => {
