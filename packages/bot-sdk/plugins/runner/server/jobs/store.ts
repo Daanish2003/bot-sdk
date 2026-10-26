@@ -462,9 +462,9 @@ export async function cancelJobIn(
 }
 
 /**
- * In the caller's transaction, cancels the active job with this key if it hasn't started, and
+ * In the caller's transaction, cancels the active job `name` with this key if it hasn't started, and
  * queues its replacement under the same key. Returns the replacement's id, or undefined, changing
- * nothing, when no job with the key is active or it has started. A job has started once it runs,
+ * nothing, when no job `name` with the key is active or it has started. A job has started once it runs,
  * has used an attempt, or has recorded a Checkpoint: a retry or a crash used an attempt, which a
  * replacement would give back, and a deploy's yield (which puts its attempt back) kept Checkpoints.
  * The job's row is locked, so no runner claims it before the transaction ends.
@@ -476,10 +476,20 @@ export async function replaceJobIfNotStartedIn(
   payload: unknown,
   options: { runAfter?: Date; now: Date },
 ): Promise<string | undefined> {
+  // Checked before anything changes, so a bad replacement leaves the job as it was.
+  const definition = registeredJob(name);
+  if (!definition) throw new Error(`No job named "${name}" is defined`);
+  definition.payload.parse(payload);
   const [active] = await tx
     .select({ id: job.id, status: job.status, attempts: job.attempts })
     .from(job)
-    .where(and(eq(job.idempotencyKey, idempotencyKey), inArray(job.status, [...ACTIVE])))
+    .where(
+      and(
+        eq(job.idempotencyKey, idempotencyKey),
+        eq(job.name, name),
+        inArray(job.status, [...ACTIVE]),
+      ),
+    )
     .for("update");
   if (active?.status !== "queued" || active.attempts > 0) return undefined;
   const [recorded] = await tx
@@ -490,7 +500,7 @@ export async function replaceJobIfNotStartedIn(
   if (recorded) return undefined;
   await tx
     .update(job)
-    .set({ status: "cancelled", heartbeatAt: null, updatedAt: options.now })
+    .set({ status: "cancelled", heartbeatAt: heartbeatOnCancel, updatedAt: options.now })
     .where(eq(job.id, active.id));
   return enqueueJob(tx, name, payload, { ...options, idempotencyKey });
 }

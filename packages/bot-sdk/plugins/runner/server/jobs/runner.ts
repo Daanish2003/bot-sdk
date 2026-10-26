@@ -89,11 +89,10 @@ export type JobRunner = {
     now?: Date,
   ) => Promise<"queued" | "running" | undefined>;
   /**
-   * In the caller's transaction, cancels the queued job with this key if it hasn't started (no
-   * attempt used, no Checkpoint recorded), and queues its replacement, `name` with `payload`, under
-   * the same key. Returns the replacement's id; the Executor is notified once the transaction has
-   * committed. Returns undefined, changing nothing, when no job with the key is active or it has
-   * started. `now` defaults to the runner's clock.
+   * In the caller's transaction, replaces the queued job `name` with this key, if it hasn't started,
+   * by one with `payload` (`replaceJobIfNotStartedIn`), and returns its id. The Executor is
+   * notified once the transaction has committed. Returns undefined, changing nothing, when no such
+   * job is active or it has started. `now` defaults to the runner's clock.
    */
   replaceIfNotStarted: (
     tx: Transaction,

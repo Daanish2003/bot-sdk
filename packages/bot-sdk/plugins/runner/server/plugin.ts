@@ -28,12 +28,7 @@ export type RunnerApi = Pick<JobRunner, "enqueue" | "cancel" | "status"> & {
    * none is active.
    */
   cancelIn: (tx: Transaction, idempotencyKey: string) => Promise<"queued" | "running" | undefined>;
-  /**
-   * In the caller's transaction, cancels the queued job with this key if it hasn't started (no
-   * attempt used, no Checkpoint recorded), and queues its replacement under the same key. Returns
-   * the replacement's id, or undefined, changing nothing, when no job with the key is active or it
-   * has started. The Executor is notified once the transaction has committed.
-   */
+  /** `JobRunner.replaceIfNotStarted`, on the instance's clock. */
   replaceIfNotStarted: (
     tx: Transaction,
     idempotencyKey: string,

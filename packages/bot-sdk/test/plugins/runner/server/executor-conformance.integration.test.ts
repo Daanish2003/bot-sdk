@@ -423,6 +423,18 @@ describe.each(executors)("$name", ({ build }) => {
       expect((await jobs.status(old))?.status).toBe("queued");
     });
 
+    it("leaves a job of another name that holds the key", { timeout: 30_000 }, async () => {
+      const later = new Date(timer.clock.now().getTime() + 1_000);
+      const other = await jobs.enqueue(
+        "conformance.hold",
+        { label: "other" },
+        { idempotencyKey: "turn", runAfter: later },
+      );
+
+      expect(await replace("turn", "new")).toBeUndefined();
+      expect((await jobs.status(other))?.status).toBe("queued");
+    });
+
     it("queues nothing when no job holds the key", { timeout: 30_000 }, async () => {
       expect(await replace("turn", "new")).toBeUndefined();
       expect(harness.notified).toEqual([]);
