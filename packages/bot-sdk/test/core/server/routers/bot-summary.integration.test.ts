@@ -61,7 +61,7 @@ async function botWith(rounds: Round[]) {
     logger: silent,
     drainMs: 50,
     clock: { ...systemClock, now: clock },
-    deps: () => deps!,
+    jobs: () => deps!.parts.jobs,
   });
   deps = createTestSdk({
     memory: false,
@@ -329,7 +329,7 @@ describe("a Turn that crashes after its Summary", () => {
         logger: silent,
         clock: timer.clock,
         drainMs: 1_000,
-        deps: () => deps!,
+        jobs: () => deps!.parts.jobs,
       });
       started.push(jobs);
       deps = createTestSdk({
@@ -365,7 +365,7 @@ describe("a Turn that crashes after its Summary", () => {
     await expect.poll(() => fake.calls.length, { timeout: 10_000 }).toBe(3);
     await expect.poll(async () => (await summariesOf(botId)).length, { timeout: 10_000 }).toBe(1);
     timer.advance(61_000);
-    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps);
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps.parts.jobs);
     timer.tick();
     await lost;
 

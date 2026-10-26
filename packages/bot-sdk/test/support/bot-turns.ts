@@ -28,7 +28,7 @@ export async function botSdk(
     db: getTestDb(),
     logger: { error: () => {} },
     drainMs: 50,
-    deps: () => deps!,
+    jobs: () => deps!.parts.jobs,
   });
   deps = createTestSdk({ ...overrides, jobs });
   if (!idle) await jobs.start();

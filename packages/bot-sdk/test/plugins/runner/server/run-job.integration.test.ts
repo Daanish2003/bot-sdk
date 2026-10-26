@@ -8,7 +8,7 @@ import { testDatabaseUrl } from "../../../support/test-database";
 const silent = { error: () => {} };
 const handled = vi.fn(async (_payload: { label: string }) => {});
 
-defineJob({
+const echoJob = defineJob({
   name: "test.run-job.echo",
   payload: z.object({ label: z.string() }),
   run: (payload) => handled(payload),
@@ -22,6 +22,7 @@ function chatWithTestDb() {
     basePath: "/api/chat",
     logger: silent,
     models: {},
+    jobs: [echoJob],
   });
 }
 

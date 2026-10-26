@@ -36,7 +36,12 @@ async function botWith(rounds: Round[]) {
   const fake = createFakeAdapter({ rounds });
   const reviewer = fakeReviewer();
   let deps: TestDeps | undefined;
-  const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
+  const jobs = inProcessRunner({
+    db: getTestDb(),
+    logger: silent,
+    drainMs: 50,
+    jobs: () => deps!.parts.jobs,
+  });
   deps = createTestSdk({
     computer: fakeComputerProvider().provider,
     jobs,

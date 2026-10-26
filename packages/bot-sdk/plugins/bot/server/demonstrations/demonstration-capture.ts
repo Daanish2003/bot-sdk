@@ -11,7 +11,7 @@ import {
 } from "../../../../core/server/storage";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
 import { rpcError } from "../../../../core/server/rpc-error";
-import { defineJob } from "../../../runner/server/internal";
+import { defineCoreJob } from "../../../runner/server/internal";
 import { type DemonstrationStep, isLiveDemonstration } from "../../shared/demonstration";
 import { computerOf } from "../agent-loop";
 import { demonstrationCaptureJobName, move, rewriteCard, startCapture } from "./demonstration";
@@ -447,9 +447,9 @@ async function connect(
  * dropped, queues it `reconnectMs` later. A round stores the steps already reported before it ends;
  * the pages keep the ones it refuses while it closes, and send them to the next.
  */
-export const demonstrationCaptureJob = defineJob({
+export const demonstrationCaptureJob = defineCoreJob({
   name: demonstrationCaptureJobName,
-  lane: "helper",
+  concurrency: 4,
   payload: z.object({ demonstrationId: z.uuid(), round: z.number().int().min(1).default(1) }),
   run: async ({ demonstrationId, round }, { deps, signal }) => {
     const live = async () => {

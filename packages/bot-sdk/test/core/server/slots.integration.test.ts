@@ -35,7 +35,11 @@ const shared = { databaseUrl: unreachable, getUser: () => null, keyEncryptionSec
 const slots = (options: Partial<BotSdkOptions> = {}) =>
   ({ ...shared, models: {}, ...options }) as BotSdkOptions;
 
-defineJob({ name: "slots.job", payload: z.object({ n: z.number() }), run: async () => {} });
+const slotsJob = defineJob({
+  name: "slots.job",
+  payload: z.object({ n: z.number() }),
+  run: async () => {},
+});
 
 describe("createBotSdk with flat slots", () => {
   it("serves the Bots, Models and Channels with no plugin listed", async () => {
@@ -147,9 +151,11 @@ describe("createBotSdk with flat slots", () => {
   it("wakes the instance's jobs up through the runner slot's Executor", async () => {
     const manual = manualExecutor();
     // Models alone, without the Bots, which refuse a runner other than the in-process one.
-    const sdk = buildBotSdk(slots({ runner: manual.executor }), { db: getTestDb() }, [
-      models(),
-    ]).instance;
+    const sdk = buildBotSdk(
+      slots({ runner: manual.executor, jobs: [slotsJob] }),
+      { db: getTestDb() },
+      [models()],
+    ).instance;
 
     const id = await sdk.runner.enqueue("slots.job", { n: 1 });
 

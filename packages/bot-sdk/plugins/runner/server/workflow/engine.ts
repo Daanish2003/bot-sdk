@@ -41,15 +41,16 @@ export type WorkflowContext<Tx> = {
    * Runs `fn` and saves its JSON result, the Checkpoint. On replay it returns the saved result
    * without running `fn`. A thrown `fn` saves nothing.
    *
-   * - `activity(name, () => …)`: side effects are at-least-once. A crash after `fn` but before the
+   * - `step(name, () => …)`: side effects are at-least-once. A crash after `fn` but before the
    *   save runs it again.
-   * - `activity(name, (tx) => …)`: `fn` gets the transaction its Checkpoint is saved in, so a write
+   * - `step(name, (tx) => …)`: `fn` gets the transaction its Checkpoint is saved in, so a write
    *   to the same database commits exactly once. A function that declares a parameter gets one.
    *
    * With `yields: false`, a yield never stops the workflow at this Checkpoint, only at the next
-   * one: for a marker that what follows must run after, in the same attempt.
+   * one: for a marker that what follows must run after, in the same attempt. Its history entry
+   * is of kind `activity`.
    */
-  activity: <T>(
+  step: <T>(
     name: string,
     fn: (tx: Tx) => Promise<T> | T,
     options?: { yields?: boolean },
@@ -207,7 +208,7 @@ export function createWorkflow<Tx>({
   };
 
   const context: WorkflowContext<Tx> = {
-    activity: <T>(name: string, fn: (tx: Tx) => Promise<T> | T, { yields = true } = {}) =>
+    step: <T>(name: string, fn: (tx: Tx) => Promise<T> | T, { yields = true } = {}) =>
       oneAtATime(async (): Promise<T> => {
         const call: Call = { kind: "activity", name };
         const entry = replay(call);

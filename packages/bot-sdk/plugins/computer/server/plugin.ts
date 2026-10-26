@@ -7,7 +7,7 @@ import { deleteBlobsBestEffort, computer as computerTable } from "../../../core/
 
 import type { BotSdkContext, Transaction, UserDeleteHooks } from "../../../core/server/plugin";
 import {
-  defineJob,
+  defineCoreJob,
   isInProcessRunner,
   cancelQueuedJobsIn,
   runnerJobs,
@@ -294,7 +294,7 @@ export function computerProvider(computer: ComputerApi): ComputerProvider {
  * else checks again later. Each wake arms one, so there is one chain per awake period. A check
  * that keeps failing (a pause that fails) is armed again in 5 minutes.
  */
-export const computerSleepJob = defineJob({
+export const computerSleepJob = defineCoreJob({
   name: sleepJobName,
   payload: z.object({ userId: z.string() }),
   run: async ({ userId }, { deps }) => {
@@ -302,7 +302,7 @@ export const computerSleepJob = defineJob({
     if (!deps.computer) return;
     await internalsOf(deps.computer).sleepCheck(userId);
   },
-  onFailed: async ({ userId }, error, deps) => {
+  onFailed: async ({ userId }, error, { deps }) => {
     deps.logger.error(`The sleep check of the Computer of user ${userId} failed`, error);
     await armSleepCheck(deps, userId, after(deps.clock(), computerIdleMs));
   },

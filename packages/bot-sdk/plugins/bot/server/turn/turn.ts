@@ -9,7 +9,7 @@ import type { BotSdkContext, Transaction } from "../../../../core/server/plugin"
 import { rpcError } from "../../../../core/server/rpc-error";
 import type { MessageUsage } from "../../../models/shared/usage";
 import {
-  defineJob,
+  defineCoreJob,
   PermanentJobError,
   loadHistory,
   createWorkflow,
@@ -82,12 +82,12 @@ export const undeliveredTextReminder =
 const startTurnActivity = "start_turn";
 
 /** The runner job of one Turn, keyed by the Turn's id (ADR 0011, the #482 amendment). */
-export const botTurnJob = defineJob({
+export const botTurnJob = defineCoreJob({
   name: botTurnJobName,
   payload: z.object({ turnId: z.uuid() }),
   run: ({ turnId }, ctx) => runTurnJob(ctx.deps, turnId, ctx),
-  onFailed: ({ turnId }, _error, deps) => endLostTurn(deps, turnId),
-  onCancelled: ({ turnId }, deps) => endStoppedTurn(deps, turnId),
+  onFailed: ({ turnId }, _error, { deps }) => endLostTurn(deps, turnId),
+  onCancelled: ({ turnId }, { deps }) => endStoppedTurn(deps, turnId),
 });
 
 /**
@@ -361,7 +361,7 @@ async function runTurnJob(
     // The to-do list as the Turn starts, recorded: every attempt reads the same.
     // Set only by a live start: a replayed one changed nothing, so hints nothing.
     let started = false;
-    todo = await ctx.activity(startTurnActivity, async (tx) => {
+    todo = await ctx.step(startTurnActivity, async (tx) => {
       await turnStarted(deps, tx, turnId);
       started = true;
       return todoList(tx, turn.botId);
@@ -378,7 +378,7 @@ async function runTurnJob(
     ctx.signal.throwIfAborted();
     // A thrown activity recorded nothing: the job retries it.
     if (played.failure !== undefined) throw played.failure;
-    await ctx.activity("end_turn", async (tx) => {
+    await ctx.step("end_turn", async (tx) => {
       await lockConversation(tx, turn.conversationId);
       const endedAt = deps.clock();
       await endTurn(tx, turnId, {
@@ -511,7 +511,7 @@ async function replayedTurn(
     // A job that never started recorded no start.
     const todo =
       history.length > 0
-        ? await workflow.context.activity<TodoItem[] | null>(startTurnActivity, async () => null)
+        ? await workflow.context.step<TodoItem[] | null>(startTurnActivity, async () => null)
         : null;
     return await playTurn(deps, turn, workflow.context, { db, todo });
   } catch (caught) {
@@ -593,7 +593,7 @@ async function playTurn(
             forTurn(deps, turn, sections, {
               kit,
               signal: connections.signal,
-              record: (featureId, list) => ctx.activity(`${featureId}:tools`, list),
+              record: (featureId, list) => ctx.step(`${featureId}:tools`, list),
             }),
         });
         const start = await context.start(kit, { db, newest });

@@ -94,7 +94,7 @@ async function botWith(
     logger: silent,
     drainMs: 50,
     clock: { ...systemClock, now: clock },
-    deps: () => deps!,
+    jobs: () => deps!.parts.jobs,
   });
   deps = createTestSdk({
     computer: computerFake.provider,
@@ -744,7 +744,7 @@ describe("an Approval wait cut off by a crash", () => {
         logger: silent,
         clock: timer.clock,
         drainMs: 1_000,
-        deps: () => deps!,
+        jobs: () => deps!.parts.jobs,
       });
       started.push(jobs);
       deps = createTestSdk({
@@ -784,7 +784,7 @@ describe("an Approval wait cut off by a crash", () => {
       /** The process running `running` dies: its lease expires and the reaper re-queues the job. */
       crash: async (running: Promise<void>) => {
         timer.advance(61_000);
-        await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps);
+        await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps.parts.jobs);
         timer.tick();
         await running;
       },

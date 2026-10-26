@@ -214,7 +214,9 @@ The runner is part of the core: it runs the background work (ADR 0011), Bot Turn
 
 The `runner` slot (`createBotSdk({ runner })`) takes the runner for background work. The default is the in-process runner: it keeps jobs in the `chat.job` table, which the `chat` schema already has, polls it every 2 s, runs two jobs at once and retries a failed job up to three times, after about 10 s and 1 min. `start()` starts it, and `stop()` takes no new jobs and waits for the running ones. Nothing else to configure, and no second database.
 
-A custom runner is any object with `enqueue(name, payload, options?)`, `start()` and `stop()`, and it takes the place of the default. Jobs are internal to the SDK: a Host can't declare its own.
+A custom runner is any object with `enqueue(name, payload, options?)`, `start()` and `stop()`, and it takes the place of the default.
+
+A Host runs its own background work on the same runner. `defineJob({ name, payload, run, onFailed?, onCancelled?, concurrency? })` defines a job, and the factory's `jobs` option lists it (`createBotSdk({ jobs: [myJob] })`); a feature lists its own in its `jobs`. Nothing else knows a job: one no instance lists can't be queued, and two jobs with one name throw at construction. `run(payload, ctx)` gets durable steps (`ctx.step(name, (tx) => …)`: `fn` gets the transaction that saves the step's Checkpoint, so its writes commit with it), `ctx.now()`, `ctx.random()`, `ctx.patched(id)`, `ctx.signal`, and the core services (`ctx.db`, `ctx.jobs`, …; a feature's job gets the services its `needs` name). `sdk.runner.enqueueIn(tx, …)` and `sdk.runner.cancelIn(tx, …)` queue and cancel a job in the Host's own transaction. A job with `concurrency` runs at most that many at once on the in-process runner, beside the shared budget of two.
 
 ### Trigger.dev workers (optional)
 

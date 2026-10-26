@@ -14,7 +14,7 @@ import {
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
 import { rpcError } from "../../../../core/server/rpc-error";
-import { defineJob } from "../../../runner/server/internal";
+import { defineCoreJob } from "../../../runner/server/internal";
 import {
   type DemonstrationAction,
   type DemonstrationCard,
@@ -480,7 +480,7 @@ const after = (time: Date) => new Date(time.getTime() + demonstrationCheckMs);
  * at `demonstrationTimeLimitMs`, or `demonstrationLiveLimitMs` after it started, it ends the
  * Demonstration as Done. One that has ended stops the chain.
  */
-export const demonstrationCheckJob = defineJob({
+export const demonstrationCheckJob = defineCoreJob({
   name: demonstrationCheckJobName,
   payload: z.object({
     demonstrationId: z.uuid(),

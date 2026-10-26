@@ -53,17 +53,19 @@ export function createRunner(
   executor?: Executor,
   given?: JobRunner,
 ): { api: RunnerApi; lifecycle: RunnerLifecycle } {
-  const deps = () => sdk;
+  // Read once the factory has listed them, after the features are enabled.
+  const table = () => sdk.parts.jobs;
   const jobs =
     given ??
     (executor
-      ? createJobRunner({ db: sdk.db, logger: sdk.logger, deps, executor })
-      : inProcessRunner({ db: sdk.db, logger: sdk.logger, deps }));
+      ? createJobRunner({ db: sdk.db, logger: sdk.logger, jobs: table, executor })
+      : inProcessRunner({ db: sdk.db, logger: sdk.logger, jobs: table }));
   const api: RunnerApi = {
     enqueue: (name, payload, enqueueOptions) => jobs.enqueue(name, payload, enqueueOptions),
     cancel: (idempotencyKey) => jobs.cancel(idempotencyKey),
     status: (jobId) => jobs.status(jobId),
-    runJob: (name, payload) => runRegisteredJob(name, payload, sdk),
+    runJob: (name, payload) =>
+      runRegisteredJob(name, payload, { jobs: table(), db: sdk.db, clock: sdk.clock }),
     enqueueIn: (tx, name, payload, enqueueOptions) =>
       jobs.enqueueIn(tx, name, payload, { ...enqueueOptions, now: sdk.clock() }),
     cancelIn: (tx, idempotencyKey) => jobs.cancelIn(tx, idempotencyKey, sdk.clock()),

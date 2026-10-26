@@ -8,6 +8,7 @@ export {
   computerIdleMs,
   ComputerOperationError,
   computerProvider,
+  computerSleepJob,
   ComputerUnavailableError,
   computerUserDelete,
   isComputerFailure,

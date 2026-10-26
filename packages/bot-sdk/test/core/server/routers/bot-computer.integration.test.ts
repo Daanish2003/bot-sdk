@@ -74,7 +74,12 @@ async function botWith(
   const fake = createFakeAdapter({ rounds });
   const computerFake = fakeComputerProvider({ onCommand });
   let deps: TestDeps | undefined;
-  const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
+  const jobs = inProcessRunner({
+    db: getTestDb(),
+    logger: silent,
+    drainMs: 50,
+    jobs: () => deps!.parts.jobs,
+  });
   deps = createTestSdk({
     ...(withComputer && { computer: computerFake.provider }),
     features: withKnowledge ? [knowledge()] : [],
@@ -473,7 +478,7 @@ describe("a shell call whose attempt is cut off", () => {
         logger: silent,
         clock: timer.clock,
         drainMs: 1_000,
-        deps: () => deps!,
+        jobs: () => deps!.parts.jobs,
       });
       started.push(jobs);
       deps = createTestSdk({
@@ -553,7 +558,7 @@ describe("a shell call whose attempt is cut off", () => {
     await commandStarted;
     // The process dies mid-command: its lease expires and the reaper re-queues the Turn's job.
     timer.advance(61_000);
-    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps);
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps.parts.jobs);
     timer.tick();
     await lost;
     // Another process resumes the Turn.
@@ -584,7 +589,7 @@ describe("a shell call whose attempt is cut off", () => {
     const lost = attempt();
     await setup.commandStarted;
     timer.advance(61_000);
-    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps);
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps.parts.jobs);
     timer.tick();
     await lost;
     await attempt(instance());

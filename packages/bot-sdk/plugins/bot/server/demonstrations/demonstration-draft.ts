@@ -11,7 +11,7 @@ import {
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import type { ComputerHandle } from "../../../computer/server/internal";
 import { promptCharactersOf, reportedUsageOf } from "../../../models/server/internal";
-import { defineJob } from "../../../runner/server/internal";
+import { defineCoreJob } from "../../../runner/server/internal";
 import { nameLimit, problemOf, skillsDirectory } from "../../../skills/server/skills";
 import { computerOf } from "../agent-loop";
 import {
@@ -317,17 +317,17 @@ export const demonstrationTriggerId = (demonstrationId: string) =>
  * The drafting pass, queued when a Demonstration goes to `drafting`: the call, recorded once, then
  * the save, recorded once, then the ending. A job the runner gives up on ends it `failed`.
  */
-export const demonstrationDraftJob = defineJob({
+export const demonstrationDraftJob = defineCoreJob({
   name: demonstrationDraftJobName,
   payload: z.object({ demonstrationId: z.uuid() }),
-  run: async ({ demonstrationId }, { deps, activity }) => {
+  run: async ({ demonstrationId }, { deps, step }) => {
     const demonstration = await draftedFacts(deps, demonstrationId);
     if (demonstration?.state !== "drafting") return;
-    const drafted = await activity("skill_draft", () => draftSkill(deps, demonstration));
+    const drafted = await step("skill_draft", () => draftSkill(deps, demonstration));
     if ("error" in drafted) return finish(deps, demonstration, drafted);
     const skill = draftedSkill(drafted.reply, demonstration.goal);
     if ("error" in skill) return finish(deps, demonstration, skill);
-    const name = await activity("skill_save", () =>
+    const name = await step("skill_save", () =>
       saveDraft(computerOf(deps, demonstration.userId), {
         botId: demonstration.botId,
         skill: skill.skill,
@@ -336,7 +336,7 @@ export const demonstrationDraftJob = defineJob({
     );
     await finish(deps, demonstration, { name });
   },
-  onFailed: async ({ demonstrationId }, _error, deps) => {
+  onFailed: async ({ demonstrationId }, _error, { deps }) => {
     const demonstration = await draftedFacts(deps, demonstrationId);
     if (demonstration?.state !== "drafting") return;
     await finish(deps, demonstration, { error: "something went wrong while writing it" });
@@ -347,7 +347,7 @@ export const demonstrationDraftJob = defineJob({
  * Deletes a Demonstration's events, then their screenshots' bytes, 7 days after it ended
  * (spec #713). The row stays as a record.
  */
-export const demonstrationRetentionJob = defineJob({
+export const demonstrationRetentionJob = defineCoreJob({
   name: demonstrationRetentionJobName,
   payload: z.object({ demonstrationId: z.uuid() }),
   run: async ({ demonstrationId }, { deps }) => {

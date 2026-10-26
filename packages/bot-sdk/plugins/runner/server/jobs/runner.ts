@@ -1,6 +1,7 @@
-import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
+import type { Transaction } from "../../../../core/server/plugin";
 import type { Database, JobRow } from "../../../../core/server/storage";
 import { afterCommit, trackCommits } from "./commit";
+import type { JobTable } from "./define";
 import type { Executor } from "./executor";
 import {
   type JobNames,
@@ -127,8 +128,8 @@ export type JobRunnerOptions = {
    */
   drainMs?: number;
   clock?: JobClock;
-  /** The core context, read when a job runs. The core passes its instance's. */
-  deps: () => BotSdkContext;
+  /** The instance's jobs (spec #872), read when one is queued or run. */
+  jobs: () => JobTable;
 };
 
 /** Resolves when `promise` settles or after `ms`, whichever comes first, and clears its timer. */
@@ -154,8 +155,12 @@ export const wakeable = new WeakMap<Executor, () => void>();
  */
 export const claimNext = Symbol("claimNext");
 
+/** The in-process Executor's other way in: each job with a `concurrency`, by name, with its budget. */
+export const jobBudgets = Symbol("jobBudgets");
+
 export type CoreRun = ((jobId: string) => Promise<void>) & {
   [claimNext]?: (names: JobNames) => Promise<{ name: string; attempt: Promise<void> } | undefined>;
+  [jobBudgets]?: () => ReadonlyMap<string, number>;
 };
 
 /** The core's runner over `executor` (see `JobRunner`). Nothing runs before `start()`. */
@@ -165,7 +170,7 @@ export function createJobRunner({
   logger = console,
   drainMs = 250_000,
   clock = systemClock,
-  deps,
+  jobs,
 }: JobRunnerOptions): JobRunner {
   trackCommits(db);
   let stopping = false;
@@ -191,7 +196,7 @@ export function createJobRunner({
     const work = runClaimedJob(db, claimed, {
       clock,
       logger,
-      deps,
+      jobs,
       drain: drainSignal,
       shutdown: shutdown.signal,
       handlers,
@@ -224,18 +229,24 @@ export function createJobRunner({
     const job = await claimed;
     return job && { name: job.name, attempt: work };
   };
+  runJob[jobBudgets] = () =>
+    new Map(
+      [...jobs().values()].flatMap(({ definition: { name, concurrency } }) =>
+        concurrency === undefined ? [] : [[name, concurrency] as const],
+      ),
+    );
 
   return {
     executor,
 
     async enqueue(name, payload, options = {}) {
-      const id = await enqueueJob(db, name, payload, { ...options, now: clock.now() });
+      const id = await enqueueJob(db, jobs(), name, payload, { ...options, now: clock.now() });
       notify(id, options.runAfter);
       return id;
     },
 
     async enqueueIn(tx, name, payload, options = {}) {
-      const id = await enqueueJob(tx, name, payload, {
+      const id = await enqueueJob(tx, jobs(), name, payload, {
         ...options,
         now: options.now ?? clock.now(),
       });

@@ -6,7 +6,9 @@ import { buildBotSdk } from "../../../../core/server/create-chat";
 import { models } from "../../../../plugins/models/server/internal";
 import { job } from "../../../../core/server/storage";
 import {
-  defineJob,
+  type JobDefinition,
+  jobTable,
+  type JobTable,
   PermanentJobError,
   inProcessRunner,
   cancelJob,
@@ -16,16 +18,21 @@ import {
   reapStaleJobs,
 } from "../../../../plugins/runner/server/internal";
 import type { Executor, JobRunner } from "../../../../plugins/runner/server/internal";
-import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { drainJobs, fakeJobClock } from "../../../support/jobs";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
 
 const start = new Date("2026-10-14T10:00:00Z");
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const silent = { error: () => {} };
-/** The jobs in this file take no SDK dependencies, so their runners get fresh test deps. */
-let testDeps: TestDeps | undefined;
-const jobDeps = () => (testDeps ??= createTestSdk({ db: getTestDb() }));
+/** The jobs this file defines, which its runners run. They take no core services. */
+// oxlint-disable-next-line typescript/no-explicit-any -- each job has its own payload
+const testJobs: JobDefinition<any, object>[] = [];
+const listed = <P>(definition: JobDefinition<P, object>) => {
+  testJobs.push(definition);
+  return definition;
+};
+let table: JobTable | undefined;
+const testTable = () => (table ??= jobTable([{ jobs: testJobs, services: {} }]));
 const DAY = 86_400_000;
 
 // Test-only jobs. Each test sets their behaviour through these variables.
@@ -40,7 +47,7 @@ let gate: Promise<void> | undefined;
 let holding = false;
 let releaseHold: (() => void) | undefined;
 
-defineJob({
+listed({
   name: "test.record",
   payload: z.object({ label: z.string() }),
   run: async ({ label }) => {
@@ -50,7 +57,7 @@ defineJob({
   },
 });
 
-defineJob({
+listed({
   name: "test.fail",
   payload: z.object({ label: z.string() }),
   run: async () => {
@@ -61,7 +68,7 @@ defineJob({
   },
 });
 
-defineJob({
+listed({
   name: "test.hold",
   payload: z.object({ label: z.string() }),
   run: async ({ label }, { signal }) => {
@@ -91,7 +98,7 @@ defineJob({
 /** Released by the test that runs `test.linger`; until then its handler goes on after its abort. */
 let lingerGate: Promise<void> | undefined;
 
-defineJob({
+listed({
   name: "test.linger",
   payload: z.object({ label: z.string() }),
   run: async ({ label }, { signal }) => {
@@ -105,14 +112,14 @@ defineJob({
   },
 });
 
-defineJob({
+listed({
   name: "test.self-cancel",
   payload: z.object({ label: z.string() }),
   run: async ({ label }, ctx) => {
     // A cancel commits while the job runs, so its next Checkpoint finds its row gone.
     await cancelJob(getTestDb(), label, new Date());
     try {
-      await ctx.activity("after-cancel", async () => label);
+      await ctx.step("after-cancel", async () => label);
     } catch {
       // The attempt has lost its job; the handler goes on, as a Turn's ends its Turn.
     }
@@ -124,9 +131,9 @@ defineJob({
 /** Released by the test that holds `test.helper` jobs; until then each one keeps running. */
 let helperGate: Promise<void> | undefined;
 
-defineJob({
+listed({
   name: "test.helper",
-  lane: "helper",
+  concurrency: 4,
   payload: z.object({ label: z.string() }),
   run: async ({ label }) => {
     started.push(label);
@@ -175,7 +182,7 @@ describe("enqueue", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: fakeJobClock(start).clock,
     });
 
@@ -198,7 +205,7 @@ describe("enqueue", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: fakeJobClock(start).clock,
     });
 
@@ -206,7 +213,7 @@ describe("enqueue", () => {
     await runner.enqueue("test.record", { label: "b" }, { idempotencyKey: "k1" });
     expect(await jobRows()).toHaveLength(1);
 
-    await drainJobs();
+    await drainJobs({ jobs: testTable() });
     await runner.enqueue("test.record", { label: "c" }, { idempotencyKey: "k1" });
     expect(await jobRows()).toHaveLength(2);
   });
@@ -215,7 +222,7 @@ describe("enqueue", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: fakeJobClock(start).clock,
     });
     const later = new Date(start.getTime() + 60_000);
@@ -230,7 +237,7 @@ describe("enqueue", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: fakeJobClock(start).clock,
     });
 
@@ -245,7 +252,7 @@ describe("the in-process runner", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: fakeJobClock(start).clock,
     });
     await runner.enqueue("test.record", { label: "a" });
@@ -261,7 +268,7 @@ describe("the in-process runner", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: fakeJobClock(start).clock,
     });
     await runner.start();
@@ -277,14 +284,14 @@ describe("the in-process runner", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: timer.clock,
     });
     await runner.start();
     const otherProcess = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: timer.clock,
     });
     await otherProcess.enqueue("test.record", { label: "a" });
@@ -301,7 +308,7 @@ describe("the in-process runner", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: fakeJobClock(start).clock,
     });
     let release!: () => void;
@@ -320,11 +327,11 @@ describe("the in-process runner", () => {
     await runner.stop();
   });
 
-  it("runs a job while four Helper-lane jobs are running, with the default budgets", async () => {
+  it("runs a job while four jobs with their own budget of four are running", async () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: fakeJobClock(start).clock,
     });
     let releaseHelpers!: () => void;
@@ -344,11 +351,11 @@ describe("the in-process runner", () => {
     await runner.stop();
   });
 
-  it("holds each lane to its own budget: four Helper-lane jobs and two others at once", async () => {
+  it("holds a job with a concurrency to its own budget: four of it and two others at once", async () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: fakeJobClock(start).clock,
     });
     let releaseHelpers!: () => void;
@@ -382,8 +389,8 @@ describe("the in-process runner", () => {
     const { clock } = fakeJobClock(start);
     const db = getTestDb();
     const runners: JobRunner[] = [
-      inProcessRunner({ db, logger: silent, deps: jobDeps, clock, concurrency: 4 }),
-      inProcessRunner({ db, logger: silent, deps: jobDeps, clock, concurrency: 4 }),
+      inProcessRunner({ db, logger: silent, jobs: testTable, clock, concurrency: 4 }),
+      inProcessRunner({ db, logger: silent, jobs: testTable, clock, concurrency: 4 }),
     ];
     const labels = Array.from({ length: 20 }, (_, index) => `job-${index}`);
     for (const label of labels) await runners[0]!.enqueue("test.record", { label });
@@ -403,7 +410,7 @@ describe("retries", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: timer.clock,
     });
     failure = new Error("boom");
@@ -442,7 +449,7 @@ describe("retries", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: timer.clock,
     });
     failure = new PermanentJobError("no text layer");
@@ -462,13 +469,13 @@ describe("drainJobs", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: fakeJobClock(start).clock,
     });
     await runner.enqueue("test.record", { label: "a" });
     await runner.enqueue("test.record", { label: "b" });
 
-    expect(await drainJobs()).toBe(2);
+    expect(await drainJobs({ jobs: testTable() })).toBe(2);
 
     expect(ran).toEqual(["a", "b"]);
     expect((await jobRows()).map((row) => row.status)).toEqual(["succeeded", "succeeded"]);
@@ -482,13 +489,13 @@ describe("drainJobs", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: fakeJobClock(start).clock,
     });
     await runner.enqueue("test.self-cancel", { label: "a" }, { idempotencyKey: "a" });
 
     let drained = false;
-    const draining = drainJobs().then((count) => {
+    const draining = drainJobs({ jobs: testTable() }).then((count) => {
       drained = true;
       return count;
     });
@@ -504,13 +511,13 @@ describe("drainJobs", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: fakeJobClock(start).clock,
     });
     failure = new Error("boom");
     await runner.enqueue("test.fail", { label: "a" });
 
-    expect(await drainJobs()).toBe(3);
+    expect(await drainJobs({ jobs: testTable() })).toBe(3);
 
     expect(await statusOf("test.fail")).toBe("failed");
     expect(failedLabels).toEqual(["a"]);
@@ -520,15 +527,15 @@ describe("drainJobs", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: fakeJobClock(start).clock,
     });
     failure = new Error("boom");
     // drainJobs compares run_after with the real time, so this job is due now.
     await runner.enqueue("test.fail", { label: "a" }, { runAfter: new Date(Date.now() - 1_000) });
-    expect(await drainJobs({ respectRunAfter: true })).toBe(1);
+    expect(await drainJobs({ respectRunAfter: true, jobs: testTable() })).toBe(1);
 
-    expect(await drainJobs({ respectRunAfter: true })).toBe(0);
+    expect(await drainJobs({ respectRunAfter: true, jobs: testTable() })).toBe(0);
     expect(await statusOf("test.fail")).toBe("queued");
   });
 });
@@ -540,7 +547,7 @@ describe("heartbeats and leases", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: timer.clock,
       drainMs: 20,
     });
@@ -564,7 +571,7 @@ describe("heartbeats and leases", () => {
     const crashed = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: timer.clock,
       drainMs: 20,
     });
@@ -576,16 +583,16 @@ describe("heartbeats and leases", () => {
     holding = false;
 
     timer.advance(60_000);
-    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, jobDeps());
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, testTable());
     expect(await statusOf("test.hold")).toBe("running");
 
     timer.advance(1_000);
-    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, jobDeps());
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, testTable());
     expect(await jobRows()).toMatchObject([
       { status: "queued", attempts: 1, lastError: expect.stringContaining("lease") },
     ]);
 
-    expect(await drainJobs()).toBe(1);
+    expect(await drainJobs({ jobs: testTable() })).toBe(1);
     expect(ran).toEqual(["a"]);
     expect(await jobRows()).toMatchObject([{ status: "succeeded", attempts: 2 }]);
   });
@@ -593,13 +600,13 @@ describe("heartbeats and leases", () => {
   it("fails a job whose lease expires on its last attempt, and runs onFailed", async () => {
     const timer = fakeJobClock(start);
     const db = getTestDb();
-    const runner = inProcessRunner({ db, logger: silent, deps: jobDeps, clock: timer.clock });
+    const runner = inProcessRunner({ db, logger: silent, jobs: testTable, clock: timer.clock });
     await runner.enqueue("test.fail", { label: "a" });
     // Three processes claim the job and die without finishing it.
     for (const attempt of [1, 2, 3]) {
       expect(await claimJob(db, timer.clock.now())).toMatchObject({ attempts: attempt });
       timer.advance(61_000);
-      await reapStaleJobs(db, timer.clock.now(), silent, jobDeps());
+      await reapStaleJobs(db, timer.clock.now(), silent, testTable());
     }
 
     expect(await jobRows()).toMatchObject([
@@ -615,7 +622,7 @@ describe("heartbeats and leases", () => {
     const lost = inProcessRunner({
       db,
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: timer.clock,
       drainMs: 2_000,
     });
@@ -623,7 +630,7 @@ describe("heartbeats and leases", () => {
     await lost.start();
     await expect.poll(() => statusOf("test.hold")).toBe("running");
     timer.advance(61_000);
-    await reapStaleJobs(db, timer.clock.now(), silent, jobDeps());
+    await reapStaleJobs(db, timer.clock.now(), silent, testTable());
     expect(await claimJob(db, timer.clock.now())).toMatchObject({ attempts: 2 });
 
     releaseHold?.();
@@ -638,7 +645,7 @@ describe("heartbeats and leases", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: timer.clock,
       drainMs: 20,
     });
@@ -663,14 +670,14 @@ describe("cancel", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: fakeJobClock(start).clock,
     });
     await runner.enqueue("test.record", { label: "a" }, { idempotencyKey: "k" });
 
     await runner.cancel("k");
 
-    expect(await drainJobs()).toBe(0);
+    expect(await drainJobs({ jobs: testTable() })).toBe(0);
     expect(ran).toEqual([]);
     expect(await statusOf("test.record")).toBe("cancelled");
   });
@@ -681,7 +688,7 @@ describe("cancel", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: timer.clock,
       drainMs: 20,
     });
@@ -703,19 +710,19 @@ describe("cancel", () => {
   it("calls onCancelled from the sweep, exactly once, for a cancelled job whose attempt lost its lease", async () => {
     const timer = fakeJobClock(start);
     const db = getTestDb();
-    const runner = inProcessRunner({ db, logger: silent, deps: jobDeps, clock: timer.clock });
+    const runner = inProcessRunner({ db, logger: silent, jobs: testTable, clock: timer.clock });
     await runner.enqueue("test.hold", { label: "a" }, { idempotencyKey: "k" });
     // A process claims the job and dies without running any more of it.
     expect(await claimJob(db, timer.clock.now())).toMatchObject({ attempts: 1 });
     await runner.cancel("k");
 
     timer.advance(60_000);
-    await reapStaleJobs(db, timer.clock.now(), silent, jobDeps());
+    await reapStaleJobs(db, timer.clock.now(), silent, testTable());
     expect(cancelledLabels).toEqual([]);
 
     timer.advance(1_000);
-    await reapStaleJobs(db, timer.clock.now(), silent, jobDeps());
-    await reapStaleJobs(db, timer.clock.now(), silent, jobDeps());
+    await reapStaleJobs(db, timer.clock.now(), silent, testTable());
+    await reapStaleJobs(db, timer.clock.now(), silent, testTable());
 
     expect(cancelledLabels).toEqual(["a"]);
     expect(await jobRows()).toMatchObject([{ status: "cancelled", attempts: 1 }]);
@@ -727,7 +734,7 @@ describe("cancel", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: timer.clock,
       drainMs: 20,
     });
@@ -742,7 +749,7 @@ describe("cancel", () => {
     await runner.stop();
 
     timer.advance(61_000);
-    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, jobDeps());
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, testTable());
 
     expect(cancelledLabels).toEqual([]);
   });
@@ -753,7 +760,7 @@ describe("cancel", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: timer.clock,
     });
     await runner.enqueue("test.hold", { label: "a" }, { idempotencyKey: "k" });
@@ -766,7 +773,7 @@ describe("cancel", () => {
     await expect.poll(() => ran).toEqual(["a"]);
     await runner.stop();
     timer.advance(61_000);
-    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, jobDeps());
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, testTable());
 
     expect(cancelledLabels).toEqual(["a"]);
   });
@@ -774,16 +781,16 @@ describe("cancel", () => {
   it("never calls onCancelled for a job cancelled while it waited to retry", async () => {
     const timer = fakeJobClock(start);
     const db = getTestDb();
-    const runner = inProcessRunner({ db, logger: silent, deps: jobDeps, clock: timer.clock });
+    const runner = inProcessRunner({ db, logger: silent, jobs: testTable, clock: timer.clock });
     await runner.enqueue("test.hold", { label: "a" }, { idempotencyKey: "k" });
     expect(await claimJob(db, timer.clock.now())).toMatchObject({ attempts: 1 });
     timer.advance(61_000);
-    await reapStaleJobs(db, timer.clock.now(), silent, jobDeps());
+    await reapStaleJobs(db, timer.clock.now(), silent, testTable());
     expect(await statusOf("test.hold")).toBe("queued");
 
     await runner.cancel("k");
     timer.advance(61_000);
-    await reapStaleJobs(db, timer.clock.now(), silent, jobDeps());
+    await reapStaleJobs(db, timer.clock.now(), silent, testTable());
 
     expect(cancelledLabels).toEqual([]);
   });
@@ -794,7 +801,7 @@ describe("status", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: fakeJobClock(start).clock,
     });
     const id = await runner.enqueue("test.record", { label: "a" }, { idempotencyKey: "k" });
@@ -819,7 +826,7 @@ describe("stop", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: timer.clock,
       drainMs: 20,
     });
@@ -846,7 +853,7 @@ describe("stop", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: fakeJobClock(start).clock,
       drainMs: 2_000,
     });
@@ -870,7 +877,7 @@ describe("stop and lost attempts", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger,
-      deps: jobDeps,
+      jobs: testTable,
       clock: timer.clock,
       concurrency: 1,
       drainMs,
@@ -931,7 +938,7 @@ describe("retention", () => {
     const runner = inProcessRunner({
       db,
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: fakeJobClock(start).clock,
     });
     const endedAgo = async (
@@ -965,7 +972,7 @@ describe("schedule", () => {
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
-      deps: jobDeps,
+      jobs: testTable,
       clock: fakeJobClock(start).clock,
     });
 
@@ -1011,7 +1018,7 @@ describe("an Executor whose notify throws", () => {
     const jobs = createJobRunner({
       db: getTestDb(),
       logger: { error: logged },
-      deps: jobDeps,
+      jobs: testTable,
       executor: {
         start: async () => {},
         notify: () => {

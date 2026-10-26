@@ -87,7 +87,7 @@ async function botWith(
     logger: silent,
     drainMs: 50,
     clock: { ...systemClock, now: clock },
-    deps: () => deps!,
+    jobs: () => deps!.parts.jobs,
   });
   deps = createTestSdk({
     ...(withComputer && { computer: computerFake.provider }),
@@ -385,7 +385,7 @@ describe("the Skills read", { timeout: 30_000 }, () => {
       logger: silent,
       clock: timer.clock,
       drainMs: 1_000,
-      deps: () => deps!,
+      jobs: () => deps!.parts.jobs,
     });
     started.push(jobs);
     deps = createTestSdk({

@@ -835,7 +835,7 @@ describe("the computer plugin on a runner that is not in-process", () => {
   it("fails at startup, because a wake queues its sleep check in its transaction", () => {
     const elsewhere = createJobRunner({
       db: getTestDb(),
-      deps: () => createTestSdk(),
+      jobs: () => createTestSdk().parts.jobs,
       executor: manualExecutor().executor,
     });
     const { provider } = fakeComputerProvider();

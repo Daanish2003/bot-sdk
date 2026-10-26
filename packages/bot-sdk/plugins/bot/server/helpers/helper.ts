@@ -15,7 +15,7 @@ import type { BotSdkContext, Transaction } from "../../../../core/server/plugin"
 import { canUseComputer, providerOf } from "../../../models/shared/models";
 import type { MessageUsage } from "../../../models/shared/usage";
 import {
-  defineJob,
+  defineCoreJob,
   PermanentJobError,
   loadHistory,
   createWorkflow,
@@ -298,12 +298,13 @@ export async function lockScreen(tx: Transaction, userId: string, slot: number) 
  * The runner job of one Helper, keyed by `helper:<id>` (ADR 0011, the #565 amendment). The job of a
  * Helper the user's Done resumed has `waitedSince`, when it began to wait.
  */
-export const botHelperJob = defineJob({
+export const botHelperJob = defineCoreJob({
   name: botHelperJobName,
-  lane: "helper",
+  concurrency: 4,
   payload: z.object({ helperId: z.uuid(), waitedSince: z.iso.datetime().optional() }),
   run: ({ helperId, waitedSince }, ctx) => runHelperJob(ctx.deps, helperId, ctx, waitedSince),
-  onFailed: ({ helperId, waitedSince }, _error, deps) => endLostHelper(deps, helperId, waitedSince),
+  onFailed: ({ helperId, waitedSince }, _error, { deps }) =>
+    endLostHelper(deps, helperId, waitedSince),
 });
 
 /** What a Helper's job reads once per attempt. */
@@ -384,7 +385,7 @@ async function runHelperJob(
   // A hand-off ends the job, keeping the Screen open for the user; Done starts a new one (#568).
   const reason = played.askedUser;
   if (reason !== undefined) {
-    const handed = await ctx.activity("hand_off", (tx) =>
+    const handed = await ctx.step("hand_off", (tx) =>
       handOff(deps, tx, helper, reason, {
         transcript: [...played.input, ...played.transcript],
         usage: usageSoFar(helper, played),
@@ -395,7 +396,7 @@ async function runHelperJob(
   }
   // Before the end frees its slot, so it never closes the Screen of the next Helper on it.
   await closeScreen(deps, helper);
-  const ended = await ctx.activity("end_helper", (tx) =>
+  const ended = await ctx.step("end_helper", (tx) =>
     endHelper(deps, tx, helper, endingOf(played), played),
   );
   if (ended) await afterReport(deps, ended.conversationId);
@@ -484,7 +485,7 @@ async function playHelper(
   const input = saved
     ? answeredTranscript(
         saved,
-        await ctx.activity("resume", () =>
+        await ctx.step("resume", () =>
           resumeAnswer(deps, helper, waitedSince ? new Date(waitedSince) : helper.startedAt),
         ),
       )
@@ -539,7 +540,7 @@ async function playHelper(
               [],
               {
                 signal: connections.signal,
-                record: (featureId, list) => ctx.activity(`${featureId}:tools`, list),
+                record: (featureId, list) => ctx.step(`${featureId}:tools`, list),
                 computerCall: kit.computerCall,
               },
               { connectorsOnly: true },
@@ -566,7 +567,7 @@ async function playHelper(
       // Opened afresh on the Bot's profile once per Helper, so a Screen another Helper left on
       // this slot is never driven; a later attempt, or a resumed Helper, connects to it as it is.
       if (!saved) {
-        await ctx.activity("open_screen", () =>
+        await ctx.step("open_screen", () =>
           computerOf(deps, helper.userId)
             .openScreen(session.slot, helper.botId)
             .then(() => true, unlessComputerFailed),
@@ -810,7 +811,7 @@ export const helperStoppedJobName = "bot.helper.stopped";
  * become what its Checkpoints hold (unless it was waiting, and saved them then), and its Screen is
  * closed. Each part is best-effort and logged, and the same however often it runs.
  */
-export const helperStoppedJob = defineJob({
+export const helperStoppedJob = defineCoreJob({
   name: helperStoppedJobName,
   payload: z.object({
     helperId: z.uuid(),

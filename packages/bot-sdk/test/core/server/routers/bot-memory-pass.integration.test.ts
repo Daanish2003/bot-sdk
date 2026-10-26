@@ -3,6 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { conversationChannel } from "../../../../core/server/chat/conversation-events";
+import type { FeatureContext } from "../../../../core/server/feature";
 import { createMemoryPubSub } from "../../../../core/server/chat/pubsub";
 import { botTurn, job, usage } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
@@ -84,7 +85,7 @@ async function botsWith(
     logger: silent,
     drainMs: 50,
     clock: { ...systemClock, now: clock },
-    deps: () => deps!,
+    jobs: () => deps!.parts.jobs,
   });
   deps = createTestSdk({
     computer: computerFake.provider,
@@ -424,7 +425,11 @@ describe("the post-turn memory pass", () => {
     });
     await botMemoryPassJob.run(
       { turnId: turn!.id },
-      { ...workflow.context, signal: new AbortController().signal, deps },
+      {
+        ...(deps.parts.jobs.get(botMemoryPassJob.name)!.services as FeatureContext<"computer">),
+        ...workflow.context,
+        signal: new AbortController().signal,
+      },
     );
 
     expect(() => workflow.finish()).not.toThrow();

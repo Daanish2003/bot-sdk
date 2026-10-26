@@ -65,7 +65,7 @@ async function botWith(turns: Round[], helpers: Round[], { clock }: { clock?: ()
     db: getTestDb(),
     logger: silent,
     drainMs: 50,
-    deps: () => deps!,
+    jobs: () => deps!.parts.jobs,
     // The runner claims by the same clock that queues the jobs.
     ...(clock && { clock: { ...systemClock, now: clock } }),
   });
