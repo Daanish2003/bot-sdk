@@ -4,8 +4,8 @@
 // - Each plugin the SDK ships is replaced like core/, except its ui/ folder, which is the Host's once
 //   copied (theme.css names those folders, so they keep the same layout under <dest>/). A Host's own
 //   folders under <dest>/plugins are never touched.
-// - ui/ and extras/ are copied only when their destination folder does not exist, so a Host's
-//   edits survive updates.
+// - ui/ is copied only when its destination folder does not exist, so a Host's edits survive
+//   updates.
 // - package.json, README.md and NOTICE (the credit for ported code) are copied to <dest>/ on
 //   every run (SDK-owned).
 // - Tests and test helpers are never copied.
@@ -88,10 +88,6 @@ export function copySdk(dest: string, options: CopyOptions = {}): void {
 
   if (!existsSync(join(target, "ui"))) {
     copyTree(join(source, "ui"), join(target, "ui"));
-  }
-  // Optional adapters (extras/, such as the Trigger.dev runner) are the Host's to edit once copied.
-  if (!existsSync(join(target, "extras"))) {
-    copyTree(join(source, "extras"), join(target, "extras"));
   }
 
   for (const file of SDK_ROOT_FILES) {
