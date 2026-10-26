@@ -1,29 +1,14 @@
 import { z } from "zod";
 
 import { protectedProcedure } from "../../../../core/server/procedures";
-import { rpcError } from "../../../../core/server/rpc-error";
-import { findBot } from "../conversation";
 import { botMessageSchema } from "../../shared/turn";
-import { decideReview, listReviews, deleteSecret, listSecrets, saveSecret } from "../safety";
-import {
-  approveRoutine,
-  declineRoutine,
-  listRoutines,
-  pauseRoutine,
-  removeRoutine,
-  resumeRoutine,
-  rotateWebhook,
-  cancelCheckIn,
-  listCheckIns,
-} from "../routines";
+import { deleteSecret, listSecrets, saveSecret } from "../safety";
 import { botChanges } from "../changes";
 
-import { listHelpers, helperDone, stopBotHelpers, screenControl, screenView } from "../helpers";
+import { screenControl, screenView } from "../helpers";
 
 import { secretNameSchema } from "../../shared/secret";
 
-import type { DemonstrationAction } from "../../shared/demonstration";
-import { actOnDemonstration, demonstrationSteps } from "../demonstrations";
 import {
   botInput,
   chooseInput,
@@ -32,13 +17,18 @@ import {
   sendInput,
   uploadInput,
 } from "../bots-api";
+import type { DemonstrationAction } from "../../shared/demonstration";
+import { demonstrationInput } from "../demonstrations-api";
+import { helperDoneInput, helperListInput, helperStopInput } from "../helpers-api";
+import { reviewDecisionInput, reviewListInput } from "../reviews-api";
+import { botScopeInput, checkInInput, routineInput } from "../routines-api";
 
 /** A route that applies `action` to one of the caller's Demonstrations. */
-const demonstrationAction = (action: DemonstrationAction) =>
+const demonstrationAction = (action: Exclude<DemonstrationAction, "view">) =>
   protectedProcedure
-    .input(z.object({ demonstrationId: z.uuid() }))
+    .input(demonstrationInput)
     .handler(({ context, input }) =>
-      actOnDemonstration(context.sdk, context.user.id, input.demonstrationId, action),
+      context.sdk.demonstrations[action]({ userId: context.user.id, ...input }),
     );
 
 const botRouter = {
@@ -110,145 +100,118 @@ const botRouter = {
     .input(reactInput)
     .handler(({ context, input }) => context.sdk.bots.react({ userId: context.user.id, ...input })),
 
-  /** The Routines of the caller's Bots (#538). Approving or declining one never wakes the Bot. */
+  /** The Routines of the caller's Bots (#538), over `sdk.routines`. Approving or declining one never wakes the Bot. */
   routine: {
     /** One of the caller's Bots' Routines, sorted by name, each with the Message its card follows. */
     list: protectedProcedure
-      .input(z.object({ botId: z.uuid() }))
-      .handler(async ({ context, input }) => {
-        const found = await findBot(context.sdk.db, context.user.id, input.botId);
-        if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-        return listRoutines(context.sdk.db, input.botId);
-      }),
+      .input(botScopeInput)
+      .handler(({ context, input }) =>
+        context.sdk.routines.list({ userId: context.user.id, ...input }),
+      ),
 
     /** Approves a pending Routine: it turns `active`. Another user's is not found. */
     approve: protectedProcedure
-      .input(z.object({ routineId: z.uuid() }))
+      .input(routineInput)
       .handler(({ context, input }) =>
-        approveRoutine(context.sdk, context.user.id, input.routineId),
+        context.sdk.routines.approve({ userId: context.user.id, ...input }),
       ),
 
     /** Declines a pending Routine, which deletes it. Another user's is not found. */
     decline: protectedProcedure
-      .input(z.object({ routineId: z.uuid() }))
+      .input(routineInput)
       .handler(({ context, input }) =>
-        declineRoutine(context.sdk, context.user.id, input.routineId),
+        context.sdk.routines.decline({ userId: context.user.id, ...input }),
       ),
 
-    /**
-     * Pauses an active Routine: its queued fire is cancelled and its Triggers no Turn has taken yet
-     * are dropped. Another user's is not found.
-     */
+    /** Pauses an active Routine (`sdk.routines.pause`). Another user's is not found. */
     pause: protectedProcedure
-      .input(z.object({ routineId: z.uuid() }))
-      .handler(({ context, input }) => pauseRoutine(context.sdk, context.user.id, input.routineId)),
-
-    /** Resumes a paused Routine with no fresh OK: its next fire is queued. Another user's is not found. */
-    resume: protectedProcedure
-      .input(z.object({ routineId: z.uuid() }))
+      .input(routineInput)
       .handler(({ context, input }) =>
-        resumeRoutine(context.sdk, context.user.id, input.routineId),
+        context.sdk.routines.pause({ userId: context.user.id, ...input }),
+      ),
+
+    /** Resumes a paused Routine with no fresh OK. Another user's is not found. */
+    resume: protectedProcedure
+      .input(routineInput)
+      .handler(({ context, input }) =>
+        context.sdk.routines.resume({ userId: context.user.id, ...input }),
       ),
 
     /** Deletes a Routine in any state, and nothing of it fires again. Another user's is not found. */
     delete: protectedProcedure
-      .input(z.object({ routineId: z.uuid() }))
+      .input(routineInput)
       .handler(({ context, input }) =>
-        removeRoutine(context.sdk, context.user.id, input.routineId),
+        context.sdk.routines.delete({ userId: context.user.id, ...input }),
       ),
 
-    /**
-     * Gives an approved webhook Routine a new URL (ADR 0021): the new token comes back this once, and
-     * the old URL answers 404 from then on. Another user's is not found.
-     */
+    /** Gives an approved webhook Routine a new URL (ADR 0021). Another user's is not found. */
     rotate: protectedProcedure
-      .input(z.object({ routineId: z.uuid() }))
+      .input(routineInput)
       .handler(({ context, input }) =>
-        rotateWebhook(context.sdk, context.user.id, input.routineId),
+        context.sdk.routines.rotate({ userId: context.user.id, ...input }),
       ),
   },
 
-  /** The Check-ins of the caller's Bots (#540). */
+  /** The Check-ins of the caller's Bots (#540), over `sdk.checkIns`. */
   checkIn: {
     /** One of the caller's Bots' Check-ins, soonest first, each with the Message its line follows. */
     list: protectedProcedure
-      .input(z.object({ botId: z.uuid() }))
-      .handler(async ({ context, input }) => {
-        const found = await findBot(context.sdk.db, context.user.id, input.botId);
-        if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-        return listCheckIns(context.sdk.db, input.botId);
-      }),
+      .input(botScopeInput)
+      .handler(({ context, input }) =>
+        context.sdk.checkIns.list({ userId: context.user.id, ...input }),
+      ),
 
     /** Cancels a pending Check-in: it never fires. Another user's is not found. */
     cancel: protectedProcedure
-      .input(z.object({ checkInId: z.uuid() }))
+      .input(checkInInput)
       .handler(({ context, input }) =>
-        cancelCheckIn(context.sdk, context.user.id, input.checkInId),
+        context.sdk.checkIns.cancel({ userId: context.user.id, ...input }),
       ),
   },
 
-  /** The Helpers of the caller's Bots (#590). */
+  /** The Helpers of the caller's Bots (#590), over `sdk.helpers`. */
   helper: {
     /** One of the caller's Bots' Helpers, oldest first, each with the Message its card follows. */
     list: protectedProcedure
-      .input(z.object({ botId: z.uuid() }))
-      .handler(async ({ context, input }) => {
-        const found = await findBot(context.sdk.db, context.user.id, input.botId);
-        if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-        return listHelpers(context.sdk.db, input.botId);
-      }),
+      .input(helperListInput)
+      .handler(({ context, input }) =>
+        context.sdk.helpers.list({ userId: context.user.id, ...input }),
+      ),
 
-    /**
-     * The user's Done on a Helper waiting for them at a hand-off (#568): it goes back to running and
-     * a fresh job carries on from where it stopped, and its Computer card reads done. Refused,
-     * "This task was stopped.", once it isn't waiting. Another user's Helper is not found.
-     */
+    /** The user's Done on a Helper waiting at a hand-off (#568). Another user's Helper is not found. */
     done: protectedProcedure
-      .input(z.object({ helperId: z.uuid() }))
-      .handler(({ context, input }) => helperDone(context.sdk, context.user.id, input.helperId)),
+      .input(helperDoneInput)
+      .handler(({ context, input }) =>
+        context.sdk.helpers.done({ userId: context.user.id, ...input }),
+      ),
 
-    /**
-     * Stops one of the caller's Bot's Helpers, or all of its live ones with no `helperId`, as
-     * `stop_helpers` does: no `helper` Trigger. One that already ended, or isn't the Bot's, stays
-     * as it is. Another user's Bot is not found.
-     */
+    /** Stops one of the caller's Bot's Helpers, or all its live ones with no `helperId`. */
     stop: protectedProcedure
-      .input(z.object({ botId: z.uuid(), helperId: z.uuid().optional() }))
-      .handler(async ({ context, input }) => {
-        const found = await findBot(context.sdk.db, context.user.id, input.botId);
-        if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-        await stopBotHelpers(context.sdk, input.botId, input.helperId);
-      }),
+      .input(helperStopInput)
+      .handler(({ context, input }) =>
+        context.sdk.helpers.stop({ userId: context.user.id, ...input }),
+      ),
   },
 
-  /** The Auto-reviews of the caller's Bots' tool calls (spec #691). */
+  /** The Auto-reviews of the caller's Bots' tool calls (spec #691), over `sdk.reviews`. */
   review: {
-    /**
-     * One of the caller's Bots' newest reviews and its waiting ones, oldest first, each with its
-     * Turn or Helper: what the passes line under a Turn lists. Another user's Bot is not found.
-     */
+    /** One of the caller's Bots' newest reviews and its waiting ones. Another user's Bot is not found. */
     list: protectedProcedure
-      .input(z.object({ botId: z.uuid() }))
-      .handler(async ({ context, input }) => {
-        const found = await findBot(context.sdk.db, context.user.id, input.botId);
-        if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-        return listReviews(context.sdk.db, input.botId);
-      }),
-    /**
-     * Allows a blocked call while its Approval waits (ADR 0024): the call runs. A late or second
-     * answer changes nothing and comes back `decided: false`, with how the request stands.
-     * Another user's is not found.
-     */
-    allow: protectedProcedure
-      .input(z.object({ reviewId: z.uuid() }))
+      .input(reviewListInput)
       .handler(({ context, input }) =>
-        decideReview(context.sdk, context.user.id, input.reviewId, "allowed"),
+        context.sdk.reviews.list({ userId: context.user.id, ...input }),
       ),
-    /** Denies a blocked call while its Approval waits, as `allow` allows it: the call doesn't run. */
-    deny: protectedProcedure
-      .input(z.object({ reviewId: z.uuid() }))
+    /** Allows a blocked call while its Approval waits (ADR 0024). Another user's is not found. */
+    allow: protectedProcedure
+      .input(reviewDecisionInput)
       .handler(({ context, input }) =>
-        decideReview(context.sdk, context.user.id, input.reviewId, "denied"),
+        context.sdk.reviews.allow({ userId: context.user.id, ...input }),
+      ),
+    /** Denies a blocked call while its Approval waits, as `allow` allows it. */
+    deny: protectedProcedure
+      .input(reviewDecisionInput)
+      .handler(({ context, input }) =>
+        context.sdk.reviews.deny({ userId: context.user.id, ...input }),
       ),
   },
 
@@ -295,23 +258,17 @@ const botRouter = {
     done: demonstrationAction("done"),
     /** Ends a live Demonstration `cancelled`. */
     cancel: demonstrationAction("cancel"),
-    /**
-     * A fresh live-view link to a live Demonstration's Screen, which the user drives, never stored.
-     * Refused, "This Demonstration has ended.", once it ended.
-     */
+    /** A fresh live-view link to a live Demonstration's Screen, never stored. */
     view: protectedProcedure
-      .input(z.object({ demonstrationId: z.uuid() }))
+      .input(demonstrationInput)
       .handler(({ context, input }) =>
-        screenView(context.sdk, context.user.id, { demonstrationId: input.demonstrationId }),
+        context.sdk.demonstrations.view({ userId: context.user.id, ...input }),
       ),
-    /**
-     * The steps a Demonstration captured, in order, with a mark where the user paused: what the
-     * Show me card and "What Planner sees" list. Password values come masked.
-     */
+    /** The steps a Demonstration captured, in order. Password values come masked. */
     steps: protectedProcedure
-      .input(z.object({ demonstrationId: z.uuid() }))
+      .input(demonstrationInput)
       .handler(({ context, input }) =>
-        demonstrationSteps(context.sdk, context.user.id, input.demonstrationId),
+        context.sdk.demonstrations.steps({ userId: context.user.id, ...input }),
       ),
   },
 
