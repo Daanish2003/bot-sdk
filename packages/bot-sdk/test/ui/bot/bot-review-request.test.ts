@@ -99,7 +99,7 @@ function fakeBotServer(review: () => BotReview, helpers: BotHelper[] = []) {
       return { decided: true, state: answer };
     });
   const router = {
-    bot: {
+    bots: {
       get: os.handler(() => ({
         bot: { ...ada, turnStatus: null },
         messages,
@@ -117,14 +117,14 @@ function fakeBotServer(review: () => BotReview, helpers: BotHelper[] = []) {
           createdAt: new Date(),
         })),
       warm: os.handler(() => ({ warmed: false as const, skipped: "still_warm" as const })),
-      routine: { list: os.handler(() => []) },
-      checkIn: { list: os.handler(() => []) },
-      helper: { list: os.handler(() => helpers) },
-      review: {
-        list: os.handler(() => [review()]),
-        allow: decide("allowed"),
-        deny: decide("denied"),
-      },
+    },
+    routines: { list: os.handler(() => []) },
+    checkIns: { list: os.handler(() => []) },
+    helpers: { list: os.handler(() => helpers) },
+    reviews: {
+      list: os.handler(() => [review()]),
+      allow: decide("allowed"),
+      deny: decide("denied"),
     },
   };
   const handler = new RPCHandler(router);

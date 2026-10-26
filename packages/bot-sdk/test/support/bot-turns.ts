@@ -44,7 +44,7 @@ export async function stopBotRunners(): Promise<void> {
 /** `user`'s client over `deps`, and a new Bot of theirs on `model`. */
 export async function botOf(deps: TestDeps, user: TestUser, model: string) {
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model });
+  const { id: botId } = await client.bots.create({ name: "Ada", model });
   return { client, botId };
 }
 

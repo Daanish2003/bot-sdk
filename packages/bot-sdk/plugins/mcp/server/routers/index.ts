@@ -10,11 +10,9 @@ export const disconnectInput = z.object({ key: z.string().min(1) });
 /** The user's Connections to the Host's MCP servers. Tokens never leave the server (spec #91). */
 export function connectionsRouter() {
   return {
-    list: protectedProcedure.handler(async ({ context }) => ({
-      servers: await featureApi<McpApi>(context.sdk, "mcp").listConnections({
-        userId: context.user.id,
-      }),
-    })),
+    listConnections: protectedProcedure.handler(({ context }) =>
+      featureApi<McpApi>(context.sdk, "mcp").listConnections({ userId: context.user.id }),
+    ),
 
     disconnect: protectedProcedure
       .input(disconnectInput)
@@ -24,5 +22,5 @@ export function connectionsRouter() {
   };
 }
 
-/** The `mcp` plugin's routers: `connections`. */
-export type McpRouter = { connections: ReturnType<typeof connectionsRouter> };
+/** The `mcp` plugin's routers: `mcp`, as `sdk.mcp` has them. */
+export type McpRouter = { mcp: ReturnType<typeof connectionsRouter> };

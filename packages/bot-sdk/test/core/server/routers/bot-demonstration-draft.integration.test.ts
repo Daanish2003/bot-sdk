@@ -146,7 +146,7 @@ async function demonstrating({
     });
   }
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model: host ? hostModel : model });
+  const { id: botId } = await client.bots.create({ name: "Ada", model: host ? hostModel : model });
   const runDue = async () => {
     for (;;) {
       const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: true });
@@ -205,7 +205,7 @@ async function demonstrating({
     ]);
   /** Ends the Demonstration as Done and runs what that queues: the drafting pass and its Turn. */
   const done = async () => {
-    await client.bot.demonstration.done({ demonstrationId });
+    await client.demonstrations.done({ demonstrationId });
     await runDue();
     // The Turn the Trigger starts runs a moment later, as one a Message starts does.
     timer.advance(500);
@@ -252,7 +252,7 @@ const triggerOf = async (demonstrationId: string) =>
   )[0];
 
 const cardOf = async (client: ReturnType<typeof chatRpc>, botId: string) => {
-  for (const { control } of (await client.bot.get({ botId })).messages)
+  for (const { control } of (await client.bots.get({ botId })).messages)
     if (control?.kind === "demonstration") return control;
   return undefined;
 };
@@ -331,7 +331,7 @@ describe("the drafting pass", { timeout: 30_000 }, () => {
       expect.objectContaining({ model: hostModel, sourceId: demonstrationId }),
     ]);
     // The Turn the Trigger woke shows the Skill chip.
-    const { turns } = await client.bot.get({ botId });
+    const { turns } = await client.bots.get({ botId });
     expect(turns.at(-1)?.skillChanges).toEqual([{ kind: "saved", name: "copy-payouts" }]);
     expect(turns[0]?.skillChanges).toBeNull();
     expect(fake.calls.filter(isDraft)).toHaveLength(1);
@@ -477,7 +477,7 @@ describe("the drafting pass", { timeout: 30_000 }, () => {
 
     await done();
 
-    const { turns } = await client.bot.get({ botId });
+    const { turns } = await client.bots.get({ botId });
     expect(turns.at(-1)?.skillChanges).toEqual([{ kind: "saved", name: "copy-payouts" }]);
   });
 });
@@ -528,7 +528,7 @@ describe("retention", { timeout: 30_000 }, () => {
 
   it("also after Cancel", async () => {
     const { client, deps, demonstrationId, screenshotKey, timer, runDue } = await demonstrating();
-    await client.bot.demonstration.cancel({ demonstrationId });
+    await client.demonstrations.cancel({ demonstrationId });
 
     timer.advance(7 * dayMs);
     await runDue();

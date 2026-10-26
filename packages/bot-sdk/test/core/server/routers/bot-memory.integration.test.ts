@@ -81,7 +81,7 @@ async function botsWith(
   });
   const client = chatRpc({ user, deps });
   const botIds: string[] = [];
-  for (const name of names) botIds.push((await client.bot.create({ name, model })).id);
+  for (const name of names) botIds.push((await client.bots.create({ name, model })).id);
   const seed = (botId: string, file: string, lines: string[]) =>
     computerFake.files.set(
       memoryPath(botId, file),
@@ -358,7 +358,7 @@ describe("a Turn that resumes after a crash", () => {
       verified: true,
     });
     const client = chatRpc({ user, deps });
-    const { id: ada } = await client.bot.create({ name: "Ada", model });
+    const { id: ada } = await client.bots.create({ name: "Ada", model });
     computerFake.files.set(
       memoryPath(ada, "profile.md"),
       new TextEncoder().encode("- Prefers short replies\n"),

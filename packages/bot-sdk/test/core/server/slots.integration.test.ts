@@ -58,7 +58,7 @@ describe("createBotSdk with flat slots", () => {
     const http = createHttpHandler(sdk, { basePath, getUser: () => ({ id: user.id }) });
     const call = (path: string) =>
       http(new Request(`http://localhost${basePath}/rpc/${path}`, { method: "POST", body: "{}" }));
-    const [bots, mode] = [await call("bot/list"), await call("credentials/mode")];
+    const [bots, mode] = [await call("bots/list"), await call("models/credentials/mode")];
 
     expect([bots.status, mode.status]).toEqual([200, 200]);
     expect(await bots.json()).toEqual({ json: [] });

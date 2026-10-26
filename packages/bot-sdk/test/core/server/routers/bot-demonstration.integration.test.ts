@@ -108,7 +108,7 @@ async function botWith(
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const newBot = async () => (await client.bot.create({ name: "Ada", model })).id;
+  const newBot = async () => (await client.bots.create({ name: "Ada", model })).id;
   const botId = await newBot();
   /** Runs every job due at the clock's time, until none is. */
   const runDue = async () => {
@@ -235,7 +235,7 @@ describe("watch_user", { timeout: 30_000 }, () => {
       `${screenScript} control 1`,
     ]);
     // The Turn ended as usual; the Demonstration outlives it.
-    const { bot: shown, messages } = await client.bot.get({ botId });
+    const { bot: shown, messages } = await client.bots.get({ botId });
     expect(shown.turnStatus).toBe("complete");
     expect(messages.find((message) => message.control)?.control).toEqual({
       kind: "demonstration",
@@ -360,7 +360,7 @@ describe("watch_user's Screen", { timeout: 30_000 }, () => {
       onCommand: async (command) => {
         if (!opening(() => botId)(command)) return undefined;
         const [row] = await demonstrationsOf(botId);
-        await client!.bot.demonstration.cancel({ demonstrationId: row!.id });
+        await client!.demonstrations.cancel({ demonstrationId: row!.id });
         return undefined;
       },
     });
@@ -392,7 +392,7 @@ async function demonstrating() {
 const stateOf = async (botId: string) => (await demonstrationsOf(botId))[0]?.state;
 
 const cardOf = async (client: ReturnType<typeof chatRpc>, botId: string) => {
-  for (const { control } of (await client.bot.get({ botId })).messages)
+  for (const { control } of (await client.bots.get({ botId })).messages)
     if (control?.kind === "demonstration") return control;
   return undefined;
 };
@@ -400,7 +400,7 @@ const cardOf = async (client: ReturnType<typeof chatRpc>, botId: string) => {
 describe("the Demonstration's routes", { timeout: 30_000 }, () => {
   it("pause and resume move between recording and paused, and are no-ops from the other state", async () => {
     const { client, botId, demonstrationId } = await demonstrating();
-    const act = client.bot.demonstration;
+    const act = client.demonstrations;
 
     expect(await act.resume({ demonstrationId })).toEqual({ state: "recording" });
     expect(await act.pause({ demonstrationId })).toEqual({ state: "paused" });
@@ -413,7 +413,7 @@ describe("the Demonstration's routes", { timeout: 30_000 }, () => {
 
   it("Done ends it drafting and releases its Screen; later actions change nothing", async () => {
     const { client, botId, computerFake, demonstrationId } = await demonstrating();
-    const act = client.bot.demonstration;
+    const act = client.demonstrations;
     await act.pause({ demonstrationId });
 
     expect(await act.done({ demonstrationId })).toEqual({ state: "drafting" });
@@ -445,7 +445,7 @@ describe("the Demonstration's routes", { timeout: 30_000 }, () => {
       screenshotKey: key,
     });
 
-    expect(await client.bot.demonstration.cancel({ demonstrationId })).toEqual({
+    expect(await client.demonstrations.cancel({ demonstrationId })).toEqual({
       state: "cancelled",
     });
 
@@ -460,7 +460,7 @@ describe("the Demonstration's routes", { timeout: 30_000 }, () => {
     expect(await stateOf(botId)).toBe("cancelled");
     expect((await cardOf(client, botId))?.state).toBe("cancelled");
     expect(screenCommands(computerFake).at(-1)).toBe(`${screenScript} stop 1`);
-    expect(await client.bot.demonstration.done({ demonstrationId })).toEqual({
+    expect(await client.demonstrations.done({ demonstrationId })).toEqual({
       state: "cancelled",
     });
   });
@@ -469,10 +469,10 @@ describe("the Demonstration's routes", { timeout: 30_000 }, () => {
     const { deps, botId, demonstrationId } = await demonstrating();
     const stranger = chatRpc({ user: await insertUser(), deps });
 
-    await expect(stranger.bot.demonstration.cancel({ demonstrationId })).rejects.toMatchObject({
+    await expect(stranger.demonstrations.cancel({ demonstrationId })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
-    await expect(stranger.bot.demonstration.view({ demonstrationId })).rejects.toMatchObject({
+    await expect(stranger.demonstrations.view({ demonstrationId })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
     expect(await stateOf(botId)).toBe("recording");
@@ -481,7 +481,7 @@ describe("the Demonstration's routes", { timeout: 30_000 }, () => {
   it("view gives a live-view link to its Screen", async () => {
     const { client, demonstrationId } = await demonstrating();
 
-    const { url } = await client.bot.demonstration.view({ demonstrationId });
+    const { url } = await client.demonstrations.view({ demonstrationId });
 
     expect(url).toMatch(/^\/api\/screens\/[\w-]+\.[\w-]+\//);
   });
@@ -504,9 +504,9 @@ describe("the time cap", { timeout: 30_000 }, () => {
     const { client, botId, computerFake, demonstrationId, pass } = await demonstrating();
 
     await pass(5 * minuteMs);
-    await client.bot.demonstration.pause({ demonstrationId });
+    await client.demonstrations.pause({ demonstrationId });
     await pass(5 * minuteMs);
-    await client.bot.demonstration.resume({ demonstrationId });
+    await client.demonstrations.resume({ demonstrationId });
     await pass(9 * minuteMs);
     expect(await stateOf(botId)).toBe("recording");
 
@@ -522,7 +522,7 @@ describe("the time cap", { timeout: 30_000 }, () => {
 
   it("ends one left paused as Done an hour after it started, which frees its Screen", async () => {
     const { client, botId, computerFake, demonstrationId, pass } = await demonstrating();
-    await client.bot.demonstration.pause({ demonstrationId });
+    await client.demonstrations.pause({ demonstrationId });
 
     await pass(59 * minuteMs);
     expect(await stateOf(botId)).toBe("paused");

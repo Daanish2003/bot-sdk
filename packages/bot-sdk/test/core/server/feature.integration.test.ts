@@ -73,7 +73,7 @@ async function botWithPins(rounds: Round[], features: FeatureEntry[] = [pins()])
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model });
+  const { id: botId } = await client.bots.create({ name: "Ada", model });
   return { fake, client, botId, user, deps };
 }
 

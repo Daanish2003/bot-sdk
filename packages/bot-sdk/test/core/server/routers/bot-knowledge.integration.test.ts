@@ -96,7 +96,7 @@ async function botWith(
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model });
+  const { id: botId } = await client.bots.create({ name: "Ada", model });
   return { fake, computerFake, client, botId, deps, user };
 }
 

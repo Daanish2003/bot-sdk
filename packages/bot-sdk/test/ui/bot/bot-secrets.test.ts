@@ -36,7 +36,7 @@ function fakeBotServer(secrets: BotSecret[], { refuseSave = false } = {}) {
   const saved: unknown[] = [];
   const deleted: string[] = [];
   const router = {
-    bot: {
+    bots: {
       get: os.handler(() => ({
         bot: { ...ada, turnStatus: null },
         messages,
@@ -50,28 +50,28 @@ function fakeBotServer(secrets: BotSecret[], { refuseSave = false } = {}) {
         return { id: "m-sent", role: "user" as const, text: "", createdAt: new Date() };
       }),
       warm: os.handler(() => ({ warmed: false as const, skipped: "still_warm" as const })),
-      routine: { list: os.handler(() => []) },
-      checkIn: { list: os.handler(() => []) },
-      helper: { list: os.handler(() => []) },
-      review: { list: os.handler(() => []) },
-      secret: {
-        list: os.handler(() => secrets),
-        save: os
-          .input(z.object({ botId: z.string(), name: z.string(), value: z.string() }))
-          .handler(({ input }) => {
-            saveAttempts += 1;
-            if (refuseSave) throw new Error("refused");
-            saved.push(input);
-            secrets.push({ name: input.name, createdAt: at(3) });
-          }),
-        delete: os.input(z.object({ name: z.string() })).handler(({ input }) => {
-          deleted.push(input.name);
-          secrets.splice(
-            secrets.findIndex((secret) => secret.name === input.name),
-            1,
-          );
+    },
+    routines: { list: os.handler(() => []) },
+    checkIns: { list: os.handler(() => []) },
+    helpers: { list: os.handler(() => []) },
+    reviews: { list: os.handler(() => []) },
+    secrets: {
+      list: os.handler(() => secrets),
+      save: os
+        .input(z.object({ botId: z.string(), name: z.string(), value: z.string() }))
+        .handler(({ input }) => {
+          saveAttempts += 1;
+          if (refuseSave) throw new Error("refused");
+          saved.push(input);
+          secrets.push({ name: input.name, createdAt: at(3) });
         }),
-      },
+      delete: os.input(z.object({ name: z.string() })).handler(({ input }) => {
+        deleted.push(input.name);
+        secrets.splice(
+          secrets.findIndex((secret) => secret.name === input.name),
+          1,
+        );
+      }),
     },
   };
   const handler = new RPCHandler(router);

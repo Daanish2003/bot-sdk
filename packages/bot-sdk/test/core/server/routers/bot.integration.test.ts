@@ -43,7 +43,7 @@ describe("bot.create", () => {
   it("makes a Bot with an empty Conversation of kind bot and no title", async () => {
     const { user, client } = await signedIn();
 
-    const created = await client.bot.create({ name: "  Inbox Manager  ", model });
+    const created = await client.bots.create({ name: "  Inbox Manager  ", model });
 
     expect(created).toMatchObject({ name: "Inbox Manager", model });
     const botConversation = await conversationOf(created.id);
@@ -53,7 +53,7 @@ describe("bot.create", () => {
       title: null,
       activeLeafId: null,
     });
-    await expect(client.bot.get({ botId: created.id })).resolves.toEqual({
+    await expect(client.bots.get({ botId: created.id })).resolves.toEqual({
       bot: { ...created, turnStatus: null, userTurnStatus: null },
       conversationId: botConversation!.id,
       messages: [],
@@ -68,7 +68,7 @@ describe("bot.create", () => {
     const { user, client } = await signedIn();
 
     await expect(
-      client.bot.create({ name: "Ada", model: "anthropic:claude-sonnet-5-5" }),
+      client.bots.create({ name: "Ada", model: "anthropic:claude-sonnet-5-5" }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
     const rows = await getTestDb()
@@ -81,7 +81,7 @@ describe("bot.create", () => {
   it("refuses a blank name", async () => {
     const { client } = await signedIn();
 
-    await expect(client.bot.create({ name: "   ", model })).rejects.toMatchObject({
+    await expect(client.bots.create({ name: "   ", model })).rejects.toMatchObject({
       code: "BAD_REQUEST",
     });
   });
@@ -90,20 +90,20 @@ describe("bot.create", () => {
 describe("bot.list and bot.get", () => {
   it("lists only the caller's Bots, the newest first", async () => {
     const { client, deps } = await signedIn();
-    const first = await client.bot.create({ name: "Ada", model });
-    const second = await client.bot.create({ name: "Grace", model });
+    const first = await client.bots.create({ name: "Ada", model });
+    const second = await client.bots.create({ name: "Grace", model });
     const other = await signedIn(deps);
-    await other.client.bot.create({ name: "Not mine", model });
+    await other.client.bots.create({ name: "Not mine", model });
 
-    expect((await client.bot.list()).map((row) => row.id)).toEqual([second.id, first.id]);
+    expect((await client.bots.list()).map((row) => row.id)).toEqual([second.id, first.id]);
   });
 
   it("gives another user not-found for a Bot that isn't theirs", async () => {
     const { client, deps } = await signedIn();
-    const created = await client.bot.create({ name: "Ada", model });
+    const created = await client.bots.create({ name: "Ada", model });
     const other = await signedIn(deps);
 
-    await expect(other.client.bot.get({ botId: created.id })).rejects.toMatchObject({
+    await expect(other.client.bots.get({ botId: created.id })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
   });
@@ -112,9 +112,9 @@ describe("bot.list and bot.get", () => {
 describe("the bot plugin's user data", () => {
   it("deletes the user's Bots and their Conversations, and leaves another user's", async () => {
     const { user, client, deps } = await signedIn();
-    const created = await client.bot.create({ name: "Ada", model });
+    const created = await client.bots.create({ name: "Ada", model });
     const other = await signedIn(deps);
-    const kept = await other.client.bot.create({ name: "Grace", model });
+    const kept = await other.client.bots.create({ name: "Grace", model });
 
     await deleteUserData(deps, user.id);
 
@@ -130,7 +130,7 @@ describe("the bot plugin's user data", () => {
 
   it("exports the user's Bots with their Messages", async () => {
     const { user, client, deps } = await signedIn();
-    const created = await client.bot.create({ name: "Ada", model });
+    const created = await client.bots.create({ name: "Ada", model });
     const botConversation = await conversationOf(created.id);
     const sent = await insertMessage({
       conversationId: botConversation!.id,
@@ -181,9 +181,9 @@ describe("a Bot's status from the server", () => {
 
   it("lists Bots by newest activity with the last Bot Message and the latest Turn's status", async () => {
     const { client } = await signedIn();
-    const quiet = await client.bot.create({ name: "Quiet", model });
-    const busy = await client.bot.create({ name: "Busy", model });
-    const fresh = await client.bot.create({ name: "Fresh", model });
+    const quiet = await client.bots.create({ name: "Quiet", model });
+    const busy = await client.bots.create({ name: "Busy", model });
+    const fresh = await client.bots.create({ name: "Fresh", model });
     await say(quiet.id, "assistant", "first", "2099-10-17T09:00:00Z");
     const sentAt = await say(quiet.id, "assistant", "last words", "2099-10-17T10:00:00Z");
     await say(quiet.id, "user", "ok", "2099-10-17T11:00:00Z");
@@ -192,7 +192,7 @@ describe("a Bot's status from the server", () => {
     await say(busy.id, "user", "hi", "2099-10-17T12:00:00Z");
     await turn(busy.id, "running", "2099-10-17T12:00:01Z");
 
-    const listed = await client.bot.list();
+    const listed = await client.bots.list();
 
     expect(listed.map((row) => row.id)).toEqual([busy.id, quiet.id, fresh.id]);
     expect(listed.map((row) => row.turnStatus)).toEqual(["running", "complete", null]);
@@ -205,18 +205,18 @@ describe("a Bot's status from the server", () => {
 
   it("gives bot.get the latest Turn's status", async () => {
     const { client } = await signedIn();
-    const created = await client.bot.create({ name: "Ada", model });
+    const created = await client.bots.create({ name: "Ada", model });
     await turn(created.id, "complete", "2026-10-17T09:00:00Z");
     await turn(created.id, "running", "2026-10-17T10:00:00Z");
 
-    expect((await client.bot.get({ botId: created.id })).bot.turnStatus).toBe("running");
+    expect((await client.bots.get({ botId: created.id })).bot.turnStatus).toBe("running");
   });
 });
 
 describe("a Bot Message's stored parts", () => {
   it("reads each one by the Bot's schema: a malformed part costs only the control", async () => {
     const { client } = await signedIn();
-    const created = await client.bot.create({ name: "Ada", model });
+    const created = await client.bots.create({ name: "Ada", model });
     const conversationId = (await conversationOf(created.id))!.id;
     const choice = { kind: "choice", options: ["Tea", "Coffee"], other: false };
     const at = "2099-10-17T09:00:00.000Z";
@@ -249,7 +249,7 @@ describe("a Bot Message's stored parts", () => {
       "2099-10-17T09:02:00Z",
     );
 
-    const { messages } = await client.bot.get({ botId: created.id });
+    const { messages } = await client.bots.get({ botId: created.id });
 
     const read = { reactions: { user: { emoji: "👍", at: new Date(at) } }, channel: "email" };
     expect(messages.map(({ id: _id, createdAt: _at, ...rest }) => rest)).toEqual([

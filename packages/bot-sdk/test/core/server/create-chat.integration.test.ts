@@ -109,7 +109,7 @@ describe("an instance with no feature", () => {
     const http = createHttpHandler(chat, { basePath, getUser: () => ({ id: user.id }) });
 
     const response = await http(
-      new Request(`${baseUrl}/rpc/credentials/mode`, { method: "POST", body: "{}" }),
+      new Request(`${baseUrl}/rpc/models/credentials/mode`, { method: "POST", body: "{}" }),
     );
 
     expect(response.status).toBe(200);
@@ -122,7 +122,7 @@ describe("the chat handler", () => {
     const client = createTestChat({ user: null, deps: createTestSdk() });
 
     const rpc = await client.fetch(
-      new Request(`${baseUrl}/rpc/bot/list`, { method: "POST", body: "{}" }),
+      new Request(`${baseUrl}/rpc/bots/list`, { method: "POST", body: "{}" }),
     );
     const route = await client.fetch(new Request(`${baseUrl}/bot-files/x`));
 
@@ -139,8 +139,8 @@ describe("the chat handler", () => {
       hint: "…-key",
       verified: true,
     });
-    const { id } = await client.bot.create({ name: "Ada", model: "anthropic:claude-sonnet-5-5" });
+    const { id } = await client.bots.create({ name: "Ada", model: "anthropic:claude-sonnet-5-5" });
 
-    expect((await client.bot.list()).map((listed) => listed.id)).toEqual([id]);
+    expect((await client.bots.list()).map((listed) => listed.id)).toEqual([id]);
   });
 });

@@ -26,18 +26,18 @@ describe("sdk.secrets, called in-process with a userId (#897)", () => {
     const { id: botId } = await deps.bots.create({ userId, name: "Ada", model });
 
     await deps.secrets.save({ userId, botId, name: "B_TOKEN", value: "twos" });
-    await client.bot.secret.save({ botId, name: "A_TOKEN", value: "ones" });
+    await client.secrets.save({ botId, name: "A_TOKEN", value: "ones" });
 
     const listed = await deps.secrets.list({ userId });
     expect(listed).toEqual([
       { name: "A_TOKEN", createdAt: expect.any(Date) },
       { name: "B_TOKEN", createdAt: expect.any(Date) },
     ]);
-    expect(listed).toEqual(await client.bot.secret.list());
+    expect(listed).toEqual(await client.secrets.list());
     expect(JSON.stringify(listed)).not.toMatch(/ones|twos/);
 
     await deps.secrets.delete({ userId, name: "A_TOKEN" });
-    expect((await client.bot.secret.list()).map((secret) => secret.name)).toEqual(["B_TOKEN"]);
+    expect((await client.secrets.list()).map((secret) => secret.name)).toEqual(["B_TOKEN"]);
   }, 30_000);
 
   it("refuses another user's Bot and shows another user no Secrets", async () => {
@@ -86,15 +86,15 @@ describe("sdk.models, called in-process with a userId (#897)", () => {
     expect(saved).toEqual({ service: "anthropic", hint: "…1234", verified: true });
     const listed = await deps.models.credentials.list({ userId });
     expect(listed).toEqual([{ service: "anthropic", hint: "…1234", verified: true }]);
-    expect(listed).toEqual(await client.credentials.list());
+    expect(listed).toEqual(await client.models.credentials.list());
     expect(await deps.models.credentials.openaiState({ userId })).toEqual(
-      await client.credentials.openaiState(),
+      await client.models.credentials.openaiState(),
     );
     expect((await deps.models.list({ userId })).models.length).toBeGreaterThan(0);
     expect(await deps.models.list({ userId })).toEqual(await client.models.list());
 
     await deps.models.credentials.delete({ userId, service: "anthropic" });
-    expect(await client.credentials.list()).toEqual([]);
+    expect(await client.models.credentials.list()).toEqual([]);
   }, 30_000);
 
   it("rejects bad credentials and keeps one user's credentials from another", async () => {

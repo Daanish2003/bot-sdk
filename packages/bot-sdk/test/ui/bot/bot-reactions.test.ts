@@ -35,7 +35,7 @@ const thread = (reactions: { user?: string; bot?: string } = {}): BotMessage[] =
 
 function mount(messages: BotMessage[], reacted: unknown[] = []) {
   const router = {
-    bot: {
+    bots: {
       get: os.handler(() => ({ bot: { ...ada, turnStatus: null }, messages, turns: [] })),
       stop: os.handler(() => {}),
       send: os
@@ -49,11 +49,11 @@ function mount(messages: BotMessage[], reacted: unknown[] = []) {
       react: os.input(z.custom<unknown>()).handler(({ input }) => {
         reacted.push(input);
       }),
-      routine: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
-      checkIn: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
-      helper: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
-      secret: { list: os.handler(() => []) },
     },
+    routines: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
+    checkIns: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
+    helpers: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
+    secrets: { list: os.handler(() => []) },
   };
   const handler = new RPCHandler(router);
   const fetch = async (request: Request) =>

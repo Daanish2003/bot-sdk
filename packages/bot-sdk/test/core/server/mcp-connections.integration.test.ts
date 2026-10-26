@@ -99,7 +99,7 @@ describe("connecting an MCP server", () => {
     expect(auth.tokenRequests[0]?.grant_type).toBe("authorization_code");
     expect(auth.tokenRequests[0]?.code_verifier).toBeTruthy();
 
-    const { servers } = await client.rpc.connections.list();
+    const servers = await client.rpc.mcp.listConnections();
     expect(servers).toEqual([
       {
         key: "linear",
@@ -122,7 +122,7 @@ describe("connecting an MCP server", () => {
       .select()
       .from(mcpConnection)
       .where(and(eq(mcpConnection.userId, user.id), eq(mcpConnection.serverKey, "linear")));
-    const sent = JSON.stringify(await client.rpc.connections.list());
+    const sent = JSON.stringify(await client.rpc.mcp.listConnections());
     const tokenRequest = auth.tokenRequests[0];
 
     expect(row?.encrypted).toMatch(/^v2\./);
@@ -178,10 +178,10 @@ describe("connecting an MCP server", () => {
   it("lists nothing when the Host lists no servers", async () => {
     const user = await insertUser();
 
-    const { servers } = await createTestChat({
+    const servers = await createTestChat({
       user,
       deps: depsWith(freshAuth(), { servers: [] }),
-    }).rpc.connections.list();
+    }).rpc.mcp.listConnections();
 
     expect(servers).toEqual([]);
   });
@@ -196,9 +196,9 @@ describe("disconnecting and reconnecting", () => {
     const authorize = (await startConnect(user, deps)).headers.get("location") ?? "";
     await client.fetch(new Request(auth.approve(authorize), { redirect: "manual" }));
 
-    await client.rpc.connections.disconnect({ key: "linear" });
+    await client.rpc.mcp.disconnect({ key: "linear" });
 
-    const { servers } = await client.rpc.connections.list();
+    const servers = await client.rpc.mcp.listConnections();
     expect(servers).toEqual([{ key: "linear", name: "Linear", state: "disconnected", scopes: [] }]);
   });
 
@@ -212,7 +212,7 @@ describe("disconnecting and reconnecting", () => {
 
     // The same database under a keyring that no longer holds the key the row was written with.
     const rotated = depsWith(auth, { keyEncryptionSecrets: ["a-different-secret-entirely"] });
-    const { servers } = await createTestChat({ user, deps: rotated }).rpc.connections.list();
+    const servers = await createTestChat({ user, deps: rotated }).rpc.mcp.listConnections();
 
     expect(servers).toEqual([
       {

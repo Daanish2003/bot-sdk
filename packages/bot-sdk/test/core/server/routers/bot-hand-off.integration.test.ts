@@ -85,7 +85,7 @@ async function botWith(turns: Round[], helpers: Round[], { clock }: { clock?: ()
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const created = await client.bot.create({ name: "Ada", model });
+  const created = await client.bots.create({ name: "Ada", model });
   return { turnFake, helperFake, computerFake, deps, client, user, botId: created.id };
 }
 
@@ -123,7 +123,7 @@ const jobOf = async (jobId: string | null) =>
 
 /** The Conversation's Messages that carry a Computer card. */
 const cardsOf = async (client: ReturnType<typeof chatRpc>, botId: string) =>
-  (await client.bot.get({ botId })).messages.filter(
+  (await client.bots.get({ botId })).messages.filter(
     (message) => message.control?.kind === "computer",
   );
 
@@ -173,7 +173,7 @@ describe("handing the Screen to the user", () => {
     expect(
       await getTestDb().select().from(botTrigger).where(eq(botTrigger.source, "helper")),
     ).toEqual([]);
-    expect(await client.bot.helper.list({ botId })).toEqual([
+    expect(await client.helpers.list({ botId })).toEqual([
       expect.objectContaining({ id: helper.id, status: "waiting", steps: 1 }),
     ]);
   });
@@ -196,8 +196,8 @@ describe("handing the Screen to the user", () => {
     // A second tap at the same time finds it running again, and leaves it be.
     expect(
       await Promise.all([
-        client.bot.helper.done({ helperId: waiting.id }),
-        client.bot.helper.done({ helperId: waiting.id }),
+        client.helpers.done({ helperId: waiting.id }),
+        client.helpers.done({ helperId: waiting.id }),
       ]),
     ).toEqual([{ status: "running" }, { status: "running" }]);
     const done = await statusIs(botId, "complete");
@@ -218,12 +218,12 @@ describe("handing the Screen to the user", () => {
       ),
     ).toEqual(["done"]);
     // The Steps carry over, and the full transcript is kept.
-    expect(await client.bot.helper.list({ botId })).toEqual([
+    expect(await client.helpers.list({ botId })).toEqual([
       expect.objectContaining({ status: "complete", steps: 2 }),
     ]);
     expect(askUserAnswer(done.transcript ?? [])).toEqual({ result: handOffAnswers.done });
     // Done once it ended is refused.
-    await expect(client.bot.helper.done({ helperId: waiting.id })).rejects.toMatchObject({
+    await expect(client.helpers.done({ helperId: waiting.id })).rejects.toMatchObject({
       code: "CONFLICT",
       message: "This task was stopped.",
     });
@@ -239,7 +239,7 @@ describe("handing the Screen to the user", () => {
       events.push(message);
     });
 
-    await client.bot.helper.stop({ botId, helperId: waiting.id });
+    await client.helpers.stop({ botId, helperId: waiting.id });
 
     await expect
       .poll(() => events, { timeout: 10_000 })
@@ -251,9 +251,9 @@ describe("handing the Screen to the user", () => {
     await send(client, botId, "what deals are on my dashboard?");
     const waiting = await statusIs(botId, "waiting");
 
-    await client.bot.helper.stop({ botId, helperId: waiting.id });
+    await client.helpers.stop({ botId, helperId: waiting.id });
 
-    await expect(client.bot.helper.done({ helperId: waiting.id })).rejects.toMatchObject({
+    await expect(client.helpers.done({ helperId: waiting.id })).rejects.toMatchObject({
       code: "CONFLICT",
       message: "This task was stopped.",
     });
@@ -285,7 +285,7 @@ describe("handing the Screen to the user", () => {
     const waiting = await statusIs(botId, "waiting");
 
     const other = chatRpc({ user: await insertUser(), deps });
-    await expect(other.bot.helper.done({ helperId: waiting.id })).rejects.toMatchObject({
+    await expect(other.helpers.done({ helperId: waiting.id })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
     expect((await helpersOf(botId))[0]?.status).toBe("waiting");
@@ -300,7 +300,7 @@ describe("handing the Screen to the user", () => {
     const waiting = await statusIs(botId, "waiting");
 
     computerFake.lose(computerFake.callsOf("create").at(-1)!.sandboxId);
-    await client.bot.helper.done({ helperId: waiting.id });
+    await client.helpers.done({ helperId: waiting.id });
     await statusIs(botId, "complete");
 
     const input = (helperFake.calls[1]?.messages ?? []) as ModelMessage[];
@@ -322,7 +322,7 @@ describe("handing the Screen to the user", () => {
 
     // The user answers two hours later.
     offsetMs = 2 * 60 * 60_000;
-    await client.bot.helper.done({ helperId: waiting.id });
+    await client.helpers.done({ helperId: waiting.id });
     const done = await statusIs(botId, "complete");
 
     expect(done.report).toBe("There are 3 deals.");

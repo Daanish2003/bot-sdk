@@ -79,7 +79,7 @@ async function botWith(rounds: Round[]) {
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model });
+  const { id: botId } = await client.bots.create({ name: "Ada", model });
   return { fake, client, botId };
 }
 
@@ -191,7 +191,7 @@ describe("a Turn that nears the context window", () => {
       .where(eq(usage.sourceId, turn!.id))
       .orderBy(asc(usage.createdAt), asc(usage.id));
     expect(turn!.usage!.input).toBe(rows.reduce((sum, row) => sum + row.inputTokens, 0));
-    const { turns } = await client.bot.get({ botId });
+    const { turns } = await client.bots.get({ botId });
     expect(turns[0]!.steps.map((step) => [step.id, step.kind])).toEqual(
       rows.map((row) => [row.id, row.kind]),
     );
@@ -355,7 +355,7 @@ describe("a Turn that crashes after its Summary", () => {
       verified: true,
     });
     const client = chatRpc({ user, deps });
-    const { id: botId } = await client.bot.create({ name: "Ada", model });
+    const { id: botId } = await client.bots.create({ name: "Ada", model });
     await followSend(client, { botId, id: uuidv7(), text: "find me flights" });
 
     const lost = attempt(deps);

@@ -21,9 +21,9 @@ function expectTranslated(ui: ReactElement, seed?: Seed) {
 describe("the Bot-only settings sections with the dictionary", () => {
   it("shows no untranslated text in Connections, with a server that needs a reconnect", () => {
     const html = expectTranslated(createElement(ConnectionsSection), (queryClient, client) => {
-      queryClient.setQueryData(client.orpc.connections.list.queryKey(), {
-        servers: [{ key: "github", name: "GitHub", state: "reconnect", scopes: ["repo"] }],
-      });
+      queryClient.setQueryData(client.orpc.mcp.listConnections.queryKey(), [
+        { key: "github", name: "GitHub", state: "reconnect", scopes: ["repo"] },
+      ]);
     });
     expect(html).toContain("GitHub");
   });

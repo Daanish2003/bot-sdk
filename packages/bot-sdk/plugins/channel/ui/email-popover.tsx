@@ -22,9 +22,9 @@ export function EmailPopover({ botId }: { botId: string }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const addressQuery = orpc.channel.email.address.queryOptions({ input: { botId } });
+  const addressQuery = orpc.channels.email.address.queryOptions({ input: { botId } });
   const address = useQuery({ ...addressQuery, enabled: open });
-  const rotate = useMutation(orpc.channel.email.rotate.mutationOptions());
+  const rotate = useMutation(orpc.channels.email.rotate.mutationOptions());
   const refused = (error: unknown) => toast.error(serverErrorText(i18n, error));
 
   const copy = (text: string) =>

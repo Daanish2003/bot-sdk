@@ -64,7 +64,7 @@ async function setup(rounds: Parameters<typeof createFakeAdapter>[0]["rounds"] =
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model });
+  const { id: botId } = await client.bots.create({ name: "Ada", model });
   const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
 
   /** Runs every queued job named `name` that is due now, as the Executor would be told to. */
@@ -129,7 +129,7 @@ describe("the Bots and the Computer on a manual Executor", () => {
       await expect
         .poll(async () => (await turnsOf(botId)).map((turn) => turn.status), { timeout: 10_000 })
         .toEqual(["complete"]);
-      const { messages } = await client.bot.get({ botId });
+      const { messages } = await client.bots.get({ botId });
       expect(messages.map((sent) => [sent.role, sent.text])).toEqual([
         ["user", "Hi"],
         ["assistant", "Hello!"],
@@ -158,8 +158,8 @@ describe("the Bots and the Computer on a manual Executor", () => {
     await expect
       .poll(async () => (await turnsOf(botId)).map((turn) => turn.status), { timeout: 10_000 })
       .toEqual(["complete"]);
-    const [listed] = await client.bot.routine.list({ botId });
-    await client.bot.routine.approve({ routineId: listed!.id });
+    const [listed] = await client.routines.list({ botId });
+    await client.routines.approve({ routineId: listed!.id });
     expect(manual.notified.at(-1)?.runAfter).toEqual(new Date(mondaySlot));
 
     timer.advance(new Date(mondaySlot).getTime() - timer.clock.now().getTime());

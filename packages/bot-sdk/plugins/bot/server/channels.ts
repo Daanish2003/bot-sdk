@@ -45,7 +45,7 @@ function emailAdapterOf(adapters: ChannelOptions["adapters"]) {
 export function channel(options: ChannelOptions): ChannelPlugin {
   return {
     id: "channel",
-    router: { channel: channelRouter },
+    router: { channels: channelRouter },
     routes: emailInboundRoutes(options.adapters),
     init: (sdk) => {
       sdk.channels = createChannels(sdk, options);

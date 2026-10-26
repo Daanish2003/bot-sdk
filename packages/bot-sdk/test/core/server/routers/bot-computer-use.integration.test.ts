@@ -126,7 +126,7 @@ async function userWith(
     });
   }
   const client = chatRpc({ user, deps });
-  const botId = (await client.bot.create({ name: "Ada", model })).id;
+  const botId = (await client.bots.create({ name: "Ada", model })).id;
   return { helperFake, computerFake, reviewer, client, botId, deps, user };
 }
 
@@ -490,7 +490,7 @@ describe("Auto-review of the computer tool", () => {
     // Nothing reached the Screen while it waits.
     expect(screenCommands(computerFake)).toEqual([]);
 
-    await client.bot.review.allow({ reviewId: waiting.id });
+    await client.reviews.allow({ reviewId: waiting.id });
     await expect
       .poll(async () => (await helpersOf(botId))[0]?.status, { timeout: 10_000 })
       .toBe("complete");
@@ -539,7 +539,7 @@ describe("OpenAI safety checks on the computer tool", () => {
     expect(screenCommands(computerFake)).toEqual([]);
     expect(reviewer.calls).toEqual([]);
 
-    await client.bot.review.allow({ reviewId: waiting.id });
+    await client.reviews.allow({ reviewId: waiting.id });
     await expect
       .poll(async () => (await helpersOf(botId))[0]?.status, { timeout: 10_000 })
       .toBe("complete");
@@ -559,7 +559,7 @@ describe("OpenAI safety checks on the computer tool", () => {
 
     await sent(client, botId);
     const waiting = await waitingReview(botId);
-    await client.bot.review.deny({ reviewId: waiting.id });
+    await client.reviews.deny({ reviewId: waiting.id });
     await expect
       .poll(async () => (await helpersOf(botId))[0]?.status, { timeout: 10_000 })
       .toBe("complete");
@@ -614,7 +614,7 @@ describe("OpenAI safety checks on the computer tool", () => {
     );
 
     await sent(client, botId);
-    await client.bot.review.allow({ reviewId: (await waitingReview(botId)).id });
+    await client.reviews.allow({ reviewId: (await waitingReview(botId)).id });
     await expect.poll(() => releaseType !== undefined, { timeout: 10_000 }).toBe(true);
     const [running] = await helpersOf(botId);
     const commandsBefore = screenCommands(computerFake);
@@ -658,7 +658,7 @@ describe("OpenAI safety checks on the computer tool", () => {
     );
 
     await sent(client, botId);
-    await client.bot.review.allow({ reviewId: (await waitingReview(botId)).id });
+    await client.reviews.allow({ reviewId: (await waitingReview(botId)).id });
     await expect.poll(() => releaseType !== undefined, { timeout: 10_000 }).toBe(true);
     const commandsBefore = screenCommands(computerFake);
     expect(commandsBefore).toHaveLength(3);
@@ -704,7 +704,7 @@ describe("a Stop during a computer action", () => {
     await sent(client, botId);
     await expect.poll(() => clicking, { timeout: 10_000 }).toBe(true);
     const [running] = await helpersOf(botId);
-    await client.bot.helper.stop({ botId, helperId: running!.id });
+    await client.helpers.stop({ botId, helperId: running!.id });
     await expect
       .poll(async () => (await helpersOf(botId))[0]?.status, { timeout: 10_000 })
       .not.toBe("running");

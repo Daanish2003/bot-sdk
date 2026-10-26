@@ -72,7 +72,7 @@ async function botWith(rounds: Round[], { withComputer = true, modelId = model }
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model: modelId });
+  const { id: botId } = await client.bots.create({ name: "Ada", model: modelId });
   return { fake, computerFake, client, botId };
 }
 
@@ -284,7 +284,7 @@ describe("the prompt hashes of a model call", () => {
       .where(eq(botPromptStart.id, start!.id));
     await send(client, botId, "again");
 
-    const { turns } = await client.bot.get({ botId });
+    const { turns } = await client.bots.get({ botId });
     const [first, second] = turns.map((turn) => turn.steps);
     expect(first).toHaveLength(1);
     expect(second).toHaveLength(1);
@@ -382,7 +382,7 @@ describe("a Turn that resumes after a crash", () => {
       verified: true,
     });
     const client = chatRpc({ user, deps });
-    const { id: botId } = await client.bot.create({ name: "Ada", model });
+    const { id: botId } = await client.bots.create({ name: "Ada", model });
     await followSend(client, { botId, id: uuidv7(), text: "hi" });
 
     const lost = attempt(deps);

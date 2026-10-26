@@ -110,7 +110,7 @@ async function botsWith(
   const client = chatRpc({ user, deps });
   const botIds: string[] = [];
   for (const name of names) {
-    botIds.push((await client.bot.create({ name, model: host ? hostModel : model })).id);
+    botIds.push((await client.bots.create({ name, model: host ? hostModel : model })).id);
   }
   const seed = (botId: string, file: string, lines: string[]) =>
     computerFake.files.set(
@@ -176,7 +176,7 @@ describe("the post-turn memory pass", () => {
 
     // The Turn's job waits out its batch, so the stop finds it queued.
     await followSend(client, { botId: ada, id: uuidv7(), text: "hi" });
-    await client.bot.stop({ botId: ada });
+    await client.bots.stop({ botId: ada });
 
     expect(await passesEnded(1)).toHaveLength(1);
     const [turn] = await getTestDb().select().from(botTurn).where(eq(botTurn.botId, ada));
@@ -459,7 +459,7 @@ describe("the post-turn memory pass", () => {
     await pubsub.subscribe(conversationChannel(conversationId), (message) => {
       events.push(JSON.parse(message) as { type?: string });
     });
-    const before = (await client.bot.get({ botId: ada })).lastSeq;
+    const before = (await client.bots.get({ botId: ada })).lastSeq;
 
     await send(client, ada, "I moved to Berlin and I'm vegan now");
     await passesEnded(1);
@@ -472,21 +472,21 @@ describe("the post-turn memory pass", () => {
     ];
     expect(turn?.memoryChanges).toEqual(changes);
     // The pass records a `turn` change after the Turn's own, so a synced tab re-reads the chip.
-    const logged = await client.bot.changes({ botId: ada, since: before });
+    const logged = await client.bots.changes({ botId: ada, since: before });
     expect(logged.reload).toBe(false);
     const turnChanges = logged.reload
       ? []
       : logged.changes.filter((change) => change.kind === "turn" && change.refId === turn!.id);
     expect(turnChanges.map((change) => change.seq)).toHaveLength(4); // the Turn's start and end, then the memory pass
     const lastTurnChange = turnChanges.at(-1)!;
-    const lastSeq = (await client.bot.get({ botId: ada })).lastSeq;
+    const lastSeq = (await client.bots.get({ botId: ada })).lastSeq;
     expect(lastTurnChange.seq).toBe(lastSeq);
     // No event carries data (ADR 0026), and the last one is a bare hint.
     await expect.poll(() => events.at(-1), { timeout: 10_000 }).toEqual({ type: "changed" });
     expect(events.every((event) => event.type === "changed")).toBe(true);
 
     // A reload reads the list from the Conversation read, with the Conversation's id for the stream.
-    const read = await client.bot.get({ botId: ada });
+    const read = await client.bots.get({ botId: ada });
     expect(read.conversationId).toBe(conversationId);
     expect(read.turns.map((t) => t.memoryChanges)).toEqual([changes]);
   }, 30_000);
@@ -500,7 +500,7 @@ describe("the post-turn memory pass", () => {
 
     const [turn] = await getTestDb().select().from(botTurn).where(eq(botTurn.botId, ada));
     expect(turn?.memoryChanges).toBeNull();
-    expect((await client.bot.get({ botId: ada })).turns.map((t) => t.memoryChanges)).toEqual([
+    expect((await client.bots.get({ botId: ada })).turns.map((t) => t.memoryChanges)).toEqual([
       null,
     ]);
   });

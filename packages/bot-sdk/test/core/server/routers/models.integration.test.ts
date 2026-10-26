@@ -273,8 +273,8 @@ describe("models.list default with the bot plugin", () => {
 
   it("is the Model of the user's newest Bot", async () => {
     const { client } = await botUser(["openai", "anthropic"]);
-    await client.bot.create({ name: "Ada", model: "anthropic:claude-haiku-4-5" });
-    await client.bot.create({ name: "Bea", model: "anthropic:claude-opus-5-5" });
+    await client.bots.create({ name: "Ada", model: "anthropic:claude-haiku-4-5" });
+    await client.bots.create({ name: "Bea", model: "anthropic:claude-opus-5-5" });
 
     const { defaultModel } = await client.models.list();
 
@@ -283,7 +283,7 @@ describe("models.list default with the bot plugin", () => {
 
   it("falls through when the newest Bot's Model is not one the user can use any more", async () => {
     const { user, client } = await botUser(["openai", "anthropic"]);
-    await client.bot.create({ name: "Ada", model: "anthropic:claude-opus-5-5" });
+    await client.bots.create({ name: "Ada", model: "anthropic:claude-opus-5-5" });
     await getTestDb().delete(userCredentials).where(eq(userCredentials.userId, user.id));
     await saveCredentials(botDeps, user.id, {
       service: "openai",

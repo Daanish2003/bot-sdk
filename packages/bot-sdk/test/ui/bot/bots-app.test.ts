@@ -40,7 +40,7 @@ const listed = (id: string, label: string): ListedModel => ({
 });
 
 function seed(queryClient: QueryClient, client: BotSdkClient) {
-  queryClient.setQueryData(client.orpc.bot.list.queryKey(), [
+  queryClient.setQueryData(client.orpc.bots.list.queryKey(), [
     { ...inbox, ...idle },
     { ...ada, ...idle },
   ]);
@@ -51,7 +51,7 @@ function seed(queryClient: QueryClient, client: BotSdkClient) {
     defaultImageModel: null,
     webSearchOnHost: false,
   });
-  queryClient.setQueryData(client.orpc.bot.get.queryKey({ input: { botId: ada.id } }), {
+  queryClient.setQueryData(client.orpc.bots.get.queryKey({ input: { botId: ada.id } }), {
     bot: { ...ada, turnStatus: null, userTurnStatus: null },
     conversationId: "c1",
     messages: [],
@@ -103,7 +103,7 @@ describe("the Bots sidebar", () => {
     const running = [{ ...ada, turnStatus: "running" as const, lastMessage: null }];
     let asked = 0;
     const handler = new RPCHandler({
-      bot: {
+      bots: {
         list: os.handler(() => {
           asked++;
           return running;
@@ -118,7 +118,7 @@ describe("the Bots sidebar", () => {
         fetch,
         messages: {},
         seed: (queryClient, client) =>
-          queryClient.setQueryData(client.orpc.bot.list.queryKey(), running),
+          queryClient.setQueryData(client.orpc.bots.list.queryKey(), running),
       }),
     );
     expect(screen.getByText("Working…")).toBeTruthy();
@@ -143,7 +143,7 @@ describe("the New Bot dialog", () => {
     const navigate = vi.fn();
     const fetch = async (request: Request) => {
       // Only the create is answered; the seeded lists' refetches never are.
-      if (!request.url.endsWith("/bot/create")) return new Promise<Response>(() => {});
+      if (!request.url.endsWith("/bots/create")) return new Promise<Response>(() => {});
       bodies.push(await request.json());
       return new Response(
         JSON.stringify({ json: { ...ada, id: "b9", name: "Scout", createdAt: "2026-10-17" } }),
@@ -194,7 +194,7 @@ describe("a Bot's Conversation", () => {
         messages: {},
         seed: (queryClient, client) => {
           seed(queryClient, client);
-          queryClient.setQueryData(client.orpc.bot.get.queryKey({ input: { botId: ada.id } }), {
+          queryClient.setQueryData(client.orpc.bots.get.queryKey({ input: { botId: ada.id } }), {
             bot: { ...ada, turnStatus: null, userTurnStatus: null },
             conversationId: "c1",
             messages: [

@@ -83,9 +83,9 @@ async function emailBot({
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name, model });
+  const { id: botId } = await client.bots.create({ name, model });
   const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
-  const { address } = await client.channel.email.address({ botId });
+  const { address } = await client.channels.email.address({ botId });
 
   const runDue = async () => {
     for (;;) {
@@ -200,7 +200,7 @@ describe("an email to a Bot's address", () => {
       channel: "email",
       turnId: expect.any(String),
     });
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
     expect(messages).toEqual([
       expect.objectContaining({
         id: trigger!.messageId,
@@ -262,7 +262,7 @@ describe("an email to a Bot's address", () => {
       attachments: ["invoice.pdf"],
     });
 
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
     expect(messages).toEqual([
       expect.objectContaining({
         text:
@@ -280,7 +280,7 @@ describe("an email to a Bot's address", () => {
 
     await deliver({}, [{ name: "notes.txt", contentType: "text/plain", content: "milk, eggs" }]);
 
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
     expect(messages[0]!.control).toEqual({
       kind: "files",
       files: [{ id: expect.any(String), name: "notes.txt", size: 10, mediaType: "text/plain" }],
@@ -336,7 +336,7 @@ describe("an email to a Bot's address", () => {
       },
     ]);
 
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
     expect((messages[0]!.control as { files: unknown[] }).files).toHaveLength(10);
     expect(messages[0]!.text).toContain("Attachments (not kept): f10.txt, huge.bin");
   }, 30_000);
@@ -394,7 +394,7 @@ describe("an email to a Bot's address", () => {
   it("drops mail to the old address once it is rotated, and takes it at the new one", async () => {
     const { client, botId, conversationId, address, deliver } = await emailBot();
 
-    const rotated = await client.channel.email.rotate({ botId });
+    const rotated = await client.channels.email.rotate({ botId });
     await deliver({ to: [address], messageId: "<old@mail.example>" });
 
     expect(rotated.address).not.toBe(address);
@@ -447,7 +447,7 @@ describe("channel.email", () => {
     const { client, botId, address } = await emailBot();
 
     expect(address).toMatch(/^ada-lovelace\.[a-z0-9]{8}@bots\.example$/);
-    expect((await client.channel.email.address({ botId })).address).toBe(address);
+    expect((await client.channels.email.address({ botId })).address).toBe(address);
   }, 30_000);
 
   it("spells an accented name without its marks", async () => {
@@ -459,21 +459,21 @@ describe("channel.email", () => {
   it("rotates to a new address", async () => {
     const { client, botId, address } = await emailBot();
 
-    const { address: rotated } = await client.channel.email.rotate({ botId });
+    const { address: rotated } = await client.channels.email.rotate({ botId });
 
     expect(rotated).toMatch(/^ada-lovelace\.[a-z0-9]{8}@bots\.example$/);
     expect(rotated).not.toBe(address);
-    expect((await client.channel.email.address({ botId })).address).toBe(rotated);
+    expect((await client.channels.email.address({ botId })).address).toBe(rotated);
   }, 30_000);
 
   it("refuses another user's Bot", async () => {
     const { deps, botId } = await emailBot();
     const stranger = chatRpc({ user: await insertUser(), deps });
 
-    await expect(stranger.channel.email.address({ botId })).rejects.toMatchObject({
+    await expect(stranger.channels.email.address({ botId })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
-    await expect(stranger.channel.email.rotate({ botId })).rejects.toMatchObject({
+    await expect(stranger.channels.email.rotate({ botId })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
   }, 30_000);

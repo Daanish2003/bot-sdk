@@ -53,7 +53,7 @@ export function useBotUploads() {
         continue;
       }
       setItems((current) => [...current, item]);
-      orpc.bot.upload.call({ file }).then(
+      orpc.bots.upload.call({ file }).then(
         (uploaded) => update(key, { state: "done", file: uploaded }),
         (error: unknown) => update(key, { state: "error", error: serverErrorText(i18n, error) }),
       );

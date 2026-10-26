@@ -30,8 +30,8 @@ async function setup() {
       verified: true,
     });
     const client = chatRpc({ user, deps });
-    const ada = (await client.bot.create({ name: "Ada", model })).id;
-    const bea = (await client.bot.create({ name: "Bea", model })).id;
+    const ada = (await client.bots.create({ name: "Ada", model })).id;
+    const bea = (await client.bots.create({ name: "Bea", model })).id;
     return { user, client, ada, bea };
   };
   const mine = await make();

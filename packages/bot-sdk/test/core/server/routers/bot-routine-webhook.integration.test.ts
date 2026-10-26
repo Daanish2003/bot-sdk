@@ -86,7 +86,7 @@ async function botWithRoutine({
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model });
+  const { id: botId } = await client.bots.create({ name: "Ada", model });
   const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
 
   const runDue = async () => {
@@ -122,7 +122,7 @@ async function botWithRoutine({
     );
 
   await send("Tell me when a payout looks off");
-  const routines = await client.bot.routine.list({ botId });
+  const routines = await client.routines.list({ botId });
   return { fake, deps, client, user, botId, conversationId, routines, timer, runDue, send, call };
 }
 
@@ -138,7 +138,7 @@ async function approvedWebhook(
 ) {
   const made = await botWithRoutine({ rounds, users, computerFake });
   const routineId = made.routines[0]!.id;
-  const { webhookToken } = await made.client.bot.routine.approve({ routineId });
+  const { webhookToken } = await made.client.routines.approve({ routineId });
   return { ...made, routineId, token: webhookToken! };
 }
 
@@ -272,10 +272,10 @@ describe("a webhook Routine's URL", () => {
       round(),
     ]);
     await send("Only the big ones");
-    expect((await client.bot.routine.list({ botId }))[0]?.state).toBe("pending");
+    expect((await client.routines.list({ botId }))[0]?.state).toBe("pending");
     expect((await call(token)).status).toBe(404);
 
-    const again = await client.bot.routine.approve({ routineId });
+    const again = await client.routines.approve({ routineId });
 
     expect(again.webhookToken).toBeUndefined();
     expect((await call(token)).status).toBe(202);
@@ -315,7 +315,7 @@ describe("a webhook Routine's URL", () => {
     expect((await call("not-a-token")).status).toBe(404);
     expect((await call(`${token}x`)).status).toBe(404);
 
-    await client.bot.routine.pause({ routineId });
+    await client.routines.pause({ routineId });
     expect((await call(token)).status).toBe(404);
 
     await getTestDb()
@@ -330,7 +330,7 @@ describe("a webhook Routine's URL", () => {
   it("after a rotate, answers 404 to the old token and 202 to the new one", async () => {
     const { client, conversationId, routineId, token, call } = await approvedWebhook();
 
-    const { webhookToken: rotated } = await client.bot.routine.rotate({ routineId });
+    const { webhookToken: rotated } = await client.routines.rotate({ routineId });
 
     expect(rotated).not.toBe(token);
     expect((await call(token)).status).toBe(404);
@@ -349,7 +349,7 @@ describe("a webhook Routine's URL", () => {
 
   it("never shows the Model the token, in its input or a tool result", async () => {
     const { fake, client, botId, routineId, token, call, send } = await approvedWebhook([round()]);
-    const { webhookToken: rotated } = await client.bot.routine.rotate({ routineId });
+    const { webhookToken: rotated } = await client.routines.rotate({ routineId });
     // A Prompt start built after the Routine was saved lists it, as a Summary would build it.
     await getTestDb().delete(botPromptStart).where(eq(botPromptStart.botId, botId));
 
@@ -469,17 +469,17 @@ describe("bot.routine.rotate", () => {
     });
     const scheduledId = scheduled.routines[0]!.id;
     await expect(
-      scheduled.client.bot.routine.rotate({ routineId: scheduledId }),
+      scheduled.client.routines.rotate({ routineId: scheduledId }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
     const pending = await botWithRoutine();
     const pendingId = pending.routines[0]!.id;
-    await expect(pending.client.bot.routine.rotate({ routineId: pendingId })).rejects.toMatchObject(
-      { code: "BAD_REQUEST" },
-    );
+    await expect(pending.client.routines.rotate({ routineId: pendingId })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
 
     const other = chatRpc({ user: await insertUser(), deps: pending.deps });
-    await expect(other.bot.routine.rotate({ routineId: pendingId })).rejects.toMatchObject({
+    await expect(other.routines.rotate({ routineId: pendingId })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
   });

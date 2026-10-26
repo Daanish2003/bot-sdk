@@ -28,7 +28,7 @@ const demonstrationAction = (action: Exclude<DemonstrationAction, "view">) =>
       context.sdk.demonstrations[action]({ userId: context.user.id, ...input }),
     );
 
-const botRouter = {
+const bots = {
   /**
    * Creates a Bot on one of the caller's Models (`models.list`), with an empty Conversation. A Bot
    * doesn't greet: its Conversation starts with no Message.
@@ -96,203 +96,212 @@ const botRouter = {
   react: protectedProcedure
     .input(reactInput)
     .handler(({ context, input }) => context.sdk.bots.react({ userId: context.user.id, ...input })),
-
-  /** The Routines of the caller's Bots (#538), over `sdk.routines`. Approving or declining one never wakes the Bot. */
-  routine: {
-    /** One of the caller's Bots' Routines, sorted by name, each with the Message its card follows. */
-    list: protectedProcedure
-      .input(botScopeInput)
-      .handler(({ context, input }) =>
-        context.sdk.routines.list({ userId: context.user.id, ...input }),
-      ),
-
-    /** Approves a pending Routine: it turns `active`. Another user's is not found. */
-    approve: protectedProcedure
-      .input(routineInput)
-      .handler(({ context, input }) =>
-        context.sdk.routines.approve({ userId: context.user.id, ...input }),
-      ),
-
-    /** Declines a pending Routine, which deletes it. Another user's is not found. */
-    decline: protectedProcedure
-      .input(routineInput)
-      .handler(({ context, input }) =>
-        context.sdk.routines.decline({ userId: context.user.id, ...input }),
-      ),
-
-    /** Pauses an active Routine (`sdk.routines.pause`). Another user's is not found. */
-    pause: protectedProcedure
-      .input(routineInput)
-      .handler(({ context, input }) =>
-        context.sdk.routines.pause({ userId: context.user.id, ...input }),
-      ),
-
-    /** Resumes a paused Routine with no fresh OK. Another user's is not found. */
-    resume: protectedProcedure
-      .input(routineInput)
-      .handler(({ context, input }) =>
-        context.sdk.routines.resume({ userId: context.user.id, ...input }),
-      ),
-
-    /** Deletes a Routine in any state, and nothing of it fires again. Another user's is not found. */
-    delete: protectedProcedure
-      .input(routineInput)
-      .handler(({ context, input }) =>
-        context.sdk.routines.delete({ userId: context.user.id, ...input }),
-      ),
-
-    /** Gives an approved webhook Routine a new URL (ADR 0021). Another user's is not found. */
-    rotate: protectedProcedure
-      .input(routineInput)
-      .handler(({ context, input }) =>
-        context.sdk.routines.rotate({ userId: context.user.id, ...input }),
-      ),
-  },
-
-  /** The Check-ins of the caller's Bots (#540), over `sdk.checkIns`. */
-  checkIn: {
-    /** One of the caller's Bots' Check-ins, soonest first, each with the Message its line follows. */
-    list: protectedProcedure
-      .input(botScopeInput)
-      .handler(({ context, input }) =>
-        context.sdk.checkIns.list({ userId: context.user.id, ...input }),
-      ),
-
-    /** Cancels a pending Check-in: it never fires. Another user's is not found. */
-    cancel: protectedProcedure
-      .input(checkInInput)
-      .handler(({ context, input }) =>
-        context.sdk.checkIns.cancel({ userId: context.user.id, ...input }),
-      ),
-  },
-
-  /** The Helpers of the caller's Bots (#590), over `sdk.helpers`. */
-  helper: {
-    /** One of the caller's Bots' Helpers, oldest first, each with the Message its card follows. */
-    list: protectedProcedure
-      .input(helperListInput)
-      .handler(({ context, input }) =>
-        context.sdk.helpers.list({ userId: context.user.id, ...input }),
-      ),
-
-    /** The user's Done on a Helper waiting at a hand-off (#568). Another user's Helper is not found. */
-    done: protectedProcedure
-      .input(helperDoneInput)
-      .handler(({ context, input }) =>
-        context.sdk.helpers.done({ userId: context.user.id, ...input }),
-      ),
-
-    /** Stops one of the caller's Bot's Helpers, or all its live ones with no `helperId`. */
-    stop: protectedProcedure
-      .input(helperStopInput)
-      .handler(({ context, input }) =>
-        context.sdk.helpers.stop({ userId: context.user.id, ...input }),
-      ),
-  },
-
-  /** The Auto-reviews of the caller's Bots' tool calls (spec #691), over `sdk.reviews`. */
-  review: {
-    /** One of the caller's Bots' newest reviews and its waiting ones. Another user's Bot is not found. */
-    list: protectedProcedure
-      .input(reviewListInput)
-      .handler(({ context, input }) =>
-        context.sdk.reviews.list({ userId: context.user.id, ...input }),
-      ),
-    /** Allows a blocked call while its Approval waits (ADR 0024). Another user's is not found. */
-    allow: protectedProcedure
-      .input(reviewDecisionInput)
-      .handler(({ context, input }) =>
-        context.sdk.reviews.allow({ userId: context.user.id, ...input }),
-      ),
-    /** Denies a blocked call while its Approval waits, as `allow` allows it. */
-    deny: protectedProcedure
-      .input(reviewDecisionInput)
-      .handler(({ context, input }) =>
-        context.sdk.reviews.deny({ userId: context.user.id, ...input }),
-      ),
-  },
-
-  /**
-   * The user's Secrets (spec #691), shared by all their Bots. A value goes in through `save` and
-   * never comes out: `list` returns names and dates only.
-   */
-  secret: {
-    /**
-     * Saves Secret `name`, encrypted, replacing an earlier one, and wakes the Bot `botId` with the
-     * Trigger "Saved secret NAME". The value never enters the Conversation. Another user's Bot is
-     * not found.
-     */
-    save: protectedProcedure
-      .input(saveSecretInput)
-      .handler(({ context, input }) =>
-        context.sdk.secrets.save({ ...input, userId: context.user.id }),
-      ),
-
-    /** The caller's Secrets, by name, each with when it was saved. Never a value. */
-    list: protectedProcedure.handler(({ context }) =>
-      context.sdk.secrets.list({ userId: context.user.id }),
-    ),
-
-    /** Deletes the caller's Secret `name`. */
-    delete: protectedProcedure
-      .input(deleteSecretInput)
-      .handler(({ context, input }) =>
-        context.sdk.secrets.delete({ ...input, userId: context.user.id }),
-      ),
-  },
-
-  /**
-   * The user's side of a Demonstration (spec #713), from its Show me card. Each acts only on a state
-   * it applies to, and otherwise changes nothing; each returns the state the Demonstration is in now.
-   * Done and Cancel release its Screen. Another user's is not found.
-   */
-  demonstration: {
-    /** Pauses a recording Demonstration. */
-    pause: demonstrationAction("pause"),
-    /** Resumes a paused Demonstration. */
-    resume: demonstrationAction("resume"),
-    /** Ends a live Demonstration as Done: it goes `drafting`. */
-    done: demonstrationAction("done"),
-    /** Ends a live Demonstration `cancelled`. */
-    cancel: demonstrationAction("cancel"),
-    /** A fresh live-view link to a live Demonstration's Screen, never stored. */
-    view: protectedProcedure
-      .input(demonstrationInput)
-      .handler(({ context, input }) =>
-        context.sdk.demonstrations.view({ userId: context.user.id, ...input }),
-      ),
-    /** The steps a Demonstration captured, in order. Password values come masked. */
-    steps: protectedProcedure
-      .input(demonstrationInput)
-      .handler(({ context, input }) =>
-        context.sdk.demonstrations.steps({ userId: context.user.id, ...input }),
-      ),
-  },
-
-  /** The live view of a Computer-use Helper's Screen (#597). Another user's Helper is not found. */
-  screen: {
-    /**
-     * A fresh live-view link to the Screen of one of the caller's live Helpers, never stored. It
-     * wakes the Computer and reopens the Screen when it isn't open, and the view starts view-only.
-     * Refused, "This task was stopped.", once the Helper ended.
-     */
-    view: protectedProcedure
-      .input(screenViewInput)
-      .handler(({ context, input }) =>
-        context.sdk.screens.view({ ...input, userId: context.user.id }),
-      ),
-
-    /** Take control (`control`) and give back (`view`): switches the Screen's x11vnc. */
-    control: protectedProcedure
-      .input(screenControlInput)
-      .handler(({ context, input }) =>
-        context.sdk.screens.control({ ...input, userId: context.user.id }),
-      ),
-  },
 };
 
-/** The `bot` plugin's routers, served under `<basePath>/rpc/<key>`. */
-export const botPluginRouter = { bot: botRouter };
+/** The Routines of the caller's Bots (#538), over `sdk.routines`. Approving or declining one never wakes the Bot. */
+const routines = {
+  /** One of the caller's Bots' Routines, sorted by name, each with the Message its card follows. */
+  list: protectedProcedure
+    .input(botScopeInput)
+    .handler(({ context, input }) =>
+      context.sdk.routines.list({ userId: context.user.id, ...input }),
+    ),
+
+  /** Approves a pending Routine: it turns `active`. Another user's is not found. */
+  approve: protectedProcedure
+    .input(routineInput)
+    .handler(({ context, input }) =>
+      context.sdk.routines.approve({ userId: context.user.id, ...input }),
+    ),
+
+  /** Declines a pending Routine, which deletes it. Another user's is not found. */
+  decline: protectedProcedure
+    .input(routineInput)
+    .handler(({ context, input }) =>
+      context.sdk.routines.decline({ userId: context.user.id, ...input }),
+    ),
+
+  /** Pauses an active Routine (`sdk.routines.pause`). Another user's is not found. */
+  pause: protectedProcedure
+    .input(routineInput)
+    .handler(({ context, input }) =>
+      context.sdk.routines.pause({ userId: context.user.id, ...input }),
+    ),
+
+  /** Resumes a paused Routine with no fresh OK. Another user's is not found. */
+  resume: protectedProcedure
+    .input(routineInput)
+    .handler(({ context, input }) =>
+      context.sdk.routines.resume({ userId: context.user.id, ...input }),
+    ),
+
+  /** Deletes a Routine in any state, and nothing of it fires again. Another user's is not found. */
+  delete: protectedProcedure
+    .input(routineInput)
+    .handler(({ context, input }) =>
+      context.sdk.routines.delete({ userId: context.user.id, ...input }),
+    ),
+
+  /** Gives an approved webhook Routine a new URL (ADR 0021). Another user's is not found. */
+  rotate: protectedProcedure
+    .input(routineInput)
+    .handler(({ context, input }) =>
+      context.sdk.routines.rotate({ userId: context.user.id, ...input }),
+    ),
+};
+
+/** The Check-ins of the caller's Bots (#540), over `sdk.checkIns`. */
+const checkIns = {
+  /** One of the caller's Bots' Check-ins, soonest first, each with the Message its line follows. */
+  list: protectedProcedure
+    .input(botScopeInput)
+    .handler(({ context, input }) =>
+      context.sdk.checkIns.list({ userId: context.user.id, ...input }),
+    ),
+
+  /** Cancels a pending Check-in: it never fires. Another user's is not found. */
+  cancel: protectedProcedure
+    .input(checkInInput)
+    .handler(({ context, input }) =>
+      context.sdk.checkIns.cancel({ userId: context.user.id, ...input }),
+    ),
+};
+
+/** The Helpers of the caller's Bots (#590), over `sdk.helpers`. */
+const helpers = {
+  /** One of the caller's Bots' Helpers, oldest first, each with the Message its card follows. */
+  list: protectedProcedure
+    .input(helperListInput)
+    .handler(({ context, input }) =>
+      context.sdk.helpers.list({ userId: context.user.id, ...input }),
+    ),
+
+  /** The user's Done on a Helper waiting at a hand-off (#568). Another user's Helper is not found. */
+  done: protectedProcedure
+    .input(helperDoneInput)
+    .handler(({ context, input }) =>
+      context.sdk.helpers.done({ userId: context.user.id, ...input }),
+    ),
+
+  /** Stops one of the caller's Bot's Helpers, or all its live ones with no `helperId`. */
+  stop: protectedProcedure
+    .input(helperStopInput)
+    .handler(({ context, input }) =>
+      context.sdk.helpers.stop({ userId: context.user.id, ...input }),
+    ),
+};
+
+/** The Auto-reviews of the caller's Bots' tool calls (spec #691), over `sdk.reviews`. */
+const reviews = {
+  /** One of the caller's Bots' newest reviews and its waiting ones. Another user's Bot is not found. */
+  list: protectedProcedure
+    .input(reviewListInput)
+    .handler(({ context, input }) =>
+      context.sdk.reviews.list({ userId: context.user.id, ...input }),
+    ),
+  /** Allows a blocked call while its Approval waits (ADR 0024). Another user's is not found. */
+  allow: protectedProcedure
+    .input(reviewDecisionInput)
+    .handler(({ context, input }) =>
+      context.sdk.reviews.allow({ userId: context.user.id, ...input }),
+    ),
+  /** Denies a blocked call while its Approval waits, as `allow` allows it. */
+  deny: protectedProcedure
+    .input(reviewDecisionInput)
+    .handler(({ context, input }) =>
+      context.sdk.reviews.deny({ userId: context.user.id, ...input }),
+    ),
+};
+
+/**
+ * The user's Secrets (spec #691), shared by all their Bots. A value goes in through `save` and
+ * never comes out: `list` returns names and dates only.
+ */
+const secrets = {
+  /**
+   * Saves Secret `name`, encrypted, replacing an earlier one, and wakes the Bot `botId` with the
+   * Trigger "Saved secret NAME". The value never enters the Conversation. Another user's Bot is
+   * not found.
+   */
+  save: protectedProcedure
+    .input(saveSecretInput)
+    .handler(({ context, input }) =>
+      context.sdk.secrets.save({ ...input, userId: context.user.id }),
+    ),
+
+  /** The caller's Secrets, by name, each with when it was saved. Never a value. */
+  list: protectedProcedure.handler(({ context }) =>
+    context.sdk.secrets.list({ userId: context.user.id }),
+  ),
+
+  /** Deletes the caller's Secret `name`. */
+  delete: protectedProcedure
+    .input(deleteSecretInput)
+    .handler(({ context, input }) =>
+      context.sdk.secrets.delete({ ...input, userId: context.user.id }),
+    ),
+};
+
+/**
+ * The user's side of a Demonstration (spec #713), from its Show me card. Each acts only on a state
+ * it applies to, and otherwise changes nothing; each returns the state the Demonstration is in now.
+ * Done and Cancel release its Screen. Another user's is not found.
+ */
+const demonstrations = {
+  /** Pauses a recording Demonstration. */
+  pause: demonstrationAction("pause"),
+  /** Resumes a paused Demonstration. */
+  resume: demonstrationAction("resume"),
+  /** Ends a live Demonstration as Done: it goes `drafting`. */
+  done: demonstrationAction("done"),
+  /** Ends a live Demonstration `cancelled`. */
+  cancel: demonstrationAction("cancel"),
+  /** A fresh live-view link to a live Demonstration's Screen, never stored. */
+  view: protectedProcedure
+    .input(demonstrationInput)
+    .handler(({ context, input }) =>
+      context.sdk.demonstrations.view({ userId: context.user.id, ...input }),
+    ),
+  /** The steps a Demonstration captured, in order. Password values come masked. */
+  steps: protectedProcedure
+    .input(demonstrationInput)
+    .handler(({ context, input }) =>
+      context.sdk.demonstrations.steps({ userId: context.user.id, ...input }),
+    ),
+};
+
+/** The live view of a Computer-use Helper's Screen (#597). Another user's Helper is not found. */
+const computer = {
+  /**
+   * A fresh live-view link to the Screen of one of the caller's live Helpers, never stored. It
+   * wakes the Computer and reopens the Screen when it isn't open, and the view starts view-only.
+   * Refused, "This task was stopped.", once the Helper ended.
+   */
+  view: protectedProcedure
+    .input(screenViewInput)
+    .handler(({ context, input }) =>
+      context.sdk.screens.view({ ...input, userId: context.user.id }),
+    ),
+
+  /** Take control (`control`) and give back (`view`): switches the Screen's x11vnc. */
+  control: protectedProcedure
+    .input(screenControlInput)
+    .handler(({ context, input }) =>
+      context.sdk.screens.control({ ...input, userId: context.user.id }),
+    ),
+};
+
+/** The `bot` plugin's routers, one per namespace, served under `<basePath>/rpc/<namespace>`. */
+export const botPluginRouter = {
+  bots,
+  routines,
+  checkIns,
+  helpers,
+  reviews,
+  secrets,
+  demonstrations,
+  computer,
+};
 export type BotRouter = typeof botPluginRouter;
 
 // The email Channel's router type, for the channel client (ADR 0005: clients import routers/index only).

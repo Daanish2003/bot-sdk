@@ -61,7 +61,7 @@ const reviewOf = (
 /** A stand-in for the server's `bot` router with `turns` and their `reviews`. */
 function fakeBotServer(messages: BotMessage[], turns: BotTurnProvenance[], reviews: BotReview[]) {
   const router = {
-    bot: {
+    bots: {
       get: os.handler(() => ({
         bot: { ...ada, turnStatus: null },
         messages,
@@ -79,11 +79,11 @@ function fakeBotServer(messages: BotMessage[], turns: BotTurnProvenance[], revie
           createdAt: new Date(),
         })),
       warm: os.handler(() => ({ warmed: false as const, skipped: "still_warm" as const })),
-      routine: { list: os.handler(() => []) },
-      checkIn: { list: os.handler(() => []) },
-      helper: { list: os.handler(() => []) },
-      review: { list: os.handler(() => reviews) },
     },
+    routines: { list: os.handler(() => []) },
+    checkIns: { list: os.handler(() => []) },
+    helpers: { list: os.handler(() => []) },
+    reviews: { list: os.handler(() => reviews) },
   };
   const handler = new RPCHandler(router);
   return async (request: Request) =>

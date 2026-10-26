@@ -36,9 +36,9 @@ function renderKeys(
   }>,
 ) {
   const queryClient = new QueryClient();
-  queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok: true });
-  queryClient.setQueryData(client.orpc.credentials.list.queryKey(), []);
-  queryClient.setQueryData(client.orpc.connections.list.queryKey(), { servers });
+  queryClient.setQueryData(client.orpc.models.credentials.mode.queryKey(), { byok: true });
+  queryClient.setQueryData(client.orpc.models.credentials.list.queryKey(), []);
+  queryClient.setQueryData(client.orpc.mcp.listConnections.queryKey(), servers);
   return renderToStaticMarkup(
     createElement(ChatProvider, {
       client,

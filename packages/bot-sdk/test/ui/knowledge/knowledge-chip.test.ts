@@ -16,7 +16,7 @@ const plugins = [knowledgeClient(), botClient()];
 const changes = [{ botId: "ada", path: "reports/q3.md" }];
 
 function seeded(queryClient: QueryClient, client: BotSdkClient) {
-  queryClient.setQueryData(client.orpc.bot.get.queryKey({ input: { botId: "ada" } }), {
+  queryClient.setQueryData(client.orpc.bots.get.queryKey({ input: { botId: "ada" } }), {
     bot: { id: "ada", name: "Ada" },
   } as never);
 }

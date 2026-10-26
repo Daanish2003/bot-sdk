@@ -61,7 +61,7 @@ async function botWith(
     });
   }
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model: modelId });
+  const { id: botId } = await client.bots.create({ name: "Ada", model: modelId });
   return { fake, deps, jobs, user, client, botId };
 }
 
@@ -112,7 +112,7 @@ describe("bot.warm", () => {
     await send(client, botId, "hi");
     await ageCalls(user.id, 56);
 
-    expect(await client.bot.warm({ botId })).toEqual({ warmed: true });
+    expect(await client.bots.warm({ botId })).toEqual({ warmed: true });
 
     expect(fake.calls).toHaveLength(2);
     const [turnCall, warm] = fake.calls as [TextOptions, TextOptions];
@@ -156,7 +156,7 @@ describe("bot.warm", () => {
     ).toHaveLength(2);
     await ageCalls(user.id, 56);
 
-    expect(await client.bot.warm({ botId })).toEqual({ warmed: true });
+    expect(await client.bots.warm({ botId })).toEqual({ warmed: true });
     await send(client, botId, "back again");
 
     expect(fake.calls).toHaveLength(4);
@@ -179,12 +179,12 @@ describe("bot.warm", () => {
     await send(client, botId, "hi");
     await ageCalls(user.id, 56);
 
-    await client.bot.warm({ botId });
+    await client.bots.warm({ botId });
 
     const rows = await getTestDb().select().from(usage).where(eq(usage.userId, user.id));
     const warm = rows.find((row) => row.kind === "warm");
     expect(warm).toMatchObject({ sourceId: botId, cacheWriteTokens: 40, inputTokens: 40 });
-    expect((await client.bot.get({ botId })).warmings).toEqual([
+    expect((await client.bots.get({ botId })).warmings).toEqual([
       { id: warm!.id, at: warm!.createdAt, costMicros: warm!.costMicros },
     ]);
   });
@@ -197,7 +197,7 @@ describe("bot.warm", () => {
     await send(client, botId, "hi");
     await ageCalls(user.id, 26);
 
-    expect(await client.bot.warm({ botId })).toEqual({ warmed: true });
+    expect(await client.bots.warm({ botId })).toEqual({ warmed: true });
 
     expect(fake.calls.at(-1)?.modelOptions).toEqual({
       prompt_cache_key: `bot:${botId}`,
@@ -210,7 +210,7 @@ describe("bot.warm", () => {
     const anthropic = await botWith([round(), warmRound()], "anthropic:claude-sonnet-5-5");
     await send(anthropic.client, anthropic.botId, "hi");
     await ageCalls(anthropic.user.id, 54);
-    expect(await anthropic.client.bot.warm({ botId: anthropic.botId })).toEqual({
+    expect(await anthropic.client.bots.warm({ botId: anthropic.botId })).toEqual({
       warmed: false,
       skipped: "still_warm",
     });
@@ -219,7 +219,7 @@ describe("bot.warm", () => {
     const openai = await botWith([round(), warmRound()], "openai:gpt-6-luna");
     await send(openai.client, openai.botId, "hi");
     await ageCalls(openai.user.id, 24);
-    expect(await openai.client.bot.warm({ botId: openai.botId })).toEqual({
+    expect(await openai.client.bots.warm({ botId: openai.botId })).toEqual({
       warmed: false,
       skipped: "still_warm",
     });
@@ -234,8 +234,8 @@ describe("bot.warm", () => {
     await send(client, botId, "hi");
     await ageCalls(user.id, 56);
 
-    await client.bot.warm({ botId });
-    expect(await client.bot.warm({ botId })).toEqual({ warmed: false, skipped: "still_warm" });
+    await client.bots.warm({ botId });
+    expect(await client.bots.warm({ botId })).toEqual({ warmed: false, skipped: "still_warm" });
 
     expect(fake.calls).toHaveLength(2);
   });
@@ -248,7 +248,7 @@ describe("bot.warm", () => {
     await send(client, botId, "hi");
     await ageCalls(user.id, 56);
 
-    const results = await Promise.all([client.bot.warm({ botId }), client.bot.warm({ botId })]);
+    const results = await Promise.all([client.bots.warm({ botId }), client.bots.warm({ botId })]);
 
     expect(results).toEqual(
       expect.arrayContaining([{ warmed: true }, { warmed: false, skipped: "still_warm" }]),
@@ -275,7 +275,7 @@ describe("bot.warm", () => {
     await jobs.runClaimed(claimed!);
 
     // The Turn's call was moments ago, but before the new Prompt start was built.
-    expect(await client.bot.warm({ botId })).toEqual({ warmed: true });
+    expect(await client.bots.warm({ botId })).toEqual({ warmed: true });
     expect(fake.calls).toHaveLength(3);
   });
 
@@ -288,7 +288,7 @@ describe("bot.warm", () => {
     await ageCalls(user.id, 60);
     await getTestDb().update(botTurn).set({ status: "running" }).where(eq(botTurn.botId, botId));
 
-    expect(await client.bot.warm({ botId })).toEqual({ warmed: false, skipped: "running" });
+    expect(await client.bots.warm({ botId })).toEqual({ warmed: false, skipped: "running" });
 
     expect(fake.calls).toHaveLength(1);
   });
@@ -296,7 +296,7 @@ describe("bot.warm", () => {
   it("skips a Bot with no Prompt start yet", async () => {
     const { fake, client, botId } = await botWith([warmRound()], "anthropic:claude-sonnet-5-5");
 
-    expect(await client.bot.warm({ botId })).toEqual({ warmed: false, skipped: "nothing_cached" });
+    expect(await client.bots.warm({ botId })).toEqual({ warmed: false, skipped: "nothing_cached" });
 
     expect(fake.calls).toHaveLength(0);
   });
@@ -308,7 +308,7 @@ describe("bot.warm", () => {
       await send(client, botId, "hi");
       await ageCalls(user.id, 120);
 
-      expect(await client.bot.warm({ botId })).toEqual({ warmed: false, skipped: "unsupported" });
+      expect(await client.bots.warm({ botId })).toEqual({ warmed: false, skipped: "unsupported" });
 
       expect(fake.calls).toHaveLength(1);
     },
@@ -325,7 +325,7 @@ describe("bot.warm", () => {
     await send(client, botId, "hi");
     await ageCalls(user.id, 120);
 
-    expect(await client.bot.warm({ botId })).toEqual({ warmed: false, skipped: "unsupported" });
+    expect(await client.bots.warm({ botId })).toEqual({ warmed: false, skipped: "unsupported" });
 
     expect(fake.calls).toHaveLength(1);
   });
@@ -339,7 +339,7 @@ describe("bot.warm", () => {
     await ageCalls(user.id, 60);
     const other = chatRpc({ user: await insertUser(), deps });
 
-    await expect(other.bot.warm({ botId })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(other.bots.warm({ botId })).rejects.toMatchObject({ code: "NOT_FOUND" });
 
     expect(await usageKinds(user.id)).toEqual(["turn"]);
   });

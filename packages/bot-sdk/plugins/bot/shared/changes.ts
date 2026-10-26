@@ -43,7 +43,7 @@ export type BotChange = {
 }[BotChangeKind];
 
 /**
- * What `bot.changes` returns: the changes after the cursor, oldest first, or `reload` when the log
- * no longer holds them all, so the thread must be read afresh with `bot.get`.
+ * What `bots.changes` returns: the changes after the cursor, oldest first, or `reload` when the log
+ * no longer holds them all, so the thread must be read afresh with `bots.get`.
  */
 export type BotChanges = { reload: true } | { reload: false; changes: BotChange[] };

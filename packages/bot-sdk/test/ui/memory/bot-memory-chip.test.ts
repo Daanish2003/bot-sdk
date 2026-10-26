@@ -90,7 +90,7 @@ function recordingFetch() {
 }
 
 const seedGet = (queryClient: QueryClient, client: BotSdkClient, turns: BotTurnProvenance[]) =>
-  queryClient.setQueryData(client.orpc.bot.get.queryKey({ input: { botId: "b2" } }), {
+  queryClient.setQueryData(client.orpc.bots.get.queryKey({ input: { botId: "b2" } }), {
     bot: {
       id: "b2",
       name: "Ada",

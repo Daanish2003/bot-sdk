@@ -33,4 +33,4 @@ export const channelRouter = {
 };
 
 /** The `channel` plugin's routers, by key. */
-export type ChannelRouter = { channel: typeof channelRouter };
+export type ChannelRouter = { channels: typeof channelRouter };

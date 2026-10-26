@@ -42,7 +42,7 @@ describe("createHttpHandler", { timeout: 30_000 }, () => {
     const sdk = createBotSdk({ databaseUrl: testDatabaseUrl, keyEncryptionSecrets, models: {} });
     const http = createHttpHandler(sdk, { basePath, getUser: () => null });
 
-    const rpc = await http(rpcCall("http://localhost", "bot/list"));
+    const rpc = await http(rpcCall("http://localhost", "bots/list"));
     const route = await http(new Request(`http://localhost${basePath}/export`));
 
     expect([rpc.status, route.status]).toEqual([401, 401]);
@@ -55,9 +55,12 @@ describe("createHttpHandler", { timeout: 30_000 }, () => {
     const http = createHttpHandler(sdk, { basePath: "/bots/", getUser: () => ({ id: user.id }) });
 
     const served = await http(
-      new Request("http://localhost/bots/rpc/credentials/mode", { method: "POST", body: "{}" }),
+      new Request("http://localhost/bots/rpc/models/credentials/mode", {
+        method: "POST",
+        body: "{}",
+      }),
     );
-    const outside = await http(rpcCall("http://localhost", "credentials/mode"));
+    const outside = await http(rpcCall("http://localhost", "models/credentials/mode"));
 
     expect(served.status).toBe(200);
     expect(await served.json()).toEqual({ json: { byok: true } });
@@ -79,8 +82,8 @@ describe("createHttpHandler", { timeout: 30_000 }, () => {
       rateLimits: { attachmentUpload: { limit: 1, windowSeconds: 60 } },
     });
 
-    const first = await http(rpcCall("http://localhost", "bot/upload"));
-    const limited = await http(rpcCall("http://localhost", "bot/upload"));
+    const first = await http(rpcCall("http://localhost", "bots/upload"));
+    const limited = await http(rpcCall("http://localhost", "bots/upload"));
     const inProcess = [];
     for (const name of ["a.txt", "b.txt", "c.txt"]) {
       inProcess.push(await sdk.bots.upload({ userId: user.id, file: new File(["hi"], name) }));
@@ -190,7 +193,7 @@ describe("toNodeHandler", { timeout: 30_000 }, () => {
     });
     const origin = await serve(http);
     const signedInCall = (base: string) => {
-      const request = rpcCall(base, "credentials/mode");
+      const request = rpcCall(base, "models/credentials/mode");
       request.headers.set("x-user", signedIn.id);
       return request;
     };
@@ -200,8 +203,8 @@ describe("toNodeHandler", { timeout: 30_000 }, () => {
       fetch(signedInCall(origin)),
     ]);
     const [directRefusal, nodeRefusal] = await Promise.all([
-      http(rpcCall("http://localhost", "bot/list")),
-      fetch(rpcCall(origin, "bot/list")),
+      http(rpcCall("http://localhost", "bots/list")),
+      fetch(rpcCall(origin, "bots/list")),
     ]);
 
     expect(overNode.status).toBe(direct.status);

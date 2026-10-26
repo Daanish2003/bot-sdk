@@ -70,7 +70,7 @@ function KnowledgeFileDetails({ path, onDeleted }: { path: string; onDeleted: ()
 /**
  * The "📚 <Bot> saved to Knowledge: <path>" chips under a Bot Message whose Turn wrote a file under
  * `shared/knowledge/` (spec #737), one per file. A chip expands in place to the file's path, size
- * and readable text, with **Delete**. The Bot's name comes from `bot.get`, and is "a Bot" until
+ * and readable text, with **Delete**. The Bot's name comes from `bots.get`, and is "a Bot" until
  * that loads. Shows nothing when the Turn saved no Knowledge.
  */
 export function KnowledgeChip({
@@ -84,7 +84,7 @@ export function KnowledgeChip({
   const orpc = useOrpc();
   // The Bot page already loads this, so it reads the cache.
   const botName = useQuery({
-    ...orpc.bot.get.queryOptions({ input: { botId } }),
+    ...orpc.bots.get.queryOptions({ input: { botId } }),
     select: (conversation) => conversation.bot.name,
     enabled: (changes?.length ?? 0) > 0,
   }).data;

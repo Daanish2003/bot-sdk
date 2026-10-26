@@ -69,10 +69,10 @@ function expectTranslated(
 describe("the keys page with the dictionary", () => {
   it("shows no untranslated text on the keys page, with credentials on", () => {
     expectTranslated(createElement(HostKeysPage), (queryClient, client) => {
-      queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok: true });
-      queryClient.setQueryData(client.orpc.credentials.list.queryKey(), []);
+      queryClient.setQueryData(client.orpc.models.credentials.mode.queryKey(), { byok: true });
+      queryClient.setQueryData(client.orpc.models.credentials.list.queryKey(), []);
       queryClient.setQueryData(client.orpc.models.imageModel.queryKey(), { imageModel: null });
-      queryClient.setQueryData(client.orpc.connections.list.queryKey(), { servers: [] });
+      queryClient.setQueryData(client.orpc.mcp.listConnections.queryKey(), []);
       seedModels(queryClient, client);
     });
   });
@@ -83,14 +83,14 @@ describe("the keys page with the dictionary", () => {
       const html = expectTranslated(
         createElement(HostKeysPage, { linkedCredentials }),
         (queryClient, client) => {
-          queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok: true });
+          queryClient.setQueryData(client.orpc.models.credentials.mode.queryKey(), { byok: true });
           queryClient.setQueryData(
-            client.orpc.credentials.list.queryKey(),
+            client.orpc.models.credentials.list.queryKey(),
             state === "key" ? [{ service: "openai", hint: "abcd", verified: true }] : [],
           );
-          queryClient.setQueryData(client.orpc.credentials.openaiState.queryKey(), state);
+          queryClient.setQueryData(client.orpc.models.credentials.openaiState.queryKey(), state);
           queryClient.setQueryData(client.orpc.models.imageModel.queryKey(), { imageModel: null });
-          queryClient.setQueryData(client.orpc.connections.list.queryKey(), { servers: [] });
+          queryClient.setQueryData(client.orpc.mcp.listConnections.queryKey(), []);
           seedModels(queryClient, client);
         },
       );

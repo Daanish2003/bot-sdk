@@ -105,7 +105,7 @@ async function waitingHelper(
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model });
+  const { id: botId } = await client.bots.create({ name: "Ada", model });
   for await (const _event of await followSend(client, { botId, id: uuidv7(), text: "deals?" }));
   await expect
     .poll(async () => (await helpersOf(botId))[0]?.status, { timeout: 10_000 })
@@ -177,7 +177,7 @@ describe("bot.screen.view", () => {
     const { client, helper, computerFake } = await waitingHelper();
     const before = screenCommands(computerFake).length;
 
-    const { url } = await client.bot.screen.view({ helperId: helper.id });
+    const { url } = await client.computer.view({ helperId: helper.id });
 
     const { sandboxId, screenToken } = sandboxOf(computerFake);
     expect(url).toMatch(/^\/api\/chat\/screens\/[^/]+\/vnc\.html\?/);
@@ -193,11 +193,11 @@ describe("bot.screen.view", () => {
     const { deps, helper } = await waitingHelper();
     const other = chatRpc({ user: await insertUser(), deps });
 
-    await expect(other.bot.screen.view({ helperId: helper.id })).rejects.toMatchObject({
+    await expect(other.computer.view({ helperId: helper.id })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
     await expect(
-      other.bot.screen.control({ helperId: helper.id, mode: "control" }),
+      other.computer.control({ helperId: helper.id, mode: "control" }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
@@ -206,7 +206,7 @@ describe("bot.screen.view", () => {
     computerFake.lose(sandboxOf(computerFake).sandboxId);
     const before = screenCommands(computerFake).length;
 
-    const { url } = await client.bot.screen.view({ helperId: helper.id });
+    const { url } = await client.computer.view({ helperId: helper.id });
 
     expect(computerFake.callsOf("create")).toHaveLength(2);
     expect(screenCommands(computerFake).slice(before)).toEqual([
@@ -217,11 +217,11 @@ describe("bot.screen.view", () => {
 
   it("refuses once the task was stopped, and its link stops working", async () => {
     const { client, deps, helper, botId } = await waitingHelper();
-    const { url } = await client.bot.screen.view({ helperId: helper.id });
+    const { url } = await client.computer.view({ helperId: helper.id });
 
-    await client.bot.helper.stop({ botId, helperId: helper.id });
+    await client.helpers.stop({ botId, helperId: helper.id });
 
-    await expect(client.bot.screen.view({ helperId: helper.id })).rejects.toMatchObject({
+    await expect(client.computer.view({ helperId: helper.id })).rejects.toMatchObject({
       code: "CONFLICT",
       message: "This task was stopped.",
     });
@@ -242,7 +242,7 @@ describe("stopping a Computer-use Helper", () => {
       return { exitCode: 0, stdout: "", stderr: "" };
     });
 
-    const stopping = client.bot.helper.stop({ botId, helperId: helper.id });
+    const stopping = client.helpers.stop({ botId, helperId: helper.id });
     try {
       await expect.poll(() => closing, { timeout: 10_000 }).toBe(true);
 
@@ -270,7 +270,7 @@ describe("stopping a Computer-use Helper", () => {
 
   it("never closes the Screen once another Helper of the user holds its slot", async () => {
     const { client, deps, user, helper, botId, computerFake } = await waitingHelper();
-    await client.bot.helper.stop({ botId, helperId: helper.id });
+    await client.helpers.stop({ botId, helperId: helper.id });
     // The next Helper takes the slot the stop freed.
     await getTestDb().insert(botHelper).values({
       id: uuidv7(),
@@ -295,8 +295,8 @@ describe("bot.screen.control", () => {
   it("switches the Screen's x11vnc between control and view-only", async () => {
     const { client, helper, computerFake } = await waitingHelper();
 
-    await client.bot.screen.control({ helperId: helper.id, mode: "control" });
-    await client.bot.screen.control({ helperId: helper.id, mode: "view" });
+    await client.computer.control({ helperId: helper.id, mode: "control" });
+    await client.computer.control({ helperId: helper.id, mode: "view" });
 
     expect(screenCommands(computerFake).slice(-2)).toEqual([
       "/usr/local/bin/ai-chat-screen control 1",
@@ -308,9 +308,9 @@ describe("bot.screen.control", () => {
 describe("bot.helper.done", () => {
   it("makes the Screen view-only again, even when the user's client didn't give control back", async () => {
     const { client, helper, computerFake } = await waitingHelper();
-    await client.bot.screen.control({ helperId: helper.id, mode: "control" });
+    await client.computer.control({ helperId: helper.id, mode: "control" });
 
-    await client.bot.helper.done({ helperId: helper.id });
+    await client.helpers.done({ helperId: helper.id });
 
     await expect
       .poll(() => screenCommands(computerFake).at(-1))
@@ -321,7 +321,7 @@ describe("bot.helper.done", () => {
 describe("the live view's proxy", () => {
   it("serves the noVNC page and its files from the Screen, adding the traffic token upstream", async () => {
     const { client, deps, helper, novnc, computerFake } = await waitingHelper();
-    const { url } = await client.bot.screen.view({ helperId: helper.id });
+    const { url } = await client.computer.view({ helperId: helper.id });
     const handler = screenHandlerOf(deps);
     const asked = () => computerFake.callsOf("endpoint").length;
     const askedByLink = asked();
@@ -355,7 +355,7 @@ describe("the live view's proxy", () => {
 
   it("keeps a redirect within noVNC on the proxy, and drops any other", async () => {
     const { client, deps, helper } = await waitingHelper();
-    const { url } = await client.bot.screen.view({ helperId: helper.id });
+    const { url } = await client.computer.view({ helperId: helper.id });
     const base = url.split("/vnc.html")[0]!;
     const handler = screenHandlerOf(deps);
 
@@ -370,7 +370,7 @@ describe("the live view's proxy", () => {
 
   it("answers 502 when the Screen can't be reached, on the page and the socket alike", async () => {
     const { client, deps, helper, computerFake, offset } = await waitingHelper();
-    const { url } = await client.bot.screen.view({ helperId: helper.id });
+    const { url } = await client.computer.view({ helperId: helper.id });
     // A minute on, past the reused address, the sandbox is gone and its rebuild has no Screen open.
     offset.ms = minuteMs;
     computerFake.lose(sandboxOf(computerFake).sandboxId);
@@ -383,7 +383,7 @@ describe("the live view's proxy", () => {
 
   it("answers 403 without a valid view token, and reaches nothing upstream", async () => {
     const { client, deps, helper, novnc, offset } = await waitingHelper();
-    const { url } = await client.bot.screen.view({ helperId: helper.id });
+    const { url } = await client.computer.view({ helperId: helper.id });
     const token = url.split("/")[4]!;
     const handler = screenHandlerOf(deps);
     const forged = `${token.slice(0, -2)}${token.at(-2) === "A" ? "B" : "A"}${token.slice(-1)}`;
@@ -409,7 +409,7 @@ describe("the live view's proxy", () => {
     const { client, deps, helper, novnc } = await waitingHelper();
     const elsewhere = await fakeNovnc();
     cleanups.push(() => elsewhere.close());
-    const { url } = await client.bot.screen.view({ helperId: helper.id });
+    const { url } = await client.computer.view({ helperId: helper.id });
     const base = url.split("/vnc.html")[0]!;
     const host = new URL(elsewhere.origin).host;
     const escapes = [
@@ -445,7 +445,7 @@ describe("the live view's proxy", () => {
 
   it("proxies the socket to websockify with the traffic token and the Screen's token, both ways", async () => {
     const { client, deps, helper, novnc, computerFake } = await waitingHelper();
-    const { url } = await client.bot.screen.view({ helperId: helper.id });
+    const { url } = await client.computer.view({ helperId: helper.id });
     const hooks = screenSocketOf(deps);
 
     const upgraded = await hooks.upgrade(socketRequest(url));
@@ -475,7 +475,7 @@ describe("the live view's proxy", () => {
 
   it("closes the browser's socket once the Screen's socket closes", async () => {
     const { client, deps, helper, novnc } = await waitingHelper();
-    const { url } = await client.bot.screen.view({ helperId: helper.id });
+    const { url } = await client.computer.view({ helperId: helper.id });
     const hooks = screenSocketOf(deps);
     const { peer } = fakePeer((await hooks.upgrade(socketRequest(url))).context);
     hooks.open(peer);
@@ -488,7 +488,7 @@ describe("the live view's proxy", () => {
 
   it("counts the open live view as Computer activity, and stops once it closes", async () => {
     const { client, deps, helper, offset, user } = await waitingHelper();
-    const { url } = await client.bot.screen.view({ helperId: helper.id });
+    const { url } = await client.computer.view({ helperId: helper.id });
     const hooks = screenSocketOf(deps);
     const { peer } = fakePeer((await hooks.upgrade(socketRequest(url))).context);
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
@@ -514,13 +514,13 @@ describe("the live view's proxy", () => {
 
   it("closes an open live view once its Helper is stopped", async () => {
     const { client, deps, helper, botId } = await waitingHelper();
-    const { url } = await client.bot.screen.view({ helperId: helper.id });
+    const { url } = await client.computer.view({ helperId: helper.id });
     const hooks = screenSocketOf(deps);
     const { peer } = fakePeer((await hooks.upgrade(socketRequest(url))).context);
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     try {
       hooks.open(peer);
-      await client.bot.helper.stop({ botId, helperId: helper.id });
+      await client.helpers.stop({ botId, helperId: helper.id });
 
       await vi.advanceTimersByTimeAsync(minuteMs);
 
@@ -541,7 +541,7 @@ describe("sdk.computer, called in-process with a userId (#897)", () => {
     const { url } = await screens.view({ userId, helperId: helper.id });
 
     expect(url).toMatch(/^\/api\/chat\/screens\/[^/]+\/vnc\.html\?/);
-    expect(Object.keys(await client.bot.screen.view({ helperId: helper.id }))).toEqual(["url"]);
+    expect(Object.keys(await client.computer.view({ helperId: helper.id }))).toEqual(["url"]);
     await screens.control({ userId, helperId: helper.id, mode: "control" });
     await screens.control({ userId, helperId: helper.id, mode: "view" });
     expect(screenCommands(computerFake).slice(-2)).toEqual([

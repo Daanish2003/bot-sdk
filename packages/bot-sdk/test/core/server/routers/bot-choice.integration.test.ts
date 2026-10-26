@@ -59,7 +59,7 @@ async function botWith(rounds: Round[]) {
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model });
+  const { id: botId } = await client.bots.create({ name: "Ada", model });
   return { fake, deps, client, user, botId };
 }
 
@@ -88,7 +88,9 @@ const turnsEnded = (botId: string, count: number) =>
 
 /** The newest Message of the Bot that holds a choice. */
 const lastChoice = async (client: Client, botId: string) =>
-  (await client.bot.get({ botId })).messages.findLast((entry) => entry.control?.kind === "choice")!;
+  (await client.bots.get({ botId })).messages.findLast(
+    (entry) => entry.control?.kind === "choice",
+  )!;
 
 const answerTriggers = async () =>
   (await getTestDb().select().from(botTrigger).orderBy(asc(botTrigger.receivedAt))).filter(
@@ -116,9 +118,9 @@ describe("Multiple choice", () => {
     await send(client, botId, "pick for me");
     await turnsEnded(botId, 1);
     const asked = await lastChoice(client, botId);
-    const { lastSeq } = await client.bot.get({ botId });
+    const { lastSeq } = await client.bots.get({ botId });
 
-    await client.bot.choose({ botId, messageId: asked.id, answer: { option: "Red" } });
+    await client.bots.choose({ botId, messageId: asked.id, answer: { option: "Red" } });
     await turnsEnded(botId, 2);
 
     expect(await answerTriggers()).toMatchObject([
@@ -135,14 +137,14 @@ describe("Multiple choice", () => {
     expect((await lastChoice(client, botId)).control).toMatchObject({
       answer: { text: "Red", other: false },
     });
-    const { changes } = (await client.bot.changes({ botId, since: lastSeq })) as {
+    const { changes } = (await client.bots.changes({ botId, since: lastSeq })) as {
       changes: { kind: string; refId: string }[];
     };
     expect(changes).toContainEqual(expect.objectContaining({ kind: "message", refId: asked.id }));
 
     // The first answer won: a second is refused and changes nothing.
     await expect(
-      client.bot.choose({ botId, messageId: asked.id, answer: { option: "Blue" } }),
+      client.bots.choose({ botId, messageId: asked.id, answer: { option: "Blue" } }),
     ).rejects.toMatchObject({ data: { code: "error.choiceAnswered" } });
     expect((await lastChoice(client, botId)).control).toMatchObject({ answer: { text: "Red" } });
     expect(await answerTriggers()).toHaveLength(1);
@@ -159,13 +161,13 @@ describe("Multiple choice", () => {
     await turnsEnded(botId, 1);
     const closed = await lastChoice(client, botId);
     await expect(
-      client.bot.choose({ botId, messageId: closed.id, answer: { other: "Green" } }),
+      client.bots.choose({ botId, messageId: closed.id, answer: { other: "Green" } }),
     ).rejects.toMatchObject({ data: { code: "error.choiceInvalid" } });
     await expect(
-      client.bot.choose({ botId, messageId: closed.id, answer: { option: "Green" } }),
+      client.bots.choose({ botId, messageId: closed.id, answer: { option: "Green" } }),
     ).rejects.toMatchObject({ data: { code: "error.choiceInvalid" } });
     expect(await answerTriggers()).toHaveLength(0);
-    await client.bot.choose({ botId, messageId: closed.id, answer: { option: "Blue" } });
+    await client.bots.choose({ botId, messageId: closed.id, answer: { option: "Blue" } });
     await turnsEnded(botId, 2);
 
     await send(client, botId, "again");
@@ -173,9 +175,9 @@ describe("Multiple choice", () => {
     const open = await lastChoice(client, botId);
     expect(open.id).not.toBe(closed.id);
     await expect(
-      client.bot.choose({ botId, messageId: open.id, answer: { other: "   " } }),
+      client.bots.choose({ botId, messageId: open.id, answer: { other: "   " } }),
     ).rejects.toMatchObject({ data: { code: "error.choiceInvalid" } });
-    await client.bot.choose({ botId, messageId: open.id, answer: { other: " Green " } });
+    await client.bots.choose({ botId, messageId: open.id, answer: { other: " Green " } });
     await turnsEnded(botId, 4);
 
     const triggers = await answerTriggers();
@@ -197,10 +199,10 @@ describe("Multiple choice", () => {
     await send(client, botId, "never mind, something else");
     await turnsEnded(botId, 2);
 
-    await client.bot.choose({ botId, messageId: asked.id, answer: { option: "Blue" } });
+    await client.bots.choose({ botId, messageId: asked.id, answer: { option: "Blue" } });
     await turnsEnded(botId, 3);
 
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
     expect(messages.at(-1)).toMatchObject({ role: "assistant", text: "Blue, noted." });
   });
 
@@ -210,11 +212,13 @@ describe("Multiple choice", () => {
     const asked = await lastChoice(client, botId);
     const intruder = chatRpc({ user: await insertUser(), deps });
     await expect(
-      intruder.bot.choose({ botId, messageId: asked.id, answer: { option: "Red" } }),
+      intruder.bots.choose({ botId, messageId: asked.id, answer: { option: "Red" } }),
     ).rejects.toMatchObject({ data: { code: "error.botNotFound" } });
-    const user = (await client.bot.get({ botId })).messages.find((entry) => entry.role === "user")!;
+    const user = (await client.bots.get({ botId })).messages.find(
+      (entry) => entry.role === "user",
+    )!;
     await expect(
-      client.bot.choose({ botId, messageId: user.id, answer: { option: "Red" } }),
+      client.bots.choose({ botId, messageId: user.id, answer: { option: "Red" } }),
     ).rejects.toMatchObject({ data: { code: "error.messageNotFound" } });
   });
 });

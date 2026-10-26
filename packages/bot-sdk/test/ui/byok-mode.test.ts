@@ -29,9 +29,9 @@ const router: ChatRouter = {
 function render(ui: ReturnType<typeof createElement>, byok: boolean | undefined) {
   const queryClient = new QueryClient();
   if (byok !== undefined) {
-    queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok });
+    queryClient.setQueryData(client.orpc.models.credentials.mode.queryKey(), { byok });
   }
-  queryClient.setQueryData(client.orpc.credentials.list.queryKey(), []);
+  queryClient.setQueryData(client.orpc.models.credentials.list.queryKey(), []);
   return renderToStaticMarkup(
     createElement(ChatProvider, { client, router, queryClient, children: ui }),
   );

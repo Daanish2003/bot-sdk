@@ -11,7 +11,7 @@ import { useItemActions } from "./turn-list";
 export function useBotSecrets(botId: string) {
   const { orpc } = useChatAdapter();
   const queryClient = useQueryClient();
-  const options = orpc.bot.secret.list.queryOptions();
+  const options = orpc.secrets.list.queryOptions();
   const query = useQuery(options);
   const { acting, act } = useItemActions(() =>
     queryClient.invalidateQueries({ queryKey: options.queryKey }),
@@ -21,15 +21,15 @@ export function useBotSecrets(botId: string) {
     acting,
     save: async (name: string, value: string) => {
       await act(name, async () => {
-        await orpc.bot.secret.save.call({ botId, name, value });
+        await orpc.secrets.save.call({ botId, name, value });
         // The save wakes the Bot: its Turn shows once the Conversation is read again.
         await queryClient.invalidateQueries({
-          queryKey: orpc.bot.get.queryKey({ input: { botId } }),
+          queryKey: orpc.bots.get.queryKey({ input: { botId } }),
         });
       });
     },
     remove: async (name: string) => {
-      await act(name, () => orpc.bot.secret.delete.call({ name }));
+      await act(name, () => orpc.secrets.delete.call({ name }));
     },
   };
 }

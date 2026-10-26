@@ -31,7 +31,7 @@ function fakeChannelServer(nextChannel: "web" | "email" = "web") {
   let address = first;
   const rotated: unknown[] = [];
   const router = {
-    channel: {
+    channels: {
       email: {
         address: os
           .input(z.object({ botId: z.string() }))
@@ -122,7 +122,7 @@ describe("Messages that went by email", () => {
     ];
     const list = os.handler(() => []);
     const handler = new RPCHandler({
-      bot: {
+      bots: {
         get: os.handler(() => ({
           bot: {
             id: "b1",
@@ -138,12 +138,12 @@ describe("Messages that went by email", () => {
         })),
         send: os.handler((): BotMessage => ({}) as BotMessage),
         warm: os.handler(() => ({ warmed: false as const, skipped: "still_warm" as const })),
-        routine: { list },
-        checkIn: { list },
-        helper: { list },
-        review: { list },
-        secret: { list },
       },
+      routines: { list },
+      checkIns: { list },
+      helpers: { list },
+      reviews: { list },
+      secrets: { list },
     });
     render(
       providerFor(createElement(BotConversation, { botId: "b1" }), {

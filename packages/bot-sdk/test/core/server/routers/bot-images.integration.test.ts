@@ -116,7 +116,7 @@ async function botWith(
   started.push(jobs);
   const user = await insertUser();
   const client = chatRpc({ user, deps });
-  const created = await client.bot.create({ name: "Ada", model: hostModel });
+  const created = await client.bots.create({ name: "Ada", model: hostModel });
   return {
     turnFake,
     helperFake,

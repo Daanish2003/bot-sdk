@@ -148,7 +148,7 @@ async function botWith(
     });
   }
   const client = chatRpc({ user, deps });
-  const created = await client.bot.create({ name: "Ada", model: host ? hostModel : model });
+  const created = await client.bots.create({ name: "Ada", model: host ? hostModel : model });
   return { turnFake, helperFake, computerFake, tavily, client, user, botId: created.id, jobs };
 }
 

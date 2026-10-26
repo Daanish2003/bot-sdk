@@ -249,7 +249,7 @@ describe("the Quota read", () => {
     // 100 of a 400-micro budget is a quarter.
     await spend(user.id, 100, new Date("2026-10-10T11:00:00Z"));
 
-    const quota = await clientAt(user, { budgetUsd: 0.0004, window: "day" }).quota.read();
+    const quota = await clientAt(user, { budgetUsd: 0.0004, window: "day" }).models.readQuota();
 
     expect(quota).toEqual({
       usedPercent: 25,
@@ -264,7 +264,7 @@ describe("the Quota read", () => {
     const user = await insertUser();
     await spend(user.id, 1_000, new Date("2026-10-10T11:00:00Z"));
 
-    expect(await clientAt(user, { budgetUsd, window: "day" }).quota.read()).toMatchObject({
+    expect(await clientAt(user, { budgetUsd, window: "day" }).models.readQuota()).toMatchObject({
       usedPercent: 100,
     });
   });
@@ -272,6 +272,6 @@ describe("the Quota read", () => {
   it("reads null when the user's Quota is unlimited", async () => {
     const user = await insertUser();
 
-    expect(await clientAt(user, null).quota.read()).toBeNull();
+    expect(await clientAt(user, null).models.readQuota()).toBeNull();
   });
 });

@@ -81,7 +81,7 @@ async function botWith(
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model });
+  const { id: botId } = await client.bots.create({ name: "Ada", model });
   return { fake, computerFake, deps, client, user, botId };
 }
 
@@ -164,7 +164,7 @@ describe("Secrets", () => {
     ]);
 
     await send(client, botId, "push my changes");
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
     const request = messages.find((sent) => sent.control?.kind === "secret");
     expect(request).toMatchObject({
       role: "assistant",
@@ -172,7 +172,7 @@ describe("Secrets", () => {
       control: { kind: "secret", name: "GITHUB_TOKEN", why: "To push to your repository." },
     });
 
-    await client.bot.secret.save({ botId, name: "GITHUB_TOKEN", value: token });
+    await client.secrets.save({ botId, name: "GITHUB_TOKEN", value: token });
     await turnsEnded(botId, 2);
 
     // The stored row is ciphertext, bound to the user and the name.
@@ -218,28 +218,28 @@ describe("Secrets", () => {
 
   it("lists names and dates, never values, and deletes", async () => {
     const { client, botId } = await botWith([]);
-    await client.bot.secret.save({ botId, name: "B_TOKEN", value: "twos" });
-    await client.bot.secret.save({ botId, name: "A_TOKEN", value: "ones" });
+    await client.secrets.save({ botId, name: "B_TOKEN", value: "twos" });
+    await client.secrets.save({ botId, name: "A_TOKEN", value: "ones" });
 
-    const listed = await client.bot.secret.list();
+    const listed = await client.secrets.list();
     expect(listed).toEqual([
       { name: "A_TOKEN", createdAt: expect.any(Date) },
       { name: "B_TOKEN", createdAt: expect.any(Date) },
     ]);
     expect(JSON.stringify(listed)).not.toMatch(/ones|twos/);
 
-    await client.bot.secret.delete({ name: "A_TOKEN" });
-    expect((await client.bot.secret.list()).map((secret) => secret.name)).toEqual(["B_TOKEN"]);
+    await client.secrets.delete({ name: "A_TOKEN" });
+    expect((await client.secrets.list()).map((secret) => secret.name)).toEqual(["B_TOKEN"]);
   });
 
   it("keeps a user's Secrets from other users, and removes them with the user", async () => {
     const { client, botId, deps, user } = await botWith([]);
-    await client.bot.secret.save({ botId, name: "GITHUB_TOKEN", value: token });
+    await client.secrets.save({ botId, name: "GITHUB_TOKEN", value: token });
     const other = chatRpc({ user: await insertUser(), deps });
 
-    expect(await other.bot.secret.list()).toEqual([]);
+    expect(await other.secrets.list()).toEqual([]);
     await expect(
-      other.bot.secret.save({ botId, name: "GITHUB_TOKEN", value: "x" }),
+      other.secrets.save({ botId, name: "GITHUB_TOKEN", value: "x" }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
 
     await deleteUserData(deps, user.id);
@@ -264,7 +264,7 @@ describe("Secrets", () => {
     const { client, botId } = await botWith([]);
 
     await expect(
-      client.bot.secret.save({ botId, name: "my token", value: "x" }),
+      client.secrets.save({ botId, name: "my token", value: "x" }),
     ).rejects.toBeDefined();
   });
 
@@ -272,14 +272,14 @@ describe("Secrets", () => {
     const { client, botId, deps, user } = await botWith([]);
 
     await expect(
-      client.bot.secret.save({ botId, name: "LD_PRELOAD", value: "/tmp/evil.so" }),
+      client.secrets.save({ botId, name: "LD_PRELOAD", value: "/tmp/evil.so" }),
     ).rejects.toBeDefined();
     expect(secretNameSchema.safeParse("LD_PRELOAD").error?.message).toMatch(/reserved/);
     for (const name of ["BASH_FUNC_ECHO", "PATH", "NODE_OPTIONS", "DYLD_INSERT_LIBRARIES"]) {
-      await expect(client.bot.secret.save({ botId, name, value: "x" })).rejects.toBeDefined();
+      await expect(client.secrets.save({ botId, name, value: "x" })).rejects.toBeDefined();
     }
     expect(await loadSecretValues(deps, user.id)).toEqual(new Map());
-    await client.bot.secret.save({ botId, name: "GITHUB_TOKEN", value: token });
+    await client.secrets.save({ botId, name: "GITHUB_TOKEN", value: token });
     expect(await loadSecretValues(deps, user.id)).toEqual(new Map([["GITHUB_TOKEN", token]]));
   });
 
@@ -292,7 +292,7 @@ describe("Secrets", () => {
     await send(client, botId, "log in");
 
     expect(JSON.stringify(toolResultOf(fake.calls.at(-1)))).toMatch(/reserved/);
-    expect((await client.bot.get({ botId })).messages.some((entry) => entry.control)).toBe(false);
+    expect((await client.bots.get({ botId })).messages.some((entry) => entry.control)).toBe(false);
   });
 
   it("does not set a reserved name for a command, even one that was stored", async () => {
@@ -356,7 +356,7 @@ describe("Secrets", () => {
         onCommand: () => ({ exitCode: 0, stdout: `GITHUB_TOKEN=${token}\n`, stderr: "" }),
       },
     );
-    await client.bot.secret.save({ botId, name: "GITHUB_TOKEN", value: `  ${token}\n` });
+    await client.secrets.save({ botId, name: "GITHUB_TOKEN", value: `  ${token}\n` });
     expect(await loadSecretValues(deps, user.id)).toEqual(new Map([["GITHUB_TOKEN", token]]));
     await turnsEnded(botId, 1);
 
@@ -370,11 +370,11 @@ describe("Secrets", () => {
 
     for (const value of ["abc", "  abc \n", "   "]) {
       await expect(
-        client.bot.secret.save({ botId, name: "GITHUB_TOKEN", value }),
+        client.secrets.save({ botId, name: "GITHUB_TOKEN", value }),
       ).rejects.toMatchObject({ data: { code: "error.secretTooShort" } });
     }
     expect(await loadSecretValues(deps, user.id)).toEqual(new Map());
-    await client.bot.secret.save({ botId, name: "GITHUB_TOKEN", value: "abcd" });
+    await client.secrets.save({ botId, name: "GITHUB_TOKEN", value: "abcd" });
     expect(await loadSecretValues(deps, user.id)).toEqual(new Map([["GITHUB_TOKEN", "abcd"]]));
   });
 

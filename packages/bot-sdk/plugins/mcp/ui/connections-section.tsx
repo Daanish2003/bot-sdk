@@ -21,14 +21,14 @@ export function ConnectionsSection() {
   const { connectionsUrl } = useChatAdapter();
   const i18n = useI18n();
   const { t } = i18n;
-  const connections = useQuery(orpc.connections.list.queryOptions());
+  const connections = useQuery(orpc.mcp.listConnections.queryOptions());
   const disconnect = useMutation(
-    orpc.connections.disconnect.mutationOptions({
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.connections.key() }),
+    orpc.mcp.disconnect.mutationOptions({
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.mcp.key() }),
       onError: (error) => toast.error(serverErrorText(i18n, error)),
     }),
   );
-  const servers = connections.data?.servers ?? [];
+  const servers = connections.data ?? [];
   if (servers.length === 0) return null;
 
   return (

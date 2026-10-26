@@ -122,7 +122,10 @@ async function botWith({
     });
   }
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model: linked ? planModel : model });
+  const { id: botId } = await client.bots.create({
+    name: "Ada",
+    model: linked ? planModel : model,
+  });
   const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
   const runDue = async () => {
     for (;;) {
@@ -272,7 +275,7 @@ describe("a Summary while the user is away", () => {
     expect(row).toEqual({ sourceId: botId });
 
     // The thread's card: the account, and the kept Messages as the Conversation holds them.
-    const { summaries, messages } = await client.bot.get({ botId });
+    const { summaries, messages } = await client.bots.get({ botId });
     expect(summaries).toEqual([
       {
         id: summary!.id,
@@ -310,7 +313,7 @@ describe("a Summary while the user is away", () => {
     advance(10 * minute);
     await runDue();
 
-    const { summaries } = await client.bot.get({ botId });
+    const { summaries } = await client.bots.get({ botId });
     expect(summaries.map((summary) => summary.kept.map((kept) => kept.text))).toEqual([
       ["Looking into it.", "Here's your week."],
     ]);
@@ -325,7 +328,7 @@ describe("a Summary while the user is away", () => {
     advance(10 * minute);
     await runDue();
 
-    const { summaries } = await client.bot.get({ botId });
+    const { summaries } = await client.bots.get({ botId });
     expect(summaries.map((summary) => summary.text)).toEqual([quoting]);
   });
 

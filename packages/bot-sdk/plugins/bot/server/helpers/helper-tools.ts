@@ -85,7 +85,7 @@ async function liveHelper(
  * `stopped` and its job is cancelled through the runner, and it sends no `helper` Trigger (its
  * job's finish only ends a `running` Helper). A waiting one's Computer card reads cancelled, and
  * an Approval it waits for reads denied. Its transcript, usage and Screen are left to a
- * `bot.helper.stopped` job enqueued in `tx`, which runs once the stop has committed; wake the
+ * `helpers.stopped` job enqueued in `tx`, which runs once the stop has committed; wake the
  * runner then. Refuses an id that isn't the Bot's or has ended.
  */
 export async function stopHelpers(

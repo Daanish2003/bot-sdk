@@ -49,7 +49,7 @@ describe("sdk.routines, checkIns, helpers, demonstrations and reviews, called in
 
     const approved = await deps.routines.approve({ userId, routineId });
     expect(approved).toMatchObject({ id: routineId, state: "active" });
-    expect(await client.bot.routine.pause({ routineId })).toEqual({
+    expect(await client.routines.pause({ routineId })).toEqual({
       id: routineId,
       state: "paused",
     });
@@ -58,16 +58,16 @@ describe("sdk.routines, checkIns, helpers, demonstrations and reviews, called in
       state: "active",
     });
     expect(await deps.routines.list({ userId, botId })).toEqual(
-      await client.bot.routine.list({ botId }),
+      await client.routines.list({ botId }),
     );
     expect(await deps.checkIns.list({ userId, botId })).toEqual(
-      await client.bot.checkIn.list({ botId }),
+      await client.checkIns.list({ botId }),
     );
     expect(await deps.helpers.list({ userId, botId })).toEqual(
-      await client.bot.helper.list({ botId }),
+      await client.helpers.list({ botId }),
     );
     expect(await deps.reviews.list({ userId, botId })).toEqual(
-      await client.bot.review.list({ botId }),
+      await client.reviews.list({ botId }),
     );
     await deps.routines.delete({ userId, routineId });
     expect(await deps.routines.list({ userId, botId })).toEqual([]);

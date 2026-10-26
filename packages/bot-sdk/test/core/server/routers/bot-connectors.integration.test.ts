@@ -115,7 +115,7 @@ async function botWith(
   });
   if (withMcp) await connect(user, deps, auth);
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model });
+  const { id: botId } = await client.bots.create({ name: "Ada", model });
   return { fake, server, reviewer, deps, client, user, botId };
 }
 

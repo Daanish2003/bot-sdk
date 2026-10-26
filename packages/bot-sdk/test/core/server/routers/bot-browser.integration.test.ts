@@ -163,7 +163,7 @@ async function userWith(
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const newBot = async () => (await client.bot.create({ name: "Ada", model })).id;
+  const newBot = async () => (await client.bots.create({ name: "Ada", model })).id;
   return { turnFake, helperFake, computerFake, deps, client, user, newBot };
 }
 
@@ -427,7 +427,7 @@ describe("starting a Computer-use Helper", () => {
         .filter((command) => command.startsWith(screenScript));
     await expect.poll(commands, { timeout: 10_000 }).toEqual([`${screenScript} start 1 ${first}`]);
 
-    await client.bot.helper.stop({ botId: first });
+    await client.helpers.stop({ botId: first });
 
     // A job closes it once the stop has committed.
     await expect

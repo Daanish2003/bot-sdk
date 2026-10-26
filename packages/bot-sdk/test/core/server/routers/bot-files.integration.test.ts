@@ -61,7 +61,7 @@ async function botWith(rounds: Round[]) {
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model });
+  const { id: botId } = await client.bots.create({ name: "Ada", model });
   return { fake, deps, client, user, botId };
 }
 
@@ -107,7 +107,7 @@ describe("Files from the Bot", () => {
     await send(client, botId, "send me the report");
     await turnsEnded(botId);
 
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
     const sent = messages.find((entry) => entry.control?.kind === "files")!;
     expect(sent).toMatchObject({ role: "assistant", text: "Here is the report." });
     const control = sent.control as Extract<typeof sent.control, { kind: "files" }>;
@@ -147,7 +147,7 @@ describe("Files from the Bot", () => {
     await send(client, botId, "send all three");
     await turnsEnded(botId);
 
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
     const control = messages.find((entry) => entry.control?.kind === "files")!.control as Extract<
       NonNullable<(typeof messages)[number]["control"]>,
       { kind: "files" }
@@ -183,7 +183,7 @@ describe("Files from the Bot", () => {
 
     const result = toolResultOf(fake.calls[1]);
     expect(result.error).toContain(`/home/user/bots/${botId}/missing.csv does not exist`);
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
     expect(messages.map((entry) => [entry.role, entry.text, entry.control?.kind])).toEqual([
       ["user", "send me the report", undefined],
       ["assistant", "Sorry, it is gone.", undefined],

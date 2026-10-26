@@ -24,7 +24,7 @@ describe("oRPC errors through chat.handler, on a Bot-only SDK", () => {
   it("sends the code for a Bot that isn't there", async () => {
     const client = chatRpc({ user: await insertUser(), deps: createTestSdk() });
 
-    await expect(dataOf(client.bot.get({ botId: missingId }))).resolves.toEqual({
+    await expect(dataOf(client.bots.get({ botId: missingId }))).resolves.toEqual({
       code: "error.botNotFound",
     });
   });
@@ -33,7 +33,7 @@ describe("oRPC errors through chat.handler, on a Bot-only SDK", () => {
     const client = chatRpc({ user: await insertUser(), deps: createTestSdk() });
 
     await expect(
-      dataOf(client.bot.create({ name: "Ada", model: "openai:gpt-2" })),
+      dataOf(client.bots.create({ name: "Ada", model: "openai:gpt-2" })),
     ).resolves.toEqual({ code: "error.modelNotAvailable", params: { model: "openai:gpt-2" } });
   });
 
@@ -42,7 +42,7 @@ describe("oRPC errors through chat.handler, on a Bot-only SDK", () => {
     const client = chatRpc({ user, deps: createTestSdk({ byok: false }) });
 
     await expect(
-      dataOf(client.credentials.save({ service: "openai", fields: { apiKey: "sk-test" } })),
+      dataOf(client.models.credentials.save({ service: "openai", fields: { apiKey: "sk-test" } })),
     ).resolves.toEqual({ code: "error.byokOff" });
   });
 });

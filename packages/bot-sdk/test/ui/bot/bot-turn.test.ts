@@ -34,8 +34,8 @@ const said = (id: string, role: BotMessage["role"], text: string): BotMessage =>
 });
 
 /**
- * A stand-in for the server's `bot` router: `bot.get` answers with `messages`, the Turn statuses and
- * the change log's cursor, `bot.changes` with the log, and `bot.send` saves the user's Message and
+ * A stand-in for the server's `bot` router: `bots.get` answers with `messages`, the Turn statuses and
+ * the change log's cursor, `bots.changes` with the log, and `bots.send` saves the user's Message and
  * starts a Turn, as the server does. The test moves the Turn on with `emit` and `endTurn`, and the
  * `changed` hint says so, as the `/events` route does.
  */
@@ -51,7 +51,7 @@ function fakeBotServer(messages: BotMessage[] = []) {
   const stops: unknown[] = [];
   // The error the next send is refused with, before the Message is saved.
   let refusal: Error | undefined;
-  // While set, each `bot.get` reads the Messages at once but answers only once it resolves.
+  // While set, each `bots.get` reads the Messages at once but answers only once it resolves.
   let held: Promise<void> | undefined;
   const turnChange = (id: string, status: TurnStatus | "running") =>
     log.record("turn", id, { id, status, startedAt: createdAt, endedAt: null });
@@ -60,7 +60,7 @@ function fakeBotServer(messages: BotMessage[] = []) {
     log.record("message", message.id, message);
   };
   const router = {
-    bot: {
+    bots: {
       get: os.handler(async () => {
         const read = {
           bot: { ...ada, turnStatus, userTurnStatus },
@@ -112,7 +112,7 @@ function fakeBotServer(messages: BotMessage[] = []) {
   const dropped: string[] = [];
   const droppedAt: number[] = [];
   const fetch = async (request: Request) => {
-    if (dropRequests > 0 && request.url.endsWith("/bot/send")) {
+    if (dropRequests > 0 && request.url.endsWith("/bots/send")) {
       dropRequests--;
       droppedAt.push(Date.now());
       dropped.push(await request.text());
@@ -132,7 +132,7 @@ function fakeBotServer(messages: BotMessage[] = []) {
     /** When each of those requests was made, in ms. */
     droppedAt,
     stops,
-    /** What `bot.get` says of the latest Turn from now on, as a Turn run elsewhere moves on. */
+    /** What `bots.get` says of the latest Turn from now on, as a Turn run elsewhere moves on. */
     setTurnStatus: (status: TurnStatus | "running" | null) => {
       turnStatus = status;
       userTurnStatus = status;
@@ -143,7 +143,7 @@ function fakeBotServer(messages: BotMessage[] = []) {
       turnStatus = "running";
       turnChange("t-other", "running");
     },
-    /** What `bot.get` says of the Turn that took the user's last Message, when another Turn ran since. */
+    /** What `bots.get` says of the Turn that took the user's last Message, when another Turn ran since. */
     setUserTurnStatus: (status: TurnStatus | "running" | null) => {
       userTurnStatus = status;
     },
@@ -155,7 +155,7 @@ function fakeBotServer(messages: BotMessage[] = []) {
     refuseNext: (error: Error) => {
       refusal = error;
     },
-    /** Holds every `bot.get` answer until the returned release is called. */
+    /** Holds every `bots.get` answer until the returned release is called. */
     holdGets: () => {
       let release = () => {};
       held = new Promise<void>((resolve) => (release = resolve));

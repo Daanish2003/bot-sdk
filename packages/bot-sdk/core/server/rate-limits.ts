@@ -37,8 +37,8 @@ export const rpcRateLimits: Record<string, keyof ResolvedRateLimits | undefined>
   // Knowledge uploads and the files a user sends their Bot share one bucket (specs #737, #801).
   "/knowledge/upload": "attachmentUpload",
   "/knowledge/uploadDocument": "attachmentUpload",
-  "/bot/upload": "attachmentUpload",
-  "/credentials/save": "credentialSave",
+  "/bots/upload": "attachmentUpload",
+  "/models/credentials/save": "credentialSave",
 };
 
 /**

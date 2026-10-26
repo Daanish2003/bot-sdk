@@ -150,7 +150,7 @@ describe("the cache chip in a Bot's thread", () => {
           // A fetch that never answers: the seeded data is all the thread shows.
           fetch: vi.fn(async () => new Promise<Response>(() => {})),
           seed: (queryClient, client) =>
-            queryClient.setQueryData(client.orpc.bot.get.queryKey({ input: { botId: "b2" } }), {
+            queryClient.setQueryData(client.orpc.bots.get.queryKey({ input: { botId: "b2" } }), {
               bot: {
                 id: "b2",
                 name: "Ada",

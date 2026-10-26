@@ -47,7 +47,7 @@ async function botWith(rounds: Round[]) {
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const created = await client.bot.create({ name: "Ada", model });
+  const created = await client.bots.create({ name: "Ada", model });
   return { fake, deps, client, user, botId: created.id };
 }
 
@@ -190,10 +190,10 @@ describe("the system prompt's Routines", () => {
       round(),
     ]);
     await send(client, botId, "Set up my routines", "Europe/London");
-    const [first] = (await client.bot.routine.list({ botId })).filter(
+    const [first] = (await client.routines.list({ botId })).filter(
       (routine) => routine.name === "morning-brief",
     );
-    await client.bot.routine.approve({ routineId: first!.id });
+    await client.routines.approve({ routineId: first!.id });
     // The Prompt start keeps the Routines it was built with; the next one built (as a Summary
     // would build it) lists them.
     await getTestDb().delete(botPromptStart).where(eq(botPromptStart.botId, botId));
@@ -219,7 +219,7 @@ describe("bot.routine", () => {
   async function withPendingRoutine() {
     const made = await botWith([round(createRoutine(morningBrief)), round()]);
     await send(made.client, made.botId, "Brief me every weekday at 8", "Europe/London");
-    const [routine] = await made.client.bot.routine.list({ botId: made.botId });
+    const [routine] = await made.client.routines.list({ botId: made.botId });
     return { ...made, routine: routine! };
   }
 
@@ -237,12 +237,12 @@ describe("bot.routine", () => {
       expect(events.every((event) => event === hint)).toBe(true);
     };
 
-    await hinted(() => client.bot.routine.approve({ routineId: routine.id }), 1);
-    await hinted(() => client.bot.routine.pause({ routineId: routine.id }), 2);
-    await hinted(() => client.bot.routine.resume({ routineId: routine.id }), 3);
-    await hinted(() => client.bot.routine.delete({ routineId: routine.id }), 4);
+    await hinted(() => client.routines.approve({ routineId: routine.id }), 1);
+    await hinted(() => client.routines.pause({ routineId: routine.id }), 2);
+    await hinted(() => client.routines.resume({ routineId: routine.id }), 3);
+    await hinted(() => client.routines.delete({ routineId: routine.id }), 4);
     // A change that changes nothing hints nothing: the Routine is gone, so this is NOT_FOUND.
-    await expect(client.bot.routine.pause({ routineId: routine.id })).rejects.toMatchObject({
+    await expect(client.routines.pause({ routineId: routine.id })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
     expect(events).toHaveLength(4);
@@ -256,7 +256,7 @@ describe("bot.routine", () => {
       events.push(message);
     });
 
-    await client.bot.routine.decline({ routineId: routine.id });
+    await client.routines.decline({ routineId: routine.id });
 
     await expect
       .poll(() => events, { timeout: 10_000 })
@@ -265,7 +265,7 @@ describe("bot.routine", () => {
 
   it("lists the Bot's Routines, and puts each one's approval in the thread as a control Message", async () => {
     const { client, botId, routine } = await withPendingRoutine();
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
 
     expect(routine).toMatchObject({
       name: "morning-brief",
@@ -287,25 +287,25 @@ describe("bot.routine", () => {
 
   it("bumps the change log when the Message is written, and again when the Routine is approved", async () => {
     const { client, botId, routine } = await withPendingRoutine();
-    const { messages } = await client.bot.get({ botId });
+    const { messages } = await client.bots.get({ botId });
     const approval = messages.find((sent) => sent.control?.kind === "routine_approval")!;
 
-    await client.bot.routine.approve({ routineId: routine.id });
+    await client.routines.approve({ routineId: routine.id });
 
-    const changed = await client.bot.changes({ botId, since: 0 });
+    const changed = await client.bots.changes({ botId, since: 0 });
     if (changed.reload) throw new Error("expected changes");
     const kinds = changed.changes.map((change) => `${change.kind}:${change.refId}`);
     expect(kinds).toContain(`message:${approval.id}`);
     expect(kinds.filter((kind) => kind === `routine:${routine.id}`)).toHaveLength(2);
     // Approving never wakes the Bot, and adds no Message.
     expect(await turnsOf(botId)).toHaveLength(1);
-    expect((await client.bot.get({ botId })).messages).toHaveLength(messages.length);
+    expect((await client.bots.get({ botId })).messages).toHaveLength(messages.length);
   });
 
   it("approve sets the Routine active with approvedAt, and starts no Turn", async () => {
     const { client, botId, routine } = await withPendingRoutine();
 
-    const approved = await client.bot.routine.approve({ routineId: routine.id });
+    const approved = await client.routines.approve({ routineId: routine.id });
 
     expect(approved).toMatchObject({ id: routine.id, state: "active" });
     const [row] = await routinesOf(botId);
@@ -317,18 +317,18 @@ describe("bot.routine", () => {
   it("decline deletes the Routine, and starts no Turn", async () => {
     const { client, botId, routine } = await withPendingRoutine();
 
-    await client.bot.routine.decline({ routineId: routine.id });
+    await client.routines.decline({ routineId: routine.id });
 
     expect(await routinesOf(botId)).toEqual([]);
-    expect(await client.bot.routine.list({ botId })).toEqual([]);
+    expect(await client.routines.list({ botId })).toEqual([]);
     expect(await turnsOf(botId)).toHaveLength(1);
   });
 
   it("decline leaves an approved Routine as it is", async () => {
     const { client, botId, routine } = await withPendingRoutine();
-    await client.bot.routine.approve({ routineId: routine.id });
+    await client.routines.approve({ routineId: routine.id });
 
-    await client.bot.routine.decline({ routineId: routine.id });
+    await client.routines.decline({ routineId: routine.id });
 
     expect((await routinesOf(botId))[0]?.state).toBe("active");
   });
@@ -337,13 +337,13 @@ describe("bot.routine", () => {
     const { deps, botId, routine } = await withPendingRoutine();
     const other = chatRpc({ user: await insertUser(), deps });
 
-    await expect(other.bot.routine.approve({ routineId: routine.id })).rejects.toMatchObject({
+    await expect(other.routines.approve({ routineId: routine.id })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
-    await expect(other.bot.routine.decline({ routineId: routine.id })).rejects.toMatchObject({
+    await expect(other.routines.decline({ routineId: routine.id })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
-    await expect(other.bot.routine.list({ botId })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(other.routines.list({ botId })).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect((await routinesOf(botId))[0]?.state).toBe("pending");
   });
 

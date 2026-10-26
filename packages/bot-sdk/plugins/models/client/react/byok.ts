@@ -8,5 +8,5 @@ import { useOrpc } from "../../../../core/client/react/provider";
  */
 export function useByok(): boolean {
   const orpc = useOrpc();
-  return useQuery(orpc.credentials.mode.queryOptions()).data?.byok === true;
+  return useQuery(orpc.models.credentials.mode.queryOptions()).data?.byok === true;
 }

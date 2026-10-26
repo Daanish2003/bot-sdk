@@ -82,14 +82,14 @@ function browserTimeZone(): string | undefined {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
 }
 
-/** Calls `bot.send`, again with the same input while the request fails on the network. */
+/** Calls `bots.send`, again with the same input while the request fails on the network. */
 async function sendWithRetry(
   orpc: BotSdkOrpc,
   input: { botId: string; id: string; text: string; files?: string[]; timeZone?: string },
 ) {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await orpc.bot.send.call(input);
+      return await orpc.bots.send.call(input);
     } catch (error) {
       // An answer from the server, a refusal included, is final; only a request that got none is retried.
       if (error instanceof ORPCError || attempt >= sendAttempts) throw error;
@@ -103,7 +103,7 @@ async function sendWithRetry(
  * waits for the next Turn. This runs against the query client, not in a component, so a send goes
  * on when the user opens another Bot or leaves the Bots app.
  *
- * The user's Message shows at once, and the saved Message `bot.send` returns replaces it. The Turn
+ * The user's Message shows at once, and the saved Message `bots.send` returns replaces it. The Turn
  * that takes it, and every Message the Bot sends, come through the change log (`syncBot`), which
  * runs once the Message is saved; until then the Bot reads as working.
  *
@@ -124,8 +124,8 @@ async function runSend(
   files: SentFile[],
   onRefused?: (text: string, error: unknown, files: SentFile[]) => void,
 ): Promise<void> {
-  const getKey = orpc.bot.get.queryOptions({ input: { botId } }).queryKey;
-  const listKey = orpc.bot.list.queryKey();
+  const getKey = orpc.bots.get.queryOptions({ input: { botId } }).queryKey;
+  const listKey = orpc.bots.list.queryKey();
 
   const unsent = storeOf(queryClient).unsent;
   const lost = unsent.get(botId);
@@ -157,7 +157,7 @@ async function runSend(
       timeZone: browserTimeZone(),
     });
     saved = true;
-    // A `bot.get` that started before this write would answer after it with older Messages.
+    // A `bots.get` that started before this write would answer after it with older Messages.
     if (queryClient.getQueryData(getKey)) await queryClient.cancelQueries({ queryKey: getKey });
     changeLocalTurn(queryClient, botId, withoutPending);
     queryClient.setQueryData(getKey, (data) =>
@@ -208,7 +208,7 @@ export function useBotTurn(
   const queryClient = useQueryClient();
   const local = useLocalTurns().get(botId);
   const sending = local !== undefined;
-  const query = useQuery(orpc.bot.get.queryOptions({ input: { botId } }));
+  const query = useQuery(orpc.bots.get.queryOptions({ input: { botId } }));
 
   const messages: ShownBotMessage[] = [...(query.data?.messages ?? []), ...(local?.pending ?? [])];
   const last = messages.at(-1);
@@ -235,10 +235,10 @@ export function useBotTurn(
     /** Stops the Turn running anywhere; the views then read it as ended. */
     stop: async () => {
       try {
-        await orpc.bot.stop.call({ botId });
+        await orpc.bots.stop.call({ botId });
       } finally {
         void syncBot(queryClient, orpc, botId);
-        void queryClient.invalidateQueries({ queryKey: orpc.bot.list.queryKey() });
+        void queryClient.invalidateQueries({ queryKey: orpc.bots.list.queryKey() });
       }
     },
   };

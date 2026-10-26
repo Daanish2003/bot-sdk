@@ -29,7 +29,7 @@ const said = (id: string, role: BotMessage["role"], text: string, at = createdAt
 function fakeBotServer(messages: BotMessage[], warmings: BotWarming[] = []) {
   const warms: unknown[] = [];
   const router = {
-    bot: {
+    bots: {
       get: os.handler(() => ({ bot: { ...ada, turnStatus: null }, messages, turns: [], warmings })),
       stop: os.handler(() => {}),
       send: os
@@ -44,10 +44,10 @@ function fakeBotServer(messages: BotMessage[], warmings: BotWarming[] = []) {
         warms.push(input);
         return { warmed: false as const, skipped: "still_warm" as const };
       }),
-      routine: { list: os.handler(() => []) },
-      checkIn: { list: os.handler(() => []) },
-      helper: { list: os.handler(() => []) },
     },
+    routines: { list: os.handler(() => []) },
+    checkIns: { list: os.handler(() => []) },
+    helpers: { list: os.handler(() => []) },
   };
   const handler = new RPCHandler(router);
   const fetch = async (request: Request) =>

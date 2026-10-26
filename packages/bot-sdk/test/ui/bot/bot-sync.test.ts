@@ -33,15 +33,15 @@ const said = (id: string, role: BotMessage["role"], text: string): BotMessage =>
 });
 
 /**
- * A stand-in for the server's `bot` router that keeps a change log: `bot.get` answers with
- * `messages` and the log's newest seq, `bot.changes` with the log (or what `answer` overrides it
+ * A stand-in for the server's `bot` router that keeps a change log: `bots.get` answers with
+ * `messages` and the log's newest seq, `bots.changes` with the log (or what `answer` overrides it
  * with), and `gets` counts the reads of the whole thread.
  */
 function fakeBotServer(messages: BotMessage[], turnStatus: BotTurnStatus | null = null) {
   const log = changeLog();
   const state = { messages, turnStatus, gets: 0, answer: undefined as BotChanges | undefined };
   const router = {
-    bot: {
+    bots: {
       get: os.handler(() => {
         state.gets++;
         return {

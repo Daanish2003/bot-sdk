@@ -403,7 +403,7 @@ async function runTurnJob(
 
 /**
  * Ends a Turn `stopped` once its attempt has aborted, if its job was cancelled. A cancelled job
- * never reaches `onFailed`, so `bot.stop` leaves a running Turn to end here, or in `onCancelled`
+ * never reaches `onFailed`, so `bots.stop` leaves a running Turn to end here, or in `onCancelled`
  * when the attempt dies first. A lost lease or a shutdown leaves it `running`: the next attempt
  * resumes it.
  */

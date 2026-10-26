@@ -147,7 +147,7 @@ async function botWith(
     });
   }
   const client = chatRpc({ user, deps });
-  const created = await client.bot.create({
+  const created = await client.bots.create({
     name: "Ada",
     model: overrides.hostProviders
       ? hostModel
@@ -309,7 +309,7 @@ describe("a Helper's report", () => {
     expect(turns).toHaveLength(2);
     expect(trigger?.turnId).toBe(turns[1]?.id);
     expect(JSON.stringify(inputOf(turnFake.calls[1]).at(-1))).toContain("There are 3 files.");
-    expect((await client.bot.get({ botId })).messages.at(-1)?.text).toBe("3 files.");
+    expect((await client.bots.get({ botId })).messages.at(-1)?.text).toBe("3 files.");
   });
 
   it("gives a General Helper's command the Secrets it names, and masks them in its result", async () => {
@@ -450,7 +450,7 @@ describe("a Helper's limits", () => {
       verified: true,
     });
     const client = chatRpc({ user, deps });
-    const { id: botId } = await client.bot.create({ name: "Ada", model });
+    const { id: botId } = await client.bots.create({ name: "Ada", model });
     const attempt = async () => {
       const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: false });
       if (!claimed) throw new Error("Nothing to claim");
@@ -728,7 +728,7 @@ describe("Stop and deletion", () => {
 
     const stream = await followSend(client, { botId, id: uuidv7(), text: "go" });
     await running;
-    await client.bot.stop({ botId });
+    await client.bots.stop({ botId });
     // The command's Checkpoint is the Turn's next write, which sees the cancel.
     finishShell();
     await expect
@@ -798,10 +798,10 @@ describe("the Conversation's Helpers (#590)", () => {
     await send(client, botId, "how many files are there?");
 
     await expect
-      .poll(async () => (await client.bot.helper.list({ botId }))[0]?.latest, { timeout: 10_000 })
+      .poll(async () => (await client.helpers.list({ botId }))[0]?.latest, { timeout: 10_000 })
       .toBe("shell: ls /home/user/shared | wc -l");
-    const { messages } = await client.bot.get({ botId });
-    const [live] = await client.bot.helper.list({ botId });
+    const { messages } = await client.bots.get({ botId });
+    const [live] = await client.helpers.list({ botId });
     expect(live).toMatchObject({
       type: "general",
       task: "Count the files in /home/user/shared.\nThen report.",
@@ -814,7 +814,7 @@ describe("the Conversation's Helpers (#590)", () => {
 
     finishCommand!();
     await settled(botId);
-    const [ended] = await client.bot.helper.list({ botId });
+    const [ended] = await client.helpers.list({ botId });
     expect(ended).toMatchObject({
       status: "complete",
       steps: 2,
@@ -852,10 +852,10 @@ describe("the Conversation's Helpers (#590)", () => {
 
   it("is empty for a Bot with no Helpers, and a Bot of another user is not found", async () => {
     const { client, botId } = await botWith([], []);
-    expect(await client.bot.helper.list({ botId })).toEqual([]);
+    expect(await client.helpers.list({ botId })).toEqual([]);
 
     const other = chatRpc({ user: await insertUser(), deps: (await botWith([], [])).deps });
-    await expect(other.bot.helper.list({ botId })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(other.helpers.list({ botId })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });
 /** Commands that each wait until the test lets them through, in order. */
@@ -1165,18 +1165,18 @@ describe("stopping Helpers (#591)", () => {
     const [one] = await helpersOf(botId);
 
     const stranger = chatRpc({ user: await insertUser(), deps });
-    await expect(stranger.bot.helper.stop({ botId })).rejects.toMatchObject({
+    await expect(stranger.helpers.stop({ botId })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
 
-    await client.bot.helper.stop({ botId, helperId: one!.id });
-    expect((await client.bot.helper.list({ botId })).map((helper) => helper.status)).toEqual([
+    await client.helpers.stop({ botId, helperId: one!.id });
+    expect((await client.helpers.list({ botId })).map((helper) => helper.status)).toEqual([
       "stopped",
       "running",
       "running",
     ]);
-    await client.bot.helper.stop({ botId });
-    expect((await client.bot.helper.list({ botId })).map((helper) => helper.status)).toEqual([
+    await client.helpers.stop({ botId });
+    expect((await client.helpers.list({ botId })).map((helper) => helper.status)).toEqual([
       "stopped",
       "stopped",
       "stopped",

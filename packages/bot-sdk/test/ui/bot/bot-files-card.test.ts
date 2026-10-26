@@ -33,7 +33,7 @@ function mount(
   controls?: Parameters<typeof BotConversation>[0]["controls"],
 ) {
   const router = {
-    bot: {
+    bots: {
       get: os.handler(() => ({ bot: { ...ada, turnStatus: null }, messages, turns: [] })),
       stop: os.handler(() => {}),
       send: os
@@ -44,11 +44,11 @@ function mount(
           text: input.text,
           createdAt: new Date(),
         })),
-      routine: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
-      checkIn: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
-      helper: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
-      secret: { list: os.handler(() => []) },
     },
+    routines: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
+    checkIns: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
+    helpers: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
+    secrets: { list: os.handler(() => []) },
   };
   const handler = new RPCHandler(router);
   const fetch = async (request: Request) =>

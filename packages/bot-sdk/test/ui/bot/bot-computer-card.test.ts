@@ -59,7 +59,7 @@ function mount(messages: () => BotMessage[], onDone: () => void = () => {}) {
   const viewCalls: unknown[] = [];
   const controlCalls: unknown[] = [];
   const router = {
-    bot: {
+    bots: {
       get: os.handler(() => ({
         bot: { ...ada, turnStatus: null },
         messages: messages(),
@@ -74,28 +74,28 @@ function mount(messages: () => BotMessage[], onDone: () => void = () => {}) {
           text: input.text,
           createdAt: new Date(),
         })),
-      routine: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
-      checkIn: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
-      screen: {
-        view: os.input(z.object({ helperId: z.string() })).handler(({ input }) => {
-          viewCalls.push(input);
-          return { url: linkOf(viewCalls.length) };
+    },
+    routines: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
+    checkIns: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
+    computer: {
+      view: os.input(z.object({ helperId: z.string() })).handler(({ input }) => {
+        viewCalls.push(input);
+        return { url: linkOf(viewCalls.length) };
+      }),
+      control: os
+        .input(z.object({ helperId: z.string(), mode: z.enum(["view", "control"]) }))
+        .handler(({ input }) => {
+          controlCalls.push(input);
         }),
-        control: os
-          .input(z.object({ helperId: z.string(), mode: z.enum(["view", "control"]) }))
-          .handler(({ input }) => {
-            controlCalls.push(input);
-          }),
-      },
-      helper: {
-        list: os.input(z.object({ botId: z.string() })).handler(() => [helper]),
-        stop: os.input(z.object({ botId: z.string() }).loose()).handler(() => {}),
-        done: os.input(z.object({ helperId: z.string() })).handler(({ input }) => {
-          doneCalls.push(input);
-          onDone();
-          return { status: "running" as const };
-        }),
-      },
+    },
+    helpers: {
+      list: os.input(z.object({ botId: z.string() })).handler(() => [helper]),
+      stop: os.input(z.object({ botId: z.string() }).loose()).handler(() => {}),
+      done: os.input(z.object({ helperId: z.string() })).handler(({ input }) => {
+        doneCalls.push(input);
+        onDone();
+        return { status: "running" as const };
+      }),
     },
   };
   const handler = new RPCHandler(router);

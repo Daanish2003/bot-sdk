@@ -220,8 +220,8 @@ describe("Memory, Skills, Knowledge and MCP called in-process with a userId", ()
     const user = await insertUser();
     const client = chatRpc({ user, deps });
 
-    expect({ servers: await api.listConnections({ userId: user.id }) }).toEqual(
-      await client.connections.list(),
+    expect(await api.listConnections({ userId: user.id })).toEqual(
+      await client.mcp.listConnections(),
     );
   }, 30_000);
 });

@@ -70,7 +70,7 @@ async function botWith(turnRounds: ReturnType<typeof round>[]) {
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model });
+  const { id: botId } = await client.bots.create({ name: "Ada", model });
   return { computerFake, client, botId };
 }
 

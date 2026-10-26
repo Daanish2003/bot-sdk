@@ -161,8 +161,8 @@ function screensBase(sdk: BotSdkContext): string {
 export const demonstrationEndedError = "This Demonstration has ended.";
 
 /**
- * `bot.screen.view` (#597): a fresh live-view link to the Screen of one of the user's live Helpers,
- * or live Demonstrations (`bot.demonstration.view`, spec #713), a path under the HTTP layer's
+ * `computer.view` (#597): a fresh live-view link to the Screen of one of the user's live Helpers,
+ * or live Demonstrations (`demonstrations.view`, spec #713), a path under the HTTP layer's
  * `<basePath>/screens` that
  * opens its noVNC page through the proxy. It wakes the Computer and reopens the Screen when it isn't
  * open (after a rebuild). It leaves the Screen's control as it is: a Helper's Screen opens

@@ -24,12 +24,12 @@ export function useCacheWarming(botId: string): () => void {
     const last = askedAt.get(botId);
     if (last !== undefined && now - last < warmIntervalMs) return;
     askedAt.set(botId, now);
-    orpc.bot.warm
+    orpc.bots.warm
       .call({ botId })
       .then((result) => {
         if (!result.warmed) return;
         return queryClient.invalidateQueries({
-          queryKey: orpc.bot.get.queryOptions({ input: { botId } }).queryKey,
+          queryKey: orpc.bots.get.queryOptions({ input: { botId } }).queryKey,
         });
       })
       .catch(() => {

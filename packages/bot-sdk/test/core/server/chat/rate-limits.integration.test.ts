@@ -16,7 +16,7 @@ import { insertUser } from "../../../support/users";
 const rpcCases = [
   {
     name: "credential save and check",
-    route: "credentials/save",
+    route: "models/credentials/save",
     rateLimits: { credentialSave: { limit: 1, windowSeconds: 60 } },
   },
   {
@@ -31,7 +31,7 @@ const rpcCases = [
   },
   {
     name: "Bot file upload (shares the attachment bucket)",
-    route: "bot/upload",
+    route: "bots/upload",
     rateLimits: { attachmentUpload: { limit: 1, windowSeconds: 60 } },
   },
 ];
@@ -96,8 +96,8 @@ it("takes its limit from createHttpHandler's rateLimits override", async () => {
     rateLimits: { credentialSave: { limit: 1, windowSeconds: 60 } },
   });
 
-  const first = await http(rpcCall("credentials/save"));
-  const second = await http(rpcCall("credentials/save"));
+  const first = await http(rpcCall("models/credentials/save"));
+  const second = await http(rpcCall("models/credentials/save"));
 
   expect(first.status).not.toBe(429);
   expect(second.status).toBe(429);
@@ -117,7 +117,7 @@ it("surfaces the limit to the typed client as a RateLimitedError with the retry 
     rateLimits: { attachmentUpload: { limit: 0, windowSeconds: 60 } },
   });
 
-  const caught = await client.bot
+  const caught = await client.bots
     .upload({ file: new File(["hi"], "a.txt", { type: "text/plain" }) })
     .catch((error: unknown) => error);
 

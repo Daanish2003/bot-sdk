@@ -33,9 +33,9 @@ describe("sdk.bots, called in-process with a userId (#895)", () => {
     const created = await deps.bots.create({ userId, name: "  Ada  ", model });
 
     expect(created).toMatchObject({ name: "Ada", model });
-    expect(await deps.bots.list({ userId })).toEqual(await client.bot.list());
+    expect(await deps.bots.list({ userId })).toEqual(await client.bots.list());
     expect(await deps.bots.get({ userId, botId: created.id })).toEqual(
-      await client.bot.get({ botId: created.id }),
+      await client.bots.get({ botId: created.id }),
     );
   }, 30_000);
 
@@ -50,7 +50,7 @@ describe("sdk.bots, called in-process with a userId (#895)", () => {
 
     expect(saved).toMatchObject({ role: "user" });
     // A resend over HTTP with the same id saves nothing new and returns the same Message.
-    expect(await client.bot.send({ botId, id, text: "Hi", files: [file.id] })).toEqual(saved);
+    expect(await client.bots.send({ botId, id, text: "Hi", files: [file.id] })).toEqual(saved);
     expect((await deps.bots.get({ userId, botId })).messages).toEqual([saved]);
     await deps.bots.stop({ userId, botId });
   }, 30_000);
@@ -107,7 +107,7 @@ describe("sdk.conversations, called in-process with a userId (#895)", () => {
       new Set([JSON.stringify({ type: "changed" })]),
     );
     const changes = await deps.conversations.changes({ userId, conversationId, since: lastSeq });
-    expect(changes).toEqual(await client.bot.changes({ botId, since: lastSeq }));
+    expect(changes).toEqual(await client.bots.changes({ botId, since: lastSeq }));
     if (changes.reload) throw new Error("changes asked for a reload");
     expect(changes.changes.map((change) => change.kind)).toEqual(
       expect.arrayContaining(["message", "turn"]),
@@ -163,7 +163,7 @@ describe("domain methods' invalid input (#895)", () => {
     const badRequest = { code: "BAD_REQUEST", message: "Input validation failed" };
 
     await expect(deps.bots.create({ userId, name: "  ", model })).rejects.toMatchObject(badRequest);
-    await expect(client.bot.create({ name: "  ", model })).rejects.toMatchObject(badRequest);
+    await expect(client.bots.create({ name: "  ", model })).rejects.toMatchObject(badRequest);
     await expect(
       deps.conversations.changes({ userId, conversationId: "not-a-uuid", since: 0 }),
     ).rejects.toMatchObject(badRequest);

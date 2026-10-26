@@ -50,9 +50,9 @@ const morningBrief = (): BotRoutine => ({
 });
 
 /**
- * A stand-in for the server's `bot` router: `bot.get` answers with `messages` and `turns`, `bot.routine.list`
- * with `routines`, approve and decline change them as the server does, `bot.send` saves the user's
- * Message and starts a Turn, and `bot.changes` answers from the change log the test writes.
+ * A stand-in for the server's `bot` router: `bots.get` answers with `messages` and `turns`, `routines.list`
+ * with `routines`, approve and decline change them as the server does, `bots.send` saves the user's
+ * Message and starts a Turn, and `bots.changes` answers from the change log the test writes.
  */
 function fakeBotServer(
   messages: BotMessage[],
@@ -75,7 +75,7 @@ function fakeBotServer(
   // While set, pause, resume and delete answer only once it resolves.
   let held: Promise<void> | undefined;
   const router = {
-    bot: {
+    bots: {
       get: os.handler(() => ({
         bot: { ...ada, turnStatus },
         conversationId: "c1",
@@ -96,49 +96,49 @@ function fakeBotServer(
           turnStatus = "running";
           return saved;
         }),
-      routine: {
-        list: os.input(z.object({ botId: z.string() })).handler(() => [...routines]),
-        approve: os.input(z.object({ routineId: z.string() })).handler(({ input }) => {
-          approved.push(input.routineId);
-          const routine = routines.find((row) => row.id === input.routineId)!;
-          routine.state = "active";
-          routine.approvedAt = createdAt;
-          return {
-            id: routine.id,
-            state: routine.state,
-            approvedAt: routine.approvedAt,
-            ...(routine.webhook && { webhookToken: "approved-token" }),
-          };
-        }),
-        decline: os.input(z.object({ routineId: z.string() })).handler(({ input }) => {
-          declined.push(input.routineId);
-          routines.splice(
-            routines.findIndex((row) => row.id === input.routineId),
-            1,
-          );
-        }),
-        pause: os.input(z.object({ routineId: z.string() })).handler(async ({ input }) => {
-          await held;
-          paused.push(input.routineId);
-          return setState(input.routineId, "paused");
-        }),
-        resume: os.input(z.object({ routineId: z.string() })).handler(({ input }) => {
-          resumed.push(input.routineId);
-          return setState(input.routineId, "active");
-        }),
-        delete: os.input(z.object({ routineId: z.string() })).handler(async ({ input }) => {
-          await held;
-          deleted.push(input.routineId);
-          routines.splice(
-            routines.findIndex((row) => row.id === input.routineId),
-            1,
-          );
-        }),
-        rotate: os.input(z.object({ routineId: z.string() })).handler(({ input }) => {
-          rotated.push(input.routineId);
-          return { webhookToken: `rotated-token-${rotated.length}` };
-        }),
-      },
+    },
+    routines: {
+      list: os.input(z.object({ botId: z.string() })).handler(() => [...routines]),
+      approve: os.input(z.object({ routineId: z.string() })).handler(({ input }) => {
+        approved.push(input.routineId);
+        const routine = routines.find((row) => row.id === input.routineId)!;
+        routine.state = "active";
+        routine.approvedAt = createdAt;
+        return {
+          id: routine.id,
+          state: routine.state,
+          approvedAt: routine.approvedAt,
+          ...(routine.webhook && { webhookToken: "approved-token" }),
+        };
+      }),
+      decline: os.input(z.object({ routineId: z.string() })).handler(({ input }) => {
+        declined.push(input.routineId);
+        routines.splice(
+          routines.findIndex((row) => row.id === input.routineId),
+          1,
+        );
+      }),
+      pause: os.input(z.object({ routineId: z.string() })).handler(async ({ input }) => {
+        await held;
+        paused.push(input.routineId);
+        return setState(input.routineId, "paused");
+      }),
+      resume: os.input(z.object({ routineId: z.string() })).handler(({ input }) => {
+        resumed.push(input.routineId);
+        return setState(input.routineId, "active");
+      }),
+      delete: os.input(z.object({ routineId: z.string() })).handler(async ({ input }) => {
+        await held;
+        deleted.push(input.routineId);
+        routines.splice(
+          routines.findIndex((row) => row.id === input.routineId),
+          1,
+        );
+      }),
+      rotate: os.input(z.object({ routineId: z.string() })).handler(({ input }) => {
+        rotated.push(input.routineId);
+        return { webhookToken: `rotated-token-${rotated.length}` };
+      }),
     },
   };
   const handler = new RPCHandler(router);
@@ -155,7 +155,7 @@ function fakeBotServer(
     rotated,
     routines,
     messages,
-    /** What `bot.get` says of the latest Turn from now on, as a Turn run elsewhere moves on. */
+    /** What `bots.get` says of the latest Turn from now on, as a Turn run elsewhere moves on. */
     setTurnStatus: (status: "running" | "complete" | null) => {
       turnStatus = status;
     },

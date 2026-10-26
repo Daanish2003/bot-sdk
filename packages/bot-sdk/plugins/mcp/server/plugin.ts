@@ -47,7 +47,7 @@ export type McpApi = {
 
 /**
  * The `mcp` feature (ADR 0027, spec #871): the Host's MCP servers, the users' Connections to them
- * (the sign-in routes, the `connections` router and key rotation) and their tools. A Host turns it
+ * (the sign-in routes, the `mcp` router and key rotation) and their tools. A Host turns it
  * on with `mcp({ servers })` in `features`.
  */
 export function mcp(options: McpOptions = {}) {
@@ -56,7 +56,7 @@ export function mcp(options: McpOptions = {}) {
     id: "mcp",
     schema: { mcpConnection },
     connectorTools: true,
-    router: { connections: connectionsRouter() } satisfies McpRouter,
+    router: { mcp: connectionsRouter() } satisfies McpRouter,
     routes: mcpRoutes(servers),
     api: (context): McpApi => {
       // At construction, so a misconfigured server fails the Host's boot (spec #91).

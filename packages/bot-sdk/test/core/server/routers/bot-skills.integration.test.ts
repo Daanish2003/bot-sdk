@@ -107,7 +107,7 @@ async function botWith(
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model });
+  const { id: botId } = await client.bots.create({ name: "Ada", model });
   return { fake, computerFake, client, botId, deps, user };
 }
 
@@ -403,7 +403,7 @@ describe("the Skills read", { timeout: 30_000 }, () => {
       verified: true,
     });
     const client = chatRpc({ user, deps });
-    const { id: botId } = await client.bot.create({ name: "Ada", model });
+    const { id: botId } = await client.bots.create({ name: "Ada", model });
     const stream = await followSend(client, {
       botId,
       id: uuidv7(),
@@ -415,7 +415,7 @@ describe("the Skills read", { timeout: 30_000 }, () => {
     const running = jobs.runClaimed(claimed);
     await readStarted;
 
-    await client.bot.stop({ botId });
+    await client.bots.stop({ botId });
     // The running attempt sees the cancel at its next heartbeat.
     timer.tick();
     await running;

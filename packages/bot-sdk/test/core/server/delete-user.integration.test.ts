@@ -95,7 +95,7 @@ describe("deleteUserData, with Bots", () => {
 
     expect(await ownedRows(owner.id)).toEqual(emptyRows);
     expect(await ownedRows(other.id)).toEqual(before);
-    expect(await kept.client.bot.list()).toHaveLength(1);
+    expect(await kept.client.bots.list()).toHaveLength(1);
   });
 
   it("is idempotent, and an unknown id succeeds", async () => {
