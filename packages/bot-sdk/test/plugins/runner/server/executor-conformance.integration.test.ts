@@ -443,6 +443,35 @@ describe.each(executors)("$name", ({ build }) => {
       expect((await jobs.status(other))?.status).toBe("queued");
     });
 
+    it("leaves the job when the replacement's payload is bad", { timeout: 30_000 }, async () => {
+      const later = new Date(timer.clock.now().getTime() + 1_000);
+      const old = await jobs.enqueue(
+        "conformance.record",
+        { label: "old" },
+        { idempotencyKey: "turn", runAfter: later },
+      );
+
+      await getTestDb().transaction(async (tx) => {
+        await expect(
+          jobs.replaceIfNotStarted(tx, "turn", "conformance.record", { label: 1 }),
+        ).rejects.toThrow();
+      });
+      expect((await jobs.status(old))?.status).toBe("queued");
+    });
+
+    it("queues nothing when the key's job has ended", { timeout: 30_000 }, async () => {
+      const old = await jobs.enqueue(
+        "conformance.record",
+        { label: "old" },
+        { idempotencyKey: "turn" },
+      );
+      await harness.deliver(old);
+      await expect.poll(async () => (await jobs.status(old))?.status, poll).toBe("succeeded");
+
+      expect(await replace("turn", "new")).toBeUndefined();
+      expect(harness.notified).toEqual([{ jobId: old }]);
+    });
+
     it("queues nothing when no job holds the key", { timeout: 30_000 }, async () => {
       expect(await replace("turn", "new")).toBeUndefined();
       expect(harness.notified).toEqual([]);
