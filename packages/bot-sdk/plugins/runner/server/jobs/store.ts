@@ -64,7 +64,7 @@ export async function enqueueJob(
 }
 
 /** Jobs with `only` these names, or all `except` them. */
-type JobNames = { only: string[] } | { except: string[] };
+export type JobNames = { only: string[] } | { except: string[] };
 
 function namesFilter(names: JobNames | undefined) {
   if (!names) return sql``;
@@ -74,29 +74,10 @@ function namesFilter(names: JobNames | undefined) {
 }
 
 /**
- * The next queued job that is due, in claim order, among `names` and not in `skip`, or undefined.
- * A row another transaction holds is skipped, as a claim would. It claims nothing.
- */
-export async function dueJobId(
-  db: Database,
-  now: Date,
-  { names, skip }: { names?: JobNames; skip: string[] },
-): Promise<string | undefined> {
-  const skipped = skip.length > 0 ? sql`and ${notInArray(job.id, skip)}` : sql``;
-  const { rows } = await db.execute<{ id: string }>(sql`
-    select id from chat.job
-    where status = 'queued' and run_after <= ${now} ${namesFilter(names)} ${skipped}
-    order by run_after, created_at
-    limit 1
-    for update skip locked`);
-  return rows[0]?.id;
-}
-
-/**
  * Takes the next queued job, marking it running and counting the attempt. `FOR UPDATE SKIP LOCKED`
  * keeps two processes from taking the same job. `respectRunAfter: false` ignores the backoff.
  * `names` limits the claim to the jobs with `only` these names, or to all `except` them, and `id`
- * to that one job.
+ * to that one job. With `wait`, a row another transaction holds is waited for, not skipped.
  */
 export async function claimJob(
   db: Database,
@@ -105,10 +86,12 @@ export async function claimJob(
     respectRunAfter = true,
     names,
     id,
+    wait = false,
   }: {
     respectRunAfter?: boolean;
     names?: JobNames;
     id?: string;
+    wait?: boolean;
   } = {},
 ): Promise<ClaimedJob | undefined> {
   const due = respectRunAfter ? sql`and run_after <= ${now}` : sql``;
@@ -128,7 +111,7 @@ export async function claimJob(
       where status = 'queued' ${due} ${named} ${one}
       order by run_after, created_at
       limit 1
-      for update skip locked
+      for update ${wait ? sql`` : sql`skip locked`}
     )
     returning id, name, payload, attempts, max_attempts`);
   const [row] = rows;

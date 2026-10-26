@@ -113,7 +113,7 @@ const executors: { name: string; build: (clock: ReturnType<typeof fakeJobClock>)
   {
     name: "the in-process Executor",
     build: (timer) => {
-      const inProcess = inProcessExecutor({ db: getTestDb(), logger: silent, clock: timer.clock });
+      const inProcess = inProcessExecutor({ logger: silent, clock: timer.clock });
       const { executor, notified } = recordingNotify(inProcess);
       return { executor, notified, deliver: (jobId) => inProcess.notify(jobId) };
     },

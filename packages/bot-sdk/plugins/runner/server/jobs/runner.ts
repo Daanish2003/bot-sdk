@@ -3,6 +3,7 @@ import type { Database, JobRow } from "../../../../core/server/storage";
 import { afterCommit, trackCommits } from "./commit";
 import type { Executor } from "./executor";
 import {
+  type JobNames,
   cancelJob,
   cancelJobIn,
   claimJob,
@@ -143,8 +144,19 @@ async function waitUpTo(promise: Promise<unknown>, ms: number): Promise<void> {
   }
 }
 
-/** The Executors that are in-process, which `wake` asks to claim now. */
+/** The in-process Executors, each with the wake that has it claim due jobs now. */
 export const wakeable = new WeakMap<Executor, () => void>();
+
+/**
+ * The in-process Executor's own way in, on the `run` the core starts it with: claims the next due
+ * job among `names` in one statement, as `runJob` would, and returns its attempt (which resolves
+ * once the outcome is decided), or undefined when none is due or the runner is stopping.
+ */
+export const claimNext = Symbol("claimNext");
+
+export type CoreRun = ((jobId: string) => Promise<void>) & {
+  [claimNext]?: (names: JobNames) => Promise<{ name: string; attempt: Promise<void> } | undefined>;
+};
 
 /** The core's runner over `executor` (see `JobRunner`). Nothing runs before `start()`. */
 export function createJobRunner({
@@ -166,8 +178,9 @@ export function createJobRunner({
   const handlers = new Set<Promise<void>>();
 
   const notify = (jobId: string, runAfter?: Date) => {
-    executor
-      .notify(jobId, runAfter)
+    // Never throws: a hook after a commit must not fail the transaction that has committed.
+    Promise.resolve()
+      .then(() => executor.notify(jobId, runAfter))
       .catch((error: unknown) =>
         logger.error(`Notifying the Executor of job ${jobId} failed`, error),
       );
@@ -188,11 +201,28 @@ export function createJobRunner({
     return work;
   };
 
-  const runJob = async (jobId: string) => {
+  // A claim in flight is an attempt too, so `stop()` drains it.
+  const claimThenRun = (claim: () => Promise<ClaimedJob | undefined>) => {
+    let claimed: Promise<ClaimedJob | undefined>;
+    const work = (async () => {
+      claimed = claim();
+      const job = await claimed;
+      if (job) await runAttempt(job, drain.signal);
+    })().finally(() => attempts.delete(work));
+    attempts.add(work);
+    return { claimed: claimed!, work };
+  };
+
+  const runJob: CoreRun = async (jobId) => {
     if (stopping) return;
-    const claimed = await claimJob(db, clock.now(), { id: jobId });
-    if (!claimed) return;
-    await runAttempt(claimed, drain.signal);
+    // Waits for a row another transaction holds, so a claim in flight elsewhere never makes it skip.
+    await claimThenRun(() => claimJob(db, clock.now(), { id: jobId, wait: true })).work;
+  };
+  runJob[claimNext] = async (names) => {
+    if (stopping) return undefined;
+    const { claimed, work } = claimThenRun(() => claimJob(db, clock.now(), { names }));
+    const job = await claimed;
+    return job && { name: job.name, attempt: work };
   };
 
   return {
@@ -205,7 +235,10 @@ export function createJobRunner({
     },
 
     async enqueueIn(tx, name, payload, options = {}) {
-      const id = await enqueueJob(tx, name, payload, { now: clock.now(), ...options });
+      const id = await enqueueJob(tx, name, payload, {
+        ...options,
+        now: options.now ?? clock.now(),
+      });
       afterCommit(tx, () => notify(id, options.runAfter));
       return id;
     },

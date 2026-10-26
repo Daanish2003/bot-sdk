@@ -10,6 +10,7 @@ import {
   PermanentJobError,
   inProcessRunner,
   cancelJob,
+  createJobRunner,
   claimJob,
   pruneFinishedJobs,
   reapStaleJobs,
@@ -71,13 +72,14 @@ defineJob({
     started.push(label);
     await new Promise<void>((resolve, reject) => {
       releaseHold = resolve;
-      const onAbort = () => {
-        aborted.push(label);
-        reject(signal.reason);
-      };
-      // The attempt can be aborted before its handler starts.
-      if (signal.aborted) onAbort();
-      else signal.addEventListener("abort", onAbort, { once: true });
+      signal.addEventListener(
+        "abort",
+        () => {
+          aborted.push(label);
+          reject(signal.reason);
+        },
+        { once: true },
+      );
     });
     ran.push(label);
   },
@@ -1000,5 +1002,32 @@ describe("the runner slot", () => {
 
     await chat.stop();
     expect(jobs.stop).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("an Executor whose notify throws", () => {
+  it("still commits the enqueue, and logs the failure", async () => {
+    const logged = vi.fn();
+    const jobs = createJobRunner({
+      db: getTestDb(),
+      logger: { error: logged },
+      deps: jobDeps,
+      executor: {
+        start: async () => {},
+        notify: () => {
+          throw new Error("unreachable queue");
+        },
+        stop: async () => {},
+      },
+    });
+
+    const id = await getTestDb().transaction((tx) =>
+      jobs.enqueueIn(tx, "test.record", { label: "a" }),
+    );
+    await jobs.enqueue("test.record", { label: "b" });
+
+    expect((await jobs.status(id))?.status).toBe("queued");
+    expect(await jobRows()).toHaveLength(2);
+    await expect.poll(() => logged.mock.calls.length).toBe(2);
   });
 });
