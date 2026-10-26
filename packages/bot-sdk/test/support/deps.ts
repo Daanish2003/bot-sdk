@@ -24,7 +24,8 @@ export type TestDeps = SdkOver;
 
 /** What a test may override in `createTestSdk`: a part of the core context or of `models`. */
 export type TestDepsOverrides = Partial<
-  Omit<GivenContext, "events" | "keyring"> &
+  // The Ban goes through the `users` slot, as a Host's does.
+  Omit<GivenContext, "events" | "keyring" | "isUserBlocked"> &
     OverSlots &
     Omit<ModelsDeps, "hooks"> & {
       /** The core's event emitter (`BotSdkContext.events`). */

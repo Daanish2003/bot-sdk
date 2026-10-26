@@ -278,12 +278,12 @@ const instanceKeys = new Set([
   "migrate",
   "start",
   "stop",
-  "deleteUser",
-  "exportUser",
+  "users",
   "rotateKeys",
   "runner",
   "models",
   "bots",
+  "conversations",
   "channels",
 ]);
 

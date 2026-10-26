@@ -228,7 +228,7 @@ describe("createBotSdk with flat slots", () => {
 });
 
 describe("a feature's id", () => {
-  it.each(["then", "bot", "models", "runner", "channel", "channels", "bots", "core"])(
+  it.each(["then", "bot", "models", "runner", "channel", "channels", "bots", "users", "core"])(
     "can't be %s, which the instance or the core holds",
     (id) => {
       expect(() => createBotSdk(slots({ features: [defineFeature({ id })] }))).toThrow(
