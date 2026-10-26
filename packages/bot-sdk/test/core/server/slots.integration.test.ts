@@ -228,14 +228,35 @@ describe("createBotSdk with flat slots", () => {
 });
 
 describe("a feature's id", () => {
-  it.each(["then", "bot", "models", "runner", "channel", "channels", "bots", "users", "core"])(
-    "can't be %s, which the instance or the core holds",
-    (id) => {
-      expect(() => createBotSdk(slots({ features: [defineFeature({ id })] }))).toThrow(
-        `Feature id "${id}" is reserved by the core`,
-      );
-    },
-  );
+  it.each([
+    "then",
+    "bot",
+    "core",
+    "channel",
+    // Each namespace of the instance.
+    "handler",
+    "runner",
+    "models",
+    "bots",
+    "conversations",
+    "secrets",
+    "computer",
+    "routines",
+    "checkIns",
+    "helpers",
+    "demonstrations",
+    "reviews",
+    "channels",
+    "migrate",
+    "start",
+    "stop",
+    "users",
+    "rotateKeys",
+  ])("can't be %s, which the instance or the core holds", (id) => {
+    expect(() => createBotSdk(slots({ features: [defineFeature({ id })] }))).toThrow(
+      `Feature id "${id}" is reserved by the core`,
+    );
+  });
 });
 
 describe("a feature's enabling", () => {

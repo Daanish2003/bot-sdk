@@ -5,6 +5,7 @@ import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 
 import { schema as coreTables } from "./storage";
 import type { Database } from "./storage";
+import type { BotSdk } from "./create-chat";
 import type { BotSdkContext, BotSdkPlugin, Route, Transaction } from "./plugin";
 import type { ComputerApi } from "../../plugins/computer/server/internal";
 import type { EnqueueOptions, JobDefinition } from "../../plugins/runner/server/internal";
@@ -252,10 +253,12 @@ export function isFeature(value: unknown): value is AnyFeature {
 }
 
 /**
- * The Prompt start sections the core writes itself, the core's export keys and the built-in plugin
- * ids.
+ * The Prompt start sections the core writes itself, the core's export keys, the built-in plugin
+ * ids, and `then`.
  */
 const reservedIds = new Set([
+  // An instance with a `then` would be awaited as a promise.
+  "then",
   "rules",
   "computer",
   "routines",
@@ -270,22 +273,30 @@ const reservedIds = new Set([
   "channels",
 ]);
 
-/** The names the SDK instance has, or must not have, which a feature's API can't take. */
-const instanceKeys = new Set([
-  // An instance with a `then` would be awaited as a promise.
-  "then",
-  "handler",
-  "migrate",
-  "start",
-  "stop",
-  "users",
-  "rotateKeys",
-  "runner",
-  "models",
-  "bots",
-  "conversations",
-  "channels",
-]);
+/**
+ * The names the SDK instance has, or must not have, which a feature's API can't take. Typed
+ * against `BotSdk`, so a new namespace on the instance fails to compile until it is listed here.
+ */
+const instanceKeys: Record<keyof BotSdk, true> = {
+  handler: true,
+  runner: true,
+  models: true,
+  bots: true,
+  conversations: true,
+  secrets: true,
+  computer: true,
+  routines: true,
+  checkIns: true,
+  helpers: true,
+  demonstrations: true,
+  reviews: true,
+  channels: true,
+  migrate: true,
+  start: true,
+  stop: true,
+  users: true,
+  rotateKeys: true,
+};
 
 /** The core's tables, by name: a feature declares none of them. */
 const coreTableNames = new Set(
@@ -301,7 +312,7 @@ const serviceNames: Record<CoreService, string> = { computer: "the Computer" };
  * needs isn't configured (`services` holds the instance's core services).
  */
 export function checkFeature(feature: AnyFeature, services: ReadonlySet<string>): void {
-  if (reservedIds.has(feature.id) || instanceKeys.has(feature.id)) {
+  if (reservedIds.has(feature.id) || Object.hasOwn(instanceKeys, feature.id)) {
     throw new Error(`Feature id "${feature.id}" is reserved by the core`);
   }
   for (const table of Object.values(feature.schema ?? {})) {
