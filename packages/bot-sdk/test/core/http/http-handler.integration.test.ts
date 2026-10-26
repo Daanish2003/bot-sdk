@@ -9,10 +9,10 @@ import {
   toNodeHandler,
   type HttpHandler,
 } from "../../../core/http";
-import { createBotSdk } from "../../../core/server/create-chat";
+import { createBotSdk, httpPartsOf } from "../../../core/server/create-chat";
 import { emailChannel } from "../../../plugins/channel/server/index";
 import { fakeEmailProvider } from "../../../plugins/channel/fake/index";
-import { createChatHandler } from "../../../core/server/over";
+import { createHttpHandlerOver } from "../../../core/server/over";
 import { hintChanged } from "../../../plugins/bot/server/conversation";
 import { insertConversation } from "../../support/conversations";
 import { createTestSdk } from "../../support/deps";
@@ -127,35 +127,84 @@ describe("createHttpHandler", { timeout: 30_000 }, () => {
     expect(getUser).not.toHaveBeenCalled();
   });
 
-  it("has no email route without the channels slot", async () => {
-    const sdk = createBotSdk({ databaseUrl: testDatabaseUrl, keyEncryptionSecrets, models: {} });
-    const http = createHttpHandler(sdk, { basePath, getUser: () => null });
+  it("answers email inbound 404 without an email adapter, and asks no user", async () => {
+    const getUser = vi.fn(() => null);
+    const inbound = (channels?: []) =>
+      createHttpHandler(
+        createBotSdk({ databaseUrl: testDatabaseUrl, keyEncryptionSecrets, models: {}, channels }),
+        { basePath, getUser },
+      )(new Request(`http://localhost${basePath}/channels/email`, { method: "POST", body: "{}" }));
 
-    const mail = await http(
-      new Request(`http://localhost${basePath}/channels/email`, { method: "POST", body: "{}" }),
-    );
+    // No channels slot, and a channels slot with no email adapter.
+    const answers = await Promise.all([inbound(), inbound([])]);
 
-    expect(mail.status).toBe(401);
+    expect(answers.map((answer) => answer.status)).toEqual([404, 404]);
+    expect(getUser).not.toHaveBeenCalled();
   });
 
-  it("refuses to serve one instance at a second basePath", () => {
+  it("answers 405 with Allow to a public path called with another method, and asks no user", async () => {
     const sdk = createBotSdk({ databaseUrl: testDatabaseUrl, keyEncryptionSecrets, models: {} });
+    const getUser = vi.fn(() => null);
+    const http = createHttpHandler(sdk, { basePath, getUser });
+    const call = (method: string, path: string) =>
+      http(new Request(`http://localhost${basePath}${path}`, { method }));
+
+    const answers = await Promise.all([
+      call("GET", "/routines/webhook/a-token"),
+      call("GET", "/channels/email"),
+      call("POST", "/screens/forged/vnc.html"),
+      call("DELETE", "/screens/forged/websockify"),
+    ]);
+
+    expect(answers.map((answer) => [answer.status, answer.headers.get("Allow")])).toEqual([
+      [405, "POST"],
+      [405, "POST"],
+      [405, "GET, HEAD"],
+      [405, "GET, HEAD"],
+    ]);
+    expect(getUser).not.toHaveBeenCalled();
+  });
+
+  it("serves one instance at two basePaths, and the live view's links point under the first", async () => {
+    const sdk = createBotSdk({ databaseUrl: testDatabaseUrl, keyEncryptionSecrets, models: {} });
+    const first = createHttpHandler(sdk, { basePath, getUser: () => null });
+    const second = createHttpHandler(sdk, { basePath: "/bots/", getUser: () => null });
+    createScreenSocket(sdk, { basePath: "/bots" });
+    const screen = (http: HttpHandler, at: string) =>
+      http(new Request(`http://localhost${at}/screens/forged/vnc.html`));
+
+    expect([
+      (await screen(first, basePath)).status,
+      (await screen(second, "/bots")).status,
+    ]).toEqual([403, 403]);
+    expect(httpPartsOf(sdk).context.liveView.base).toBe(basePath);
+  });
+
+  it("keeps createBotSdk's liveViewBase as the live view's link base", () => {
+    const sdk = createBotSdk({
+      databaseUrl: testDatabaseUrl,
+      keyEncryptionSecrets,
+      models: {},
+      liveViewBase: "/chat/",
+    });
     createHttpHandler(sdk, { basePath, getUser: () => null });
 
+    expect(httpPartsOf(sdk).context.liveView.base).toBe("/chat");
     expect(() =>
-      createHttpHandler(sdk, { basePath: `${basePath}/`, getUser: () => null }),
-    ).not.toThrow();
-    expect(() => createHttpHandler(sdk, { basePath: "/bots", getUser: () => null })).toThrow(
-      /already served at \/api\/chat/,
-    );
-    expect(() => createScreenSocket(sdk, { basePath: "/bots" })).toThrow(/already served/);
+      createBotSdk({
+        databaseUrl: testDatabaseUrl,
+        keyEncryptionSecrets,
+        models: {},
+        liveViewBase: "chat",
+      }),
+    ).toThrow('basePath must start with "/"');
   });
 
   it("streams a Conversation's change hints as server-sent events", async () => {
     const deps = createTestSdk();
     const user = await insertUser();
     const conversation = await insertConversation(user, { kind: "bot" });
-    const http = createChatHandler(deps, { basePath, getUser: () => ({ id: user.id }) });
+    const http = createHttpHandlerOver(deps, { basePath, getUser: () => ({ id: user.id }) });
 
     const response = await http(
       new Request(`http://localhost${basePath}/events?conversationId=${conversation.id}`),
@@ -186,7 +235,7 @@ describe("toNodeHandler", { timeout: 30_000 }, () => {
   it("serves the same responses as the fetch handler", async () => {
     const signedIn = await insertUser();
     const deps = createTestSdk();
-    const http = createChatHandler(deps, {
+    const http = createHttpHandlerOver(deps, {
       basePath,
       getUser: (request) =>
         request.headers.get("x-user") === signedIn.id ? { id: signedIn.id } : null,
@@ -235,7 +284,7 @@ describe("toNodeHandler", { timeout: 30_000 }, () => {
     const user = await insertUser();
     const conversation = await insertConversation(user, { kind: "bot" });
     const origin = await serve(
-      createChatHandler(deps, { basePath, getUser: () => ({ id: user.id }) }),
+      createHttpHandlerOver(deps, { basePath, getUser: () => ({ id: user.id }) }),
     );
 
     const response = await fetch(`${origin}${basePath}/events?conversationId=${conversation.id}`);

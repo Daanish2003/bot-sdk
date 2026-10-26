@@ -45,7 +45,7 @@ export type BotThread = {
   turns: BotTurnProvenance[];
   summaries: BotSummary[];
   warmings: BotWarming[];
-  /** The change log's newest seq when the thread was read: the cursor for `bots.changes`. */
+  /** The change log's newest seq when the thread was read: the cursor for `conversations.changes`. */
   lastSeq: number;
 };
 
@@ -76,8 +76,11 @@ export const createBotInput = z.object({
 /** The input of the methods that act on one of the user's Bots, besides `userId`. */
 export const botInput = z.object({ botId: z.uuid() });
 
-/** `bots.changes`' input, besides `userId`. */
-export const botChangesInput = z.object({ botId: z.uuid(), since: z.number().int().min(0) });
+/** `conversations.changes`' input, besides `userId`. */
+export const conversationChangesInput = z.object({
+  conversationId: z.uuid(),
+  since: z.number().int().min(0),
+});
 
 /** `bots.send`'s input, besides `userId`. */
 export const sendInput = z
@@ -175,12 +178,6 @@ const bots = {
   list: oc.output(type<ListedBot[]>()),
   /** One of the user's Bots and its thread; another user's is not found. */
   get: oc.input(botInput).output(type<BotThread>()),
-  /**
-   * The changes to the user's Bot's thread after seq `since` (ADR 0026), oldest first, each with
-   * what it points at as it is now. A cursor the change log no longer holds, or one past its
-   * newest change, gets `reload`: read the thread afresh with `get`.
-   */
-  changes: oc.input(botChangesInput).output(type<BotChanges>()),
   /** Sends the user's Message to their Bot and returns the saved user Message. */
   send: oc.input(sendInput).output(botMessageSchema),
   /** Stores a file the user will send their Bot. Rate-limited like attachments. */
@@ -193,6 +190,16 @@ const bots = {
   choose: oc.input(chooseInput).output(type<void>()),
   /** Puts the user's emoji on a Bot reply, or takes it off. */
   react: oc.input(reactInput).output(type<void>()),
+};
+
+/** The user's Bot Conversations: what changed in a thread (ADR 0026). */
+const conversations = {
+  /**
+   * The changes to the user's Bot Conversation's thread after seq `since` (ADR 0026), oldest
+   * first, each with what it points at as it is now. A cursor the change log no longer holds, or
+   * one past its newest change, gets `reload`: read the thread afresh with `bots.get`.
+   */
+  changes: oc.input(conversationChangesInput).output(type<BotChanges>()),
 };
 
 /** The Routines of the user's Bots (#538). Approving or declining one never wakes the Bot. */
@@ -304,6 +311,7 @@ export const channelsContract = {
 /** The Bot core's namespaces, as the HTTP layer serves them. */
 export const botContract = {
   bots,
+  conversations,
   routines,
   checkIns,
   helpers,

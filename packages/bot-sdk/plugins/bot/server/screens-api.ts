@@ -1,7 +1,5 @@
-import { z } from "zod";
-
 import type { BotSdkContext } from "../../../core/server/plugin";
-import { parseInput } from "../../../core/server/rpc-error";
+import { parseInput, type WithUser } from "../../../core/server/rpc-error";
 import { screenControl, screenView } from "./helpers";
 import { screenViewInput, screenControlInput } from "../shared/contract";
 
@@ -10,8 +8,6 @@ import { screenViewInput, screenControlInput } from "../shared/contract";
  * of a Computer-use Helper's Screen (#597). Each takes one object with `userId`; the procedures are
  * one-line wrappers. Another user's Helper is not found.
  */
-
-type WithUser<Schema extends z.ZodType> = { userId: string } & z.input<Schema>;
 
 /** The Screen methods over the core context. */
 export function screensApi(sdk: BotSdkContext) {

@@ -102,7 +102,7 @@ describe("Reactions", () => {
     const reply = (await client.bots.get({ botId })).messages.find(
       (entry) => entry.role === "assistant",
     )!;
-    const { lastSeq } = await client.bots.get({ botId });
+    const { lastSeq, conversationId } = await client.bots.get({ botId });
 
     await client.bots.react({ botId, messageId: reply.id, emoji: "👍" });
     expect((await messageOf(client, botId, reply.id)).reactions).toMatchObject({
@@ -114,7 +114,10 @@ describe("Reactions", () => {
     expect(after.reactions).toMatchObject({ user: { emoji: "❤️" } });
     expect(after.text).toBe("Hello.");
     // A state change in the log, so every tab hears of it; and no Turn started.
-    const { changes } = (await client.bots.changes({ botId, since: lastSeq })) as {
+    const { changes } = (await client.conversations.changes({
+      conversationId,
+      since: lastSeq,
+    })) as {
       changes: { kind: string; refId: string }[];
     };
     expect(changes.filter((change) => change.refId === reply.id)).toHaveLength(2);
@@ -176,7 +179,7 @@ describe("Reactions", () => {
 
     await send(client, botId, "thanks!", id);
     await turnsEnded(botId, 1);
-    const { lastSeq, messages } = await client.bots.get({ botId });
+    const { lastSeq, messages, conversationId } = await client.bots.get({ botId });
     expect(messages).toHaveLength(1);
     expect(messages[0]).toMatchObject({ id, role: "user", reactions: { bot: { emoji: "🙏" } } });
     // The Bot was told which Message to react to.
@@ -187,7 +190,10 @@ describe("Reactions", () => {
     expect((await messageOf(client, botId, id)).reactions).toMatchObject({
       bot: { emoji: "❤️" },
     });
-    const { changes } = (await client.bots.changes({ botId, since: lastSeq })) as {
+    const { changes } = (await client.conversations.changes({
+      conversationId,
+      since: lastSeq,
+    })) as {
       changes: { kind: string; refId: string }[];
     };
     expect(changes).toContainEqual(expect.objectContaining({ kind: "message", refId: id }));

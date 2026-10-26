@@ -26,7 +26,7 @@ import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { emailAddressOf } from "../../plugins/bot/server/conversation";
 import { fakeEmailProvider } from "../../plugins/channel/fake/index";
 import { emailChannel } from "../../plugins/channel/server/index";
-import { createChatHandler } from "../../core/server/over";
+import { createHttpHandlerOver } from "../../core/server/over";
 import { runnerJobs } from "../../plugins/runner/server/internal";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
 import { isReviewCall, passVerdict, verdictRound } from "../../test/support/fake-reviewer";
@@ -134,7 +134,7 @@ async function main() {
   const jobs = runnerJobs(sdk);
   await jobs.start();
   // The HTTP layer, for the mail's inbound route; built once for every case.
-  const inbound = createChatHandler(sdk, { basePath: "/api/chat", getUser: () => null });
+  const inbound = createHttpHandlerOver(sdk, { basePath: "/api/chat", getUser: () => null });
 
   const env: TurnEnv = {
     db,

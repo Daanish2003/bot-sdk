@@ -35,7 +35,7 @@ const said = (id: string, role: BotMessage["role"], text: string): BotMessage =>
 
 /**
  * A stand-in for the server's `bot` router: `bots.get` answers with `messages`, the Turn statuses and
- * the change log's cursor, `bots.changes` with the log, and `bots.send` saves the user's Message and
+ * the change log's cursor, `conversations.changes` with the log, and `bots.send` saves the user's Message and
  * starts a Turn, as the server does. The test moves the Turn on with `emit` and `endTurn`, and the
  * `changed` hint says so, as the `/events` route does.
  */
@@ -60,6 +60,11 @@ function fakeBotServer(messages: BotMessage[] = []) {
     log.record("message", message.id, message);
   };
   const router = {
+    conversations: {
+      changes: os
+        .input(z.object({ conversationId: z.string(), since: z.number() }))
+        .handler(({ input }) => log.since(input.since)),
+    },
     bots: {
       get: os.handler(async () => {
         const read = {
@@ -71,9 +76,6 @@ function fakeBotServer(messages: BotMessage[] = []) {
         await held;
         return read;
       }),
-      changes: os
-        .input(z.object({ botId: z.string(), since: z.number() }))
-        .handler(({ input }) => log.since(input.since)),
       stop: os.input(z.object({ botId: z.string() })).handler(({ input }) => {
         stops.push(input);
       }),

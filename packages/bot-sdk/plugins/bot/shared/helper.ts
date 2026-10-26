@@ -47,3 +47,6 @@ export type ComputerCard = z.infer<typeof computerCardSchema>;
  * `<path>/<view token>/websockify` its socket.
  */
 export const screenViewPath = "/screens";
+
+/** Where the live view's proxy is served under `basePath` (without a trailing slash). */
+export const screensPath = (basePath: string) => `${basePath}${screenViewPath}`;

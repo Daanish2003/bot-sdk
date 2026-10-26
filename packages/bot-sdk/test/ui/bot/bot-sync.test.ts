@@ -34,13 +34,18 @@ const said = (id: string, role: BotMessage["role"], text: string): BotMessage =>
 
 /**
  * A stand-in for the server's `bot` router that keeps a change log: `bots.get` answers with
- * `messages` and the log's newest seq, `bots.changes` with the log (or what `answer` overrides it
+ * `messages` and the log's newest seq, `conversations.changes` with the log (or what `answer` overrides it
  * with), and `gets` counts the reads of the whole thread.
  */
 function fakeBotServer(messages: BotMessage[], turnStatus: BotTurnStatus | null = null) {
   const log = changeLog();
   const state = { messages, turnStatus, gets: 0, answer: undefined as BotChanges | undefined };
   const router = {
+    conversations: {
+      changes: os
+        .input(z.object({ conversationId: z.string(), since: z.number() }))
+        .handler(({ input }) => state.answer ?? log.since(input.since)),
+    },
     bots: {
       get: os.handler(() => {
         state.gets++;
@@ -51,9 +56,6 @@ function fakeBotServer(messages: BotMessage[], turnStatus: BotTurnStatus | null 
           lastSeq: log.last,
         };
       }),
-      changes: os
-        .input(z.object({ botId: z.string(), since: z.number() }))
-        .handler(({ input }) => state.answer ?? log.since(input.since)),
     },
   };
   const handler = new RPCHandler(router);

@@ -42,10 +42,11 @@ export type BotSdkContext = {
   /** Set by `stop()`. */
   lifecycle: { stopping: boolean };
   /**
-   * Where `createHttpHandler` serves the instance (`basePath` without a trailing slash), or `null`
-   * before it does: the live view's links point under it.
+   * The path the live view's links point under (`<base>/screens/…`), without a trailing slash:
+   * `createBotSdk`'s `liveViewBase`, else the `basePath` of the first HTTP handler or screen
+   * socket made over the instance, or `null` before either.
    */
-  mount: { basePath: string | null };
+  liveView: { base: string | null };
   isUserBlocked: (userId: string) => boolean | Promise<boolean>;
   /** The runner (ADR 0011): the background jobs, from the runner slot or the in-process runner. */
   runner: RunnerApi;
@@ -272,15 +273,22 @@ export function mergeRateLimits(plugins: readonly BotSdkPlugin[]): Record<string
   return merged;
 }
 
+/** `basePath` without a trailing slash; one that doesn't start with "/" throws. */
+export function normalizeBasePath(basePath: string): string {
+  if (!basePath.startsWith("/")) throw new Error(`basePath must start with "/": ${basePath}`);
+  return basePath.replace(/\/+$/, "");
+}
+
 /**
- * The `:name` segments of `pattern` when `path` matches it, else `null`. A last `*` segment matches
- * the rest of `path`, one segment or more, given as the param `*`.
+ * The `:name` segments of `pattern` when `path` matches it, else `null`. A `:name` segment matches
+ * one segment that isn't empty. A last `*` segment matches the rest of `path`, one segment or more
+ * whose first isn't empty, given as the param `*`.
  */
 export function matchPath(pattern: string, path: string): Record<string, string> | null {
   const expected = pattern.split("/");
   let actual = path.split("/");
   if (expected.at(-1) === "*") {
-    if (actual.length < expected.length) return null;
+    if (actual.length < expected.length || !actual[expected.length - 1]) return null;
     actual = [...actual.slice(0, expected.length - 1), actual.slice(expected.length - 1).join("/")];
     expected[expected.length - 1] = ":*";
   }

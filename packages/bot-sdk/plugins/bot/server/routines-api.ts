@@ -1,7 +1,5 @@
-import { z } from "zod";
-
 import type { BotSdkContext } from "../../../core/server/plugin";
-import { parseInput } from "../../../core/server/rpc-error";
+import { parseInput, type WithUser } from "../../../core/server/rpc-error";
 import { requireOwnedBot } from "./owned-bot";
 import {
   approveRoutine,
@@ -21,8 +19,6 @@ import { botScopeInput, routineInput, checkInInput } from "../shared/contract";
  * The `routines` and `checkIns` namespaces' domain methods (spec #873), taking the user's id as
  * `bots` does. Each input schema is the one its procedure validates with.
  */
-
-type WithUser<Schema extends z.ZodType> = { userId: string } & z.input<Schema>;
 
 /** The `routines` namespace over the core context. */
 export function routinesApi(sdk: BotSdkContext) {

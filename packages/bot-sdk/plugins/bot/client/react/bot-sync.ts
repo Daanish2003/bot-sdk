@@ -59,12 +59,13 @@ export function syncBot(queryClient: QueryClient, orpc: BotSdkOrpc, botId: strin
 
 async function fetchOnce(queryClient: QueryClient, orpc: BotSdkOrpc, botId: string) {
   const getKey = orpc.bots.get.queryOptions({ input: { botId } }).queryKey;
-  const since = queryClient.getQueryData(getKey)?.lastSeq;
+  const loaded = queryClient.getQueryData(getKey);
   // Nothing loaded yet: the first `bots.get` is the thread.
-  if (since === undefined) return;
+  if (!loaded) return;
+  const { conversationId, lastSeq: since } = loaded;
   let result;
   try {
-    result = await orpc.bots.changes.call({ botId, since });
+    result = await orpc.conversations.changes.call({ conversationId, since });
   } catch {
     return;
   }

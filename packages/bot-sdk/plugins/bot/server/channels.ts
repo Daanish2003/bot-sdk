@@ -53,21 +53,26 @@ export function channel(options: ChannelOptions): ChannelPlugin {
   };
 }
 
+/** No Channel besides web (no channels slot): only the email inbound route, which answers 404. */
+export function noChannels(): ChannelPlugin {
+  return { id: "channel", routes: emailInboundRoutes([]) };
+}
+
 /**
  * The email Channel's inbound route, `POST <basePath>/channels/email`, where its provider posts
  * mail, with no sign-in: the SDK checks the sender. A mail the provider can't read gets 400; any
- * mail it can gets 202, whether it woke the Bot or was dropped, so a sender learns nothing. None
- * without an email adapter.
+ * mail it can gets 202, whether it woke the Bot or was dropped, so a sender learns nothing. Without
+ * an email adapter, every inbound gets 404.
  */
 function emailInboundRoutes(adapters: ChannelOptions["adapters"]): Route[] {
   const email = emailAdapterOf(adapters);
-  if (!email) return [];
   return [
     {
       method: "POST",
       path: "/channels/email",
       public: true,
       handle: async (request, { sdk }) => {
+        if (!email) return new Response("Not found", { status: 404 });
         const mail = await email.provider.parseInbound(request);
         if ("rejected" in mail) return new Response(mail.rejected, { status: 400 });
         await sdk.channels.receive("email", mail);

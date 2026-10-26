@@ -51,7 +51,7 @@ const morningBrief = (): BotRoutine => ({
 /**
  * A stand-in for the server's `bot` router: `bots.get` answers with `messages` and `turns`, `routines.list`
  * with `routines`, approve and decline change them as the server does, `bots.send` saves the user's
- * Message and starts a Turn, and `bots.changes` answers from the change log the test writes.
+ * Message and starts a Turn, and `conversations.changes` answers from the change log the test writes.
  */
 function fakeBotServer(
   messages: BotMessage[],
@@ -74,6 +74,11 @@ function fakeBotServer(
   // While set, pause, resume and delete answer only once it resolves.
   let held: Promise<void> | undefined;
   const router = {
+    conversations: {
+      changes: os
+        .input(z.object({ conversationId: z.string(), since: z.number() }))
+        .handler(({ input }) => log.since(input.since)),
+    },
     bots: {
       get: os.handler(() => ({
         bot: { ...ada, turnStatus },
@@ -82,9 +87,6 @@ function fakeBotServer(
         turns: [...turns],
         lastSeq: log.last,
       })),
-      changes: os
-        .input(z.object({ botId: z.string(), since: z.number() }))
-        .handler(({ input }) => log.since(input.since)),
       stop: os.handler(() => {}),
       send: os
         .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }).loose())

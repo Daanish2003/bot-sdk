@@ -40,7 +40,7 @@ type ServerBot = {
 
 /**
  * A stand-in for the server's `bot` router. `bots.list` and `bots.get` answer from `state`, `bots.send`
- * saves the user's Message to Ada and starts her Turn, and `bots.changes` answers from her change log.
+ * saves the user's Message to Ada and starts her Turn, and `conversations.changes` answers from her change log.
  */
 function fakeBotServer(state: Record<string, ServerBot> = {}) {
   const log = changeLog();
@@ -49,6 +49,11 @@ function fakeBotServer(state: Record<string, ServerBot> = {}) {
   const turnChange = (status: BotTurnStatus) =>
     log.record("turn", "t1", { id: "t1", status, startedAt: createdAt, endedAt: null });
   const router = {
+    conversations: {
+      changes: os
+        .input(z.object({ conversationId: z.string(), since: z.number() }))
+        .handler(({ input }) => log.since(input.since)),
+    },
     bots: {
       list: os.handler(() =>
         bots.map((bot) => ({
@@ -68,9 +73,6 @@ function fakeBotServer(state: Record<string, ServerBot> = {}) {
         messages: state[input.botId]?.messages ?? [],
         lastSeq: input.botId === "b2" ? log.last : 0,
       })),
-      changes: os
-        .input(z.object({ botId: z.string(), since: z.number() }))
-        .handler(({ input }) => log.since(input.since)),
       send: os
         .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }).loose())
         .handler(({ input }) => {

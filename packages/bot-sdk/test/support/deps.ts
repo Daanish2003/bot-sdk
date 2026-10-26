@@ -60,6 +60,7 @@ export function createTestSdk({
   channels,
   users,
   reviewModel,
+  liveViewBase,
   ...overrides
 }: TestDepsOverrides = {}): TestDeps {
   const db = overrides.db ?? getTestDb();
@@ -130,6 +131,7 @@ export function createTestSdk({
       channels,
       users,
       reviewModel,
+      liveViewBase,
       features: [...(withMemory ? [memory()] : []), ...(features ?? [])],
     },
     { logger: { error: () => {} } },

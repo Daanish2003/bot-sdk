@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { parseInput, rpcError } from "../../../core/server/rpc-error";
+import { parseInput, rpcError, type WithUser } from "../../../core/server/rpc-error";
 import { listAvailableModels } from "./available-models";
 import { checkCredentials } from "./credentials/check";
 import { shownLinkedPlan } from "./credentials/resolve";
@@ -26,8 +26,6 @@ import { deleteCredentialsInput, setImageModelInput } from "../shared/contract";
  * procedures of `routers/` are one-line wrappers that pass the signed-in user's id. Each input
  * schema is the one its procedure validates with.
  */
-
-type WithUser<Schema extends z.ZodType> = { userId: string } & z.input<Schema>;
 
 /** The `models` namespace's domain methods over the Models' dependencies. */
 export function modelsDomain(deps: ModelsDeps) {

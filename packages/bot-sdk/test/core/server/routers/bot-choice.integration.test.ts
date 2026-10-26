@@ -118,7 +118,7 @@ describe("Multiple choice", () => {
     await send(client, botId, "pick for me");
     await turnsEnded(botId, 1);
     const asked = await lastChoice(client, botId);
-    const { lastSeq } = await client.bots.get({ botId });
+    const { lastSeq, conversationId } = await client.bots.get({ botId });
 
     await client.bots.choose({ botId, messageId: asked.id, answer: { option: "Red" } });
     await turnsEnded(botId, 2);
@@ -137,7 +137,10 @@ describe("Multiple choice", () => {
     expect((await lastChoice(client, botId)).control).toMatchObject({
       answer: { text: "Red", other: false },
     });
-    const { changes } = (await client.bots.changes({ botId, since: lastSeq })) as {
+    const { changes } = (await client.conversations.changes({
+      conversationId,
+      since: lastSeq,
+    })) as {
       changes: { kind: string; refId: string }[];
     };
     expect(changes).toContainEqual(expect.objectContaining({ kind: "message", refId: asked.id }));

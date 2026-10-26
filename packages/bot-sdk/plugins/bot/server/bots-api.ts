@@ -1,8 +1,6 @@
-import { z } from "zod";
-
 import { lastSeqOf } from "../../../core/server/chat/change-log";
 import type { BotSdkContext } from "../../../core/server/plugin";
-import { parseInput, rpcError } from "../../../core/server/rpc-error";
+import { parseInput, rpcError, type WithUser } from "../../../core/server/rpc-error";
 import {
   botMessages,
   createBot,
@@ -30,8 +28,6 @@ import {
  * id and no request. Each takes one object with `userId`, and its input schema is the contract's
  * (`shared/contract.ts`), so an in-process call is held to the rules an HTTP call is.
  */
-
-type WithUser<Schema extends z.ZodType> = { userId: string } & z.input<Schema>;
 
 /** The `bots` namespace over the core context. */
 export function botsApi(sdk: BotSdkContext) {

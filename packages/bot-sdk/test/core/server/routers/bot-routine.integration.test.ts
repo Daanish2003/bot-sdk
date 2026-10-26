@@ -287,12 +287,12 @@ describe("bot.routine", () => {
 
   it("bumps the change log when the Message is written, and again when the Routine is approved", async () => {
     const { client, botId, routine } = await withPendingRoutine();
-    const { messages } = await client.bots.get({ botId });
+    const { messages, conversationId } = await client.bots.get({ botId });
     const approval = messages.find((sent) => sent.control?.kind === "routine_approval")!;
 
     await client.routines.approve({ routineId: routine.id });
 
-    const changed = await client.bots.changes({ botId, since: 0 });
+    const changed = await client.conversations.changes({ conversationId, since: 0 });
     if (changed.reload) throw new Error("expected changes");
     const kinds = changed.changes.map((change) => `${change.kind}:${change.refId}`);
     expect(kinds).toContain(`message:${approval.id}`);

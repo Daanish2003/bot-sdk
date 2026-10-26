@@ -82,7 +82,7 @@ describe("sdk.bots, called in-process with a userId (#895)", () => {
 describe("sdk.conversations, called in-process with a userId (#895)", () => {
   afterEach(stopBotRunners);
 
-  it("watch yields change hints while a Turn writes, and changes returns those changes as bot.changes does", async () => {
+  it("watch yields change hints while a Turn writes, and changes returns those changes, as the conversations.changes RPC does", async () => {
     const replies = createFakeAdapter({
       rounds: [round(toolCall({ name: "send_to_user", input: { text: "Hello", endTurn: true } }))],
     });
@@ -107,7 +107,7 @@ describe("sdk.conversations, called in-process with a userId (#895)", () => {
       new Set([JSON.stringify({ type: "changed" })]),
     );
     const changes = await deps.conversations.changes({ userId, conversationId, since: lastSeq });
-    expect(changes).toEqual(await client.bots.changes({ botId, since: lastSeq }));
+    expect(changes).toEqual(await client.conversations.changes({ conversationId, since: lastSeq }));
     if (changes.reload) throw new Error("changes asked for a reload");
     expect(changes.changes.map((change) => change.kind)).toEqual(
       expect.arrayContaining(["message", "turn"]),

@@ -25,7 +25,7 @@ import { runnerJobs } from "../../plugins/runner/server/internal";
 type OverOptions = Pick<BotSdkOptions, "logger">;
 
 /** The factory's options the seam passes on as they are. */
-export type OverSlots = Pick<BotSdkOptions, "channels" | "users" | "reviewModel">;
+export type OverSlots = Pick<BotSdkOptions, "channels" | "users" | "reviewModel" | "liveViewBase">;
 
 /**
  * What the tests and evals drive: the core context of an instance over fakes, with its Models
@@ -61,6 +61,7 @@ export function createBotSdkOver(
     channels: given.channels,
     users: given.users,
     reviewModel: given.reviewModel,
+    liveViewBase: given.liveViewBase,
   };
   const { instance, context } = buildBotSdk(
     slots,
@@ -75,19 +76,19 @@ export function createBotSdkOver(
  * context, or a copy of one with some parts replaced): its core context, Models bundle, jobs runner
  * and Computer provider, and the same core parts and features.
  */
-export function createChatHandler(sdk: SdkOver, options: HttpHandlerOptions): HttpHandler {
+export function createHttpHandlerOver(sdk: SdkOver, options: HttpHandlerOptions): HttpHandler {
   return createHttpHandler(instanceOver(sdk), options);
 }
 
 /** The live view's socket hooks (`createScreenSocket`) of a new instance over `sdk`'s parts, as above. */
-export function createChatScreenSocket(
+export function createScreenSocketOver(
   sdk: SdkOver,
   options: { basePath: string },
 ): ScreenSocketHooks {
   return createScreenSocket(instanceOver(sdk), options);
 }
 
-/** A new instance over `sdk`'s parts, for `createChatHandler` and `createChatScreenSocket`. */
+/** A new instance over `sdk`'s parts, for `createHttpHandlerOver` and `createScreenSocketOver`. */
 function instanceOver(sdk: SdkOver): BotSdk {
   const {
     parts: _parts,

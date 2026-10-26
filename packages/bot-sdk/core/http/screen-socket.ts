@@ -1,6 +1,6 @@
 import { httpPartsOf, type BotSdk } from "../server/create-chat";
 import { screenSocketHooks, type ScreenSocketHooks } from "../../plugins/bot/server/helpers";
-import { screenViewPath } from "../../plugins/bot/shared/helper";
+import { screensPath } from "../../plugins/bot/shared/helper";
 import { serveAt } from "./handler";
 
 /**
@@ -15,5 +15,5 @@ export function createScreenSocket(
   { basePath }: { basePath: string },
 ): ScreenSocketHooks {
   const { context } = httpPartsOf(sdk);
-  return screenSocketHooks(context, `${serveAt(context, basePath)}${screenViewPath}`);
+  return screenSocketHooks(context, screensPath(serveAt(context, basePath)));
 }

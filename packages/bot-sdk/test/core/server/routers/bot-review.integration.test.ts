@@ -468,7 +468,8 @@ describe("Auto-review of the Bot's shell commands", () => {
         control: { kind: "review_approval", reviewId: waiting.id },
       }),
     ]);
-    const changed = await client.bots.changes({ botId, since: 0 });
+    const { conversationId } = await client.bots.get({ botId });
+    const changed = await client.conversations.changes({ conversationId, since: 0 });
     if (changed.reload) throw new Error("expected changes");
     const decided = changed.changes.filter(
       (change) => change.kind === "review" && change.refId === waiting.id,

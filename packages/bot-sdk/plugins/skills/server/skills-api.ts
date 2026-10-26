@@ -1,7 +1,5 @@
-import { z } from "zod";
-
 import type { BotSdkContext } from "../../../core/server/plugin";
-import { parseInput } from "../../../core/server/rpc-error";
+import { parseInput, type WithUser } from "../../../core/server/rpc-error";
 import { deleteSkill, listSkills, readSkill, saveSkill, skillsAvailable } from "./manage";
 import { listInput, saveInput, skillInput } from "../shared/contract";
 
@@ -10,8 +8,6 @@ import { listInput, saveInput, skillInput } from "../shared/contract";
  * `sdk.skills`, with the user's id and no request. The HTTP layer serves the
  * feature's contract (`shared/contract.ts`) over them, passing the signed-in user's id.
  */
-
-type WithUser<Schema extends z.ZodType> = { userId: string } & z.input<Schema>;
 
 /** The `skills` namespace over the core context. */
 export function skillsApi(sdk: BotSdkContext) {

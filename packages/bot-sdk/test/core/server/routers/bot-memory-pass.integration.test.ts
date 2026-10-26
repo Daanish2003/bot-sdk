@@ -472,7 +472,7 @@ describe("the post-turn memory pass", () => {
     ];
     expect(turn?.memoryChanges).toEqual(changes);
     // The pass records a `turn` change after the Turn's own, so a synced tab re-reads the chip.
-    const logged = await client.bots.changes({ botId: ada, since: before });
+    const logged = await client.conversations.changes({ conversationId, since: before });
     expect(logged.reload).toBe(false);
     const turnChanges = logged.reload
       ? []

@@ -4,7 +4,6 @@ import type { Context } from "../../../../core/server/context";
 import { requireAuth } from "../../../../core/server/procedures";
 import type { DemonstrationAction } from "../../shared/demonstration";
 import { botContract } from "../../shared/contract";
-import { botChanges } from "../changes";
 
 /*
  * The `bot` plugin's routers: they implement the Bot core's contract (`shared/contract.ts`), one
@@ -18,94 +17,97 @@ const os = implement(botContract).$context<Context>().use(requireAuth);
 /** A procedure that applies `action` to one of the user's Demonstrations. */
 const demonstrationAction = (action: Exclude<DemonstrationAction, "view">) =>
   os.demonstrations[action].handler(({ context, input }) =>
-    context.sdk.demonstrations[action]({ userId: context.user.id, ...input }),
+    context.sdk.demonstrations[action]({ ...input, userId: context.user.id }),
   );
 
 const bots = os.bots.router({
   create: os.bots.create.handler(({ context, input }) =>
-    context.sdk.bots.create({ userId: context.user.id, ...input }),
+    context.sdk.bots.create({ ...input, userId: context.user.id }),
   ),
   list: os.bots.list.handler(({ context }) => context.sdk.bots.list({ userId: context.user.id })),
   get: os.bots.get.handler(({ context, input }) =>
-    context.sdk.bots.get({ userId: context.user.id, ...input }),
-  ),
-  changes: os.bots.changes.handler(({ context, input }) =>
-    botChanges(context.sdk, context.user.id, input.botId, input.since),
+    context.sdk.bots.get({ ...input, userId: context.user.id }),
   ),
   send: os.bots.send.handler(({ context, input }) =>
-    context.sdk.bots.send({ userId: context.user.id, ...input }),
+    context.sdk.bots.send({ ...input, userId: context.user.id }),
   ),
   upload: os.bots.upload.handler(({ context, input }) =>
-    context.sdk.bots.upload({ userId: context.user.id, ...input }),
+    context.sdk.bots.upload({ ...input, userId: context.user.id }),
   ),
   stop: os.bots.stop.handler(({ context, input }) =>
-    context.sdk.bots.stop({ userId: context.user.id, ...input }),
+    context.sdk.bots.stop({ ...input, userId: context.user.id }),
   ),
   warm: os.bots.warm.handler(({ context, input }) =>
-    context.sdk.bots.warm({ userId: context.user.id, ...input }),
+    context.sdk.bots.warm({ ...input, userId: context.user.id }),
   ),
   choose: os.bots.choose.handler(({ context, input }) =>
-    context.sdk.bots.choose({ userId: context.user.id, ...input }),
+    context.sdk.bots.choose({ ...input, userId: context.user.id }),
   ),
   react: os.bots.react.handler(({ context, input }) =>
-    context.sdk.bots.react({ userId: context.user.id, ...input }),
+    context.sdk.bots.react({ ...input, userId: context.user.id }),
+  ),
+});
+
+const conversations = os.conversations.router({
+  changes: os.conversations.changes.handler(({ context, input }) =>
+    context.sdk.conversations.changes({ ...input, userId: context.user.id }),
   ),
 });
 
 const routines = os.routines.router({
   list: os.routines.list.handler(({ context, input }) =>
-    context.sdk.routines.list({ userId: context.user.id, ...input }),
+    context.sdk.routines.list({ ...input, userId: context.user.id }),
   ),
   approve: os.routines.approve.handler(({ context, input }) =>
-    context.sdk.routines.approve({ userId: context.user.id, ...input }),
+    context.sdk.routines.approve({ ...input, userId: context.user.id }),
   ),
   decline: os.routines.decline.handler(({ context, input }) =>
-    context.sdk.routines.decline({ userId: context.user.id, ...input }),
+    context.sdk.routines.decline({ ...input, userId: context.user.id }),
   ),
   pause: os.routines.pause.handler(({ context, input }) =>
-    context.sdk.routines.pause({ userId: context.user.id, ...input }),
+    context.sdk.routines.pause({ ...input, userId: context.user.id }),
   ),
   resume: os.routines.resume.handler(({ context, input }) =>
-    context.sdk.routines.resume({ userId: context.user.id, ...input }),
+    context.sdk.routines.resume({ ...input, userId: context.user.id }),
   ),
   delete: os.routines.delete.handler(({ context, input }) =>
-    context.sdk.routines.delete({ userId: context.user.id, ...input }),
+    context.sdk.routines.delete({ ...input, userId: context.user.id }),
   ),
   rotate: os.routines.rotate.handler(({ context, input }) =>
-    context.sdk.routines.rotate({ userId: context.user.id, ...input }),
+    context.sdk.routines.rotate({ ...input, userId: context.user.id }),
   ),
 });
 
 const checkIns = os.checkIns.router({
   list: os.checkIns.list.handler(({ context, input }) =>
-    context.sdk.checkIns.list({ userId: context.user.id, ...input }),
+    context.sdk.checkIns.list({ ...input, userId: context.user.id }),
   ),
   cancel: os.checkIns.cancel.handler(({ context, input }) =>
-    context.sdk.checkIns.cancel({ userId: context.user.id, ...input }),
+    context.sdk.checkIns.cancel({ ...input, userId: context.user.id }),
   ),
 });
 
 const helpers = os.helpers.router({
   list: os.helpers.list.handler(({ context, input }) =>
-    context.sdk.helpers.list({ userId: context.user.id, ...input }),
+    context.sdk.helpers.list({ ...input, userId: context.user.id }),
   ),
   done: os.helpers.done.handler(({ context, input }) =>
-    context.sdk.helpers.done({ userId: context.user.id, ...input }),
+    context.sdk.helpers.done({ ...input, userId: context.user.id }),
   ),
   stop: os.helpers.stop.handler(({ context, input }) =>
-    context.sdk.helpers.stop({ userId: context.user.id, ...input }),
+    context.sdk.helpers.stop({ ...input, userId: context.user.id }),
   ),
 });
 
 const reviews = os.reviews.router({
   list: os.reviews.list.handler(({ context, input }) =>
-    context.sdk.reviews.list({ userId: context.user.id, ...input }),
+    context.sdk.reviews.list({ ...input, userId: context.user.id }),
   ),
   allow: os.reviews.allow.handler(({ context, input }) =>
-    context.sdk.reviews.allow({ userId: context.user.id, ...input }),
+    context.sdk.reviews.allow({ ...input, userId: context.user.id }),
   ),
   deny: os.reviews.deny.handler(({ context, input }) =>
-    context.sdk.reviews.deny({ userId: context.user.id, ...input }),
+    context.sdk.reviews.deny({ ...input, userId: context.user.id }),
   ),
 });
 
@@ -127,10 +129,10 @@ const demonstrations = os.demonstrations.router({
   done: demonstrationAction("done"),
   cancel: demonstrationAction("cancel"),
   view: os.demonstrations.view.handler(({ context, input }) =>
-    context.sdk.demonstrations.view({ userId: context.user.id, ...input }),
+    context.sdk.demonstrations.view({ ...input, userId: context.user.id }),
   ),
   steps: os.demonstrations.steps.handler(({ context, input }) =>
-    context.sdk.demonstrations.steps({ userId: context.user.id, ...input }),
+    context.sdk.demonstrations.steps({ ...input, userId: context.user.id }),
   ),
 });
 
@@ -146,6 +148,7 @@ const computer = os.computer.router({
 /** The `bot` plugin's routers, one per namespace, served under `<basePath>/rpc/<namespace>`. */
 export const botPluginRouter = {
   bots,
+  conversations,
   routines,
   checkIns,
   helpers,

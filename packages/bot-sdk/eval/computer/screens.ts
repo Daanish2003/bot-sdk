@@ -18,7 +18,7 @@ import { createBot } from "../../plugins/bot/server/conversation";
 import type { ComputerHandle } from "../../plugins/computer/server/internal";
 import type { createComputerSdk } from "./setup";
 import { acceptSocket } from "./ws-server";
-import { createChatHandler, createChatScreenSocket } from "../../core/server/over";
+import { createHttpHandlerOver, createScreenSocketOver } from "../../core/server/over";
 
 /** Where the throwaway server serves the HTTP layer. */
 const basePath = "/api/chat";
@@ -45,8 +45,8 @@ async function serveLiveView(
   sdk: Sdk,
   options: { stripCsp?: boolean } = {},
 ): Promise<{ origin: string; server: Server }> {
-  const screenHandler = createChatHandler(sdk, { basePath, getUser: () => null });
-  const screenSocket = createChatScreenSocket(sdk, { basePath });
+  const screenHandler = createHttpHandlerOver(sdk, { basePath, getUser: () => null });
+  const screenSocket = createScreenSocketOver(sdk, { basePath });
   let origin = "";
   const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
     const answer = await screenHandler(requestOf(request, origin));

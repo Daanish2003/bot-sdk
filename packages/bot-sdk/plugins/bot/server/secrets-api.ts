@@ -1,7 +1,5 @@
-import { z } from "zod";
-
 import type { BotSdkContext } from "../../../core/server/plugin";
-import { parseInput } from "../../../core/server/rpc-error";
+import { parseInput, type WithUser } from "../../../core/server/rpc-error";
 import { deleteSecret, listSecrets, saveSecret } from "./safety";
 import { saveSecretInput, deleteSecretInput } from "../shared/contract";
 
@@ -10,8 +8,6 @@ import { saveSecretInput, deleteSecretInput } from "../shared/contract";
  * Bots. A value goes in through `save` and never comes out: `list` returns names and dates only.
  * Each takes one object with `userId`; the procedures are one-line wrappers.
  */
-
-type WithUser<Schema extends z.ZodType> = { userId: string } & z.input<Schema>;
 
 /** The `secrets` namespace over the core context. */
 export function secretsApi(sdk: BotSdkContext) {

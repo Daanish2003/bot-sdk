@@ -17,6 +17,7 @@ import {
   mergeRateLimits,
   mergeRouters,
   mergeRoutes,
+  normalizeBasePath,
   type BotSdkContext,
   type BotSdkPlugin,
   type CoreRule,
@@ -34,7 +35,7 @@ import type { CheckInsApi, RoutinesApi } from "../../plugins/bot/server/routines
 import type { DemonstrationsApi } from "../../plugins/bot/server/demonstrations-api";
 import type { HelpersApi } from "../../plugins/bot/server/helpers-api";
 import type { ReviewsApi } from "../../plugins/bot/server/reviews-api";
-import { channel, createChannels } from "../../plugins/bot/server/channels";
+import { channel, createChannels, noChannels } from "../../plugins/bot/server/channels";
 import type { ChannelAdapter, ChannelApi } from "../../plugins/channel/server/internal";
 import { computerSleepJob, createComputer } from "../../plugins/computer/server/internal";
 import type { ComputerProvider } from "../../plugins/computer/server/internal";
@@ -108,6 +109,14 @@ export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly Fe
   blobs?: BlobStore;
   /** What the SDK asks the Host about a user (spec #873). */
   users?: UsersSlot;
+  /**
+   * The path the HTTP layer is served at (its `basePath`, for example `/api/chat`), under which
+   * the live view's links to a Screen point: `<liveViewBase>/screens/…`. Set it to make links
+   * with `computer.view` and `demonstrations.view` in a process that serves no HTTP. Unset, the
+   * first `createHttpHandler` or `createScreenSocket` made over the instance sets it to its
+   * `basePath`, and a link before then throws.
+   */
+  liveViewBase?: string;
   /**
    * The optional capabilities (spec #871): features built with `defineFeature`, each API served
    * as `sdk.<id>`.
@@ -266,8 +275,8 @@ export function createBotSdk<const Features extends readonly FeatureEntry[] = []
 
 /**
  * The core's parts the slots configure: Models (`modelsPart`, by default the models slot's), the
- * Bots, and the Channels when their slot is set. Models come first, so every other part's `init`
- * finds `sdk.models` set.
+ * Bots, and the Channels (with only the email inbound route, answering 404, when their slot isn't
+ * set). Models come first, so every other part's `init` finds `sdk.models` set.
  */
 export function coreParts(options: BotSdkOptions, modelsPart?: BotSdkPlugin): BotSdkPlugin[] {
   if (!modelsPart && !options.models) {
@@ -283,7 +292,7 @@ export function coreParts(options: BotSdkOptions, modelsPart?: BotSdkPlugin): Bo
             verifiedEmail: options.users?.verifiedEmail ?? (async () => null),
           }),
         ]
-      : []),
+      : [noChannels()]),
   ];
 }
 
@@ -471,7 +480,9 @@ function buildContext(
     clock: given.clock ?? (() => new Date()),
     keyring: given.keyring ?? options.keyEncryptionSecrets,
     lifecycle: given.lifecycle ?? { stopping: false },
-    mount: given.mount ?? { basePath: null },
+    liveView: given.liveView ?? {
+      base: options.liveViewBase === undefined ? null : normalizeBasePath(options.liveViewBase),
+    },
     isUserBlocked: given.isUserBlocked ?? options.users?.isBlocked ?? (() => false),
     // Set by the Models' init, which runs before every other part's.
     models: modelsUnconfigured,

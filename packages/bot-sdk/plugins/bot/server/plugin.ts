@@ -30,7 +30,7 @@ import {
   stopUserHelpers,
 } from "./helpers";
 
-import { screenViewPath } from "../shared/helper";
+import { screensPath, screenViewPath } from "../shared/helper";
 import { stopUserTurns, turnJobs } from "./turn";
 import { demonstrationJobs, stopUserDemonstrations } from "./demonstrations";
 
@@ -153,7 +153,7 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
         path: `${screenViewPath}/*`,
         public: true,
         handle: (request, { sdk, basePath }) =>
-          handleScreenRequest(sdk, request, `${basePath}${screenViewPath}`),
+          handleScreenRequest(sdk, request, screensPath(basePath)),
       })),
     ],
     deleteUser: {

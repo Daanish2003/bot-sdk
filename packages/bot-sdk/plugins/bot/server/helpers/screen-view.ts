@@ -12,7 +12,7 @@ import {
   type ScreenControl,
   ScreenNotOpenError,
 } from "../../../computer/server/internal";
-import { screenViewPath } from "../../shared/helper";
+import { screensPath } from "../../shared/helper";
 import { computerOf } from "../agent-loop";
 import { isLiveDemonstration } from "../../shared/demonstration";
 import { helperStoppedError } from "./hand-off";
@@ -143,18 +143,18 @@ async function ownedScreen(sdk: BotSdkContext, userId: string, holder: ScreenHol
 }
 
 /**
- * Where the instance's HTTP layer serves the live view, `<basePath>/screens`. Throws before
- * `createHttpHandler` (or `createScreenSocket`) has served the instance, since a link would lead
+ * Where the live view's links point, `<liveViewBase>/screens`. Throws while the instance has no
+ * link base (no `liveViewBase`, and no HTTP handler or screen socket yet), since a link would lead
  * nowhere.
  */
 function screensBase(sdk: BotSdkContext): string {
-  const { basePath } = sdk.mount;
-  if (basePath === null) {
+  const { base } = sdk.liveView;
+  if (base === null) {
     throw new Error(
-      "The live view is served by the HTTP layer: call createHttpHandler or createScreenSocket first",
+      "The live view's links need a base: set createBotSdk's liveViewBase, or call createHttpHandler or createScreenSocket first",
     );
   }
-  return `${basePath}${screenViewPath}`;
+  return screensPath(base);
 }
 
 /** What a link to an ended Demonstration's Screen is refused with. */

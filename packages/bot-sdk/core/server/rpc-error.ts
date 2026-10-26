@@ -30,6 +30,9 @@ export function rpcError(
   return new ORPCError(status, { message, status: httpStatus, data: { ...extra, code, params } });
 }
 
+/** A domain method's argument: the input `Schema` validates, with the acting user's id. */
+export type WithUser<Schema extends z.ZodType> = { userId: string } & z.input<Schema>;
+
 /**
  * A domain method's input, parsed with the schema its procedure validates with (spec #873). An
  * invalid one throws the error the procedure answers: BAD_REQUEST, "Input validation failed",

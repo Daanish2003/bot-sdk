@@ -93,8 +93,9 @@ async function send(client: Client, botId: string, message: string, id = uuidv7(
 
 /** The changes after `since`, which must not need a reload. */
 async function changesAfter(client: Client, botId: string, since: number): Promise<BotChange[]> {
-  const result = await client.bots.changes({ botId, since });
-  if (result.reload) throw new Error(`bots.changes since ${since} asked for a reload`);
+  const { conversationId } = await client.bots.get({ botId });
+  const result = await client.conversations.changes({ conversationId, since });
+  if (result.reload) throw new Error(`conversations.changes since ${since} asked for a reload`);
   return result.changes;
 }
 
@@ -169,7 +170,10 @@ describe("bot.changes", () => {
       await expect(followSend(other, { botId, id: uuidv7(), text: "Hi" })).rejects.toThrow(
         "Bot not found",
       );
-      await expect(other.bots.changes({ botId, since: 0 })).rejects.toThrow("Bot not found");
+      const { conversationId } = await client.bots.get({ botId });
+      await expect(other.conversations.changes({ conversationId, since: 0 })).rejects.toThrow(
+        "Conversation not found",
+      );
       await deleteCredentials(deps, user.id, "openai");
       await expect(followSend(client, { botId, id: uuidv7(), text: "Hi" })).rejects.toThrow(
         "is not an available Model",
@@ -400,9 +404,15 @@ describe("bot.changes", () => {
 
       const oldest = total - retainedChanges;
       expect(await changesAfter(client, botId, oldest)).toHaveLength(retainedChanges);
-      expect(await client.bots.changes({ botId, since: oldest - 1 })).toEqual({ reload: true });
-      expect(await client.bots.changes({ botId, since: 0 })).toEqual({ reload: true });
-      expect(await client.bots.changes({ botId, since: total + 1 })).toEqual({ reload: true });
+      expect(await client.conversations.changes({ conversationId, since: oldest - 1 })).toEqual({
+        reload: true,
+      });
+      expect(await client.conversations.changes({ conversationId, since: 0 })).toEqual({
+        reload: true,
+      });
+      expect(await client.conversations.changes({ conversationId, since: total + 1 })).toEqual({
+        reload: true,
+      });
       expect(await changesAfter(client, botId, total)).toEqual([]);
     },
     timeout,

@@ -58,6 +58,11 @@ function mount(
   }: { routines?: BotRoutine[]; stops?: unknown[]; log?: ReturnType<typeof changeLog> } = {},
 ) {
   const router = {
+    conversations: {
+      changes: os
+        .input(z.object({ conversationId: z.string(), since: z.number() }))
+        .handler(({ input }) => log.since(input.since)),
+    },
     bots: {
       get: os.handler(() => ({
         bot: { ...ada, turnStatus: null },
@@ -66,9 +71,6 @@ function mount(
         turns: [],
         lastSeq: log.last,
       })),
-      changes: os
-        .input(z.object({ botId: z.string(), since: z.number() }))
-        .handler(({ input }) => log.since(input.since)),
       stop: os.handler(() => {}),
       send: os
         .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }).loose())

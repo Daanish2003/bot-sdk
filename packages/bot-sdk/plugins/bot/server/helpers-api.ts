@@ -1,7 +1,5 @@
-import { z } from "zod";
-
 import type { BotSdkContext } from "../../../core/server/plugin";
-import { parseInput } from "../../../core/server/rpc-error";
+import { parseInput, type WithUser } from "../../../core/server/rpc-error";
 import { helperDone, listHelpers, stopBotHelpers } from "./helpers";
 import { requireOwnedBot } from "./owned-bot";
 import { helperListInput, helperDoneInput, helperStopInput } from "../shared/contract";
@@ -9,8 +7,6 @@ import { helperListInput, helperDoneInput, helperStopInput } from "../shared/con
 /*
  * The `helpers` namespace's domain methods (spec #873), taking the user's id as `bots` does.
  */
-
-type WithUser<Schema extends z.ZodType> = { userId: string } & z.input<Schema>;
 
 /** The `helpers` namespace over the core context. */
 export function helpersApi(sdk: BotSdkContext) {

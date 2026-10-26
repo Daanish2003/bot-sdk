@@ -16,7 +16,7 @@ import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { fakeNovnc } from "../../../support/fake-novnc";
 import { chatRpc, createTestChat } from "../../../support/sdk";
-import { createChatScreenSocket } from "../../../../core/server/over";
+import { createScreenSocketOver } from "../../../../core/server/over";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import { fakeComputerProvider, type FakeCommandRun } from "../../../support/fake-computer-provider";
@@ -50,6 +50,7 @@ const reason = "Sign in to Salesforce: enter your password and the code from you
  */
 async function waitingHelper(
   onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>,
+  { liveViewBase }: { liveViewBase?: string } = {},
 ) {
   const novnc = await fakeNovnc();
   const offset = { ms: 0 };
@@ -91,6 +92,7 @@ async function waitingHelper(
     jobs,
     adapterFor: () => adapter,
     clock,
+    liveViewBase,
   });
   await jobs.start();
   cleanups.push(
@@ -145,7 +147,7 @@ const lastActiveAt = async (userId: string) =>
 const screenHandlerOf = (deps: TestDeps) => createTestChat({ deps }).fetch;
 
 /** The live view's socket hooks, mounted at the HTTP handler's basePath. */
-const screenSocketOf = (deps: TestDeps) => createChatScreenSocket(deps, { basePath: "/api/chat" });
+const screenSocketOf = (deps: TestDeps) => createScreenSocketOver(deps, { basePath: "/api/chat" });
 
 const pageRequest = (link: string) => new Request(new URL(link, "https://bots.example"));
 
@@ -187,6 +189,17 @@ describe("bot.screen.view", () => {
     expect(path).toBe(`${url.slice(1).split("/vnc.html")[0]}/websockify`);
     // A link leaves the Screen's control as it is: taking control is Take control's alone.
     expect(screenCommands(computerFake).slice(before)).toEqual([]);
+  });
+
+  it("points a link under createBotSdk's liveViewBase, called in-process, whatever the handler's basePath", async () => {
+    const { deps, user, helper } = await waitingHelper(undefined, { liveViewBase: "/chat/" });
+
+    const { url } = await deps.screens.view({ userId: user.id, helperId: helper.id });
+
+    expect(url).toMatch(/^\/chat\/screens\/[^/]+\/vnc\.html\?/);
+    expect(new URL(url, "https://bots.example").searchParams.get("path")).toMatch(
+      /^chat\/screens\/[^/]+\/websockify$/,
+    );
   });
 
   it("finds no Helper of another user's", async () => {

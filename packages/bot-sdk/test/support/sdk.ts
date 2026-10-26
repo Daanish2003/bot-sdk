@@ -6,7 +6,7 @@ import { knowledgeClient } from "../../plugins/knowledge/client/index";
 import { mcpClient } from "../../plugins/mcp/client/index";
 import { channelClient } from "../../plugins/channel/client/index";
 import type { HttpHandlerOptions } from "../../core/http";
-import { createChatHandler } from "../../core/server/over";
+import { createHttpHandlerOver } from "../../core/server/over";
 import { createTestSdk } from "./deps";
 import type { TestUser } from "./users";
 
@@ -27,7 +27,7 @@ export function createTestChat({
   deps?: TestDeps;
   rateLimits?: HttpHandlerOptions["rateLimits"];
 } = {}) {
-  const handler = createChatHandler(deps, {
+  const handler = createHttpHandlerOver(deps, {
     basePath,
     getUser: () => (user ? { id: user.id } : null),
     rateLimits,

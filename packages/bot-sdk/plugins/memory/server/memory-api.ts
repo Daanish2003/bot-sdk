@@ -1,7 +1,5 @@
-import { z } from "zod";
-
 import type { BotSdkContext } from "../../../core/server/plugin";
-import { parseInput } from "../../../core/server/rpc-error";
+import { parseInput, type WithUser } from "../../../core/server/rpc-error";
 import {
   addBotLine,
   deleteBotLine,
@@ -26,8 +24,6 @@ import {
  * `sdk.memory`, with the user's id and no request. The HTTP layer serves the
  * feature's contract (`shared/contract.ts`) over them, passing the signed-in user's id.
  */
-
-type WithUser<Schema extends z.ZodType> = { userId: string } & z.input<Schema>;
 
 /** The `memory` namespace over the core context. */
 export function memoryApi(sdk: BotSdkContext) {

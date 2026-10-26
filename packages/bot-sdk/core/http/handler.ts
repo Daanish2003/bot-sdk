@@ -3,7 +3,13 @@ import { RPCHandler } from "@orpc/server/fetch";
 
 import type { ChatUser, Context } from "../server/context";
 import { httpPartsOf, type BotSdk } from "../server/create-chat";
-import { matchPath, type BotSdkContext, type RateLimitsOf } from "../server/plugin";
+import {
+  matchPath,
+  normalizeBasePath,
+  type BotSdkContext,
+  type RateLimitsOf,
+  type Route,
+} from "../server/plugin";
 import { rateLimitedFor, rpcRateLimits, type RateLimit } from "../server/rate-limits";
 import type { ModelsPlugin } from "../../plugins/models/server/internal";
 
@@ -51,6 +57,13 @@ export function createHttpHandler(sdk: BotSdk, options: HttpHandlerOptions): Htt
     }
     return null;
   };
+  // The methods of the public routes at `path`: a public path called with another one answers 405.
+  const publicMethodsAt = (path: string | null) =>
+    path === null
+      ? []
+      : routes
+          .filter((route) => route.public && matchPath(route.path, path))
+          .map((route) => route.method);
 
   return async (request) => {
     const { pathname } = new URL(request.url);
@@ -60,6 +73,8 @@ export function createHttpHandler(sdk: BotSdk, options: HttpHandlerOptions): Htt
       const { route, params } = publicRoute;
       return route.handle(request, { user: null, sdk: context, params, basePath: prefix });
     }
+    const allowed = publicMethodsAt(path);
+    if (allowed.length > 0) return methodNotAllowed(allowed);
     const user = await options.getUser(request);
     if (!user) return unauthorized();
 
@@ -81,17 +96,13 @@ export function createHttpHandler(sdk: BotSdk, options: HttpHandlerOptions): Htt
 }
 
 /**
- * Records that the instance is served at `basePath`, and returns it without a trailing slash. One
- * instance is served at one path, which the live view's links point under: a second throws.
+ * `basePath` without a trailing slash, recorded as the live view's link base when the instance has
+ * none yet (`createBotSdk`'s `liveViewBase`, or an earlier handler's): a second handler at another
+ * path serves too, and the links keep pointing under the first.
  */
 export function serveAt(context: BotSdkContext, basePath: string): string {
-  if (!basePath.startsWith("/")) throw new Error(`basePath must start with "/": ${basePath}`);
-  const prefix = basePath.replace(/\/+$/, "");
-  const { mount } = context;
-  if (mount.basePath !== null && mount.basePath !== prefix) {
-    throw new Error(`This instance is already served at ${mount.basePath || "/"}`);
-  }
-  mount.basePath = prefix;
+  const prefix = normalizeBasePath(basePath);
+  context.liveView.base ??= prefix;
   return prefix;
 }
 
@@ -115,6 +126,13 @@ async function rateLimitRefusal(
 
 function unauthorized() {
   return Response.json({ code: "error.unauthorized", params: {} }, { status: 401 });
+}
+
+function methodNotAllowed(methods: readonly Route["method"][]) {
+  return new Response("Method not allowed", {
+    status: 405,
+    headers: { Allow: [...new Set(methods)].join(", ") },
+  });
 }
 
 function notFound() {

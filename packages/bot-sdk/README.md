@@ -89,7 +89,7 @@ Install these in the Host. There is one `package.json` for the whole SDK, and ve
 
 The `runner` and `memory` plugins and the `skills` feature need nothing beyond `core/` (and `lucide-react` for the `ui/` folders).
 
-`core/` imports only npm packages and its own files, so a Host outside this repo can copy and compile it.
+`core/` is not self-contained: `core/server`, `core/http` and `core/client` import the `plugins/` they compose (the Bot core, Models, Runner, Computer and Channel, and the features' parts), so a Host outside this repo copies `core/` together with `plugins/`.
 
 ## shadcn components
 
@@ -342,11 +342,11 @@ A provider is the seam to a mail service (`EmailProvider`: `parseInbound` and `s
 - `plugins/channel/mailpit`: a local Mailpit. Its received-message webhook POSTs to the inbound route, and the provider fetches that mail from Mailpit's REST API, so it refuses a webhook for a message Mailpit doesn't hold. Mailpit gives no SPF, DKIM or DMARC verdict, so the provider vouches for every mail it holds: use it only on a Host that listens on localhost.
 - `plugins/channel/fake`: for tests and evals. An inbound request's body is the mail as JSON, with its own `authentication`, and each sent mail is kept in `sent`. It vouches for whatever it is sent, so never mount it on a route others can reach.
 
-## Keeping a Bot's thread in sync: `bot.changes`
+## Keeping a Bot's thread in sync: `conversations.changes`
 
-Every change to a Bot's thread (a Message, a Turn starting or ending, a Secret, Routine, review, Helper, Check-in or Summary) is written to the Conversation's change log in the same transaction, with a sequence number (ADR 0026). `bots.get` returns the thread with its newest number as `lastSeq`, the cursor. `bots.changes({ botId, since })` returns the changes after the cursor, oldest first, each with what it points at as it is now, or `{ reload: true }` when the log (the newest 500 per Conversation) no longer holds them all, so the thread must be read afresh with `bots.get`.
+Every change to a Bot's thread (a Message, a Turn starting or ending, a Secret, Routine, review, Helper, Check-in or Summary) is written to the Conversation's change log in the same transaction, with a sequence number (ADR 0026). `bots.get` returns the thread with its newest number as `lastSeq`, the cursor. `conversations.changes({ conversationId, since })` (the thread's `conversationId` from `bots.get`) returns the changes after the cursor, oldest first, each with what it points at as it is now, or `{ reload: true }` when the log (the newest 500 per Conversation) no longer holds them all, so the thread must be read afresh with `bots.get`.
 
-The server's only live signal is the data-less `{ "type": "changed" }` hint on the SSE `/events` route; a Bot app never takes data from it. A tab fetches the changes on a hint, when the stream (re)connects, when the window gets focus back and, while a Turn runs, every 30 seconds. `useBotSync` does this for the Bot components; a Host with its own UI calls `bot.changes` the same way and applies the changes in order.
+The server's only live signal is the data-less `{ "type": "changed" }` hint on the SSE `/events` route; a Bot app never takes data from it. A tab fetches the changes on a hint, when the stream (re)connects, when the window gets focus back and, while a Turn runs, every 30 seconds. `useBotSync` does this for the Bot components; a Host with its own UI calls `conversations.changes` the same way and applies the changes in order.
 
 ## Calling the SDK from the Host's own server code
 

@@ -1,7 +1,5 @@
-import { z } from "zod";
-
 import type { BotSdkContext } from "../../../core/server/plugin";
-import { parseInput } from "../../../core/server/rpc-error";
+import { parseInput, type WithUser } from "../../../core/server/rpc-error";
 import { requireOwnedBot } from "./owned-bot";
 import { decideReview, listReviews } from "./safety";
 import { reviewListInput, reviewDecisionInput } from "../shared/contract";
@@ -10,8 +8,6 @@ import { reviewListInput, reviewDecisionInput } from "../shared/contract";
  * The `reviews` namespace's domain methods (spec #873): the user's side of the Auto-reviews of
  * their Bots' tool calls (spec #691), taking the user's id as `bots` does.
  */
-
-type WithUser<Schema extends z.ZodType> = { userId: string } & z.input<Schema>;
 
 /** The `reviews` namespace over the core context. */
 export function reviewsApi(sdk: BotSdkContext) {

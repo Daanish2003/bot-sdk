@@ -1,7 +1,5 @@
-import { z } from "zod";
-
 import type { BotSdkContext } from "../../../core/server/plugin";
-import { parseInput } from "../../../core/server/rpc-error";
+import { parseInput, type WithUser } from "../../../core/server/rpc-error";
 import type { DemonstrationAction } from "../shared/demonstration";
 import { actOnDemonstration, demonstrationSteps } from "./demonstrations";
 import { screenView } from "./helpers";
@@ -13,13 +11,11 @@ import { demonstrationInput } from "../shared/contract";
  * otherwise changes nothing; another user's Demonstration is not found.
  */
 
-type WithUser = { userId: string } & z.input<typeof demonstrationInput>;
-
 /** The `demonstrations` namespace over the core context. */
 export function demonstrationsApi(sdk: BotSdkContext) {
   const act =
     (action: DemonstrationAction) =>
-    async ({ userId, ...rest }: WithUser) =>
+    async ({ userId, ...rest }: WithUser<typeof demonstrationInput>) =>
       actOnDemonstration(sdk, userId, parseInput(demonstrationInput, rest).demonstrationId, action);
 
   return {
@@ -36,7 +32,7 @@ export function demonstrationsApi(sdk: BotSdkContext) {
      * A fresh live-view link to a live Demonstration's Screen, which the user drives, never stored.
      * Refused, "This Demonstration has ended.", once it ended.
      */
-    view: async ({ userId, ...rest }: WithUser) =>
+    view: async ({ userId, ...rest }: WithUser<typeof demonstrationInput>) =>
       screenView(sdk, userId, {
         demonstrationId: parseInput(demonstrationInput, rest).demonstrationId,
       }),
@@ -45,7 +41,7 @@ export function demonstrationsApi(sdk: BotSdkContext) {
      * The steps a Demonstration captured, in order, with a mark where the user paused: what the
      * Show me card and "What Planner sees" list. Password values come masked.
      */
-    steps: async ({ userId, ...rest }: WithUser) =>
+    steps: async ({ userId, ...rest }: WithUser<typeof demonstrationInput>) =>
       demonstrationSteps(sdk, userId, parseInput(demonstrationInput, rest).demonstrationId),
   };
 }

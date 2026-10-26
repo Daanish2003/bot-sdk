@@ -10,27 +10,12 @@ import { listCheckIns, listRoutines } from "./routines";
 import { listHelpers } from "./helpers";
 import { reviewFields } from "./safety";
 import { botSummaries } from "./context";
-import { findBot, toBotMessage } from "./conversation";
+import { toBotMessage } from "./conversation";
 
 /** The ids of `changes` of `kind`, once each. */
 const idsOf = (changes: { kind: string; refId: string }[], kind: BotChangeKind) => [
   ...new Set(changes.filter((change) => change.kind === kind).map((change) => change.refId)),
 ];
-
-/**
- * The changes to the user's Bot `botId`'s thread after seq `since`, as `conversationChanges` reads
- * them for its Conversation. Another user's Bot is not found.
- */
-export async function botChanges(
-  deps: BotSdkContext,
-  userId: string,
-  botId: string,
-  since: number,
-): Promise<BotChanges> {
-  const found = await findBot(deps.db, userId, botId);
-  if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-  return threadChanges(deps, { userId, botId, conversationId: found.conversationId }, since);
-}
 
 /**
  * The Bot that Conversation `conversationId` belongs to, when it is one of the user's Bots'.

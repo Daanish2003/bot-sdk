@@ -4,8 +4,9 @@ import { z } from "zod";
 import { conversationChannel } from "../../../core/server/chat/conversation-events";
 import type { PubSub } from "../../../core/server/chat/pubsub";
 import type { BotSdkContext } from "../../../core/server/plugin";
-import { parseInput, rpcError } from "../../../core/server/rpc-error";
+import { parseInput, rpcError, type WithUser } from "../../../core/server/rpc-error";
 import { conversation } from "../../../core/server/storage";
+import { conversationChangesInput } from "../shared/contract";
 import { conversationChanges } from "./changes";
 
 /*
@@ -17,16 +18,8 @@ import { conversationChanges } from "./changes";
 /** `conversations.watch`'s input, besides `userId` and `signal`. */
 export const watchInput = z.object({ conversationId: z.uuid() });
 
-/** `conversations.changes`' input, besides `userId`. */
-export const changesInput = z.object({
-  conversationId: z.uuid(),
-  since: z.number().int().min(0),
-});
-
 /** A change hint: something in the Conversation's thread changed. It carries no data. */
 export type ConversationHint = { type: "changed" };
-
-type WithUser<Schema extends z.ZodType> = { userId: string } & z.input<Schema>;
 
 /** The `conversations` namespace over the core context. */
 export function conversationsApi(sdk: BotSdkContext) {
@@ -63,8 +56,8 @@ export function conversationsApi(sdk: BotSdkContext) {
      * changed. A cursor the change log no longer holds, or one past its newest change, gets
      * `reload`: read the thread afresh with `bots.get`. Another user's Conversation is not found.
      */
-    changes: async ({ userId, ...rest }: WithUser<typeof changesInput>) => {
-      const { conversationId, since } = parseInput(changesInput, rest);
+    changes: async ({ userId, ...rest }: WithUser<typeof conversationChangesInput>) => {
+      const { conversationId, since } = parseInput(conversationChangesInput, rest);
       return conversationChanges(sdk, userId, conversationId, since);
     },
   };
