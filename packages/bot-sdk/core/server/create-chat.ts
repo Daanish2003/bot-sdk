@@ -134,7 +134,7 @@ export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly Fe
 
 export type BotSdk = {
   handler: ChatHandler;
-  /** The runner's jobs: `runJob` is what a Host's own worker (such as a Trigger.dev task) calls. */
+  /** The runner's jobs. */
   runner: RunnerApi;
   /** The core's Models (spec #871): metering, the Quota and the Admin views' usage reads. */
   models: ModelsApi;

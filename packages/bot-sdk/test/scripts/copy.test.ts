@@ -59,7 +59,6 @@ describe("copySdk", () => {
     write(join(source, "plugins", "bot", "ui", "panel.tsx"), "export const Panel = 1;");
     write(join(source, "plugins", "models", "client", "index.ts"), "export const m = 1;");
     write(join(source, "plugins", "models", "ui", "keys.tsx"), "export const Keys = 1;");
-    write(join(source, "extras", "trigger", "runner.ts"), "export const runner = 1;");
     write(join(source, "package.json"), "{}");
     write(join(source, "README.md"), "# readme");
     write(join(source, "NOTICE"), "Sim Studio");
@@ -84,7 +83,6 @@ describe("copySdk", () => {
       "VERSION",
       "core/client/index.ts",
       "core/server/index.ts",
-      "extras/trigger/runner.ts",
       "package.json",
       "plugins/bot/server/index.ts",
       "plugins/bot/ui/panel.tsx",
@@ -112,18 +110,6 @@ describe("copySdk", () => {
     expect(existsSync(join(dest, "core", "client", "index.ts"))).toBe(false);
     expect(readFileSync(join(dest, "VERSION"), "utf8")).toContain("fff9999");
     expect(readFileSync(join(dest, "ui", "chat", "composer.tsx"), "utf8")).toBe("host edit");
-  });
-
-  it("copies extras once, so a Host's edits to its adapter survive updates", () => {
-    copySdk(dest, { source, version });
-    expect(readFileSync(join(dest, "extras", "trigger", "runner.ts"), "utf8")).toBe(
-      "export const runner = 1;",
-    );
-
-    write(join(dest, "extras", "trigger", "runner.ts"), "host edit");
-    copySdk(dest, { source, version });
-
-    expect(readFileSync(join(dest, "extras", "trigger", "runner.ts"), "utf8")).toBe("host edit");
   });
 
   it("replaces plugins server code on a second run but leaves an edited plugin ui untouched", () => {

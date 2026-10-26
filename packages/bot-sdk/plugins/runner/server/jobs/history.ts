@@ -81,8 +81,7 @@ export function jobHistoryStore(
 }
 
 /**
- * A store that records nothing, for a job run with no `chat.job` row (a Host's worker, such as a
- * Trigger.dev task): every call runs for real. A `(tx) =>` activity still gets a transaction.
+ * A store that records nothing, for a job run with no `chat.job` row: every call runs for real. A `(tx) =>` activity still gets a transaction.
  */
 export function unrecordedStore(db: Database): HistoryStore<Transaction> {
   return {
