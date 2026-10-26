@@ -6,12 +6,7 @@ import { z } from "zod";
 import { deleteBlobsBestEffort, computer as computerTable } from "../../../core/server/storage";
 
 import type { BotSdkContext, Transaction, UserDeleteHooks } from "../../../core/server/plugin";
-import {
-  defineJob,
-  isInProcessRunner,
-  cancelQueuedJobsIn,
-  runnerJobs,
-} from "../../runner/server/internal";
+import { defineJob, cancelQueuedJobsIn } from "../../runner/server/internal";
 
 import {
   type CommandResult,
@@ -313,12 +308,6 @@ export const computerSleepJob = defineJob({
  * `provider` (the computer slot). It exposes operations, not tools: `bot` builds its tools from them.
  */
 export function createComputer(sdk: BotSdkContext, provider: ComputerProvider): ComputerApi {
-  // A wake queues its sleep check in its own transaction, which only the in-process runner reads.
-  if (!isInProcessRunner(runnerJobs(sdk))) {
-    throw new Error(
-      "The computer slot needs the in-process runner: a wake queues its sleep check in its transaction",
-    );
-  }
   const busyChecks: BusyCheck[] = [];
   const ownerChecks: OwnerCheck[] = [];
   const api: ComputerApi = {
@@ -855,7 +844,7 @@ async function isBusy(checks: readonly BusyCheck[], userId: string, lastActiveAt
 
 /**
  * Queues one sleep check of the user's Computer, due at `runAfter`: in `tx` when given, so it
- * exists only if that transaction commits (this needs the in-process runner, as `bot` does).
+ * exists only if that transaction commits.
  */
 async function armSleepCheck(
   sdk: BotSdkContext,

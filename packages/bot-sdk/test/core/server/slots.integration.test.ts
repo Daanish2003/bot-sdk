@@ -146,7 +146,7 @@ describe("createBotSdk with flat slots", () => {
 
   it("wakes the instance's jobs up through the runner slot's Executor", async () => {
     const manual = manualExecutor();
-    // Models alone, without the Bots, which refuse a runner other than the in-process one.
+    // Models alone: this test is about the runner slot, not the Bots.
     const sdk = buildBotSdk(slots({ runner: manual.executor }), { db: getTestDb() }, [
       models(),
     ]).instance;

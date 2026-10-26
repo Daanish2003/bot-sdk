@@ -1,6 +1,5 @@
 import { deleteBlobsBestEffort } from "../../../core/server/storage";
 import type { BotSdkPlugin } from "../../../core/server/plugin";
-import { isInProcessRunner, runnerJobs } from "../../runner/server/internal";
 
 import {
   cancelUserCheckIns,
@@ -83,13 +82,6 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
   return {
     id: "bot",
     init: (sdk) => {
-      // A Turn replays from the history `chat.job` holds. Trigger.dev records nothing and its retry
-      // starts over, which would send the Messages again (ADR 0011, the #482 amendment).
-      if (!isInProcessRunner(runnerJobs(sdk))) {
-        throw new Error(
-          "The bot plugin needs the in-process runner: a Trigger.dev retry starts a Turn over and would send its Messages again",
-        );
-      }
       // With a Computer, a Turn has its tools, and a running Turn keeps the Computer awake.
       const { computer } = sdk;
       if (computer) {
