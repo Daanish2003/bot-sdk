@@ -22,8 +22,9 @@ import {
   type CommandResult,
 } from "../../../../plugins/computer/server/internal";
 
-import type { JobRunner } from "../../../../plugins/runner/server/internal";
+import { createJobRunner } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
+import { manualExecutor } from "../../../support/executors";
 import { drainJobs } from "../../../support/jobs";
 import { getTestDb } from "../../../support/test-database";
 import { insertOwner, insertUser } from "../../../support/users";
@@ -832,14 +833,11 @@ describe("a wake whose transaction fails after its create", () => {
 
 describe("the computer plugin on a runner that is not in-process", () => {
   it("fails at startup, because a wake queues its sleep check in its transaction", () => {
-    const elsewhere: JobRunner = {
-      enqueue: async () => "job",
-      cancel: async () => {},
-      status: async () => undefined,
-      schedule: async () => {},
-      start: async () => {},
-      stop: async () => {},
-    };
+    const elsewhere = createJobRunner({
+      db: getTestDb(),
+      deps: () => createTestSdk(),
+      executor: manualExecutor().executor,
+    });
     const { provider } = fakeComputerProvider();
 
     expect(() => createTestSdk({ computer: provider, jobs: elsewhere })).toThrow(/in-process/);

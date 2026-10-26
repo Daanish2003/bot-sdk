@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { pgSchema, text } from "drizzle-orm/pg-core";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
+import { z } from "zod";
 
 import {
   createBotSdk,
@@ -14,8 +15,8 @@ import type { ComputerApi } from "../../../plugins/computer/server/internal";
 import { fakeEmailProvider } from "../../../plugins/channel/fake/index";
 import { emailChannel } from "../../../plugins/channel/server/index";
 import { models } from "../../../plugins/models/server/internal";
-import { isInProcessRunner, runnerJobs } from "../../../plugins/runner/server/internal";
-import type { JobRunner } from "../../../plugins/runner/server/internal";
+import { defineJob, isInProcessRunner, runnerJobs } from "../../../plugins/runner/server/internal";
+import { manualExecutor } from "../../support/executors";
 import { fakeComputerProvider } from "../../support/fake-computer-provider";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser } from "../../support/users";
@@ -33,6 +34,8 @@ const shared = { databaseUrl: unreachable, getUser: () => null, keyEncryptionSec
 
 const slots = (options: Partial<BotSdkOptions> = {}) =>
   ({ ...shared, models: {}, ...options }) as BotSdkOptions;
+
+defineJob({ name: "slots.job", payload: z.object({ n: z.number() }), run: async () => {} });
 
 describe("createBotSdk with flat slots", () => {
   it("serves the Bots, Models and Channels with no plugin listed", async () => {
@@ -141,20 +144,17 @@ describe("createBotSdk with flat slots", () => {
     await getTestDb().delete(blob).where(eq(blob.key, "slots-test"));
   });
 
-  it("serves the runner slot's runner as the instance's runner, for a Host's own worker", async () => {
-    const jobs: JobRunner = {
-      enqueue: vi.fn(async () => "job-id"),
-      cancel: vi.fn(async () => {}),
-      status: vi.fn(async () => undefined),
-      schedule: vi.fn(async () => {}),
-      start: vi.fn(async () => {}),
-      stop: vi.fn(async () => {}),
-    };
+  it("wakes the instance's jobs up through the runner slot's Executor", async () => {
+    const manual = manualExecutor();
     // Models alone, without the Bots, which refuse a runner other than the in-process one.
-    const sdk = buildBotSdk(slots({ runner: jobs }), {}, [models()]).instance;
+    const sdk = buildBotSdk(slots({ runner: manual.executor }), { db: getTestDb() }, [
+      models(),
+    ]).instance;
 
-    expect(await sdk.runner.enqueue("slots.job", { n: 1 })).toBe("job-id");
-    expect(jobs.enqueue).toHaveBeenCalledWith("slots.job", { n: 1 }, undefined);
+    const id = await sdk.runner.enqueue("slots.job", { n: 1 });
+
+    expect(manual.notified).toEqual([{ jobId: id }]);
+    expect((await sdk.runner.status(id))?.status).toBe("queued");
     await expect(sdk.runner.runJob("slots.unknown", {})).rejects.toThrow(/Unknown job/);
   });
 

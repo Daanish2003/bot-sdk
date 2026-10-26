@@ -27,13 +27,13 @@ import {
 import { saveCredentials, quotaLookup } from "../../../../plugins/models/server/internal";
 
 import {
+  createJobRunner,
   inProcessRunner,
   type InProcessRunner,
   type JobClock,
   claimJob,
   reapStaleJobs,
 } from "../../../../plugins/runner/server/internal";
-import type { JobRunner } from "../../../../plugins/runner/server/internal";
 
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import {
@@ -44,6 +44,7 @@ import {
   toolCall,
   withUsage,
 } from "../../../support/fake-adapter";
+import { manualExecutor } from "../../../support/executors";
 import { fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
@@ -2238,14 +2239,11 @@ describe("a Turn that resumes after a crash", () => {
 
 describe("the bot plugin on a runner that is not in-process", () => {
   it("fails at startup, because a retry there starts over and would send Messages again", () => {
-    const elsewhere: JobRunner = {
-      enqueue: async () => "job",
-      cancel: async () => {},
-      status: async () => undefined,
-      schedule: async () => {},
-      start: async () => {},
-      stop: async () => {},
-    };
+    const elsewhere = createJobRunner({
+      db: getTestDb(),
+      deps: () => createTestSdk(),
+      executor: manualExecutor().executor,
+    });
 
     expect(() => createTestSdk({ jobs: elsewhere })).toThrow(/in-process/);
   });

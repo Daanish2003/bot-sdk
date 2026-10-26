@@ -1,4 +1,18 @@
-import type { JobRow } from "../../../../core/server/storage";
+import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
+import type { Database, JobRow } from "../../../../core/server/storage";
+import { afterCommit, trackCommits } from "./commit";
+import type { Executor } from "./executor";
+import {
+  cancelJob,
+  cancelJobIn,
+  claimJob,
+  enqueueJob,
+  readJob,
+  runClaimedJob,
+  type ClaimedJob,
+} from "./store";
+
+type Logger = Pick<Console, "error">;
 
 export type EnqueueOptions = {
   /** A job with this key that is still queued or running makes this enqueue a no-op. */
@@ -21,22 +35,221 @@ export type JobStatus = {
 };
 
 /**
- * Runs background jobs (ADR 0011). The runner slot takes one; the default is the
- * in-process runner, which claims jobs from `chat.job`. `start()` and `stop()` are called through
- * `chat.start()` and `chat.stop()`.
+ * Time as the runner sees it: `now` for backoff, claims and leases, and the timers for polling and
+ * heartbeats. Tests inject a fake so that all of it is deterministic.
+ */
+export type JobClock = {
+  now: () => Date;
+  setInterval: (callback: () => void, ms: number) => unknown;
+  clearInterval: (handle: unknown) => void;
+};
+
+export const systemClock: JobClock = {
+  now: () => new Date(),
+  setInterval: (callback, ms) => setInterval(callback, ms),
+  clearInterval: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
+};
+
+/**
+ * The core's runner (ADR 0029, #862): background jobs in `chat.job`, run through an Executor that
+ * only wakes them up. `start()` and `stop()` are called through `chat.start()` and `chat.stop()`.
  */
 export type JobRunner = {
+  /** The Executor that wakes this runner's jobs up. */
+  executor: Executor;
   /** Queues a job and returns its id. With an active idempotency key, returns that job's id. */
   enqueue: (name: string, payload: unknown, options?: EnqueueOptions) => Promise<string>;
+  /**
+   * Queues a job in the caller's transaction, so it exists only if that transaction commits, and
+   * returns its id. The Executor is notified once the transaction has committed. `now` defaults
+   * to the runner's clock.
+   */
+  enqueueIn: (
+    tx: Transaction,
+    name: string,
+    payload: unknown,
+    options?: EnqueueOptions & { now?: Date },
+  ) => Promise<string>;
   /**
    * Drops the queued job with this key, or aborts the running one at its next heartbeat or, sooner,
    * at its next Checkpoint, whose save is fenced. A plain activity's side effect has run by then,
    * and only its Checkpoint is dropped; a `(tx) =>` activity's write is rolled back.
    */
   cancel: (idempotencyKey: string) => Promise<void>;
+  /**
+   * Cancels the active job with this key in the caller's transaction, and returns what it was
+   * (`queued` never runs; `running` aborts at its next heartbeat or write), or undefined when
+   * none is active. `now` defaults to the runner's clock.
+   */
+  cancelIn: (
+    tx: Transaction,
+    idempotencyKey: string,
+    now?: Date,
+  ) => Promise<"queued" | "running" | undefined>;
   status: (jobId: string) => Promise<JobStatus | undefined>;
-  /** Recurring jobs. Built with Synced sources (spec 2); the in-process runner throws until then. */
+  /** Recurring jobs. Built with Synced sources (spec 2); the runner throws until then. */
   schedule: (name: string, options: { everyMs: number }) => Promise<void>;
+  /**
+   * The core's entry point, which the Executor calls: claims the job's lease if it is queued and
+   * due, replays its history and runs it, and resolves once the attempt's outcome is decided.
+   * Otherwise, or once `stop()` has begun, it does nothing.
+   */
+  runJob: (jobId: string) => Promise<void>;
+  /**
+   * Runs one attempt of a job claimed elsewhere, with this runner's signals: `stop()` drains and
+   * aborts it, and waits for its handler. `drain` stands in for the runner's deploy signal. Tests
+   * claim and run attempts by hand through it.
+   */
+  runClaimed: (claimed: ClaimedJob, options?: { drain?: AbortSignal }) => Promise<void>;
+  /** Has the in-process Executor claim due jobs now instead of at its next poll. */
+  wake: () => void;
+  /** Re-queued jobs (a retry, a yield, an expired lease) are passed to the Executor through it. */
+  requeued: (jobId: string, runAfter: Date) => void;
   start: () => Promise<void>;
+  /**
+   * Stops the Executor, so no new job starts, and asks each running workflow to yield: at its next
+   * Checkpoint its row is handed back `queued`, uncounted, for another process to resume. It waits
+   * up to `drainMs` for the running jobs to finish or yield, then aborts the rest and leaves their
+   * leases to expire. Handlers go on until they see their abort, lost attempts' included, so it
+   * then waits up to `drainMs` more for every handler to end: it resolves within twice `drainMs`.
+   */
   stop: () => Promise<void>;
 };
+
+export type JobRunnerOptions = {
+  db: Database;
+  executor: Executor;
+  logger?: Logger;
+  /**
+   * How long `stop()` lets running jobs finish or yield before it aborts them, and then how long
+   * it waits for the aborted handlers to end.
+   */
+  drainMs?: number;
+  clock?: JobClock;
+  /** The core context, read when a job runs. The core passes its instance's. */
+  deps: () => BotSdkContext;
+};
+
+/** Resolves when `promise` settles or after `ms`, whichever comes first, and clears its timer. */
+async function waitUpTo(promise: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms);
+  });
+  try {
+    await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** The Executors that are in-process, which `wake` asks to claim now. */
+export const wakeable = new WeakMap<Executor, () => void>();
+
+/** The core's runner over `executor` (see `JobRunner`). Nothing runs before `start()`. */
+export function createJobRunner({
+  db,
+  executor,
+  logger = console,
+  drainMs = 250_000,
+  clock = systemClock,
+  deps,
+}: JobRunnerOptions): JobRunner {
+  trackCommits(db);
+  let stopping = false;
+  // Made now, so that attempts run through `runClaimed` before `start()` get them too.
+  let drain = new AbortController();
+  let shutdown = new AbortController();
+  // Attempts running in this process until their outcome is decided.
+  const attempts = new Set<Promise<void>>();
+  // Every running handler, an attempt's that has ended included, until the handler ends too.
+  const handlers = new Set<Promise<void>>();
+
+  const notify = (jobId: string, runAfter?: Date) => {
+    executor
+      .notify(jobId, runAfter)
+      .catch((error: unknown) =>
+        logger.error(`Notifying the Executor of job ${jobId} failed`, error),
+      );
+  };
+  const requeued = (jobId: string, runAfter: Date) => notify(jobId, runAfter);
+
+  const runAttempt = (claimed: ClaimedJob, drainSignal: AbortSignal) => {
+    const work = runClaimedJob(db, claimed, {
+      clock,
+      logger,
+      deps,
+      drain: drainSignal,
+      shutdown: shutdown.signal,
+      handlers,
+      requeued,
+    }).finally(() => attempts.delete(work));
+    attempts.add(work);
+    return work;
+  };
+
+  const runJob = async (jobId: string) => {
+    if (stopping) return;
+    const claimed = await claimJob(db, clock.now(), { id: jobId });
+    if (!claimed) return;
+    await runAttempt(claimed, drain.signal);
+  };
+
+  return {
+    executor,
+
+    async enqueue(name, payload, options = {}) {
+      const id = await enqueueJob(db, name, payload, { ...options, now: clock.now() });
+      notify(id, options.runAfter);
+      return id;
+    },
+
+    async enqueueIn(tx, name, payload, options = {}) {
+      const id = await enqueueJob(tx, name, payload, { now: clock.now(), ...options });
+      afterCommit(tx, () => notify(id, options.runAfter));
+      return id;
+    },
+
+    async cancel(idempotencyKey) {
+      await cancelJob(db, idempotencyKey, clock.now());
+    },
+
+    cancelIn: (tx, idempotencyKey, now = clock.now()) => cancelJobIn(tx, idempotencyKey, now),
+
+    status: (jobId) => readJob(db, jobId),
+
+    async schedule() {
+      throw new Error("Recurring jobs are not supported yet");
+    },
+
+    runJob,
+
+    runClaimed: (claimed, options = {}) => runAttempt(claimed, options.drain ?? drain.signal),
+
+    wake: () => wakeable.get(executor)?.(),
+
+    requeued,
+
+    async start() {
+      stopping = false;
+      if (shutdown.signal.aborted) {
+        drain = new AbortController();
+        shutdown = new AbortController();
+      }
+      await executor.start(runJob);
+    },
+
+    async stop() {
+      stopping = true;
+      drain.abort();
+      await executor.stop();
+      await waitUpTo(Promise.all(attempts), drainMs);
+      shutdown.abort();
+      await Promise.allSettled(attempts);
+      await waitUpTo(Promise.all(handlers), drainMs);
+      if (handlers.size > 0) {
+        logger.error(`${handlers.size} background job handler(s) still running after stop`);
+      }
+    },
+  };
+}

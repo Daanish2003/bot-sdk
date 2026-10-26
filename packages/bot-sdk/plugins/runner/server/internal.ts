@@ -8,14 +8,20 @@ export {
   registerJob,
 } from "./jobs/define";
 export { loadHistory, unrecordedStore } from "./jobs/history";
+export type { Executor } from "./jobs/executor";
 export {
+  inProcessExecutor,
   inProcessRunner,
   type InProcessRunner,
   isInProcessRunner,
-  type JobClock,
-  systemClock,
 } from "./jobs/in-process";
-export type { EnqueueOptions, JobRunner } from "./jobs/runner";
+export {
+  createJobRunner,
+  type EnqueueOptions,
+  type JobClock,
+  type JobRunner,
+  systemClock,
+} from "./jobs/runner";
 export {
   cancelJob,
   cancelQueuedJobsIn,

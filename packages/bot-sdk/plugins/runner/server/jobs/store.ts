@@ -7,12 +7,14 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { NonDeterminismError, WorkflowYieldedError, createWorkflow } from "../workflow/engine";
 import { JOB_TIMING, PermanentJobError, backoffAfter, registeredJob } from "./define";
 import { heartbeatJob, jobHistoryStore, loadHistory, ownAttempt } from "./history";
-import type { JobClock } from "./in-process";
-import type { EnqueueOptions, JobStatus } from "./runner";
+import type { EnqueueOptions, JobClock, JobStatus } from "./runner";
 
 type Logger = Pick<Console, "error">;
 
 const ACTIVE = ["queued", "running"] as const;
+
+/** Passes a job the store has queued again (a retry, a yield) to the Executor, with when it is due. */
+type Requeued = (jobId: string, runAfter: Date) => void;
 
 /** A job a process has claimed and is about to run. */
 export type ClaimedJob = {
@@ -61,10 +63,40 @@ export async function enqueueJob(
   return active.id;
 }
 
+/** Jobs with `only` these names, or all `except` them. */
+type JobNames = { only: string[] } | { except: string[] };
+
+function namesFilter(names: JobNames | undefined) {
+  if (!names) return sql``;
+  return "only" in names
+    ? sql`and ${inArray(job.name, names.only)}`
+    : sql`and ${notInArray(job.name, names.except)}`;
+}
+
+/**
+ * The next queued job that is due, in claim order, among `names` and not in `skip`, or undefined.
+ * A row another transaction holds is skipped, as a claim would. It claims nothing.
+ */
+export async function dueJobId(
+  db: Database,
+  now: Date,
+  { names, skip }: { names?: JobNames; skip: string[] },
+): Promise<string | undefined> {
+  const skipped = skip.length > 0 ? sql`and ${notInArray(job.id, skip)}` : sql``;
+  const { rows } = await db.execute<{ id: string }>(sql`
+    select id from chat.job
+    where status = 'queued' and run_after <= ${now} ${namesFilter(names)} ${skipped}
+    order by run_after, created_at
+    limit 1
+    for update skip locked`);
+  return rows[0]?.id;
+}
+
 /**
  * Takes the next queued job, marking it running and counting the attempt. `FOR UPDATE SKIP LOCKED`
  * keeps two processes from taking the same job. `respectRunAfter: false` ignores the backoff.
- * `names` limits the claim to the jobs with `only` these names, or to all `except` them.
+ * `names` limits the claim to the jobs with `only` these names, or to all `except` them, and `id`
+ * to that one job.
  */
 export async function claimJob(
   db: Database,
@@ -72,17 +104,16 @@ export async function claimJob(
   {
     respectRunAfter = true,
     names,
+    id,
   }: {
     respectRunAfter?: boolean;
-    names?: { only: string[] } | { except: string[] };
+    names?: JobNames;
+    id?: string;
   } = {},
 ): Promise<ClaimedJob | undefined> {
   const due = respectRunAfter ? sql`and run_after <= ${now}` : sql``;
-  const named = !names
-    ? sql``
-    : "only" in names
-      ? sql`and ${inArray(job.name, names.only)}`
-      : sql`and ${notInArray(job.name, names.except)}`;
+  const named = namesFilter(names);
+  const one = id === undefined ? sql`` : sql`and id = ${id}`;
   const { rows } = await db.execute<{
     id: string;
     name: string;
@@ -94,7 +125,7 @@ export async function claimJob(
     set status = 'running', attempts = attempts + 1, heartbeat_at = ${now}, updated_at = ${now}
     where id = (
       select id from chat.job
-      where status = 'queued' ${due} ${named}
+      where status = 'queued' ${due} ${named} ${one}
       order by run_after, created_at
       limit 1
       for update skip locked
@@ -120,7 +151,12 @@ async function recordOutcome(
   db: Database,
   claimed: ClaimedJob,
   failure: { error: unknown } | undefined,
-  { now, logger, deps }: { now: Date; logger: Logger; deps: BotSdkContext },
+  {
+    now,
+    logger,
+    deps,
+    requeued,
+  }: { now: Date; logger: Logger; deps: BotSdkContext; requeued: Requeued },
 ): Promise<void> {
   if (!failure) {
     await db.update(job).set({ status: "succeeded", updatedAt: now }).where(ownAttempt(claimed));
@@ -130,10 +166,12 @@ async function recordOutcome(
   const { error } = failure;
   if (error instanceof WorkflowYieldedError) {
     // A deploy: queued again for any process to resume at once, and the attempt doesn't count.
-    await db
+    const handedBack = await db
       .update(job)
       .set({ status: "queued", runAfter: now, attempts: sql`${job.attempts} - 1`, updatedAt: now })
-      .where(ownAttempt(claimed));
+      .where(ownAttempt(claimed))
+      .returning({ id: job.id });
+    if (handedBack.length > 0) requeued(claimed.id, now);
     return;
   }
   const lastError = error instanceof Error ? error.message : String(error);
@@ -142,15 +180,13 @@ async function recordOutcome(
     error instanceof NonDeterminismError ||
     claimed.attempts >= claimed.maxAttempts;
   if (!final) {
-    await db
+    const runAfter = new Date(now.getTime() + backoffAfter(claimed.attempts));
+    const retried = await db
       .update(job)
-      .set({
-        status: "queued",
-        runAfter: new Date(now.getTime() + backoffAfter(claimed.attempts)),
-        lastError,
-        updatedAt: now,
-      })
-      .where(ownAttempt(claimed));
+      .set({ status: "queued", runAfter, lastError, updatedAt: now })
+      .where(ownAttempt(claimed))
+      .returning({ id: job.id });
+    if (retried.length > 0) requeued(claimed.id, runAfter);
     return;
   }
 
@@ -194,6 +230,7 @@ export async function runClaimedJob(
     drain,
     shutdown,
     handlers,
+    requeued,
   }: {
     clock: JobClock;
     logger: Logger;
@@ -201,6 +238,7 @@ export async function runClaimedJob(
     drain?: AbortSignal;
     shutdown?: AbortSignal;
     handlers: Set<Promise<void>>;
+    requeued: Requeued;
   },
 ): Promise<void> {
   const definition = registeredJob(claimed.name);
@@ -232,7 +270,12 @@ export async function runClaimedJob(
     if (decided) return;
     release();
     try {
-      await recordOutcome(db, claimed, failure, { now: clock.now(), logger, deps: deps() });
+      await recordOutcome(db, claimed, failure, {
+        now: clock.now(),
+        logger,
+        deps: deps(),
+        requeued,
+      });
     } catch (error) {
       logger.error(`Recording the outcome of job "${claimed.name}" failed`, error);
     }
@@ -312,24 +355,25 @@ export async function runClaimedJob(
 /**
  * Re-queues the running jobs whose lease has expired, because the process running them stopped
  * (ADR 0011). The attempt already counted when the job was claimed, so a job on its last attempt
- * fails here instead, and its `onFailed` runs.
+ * fails here instead, and its `onFailed` runs. Returns the ids of the jobs it re-queued.
  */
 export async function reapStaleJobs(
   db: Database,
   now: Date,
   logger: Logger,
   deps: BotSdkContext,
-): Promise<void> {
+): Promise<string[]> {
   const cutoff = new Date(now.getTime() - JOB_TIMING.leaseMs);
   const expired = and(
     eq(job.status, "running"),
     or(isNull(job.heartbeatAt), lt(job.heartbeatAt, cutoff)),
   );
   const lastError = "Its lease expired: the process running it stopped";
-  await db
+  const requeued = await db
     .update(job)
     .set({ status: "queued", runAfter: now, lastError, updatedAt: now })
-    .where(and(expired, lt(job.attempts, job.maxAttempts)));
+    .where(and(expired, lt(job.attempts, job.maxAttempts)))
+    .returning({ id: job.id });
   const lost = await db
     .update(job)
     .set({ status: "failed", lastError, updatedAt: now })
@@ -358,6 +402,7 @@ export async function reapStaleJobs(
       logger.error(`onCancelled for job "${row.name}" failed`, onCancelledError);
     }
   }
+  return requeued.map(({ id }) => id);
 }
 
 /** Marks a cancel this attempt's handler has seen and ended on, so the sweep leaves it alone. */

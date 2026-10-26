@@ -41,7 +41,7 @@ import {
   type ModelsOptions,
   type ModelsPlugin,
 } from "../../plugins/models/server/internal";
-import type { JobRunner } from "../../plugins/runner/server/internal";
+import type { Executor, JobRunner } from "../../plugins/runner/server/internal";
 import { createRunner, type RunnerApi } from "../../plugins/runner/server/internal";
 
 export type ChatHandler = (request: Request) => Promise<Response>;
@@ -101,8 +101,11 @@ export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly Fe
    * as `sdk.<id>`.
    */
   features?: Features;
-  /** Runs the background jobs. Defaults to the in-process runner, which needs only Postgres. */
-  runner?: JobRunner;
+  /**
+   * Wakes up and runs the background jobs (an Executor). Defaults to the in-process Executor,
+   * which polls Postgres and needs nothing else.
+   */
+  runner?: Executor;
   /** Each user's Computer. With none, Bots have no Computer and no feature that needs one. */
   computer?: ComputerProvider;
   /** The Models: Host credentials, user keys, Quota, linked credentials, default Image Model. */
@@ -206,7 +209,10 @@ export type GivenContext = Partial<
   Omit<
     BotSdkContext,
     "parts" | "rateLimit" | "models" | "runner" | "computer" | "bots" | "channels"
-  >
+  > & {
+    /** A runner built by the test seam, in place of one over the runner slot's Executor. */
+    jobs: JobRunner;
+  }
 >;
 
 /**
@@ -288,7 +294,7 @@ export function buildBotSdk(
   // Building the context opens nothing: the pool and the runtime connect on first use.
   const sdk = buildContext(options, given, ruleDefaults) as BotSdkContext;
   // The core services, over the context they belong to, before any part's `init` runs.
-  const runner = createRunner(sdk, options.runner);
+  const runner = createRunner(sdk, options.runner, given.jobs);
   sdk.runner = runner.api;
   sdk.computer = options.computer ? createComputer(sdk, options.computer) : null;
   // No Channel besides web, until the channels slot's init sets its adapters.

@@ -50,7 +50,6 @@ export function createBotSdkOver(
     databaseUrl: "",
     keyEncryptionSecrets: given.context.keyring ?? given.models.keyEncryptionSecrets,
     models: {},
-    runner: given.jobs,
     computer: given.computer,
     features: given.features,
     channels: given.channels,
@@ -59,7 +58,7 @@ export function createBotSdkOver(
   };
   const { instance, context } = buildBotSdk(
     slots,
-    given.context,
+    { ...given.context, ...(given.jobs && { jobs: given.jobs }) },
     coreParts(slots, modelsOver(given.models)),
   );
   return { instance, sdk: { ...given.models, ...context } };
@@ -98,11 +97,10 @@ export function createChatHandler(sdk: SdkOver, options: OverOptions): ChatHandl
       databaseUrl: "",
       keyEncryptionSecrets: sdk.keyring,
       models: {},
-      runner: runnerJobs(sdk),
       ...(computer && { computer: computerProvider(computer) }),
       features,
     },
-    context,
+    { ...context, jobs: runnerJobs(sdk) },
     [modelsOver(models), ...core],
   ).instance.handler;
 }

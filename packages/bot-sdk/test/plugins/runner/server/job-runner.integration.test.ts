@@ -14,7 +14,7 @@ import {
   pruneFinishedJobs,
   reapStaleJobs,
 } from "../../../../plugins/runner/server/internal";
-import type { JobRunner } from "../../../../plugins/runner/server/internal";
+import type { Executor, JobRunner } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { drainJobs, fakeJobClock } from "../../../support/jobs";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
@@ -71,14 +71,13 @@ defineJob({
     started.push(label);
     await new Promise<void>((resolve, reject) => {
       releaseHold = resolve;
-      signal.addEventListener(
-        "abort",
-        () => {
-          aborted.push(label);
-          reject(signal.reason);
-        },
-        { once: true },
-      );
+      const onAbort = () => {
+        aborted.push(label);
+        reject(signal.reason);
+      };
+      // The attempt can be aborted before its handler starts.
+      if (signal.aborted) onAbort();
+      else signal.addEventListener("abort", onAbort, { once: true });
     });
     ran.push(label);
   },
@@ -975,13 +974,10 @@ describe("schedule", () => {
 });
 
 describe("the runner slot", () => {
-  it("starts and stops the Host's runner with chat.start() and chat.stop()", async () => {
-    const jobs: JobRunner = {
-      enqueue: vi.fn(async () => "job-id"),
-      cancel: vi.fn(async () => {}),
-      status: vi.fn(async () => undefined),
-      schedule: vi.fn(async () => {}),
+  it("starts and stops the Host's Executor with chat.start() and chat.stop()", async () => {
+    const jobs: Executor = {
       start: vi.fn(async () => {}),
+      notify: vi.fn(async () => {}),
       stop: vi.fn(async () => {}),
     };
     // Models alone, without the Bots, which refuse a runner other than the in-process one.
