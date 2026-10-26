@@ -99,8 +99,7 @@ async function emailBot(
   };
   /** Mails the Bot from its owner. */
   const inbound = async (messageId: string, fields: { subject?: string; text?: string } = {}) => {
-    await deps!.channels.inbound(
-      "email",
+    const parsed = await email.provider.parseInbound(
       email.request({
         from: `Ada <${ownerEmail}>`,
         to: [address],
@@ -110,6 +109,8 @@ async function emailBot(
         authentication: { spf: "pass", dkim: "pass", dmarc: "pass" },
       }),
     );
+    if ("rejected" in parsed) throw new Error(parsed.rejected);
+    await deps!.channels.receive("email", parsed);
   };
   /** Mails the Bot from its owner, then runs the Turn it starts. */
   const mail = async (messageId: string, fields: { subject?: string; text?: string } = {}) => {

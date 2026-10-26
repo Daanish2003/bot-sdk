@@ -92,7 +92,7 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       # Each received mail is POSTed to the Host, which fetches it from the REST API.
-      MP_WEBHOOK_URL: ${MAILPIT_WEBHOOK_URL:-http://host.docker.internal:3001/api/channels/email}
+      MP_WEBHOOK_URL: ${MAILPIT_WEBHOOK_URL:-http://host.docker.internal:3001/api/chat/channels/email}
     ports:
       - "${MAILPIT_SMTP_PORT:-1025}:1025"
       - "${MAILPIT_PORT:-8025}:8025"

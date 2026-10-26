@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import type { BotSdkPlugin, Transaction } from "../../../core/server/plugin";
-import type { EmailChannel } from "./email";
+import type { EmailChannel, InboundMail } from "./email";
 
 /** What a `channel.deliver` job carries: the headers fixed when the Message was saved. */
 export const deliveryPayload = z.object({
@@ -18,12 +18,12 @@ export type ChannelAdapter = EmailChannel;
 /** The core's Channels (`sdk.channels`, spec #871): the channels slot's adapters. */
 export type ChannelApi = {
   /**
-   * The inbound handler of Channel `channel`, Request → Response, which the Host mounts with no
-   * sign-in (email: `POST /api/channels/email`). A mail the provider can't read gets 400; any mail
-   * it can gets 202, whether it woke the Bot or was dropped, so a sender learns nothing. A Channel
-   * with no adapter gets 404.
+   * Takes one inbound message of Channel `channel`, as its provider parsed it (email: an
+   * `InboundMail`), for a Host that receives it on its own route; the HTTP layer serves
+   * `POST <basePath>/channels/email` over it. It wakes the Bot only for its user's verified email
+   * with a DMARC pass, and drops anything else silently. Throws with no adapter for `channel`.
    */
-  inbound: (channel: ChannelAdapter["id"], request: Request) => Promise<Response>;
+  receive: (channel: ChannelAdapter["id"], mail: InboundMail) => Promise<void>;
   /** The email Channel's inbound domain. Throws when the Host gave no email adapter. */
   emailDomain: () => string;
   /**

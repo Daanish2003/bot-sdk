@@ -39,6 +39,7 @@ export { helperTools, stopBotHelpers, stopUserHelpers } from "./helper-tools";
 export {
   handleScreenRequest,
   screenControl,
+  type ScreenMessage,
   type ScreenPeer,
   screenSocketHooks,
   type ScreenSocketHooks,

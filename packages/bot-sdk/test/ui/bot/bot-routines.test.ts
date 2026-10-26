@@ -6,6 +6,7 @@ import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+import { botClient } from "../../../plugins/bot/client/index";
 import type { BotRoutine } from "../../../plugins/bot/shared/routine";
 import type { BotMessage, BotTurnProvenance } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
@@ -178,6 +179,7 @@ function mount(server: ReturnType<typeof fakeBotServer>) {
     providerFor(createElement(BotConversation, { botId: ada.id }), {
       fetch: server.fetch,
       messages: {},
+      plugins: [botClient()],
     }),
   );
 }
@@ -577,7 +579,8 @@ describe("a webhook Routine", () => {
     state,
     approvedAt: state === "pending" ? null : createdAt,
   });
-  const urlOf = (token: string) => `${window.location.origin}/api/routines/webhook/${token}`;
+  // Under the client's baseUrl, where the HTTP layer serves the webhook route.
+  const urlOf = (token: string) => `http://localhost/api/chat/routines/webhook/${token}`;
 
   const open = async (count: number) => {
     fireEvent.click(await screen.findByRole("button", { name: new RegExp(`^Routines ${count}`) }));

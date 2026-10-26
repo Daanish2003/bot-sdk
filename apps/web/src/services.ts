@@ -1,7 +1,7 @@
 import { createAuth } from "@ai-chat/auth";
 import { chatgptAccessToken } from "@ai-chat/auth/chatgpt";
 import { createDb } from "@ai-chat/db";
-import { createHttpHandler } from "@ai-chat/bot-sdk/core/http";
+import { createHttpHandler, createScreenSocket } from "@ai-chat/bot-sdk/core/http";
 import { createBotSdk, redisRuntime, redisStore } from "@ai-chat/bot-sdk/core/server";
 import { emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
 import { mcp } from "@ai-chat/bot-sdk/plugins/mcp/server";
@@ -142,11 +142,19 @@ export const sdk = (shared.botSdk ??= createBotSdk({
   ],
 }));
 
-// The Bot SDK over HTTP (spec #873): every RPC call and route under /api/chat, for the signed-in user.
+// Where the Bot SDK's HTTP layer is mounted (src/routes/api/chat/$.ts).
+const basePath = "/api/chat";
+
+// The Bot SDK over HTTP (spec #873): every RPC call and route under /api/chat, for the signed-in
+// user, and the public ones (the Routine webhook, email inbound, the live view's pages).
 export const http = createHttpHandler(sdk, {
-  basePath: "/api/chat",
+  basePath,
   getUser: async (request) => {
     const session = await auth.api.getSession({ headers: request.headers });
     return session?.user ? { id: session.user.id } : null;
   },
 });
+
+// The live view's socket (#597), crossws hooks under the same basePath
+// (server/routes/api/chat/screens/[token]/websockify.ts).
+export const screenSocket = createScreenSocket(sdk, { basePath });

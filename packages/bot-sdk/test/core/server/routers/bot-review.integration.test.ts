@@ -345,14 +345,11 @@ describe("Auto-review of the Bot's shell commands", () => {
     const [routine] = await client.bot.routine.list({ botId });
     const { webhookToken } = await client.bot.routine.approve({ routineId: routine!.id });
 
-    const response = await deps.bots.webhookHandler(
-      new Request(`https://bots.example/api/routines/webhook/${webhookToken}`, {
-        method: "POST",
-        body: JSON.stringify({ note: injected }),
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-    expect(response.status).toBeLessThan(300);
+    const receipt = await deps.routines.receiveWebhook({
+      token: webhookToken!,
+      body: JSON.stringify({ note: injected }),
+    });
+    expect(receipt).toBe("accepted");
     await expect
       .poll(async () => (await turnsOf(botId)).at(-1)?.status, { timeout: 10_000 })
       .toBe("complete");

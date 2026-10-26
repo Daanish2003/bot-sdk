@@ -14,34 +14,84 @@ export const webhookBodyLimit = 64 * 1024;
 export const idempotencyKeyLimit = 255;
 
 /**
- * The Bot SDK's inbound webhook handler (ADR 0021), which a Host mounts at
- * `/api/routines/webhook/<token>`: the last path segment is the token. A `POST` to an `active`
- * Routine's URL hands the Router a `routine` / `webhook` Trigger and answers `202` at once, never
- * waiting for the Turn. A body over 64 KB gets `413`, and a token that matches no active Routine
- * gets `404`, which reveals nothing. An `Idempotency-Key` header makes a retried delivery a no-op;
- * one over 255 characters gets `400`.
+ * What `routines.receiveWebhook` did with a delivery: `accepted` (handed to the Router, or dropped
+ * as a retry or while the user's Quota is spent or they are Banned, which the sender never learns),
+ * `notFound` (no active Routine has the token), `payloadTooLarge` (over 64 KB) or
+ * `idempotencyKeyTooLong` (over 255 characters).
+ */
+export type WebhookReceipt = "accepted" | "notFound" | "payloadTooLarge" | "idempotencyKeyTooLong";
+
+/**
+ * `routines.receiveWebhook` (ADR 0021, spec #873): a delivery to an `active` Routine's webhook
+ * hands the Router a `routine` / `webhook` Trigger, never waiting for the Turn. An
+ * `Idempotency-Key` header makes a retried delivery a no-op.
+ */
+export async function receiveRoutineWebhook(
+  deps: BotSdkContext,
+  {
+    token,
+    body,
+    headers,
+  }: { token: string; body: string; headers?: Headers | Record<string, string> },
+): Promise<WebhookReceipt> {
+  const key = idempotencyKeyOf(new Headers(headers));
+  if (key === tooLong) return "idempotencyKeyTooLong";
+  if (Buffer.byteLength(body, "utf8") > webhookBodyLimit) return "payloadTooLarge";
+  return handOver(deps, { token, key, body });
+}
+
+/** The HTTP answer to each receipt. */
+const receiptResponse: Record<WebhookReceipt, () => Response> = {
+  accepted: () => new Response(null, { status: 202 }),
+  notFound: () => new Response("Not found", { status: 404 }),
+  payloadTooLarge: () => new Response("Payload too large", { status: 413 }),
+  idempotencyKeyTooLong: () => new Response("Idempotency-Key too long", { status: 400 }),
+};
+
+/**
+ * The webhook's HTTP route, `POST <basePath>/routines/webhook/<token>`, with no sign-in: the token
+ * is the authentication. It answers `202` at once, `413` to a body over 64 KB (read no further),
+ * `404` to a token that matches no active Routine, which reveals nothing, and `400` to an
+ * `Idempotency-Key` over 255 characters.
  */
 export async function handleRoutineWebhook(
   deps: BotSdkContext,
   request: Request,
+  token: string,
 ): Promise<Response> {
-  if (request.method !== "POST") {
-    return new Response("Method not allowed", { status: 405, headers: { Allow: "POST" } });
-  }
-  const key = request.headers.get("Idempotency-Key")?.trim() || null;
-  if (key && key.length > idempotencyKeyLimit) {
-    return new Response("Idempotency-Key too long", { status: 400 });
-  }
-  const payload = await readBody(request, webhookBodyLimit);
-  if (payload === null) return new Response("Payload too large", { status: 413 });
-  const token = new URL(request.url).pathname.split("/").filter(Boolean).at(-1) ?? "";
-  const received = await receiveWebhook(deps, { tokenHash: webhookTokenHash(token), key, payload });
-  if (received === undefined) return new Response("Not found", { status: 404 });
+  const key = idempotencyKeyOf(request.headers);
+  if (key === tooLong) return receiptResponse.idempotencyKeyTooLong();
+  // Measured as bytes while it is read, so a huge body is never held in memory.
+  const body = await readBody(request, webhookBodyLimit);
+  if (body === null) return receiptResponse.payloadTooLarge();
+  return receiptResponse[await handOver(deps, { token, key, body })]();
+}
+
+/** What `idempotencyKeyOf` gives for a key over 255 characters. */
+const tooLong = Symbol("too long");
+
+/** The `Idempotency-Key` header, trimmed; `null` when it is missing or blank. */
+function idempotencyKeyOf(headers: Headers): string | null | typeof tooLong {
+  const key = headers.get("Idempotency-Key")?.trim() || null;
+  return key && key.length > idempotencyKeyLimit ? tooLong : key;
+}
+
+/** Hands the Router the delivery's Trigger, once its key and size are checked. */
+async function handOver(
+  deps: BotSdkContext,
+  { token, key, body }: { token: string; key: string | null; body: string },
+): Promise<"accepted" | "notFound"> {
+  const received = await receiveWebhook(deps, {
+    tokenHash: webhookTokenHash(token),
+    key,
+    payload: body,
+  });
+  if (received === undefined) return "notFound";
   if (received) {
     deps.runner.wake();
     await hintChanged(deps, received);
   }
-  return new Response(null, { status: 202 });
+  return "accepted";
 }
 
 /** The body as text, or `null` once it is over `limit` bytes. */

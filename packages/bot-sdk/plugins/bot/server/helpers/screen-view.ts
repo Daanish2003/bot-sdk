@@ -142,12 +142,26 @@ async function ownedScreen(sdk: BotSdkContext, userId: string, holder: ScreenHol
   return screen;
 }
 
+/**
+ * Where the instance's HTTP layer serves the live view, `<basePath>/screens`. Throws before
+ * `createHttpHandler` (or `createScreenSocket`) has served the instance, since a link would lead
+ * nowhere.
+ */
+function screensBase(sdk: BotSdkContext): string {
+  const { basePath } = sdk.mount;
+  if (basePath === null) {
+    throw new Error("The live view is served by the HTTP layer: call createHttpHandler first");
+  }
+  return `${basePath}${screenViewPath}`;
+}
+
 /** What a link to an ended Demonstration's Screen is refused with. */
 export const demonstrationEndedError = "This Demonstration has ended.";
 
 /**
  * `bot.screen.view` (#597): a fresh live-view link to the Screen of one of the user's live Helpers,
- * or live Demonstrations (`bot.demonstration.view`, spec #713), a path under `screenViewPath` that
+ * or live Demonstrations (`bot.demonstration.view`, spec #713), a path under the HTTP layer's
+ * `<basePath>/screens` that
  * opens its noVNC page through the proxy. It wakes the Computer and reopens the Screen when it isn't
  * open (after a rebuild). It leaves the Screen's control as it is: a Helper's Screen opens
  * view-only, and only Take control changes that, while a Demonstration's is the user's to drive, so
@@ -171,7 +185,7 @@ export async function screenView(
   });
   // The proxy goes on from these, not an address from before a reopen.
   rememberScreenUrls(sdk, userId, slot, urls);
-  const base = `${screenViewPath}/${mintViewToken(sdk, { holder, userId })}`;
+  const base = `${screensBase(sdk)}/${mintViewToken(sdk, { holder, userId })}`;
   const page = new URL(urls.novnc.url);
   const query = new URLSearchParams(page.search);
   // noVNC opens its socket at this path of the page's own host: the proxy's.
@@ -194,7 +208,7 @@ export async function screenControl(
 type Upstream = {
   userId: string;
   holder: ScreenHolder;
-  /** The proxy's path the request's path is under: `screenViewPath/<view token>/`. */
+  /** The proxy's path the request's path is under: `<screens base>/<view token>/`. */
   base: string;
   /** The noVNC page's directory, which `base` stands for. */
   directory: string;
@@ -271,14 +285,18 @@ function isFilePath(segments: string[]): boolean {
 }
 
 /**
- * The upstream of a request under `screenViewPath`, or the Response that refuses it: 403 without a
+ * The upstream of a request under `screens` (`<basePath>/screens`), or the Response that refuses it: 403 without a
  * valid view token, 400 for a path that would leave noVNC's directory, 404 once its Helper ended or
  * holds no Screen.
  */
-async function upstreamOf(sdk: BotSdkContext, request: Request): Promise<Upstream | Response> {
+async function upstreamOf(
+  sdk: BotSdkContext,
+  request: Request,
+  screens: string,
+): Promise<Upstream | Response> {
   const { pathname, search } = new URL(request.url);
-  const [token = "", ...rest] = pathname.startsWith(`${screenViewPath}/`)
-    ? pathname.slice(screenViewPath.length + 1).split("/")
+  const [token = "", ...rest] = pathname.startsWith(`${screens}/`)
+    ? pathname.slice(screens.length + 1).split("/")
     : [];
   const view = verifyViewToken(sdk, token);
   if (!view || rest.length === 0) return new Response(null, { status: 403 });
@@ -299,7 +317,7 @@ async function upstreamOf(sdk: BotSdkContext, request: Request): Promise<Upstrea
   return {
     userId: view.userId,
     holder: view.holder,
-    base: `${screenViewPath}/${token}/`,
+    base: `${screens}/${token}/`,
     directory: directory.href,
     url: url.href,
     isSocket: rest.join("/") === "websockify",
@@ -339,15 +357,19 @@ function withStorageShim(html: string): string {
 }
 
 /**
- * The live view's page proxy: a GET under `screenViewPath/<view token>/` is fetched from the
+ * The live view's page proxy: a GET under `<screens>/<view token>/` is fetched from the
  * Screen's noVNC with the traffic token added, so the token never reaches the browser.
  */
-export async function handleScreenRequest(sdk: BotSdkContext, request: Request): Promise<Response> {
+export async function handleScreenRequest(
+  sdk: BotSdkContext,
+  request: Request,
+  screens: string,
+): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response(null, { status: 405, headers: { allow: "GET, HEAD" } });
   }
   try {
-    const upstream = await upstreamOf(sdk, request);
+    const upstream = await upstreamOf(sdk, request, screens);
     if (upstream instanceof Response) return upstream;
     const response = await fetch(upstream.url, {
       method: request.method,
@@ -397,7 +419,7 @@ export type ScreenMessage = { uint8Array: () => Uint8Array };
 
 /**
  * The live view's socket proxy as WebSocket hooks in crossws's shape, which the Host mounts at
- * `screenViewPath/<view token>/websockify`: `upgrade` refuses a request without a valid view token
+ * `<screens>/<view token>/websockify`: `upgrade` refuses a request without a valid view token
  * by throwing a Response (403, or 404 once its Helper ended), and each open socket is joined to the
  * Screen's websockify with the traffic token and the Screen's token added. While it is open, it
  * counts as Computer activity every `activityHeartbeatMs`, and closes once its Helper ended.
@@ -434,10 +456,10 @@ function closeLink(link: ScreenLink, peer: ScreenPeer) {
   peer.close();
 }
 
-export function screenSocketHooks(sdk: BotSdkContext): ScreenSocketHooks {
+export function screenSocketHooks(sdk: BotSdkContext, screens: string): ScreenSocketHooks {
   return {
     upgrade: async (request) => {
-      const upstream = await upstreamOf(sdk, request).catch((caught: unknown) => {
+      const upstream = await upstreamOf(sdk, request, screens).catch((caught: unknown) => {
         sdk.logger.error("The live view's proxy couldn't reach the Screen", caught);
         return new Response(null, { status: 502 });
       });

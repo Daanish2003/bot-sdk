@@ -148,8 +148,7 @@ export type BotSdk = {
   /** The core's Models (spec #871): metering, the Quota and the Admin views' usage reads. */
   models: ModelsApi;
   /**
-   * The core's Bots (spec #871): the Routines' webhook handler, the live view's handler and
-   * socket, and `stopTurns` for a Ban.
+   * The core's Bots (spec #871): the domain methods (spec #873) and `stopTurns` for a Ban.
    */
   bots: BotApi;
   /**
@@ -467,6 +466,7 @@ function buildContext(
     clock: given.clock ?? (() => new Date()),
     keyring: given.keyring ?? options.keyEncryptionSecrets,
     lifecycle: given.lifecycle ?? { stopping: false },
+    mount: given.mount ?? { basePath: null },
     isUserBlocked: given.isUserBlocked ?? options.users?.isBlocked ?? (() => false),
     // Set by the Models' init, which runs before every other part's.
     models: modelsUnconfigured,
@@ -483,6 +483,7 @@ function buildContext(
       resume: true,
       delete: true,
       rotate: true,
+      receiveWebhook: true,
     }),
     checkIns: botsStub<CheckInsApi>({ list: true, cancel: true }),
     helpers: botsStub<HelpersApi>({ list: true, done: true, stop: true }),
@@ -589,9 +590,6 @@ const botApiKeys: Record<keyof BotApi, true> = {
   warm: true,
   choose: true,
   react: true,
-  webhookHandler: true,
   stopTurns: true,
-  screenHandler: true,
-  screenSocket: true,
   reviewModel: true,
 };

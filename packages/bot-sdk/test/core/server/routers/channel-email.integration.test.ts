@@ -16,7 +16,7 @@ import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round } from "../../../support/fake-adapter";
 import { fakeJobClock } from "../../../support/jobs";
-import { chatRpc } from "../../../support/sdk";
+import { chatRpc, createTestChat } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 
@@ -94,13 +94,15 @@ async function emailBot({
       await jobs.runClaimed(claimed);
     }
   };
-  /** Delivers a mail from the owner to the Bot's address, with `mail` overriding any field. */
+  /**
+   * Delivers a mail from the owner to the Bot's address, with `mail` overriding any field, as the
+   * provider posts it: through the HTTP handler, signed out.
+   */
   const deliver = (
     mail: Parameters<typeof email.request>[0] = {},
     files?: Parameters<typeof email.request>[1],
   ) =>
-    deps!.channels.inbound(
-      "email",
+    createTestChat({ deps }).fetch(
       email.request(
         {
           from: `Ada <${ownerEmail}>`,
@@ -143,6 +145,45 @@ const userMessagesOf = (conversationId: string) =>
     .select()
     .from(message)
     .where(and(eq(message.conversationId, conversationId), eq(message.role, "user")));
+
+describe("channels.receive, called in-process with no request (#901)", () => {
+  it("takes a parsed mail from the owner as the inbound route does, and drops a stranger's", async () => {
+    const { deps, conversationId, address } = await emailBot();
+    const { provider, request } = fakeEmailProvider();
+    const parsed = async (fields: Parameters<typeof request>[0]) => {
+      const mail = await provider.parseInbound(request(fields));
+      if ("rejected" in mail) throw new Error(mail.rejected);
+      return mail;
+    };
+    const fields = {
+      to: [address],
+      subject: "Plans",
+      text: "Book me a table for Friday",
+      authentication: { spf: "pass", dkim: "pass", dmarc: "pass" } as const,
+    };
+
+    await deps.channels.receive(
+      "email",
+      await parsed({ ...fields, from: "x@example.com", messageId: "<stranger@mail.example>" }),
+    );
+    expect(await triggersOf(conversationId)).toEqual([]);
+    await deps.channels.receive(
+      "email",
+      await parsed({ ...fields, from: `Ada <${ownerEmail}>`, messageId: "<first@mail.example>" }),
+    );
+
+    expect(await triggersOf(conversationId)).toEqual([
+      expect.objectContaining({ id: "email:first@mail.example", channel: "email" }),
+    ]);
+  }, 30_000);
+
+  it("throws on an instance with no email adapter", async () => {
+    const deps = createTestSdk();
+    const mail = {} as InboundMail;
+
+    await expect(deps.channels.receive("email", mail)).rejects.toThrow(/no email adapter/);
+  });
+});
 
 describe("an email to a Bot's address", () => {
   it("from the owner starts a Turn with one email Trigger carrying a new user Message", async () => {
@@ -366,9 +407,8 @@ describe("an email to a Bot's address", () => {
   it("answers 400 to a request the provider can't read, and makes nothing", async () => {
     const { deps, conversationId } = await emailBot();
 
-    const response = await deps.channels.inbound(
-      "email",
-      new Request("https://host.example/api/channels/email", {
+    const response = await createTestChat({ deps }).fetch(
+      new Request("https://host.example/api/chat/channels/email", {
         method: "POST",
         body: "not json",
       }),
@@ -388,9 +428,8 @@ describe("an email to a Bot's address", () => {
     async (_name, fields) => {
       const { deps, conversationId } = await emailBot();
 
-      const response = await deps.channels.inbound(
-        "email",
-        new Request("https://host.example/api/channels/email", {
+      const response = await createTestChat({ deps }).fetch(
+        new Request("https://host.example/api/chat/channels/email", {
           method: "POST",
           body: JSON.stringify({ from: ownerEmail, to: ["x@bots.example"], ...fields }),
         }),

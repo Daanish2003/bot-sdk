@@ -17,11 +17,11 @@ import { emailText } from "./email-text";
 import { bareAddress, type EmailChannel, type InboundMail } from "../../../channel/server/internal";
 
 /**
- * Takes one inbound request of the email Channel (spec #761). A mail the provider can't read gets
- * 400. Any other gets 202, and wakes the Bot whose address it was sent to only when its From is the
- * Bot's user's verified email (case-insensitive) and the provider's DMARC verdict is a pass. It
- * becomes Trigger `email:<Message-ID>`, carrying a new user Message on channel `email`, so a
- * redelivery makes none. Anything else is dropped silently and logged.
+ * Takes one inbound mail of the email Channel (spec #761), as its provider parsed it. It wakes the
+ * Bot whose address it was sent to only when its From is the Bot's user's verified email
+ * (case-insensitive) and the provider's DMARC verdict is a pass. It becomes Trigger
+ * `email:<Message-ID>`, carrying a new user Message on channel `email`, so a redelivery makes
+ * none. Anything else is dropped silently and logged.
  */
 export async function receiveEmail(
   sdk: BotSdkContext,
@@ -29,16 +29,13 @@ export async function receiveEmail(
     channel,
     verifiedEmail,
   }: { channel: EmailChannel; verifiedEmail: (userId: string) => Promise<string | null> },
-  request: Request,
-): Promise<Response> {
-  const mail = await channel.provider.parseInbound(request);
-  if ("rejected" in mail) return new Response(mail.rejected, { status: 400 });
+  mail: InboundMail,
+): Promise<void> {
   const dropped = await deliver(sdk, channel, verifiedEmail, mail);
   // A provider delivers at least once, so a redelivery is routine and goes unlogged, as is the
   // Bots' own outbound mail, which a local mail catcher posts back here.
   if (dropped && dropped !== redelivery && dropped !== ownMail)
     sdk.logger.error(`Dropped an inbound email (${dropped})`, { to: mail.to });
-  return new Response(null, { status: 202 });
 }
 
 /** Why a mail already handed to the Router is dropped. */

@@ -18,6 +18,10 @@ import { createBot } from "../../plugins/bot/server/conversation";
 import type { ComputerHandle } from "../../plugins/computer/server/internal";
 import type { createComputerSdk } from "./setup";
 import { acceptSocket } from "./ws-server";
+import { createChatHandler, createChatScreenSocket } from "../../core/server/over";
+
+/** Where the throwaway server serves the HTTP layer. */
+const basePath = "/api/chat";
 
 type Sdk = ReturnType<typeof createComputerSdk>;
 
@@ -41,7 +45,8 @@ async function serveLiveView(
   sdk: Sdk,
   options: { stripCsp?: boolean } = {},
 ): Promise<{ origin: string; server: Server }> {
-  const { screenHandler, screenSocket } = sdk.bots;
+  const screenHandler = createChatHandler(sdk, { basePath, getUser: () => null });
+  const screenSocket = createChatScreenSocket(sdk, { basePath });
   let origin = "";
   const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
     const answer = await screenHandler(requestOf(request, origin));
@@ -98,7 +103,7 @@ async function waitingHelper(db: Database, userId: string, slot: number) {
 }
 
 /** The proxy path of a live-view request up to its token, which a log line must not print. */
-const screenToken = /^\/api\/screens\/[^/]+/;
+const screenToken = /^\/api\/chat\/screens\/[^/]+/;
 
 type Loaded = {
   /** What noVNC showed once it connected, or null when it never did. */
@@ -121,7 +126,7 @@ async function tryLiveView(link: string, shot?: string) {
     page.on("pageerror", (error) => problems.push(`page error: ${error.message}`));
     page.on("requestfailed", (request) =>
       problems.push(
-        `request failed: ${new URL(request.url()).pathname.replace(screenToken, "/api/screens/<token>")} ${request.failure()?.errorText}`,
+        `request failed: ${new URL(request.url()).pathname.replace(screenToken, "/api/chat/screens/<token>")} ${request.failure()?.errorText}`,
       ),
     );
     await page.goto(link);
@@ -253,13 +258,14 @@ export async function checkScreens(options: {
 
   // The live view: 403 without its token, then noVNC in a real browser.
   const { helperId } = await waitingHelper(db, userId, slot);
-  const { url } = await screenView(sdk, userId, { helperId });
+  // Served first: a live-view link points under where the HTTP layer serves the instance.
   const { origin, server } = await serveLiveView(sdk);
   const bare = await serveLiveView(sdk, { stripCsp: true });
+  const { url } = await screenView(sdk, userId, { helperId });
   try {
-    const token = url.split("/")[3]!;
+    const token = url.split("/")[4]!;
     const refused = [
-      await fetch(`${origin}/api/screens/vnc.html`),
+      await fetch(`${origin}${basePath}/screens/vnc.html`),
       await fetch(`${origin}${url.replace(token, "not-a-token")}`),
       await fetch(
         `${origin}${url.replace(token, `${token.slice(0, -2)}${token.at(-2) === "A" ? "B" : "A"}${token.slice(-1)}`)}`,

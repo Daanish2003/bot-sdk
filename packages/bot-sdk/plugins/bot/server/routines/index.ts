@@ -42,5 +42,9 @@ export {
   webhookTokenHash,
 } from "./routine";
 export { startRoutineReconcile } from "./routine-fire";
-export { handleRoutineWebhook } from "./routine-webhook";
+export {
+  handleRoutineWebhook,
+  receiveRoutineWebhook,
+  type WebhookReceipt,
+} from "./routine-webhook";
 export { nextSlot } from "./schedule";

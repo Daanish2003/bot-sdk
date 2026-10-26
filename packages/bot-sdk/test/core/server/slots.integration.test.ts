@@ -14,7 +14,7 @@ import { buildBotSdk } from "../../../core/server/create-chat";
 import { blob, bot, job } from "../../../core/server/storage";
 import type { ComputerApi } from "../../../plugins/computer/server/internal";
 import { fakeEmailProvider } from "../../../plugins/channel/fake/index";
-import { emailChannel } from "../../../plugins/channel/server/index";
+import { emailChannel, type InboundMail } from "../../../plugins/channel/server/index";
 import { models } from "../../../plugins/models/server/internal";
 import { defineJob } from "../../../plugins/runner/server/internal";
 import { manualExecutor } from "../../support/executors";
@@ -96,16 +96,14 @@ describe("createBotSdk with flat slots", () => {
       }),
     );
 
-    const unknownToken = await sdk.bots.webhookHandler(
-      new Request("http://localhost/api/routines/webhook/nope", { method: "POST", body: "{}" }),
-    );
-    const stranger = await sdk.channels.inbound(
-      "email",
+    const unknownToken = await sdk.routines.receiveWebhook({ token: "nope", body: "{}" });
+    const stranger = await email.provider.parseInbound(
       email.request({ from: "x@example.com", to: ["nobody@bots.example"], text: "hi" }),
     );
+    if ("rejected" in stranger) throw new Error(stranger.rejected);
 
-    expect(unknownToken.status).toBe(404);
-    expect(stranger.status).toBe(202);
+    expect(unknownToken).toBe("notFound");
+    await expect(sdk.channels.receive("email", stranger)).resolves.toBeUndefined();
   });
 
   it("gives Auto-review the reviewModel option's Model, and none when it's unset", () => {
@@ -130,9 +128,9 @@ describe("createBotSdk with flat slots", () => {
   it("has no Channel besides web when the channels slot is empty", async () => {
     const sdk = createBotSdk(slots({ databaseUrl: testDatabaseUrl }));
 
-    const inbound = await sdk.channels.inbound("email", new Request("http://localhost/"));
-
-    expect(inbound.status).toBe(404);
+    await expect(sdk.channels.receive("email", {} as InboundMail)).rejects.toThrow(
+      /no email adapter/,
+    );
   });
 
   it(

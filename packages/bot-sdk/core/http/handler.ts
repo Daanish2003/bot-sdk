@@ -32,10 +32,7 @@ export type HttpHandlerOptions = {
  */
 export function createHttpHandler(sdk: BotSdk, options: HttpHandlerOptions): HttpHandler {
   const { context, router, routes, rateLimits: defaults } = httpPartsOf(sdk);
-  if (!options.basePath.startsWith("/")) {
-    throw new Error(`basePath must start with "/": ${options.basePath}`);
-  }
-  const prefix = options.basePath.replace(/\/+$/, "");
+  const prefix = serveAt(context, options.basePath);
   const rpcPrefix = `${prefix}/rpc` as `/${string}`;
   const overrides: Partial<Record<string, RateLimit | false>> = options.rateLimits ?? {};
   // An override replaces its rule's default; the rest keep theirs.
@@ -81,6 +78,21 @@ export function createHttpHandler(sdk: BotSdk, options: HttpHandlerOptions): Htt
     }
     return notFound();
   };
+}
+
+/**
+ * Records that the instance is served at `basePath`, and returns it without a trailing slash. One
+ * instance is served at one path, which the live view's links point under: a second throws.
+ */
+export function serveAt(context: BotSdkContext, basePath: string): string {
+  if (!basePath.startsWith("/")) throw new Error(`basePath must start with "/": ${basePath}`);
+  const prefix = basePath.replace(/\/+$/, "");
+  const { mount } = context;
+  if (mount.basePath !== null && mount.basePath !== prefix) {
+    throw new Error(`This instance is already served at ${mount.basePath || "/"}`);
+  }
+  mount.basePath = prefix;
+  return prefix;
 }
 
 /** Counts a hit on a limited RPC route and answers 429 with `Retry-After` once it is over its limit. */

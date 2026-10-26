@@ -15,7 +15,7 @@ import {
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { fakeJobClock } from "../../../support/jobs";
-import { chatRpc } from "../../../support/sdk";
+import { chatRpc, createTestChat } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import { fakeComputerProvider } from "../../../support/fake-computer-provider";
@@ -108,10 +108,13 @@ async function botWithRoutine({
     timer.advance(500);
     await runDue();
   };
-  /** Calls the webhook URL of `token` with `body` and `headers`, as an outside service would. */
+  /**
+   * Calls the webhook URL of `token` with `body` and `headers`, as an outside service would: through
+   * the HTTP handler, signed out.
+   */
   const call = (token: string, body: string = "{}", headers: Record<string, string> = {}) =>
-    deps!.bots.webhookHandler(
-      new Request(`https://bots.example/api/routines/webhook/${token}`, {
+    createTestChat({ deps }).fetch(
+      new Request(`https://bots.example/api/chat/routines/webhook/${token}`, {
         method: "POST",
         body,
         headers: { "Content-Type": "application/json", ...headers },
@@ -151,6 +154,58 @@ const toolResults = (call: TextOptions | undefined) =>
   (call?.messages ?? [])
     .filter((entry) => entry.role === "tool")
     .map((entry) => JSON.parse(String(entry.content)) as { saved?: string; error?: string });
+
+describe("routines.receiveWebhook, called in-process with no request (#901)", () => {
+  it("hands the Router the same Trigger as the URL, and needs no user", async () => {
+    const { deps, conversationId, routineId, token } = await approvedWebhook();
+
+    const receipt = await deps.routines.receiveWebhook({
+      token,
+      body: '{"amount":1200}',
+      headers: { "Idempotency-Key": "evt_1" },
+    });
+    const retry = await deps.routines.receiveWebhook({
+      token,
+      body: "{}",
+      headers: new Headers({ "Idempotency-Key": "evt_1" }),
+    });
+
+    expect([receipt, retry]).toEqual(["accepted", "accepted"]);
+    const [trigger, ...more] = await routineTriggers(conversationId);
+    expect(more).toEqual([]);
+    expect(trigger).toMatchObject({ id: `routine:${routineId}:evt_1`, channel: "webhook" });
+    expect(trigger?.text).toContain('```\n{"amount":1200}\n```');
+  });
+
+  it("says why it took nothing: an unknown token, a body over 64 KB or a key over 255 characters", async () => {
+    const { deps, conversationId, token } = await approvedWebhook();
+    const { routines } = deps;
+
+    const receipts = [
+      await routines.receiveWebhook({ token: "not-a-token", body: "{}" }),
+      await routines.receiveWebhook({ token, body: "é".repeat(32 * 1024 + 1) }),
+      await routines.receiveWebhook({
+        token,
+        body: "{}",
+        headers: { "Idempotency-Key": "k".repeat(256) },
+      }),
+    ];
+
+    expect(receipts).toEqual(["notFound", "payloadTooLarge", "idempotencyKeyTooLong"]);
+    expect(await routineTriggers(conversationId)).toEqual([]);
+  });
+
+  it("accepts, and makes no Trigger, while the user is Banned", async () => {
+    let banned = false;
+    const { deps, conversationId, token } = await approvedWebhook([], {
+      users: { isBlocked: async () => banned },
+    });
+    banned = true;
+
+    expect(await deps.routines.receiveWebhook({ token, body: "{}" })).toBe("accepted");
+    expect(await routineTriggers(conversationId)).toEqual([]);
+  });
+});
 
 describe("a webhook Routine's URL", () => {
   it("answers 202 and makes a routine / webhook Trigger with the prompt, then the payload as untrusted data", async () => {

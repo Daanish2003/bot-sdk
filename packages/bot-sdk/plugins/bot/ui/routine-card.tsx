@@ -11,9 +11,9 @@ import { ClockIcon, WebhookIcon } from "lucide-react";
 import { useId } from "react";
 import { toast } from "sonner";
 
-import { useI18n } from "../../../core/client/react/provider";
+import { useChatAdapter, useI18n } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
-import { type BotRoutine, routineWebhookPath, scheduleText } from "../shared/routine";
+import { type BotRoutine, scheduleText } from "../shared/routine";
 import { useRefusalToast } from "./refusal-toast";
 import { runTime } from "./run-divider";
 
@@ -142,7 +142,8 @@ export function WebhookUrl({
   const i18n = useI18n();
   const { t } = i18n;
   const run = useRefusalToast();
-  const url = token && `${window.location.origin}${routineWebhookPath}/${token}`;
+  const { routineWebhookUrl } = useChatAdapter();
+  const url = token && `${new URL(routineWebhookUrl, window.location.origin).href}/${token}`;
   const copy = (text: string) =>
     navigator.clipboard
       .writeText(text)

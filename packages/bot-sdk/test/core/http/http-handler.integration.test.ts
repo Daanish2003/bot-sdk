@@ -3,8 +3,15 @@ import type { AddressInfo } from "node:net";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createHttpHandler, toNodeHandler, type HttpHandler } from "../../../core/http";
+import {
+  createHttpHandler,
+  createScreenSocket,
+  toNodeHandler,
+  type HttpHandler,
+} from "../../../core/http";
 import { createBotSdk } from "../../../core/server/create-chat";
+import { emailChannel } from "../../../plugins/channel/server/index";
+import { fakeEmailProvider } from "../../../plugins/channel/fake/index";
 import { createChatHandler } from "../../../core/server/over";
 import { hintChanged } from "../../../plugins/bot/server/conversation";
 import { insertConversation } from "../../support/conversations";
@@ -83,6 +90,62 @@ describe("createHttpHandler", { timeout: 30_000 }, () => {
     expect(limited.status).toBe(429);
     expect(Number(limited.headers.get("Retry-After"))).toBeGreaterThanOrEqual(1);
     expect(inProcess.map((file) => file.name)).toEqual(["a.txt", "b.txt", "c.txt"]);
+  });
+
+  it("serves the webhook, email inbound and Screen routes under its basePath without a user", async () => {
+    const email = fakeEmailProvider();
+    const sdk = createBotSdk({
+      databaseUrl: testDatabaseUrl,
+      keyEncryptionSecrets,
+      models: {},
+      channels: [emailChannel({ provider: email.provider, domain: "bots.example", appUrl: "" })],
+    });
+    const getUser = vi.fn(() => null);
+    const http = createHttpHandler(sdk, { basePath, getUser });
+    const post = (path: string, body: string) =>
+      http(new Request(`http://localhost${basePath}${path}`, { method: "POST", body }));
+
+    const webhook = await post("/routines/webhook/not-a-token", "{}");
+    const mail = await http(
+      new Request(`http://localhost${basePath}/channels/email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: await email.request({ from: "x@example.com", to: ["nobody@bots.example"] }).text(),
+      }),
+    );
+    const unreadable = await post("/channels/email", "not json");
+    const screen = await http(new Request(`http://localhost${basePath}/screens/forged/vnc.html`));
+    const screenHead = await http(
+      new Request(`http://localhost${basePath}/screens/forged/vnc.html`, { method: "HEAD" }),
+    );
+
+    expect([webhook.status, mail.status, unreadable.status]).toEqual([404, 202, 400]);
+    expect([screen.status, screenHead.status]).toEqual([403, 403]);
+    expect(getUser).not.toHaveBeenCalled();
+  });
+
+  it("has no email route without the channels slot", async () => {
+    const sdk = createBotSdk({ databaseUrl: testDatabaseUrl, keyEncryptionSecrets, models: {} });
+    const http = createHttpHandler(sdk, { basePath, getUser: () => null });
+
+    const mail = await http(
+      new Request(`http://localhost${basePath}/channels/email`, { method: "POST", body: "{}" }),
+    );
+
+    expect(mail.status).toBe(401);
+  });
+
+  it("refuses to serve one instance at a second basePath", () => {
+    const sdk = createBotSdk({ databaseUrl: testDatabaseUrl, keyEncryptionSecrets, models: {} });
+    createHttpHandler(sdk, { basePath, getUser: () => null });
+
+    expect(() =>
+      createHttpHandler(sdk, { basePath: `${basePath}/`, getUser: () => null }),
+    ).not.toThrow();
+    expect(() => createHttpHandler(sdk, { basePath: "/bots", getUser: () => null })).toThrow(
+      /already served at \/api\/chat/,
+    );
+    expect(() => createScreenSocket(sdk, { basePath: "/bots" })).toThrow(/already served/);
   });
 
   it("streams a Conversation's change hints as server-sent events", async () => {

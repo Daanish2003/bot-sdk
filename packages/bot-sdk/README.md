@@ -164,6 +164,10 @@ const chat = createBotSdk({
 // for every chat call; sign-in and the 401 are yours through `getUser`
 export const handler = createHttpHandler(chat, { basePath: "/api/chat", getUser });
 // on a Node server instead, ahead of any body parser: app.use("/api/chat", toNodeHandler(handler))
+// the live view's socket, crossws hooks for <basePath>/screens/<token>/websockify (on Nitro,
+// `defineWebSocketHandler(screenSocket)` at that path); webhooks, inbound email, the live view's
+// pages and MCP OAuth callbacks are routes of the handler above
+export const screenSocket = createScreenSocket(chat, { basePath: "/api/chat" });
 
 // deploy step, once per deploy
 await chat.migrate();
@@ -335,7 +339,7 @@ createBotSdk({
 });
 ```
 
-The Host mounts `sdk.channels.inbound("email", request)` at `POST /api/channels/email`, with no sign-in. It answers 202 to any mail the provider can read, whether it woke the Bot or was dropped, and 400 to one it can't, so a sender learns nothing.
+The HTTP layer (`createHttpHandler`) serves the inbound route at `POST <basePath>/channels/email`, with no sign-in; point the provider's webhook there. Without HTTP, hand a mail the provider parsed to `sdk.channels.receive("email", mail)`. The route answers 202 to any mail the provider can read, whether it woke the Bot or was dropped, and 400 to one it can't, so a sender learns nothing.
 
 A mail is a Trigger only when it is from the user's verified email, is addressed to a Bot's address, carries a DMARC pass, and is not a Bot's own or an automatic reply; the Quota and the Ban apply as for a webhook. The Bot reads the new text only (quoted history is stripped), the subject as a first line unless the mail replies to the Bot's thread, one line naming the attachments (they aren't kept), and anything forwarded in an untrusted fenced block that Auto-review never takes as permission.
 
@@ -490,14 +494,14 @@ User-configured webhooks, where a user enters a URL in settings, are out of scop
 
 ## Inbound webhooks for Routines
 
-A Bot's Routine can run whenever an outside service calls its secret URL (ADR 0021). The core serves the handler as `sdk.bots.webhookHandler`. Mount it for `POST` at `/api/routines/webhook/<token>`, outside the chat handler and with no sign-in, since the token is the authentication:
+A Bot's Routine can run whenever an outside service calls its secret URL (ADR 0021). The HTTP layer (`createHttpHandler`) serves it at `POST <basePath>/routines/webhook/<token>` with no sign-in, since the token is the authentication. Without HTTP, call the domain method:
 
 ```ts
-// For example, a TanStack Start route at /api/routines/webhook/$token
-const handle = ({ request }: { request: Request }) => sdk.bots.webhookHandler(request);
+const receipt = await sdk.routines.receiveWebhook({ token, body, headers });
+// "accepted" | "notFound" | "payloadTooLarge" | "idempotencyKeyTooLong"
 ```
 
-It answers `202` at once, `413` to a body over 64 KB, and `404` to a token that matches no active Routine. With an `Idempotency-Key` header, a retried delivery wakes the Bot once. The token is stored only as a hash, so the app shows a Routine's URL once, after it is approved or rotated.
+The route answers `202` at once, `413` to a body over 64 KB, and `404` to a token that matches no active Routine. With an `Idempotency-Key` header, a retried delivery wakes the Bot once. The token is stored only as a hash, so the app shows a Routine's URL once, after it is approved or rotated.
 
 ## Several processes: `redisRuntime()`
 

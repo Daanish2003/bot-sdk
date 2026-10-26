@@ -12,6 +12,7 @@ import {
   pauseRoutine,
   removeRoutine,
   resumeRoutine,
+  receiveRoutineWebhook,
   rotateWebhook,
 } from "./routines";
 
@@ -70,6 +71,19 @@ export function routinesApi(sdk: BotSdkContext) {
      */
     rotate: async ({ userId, ...rest }: WithUser<typeof routineInput>) =>
       rotateWebhook(sdk, userId, parseInput(routineInput, rest).routineId),
+
+    /**
+     * A delivery to a webhook Routine's URL (ADR 0021), as a Host's own route receives it: `token`
+     * is the URL's last segment, `body` the payload, and `headers` its `Idempotency-Key`, if any.
+     * It needs no user: the token is the authentication. Returns `accepted` (the sender learns no
+     * more), `notFound`, `payloadTooLarge` (over 64 KB) or `idempotencyKeyTooLong`; the HTTP
+     * layer answers them 202, 404, 413 and 400.
+     */
+    receiveWebhook: (input: {
+      token: string;
+      body: string;
+      headers?: Headers | Record<string, string>;
+    }) => receiveRoutineWebhook(sdk, input),
   };
 }
 

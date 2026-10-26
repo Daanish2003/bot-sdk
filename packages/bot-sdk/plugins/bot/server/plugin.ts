@@ -1,5 +1,5 @@
 import { deleteBlobsBestEffort } from "../../../core/server/storage";
-import type { BotSdkPlugin } from "../../../core/server/plugin";
+import type { BotSdkPlugin, Route } from "../../../core/server/plugin";
 
 import {
   cancelUserCheckIns,
@@ -27,11 +27,10 @@ import {
   hasLiveDemonstration,
   hasRunningHelper,
   handleScreenRequest,
-  type ScreenSocketHooks,
-  screenSocketHooks,
   stopUserHelpers,
 } from "./helpers";
 
+import { screenViewPath } from "../shared/helper";
 import { stopUserTurns, turnJobs } from "./turn";
 import { demonstrationJobs, stopUserDemonstrations } from "./demonstrations";
 
@@ -60,30 +59,14 @@ export const botJobs = [
 
 /**
  * The core's Bots, as the Host reaches them (`sdk.bots`, spec #871): the domain methods (spec #873)
- * and the Host's handlers.
+ * and the Ban's stop. The webhook and the live view are served by the HTTP layer.
  */
 export type BotApi = BotsApi & {
-  /**
-   * The inbound webhook handler of webhook Routines (ADR 0021), Request → Response. The Host mounts
-   * it at `/api/routines/webhook/<token>` with no sign-in: the token is the authentication.
-   */
-  webhookHandler: (request: Request) => Promise<Response>;
   /**
    * Stops the running Turn and the running and waiting Helpers of each of the user's Bots, closing
    * their Screens. The Host calls it when it Bans the user.
    */
   stopTurns: (input: { userId: string }) => Promise<void>;
-  /**
-   * The live view's page proxy (#597), Request → Response. The Host mounts it for GET and HEAD at
-   * `screenViewPath/<view token>/*` (`/api/screens`) with no sign-in: the view token that
-   * `bot.screen.view` mints is the authentication, and a request without a valid one answers 403.
-   */
-  screenHandler: (request: Request) => Promise<Response>;
-  /**
-   * The live view's socket proxy (#597): WebSocket hooks in crossws's shape, which the Host mounts
-   * at `screenViewPath/<view token>/websockify` (Nitro: `defineWebSocketHandler(screenSocket)`).
-   */
-  screenSocket: ScreenSocketHooks;
   /** The Model that reviews the Bots' risky tool calls, as the `reviewModel` option named it, if any. */
   reviewModel: string | undefined;
 };
@@ -120,15 +103,12 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
       sdk.models.addRecentModelSource((userId) => newestBotModel(sdk.db, userId));
       const api: BotApi = {
         ...botsApi(sdk),
-        webhookHandler: (request) => handleRoutineWebhook(sdk, request),
         stopTurns: async ({ userId }) => {
           // The Turns first, so none starts a Helper after its Helpers are stopped.
           await stopUserTurns(sdk, userId);
           await stopUserHelpers(sdk, userId);
           await stopUserDemonstrations(sdk, userId);
         },
-        screenHandler: (request) => handleScreenRequest(sdk, request),
-        screenSocket: screenSocketHooks(sdk),
         reviewModel,
       };
       sdk.bots = api;
@@ -158,6 +138,23 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
         handle: (_request, { user, sdk, params }) =>
           sentFileResponse(sdk, user.id, params.id!, { inline: true }),
       },
+      {
+        // A webhook Routine's URL (ADR 0021): no sign-in, the token is the authentication.
+        method: "POST",
+        path: "/routines/webhook/:token",
+        public: true,
+        handle: (request, { sdk, params }) => handleRoutineWebhook(sdk, request, params.token!),
+      },
+      // The live view's noVNC page and files (#597), fetched from the Screen with the traffic token
+      // added server-side. No sign-in: the view token in the path is the authentication, and a
+      // request without a valid one answers 403. Its socket is `createScreenSocket`'s hooks.
+      ...(["GET", "HEAD"] as const).map((method): Route => ({
+        method,
+        path: `${screenViewPath}/*`,
+        public: true,
+        handle: (request, { sdk, basePath }) =>
+          handleScreenRequest(sdk, request, `${basePath}${screenViewPath}`),
+      })),
     ],
     deleteUser: {
       // No Routine, Check-in or Helper runs for a deleted user: its jobs are cancelled.

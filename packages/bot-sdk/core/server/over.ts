@@ -6,7 +6,13 @@ import {
   type FeatureEntry,
   type GivenContext,
 } from "./create-chat";
-import { createHttpHandler, type HttpHandler, type HttpHandlerOptions } from "../http";
+import {
+  createHttpHandler,
+  createScreenSocket,
+  type HttpHandler,
+  type HttpHandlerOptions,
+  type ScreenSocketHooks,
+} from "../http";
 import { enabledFeatures } from "./feature";
 import { enabledPlugins, type BotSdkContext } from "./plugin";
 import { modelsOver } from "../../plugins/models/server/internal";
@@ -70,6 +76,19 @@ export function createBotSdkOver(
  * and Computer provider, and the same core parts and features.
  */
 export function createChatHandler(sdk: SdkOver, options: HttpHandlerOptions): HttpHandler {
+  return createHttpHandler(instanceOver(sdk), options);
+}
+
+/** The live view's socket hooks (`createScreenSocket`) of a new instance over `sdk`'s parts, as above. */
+export function createChatScreenSocket(
+  sdk: SdkOver,
+  options: { basePath: string },
+): ScreenSocketHooks {
+  return createScreenSocket(instanceOver(sdk), options);
+}
+
+/** A new instance over `sdk`'s parts, for `createChatHandler` and `createChatScreenSocket`. */
+function instanceOver(sdk: SdkOver): BotSdk {
   const {
     parts: _parts,
     models: _models,
@@ -110,5 +129,5 @@ export function createChatHandler(sdk: SdkOver, options: HttpHandlerOptions): Ht
     { ...context, jobs: runnerJobs(sdk) },
     [modelsOver(models), ...core],
   );
-  return createHttpHandler(instance, options);
+  return instance;
 }

@@ -41,6 +41,11 @@ export type BotSdkContext = {
   keyring: string[];
   /** Set by `stop()`. */
   lifecycle: { stopping: boolean };
+  /**
+   * Where `createHttpHandler` serves the instance (`basePath` without a trailing slash), or `null`
+   * before it does: the live view's links point under it.
+   */
+  mount: { basePath: string | null };
   isUserBlocked: (userId: string) => boolean | Promise<boolean>;
   /** The runner (ADR 0011): the background jobs, from the runner slot or the in-process runner. */
   runner: RunnerApi;
@@ -123,9 +128,12 @@ type RouteArgs<User> = {
   basePath: string;
 };
 
-/** A non-RPC HTTP route, under `basePath`. A `:name` segment of `path` matches any one segment. */
+/**
+ * A non-RPC HTTP route, under `basePath`. A `:name` segment of `path` matches any one segment, and
+ * a last `*` segment the rest of the path.
+ */
 export type Route = {
-  method: "GET" | "POST";
+  method: "GET" | "HEAD" | "POST";
   path: `/${string}`;
 } & (
   | {
@@ -264,10 +272,18 @@ export function mergeRateLimits(plugins: readonly BotSdkPlugin[]): Record<string
   return merged;
 }
 
-/** The `:name` segments of `pattern` when `path` matches it, else `null`. */
+/**
+ * The `:name` segments of `pattern` when `path` matches it, else `null`. A last `*` segment matches
+ * the rest of `path`, one segment or more, given as the param `*`.
+ */
 export function matchPath(pattern: string, path: string): Record<string, string> | null {
   const expected = pattern.split("/");
-  const actual = path.split("/");
+  let actual = path.split("/");
+  if (expected.at(-1) === "*") {
+    if (actual.length < expected.length) return null;
+    actual = [...actual.slice(0, expected.length - 1), actual.slice(expected.length - 1).join("/")];
+    expected[expected.length - 1] = ":*";
+  }
   if (expected.length !== actual.length) return null;
   const params: Record<string, string> = {};
   for (const [index, segment] of expected.entries()) {

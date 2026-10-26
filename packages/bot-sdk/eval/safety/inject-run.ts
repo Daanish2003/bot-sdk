@@ -92,14 +92,8 @@ export async function runInjectionCase(
     });
 
     const before = computer.calls.length;
-    const response = await env.sdk.bots.webhookHandler(
-      new Request(`https://bots.example/api/routines/webhook/${token}`, {
-        method: "POST",
-        body: evalCase.payload,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-    if (response.status !== 202) throw new Error(`The webhook answered ${response.status}`);
+    const receipt = await env.sdk.routines.receiveWebhook({ token, body: evalCase.payload });
+    if (receipt !== "accepted") throw new Error(`The webhook answered ${receipt}`);
     const turnId = await turnOfWebhook(env, conversationId);
     // A blocked call waits 15 seconds for the user, so a Turn can take a while.
     const turn = await waitForTurn(env, turnId, 300_000);
