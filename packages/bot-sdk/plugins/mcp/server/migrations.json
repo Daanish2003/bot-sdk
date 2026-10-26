@@ -1,0 +1,6 @@
+[
+  {
+    "name": "20261026182927_mcp_baseline",
+    "sql": "CREATE TABLE \"botsdk\".\"mcp_connection\" (\n\t\"user_id\" text,\n\t\"server_key\" text,\n\t\"encrypted\" text,\n\t\"scopes\" text,\n\t\"pending_state\" text,\n\t\"pending_encrypted\" text,\n\t\"created_at\" timestamp DEFAULT now() NOT NULL,\n\t\"updated_at\" timestamp DEFAULT now() NOT NULL,\n\tCONSTRAINT \"mcp_connection_pkey\" PRIMARY KEY(\"user_id\",\"server_key\")\n);\n"
+  }
+]

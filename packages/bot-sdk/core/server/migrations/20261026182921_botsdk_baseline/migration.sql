@@ -307,23 +307,6 @@ CREATE TABLE "botsdk"."conversation_change" (
 	CONSTRAINT "conversation_change_pkey" PRIMARY KEY("conversation_id","seq")
 );
 --> statement-breakpoint
-CREATE TABLE "botsdk"."mcp_connection" (
-	"user_id" text,
-	"server_key" text,
-	"encrypted" text,
-	"scopes" text,
-	"pending_state" text,
-	"pending_encrypted" text,
-	"created_at" timestamp DEFAULT now() NOT NULL,
-	"updated_at" timestamp DEFAULT now() NOT NULL,
-	CONSTRAINT "mcp_connection_pkey" PRIMARY KEY("user_id","server_key")
-);
---> statement-breakpoint
-CREATE TABLE "botsdk"."memory_settings" (
-	"user_id" text PRIMARY KEY,
-	"enabled" boolean DEFAULT true NOT NULL
-);
---> statement-breakpoint
 CREATE INDEX "conversation_user_id_last_message_at_idx" ON "botsdk"."conversation" ("user_id","last_message_at" DESC NULLS LAST);--> statement-breakpoint
 CREATE INDEX "message_conversation_id_parent_id_idx" ON "botsdk"."message" ("conversation_id","parent_id");--> statement-breakpoint
 CREATE INDEX "bot_check_in_bot_id_idx" ON "botsdk"."bot_check_in" ("bot_id");--> statement-breakpoint

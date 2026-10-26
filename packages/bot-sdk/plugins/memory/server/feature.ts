@@ -10,6 +10,7 @@ import { memoryChangeNotes } from "./change-notes";
 import { memorySettings } from "./db/settings";
 import { memoryEnabledFor } from "./manage";
 import { memoryApi } from "./memory-api";
+import memoryMigrations from "./migrations.json" with { type: "json" };
 import { memoryContract } from "../shared/contract";
 import { searchBotMemory } from "./search";
 
@@ -36,7 +37,7 @@ export function memory() {
   return defineFeature({
     id: "memory",
     needs: ["computer"],
-    schema: { memorySettings },
+    schema: { tables: { memorySettings }, migrations: memoryMigrations },
     // The domain methods: `sdk.memory` (spec #873).
     api: (context) => memoryApi(coreContextOf(context)),
     // Sent on every call, by name (`isDirectTool`), only with the user's Memory on.

@@ -114,6 +114,7 @@ The `runner` and `memory` plugins and the `skills` feature need nothing beyond `
 - The database needs the `pg_trgm` extension. `chat.migrate()` runs `CREATE EXTENSION IF NOT EXISTS pg_trgm` before its migrations and fails naming it, so a role allowed to create extensions (or a database that already has it) is needed.
 - The `database` slot takes `postgres({ connectionString })`, and the SDK opens its own pool on first use, or `postgres({ pool })` with your own node-postgres-compatible pool (`pg`, or a Neon serverless `Pool`), which the SDK queries through and never ends. `migrate()` holds a session advisory lock on one of its connections, so the pool must reach Postgres directly or through a session-mode pooler, not a transaction-mode one (PgBouncer in transaction mode, Neon's `-pooler` host).
 - The SDK's tables live in the `botsdk` schema of the Host's database, not in your ORM's schema. Your ORM's migrations never touch them.
+- The core and each feature ship their own migrations. `migrate()` applies the core's, then each enabled feature's in your `features` order, and records each one in `botsdk.__migrations` by feature and name, so enabling a feature later applies only its migrations. Turning a feature off leaves its tables and rows as they are. A feature you write with `defineFeature` lists its tables and its SQL migrations, oldest first, in `schema: { tables, migrations: [{ name, sql }] }`; its tables may have foreign keys into the core's, since the core migrates first.
 - The SDK's migrations are expand-then-contract: they add tables, columns and indexes, and never drop or rename one in the same release. The version still running during a deploy keeps working against the migrated schema. The one exception is the move to the `botsdk` schema and its fresh baseline: data in the old `chat` schema is not carried over.
 
 ## File storage: `blobs`
@@ -207,7 +208,7 @@ const client = createBotSdkClient({
 - The `router` adapter maps the SDK's pages (`keys`, and `bots` with an optional Bot `id`) to your URLs. It provides `Link` and `navigate(page)`. Pass your own TanStack Query client as `queryClient` if you have one; otherwise the provider creates its own.
 - The Bots app is `BotsApp` from `plugins/bot/ui`, with the Host's account menu at the foot of its sidebar (`accountMenu`); the keys page is `KeySettingsPage` from `plugins/models/ui`.
 - `GET <basePath>/export` answers the signed-in user's export as a JSON download (`chat-export-<date>.json`), the same document as `users.export`. The `ExportDataButton` in `ui/settings/export-data-button.tsx` calls it.
-- `start()` refuses to run while the `botsdk` schema is behind the bundled migrations.
+- `start()` refuses to run while the core's or an enabled feature's migrations aren't all applied.
 - `stop()` stops the plugins (the runner takes no new jobs and waits for the running ones), then closes the runtime's connections.
 
 ## Background jobs: `runner`

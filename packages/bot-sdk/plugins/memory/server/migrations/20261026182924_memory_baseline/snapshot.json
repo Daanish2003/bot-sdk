@@ -1,0 +1,49 @@
+{
+  "version": "8",
+  "dialect": "postgres",
+  "id": "4421b6eb-a88a-4f87-ac0a-ea63301020ad",
+  "prevIds": ["00000000-0000-0000-0000-000000000000"],
+  "ddl": [
+    {
+      "isRlsEnabled": false,
+      "name": "memory_settings",
+      "entityType": "tables",
+      "schema": "botsdk"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "memory_settings"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "true",
+      "generated": null,
+      "identity": null,
+      "name": "enabled",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "memory_settings"
+    },
+    {
+      "columns": ["user_id"],
+      "nameExplicit": false,
+      "name": "memory_settings_pkey",
+      "schema": "botsdk",
+      "table": "memory_settings",
+      "entityType": "pks"
+    }
+  ],
+  "renames": []
+}

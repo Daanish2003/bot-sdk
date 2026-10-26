@@ -7,6 +7,7 @@ import {
   checkFeature,
   contextOf,
   enableFeature,
+  featureMigrations,
   featurePlugin,
   featureRouter,
   type AnyFeature,
@@ -189,10 +190,13 @@ export type BotSdk = {
   reviews: ReviewsApi;
   /** The core's Channels (spec #871): the inbound handler of each adapter in the channels slot. */
   channels: ChannelApi;
-  /** Creates the `botsdk` schema and applies the bundled migrations. Run it at deploy time. */
+  /**
+   * Creates the `botsdk` schema and applies the core's and the enabled features' migrations that
+   * aren't applied yet (spec #874). A feature turned off keeps its tables. Run it at deploy time.
+   */
   migrate: () => Promise<void>;
   /**
-   * Refuses (throws) while the `botsdk` schema is behind the bundled migrations; then starts the
+   * Refuses (throws) while the core's or an enabled feature's migrations aren't all applied; then starts the
    * core's parts, in order. `models` refuses with neither `hostProviders` nor `byok` on; the
    * runner starts its job reaper and the jobs runner (ADR 0011).
    */
@@ -380,9 +384,9 @@ export function buildBotSdk(
     demonstrations: sdk.demonstrations,
     reviews: sdk.reviews,
     channels: sdk.channels,
-    migrate: () => migrateSchema(options.database),
+    migrate: () => migrateSchema(options.database, featureMigrations(features)),
     start: async () => {
-      await assertMigrated(options.database);
+      await assertMigrated(options.database, featureMigrations(features));
       if (!options.pubsub && !given.runtime && !given.pubsub) {
         const logger = options.logger ?? console;
         const warning =

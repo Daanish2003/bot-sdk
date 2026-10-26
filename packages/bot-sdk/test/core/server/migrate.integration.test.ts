@@ -1,11 +1,15 @@
-import { readdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-
+import { pgSchema, text, uuid } from "drizzle-orm/pg-core";
 import { Client, Pool } from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
-import { LATEST_MIGRATION } from "../../../core/server/migrate";
+import { type AnyFeature, defineFeature } from "../../../core/server/feature";
+import type { Migration } from "../../../core/server/migrate";
+import coreMigrations from "../../../core/server/migrations.json" with { type: "json" };
+import mcpMigrations from "../../../plugins/mcp/server/migrations.json" with { type: "json" };
+import memoryMigrations from "../../../plugins/memory/server/migrations.json" with { type: "json" };
+import { mcp } from "../../../plugins/mcp/server";
+import { migrationParts, migrationsOf } from "../../../scripts/migrations-json";
 import {
   dropScratchDatabase,
   freshDatabaseUrl,
@@ -15,12 +19,67 @@ import { postgres } from "../../../core/server/database";
 
 const keyEncryptionSecrets = ["test-key-encryption-secret-not-for-production"];
 
-function chatFor(databaseUrl: string) {
+function chatFor(databaseUrl: string, features: readonly AnyFeature[] = []) {
   return createBotSdk({
     database: postgres({ connectionString: databaseUrl }),
     keyEncryptionSecrets,
     models: {},
+    features,
   });
+}
+
+const createNote: Migration = {
+  name: "0001_note",
+  sql: `create table botsdk.test_note (
+    id text primary key,
+    bot_id uuid not null references botsdk.bot(id) on delete cascade
+  )`,
+};
+const addNoteText: Migration = {
+  name: "0002_note_text",
+  sql: "alter table botsdk.test_note add column text text",
+};
+
+/**
+ * A test feature with one table, whose foreign key into the core's `bot` cascades; `migrations`
+ * are the ones its release ships.
+ */
+function notes(migrations: readonly Migration[] = [createNote]) {
+  const note = pgSchema("botsdk").table("test_note", {
+    id: text("id").primaryKey(),
+    botId: uuid("bot_id").notNull(),
+  });
+  return defineFeature({ id: "notes", schema: { tables: { note }, migrations } });
+}
+
+/** The journal's rows, as each part's migration names, in the order they were applied. */
+function journal(url: string) {
+  return rows<{ feature: string; migration: string }>(
+    url,
+    "select feature, migration from botsdk.__migrations order by applied_at, feature, migration",
+  );
+}
+
+/** The `botsdk` schema's tables, sorted. */
+async function tablesOf(url: string) {
+  const tables = await rows<{ table_name: string }>(
+    url,
+    "select table_name from information_schema.tables where table_schema = 'botsdk'",
+  );
+  return tables.map((row) => row.table_name).sort();
+}
+
+/** A Bot (and its Conversation) for a user, by raw SQL: its id. */
+async function insertBot(url: string) {
+  const [created] = await rows<{ id: string }>(
+    url,
+    `with c as (
+       insert into botsdk.conversation (id, user_id, kind) values (gen_random_uuid(), 'u1', 'bot')
+       returning id)
+     insert into botsdk.bot (id, user_id, conversation_id, name, model)
+     select gen_random_uuid(), 'u1', c.id, 'Ada', 'openai:gpt-5' from c returning id`,
+  );
+  return created!.id;
 }
 
 /** Rows of a query run on its own connection, so each call sees the database as it is now. */
@@ -48,7 +107,8 @@ afterEach(async () => {
   for (const url of scratch.splice(0)) await dropScratchDatabase(url);
 }, 120_000);
 
-const sdkTables = [
+/** The core's tables: every Host has them, whatever features it enables. */
+const coreTables = [
   "__migrations",
   "blob",
   "bot",
@@ -71,8 +131,6 @@ const sdkTables = [
   "conversation_change",
   "job",
   "job_event",
-  "mcp_connection",
-  "memory_settings",
   "message",
   "model_settings",
   "secret",
@@ -81,16 +139,12 @@ const sdkTables = [
 ];
 
 describe("chat.migrate()", () => {
-  it("creates every table and enum in the `botsdk` schema on an empty database", async () => {
+  it("creates only the core's tables and enums in the `botsdk` schema with no features", async () => {
     const url = await scratchDatabase("empty");
 
     await chatFor(url).migrate();
 
-    const tables = await rows<{ table_name: string }>(
-      url,
-      "select table_name from information_schema.tables where table_schema = 'botsdk'",
-    );
-    expect(tables.map((row) => row.table_name).sort()).toEqual([...sdkTables].sort());
+    expect(await tablesOf(url)).toEqual([...coreTables].sort());
 
     const enums = await rows<{ typname: string }>(
       url,
@@ -118,9 +172,9 @@ describe("chat.migrate()", () => {
       "usage_kind",
     ]);
 
-    // One baseline, journaled in the SDK's own schema.
-    expect(await rows(url, "select count(*)::int as count from botsdk.__migrations")).toEqual([
-      { count: 1 },
+    // One baseline, journaled in the SDK's own schema under the core.
+    expect(await journal(url)).toEqual([
+      { feature: "core", migration: "20261026182921_botsdk_baseline" },
     ]);
     // Images and PDFs are already compressed, so the bytes are kept out of line uncompressed.
     expect(
@@ -156,6 +210,69 @@ describe("chat.migrate()", () => {
     expect(outside).toEqual([]);
   });
 
+  it("adds an enabled feature's tables, and only its, after the core's", async () => {
+    const url = await scratchDatabase("feature");
+
+    await chatFor(url, [notes(), mcp()]).migrate();
+
+    expect(await tablesOf(url)).toEqual([...coreTables, "mcp_connection", "test_note"].sort());
+    expect(await journal(url)).toEqual([
+      { feature: "core", migration: "20261026182921_botsdk_baseline" },
+      { feature: "notes", migration: "0001_note" },
+      { feature: "mcp", migration: "20261026182927_mcp_baseline" },
+    ]);
+  });
+
+  it("applies only a feature's migrations when it is enabled later, and only its new ones", async () => {
+    const url = await scratchDatabase("later");
+    await chatFor(url).migrate();
+    const core = await rows(url, "select * from botsdk.__migrations");
+
+    await chatFor(url, [notes()]).migrate();
+    await chatFor(url, [notes([createNote, addNoteText])]).migrate();
+
+    expect(await rows(url, "select * from botsdk.__migrations where feature = 'core'")).toEqual(
+      core,
+    );
+    expect(await journal(url)).toEqual([
+      { feature: "core", migration: "20261026182921_botsdk_baseline" },
+      { feature: "notes", migration: "0001_note" },
+      { feature: "notes", migration: "0002_note_text" },
+    ]);
+    const columns = await rows<{ column_name: string }>(
+      url,
+      `select column_name from information_schema.columns
+       where table_schema = 'botsdk' and table_name = 'test_note' order by column_name`,
+    );
+    expect(columns.map((row) => row.column_name)).toEqual(["bot_id", "id", "text"]);
+  });
+
+  it("leaves a disabled feature's tables and rows in place", async () => {
+    const url = await scratchDatabase("disabled");
+    await chatFor(url, [notes()]).migrate();
+    const botId = await insertBot(url);
+    await rows(url, `insert into botsdk.test_note (id, bot_id) values ('n1', '${botId}')`);
+
+    const without = chatFor(url);
+    await without.migrate();
+    await without.start();
+    await without.stop();
+
+    expect(await rows(url, "select id from botsdk.test_note")).toEqual([{ id: "n1" }]);
+    expect(await journal(url)).toContainEqual({ feature: "notes", migration: "0001_note" });
+  });
+
+  it("lets a feature's table cascade on a delete of the core row it references", async () => {
+    const url = await scratchDatabase("cascade");
+    await chatFor(url, [notes()]).migrate();
+    const botId = await insertBot(url);
+    await rows(url, `insert into botsdk.test_note (id, bot_id) values ('n1', '${botId}')`);
+
+    await rows(url, `delete from botsdk.bot where id = '${botId}'`);
+
+    expect(await rows(url, "select id from botsdk.test_note")).toEqual([]);
+  });
+
   it("does nothing when run again", async () => {
     const url = await scratchDatabase("rerun");
     const chat = chatFor(url);
@@ -170,12 +287,14 @@ describe("chat.migrate()", () => {
 
   it("lets two concurrent runs both succeed, with the migrations applied once", async () => {
     const url = await scratchDatabase("concurrent");
-    const chat = chatFor(url);
+    const chat = chatFor(url, [notes()]);
 
     await expect(Promise.all([chat.migrate(), chat.migrate()])).resolves.toBeDefined();
 
-    const applied = await rows<{ count: string }>(url, "select count(*) from botsdk.__migrations");
-    expect(applied).toEqual([{ count: "1" }]);
+    expect(await journal(url)).toEqual([
+      { feature: "core", migration: "20261026182921_botsdk_baseline" },
+      { feature: "notes", migration: "0001_note" },
+    ]);
   });
 
   it("throws an error naming pg_trgm when the role may not create it", async () => {
@@ -235,13 +354,32 @@ describe("chat.migrate()", () => {
 });
 
 describe("chat.start()", () => {
-  it("checks against the newest migration folder, which the bundle can't read", () => {
-    const migrationsFolder = fileURLToPath(
-      new URL("../../../core/server/migrations", import.meta.url),
-    );
-    const newest = readdirSync(migrationsFolder).sort().at(-1);
+  it("checks against each part's migrations.json, which match its drizzle-kit folders", () => {
+    const json: Record<string, unknown> = {
+      "core/server": coreMigrations,
+      "plugins/memory/server": memoryMigrations,
+      "plugins/mcp/server": mcpMigrations,
+    };
 
-    expect(LATEST_MIGRATION).toBe(newest);
+    for (const part of migrationParts) {
+      expect(json[part], `run \`node scripts/migrations-json.ts\` for ${part}`).toEqual(
+        migrationsOf(part),
+      );
+    }
+  });
+
+  it("throws, naming the feature, while an enabled feature's migrations aren't all applied", async () => {
+    const url = await scratchDatabase("start_feature");
+    await chatFor(url).migrate();
+
+    await expect(chatFor(url, [notes()]).start()).rejects.toThrow(
+      /Feature "notes".*chat\.migrate\(\)/,
+    );
+
+    await chatFor(url, [notes()]).migrate();
+    await expect(chatFor(url, [notes([createNote, addNoteText])]).start()).rejects.toThrow(
+      /Feature "notes".*chat\.migrate\(\)/,
+    );
   });
 
   it("throws on a database that was never migrated", async () => {

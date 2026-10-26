@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "71815ac2-fcb2-4a25-bef4-7314f15a4979",
+  "id": "b98465f3-f4b2-4abd-bbe6-c3064a62242f",
   "prevIds": ["00000000-0000-0000-0000-000000000000"],
   "ddl": [
     {
@@ -279,18 +279,6 @@
     {
       "isRlsEnabled": false,
       "name": "conversation_change",
-      "entityType": "tables",
-      "schema": "botsdk"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "mcp_connection",
-      "entityType": "tables",
-      "schema": "botsdk"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "memory_settings",
       "entityType": "tables",
       "schema": "botsdk"
     },
@@ -2986,136 +2974,6 @@
       "table": "conversation_change"
     },
     {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "user_id",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "mcp_connection"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "server_key",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "mcp_connection"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "encrypted",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "mcp_connection"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "scopes",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "mcp_connection"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "pending_state",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "mcp_connection"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "pending_encrypted",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "mcp_connection"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "mcp_connection"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "mcp_connection"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "user_id",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "memory_settings"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "true",
-      "generated": null,
-      "identity": null,
-      "name": "enabled",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "memory_settings"
-    },
-    {
       "nameExplicit": true,
       "columns": [
         {
@@ -4190,14 +4048,6 @@
       "table": "conversation_change"
     },
     {
-      "columns": ["user_id", "server_key"],
-      "nameExplicit": false,
-      "name": "mcp_connection_pkey",
-      "entityType": "pks",
-      "schema": "botsdk",
-      "table": "mcp_connection"
-    },
-    {
       "columns": ["id"],
       "nameExplicit": false,
       "name": "conversation_pkey",
@@ -4371,14 +4221,6 @@
       "name": "blob_pkey",
       "schema": "botsdk",
       "table": "blob",
-      "entityType": "pks"
-    },
-    {
-      "columns": ["user_id"],
-      "nameExplicit": false,
-      "name": "memory_settings_pkey",
-      "schema": "botsdk",
-      "table": "memory_settings",
       "entityType": "pks"
     },
     {

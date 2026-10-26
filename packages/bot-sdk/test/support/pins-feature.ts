@@ -58,7 +58,7 @@ export function pins() {
   return defineFeature({
     id: "pins",
     needs: ["computer"],
-    schema: { pin },
+    schema: { tables: { pin } },
     api: ({ db }) => ({
       list: async ({ userId }: { userId: string }) =>
         (

@@ -1,54 +1,102 @@
-import { fileURLToPath } from "node:url";
-
-import { drizzle } from "drizzle-orm/node-postgres";
-import { migrate as applyMigrations } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 
 import type { PostgresDatabase } from "./database";
+import coreMigrations from "./migrations.json" with { type: "json" };
 
 /**
- * Kept in this file, with no runtime import from the rest of the SDK, so a Host's migrate script can load
- * it directly. The journal is `botsdk.__migrations`.
+ * Kept in this file, with no runtime import from the rest of the SDK but data, so a Host's migrate
+ * script can load it directly. The journal is `botsdk.__migrations`, one row per applied
+ * migration, keyed by its part (`core` or a feature's id) and its name (spec #874).
  */
 
-/** Any fixed number: every `chat.migrate()` and `start()` on one database uses it. */
+/** Any fixed number: every `chat.migrate()` on one database uses it. */
 const MIGRATION_LOCK_ID = 727_770_001;
 
-/**
- * The newest folder in `core/server/migrations`. A bundler can't read that folder at run time, so
- * `start()` compares against this name. A test keeps it equal to the folder listing.
- */
-export const LATEST_MIGRATION = "20261026174759_botsdk_baseline";
+/** One SQL migration of the core or a feature. Its `name` is unique within its part. */
+export type Migration = { name: string; sql: string };
 
-function migrationsFolder() {
-  // Only `migrate()` reads the folder, from a migrate script that runs the file unbundled. The
-  // path is a variable so a bundler doesn't try to resolve the folder at build time.
-  const folder = ["", "migrations"].join("./");
-  return fileURLToPath(new URL(folder, import.meta.url));
-}
+/** A feature's migrations, oldest first, under its id. */
+export type FeatureMigrations = { feature: string; migrations: readonly Migration[] };
 
-/** Milliseconds for a migration folder's `yyyymmddhhmmss` prefix, as drizzle records them. */
-function folderMillis(name: string) {
-  const at = (start: number, length = 2) => Number(name.slice(start, start + length));
-  return Date.UTC(at(0, 4), at(4) - 1, at(6), at(8), at(10), at(12));
-}
+/** A migration the journal doesn't have yet, with its part. */
+export type PendingMigration = Migration & { feature: string };
+
+/** The core's migrations: the core's tables, which every Host has, and features may reference. */
+const core: FeatureMigrations = { feature: "core", migrations: coreMigrations };
 
 /**
- * Creates the `botsdk` schema and `pg_trgm`, and then applies the bundled migrations. A
- * session advisory lock is held for the whole run, so concurrent runs queue up and only one applies.
+ * Creates the `botsdk` schema and `pg_trgm`, then applies what the journal lacks: the core's
+ * migrations, then each feature's in the order given, each in its own transaction with its journal
+ * row. A session advisory lock is held for the whole run, so concurrent runs queue up and only one
+ * applies. A feature left out keeps its tables and rows.
  */
-export async function migrate(database: PostgresDatabase): Promise<void> {
+export async function migrate(
+  database: PostgresDatabase,
+  features: readonly FeatureMigrations[] = [],
+): Promise<void> {
   await withConnection(database, async (client) => {
     await client.query("select pg_advisory_lock($1)", [MIGRATION_LOCK_ID]);
     await createSchema(client);
     await createTrigramExtension(client);
-    await applyMigrations(drizzle({ client }), {
-      migrationsFolder: migrationsFolder(),
-      migrationsSchema: "botsdk",
-      migrationsTable: "__migrations",
-    });
+    await client.query(`create table if not exists botsdk.__migrations (
+      feature text not null,
+      migration text not null,
+      applied_at timestamp with time zone not null default clock_timestamp(),
+      primary key (feature, migration)
+    )`);
+    for (const pending of pendingIn(await journalOf(client), features)) {
+      await client.query("begin");
+      try {
+        await client.query(pending.sql);
+        await client.query("insert into botsdk.__migrations (feature, migration) values ($1, $2)", [
+          pending.feature,
+          pending.name,
+        ]);
+        await client.query("commit");
+      } catch (cause) {
+        await client.query("rollback");
+        throw new Error(`Migration ${pending.name} of "${pending.feature}" failed`, { cause });
+      }
+    }
     await client.query("select pg_advisory_unlock($1)", [MIGRATION_LOCK_ID]);
   });
+}
+
+/**
+ * What `migrate` would apply now for these features, in order: for a Host that applies the SQL
+ * with its own tools. Only reads.
+ */
+export async function pendingMigrations(
+  database: PostgresDatabase,
+  features: readonly FeatureMigrations[] = [],
+): Promise<PendingMigration[]> {
+  return pendingIn(await withConnection(database, journalOf), features);
+}
+
+/** The core's and the features' migrations that `applied` lacks, the core's first. */
+function pendingIn(
+  applied: ReadonlySet<string>,
+  features: readonly FeatureMigrations[],
+): PendingMigration[] {
+  return [core, ...features].flatMap(({ feature, migrations }) =>
+    migrations
+      .filter(({ name }) => !applied.has(journalKey(feature, name)))
+      .map((migration) => ({ ...migration, feature })),
+  );
+}
+
+const journalKey = (feature: string, migration: string) => `${feature}/${migration}`;
+
+/** The journal's rows as `journalKey`s: none before the first `migrate`. */
+async function journalOf(client: Connection): Promise<Set<string>> {
+  const { rows } = await client.query<{ present: boolean }>(
+    "select to_regclass('botsdk.__migrations') is not null as present",
+  );
+  if (!rows[0]?.present) return new Set();
+  const journal = await client.query<{ feature: string; migration: string }>(
+    "select feature, migration from botsdk.__migrations",
+  );
+  return new Set(journal.rows.map((row) => journalKey(row.feature, row.migration)));
 }
 
 /**
@@ -103,26 +151,23 @@ async function createTrigramExtension(client: Connection) {
 }
 
 /**
- * Throws unless the journal has applied the bundled latest migration. Only reads, and holds no
- * lock: a run in progress is reported as behind until it finishes.
+ * Throws unless the journal has every migration of the core and of these (the enabled) features.
+ * Only reads, and holds no lock: a run in progress is reported as behind until it finishes.
  */
-export async function assertMigrated(database: PostgresDatabase): Promise<void> {
-  const latest = folderMillis(LATEST_MIGRATION);
+export async function assertMigrated(
+  database: PostgresDatabase,
+  features: readonly FeatureMigrations[] = [],
+): Promise<void> {
   // Thrown after the connection is back, so a behind schema doesn't cost the Host's pool one.
-  const appliedUpTo = await withConnection(database, async (client) => {
-    const journal = await client.query<{ present: boolean }>(
-      "select to_regclass('botsdk.__migrations') is not null as present",
-    );
-    const applied = journal.rows[0]?.present
-      ? await client.query<{ created_at: string | null }>(
-          "select max(created_at) as created_at from botsdk.__migrations",
-        )
-      : undefined;
-    return Number(applied?.rows[0]?.created_at ?? 0);
-  });
-  if (appliedUpTo < latest) {
+  const behind = (await pendingMigrations(database, features))[0]?.feature;
+  if (behind === "core") {
     throw new Error(
       "The `botsdk` schema is behind the bundled migrations: run chat.migrate() before start().",
+    );
+  }
+  if (behind !== undefined) {
+    throw new Error(
+      `Feature "${behind}" is behind its migrations: run chat.migrate() with it enabled before start().`,
     );
   }
 }

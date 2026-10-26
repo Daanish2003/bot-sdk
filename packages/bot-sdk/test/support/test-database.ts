@@ -7,7 +7,9 @@ import { Client } from "pg";
 
 import { createDb, type Database } from "../../core/server/storage";
 import { postgres } from "../../core/server/database";
-import { migrate as migrateBotSdk } from "../../core/server/migrate";
+import { type FeatureMigrations, migrate as migrateBotSdk } from "../../core/server/migrate";
+import mcpMigrations from "../../plugins/mcp/server/migrations.json" with { type: "json" };
+import memoryMigrations from "../../plugins/memory/server/migrations.json" with { type: "json" };
 
 const DEFAULT_TEST_DATABASE_URL = "postgresql://postgres:password@localhost:5432/ai-chat_test";
 
@@ -41,12 +43,22 @@ export const testDatabaseUrl = process.env.VITEST_POOL_ID
   ? workerDatabaseUrl(process.env.VITEST_POOL_ID)
   : baseTestDatabaseUrl;
 
+/**
+ * The migrations of every feature the SDK ships with tables: the test database has their tables, so
+ * any test may enable them.
+ */
+export const sdkFeatureMigrations: FeatureMigrations[] = [
+  { feature: "memory", migrations: memoryMigrations },
+  { feature: "mcp", migrations: mcpMigrations },
+];
+
 /** Better Auth's tables are in `public`; the SDK's tables reference none of them. */
 const authMigrationsFolder = fileURLToPath(new URL("../../../db/src/migrations", import.meta.url));
 
 /**
- * Creates the configured test database if it is missing and applies every migration, then makes
- * one copy of it per worker (`<test database>_r<run>_w1` … `_w<workers>`).
+ * Creates the configured test database if it is missing and applies every migration (the core's and
+ * every SDK feature's), then makes one copy of it per worker (`<test database>_r<run>_w1` …
+ * `_w<workers>`).
  */
 export async function prepareTestDatabases(workers: number) {
   await createDatabaseIfMissing(baseTestDatabaseUrl);
@@ -56,7 +68,7 @@ export async function prepareTestDatabases(workers: number) {
   } finally {
     await db.$client.end();
   }
-  await migrateBotSdk(postgres({ connectionString: baseTestDatabaseUrl }));
+  await migrateBotSdk(postgres({ connectionString: baseTestDatabaseUrl }), sdkFeatureMigrations);
 
   const template = quoteIdentifier(databaseName(baseTestDatabaseUrl));
   const client = await serverClient(baseTestDatabaseUrl);

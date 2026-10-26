@@ -1,0 +1,6 @@
+[
+  {
+    "name": "20261026182924_memory_baseline",
+    "sql": "CREATE TABLE \"botsdk\".\"memory_settings\" (\n\t\"user_id\" text PRIMARY KEY,\n\t\"enabled\" boolean DEFAULT true NOT NULL\n);\n"
+  }
+]

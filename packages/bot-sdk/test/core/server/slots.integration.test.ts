@@ -309,7 +309,9 @@ describe("a feature's schema", () => {
   it("can't add columns to a core table", () => {
     const widened = botsdk.table("bot", { extra: text("extra") });
     expect(() =>
-      createBotSdk(slots({ features: [defineFeature({ id: "widen", schema: { widened } })] })),
+      createBotSdk(
+        slots({ features: [defineFeature({ id: "widen", schema: { tables: { widened } } })] }),
+      ),
     ).toThrow(/Feature "widen" declares the core table "bot"/);
   });
 
@@ -319,7 +321,9 @@ describe("a feature's schema", () => {
       botId: text("bot_id").references(() => bot.id),
     });
     expect(() =>
-      createBotSdk(slots({ features: [defineFeature({ id: "notes", schema: { note } })] })),
+      createBotSdk(
+        slots({ features: [defineFeature({ id: "notes", schema: { tables: { note } } })] }),
+      ),
     ).not.toThrow();
   });
 });

@@ -11,6 +11,7 @@ import type { FeatureEntry } from "../../core/server/create-chat";
 import { createGuardedFetch } from "../../core/server/lib/guarded-fetch";
 import { postgres } from "../../core/server/database";
 import { migrate as migrateBotSdk } from "../../core/server/migrate";
+import { sdkFeatureMigrations } from "../../test/support/test-database";
 import type { BotSdkContext } from "../../core/server/plugin";
 import { memoryRuntime } from "../../core/server/runtime";
 import { createBotSdkOver, type OverSlots } from "../../core/server/over";
@@ -50,7 +51,7 @@ export async function prepareSchema(url: string): Promise<Database> {
   await migrate(db, {
     migrationsFolder: fileURLToPath(new URL("../../../db/src/migrations", import.meta.url)),
   });
-  await migrateBotSdk(postgres({ connectionString: url }));
+  await migrateBotSdk(postgres({ connectionString: url }), sdkFeatureMigrations);
   return db;
 }
 

@@ -1,9 +1,9 @@
 /// <reference types="node" />
 /**
  * Migrates the app's database: Better Auth's tables first, then the Bot SDK's `botsdk` schema
- * through its `migrate()`, then drops the chat tables and enums the app used to keep in `public`, and
- * the SDK's schema from before the `botsdk` baseline (#904). That data was development data only, so
- * nothing is copied.
+ * through its `migrate()` (the core's tables and its features'), then drops the chat tables and
+ * enums the app used to keep in `public`, and the SDK's schema from before the `botsdk` baseline
+ * (#904). That data was development data only, so nothing is copied.
  *
  * `pnpm db:migrate` runs it with DATABASE_URL from Varlock; the e2e server runs it with its own URL.
  * Plain Node (type stripping), so imports keep their extensions.
@@ -13,6 +13,8 @@ import { fileURLToPath } from "node:url";
 
 import { postgres } from "../../../packages/bot-sdk/core/server/database.ts";
 import { migrate as migrateBotSdk } from "../../../packages/bot-sdk/core/server/migrate.ts";
+import mcpMigrations from "../../../packages/bot-sdk/plugins/mcp/server/migrations.json" with { type: "json" };
+import memoryMigrations from "../../../packages/bot-sdk/plugins/memory/server/migrations.json" with { type: "json" };
 
 // Drizzle is the db package's dependency, not the web app's.
 const dbRequire = createRequire(new URL("../../../packages/db/package.json", import.meta.url));
@@ -43,7 +45,12 @@ try {
   await db.$client.end();
 }
 
-await migrateBotSdk(postgres({ connectionString: databaseUrl }));
+// The features the app may enable that have tables (`src/features.ts`, `src/services.ts`): Memory
+// only runs with the Computer configured, but its tables are made either way.
+await migrateBotSdk(postgres({ connectionString: databaseUrl }), [
+  { feature: "memory", migrations: memoryMigrations },
+  { feature: "mcp", migrations: mcpMigrations },
+]);
 
 const cleanup = drizzle(databaseUrl);
 try {

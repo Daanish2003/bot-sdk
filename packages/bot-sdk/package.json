@@ -51,7 +51,7 @@
     "eval:images": "node --import ./eval/memory/register-ts.mjs eval/images/run.ts",
     "eval:skills:draft": "node --import ./eval/memory/register-ts.mjs eval/skills/draft-run.ts",
     "eval:skills:record": "node --import ./eval/memory/register-ts.mjs eval/skills/record-fixtures.ts",
-    "db:generate": "drizzle-kit generate",
+    "db:generate": "drizzle-kit generate && drizzle-kit generate --config plugins/memory/drizzle.config.ts && drizzle-kit generate --config plugins/mcp/drizzle.config.ts && node scripts/migrations-json.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
   },
