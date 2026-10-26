@@ -33,6 +33,10 @@ import { memoryRuntime, type BotSdkRuntime } from "./runtime";
 import { deleteUserData, exportUserData, type UserExport } from "./user-data";
 import { bot, botJobs, type BotApi } from "../../plugins/bot/server/plugin";
 import type { ConversationsApi } from "../../plugins/bot/server/conversations-api";
+import type { CheckInsApi, RoutinesApi } from "../../plugins/bot/server/routines-api";
+import type { DemonstrationsApi } from "../../plugins/bot/server/demonstrations-api";
+import type { HelpersApi } from "../../plugins/bot/server/helpers-api";
+import type { ReviewsApi } from "../../plugins/bot/server/reviews-api";
 import { channel, createChannels } from "../../plugins/bot/server/channels";
 import type { ChannelAdapter, ChannelApi } from "../../plugins/channel/server/internal";
 import { computerSleepJob, createComputer } from "../../plugins/computer/server/internal";
@@ -161,6 +165,15 @@ export type BotSdk = {
    * for what changed since a cursor.
    */
   conversations: ConversationsApi;
+  /**
+   * The core's Routines, Check-ins, Helpers, Demonstrations and Auto-reviews (spec #873), the
+   * user's side of each: list, approve, pause, stop, allow and so on, by `userId`.
+   */
+  routines: RoutinesApi;
+  checkIns: CheckInsApi;
+  helpers: HelpersApi;
+  demonstrations: DemonstrationsApi;
+  reviews: ReviewsApi;
   /** The core's Channels (spec #871): the inbound handler of each adapter in the channels slot. */
   channels: ChannelApi;
   /** Creates the `chat` schema and applies the bundled migrations. Run it at deploy time. */
@@ -226,7 +239,19 @@ function exportResponse(document: UserExport) {
 export type GivenContext = Partial<
   Omit<
     BotSdkContext,
-    "parts" | "rateLimit" | "models" | "runner" | "computer" | "bots" | "conversations" | "channels"
+    | "parts"
+    | "rateLimit"
+    | "models"
+    | "runner"
+    | "computer"
+    | "bots"
+    | "conversations"
+    | "routines"
+    | "checkIns"
+    | "helpers"
+    | "demonstrations"
+    | "reviews"
+    | "channels"
   > & {
     /** A runner built by the test seam, in place of one over the runner slot's Executor. */
     jobs: JobRunner;
@@ -338,6 +363,11 @@ export function buildBotSdk(
     models: sdk.models,
     bots: sdk.bots,
     conversations: sdk.conversations,
+    routines: sdk.routines,
+    checkIns: sdk.checkIns,
+    helpers: sdk.helpers,
+    demonstrations: sdk.demonstrations,
+    reviews: sdk.reviews,
     channels: sdk.channels,
     migrate: () =>
       migrateSchema(options.databaseUrl, {
@@ -443,6 +473,26 @@ function buildContext(
     // Set by the Bots' init, which the core always runs.
     bots: botsUnconfigured,
     conversations: conversationsUnconfigured,
+    routines: botsStub<RoutinesApi>({
+      list: true,
+      approve: true,
+      decline: true,
+      pause: true,
+      resume: true,
+      delete: true,
+      rotate: true,
+    }),
+    checkIns: botsStub<CheckInsApi>({ list: true, cancel: true }),
+    helpers: botsStub<HelpersApi>({ list: true, done: true, stop: true }),
+    demonstrations: botsStub<DemonstrationsApi>({
+      pause: true,
+      resume: true,
+      done: true,
+      cancel: true,
+      view: true,
+      steps: true,
+    }),
+    reviews: botsStub<ReviewsApi>({ list: true, allow: true, deny: true }),
   };
 }
 
@@ -509,6 +559,18 @@ const conversationsUnconfigured = new Proxy({} as ConversationsApi, {
     return undefined;
   },
 });
+
+/** The stand-in of a Bots namespace on an instance whose core parts have no `bot()`: its methods throw. */
+function botsStub<Api extends object>(keys: Record<keyof Api, true>): Api {
+  return new Proxy({} as Api, {
+    get: (_target, key) => {
+      if (typeof key === "string" && key in keys) {
+        throw new Error("The Bots aren't enabled: build the SDK with the slots");
+      }
+      return undefined;
+    },
+  });
+}
 
 /** Every name of the Bots' API, so the stand-in throws on those alone. */
 const botApiKeys: Record<keyof BotApi, true> = {
