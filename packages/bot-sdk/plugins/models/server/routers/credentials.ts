@@ -19,12 +19,12 @@ export const credentialsRouter = {
   save: protectedProcedure
     .input(saveCredentialsInput)
     .handler(({ context, input }) =>
-      context.sdk.models.credentials.save({ userId: context.user.id, ...input }),
+      context.sdk.models.credentials.save({ ...input, userId: context.user.id }),
     ),
 
   delete: protectedProcedure
     .input(deleteCredentialsInput)
     .handler(({ context, input }) =>
-      context.sdk.models.credentials.delete({ userId: context.user.id, ...input }),
+      context.sdk.models.credentials.delete({ ...input, userId: context.user.id }),
     ),
 };

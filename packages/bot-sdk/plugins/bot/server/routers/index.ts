@@ -265,7 +265,7 @@ const botRouter = {
     save: protectedProcedure
       .input(saveSecretInput)
       .handler(({ context, input }) =>
-        context.sdk.secrets.save({ userId: context.user.id, ...input }),
+        context.sdk.secrets.save({ ...input, userId: context.user.id }),
       ),
 
     /** The caller's Secrets, by name, each with when it was saved. Never a value. */
@@ -277,7 +277,7 @@ const botRouter = {
     delete: protectedProcedure
       .input(deleteSecretInput)
       .handler(({ context, input }) =>
-        context.sdk.secrets.delete({ userId: context.user.id, ...input }),
+        context.sdk.secrets.delete({ ...input, userId: context.user.id }),
       ),
   },
 
@@ -325,14 +325,14 @@ const botRouter = {
     view: protectedProcedure
       .input(screenViewInput)
       .handler(({ context, input }) =>
-        context.sdk.screens.view({ userId: context.user.id, ...input }),
+        context.sdk.screens.view({ ...input, userId: context.user.id }),
       ),
 
     /** Take control (`control`) and give back (`view`): switches the Screen's x11vnc. */
     control: protectedProcedure
       .input(screenControlInput)
       .handler(({ context, input }) =>
-        context.sdk.screens.control({ userId: context.user.id, ...input }),
+        context.sdk.screens.control({ ...input, userId: context.user.id }),
       ),
   },
 };

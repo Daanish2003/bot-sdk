@@ -119,6 +119,16 @@ describe("sdk.models, called in-process with a userId (#897)", () => {
     expect(await deps.models.credentials.list({ userId: owner.id })).toHaveLength(1);
   }, 30_000);
 
+  it("refuses to save credentials when the Host turned its users' own keys off", async () => {
+    const deps = createTestSdk({ fetch: answering(200), byok: false });
+    const { id: userId } = await insertUser();
+
+    await expect(
+      deps.models.credentials.save({ userId, service: "anthropic", fields: { apiKey: goodKey } }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await deps.models.credentials.openaiState({ userId })).toBe("none");
+  }, 30_000);
+
   it("reads and sets the Image Model, refusing one the user can't use", async () => {
     const deps = createTestSdk();
     const { userId, client } = await aUser(deps);

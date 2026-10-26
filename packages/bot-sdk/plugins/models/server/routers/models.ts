@@ -19,6 +19,6 @@ export const modelsRouter = {
   setImageModel: protectedProcedure
     .input(setImageModelInput)
     .handler(({ context, input }) =>
-      context.sdk.models.setImageModel({ userId: context.user.id, ...input }),
+      context.sdk.models.setImageModel({ ...input, userId: context.user.id }),
     ),
 };
