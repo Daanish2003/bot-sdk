@@ -2,9 +2,7 @@ import type { z } from "zod";
 
 import type { FeatureContext } from "../../../../core/server/feature";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
-import type { Database } from "../../../../core/server/storage";
-import { createWorkflow, type WorkflowContext } from "../workflow/engine";
-import { unrecordedStore } from "./history";
+import type { WorkflowContext } from "../workflow/engine";
 
 /**
  * A failure retrying can't fix, such as a PDF with no text layer. It fails the job at once
@@ -121,36 +119,6 @@ export function jobTable(
     }
   }
   return table;
-}
-
-/**
- * Runs a listed job's handler in this process, with its payload validated against the job's
- * schema. `chat.runner.runJob` calls it, so a Host's own worker (such as a Trigger.dev task) can run a job.
- * Errors reach the caller, which decides about retries. With no `chat.job` row, nothing is
- * recorded: every workflow call runs for real.
- */
-export async function runRegisteredJob(
-  name: string,
-  payload: unknown,
-  { jobs, db, clock }: { jobs: JobTable; db: Database; clock: () => Date },
-): Promise<void> {
-  const entry = jobs.get(name);
-  if (!entry) throw new Error(`Unknown job "${name}"`);
-  const job = entry.definition;
-  const parsed = job.payload.safeParse(payload);
-  if (!parsed.success) {
-    throw new Error(`Job "${name}" got an invalid payload: ${parsed.error.message}`);
-  }
-  const workflow = createWorkflow({
-    history: [],
-    store: unrecordedStore(db),
-    now: clock,
-  });
-  await job.run(parsed.data, {
-    ...entry.services,
-    ...workflow.context,
-    signal: new AbortController().signal,
-  });
 }
 
 /** Milliseconds to wait before attempt 2, 3, and so on: about 10 s, 1 min, then 5 min. */

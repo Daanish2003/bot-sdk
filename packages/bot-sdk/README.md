@@ -5,7 +5,6 @@ Bots a Host copies into its own source tree: each user's Bots, with their Turns,
 - `core/` (`shared`, `server`, `client`, including `client/react`): runtime code the Host never edits. Updating means copying it again.
 - `plugins/<name>/` (`models`, `runner`, `bot`, `memory`, `skills`, `knowledge`, `computer`, `channel`, `mcp`): each plugin's `shared`, `server` and `client` are runtime code like `core/`; its `ui/` is the Host's.
 - `ui/` (the SDK's `theme.css` and `settings/export-data-button.tsx`), and each plugin's `ui/`: React components the Host owns and may change. They sit on the Host's own shadcn primitives.
-- `extras/`: optional adapters (the Trigger.dev runner) the Host owns once copied.
 - `package.json`, `README.md` and `NOTICE`: copied alongside, for reference. The Host installs the dependencies listed here.
 
 The SDK assumes nothing about the Host's stack beyond the npm packages below. It knows users only by an opaque id.
@@ -22,7 +21,7 @@ The destination is resolved from the folder you ran `pnpm` in. The script:
 
 - replaces `core/` and every plugin's folders except `ui/` on every run, and writes `VERSION` at the destination root with the commit hash and the date it was copied (`commit:` and `date:` lines);
 - copies every plugin, whether or not your Host enables it;
-- copies each `ui/` folder (the root one and each plugin's) and `extras/` only when that folder is missing at the destination, checked folder by folder, so your edits to components and `theme.css` survive updates;
+- copies each `ui/` folder (the root one and each plugin's) only when that folder is missing at the destination, checked folder by folder, so your edits to components and `theme.css` survive updates;
 - copies `package.json`, `README.md` and `NOTICE` to the destination root on every run;
 - never copies tests, test helpers or evals (`*.test.*` files and `test`, `tests`, `testing`, `__tests__`, `eval` folders).
 
@@ -217,35 +216,6 @@ The `runner` slot (`createBotSdk({ runner })`) takes the runner for background w
 A custom runner is any object with `enqueue(name, payload, options?)`, `start()` and `stop()`, and it takes the place of the default.
 
 A Host runs its own background work on the same runner. `defineJob({ name, payload, run, onFailed?, onCancelled?, concurrency? })` defines a job, and the factory's `jobs` option lists it (`createBotSdk({ jobs: [myJob] })`); a feature lists its own in its `jobs`. Nothing else knows a job: one no instance lists can't be queued, and two jobs with one name throw at construction. `run(payload, ctx)` gets durable steps (`ctx.step(name, (tx) => …)`: `fn` gets the transaction that saves the step's Checkpoint, so its writes commit with it), `ctx.now()`, `ctx.random()`, `ctx.patched(id)`, `ctx.signal`, and the core services (`ctx.db`, `ctx.jobs`, …; a feature's job gets the services its `needs` name). `sdk.runner.enqueueIn(tx, …)` and `sdk.runner.cancelIn(tx, …)` queue and cancel a job in the Host's own transaction. A job with `concurrency` runs at most that many at once on the in-process runner, beside the shared budget of two.
-
-### Trigger.dev workers (optional)
-
-Only a Host that runs its jobs on Trigger.dev needs this. The `bot` plugin refuses to start on it, because a retry there starts a Turn over and would send its Messages again; Memory jobs run on either runner. Every other Host keeps the in-process runner and needs nothing from `extras/`. The SDK never imports `extras/`, so `@trigger.dev/sdk` is a dependency of such a Host alone: install it there with `pnpm add @trigger.dev/sdk`.
-
-`extras/trigger/trigger-runner.ts` is a runner that triggers a Host task. The copy script copies `extras/` only when the destination has none, so your edits survive updates. Wire it in two places:
-
-```ts
-// src/trigger/chat-job.ts (the Host's task)
-import { task } from "@trigger.dev/sdk";
-import { chat } from "@/lib/chat";
-
-export const chatJob = task({
-  id: "chat-job",
-  run: async ({ name, payload }: { name: string; payload: unknown }) => {
-    await chat.runner.runJob(name, payload);
-  },
-});
-
-// src/lib/chat.ts (where createBotSdk is called)
-export const chat = createBotSdk({
-  /* ...as before */
-  runner: triggerJobRunner({ taskId: "chat-job" }),
-  models: {},
-  features: [memory()],
-});
-```
-
-`chat.runner.runJob(name, payload)` runs a job's handler in the calling process, after validating the payload with the job's schema. It rejects an unknown name or a bad payload, and a handler's error reaches the task, so Trigger.dev's retries apply. The Trigger.dev runner supports `enqueue` only: `cancel`, `status` and `schedule` throw until they are needed. Trigger.dev's idempotency keys also match runs that have finished, so unlike the in-process runner, an `idempotencyKey` can't be reused after its job ends.
 
 ## Memory: `memory`
 

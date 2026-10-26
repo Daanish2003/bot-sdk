@@ -5,7 +5,6 @@ import { asc, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { createBotSdk } from "../../../../core/server/create-chat";
 import { job, jobEvent } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import {
@@ -20,7 +19,7 @@ import {
   NonDeterminismError,
 } from "../../../../plugins/runner/server/internal";
 import { fakeJobClock } from "../../../support/jobs";
-import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
+import { getTestDb } from "../../../support/test-database";
 
 const start = new Date("2026-10-14T10:00:00Z");
 const silent = { error: () => {} };
@@ -681,27 +680,6 @@ describe("a deploy or a cancel", () => {
     await stopping;
 
     expect(await jobOf(id)).toMatchObject({ status: "running", attempts: 2 });
-  });
-});
-
-describe("runJob (a Host's worker)", () => {
-  it("records nothing: every workflow call runs for real", async () => {
-    const chat = createBotSdk({
-      databaseUrl: testDatabaseUrl,
-      getUser: () => null,
-      keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-      basePath: "/api/chat",
-      logger: silent,
-      models: {},
-      jobs: testJobs,
-    });
-
-    await chat.runner.runJob("workflow.write", {});
-    await chat.runner.runJob("workflow.steps", {});
-
-    expect(await markers()).toHaveLength(1);
-    expect(effects).toEqual(["a", "b", "c"]);
-    expect(await db().select().from(jobEvent)).toEqual([]);
   });
 });
 

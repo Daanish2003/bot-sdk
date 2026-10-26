@@ -161,7 +161,6 @@ describe("createBotSdk with flat slots", () => {
 
     expect(manual.notified).toEqual([{ jobId: id }]);
     expect((await sdk.runner.status(id))?.status).toBe("queued");
-    await expect(sdk.runner.runJob("slots.unknown", {})).rejects.toThrow(/Unknown job/);
   });
 
   it("gives the context the computer slot's Computer", () => {

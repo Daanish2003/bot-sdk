@@ -1,5 +1,4 @@
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
-import { runRegisteredJob } from "./jobs/define";
 import type { Executor } from "./jobs/executor";
 import { inProcessRunner } from "./jobs/in-process";
 import { createJobRunner, type EnqueueOptions, type JobRunner } from "./jobs/runner";
@@ -7,11 +6,6 @@ import { createRunnerLifecycle, type RunnerLifecycle } from "./lifecycle";
 
 /** The runner, a core service (`sdk.runner`, spec #871): the background jobs the SDK queues. */
 export type RunnerApi = Pick<JobRunner, "enqueue" | "cancel" | "status"> & {
-  /**
-   * Runs a job's handler in this process, with the payload validated against the job's schema.
-   * Rejects an unknown name or a bad payload. A Host's worker (such as a Trigger.dev task) calls it.
-   */
-  runJob: (name: string, payload: unknown) => Promise<void>;
   /**
    * Queues a job in the caller's transaction, so it exists only if that transaction commits, and
    * returns its id. The Executor is notified once the transaction has committed.
@@ -64,8 +58,6 @@ export function createRunner(
     enqueue: (name, payload, enqueueOptions) => jobs.enqueue(name, payload, enqueueOptions),
     cancel: (idempotencyKey) => jobs.cancel(idempotencyKey),
     status: (jobId) => jobs.status(jobId),
-    runJob: (name, payload) =>
-      runRegisteredJob(name, payload, { jobs: table(), db: sdk.db, clock: sdk.clock }),
     enqueueIn: (tx, name, payload, enqueueOptions) =>
       jobs.enqueueIn(tx, name, payload, { ...enqueueOptions, now: sdk.clock() }),
     cancelIn: (tx, idempotencyKey) => jobs.cancelIn(tx, idempotencyKey, sdk.clock()),
