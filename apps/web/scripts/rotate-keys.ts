@@ -37,5 +37,6 @@ const sdk = createBotSdk({
 
 const result = await sdk.rotateKeys();
 console.log(JSON.stringify(result));
-// The database pool has no public close; a one-off command exits once it has printed.
+await sdk.stop();
+// A one-off command: it exits once it has printed, whatever handles are left.
 process.exit(0);

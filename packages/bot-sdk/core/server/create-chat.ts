@@ -420,9 +420,14 @@ export function buildBotSdk(
       } catch (error) {
         errors.push(error);
       }
-      await options.pubsub?.close?.();
-      // The pool the SDK opened from a connection string is its own to end; a Host's pool is the Host's.
-      if (ownsPool && !sdk.db.$client.ended) await sdk.db.$client.end();
+      try {
+        await options.pubsub?.close?.();
+      } catch (error) {
+        errors.push(error);
+      }
+      // The pool the SDK opened from a connection string is its own to end, once, even when stop()
+      // overlaps itself; a Host's pool is the Host's.
+      if (ownsPool && !sdk.db.$client.ending) await sdk.db.$client.end();
       if (errors.length === 1) throw errors[0];
       if (errors.length > 1) throw new AggregateError(errors, "Several parts failed to stop");
     },

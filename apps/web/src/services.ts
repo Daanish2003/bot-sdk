@@ -7,7 +7,7 @@ import { emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
 import { fakeImageAdapter } from "@ai-chat/bot-sdk/plugins/models/server";
 import { log } from "evlog";
 
-import botsdkConfig from "../botsdk.config";
+import botsdkConfig, { e2b } from "../botsdk.config";
 import { isBanActive } from "./admin/ban";
 import { appName, sender } from "./email";
 import { emailProviderOf } from "./email-provider";
@@ -22,15 +22,12 @@ import {
 } from "./host-models";
 import { linkedCredentialsHook } from "./chatgpt-link";
 import { cachedTokenFor, linkedCredentialsOf } from "./linked-credentials";
-import { computerProviderOf, e2bConfigOf } from "./computer";
+import { computerProviderOf } from "./computer";
 import { trustedIpHeadersOf } from "./trusted-ip";
 
 // The template Computers are built from, named by its version (spec #519). It matches the SDK's
 // Dockerfile, built into E2B as this name; changing it rebuilds every Computer on its next wake.
 export const computerTemplate = "ai-chat-computer-v3";
-
-// The self-hosted E2B the Computers run on, or none; a partial config fails the start.
-const e2b = e2bConfigOf(ENV);
 
 export const db = createDb(ENV);
 // The OAuth values are optional outside production (see .env.schema); an empty id makes the
@@ -120,6 +117,7 @@ export const sdk = (shared.botSdk ??= createBotSdk({
   // Background jobs (ADR 0011): no runner slot, so the in-process runner runs them.
 
   // The Bots' Computer (spec #519): on only when self-hosted E2B is configured.
+  // From the config's E2B, the env that decides its features, so the two always agree.
   computer: await computerProviderOf(e2b, computerTemplate),
   // Channels (spec #761): each Bot's own email address. Mail comes in through Mailpit
   // (MAILPIT_API_URL, #773), which vouches for DMARC for every mail it holds, so it is for a Host

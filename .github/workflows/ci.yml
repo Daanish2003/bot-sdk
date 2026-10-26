@@ -176,6 +176,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # DATABASE_URL alone is the servers' feature env too: neither sets E2B_*, so both have MCP only.
       - name: Migrate the e2e database (the image's migrate script)
         run: |
           docker run --rm --network host --workdir /app/apps/web \

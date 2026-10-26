@@ -214,6 +214,49 @@ describe("botsdk migrate", () => {
       expect(stdout).toContain('"botsdk"."memory_settings"');
     }, 60_000);
 
+    it("keeps a core enum the feature's table uses, and drops a table a cascade already took", async () => {
+      // A child table that inherits from the first: the cascade on the parent drops it first.
+      const borrowed = defineFeature({
+        id: "borrowed",
+        schema: {
+          tables: {
+            parent: botsdk.table("test_parent", {
+              state: botsdk.enum("bot_check_in_state", ["pending"])("state"),
+            }),
+            child: botsdk.table("test_child", {}),
+          },
+          migrations: [
+            {
+              name: "0001_parent",
+              sql: "create table botsdk.test_parent (state botsdk.bot_check_in_state); create table botsdk.test_child () inherits (botsdk.test_parent);",
+            },
+          ],
+        },
+      });
+      const url = await scratchDatabase("cli_drop_borrowed");
+      const database = postgres({ connectionString: url });
+      // Its only user: the core's own table is emptied of the type for the test.
+      await runMigrate({ default: { database, features: [borrowed] } }, {}, () => {});
+      await rows(url, "alter table botsdk.bot_check_in alter column state type text");
+
+      await runMigrate(
+        { default: { database, features: [] }, disabled: [borrowed] },
+        { drop: "borrowed" },
+        () => {},
+      );
+      expect(await tablesOf(url)).not.toContain("test_parent");
+      expect(await tablesOf(url)).not.toContain("test_child");
+      expect(
+        await rows(url, "select 1 from pg_type where typname = 'bot_check_in_state'"),
+      ).toHaveLength(1);
+    }, 60_000);
+
+    it("says what the config module must export when it has no default", async () => {
+      await expect(runMigrate({} as never, { drop: "notes" }, () => {})).rejects.toThrow(
+        /default-export the options you pass createBotSdk/,
+      );
+    });
+
     it("refuses a feature that is enabled", async () => {
       const url = await migratedWithNotes("cli_drop_enabled");
       await expect(

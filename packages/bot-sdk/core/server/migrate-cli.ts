@@ -1,4 +1,4 @@
-import { getTableConfig } from "drizzle-orm/pg-core";
+import { getTableConfig, isPgEnum } from "drizzle-orm/pg-core";
 
 import type { BotSdkOptions } from "./create-chat";
 import type { PostgresDatabase } from "./database";
@@ -6,6 +6,7 @@ import type { AnyFeature } from "./feature";
 import { featureMigrations } from "./feature";
 import { inTransaction, JOURNAL_DDL, migrate, pendingMigrations, withConnection } from "./migrate";
 import type { PendingMigration } from "./migrate";
+import { schema as coreSchema } from "./storage";
 
 /*
  * The `botsdk migrate` CLI's work (spec #874, #906), apart from loading the Host's config module:
@@ -46,9 +47,10 @@ export function printSql(pending: readonly PendingMigration[]): string {
 
 /**
  * The statements that remove a feature's tables, the enums and sequences they used that nothing
- * else uses (its own: a sequence a table owns goes with it), and its journal rows, so enabling it
- * again migrates it from its baseline. Throws for a feature in `enabled`: removal is for a disabled
- * feature.
+ * else uses and the core doesn't define (its own: a sequence a table owns goes with it), and its
+ * journal rows, so enabling it again migrates it from its baseline. Its enums and sequences are
+ * found through its tables' columns and defaults: one no column of its tables uses isn't dropped.
+ * Throws for a feature in `enabled`: removal is for a disabled feature.
  */
 function dropStatements(feature: AnyFeature, enabled: readonly AnyFeature[]): string {
   if (enabled.some(({ id }) => id === feature.id)) {
@@ -59,11 +61,18 @@ function dropStatements(feature: AnyFeature, enabled: readonly AnyFeature[]): st
     const { name, schema } = getTableConfig(table);
     return quote(`${id(schema ?? "public")}.${id(name)}`);
   });
+  const coreEnums = (Object.values(coreSchema) as unknown[])
+    .filter(isPgEnum)
+    .map((value) => quote(`${id(value.schema ?? "public")}.${id(value.enumName)}`));
   return `do $$
 declare
+  listed text[] := array[${tables.join(", ")}]::text[];
   dropped regclass[] := array(
-    select to_regclass(listed) from unnest(array[${tables.join(", ")}]::text[]) as listed
-    where to_regclass(listed) is not null
+    select to_regclass(name_) from unnest(listed) as name_ where to_regclass(name_) is not null
+  );
+  core_enums oid[] := array(
+    select to_regtype(name_) from unnest(array[${coreEnums.join(", ")}]::text[]) as name_
+    where to_regtype(name_) is not null
   );
   enums oid[];
   sequences oid[];
@@ -83,10 +92,11 @@ begin
   join pg_class sequence_ on sequence_.oid = used.refobjid and sequence_.relkind = 'S'
   where default_.adrelid = any(dropped);
 
-  for i in 1 .. coalesce(array_length(dropped, 1), 0) loop
-    execute format('drop table if exists %s cascade', dropped[i]);
+  -- By name: a cascade from an earlier table may already have dropped a later one.
+  for i in 1 .. coalesce(array_length(listed, 1), 0) loop
+    execute format('drop table if exists %s cascade', listed[i]);
   end loop;
-  -- Only what no other table still uses: a type or sequence shared with the core stays.
+  -- Only what no other table still uses, and never a core enum.
   foreach entry in array sequences loop
     if exists (select 1 from pg_class where oid = entry) and not exists (
       select 1 from pg_depend where refobjid = entry and classid = 'pg_attrdef'::regclass
@@ -95,7 +105,7 @@ begin
     end if;
   end loop;
   foreach entry in array enums loop
-    if not exists (
+    if not entry = any(core_enums) and not exists (
       select 1 from pg_attribute column_ join pg_type type_ on type_.oid = column_.atttypid
       where not column_.attisdropped and (type_.oid = entry or type_.typelem = entry)
     ) then
@@ -139,6 +149,11 @@ export async function runMigrate(
   options: { print?: boolean; drop?: string },
   out: (text: string) => void,
 ): Promise<void> {
+  if (!config.default?.database) {
+    throw new Error(
+      "The config module must default-export the options you pass createBotSdk (with `database` and `features`), and may export `disabled` beside it",
+    );
+  }
   const { database } = config.default;
   const features = config.default.features ?? [];
   if (options.drop !== undefined) {

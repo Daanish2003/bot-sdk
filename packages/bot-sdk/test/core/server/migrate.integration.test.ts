@@ -6,7 +6,14 @@ import { createBotSdk } from "../../../core/server/create-chat";
 import { type AnyFeature, defineFeature } from "../../../core/server/feature";
 import type { Migration } from "../../../core/server/migrate";
 import { mcp } from "../../../plugins/mcp/server";
-import { migrationParts, migrationsOf, shippedMigrations } from "../../../scripts/migration-parts";
+import { featureMigrations } from "../../../core/server/feature";
+import { memory } from "../../../plugins/memory/server";
+import {
+  migrationParts,
+  migrationsOf,
+  sdkFeatureMigrations,
+  shippedMigrations,
+} from "../../../scripts/migration-parts";
 import {
   dropScratchDatabase,
   freshDatabaseUrl,
@@ -422,6 +429,10 @@ describe("chat.start()", () => {
         migrationsOf(folder),
       );
     }
+  });
+
+  it("lists each SDK feature with tables under the id and migrations the feature has", () => {
+    expect(sdkFeatureMigrations()).toEqual(featureMigrations([memory(), mcp()]));
   });
 
   it("throws, naming the feature, while an enabled feature's migrations aren't all applied", async () => {

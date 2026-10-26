@@ -60,7 +60,7 @@ window.NAMES = [
     meaning:
       "Builds the Bot SDK for a Host from its options; returns the handler, migrate/start/stop and server-only calls. Builds nothing until first use.",
     example:
-      'export const sdk = createBotSdk({ databaseUrl, getUser, keyEncryptionSecrets, basePath: "/api/chat", plugins }) in apps/web/src/services.ts',
+      "export const sdk = createBotSdk({ ...botsdkConfig, keyEncryptionSecrets, models, ... }) in apps/web/src/services.ts, with database: postgres({ connectionString }) and features from botsdk.config.ts",
   },
   {
     lesson: 9,

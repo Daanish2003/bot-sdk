@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createHttpHandler } from "../../../core/http";
 import { createBotSdk, httpPartsOf } from "../../../core/server/create-chat";
 import { postgres } from "../../../core/server/database";
+import { memoryRuntime } from "../../../core/server/runtime";
 import { saveCredentials } from "../../../plugins/models/server/internal";
 import { createTestSdk } from "../../support/deps";
 import { createTestChat } from "../../support/sdk";
@@ -123,7 +124,22 @@ describe("the pool the SDK owns", () => {
     const own = httpPartsOf(sdk).context.db.$client;
     await own.query("select 1");
 
-    await sdk.stop();
+    await Promise.all([sdk.stop(), sdk.stop()]);
+    expect(own.ended).toBe(true);
+  });
+
+  it("still ends its pool when the pub/sub fails to close, then throws that failure", async () => {
+    const failure = new Error("pub/sub close failed");
+    const sdk = createBotSdk({
+      database: postgres({ connectionString: testDatabaseUrl }),
+      keyEncryptionSecrets,
+      models: {},
+      pubsub: { ...memoryRuntime(), close: async () => Promise.reject(failure) },
+    });
+    const own = httpPartsOf(sdk).context.db.$client;
+    await own.query("select 1");
+
+    await expect(sdk.stop()).rejects.toBe(failure);
     expect(own.ended).toBe(true);
   });
 });

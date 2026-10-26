@@ -6,6 +6,7 @@
 //
 // Node runs this file directly (type stripping), so it imports only node: built-ins.
 import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,7 +55,9 @@ export function sdkFeatureMigrations(): FeatureMigrations[] {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const drizzleKit = join(SDK_ROOT, "node_modules", "drizzle-kit", "bin.cjs");
+  // Its bin sits beside its entry point, wherever the package is installed.
+  const entry = createRequire(join(SDK_ROOT, "package.json")).resolve("drizzle-kit");
+  const drizzleKit = join(dirname(entry), "bin.cjs");
   for (const { folder, config } of migrationParts) {
     execFileSync(process.execPath, [drizzleKit, "generate", "--config", config], {
       cwd: SDK_ROOT,
