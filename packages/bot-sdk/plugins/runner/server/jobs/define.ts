@@ -1,8 +1,8 @@
 import type { z } from "zod";
 
+import type { FeatureContext } from "../../../../core/server/feature";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
-import { createWorkflow, type WorkflowContext } from "../workflow/engine";
-import { unrecordedStore } from "./history";
+import type { WorkflowContext } from "../workflow/engine";
 
 /**
  * A failure retrying can't fix, such as a PDF with no text layer. It fails the job at once
@@ -16,106 +16,112 @@ export class PermanentJobError extends Error {
 }
 
 /**
- * What a handler gets besides its payload. `signal` aborts at the next heartbeat after a cancel.
- * `deps` are the SDK's dependencies, since a job's models, adapters and clock are only known once
- * `createBotSdk` has built them. The rest is the workflow context (ADR 0011, the #481 amendment):
- * `activity`, `now`, `random` and `patched` are recorded in the job's history and replayed when the
- * job is retried or re-claimed. Code outside them reruns on every attempt.
+ * What a job's `run` gets besides its payload (spec #872): the workflow context (ADR 0011, the
+ * #481 amendment), whose `step`, `now`, `random` and `patched` are recorded in the job's history and
+ * replayed when the job is retried or re-claimed (code outside them reruns on every attempt), the
+ * `signal` that aborts at the next heartbeat after a cancel, and the core services the job was
+ * registered with: a feature's job gets its feature's context, a Host's job the Host's.
  */
-export type JobContext = WorkflowContext<Transaction> & {
+export type JobContext<Services extends object = FeatureContext> = WorkflowContext<Transaction> & {
   signal: AbortSignal;
-  deps: BotSdkContext;
-};
+} & Services;
 
 /**
- * The runner lane a job runs in. Each lane has its own concurrency budget in the in-process runner,
- * so long `helper` jobs never take a Turn's slot (#602). Jobs with no lane share the default one.
+ * A job, as `defineJob` takes it (spec #872). It runs only on an instance that lists it: a
+ * feature's `jobs`, or the factory's `jobs` option for the Host's.
  */
-export type JobLane = "helper";
-
-/** A job as internal code declares it. Jobs are internal: a Host can't register its own. */
-export type JobDefinition<P> = {
+export type JobDefinition<P, Services extends object = FeatureContext> = {
   name: string;
-  lane?: JobLane;
   payload: z.ZodType<P>;
-  run: (payload: P, context: JobContext) => Promise<void>;
+  run: (payload: P, context: JobContext<Services>) => Promise<void>;
   /** Runs once, after the final failure (the last attempt, or a `PermanentJobError`). */
-  onFailed?: (payload: P, error: unknown, deps: BotSdkContext) => Promise<void> | void;
+  onFailed?: (payload: P, error: unknown, services: Services) => Promise<void> | void;
   /**
    * Runs once, from the lease sweep, for a cancelled job whose attempt lost its lease before its
    * handler ended (a crash). An attempt that sees the cancel and ends leaves it to the handler.
    */
-  onCancelled?: (payload: P, deps: BotSdkContext) => Promise<void> | void;
+  onCancelled?: (payload: P, services: Services) => Promise<void> | void;
+  /**
+   * At most this many of the job run at once in one process, in a budget of their own, so a slow
+   * job never takes the others' slots (#602). Without it, the job shares the Executor's budget.
+   */
+  concurrency?: number;
 };
 
-/** A definition as the runner holds it, with its payload type erased. */
-export type RegisteredJob = {
-  name: string;
-  lane?: JobLane;
-  payload: z.ZodType<unknown>;
-  run: (payload: unknown, context: JobContext) => Promise<void>;
-  onFailed?: (payload: unknown, error: unknown, deps: BotSdkContext) => Promise<void> | void;
-  onCancelled?: (payload: unknown, deps: BotSdkContext) => Promise<void> | void;
-};
+/** What the core's own jobs (the Bots', the Computer's) get: the whole core context. */
+export type CoreJobServices = { deps: BotSdkContext };
 
-const registry = new Map<string, RegisteredJob>();
-
-/** Declares a job and registers it by name. A name can be defined once. */
-export function defineJob<P>(definition: JobDefinition<P>): JobDefinition<P> {
-  if (registry.has(definition.name)) {
-    throw new Error(`A job named "${definition.name}" is already defined`);
-  }
-  registry.set(definition.name, definition as unknown as RegisteredJob);
+/** Declares a job (spec #872). Nothing registers it: an instance runs the jobs it lists. */
+export function defineJob<P, Services extends object = FeatureContext>(
+  definition: JobDefinition<P, Services>,
+): JobDefinition<P, Services> {
   return definition;
 }
 
 /**
- * Registers a job a feature lists (spec #871): a no-op for one already registered, as `defineJob`
- * does. Throws when another job holds its name.
+ * What only the core's own jobs set. Jobs with one `budget` share their `concurrency` budget, as
+ * the Helpers and the Demonstration captures do (#602); without it, a job's budget is its own.
  */
-export function registerJob<P>(definition: JobDefinition<P>): void {
-  const held = registry.get(definition.name);
-  if (held === (definition as unknown as RegisteredJob)) return;
-  if (held) {
-    throw new Error(
-      `A job named "${definition.name}" is already defined: define a feature's jobs once, at module level`,
-    );
+type CoreOnly = { budget?: string };
+
+/** One of the core's own jobs. */
+export type CoreJobDefinition<P> = JobDefinition<P, CoreJobServices> & CoreOnly;
+
+/** Declares one of the core's own jobs, whose context and hooks get the core context as `deps`. */
+export function defineCoreJob<P>(definition: CoreJobDefinition<P>): CoreJobDefinition<P> {
+  return definition;
+}
+
+/** A concurrency budget: at most `concurrency` of the jobs it names run at once in one process. */
+export type JobBudget = { names: string[]; concurrency: number };
+
+/** The budgets of the jobs with a `concurrency`, one per `budget` key, or per job without one. */
+export function budgetsOf(jobs: JobTable): JobBudget[] {
+  const budgets = new Map<string, { names: string[]; concurrency: number }>();
+  for (const { definition } of jobs.values()) {
+    const { name, concurrency } = definition;
+    if (concurrency === undefined) continue;
+    const key = definition.budget ?? name;
+    const budget = budgets.get(key);
+    if (!budget) budgets.set(key, { names: [name], concurrency });
+    else if (budget.concurrency === concurrency) budget.names.push(name);
+    else throw new Error(`The jobs of the budget "${key}" have different concurrencies`);
   }
-  registry.set(definition.name, definition as unknown as RegisteredJob);
+  return [...budgets.values()];
 }
 
-export function registeredJob(name: string): RegisteredJob | undefined {
-  return registry.get(name);
-}
+/** A job as an instance's runner holds it: its payload type erased, with its services. */
+export type JobEntry = {
+  // oxlint-disable-next-line typescript/no-explicit-any -- each job has its own payload and services
+  definition: JobDefinition<unknown, any> & CoreOnly;
+  /** What its context, `onFailed` and `onCancelled` get. */
+  services: object;
+};
 
-/** The names of the registered jobs in `lane`. */
-export function jobNamesInLane(lane: JobLane): string[] {
-  return [...registry.values()].filter((job) => job.lane === lane).map((job) => job.name);
-}
+/** An instance's jobs, by name. */
+export type JobTable = ReadonlyMap<string, JobEntry>;
 
-/**
- * Runs a registered job's handler in this process, with its payload validated against the job's
- * schema. `chat.runner.runJob` calls it, so a Host's own worker (such as a Trigger.dev task) can run a job.
- * Errors reach the caller, which decides about retries. With no `chat.job` row, nothing is
- * recorded: every workflow call runs for real.
- */
-export async function runRegisteredJob(
-  name: string,
-  payload: unknown,
-  deps: BotSdkContext,
-): Promise<void> {
-  const job = registry.get(name);
-  if (!job) throw new Error(`Unknown job "${name}"`);
-  const parsed = job.payload.safeParse(payload);
-  if (!parsed.success) {
-    throw new Error(`Job "${name}" got an invalid payload: ${parsed.error.message}`);
+/** The jobs of each group, by name, each with its group's services. A name can be listed once. */
+export function jobTable(
+  // oxlint-disable-next-line typescript/no-explicit-any -- each job has its own payload
+  groups: Iterable<{ jobs: readonly JobDefinition<any, any>[]; services: object }>,
+): JobTable {
+  const table = new Map<string, JobEntry>();
+  for (const { jobs, services } of groups) {
+    for (const definition of jobs) {
+      if (table.has(definition.name)) {
+        throw new Error(`A job named "${definition.name}" is defined twice`);
+      }
+      const { concurrency } = definition;
+      if (concurrency !== undefined && !(Number.isInteger(concurrency) && concurrency > 0)) {
+        throw new Error(
+          `The job "${definition.name}" has a concurrency of ${concurrency}: it must be a whole number above 0`,
+        );
+      }
+      table.set(definition.name, { definition, services });
+    }
   }
-  const workflow = createWorkflow({
-    history: [],
-    store: unrecordedStore(deps.db),
-    now: deps.clock,
-  });
-  await job.run(parsed.data, { ...workflow.context, signal: new AbortController().signal, deps });
+  return table;
 }
 
 /** Milliseconds to wait before attempt 2, 3, and so on: about 10 s, 1 min, then 5 min. */

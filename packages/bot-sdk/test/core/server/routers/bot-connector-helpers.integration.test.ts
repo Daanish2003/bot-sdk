@@ -10,7 +10,7 @@ import type { McpServerConfig } from "../../../../plugins/mcp/server/servers";
 import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   claimJob,
 } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
@@ -45,7 +45,7 @@ const mcpOrigin = new URL(fakeMcpResource).origin;
 
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();
@@ -105,7 +105,7 @@ async function world({
     logger: silent,
     drainMs: 50,
     ...(timer && { clock: timer.clock }),
-    deps: () => deps!,
+    jobs: () => deps!.parts.jobs,
   });
   deps = createTestSdk({
     computer: fakeComputerProvider().provider,

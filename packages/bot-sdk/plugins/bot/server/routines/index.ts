@@ -1,5 +1,9 @@
 // The routines module's entry point (#889): other modules import it only through this file.
-import "./check-in-fire";
+import { checkInFireJob } from "./check-in-fire";
+import { routineFireJob, routineReconcileJob } from "./routine-fire";
+
+/** The routines module's jobs. */
+export const routineJobs = [checkInFireJob, routineFireJob, routineReconcileJob];
 
 export {
   cancelCheckIn,

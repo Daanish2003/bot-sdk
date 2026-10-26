@@ -1,21 +1,25 @@
 // The runner service's entry point inside the SDK (#889): the core imports it only through this
 // file. index.ts stays the public package export.
 export {
+  type CoreJobServices,
+  defineCoreJob,
   defineJob,
   type JobContext,
   type JobDefinition,
+  jobTable,
+  type JobTable,
   PermanentJobError,
-  registerJob,
 } from "./jobs/define";
-export { loadHistory, unrecordedStore } from "./jobs/history";
+export { loadHistory } from "./jobs/history";
+export type { Executor } from "./jobs/executor";
+export { inProcessExecutor, inProcessRunner } from "./jobs/in-process";
 export {
-  inProcessRunner,
-  type InProcessRunner,
-  isInProcessRunner,
+  createJobRunner,
+  type EnqueueOptions,
   type JobClock,
+  type JobRunner,
   systemClock,
-} from "./jobs/in-process";
-export type { EnqueueOptions, JobRunner } from "./jobs/runner";
+} from "./jobs/runner";
 export {
   cancelJob,
   cancelQueuedJobsIn,

@@ -9,7 +9,7 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   systemClock,
   claimJob,
 } from "../../../../plugins/runner/server/internal";
@@ -32,7 +32,7 @@ type Round = ReturnType<typeof round>;
 
 const now = new Date("2030-03-15T12:00:00Z");
 
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();
@@ -87,7 +87,7 @@ async function botWith(
     logger: silent,
     drainMs: 50,
     clock: { ...systemClock, now: clock },
-    deps: () => deps!,
+    jobs: () => deps!.parts.jobs,
   });
   deps = createTestSdk({
     ...(withComputer && { computer: computerFake.provider }),
@@ -385,7 +385,7 @@ describe("the Skills read", { timeout: 30_000 }, () => {
       logger: silent,
       clock: timer.clock,
       drainMs: 1_000,
-      deps: () => deps!,
+      jobs: () => deps!.parts.jobs,
     });
     started.push(jobs);
     deps = createTestSdk({

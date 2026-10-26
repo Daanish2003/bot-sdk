@@ -39,7 +39,7 @@ import { saveCredentials, quotaLookup } from "../../../../plugins/models/server/
 
 import {
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   claimJob,
   reapStaleJobs,
 } from "../../../../plugins/runner/server/internal";
@@ -60,7 +60,7 @@ const silent = { error: () => {} };
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 /** The runners the tests started, stopped after each test. */
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();
@@ -121,7 +121,7 @@ async function botWith(
     db: getTestDb(),
     logger: silent,
     drainMs: 50,
-    deps: () => deps!,
+    jobs: () => deps!.parts.jobs,
   });
   deps = createTestSdk({
     ...(withComputer && { computer: computerFake.provider }),
@@ -369,7 +369,7 @@ describe("a Helper's report", () => {
     const [helper] = await helpersOf(botId);
 
     // The job's last-chance ending runs again after the Helper ended: it changes nothing.
-    await botHelperJob.onFailed!({ helperId: helper!.id }, new Error("again"), deps);
+    await botHelperJob.onFailed!({ helperId: helper!.id }, new Error("again"), { deps });
 
     expect(await helperTriggers()).toHaveLength(1);
     expect((await helpersOf(botId))[0]).toMatchObject({ status: "complete", report: "hi" });
@@ -433,7 +433,7 @@ describe("a Helper's limits", () => {
       logger: silent,
       clock: timer.clock,
       drainMs: 1_000,
-      deps: () => deps!,
+      jobs: () => deps!.parts.jobs,
     });
     started.push(jobs);
     deps = createTestSdk({
@@ -465,7 +465,7 @@ describe("a Helper's limits", () => {
       // Each attempt waits in the Helper's first model call when its process stops.
       await expect.poll(() => fakes.helperFake.calls.length).toBe(calls);
       timer.advance(61_000);
-      await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps);
+      await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps.parts.jobs);
       timer.tick();
       if (calls < 3) lost.push(attempt());
     }
@@ -1055,7 +1055,7 @@ describe("messaging a Helper (#591)", () => {
 
     // The job's last-chance ending replays its Checkpoints: the inbox reads the recorded message,
     // though the row now reads delivered.
-    await botHelperJob.onFailed!({ helperId: ids[0]! }, new Error("lost"), deps);
+    await botHelperJob.onFailed!({ helperId: ids[0]! }, new Error("lost"), { deps });
     const [helper] = await helpersOf(botId);
     expect(helper?.status).toBe("error");
     expect(userTurnsWith(helper?.transcript ?? [], message)).toBe(1);

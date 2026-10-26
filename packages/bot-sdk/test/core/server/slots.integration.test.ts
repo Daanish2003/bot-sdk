@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { pgSchema, text } from "drizzle-orm/pg-core";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
+import { z } from "zod";
 
 import {
   createBotSdk,
@@ -9,13 +10,13 @@ import {
   type BotSdkOptions,
 } from "../../../core/server/index";
 import { buildBotSdk } from "../../../core/server/create-chat";
-import { blob, bot } from "../../../core/server/storage";
+import { blob, bot, job } from "../../../core/server/storage";
 import type { ComputerApi } from "../../../plugins/computer/server/internal";
 import { fakeEmailProvider } from "../../../plugins/channel/fake/index";
 import { emailChannel } from "../../../plugins/channel/server/index";
 import { models } from "../../../plugins/models/server/internal";
-import { isInProcessRunner, runnerJobs } from "../../../plugins/runner/server/internal";
-import type { JobRunner } from "../../../plugins/runner/server/internal";
+import { defineJob } from "../../../plugins/runner/server/internal";
+import { manualExecutor } from "../../support/executors";
 import { fakeComputerProvider } from "../../support/fake-computer-provider";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser } from "../../support/users";
@@ -33,6 +34,15 @@ const shared = { databaseUrl: unreachable, getUser: () => null, keyEncryptionSec
 
 const slots = (options: Partial<BotSdkOptions> = {}) =>
   ({ ...shared, models: {}, ...options }) as BotSdkOptions;
+
+const slotsJob = defineJob({
+  name: "slots.job",
+  payload: z.object({ n: z.number() }),
+  run: async ({ n }) => {
+    slotsRan.push(n);
+  },
+});
+const slotsRan: number[] = [];
 
 describe("createBotSdk with flat slots", () => {
   it("serves the Bots, Models and Channels with no plugin listed", async () => {
@@ -127,35 +137,52 @@ describe("createBotSdk with flat slots", () => {
     expect(inbound.status).toBe(404);
   });
 
-  it("falls back to the in-process runner, Postgres blobs and no Computer", async () => {
-    const { context } = buildBotSdk(slots({ databaseUrl: testDatabaseUrl }), {});
+  it(
+    "falls back to the in-process runner, Postgres blobs and no Computer",
+    { timeout: 30_000 },
+    async () => {
+      const { context, instance } = buildBotSdk(
+        slots({ databaseUrl: testDatabaseUrl, jobs: [slotsJob] }),
+        {},
+      );
 
-    await context.blobStore.put("slots-test", new TextEncoder().encode("bytes"), {
-      contentType: "text/plain",
-    });
+      await context.blobStore.put("slots-test", new TextEncoder().encode("bytes"), {
+        contentType: "text/plain",
+      });
 
-    expect(isInProcessRunner(runnerJobs(context))).toBe(true);
-    expect(context.computer !== null).toBe(false);
-    const rows = await getTestDb().select().from(blob).where(eq(blob.key, "slots-test"));
-    expect(rows).toHaveLength(1);
-    await getTestDb().delete(blob).where(eq(blob.key, "slots-test"));
-  });
+      // No runner slot, yet a queued job runs: the in-process runner is the default.
+      slotsRan.length = 0;
+      await instance.start();
+      try {
+        const id = await instance.runner.enqueue("slots.job", { n: 7 });
+        await expect
+          .poll(async () => (await instance.runner.status(id))?.status, { timeout: 10_000 })
+          .toBe("succeeded");
+        expect(slotsRan).toEqual([7]);
+        expect(context.computer !== null).toBe(false);
+        const rows = await getTestDb().select().from(blob).where(eq(blob.key, "slots-test"));
+        expect(rows).toHaveLength(1);
+      } finally {
+        await instance.stop();
+        await getTestDb().delete(blob).where(eq(blob.key, "slots-test"));
+        await getTestDb().delete(job).where(eq(job.name, "slots.job"));
+      }
+    },
+  );
 
-  it("serves the runner slot's runner as the instance's runner, for a Host's own worker", async () => {
-    const jobs: JobRunner = {
-      enqueue: vi.fn(async () => "job-id"),
-      cancel: vi.fn(async () => {}),
-      status: vi.fn(async () => undefined),
-      schedule: vi.fn(async () => {}),
-      start: vi.fn(async () => {}),
-      stop: vi.fn(async () => {}),
-    };
-    // Models alone, without the Bots, which refuse a runner other than the in-process one.
-    const sdk = buildBotSdk(slots({ runner: jobs }), {}, [models()]).instance;
+  it("wakes the instance's jobs up through the runner slot's Executor", async () => {
+    const manual = manualExecutor();
+    // Models alone: this test is about the runner slot, not the Bots.
+    const sdk = buildBotSdk(
+      slots({ runner: manual.executor, jobs: [slotsJob] }),
+      { db: getTestDb() },
+      [models()],
+    ).instance;
 
-    expect(await sdk.runner.enqueue("slots.job", { n: 1 })).toBe("job-id");
-    expect(jobs.enqueue).toHaveBeenCalledWith("slots.job", { n: 1 }, undefined);
-    await expect(sdk.runner.runJob("slots.unknown", {})).rejects.toThrow(/Unknown job/);
+    const id = await sdk.runner.enqueue("slots.job", { n: 1 });
+
+    expect(manual.notified).toEqual([{ jobId: id }]);
+    expect((await sdk.runner.status(id))?.status).toBe("queued");
   });
 
   it("gives the context the computer slot's Computer", () => {

@@ -1,18 +1,20 @@
 import { and, eq, gte, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 
 import type { Database } from "../../../../core/server/storage";
-import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
-import { job } from "../../../../core/server/storage";
+import type { Transaction } from "../../../../core/server/plugin";
+import { job, jobEvent } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { NonDeterminismError, WorkflowYieldedError, createWorkflow } from "../workflow/engine";
-import { JOB_TIMING, PermanentJobError, backoffAfter, registeredJob } from "./define";
+import { JOB_TIMING, type JobTable, PermanentJobError, backoffAfter } from "./define";
 import { heartbeatJob, jobHistoryStore, loadHistory, ownAttempt } from "./history";
-import type { JobClock } from "./in-process";
-import type { EnqueueOptions, JobStatus } from "./runner";
+import type { EnqueueOptions, JobClock, JobStatus } from "./runner";
 
 type Logger = Pick<Console, "error">;
 
 const ACTIVE = ["queued", "running"] as const;
+
+/** Passes a job the store has queued again (a retry, a yield) to the Executor, with when it is due. */
+type Requeued = (jobId: string, runAfter: Date) => void;
 
 /** A job a process has claimed and is about to run. */
 export type ClaimedJob = {
@@ -29,11 +31,12 @@ export type ClaimedJob = {
  */
 export async function enqueueJob(
   db: Database | Transaction,
+  jobs: JobTable,
   name: string,
   payload: unknown,
   options: EnqueueOptions & { now: Date },
 ): Promise<string> {
-  const definition = registeredJob(name);
+  const definition = jobs.get(name)?.definition;
   if (!definition) throw new Error(`No job named "${name}" is defined`);
   const { now, idempotencyKey, runAfter = now } = options;
   const id = uuidv7(now.getTime());
@@ -61,10 +64,21 @@ export async function enqueueJob(
   return active.id;
 }
 
+/** Jobs with `only` these names, or all `except` them. */
+export type JobNames = { only: string[] } | { except: string[] };
+
+function namesFilter(names: JobNames | undefined) {
+  if (!names) return sql``;
+  return "only" in names
+    ? sql`and ${inArray(job.name, names.only)}`
+    : sql`and ${notInArray(job.name, names.except)}`;
+}
+
 /**
  * Takes the next queued job, marking it running and counting the attempt. `FOR UPDATE SKIP LOCKED`
  * keeps two processes from taking the same job. `respectRunAfter: false` ignores the backoff.
- * `names` limits the claim to the jobs with `only` these names, or to all `except` them.
+ * `names` limits the claim to the jobs with `only` these names, or to all `except` them, and `id`
+ * to that one job. With `wait`, a row another transaction holds is waited for, not skipped.
  */
 export async function claimJob(
   db: Database,
@@ -72,17 +86,18 @@ export async function claimJob(
   {
     respectRunAfter = true,
     names,
+    id,
+    wait = false,
   }: {
     respectRunAfter?: boolean;
-    names?: { only: string[] } | { except: string[] };
+    names?: JobNames;
+    id?: string;
+    wait?: boolean;
   } = {},
 ): Promise<ClaimedJob | undefined> {
   const due = respectRunAfter ? sql`and run_after <= ${now}` : sql``;
-  const named = !names
-    ? sql``
-    : "only" in names
-      ? sql`and ${inArray(job.name, names.only)}`
-      : sql`and ${notInArray(job.name, names.except)}`;
+  const named = namesFilter(names);
+  const one = id === undefined ? sql`` : sql`and id = ${id}`;
   const { rows } = await db.execute<{
     id: string;
     name: string;
@@ -94,10 +109,10 @@ export async function claimJob(
     set status = 'running', attempts = attempts + 1, heartbeat_at = ${now}, updated_at = ${now}
     where id = (
       select id from chat.job
-      where status = 'queued' ${due} ${named}
+      where status = 'queued' ${due} ${named} ${one}
       order by run_after, created_at
       limit 1
-      for update skip locked
+      for update ${wait ? sql`` : sql`skip locked`}
     )
     returning id, name, payload, attempts, max_attempts`);
   const [row] = rows;
@@ -120,7 +135,12 @@ async function recordOutcome(
   db: Database,
   claimed: ClaimedJob,
   failure: { error: unknown } | undefined,
-  { now, logger, deps }: { now: Date; logger: Logger; deps: BotSdkContext },
+  {
+    now,
+    logger,
+    jobs,
+    requeued,
+  }: { now: Date; logger: Logger; jobs: JobTable; requeued: Requeued },
 ): Promise<void> {
   if (!failure) {
     await db.update(job).set({ status: "succeeded", updatedAt: now }).where(ownAttempt(claimed));
@@ -130,10 +150,12 @@ async function recordOutcome(
   const { error } = failure;
   if (error instanceof WorkflowYieldedError) {
     // A deploy: queued again for any process to resume at once, and the attempt doesn't count.
-    await db
+    const handedBack = await db
       .update(job)
       .set({ status: "queued", runAfter: now, attempts: sql`${job.attempts} - 1`, updatedAt: now })
-      .where(ownAttempt(claimed));
+      .where(ownAttempt(claimed))
+      .returning({ id: job.id });
+    if (handedBack.length > 0) requeued(claimed.id, now);
     return;
   }
   const lastError = error instanceof Error ? error.message : String(error);
@@ -142,15 +164,13 @@ async function recordOutcome(
     error instanceof NonDeterminismError ||
     claimed.attempts >= claimed.maxAttempts;
   if (!final) {
-    await db
+    const runAfter = new Date(now.getTime() + backoffAfter(claimed.attempts));
+    const retried = await db
       .update(job)
-      .set({
-        status: "queued",
-        runAfter: new Date(now.getTime() + backoffAfter(claimed.attempts)),
-        lastError,
-        updatedAt: now,
-      })
-      .where(ownAttempt(claimed));
+      .set({ status: "queued", runAfter, lastError, updatedAt: now })
+      .where(ownAttempt(claimed))
+      .returning({ id: job.id });
+    if (retried.length > 0) requeued(claimed.id, runAfter);
     return;
   }
 
@@ -161,7 +181,8 @@ async function recordOutcome(
     .returning({ id: job.id });
   if (ended.length === 0) return;
   try {
-    await registeredJob(claimed.name)?.onFailed?.(claimed.payload, error, deps);
+    const entry = jobs.get(claimed.name);
+    await entry?.definition.onFailed?.(claimed.payload, error, entry.services);
   } catch (onFailedError) {
     logger.error(`onFailed for job "${claimed.name}" failed`, onFailedError);
   }
@@ -190,20 +211,24 @@ export async function runClaimedJob(
   {
     clock,
     logger,
-    deps,
+    jobs,
     drain,
     shutdown,
     handlers,
+    requeued,
   }: {
     clock: JobClock;
     logger: Logger;
-    deps: () => BotSdkContext;
+    /** The instance's jobs, read when the attempt starts. */
+    jobs: () => JobTable;
     drain?: AbortSignal;
     shutdown?: AbortSignal;
     handlers: Set<Promise<void>>;
+    requeued: Requeued;
   },
 ): Promise<void> {
-  const definition = registeredJob(claimed.name);
+  const table = jobs();
+  const entry = table.get(claimed.name);
   const attempt = new AbortController();
   const startedAt = clock.now().getTime();
   let heartbeat: unknown;
@@ -232,7 +257,12 @@ export async function runClaimedJob(
     if (decided) return;
     release();
     try {
-      await recordOutcome(db, claimed, failure, { now: clock.now(), logger, deps: deps() });
+      await recordOutcome(db, claimed, failure, {
+        now: clock.now(),
+        logger,
+        jobs: table,
+        requeued,
+      });
     } catch (error) {
       logger.error(`Recording the outcome of job "${claimed.name}" failed`, error);
     }
@@ -268,7 +298,8 @@ export async function runClaimedJob(
   else shutdown?.addEventListener("abort", onShutdown, { once: true });
   if (!decided) {
     const run = (async () => {
-      if (!definition) throw new Error(`No job named "${claimed.name}" is defined`);
+      if (!entry) throw new Error(`No job named "${claimed.name}" is defined`);
+      const { definition, services } = entry;
       // A retried or re-claimed job replays its history and carries on after its last entry.
       const workflow = createWorkflow({
         history: await loadHistory(db, claimed.id),
@@ -280,9 +311,9 @@ export async function runClaimedJob(
       });
       try {
         await definition.run(definition.payload.parse(claimed.payload), {
+          ...services,
           ...workflow.context,
           signal: attempt.signal,
-          deps: deps(),
         });
       } catch (error) {
         throw workflow.raised() ?? error;
@@ -312,24 +343,25 @@ export async function runClaimedJob(
 /**
  * Re-queues the running jobs whose lease has expired, because the process running them stopped
  * (ADR 0011). The attempt already counted when the job was claimed, so a job on its last attempt
- * fails here instead, and its `onFailed` runs.
+ * fails here instead, and its `onFailed` runs. Returns the ids of the jobs it re-queued.
  */
 export async function reapStaleJobs(
   db: Database,
   now: Date,
   logger: Logger,
-  deps: BotSdkContext,
-): Promise<void> {
+  jobs: JobTable,
+): Promise<string[]> {
   const cutoff = new Date(now.getTime() - JOB_TIMING.leaseMs);
   const expired = and(
     eq(job.status, "running"),
     or(isNull(job.heartbeatAt), lt(job.heartbeatAt, cutoff)),
   );
   const lastError = "Its lease expired: the process running it stopped";
-  await db
+  const requeued = await db
     .update(job)
     .set({ status: "queued", runAfter: now, lastError, updatedAt: now })
-    .where(and(expired, lt(job.attempts, job.maxAttempts)));
+    .where(and(expired, lt(job.attempts, job.maxAttempts)))
+    .returning({ id: job.id });
   const lost = await db
     .update(job)
     .set({ status: "failed", lastError, updatedAt: now })
@@ -337,7 +369,8 @@ export async function reapStaleJobs(
     .returning({ name: job.name, payload: job.payload });
   for (const row of lost) {
     try {
-      await registeredJob(row.name)?.onFailed?.(row.payload, new Error(lastError), deps);
+      const entry = jobs.get(row.name);
+      await entry?.definition.onFailed?.(row.payload, new Error(lastError), entry.services);
     } catch (onFailedError) {
       logger.error(`onFailed for job "${row.name}" failed`, onFailedError);
     }
@@ -353,11 +386,13 @@ export async function reapStaleJobs(
     .returning({ name: job.name, payload: job.payload });
   for (const row of abandoned) {
     try {
-      await registeredJob(row.name)?.onCancelled?.(row.payload, deps);
+      const entry = jobs.get(row.name);
+      await entry?.definition.onCancelled?.(row.payload, entry.services);
     } catch (onCancelledError) {
       logger.error(`onCancelled for job "${row.name}" failed`, onCancelledError);
     }
   }
+  return requeued.map(({ id }) => id);
 }
 
 /** Marks a cancel this attempt's handler has seen and ended on, so the sweep leaves it alone. */
@@ -431,6 +466,51 @@ export async function cancelJobIn(
     .set({ status: "cancelled", heartbeatAt: heartbeatOnCancel, updatedAt: now })
     .where(eq(job.id, active.id));
   return active.status === "queued" ? "queued" : "running";
+}
+
+/**
+ * In the caller's transaction, cancels the active job `name` with this key if it hasn't started, and
+ * queues its replacement under the same key. Returns the replacement's id, or undefined, changing
+ * nothing, when no job `name` with the key is active or it has started. A job has started once it runs,
+ * has used an attempt, or has recorded a Checkpoint: a retry or a crash used an attempt, which a
+ * replacement would give back, and a deploy's yield (which puts its attempt back) kept Checkpoints.
+ * The job's row is locked, so no runner claims it before the transaction ends.
+ */
+export async function replaceJobIfNotStartedIn(
+  tx: Transaction,
+  jobs: JobTable,
+  idempotencyKey: string,
+  name: string,
+  payload: unknown,
+  options: { runAfter?: Date; now: Date },
+): Promise<string | undefined> {
+  // Checked before anything changes, so a bad replacement leaves the job as it was.
+  const definition = jobs.get(name)?.definition;
+  if (!definition) throw new Error(`No job named "${name}" is defined`);
+  definition.payload.parse(payload);
+  const [active] = await tx
+    .select({ id: job.id, status: job.status, attempts: job.attempts })
+    .from(job)
+    .where(
+      and(
+        eq(job.idempotencyKey, idempotencyKey),
+        eq(job.name, name),
+        inArray(job.status, [...ACTIVE]),
+      ),
+    )
+    .for("update");
+  if (active?.status !== "queued" || active.attempts > 0) return undefined;
+  const [recorded] = await tx
+    .select({ seq: jobEvent.seq })
+    .from(jobEvent)
+    .where(eq(jobEvent.jobId, active.id))
+    .limit(1);
+  if (recorded) return undefined;
+  await tx
+    .update(job)
+    .set({ status: "cancelled", heartbeatAt: heartbeatOnCancel, updatedAt: options.now })
+    .where(eq(job.id, active.id));
+  return enqueueJob(tx, jobs, name, payload, { ...options, idempotencyKey });
 }
 
 /** Deletes succeeded and cancelled jobs ended over 7 days ago, and failed ones over 30 days ago. */

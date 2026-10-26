@@ -21,7 +21,7 @@ import {
 } from "../../../../plugins/bot/server/helpers";
 import { rebuiltNote, spillPath } from "../../../../plugins/bot/server/agent-loop";
 import { saveCredentials } from "../../../../plugins/models/server/internal";
-import { inProcessRunner, type InProcessRunner } from "../../../../plugins/runner/server/internal";
+import { inProcessRunner, type JobRunner } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { chatRpc } from "../../../support/sdk";
@@ -95,7 +95,7 @@ afterAll(async () => {
 });
 
 /** The runners the tests started, stopped after each test. */
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();
@@ -144,7 +144,7 @@ async function userWith(
     db: getTestDb(),
     logger: silent,
     drainMs: 50,
-    deps: () => deps!,
+    jobs: () => deps!.parts.jobs,
   });
   deps = createTestSdk({
     computer: computerFake.provider,

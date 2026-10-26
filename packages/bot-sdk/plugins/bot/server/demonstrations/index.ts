@@ -1,6 +1,15 @@
 // The demonstrations module's entry point (#889): other modules import it only through this file.
-import "./demonstration-capture";
-import "./demonstration-draft";
+import { demonstrationCheckJob } from "./demonstration";
+import { demonstrationCaptureJob } from "./demonstration-capture";
+import { demonstrationDraftJob, demonstrationRetentionJob } from "./demonstration-draft";
+
+/** The demonstrations module's jobs. */
+export const demonstrationJobs = [
+  demonstrationCheckJob,
+  demonstrationCaptureJob,
+  demonstrationDraftJob,
+  demonstrationRetentionJob,
+];
 
 export {
   actOnDemonstration,

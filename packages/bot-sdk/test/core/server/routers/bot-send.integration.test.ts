@@ -28,12 +28,11 @@ import { saveCredentials, quotaLookup } from "../../../../plugins/models/server/
 
 import {
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   type JobClock,
   claimJob,
   reapStaleJobs,
 } from "../../../../plugins/runner/server/internal";
-import type { JobRunner } from "../../../../plugins/runner/server/internal";
 
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import {
@@ -58,7 +57,7 @@ type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 const silent = { error: () => {} };
 
 /** The runners the tests started, stopped after each test. */
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 /** The subscriptions on the tests' Pub/Sub that are still open: one per stream a send is following. */
 let openFollowers = 0;
@@ -108,7 +107,7 @@ async function sdkWithRunner(
     logger: silent,
     drainMs: 50,
     clock: jobClock,
-    deps: () => deps!,
+    jobs: () => deps!.parts.jobs,
   });
   const pubsub = countingPubSub(overrides.pubsub ?? createMemoryPubSub());
   deps = createTestSdk({ jobs, ...overrides, pubsub });
@@ -1571,7 +1570,7 @@ describe("a Turn that resumes after a crash", () => {
     // One pub/sub across the processes, as Redis is.
     const pubsub = countingPubSub(createMemoryPubSub());
     // Each process's runner, which runs its attempts.
-    const runners = new Map<TestDeps, InProcessRunner>();
+    const runners = new Map<TestDeps, JobRunner>();
     const instance = () => {
       let deps: TestDeps | undefined;
       // Never started: the test claims and runs each attempt. Stopped after the test, which
@@ -1581,7 +1580,7 @@ describe("a Turn that resumes after a crash", () => {
         logger: silent,
         clock: timer.clock,
         drainMs: 1_000,
-        deps: () => deps!,
+        jobs: () => deps!.parts.jobs,
       });
       started.push(jobs);
       deps = createTestSdk({
@@ -1636,7 +1635,7 @@ describe("a Turn that resumes after a crash", () => {
        */
       crash: async () => {
         timer.advance(61_000);
-        await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps);
+        await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps.parts.jobs);
         timer.tick();
       },
       /**
@@ -1645,7 +1644,7 @@ describe("a Turn that resumes after a crash", () => {
        */
       die: async () => {
         timer.advance(61_000);
-        await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps);
+        await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps.parts.jobs);
       },
       tick: () => timer.tick(),
     };
@@ -2233,20 +2232,5 @@ describe("a Turn that resumes after a crash", () => {
     expect(fake.calls).toHaveLength(2);
     expect(await sentTexts(client, botId)).toEqual(["One"]);
     expect((await turnsOf(botId))[0]).toMatchObject({ status: "error", error: "timed_out" });
-  });
-});
-
-describe("the bot plugin on a runner that is not in-process", () => {
-  it("fails at startup, because a retry there starts over and would send Messages again", () => {
-    const elsewhere: JobRunner = {
-      enqueue: async () => "job",
-      cancel: async () => {},
-      status: async () => undefined,
-      schedule: async () => {},
-      start: async () => {},
-      stop: async () => {},
-    };
-
-    expect(() => createTestSdk({ jobs: elsewhere })).toThrow(/in-process/);
   });
 });

@@ -23,7 +23,7 @@ import type { CommandResult } from "../../../../plugins/computer/server/internal
 import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   claimJob,
   reapStaleJobs,
 } from "../../../../plugins/runner/server/internal";
@@ -44,7 +44,7 @@ const silent = { error: () => {} };
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 /** The runners the tests started, stopped after each test. */
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();
@@ -74,7 +74,12 @@ async function botWith(
   const fake = createFakeAdapter({ rounds });
   const computerFake = fakeComputerProvider({ onCommand });
   let deps: TestDeps | undefined;
-  const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
+  const jobs = inProcessRunner({
+    db: getTestDb(),
+    logger: silent,
+    drainMs: 50,
+    jobs: () => deps!.parts.jobs,
+  });
   deps = createTestSdk({
     ...(withComputer && { computer: computerFake.provider }),
     features: withKnowledge ? [knowledge()] : [],
@@ -463,7 +468,7 @@ describe("a shell call whose attempt is cut off", () => {
     const computerFake = fakeComputerProvider({ onCommand: command.onCommand });
     const timer = fakeJobClock(new Date());
     // Each instance's runner, which runs its attempts.
-    const runners = new Map<TestDeps, InProcessRunner>();
+    const runners = new Map<TestDeps, JobRunner>();
     const instance = () => {
       let deps: TestDeps | undefined;
       // Never started: the test claims and runs each attempt. Stopped after the test, which
@@ -473,7 +478,7 @@ describe("a shell call whose attempt is cut off", () => {
         logger: silent,
         clock: timer.clock,
         drainMs: 1_000,
-        deps: () => deps!,
+        jobs: () => deps!.parts.jobs,
       });
       started.push(jobs);
       deps = createTestSdk({
@@ -553,7 +558,7 @@ describe("a shell call whose attempt is cut off", () => {
     await commandStarted;
     // The process dies mid-command: its lease expires and the reaper re-queues the Turn's job.
     timer.advance(61_000);
-    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps);
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps.parts.jobs);
     timer.tick();
     await lost;
     // Another process resumes the Turn.
@@ -584,7 +589,7 @@ describe("a shell call whose attempt is cut off", () => {
     const lost = attempt();
     await setup.commandStarted;
     timer.advance(61_000);
-    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps);
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps.parts.jobs);
     timer.tick();
     await lost;
     await attempt(instance());

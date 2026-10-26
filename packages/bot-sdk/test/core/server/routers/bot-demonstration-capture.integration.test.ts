@@ -23,7 +23,7 @@ import {
   maskedValue,
 } from "../../../../plugins/bot/server/demonstrations";
 import { saveCredentials } from "../../../../plugins/models/server/internal";
-import { inProcessRunner, type InProcessRunner } from "../../../../plugins/runner/server/internal";
+import { inProcessRunner, type JobRunner } from "../../../../plugins/runner/server/internal";
 import { skills } from "../../../../plugins/skills/server/plugin";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
@@ -139,7 +139,7 @@ afterAll(async () => {
   await new Promise((resolve) => other?.close(resolve));
 });
 
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 /** The test's own connection, the user's hands on the Screen. */
 let hands: Browser | undefined;
 
@@ -174,7 +174,12 @@ async function demonstrating(path = "/") {
       port > 9222 ? chrome.proxied : `https://${port}-${sandboxId}.fake.test`,
   });
   let deps: TestDeps | undefined;
-  const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
+  const jobs = inProcessRunner({
+    db: getTestDb(),
+    logger: silent,
+    drainMs: 50,
+    jobs: () => deps!.parts.jobs,
+  });
   deps = createTestSdk({
     computer: computerFake.provider,
     features: [skills()],

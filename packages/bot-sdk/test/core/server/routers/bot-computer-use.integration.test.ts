@@ -17,7 +17,7 @@ import { keptScreenshots, removedScreenshot } from "../../../../plugins/bot/serv
 import {
   reapStaleJobs,
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   systemClock,
 } from "../../../../plugins/runner/server/internal";
 import type { ReviewVerdict } from "../../../../plugins/bot/server/safety";
@@ -39,7 +39,7 @@ const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
 
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();
@@ -103,7 +103,7 @@ async function userWith(
     logger: silent,
     drainMs: 50,
     clock: { ...systemClock, now: clock },
-    deps: () => deps!,
+    jobs: () => deps!.parts.jobs,
   });
   deps = createTestSdk({
     computer: computerFake.provider,
@@ -625,7 +625,7 @@ describe("OpenAI safety checks on the computer tool", () => {
     ]);
     const reviewsBefore = await reviewsOf(botId);
 
-    await botHelperJob.onFailed!({ helperId: running!.id }, new Error("lost"), deps);
+    await botHelperJob.onFailed!({ helperId: running!.id }, new Error("lost"), { deps });
 
     // The click is read as recorded: it neither runs nor waits for an Approval again.
     expect(screenCommands(computerFake)).toEqual(commandsBefore);
@@ -665,7 +665,7 @@ describe("OpenAI safety checks on the computer tool", () => {
 
     // The attempt is lost, and the next one starts past the Helper's time limit.
     skewMs = helperTimeLimitMs + 120_000;
-    await reapStaleJobs(getTestDb(), new Date(Date.now() + skewMs), silent, deps);
+    await reapStaleJobs(getTestDb(), new Date(Date.now() + skewMs), silent, deps.parts.jobs);
     await expect
       .poll(async () => (await helpersOf(botId))[0]?.status, { timeout: 10_000 })
       .toBe("error");
@@ -754,7 +754,7 @@ describe("a replay of the computer tool", () => {
     const reviewsBefore = reviewer.calls.length;
 
     // The job's last-chance ending replays its Checkpoints: the click is read as recorded.
-    await botHelperJob.onFailed!({ helperId: running!.id }, new Error("lost"), deps);
+    await botHelperJob.onFailed!({ helperId: running!.id }, new Error("lost"), { deps });
 
     expect(screenCommands(computerFake)).toEqual(commandsBefore);
     expect(reviewer.calls).toHaveLength(reviewsBefore);

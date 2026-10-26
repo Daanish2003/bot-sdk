@@ -22,7 +22,6 @@ import {
   type CommandResult,
 } from "../../../../plugins/computer/server/internal";
 
-import type { JobRunner } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";
 import { getTestDb } from "../../../support/test-database";
@@ -827,22 +826,6 @@ describe("a wake whose transaction fails after its create", () => {
       state: "awake",
       sandboxId: retried?.sandboxId,
     });
-  });
-});
-
-describe("the computer plugin on a runner that is not in-process", () => {
-  it("fails at startup, because a wake queues its sleep check in its transaction", () => {
-    const elsewhere: JobRunner = {
-      enqueue: async () => "job",
-      cancel: async () => {},
-      status: async () => undefined,
-      schedule: async () => {},
-      start: async () => {},
-      stop: async () => {},
-    };
-    const { provider } = fakeComputerProvider();
-
-    expect(() => createTestSdk({ computer: provider, jobs: elsewhere })).toThrow(/in-process/);
   });
 });
 

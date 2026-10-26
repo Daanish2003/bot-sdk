@@ -3,8 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { pgSchema, text } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
-import { defineFeature, type Database } from "../../core/server/index";
-import { defineJob } from "../../plugins/runner/server/internal";
+import { defineFeature, defineJob, type Database } from "../../core/server/index";
 
 /*
  * A test-only feature written against the public `defineFeature` (spec #871): a Bot pins short
@@ -36,12 +35,12 @@ export async function dropPinsTable(db: Database) {
 export const pinsDigestJob = defineJob({
   name: "test-pins.digest",
   payload: z.object({ userId: z.string(), botId: z.string(), turnId: z.string() }),
-  run: async ({ userId, botId, turnId }, { deps }) => {
-    const pins = await deps.db
+  run: async ({ userId, botId, turnId }, { db }) => {
+    const pins = await db
       .select({ text: pin.text })
       .from(pin)
       .where(and(eq(pin.botId, botId), eq(pin.kind, "pin")));
-    await deps.db.insert(pin).values({
+    await db.insert(pin).values({
       id: `digest-${turnId}`,
       userId,
       botId,

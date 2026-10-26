@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { bot, botCheckIn, botTrigger } from "../../../../core/server/storage";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
-import { defineJob } from "../../../runner/server/internal";
+import { defineCoreJob } from "../../../runner/server/internal";
 import { checkInFireJobName, checkInKey, checkInNotice } from "./check-in";
 import { hintChanged, recordBotChange } from "../conversation";
 import { lockConversation, receive } from "../triggers";
@@ -12,19 +12,19 @@ import { lockConversation, receive } from "../triggers";
  * One Check-in's fire (#540), a single delayed job. Its Checkpoint hands the Router the Check-in's
  * Trigger and marks it `fired`, so both happen once.
  */
-export const checkInFireJob = defineJob({
+export const checkInFireJob = defineCoreJob({
   name: checkInFireJobName,
   payload: z.object({ checkInId: z.uuid() }),
   run: async ({ checkInId }, ctx) => {
     const deps = ctx.deps;
-    const fired = await ctx.activity("fire", (tx) => fireCheckIn(deps, tx, checkInId));
+    const fired = await ctx.step("fire", (tx) => fireCheckIn(deps, tx, checkInId));
     if (!fired) return;
     if (fired.woke) deps.runner.wake();
     await hintChanged(deps, fired.conversationId);
   },
   // A fire that failed for good marked nothing (its Checkpoint rolled back): mark it `failed` here,
   // with no Trigger, so it never stays pending.
-  onFailed: async ({ checkInId }, _error, deps) => {
+  onFailed: async ({ checkInId }, _error, { deps }) => {
     const failed = await deps.db.transaction(async (tx) => {
       const [owner] = await tx
         .select({ conversationId: bot.conversationId })

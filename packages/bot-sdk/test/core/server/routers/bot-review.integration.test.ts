@@ -16,7 +16,7 @@ import type { CommandResult } from "../../../../plugins/computer/server/internal
 import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   systemClock,
   claimJob,
   reapStaleJobs,
@@ -41,7 +41,7 @@ const silent = { error: () => {} };
 
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 afterEach(async () => {
   vi.useRealTimers();
@@ -94,7 +94,7 @@ async function botWith(
     logger: silent,
     drainMs: 50,
     clock: { ...systemClock, now: clock },
-    deps: () => deps!,
+    jobs: () => deps!.parts.jobs,
   });
   deps = createTestSdk({
     computer: computerFake.provider,
@@ -736,7 +736,7 @@ describe("an Approval wait cut off by a crash", () => {
     const computerFake = fakeComputerProvider({ onCommand });
     const start = new Date();
     const timer = fakeJobClock(start);
-    const runners = new Map<TestDeps, InProcessRunner>();
+    const runners = new Map<TestDeps, JobRunner>();
     const instance = () => {
       let deps: TestDeps | undefined;
       const jobs = inProcessRunner({
@@ -744,7 +744,7 @@ describe("an Approval wait cut off by a crash", () => {
         logger: silent,
         clock: timer.clock,
         drainMs: 1_000,
-        deps: () => deps!,
+        jobs: () => deps!.parts.jobs,
       });
       started.push(jobs);
       deps = createTestSdk({
@@ -784,7 +784,7 @@ describe("an Approval wait cut off by a crash", () => {
       /** The process running `running` dies: its lease expires and the reaper re-queues the job. */
       crash: async (running: Promise<void>) => {
         timer.advance(61_000);
-        await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps);
+        await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps.parts.jobs);
         timer.tick();
         await running;
       },

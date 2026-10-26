@@ -1,14 +1,15 @@
 import { deleteBlobsBestEffort } from "../../../core/server/storage";
 import type { BotSdkPlugin } from "../../../core/server/plugin";
-import { isInProcessRunner, runnerJobs } from "../../runner/server/internal";
 
 import {
   cancelUserCheckIns,
   cancelUserFires,
   startRoutineReconcile,
   handleRoutineWebhook,
+  routineJobs,
 } from "./routines";
 import {
+  deliveryJob,
   deleteUserUploads,
   sentFileResponse,
   screenshotsConversationDelete,
@@ -20,7 +21,9 @@ import {
 } from "./conversation";
 
 import {
+  botHelperJob,
   cancelUserHelpers,
+  helperStoppedJob,
   hasLiveDemonstration,
   hasRunningHelper,
   handleScreenRequest,
@@ -29,18 +32,23 @@ import {
   stopUserHelpers,
 } from "./helpers";
 
-import { stopUserTurns } from "./turn";
-import { stopUserDemonstrations } from "./demonstrations";
-// The entries of these modules load the files that register jobs at import time: check-in fire,
-// the away Summary, Demonstration capture and draft.
-import "./routines";
-import "./turn";
-import "./demonstrations";
+import { stopUserTurns, turnJobs } from "./turn";
+import { demonstrationJobs, stopUserDemonstrations } from "./demonstrations";
 
 import { botPluginRouter } from "./routers";
 import { rotateSecretKeys } from "./safety";
 
 export type BotPlugin = BotSdkPlugin<"bot", never, never>;
+
+/** The Bots' jobs (spec #872): the factory lists them on every instance, with the core context. */
+export const botJobs = [
+  ...turnJobs,
+  ...routineJobs,
+  ...demonstrationJobs,
+  botHelperJob,
+  helperStoppedJob,
+  deliveryJob,
+];
 
 /** The core's Bots, as the Host reaches them (`sdk.bots`, spec #871). */
 export type BotApi = {
@@ -83,13 +91,6 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
   return {
     id: "bot",
     init: (sdk) => {
-      // A Turn replays from the history `chat.job` holds. Trigger.dev records nothing and its retry
-      // starts over, which would send the Messages again (ADR 0011, the #482 amendment).
-      if (!isInProcessRunner(runnerJobs(sdk))) {
-        throw new Error(
-          "The bot plugin needs the in-process runner: a Trigger.dev retry starts a Turn over and would send its Messages again",
-        );
-      }
       // With a Computer, a Turn has its tools, and a running Turn keeps the Computer awake.
       const { computer } = sdk;
       if (computer) {

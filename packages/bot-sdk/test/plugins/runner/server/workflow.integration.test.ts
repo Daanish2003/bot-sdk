@@ -5,26 +5,33 @@ import { asc, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { createBotSdk } from "../../../../core/server/create-chat";
 import { job, jobEvent } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import {
-  defineJob,
+  type JobDefinition,
+  jobTable,
+  type JobTable,
   type JobContext,
   inProcessRunner,
-  type InProcessRunner,
+  type JobRunner,
   claimJob,
   reapStaleJobs,
   NonDeterminismError,
 } from "../../../../plugins/runner/server/internal";
-import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { fakeJobClock } from "../../../support/jobs";
-import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
+import { getTestDb } from "../../../support/test-database";
 
 const start = new Date("2026-10-14T10:00:00Z");
 const silent = { error: () => {} };
-let testDeps: TestDeps | undefined;
-const jobDeps = () => (testDeps ??= createTestSdk({ db: getTestDb() }));
+/** The jobs this file defines, which its runners run. They take no core services. */
+// oxlint-disable-next-line typescript/no-explicit-any -- each job has its own payload
+const testJobs: JobDefinition<any, object>[] = [];
+const listed = <P>(definition: JobDefinition<P, object>) => {
+  testJobs.push(definition);
+  return definition;
+};
+let table: JobTable | undefined;
+const testTable = () => (table ??= jobTable([{ jobs: testJobs, services: {} }]));
 
 /*
  * Each test gates one point of one activity. The attempt that reaches it waits there, as a process
@@ -54,8 +61,8 @@ async function point(name: string, when: "before" | "after") {
 }
 
 /** A plain activity: its side effect is pushing its name to `effects`. */
-const step = (ctx: JobContext, name: string) =>
-  ctx.activity(name, async () => {
+const step = (ctx: JobContext<object>, name: string) =>
+  ctx.step(name, async () => {
     await point(name, "before");
     effects.push(name);
     await point(name, "after");
@@ -67,14 +74,14 @@ let results: string[][] = [];
 let throwOnce: string | undefined;
 let failed: unknown[] = [];
 
-defineJob({
+listed({
   name: "workflow.steps",
   payload: z.object({}),
   run: async (_payload, ctx) => {
     const done: string[] = [];
     for (const name of ["a", "b", "c"]) {
       done.push(
-        await ctx.activity(name, async () => {
+        await ctx.step(name, async () => {
           await point(name, "before");
           effects.push(name);
           if (throwOnce === name) {
@@ -94,12 +101,12 @@ defineJob({
 });
 
 /** `a` is a marker that what follows must run after, in the same attempt: a yield skips it. */
-defineJob({
+listed({
   name: "workflow.marked",
   payload: z.object({}),
   run: async (_payload, ctx) => {
     const done = [
-      await ctx.activity(
+      await ctx.step(
         "a",
         async () => {
           await point("a", "before");
@@ -117,11 +124,11 @@ defineJob({
 /** Written by `workflow.write` in its activity's transaction. */
 const MARKER = "workflow.marker";
 
-defineJob({
+listed({
   name: "workflow.write",
   payload: z.object({}),
   run: async (_payload, ctx) => {
-    await ctx.activity("write", async (tx) => {
+    await ctx.step("write", async (tx) => {
       await tx.insert(job).values({
         id: uuidv7(start.getTime()),
         name: MARKER,
@@ -138,7 +145,7 @@ defineJob({
 let version = 1;
 let patchedSeen: boolean[] = [];
 
-defineJob({
+listed({
   name: "workflow.changing",
   payload: z.object({}),
   run: async (_payload, ctx) => {
@@ -170,7 +177,7 @@ defineJob({
   },
 });
 
-defineJob({
+listed({
   name: "workflow.parallel",
   payload: z.object({}),
   run: async (_payload, ctx) => {
@@ -178,7 +185,7 @@ defineJob({
   },
 });
 
-defineJob({
+listed({
   name: "workflow.catches",
   payload: z.object({}),
   run: async (_payload, ctx) => {
@@ -190,7 +197,7 @@ defineJob({
   },
 });
 
-defineJob({
+listed({
   name: "workflow.wraps",
   payload: z.object({}),
   run: async (_payload, ctx) => {
@@ -206,7 +213,7 @@ defineJob({
 
 let values: { now: number; random: number; patched: boolean }[] = [];
 
-defineJob({
+listed({
   name: "workflow.values",
   payload: z.object({}),
   run: async (_payload, ctx) => {
@@ -232,7 +239,7 @@ beforeEach(() => {
 const db = () => getTestDb();
 
 /** Each test's runners, keyed by their clock. Never started: the tests run each attempt. */
-const runners = new Map<ReturnType<typeof fakeJobClock>, InProcessRunner>();
+const runners = new Map<ReturnType<typeof fakeJobClock>, JobRunner>();
 
 // Stopping a runner waits for its attempts' handlers, lost ones included.
 afterEach(async () => {
@@ -245,7 +252,7 @@ async function enqueue(name: string) {
   const runner = inProcessRunner({
     db: db(),
     logger: silent,
-    deps: jobDeps,
+    jobs: testTable,
     clock: timer.clock,
     drainMs: 1_000,
   });
@@ -264,7 +271,7 @@ async function attempt(timer: ReturnType<typeof fakeJobClock>) {
 /** The process running the job stops: its lease expires and the reaper re-queues the job. */
 async function crash(timer: ReturnType<typeof fakeJobClock>) {
   timer.advance(61_000);
-  await reapStaleJobs(db(), timer.clock.now(), silent, jobDeps());
+  await reapStaleJobs(db(), timer.clock.now(), silent, testTable());
 }
 
 /** The job's history as `"<seq> <kind> <name>"` lines, with each result. */
@@ -374,7 +381,13 @@ describe("a workflow's history", () => {
   it("shares one history between two runners on one database, with no seq written twice", async () => {
     const timer = fakeJobClock(start);
     const runners = [1, 2].map(() =>
-      inProcessRunner({ db: db(), logger: silent, deps: jobDeps, clock: timer.clock, drainMs: 20 }),
+      inProcessRunner({
+        db: db(),
+        logger: silent,
+        jobs: testTable,
+        clock: timer.clock,
+        drainMs: 20,
+      }),
     );
     holdAtPoint("b", "after");
     const id = await runners[0]!.enqueue("workflow.steps", {});
@@ -528,7 +541,7 @@ describe("a workflow's history", () => {
 
 describe("a deploy or a cancel", () => {
   const runnerWith = (timer: ReturnType<typeof fakeJobClock>, drainMs: number) =>
-    inProcessRunner({ db: db(), logger: silent, deps: jobDeps, clock: timer.clock, drainMs });
+    inProcessRunner({ db: db(), logger: silent, jobs: testTable, clock: timer.clock, drainMs });
 
   it("stop() hands the job back at its next Checkpoint, uncounted, and another runner finishes it", async () => {
     const timer = fakeJobClock(start);
@@ -667,26 +680,6 @@ describe("a deploy or a cancel", () => {
     await stopping;
 
     expect(await jobOf(id)).toMatchObject({ status: "running", attempts: 2 });
-  });
-});
-
-describe("runJob (a Host's worker)", () => {
-  it("records nothing: every workflow call runs for real", async () => {
-    const chat = createBotSdk({
-      databaseUrl: testDatabaseUrl,
-      getUser: () => null,
-      keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-      basePath: "/api/chat",
-      logger: silent,
-      models: {},
-    });
-
-    await chat.runner.runJob("workflow.write", {});
-    await chat.runner.runJob("workflow.steps", {});
-
-    expect(await markers()).toHaveLength(1);
-    expect(effects).toEqual(["a", "b", "c"]);
-    expect(await db().select().from(jobEvent)).toEqual([]);
   });
 });
 

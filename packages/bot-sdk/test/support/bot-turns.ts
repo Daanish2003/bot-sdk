@@ -1,5 +1,5 @@
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { inProcessRunner, type InProcessRunner } from "../../plugins/runner/server/internal";
+import { inProcessRunner, type JobRunner } from "../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "./deps";
 import { followSend, type BotSendEvent } from "./follow-send";
 import { chatRpc } from "./sdk";
@@ -13,7 +13,7 @@ import type { TestUser } from "./users";
  */
 
 /** The runners `botSdk` started and `stopBotRunners` has not stopped yet. */
-const started: InProcessRunner[] = [];
+const started: JobRunner[] = [];
 
 /**
  * A test SDK whose in-process runner runs the Turns' jobs. It drains for only 50 ms, so a Turn a
@@ -22,13 +22,13 @@ const started: InProcessRunner[] = [];
 export async function botSdk(
   overrides: TestDepsOverrides = {},
   { idle = false }: { idle?: boolean } = {},
-): Promise<{ deps: TestDeps; jobs: InProcessRunner }> {
+): Promise<{ deps: TestDeps; jobs: JobRunner }> {
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({
     db: getTestDb(),
     logger: { error: () => {} },
     drainMs: 50,
-    deps: () => deps!,
+    jobs: () => deps!.parts.jobs,
   });
   deps = createTestSdk({ ...overrides, jobs });
   if (!idle) await jobs.start();
