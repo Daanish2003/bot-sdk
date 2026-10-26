@@ -19,7 +19,7 @@ import { runnerJobs } from "../../plugins/runner/server/internal";
 type OverOptions = Pick<BotSdkOptions, "basePath" | "getUser" | "logger">;
 
 /** The factory's options the seam passes on as they are. */
-export type OverSlots = Pick<BotSdkOptions, "channels" | "verifiedEmail" | "reviewModel">;
+export type OverSlots = Pick<BotSdkOptions, "channels" | "users" | "reviewModel">;
 
 /**
  * What the tests and evals drive: the core context of an instance over fakes, with its Models
@@ -53,7 +53,7 @@ export function createBotSdkOver(
     computer: given.computer,
     features: given.features,
     channels: given.channels,
-    verifiedEmail: given.verifiedEmail,
+    users: given.users,
     reviewModel: given.reviewModel,
   };
   const { instance, context } = buildBotSdk(

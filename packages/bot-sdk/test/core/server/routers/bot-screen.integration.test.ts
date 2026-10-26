@@ -250,7 +250,7 @@ describe("stopping a Computer-use Helper", () => {
   it("is what a Ban does to the user's Helpers: the Screen closes and no report comes", async () => {
     const { deps, user, botId, computerFake } = await waitingHelper();
 
-    await deps.bots.stopTurns(user.id);
+    await deps.bots.stopTurns({ userId: user.id });
 
     expect((await helpersOf(botId)).map((row) => row.status)).toEqual(["stopped"]);
     await expect

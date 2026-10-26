@@ -491,7 +491,7 @@ describe("a Ban", { timeout: 30_000 }, () => {
   it("cancels the user's live Demonstrations, which releases their Screens", async () => {
     const { deps, user, client, botId, computerFake } = await demonstrating();
 
-    await deps.bots.stopTurns(user.id);
+    await deps.bots.stopTurns({ userId: user.id });
 
     expect(await stateOf(botId)).toBe("cancelled");
     expect((await cardOf(client, botId))?.state).toBe("cancelled");

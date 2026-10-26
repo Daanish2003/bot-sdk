@@ -109,7 +109,7 @@ export type ConversationDeleteHooks<Collected = unknown> = {
 };
 
 /**
- * A plugin's hooks on a user's delete (`sdk.deleteUser`, spec #439). `before` runs in the delete's
+ * A plugin's hooks on a user's delete (`sdk.users.delete`, spec #439). `before` runs in the delete's
  * transaction and returns what it collected; a throw rolls the whole delete back. `after` runs after
  * the commit with that value; a throw is logged and swallowed.
  */
@@ -173,13 +173,13 @@ export type BotSdkPlugin<
   /** Hooks on deletes of core rows, run by the core's delete (`deleteConversations`). */
   databaseHooks?: { conversation?: { delete?: ConversationDeleteHooks } };
   /**
-   * Deletes this plugin's data for a user (`sdk.deleteUser`): `before` in the delete's transaction,
+   * Deletes this plugin's data for a user (`sdk.users.delete`): `before` in the delete's transaction,
    * in reverse order, ahead of the core's Conversation and Attachment deletes; `after`
    * once it commits.
    */
   deleteUser?: UserDeleteHooks;
   /**
-   * This plugin's part of a user's export (`sdk.exportUser`), read in the export's snapshot `tx`.
+   * This plugin's part of a user's export (`sdk.users.export`), read in the export's snapshot `tx`.
    * The core stores it under this plugin's id and holds it as unknown, so the plugin types its own
    * part.
    */

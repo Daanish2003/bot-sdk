@@ -825,7 +825,7 @@ describe("bot.stop", () => {
     const { id: otherBotId } = await client.bot.create({ name: "Grace", model });
     for (const id of [botId, otherBotId]) await sendSaved(client, id, "hi");
 
-    await deps.bots.stopTurns(user.id);
+    await deps.bots.stopTurns({ userId: user.id });
 
     for (const id of [botId, otherBotId]) {
       expect(await turnsOf(id)).toMatchObject([{ status: "stopped", error: null }]);

@@ -305,7 +305,7 @@ describe("a Ban: chat.bots.stopTurns", () => {
       await followSend(client, { botId, id: uuidv7(), text: "Hi" });
     }
 
-    await deps.bots.stopTurns(owner.id);
+    await deps.bots.stopTurns({ userId: owner.id });
 
     const statusOf = async (botId: string) =>
       (await getTestDb().select().from(botTurn).where(eq(botTurn.botId, botId))).map(

@@ -87,7 +87,7 @@ async function approvedRoutine({
   host = false,
   linked = false,
   getQuota,
-  isUserBlocked,
+  users,
 }: {
   at: Date;
   routine?: RoutineInput;
@@ -97,7 +97,7 @@ async function approvedRoutine({
   host?: boolean;
   /** The Bot is on a ChatGPT plan Model and the user has a linked plan, not a key (ADR 0023). */
   linked?: boolean;
-} & Pick<TestDepsOverrides, "getQuota" | "isUserBlocked">) {
+} & Pick<TestDepsOverrides, "getQuota" | "users">) {
   const timer = fakeJobClock(at);
   const creation = [round(createRoutine(routine)), round()];
   const fake = createFakeAdapter({ rounds: [...creation, ...rounds], manual });
@@ -120,7 +120,7 @@ async function approvedRoutine({
     ...(host && { hostProviders }),
     ...(linked && { linkedCredentials: async () => planCredentials }),
     getQuota,
-    isUserBlocked,
+    users,
   });
   started.push(jobs);
   const user = await insertUser();
@@ -597,7 +597,7 @@ describe("a scheduled Routine", () => {
     let banned = false;
     const { conversationId, routineId, runDue, advanceTo } = await approvedRoutine({
       at: sunday,
-      isUserBlocked: async () => banned,
+      users: { isBlocked: async () => banned },
     });
     banned = true;
 

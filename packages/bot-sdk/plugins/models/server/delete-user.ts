@@ -4,7 +4,7 @@ import { modelSettings, usage, userCredentials } from "../../../core/server/stor
 import type { UserDeleteHooks } from "../../../core/server/plugin";
 
 /**
- * The `models` plugin's part of `sdk.deleteUser` (spec #439): the user's Provider and Tool
+ * The `models` plugin's part of `sdk.users.delete` (spec #439): the user's Provider and Tool
  * credentials, their Model settings and their usage rows, which no Conversation cascades to (a
  * deleted account keeps no Quota history). Nothing is left for after the commit.
  */

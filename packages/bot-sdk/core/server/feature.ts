@@ -199,7 +199,7 @@ export type FeatureDefinition<
    */
   // oxlint-disable-next-line typescript/no-explicit-any -- each job has its own payload
   jobs?: readonly JobDefinition<any, FeatureContext<Needs>>[];
-  /** The feature's part of a user's delete and export (`sdk.deleteUser`, `sdk.exportUser`). */
+  /** The feature's part of a user's delete and export (`sdk.users.delete`, `sdk.users.export`). */
   userData?: {
     delete?: {
       /** In the delete's transaction, before the core's rows go; its result reaches `after`. */
@@ -278,12 +278,12 @@ const instanceKeys = new Set([
   "migrate",
   "start",
   "stop",
-  "deleteUser",
-  "exportUser",
+  "users",
   "rotateKeys",
   "runner",
   "models",
   "bots",
+  "conversations",
   "channels",
 ]);
 

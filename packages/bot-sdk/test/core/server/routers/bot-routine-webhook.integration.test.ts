@@ -52,14 +52,14 @@ const at = new Date("2026-10-19T10:42:00.000Z");
 async function botWithRoutine({
   routine = payouts,
   rounds = [],
-  isUserBlocked,
+  users,
   computerFake,
 }: {
   routine?: unknown;
   rounds?: Round[];
   /** The fake Computer to install `computer` over; with none, the Bot has no Computer. */
   computerFake?: ReturnType<typeof fakeComputerProvider>;
-} & Pick<TestDepsOverrides, "isUserBlocked"> = {}) {
+} & Pick<TestDepsOverrides, "users"> = {}) {
   const timer = fakeJobClock(at);
   const fake = createFakeAdapter({ rounds: [round(createRoutine(routine)), round(), ...rounds] });
   let deps: TestDeps | undefined;
@@ -75,7 +75,7 @@ async function botWithRoutine({
     jobs,
     adapterFor: () => fake.adapter,
     clock: timer.clock.now,
-    isUserBlocked,
+    users,
   });
   started.push(jobs);
   const user = await insertUser();
@@ -127,13 +127,13 @@ async function botWithRoutine({
 async function approvedWebhook(
   rounds: Round[] = [],
   {
-    isUserBlocked,
+    users,
     computerFake,
-  }: Pick<TestDepsOverrides, "isUserBlocked"> & {
+  }: Pick<TestDepsOverrides, "users"> & {
     computerFake?: ReturnType<typeof fakeComputerProvider>;
   } = {},
 ) {
-  const made = await botWithRoutine({ rounds, isUserBlocked, computerFake });
+  const made = await botWithRoutine({ rounds, users, computerFake });
   const routineId = made.routines[0]!.id;
   const { webhookToken } = await made.client.bot.routine.approve({ routineId });
   return { ...made, routineId, token: webhookToken! };
@@ -230,7 +230,7 @@ describe("a webhook Routine's URL", () => {
   it("answers 202 and makes no Trigger while the user is Banned", async () => {
     let banned = false;
     const { conversationId, token, call } = await approvedWebhook([], {
-      isUserBlocked: async () => banned,
+      users: { isBlocked: async () => banned },
     });
     banned = true;
 
