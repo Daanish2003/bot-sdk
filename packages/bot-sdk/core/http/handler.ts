@@ -57,13 +57,15 @@ export function createHttpHandler(sdk: BotSdk, options: HttpHandlerOptions): Htt
     }
     return null;
   };
-  // The methods of the public routes at `path`: a public path called with another one answers 405.
-  const publicMethodsAt = (path: string | null) =>
-    path === null
-      ? []
-      : routes
-          .filter((route) => route.public && matchPath(route.path, path))
-          .map((route) => route.method);
+  // A public path called with a method no route at it serves answers 405, before any sign-in. A
+  // private route at the same path with that method is still served.
+  const refusedMethod = (request: Request, path: string | null) => {
+    if (path === null) return null;
+    const atPath = routes.filter((route) => matchPath(route.path, path));
+    if (!atPath.some((route) => route.public)) return null;
+    if (atPath.some((route) => route.method === request.method)) return null;
+    return methodNotAllowed(atPath.map((route) => route.method));
+  };
 
   return async (request) => {
     const { pathname } = new URL(request.url);
@@ -73,8 +75,8 @@ export function createHttpHandler(sdk: BotSdk, options: HttpHandlerOptions): Htt
       const { route, params } = publicRoute;
       return route.handle(request, { user: null, sdk: context, params, basePath: prefix });
     }
-    const allowed = publicMethodsAt(path);
-    if (allowed.length > 0) return methodNotAllowed(allowed);
+    const refused = refusedMethod(request, path);
+    if (refused) return refused;
     const user = await options.getUser(request);
     if (!user) return unauthorized();
 

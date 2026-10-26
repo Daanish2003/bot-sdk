@@ -10,6 +10,7 @@ import {
   type HttpHandler,
 } from "../../../core/http";
 import { createBotSdk, httpPartsOf } from "../../../core/server/create-chat";
+import { defineFeature } from "../../../core/server/feature";
 import { emailChannel } from "../../../plugins/channel/server/index";
 import { fakeEmailProvider } from "../../../plugins/channel/fake/index";
 import { createHttpHandlerOver } from "../../../core/server/over";
@@ -163,6 +164,35 @@ describe("createHttpHandler", { timeout: 30_000 }, () => {
       [405, "GET, HEAD"],
     ]);
     expect(getUser).not.toHaveBeenCalled();
+  });
+
+  it("still serves a signed-in route at a public path with its own method", async () => {
+    const sdk = createBotSdk({
+      databaseUrl: testDatabaseUrl,
+      keyEncryptionSecrets,
+      models: {},
+      features: [
+        defineFeature({
+          id: "webhook-status",
+          routes: [
+            {
+              method: "GET",
+              path: "/routines/webhook/:token",
+              handle: async (_request, { user }) => new Response(user.id),
+            },
+          ],
+        }),
+      ],
+    });
+    const http = createHttpHandler(sdk, { basePath, getUser: () => ({ id: "user-1" }) });
+    const call = (method: string) =>
+      http(new Request(`http://localhost${basePath}/routines/webhook/a-token`, { method }));
+
+    const served = await call("GET");
+    const refused = await call("HEAD");
+
+    expect([served.status, await served.text()]).toEqual([200, "user-1"]);
+    expect([refused.status, refused.headers.get("Allow")]).toEqual([405, "POST, GET"]);
   });
 
   it("serves one instance at two basePaths, and the live view's links point under the first", async () => {
