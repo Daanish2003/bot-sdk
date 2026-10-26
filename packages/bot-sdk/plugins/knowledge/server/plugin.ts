@@ -3,7 +3,7 @@ import { isComputerFailure } from "../../computer/server/internal";
 import { knowledgeApi } from "./knowledge-api";
 import { knowledgeNotes } from "./notes";
 import { knowledgePrompt, readKnowledgePaths } from "./prompt";
-import { knowledgeRouter } from "./routers/index";
+import { knowledgeContract } from "../shared/contract";
 
 /**
  * The `knowledge` feature (spec #737, ADR 0025, spec #871): a user's Knowledge as plain files in
@@ -17,7 +17,7 @@ export function knowledge() {
   return defineFeature({
     id: "knowledge",
     needs: ["computer"],
-    router: { knowledge: knowledgeRouter },
+    contract: knowledgeContract,
     // The domain methods: `sdk.knowledge` (spec #873).
     api: (context) => knowledgeApi(coreContextOf(context)),
     // A Computer that can't be woken or read leaves the Turn without a Knowledge section; any

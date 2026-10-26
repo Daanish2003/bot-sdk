@@ -15,20 +15,12 @@ import {
   receiveRoutineWebhook,
   rotateWebhook,
 } from "./routines";
+import { botScopeInput, routineInput, checkInInput } from "../shared/contract";
 
 /*
  * The `routines` and `checkIns` namespaces' domain methods (spec #873), taking the user's id as
  * `bots` does. Each input schema is the one its procedure validates with.
  */
-
-/** The input of the methods that list one of the user's Bots' Routines or Check-ins. */
-export const botScopeInput = z.object({ botId: z.uuid() });
-
-/** The input of the methods that act on one of the user's Routines. */
-export const routineInput = z.object({ routineId: z.uuid() });
-
-/** `checkIns.cancel`'s input, besides `userId`. */
-export const checkInInput = z.object({ checkInId: z.uuid() });
 
 type WithUser<Schema extends z.ZodType> = { userId: string } & z.input<Schema>;
 

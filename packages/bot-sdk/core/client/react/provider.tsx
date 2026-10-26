@@ -1,3 +1,4 @@
+import type { AnyContractRouter } from "@orpc/contract";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   type ComponentType,
@@ -9,7 +10,8 @@ import {
 } from "react";
 
 import { createI18n, type I18n, type Messages } from "../../shared/i18n";
-import type { BotSdkClient } from "../chat-client";
+import type { BotSdkClient, BotSdkOrpc } from "../chat-client";
+import type { CoreContract } from "../contract";
 
 export type { BotSdkOrpc } from "../chat-client";
 
@@ -72,14 +74,24 @@ export function ChatProvider({
   );
 }
 
-export function useChatAdapter() {
+/**
+ * The provider's adapter. A feature's UI names the URLs its client part adds:
+ * `useChatAdapter<McpUrls>()`.
+ */
+export function useChatAdapter<Urls extends object = object>(): ChatAdapter & Urls {
   const adapter = useContext(ChatContext);
   if (!adapter) throw new Error("The chat UI must be inside a <ChatProvider>");
-  return adapter;
+  return adapter as ChatAdapter & Urls;
 }
 
-export function useOrpc() {
-  return useChatAdapter().orpc;
+/**
+ * TanStack Query helpers over the core's procedures. A feature's UI names its contract under its
+ * id, which the Host enabled with its client part: `useOrpc<{ memory: MemoryContract }>()`.
+ */
+export function useOrpc<
+  Features extends Record<string, AnyContractRouter> = Record<never, never>,
+>(): BotSdkOrpc<CoreContract & Features> {
+  return useChatAdapter().orpc as unknown as BotSdkOrpc<CoreContract & Features>;
 }
 
 /** The text for a key and the locale to format with, from the provider's dictionary. */

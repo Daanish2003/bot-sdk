@@ -10,7 +10,7 @@ import { memoryChangeNotes } from "./change-notes";
 import { memorySettings } from "./db/settings";
 import { memoryEnabledFor } from "./manage";
 import { memoryApi } from "./memory-api";
-import { memoryRouter } from "./routers/index";
+import { memoryContract } from "../shared/contract";
 import { searchBotMemory } from "./search";
 
 /** The tool that searches the Bot's memory files (ADR 0022). */
@@ -28,7 +28,7 @@ const searchMemoryDefinition = toolDefinition({
 });
 
 /**
- * The Memory feature (ADR 0022): the Bots' file memory, its post-Turn pass, the Memory routers and
+ * The Memory feature (ADR 0022): the Bots' file memory, its post-Turn pass, the Memory contract and
  * the user's Memory switch. A Host turns Memory on with `memory()` in `features`; it needs the
  * Computer, where the files live.
  */
@@ -107,6 +107,6 @@ export function memory() {
         botMemory: await exportBotMemory(context, tx, userId),
       }),
     },
-    router: { memory: memoryRouter },
+    contract: memoryContract,
   });
 }

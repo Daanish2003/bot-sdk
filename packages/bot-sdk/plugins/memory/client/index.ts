@@ -1,15 +1,11 @@
-import type { BotSdkClientPlugin } from "../../../core/client/plugin";
-import type { MemoryRouter } from "../server/routers/index";
+import type { FeatureClient } from "../../../core/client/chat-client";
+import { memoryContract, type MemoryContract } from "../shared/contract";
 
-declare module "../../../core/client/plugin" {
-  interface PluginRouters {
-    memory: MemoryRouter;
-  }
-}
+export type { MemoryContract };
 
-export type MemoryClientPlugin = BotSdkClientPlugin<"memory", MemoryRouter>;
+export type MemoryFeatureClient = FeatureClient<"memory", MemoryContract>;
 
-/** The `memory` plugin's client: its router is `memory`. It adds no URLs. */
-export function memoryClient(): MemoryClientPlugin {
-  return { id: "memory" };
+/** The `memory` feature's client part: its contract, served under `memory`. It adds no URLs. */
+export function memoryClient(): MemoryFeatureClient {
+  return { id: "memory", contract: memoryContract };
 }

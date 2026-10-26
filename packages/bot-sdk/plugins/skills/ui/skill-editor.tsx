@@ -7,10 +7,11 @@ import { toast } from "sonner";
 import { dateFormat } from "../../../core/client/intl";
 import { useI18n, useOrpc } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
+import type { SkillsContract } from "../shared/contract";
 
 /** Refetches the Bot's Skills after a change to its files. */
 function useRefresh() {
-  const orpc = useOrpc();
+  const orpc = useOrpc<{ skills: SkillsContract }>();
   const queryClient = useQueryClient();
   return () =>
     Promise.all([
@@ -22,7 +23,7 @@ function useRefresh() {
 /** Saves a Skill and shows why it is not usable, if so; `onSaved` runs once it is written. */
 function useSave(botId: string, onSaved?: (problem: string | null) => void) {
   const i18n = useI18n();
-  const orpc = useOrpc();
+  const orpc = useOrpc<{ skills: SkillsContract }>();
   const refresh = useRefresh();
   const [problem, setProblem] = useState<string | null>(null);
   const save = useMutation(
@@ -73,7 +74,7 @@ export function SkillEditor({
 }) {
   const i18n = useI18n();
   const { t, locale } = i18n;
-  const orpc = useOrpc();
+  const orpc = useOrpc<{ skills: SkillsContract }>();
   const refresh = useRefresh();
   const read = useQuery(orpc.skills.read.queryOptions({ input: { botId, name } }));
   const [edited, setEdited] = useState<string | null>(null);

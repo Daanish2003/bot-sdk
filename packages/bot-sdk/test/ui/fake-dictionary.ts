@@ -2,14 +2,22 @@ import { QueryClient } from "@tanstack/react-query";
 import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { createBotSdkClient, type BotSdkClient } from "../../core/client/chat-client";
-import { modelsClient } from "../../plugins/models/client/index";
+import {
+  type BotSdkClient,
+  createBotSdkClient,
+  type FeatureClient,
+  type FeaturesContract,
+} from "../../core/client/chat-client";
+import type { CoreContract } from "../../core/client/contract";
+import type { KnowledgeFeatureClient } from "../../plugins/knowledge/client/index";
+import type { McpFeatureClient } from "../../plugins/mcp/client/index";
+import type { MemoryFeatureClient } from "../../plugins/memory/client/index";
+import type { SkillsFeatureClient } from "../../plugins/skills/client/index";
 import {
   type ChatLinkProps,
   ChatProvider,
   type ChatRouter,
 } from "../../core/client/react/provider";
-import type { BotSdkClientPlugin } from "../../core/client/plugin";
 import { en, type Messages } from "../../core/shared/i18n";
 
 /**
@@ -74,13 +82,22 @@ export function renderWrapped(ui: ReactElement, options: WrapOptions = {}) {
   return renderToStaticMarkup(providerFor(ui, options));
 }
 
+/** A client typed with every feature's contract. */
+export type TestClient = BotSdkClient<
+  CoreContract &
+    FeaturesContract<
+      [MemoryFeatureClient, SkillsFeatureClient, KnowledgeFeatureClient, McpFeatureClient]
+    >
+>;
+
 type WrapOptions = {
-  seed?: (queryClient: QueryClient, client: BotSdkClient) => void;
+  /** Seeds the cache; the client is typed with every feature, whichever the test enables. */
+  seed?: (queryClient: QueryClient, client: TestClient) => void;
   /** The Host's navigation, to see where the UI goes. Defaults to going nowhere. */
   navigate?: ChatRouter["navigate"];
   messages?: Partial<Messages>;
-  /** The client plugins the Host enables. Defaults to the models plugin alone. */
-  plugins?: BotSdkClientPlugin[];
+  /** The features' client parts the Host enables. Defaults to none: the core alone. */
+  features?: FeatureClient[];
   /** The network. Defaults to failing, since a render test makes no requests. */
   fetch?: NonNullable<Parameters<typeof createBotSdkClient>[0]["fetch"]>;
 };
@@ -95,14 +112,14 @@ export function providerFor(
     seed,
     navigate = () => {},
     messages = wrappedDictionary(),
-    plugins = [modelsClient()],
+    features = [],
     fetch = async () => {
       throw new Error("Unexpected request in a render test");
     },
   }: WrapOptions = {},
 ) {
   const client = createBotSdkClient({
-    plugins,
+    features,
     baseUrl: "http://localhost/api/chat",
     fetch,
   });
@@ -111,7 +128,7 @@ export function providerFor(
     navigate,
   };
   const queryClient = new QueryClient();
-  seed?.(queryClient, client);
+  seed?.(queryClient, client as unknown as TestClient);
   return createElement(ChatProvider, {
     client,
     router,

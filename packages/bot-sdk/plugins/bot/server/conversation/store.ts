@@ -23,20 +23,14 @@ import {
 } from "../../shared/rich-control";
 import type { Reactions } from "../../shared/reaction";
 import type { BotMessage, BotTurnStatus } from "../../shared/turn";
+import type { Bot, ListedBot } from "../../shared/contract";
 
 /** The `kind` of every Bot's Conversation: the plugin's id. */
 export const botKind = "bot";
 
 const botColumns = { id: bot.id, name: bot.name, model: bot.model, createdAt: bot.createdAt };
 
-/** A Bot as the client sees it. */
-export type Bot = { id: string; name: string; model: string; createdAt: Date };
-
-/** A Bot with the status of its latest Turn (`null` before its first). */
-export type BotWithStatus = Bot & { turnStatus: BotTurnStatus | null };
-
-/** A Bot in the list: its last sent Message's text and time (`null` before it has sent one). */
-export type ListedBot = BotWithStatus & { lastMessage: { text: string; at: Date } | null };
+export type { Bot, BotWithStatus, ListedBot } from "../../shared/contract";
 
 export type { BotMessage };
 

@@ -6,12 +6,9 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { botClient } from "../../../plugins/bot/client/index";
 import type { BotMessage } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
-import { channelClient } from "../../../plugins/channel/client/index";
 import { EmailPopover } from "../../../plugins/channel/ui/email-popover";
-import { modelsClient } from "../../../plugins/models/client/index";
 import { providerFor } from "../fake-dictionary";
 
 afterEach(() => {
@@ -19,7 +16,6 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const plugins = [modelsClient(), channelClient(), botClient()];
 const first = "ada.k3x9q2mz@bots.example";
 const second = "ada.p7w4n1cv@bots.example";
 
@@ -56,7 +52,6 @@ function openPopover(server: ReturnType<typeof fakeChannelServer>) {
     providerFor(createElement(EmailPopover, { botId: "b1" }), {
       fetch: server.fetch,
       messages: {},
-      plugins,
     }),
   );
   fireEvent.click(screen.getByRole("button", { name: "Email" }));

@@ -4,19 +4,16 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { BotSdkClient } from "../../../core/client/chat-client";
-import { botClient } from "../../../plugins/bot/client/index";
 import { knowledgeClient } from "../../../plugins/knowledge/client/index";
 import type { KnowledgeListing } from "../../../plugins/knowledge/server/files";
 import { KnowledgePopover } from "../../../plugins/knowledge/ui/knowledge-popover";
-import { modelsClient } from "../../../plugins/models/client/index";
-import { providerFor } from "../fake-dictionary";
+import { providerFor, type TestClient } from "../fake-dictionary";
 
 afterEach(() => {
   cleanup();
 });
 
-const plugins = [modelsClient(), knowledgeClient(), botClient()];
+const features = [knowledgeClient()];
 const mib = 1024 * 1024;
 
 const listing: KnowledgeListing = {
@@ -51,7 +48,7 @@ const calledWith = (calls: { url: string; body: string }[], procedure: string) =
 
 /** Seeds the status, and the list unless `shown` is null (the list still loading). */
 function seeded(available = true, shown: KnowledgeListing | null = listing) {
-  return (queryClient: QueryClient, client: BotSdkClient) => {
+  return (queryClient: QueryClient, client: TestClient) => {
     queryClient.setQueryData(client.orpc.knowledge.status.queryKey(), { available });
     if (shown) queryClient.setQueryData(client.orpc.knowledge.list.queryKey(), shown);
     // A list still loading that fails shows its failure at once, without the default retries.
@@ -69,7 +66,7 @@ function renderPopover(
       seed: seeded(available, shown),
       fetch,
       messages: {},
-      plugins,
+      features,
     }),
   );
   const button = screen.queryByRole("button", { name: /^Knowledge/ });

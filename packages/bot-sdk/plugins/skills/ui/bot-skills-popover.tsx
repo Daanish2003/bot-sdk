@@ -7,6 +7,7 @@ import { useState } from "react";
 import { useI18n, useOrpc } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
 import { NewSkillEditor, SkillEditor } from "./skill-editor";
+import type { SkillsContract } from "../shared/contract";
 
 /**
  * The Bot header's **Skills N** button (spec #713, prototype variant A): a popover with a row per
@@ -18,7 +19,7 @@ import { NewSkillEditor, SkillEditor } from "./skill-editor";
 export function BotSkillsPopover({ botId }: { botId: string }) {
   const i18n = useI18n();
   const { t } = i18n;
-  const orpc = useOrpc();
+  const orpc = useOrpc<{ skills: SkillsContract }>();
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);

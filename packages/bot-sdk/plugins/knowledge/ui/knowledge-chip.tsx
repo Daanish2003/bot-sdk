@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useI18n, useOrpc } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
 import type { BotKnowledgeChange } from "../shared/changes";
+import type { KnowledgeContract } from "../shared/contract";
 
 const kib = 1024;
 const mib = kib * kib;
@@ -22,7 +23,7 @@ function sizeText(bytes: number): string {
 function KnowledgeFileDetails({ path, onDeleted }: { path: string; onDeleted: () => void }) {
   const i18n = useI18n();
   const { t } = i18n;
-  const orpc = useOrpc();
+  const orpc = useOrpc<{ knowledge: KnowledgeContract }>();
   const queryClient = useQueryClient();
   const file = useQuery(orpc.knowledge.read.queryOptions({ input: { path } }));
   const remove = useMutation(orpc.knowledge.remove.mutationOptions());
@@ -81,7 +82,7 @@ export function KnowledgeChip({
   changes: BotKnowledgeChange[] | null;
 }) {
   const { t } = useI18n();
-  const orpc = useOrpc();
+  const orpc = useOrpc<{ knowledge: KnowledgeContract }>();
   // The Bot page already loads this, so it reads the cache.
   const botName = useQuery({
     ...orpc.bots.get.queryOptions({ input: { botId } }),

@@ -4,19 +4,11 @@ import type { BotSdkContext } from "../../../core/server/plugin";
 import { parseInput } from "../../../core/server/rpc-error";
 import { helperDone, listHelpers, stopBotHelpers } from "./helpers";
 import { requireOwnedBot } from "./owned-bot";
+import { helperListInput, helperDoneInput, helperStopInput } from "../shared/contract";
 
 /*
  * The `helpers` namespace's domain methods (spec #873), taking the user's id as `bots` does.
  */
-
-/** `helpers.list`'s input, besides `userId`. */
-export const helperListInput = z.object({ botId: z.uuid() });
-
-/** `helpers.done`'s input, besides `userId`. */
-export const helperDoneInput = z.object({ helperId: z.uuid() });
-
-/** `helpers.stop`'s input, besides `userId`. */
-export const helperStopInput = z.object({ botId: z.uuid(), helperId: z.uuid().optional() });
 
 type WithUser<Schema extends z.ZodType> = { userId: string } & z.input<Schema>;
 

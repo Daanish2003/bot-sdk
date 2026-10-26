@@ -6,7 +6,6 @@ import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { botClient } from "../../../plugins/bot/client/index";
 import type { BotRoutine } from "../../../plugins/bot/shared/routine";
 import type { BotMessage, BotTurnProvenance } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
@@ -179,7 +178,6 @@ function mount(server: ReturnType<typeof fakeBotServer>) {
     providerFor(createElement(BotConversation, { botId: ada.id }), {
       fetch: server.fetch,
       messages: {},
-      plugins: [botClient()],
     }),
   );
 }

@@ -4,12 +4,9 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { BotSdkClient } from "../../../core/client/chat-client";
-import { botClient } from "../../../plugins/bot/client/index";
 import { memoryClient } from "../../../plugins/memory/client/index";
 import { BotMemoryPopover } from "../../../plugins/memory/ui/bot-memory-popover";
-import { modelsClient } from "../../../plugins/models/client/index";
-import { providerFor } from "../fake-dictionary";
+import { providerFor, type TestClient } from "../fake-dictionary";
 
 afterEach(() => {
   cleanup();
@@ -69,7 +66,7 @@ function renderPopover(
 ) {
   render(
     providerFor(createElement(BotMemoryPopover, { botId: "ada" }), {
-      seed: (queryClient: QueryClient, client: BotSdkClient) => {
+      seed: (queryClient: QueryClient, client: TestClient) => {
         queryClient.setQueryData(client.orpc.memory.status.queryKey(), {
           enabled: true,
           botMemoryAvailable,
@@ -87,7 +84,7 @@ function renderPopover(
       },
       fetch,
       messages: {},
-      plugins: [modelsClient(), memoryClient(), botClient()],
+      features: [memoryClient()],
     }),
   );
   const button = screen.queryByRole("button", { name: "Memory" });

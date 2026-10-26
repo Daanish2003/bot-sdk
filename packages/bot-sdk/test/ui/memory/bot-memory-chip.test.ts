@@ -5,13 +5,11 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { BotSdkClient } from "../../../core/client/chat-client";
-import { botClient } from "../../../plugins/bot/client/index";
 import type { BotMessage, BotTurnProvenance } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { memoryClient } from "../../../plugins/memory/client/index";
 import type { BotMemoryChange } from "../../../plugins/memory/shared/changes";
 import { BotMemoryChip } from "../../../plugins/memory/ui/bot-memory-chip";
-import { modelsClient } from "../../../plugins/models/client/index";
 import { providerFor } from "../fake-dictionary";
 
 afterEach(() => {
@@ -25,11 +23,11 @@ const changes: BotMemoryChange[] = [
   { kind: "forgot", tier: "log", text: "Moved flat" },
 ];
 
-const plugins = [modelsClient(), memoryClient(), botClient()];
+const features = [memoryClient()];
 
 describe("BotMemoryChip", () => {
   it("shows the count and expands to the three kinds, each with its tier", () => {
-    render(providerFor(createElement(BotMemoryChip, { changes }), { messages: {}, plugins }));
+    render(providerFor(createElement(BotMemoryChip, { changes }), { messages: {}, features }));
 
     fireEvent.click(screen.getByRole("button", { name: /Memory updated · 3/ }));
 
@@ -46,7 +44,7 @@ describe("BotMemoryChip", () => {
   it("shows nothing when the pass changed nothing", () => {
     for (const none of [null, []]) {
       const { container, unmount } = render(
-        providerFor(createElement(BotMemoryChip, { changes: none }), { messages: {}, plugins }),
+        providerFor(createElement(BotMemoryChip, { changes: none }), { messages: {}, features }),
       );
       expect(container.innerHTML).toBe("");
       unmount();
@@ -123,7 +121,7 @@ describe("the Memory updated chip on a Bot's Turn", () => {
         }),
         {
           messages: {},
-          plugins,
+          features,
           fetch: recordingFetch().fetch,
           seed: (queryClient, client) =>
             seedGet(queryClient, client, [turn("t1", 0, changes), turn("t2", 5, null)]),

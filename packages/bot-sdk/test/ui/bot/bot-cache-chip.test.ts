@@ -3,18 +3,15 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { botClient } from "../../../plugins/bot/client/index";
 import type { BotMessage, BotTurnProvenance, BotTurnStep } from "../../../plugins/bot/shared/turn";
 import { BotCacheChip } from "../../../plugins/bot/ui/bot-cache-chip";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
-import { modelsClient } from "../../../plugins/models/client/index";
 import { providerFor } from "../fake-dictionary";
 
 afterEach(cleanup);
 
-const plugins = [modelsClient(), botClient()];
 const show = (steps: BotTurnStep[]) =>
-  render(providerFor(createElement(BotCacheChip, { steps }), { messages: {}, plugins }));
+  render(providerFor(createElement(BotCacheChip, { steps }), { messages: {} }));
 
 const section = (name: string, tokens: number, hash: string, was?: string) => ({
   name,
@@ -146,7 +143,6 @@ describe("the cache chip in a Bot's thread", () => {
         }),
         {
           messages: {},
-          plugins,
           // A fetch that never answers: the seeded data is all the thread shows.
           fetch: vi.fn(async () => new Promise<Response>(() => {})),
           seed: (queryClient, client) =>

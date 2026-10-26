@@ -4,17 +4,12 @@ import type { BotSdkContext } from "../../../core/server/plugin";
 import { parseInput } from "../../../core/server/rpc-error";
 import { requireOwnedBot } from "./owned-bot";
 import { decideReview, listReviews } from "./safety";
+import { reviewListInput, reviewDecisionInput } from "../shared/contract";
 
 /*
  * The `reviews` namespace's domain methods (spec #873): the user's side of the Auto-reviews of
  * their Bots' tool calls (spec #691), taking the user's id as `bots` does.
  */
-
-/** `reviews.list`'s input, besides `userId`. */
-export const reviewListInput = z.object({ botId: z.uuid() });
-
-/** The input of `reviews.allow` and `reviews.deny`, besides `userId`. */
-export const reviewDecisionInput = z.object({ reviewId: z.uuid() });
 
 type WithUser<Schema extends z.ZodType> = { userId: string } & z.input<Schema>;
 

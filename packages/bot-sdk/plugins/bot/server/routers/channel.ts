@@ -1,18 +1,16 @@
-import { z } from "zod";
+import { implement } from "@orpc/server";
 
-import { protectedProcedure } from "../../../../core/server/procedures";
+import type { Context } from "../../../../core/server/context";
+import { requireAuth } from "../../../../core/server/procedures";
+import { botContract } from "../../shared/contract";
 import { emailAddressOf, rotateEmailAddress, lastUsedChannel } from "../conversation";
 
-const botInput = z.object({ botId: z.uuid() });
+const os = implement(botContract).$context<Context>().use(requireAuth);
 
-/** The email Channel's procedures: a Bot's address, to copy or rotate (spec #761). */
-export const channelRouter = {
+/** The email Channel's procedures: it implements the contract's `channels` (spec #761). */
+export const channelRouter = os.channels.router({
   email: {
-    /**
-     * The Bot's address, made on the first read, and the Channel its next Bot-initiated Message
-     * goes by: the one the user last wrote from.
-     */
-    address: protectedProcedure.input(botInput).handler(async ({ context, input }) => {
+    address: os.channels.email.address.handler(async ({ context, input }) => {
       const address = await emailAddressOf(context.sdk, {
         userId: context.user.id,
         botId: input.botId,
@@ -20,9 +18,7 @@ export const channelRouter = {
       });
       return { address, nextChannel: await lastUsedChannel(context.sdk.db, input) };
     }),
-
-    /** Gives the Bot a new address; mail to the old one is dropped from now on. */
-    rotate: protectedProcedure.input(botInput).handler(async ({ context, input }) => ({
+    rotate: os.channels.email.rotate.handler(async ({ context, input }) => ({
       address: await rotateEmailAddress(context.sdk, {
         userId: context.user.id,
         botId: input.botId,
@@ -30,7 +26,4 @@ export const channelRouter = {
       }),
     })),
   },
-};
-
-/** The `channel` plugin's routers, by key. */
-export type ChannelRouter = { channels: typeof channelRouter };
+});

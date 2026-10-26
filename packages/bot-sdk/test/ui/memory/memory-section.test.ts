@@ -4,9 +4,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { BotSdkClient } from "../../../core/client/chat-client";
 import { MemorySection } from "../../../plugins/memory/ui/memory-section";
-import { providerFor } from "../fake-dictionary";
+import { providerFor, type TestClient } from "../fake-dictionary";
 
 afterEach(() => {
   cleanup();
@@ -14,7 +13,7 @@ afterEach(() => {
 });
 
 function seed(enabled = true) {
-  return (queryClient: QueryClient, client: BotSdkClient) => {
+  return (queryClient: QueryClient, client: TestClient) => {
     queryClient.setQueryData(client.orpc.memory.status.queryKey(), {
       enabled,
       botMemoryAvailable: true,

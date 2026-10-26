@@ -24,52 +24,22 @@ import { memoryEnabledFor } from "./manage";
  * same plain files the Bots write, through the user's Computer.
  */
 
-/** A memory tier: the Profile, the Log or the Notes. */
-export type MemoryTier = "profile" | "log" | "notes";
+import type {
+  BotMemoryList,
+  ListedLogLine,
+  ListedNoteLine,
+  ListedProfileLine,
+  MemoryFileRef,
+  MemoryTier,
+} from "../shared/contract";
 
-/** One memory file: a Bot's Profile or Notes, or its Log for `month` (`YYYY-MM`). */
-export type MemoryFileRef = { botId: string; tier: MemoryTier; month?: string };
-
-/** A Profile line as the popover lists it; `botName` labels another Bot's, null for the Bot's own. */
-export type ListedProfileLine = {
-  botId: string;
-  botName: string | null;
-  line: number;
-  text: string;
-  inPrompt: boolean;
-};
-
-/** A Log line as the popover lists it. */
-export type ListedLogLine = {
-  month: string;
-  line: number;
-  text: string;
-  /** The event without its date and importance. */
-  body: string;
-  date: string;
-  importance: number;
-  inPrompt: boolean;
-};
-
-/** A Notes line as the popover lists it. */
-export type ListedNoteLine = {
-  line: number;
-  text: string;
-  /** The detail without its date. */
-  body: string;
-  date: string;
-  inPrompt: boolean;
-};
-
-/** What the Memory popover shows for one Bot. */
-export type BotMemoryList = {
-  /** False without the `computer` plugin: Bot memory is skipped, and nothing is read. */
-  available: boolean;
-  /** The user's Memory switch; with it off nothing else is read. */
-  enabled: boolean;
-  profile: ListedProfileLine[];
-  log: ListedLogLine[];
-  notes: ListedNoteLine[];
+export type {
+  BotMemoryList,
+  ListedLogLine,
+  ListedNoteLine,
+  ListedProfileLine,
+  MemoryFileRef,
+  MemoryTier,
 };
 
 /** The path of a memory file; a Log file needs its month. */

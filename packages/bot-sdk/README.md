@@ -57,7 +57,7 @@ Install these in the Host. There is one `package.json` for the whole SDK, and ve
 - `redis` (the Redis client, used by `redisRuntime()`)
 - `undici` and `ipaddr.js`, for the SSRF-guarded `fetch` (`core/server/lib/guarded-fetch.ts`). `undici` pins each connection to the address that was checked, and `ipaddr.js` classifies that address. Install `undici` at the major your Node bundles (7.x on Node 24): undici 8's dispatcher is rejected by Node's built-in `fetch`.
 - `aws4fetch`, which signs requests for `s3BlobStore`
-- `@orpc/client`, `@orpc/server`, `@orpc/tanstack-query`
+- `@orpc/client`, `@orpc/contract`, `@orpc/server`, `@orpc/tanstack-query`
 - `zod`
 
 **What the `models` plugin needs (on top of `core/`):**
@@ -187,19 +187,12 @@ const copy = await chat.users.export({ userId: String(user.id) });
 await chat.bots.stopTurns({ userId: String(user.id) });
 ```
 
-On the client, build a headless client from the plugins' clients and wrap your pages in the provider:
+On the client, build a headless client from the core's contract and your features' client parts, and wrap your pages in the provider:
 
 ```tsx
 const client = createBotSdkClient({
   baseUrl: "/api/chat",
-  plugins: [
-    modelsClient(),
-    memoryClient(),
-    skillsClient(),
-    knowledgeClient(),
-    mcpClient(),
-    botClient(),
-  ],
+  features: [memoryClient(), skillsClient(), knowledgeClient(), mcpClient()],
 });
 
 <ChatProvider client={client} router={router}>
@@ -209,6 +202,7 @@ const client = createBotSdkClient({
 
 - `getUser(request)` returns `{ id } | null`. The HTTP handler answers 401 when it returns `null`. The core never sees a request: its own methods (`chat.bots.send({ userId, ... })`) take the user's id.
 - `reviewModel` (optional) is the Model that Auto-reviews each Bot's risky tool calls before they run, a `"provider:model"` id from the Models' list, resolved per user: `createBotSdk({ reviewModel: "openai:gpt-5.4-mini" })`. Unset, or one the user can't use, the Bot's own Model reviews, in a fresh context.
+- The client is typed by contracts alone (spec #873): the core's (`coreContract` in `core/client`) and each feature's (`plugins/<name>/shared/contract.ts`), so no server code reaches the browser bundle, not even a type. It mirrors the instance: `client.rpc.bots.send` is `sdk.bots.send`, and a feature's procedures are under its id (`client.rpc.memory.status`). One link carries them all.
 - The `router` adapter maps the SDK's pages (`keys`, and `bots` with an optional Bot `id`) to your URLs. It provides `Link` and `navigate(page)`. Pass your own TanStack Query client as `queryClient` if you have one; otherwise the provider creates its own.
 - The Bots app is `BotsApp` from `plugins/bot/ui`, with the Host's account menu at the foot of its sidebar (`accountMenu`); the keys page is `KeySettingsPage` from `plugins/models/ui`.
 - `GET <basePath>/export` answers the signed-in user's export as a JSON download (`chat-export-<date>.json`), the same document as `users.export`. The `ExportDataButton` in `ui/settings/export-data-button.tsx` calls it.
@@ -377,6 +371,8 @@ for await (const _hint of hints) await sync();
 `sdk.bots` has `create`, `list`, `get`, `send`, `upload`, `stop`, `warm`, `choose` and `react`. `sdk.secrets` has `save`, `list` and `delete`; a value never comes out. `sdk.computer` has `view` and `control` for a Helper's Screen (the instance's `computer` holds these only, not the Computer provider the features get). `sdk.models` has `list`, `imageModel`, `setImageModel` and `credentials` (`list`, `openaiState`, `save`, `delete`) beside its metering, `usage` and Quota reads. `sdk.conversations.watch` resolves once its subscription is in place, so `changes` read after it misses nothing; it ends when `signal` aborts or the loop stops. Pass a `signal` unless you always iterate the hints.
 
 Each enabled feature's methods are `sdk.<feature id>`, typed from the `features` you pass, and absent when the feature is off: `sdk.memory` (`status`, `isEnabled`, `setEnabled`, `botList`, `botAddLine`, `botEditLine`, `botDeleteLine`, `botReadFile`, `botSaveFile`), `sdk.skills` (`status`, `list`, `read`, `save`, `remove`), `sdk.knowledge` (`status`, `list`, `read`, `upload`, `uploadDocument`, `remove`, `createFolder`) and `sdk.mcp` (`listConnections`, `disconnect`, `forUser`). A feature you write with `defineFeature` gets its `api` the same way.
+
+A feature serves its methods over HTTP through its `contract` (oRPC's `oc` from `@orpc/contract`), under `<basePath>/rpc/<id>`: each procedure calls the `api` method at the same path with its validated input and the signed-in user's `userId`, and `createBotSdk` throws when the `api` has no method for one. On the client, its part is `{ id, contract, urls? }`, passed in `features`, and its UI reads it through `useOrpc<{ <id>: typeof contract }>()`.
 
 ## Host hooks
 

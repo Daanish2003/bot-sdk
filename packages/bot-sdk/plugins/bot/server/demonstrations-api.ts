@@ -5,15 +5,13 @@ import { parseInput } from "../../../core/server/rpc-error";
 import type { DemonstrationAction } from "../shared/demonstration";
 import { actOnDemonstration, demonstrationSteps } from "./demonstrations";
 import { screenView } from "./helpers";
+import { demonstrationInput } from "../shared/contract";
 
 /*
  * The `demonstrations` namespace's domain methods (spec #873): the user's side of a Demonstration
  * (spec #713), taking the user's id as `bots` does. Each acts only on a state it applies to, and
  * otherwise changes nothing; another user's Demonstration is not found.
  */
-
-/** The input of every `demonstrations` method, besides `userId`. */
-export const demonstrationInput = z.object({ demonstrationId: z.uuid() });
 
 type WithUser = { userId: string } & z.input<typeof demonstrationInput>;
 

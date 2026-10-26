@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { parseInput } from "../../../core/server/rpc-error";
-import { knowledgeLimitBytes } from "../shared/folder";
+import { pathInput, uploadDocumentInput, uploadInput } from "../shared/contract";
 import {
   createKnowledgeFolder,
   deleteKnowledge,
@@ -15,27 +15,9 @@ import {
 
 /*
  * The `knowledge` namespace's domain methods (spec #873): what a Host calls in-process as
- * `sdk.knowledge`, with the user's id and no request. The procedures of `routers/index.ts` are
- * one-line wrappers that pass the signed-in user's id, validating with the same schemas.
+ * `sdk.knowledge`, with the user's id and no request. The HTTP layer serves the
+ * feature's contract (`shared/contract.ts`) over them, passing the signed-in user's id.
  */
-
-/** The input of the methods that act on one path, besides `userId`. */
-export const pathInput = z.object({ path: z.string() });
-
-/** `knowledge.upload`'s input, besides `userId`. */
-export const uploadInput = z.object({
-  folder: z.string().optional(),
-  name: z.string(),
-  content: z.string().max(knowledgeLimitBytes),
-  replace: z.boolean().optional(),
-});
-
-/** `knowledge.uploadDocument`'s input, besides `userId`. */
-export const uploadDocumentInput = z.object({
-  folder: z.string().optional(),
-  file: z.file(),
-  replace: z.boolean().optional(),
-});
 
 type WithUser<Schema extends z.ZodType> = { userId: string } & z.input<Schema>;
 

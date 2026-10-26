@@ -15,10 +15,10 @@ import { resolveImageModel } from "./image-models";
 import type { ModelsDeps } from "./types";
 import {
   credentialHint,
-  credentialServices,
   type OpenaiCredentialsState,
   saveCredentialsInput,
 } from "../shared/credentials/services";
+import { deleteCredentialsInput, setImageModelInput } from "../shared/contract";
 
 /*
  * The `models` namespace's domain methods besides the older ones (spec #873): what a Host calls
@@ -26,12 +26,6 @@ import {
  * procedures of `routers/` are one-line wrappers that pass the signed-in user's id. Each input
  * schema is the one its procedure validates with.
  */
-
-/** `models.credentials.delete`'s input, besides `userId`. */
-export const deleteCredentialsInput = z.object({ service: z.enum(credentialServices) });
-
-/** `models.setImageModel`'s input, besides `userId`. */
-export const setImageModelInput = z.object({ imageModel: z.string().nullable() });
 
 type WithUser<Schema extends z.ZodType> = { userId: string } & z.input<Schema>;
 

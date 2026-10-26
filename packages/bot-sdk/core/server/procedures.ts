@@ -7,7 +7,8 @@ export const o = os.$context<Context>();
 
 export const publicProcedure = o;
 
-const requireAuth = o.middleware(async ({ context, next }) => {
+/** Refuses a call without a signed-in user, and narrows `context.user`. */
+export const requireAuth = o.middleware(async ({ context, next }) => {
   if (!context.user) {
     throw rpcError("UNAUTHORIZED", "error.unauthorized", "Unauthorized");
   }

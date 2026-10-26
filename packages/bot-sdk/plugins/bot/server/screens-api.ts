@@ -3,21 +3,13 @@ import { z } from "zod";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { parseInput } from "../../../core/server/rpc-error";
 import { screenControl, screenView } from "./helpers";
+import { screenViewInput, screenControlInput } from "../shared/contract";
 
 /*
  * The Computer's Screen domain methods (spec #873), `sdk.computer` on the instance: the live view
  * of a Computer-use Helper's Screen (#597). Each takes one object with `userId`; the procedures are
  * one-line wrappers. Another user's Helper is not found.
  */
-
-/** `computer.view`'s input, besides `userId`. */
-export const screenViewInput = z.object({ helperId: z.uuid() });
-
-/** `computer.control`'s input, besides `userId`. */
-export const screenControlInput = z.object({
-  helperId: z.uuid(),
-  mode: z.enum(["view", "control"]),
-});
 
 type WithUser<Schema extends z.ZodType> = { userId: string } & z.input<Schema>;
 

@@ -1,7 +1,7 @@
 import { coreContextOf, defineFeature } from "../../../core/server/feature";
 import { isComputerFailure } from "../../computer/server/internal";
 import { skillChangeNotes } from "./changes";
-import { skillsRouter } from "./routers/index";
+import { skillsContract } from "../shared/contract";
 import { skillsApi } from "./skills-api";
 import { readBotSkills, skillsPrompt } from "./skills";
 
@@ -16,7 +16,7 @@ export function skills() {
     id: "skills",
     needs: ["computer"],
     demonstrations: true,
-    router: { skills: skillsRouter },
+    contract: skillsContract,
     // The domain methods: `sdk.skills` (spec #873).
     api: (context) => skillsApi(coreContextOf(context)),
     // Read once as a Turn starts: the section the Prompt start keeps, and what changed since.

@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 
 import { bot } from "../../../core/server/storage";
+import type { ListedSkill, SkillFile } from "../shared/contract";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import { ComputerUnavailableError, type ComputerHandle } from "../../computer/server/internal";
@@ -19,19 +20,7 @@ import {
  * its next Turn, which compares the Skills it last saw with what is on the Computer then.
  */
 
-/** A Skill as the popover lists it. */
-export type ListedSkill = {
-  name: string;
-  /** Null when the Skill is not usable. */
-  description: string | null;
-  /** Why the Skill is not usable, or null. */
-  problem: string | null;
-  /** When its SKILL.md last changed, null when the Computer didn't say. */
-  lastModified: Date | null;
-};
-
-/** One SKILL.md for the editor. */
-export type SkillFile = { content: string; path: string; lastModified: Date | null };
+export type { ListedSkill, SkillFile };
 
 /** Whether the Computer is there to hold Skills: they need the computer slot. */
 export function skillsAvailable(deps: BotSdkContext): boolean {

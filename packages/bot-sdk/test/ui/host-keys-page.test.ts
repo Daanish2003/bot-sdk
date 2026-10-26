@@ -9,14 +9,12 @@ import {
   type ChatLinkProps,
   type ChatRouter,
 } from "../../core/client/react/provider";
-import { botClient } from "../../plugins/bot/client/index";
 import { mcpClient } from "../../plugins/mcp/client/index";
 import { memoryClient } from "../../plugins/memory/client/index";
-import { modelsClient } from "../../plugins/models/client/index";
 import { HostKeysPage } from "./host-keys-page";
 
 const client = createBotSdkClient({
-  plugins: [modelsClient(), botClient(), mcpClient(), memoryClient()],
+  features: [mcpClient(), memoryClient()],
   baseUrl: "http://localhost/api/chat",
   fetch: async () => {
     throw new Error("Unexpected request in a render test");

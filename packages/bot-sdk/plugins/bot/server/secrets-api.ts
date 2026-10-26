@@ -3,23 +3,13 @@ import { z } from "zod";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { parseInput } from "../../../core/server/rpc-error";
 import { deleteSecret, listSecrets, saveSecret } from "./safety";
-import { secretNameSchema } from "../shared/secret";
+import { saveSecretInput, deleteSecretInput } from "../shared/contract";
 
 /*
  * The `secrets` namespace's domain methods (spec #873): the user's Secrets, shared by all their
  * Bots. A value goes in through `save` and never comes out: `list` returns names and dates only.
  * Each takes one object with `userId`; the procedures are one-line wrappers.
  */
-
-/** `secrets.save`'s input, besides `userId`. */
-export const saveSecretInput = z.object({
-  botId: z.uuid(),
-  name: secretNameSchema,
-  value: z.string().min(1).max(10_000),
-});
-
-/** `secrets.delete`'s input, besides `userId`. */
-export const deleteSecretInput = z.object({ name: secretNameSchema });
 
 type WithUser<Schema extends z.ZodType> = { userId: string } & z.input<Schema>;
 

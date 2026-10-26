@@ -3,21 +3,13 @@ import { z } from "zod";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { parseInput } from "../../../core/server/rpc-error";
 import { deleteSkill, listSkills, readSkill, saveSkill, skillsAvailable } from "./manage";
+import { listInput, saveInput, skillInput } from "../shared/contract";
 
 /*
  * The `skills` namespace's domain methods (spec #873): what a Host calls in-process as
- * `sdk.skills`, with the user's id and no request. The procedures of `routers/index.ts` are
- * one-line wrappers that pass the signed-in user's id, validating with the same schemas.
+ * `sdk.skills`, with the user's id and no request. The HTTP layer serves the
+ * feature's contract (`shared/contract.ts`) over them, passing the signed-in user's id.
  */
-
-/** `skills.list`'s input, besides `userId`. */
-export const listInput = z.object({ botId: z.uuid() });
-
-/** The input of the methods that act on one Skill, besides `userId`. */
-export const skillInput = z.object({ botId: z.uuid(), name: z.string() });
-
-/** `skills.save`'s input, besides `userId`. */
-export const saveInput = skillInput.extend({ content: z.string(), create: z.boolean().optional() });
 
 type WithUser<Schema extends z.ZodType> = { userId: string } & z.input<Schema>;
 

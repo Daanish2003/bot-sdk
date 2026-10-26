@@ -4,6 +4,8 @@ import { toast } from "sonner";
 
 import { useChatAdapter, useI18n, useOrpc } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
+import type { McpUrls } from "../client/index";
+import type { McpContract } from "../shared/contract";
 
 const stateKeys = {
   connected: "settings.connected",
@@ -16,9 +18,9 @@ const stateKeys = {
  * Disconnect. Hidden entirely when the Host lists none (spec #91).
  */
 export function ConnectionsSection() {
-  const orpc = useOrpc();
+  const orpc = useOrpc<{ mcp: McpContract }>();
   const queryClient = useQueryClient();
-  const { connectionsUrl } = useChatAdapter();
+  const { connectionsUrl } = useChatAdapter<McpUrls>();
   const i18n = useI18n();
   const { t } = i18n;
   const connections = useQuery(orpc.mcp.listConnections.queryOptions());

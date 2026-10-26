@@ -8,6 +8,7 @@ import {
   contextOf,
   enableFeature,
   featurePlugin,
+  featureRouter,
   type AnyFeature,
   type FeatureApis,
 } from "./feature";
@@ -319,7 +320,11 @@ export function buildBotSdk(
   const declared = [
     own,
     ...core,
-    ...features.map(({ id, router, routes }): BotSdkPlugin => ({ id, router, routes })),
+    ...features.map((feature): BotSdkPlugin => ({
+      id: feature.id,
+      router: featureRouter(feature),
+      routes: feature.routes,
+    })),
   ];
   const router = mergeRouters(declared);
   const routes = mergeRoutes(declared);

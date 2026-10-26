@@ -6,7 +6,6 @@ import { encryptCredentials } from "../../../../core/server/credentials/encrypti
 import { botReview, botSecret, botTurn } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { secretEncryption } from "../../../../plugins/bot/server/safety";
-import { mcpClient } from "../../../../plugins/mcp/client/index";
 import { mcp } from "../../../../plugins/mcp/server/plugin";
 import type { McpServerConfig } from "../../../../plugins/mcp/server/servers";
 import { saveCredentials } from "../../../../plugins/models/server/internal";
@@ -54,7 +53,7 @@ afterEach(async () => {
 
 /** Signs `user` in to the Linear server through the plugin's OAuth routes (the redirect and callback). */
 async function connect(user: TestUser, deps: TestDeps, auth: ReturnType<typeof createFakeMcpAuth>) {
-  const client = createTestChat({ user, deps, clientPlugins: [mcpClient()] });
+  const client = createTestChat({ user, deps });
   const start = await client.fetch(
     new Request(`${basePath}/mcp/connect?server=linear&returnTo=/settings/keys`, {
       redirect: "manual",

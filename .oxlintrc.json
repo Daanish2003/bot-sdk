@@ -977,7 +977,10 @@
     {
       "files": [
         "packages/bot-sdk/core/client/**",
+        "packages/bot-sdk/core/shared/**",
         "packages/bot-sdk/plugins/*/client/**",
+        "packages/bot-sdk/plugins/*/shared/**",
+        "packages/bot-sdk/plugins/*/ui/**",
         "packages/bot-sdk/ui/**"
       ],
       "rules": {
@@ -986,8 +989,15 @@
           {
             "patterns": [
               {
-                "group": ["**/server/**", "!**/server/routers/index"],
-                "message": "Client code and ui/ never import core/server (ADR 0005). Only the type AppRouterClient may come from core/server/routers/index. Move shared code under core/shared/."
+                "group": [
+                  "**/server",
+                  "**/server/**",
+                  "**/http",
+                  "**/http/**",
+                  "@orpc/server",
+                  "@orpc/server/**"
+                ],
+                "message": "Browser code never imports server code, not even a type (ADR 0005, spec #873): the client is typed by the contracts in core/client/contract and plugins/*/shared/contract. Move shared code under a shared/ folder."
               }
             ]
           }

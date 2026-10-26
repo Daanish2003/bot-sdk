@@ -11,57 +11,21 @@ import {
   saveBotFile,
 } from "./bot-lines";
 import { memoryEnabledFor, memoryStatus, setMemoryEnabled } from "./manage";
+import {
+  botAddLineInput,
+  botDeleteLineInput,
+  botEditLineInput,
+  botListInput,
+  botReadFileInput,
+  botSaveFileInput,
+  setEnabledInput,
+} from "../shared/contract";
 
 /*
  * The `memory` namespace's domain methods (spec #873): what a Host calls in-process as
- * `sdk.memory`, with the user's id and no request. The procedures of `routers/index.ts` are
- * one-line wrappers that pass the signed-in user's id, validating with the same schemas.
+ * `sdk.memory`, with the user's id and no request. The HTTP layer serves the
+ * feature's contract (`shared/contract.ts`) over them, passing the signed-in user's id.
  */
-
-const fileInput = z.object({
-  botId: z.string(),
-  tier: z.enum(["profile", "log", "notes"]),
-  /** The Log file's month, `YYYY-MM`; a Log file needs it. */
-  month: z.string().optional(),
-});
-
-/** `memory.botList`'s input, besides `userId`. */
-export const botListInput = z.object({ botId: z.string() });
-
-/** `memory.botEditLine`'s input, besides `userId`. */
-export const botEditLineInput = z.object({
-  file: fileInput,
-  line: z.number().int().positive(),
-  current: z.string(),
-  text: z.string(),
-});
-
-/** `memory.botDeleteLine`'s input, besides `userId`. */
-export const botDeleteLineInput = z.object({
-  file: fileInput,
-  line: z.number().int().positive(),
-  current: z.string(),
-});
-
-/** `memory.botAddLine`'s input, besides `userId`. */
-export const botAddLineInput = z.object({
-  botId: z.string(),
-  tier: z.enum(["profile", "log", "notes"]),
-  text: z.string(),
-});
-
-/** `memory.botReadFile`'s input, besides `userId`. */
-export const botReadFileInput = z.object({ file: fileInput });
-
-/** `memory.botSaveFile`'s input, besides `userId`. */
-export const botSaveFileInput = z.object({
-  file: fileInput,
-  expected: z.string(),
-  content: z.string(),
-});
-
-/** `memory.setEnabled`'s input, besides `userId`. */
-export const setEnabledInput = z.object({ enabled: z.boolean() });
 
 type WithUser<Schema extends z.ZodType> = { userId: string } & z.input<Schema>;
 

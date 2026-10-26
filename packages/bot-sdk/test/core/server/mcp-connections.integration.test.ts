@@ -2,13 +2,12 @@ import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createBotSdk, type BotSdkOptions } from "../../../core/server/create-chat";
-import { mcpClient } from "../../../plugins/mcp/client/index";
 import { mcp } from "../../../plugins/mcp/server/plugin";
 import { deleteUserData } from "../../../core/server/user-data";
 import { mcpConnection } from "../../../plugins/mcp/server/db/connection";
 import type { McpServerConfig } from "../../../plugins/mcp/server/servers";
-import { createTestSdk, testKeyEncryptionSecret, type TestDeps } from "../../support/deps";
-import { createTestChat as createBotOnlyChat } from "../../support/sdk";
+import { createTestSdk, testKeyEncryptionSecret } from "../../support/deps";
+import { createTestChat } from "../../support/sdk";
 import { createFakeMcpAuth, fakeMcpResource } from "../../support/fake-mcp-auth";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser, type TestUser } from "../../support/users";
@@ -34,10 +33,6 @@ function depsWith(
     ...(options.keyEncryptionSecrets ? { keyEncryptionSecrets: options.keyEncryptionSecrets } : {}),
   });
 }
-
-/** The test client with the `mcp` plugin's client. */
-const createTestChat = (options: { user: TestUser; deps: TestDeps }) =>
-  createBotOnlyChat({ ...options, clientPlugins: [mcpClient()] });
 
 const freshAuth = () => createFakeMcpAuth({ clientId, clientSecret });
 

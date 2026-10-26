@@ -7,7 +7,6 @@
     "./core/client": "./core/client/index.ts",
     "./core/http": "./core/http/index.ts",
     "./plugins/models/server": "./plugins/models/server/index.ts",
-    "./plugins/models/client": "./plugins/models/client/index.ts",
     "./plugins/models/ui": "./plugins/models/ui/index.ts",
     "./plugins/runner/server": "./plugins/runner/server/index.ts",
     "./plugins/bot/server": "./plugins/bot/server/index.ts",
@@ -25,7 +24,6 @@
     "./plugins/skills/ui": "./plugins/skills/ui/index.ts",
     "./plugins/skills/server": "./plugins/skills/server/index.ts",
     "./plugins/channel/server": "./plugins/channel/server/index.ts",
-    "./plugins/channel/client": "./plugins/channel/client/index.ts",
     "./plugins/channel/ui": "./plugins/channel/ui/index.ts",
     "./plugins/channel/fake": "./plugins/channel/fake/index.ts",
     "./plugins/channel/mailpit": "./plugins/channel/mailpit/index.ts",
@@ -59,6 +57,7 @@
   "dependencies": {
     "@ai-chat/db": "workspace:*",
     "@orpc/client": "catalog:",
+    "@orpc/contract": "catalog:",
     "@orpc/server": "catalog:",
     "@orpc/tanstack-query": "^1.15.0",
     "@tanstack/ai": "1.0.0",

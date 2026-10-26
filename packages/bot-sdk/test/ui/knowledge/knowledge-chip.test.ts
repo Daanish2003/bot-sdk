@@ -5,14 +5,13 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { BotSdkClient } from "../../../core/client/chat-client";
-import { botClient } from "../../../plugins/bot/client/index";
 import { knowledgeClient } from "../../../plugins/knowledge/client/index";
 import { KnowledgeChip } from "../../../plugins/knowledge/ui/knowledge-chip";
 import { providerFor } from "../fake-dictionary";
 
 afterEach(cleanup);
 
-const plugins = [knowledgeClient(), botClient()];
+const features = [knowledgeClient()];
 const changes = [{ botId: "ada", path: "reports/q3.md" }];
 
 function seeded(queryClient: QueryClient, client: BotSdkClient) {
@@ -30,7 +29,7 @@ function renderChip(
       seed: seeded,
       fetch,
       messages: {},
-      plugins,
+      features,
     }),
   );
 }

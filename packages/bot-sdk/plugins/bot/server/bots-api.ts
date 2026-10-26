@@ -7,7 +7,6 @@ import {
   botMessages,
   createBot,
   findBot,
-  isTimeZone,
   latestTurnStatus,
   listBots,
   uploadBotFile,
@@ -17,60 +16,20 @@ import { turnProvenance } from "./safety";
 import { botSummaries, botWarmings, warmBot } from "./context";
 import { sendToBot, stopBot } from "./turn";
 import { answerChoice, reactToMessage } from "./triggers";
-import { emojiSchema } from "../shared/reaction";
-import { maxChoiceOptionLength, maxChoiceOtherLength } from "../shared/choice";
+import {
+  createBotInput,
+  botInput,
+  sendInput,
+  uploadInput,
+  chooseInput,
+  reactInput,
+} from "../shared/contract";
 
 /*
  * The `bots` namespace's domain methods (spec #873): what a Host calls in-process, with the user's
- * id and no request. Each takes one object with `userId`; the procedures of `routers/index.ts` are
- * one-line wrappers that pass the signed-in user's id. Each input schema is the one its procedure
- * validates with, so an in-process call is held to the same rules.
+ * id and no request. Each takes one object with `userId`, and its input schema is the contract's
+ * (`shared/contract.ts`), so an in-process call is held to the rules an HTTP call is.
  */
-
-/** `bots.create`'s input, besides `userId`. */
-export const createBotInput = z.object({
-  name: z.string().trim().min(1).max(100),
-  model: z.string(),
-});
-
-/** The input of the methods that act on one of the user's Bots, besides `userId`. */
-export const botInput = z.object({ botId: z.uuid() });
-
-/** `bots.send`'s input, besides `userId`. */
-export const sendInput = z
-  .object({
-    botId: z.uuid(),
-    // Lowercased, as the Trigger's text id holds it, so an uppercase resend still re-joins.
-    id: z.uuidv7().transform((id) => id.toLowerCase()),
-    text: z.string().trim(),
-    files: z.array(z.uuid()).optional(),
-    // The client's IANA zone; the Turn's newest input shows the time in it (UTC when absent).
-    timeZone: z.string().refine(isTimeZone, "Not an IANA time zone").optional(),
-  })
-  .refine((input) => input.text !== "" || !!input.files?.length, {
-    error: "A message needs text or files",
-    path: ["text"],
-  });
-
-/** `bots.upload`'s input, besides `userId`. */
-export const uploadInput = z.object({ file: z.file() });
-
-/** `bots.choose`'s input, besides `userId`. */
-export const chooseInput = z.object({
-  botId: z.uuid(),
-  messageId: z.uuid(),
-  answer: z.union([
-    z.object({ option: z.string().max(maxChoiceOptionLength) }),
-    z.object({ other: z.string().max(maxChoiceOtherLength) }),
-  ]),
-});
-
-/** `bots.react`'s input, besides `userId`. */
-export const reactInput = z.object({
-  botId: z.uuid(),
-  messageId: z.uuid(),
-  emoji: emojiSchema.nullable(),
-});
 
 type WithUser<Schema extends z.ZodType> = { userId: string } & z.input<Schema>;
 
