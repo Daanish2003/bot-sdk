@@ -117,11 +117,10 @@ describe("chat.migrate()", () => {
       "usage_kind",
     ]);
 
-    // One baseline, journaled in the SDK's own schema, and nothing in the old `chat` schema.
+    // One baseline, journaled in the SDK's own schema.
     expect(await rows(url, "select count(*)::int as count from botsdk.__migrations")).toEqual([
       { count: 1 },
     ]);
-    expect(await rows(url, "select 1 from pg_namespace where nspname = 'chat'")).toEqual([]);
     // Images and PDFs are already compressed, so the bytes are kept out of line uncompressed.
     expect(
       await rows(

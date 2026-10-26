@@ -49,7 +49,7 @@ export function runnerJobs(sdk: Pick<BotSdkContext, "runner">): JobRunner {
 
 /**
  * The runner (ADR 0011, ADR 0029), a core service: background jobs, their reaper and their prune,
- * woken up by `executor` (the runner slot) or else the in-process Executor, which polls the `chat`
+ * woken up by `executor` (the runner slot) or else the in-process Executor, which polls the `botsdk`
  * schema and needs nothing beyond Postgres. `given` is the test seam's own runner. Its lifecycle
  * starts after the plugins' `start` and stops after their `stop`.
  */

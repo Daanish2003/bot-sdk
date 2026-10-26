@@ -1,8 +1,9 @@
 /// <reference types="node" />
 /**
  * Migrates the app's database: Better Auth's tables first, then the Bot SDK's `botsdk` schema
- * through its `migrate()`, then drops the chat tables and enums the app used to keep in `public`.
- * That data was development data only, so nothing is copied.
+ * through its `migrate()`, then drops the chat tables and enums the app used to keep in `public`, and
+ * the SDK's schema from before the `botsdk` baseline (#904). That data was development data only, so
+ * nothing is copied.
  *
  * `pnpm db:migrate` runs it with DATABASE_URL from Varlock; the e2e server runs it with its own URL.
  * Plain Node (type stripping), so imports keep their extensions.
@@ -21,12 +22,13 @@ const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("Set DATABASE_URL");
 
 // The chat tables and enums of the app's old `public` schema (the chat migrations before the SDK
-// owned them). `IF EXISTS`, so re-running does nothing.
+// owned them), and the SDK's old `chat` schema. `IF EXISTS`, so re-running does nothing.
 const DROP_OLD_CHAT_SCHEMA = `
   drop table if exists public.message_attachment, public.attachment_blob, public.attachment,
     public.shared_link, public.message, public.conversation,
     public.user_credentials, public.user_settings cascade;
   drop type if exists public.message_error_reason, public.message_role, public.message_status;
+  drop schema if exists chat cascade;
 `;
 
 const db = drizzle(databaseUrl);
