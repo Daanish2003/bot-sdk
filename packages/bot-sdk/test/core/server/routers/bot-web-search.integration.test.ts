@@ -272,7 +272,7 @@ describe("the Bot's web search", () => {
         let locked = () => {};
         const locking = new Promise<void>((resolve) => (locked = resolve));
         held = getTestDb().transaction(async (tx) => {
-          await tx.execute(sql`lock table chat.usage in share mode`);
+          await tx.execute(sql`lock table botsdk.usage in share mode`);
           locked();
           await new Promise<void>((resolve) => (release = resolve));
         });

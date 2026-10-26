@@ -112,14 +112,14 @@ The `runner` and `memory` plugins and the `skills` feature need nothing beyond `
 ## Postgres
 
 - The database needs the `pg_trgm` extension. `chat.migrate()` runs `CREATE EXTENSION IF NOT EXISTS pg_trgm` before its migrations and fails naming it, so a role allowed to create extensions (or a database that already has it) is needed.
-- The SDK's tables live in the `chat` schema of the Host's database, not in your ORM's schema. Your ORM's migrations never touch them.
+- The SDK's tables live in the `botsdk` schema of the Host's database, not in your ORM's schema. Your ORM's migrations never touch them.
 - The SDK's migrations are expand-then-contract: they add tables, columns and indexes, and never drop or rename one in the same release. The version still running during a deploy keeps working against the migrated schema.
 
 ## File storage: `blobs`
 
 File bytes go to a `BlobStore`, which `createBotSdk({ blobs })` takes: the files a user sends their Bot and the files a Bot sends back. Names, types, sizes and owners stay in Postgres either way. The store holds bytes only, under keys the SDK makes up, such as `bot-file/<id>`.
 
-- **`postgresBlobStore()`** is the default: bytes in the `chat.blob` table of your database. Leave `blobs` out and nothing changes.
+- **`postgresBlobStore()`** is the default: bytes in the `botsdk.blob` table of your database. Leave `blobs` out and nothing changes.
 - **`s3BlobStore({ endpoint, bucket, region, accessKeyId, secretAccessKey, forcePathStyle? })`** keeps bytes in any S3-compatible bucket, such as Cloudflare R2 (`region: "auto"`) or RustFS. It needs an existing bucket: the store never creates one, so the app needs no bucket-admin rights. It is built on `aws4fetch`, and `forcePathStyle` defaults to `true`.
 
 ```ts
@@ -206,14 +206,14 @@ const client = createBotSdkClient({
 - The `router` adapter maps the SDK's pages (`keys`, and `bots` with an optional Bot `id`) to your URLs. It provides `Link` and `navigate(page)`. Pass your own TanStack Query client as `queryClient` if you have one; otherwise the provider creates its own.
 - The Bots app is `BotsApp` from `plugins/bot/ui`, with the Host's account menu at the foot of its sidebar (`accountMenu`); the keys page is `KeySettingsPage` from `plugins/models/ui`.
 - `GET <basePath>/export` answers the signed-in user's export as a JSON download (`chat-export-<date>.json`), the same document as `users.export`. The `ExportDataButton` in `ui/settings/export-data-button.tsx` calls it.
-- `start()` refuses to run while the `chat` schema is behind the bundled migrations.
+- `start()` refuses to run while the `botsdk` schema is behind the bundled migrations.
 - `stop()` stops the plugins (the runner takes no new jobs and waits for the running ones), then closes the runtime's connections.
 
 ## Background jobs: `runner`
 
 The runner is part of the core: it runs the background work (ADR 0011), Bot Turns, Routines, Check-ins and Memory passes. A Host lists nothing for it.
 
-The `runner` slot (`createBotSdk({ runner })`) takes the runner for background work. The default is the in-process runner: it keeps jobs in the `chat.job` table, which the `chat` schema already has, polls it every 2 s, runs two jobs at once and retries a failed job up to three times, after about 10 s and 1 min. `start()` starts it, and `stop()` takes no new jobs and waits for the running ones. Nothing else to configure, and no second database.
+The `runner` slot (`createBotSdk({ runner })`) takes the runner for background work. The default is the in-process runner: it keeps jobs in the `botsdk.job` table, which the `botsdk` schema already has, polls it every 2 s, runs two jobs at once and retries a failed job up to three times, after about 10 s and 1 min. `start()` starts it, and `stop()` takes no new jobs and waits for the running ones. Nothing else to configure, and no second database.
 
 A custom runner is any object with `enqueue(name, payload, options?)`, `start()` and `stop()`, and it takes the place of the default.
 

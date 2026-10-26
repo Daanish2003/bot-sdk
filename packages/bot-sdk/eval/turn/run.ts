@@ -16,7 +16,7 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { postgresBlobStore, createDb, type Database } from "../../core/server/storage";
 import { createHookEmitter } from "../../core/server/chat/hooks";
 import { createGuardedFetch } from "../../core/server/lib/guarded-fetch";
-import { migrate as migrateChatSchema } from "../../core/server/migrate";
+import { migrate as migrateBotSdk } from "../../core/server/migrate";
 import type { BotSdkContext } from "../../core/server/plugin";
 import { memoryRuntime } from "../../core/server/runtime";
 import { createBotSdkOver } from "../../core/server/over";
@@ -42,13 +42,13 @@ const resultsDir = join(here, "results");
 /** The key the eval's own credentials are encrypted with. Test data only: nothing is kept. */
 const evalKeySecret = "eval-turn-key-secret-not-for-production";
 
-/** Makes the database's tables, as the test database does: the auth tables first, then the chat schema. */
+/** Makes the database's tables, as the test database does: the auth tables first, then the `botsdk` schema. */
 async function prepareSchema(url: string): Promise<Database> {
   const db = createDb({ DATABASE_URL: url });
   await migrate(db, {
     migrationsFolder: fileURLToPath(new URL("../../../db/src/migrations", import.meta.url)),
   });
-  await migrateChatSchema(url);
+  await migrateBotSdk(url);
   return db;
 }
 

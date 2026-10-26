@@ -19,13 +19,13 @@ export type InProcessExecutorOptions = {
   logger?: Logger;
   /** Jobs with no `concurrency` of their own run at once in this process (ADR 0011). */
   concurrency?: number;
-  /** How often an idle Executor polls `chat.job`. A `notify` wakes it sooner. */
+  /** How often an idle Executor polls `botsdk.job`. A `notify` wakes it sooner. */
   pollMs?: number;
   clock?: JobClock;
 };
 
 /**
- * The default Executor (ADR 0011, ADR 0029): polls `chat.job` every `pollMs` for due jobs, and at
+ * The default Executor (ADR 0011, ADR 0029): polls `botsdk.job` every `pollMs` for due jobs, and at
  * once on a `notify`, and runs up to `concurrency` jobs at once, plus, for each budget of jobs with
  * a `concurrency` of their own (spec #872), up to that many in it, so no budget takes another's
  * slots. Each claim is one `FOR UPDATE SKIP LOCKED` statement, through the core's `run`. A re-queued job whose lease

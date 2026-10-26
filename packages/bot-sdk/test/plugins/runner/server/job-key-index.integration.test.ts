@@ -12,7 +12,7 @@ describe("job idempotency key prefix index", () => {
       // index could serve the query at all.
       await tx.execute(sql`set local enable_seqscan = off`);
       const result = await tx.execute<{ "QUERY PLAN": string }>(
-        sql`explain select id from chat.job where idempotency_key like 'routine:abc:%'`,
+        sql`explain select id from botsdk.job where idempotency_key like 'routine:abc:%'`,
       );
       return result.rows.map((row) => row["QUERY PLAN"]).join("\n");
     });

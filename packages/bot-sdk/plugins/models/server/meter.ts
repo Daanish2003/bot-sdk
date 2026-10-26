@@ -25,7 +25,7 @@ export type Meter<Usage> = {
    */
   mayRun(): Promise<QuotaCheck>;
   /**
-   * Records what one call used: works out its cost, writes its `chat.usage` row and fires
+   * Records what one call used: works out its cost, writes its `botsdk.usage` row and fires
    * `onUsage`. Never throws: a failed write goes to `deps.logger`.
    */
   record(usage: Usage): Promise<void>;

@@ -1,1 +1,0 @@
-ALTER TABLE "chat"."conversation" ADD COLUMN "tool_settings" jsonb DEFAULT '{"connections": [], "allowedTools": []}' NOT NULL;

@@ -9,7 +9,7 @@ import { postgresBlobStore, createDb, type Database } from "../../core/server/st
 import { createHookEmitter } from "../../core/server/chat/hooks";
 import type { FeatureEntry } from "../../core/server/create-chat";
 import { createGuardedFetch } from "../../core/server/lib/guarded-fetch";
-import { migrate as migrateChatSchema } from "../../core/server/migrate";
+import { migrate as migrateBotSdk } from "../../core/server/migrate";
 import type { BotSdkContext } from "../../core/server/plugin";
 import { memoryRuntime } from "../../core/server/runtime";
 import { createBotSdkOver, type OverSlots } from "../../core/server/over";
@@ -43,13 +43,13 @@ export function e2bFromEnv() {
   return { apiKey, apiUrl, sandboxUrl };
 }
 
-/** Makes the database's tables, as the test database does: the auth tables first, then the chat schema. */
+/** Makes the database's tables, as the test database does: the auth tables first, then the `botsdk` schema. */
 export async function prepareSchema(url: string): Promise<Database> {
   const db = createDb({ DATABASE_URL: url });
   await migrate(db, {
     migrationsFolder: fileURLToPath(new URL("../../../db/src/migrations", import.meta.url)),
   });
-  await migrateChatSchema(url);
+  await migrateBotSdk(url);
   return db;
 }
 

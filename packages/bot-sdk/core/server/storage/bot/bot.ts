@@ -1,16 +1,16 @@
 import { type AnyPgColumn, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "../chat-schema";
+import { botsdkSchema } from "../botsdk-schema";
 import { conversation } from "../schema";
 
 /**
  * A Bot: a name and a Model, talking to its user in one Conversation of kind `bot`. Deleting that
  * Conversation deletes the Bot.
  */
-export const bot = chatSchema.table("bot", {
+export const bot = botsdkSchema.table("bot", {
   /** uuidv7, generated in app code. */
   id: uuid("id").primaryKey(),
-  /** The Host's user id, with no foreign key, as everywhere in the `chat` schema. */
+  /** The Host's user id, with no foreign key, as everywhere in the `botsdk` schema. */
   userId: text("user_id").notNull(),
   /** The Bot's one Conversation. */
   conversationId: uuid("conversation_id")
@@ -22,7 +22,7 @@ export const bot = chatSchema.table("bot", {
   model: text("model").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   /**
-   * The latest rebuild of the user's Computer (`chat.computer.rebuilt_at`) the Bot was told of,
+   * The latest rebuild of the user's Computer (`botsdk.computer.rebuilt_at`) the Bot was told of,
    * or its creation time, since an older rebuild cost it nothing. Null for a Bot from before it.
    */
   computerRebuildSeenAt: timestamp("computer_rebuild_seen_at", { withTimezone: true }),

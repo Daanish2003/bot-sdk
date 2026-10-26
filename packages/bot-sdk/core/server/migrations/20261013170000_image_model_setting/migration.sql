@@ -1,1 +1,0 @@
-ALTER TABLE "chat"."user_settings" ADD COLUMN "image_model" text;

@@ -1,7 +1,7 @@
 import { bigint, boolean, index, integer, jsonb, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 import type { PromptHash } from "../../chat/hooks";
-import { chatSchema } from "../chat-schema";
+import { botsdkSchema } from "../botsdk-schema";
 
 /**
  * What a recorded call was for. Each kind is written by the call it names: a web search, one
@@ -11,7 +11,7 @@ import { chatSchema } from "../chat-schema";
  * assistant's, ADR 0027) and `embedding` are no longer written: they stay for the rows already
  * recorded (`embedding` from the old Knowledge, spec #737).
  */
-export const usageKind = chatSchema.enum("usage_kind", [
+export const usageKind = botsdkSchema.enum("usage_kind", [
   "run",
   "title",
   "web_search",
@@ -32,12 +32,12 @@ export const usageKind = chatSchema.enum("usage_kind", [
  * the user's own key or linked plan at cost 0 (#667). It has no foreign key, so deleting a
  * Conversation keeps its usage and a Quota is never refunded; `deleteUser` removes the user's rows.
  */
-export const usage = chatSchema.table(
+export const usage = botsdkSchema.table(
   "usage",
   {
     /** uuidv7, generated in app code. */
     id: uuid("id").primaryKey(),
-    /** The Host's user id, with no foreign key, as everywhere in the `chat` schema. */
+    /** The Host's user id, with no foreign key, as everywhere in the `botsdk` schema. */
     userId: text("user_id").notNull(),
     kind: usageKind("kind").notNull(),
     /** The `"provider:model"` id the call ran on. */

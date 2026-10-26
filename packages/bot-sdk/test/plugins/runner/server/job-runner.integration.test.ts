@@ -146,7 +146,7 @@ for (const name of ["test.helper", "test.capture"]) {
   });
 }
 
-/** Every `chat.job` row, read straight from the test database. */
+/** Every `botsdk.job` row, read straight from the test database. */
 const jobRows = () => getTestDb().select().from(job);
 
 /** The first job's attempts and status as `"<attempts>:<status>"`, to poll on both at once. */

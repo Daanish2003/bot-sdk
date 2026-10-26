@@ -10,7 +10,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "../chat-schema";
+import { botsdkSchema } from "../botsdk-schema";
 import { job } from "../runner/job";
 import type { BotMemoryChange } from "../../../../plugins/memory/shared/changes";
 import type { BotKnowledgeChange } from "../../../../plugins/knowledge/shared/changes";
@@ -20,7 +20,7 @@ import { bot } from "./bot";
 import { botPromptStart } from "./bot-prompt-start";
 
 /** How a Turn stands: `running` until it ends `complete`, `error` or `stopped`. */
-export const botTurnStatus = chatSchema.enum("bot_turn_status", [
+export const botTurnStatus = botsdkSchema.enum("bot_turn_status", [
   "running",
   "complete",
   "error",
@@ -33,7 +33,7 @@ export const botTurnStatus = chatSchema.enum("bot_turn_status", [
  * SendToUser calls and their results). It is written once when the Turn ends, is replayed as the
  * input of later Turns, and is never a Message.
  */
-export const botTurn = chatSchema.table(
+export const botTurn = botsdkSchema.table(
   "bot_turn",
   {
     /** uuidv7, generated in app code. */

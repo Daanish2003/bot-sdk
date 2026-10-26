@@ -96,11 +96,11 @@ async function latestMailOf(
   // tie within a millisecond, as do uuidv7 ids' order).
   const { rows } = await tx.execute<{ id: string; role: string }>(sql`
     WITH RECURSIVE chain AS (
-      SELECT m.id, m.parent_id, m.role, m.parts, 0 AS depth FROM chat.message m
+      SELECT m.id, m.parent_id, m.role, m.parts, 0 AS depth FROM botsdk.message m
         WHERE m.conversation_id = ${conversationId}
-          AND m.id = (SELECT parent_id FROM chat.message WHERE id = ${messageId})
+          AND m.id = (SELECT parent_id FROM botsdk.message WHERE id = ${messageId})
       UNION ALL
-      SELECT m.id, m.parent_id, m.role, m.parts, c.depth + 1 FROM chat.message m
+      SELECT m.id, m.parent_id, m.role, m.parts, c.depth + 1 FROM botsdk.message m
         JOIN chain c ON m.id = c.parent_id
     )
     SELECT id, role FROM chain WHERE parts->>'channel' = 'email' ORDER BY depth LIMIT 1`);

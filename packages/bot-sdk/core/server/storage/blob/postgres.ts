@@ -5,8 +5,8 @@ import { blob } from "../schema";
 import type { BlobStore } from "./store";
 
 /**
- * The default `BlobStore`: bytes in the `chat.blob` table of the Host's database. The content type
- * isn't kept (the table has no column for it); a file's type lives in its own row, such as `chat.bot_upload`.
+ * The default `BlobStore`: bytes in the `botsdk.blob` table of the Host's database. The content type
+ * isn't kept (the table has no column for it); a file's type lives in its own row, such as `botsdk.bot_upload`.
  */
 export function postgresBlobStore(db: Database): BlobStore {
   return {

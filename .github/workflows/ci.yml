@@ -89,7 +89,7 @@ jobs:
       - name: Typecheck
         run: pnpm check-types
 
-      # The composed `chat` schema must equal the last migration's snapshot (spec #439): generate
+      # The composed `botsdk` schema must equal the last migration's snapshot (spec #439): generate
       # writes nothing, so the migrations folder stays unchanged.
       - name: No unmigrated schema change
         working-directory: packages/bot-sdk

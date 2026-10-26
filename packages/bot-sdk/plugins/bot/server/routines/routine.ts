@@ -213,7 +213,7 @@ export function newWebhookToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
-/** What `chat.bot_routine` keeps of a webhook token (ADR 0021): its SHA-256, as hex. */
+/** What `botsdk.bot_routine` keeps of a webhook token (ADR 0021): its SHA-256, as hex. */
 export function webhookTokenHash(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }

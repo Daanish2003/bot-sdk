@@ -134,7 +134,7 @@ export function backoffAfter(attempts: number): number {
 
 const DAY_MS = 86_400_000;
 
-/** Lease, heartbeat and retention for `chat.job` (ADR 0011). */
+/** Lease, heartbeat and retention for `botsdk.job` (ADR 0011). */
 export const JOB_TIMING = {
   /** A running job writes `heartbeat_at` this often. */
   heartbeatMs: 10_000,

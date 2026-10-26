@@ -19,7 +19,7 @@ import { getTestDb, testDatabaseUrl } from "../../support/test-database";
  */
 
 const poll = { timeout: 10_000 };
-const note = pgSchema("chat").table("test_host_note", {
+const note = pgSchema("botsdk").table("test_host_note", {
   id: text("id").primaryKey(),
   text: text("text").notNull(),
 });
@@ -73,7 +73,7 @@ const notes = async () =>
 
 beforeAll(async () => {
   await getTestDb().execute(
-    sql`create table if not exists chat.test_host_note (id text primary key, text text not null)`,
+    sql`create table if not exists botsdk.test_host_note (id text primary key, text text not null)`,
   );
 });
 
@@ -88,7 +88,7 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  await getTestDb().execute(sql`drop table if exists chat.test_host_note`);
+  await getTestDb().execute(sql`drop table if exists botsdk.test_host_note`);
 });
 
 describe("a Host job registered through the factory", () => {
