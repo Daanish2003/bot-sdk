@@ -6,6 +6,7 @@ export {
   type Logger,
   type UsersSlot,
 } from "./create-chat";
+export { postgres, type PostgresDatabase, type PostgresPool } from "./database";
 export type { UserExport, UsersApi } from "./user-data";
 export type { BotSdkContext, Route, Transaction } from "./plugin";
 export {

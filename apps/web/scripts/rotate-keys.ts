@@ -30,7 +30,7 @@ registerHooks({
   },
 });
 
-const { createBotSdk } = await import("@ai-chat/bot-sdk/core/server");
+const { createBotSdk, postgres } = await import("@ai-chat/bot-sdk/core/server");
 const { mcp } = await import("@ai-chat/bot-sdk/plugins/mcp/server");
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -42,7 +42,7 @@ if (!newest) throw new Error("Set KEY_ENCRYPTION_SECRET");
 // What stores secrets: Provider and Tool credentials (models), Secrets (the Bot core) and
 // Connection tokens (the mcp feature).
 const sdk = createBotSdk({
-  databaseUrl,
+  database: postgres({ connectionString: databaseUrl }),
   keyEncryptionSecrets: [newest, process.env.KEY_ENCRYPTION_SECRET_PREVIOUS].filter(
     (secret): secret is string => Boolean(secret),
   ),

@@ -2,7 +2,7 @@ import { createAuth } from "@ai-chat/auth";
 import { chatgptAccessToken } from "@ai-chat/auth/chatgpt";
 import { createDb } from "@ai-chat/db";
 import { createHttpHandler, createScreenSocket } from "@ai-chat/bot-sdk/core/http";
-import { createBotSdk, redisRuntime, redisStore } from "@ai-chat/bot-sdk/core/server";
+import { createBotSdk, postgres, redisRuntime, redisStore } from "@ai-chat/bot-sdk/core/server";
 import { emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
 import { mcp } from "@ai-chat/bot-sdk/plugins/mcp/server";
 import { fakeImageAdapter } from "@ai-chat/bot-sdk/plugins/models/server";
@@ -73,7 +73,7 @@ void quotaOf(ENV);
 // routes subscribe to (#290).
 const shared = globalThis as typeof globalThis & { botSdk?: ReturnType<typeof createBotSdk> };
 export const sdk = (shared.botSdk ??= createBotSdk({
-  databaseUrl: ENV.DATABASE_URL,
+  database: postgres({ connectionString: ENV.DATABASE_URL }),
   keyEncryptionSecrets: [ENV.KEY_ENCRYPTION_SECRET, ENV.KEY_ENCRYPTION_SECRET_PREVIOUS].filter(
     (secret): secret is string => Boolean(secret),
   ),

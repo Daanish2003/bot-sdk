@@ -21,6 +21,7 @@ import { manualExecutor } from "../../support/executors";
 import { fakeComputerProvider } from "../../support/fake-computer-provider";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser } from "../../support/users";
+import { postgres } from "../../../core/server/database";
 
 /*
  * The factory's flat slots (spec #871): what an omitted slot falls back to, and a feature's
@@ -31,7 +32,7 @@ const basePath = "/api/chat";
 const keyEncryptionSecrets = ["test-key-encryption-secret-not-for-production"];
 const unreachable = "postgresql://nobody:nothing@127.0.0.1:1/unreachable";
 
-const shared = { databaseUrl: unreachable, keyEncryptionSecrets };
+const shared = { database: postgres({ connectionString: unreachable }), keyEncryptionSecrets };
 
 const slots = (options: Partial<BotSdkOptions> = {}) =>
   ({ ...shared, models: {}, ...options }) as BotSdkOptions;
@@ -49,7 +50,7 @@ describe("createBotSdk with flat slots", () => {
   it("serves the Bots, Models and Channels with no plugin listed", async () => {
     const user = await insertUser();
     const sdk = createBotSdk({
-      databaseUrl: testDatabaseUrl,
+      database: postgres({ connectionString: testDatabaseUrl }),
       keyEncryptionSecrets,
       models: {},
       channels: [],
@@ -70,7 +71,7 @@ describe("createBotSdk with flat slots", () => {
       const user = await insertUser();
       const sdk = createBotSdk(
         slots({
-          databaseUrl: testDatabaseUrl,
+          database: postgres({ connectionString: testDatabaseUrl }),
           models: { getQuota: () => ({ budgetUsd: 2, window: "day" }), byok: false },
         }),
       );
@@ -91,7 +92,7 @@ describe("createBotSdk with flat slots", () => {
     const email = fakeEmailProvider();
     const sdk = createBotSdk(
       slots({
-        databaseUrl: testDatabaseUrl,
+        database: postgres({ connectionString: testDatabaseUrl }),
         channels: [emailChannel({ provider: email.provider, domain: "bots.example", appUrl: "" })],
       }),
     );
@@ -126,7 +127,7 @@ describe("createBotSdk with flat slots", () => {
   });
 
   it("has no Channel besides web when the channels slot is empty", async () => {
-    const sdk = createBotSdk(slots({ databaseUrl: testDatabaseUrl }));
+    const sdk = createBotSdk(slots({ database: postgres({ connectionString: testDatabaseUrl }) }));
 
     await expect(sdk.channels.receive("email", {} as InboundMail)).rejects.toThrow(
       /no email adapter/,
@@ -138,7 +139,7 @@ describe("createBotSdk with flat slots", () => {
     { timeout: 30_000 },
     async () => {
       const { context, instance } = buildBotSdk(
-        slots({ databaseUrl: testDatabaseUrl, jobs: [slotsJob] }),
+        slots({ database: postgres({ connectionString: testDatabaseUrl }), jobs: [slotsJob] }),
         {},
       );
 
@@ -190,9 +191,15 @@ describe("createBotSdk with flat slots", () => {
   it("warns at start that in-memory pub/sub works in one process only, unless pubsub is given", async () => {
     const warned = vi.fn();
     const logger = { error: () => {}, warn: warned };
-    const omitted = createBotSdk(slots({ databaseUrl: testDatabaseUrl, logger }));
+    const omitted = createBotSdk(
+      slots({ database: postgres({ connectionString: testDatabaseUrl }), logger }),
+    );
     const given = createBotSdk(
-      slots({ databaseUrl: testDatabaseUrl, logger, pubsub: memoryRuntime() }),
+      slots({
+        database: postgres({ connectionString: testDatabaseUrl }),
+        logger,
+        pubsub: memoryRuntime(),
+      }),
     );
 
     await omitted.start();
@@ -214,7 +221,9 @@ describe("createBotSdk with flat slots", () => {
       }
     }
     const logger = new Logger();
-    const sdk = createBotSdk(slots({ databaseUrl: testDatabaseUrl, logger }));
+    const sdk = createBotSdk(
+      slots({ database: postgres({ connectionString: testDatabaseUrl }), logger }),
+    );
 
     await sdk.start();
     await sdk.stop();

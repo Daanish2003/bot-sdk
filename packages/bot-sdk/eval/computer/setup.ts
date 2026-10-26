@@ -9,6 +9,7 @@ import { postgresBlobStore, createDb, type Database } from "../../core/server/st
 import { createHookEmitter } from "../../core/server/chat/hooks";
 import type { FeatureEntry } from "../../core/server/create-chat";
 import { createGuardedFetch } from "../../core/server/lib/guarded-fetch";
+import { postgres } from "../../core/server/database";
 import { migrate as migrateChatSchema } from "../../core/server/migrate";
 import type { BotSdkContext } from "../../core/server/plugin";
 import { memoryRuntime } from "../../core/server/runtime";
@@ -49,7 +50,7 @@ export async function prepareSchema(url: string): Promise<Database> {
   await migrate(db, {
     migrationsFolder: fileURLToPath(new URL("../../../db/src/migrations", import.meta.url)),
   });
-  await migrateChatSchema(url);
+  await migrateChatSchema(postgres({ connectionString: url }));
   return db;
 }
 

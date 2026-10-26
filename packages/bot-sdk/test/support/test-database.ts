@@ -6,6 +6,7 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Client } from "pg";
 
 import { createDb, type Database } from "../../core/server/storage";
+import { postgres } from "../../core/server/database";
 import { migrate as migrateChatSchema } from "../../core/server/migrate";
 
 const DEFAULT_TEST_DATABASE_URL = "postgresql://postgres:password@localhost:5432/ai-chat_test";
@@ -55,7 +56,7 @@ export async function prepareTestDatabases(workers: number) {
   } finally {
     await db.$client.end();
   }
-  await migrateChatSchema(baseTestDatabaseUrl);
+  await migrateChatSchema(postgres({ connectionString: baseTestDatabaseUrl }));
 
   const template = quoteIdentifier(databaseName(baseTestDatabaseUrl));
   const client = await serverClient(baseTestDatabaseUrl);

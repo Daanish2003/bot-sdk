@@ -9,6 +9,7 @@ import { mcp } from "../../../plugins/mcp/server/plugin";
 import { memory } from "../../../plugins/memory/server/feature";
 import { skills } from "../../../plugins/skills/server/plugin";
 import { fakeComputerProvider } from "../../support/fake-computer-provider";
+import { postgres } from "../../../core/server/database";
 
 /** Every procedure under `router`, by its dotted path. */
 function proceduresOf(router: AnyRouter, path: string[] = []): [string, AnyProcedure][] {
@@ -39,7 +40,7 @@ function recordingSdk() {
 // Every router the HTTP layer serves, of an instance with every feature and the email Channel.
 const { router: routers } = httpPartsOf(
   createBotSdk({
-    databaseUrl: "postgresql://postgres:password@127.0.0.1:1/unused",
+    database: postgres({ connectionString: "postgresql://postgres:password@127.0.0.1:1/unused" }),
     keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
     models: {},
     computer: fakeComputerProvider().provider,

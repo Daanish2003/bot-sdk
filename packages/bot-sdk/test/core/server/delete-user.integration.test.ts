@@ -21,6 +21,7 @@ import { createFakeAdapter, round, toolCall, withUsage } from "../../support/fak
 import { followSend } from "../../support/follow-send";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser, type TestUser } from "../../support/users";
+import { postgres } from "../../../core/server/database";
 
 const testKey = "test-key-encryption-secret-not-for-production";
 const sonnet = "anthropic:claude-sonnet-5-5";
@@ -165,7 +166,7 @@ describe("createBotSdk().users.delete", () => {
     await seedOwner(owner, deps);
     await seedOwner(other, deps);
     const chat = createBotSdk({
-      databaseUrl: testDatabaseUrl,
+      database: postgres({ connectionString: testDatabaseUrl }),
       keyEncryptionSecrets: [testKey],
       models: {},
     });

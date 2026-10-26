@@ -10,6 +10,7 @@ import { createFakeAdapter, round, toolCall, withUsage } from "../../support/fak
 import { followSend } from "../../support/follow-send";
 import { insertUser, type TestUser } from "../../support/users";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
+import { postgres } from "../../../core/server/database";
 
 const keyEncryptionSecrets = ["test-key-encryption-secret-not-for-production"];
 const sonnet = "anthropic:claude-sonnet-5-5";
@@ -94,7 +95,7 @@ describe("chat.models.usageTotals", () => {
     });
 
     const chat = createBotSdk({
-      databaseUrl: testDatabaseUrl,
+      database: postgres({ connectionString: testDatabaseUrl }),
       keyEncryptionSecrets,
       models: {},
     });
@@ -162,7 +163,7 @@ describe("chat.models.usage", () => {
       output: 1_000,
     });
     const chat = createBotSdk({
-      databaseUrl: testDatabaseUrl,
+      database: postgres({ connectionString: testDatabaseUrl }),
       keyEncryptionSecrets,
       models: {},
     });
@@ -205,7 +206,7 @@ describe("chat.models.quota", () => {
       output: 0,
     });
     const chat = createBotSdk({
-      databaseUrl: testDatabaseUrl,
+      database: postgres({ connectionString: testDatabaseUrl }),
       keyEncryptionSecrets,
       models: {
         getQuota: (userId) => (userId === owner.id ? { budgetUsd: 1, window: "day" } : null),
@@ -223,7 +224,7 @@ describe("chat.models.quota", () => {
   it("answers null for a user with no Quota, which is unlimited", async () => {
     const free = await insertUser();
     const chat = createBotSdk({
-      databaseUrl: testDatabaseUrl,
+      database: postgres({ connectionString: testDatabaseUrl }),
       keyEncryptionSecrets,
       models: {
         getQuota: () => null,

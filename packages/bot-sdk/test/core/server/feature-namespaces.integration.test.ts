@@ -18,6 +18,7 @@ import { createPinsTable, dropPinsTable, pin, pins } from "../../support/pins-fe
 import { chatRpc } from "../../support/sdk";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertOwner, insertUser, type TestUser } from "../../support/users";
+import { postgres } from "../../../core/server/database";
 
 /*
  * Each enabled feature's API is `sdk.<feature id>` (spec #873): Memory, Skills, Knowledge, MCP and
@@ -31,7 +32,7 @@ beforeAll(() => createPinsTable(getTestDb()));
 afterAll(() => dropPinsTable(getTestDb()));
 
 const options = {
-  databaseUrl: testDatabaseUrl,
+  database: postgres({ connectionString: testDatabaseUrl }),
   keyEncryptionSecrets: [testKey],
   models: {},
 };

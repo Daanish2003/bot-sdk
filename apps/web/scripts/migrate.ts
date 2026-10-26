@@ -10,6 +10,7 @@
 import { createRequire, registerHooks } from "node:module";
 import { fileURLToPath } from "node:url";
 
+import { postgres } from "../../../packages/bot-sdk/core/server/database.ts";
 import { migrate as migrateChatSchema } from "../../../packages/bot-sdk/core/server/migrate.ts";
 
 // Drizzle is the db package's dependency, not the web app's.
@@ -71,7 +72,9 @@ try {
 
 // The app's S3 file store, when set, so the contract migration (#819) deletes the assistant's bytes
 // from it as well.
-await migrateChatSchema(databaseUrl, { blobStore: await hostBlobStore() });
+await migrateChatSchema(postgres({ connectionString: databaseUrl }), {
+  blobStore: await hostBlobStore(),
+});
 
 const cleanup = drizzle(databaseUrl);
 try {

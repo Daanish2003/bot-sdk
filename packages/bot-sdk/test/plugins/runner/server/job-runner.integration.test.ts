@@ -20,6 +20,7 @@ import {
 import type { Executor, JobRunner } from "../../../../plugins/runner/server/internal";
 import { drainJobs, fakeJobClock } from "../../../support/jobs";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
+import { postgres } from "../../../../core/server/database";
 
 const start = new Date("2026-10-14T10:00:00Z");
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -1020,7 +1021,7 @@ describe("the runner slot", () => {
     // Models alone, without the Bots, which refuse a runner other than the in-process one.
     const chat = buildBotSdk(
       {
-        databaseUrl: testDatabaseUrl,
+        database: postgres({ connectionString: testDatabaseUrl }),
         keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
         logger: silent,
         models: {},

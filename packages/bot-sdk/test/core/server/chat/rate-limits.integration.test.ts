@@ -11,6 +11,7 @@ import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { chatRpc, createTestChat } from "../../../support/sdk";
 import { testDatabaseUrl } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
+import { postgres } from "../../../../core/server/database";
 
 /** The RPC routes of a Bot-only SDK that spec 87's per-user limits cover, with the override that turns each on. */
 const rpcCases = [
@@ -85,7 +86,7 @@ describe.each(rpcCases)("$name rate limits", ({ route, rateLimits }) => {
 it("takes its limit from createHttpHandler's rateLimits override", async () => {
   const user = await insertUser();
   const chat = createBotSdk({
-    databaseUrl: testDatabaseUrl,
+    database: postgres({ connectionString: testDatabaseUrl }),
     keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
     pubsub: memoryRuntime(),
     models: {},

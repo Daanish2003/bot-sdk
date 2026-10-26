@@ -112,6 +112,7 @@ The `runner` and `memory` plugins and the `skills` feature need nothing beyond `
 ## Postgres
 
 - The database needs the `pg_trgm` extension. `chat.migrate()` runs `CREATE EXTENSION IF NOT EXISTS pg_trgm` before its migrations and fails naming it, so a role allowed to create extensions (or a database that already has it) is needed.
+- The `database` slot takes `postgres({ connectionString })`, and the SDK opens its own pool on first use, or `postgres({ pool })` with your own node-postgres-compatible pool (`pg`, or a Neon serverless `Pool`), which the SDK queries through and never ends.
 - The SDK's tables live in the `chat` schema of the Host's database, not in your ORM's schema. Your ORM's migrations never touch them.
 - The SDK's migrations are expand-then-contract: they add tables, columns and indexes, and never drop or rename one in the same release. The version still running during a deploy keeps working against the migrated schema.
 
@@ -123,10 +124,10 @@ File bytes go to a `BlobStore`, which `createBotSdk({ blobs })` takes: the files
 - **`s3BlobStore({ endpoint, bucket, region, accessKeyId, secretAccessKey, forcePathStyle? })`** keeps bytes in any S3-compatible bucket, such as Cloudflare R2 (`region: "auto"`) or RustFS. It needs an existing bucket: the store never creates one, so the app needs no bucket-admin rights. It is built on `aws4fetch`, and `forcePathStyle` defaults to `true`.
 
 ```ts
-import { createBotSdk, s3BlobStore } from "@ai-chat/bot-sdk/core/server";
+import { createBotSdk, postgres, s3BlobStore } from "@ai-chat/bot-sdk/core/server";
 
 const chat = createBotSdk({
-  databaseUrl,
+  database: postgres({ connectionString: databaseUrl }),
   keyEncryptionSecrets,
   models: {},
   blobs: s3BlobStore({
@@ -150,7 +151,7 @@ const chat = createBotSdk({
 // `mcp(...)`, a background jobs runner to the `runner` slot, and the Computer's provider to the
 // `computer` slot
 const chat = createBotSdk({
-  databaseUrl,
+  database: postgres({ connectionString: databaseUrl }),
   keyEncryptionSecrets,
   computer: e2bProvider({ apiKey, apiUrl, sandboxUrl, template }),
   models: {},
@@ -507,7 +508,7 @@ The processes of your app share signals (the data-less hints that a Bot's thread
 
 ```ts
 const chat = createBotSdk({
-  databaseUrl,
+  database: postgres({ connectionString: databaseUrl }),
   keyEncryptionSecrets,
   models: {},
   pubsub: redisRuntime({ url: process.env.REDIS_URL! }),
@@ -555,7 +556,7 @@ Three modes, chosen by those two options:
 
 ```ts
 const chat = createBotSdk({
-  databaseUrl,
+  database: postgres({ connectionString: databaseUrl }),
   keyEncryptionSecrets,
   models: {
     hostProviders: [

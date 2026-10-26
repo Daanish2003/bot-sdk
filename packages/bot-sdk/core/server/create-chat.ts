@@ -1,4 +1,4 @@
-import { postgresBlobStore, createDb } from "./storage";
+import { postgresBlobStore, databaseOf } from "./storage";
 import type { BlobStore } from "./storage";
 import { handleConversationEvents } from "./chat/conversation-events";
 import { createHookEmitter } from "./chat/hooks";
@@ -12,6 +12,7 @@ import {
   type AnyFeature,
   type FeatureApis,
 } from "./feature";
+import type { PostgresDatabase } from "./database";
 import { assertMigrated, migrate as migrateSchema } from "./migrate";
 import {
   mergeRateLimits,
@@ -79,7 +80,11 @@ export type UsersSlot = {
  * and infrastructure goes in flat adapter slots, each with a default.
  */
 export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly FeatureEntry[]> = {
-  databaseUrl: string;
+  /**
+   * The Postgres the SDK keeps its data in: `postgres({ connectionString })`, or
+   * `postgres({ pool })` with the Host's own node-postgres-compatible pool (`pg`, Neon serverless).
+   */
+  database: PostgresDatabase;
   /**
    * The keyring (ADR 0010), at least one secret. The first encrypts Provider and Tool credentials
    * at rest; every entry decrypts, so a key can be added in front of the old one.
@@ -376,12 +381,12 @@ export function buildBotSdk(
     reviews: sdk.reviews,
     channels: sdk.channels,
     migrate: () =>
-      migrateSchema(options.databaseUrl, {
+      migrateSchema(options.database, {
         blobStore: options.blobs,
         logger: options.logger,
       }),
     start: async () => {
-      await assertMigrated(options.databaseUrl);
+      await assertMigrated(options.database);
       if (!options.pubsub && !given.runtime && !given.pubsub) {
         const logger = options.logger ?? console;
         const warning =
@@ -462,7 +467,7 @@ function buildContext(
   given: GivenContext,
 ): Omit<BotSdkContext, "runner" | "computer" | "channels" | "parts"> {
   const logger = options.logger ?? console;
-  const db = given.db ?? createDb({ DATABASE_URL: options.databaseUrl }, logger);
+  const db = given.db ?? databaseOf(options.database, logger);
   const runtime = given.runtime ?? options.pubsub ?? memoryRuntime();
   const counters = given.counters ?? runtime.counters;
   const fetchAllowHosts = given.fetchAllowHosts ?? options.fetchAllowHosts ?? [];

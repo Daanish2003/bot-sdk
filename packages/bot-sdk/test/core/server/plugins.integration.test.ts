@@ -9,10 +9,11 @@ import type { BotSdkPlugin } from "../../../core/server/plugin";
 import { memoryRuntime } from "../../../core/server/runtime";
 import { models } from "../../../plugins/models/server/internal";
 import { testDatabaseUrl } from "../../support/test-database";
+import { postgres } from "../../../core/server/database";
 
 const basePath = "/api/chat";
 const core = {
-  databaseUrl: testDatabaseUrl,
+  database: postgres({ connectionString: testDatabaseUrl }),
   keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
   models: {},
 };

@@ -1,4 +1,4 @@
-import { createBotSdk } from "@ai-chat/bot-sdk/core/server";
+import { createBotSdk, postgres } from "@ai-chat/bot-sdk/core/server";
 import type { ComputerProvider } from "@ai-chat/bot-sdk/plugins/computer/server";
 import { mcp } from "@ai-chat/bot-sdk/plugins/mcp/server";
 import { describe, expect, it } from "vitest";
@@ -8,7 +8,7 @@ import { computerFeatures } from "./features";
 // Builds the SDK the way services.ts does, with no database call until a route runs.
 const sdkWith = (computer: ComputerProvider | undefined) =>
   createBotSdk({
-    databaseUrl: "postgresql://postgres:password@127.0.0.1:1/unused",
+    database: postgres({ connectionString: "postgresql://postgres:password@127.0.0.1:1/unused" }),
     keyEncryptionSecrets: ["test-key-encryption-secret"],
     models: {},
     channels: [],

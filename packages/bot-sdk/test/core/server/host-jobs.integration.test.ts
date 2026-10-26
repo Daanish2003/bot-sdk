@@ -12,6 +12,7 @@ import {
 import { buildBotSdk, type BotSdk } from "../../../core/server/create-chat";
 import { createDb, job, jobEvent } from "../../../core/server/storage";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
+import { postgres } from "../../../core/server/database";
 
 /*
  * The public `defineJob` (spec #872): a Host registers its own jobs through the factory's `jobs`
@@ -54,7 +55,7 @@ const instances: BotSdk[] = [];
 function hostSdk(options: Partial<BotSdkOptions> = {}): BotSdk {
   const { instance } = buildBotSdk(
     {
-      databaseUrl: testDatabaseUrl,
+      database: postgres({ connectionString: testDatabaseUrl }),
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       logger: { error: () => {} },
       models: {},

@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate as applyMigrations } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 
+import type { PostgresDatabase } from "./database";
 import type { BlobStore } from "./storage";
 import type { Logger } from "./create-chat";
 
@@ -45,12 +46,10 @@ function folderMillis(name: string) {
  * no row, or one left by a run that stopped before its deletes, stays.
  */
 export async function migrate(
-  databaseUrl: string,
+  database: PostgresDatabase,
   { blobStore, logger = console }: { blobStore?: Pick<BlobStore, "delete">; logger?: Logger } = {},
 ): Promise<void> {
-  const client = new pg.Client({ connectionString: databaseUrl });
-  await client.connect();
-  try {
+  await withConnection(database, async (client) => {
     await client.query("select pg_advisory_lock($1)", [MIGRATION_LOCK_ID]);
     await createChatSchema(client);
     await createTrigramExtension(client);
@@ -62,16 +61,48 @@ export async function migrate(
     });
     await client.query("select pg_advisory_unlock($1)", [MIGRATION_LOCK_ID]);
     if (blobStore) await deleteAssistantBlobs(assistantKeys, blobStore, logger);
+  });
+}
+
+/**
+ * Runs `use` on one connection of `database`, for work that needs a single session (an advisory
+ * lock): its own client for a connection string, or a client checked out of the Host's pool,
+ * which goes back to the pool afterwards, or is destroyed when `use` throws.
+ */
+async function withConnection<T>(
+  database: PostgresDatabase,
+  use: (client: Connection) => Promise<T>,
+): Promise<T> {
+  if ("pool" in database) {
+    const client = await database.pool.connect();
+    let result: T;
+    try {
+      result = await use(client);
+    } catch (error) {
+      // Destroyed, not returned: the session may still hold a lock the failure left taken.
+      client.release(error instanceof Error ? error : true);
+      throw error;
+    }
+    client.release();
+    return result;
+  }
+  const client = new pg.Client({ connectionString: database.connectionString });
+  await client.connect();
+  try {
+    return await use(client);
   } finally {
     await client.end();
   }
 }
 
+/** A connection `withConnection` lends. */
+type Connection = pg.Client | pg.PoolClient;
+
 /**
  * The blob keys of the assistant's Attachments and Generated images, while their tables exist
  * (the contract migration hasn't run); none after.
  */
-async function assistantBlobKeys(client: pg.Client): Promise<string[]> {
+async function assistantBlobKeys(client: Connection): Promise<string[]> {
   const keys: string[] = [];
   for (const [table, prefix] of [
     ["attachment", "attachment/"],
@@ -113,12 +144,12 @@ async function deleteAssistantBlobs(
 }
 
 /** Only creates the schema when it is missing, so a Host may create it itself with fewer rights. */
-async function createChatSchema(client: pg.Client) {
+async function createChatSchema(client: Connection) {
   const { rowCount } = await client.query("select 1 from pg_namespace where nspname = 'chat'");
   if (rowCount === 0) await client.query("create schema chat");
 }
 
-async function createTrigramExtension(client: pg.Client) {
+async function createTrigramExtension(client: Connection) {
   try {
     await client.query("create extension if not exists pg_trgm");
   } catch (cause) {
@@ -133,11 +164,9 @@ async function createTrigramExtension(client: pg.Client) {
  * Throws unless the journal has applied the bundled latest migration. Only reads, and holds no
  * lock: a run in progress is reported as behind until it finishes.
  */
-export async function assertMigrated(databaseUrl: string): Promise<void> {
+export async function assertMigrated(database: PostgresDatabase): Promise<void> {
   const latest = folderMillis(LATEST_MIGRATION);
-  const client = new pg.Client({ connectionString: databaseUrl });
-  await client.connect();
-  try {
+  await withConnection(database, async (client) => {
     const journal = await client.query<{ present: boolean }>(
       "select to_regclass('chat.__migrations') is not null as present",
     );
@@ -152,7 +181,5 @@ export async function assertMigrated(databaseUrl: string): Promise<void> {
         "The chat schema is behind the bundled migrations: run chat.migrate() before start().",
       );
     }
-  } finally {
-    await client.end();
-  }
+  });
 }

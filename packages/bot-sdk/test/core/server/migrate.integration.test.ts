@@ -16,12 +16,13 @@ import {
   freshDatabaseUrl,
   testDatabaseUrl,
 } from "../../support/test-database";
+import { postgres } from "../../../core/server/database";
 
 const keyEncryptionSecrets = ["test-key-encryption-secret-not-for-production"];
 
 function chatFor(databaseUrl: string) {
   return createBotSdk({
-    databaseUrl,
+    database: postgres({ connectionString: databaseUrl }),
     keyEncryptionSecrets,
     models: {},
   });
@@ -596,7 +597,7 @@ describe("the contract migration (#819)", () => {
     };
 
     const chat = createBotSdk({
-      databaseUrl: url,
+      database: postgres({ connectionString: url }),
       keyEncryptionSecrets,
       blobs: store,
       models: {},
@@ -624,7 +625,7 @@ describe("the contract migration (#819)", () => {
     const logger = { error: vi.fn() };
 
     await createBotSdk({
-      databaseUrl: url,
+      database: postgres({ connectionString: url }),
       keyEncryptionSecrets,
       blobs: store,
       logger,
