@@ -366,7 +366,7 @@ await sync();
 for await (const _hint of hints) await sync();
 ```
 
-`sdk.bots` has `create`, `list`, `get`, `send`, `upload`, `stop`, `warm`, `choose` and `react`. `sdk.conversations.watch` resolves once its subscription is in place, so `changes` read after it misses nothing; it ends when `signal` aborts or the loop stops. Pass a `signal` unless you always iterate the hints.
+`sdk.bots` has `create`, `list`, `get`, `send`, `upload`, `stop`, `warm`, `choose` and `react`. `sdk.secrets` has `save`, `list` and `delete`; a value never comes out. `sdk.computer` has `view` and `control` for a Helper's Screen. `sdk.models` has `list`, `imageModel`, `setImageModel` and `credentials` (`list`, `openaiState`, `save`, `delete`) beside its metering, `usage` and Quota reads. `sdk.conversations.watch` resolves once its subscription is in place, so `changes` read after it misses nothing; it ends when `signal` aborts or the loop stops. Pass a `signal` unless you always iterate the hints.
 
 ## Host hooks
 

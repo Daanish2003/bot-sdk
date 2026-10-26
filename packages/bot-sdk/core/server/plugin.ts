@@ -10,6 +10,8 @@ import type { BotSdkRuntime } from "./runtime";
 import type { EnabledFeature } from "./feature";
 import type { BotApi } from "../../plugins/bot/server/plugin";
 import type { ConversationsApi } from "../../plugins/bot/server/conversations-api";
+import type { ScreensApi } from "../../plugins/bot/server/screens-api";
+import type { SecretsApi } from "../../plugins/bot/server/secrets-api";
 import type { ChannelApi } from "../../plugins/channel/server/internal";
 import type { ComputerApi } from "../../plugins/computer/server/internal";
 import type { ModelsApi } from "../../plugins/models/server/internal";
@@ -53,6 +55,10 @@ export type BotSdkContext = {
   bots: BotApi;
   /** The core's Conversations (spec #873): their change hints and change log. */
   conversations: ConversationsApi;
+  /** The core's Secrets (spec #873): the user's Secrets, shared by all their Bots. */
+  secrets: SecretsApi;
+  /** The Computer's Screen methods (spec #873): the live view of a Helper's Screen. */
+  screens: ScreensApi;
   /**
    * The core's Channels besides web (spec #871), over the channels slot's adapters. With none,
    * every inbound answers 404 and no reply goes out by email.

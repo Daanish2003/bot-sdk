@@ -78,6 +78,8 @@ export function createChatHandler(sdk: SdkOver, options: OverOptions): ChatHandl
     computer,
     bots: _bots,
     conversations: _conversations,
+    secrets: _secrets,
+    screens: _screens,
     channels: _channels,
     ...context
   } = sdk;

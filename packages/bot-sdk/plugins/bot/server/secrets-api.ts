@@ -1,0 +1,47 @@
+import { z } from "zod";
+
+import type { BotSdkContext } from "../../../core/server/plugin";
+import { parseInput } from "../../../core/server/rpc-error";
+import { deleteSecret, listSecrets, saveSecret } from "./safety";
+import { secretNameSchema } from "../shared/secret";
+
+/*
+ * The `secrets` namespace's domain methods (spec #873): the user's Secrets, shared by all their
+ * Bots. A value goes in through `save` and never comes out: `list` returns names and dates only.
+ * Each takes one object with `userId`; the procedures are one-line wrappers.
+ */
+
+/** `secrets.save`'s input, besides `userId`. */
+export const saveSecretInput = z.object({
+  botId: z.uuid(),
+  name: secretNameSchema,
+  value: z.string().min(1).max(10_000),
+});
+
+/** `secrets.delete`'s input, besides `userId`. */
+export const deleteSecretInput = z.object({ name: secretNameSchema });
+
+type WithUser<Schema extends z.ZodType> = { userId: string } & z.input<Schema>;
+
+/** The `secrets` namespace over the core context. */
+export function secretsApi(sdk: BotSdkContext) {
+  return {
+    /**
+     * Saves Secret `name`, encrypted, replacing an earlier one, and wakes the Bot `botId` with the
+     * Trigger "Saved secret NAME". The value never enters the Conversation. Another user's Bot is
+     * not found.
+     */
+    save: async ({ userId, ...rest }: WithUser<typeof saveSecretInput>) =>
+      saveSecret(sdk, userId, parseInput(saveSecretInput, rest)),
+
+    /** The user's Secrets, by name, each with when it was saved. Never a value. */
+    list: async ({ userId }: { userId: string }) => listSecrets(sdk.db, userId),
+
+    /** Deletes the user's Secret `name`; one that isn't there does nothing. */
+    delete: async ({ userId, ...rest }: WithUser<typeof deleteSecretInput>) =>
+      deleteSecret(sdk, userId, parseInput(deleteSecretInput, rest).name),
+  };
+}
+
+/** The `secrets` namespace's domain methods. */
+export type SecretsApi = ReturnType<typeof secretsApi>;

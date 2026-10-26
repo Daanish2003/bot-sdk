@@ -29,6 +29,7 @@ import {
 } from "./image-model-setting";
 import { hostImageModelList, resolveImageModel, type ResolvedImageModel } from "./image-models";
 import { quotaLookup, quotaState, readQuota, type QuotaState } from "./quota";
+import { modelsDomain, type ModelsDomain } from "./models-domain";
 import { modelsPluginRouter } from "./routers/index";
 import { bindModelsDeps } from "./state";
 import { freeModelMeter, type ModelMeter } from "./meter";
@@ -82,7 +83,7 @@ export type ModelsOptions = {
  * The core's Models (`sdk.models`, spec #871): who pays for a call and with which
  * credentials, the Models a user can pick, metering and the Quota.
  */
-export type ModelsApi = {
+export type ModelsApi = ModelsDomain & {
   resolveModelCall: (userId: string, id: string) => Promise<ModelCall | null>;
   resolveToolCall: (userId: string, tool: HostTool["tool"]) => Promise<ToolCall | null>;
   resolvePayer: <Offer>(
@@ -249,7 +250,9 @@ export function productionDeps(sdk: BotSdkContext, options: ModelsOptions): Mode
 
 /** The API bound to `deps`. The values read `deps` on each access, so they follow it. */
 function modelsApi(deps: ModelsDeps): ModelsApi {
+  const domain = modelsDomain(deps);
   return {
+    ...domain,
     resolveModelCall: (userId, id) => resolveModelCall(deps, userId, id),
     resolveToolCall: (userId, tool) => resolveToolCall(deps, userId, tool),
     resolvePayer: (userId, services, hostOffer) => resolvePayer(deps, userId, services, hostOffer),

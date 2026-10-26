@@ -33,6 +33,8 @@ import { memoryRuntime, type BotSdkRuntime } from "./runtime";
 import { deleteUserData, exportUserData, type UserExport } from "./user-data";
 import { bot, botJobs, type BotApi } from "../../plugins/bot/server/plugin";
 import type { ConversationsApi } from "../../plugins/bot/server/conversations-api";
+import type { ScreensApi } from "../../plugins/bot/server/screens-api";
+import type { SecretsApi } from "../../plugins/bot/server/secrets-api";
 import { channel, createChannels } from "../../plugins/bot/server/channels";
 import type { ChannelAdapter, ChannelApi } from "../../plugins/channel/server/internal";
 import { computerSleepJob, createComputer } from "../../plugins/computer/server/internal";
@@ -161,6 +163,13 @@ export type BotSdk = {
    * for what changed since a cursor.
    */
   conversations: ConversationsApi;
+  /** The core's Secrets (spec #873): `save`, `list` and `delete`. The value never comes out. */
+  secrets: SecretsApi;
+  /**
+   * The Computer's Screens (spec #873): `view` for a live-view link to a Helper's Screen and
+   * `control` to take control or give back.
+   */
+  computer: ScreensApi;
   /** The core's Channels (spec #871): the inbound handler of each adapter in the channels slot. */
   channels: ChannelApi;
   /** Creates the `chat` schema and applies the bundled migrations. Run it at deploy time. */
@@ -226,7 +235,16 @@ function exportResponse(document: UserExport) {
 export type GivenContext = Partial<
   Omit<
     BotSdkContext,
-    "parts" | "rateLimit" | "models" | "runner" | "computer" | "bots" | "conversations" | "channels"
+    | "parts"
+    | "rateLimit"
+    | "models"
+    | "runner"
+    | "computer"
+    | "bots"
+    | "conversations"
+    | "secrets"
+    | "screens"
+    | "channels"
   > & {
     /** A runner built by the test seam, in place of one over the runner slot's Executor. */
     jobs: JobRunner;
@@ -338,6 +356,8 @@ export function buildBotSdk(
     models: sdk.models,
     bots: sdk.bots,
     conversations: sdk.conversations,
+    secrets: sdk.secrets,
+    computer: sdk.screens,
     channels: sdk.channels,
     migrate: () =>
       migrateSchema(options.databaseUrl, {
@@ -443,11 +463,17 @@ function buildContext(
     // Set by the Bots' init, which the core always runs.
     bots: botsUnconfigured,
     conversations: conversationsUnconfigured,
+    secrets: unconfigured<SecretsApi>({ save: true, list: true, delete: true }),
+    screens: unconfigured<ScreensApi>({ view: true, control: true }),
   };
 }
 
 /** Every name of the Models' API, so the unconfigured stand-in throws on those alone. */
 const modelsApiKeys: Record<keyof ModelsApi, true> = {
+  list: true,
+  imageModel: true,
+  setImageModel: true,
+  credentials: true,
   resolveModelCall: true,
   resolveToolCall: true,
   resolvePayer: true,
@@ -509,6 +535,18 @@ const conversationsUnconfigured = new Proxy({} as ConversationsApi, {
     return undefined;
   },
 });
+
+/** A stand-in for a Bots' service of an instance with no `bot()`: reading any of `keys` throws. */
+function unconfigured<Api extends object>(keys: Record<keyof Api, true>): Api {
+  return new Proxy({} as Api, {
+    get: (_target, key) => {
+      if (typeof key === "string" && key in keys) {
+        throw new Error("The Bots aren't enabled: build the SDK with the slots");
+      }
+      return undefined;
+    },
+  });
+}
 
 /** Every name of the Bots' API, so the stand-in throws on those alone. */
 const botApiKeys: Record<keyof BotApi, true> = {

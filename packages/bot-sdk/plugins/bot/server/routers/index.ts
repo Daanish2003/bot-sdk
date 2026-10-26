@@ -4,7 +4,7 @@ import { protectedProcedure } from "../../../../core/server/procedures";
 import { rpcError } from "../../../../core/server/rpc-error";
 import { findBot } from "../conversation";
 import { botMessageSchema } from "../../shared/turn";
-import { decideReview, listReviews, deleteSecret, listSecrets, saveSecret } from "../safety";
+import { decideReview, listReviews } from "../safety";
 import {
   approveRoutine,
   declineRoutine,
@@ -18,9 +18,7 @@ import {
 } from "../routines";
 import { botChanges } from "../changes";
 
-import { listHelpers, helperDone, stopBotHelpers, screenControl, screenView } from "../helpers";
-
-import { secretNameSchema } from "../../shared/secret";
+import { listHelpers, helperDone, stopBotHelpers, screenView } from "../helpers";
 
 import type { DemonstrationAction } from "../../shared/demonstration";
 import { actOnDemonstration, demonstrationSteps } from "../demonstrations";
@@ -32,6 +30,8 @@ import {
   sendInput,
   uploadInput,
 } from "../bots-api";
+import { deleteSecretInput, saveSecretInput } from "../secrets-api";
+import { screenControlInput, screenViewInput } from "../screens-api";
 
 /** A route that applies `action` to one of the caller's Demonstrations. */
 const demonstrationAction = (action: DemonstrationAction) =>
@@ -263,22 +263,22 @@ const botRouter = {
      * not found.
      */
     save: protectedProcedure
-      .input(
-        z.object({
-          botId: z.uuid(),
-          name: secretNameSchema,
-          value: z.string().min(1).max(10_000),
-        }),
-      )
-      .handler(({ context, input }) => saveSecret(context.sdk, context.user.id, input)),
+      .input(saveSecretInput)
+      .handler(({ context, input }) =>
+        context.sdk.secrets.save({ userId: context.user.id, ...input }),
+      ),
 
     /** The caller's Secrets, by name, each with when it was saved. Never a value. */
-    list: protectedProcedure.handler(({ context }) => listSecrets(context.sdk.db, context.user.id)),
+    list: protectedProcedure.handler(({ context }) =>
+      context.sdk.secrets.list({ userId: context.user.id }),
+    ),
 
     /** Deletes the caller's Secret `name`. */
     delete: protectedProcedure
-      .input(z.object({ name: secretNameSchema }))
-      .handler(({ context, input }) => deleteSecret(context.sdk, context.user.id, input.name)),
+      .input(deleteSecretInput)
+      .handler(({ context, input }) =>
+        context.sdk.secrets.delete({ userId: context.user.id, ...input }),
+      ),
   },
 
   /**
@@ -323,16 +323,16 @@ const botRouter = {
      * Refused, "This task was stopped.", once the Helper ended.
      */
     view: protectedProcedure
-      .input(z.object({ helperId: z.uuid() }))
+      .input(screenViewInput)
       .handler(({ context, input }) =>
-        screenView(context.sdk, context.user.id, { helperId: input.helperId }),
+        context.sdk.screens.view({ userId: context.user.id, ...input }),
       ),
 
     /** Take control (`control`) and give back (`view`): switches the Screen's x11vnc. */
     control: protectedProcedure
-      .input(z.object({ helperId: z.uuid(), mode: z.enum(["view", "control"]) }))
+      .input(screenControlInput)
       .handler(({ context, input }) =>
-        screenControl(context.sdk, context.user.id, input.helperId, input.mode),
+        context.sdk.screens.control({ userId: context.user.id, ...input }),
       ),
   },
 };

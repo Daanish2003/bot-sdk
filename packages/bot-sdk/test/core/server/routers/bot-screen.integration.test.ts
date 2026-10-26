@@ -522,3 +522,35 @@ describe("the live view's proxy", () => {
     }
   });
 });
+
+describe("sdk.computer, called in-process with a userId (#897)", () => {
+  it("gives a live-view link and switches control as the HTTP twins do", async () => {
+    const { deps, client, helper, user, computerFake } = await waitingHelper();
+    const userId = user.id;
+    // The in-process methods are the instance's `computer`; the context holds them as `screens`.
+    const screens = deps.screens;
+
+    const { url } = await screens.view({ userId, helperId: helper.id });
+
+    expect(url).toMatch(/^\/api\/screens\/[^/]+\/vnc\.html\?/);
+    expect(Object.keys(await client.bot.screen.view({ helperId: helper.id }))).toEqual(["url"]);
+    await screens.control({ userId, helperId: helper.id, mode: "control" });
+    await screens.control({ userId, helperId: helper.id, mode: "view" });
+    expect(screenCommands(computerFake).slice(-2)).toEqual([
+      "/usr/local/bin/ai-chat-screen control 1",
+      "/usr/local/bin/ai-chat-screen view 1",
+    ]);
+  }, 30_000);
+
+  it("finds no Helper of another user's", async () => {
+    const { deps, helper } = await waitingHelper();
+    const { id: userId } = await insertUser();
+
+    await expect(deps.screens.view({ userId, helperId: helper.id })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    await expect(
+      deps.screens.control({ userId, helperId: helper.id, mode: "control" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  }, 30_000);
+});

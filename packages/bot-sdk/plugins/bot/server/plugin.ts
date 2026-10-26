@@ -38,6 +38,8 @@ import { demonstrationJobs, stopUserDemonstrations } from "./demonstrations";
 import { botPluginRouter } from "./routers";
 import { botsApi, type BotsApi } from "./bots-api";
 import { conversationsApi } from "./conversations-api";
+import { screensApi } from "./screens-api";
+import { secretsApi } from "./secrets-api";
 import { rotateSecretKeys } from "./safety";
 
 export type BotPlugin = BotSdkPlugin<"bot", never, never>;
@@ -127,6 +129,8 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
       };
       sdk.bots = api;
       sdk.conversations = conversationsApi(sdk);
+      sdk.secrets = secretsApi(sdk);
+      sdk.screens = screensApi(sdk);
     },
     // Repairs a Routine whose chain of fires broke, now and then hourly (#578).
     start: startRoutineReconcile,
