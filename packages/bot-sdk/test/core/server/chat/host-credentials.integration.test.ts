@@ -144,12 +144,12 @@ describe("Host credentials in a Bot's Turn", () => {
     expect(turns.map((turn) => turn.status)).toEqual(["complete"]);
 
     const tables = await db.execute<{ table_name: string }>(
-      sql`select table_name from information_schema.tables where table_schema = 'chat'`,
+      sql`select table_name from information_schema.tables where table_schema = 'botsdk'`,
     );
     const dumps = await Promise.all(
       tables.rows.map(({ table_name }) =>
         db
-          .execute(sql.raw(`select * from chat."${table_name}"`))
+          .execute(sql.raw(`select * from botsdk."${table_name}"`))
           .then((r) => JSON.stringify(r.rows)),
       ),
     );

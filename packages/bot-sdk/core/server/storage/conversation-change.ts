@@ -1,6 +1,6 @@
 import { type AnyPgColumn, integer, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "./chat-schema";
+import { botsdkSchema } from "./botsdk-schema";
 import { conversation } from "./schema";
 
 /**
@@ -9,7 +9,7 @@ import { conversation } from "./schema";
  * so a Conversation's changes commit in seq order with no gaps. Only the newest
  * `retainedChanges` per Conversation are kept.
  */
-export const conversationChange = chatSchema.table(
+export const conversationChange = botsdkSchema.table(
   "conversation_change",
   {
     conversationId: uuid("conversation_id")

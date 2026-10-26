@@ -1,18 +1,18 @@
 import { type AnyPgColumn, index, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "../chat-schema";
+import { botsdkSchema } from "../botsdk-schema";
 import { bot } from "./bot";
 import { botTurn } from "./bot-turn";
 
 /** When a Summary was written: while the user was away, or in the middle of a Turn (slide 34). */
-export const botSummaryKind = chatSchema.enum("bot_summary_kind", ["away", "mid_turn"]);
+export const botSummaryKind = botsdkSchema.enum("bot_summary_kind", ["away", "mid_turn"]);
 
 /**
  * A Summary of a Bot's Conversation (slide 34): a prose account written by the Bot's model, with
  * the Bot's last 3 Messages to the user quoted word for word. Writing one builds a new Prompt start
  * whose first message holds it, and history carries on from `covers_until`.
  */
-export const botSummary = chatSchema.table(
+export const botSummary = botsdkSchema.table(
   "bot_summary",
   {
     /** uuidv7, generated in app code. */

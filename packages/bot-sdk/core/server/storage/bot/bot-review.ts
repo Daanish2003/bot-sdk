@@ -1,18 +1,18 @@
 import { type AnyPgColumn, index, jsonb, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "../chat-schema";
+import { botsdkSchema } from "../botsdk-schema";
 import { bot } from "./bot";
 import { botHelper } from "./bot-helper";
 import { botTurn } from "./bot-turn";
 
 /** What Auto-review made of a call: it runs (`pass`), or it doesn't without the user's yes (`block`). */
-export const botReviewVerdict = chatSchema.enum("bot_review_verdict", ["pass", "block"]);
+export const botReviewVerdict = botsdkSchema.enum("bot_review_verdict", ["pass", "block"]);
 
 /**
  * Where a blocked call's Approval stands (ADR 0024): `waiting` for the user until its deadline,
  * then `allowed` or `denied` by the user, or `expired` with no answer in time.
  */
-export const botReviewState = chatSchema.enum("bot_review_state", [
+export const botReviewState = botsdkSchema.enum("bot_review_state", [
   "waiting",
   "allowed",
   "denied",
@@ -24,7 +24,7 @@ export const botReviewState = chatSchema.enum("bot_review_state", [
  * for a block, its Approval. A call and its Approval are one row. It belongs to the Turn whose
  * call it reviewed, or to the Helper's.
  */
-export const botReview = chatSchema.table(
+export const botReview = botsdkSchema.table(
   "bot_review",
   {
     /** uuidv7, generated in app code. */

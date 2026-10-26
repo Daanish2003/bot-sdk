@@ -19,7 +19,7 @@ export type PromptHash = {
   changed?: "bug" | "expected";
 };
 
-/** One `chat.usage` row, as the SDK wrote it (ADR 0007). */
+/** One `botsdk.usage` row, as the SDK wrote it (ADR 0007). */
 export type UsageEvent = {
   id: string;
   userId: string;

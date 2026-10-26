@@ -27,11 +27,11 @@ export class SandboxGoneError extends Error {
 
 /**
  * The seam between the Computer and what runs a user's Computer: a sandbox, named only
- * here. The plugin keeps each user's sandbox id and state in `chat.computer`; the provider only
+ * here. The plugin keeps each user's sandbox id and state in `botsdk.computer`; the provider only
  * acts on the sandbox it is given.
  */
 export type ComputerProvider = {
-  /** The template a new sandbox is built from, recorded on `chat.computer` as `template`. */
+  /** The template a new sandbox is built from, recorded on `botsdk.computer` as `template`. */
   template: string;
   /**
    * Creates a sandbox from `template`, running, with public traffic off, and returns its id. It pauses itself once

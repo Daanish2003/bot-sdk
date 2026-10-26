@@ -3,7 +3,7 @@ import { channelSchema } from "./channel/schema";
 import { computerSchema } from "./computer/schema";
 import { modelsSchema } from "./models/schema";
 import { runnerSchema } from "./runner/schema";
-import { chatSchema } from "./chat-schema";
+import { botsdkSchema } from "./botsdk-schema";
 import {
   conversationColumns,
   conversationIndexes,
@@ -14,7 +14,7 @@ import {
 import { assertNoClashes, type NamedPluginSchema } from "./plugin-schema";
 
 /*
- * The composed `chat` schema: the core plus every plugin in the package. drizzle-kit, the
+ * The composed `botsdk` schema: the core plus every plugin in the package. drizzle-kit, the
  * relations and all SDK code import tables from here, never from a plugin's schema module.
  */
 export * from "./core-schema";
@@ -35,14 +35,14 @@ const schemas: NamedPluginSchema[] = [
 assertNoClashes(schemas);
 
 /** A Conversation, owned by one user. Its Messages form a tree (ADR 0001). */
-export const conversation = chatSchema.table(
+export const conversation = botsdkSchema.table(
   "conversation",
   conversationColumns,
   conversationIndexes,
 );
 
 /** One Message of a Conversation. Several roots are allowed; there is no hidden root. */
-export const message = chatSchema.table("message", messageColumns, messageIndexes);
+export const message = botsdkSchema.table("message", messageColumns, messageIndexes);
 
 export type ConversationRow = typeof conversation.$inferSelect;
 export type MessageRow = typeof message.$inferSelect;

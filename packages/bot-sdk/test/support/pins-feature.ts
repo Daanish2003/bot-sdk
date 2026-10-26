@@ -12,7 +12,7 @@ import { defineFeature, defineJob, type Database } from "../../core/server/index
  */
 
 /** The feature's only table: foreign keys into core tables would be allowed, columns on them not. */
-export const pin = pgSchema("chat").table("test_pin", {
+export const pin = pgSchema("botsdk").table("test_pin", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull(),
   botId: text("bot_id").notNull(),
@@ -22,13 +22,13 @@ export const pin = pgSchema("chat").table("test_pin", {
 });
 
 export async function createPinsTable(db: Database) {
-  await db.execute(sql`create table if not exists chat.test_pin (
+  await db.execute(sql`create table if not exists botsdk.test_pin (
     id text primary key, user_id text not null, bot_id text not null, kind text not null,
     text text not null)`);
 }
 
 export async function dropPinsTable(db: Database) {
-  await db.execute(sql`drop table if exists chat.test_pin`);
+  await db.execute(sql`drop table if exists botsdk.test_pin`);
 }
 
 /** The job each Turn's end queues: it records a digest of the Bot's pins. */
@@ -107,7 +107,7 @@ export function pins() {
     afterTurn: async (tx, turn, { jobs }) => {
       // What the Turn's row says inside the end's transaction: only it has the ended status yet.
       const { rows } = await tx.execute<{ status: string }>(
-        sql`select status from chat.bot_turn where id = ${turn.id}`,
+        sql`select status from botsdk.bot_turn where id = ${turn.id}`,
       );
       await tx.insert(pin).values({
         id: `turn-end-${turn.id}`,

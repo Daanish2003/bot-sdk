@@ -2,7 +2,7 @@ import { getTableConfig, text } from "drizzle-orm/pg-core";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
-  chatSchema,
+  botsdkSchema,
   assertNoClashes,
   type NamedPluginSchema,
   conversation,
@@ -13,9 +13,9 @@ import {
 
 const empty = { tables: {}, enums: {} };
 
-describe("composing the chat schema", () => {
+describe("composing the `botsdk` schema", () => {
   it("throws, naming both plugins and the table, when two plugins declare the same table", () => {
-    const widget = () => chatSchema.table("widget", { id: text().primaryKey() });
+    const widget = () => botsdkSchema.table("widget", { id: text().primaryKey() });
     const schemas: NamedPluginSchema[] = [
       { id: "alpha", schema: { ...empty, tables: { widget: widget() } } },
       { id: "beta", schema: { ...empty, tables: { widget: widget() } } },
@@ -27,7 +27,7 @@ describe("composing the chat schema", () => {
   it("throws, naming both plugins and the enum, when two plugins declare the same enum", () => {
     const schemas: NamedPluginSchema[] = ["alpha", "beta"].map((id) => ({
       id,
-      schema: { ...empty, enums: { mood: chatSchema.enum("mood", ["up", "down"]) } },
+      schema: { ...empty, enums: { mood: botsdkSchema.enum("mood", ["up", "down"]) } },
     }));
 
     expect(() => assertNoClashes(schemas)).toThrow(/alpha.*beta.*mood/);
@@ -37,7 +37,7 @@ describe("composing the chat schema", () => {
     const schemas: NamedPluginSchema[] = [
       {
         id: "alpha",
-        schema: { ...empty, tables: { mine: chatSchema.table("message", { id: text() }) } },
+        schema: { ...empty, tables: { mine: botsdkSchema.table("message", { id: text() }) } },
       },
     ];
 

@@ -107,7 +107,7 @@ export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly Fe
    */
   fetchAllowHosts?: string[];
   /**
-   * Where file bytes are kept (ADR 0015). Defaults to a `chat.blob` table in the same database;
+   * Where file bytes are kept (ADR 0015). Defaults to a `botsdk.blob` table in the same database;
    * a Host with object storage passes its store, and then the bytes of files already stored
    * stay where they are.
    */
@@ -189,10 +189,10 @@ export type BotSdk = {
   reviews: ReviewsApi;
   /** The core's Channels (spec #871): the inbound handler of each adapter in the channels slot. */
   channels: ChannelApi;
-  /** Creates the `chat` schema and applies the bundled migrations. Run it at deploy time. */
+  /** Creates the `botsdk` schema and applies the bundled migrations. Run it at deploy time. */
   migrate: () => Promise<void>;
   /**
-   * Refuses (throws) while the `chat` schema is behind the bundled migrations; then starts the
+   * Refuses (throws) while the `botsdk` schema is behind the bundled migrations; then starts the
    * core's parts, in order. `models` refuses with neither `hostProviders` nor `byok` on; the
    * runner starts its job reaper and the jobs runner (ADR 0011).
    */
@@ -380,11 +380,7 @@ export function buildBotSdk(
     demonstrations: sdk.demonstrations,
     reviews: sdk.reviews,
     channels: sdk.channels,
-    migrate: () =>
-      migrateSchema(options.database, {
-        blobStore: options.blobs,
-        logger: options.logger,
-      }),
+    migrate: () => migrateSchema(options.database),
     start: async () => {
       await assertMigrated(options.database);
       if (!options.pubsub && !given.runtime && !given.pubsub) {

@@ -29,7 +29,7 @@ const hostProviders: HostProvider[] = [
   },
 ];
 
-/** Records one call on Host credentials in `chat.usage`, at `createdAt`. */
+/** Records one call on Host credentials in `botsdk.usage`, at `createdAt`. */
 async function record(
   userId: string,
   createdAt: Date,

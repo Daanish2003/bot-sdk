@@ -304,17 +304,17 @@ describe("a feature's needs", () => {
 });
 
 describe("a feature's schema", () => {
-  const chat = pgSchema("chat");
+  const botsdk = pgSchema("botsdk");
 
   it("can't add columns to a core table", () => {
-    const widened = chat.table("bot", { extra: text("extra") });
+    const widened = botsdk.table("bot", { extra: text("extra") });
     expect(() =>
       createBotSdk(slots({ features: [defineFeature({ id: "widen", schema: { widened } })] })),
     ).toThrow(/Feature "widen" declares the core table "bot"/);
   });
 
   it("may reference a core table", () => {
-    const note = chat.table("test_note", {
+    const note = botsdk.table("test_note", {
       id: text("id").primaryKey(),
       botId: text("bot_id").references(() => bot.id),
     });

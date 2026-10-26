@@ -1,1 +1,0 @@
-ALTER TYPE "chat"."bot_check_in_state" ADD VALUE 'failed' BEFORE 'cancelled';

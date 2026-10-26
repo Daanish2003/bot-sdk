@@ -1,5 +1,5 @@
 import { defineRelations } from "drizzle-orm";
 
-import * as chatSchema from "./schema";
+import * as botsdkSchema from "./schema";
 
-export const relations = defineRelations(chatSchema);
+export const relations = defineRelations(botsdkSchema);

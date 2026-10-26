@@ -1,12 +1,12 @@
 import { isNull } from "drizzle-orm";
 import { type AnyPgColumn, index, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "../chat-schema";
+import { botsdkSchema } from "../botsdk-schema";
 import { conversation, message } from "../schema";
 import { botTurn } from "./bot-turn";
 
 /** Who sent a Trigger: the user, one of the Bot's Routines, a Check-in it set (#539), or a Helper (#565). */
-export const botTriggerSource = chatSchema.enum("bot_trigger_source", [
+export const botTriggerSource = botsdkSchema.enum("bot_trigger_source", [
   "user",
   "routine",
   "check_in",
@@ -17,7 +17,7 @@ export const botTriggerSource = chatSchema.enum("bot_trigger_source", [
  * Where a Trigger came in: the web app, a schedule, an inbound webhook (#539), a Helper's report
  * (#565), or an email to the Bot's address (spec #761).
  */
-export const botTriggerChannel = chatSchema.enum("bot_trigger_channel", [
+export const botTriggerChannel = botsdkSchema.enum("bot_trigger_channel", [
   "web",
   "schedule",
   "webhook",
@@ -30,7 +30,7 @@ export const botTriggerChannel = chatSchema.enum("bot_trigger_channel", [
  * the Conversation queue; the Turn that takes it sets `turn_id`. A Turn's provenance is the Triggers
  * it took.
  */
-export const botTrigger = chatSchema.table(
+export const botTrigger = botsdkSchema.table(
   "bot_trigger",
   {
     /** The source's unique ID; for the user's Messages, the Message's id. */

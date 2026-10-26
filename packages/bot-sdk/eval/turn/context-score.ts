@@ -10,7 +10,7 @@ export type ContextScore = { passed: boolean; reasons: string[] };
 
 const scored = (reasons: string[]): ContextScore => ({ passed: reasons.length === 0, reasons });
 
-/** One model call's `chat.usage` row, as the cache check reads it. */
+/** One model call's `botsdk.usage` row, as the cache check reads it. */
 export type CacheCall = {
   kind: "turn" | "warm";
   inputTokens: number;

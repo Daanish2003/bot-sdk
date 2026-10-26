@@ -105,10 +105,10 @@ export async function claimJob(
     attempts: number;
     max_attempts: number;
   }>(sql`
-    update chat.job
+    update botsdk.job
     set status = 'running', attempts = attempts + 1, heartbeat_at = ${now}, updated_at = ${now}
     where id = (
-      select id from chat.job
+      select id from botsdk.job
       where status = 'queued' ${due} ${named} ${one}
       order by run_after, created_at
       limit 1

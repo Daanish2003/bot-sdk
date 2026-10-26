@@ -1,11 +1,11 @@
 import { type AnyPgColumn, index, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "../chat-schema";
+import { botsdkSchema } from "../botsdk-schema";
 import { bot } from "./bot";
 import { botTurn } from "./bot-turn";
 
 /** How a Check-in stands: `pending` until it fires once, fails for good, or the Bot or the user cancels it. */
-export const botCheckInState = chatSchema.enum("bot_check_in_state", [
+export const botCheckInState = botsdkSchema.enum("bot_check_in_state", [
   "pending",
   "fired",
   "failed",
@@ -16,7 +16,7 @@ export const botCheckInState = chatSchema.enum("bot_check_in_state", [
  * A Check-in (#540): one moment a Bot sets for itself, with a note to its future self. It needs no
  * Approval and fires once.
  */
-export const botCheckIn = chatSchema.table(
+export const botCheckIn = botsdkSchema.table(
   "bot_check_in",
   {
     /** uuidv7, generated in app code. */
