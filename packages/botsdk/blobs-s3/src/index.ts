@@ -1,6 +1,6 @@
 import { AwsClient } from "aws4fetch";
 
-import type { BlobStore } from "./store";
+import type { BlobStore } from "@botsdk/bot";
 
 export type S3BlobStoreOptions = {
   /** The store's origin, such as `https://<account>.r2.cloudflarestorage.com` or `http://127.0.0.1:9000`. */

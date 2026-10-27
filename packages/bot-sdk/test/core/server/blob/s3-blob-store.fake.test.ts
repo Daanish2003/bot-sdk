@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { s3BlobStore } from "@botsdk/bot/storage";
+import { s3BlobStore } from "@botsdk/blobs-s3";
 import { blobStoreContract } from "./blob.contract";
 import { fakeS3 } from "./fake-s3";
 

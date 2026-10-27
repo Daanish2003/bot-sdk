@@ -1,4 +1,4 @@
-import type { PubSub } from "./pubsub";
+import type { PubSub } from "@botsdk/bot/chat/pubsub";
 import type { RedisConnection } from "./redis-connection";
 
 /**

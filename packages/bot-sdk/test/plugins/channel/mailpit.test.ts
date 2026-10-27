@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mailpitEmailProvider } from "../../../plugins/channel/mailpit/index";
+import { mailpitEmailProvider } from "@botsdk/channel-email";
 
 const api = "http://mailpit.test:8025";
 

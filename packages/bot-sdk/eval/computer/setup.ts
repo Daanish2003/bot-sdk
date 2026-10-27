@@ -15,7 +15,7 @@ import { sdkFeatureMigrations } from "../../scripts/migration-parts";
 import type { BotSdkContext } from "@botsdk/bot/plugin";
 import { memoryRuntime } from "@botsdk/bot/runtime";
 import { createBotSdkOver, type OverSlots } from "@botsdk/bot/over";
-import { e2bProvider } from "../../plugins/computer/e2b";
+import { e2bProvider } from "@botsdk/computer-e2b";
 import type { ComputerProvider } from "@botsdk/bot/computer";
 import { productionDeps } from "@botsdk/bot/models/internal";
 import type { ModelsDeps } from "@botsdk/bot/models/internal";

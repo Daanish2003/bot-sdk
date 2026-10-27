@@ -1,0 +1,28 @@
+{
+  "name": "@botsdk/pubsub-redis",
+  "version": "0.0.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json",
+    ".": "./src/index.ts",
+    "./redis-connection": "./src/redis-connection.ts",
+    "./redis-counters": "./src/redis-counters.ts",
+    "./redis-pubsub": "./src/redis-pubsub.ts",
+    "./redis-store": "./src/redis-store.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "redis": "^6.3.0"
+  },
+  "devDependencies": {
+    "@ai-chat/config": "workspace:*",
+    "@botsdk/bot": "workspace:*",
+    "typescript": "catalog:"
+  },
+  "peerDependencies": {
+    "@botsdk/bot": "workspace:*"
+  }
+}

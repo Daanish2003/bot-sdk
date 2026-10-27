@@ -1,6 +1,6 @@
 import { describe } from "vitest";
 
-import { s3BlobStore } from "@botsdk/bot/storage";
+import { s3BlobStore } from "@botsdk/blobs-s3";
 import { blobStoreContract } from "./blob.contract";
 
 // The same contract against a real S3-compatible store (RustFS in CI and `docker compose`). The

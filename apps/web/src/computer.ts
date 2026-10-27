@@ -31,6 +31,6 @@ export async function computerProviderOf(
   template: string,
 ): Promise<ComputerProvider | undefined> {
   if (!e2b) return undefined;
-  const { e2bProvider } = await import("@ai-chat/bot-sdk/plugins/computer/e2b");
+  const { e2bProvider } = await import("@botsdk/computer-e2b");
   return e2bProvider({ ...e2b, template });
 }

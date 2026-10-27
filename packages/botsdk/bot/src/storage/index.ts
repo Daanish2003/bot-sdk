@@ -2,7 +2,6 @@
 export * from "./schema";
 export * as schema from "./schema";
 export { postgresBlobStore } from "./blob/postgres";
-export { s3BlobStore, type S3BlobStoreOptions } from "./blob/s3";
 export { type BlobStore, deleteBlobsBestEffort } from "./blob/store";
 export type { PromptStartSection, PromptStartTool } from "./bot/bot-prompt-start";
 export { botsdkSchema } from "./botsdk-schema";
