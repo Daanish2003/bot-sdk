@@ -54,7 +54,8 @@ const passingReviewer = fakeReviewer().adapter;
  * A real `createBotSdk` instance for tests, over the given `db` and fakes, with nothing that
  * reaches the network; it returns the instance's core context with its `models` bundle: the Bot
  * core, the runner, and the given `computer`, `channels` and `features`. Pass overrides for the
- * parts a test scripts (for example `adapterFor` returning a fake adapter).
+ * parts a test scripts (for example `adapterFor` returning a fake adapter). No model providers
+ * are registered unless `providers` is passed, and `features` defaults to none.
  */
 export function createTestSdk({
   db,

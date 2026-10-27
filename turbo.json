@@ -12,6 +12,11 @@
     },
     "check-types": {
       "dependsOn": ["^check-types"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/test-support/src/**",
+        "$TURBO_ROOT$/packages/botsdk/*/src/**"
+      ],
       "outputs": ["dist/**"]
     },
     "//#test:vitest": {

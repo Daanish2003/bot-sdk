@@ -41,7 +41,7 @@ export async function signInOnForm(page: Page, email: string, password: string) 
   );
 }
 
-const chat = chatPage(expect, appWebHost);
+const chat = chatPage(appWebHost);
 
 export const { addFakeOllama } = chat;
 

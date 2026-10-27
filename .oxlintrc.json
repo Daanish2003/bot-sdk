@@ -1279,7 +1279,13 @@
       }
     },
     {
-      "files": ["packages/botsdk/*/test/**", "packages/test-support/**", "packages/evals/**"],
+      "files": [
+        "packages/botsdk/*/test/**",
+        "packages/botsdk/testing/**",
+        "apps/web/e2e/support/**",
+        "packages/test-support/**",
+        "packages/evals/**"
+      ],
       "rules": {
         "no-restricted-imports": [
           "error",

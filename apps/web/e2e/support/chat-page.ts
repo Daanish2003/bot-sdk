@@ -1,12 +1,9 @@
-import type { Expect, Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 
 import type { HostFixture } from "./host";
 
-/**
- * Page helpers a Host's tests use. `expect` comes in from the caller: this folder is never loaded
- * by Node, so it can't import `@playwright/test` itself.
- */
-export function chatPage(expect: Expect, host: HostFixture) {
+/** Page helpers a Host's tests use. */
+export function chatPage(host: HostFixture) {
   /** Saves Ollama credentials pointing at the fake Ollama host, so its Model can be picked. */
   async function addFakeOllama(page: Page) {
     await page.goto(host.paths.keys);

@@ -106,7 +106,7 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **"Has not reported yet" notices (#813):** while #820 waited on its own forked review and evals, a "finished, has not reported yet" notice arrived every 10–20 s for about 20 minutes. Check the agent's worktree (`git log <base>..HEAD`, `git status`) once, then let the notices pass until the real report arrives.
 - **Coverage tests outside a ticket's affected set (#801):**
   - `user-data-across-plugins.integration.test.ts` and `delete-user.integration.test.ts` check that `deleteUser` empties every `user_id` table, so a ticket that adds such a table must seed it in both. #805 missed them, and only the full verify caught it.
-  - Removing UI breaks tests under `packages/bot-sdk/test/ui`, not only next to the component: #806 removed the "back to assistant" link and left `bots-app.test.ts` red.
+  - Removing UI breaks tests under `packages/botsdk/ui/test`, not only next to the component: #806 removed the "back to assistant" link and left `bots-app.test.ts` red.
   - Brief such tickets to run those files.
 - **Run e2e early when a ticket changes a layout or routes (#801):** #806 moved `_auth` into the Bots shell, and every spec that goes through `/c` failed. Shared helpers like `signInWithModel` sign in there, so even the new Bot specs failed (43/88). Nobody saw it until the end-of-run e2e. Run the full e2e right after merging such a ticket.
 - **More load timeouts (#801):** each of these timed out in one full verify and passed 2–3 times alone:
