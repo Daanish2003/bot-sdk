@@ -710,6 +710,30 @@ describe("the file tools", () => {
     expect(read.content).toBe("1\tfox fox dog");
   });
 
+  it(
+    "stores no Skill or Knowledge changes on the Turn when neither feature is on",
+    { timeout: 30_000 },
+    async () => {
+      const { client, botId, fake } = await botWith([
+        round(
+          file("write", {
+            path: "skills/weekly-report/SKILL.md",
+            content: "---\nname: weekly-report\ndescription: Use this when asked.\n---\n",
+          }),
+          file("write", { path: "/home/user/shared/knowledge/report.md", content: "r" }),
+        ),
+        round(),
+      ]);
+
+      await send(client, botId, "save these");
+
+      const [skill, saved] = toolResultsOf(fake.calls[1]);
+      expect(skill.path).toBe(`/home/user/bots/${botId}/skills/weekly-report/SKILL.md`);
+      expect(saved.path).toBe("/home/user/shared/knowledge/report.md");
+      expect(await turnOf(botId)).toMatchObject({ skillChanges: null, knowledgeChanges: null });
+    },
+  );
+
   it("puts relative paths in the Bot's directory, and shares /home/user/shared between Bots", async () => {
     const { client, botId, computerFake, fake } = await botWith([
       round(

@@ -4,6 +4,7 @@ import { knowledgeApi } from "./knowledge-api";
 import { knowledgeNotes } from "./notes";
 import { knowledgePrompt, readKnowledgePaths } from "./prompt";
 import { knowledgeContract } from "../shared/contract";
+import { knowledgeChangesOf } from "./turn-changes";
 
 /**
  * The `knowledge` feature (spec #737, ADR 0025, spec #871): a user's Knowledge as plain files in
@@ -20,6 +21,8 @@ export function knowledge() {
     contract: knowledgeContract,
     // The domain methods: `sdk.knowledge` (spec #873).
     api: (context) => knowledgeApi(context),
+    // The files the Turn saved to Knowledge, for its "saved to Knowledge" chip.
+    turnChanges: (turn) => ({ knowledgeChanges: knowledgeChangesOf(turn.botId, turn.transcript) }),
     // A Computer that can't be woken or read leaves the Turn without a Knowledge section; any
     // other failure, or a Stop or the time limit, throws.
     prompt: async (turn, { computer, logger }) => {

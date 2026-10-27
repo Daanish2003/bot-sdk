@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { botPromptStart, botSecret, botTurn, job } from "@botsdk/bot/storage";
 import { encryptCredentials } from "@botsdk/bot/credentials/encryption";
 import { secretEncryption } from "@botsdk/bot/bot/safety";
+import { sendToUserToolName } from "@botsdk/bot/bot/context";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import {
@@ -127,7 +128,12 @@ describe("the memory snapshot in a Bot's Turn", () => {
     await getTestDb().delete(botPromptStart).where(eq(botPromptStart.botId, ada));
     await send(client, ada, "hi");
 
-    const prompts = promptsOf(fake.calls.at(-1));
+    // The Turn's call: the first Turn's Memory pass can call the Model after it.
+    const prompts = promptsOf(
+      fake.calls.findLast((call) =>
+        (call.tools ?? []).some((tool) => tool.name === sendToUserToolName),
+      ),
+    );
     expect(prompts).toHaveLength(4);
     expect(prompts[1]).toMatch(/^You have a computer/);
     expect(prompts[2]?.startsWith(framing)).toBe(true);
