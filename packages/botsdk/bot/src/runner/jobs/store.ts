@@ -9,10 +9,13 @@ import {
   like,
   lt,
   lte,
+  notExists,
   notInArray,
   or,
+  type SQL,
   sql,
 } from "drizzle-orm";
+import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 
 import type { Database } from "../../storage";
 import type { Transaction } from "../../plugin";
@@ -622,6 +625,37 @@ export async function activeJobsByKeyPrefix(
     status: row.status as ActiveJob["status"],
     runAfter: row.runAfter,
   }));
+}
+
+/**
+ * The `id` of each row of `from` that matches `where` and has no active job `name` whose key
+ * starts with `keyPrefix(id)`, in one anti-join, so a reader never reads the job table itself.
+ */
+export async function idsWithoutActiveJob(
+  db: Database | Transaction,
+  query: {
+    from: PgTable;
+    id: PgColumn;
+    where?: SQL;
+    name: string;
+    keyPrefix: (id: PgColumn) => SQL;
+  },
+): Promise<string[]> {
+  const active = db
+    .select({ one: sql`1` })
+    .from(job)
+    .where(
+      and(
+        eq(job.name, query.name),
+        inArray(job.status, [...ACTIVE]),
+        like(job.idempotencyKey, sql`${query.keyPrefix(query.id)} || '%'`),
+      ),
+    );
+  const rows = await db
+    .select({ id: query.id })
+    .from(query.from)
+    .where(and(query.where, notExists(active)));
+  return rows.map((row) => row.id as string);
 }
 
 /** How many Checkpoints named `name` each of the jobs has recorded. Jobs with none are left out. */

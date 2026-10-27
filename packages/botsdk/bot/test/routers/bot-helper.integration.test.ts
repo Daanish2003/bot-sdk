@@ -824,7 +824,7 @@ describe("the Conversation's Helpers (#590)", () => {
   });
 
   it("reads the list in the same few queries however many Helpers are live", async () => {
-    const { client, botId, deps } = await botWith(
+    const { client, botId } = await botWith(
       [
         round(
           startHelper("One."),
@@ -844,7 +844,7 @@ describe("the Conversation's Helpers (#590)", () => {
       logger: { logQuery: (query) => queries.push(query) },
     }) as unknown as Database;
 
-    const helpers = await listHelpers({ db: counted, runner: deps.runner }, botId);
+    const helpers = await listHelpers(counted, botId);
 
     expect(helpers.map((helper) => helper.status)).toEqual(["running", "running", "running"]);
     expect(queries).toHaveLength(3);

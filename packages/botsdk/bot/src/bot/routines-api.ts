@@ -28,7 +28,7 @@ export function routinesApi(sdk: BotSdkContext) {
     list: async ({ userId, ...rest }: WithUser<typeof botScopeInput>) => {
       const { botId } = parseInput(botScopeInput, rest);
       await requireOwnedBot(sdk.db, userId, botId);
-      return listRoutines(sdk, botId);
+      return listRoutines(sdk.db, botId);
     },
 
     /** Approves a pending Routine: it turns `active`. Another user's is not found. */

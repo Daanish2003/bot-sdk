@@ -16,7 +16,7 @@ export function helpersApi(sdk: BotSdkContext) {
     list: async ({ userId, ...rest }: WithUser<typeof helperListInput>) => {
       const { botId } = parseInput(helperListInput, rest);
       await requireOwnedBot(sdk.db, userId, botId);
-      return listHelpers(sdk, botId);
+      return listHelpers(sdk.db, botId);
     },
 
     /**

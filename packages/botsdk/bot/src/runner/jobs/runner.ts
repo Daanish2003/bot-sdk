@@ -4,17 +4,13 @@ import { afterCommit, trackCommits } from "./commit";
 import { budgetsOf, type JobBudget, type JobTable } from "./define";
 import type { Executor } from "./executor";
 import {
-  type ActiveJob,
   type JobNames,
-  activeJobsByKeyPrefix,
   cancelJob,
   cancelJobIn,
-  checkpointCounts,
   claimJob,
   dueJobIds,
   enqueueJob,
   jobNames,
-  newestCheckpoints,
   pruneFinishedJobs,
   readJob,
   reapStaleJobs,
@@ -24,8 +20,6 @@ import {
 } from "./store";
 
 type Logger = Pick<Console, "error">;
-
-export type { ActiveJob };
 
 export type EnqueueOptions = {
   /** A job with this key that is still queued or running makes this enqueue a no-op. */
@@ -116,32 +110,6 @@ export type JobRunner = {
     options?: { runAfter?: Date; now?: Date },
   ) => Promise<string | undefined>;
   status: (jobId: string) => Promise<JobStatus | undefined>;
-  /**
-   * The active (queued or running) jobs `name` whose key starts with one of `keyPrefixes`, read in
-   * `db` or a transaction. With `status`, only those in that status.
-   */
-  activeJobs: (
-    db: Database | Transaction,
-    query: { name: string; keyPrefixes: string[]; status?: ActiveJob["status"] },
-  ) => Promise<ActiveJob[]>;
-  /**
-   * How many Checkpoints named `name` each of the jobs has recorded, read in `db` or a transaction.
-   * A job with none is left out.
-   */
-  checkpointCounts: (
-    db: Database | Transaction,
-    jobIds: string[],
-    name: string,
-  ) => Promise<Map<string, number>>;
-  /**
-   * The result of the newest Checkpoint named `name` of each of the jobs, read in `db` or a
-   * transaction. A job with none is left out.
-   */
-  newestCheckpoints: (
-    db: Database | Transaction,
-    jobIds: string[],
-    name: string,
-  ) => Promise<Map<string, unknown>>;
   /** Recurring jobs. Built with Synced sources (spec 2); the runner throws until then. */
   schedule: (name: string, options: { everyMs: number }) => Promise<void>;
   /**
@@ -373,12 +341,6 @@ export function createJobRunner({
     },
 
     status: (jobId) => readJob(db, jobId),
-
-    activeJobs: activeJobsByKeyPrefix,
-
-    checkpointCounts,
-
-    newestCheckpoints,
 
     async schedule() {
       throw new Error("Recurring jobs are not supported yet");

@@ -3,7 +3,8 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { EventType, type StreamChunk } from "@tanstack/ai";
 
 import { bot, botHelper, botTurn } from "../../storage";
-import type { BotSdkContext } from "../../plugin";
+import type { Database } from "../../storage";
+import { checkpointCounts, newestCheckpoints } from "../../runner/internal";
 import { askUserToolName } from "./hand-off";
 import { gistOf } from "./helper";
 import { lastMessageOfTurn } from "../routines";
@@ -44,7 +45,7 @@ function latestToolCall(chunks: readonly StreamChunk[]): string | null {
  * tool call. With `helperIds`, only those of the Bot's Helpers.
  */
 export async function listHelpers(
-  { db, runner }: Pick<BotSdkContext, "db" | "runner">,
+  db: Database,
   botId: string,
   helperIds?: string[],
 ): Promise<BotHelper[]> {
@@ -74,13 +75,13 @@ export async function listHelpers(
     .orderBy(asc(botHelper.startedAt), asc(botHelper.id));
 
   const jobIds = rows.flatMap((row) => (row.jobId ? [row.jobId] : []));
-  const stepsOf = await runner.checkpointCounts(db, jobIds, "model");
+  const stepsOf = await checkpointCounts(db, jobIds, "model");
 
   // Each live Helper's newest model call, all in one query.
   const liveJobIds = rows.flatMap((row) =>
     row.jobId && isLiveHelper(row.status) ? [row.jobId] : [],
   );
-  const newestOf = await runner.newestCheckpoints(db, liveJobIds, "model");
+  const newestOf = await newestCheckpoints(db, liveJobIds, "model");
 
   return rows.map(({ jobId, savedSteps, handedOff, ...row }) => {
     let latest: string | null = null;
