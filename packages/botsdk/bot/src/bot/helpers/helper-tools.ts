@@ -174,7 +174,7 @@ export function helperTools(
   const check = checkHelperDefinition.server(async ({ helperId }, context) =>
     liveActivity(checkHelperToolName, context?.toolCallId, async () => {
       if (!z.uuid().safeParse(helperId).success) return { error: noHelperError };
-      const [helper] = await listHelpers(deps.db, turn.botId, [helperId]);
+      const [helper] = await listHelpers(deps, turn.botId, [helperId]);
       if (!helper) return { error: noHelperError };
       const { status, task, steps, latest, report } = helper;
       return { status, task, steps, latest, report };

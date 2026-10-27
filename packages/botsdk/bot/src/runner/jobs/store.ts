@@ -1,4 +1,17 @@
-import { and, eq, gte, inArray, isNull, lt, lte, notInArray, or, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import type { Database } from "../../storage";
 import type { Transaction } from "../../plugin";
@@ -569,4 +582,70 @@ export async function readJob(db: Database, id: string): Promise<JobStatus | und
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+/** An active job as a reader sees it: its key, whether it runs, and when it is due. */
+export type ActiveJob = {
+  idempotencyKey: string;
+  status: (typeof ACTIVE)[number];
+  runAfter: Date;
+};
+
+/**
+ * The active jobs `name` whose key starts with one of `keyPrefixes`, in `db` or a transaction. With
+ * `status`, only those in that status.
+ */
+export async function activeJobsByKeyPrefix(
+  db: Database | Transaction,
+  query: { name: string; keyPrefixes: string[]; status?: ActiveJob["status"] },
+): Promise<ActiveJob[]> {
+  if (query.keyPrefixes.length === 0) return [];
+  const rows = await db
+    .select({ key: job.idempotencyKey, status: job.status, runAfter: job.runAfter })
+    .from(job)
+    .where(
+      and(
+        eq(job.name, query.name),
+        inArray(job.status, query.status ? [query.status] : [...ACTIVE]),
+        or(
+          ...query.keyPrefixes.map((prefix) => sql`starts_with(${job.idempotencyKey}, ${prefix})`),
+        ),
+      ),
+    );
+  // The key prefix and the status filter make both of these certain.
+  return rows.map((row) => ({
+    idempotencyKey: row.key!,
+    status: row.status as ActiveJob["status"],
+    runAfter: row.runAfter,
+  }));
+}
+
+/** How many Checkpoints named `name` each of the jobs has recorded. Jobs with none are left out. */
+export async function checkpointCounts(
+  db: Database | Transaction,
+  jobIds: string[],
+  name: string,
+): Promise<Map<string, number>> {
+  if (jobIds.length === 0) return new Map();
+  const rows = await db
+    .select({ jobId: jobEvent.jobId, steps: count() })
+    .from(jobEvent)
+    .where(and(inArray(jobEvent.jobId, jobIds), eq(jobEvent.name, name)))
+    .groupBy(jobEvent.jobId);
+  return new Map(rows.map((row) => [row.jobId, row.steps]));
+}
+
+/** The result of the newest Checkpoint named `name` of each of the jobs. Jobs with none are left out. */
+export async function newestCheckpoints(
+  db: Database | Transaction,
+  jobIds: string[],
+  name: string,
+): Promise<Map<string, unknown>> {
+  if (jobIds.length === 0) return new Map();
+  const rows = await db
+    .selectDistinctOn([jobEvent.jobId], { jobId: jobEvent.jobId, result: jobEvent.result })
+    .from(jobEvent)
+    .where(and(inArray(jobEvent.jobId, jobIds), eq(jobEvent.name, name)))
+    .orderBy(jobEvent.jobId, desc(jobEvent.seq));
+  return new Map(rows.map((row) => [row.jobId, row.result]));
 }
