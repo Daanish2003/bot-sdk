@@ -1,5 +1,5 @@
-import type { BlobStore } from "@ai-chat/bot-sdk/core/server";
-import { s3BlobStore } from "@ai-chat/bot-sdk/core/server";
+import type { BlobStore } from "@botsdk/bot";
+import { s3BlobStore } from "@botsdk/bot";
 
 /**
  * The file store `apps/web` offers, from its `S3_*` variables (`.env.schema`). Set all five or none:

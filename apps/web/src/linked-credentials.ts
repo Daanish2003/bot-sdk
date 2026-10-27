@@ -1,5 +1,5 @@
 import type { ChatgptAccessToken } from "@ai-chat/auth/chatgpt";
-import type { LinkedCredentialsHook } from "@ai-chat/bot-sdk/plugins/models/server";
+import type { LinkedCredentialsHook } from "@botsdk/bot/models";
 
 /**
  * The models plugin's `linkedCredentials` hook (ADR 0023): the user's linked ChatGPT plan as

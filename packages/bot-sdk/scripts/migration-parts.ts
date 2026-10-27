@@ -11,22 +11,33 @@ import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { FeatureMigrations, Migration } from "../core/server/migrate";
+import type { FeatureMigrations, Migration } from "@botsdk/bot/migrate";
 
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
- * Each part: its id in the journal, the folder of its `migrations/` and `migrations.json`, and its
- * drizzle-kit config. The core's first.
+ * Each part: its id in the journal, the folder of its `migrations/` and `migrations.json`, the
+ * folder drizzle-kit runs in and its config there. The core's first, in `@botsdk/bot`.
  */
 export const migrationParts = [
-  { feature: "core", folder: "core/server", config: "drizzle.config.ts" },
+  {
+    feature: "core",
+    folder: "../botsdk/bot/src",
+    cwd: "../botsdk/bot",
+    config: "drizzle.config.ts",
+  },
   {
     feature: "memory",
     folder: "plugins/memory/server",
+    cwd: ".",
     config: "plugins/memory/drizzle.config.ts",
   },
-  { feature: "mcp", folder: "plugins/mcp/server", config: "plugins/mcp/drizzle.config.ts" },
+  {
+    feature: "mcp",
+    folder: "plugins/mcp/server",
+    cwd: ".",
+    config: "plugins/mcp/drizzle.config.ts",
+  },
 ] as const;
 
 /** A part's migrations as its JSON should hold them, read from its drizzle-kit folders. */
@@ -58,9 +69,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   // Its bin sits beside its entry point, wherever the package is installed.
   const entry = createRequire(join(SDK_ROOT, "package.json")).resolve("drizzle-kit");
   const drizzleKit = join(dirname(entry), "bin.cjs");
-  for (const { folder, config } of migrationParts) {
+  for (const { folder, cwd, config } of migrationParts) {
     execFileSync(process.execPath, [drizzleKit, "generate", "--config", config], {
-      cwd: SDK_ROOT,
+      cwd: join(SDK_ROOT, cwd),
       stdio: "inherit",
     });
     const json = `${JSON.stringify(migrationsOf(folder), null, 2)}\n`;

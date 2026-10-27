@@ -1,10 +1,10 @@
 import { createAuth } from "@ai-chat/auth";
 import { chatgptAccessToken } from "@ai-chat/auth/chatgpt";
 import { createDb } from "@ai-chat/db";
-import { createHttpHandler, createScreenSocket } from "@ai-chat/bot-sdk/core/http";
-import { createBotSdk, redisRuntime, redisStore } from "@ai-chat/bot-sdk/core/server";
-import { emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
-import { fakeImageAdapter } from "@ai-chat/bot-sdk/plugins/models/server";
+import { createHttpHandler, createScreenSocket } from "@botsdk/bot/http";
+import { createBotSdk, redisRuntime, redisStore } from "@botsdk/bot";
+import { emailChannel } from "@botsdk/bot/channel";
+import { fakeImageAdapter } from "@botsdk/bot/models";
 import { log } from "evlog";
 
 import botsdkConfig, { e2b } from "../botsdk.config";
@@ -23,6 +23,7 @@ import {
 import { linkedCredentialsHook } from "./chatgpt-link";
 import { cachedTokenFor, linkedCredentialsOf } from "./linked-credentials";
 import { computerProviderOf } from "./computer";
+import { modelProviders } from "./model-providers";
 import { trustedIpHeadersOf } from "./trusted-ip";
 
 // The template Computers are built from, named by its version (spec #519). It matches the SDK's
@@ -98,6 +99,8 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     },
   },
   models: {
+    // The model Providers this app installs, each a `@tanstack/ai-*` package (spec #875).
+    providers: modelProviders,
     // The Host's Models and their Quota (ADR 0007); unset, users chat only on their own keys.
     // The Host's Image Models (`HOST_IMAGE_*`) come as one more Provider entry beside its chat Models.
     hostProviders: [...hostProvidersOf(ENV), ...hostImageProvidersOf(ENV)],

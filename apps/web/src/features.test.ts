@@ -1,5 +1,5 @@
-import { createBotSdk, postgres } from "@ai-chat/bot-sdk/core/server";
-import type { ComputerProvider } from "@ai-chat/bot-sdk/plugins/computer/server";
+import { createBotSdk, postgres } from "@botsdk/bot";
+import type { ComputerProvider } from "@botsdk/bot/computer";
 import { mcp } from "@ai-chat/bot-sdk/plugins/mcp/server";
 import { describe, expect, it } from "vitest";
 

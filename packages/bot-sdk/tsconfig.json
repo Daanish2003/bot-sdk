@@ -11,8 +11,6 @@
     }
   },
   "include": [
-    "core/**/*.ts",
-    "core/**/*.tsx",
     "plugins/**/*.ts",
     "plugins/**/*.tsx",
     "ui/**/*.ts",

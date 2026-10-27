@@ -12,9 +12,9 @@ import { register } from "node:module";
 
 import { log } from "evlog";
 
-register("../../../packages/bot-sdk/bin/ts-extensionless.mjs", import.meta.url);
+register("@botsdk/bot/ts-extensionless", import.meta.url);
 
-const { createBotSdk, postgres } = await import("@ai-chat/bot-sdk/core/server");
+const { createBotSdk, postgres } = await import("@botsdk/bot");
 const { mcp } = await import("@ai-chat/bot-sdk/plugins/mcp/server");
 
 const databaseUrl = process.env.DATABASE_URL;

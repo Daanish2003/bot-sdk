@@ -1,4 +1,4 @@
-import type { ComputerProvider } from "@ai-chat/bot-sdk/plugins/computer/server";
+import type { ComputerProvider } from "@botsdk/bot/computer";
 
 /** The self-hosted E2B a Host points the Computers at (spec #519). */
 export type E2bConfig = { apiKey: string; apiUrl: string; sandboxUrl: string };

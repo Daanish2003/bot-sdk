@@ -1,4 +1,4 @@
-import type { ModelsOptions } from "@ai-chat/bot-sdk/plugins/models/server";
+import type { ModelsOptions } from "@botsdk/bot/models";
 import { z } from "zod";
 
 /**

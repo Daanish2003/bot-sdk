@@ -25,7 +25,7 @@ Then add one alias to your `tsconfig.json`, pointing at the destination folder:
 }
 ```
 
-Your imports then read exactly like this repo's: `@ai-chat/bot-sdk/core/server`, `@ai-chat/bot-sdk/plugins/models/server`, `@botsdk/ui/bot`, and so on.
+Your imports then read exactly like this repo's: `@botsdk/bot`, `@botsdk/bot/models`, `@botsdk/ui/bot`, and so on.
 
 ### Updating
 
@@ -111,7 +111,7 @@ The package's `botsdk` bin migrates from a config module, by default `botsdk.con
 
 ```ts
 // botsdk.config.ts
-import { postgres } from "@ai-chat/bot-sdk/core/server";
+import { postgres } from "@botsdk/bot";
 import { mcp } from "@ai-chat/bot-sdk/plugins/mcp/server";
 import { memory } from "@ai-chat/bot-sdk/plugins/memory/server";
 
@@ -139,7 +139,7 @@ File bytes go to a `BlobStore`, which `createBotSdk({ blobs })` takes: the files
 - **`s3BlobStore({ endpoint, bucket, region, accessKeyId, secretAccessKey, forcePathStyle? })`** keeps bytes in any S3-compatible bucket, such as Cloudflare R2 (`region: "auto"`) or RustFS. It needs an existing bucket: the store never creates one, so the app needs no bucket-admin rights. It is built on `aws4fetch`, and `forcePathStyle` defaults to `true`.
 
 ```ts
-import { createBotSdk, postgres, s3BlobStore } from "@ai-chat/bot-sdk/core/server";
+import { createBotSdk, postgres, s3BlobStore } from "@botsdk/bot";
 
 const chat = createBotSdk({
   database: postgres({ connectionString: databaseUrl }),
@@ -176,7 +176,7 @@ const chat = createBotSdk({
   users: { isBlocked: (userId) => isBanned(userId) },
 });
 
-// the optional HTTP layer (`@ai-chat/bot-sdk/core/http`): one catch-all route on your framework,
+// the optional HTTP layer (`@botsdk/bot/http`): one catch-all route on your framework,
 // for every chat call; sign-in and the 401 are yours through `getUser`
 export const handler = createHttpHandler(chat, { basePath: "/api/chat", getUser });
 // on a Node server instead, ahead of any body parser: app.use("/api/chat", toNodeHandler(handler))
@@ -329,10 +329,10 @@ pnpm exec vitest run --maxWorkers=1 --no-file-parallelism packages/bot-sdk/test/
 
 ## Email for Bots: `channels`
 
-The core's Channels (`sdk.channels`) give each Bot its own email address (spec #761, ADR 0026): the owner's mail to it wakes the Bot like a web Message, and the Bot's replies are emailed back. Email is an adapter in the `channels` slot, imported from `@ai-chat/bot-sdk/plugins/channel/server` (and `/client`, `/ui` for the Bot header's Email popover). Leave the slot out and Bots have no address.
+The core's Channels (`sdk.channels`) give each Bot its own email address (spec #761, ADR 0026): the owner's mail to it wakes the Bot like a web Message, and the Bot's replies are emailed back. Email is an adapter in the `channels` slot, imported from `@botsdk/bot/channel` (and `/client`, `/ui` for the Bot header's Email popover). Leave the slot out and Bots have no address.
 
 ```ts
-import { emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
+import { emailChannel } from "@botsdk/bot/channel";
 import { mailpitEmailProvider } from "@ai-chat/bot-sdk/plugins/channel/mailpit";
 
 createBotSdk({
