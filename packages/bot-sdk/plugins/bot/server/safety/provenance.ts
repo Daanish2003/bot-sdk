@@ -1,16 +1,16 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
-
-import { botDemonstration, botTrigger, botTurn, usage } from "../../../../core/server/storage";
-import type { Database } from "../../../../core/server/storage";
-import { isApproval } from "../../shared/rich-control";
-import type { BotSkillChange } from "../../../skills/shared/changes";
+import { isApproval } from "@botsdk/client/bot/rich-control";
 import type {
   BotMessage,
   BotStepSection,
   BotTurnProvenance,
   BotTurnStep,
   BotTurnTrigger,
-} from "../../shared/turn";
+} from "@botsdk/client/bot/turn";
+import type { BotSkillChange } from "@botsdk/client/skills/changes";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
+
+import { botDemonstration, botTrigger, botTurn, usage } from "../../../../core/server/storage";
+import type { Database } from "../../../../core/server/storage";
 import { routineNameOf, slotOf } from "../routines";
 
 /**

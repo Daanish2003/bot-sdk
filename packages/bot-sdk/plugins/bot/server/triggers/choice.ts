@@ -1,10 +1,14 @@
+import {
+  answeredChoiceText,
+  type ChoiceInput,
+  maxChoiceOtherLength,
+} from "@botsdk/client/bot/choice";
+import { searchTextOf } from "@botsdk/client/message-parts";
 import { and, eq } from "drizzle-orm";
 
 import { message } from "../../../../core/server/storage";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { rpcError } from "../../../../core/server/rpc-error";
-import { searchTextOf } from "../../../../core/shared/message-parts";
-import { answeredChoiceText, type ChoiceInput, maxChoiceOtherLength } from "../../shared/choice";
 import { lockConversation, receive, type ReceivedTrigger } from "./router";
 import { controlOf, controlParts, findBot, hintChanged, recordBotChange } from "../conversation";
 

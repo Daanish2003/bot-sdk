@@ -1,3 +1,4 @@
+import { secretNameSchema } from "@botsdk/client/bot/secret";
 import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -16,7 +17,6 @@ import { encryptCredentials } from "../../../../core/server/credentials/encrypti
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
 import { richControlJsonSchema } from "../../../../plugins/bot/client/index";
-import { secretNameSchema } from "../../../../plugins/bot/shared/secret";
 import {
   rotateSecretKeys,
   loadSecretValues,

@@ -1,11 +1,11 @@
-import type { CredentialSummary } from "../shared/credentials/services";
+import type { CredentialSummary } from "@botsdk/client/models/credentials/services";
 import {
   type CredentialService,
   isCredentialService,
   type ProviderId,
   providers,
   toolServices,
-} from "../shared/credentials/services";
+} from "@botsdk/client/models/credentials/services";
 
 export type ProviderRowStatus = "verified" | "unverified" | "missing" | "coming_soon";
 

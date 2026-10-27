@@ -1,4 +1,4 @@
-import { findModel, unknownReasoning } from "../../../plugins/models/shared/models";
+import { findModel, unknownReasoning } from "@botsdk/client/models/models";
 import { describe, expect, it } from "vitest";
 
 import { modelGroups } from "../../../plugins/models/client/models";

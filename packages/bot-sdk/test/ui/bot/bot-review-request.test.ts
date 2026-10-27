@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+import type { BotHelper } from "@botsdk/client/bot/helper";
+import type { BotReview } from "@botsdk/client/bot/review";
+import type { BotMessage, BotTurnProvenance } from "@botsdk/client/bot/turn";
 import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -6,9 +9,6 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import type { BotHelper } from "../../../plugins/bot/shared/helper";
-import type { BotReview } from "../../../plugins/bot/shared/review";
-import type { BotMessage, BotTurnProvenance } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { providerFor } from "../fake-dictionary";
 

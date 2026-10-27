@@ -1,7 +1,7 @@
+import type { BotTurnStep } from "@botsdk/client/bot/turn";
 import { useState } from "react";
 
 import { useI18n } from "../../../core/client/react/provider";
-import type { BotTurnStep } from "../shared/turn";
 
 type CacheState = "read" | "written" | "missed" | "notCached";
 

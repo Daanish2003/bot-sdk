@@ -1,4 +1,5 @@
-import type { FeatureClient } from "../../../core/client/chat-client";
+import type { FeatureClient } from "@botsdk/client";
+
 import { skillsContract, type SkillsContract } from "../shared/contract";
 
 export type { SkillsContract };

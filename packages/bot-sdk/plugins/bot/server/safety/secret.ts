@@ -1,3 +1,4 @@
+import type { BotSecret } from "@botsdk/client/bot/secret";
 import { and, asc, eq, gt, or } from "drizzle-orm";
 
 import {
@@ -11,7 +12,6 @@ import { bot, botSecret } from "../../../../core/server/storage";
 import type { Database } from "../../../../core/server/storage";
 import { rpcError } from "../../../../core/server/rpc-error";
 import type { BotSdkContext } from "../../../../core/server/plugin";
-import type { BotSecret } from "../../shared/secret";
 import {
   minSecretLength,
   savedSecretText,

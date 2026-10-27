@@ -1,3 +1,5 @@
+import type { SentFile } from "@botsdk/client/bot/files";
+import { searchTextOf } from "@botsdk/client/message-parts";
 import { type AnyServerTool, type ModelMessage, toolDefinition } from "@tanstack/ai";
 import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -6,9 +8,7 @@ import { botTrigger, botTurn, message, type MessageRow } from "../../../../core/
 import type { Database, PromptStartTool } from "../../../../core/server/storage";
 import { enabledFeatures, hasConnectorFeature } from "../../../../core/server/feature";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
-import { searchTextOf } from "../../../../core/shared/message-parts";
 import type { WorkflowContext } from "../../../runner/server/internal";
-import type { SentFile } from "../../shared/files";
 import { type EarlierTurn, changeNotesFor } from "./change-notes";
 import {
   capText,

@@ -1,3 +1,5 @@
+import { liveDemonstrationStates } from "@botsdk/client/bot/demonstration";
+import { canUseComputer, providerOf } from "@botsdk/client/models/models";
 import { type ModelMessage, firstSentence, toolDefinition } from "@tanstack/ai";
 import { and, asc, count, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -12,7 +14,6 @@ import type { Database } from "../../../../core/server/storage";
 import { hasConnectorFeature } from "../../../../core/server/feature";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
-import { canUseComputer, providerOf } from "../../../models/shared/models";
 import type { MessageUsage } from "../../../models/shared/usage";
 import {
   defineCoreJob,
@@ -27,7 +28,6 @@ import {
   ComputerUnavailableError,
   maxScreens,
 } from "../../../computer/server/internal";
-import { liveDemonstrationStates } from "../../shared/demonstration";
 import { BrowserSession, browserTools } from "./browser-tools";
 import { storeScreenshot, recordBotChange, hintChanged } from "../conversation";
 import {

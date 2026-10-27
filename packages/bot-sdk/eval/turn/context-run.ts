@@ -1,3 +1,5 @@
+import { searchTextOf } from "@botsdk/client/message-parts";
+
 import { sendAndFollow } from "../../test/support/follow-send";
 // One run of each step-8 eval (spec #665, #678), through the real `bot` and `memory` plugins: a
 // fresh user and Bot, then the scenario. The cache eval plays a scripted Conversation and a warm
@@ -22,7 +24,6 @@ import {
 } from "../../core/server/storage";
 import type { Database } from "../../core/server/storage";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { searchTextOf } from "../../core/shared/message-parts";
 import { computerOf } from "../../plugins/bot/server/agent-loop";
 import { lockConversation, receive, awaySummaryKey } from "../../plugins/bot/server/triggers";
 import { routineSnapshot } from "../../plugins/bot/server/routines";

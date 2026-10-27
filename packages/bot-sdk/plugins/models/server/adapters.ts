@@ -1,3 +1,5 @@
+import type { AspectRatio } from "@botsdk/client/models/image-models";
+import { isKnownModel, parseModelId } from "@botsdk/client/models/models";
 import type { AnyImageAdapter, AnyTextAdapter, TextOptions } from "@tanstack/ai";
 import { type AnthropicChatModel, createAnthropicChat } from "@tanstack/ai-anthropic";
 import { BedrockConverseTextAdapter, type BedrockConverseModels } from "@tanstack/ai-bedrock";
@@ -26,8 +28,6 @@ import { createBytePlusImage } from "@tanstack/ai-byteplus";
 
 import { chatgptPlanFetch } from "./chatgpt-plan";
 import type { Credentials } from "./types";
-import type { AspectRatio } from "../shared/image-models";
-import { isKnownModel, parseModelId } from "../shared/models";
 
 /** The model id type of an adapter factory. The ids are checked in `models.test.ts`. */
 type ModelOf<Factory extends (model: never, ...rest: never[]) => unknown> = Parameters<Factory>[0];

@@ -1,5 +1,5 @@
-import type { FeatureClient } from "../../../core/client/chat-client";
-import { type ChannelsContract, channelsContract } from "../../bot/shared/contract";
+import type { FeatureClient } from "@botsdk/client";
+import { type ChannelsContract, channelsContract } from "@botsdk/client/bot/contract";
 
 export type { ChannelsContract };
 

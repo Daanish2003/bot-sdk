@@ -1,3 +1,9 @@
+import {
+  inlineImageTypes,
+  maxFileBytes,
+  maxFilesPerMessage,
+  type SentFile,
+} from "@botsdk/client/bot/files";
 import { and, eq, inArray, lt, sql } from "drizzle-orm";
 import { posix } from "node:path";
 import { z } from "zod";
@@ -13,12 +19,6 @@ import type { BotSdkContext, Transaction } from "../../../../core/server/plugin"
 import { rpcError } from "../../../../core/server/rpc-error";
 import { type MailFile, MailFileTooLargeError } from "../../../channel/server/internal";
 import type { ComputerHandle } from "../../../computer/server/internal";
-import {
-  inlineImageTypes,
-  maxFileBytes,
-  maxFilesPerMessage,
-  type SentFile,
-} from "../../shared/files";
 import { botKind, controlOf } from "./store";
 import { botDirectory, resolvePath } from "./bot-folder";
 

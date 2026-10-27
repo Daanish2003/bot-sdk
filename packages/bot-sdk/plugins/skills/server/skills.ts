@@ -1,6 +1,6 @@
+import type { BotSkillChange } from "@botsdk/client/skills/changes";
 import type { ModelMessage } from "@tanstack/ai";
 
-import type { BotSkillChange } from "../shared/changes";
 import {
   ComputerOperationError,
   type ComputerHandle,

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { textPartSchema } from "../../../core/shared/message-parts";
+import { textPartSchema } from "../message-parts";
 import { demonstrationCardSchema } from "./demonstration";
 import { choiceControlSchema } from "./choice";
 import { filesControlSchema } from "./files";

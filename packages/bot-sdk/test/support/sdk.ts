@@ -1,5 +1,6 @@
+import { createBotSdkClient } from "@botsdk/client";
+
 import type { TestDeps } from "./deps";
-import { createBotSdkClient } from "../../core/client/chat-client";
 import { memoryClient } from "../../plugins/memory/client/index";
 import { skillsClient } from "../../plugins/skills/client/index";
 import { knowledgeClient } from "../../plugins/knowledge/client/index";

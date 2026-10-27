@@ -1,3 +1,6 @@
+import { isReservedSecretName, reservedSecretNameMessage } from "@botsdk/client/bot/secret";
+import { parseModelId } from "@botsdk/client/models/models";
+import { modelsDevSnapshot } from "@botsdk/client/models/models-snapshot";
 import {
   type AnyServerTool,
   type AnyTextAdapter,
@@ -20,8 +23,6 @@ import {
 } from "../../../models/server/internal";
 
 import type { ModelUsage } from "../../../models/server/internal";
-import { parseModelId } from "../../../models/shared/models";
-import { modelsDevSnapshot } from "../../../models/shared/models-snapshot";
 import type { MessageUsage } from "../../../models/shared/usage";
 import {
   type ComputerHandle,
@@ -76,8 +77,6 @@ import {
   secretMasker,
   unknownSecretError,
 } from "../safety";
-
-import { isReservedSecretName, reservedSecretNameMessage } from "../../shared/secret";
 
 /**
  * The final message of a summary call (slide 34): sent after the Prompt start and history, so the

@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
+import type { BotMessage, BotTurnProvenance, BotTurnStep } from "@botsdk/client/bot/turn";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { BotMessage, BotTurnProvenance, BotTurnStep } from "../../../plugins/bot/shared/turn";
 import { BotCacheChip } from "../../../plugins/bot/ui/bot-cache-chip";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { providerFor } from "../fake-dictionary";

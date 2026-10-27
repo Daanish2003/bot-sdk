@@ -1,3 +1,4 @@
+import type { BotCheckIn } from "@botsdk/client/bot/check-in";
 import { and, asc, eq, sql } from "drizzle-orm";
 
 import { bot, botCheckIn, botTurn } from "../../../../core/server/storage";
@@ -5,7 +6,6 @@ import type { Database } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
 import { rpcError } from "../../../../core/server/rpc-error";
-import type { BotCheckIn } from "../../shared/check-in";
 import { hintChanged, recordBotChange, newestTimeZone, knownZone } from "../conversation";
 import { lockConversation } from "../triggers";
 import { lastMessageOfTurn, zonedTime } from "./routine";

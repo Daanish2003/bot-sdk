@@ -1,3 +1,4 @@
+import { type DemonstrationStep, isLiveDemonstration } from "@botsdk/client/bot/demonstration";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { and, asc, eq, max, sql } from "drizzle-orm";
@@ -12,7 +13,6 @@ import {
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
 import { rpcError } from "../../../../core/server/rpc-error";
 import { defineCoreJob } from "../../../runner/server/internal";
-import { type DemonstrationStep, isLiveDemonstration } from "../../shared/demonstration";
 import { computerOf } from "../agent-loop";
 import { demonstrationCaptureJobName, move, rewriteCard, startCapture } from "./demonstration";
 import { lockConversation } from "../triggers";

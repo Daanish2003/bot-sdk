@@ -59,10 +59,10 @@
   },
   "dependencies": {
     "@ai-chat/db": "workspace:*",
+    "@botsdk/client": "workspace:*",
     "@orpc/client": "catalog:",
     "@orpc/contract": "catalog:",
     "@orpc/server": "catalog:",
-    "@orpc/tanstack-query": "^1.15.0",
     "@tanstack/ai": "1.0.0",
     "@tanstack/ai-anthropic": "1.0.0",
     "@tanstack/ai-bedrock": "1.0.0",

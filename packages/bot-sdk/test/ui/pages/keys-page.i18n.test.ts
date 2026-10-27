@@ -1,8 +1,8 @@
+import type { ListedModel } from "@botsdk/client/models/models";
 import type { QueryClient } from "@tanstack/react-query";
 import { createElement, type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import type { ListedModel } from "../../../plugins/models/shared/models";
 import { HostKeysPage } from "../host-keys-page";
 import { renderWrapped, untranslated, type TestClient } from "../fake-dictionary";
 

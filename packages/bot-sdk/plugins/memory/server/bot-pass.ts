@@ -1,3 +1,5 @@
+import type { BotMemoryChange, MemoryTier } from "@botsdk/client/memory/changes";
+import { searchTextOf } from "@botsdk/client/message-parts";
 import type { ModelMessage } from "@tanstack/ai";
 import { asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -6,13 +8,11 @@ import { bot, botTrigger, botTurn, message } from "../../../core/server/storage"
 import type { Database } from "../../../core/server/storage";
 import { coreContextOf, type FeatureContext } from "../../../core/server/feature";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
-import { searchTextOf } from "../../../core/shared/message-parts";
 import { lockConversation } from "../../bot/server/triggers";
 import { hintChanged, recordBotChange } from "../../bot/server/conversation";
 import { sendToUserToolName } from "../../bot/server/context";
 import type { ComputerHandle } from "../../computer/server/internal";
 import { defineJob, type JobContext } from "../../runner/server/internal";
-import type { BotMemoryChange, MemoryTier } from "../shared/changes";
 import {
   dayOf,
   defaultImportance,

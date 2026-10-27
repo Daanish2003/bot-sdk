@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
+import type { BotSdkClient } from "@botsdk/client";
 import type { QueryClient } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { BotSdkClient } from "../../../core/client/chat-client";
 import { knowledgeClient } from "../../../plugins/knowledge/client/index";
 import { KnowledgeChip } from "../../../plugins/knowledge/ui/knowledge-chip";
 import { providerFor } from "../fake-dictionary";

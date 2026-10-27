@@ -1,8 +1,8 @@
+import type { BotReview } from "@botsdk/client/bot/review";
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import { useState } from "react";
 
 import { useI18n } from "../../../core/client/react/provider";
-import type { BotReview } from "../shared/review";
 
 /**
  * A Turn's quiet "✓ N calls auto-approved" line (spec #691), which expands to each pass's summary

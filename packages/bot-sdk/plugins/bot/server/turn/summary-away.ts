@@ -1,3 +1,4 @@
+import { parseModelId } from "@botsdk/client/models/models";
 import {
   type AnyTextAdapter,
   chat,
@@ -19,7 +20,6 @@ import {
 } from "../../../../core/server/storage";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
 import { withCacheControl } from "../../../models/server/internal";
-import { parseModelId } from "../../../models/shared/models";
 import {
   type CoreJobServices,
   defineCoreJob,

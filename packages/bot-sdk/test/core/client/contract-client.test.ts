@@ -1,10 +1,9 @@
+import { coreContract, createBotSdkClient } from "@botsdk/client";
 import { type AnyContractRouter, isContractProcedure } from "@orpc/contract";
 import { type AnyRouter, implement } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { describe, expect, it } from "vitest";
 
-import { createBotSdkClient } from "../../../core/client/chat-client";
-import { coreContract } from "../../../core/client/contract";
 import { channelClient } from "../../../plugins/channel/client/index";
 import { knowledgeClient } from "../../../plugins/knowledge/client/index";
 import { mcpClient } from "../../../plugins/mcp/client/index";

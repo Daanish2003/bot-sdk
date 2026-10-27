@@ -5,7 +5,7 @@ import {
   effortFor,
   reasoningChoices,
   type ReasoningSupport,
-} from "../../../../plugins/models/shared/models";
+} from "@botsdk/client/models/models";
 
 const withEfforts: ReasoningSupport = {
   efforts: ["low", "medium", "high"],

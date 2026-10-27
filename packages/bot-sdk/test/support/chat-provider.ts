@@ -1,7 +1,7 @@
+import { createBotSdkClient } from "@botsdk/client";
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { createBotSdkClient } from "../../core/client/chat-client";
 import { type ChatRouter, ChatProvider } from "../../core/client/react/provider";
 import type { Messages } from "../../core/shared/i18n";
 

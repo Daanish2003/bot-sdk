@@ -1,3 +1,4 @@
+import type { ComputerCard } from "@botsdk/client/bot/helper";
 import { type ModelMessage, toolDefinition } from "@tanstack/ai";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -7,7 +8,6 @@ import type { Database } from "../../../../core/server/storage";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
 import { rpcError } from "../../../../core/server/rpc-error";
 import type { MessageUsage } from "../../../models/shared/usage";
-import type { ComputerCard } from "../../shared/helper";
 import { computerOf } from "../agent-loop";
 import { botHelperJobName, helperJobKey } from "./helper";
 import { lockConversation } from "../triggers";

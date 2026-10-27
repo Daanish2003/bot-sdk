@@ -1,10 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import type { BotCheckIn } from "@botsdk/client/bot/check-in";
+import { type BotRoutine, scheduleText } from "@botsdk/client/bot/routine";
 import { ClockIcon } from "lucide-react";
 
 import { useI18n } from "../../../core/client/react/provider";
-import type { BotCheckIn } from "../shared/check-in";
-import { type BotRoutine, scheduleText } from "../shared/routine";
 import { CancelCheckIn, type CheckInActionHandlers, checkInText } from "./check-in-line";
 import {
   RoutineActions,

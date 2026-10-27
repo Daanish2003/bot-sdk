@@ -1,9 +1,9 @@
+import { tavilyService } from "@botsdk/client/models/credentials/services";
 import { toolDefinition } from "@tanstack/ai";
 import { z } from "zod";
 
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import type { ToolCall } from "../../../models/server/internal";
-import { tavilyService } from "../../../models/shared/credentials/services";
 import { WorkflowYieldedError } from "../../../runner/server/internal";
 import {
   searchErrorMessages,

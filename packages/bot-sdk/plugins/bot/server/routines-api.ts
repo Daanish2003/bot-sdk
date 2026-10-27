@@ -1,3 +1,5 @@
+import { botScopeInput, routineInput, checkInInput } from "@botsdk/client/bot/contract";
+
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { parseInput, type WithUser } from "../../../core/server/rpc-error";
 import { requireOwnedBot } from "./owned-bot";
@@ -13,7 +15,6 @@ import {
   receiveRoutineWebhook,
   rotateWebhook,
 } from "./routines";
-import { botScopeInput, routineInput, checkInInput } from "../shared/contract";
 
 /*
  * The `routines` and `checkIns` namespaces' domain methods (spec #873), taking the user's id as

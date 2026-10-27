@@ -1,3 +1,4 @@
+import { inlineImageTypes, type FilesControl } from "@botsdk/client/bot/files";
 import { DownloadIcon, FileIcon } from "lucide-react";
 import { useState } from "react";
 
@@ -5,7 +6,6 @@ import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
 import { useChatAdapter, useI18n } from "../../../core/client/react/provider";
-import { inlineImageTypes, type FilesControl } from "../shared/files";
 
 /** A size as the card shows it: bytes, KB or MB. */
 export function formatSize(bytes: number): string {

@@ -1,13 +1,14 @@
-import { type ResolveDeps, resolvePayer } from "./credentials/resolve";
-import type { Credentials, HostImageModel } from "./types";
-import { type ImageMeter, imageMeter } from "./meter";
 import {
   type ImageModel,
   type ListedImageModel,
   curatedImageModels,
   findImageModel,
-} from "../shared/image-models";
-import { parseModelId } from "../shared/models";
+} from "@botsdk/client/models/image-models";
+import { parseModelId } from "@botsdk/client/models/models";
+
+import { type ResolveDeps, resolvePayer } from "./credentials/resolve";
+import type { Credentials, HostImageModel } from "./types";
+import { type ImageMeter, imageMeter } from "./meter";
 
 type Deps = ResolveDeps;
 

@@ -1,6 +1,7 @@
-import type { BotMessage } from "../../bot/shared/turn";
-import type { SentFile } from "../../bot/shared/files";
-import { isApproval } from "../../bot/shared/rich-control";
+import type { SentFile } from "@botsdk/client/bot/files";
+import { isApproval } from "@botsdk/client/bot/rich-control";
+import type { BotMessage } from "@botsdk/client/bot/turn";
+
 import type { OutboundMail } from "./email";
 
 /** The most bytes of files one email attaches; over it, the files are a link instead. */

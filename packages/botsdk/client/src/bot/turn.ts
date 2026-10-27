@@ -1,8 +1,8 @@
 import { z } from "zod";
 
-import type { BotMemoryChange } from "../../memory/shared/changes";
-import type { BotKnowledgeChange } from "../../knowledge/shared/changes";
-import type { BotSkillChange } from "../../skills/shared/changes";
+import type { BotMemoryChange } from "../memory/changes";
+import type { BotKnowledgeChange } from "../knowledge/changes";
+import type { BotSkillChange } from "../skills/changes";
 import { reactionSchema } from "./reaction";
 import { richControlSchema } from "./rich-control";
 

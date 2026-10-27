@@ -1,16 +1,16 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { type ReactNode, useEffect, useState } from "react";
-import { createPortal } from "react-dom";
-
-import { useI18n } from "../../../core/client/react/provider";
-import { useDemonstrationSteps, useDemonstrationView } from "../client/react/demonstrations";
 import {
   type DemonstrationAction,
   type DemonstrationCard,
   type DemonstrationStep,
   isLiveDemonstration,
-} from "../shared/demonstration";
+} from "@botsdk/client/bot/demonstration";
+import { type ReactNode, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+
+import { useI18n } from "../../../core/client/react/provider";
+import { useDemonstrationSteps, useDemonstrationView } from "../client/react/demonstrations";
 import { LiveView } from "./computer-card";
 
 type Props = {

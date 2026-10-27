@@ -1,9 +1,9 @@
+import type { BotChange } from "@botsdk/client/bot/changes";
+import type { BotMessage } from "@botsdk/client/bot/turn";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
 import { type BotSdkOrpc, useChatAdapter } from "../../../../core/client/react/provider";
-import type { BotChange } from "../../shared/changes";
-import type { BotMessage } from "../../shared/turn";
 
 /**
  * How often a tab with a running Turn fetches the change log when no signal has come (ADR 0026): a

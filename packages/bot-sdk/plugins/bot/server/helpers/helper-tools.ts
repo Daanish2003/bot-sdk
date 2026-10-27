@@ -1,3 +1,4 @@
+import { isLiveHelper } from "@botsdk/client/bot/helper";
 import { toolDefinition } from "@tanstack/ai";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -5,7 +6,6 @@ import { z } from "zod";
 import { bot, botHelper, botHelperMessage } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
-import { isLiveHelper } from "../../shared/helper";
 import { helperJobKey, helperStoppedJobName, startHelperTool } from "./helper";
 import { closeComputerCard } from "./hand-off";
 import { listHelpers } from "./helper-card";

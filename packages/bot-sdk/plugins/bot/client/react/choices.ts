@@ -1,7 +1,7 @@
+import type { ChoiceInput } from "@botsdk/client/bot/choice";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useChatAdapter } from "../../../../core/client/react/provider";
-import type { ChoiceInput } from "../../shared/choice";
 import { useItemActions } from "./turn-list";
 
 /**

@@ -1,3 +1,5 @@
+import { screensPath, screenViewPath } from "@botsdk/client/bot/helper";
+
 import { deleteBlobsBestEffort } from "../../../core/server/storage";
 import type { BotSdkPlugin, Route } from "../../../core/server/plugin";
 
@@ -30,7 +32,6 @@ import {
   stopUserHelpers,
 } from "./helpers";
 
-import { screensPath, screenViewPath } from "../shared/helper";
 import { stopUserTurns, turnJobs } from "./turn";
 import { demonstrationJobs, stopUserDemonstrations } from "./demonstrations";
 

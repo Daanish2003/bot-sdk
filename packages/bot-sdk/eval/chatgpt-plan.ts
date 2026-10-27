@@ -6,11 +6,11 @@
 // `@ai-chat/auth` loads `@ai-chat/email`'s `.tsx` templates, which plain Node can't run, so it is
 // imported only on the plan, after tsx's loader is registered. A run on keys loads as before.
 
+import { chatgptPlanModels } from "@botsdk/client/models/credentials/services";
 import { chat } from "@tanstack/ai";
 
 import { adapterFor } from "../plugins/models/server/internal";
 import type { LinkedCredentialsHook } from "../plugins/models/server/internal";
-import { chatgptPlanModels } from "../plugins/models/shared/credentials/services";
 
 /** The owner's linked plan: a fresh access token on each call, and the models plugin's hook over it. */
 export type ChatgptPlan = {

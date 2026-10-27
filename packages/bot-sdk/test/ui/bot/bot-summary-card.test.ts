@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
+import type { BotSummary } from "@botsdk/client/bot/turn";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { BotSummary } from "../../../plugins/bot/shared/turn";
 import { SummaryCard } from "../../../plugins/bot/ui/summary-card";
 import { providerFor } from "../fake-dictionary";
 

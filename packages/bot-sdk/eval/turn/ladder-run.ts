@@ -1,3 +1,5 @@
+import { tavilyService } from "@botsdk/client/models/credentials/services";
+
 import { sendAndFollow } from "../../test/support/follow-send";
 // One run of a step-6 ladder case (spec #587), through the real `bot` plugin with the `computer`
 // plugin on, so the Turn has the Computer system prompt and the Helper tools: a fresh user and Bot,
@@ -10,7 +12,6 @@ import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { gistOf } from "../../plugins/bot/server/helpers";
 import { lockConversation, receive } from "../../plugins/bot/server/triggers";
 import { saveCredentials } from "../../plugins/models/server/internal";
-import { tavilyService } from "../../plugins/models/shared/credentials/services";
 import { freshBot, seedHistory, type TurnEnv } from "./case";
 import type { LadderCase } from "./ladder-cases";
 import { helperStarts, scoreLadder } from "./ladder-score";

@@ -1,7 +1,8 @@
+import { screenViewInput, screenControlInput } from "@botsdk/client/bot/contract";
+
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { parseInput, type WithUser } from "../../../core/server/rpc-error";
 import { screenControl, screenView } from "./helpers";
-import { screenViewInput, screenControlInput } from "../shared/contract";
 
 /*
  * The Computer's Screen domain methods (spec #873), `sdk.computer` on the instance: the live view

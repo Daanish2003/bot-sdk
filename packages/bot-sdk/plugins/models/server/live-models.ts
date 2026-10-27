@@ -6,7 +6,7 @@ import {
   type ReasoningEffort,
   type ReasoningSupport,
   unknownReasoning,
-} from "../shared/models";
+} from "@botsdk/client/models/models";
 
 /**
  * The live Model lists of OpenRouter and Ollama, fetched through `deps.fetch`. A list that

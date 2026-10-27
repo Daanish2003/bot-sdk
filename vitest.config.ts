@@ -4,8 +4,15 @@ import { fileURLToPath } from "node:url";
 
 import { configDefaults, defineConfig } from "vitest/config";
 
-const testFiles = ["{apps,packages}/*/{src,test}/**/*.test.ts"];
-const integrationTestFiles = ["{apps,packages}/*/{src,test}/**/*.integration.test.ts"];
+// The `@botsdk/*` packages sit one level deeper, in packages/botsdk/<name> (spec #875).
+const testFiles = [
+  "{apps,packages}/*/{src,test}/**/*.test.ts",
+  "packages/botsdk/*/{src,test}/**/*.test.ts",
+];
+const integrationTestFiles = [
+  "{apps,packages}/*/{src,test}/**/*.integration.test.ts",
+  "packages/botsdk/*/{src,test}/**/*.integration.test.ts",
+];
 
 const rootDir = fileURLToPath(new URL(".", import.meta.url));
 

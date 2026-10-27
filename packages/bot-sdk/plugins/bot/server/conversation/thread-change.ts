@@ -1,10 +1,10 @@
+import type { BotChangeKind } from "@botsdk/client/bot/changes";
 import { eq } from "drizzle-orm";
 
 import { recordChange } from "../../../../core/server/chat/change-log";
 import { conversationChannel } from "../../../../core/server/chat/conversation-events";
 import { bot } from "../../../../core/server/storage";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
-import type { BotChangeKind } from "../../shared/changes";
 
 /**
  * Records a change of `kind` to `refId` in the Bot thread's change log (ADR 0026), in `tx`, under

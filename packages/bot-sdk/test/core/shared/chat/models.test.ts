@@ -13,14 +13,14 @@ import { OPENAI_CHAT_MODELS } from "@tanstack/ai-openai";
 import { VERCEL_GATEWAY_CHAT_MODELS } from "@tanstack/ai-vercel-gateway";
 import { describe, expect, it } from "vitest";
 
-import { providers } from "../../../../plugins/models/shared/credentials/services";
+import { providers } from "@botsdk/client/models/credentials/services";
 import {
   curatedModels,
   defaultModelFor,
   findModel,
   isLiveListProvider,
-} from "../../../../plugins/models/shared/models";
-import { modelsDevSnapshot } from "../../../../plugins/models/shared/models-snapshot";
+} from "@botsdk/client/models/models";
+import { modelsDevSnapshot } from "@botsdk/client/models/models-snapshot";
 
 /**
  * `@tanstack/ai-cloudflare` exports no runtime model list: its `CloudflareTextModel` accepts any

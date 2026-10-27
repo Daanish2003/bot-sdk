@@ -62,4 +62,4 @@ export {
   isTimeZone,
   knownZone,
   timeNotice,
-} from "../../shared/time-zone";
+} from "@botsdk/client/bot/time-zone";

@@ -1,14 +1,14 @@
+import {
+  type BotSdkClient,
+  type CoreContract,
+  createBotSdkClient,
+  type FeatureClient,
+  type FeaturesContract,
+} from "@botsdk/client";
 import { QueryClient } from "@tanstack/react-query";
 import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import {
-  type BotSdkClient,
-  createBotSdkClient,
-  type FeatureClient,
-  type FeaturesContract,
-} from "../../core/client/chat-client";
-import type { CoreContract } from "../../core/client/contract";
 import type { ChannelsClient } from "../../plugins/channel/client/index";
 import type { KnowledgeFeatureClient } from "../../plugins/knowledge/client/index";
 import type { McpFeatureClient } from "../../plugins/mcp/client/index";

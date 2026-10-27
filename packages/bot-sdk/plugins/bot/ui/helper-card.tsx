@@ -1,10 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { type BotHelper, type HelperStatus, isLiveHelper } from "@botsdk/client/bot/helper";
 import { ChevronDownIcon, Loader2Icon, MonitorIcon, TerminalIcon } from "lucide-react";
 import { useState } from "react";
 
 import { useI18n } from "../../../core/client/react/provider";
-import { type BotHelper, type HelperStatus, isLiveHelper } from "../shared/helper";
 
 const chipStyles: Record<HelperStatus, string> = {
   running: "bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-100",

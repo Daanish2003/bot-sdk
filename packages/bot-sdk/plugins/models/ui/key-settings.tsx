@@ -2,7 +2,8 @@ import {
   type CredentialService,
   credentialForms,
   type SaveCredentialsInput,
-} from "../shared/credentials/services";
+} from "@botsdk/client/models/credentials/services";
+
 import {
   type ProviderRow,
   type ProviderRowStatus,

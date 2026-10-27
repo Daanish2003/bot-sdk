@@ -1,9 +1,10 @@
+import { demonstrationInput } from "@botsdk/client/bot/contract";
+import type { DemonstrationAction } from "@botsdk/client/bot/demonstration";
+
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { parseInput, type WithUser } from "../../../core/server/rpc-error";
-import type { DemonstrationAction } from "../shared/demonstration";
 import { actOnDemonstration, demonstrationSteps } from "./demonstrations";
 import { screenView } from "./helpers";
-import { demonstrationInput } from "../shared/contract";
 
 /*
  * The `demonstrations` namespace's domain methods (spec #873): the user's side of a Demonstration

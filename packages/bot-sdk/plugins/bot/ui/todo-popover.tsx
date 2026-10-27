@@ -1,10 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import type { BotHelper } from "@botsdk/client/bot/helper";
 import { ListTodoIcon, XIcon } from "lucide-react";
 
 import { useI18n } from "../../../core/client/react/provider";
 import { allHelpers } from "../client/react/helpers";
-import type { BotHelper } from "../shared/helper";
 import { helperIcon, StatusChip } from "./helper-card";
 
 /**

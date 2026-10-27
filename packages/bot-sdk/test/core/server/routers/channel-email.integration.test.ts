@@ -1,8 +1,8 @@
+import { maxFileBytes } from "@botsdk/client/bot/files";
 import { and, asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { botTrigger, message } from "../../../../core/server/storage";
-import { maxFileBytes } from "../../../../plugins/bot/shared/files";
 import { findBot } from "../../../../plugins/bot/server/conversation";
 import { fakeEmailProvider } from "../../../../plugins/channel/fake/index";
 import { emailChannel, type InboundMail } from "../../../../plugins/channel/server/index";

@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import type { ChannelsContract } from "@botsdk/client/bot/contract";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MailIcon } from "lucide-react";
 import { useState } from "react";
@@ -7,7 +8,6 @@ import { toast } from "sonner";
 
 import { useI18n, useOrpc } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
-import type { ChannelsContract } from "../../bot/shared/contract";
 
 /**
  * The Bot header's **Email** button (spec #761, prototype variant A): a popover with the Bot's own

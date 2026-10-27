@@ -1,3 +1,7 @@
+import { maxFilesPerMessage } from "@botsdk/client/bot/files";
+import type { BotMessage, TurnStatus } from "@botsdk/client/bot/turn";
+import type { BotKnowledgeChange } from "@botsdk/client/knowledge/changes";
+import type { BotSkillChange } from "@botsdk/client/skills/changes";
 import type { ModelMessage } from "@tanstack/ai";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -16,7 +20,6 @@ import {
   type WorkflowContext,
 } from "../../../runner/server/internal";
 
-import type { BotMessage, TurnStatus } from "../../shared/turn";
 import {
   botTurnJobName,
   lockConversation,
@@ -49,11 +52,8 @@ import { todoList } from "../helpers";
 import { type LoopResult, runLoop, seesImagesOnce } from "../agent-loop";
 import { closeWaitingReviews } from "../safety";
 
-import type { BotSkillChange } from "../../../skills/shared/changes";
 import { knowledgeChangesOf } from "../../../knowledge/server/changes";
-import type { BotKnowledgeChange } from "../../../knowledge/shared/changes";
 import { skillChangesOf } from "../../../skills/server/skills";
-import { maxFilesPerMessage } from "../../shared/files";
 
 import { forTurn } from "../tools";
 

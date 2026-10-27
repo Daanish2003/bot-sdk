@@ -1,3 +1,6 @@
+import type { WarmResult } from "@botsdk/client/bot/contract";
+import type { BotWarming } from "@botsdk/client/bot/turn";
+import { parseModelId } from "@botsdk/client/models/models";
 import {
   type AnyTextAdapter,
   chat,
@@ -17,14 +20,11 @@ import {
   promptCharactersOf,
   reportedUsageOf,
 } from "../../../models/server/internal";
-import type { BotWarming } from "../../shared/turn";
 
-import { parseModelId } from "../../../models/shared/models";
 import { pruneScreenshots, resolveImageRefs, findBot, latestTurnStatus } from "../conversation";
 import { latestPromptStart, loopPromptStart } from "./prompt-start";
 
 import { historyAfter } from "./summary";
-import type { WarmResult } from "../../shared/contract";
 
 const minute = 60_000;
 
@@ -34,7 +34,7 @@ const cacheLifetimeMs = { anthropic: 60 * minute, openai: 30 * minute } as const
 /** A cache this close to expiring (or closer) is warmed again. */
 const warmMarginMs = 5 * minute;
 
-export type { WarmResult, WarmSkipped } from "../../shared/contract";
+export type { WarmResult, WarmSkipped } from "@botsdk/client/bot/contract";
 
 /** The Provider of `model` when it has a warming call (slide 32): Anthropic, and OpenAI's GPT-5.6+. */
 function warmableProvider(model: string): "anthropic" | "openai" | undefined {

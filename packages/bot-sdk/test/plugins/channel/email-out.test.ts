@@ -1,6 +1,6 @@
+import type { RichControl } from "@botsdk/client/bot/rich-control";
 import { describe, expect, it } from "vitest";
 
-import type { RichControl } from "../../../plugins/bot/shared/rich-control";
 import {
   emailBody,
   headerText,

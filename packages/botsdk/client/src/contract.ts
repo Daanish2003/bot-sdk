@@ -1,5 +1,5 @@
-import { botContract } from "../../plugins/bot/shared/contract";
-import { modelsContract } from "../../plugins/models/shared/contract";
+import { botContract } from "./bot/contract";
+import { modelsContract } from "./models/contract";
 
 /**
  * The core's contract (spec #873): the Bot core's namespaces and `models`, as the HTTP layer serves

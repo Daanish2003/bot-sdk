@@ -7,7 +7,7 @@ import {
   credentialHint,
   isCredentialService,
   providers,
-} from "../../../../plugins/models/shared/credentials/services";
+} from "@botsdk/client/models/credentials/services";
 
 describe("credentialFieldSchemas", () => {
   it("asks Cloudflare for an account id and an API token", () => {

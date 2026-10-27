@@ -1,10 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import type { BotSecret } from "@botsdk/client/bot/secret";
 import { KeyRoundIcon } from "lucide-react";
 
 import { dateFormat } from "../../../core/client/intl";
 import { useI18n } from "../../../core/client/react/provider";
-import type { BotSecret } from "../shared/secret";
 import { useRefusalToast } from "./refusal-toast";
 
 /**

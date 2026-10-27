@@ -1,3 +1,4 @@
+import type { BotSdkClient, BotSdkOrpc, CoreContract } from "@botsdk/client";
 import type { AnyContractRouter } from "@orpc/contract";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -10,10 +11,8 @@ import {
 } from "react";
 
 import { createI18n, type I18n, type Messages } from "../../shared/i18n";
-import type { BotSdkClient, BotSdkOrpc } from "../chat-client";
-import type { CoreContract } from "../contract";
 
-export type { BotSdkOrpc } from "../chat-client";
+export type { BotSdkOrpc } from "@botsdk/client";
 
 /** A page the chat UI links or navigates to. The host app maps each to its own route. */
 export type ChatPage =

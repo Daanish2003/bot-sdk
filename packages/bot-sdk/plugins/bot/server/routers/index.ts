@@ -1,9 +1,9 @@
+import { botContract } from "@botsdk/client/bot/contract";
+import type { DemonstrationAction } from "@botsdk/client/bot/demonstration";
 import { implement } from "@orpc/server";
 
 import type { Context } from "../../../../core/server/context";
 import { requireAuth } from "../../../../core/server/procedures";
-import type { DemonstrationAction } from "../../shared/demonstration";
-import { botContract } from "../../shared/contract";
 
 /*
  * The `bot` plugin's routers: they implement the Bot core's contract (`shared/contract.ts`), one

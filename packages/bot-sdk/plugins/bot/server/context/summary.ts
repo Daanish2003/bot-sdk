@@ -1,3 +1,5 @@
+import type { BotMessage, BotSummary } from "@botsdk/client/bot/turn";
+import { searchTextOf } from "@botsdk/client/message-parts";
 import type { ModelMessage } from "@tanstack/ai";
 import { and, asc, desc, eq, gte, lt, lte, or, sql } from "drizzle-orm";
 
@@ -5,8 +7,6 @@ import { botPromptStart, botSummary, botTurn, message } from "../../../../core/s
 import type { Database } from "../../../../core/server/storage";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { searchTextOf } from "../../../../core/shared/message-parts";
-import type { BotMessage, BotSummary } from "../../shared/turn";
 import { buildPromptStart, type PromptStartParts, userZoneAt } from "./prompt-start";
 import { midTurnNote } from "../agent-loop";
 import { awaySummaryKey } from "../triggers";

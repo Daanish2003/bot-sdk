@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
+import type { OpenaiCredentialsState } from "@botsdk/client/models/credentials/services";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { OpenaiCredentialsState } from "../../plugins/models/shared/credentials/services";
 import type { LinkedCredentialsHost } from "../../plugins/models/ui/key-settings";
 import { HostKeysPage } from "./host-keys-page";
 import { providerFor, renderEnglish, renderWrapped } from "./fake-dictionary";

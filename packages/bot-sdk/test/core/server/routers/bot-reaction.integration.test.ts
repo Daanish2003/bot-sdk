@@ -1,9 +1,9 @@
+import { emojiSchema } from "@botsdk/client/bot/reaction";
+import { richControlJsonSchema } from "@botsdk/client/bot/rich-control";
 import { convertSchemaToJsonSchema } from "@tanstack/ai";
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { emojiSchema } from "../../../../plugins/bot/shared/reaction";
-import { richControlJsonSchema } from "../../../../plugins/bot/shared/rich-control";
 import { botTrigger, botTurn } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { saveCredentials } from "../../../../plugins/models/server/internal";

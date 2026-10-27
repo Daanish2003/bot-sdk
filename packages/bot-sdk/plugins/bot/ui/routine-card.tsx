@@ -7,13 +7,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { type BotRoutine, scheduleText } from "@botsdk/client/bot/routine";
 import { ClockIcon, WebhookIcon } from "lucide-react";
 import { useId } from "react";
 import { toast } from "sonner";
 
 import { useChatAdapter, useI18n } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
-import { type BotRoutine, scheduleText } from "../shared/routine";
 import { useRefusalToast } from "./refusal-toast";
 import { runTime } from "./run-divider";
 

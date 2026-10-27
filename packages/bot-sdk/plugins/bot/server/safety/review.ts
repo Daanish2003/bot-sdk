@@ -1,3 +1,9 @@
+import {
+  approvalWaitMs,
+  type BotReview,
+  type ReviewApprovalState,
+} from "@botsdk/client/bot/review";
+import { searchTextOf } from "@botsdk/client/message-parts";
 import { chat, EventType, type ModelMessage, type StreamChunk } from "@tanstack/ai";
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 import { z } from "zod";
@@ -7,10 +13,8 @@ import type { Database } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { rpcError } from "../../../../core/server/rpc-error";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
-import { searchTextOf } from "../../../../core/shared/message-parts";
 import type { ModelMeter } from "../../../models/server/internal";
 import type { MessageUsage } from "../../../models/shared/usage";
-import { approvalWaitMs, type BotReview, type ReviewApprovalState } from "../../shared/review";
 import { parseReply } from "../../../memory/server/ask";
 import { lockConversation } from "../triggers";
 import { forwardedEmailLabel, routineNameOf, routinePromptOf } from "../routines";

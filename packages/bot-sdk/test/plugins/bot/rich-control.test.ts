@@ -1,8 +1,8 @@
+import { isApproval } from "@botsdk/client/bot/rich-control";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { botMessagePartsSchema, richControlJsonSchema } from "../../../plugins/bot/client/index";
-import { isApproval } from "../../../plugins/bot/shared/rich-control";
 
 const secret = { kind: "secret", name: "GITHUB_TOKEN", why: "To push to your repository." };
 const computer = { kind: "computer", helperId: "h1", reason: "Log in for me.", state: "open" };

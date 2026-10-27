@@ -1,7 +1,7 @@
+import type { RoutineSchedule } from "@botsdk/client/bot/routine";
 import { type AnyPgColumn, jsonb, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 import { botsdkSchema } from "../botsdk-schema";
-import type { RoutineSchedule } from "../../../../plugins/bot/shared/routine";
 import { bot } from "./bot";
 import { botTurn } from "./bot-turn";
 

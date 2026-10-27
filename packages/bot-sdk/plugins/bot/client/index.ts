@@ -4,4 +4,4 @@ export {
   type RichControlKind,
   richControlJsonSchema,
   richControlSchema,
-} from "../shared/rich-control";
+} from "@botsdk/client/bot/rich-control";

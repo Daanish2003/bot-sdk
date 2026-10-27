@@ -1,7 +1,8 @@
+import { saveSecretInput, deleteSecretInput } from "@botsdk/client/bot/contract";
+
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { parseInput, type WithUser } from "../../../core/server/rpc-error";
 import { deleteSecret, listSecrets, saveSecret } from "./safety";
-import { saveSecretInput, deleteSecretInput } from "../shared/contract";
 
 /*
  * The `secrets` namespace's domain methods (spec #873): the user's Secrets, shared by all their

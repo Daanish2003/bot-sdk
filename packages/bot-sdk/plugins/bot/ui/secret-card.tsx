@@ -8,11 +8,11 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import type { SecretRequest } from "@botsdk/client/bot/secret";
 import { KeyRoundIcon } from "lucide-react";
 import { type FormEvent, useId, useState } from "react";
 
 import { useI18n } from "../../../core/client/react/provider";
-import type { SecretRequest } from "../shared/secret";
 import { useRefusalToast } from "./refusal-toast";
 
 /**

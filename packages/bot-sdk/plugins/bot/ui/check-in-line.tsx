@@ -1,8 +1,8 @@
 import { Button } from "@/components/ui/button";
+import type { BotCheckIn } from "@botsdk/client/bot/check-in";
 import { ClockIcon } from "lucide-react";
 
 import { useI18n } from "../../../core/client/react/provider";
-import type { BotCheckIn } from "../shared/check-in";
 import { useRefusalToast } from "./refusal-toast";
 import { runTime } from "./run-divider";
 

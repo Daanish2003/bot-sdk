@@ -1,3 +1,13 @@
+import type { Bot, ListedBot } from "@botsdk/client/bot/contract";
+import type { Reactions } from "@botsdk/client/bot/reaction";
+import {
+  type BotMessageParts,
+  botMessagePartsSchema,
+  type RichControl,
+  type RichControlKind,
+} from "@botsdk/client/bot/rich-control";
+import type { BotMessage, BotTurnStatus } from "@botsdk/client/bot/turn";
+import { searchTextOf } from "@botsdk/client/message-parts";
 import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 import { deleteConversations } from "../../../../core/server/chat/delete-conversations";
@@ -14,23 +24,13 @@ import type { Database } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { appendMessage } from "../../../../core/server/chat/message-tree";
 import type { BotSdkContext, Transaction, UserDeleteHooks } from "../../../../core/server/plugin";
-import { searchTextOf } from "../../../../core/shared/message-parts";
-import {
-  type BotMessageParts,
-  botMessagePartsSchema,
-  type RichControl,
-  type RichControlKind,
-} from "../../shared/rich-control";
-import type { Reactions } from "../../shared/reaction";
-import type { BotMessage, BotTurnStatus } from "../../shared/turn";
-import type { Bot, ListedBot } from "../../shared/contract";
 
 /** The `kind` of every Bot's Conversation: the plugin's id. */
 export const botKind = "bot";
 
 const botColumns = { id: bot.id, name: bot.name, model: bot.model, createdAt: bot.createdAt };
 
-export type { Bot, BotWithStatus, ListedBot } from "../../shared/contract";
+export type { Bot, BotWithStatus, ListedBot } from "@botsdk/client/bot/contract";
 
 export type { BotMessage };
 

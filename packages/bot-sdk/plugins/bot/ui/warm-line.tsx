@@ -1,7 +1,7 @@
+import type { BotWarming } from "@botsdk/client/bot/turn";
 import { FlameIcon } from "lucide-react";
 
 import { useI18n } from "../../../core/client/react/provider";
-import type { BotWarming } from "../shared/turn";
 import { costOf } from "./bot-cache-chip";
 
 /** A call that warmed the Bot's cache (#677), as a muted line in its thread with its cost. */

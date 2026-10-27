@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
+import { type Reactions, reactionEmojis } from "@botsdk/client/bot/reaction";
 
 import { useI18n } from "../../../core/client/react/provider";
-import { type Reactions, reactionEmojis } from "../shared/reaction";
 
 /**
  * The emojis on a Message (spec #761), as small chips under its bubble: the user's and the Bot's,

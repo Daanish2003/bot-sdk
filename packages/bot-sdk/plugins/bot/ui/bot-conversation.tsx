@@ -1,14 +1,16 @@
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import type { SentFile } from "@botsdk/client/bot/files";
+import { isLiveHelper } from "@botsdk/client/bot/helper";
+import { isApproval } from "@botsdk/client/bot/rich-control";
+import type { BotTurnProvenance } from "@botsdk/client/bot/turn";
 import { SendIcon } from "lucide-react";
 import { type FormEvent, Fragment, type KeyboardEvent, type ReactNode, useState } from "react";
 import { toast } from "sonner";
 
 import { useI18n } from "../../../core/client/react/provider";
 import { serverErrorData, serverErrorText } from "../../../core/client/rpc-error";
-import type { SentFile } from "../shared/files";
-import type { BotTurnProvenance } from "../shared/turn";
 import { useBotTurn } from "../client/react/bot-turn";
 import { useBotCheckIns } from "../client/react/check-ins";
 import { useDemonstrationActions } from "../client/react/demonstrations";
@@ -25,8 +27,6 @@ import { AttachButton, DraftFileChips } from "./draft-files";
 import { ReactionBar, ReactionChips } from "./reactions";
 import { CheckInLine } from "./check-in-line";
 import { HelperCard } from "./helper-card";
-import { isLiveHelper } from "../shared/helper";
-import { isApproval } from "../shared/rich-control";
 import { ReviewPassesLine } from "./review-passes-line";
 import { defaultRichControlRenderers, type RichControlRenderers } from "./rich-control";
 import { RoutinesPopover } from "./routines-popover";

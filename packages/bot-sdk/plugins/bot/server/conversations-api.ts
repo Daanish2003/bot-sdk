@@ -1,3 +1,4 @@
+import { conversationChangesInput } from "@botsdk/client/bot/contract";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -6,7 +7,6 @@ import type { PubSub } from "../../../core/server/chat/pubsub";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { parseInput, rpcError, type WithUser } from "../../../core/server/rpc-error";
 import { conversation } from "../../../core/server/storage";
-import { conversationChangesInput } from "../shared/contract";
 import { conversationChanges } from "./changes";
 
 /*

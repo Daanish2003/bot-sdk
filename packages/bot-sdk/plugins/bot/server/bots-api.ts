@@ -1,3 +1,12 @@
+import {
+  createBotInput,
+  botInput,
+  sendInput,
+  uploadInput,
+  chooseInput,
+  reactInput,
+} from "@botsdk/client/bot/contract";
+
 import { lastSeqOf } from "../../../core/server/chat/change-log";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { parseInput, rpcError, type WithUser } from "../../../core/server/rpc-error";
@@ -14,14 +23,6 @@ import { turnProvenance } from "./safety";
 import { botSummaries, botWarmings, warmBot } from "./context";
 import { sendToBot, stopBot } from "./turn";
 import { answerChoice, reactToMessage } from "./triggers";
-import {
-  createBotInput,
-  botInput,
-  sendInput,
-  uploadInput,
-  chooseInput,
-  reactInput,
-} from "../shared/contract";
 
 /*
  * The `bots` namespace's domain methods (spec #873): what a Host calls in-process, with the user's

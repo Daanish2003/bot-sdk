@@ -1,7 +1,7 @@
+import type { BotKnowledgeChange } from "@botsdk/client/knowledge/changes";
 import type { ModelMessage } from "@tanstack/ai";
 
 import { knowledgeDirectory } from "../shared/folder";
-import type { BotKnowledgeChange } from "../shared/changes";
 
 /**
  * The files a Turn's `transcript` saved to Knowledge, for its chip: the paths of its successful

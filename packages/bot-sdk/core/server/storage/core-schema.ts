@@ -1,3 +1,4 @@
+import type { PartsEnvelope } from "@botsdk/client/message-parts";
 import {
   type AnyPgColumn,
   type ExtraConfigColumn,
@@ -9,7 +10,6 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-import type { PartsEnvelope } from "../../shared/message-parts";
 import { blob } from "./blob";
 import { botsdkSchema } from "./botsdk-schema";
 import { conversationChange } from "./conversation-change";

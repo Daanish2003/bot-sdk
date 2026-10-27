@@ -21,6 +21,7 @@
     "@ai-chat/db": "workspace:*",
     "@ai-chat/email": "workspace:*",
     "@ai-chat/ui": "workspace:*",
+    "@botsdk/client": "workspace:*",
     "@orpc/client": "catalog:",
     "@orpc/server": "catalog:",
     "@orpc/tanstack-query": "^1.15.0",

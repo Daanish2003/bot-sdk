@@ -1,3 +1,4 @@
+import { type BotRoutine, type RoutineSchedule, scheduleText } from "@botsdk/client/bot/routine";
 import { createHash, randomBytes } from "node:crypto";
 
 import { and, asc, desc, eq, inArray, isNull, like, lt, lte, min, or, sql } from "drizzle-orm";
@@ -14,7 +15,6 @@ import type { Database } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
 import { rpcError } from "../../../../core/server/rpc-error";
-import { type BotRoutine, type RoutineSchedule, scheduleText } from "../../shared/routine";
 import {
   hintChanged,
   recordBotChange,

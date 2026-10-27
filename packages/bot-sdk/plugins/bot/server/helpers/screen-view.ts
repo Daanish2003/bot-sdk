@@ -1,3 +1,5 @@
+import { isLiveDemonstration } from "@botsdk/client/bot/demonstration";
+import { screensPath } from "@botsdk/client/bot/helper";
 import { createHmac, hkdfSync, timingSafeEqual } from "node:crypto";
 
 import { and, eq } from "drizzle-orm";
@@ -12,9 +14,7 @@ import {
   type ScreenControl,
   ScreenNotOpenError,
 } from "../../../computer/server/internal";
-import { screensPath } from "../../shared/helper";
 import { computerOf } from "../agent-loop";
-import { isLiveDemonstration } from "../../shared/demonstration";
 import { helperStoppedError } from "./hand-off";
 
 /**

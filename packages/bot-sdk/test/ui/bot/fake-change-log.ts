@@ -1,7 +1,7 @@
 import { act } from "@testing-library/react";
 import { vi } from "vitest";
 
-import type { BotChange, BotChanges } from "../../../plugins/bot/shared/changes";
+import type { BotChange, BotChanges } from "@botsdk/client/bot/changes";
 
 /**
  * A stand-in for the browser's `EventSource`, so a test can send the data-less `changed` hint of the

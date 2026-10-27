@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import type { BotSecret } from "@botsdk/client/bot/secret";
+import type { BotMessage } from "@botsdk/client/bot/turn";
 import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -6,8 +8,6 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import type { BotSecret } from "../../../plugins/bot/shared/secret";
-import type { BotMessage } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import type { RichControlRenderers } from "../../../plugins/bot/ui/rich-control";
 import { providerFor } from "../fake-dictionary";

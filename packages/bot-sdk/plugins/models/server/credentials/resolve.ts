@@ -1,11 +1,12 @@
-import { chatgptPlanModels } from "../../shared/credentials/services";
+import { chatgptPlanModels } from "@botsdk/client/models/credentials/services";
 import {
   canUseComputer,
   findModel,
   parseModelId,
   type CuratedModel,
   unknownReasoning,
-} from "../../shared/models";
+} from "@botsdk/client/models/models";
+
 import {
   freeMeter,
   hostModelMeter,

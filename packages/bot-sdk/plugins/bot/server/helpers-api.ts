@@ -1,8 +1,9 @@
+import { helperListInput, helperDoneInput, helperStopInput } from "@botsdk/client/bot/contract";
+
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { parseInput, type WithUser } from "../../../core/server/rpc-error";
 import { helperDone, listHelpers, stopBotHelpers } from "./helpers";
 import { requireOwnedBot } from "./owned-bot";
-import { helperListInput, helperDoneInput, helperStopInput } from "../shared/contract";
 
 /*
  * The `helpers` namespace's domain methods (spec #873), taking the user's id as `bots` does.

@@ -1,9 +1,5 @@
-import { shownLinkedPlan, resolvedServices, hostModelList } from "./credentials/resolve";
-import { loadCredentials } from "./credentials/store";
-import { chatgptPlanModels, tavilyService } from "../shared/credentials/services";
-import type { ModelsDeps } from "./types";
-import { ollamaModels, openRouterModels } from "./live-models";
-import { listImageModels } from "./image-models";
+import { chatgptPlanModels, tavilyService } from "@botsdk/client/models/credentials/services";
+import type { ListedImageModel } from "@botsdk/client/models/image-models";
 import {
   type CuratedModel,
   type ListedModel,
@@ -12,8 +8,13 @@ import {
   findModel,
   isLiveListProvider,
   parseModelId,
-} from "../shared/models";
-import type { ListedImageModel } from "../shared/image-models";
+} from "@botsdk/client/models/models";
+
+import { shownLinkedPlan, resolvedServices, hostModelList } from "./credentials/resolve";
+import { loadCredentials } from "./credentials/store";
+import type { ModelsDeps } from "./types";
+import { ollamaModels, openRouterModels } from "./live-models";
+import { listImageModels } from "./image-models";
 
 type Deps = Pick<
   ModelsDeps,

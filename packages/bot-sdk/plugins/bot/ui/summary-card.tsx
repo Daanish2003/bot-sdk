@@ -1,9 +1,9 @@
+import type { BotSummary } from "@botsdk/client/bot/turn";
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import { useState } from "react";
 
 import { dateFormat } from "../../../core/client/intl";
 import { useI18n } from "../../../core/client/react/provider";
-import type { BotSummary } from "../shared/turn";
 
 const clock: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
 /** A kept Message may be days older than its Summary, so it shows its day too. */

@@ -1,9 +1,9 @@
 import { Button } from "@/components/ui/button";
+import { approvalWaitMs, type BotReview } from "@botsdk/client/bot/review";
 import { ShieldAlertIcon, ShieldCheckIcon, ShieldXIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useI18n } from "../../../core/client/react/provider";
-import { approvalWaitMs, type BotReview } from "../shared/review";
 import { useRefusalToast } from "./refusal-toast";
 
 /** The call as the card shows it raw: a shell call's command, else its arguments. */

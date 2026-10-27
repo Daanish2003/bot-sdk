@@ -1,3 +1,4 @@
+import type { BotChange } from "@botsdk/client/bot/changes";
 import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
@@ -13,7 +14,6 @@ import {
 } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { findBot } from "../../../../plugins/bot/server/conversation";
-import type { BotChange } from "../../../../plugins/bot/shared/changes";
 import { deleteCredentials, saveCredentials } from "../../../../plugins/models/server/internal";
 import { inProcessRunner, type JobRunner } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";

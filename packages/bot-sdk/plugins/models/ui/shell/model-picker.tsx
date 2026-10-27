@@ -1,5 +1,5 @@
-import { type CuratedModel, findModel, type ListedModel } from "../../shared/models";
-import { providerLabel } from "../../shared/credentials/services";
+import { type CuratedModel, findModel, type ListedModel } from "@botsdk/client/models/models";
+import { providerLabel } from "@botsdk/client/models/credentials/services";
 import { buttonVariants } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";

@@ -1,6 +1,6 @@
+import type { ListedImageModel } from "@botsdk/client/models/image-models";
 import { describe, expect, it } from "vitest";
 
-import type { ListedImageModel } from "../../../plugins/models/shared/image-models";
 import { groupImageModels } from "../../../plugins/models/ui/settings/image-model-groups";
 
 function model(provider: string, modelId: string, onHostCredentials: boolean): ListedImageModel {

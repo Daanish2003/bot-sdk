@@ -1,8 +1,8 @@
+import { maxFileBytes, maxFilesPerMessage, type SentFile } from "@botsdk/client/bot/files";
 import { useRef, useState } from "react";
 
 import { useChatAdapter, useI18n } from "../../../../core/client/react/provider";
 import { serverErrorText } from "../../../../core/client/rpc-error";
-import { maxFileBytes, maxFilesPerMessage, type SentFile } from "../../shared/files";
 
 /** A file in the composer: uploading, uploaded (with its `SentFile`), or refused with its error. */
 export type DraftFile = {

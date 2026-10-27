@@ -1,7 +1,7 @@
 // Maintainer-run snapshot of the curated Models' limits: `pnpm snapshot:models`.
 //
-// Fetches models.dev and rewrites plugins/models/shared/models-snapshot.ts with each curated Model's
-// context window, max output and reasoning efforts. The app never fetches models.dev at runtime,
+// Fetches models.dev and rewrites @botsdk/client's src/models/models-snapshot.ts with each curated
+// Model's context window, max output and reasoning efforts. The app never fetches models.dev at runtime,
 // and this script stays in the canonical repo: Hosts don't get it.
 //
 // Every curated Model needs a row in `sources`: its models.dev `[provider, model]`, or `null` when
@@ -14,8 +14,10 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const MODELS_TS = join(SDK_ROOT, "plugins/models/shared/models.ts");
-const SNAPSHOT_TS = join(SDK_ROOT, "plugins/models/shared/models-snapshot.ts");
+// The curated list and its snapshot live in @botsdk/client (spec #875).
+const MODELS_DIR = join(SDK_ROOT, "../botsdk/client/src/models");
+const MODELS_TS = join(MODELS_DIR, "models.ts");
+const SNAPSHOT_TS = join(MODELS_DIR, "models-snapshot.ts");
 const MODELS_DEV_URL = "https://models.dev/api.json";
 
 /** The efforts the chat offers. `off` is reported separately. */

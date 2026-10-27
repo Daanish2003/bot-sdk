@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import type { BotHelper, ComputerCard as Card } from "@botsdk/client/bot/helper";
 import { CheckIcon, MonitorIcon, XIcon } from "lucide-react";
 import { useState } from "react";
 import { createPortal } from "react-dom";
@@ -8,7 +9,6 @@ import { toast } from "sonner";
 import { useI18n } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
 import { type ScreenMode, useFreshLink, useLiveView } from "../client/react/helpers";
-import type { BotHelper, ComputerCard as Card } from "../shared/helper";
 
 type CardProps = {
   card: Card;

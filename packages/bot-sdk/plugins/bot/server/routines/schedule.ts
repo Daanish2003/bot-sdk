@@ -1,4 +1,5 @@
-import type { RoutineDay, RoutineSchedule } from "../../shared/routine";
+import type { RoutineDay, RoutineSchedule } from "@botsdk/client/bot/routine";
+
 import { formatterIn, knownZone } from "../conversation";
 
 const minuteMs = 60_000;

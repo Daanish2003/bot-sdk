@@ -1,9 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import type { ChoiceControl, ChoiceInput } from "@botsdk/client/bot/choice";
 import { type FormEvent, useState } from "react";
 
 import { useI18n } from "../../../core/client/react/provider";
-import type { ChoiceControl, ChoiceInput } from "../shared/choice";
 import { useRefusalToast } from "./refusal-toast";
 
 /**

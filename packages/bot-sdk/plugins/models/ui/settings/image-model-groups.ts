@@ -1,5 +1,5 @@
-import { providers } from "../../shared/credentials/services";
-import type { ListedImageModel } from "../../shared/image-models";
+import { providers } from "@botsdk/client/models/credentials/services";
+import type { ListedImageModel } from "@botsdk/client/models/image-models";
 
 export type ImageModelGroup = {
   provider: string;

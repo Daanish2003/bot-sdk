@@ -1,3 +1,10 @@
+import {
+  type DemonstrationAction,
+  type DemonstrationCard,
+  type DemonstrationState,
+  isLiveDemonstration,
+  liveDemonstrationStates,
+} from "@botsdk/client/bot/demonstration";
 import { toolDefinition } from "@tanstack/ai";
 import { and, asc, eq, inArray, max, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -15,13 +22,6 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
 import { rpcError } from "../../../../core/server/rpc-error";
 import { defineCoreJob } from "../../../runner/server/internal";
-import {
-  type DemonstrationAction,
-  type DemonstrationCard,
-  type DemonstrationState,
-  isLiveDemonstration,
-  liveDemonstrationStates,
-} from "../../shared/demonstration";
 import {
   closeScreen,
   freeScreen,

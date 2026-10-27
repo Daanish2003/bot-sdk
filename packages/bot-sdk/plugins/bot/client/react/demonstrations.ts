@@ -1,8 +1,8 @@
+import type { DemonstrationAction, DemonstrationStep } from "@botsdk/client/bot/demonstration";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import { useChatAdapter } from "../../../../core/client/react/provider";
-import type { DemonstrationAction, DemonstrationStep } from "../../shared/demonstration";
 import { useItemActions } from "./turn-list";
 
 /**

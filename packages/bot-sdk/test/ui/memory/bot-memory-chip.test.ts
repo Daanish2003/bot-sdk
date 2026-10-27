@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
+import type { BotSdkClient } from "@botsdk/client";
+import type { BotMessage, BotTurnProvenance } from "@botsdk/client/bot/turn";
+import type { BotMemoryChange } from "@botsdk/client/memory/changes";
 import type { QueryClient } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { BotSdkClient } from "../../../core/client/chat-client";
-import type { BotMessage, BotTurnProvenance } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { memoryClient } from "../../../plugins/memory/client/index";
-import type { BotMemoryChange } from "../../../plugins/memory/shared/changes";
 import { BotMemoryChip } from "../../../plugins/memory/ui/bot-memory-chip";
 import { providerFor } from "../fake-dictionary";
 

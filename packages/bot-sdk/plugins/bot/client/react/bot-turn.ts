@@ -1,11 +1,11 @@
+import type { SentFile } from "@botsdk/client/bot/files";
+import type { BotMessage } from "@botsdk/client/bot/turn";
 import { ORPCError } from "@orpc/client";
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
 
 import { type BotSdkOrpc, useChatAdapter } from "../../../../core/client/react/provider";
 import { uuidv7 } from "../../../../core/shared/uuidv7";
-import type { SentFile } from "../../shared/files";
-import type { BotMessage } from "../../shared/turn";
 import { inOrder, syncBot, useBotSync } from "./bot-sync";
 
 /** A Message as the Conversation shows it: a saved one, or the user's Message still being sent. */

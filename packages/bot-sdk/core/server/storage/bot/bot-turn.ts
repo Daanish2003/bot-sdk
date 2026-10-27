@@ -1,3 +1,6 @@
+import type { BotKnowledgeChange } from "@botsdk/client/knowledge/changes";
+import type { BotMemoryChange } from "@botsdk/client/memory/changes";
+import type { BotSkillChange } from "@botsdk/client/skills/changes";
 import type { ModelMessage } from "@tanstack/ai";
 import { sql } from "drizzle-orm";
 import {
@@ -12,9 +15,6 @@ import {
 
 import { botsdkSchema } from "../botsdk-schema";
 import { job } from "../runner/job";
-import type { BotMemoryChange } from "../../../../plugins/memory/shared/changes";
-import type { BotKnowledgeChange } from "../../../../plugins/knowledge/shared/changes";
-import type { BotSkillChange } from "../../../../plugins/skills/shared/changes";
 import type { MessageUsage } from "../../../../plugins/models/shared/usage";
 import { bot } from "./bot";
 import { botPromptStart } from "./bot-prompt-start";

@@ -1,8 +1,8 @@
+import { modelsContract } from "@botsdk/client/models/contract";
 import { implement } from "@orpc/server";
 
 import type { Context } from "../../../../core/server/context";
 import { requireAuth } from "../../../../core/server/procedures";
-import { modelsContract } from "../../shared/contract";
 import { readQuota } from "../quota";
 import { modelsDeps } from "../state";
 

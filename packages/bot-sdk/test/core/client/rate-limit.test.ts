@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { RateLimitedError, throwIfRateLimited } from "../../../core/client/rate-limit";
+import { RateLimitedError, throwIfRateLimited } from "@botsdk/client";
 
 describe("throwIfRateLimited", () => {
   it("throws a RateLimitedError carrying Retry-After when the server answers 429", () => {

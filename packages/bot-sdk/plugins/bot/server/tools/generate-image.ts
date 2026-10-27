@@ -1,3 +1,4 @@
+import { aspectRatios } from "@botsdk/client/models/image-models";
 import { generateImage, type ImageGenerationResult, toolDefinition } from "@tanstack/ai";
 import { z } from "zod";
 
@@ -9,7 +10,6 @@ import {
 } from "../../../computer/server/internal";
 import { ImageRefusedError } from "../../../models/server/internal";
 import type { ResolvedImageModel } from "../../../models/server/internal";
-import { aspectRatios } from "../../../models/shared/image-models";
 import { WorkflowYieldedError } from "../../../runner/server/internal";
 import { computerOf, computerOperationError, computerUnavailableError } from "../agent-loop";
 import { sniffImageType, resolvePath } from "../conversation";

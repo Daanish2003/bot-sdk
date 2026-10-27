@@ -1,8 +1,9 @@
+import { reviewListInput, reviewDecisionInput } from "@botsdk/client/bot/contract";
+
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { parseInput, type WithUser } from "../../../core/server/rpc-error";
 import { requireOwnedBot } from "./owned-bot";
 import { decideReview, listReviews } from "./safety";
-import { reviewListInput, reviewDecisionInput } from "../shared/contract";
 
 /*
  * The `reviews` namespace's domain methods (spec #873): the user's side of the Auto-reviews of

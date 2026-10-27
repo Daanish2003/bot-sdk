@@ -1,8 +1,8 @@
+import type { ProviderId } from "@botsdk/client/models/credentials/services";
 import type { AnyImageAdapter, AnyTextAdapter } from "@tanstack/ai";
 
 import type { HookEmitter } from "../../../core/server/chat/hooks";
 import type { Database } from "../../../core/server/storage";
-import type { ProviderId } from "../shared/credentials/services";
 
 /** Decrypted Provider credentials or Tool credential fields, keyed by field name. */
 export type Credentials = Record<string, string>;

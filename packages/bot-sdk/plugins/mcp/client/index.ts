@@ -1,4 +1,5 @@
-import type { FeatureClient } from "../../../core/client/chat-client";
+import type { FeatureClient } from "@botsdk/client";
+
 import { mcpContract, type McpContract } from "../shared/contract";
 
 export type { McpContract };

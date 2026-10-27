@@ -1,3 +1,4 @@
+import type { BotMessage, TurnStatus } from "@botsdk/client/bot/turn";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { eq } from "drizzle-orm";
@@ -7,7 +8,6 @@ import { botTrigger, botTurn, message } from "../../core/server/storage";
 import type { BotSdkContext } from "../../core/server/plugin";
 import { botMessages } from "../../plugins/bot/server/conversation";
 import { sendToBot } from "../../plugins/bot/server/turn";
-import type { BotMessage, TurnStatus } from "../../plugins/bot/shared/turn";
 import { getTestDb } from "./test-database";
 
 /** What a followed send yields: each Message as it is saved, then how the Turn ended. */

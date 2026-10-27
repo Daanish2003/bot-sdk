@@ -1,9 +1,10 @@
+import type { CredentialSummary } from "@botsdk/client/models/credentials/services";
+import { tavilyService } from "@botsdk/client/models/credentials/services";
+
 import { userCredentials } from "../../../../core/server/storage";
 import { and, asc, eq, gt, or } from "drizzle-orm";
 
 import type { ModelsDeps, Credentials } from "../types";
-import type { CredentialSummary } from "../../shared/credentials/services";
-import { tavilyService } from "../../shared/credentials/services";
 import {
   decryptCredentials,
   encryptCredentials,

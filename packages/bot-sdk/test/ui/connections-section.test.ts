@@ -1,9 +1,9 @@
+import { createBotSdkClient } from "@botsdk/client";
 import { QueryClient } from "@tanstack/react-query";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { createBotSdkClient } from "../../core/client/chat-client";
 import { mcpClient } from "../../plugins/mcp/client/index";
 import {
   ChatProvider,

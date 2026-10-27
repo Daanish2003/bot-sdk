@@ -1,3 +1,4 @@
+import type { BotChange, BotChangeKind, BotChanges } from "@botsdk/client/bot/changes";
 import { and, eq, inArray } from "drizzle-orm";
 
 import { changesSince } from "../../../core/server/chat/change-log";
@@ -5,7 +6,6 @@ import { bot, botReview, botSecret, botTurn, message } from "../../../core/serve
 import type { Database } from "../../../core/server/storage";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
-import type { BotChange, BotChangeKind, BotChanges } from "../shared/changes";
 import { listCheckIns, listRoutines } from "./routines";
 import { listHelpers } from "./helpers";
 import { reviewFields } from "./safety";

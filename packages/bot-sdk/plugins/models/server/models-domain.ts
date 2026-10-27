@@ -1,3 +1,9 @@
+import { deleteCredentialsInput, setImageModelInput } from "@botsdk/client/models/contract";
+import {
+  credentialHint,
+  type OpenaiCredentialsState,
+  saveCredentialsInput,
+} from "@botsdk/client/models/credentials/services";
 import { z } from "zod";
 
 import { parseInput, rpcError, type WithUser } from "../../../core/server/rpc-error";
@@ -13,12 +19,6 @@ import {
 import { loadImageModelSetting, saveImageModelSetting } from "./image-model-setting";
 import { resolveImageModel } from "./image-models";
 import type { ModelsDeps } from "./types";
-import {
-  credentialHint,
-  type OpenaiCredentialsState,
-  saveCredentialsInput,
-} from "../shared/credentials/services";
-import { deleteCredentialsInput, setImageModelInput } from "../shared/contract";
 
 /*
  * The `models` namespace's domain methods besides the older ones (spec #873): what a Host calls

@@ -1,11 +1,11 @@
 import { Button } from "@/components/ui/button";
+import type { BotKnowledgeChange } from "@botsdk/client/knowledge/changes";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { useI18n, useOrpc } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
-import type { BotKnowledgeChange } from "../shared/changes";
 import type { KnowledgeContract } from "../shared/contract";
 
 const kib = 1024;

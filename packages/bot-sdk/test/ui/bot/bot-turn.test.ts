@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { BotMessage, TurnStatus } from "@botsdk/client/bot/turn";
 import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import type { QueryClient } from "@tanstack/react-query";
@@ -10,7 +11,6 @@ import { z } from "zod";
 
 import { rpcError } from "../../../core/server/rpc-error";
 import { en } from "../../../core/shared/i18n";
-import type { BotMessage, TurnStatus } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { providerFor } from "../fake-dictionary";
 import { changeLog, hint, settle, stubEventSource } from "./fake-change-log";

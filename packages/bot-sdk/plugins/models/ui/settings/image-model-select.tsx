@@ -1,4 +1,4 @@
-import { findImageModel } from "../../shared/image-models";
+import { findImageModel } from "@botsdk/client/models/image-models";
 import { Label } from "@/components/ui/label";
 import {
   Select,

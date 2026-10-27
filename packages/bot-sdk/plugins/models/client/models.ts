@@ -1,5 +1,5 @@
-import { type CuratedModel, isLiveListProvider } from "../shared/models";
-import { providers } from "../shared/credentials/services";
+import { type CuratedModel, isLiveListProvider } from "@botsdk/client/models/models";
+import { providers } from "@botsdk/client/models/credentials/services";
 
 export type ModelGroup<T extends CuratedModel = CuratedModel> = {
   provider: CuratedModel["provider"];

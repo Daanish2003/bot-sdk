@@ -1,8 +1,8 @@
+import { channelsContract } from "@botsdk/client/bot/contract";
 import { implement } from "@orpc/server";
 
 import type { Context } from "../../../../core/server/context";
 import { requireAuth } from "../../../../core/server/procedures";
-import { channelsContract } from "../../shared/contract";
 import { emailAddressOf, rotateEmailAddress, lastUsedChannel } from "../conversation";
 
 const os = implement({ channels: channelsContract }).$context<Context>().use(requireAuth);

@@ -1,10 +1,15 @@
+import { choiceOptionsSchema } from "@botsdk/client/bot/choice";
+import { maxFilesPerMessage } from "@botsdk/client/bot/files";
+import { emojiSchema } from "@botsdk/client/bot/reaction";
+import type { RichControl } from "@botsdk/client/bot/rich-control";
+import { routineScheduleSchema } from "@botsdk/client/bot/routine";
+import { secretNameSchema } from "@botsdk/client/bot/secret";
 import { type AnyServerTool, toolDefinition } from "@tanstack/ai";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { message } from "../../../../core/server/storage";
 import type { BotSdkContext } from "../../../../core/server/plugin";
-import { routineScheduleSchema } from "../../shared/routine";
 import { lockConversation } from "../triggers";
 import {
   type CatalogueTurn,
@@ -44,12 +49,6 @@ import { computerToolDefinitions, webSearchTool } from "../agent-loop";
 import { helperTools } from "../helpers";
 import { watchUserTool } from "../demonstrations";
 import type { LoopKit } from "../agent-loop";
-
-import { choiceOptionsSchema } from "../../shared/choice";
-import { maxFilesPerMessage } from "../../shared/files";
-import { emojiSchema } from "../../shared/reaction";
-import type { RichControl } from "../../shared/rich-control";
-import { secretNameSchema } from "../../shared/secret";
 
 import { generateImageTool } from "./generate-image";
 

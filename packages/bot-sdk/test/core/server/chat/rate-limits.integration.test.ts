@@ -1,3 +1,4 @@
+import { RateLimitedError } from "@botsdk/client";
 import { describe, expect, it } from "vitest";
 
 import { createHttpHandler } from "../../../../core/http";
@@ -5,7 +6,6 @@ import { createBotSdk } from "../../../../core/server/create-chat";
 import { knowledge } from "../../../../plugins/knowledge/server/plugin";
 import { memoryRuntime } from "../../../../core/server/runtime";
 import { resolveRateLimits, type RateLimits } from "../../../../core/server/rate-limits";
-import { RateLimitedError } from "../../../../core/client/rate-limit";
 import { createTestSdk } from "../../../support/deps";
 import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { chatRpc, createTestChat } from "../../../support/sdk";
