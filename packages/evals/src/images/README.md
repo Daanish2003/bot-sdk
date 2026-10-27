@@ -14,19 +14,19 @@ create the database), and the API key of the Model's Provider. No E2B and no ima
 ```sh
 EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval_809 \
 OPENROUTER_API_KEY=... \
-pnpm -F @ai-chat/bot-sdk eval:images
+pnpm -F @ai-chat/evals eval:images
 ```
 
 - `EVAL_BOT_MODEL` is the Bots' Model, a `"provider:model"` id (default
   `openrouter:anthropic/claude-sonnet-5.5`). The key variable is the Provider's.
-- `EVAL_CHATGPT_USER_ID` runs a plan Model on that user's linked plan, as in `eval/turn/README.md`.
+- `EVAL_CHATGPT_USER_ID` runs a plan Model on that user's linked plan, as in `src/turn/README.md`.
 - `EVAL_REPEATS` runs each case that many times (default 3). `EVAL_CONCURRENCY` runs that many Turns
   at once (default 4).
 - `--case=<id>` runs one case, `--limit=<n>` the first n.
 - With no key set it exits 1 at once. Give the run its own database: two evals on one database
   truncate each other's rows.
 
-Every run is saved to `eval/images/results/images-<time>.json` (gitignored). The exit code is 0 when
+Every run is saved to `src/images/results/images-<time>.json` (gitignored). The exit code is 0 when
 every run passed.
 
 ## The dry run, and the broken prompt
@@ -35,7 +35,7 @@ every run passed.
 Model or key is used, and its 5/5 only shows the harness and the scorers work. `-- --fake --broken`
 plays each case's `broken` script (claims an image without making one, draws unasked, or starts over
 instead of editing). Every case must then FAIL, and the run exits 0 only if all of them did. The
-scorers' own tests (`test/eval/images/score.test.ts`) do the same without a database.
+scorers' own tests (`test/images/score.test.ts`) do the same without a database.
 
 ## The cases
 

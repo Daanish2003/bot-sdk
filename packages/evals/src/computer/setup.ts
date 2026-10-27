@@ -11,7 +11,7 @@ import type { FeatureEntry } from "@botsdk/bot/create-chat";
 import { createGuardedFetch } from "@botsdk/bot/lib/guarded-fetch";
 import { postgres } from "@botsdk/bot/database";
 import { migrate as migrateBotSdk } from "@botsdk/bot/migrate";
-import { sdkFeatureMigrations } from "../../scripts/migration-parts";
+import { sdkFeatureMigrations } from "@ai-chat/test-support/migration-parts";
 import type { BotSdkContext } from "@botsdk/bot/plugin";
 import { memoryRuntime } from "@botsdk/bot/runtime";
 import { createBotSdkOver, type OverSlots } from "@botsdk/bot/over";
@@ -19,7 +19,7 @@ import { e2bProvider } from "@botsdk/computer-e2b";
 import type { ComputerProvider } from "@botsdk/bot/computer";
 import { productionDeps } from "@botsdk/bot/models/internal";
 import type { ModelsDeps } from "@botsdk/bot/models/internal";
-import { testModelProviders } from "../../test/support/model-providers";
+import { testModelProviders } from "@ai-chat/test-support/model-providers";
 
 /** The key the eval's own credentials are encrypted with. Test data only: nothing is kept. */
 const evalKeySecret = "eval-computer-key-secret-not-for-production";

@@ -1,8 +1,8 @@
-import { sendAndFollow } from "../../test/support/follow-send";
+import { sendAndFollow } from "@ai-chat/test-support/follow-send";
 // The Computer tool-use eval (spec #519, "Evals"): scores whether a real Model uses `shell` and the
 // file tools when a task needs them, and leaves the Computer alone in plain chat. Every run is a real
 // Turn through the `bot` plugin on a real Computer (local E2B). Run it with
-// `pnpm -F @ai-chat/bot-sdk eval:computer`; see eval/computer/README.md.
+// `pnpm -F @ai-chat/evals eval:computer`; see src/computer/README.md.
 //
 // `--fake` (or EVAL_FAKE=1) plays each case's scripted calls instead of a Model, for checking the
 // script and the Computer without a key. `--limit=<n>` runs the first n cases.
@@ -16,7 +16,7 @@ import { botTurn, computer as computerTable } from "@botsdk/bot/storage";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { computerOf } from "@botsdk/bot/bot/agent-loop";
 import { runnerJobs } from "@botsdk/bot/runner/internal";
-import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
+import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { desc, eq } from "drizzle-orm";
 import { freshBot, seedHistory } from "../turn/case";
 import { type ComputerCase, computerCases } from "./cases";
@@ -72,7 +72,7 @@ async function main() {
   const model = fake
     ? (process.env.EVAL_BOT_MODEL ?? "openai:gpt-5.4-mini")
     : process.env.EVAL_BOT_MODEL;
-  if (!model) fail("EVAL_BOT_MODEL is not set. See packages/bot-sdk/eval/computer/README.md.");
+  if (!model) fail("EVAL_BOT_MODEL is not set. See packages/evals/src/computer/README.md.");
   const provider = model.split(":")[0]!;
   const apiKey = fake ? "sk-fake" : process.env[keyVariables[provider] ?? ""];
   if (!apiKey) fail(`${keyVariables[provider] ?? `A key for ${provider}`} is not set`);

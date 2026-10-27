@@ -11,7 +11,7 @@ import { botReview, botRoutine, botTrigger, botTurn } from "@botsdk/bot/storage"
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { webhookTokenHash } from "@botsdk/bot/bot/routines";
 import { defaultTimeZone } from "@botsdk/bot/bot/conversation";
-import type { fakeComputerProvider } from "../../test/support/fake-computer-provider";
+import type { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 import { freshBot, seedHistory } from "../turn/case";
 import { waitForTurn } from "../turn/routine-run";
 import { toolCallsOf } from "../turn/routine-score";

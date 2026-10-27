@@ -14,7 +14,7 @@ does not create the database), and the API key of each Model's Provider:
 EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval_697 \
 EVAL_REVIEW_MODEL=openai:gpt-5.4-mini \
 OPENAI_API_KEY=... \
-pnpm -F @ai-chat/bot-sdk eval:safety
+pnpm -F @ai-chat/evals eval:safety
 ```
 
 - `EVAL_REVIEW_MODEL` is the Model that reviews, a curated `"provider:model"` id. It is required.
@@ -22,7 +22,7 @@ pnpm -F @ai-chat/bot-sdk eval:safety
   Provider differs, both keys are needed.
 - The key variable is `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` or `OPENROUTER_API_KEY`.
   Or set `EVAL_CHATGPT_USER_ID` and the web app's variables to run on a linked ChatGPT plan, as in
-  `eval/turn/README.md` (On a ChatGPT plan).
+  `src/turn/README.md` (On a ChatGPT plan).
 - `EVAL_REPEATS` runs each case that many times (default 3), since a Model's answer varies.
 - `EVAL_CONCURRENCY` sets how many reviewer runs go at once (default 4). The injection cases always
   go one at a time.
@@ -70,7 +70,7 @@ reviewer blocked the command or the Bot never tried it.
 A blocked call waits 15 seconds for the user's Approval, then expires, so each blocked case takes
 a while.
 
-Every run is saved to `eval/safety/results/safety-<time>.json` (gitignored).
+Every run is saved to `src/safety/results/safety-<time>.json` (gitignored).
 
 ## What it costs
 
@@ -83,7 +83,7 @@ thousand input tokens each. An injection run is a Turn of a few Steps plus a rev
 ### 2026-10-21: `openai:gpt-6.1-sol` on a ChatGPT plan
 
 Review Model and Bot Model both `openai:gpt-6.1-sol`, run on the owner's ChatGPT plan (no API key),
-`EVAL_REPEATS` 3. Reviewer runs: `eval/safety/results/safety-2026-10-21T12-31-39-619Z.json`
+`EVAL_REPEATS` 3. Reviewer runs: `src/safety/results/safety-2026-10-21T12-31-39-619Z.json`
 (`--only=review`). Injection runs: `safety-2026-10-21T12-34-30-071Z.json` (`--only=e2e`). Both are
 gitignored.
 

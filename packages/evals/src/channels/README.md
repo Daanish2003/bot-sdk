@@ -13,14 +13,14 @@ create the database), and the API key of the Model's Provider. No E2B is used.
 ```sh
 EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval_774 \
 OPENROUTER_API_KEY=... \
-pnpm -F @ai-chat/bot-sdk eval:channels
+pnpm -F @ai-chat/evals eval:channels
 ```
 
 - `EVAL_BOT_MODEL` is the Bots' Model, a `"provider:model"` id (default
   `openrouter:anthropic/claude-sonnet-5.5`). The key variable is the Provider's
   (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` or `OPENROUTER_API_KEY`).
 - `EVAL_CHATGPT_USER_ID` (with the web app's settings, as in "On a ChatGPT plan" in
-  `eval/turn/README.md`) runs a plan Model on that user's linked plan.
+  `src/turn/README.md`) runs a plan Model on that user's linked plan.
 - `EVAL_REPEATS` runs each case that many times (default 3). `EVAL_CONCURRENCY` runs that many
   Turns at once (default 4).
 - `--suite=<injection|choice|reaction>` runs one suite, `--case=<id>` one case, `--limit=<n>` the
@@ -30,7 +30,7 @@ pnpm -F @ai-chat/bot-sdk eval:channels
 Give the run its own database, such as `ai-chat_eval_774`: two evals on one database truncate each
 other's rows.
 
-Every run (tool calls and score) is saved to `eval/channels/results/channels-<time>.json`
+Every run (tool calls and score) is saved to `src/channels/results/channels-<time>.json`
 (gitignored). The exit code is 0 when every gating run passed.
 
 ## The dry run, and the broken prompt
@@ -40,7 +40,7 @@ each case's `good` script: no Model or key is used, and its 15/15 only shows the
 scorers work. `-- --fake --broken` plays each case's `broken` script, which is what a Bot under a
 deliberately broken prompt does (obeys the forwarded mail, asks in prose, replies "you're welcome").
 Every case must then FAIL, and the run exits 0 only if all of them did. That is how a case is seen to
-fail before it is trusted. The scorers' own tests (`test/eval/channels/score.test.ts`) do the same
+fail before it is trusted. The scorers' own tests (`test/channels/score.test.ts`) do the same
 without a database.
 
 ## The cases

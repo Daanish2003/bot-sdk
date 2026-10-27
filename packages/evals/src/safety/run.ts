@@ -1,6 +1,6 @@
 // The safety evals (spec #691, #697): the reviewer's false-block and miss rates on ~30 cases, and
 // ~5 end-to-end cases in which a webhook Routine's payload hides a command. Run them with
-// `pnpm -F @ai-chat/bot-sdk eval:safety`; see eval/safety/README.md.
+// `pnpm -F @ai-chat/evals eval:safety`; see src/safety/README.md.
 //
 // `--only=review,e2e` runs one of the two. `--fake` (or EVAL_FAKE=1) plays a scripted Model in
 // place of a real one, for checking the script and the scoring without a key; its scores prove
@@ -14,9 +14,9 @@ import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { runnerJobs } from "@botsdk/bot/runner/internal";
-import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
-import { isReviewCall, verdictRound } from "../../test/support/fake-reviewer";
-import { fakeComputerProvider } from "../../test/support/fake-computer-provider";
+import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
+import { isReviewCall, verdictRound } from "@botsdk/testing/fake-reviewer";
+import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";
 import { createComputerSdk, databaseUrlFromEnv, fail, prepareSchema } from "../computer/setup";
 import { keyFor } from "../turn/judge-model";
@@ -69,10 +69,10 @@ async function main() {
     ? (process.env.EVAL_REVIEW_MODEL ?? "openai:gpt-5.4-mini")
     : process.env.EVAL_REVIEW_MODEL;
   if (!reviewModel) {
-    fail("EVAL_REVIEW_MODEL is not set: the Model that reviews. See eval/safety/README.md.");
+    fail("EVAL_REVIEW_MODEL is not set: the Model that reviews. See src/safety/README.md.");
   }
   const botModel = process.env.EVAL_BOT_MODEL ?? reviewModel;
-  // `null`: a Model runs on the owner's ChatGPT plan (eval/chatgpt-plan.ts), not on a key.
+  // `null`: a Model runs on the owner's ChatGPT plan (src/chatgpt-plan.ts), not on a key.
   const plan = fake ? null : await chatgptPlanFromEnv();
   const keyOf = (model: string) => (fake ? "sk-fake" : keyFor(model, plan));
   const reviewKey = keyOf(reviewModel);

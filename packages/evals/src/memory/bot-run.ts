@@ -1,8 +1,8 @@
-import { sendAndFollow } from "../../test/support/follow-send";
+import { sendAndFollow } from "@ai-chat/test-support/follow-send";
 // The Bot memory eval (spec #624, #633): scores a Bot's file memory (ADR 0022) with real Models. Each
 // case is a fresh user with Bots on the fake Computer disk; Turns go through the real `bot` plugin,
 // each Turn's post-turn pass runs on the Bot's own Model, and the memory files are then scored.
-// Run it with `pnpm -F @ai-chat/bot-sdk eval:bot-memory`; see eval/memory/README.md.
+// Run it with `pnpm -F @ai-chat/evals eval:bot-memory`; see src/memory/README.md.
 //
 // `--fake` (or EVAL_FAKE=1) runs the same wiring with the SDK's fake chat adapter, which plays what
 // a good Bot and pass would do, for checking the script without any Model or key.
@@ -27,8 +27,8 @@ import { dayOf, memoryDirectory } from "@botsdk/memory/server/bot-memory";
 import { memory } from "@botsdk/memory";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { runnerJobs } from "@botsdk/bot/runner/internal";
-import { createFakeAdapter, round, text, toolCall } from "../../test/support/fake-adapter";
-import { fakeComputerProvider } from "../../test/support/fake-computer-provider";
+import { createFakeAdapter, round, text, toolCall } from "@botsdk/testing/fake-adapter";
+import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 import { createComputerSdk, databaseUrlFromEnv, prepareSchema } from "../computer/setup";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";
 import { fail, judgeCompletion, keyFor } from "../turn/judge-model";
@@ -114,7 +114,7 @@ async function main() {
   }
   const model = process.env.EVAL_BOT_MODEL ?? defaultModel;
   const judgeModel = process.env.EVAL_JUDGE_MODEL ?? model;
-  // `null`: the Model runs on the owner's ChatGPT plan (eval/chatgpt-plan.ts), not on a key.
+  // `null`: the Model runs on the owner's ChatGPT plan (src/chatgpt-plan.ts), not on a key.
   const plan = fake ? null : await chatgptPlanFromEnv();
   const botKey = fake ? "sk-fake" : keyFor(model, plan, " (no Model key: nothing ran)");
   const judgeKey = fake ? "sk-fake" : keyFor(judgeModel, plan, " (the judge)");

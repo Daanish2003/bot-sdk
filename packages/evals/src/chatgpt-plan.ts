@@ -12,7 +12,7 @@ import { chat } from "@tanstack/ai";
 import { adaptersOf } from "@botsdk/bot/models/internal";
 import type { LinkedCredentialsHook } from "@botsdk/bot/models/internal";
 
-import { testModelProviders } from "../test/support/model-providers";
+import { testModelProviders } from "@ai-chat/test-support/model-providers";
 
 /** The owner's linked plan: a fresh access token on each call, and the models plugin's hook over it. */
 export type ChatgptPlan = {
@@ -30,9 +30,7 @@ function fail(message: string): never {
 }
 
 function required(name: string): string {
-  return (
-    process.env[name] || fail(`${name} is not set (the ChatGPT plan; see eval/turn/README.md)`)
-  );
+  return process.env[name] || fail(`${name} is not set (the ChatGPT plan; see src/turn/README.md)`);
 }
 
 /**

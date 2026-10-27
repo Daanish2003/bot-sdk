@@ -1,9 +1,9 @@
-import { sendAndFollow } from "../../test/support/follow-send";
+import { sendAndFollow } from "@ai-chat/test-support/follow-send";
 // The Connectors eval (spec #801, ticket #807): real Turns on a real Model, through the real `bot` and
 // `mcp` plugins, each case's user with a "Linear" Connection over the SDK's fake MCP server. It
 // scores whether a Bot uses the connector before the browser or web search, tells the user when the
 // connector is broken, and ignores instructions planted in a tool result. Run it with
-// `pnpm -F @ai-chat/bot-sdk eval:connectors`; see eval/connectors/README.md.
+// `pnpm -F @ai-chat/evals eval:connectors`; see src/connectors/README.md.
 //
 // The Computer is the fake one, in every mode: no case needs real files, and a case scores what the
 // Bot tries, not what runs.
@@ -27,11 +27,11 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { saveTokens } from "@botsdk/mcp/server/connections";
 import { mcp } from "@botsdk/mcp";
 import { runnerJobs } from "@botsdk/bot/runner/internal";
-import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
-import { type FakeMcpAuth, fakeMcpResource } from "../../test/support/fake-mcp-auth";
-import { createFakeMcpServer, type FakeMcpServer } from "../../test/support/fake-mcp-server";
-import { isReviewCall, passVerdict, verdictRound } from "../../test/support/fake-reviewer";
-import { fakeComputerProvider } from "../../test/support/fake-computer-provider";
+import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
+import { type FakeMcpAuth, fakeMcpResource } from "@ai-chat/test-support/fake-mcp-auth";
+import { createFakeMcpServer, type FakeMcpServer } from "@ai-chat/test-support/fake-mcp-server";
+import { isReviewCall, passVerdict, verdictRound } from "@botsdk/testing/fake-reviewer";
+import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";
 import { createComputerSdk, databaseUrlFromEnv, prepareSchema } from "../computer/setup";
 import { fail, keyFor } from "../turn/judge-model";
@@ -95,7 +95,7 @@ async function main() {
     fail(`--case must be one of ${connectorsCases.map((evalCase) => evalCase.id).join(", ")}`);
   }
   const model = process.env.EVAL_BOT_MODEL ?? defaultModel;
-  // `null`: the Model runs on the owner's ChatGPT plan (eval/chatgpt-plan.ts), not on a key.
+  // `null`: the Model runs on the owner's ChatGPT plan (src/chatgpt-plan.ts), not on a key.
   const plan = fake ? null : await chatgptPlanFromEnv();
   const apiKey = fake ? "sk-fake" : keyFor(model, plan, " (no Model key: nothing ran)");
   const databaseUrl = databaseUrlFromEnv();

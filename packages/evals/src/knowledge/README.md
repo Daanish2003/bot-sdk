@@ -10,19 +10,19 @@ spec allows: Knowledge doesn't follow the Memory switch.
 ## Run it
 
 It needs a scratch Postgres, created before the first run (the script migrates it but does
-not create the database), the local E2B (see `eval/computer/README.md`), and a Model key:
+not create the database), the local E2B (see `src/computer/README.md`), and a Model key:
 
 ```sh
 EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval_744 \
 E2B_API_KEY=... E2B_API_URL=... E2B_SANDBOX_URL=... \
 OPENROUTER_API_KEY=... \
-pnpm -F @ai-chat/bot-sdk eval:knowledge
+pnpm -F @ai-chat/evals eval:knowledge
 ```
 
 - `EVAL_BOT_MODEL` is the Bots' Model, a `"provider:model"` id (default
   `openrouter:anthropic/claude-sonnet-5.5`). The key variable is the Provider's.
 - `EVAL_CHATGPT_USER_ID` (with the web app's settings, as in "On a ChatGPT plan" in
-  `eval/turn/README.md`) runs a plan Model on that user's linked plan, e.g. with
+  `src/turn/README.md`) runs a plan Model on that user's linked plan, e.g. with
   `EVAL_BOT_MODEL=openai:gpt-6.1-sol`.
 - `EVAL_TEMPLATE` is the Computer template (default `ai-chat-computer-v3`).
 - `EVAL_REPEATS` runs each case that many times (default 1). `EVAL_CONCURRENCY` runs that many Turns at
@@ -37,7 +37,7 @@ pnpm -F @ai-chat/bot-sdk eval:knowledge
 
 It prints pass or FAIL per run with the reasons, and exits 1 unless every gating run passed (an errored
 run counts as failed). Every run's tool calls, Messages and new Knowledge files are saved to
-`eval/knowledge/results/knowledge-<time>.json` (gitignored).
+`src/knowledge/results/knowledge-<time>.json` (gitignored).
 
 ## The fixture
 

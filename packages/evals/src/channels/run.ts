@@ -1,8 +1,8 @@
-import { sendAndFollow } from "../../test/support/follow-send";
+import { sendAndFollow } from "@ai-chat/test-support/follow-send";
 // The Channels eval (spec #761, ticket #774): real Turns on a real Model, through the real `bot` and
 // `channel` plugins. It scores whether a Bot ignores instructions inside a forwarded email, asks the
 // user to pick with a `choice`, and answers a "thanks!" with a reaction or silence. Run it with
-// `pnpm -F @ai-chat/bot-sdk eval:channels`; see eval/channels/README.md.
+// `pnpm -F @ai-chat/evals eval:channels`; see src/channels/README.md.
 //
 // The Computer is the fake one, in every mode: no case needs real files, and the injection cases
 // score what the Bot tries, not what runs.
@@ -24,13 +24,13 @@ import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 import { botTrigger } from "@botsdk/bot/storage";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { emailAddressOf } from "@botsdk/bot/bot/conversation";
-import { fakeEmailProvider } from "../../plugins/channel/fake/index";
+import { fakeEmailProvider } from "@botsdk/testing/fake-channel";
 import { emailChannel } from "@botsdk/bot/channel";
 import { createHttpHandlerOver } from "@botsdk/bot/over";
 import { runnerJobs } from "@botsdk/bot/runner/internal";
-import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
-import { isReviewCall, passVerdict, verdictRound } from "../../test/support/fake-reviewer";
-import { fakeComputerProvider } from "../../test/support/fake-computer-provider";
+import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
+import { isReviewCall, passVerdict, verdictRound } from "@botsdk/testing/fake-reviewer";
+import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";
 import { createComputerSdk, databaseUrlFromEnv, prepareSchema } from "../computer/setup";
 import { fail, keyFor } from "../turn/judge-model";
@@ -98,7 +98,7 @@ async function main() {
     fail("--suite must be injection, choice or reaction");
   }
   const model = process.env.EVAL_BOT_MODEL ?? defaultModel;
-  // `null`: the Model runs on the owner's ChatGPT plan (eval/chatgpt-plan.ts), not on a key.
+  // `null`: the Model runs on the owner's ChatGPT plan (src/chatgpt-plan.ts), not on a key.
   const plan = fake ? null : await chatgptPlanFromEnv();
   const apiKey = fake ? "sk-fake" : keyFor(model, plan, " (no Model key: nothing ran)");
   const databaseUrl = databaseUrlFromEnv();

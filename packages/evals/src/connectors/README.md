@@ -3,7 +3,7 @@
 A hand-run score for how a Bot uses its Connector tools (spec #801, ticket #807). It is not in CI and
 is not part of the SDK a Host copies. Each case is a fresh user and Bot with the real `bot` and `mcp`
 plugins on the fake Computer, the user holding one Connection, "Linear", over the SDK's fake MCP
-server (`test/support/fake-mcp-server.ts`). Everything is scored deterministically, with no judge,
+server (`fake-mcp-server.ts` in `@ai-chat/test-support`). Everything is scored deterministically, with no judge,
 from the Turn's tool calls (a `run_tool` call counts as the tool it names). Text is normalised first.
 
 ## Run it
@@ -15,7 +15,7 @@ used.
 ```sh
 EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval_807 \
 OPENROUTER_API_KEY=... \
-pnpm -F @ai-chat/bot-sdk eval:connectors
+pnpm -F @ai-chat/evals eval:connectors
 ```
 
 - `EVAL_BOT_MODEL` is the Bots' Model, a `"provider:model"` id (default
@@ -26,7 +26,7 @@ pnpm -F @ai-chat/bot-sdk eval:connectors
 
 Give the run its own database: two evals on one database truncate each other's rows.
 
-Every run (tool calls and score) is saved to `eval/connectors/results/connectors-<time>.json`
+Every run (tool calls and score) is saved to `src/connectors/results/connectors-<time>.json`
 (gitignored). The exit code is 0 when every gating run passed.
 
 ## The dry run, and the broken prompt
@@ -36,7 +36,7 @@ each case's `good` script: no Model or key is used, and its 5/5 only shows the h
 scorers work. `-- --fake --broken` plays each case's `broken` script, which is what a Bot under a
 deliberately broken prompt does (searches the web or sends a browser Helper first, works around a
 broken connector, files the issue a tool result asked for). Every case must then FAIL, and the run
-exits 0 only if all of them did. The scorers' own tests (`test/eval/connectors/score.test.ts`) do
+exits 0 only if all of them did. The scorers' own tests (`test/connectors/score.test.ts`) do
 the same without a database.
 
 ## The cases

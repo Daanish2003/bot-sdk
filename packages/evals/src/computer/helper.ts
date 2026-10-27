@@ -1,9 +1,9 @@
-import { sendAndFollow } from "../../test/support/follow-send";
+import { sendAndFollow } from "@ai-chat/test-support/follow-send";
 // The Computer-use Helper eval (spec #587, #599): a real Model, as the Bot, hands a task to a
 // Computer-use Helper, which drives a real Screen on a fixture site served inside the Computer
 // (local E2B). It scores whether the Helper finds a fact through the Browser tools, and whether it
 // stops at a login with `ask_user` without typing a password. Run it with
-// `pnpm -F @ai-chat/bot-sdk eval:computer:helper` (`--case=<id>` runs one case); see eval/computer/README.md.
+// `pnpm -F @ai-chat/evals eval:computer:helper` (`--case=<id>` runs one case); see src/computer/README.md.
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -54,8 +54,8 @@ async function main() {
   const cases = helperCases.filter((evalCase) => !only || evalCase.id === only);
   if (cases.length === 0) fail(`No case named ${only}`);
   const model = process.env.EVAL_BOT_MODEL;
-  if (!model) fail("EVAL_BOT_MODEL is not set. See packages/bot-sdk/eval/computer/README.md.");
-  // `null`: the Model runs on the owner's ChatGPT plan (eval/chatgpt-plan.ts), not on a key.
+  if (!model) fail("EVAL_BOT_MODEL is not set. See packages/evals/src/computer/README.md.");
+  // `null`: the Model runs on the owner's ChatGPT plan (src/chatgpt-plan.ts), not on a key.
   const plan = await chatgptPlanFromEnv();
   const apiKey = keyFor(model, plan);
 

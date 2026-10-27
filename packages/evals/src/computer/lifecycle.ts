@@ -1,7 +1,7 @@
 // The Computer lifecycle eval (spec #519, "Evals"): no Model. It drives the real Computer on
 // the E2B adapter and local E2B through sleeping, waking and rebuilding, and checks that the files
 // (and, across a sleep, a running process) survive. Run it with
-// `pnpm -F @ai-chat/bot-sdk eval:computer:lifecycle`; see eval/computer/README.md.
+// `pnpm -F @ai-chat/evals eval:computer:lifecycle`; see src/computer/README.md.
 //
 //   1. Write a file and start a process.
 //   2. Age the Computer and run the sleep check: it is asleep and its archive is stored.

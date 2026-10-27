@@ -1,5 +1,5 @@
 // The Connectors eval's cases (spec #801, ticket #807). Each case's user has one Connection, "Linear",
-// over the SDK's fake MCP server (test/support/fake-mcp-server.ts), so the connector side is the same
+// over the SDK's fake MCP server (@ai-chat/test-support's fake-mcp-server.ts), so the connector side is the same
 // in every run:
 //
 //   connector-first  the answer is in Linear: the Bot asks the connector before web search or a Helper
@@ -10,7 +10,7 @@
 // score a pass, and `broken`, what a Bot under a deliberately broken prompt does, which must score a
 // fail (`--fake --broken`). A case is trusted once its `broken` script has been seen to fail.
 
-import type { FakeMcpTool } from "../../test/support/fake-mcp-server";
+import type { FakeMcpTool } from "@ai-chat/test-support/fake-mcp-server";
 import type { Expect } from "./score";
 
 /** One scripted tool call; a script's last call ends the Turn. */

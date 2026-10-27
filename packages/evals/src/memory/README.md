@@ -16,7 +16,7 @@ an OpenRouter key:
 ```sh
 EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval \
 OPENROUTER_API_KEY=... \
-pnpm -F @ai-chat/bot-sdk eval:bot-memory
+pnpm -F @ai-chat/evals eval:bot-memory
 ```
 
 - `EVAL_BOT_MODEL` is the Bots' Model, a `"provider:model"` id (default
@@ -26,7 +26,7 @@ pnpm -F @ai-chat/bot-sdk eval:bot-memory
   OpenRouter, OpenAI or Anthropic Model.
 - `EVAL_REPEATS` runs each case that many times (default 1), `EVAL_CONCURRENCY` that many runs at once
   (default 4), and `--limit=<n>` only the first n cases.
-- `EVAL_CHATGPT_USER_ID` (with the web app's settings, as in "On a ChatGPT plan" in `eval/turn/README.md`) runs the plan's
+- `EVAL_CHATGPT_USER_ID` (with the web app's settings, as in "On a ChatGPT plan" in `src/turn/README.md`) runs the plan's
   Models on that user's linked plan instead of `OPENAI_API_KEY` (ADR 0023): the Bots as a linked plan,
   the judge without a temperature. No OpenAI key is saved for the eval users.
 - With no key set it exits 1 at once, saying so. `-- --fake` (or `EVAL_FAKE=1`) runs the same wiring with
@@ -35,7 +35,7 @@ pnpm -F @ai-chat/bot-sdk eval:bot-memory
 
 It prints pass or FAIL per run with the reasons, a table per case, and exits 1 unless every run
 passed. Every run's replies, the pass's change list and the final memory files are saved to
-`eval/memory/results/bot-memory-<time>.json` (gitignored).
+`src/memory/results/bot-memory-<time>.json` (gitignored).
 
 ## The cases
 
