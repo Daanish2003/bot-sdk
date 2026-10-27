@@ -7,6 +7,7 @@ import {
   jobTable,
   type JobTable,
   type Executor,
+  type JobClock,
   type JobRunner,
   reapStaleJobs,
 } from "@botsdk/bot/runner/internal";
@@ -21,8 +22,49 @@ import { getTestDb } from "./test-database";
  * outcomes: what ran, the job's status, and what the Executor was notified of.
  */
 
-const silent = { error: () => {} };
-const poll = { timeout: 10_000 };
+/** A logger that drops everything, for runners whose failures a test asserts on itself. */
+export const silent = { error: () => {} };
+/** `expect.poll` options for runner tests: 1 s is too short under load. */
+export const poll = { timeout: 10_000 };
+
+/**
+ * Runners over the test database and `jobs`, each started by `over` (with a 20 ms drain) and stopped
+ * by `stopAll`.
+ */
+export function testRunners(jobs: () => JobTable) {
+  const runners: JobRunner[] = [];
+  return {
+    async over(executor: Executor, clock: JobClock) {
+      const runner = createJobRunner({
+        db: getTestDb(),
+        logger: silent,
+        jobs,
+        executor,
+        clock,
+        drainMs: 20,
+      });
+      runners.push(runner);
+      await runner.start();
+      return runner;
+    },
+    async stopAll() {
+      for (const runner of runners.splice(0)) await runner.stop();
+    },
+  };
+}
+
+/**
+ * A runner in a process about to crash: its clock is 2 minutes behind `now`, so a lease it takes has
+ * expired by `now`. `run` starts a job on it; its `stop()` then leaves that lease to expire.
+ */
+export async function crashingRunner(runners: ReturnType<typeof testRunners>, now: Date) {
+  const crashed = manualExecutor();
+  const runner = await runners.over(
+    crashed.executor,
+    fakeJobClock(new Date(now.getTime() - 2 * 60_000)).clock,
+  );
+  return { runner, run: crashed.run };
+}
 /** The jobs this file defines, which its runners run. They take no core services. */
 // oxlint-disable-next-line typescript/no-explicit-any -- each job has its own payload
 const testJobs: JobDefinition<any, object>[] = [];
@@ -146,25 +188,13 @@ export function executorContract(
 function conformance(
   build: (timer: ReturnType<typeof fakeJobClock>) => ExecutorHarness | Promise<ExecutorHarness>,
 ) {
-  const runners: JobRunner[] = [];
+  const runners = testRunners(testTable);
   let timer: ReturnType<typeof fakeJobClock>;
   let harness: ExecutorHarness;
   let jobs: JobRunner;
 
   /** A runner over the test database, the Executor `executor` and the clock `clock`. */
-  const runnerOver = async (executor: Executor, clock = timer.clock) => {
-    const runner = createJobRunner({
-      db: getTestDb(),
-      logger: silent,
-      jobs: testTable,
-      executor,
-      clock,
-      drainMs: 20,
-    });
-    runners.push(runner);
-    await runner.start();
-    return runner;
-  };
+  const runnerOver = (executor: Executor, clock = timer.clock) => runners.over(executor, clock);
 
   beforeEach(async () => {
     for (const list of [ran, started, aborted, fires]) list.length = 0;
@@ -179,7 +209,7 @@ function conformance(
   });
 
   afterEach(async () => {
-    for (const runner of runners.splice(0)) await runner.stop();
+    await runners.stopAll();
     current = undefined;
   });
 
@@ -244,14 +274,9 @@ function conformance(
   it("resumes a job after a crash from its last Checkpoint", { timeout: 30_000 }, async () => {
     let open!: () => void;
     gate = new Promise((resolve) => (open = resolve));
-    // The process that crashes: its clock is 2 minutes behind, so its lease has expired by now.
-    const crashed = manualExecutor();
-    const elsewhere = await runnerOver(
-      crashed.executor,
-      fakeJobClock(new Date(timer.clock.now().getTime() - 2 * SLOT_MS)).clock,
-    );
+    const { runner: elsewhere, run } = await crashingRunner(runners, timer.clock.now());
     const id = await elsewhere.enqueue("conformance.steps", { label: "a" });
-    void crashed.run(id);
+    void run(id);
     await expect.poll(() => started, poll).toEqual(["a"]);
     // It stops without the handler seeing its abort, and leaves its lease to expire.
     await elsewhere.stop();

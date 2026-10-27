@@ -3,10 +3,13 @@ import type { Inngest, InngestFunction } from "inngest";
 import { type CoreRun, type Executor, sweepJobs } from "@botsdk/bot/runner/internal";
 
 /**
- * How long past `runAfter` the function wakes, so that a clock a little behind Inngest's still finds
- * the job due (otherwise it would wait for the next sweep).
+ * How long past its due time a delivery that arrives early (its process's clock a little behind the
+ * notifier's) waits, so that the core then finds the job due rather than leaving it to the sweep.
  */
 const WAKE_MARGIN_MS = 1_000;
+
+/** Within one window, the sweep's events for a job are one event: a second sweep sends none. */
+const SWEEP_WINDOW_MS = 60_000;
 
 export type InngestExecutorOptions = {
   /** The Host's Inngest client. Its functions are served from the Host's `serve()` handler. */
@@ -55,9 +58,11 @@ export function inngestExecutor({
     { id: "botsdk-run-job", triggers: [{ event: events.due }] },
     async ({ event, step }) => {
       const { jobId, runAfter } = event.data as { jobId: string; runAfter?: string };
-      // Returns at once when that time has passed.
-      if (runAfter) {
-        await step.sleepUntil("until-due", new Date(Date.parse(runAfter) + WAKE_MARGIN_MS));
+      // Due by this process's clock: run now, with no extra round trip. Otherwise sleep until a
+      // little past it, which also covers this clock being a little behind the notifier's.
+      const due = runAfter === undefined ? undefined : Date.parse(runAfter);
+      if (due !== undefined && Date.now() < due) {
+        await step.sleepUntil("until-due", new Date(due + WAKE_MARGIN_MS));
       }
       // Claims, replays and runs it; a job that isn't queued and due, or whose lease another
       // delivery holds, is left alone.
@@ -66,11 +71,19 @@ export function inngestExecutor({
   );
 
   const sweep = client.createFunction(
-    { id: "botsdk-sweep-jobs", triggers: [{ cron: sweepCron }, { event: events.sweep }] },
+    {
+      id: "botsdk-sweep-jobs",
+      triggers: [{ cron: sweepCron }, { event: events.sweep }],
+      // One sweep at a time, so that two never send the same jobs.
+      concurrency: { limit: 1 },
+    },
     async () => {
       const due = await started()[sweepJobs]!();
       if (due.length === 0) return;
-      await client.send(due.map((jobId) => ({ name: events.due, data: { jobId } })));
+      const window = Math.floor(Date.now() / SWEEP_WINDOW_MS);
+      await client.send(
+        due.map((jobId) => ({ id: `${jobId}@sweep-${window}`, name: events.due, data: { jobId } })),
+      );
     },
   );
 
@@ -85,11 +98,14 @@ export function inngestExecutor({
     },
 
     async notify(jobId, runAfter) {
-      // The id makes a repeated send of the same wake-up a no-op; a retry's is due at a new time.
+      // A wake-up due now is stamped with this process's time, so that an early delivery waits for
+      // it. The id makes the same wake-up sent twice one event, while a later one (a re-notify, a
+      // retry's new due time) is a new event.
+      const dueAt = (runAfter ?? new Date()).toISOString();
       await client.send({
-        id: runAfter ? `${jobId}@${runAfter.toISOString()}` : jobId,
+        id: `${jobId}@${dueAt}`,
         name: events.due,
-        data: { jobId, ...(runAfter && { runAfter: runAfter.toISOString() }) },
+        data: { jobId, runAfter: dueAt },
       });
     },
 

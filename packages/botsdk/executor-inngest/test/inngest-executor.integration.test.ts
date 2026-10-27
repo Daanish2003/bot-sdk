@@ -7,16 +7,19 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { z } from "zod";
 
 import {
-  createJobRunner,
   defineJob,
   type Executor,
   jobTable,
   type JobRunner,
   systemClock,
 } from "@botsdk/bot/runner/internal";
-import { executorContract } from "@ai-chat/test-support/executor.contract";
+import {
+  crashingRunner,
+  executorContract,
+  poll,
+  testRunners,
+} from "@ai-chat/test-support/executor.contract";
 import { manualExecutor, recordingNotify } from "@ai-chat/test-support/executors";
-import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { inngestExecutor } from "../src";
 
@@ -24,16 +27,14 @@ import { inngestExecutor } from "../src";
  * The Inngest Executor against a real Inngest dev server (spec #878): the Executor conformance
  * suite, then what is Inngest's own. `TEST_INNGEST_URL` is the dev server as this process reaches it
  * (for example `http://127.0.0.1:8288`), and `TEST_INNGEST_CALLBACK_HOST` is this process as the dev
- * server reaches it (`host.docker.internal` by default, for a dev server in Docker Desktop). Without
+ * server reaches it (`host.docker.internal` by default: Docker Desktop has it, and Docker Engine on
+ * Linux needs `--add-host=host.docker.internal:host-gateway` on the dev server's container). Without
  * `TEST_INNGEST_URL` the file is skipped, except in CI, where it fails.
  */
 
 const devServer = process.env.TEST_INNGEST_URL;
 const callbackHost = process.env.TEST_INNGEST_CALLBACK_HOST ?? "host.docker.internal";
 if (!devServer && process.env.CI) throw new Error("TEST_INNGEST_URL must be set in CI");
-
-const silent = { error: () => {} };
-const poll = { timeout: 10_000 };
 
 describe.skipIf(!devServer)("the Inngest Executor", () => {
   // One app for the file, so that the dev server keeps calling the same endpoint; each test starts
@@ -127,44 +128,53 @@ describe.skipIf(!devServer)("the Inngest Executor", () => {
         services: {},
       },
     ]);
-    const runners: JobRunner[] = [];
+    const runners = testRunners(() => table);
     let jobs: JobRunner;
-
-    const runnerOver = async (over: Executor, clock = systemClock) => {
-      const runner = createJobRunner({
-        db: getTestDb(),
-        logger: silent,
-        jobs: () => table,
-        executor: over,
-        clock,
-        drainMs: 20,
-      });
-      runners.push(runner);
-      await runner.start();
-      return runner;
-    };
 
     beforeEach(async () => {
       ran.length = 0;
       started.length = 0;
       gate = undefined;
-      jobs = await runnerOver(executor);
+      jobs = await runners.over(executor, systemClock);
     });
 
-    afterEach(async () => {
-      for (const runner of runners.splice(0)) await runner.stop();
-    });
+    afterEach(() => runners.stopAll());
+
+    /** The calls Inngest made to the core's `run` for job `id`. */
+    const callsFor = (id: string) => calls.filter((call) => call.jobId === id);
 
     it("runs a job once when its event is sent twice", { timeout: 30_000 }, async () => {
-      const id = await jobs.enqueue("inngest.record", { label: "a" });
+      const runAfter = new Date(Date.now() + 1_000);
+      const id = await jobs.enqueue("inngest.record", { label: "a" }, { runAfter });
       // The core sent it once already; this is the same event again.
-      await inngest.notify(id);
+      await inngest.notify(id, runAfter);
 
-      await expect.poll(() => ran, poll).toEqual(["a"]);
       await expect.poll(async () => (await jobs.status(id))?.status, poll).toBe("succeeded");
+      // Long enough for a second delivery of a duplicate, which wakes at the same time.
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+      expect(ran).toEqual(["a"]);
       expect((await jobs.status(id))?.attempts).toBe(1);
-      expect(calls.filter((call) => call.jobId === id)).toHaveLength(1);
+      expect(callsFor(id)).toHaveLength(1);
     });
+
+    it(
+      "wakes a job notified again after a delivery that found it not queued yet",
+      { timeout: 30_000 },
+      async () => {
+        let id = "";
+        await getTestDb().transaction(async (tx) => {
+          id = await jobs.enqueueIn(tx, "inngest.record", { label: "a" });
+          // A wake-up that arrives before the job is visible, as from a process a little early.
+          await inngest.notify(id);
+          await expect.poll(() => callsFor(id).length, poll).toBe(1);
+          await callsFor(id)[0]!.done;
+        });
+
+        // The core's notify after the commit must not be dropped as a duplicate.
+        await expect.poll(() => ran, poll).toEqual(["a"]);
+        await expect.poll(async () => (await jobs.status(id))?.status, poll).toBe("succeeded");
+      },
+    );
 
     it("waits on Inngest until a job is due, then runs it", { timeout: 30_000 }, async () => {
       const runAfter = new Date(Date.now() + 2_000);
@@ -178,14 +188,9 @@ describe.skipIf(!devServer)("the Inngest Executor", () => {
     it("picks up a job whose lease expired at the sweep", { timeout: 30_000 }, async () => {
       let open!: () => void;
       gate = new Promise((resolve) => (open = resolve));
-      // The process that crashes: its clock is 2 minutes behind, so its lease has expired by now.
-      const crashed = manualExecutor();
-      const elsewhere = await runnerOver(
-        crashed.executor,
-        fakeJobClock(new Date(Date.now() - 2 * 60_000)).clock,
-      );
+      const { runner: elsewhere, run } = await crashingRunner(runners, new Date());
       const id = await elsewhere.enqueue("inngest.record", { label: "a" });
-      void crashed.run(id);
+      void run(id);
       await expect.poll(() => started, poll).toEqual(["a"]);
       // It stops without the handler seeing its abort, and leaves its lease to expire.
       await elsewhere.stop();
@@ -203,7 +208,7 @@ describe.skipIf(!devServer)("the Inngest Executor", () => {
       { timeout: 30_000 },
       async () => {
         // Queued through a runner whose notify reaches no one.
-        const elsewhere = await runnerOver(manualExecutor().executor);
+        const elsewhere = await runners.over(manualExecutor().executor, systemClock);
         const id = await elsewhere.enqueue("inngest.record", { label: "a" });
 
         await client.send({ name: inngest.events.sweep, data: {} });

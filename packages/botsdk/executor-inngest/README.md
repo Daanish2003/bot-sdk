@@ -4,9 +4,9 @@ Runs the Bot SDK's background jobs (Turns, Routines, Check-ins, sleep checks and
 
 Jobs still live in the `botsdk.job` table, and the core still claims, leases and replays them, so a Turn stays exactly-once however often Inngest delivers its event. Inngest only wakes jobs up:
 
-- When a job is queued (after its transaction commits), the Executor sends one `<app id>/botsdk.job.due` event (the client's app id, so two apps in one Inngest environment never wake each other's jobs; `botsdkRunner.events` names both events) with `{ jobId, runAfter }`. The event id is the job id (with `runAfter` for a retry), so sending the same wake-up twice is a no-op.
-- The `botsdk-run-job` function sleeps until a second past `runAfter`, then has the core run the job. A job that already ran, or that another delivery holds, is left alone.
-- The `botsdk-sweep-jobs` function runs every 5 minutes (`sweepCron` changes that). It re-queues jobs whose lease expired (their process crashed) and sends an event for every due job, so a lost event never strands a job. Sending its `<app id>/botsdk.jobs.sweep` event runs it at once. A long-lived process also re-queues expired leases every 30 s, as with the in-process runner; the sweep is what does it on a serverless platform.
+- When a job is queued (after its transaction commits), the Executor sends one `<app id>/botsdk.job.due` event (the client's app id, so two apps in one Inngest environment never wake each other's jobs; `botsdkRunner.events` names both events) with `{ jobId, runAfter }`; a job due now gets the send time as its `runAfter`. The event id is the job id and that time, so the same wake-up sent twice is one event, while a later one (a re-notify, a retry) is a new event.
+- The `botsdk-run-job` function has the core run the job at once when it is due by the serving process's clock; otherwise it sleeps until a second past `runAfter` (which also covers that clock being a little behind the notifier's). A job that already ran, or that another delivery holds, is left alone.
+- The `botsdk-sweep-jobs` function runs every 5 minutes (`sweepCron` changes that). It re-queues jobs whose lease expired (their process crashed) and sends an event for every due job, so a lost event never strands a job. It also deletes finished jobs past their retention (at most once an hour per process), as the in-process runner's reaper does. One sweep runs at a time. Sending its `<app id>/botsdk.jobs.sweep` event runs it at once. A long-lived process also re-queues expired leases every 30 s, as with the in-process runner; the sweep is what does it on a serverless platform.
 
 `inngest` is a dependency of this package only; `@botsdk/bot` is a peer.
 
@@ -57,6 +57,8 @@ Run the Inngest dev server and point your app at it:
 docker run --rm -p 8288:8288 inngest/inngest:v1.46.0 inngest dev -u http://host.docker.internal:3000/api/inngest
 ```
 
+`host.docker.internal` works on Docker Desktop. On Docker Engine (Linux), add `--add-host=host.docker.internal:host-gateway` to `docker run`, or run the container with `--network host` and use `http://127.0.0.1:3000/api/inngest`.
+
 Set `INNGEST_DEV=1` in your app's environment, so the client sends events to the dev server and skips signing. The dev server's UI at http://localhost:8288 shows each event and function run; "Invoke" on `botsdk-sweep-jobs` sweeps at once.
 
 ## Inngest Cloud
@@ -76,4 +78,4 @@ docker run -d --name inngest-test -p 8288:8288 inngest/inngest:v1.46.0 inngest d
 TEST_INNGEST_URL=http://127.0.0.1:8288 pnpm exec vitest run packages/botsdk/executor-inngest
 ```
 
-The dev server calls the suite's endpoint at `host.docker.internal`; set `TEST_INNGEST_CALLBACK_HOST` when it reaches this machine some other way (CI runs it on the host network, with `127.0.0.1`). Without `TEST_INNGEST_URL` the suite is skipped, except in CI, where it fails.
+The dev server calls the suite's endpoint at `host.docker.internal` (on Docker Engine, start it with `--add-host=host.docker.internal:host-gateway`); set `TEST_INNGEST_CALLBACK_HOST` when it reaches this machine some other way (CI runs it on the host network, with `127.0.0.1`). Without `TEST_INNGEST_URL` the suite is skipped, except in CI, where it fails.
