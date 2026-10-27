@@ -36,13 +36,15 @@ const notes = defineFeature({
   },
 });
 
-// A feature with its own enum and a sequence no table owns: --drop removes both, so enabling it
-// again creates them anew.
+// A feature with its own enums (one no column uses) and a sequence no table owns: --drop removes
+// what it declares, so enabling it again creates them anew.
 const botsdk = pgSchema("botsdk");
 const tagKind = botsdk.enum("test_tag_kind", ["red", "blue"]);
 const tags = defineFeature({
   id: "tags",
   schema: {
+    enums: { tagKind, tagShade: botsdk.enum("test_tag_shade", ["light", "dark"]) },
+    sequences: { tagPosition: botsdk.sequence("test_tag_position") },
     tables: {
       tag: botsdk.table("test_tag", {
         id: text("id").primaryKey(),
@@ -55,6 +57,7 @@ const tags = defineFeature({
         name: "0001_tag",
         sql: [
           "create type botsdk.test_tag_kind as enum ('red', 'blue');",
+          "create type botsdk.test_tag_shade as enum ('light', 'dark');",
           "create sequence botsdk.test_tag_position;",
           "create table botsdk.test_tag (id text primary key, kind botsdk.test_tag_kind not null, position integer default nextval('botsdk.test_tag_position'));",
         ].join(" "),
@@ -191,7 +194,7 @@ describe("botsdk migrate", () => {
           )
         ).map((row) => row.name);
       expect(await typesOf()).toEqual(
-        expect.arrayContaining(["test_tag_kind", "test_tag_position"]),
+        expect.arrayContaining(["test_tag_kind", "test_tag_position", "test_tag_shade"]),
       );
 
       await runMigrate(
@@ -207,6 +210,39 @@ describe("botsdk migrate", () => {
       expect(await tablesOf(url)).toContain("test_tag");
     }, 60_000);
 
+    it("keeps a declared enum another feature's table still uses", async () => {
+      const color = botsdk.enum("test_color", ["red", "blue"]);
+      const palette = defineFeature({
+        id: "palette",
+        schema: {
+          enums: { color },
+          migrations: [
+            { name: "0001_color", sql: "create type botsdk.test_color as enum ('red', 'blue')" },
+          ],
+        },
+      });
+      const paints = defineFeature({
+        id: "paints",
+        schema: {
+          tables: { paint: botsdk.table("test_paint", { color: color("color") }) },
+          migrations: [
+            { name: "0001_paint", sql: "create table botsdk.test_paint (color botsdk.test_color)" },
+          ],
+        },
+      });
+      const url = await scratchDatabase("cli_drop_shared");
+      const database = postgres({ connectionString: url });
+      await runMigrate({ default: { database, features: [palette, paints] } }, {}, () => {});
+
+      await runMigrate(
+        { default: { database, features: [paints] }, disabled: [palette] },
+        { drop: "palette" },
+        () => {},
+      );
+      expect(await rows(url, "select 1 from pg_type where typname = 'test_color'")).toHaveLength(1);
+      expect((await journalOf(url)).map((row) => row.feature)).not.toContain("palette");
+    }, 60_000);
+
     it("takes the feature to drop from the config module's `disabled` export", async () => {
       const url = await scratchDatabase("cli_drop_bin");
       const { stdout } = await promisify(execFile)(
@@ -217,14 +253,16 @@ describe("botsdk migrate", () => {
       expect(stdout).toContain('"botsdk"."memory_settings"');
     }, 60_000);
 
-    it("keeps a core enum the feature's table uses, and drops a table a cascade already took", async () => {
+    it("keeps a core enum the feature declares and uses, and drops a table a cascade already took", async () => {
       // A child table that inherits from the first: the cascade on the parent drops it first.
+      const checkInState = botsdk.enum("bot_check_in_state", ["pending"]);
       const borrowed = defineFeature({
         id: "borrowed",
         schema: {
+          enums: { checkInState },
           tables: {
             parent: botsdk.table("test_parent", {
-              state: botsdk.enum("bot_check_in_state", ["pending"])("state"),
+              state: checkInState("state"),
             }),
             child: botsdk.table("test_child", {}),
           },

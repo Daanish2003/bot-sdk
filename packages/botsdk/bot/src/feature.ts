@@ -9,6 +9,7 @@ import { type AnyRouter, implement } from "@orpc/server";
 import type { AnyServerTool, ModelMessage } from "@tanstack/ai";
 import { is } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
+import type { PgEnum, PgSequence } from "drizzle-orm/pg-core";
 
 import { schema as coreTables } from "./storage";
 import type { Database } from "./storage";
@@ -173,8 +174,15 @@ export type FeatureDefinition<
    * first (spec #874): `migrate` applies them after the core's, and `start` refuses until they are.
    * Foreign keys into core tables are allowed; a table named like a core table (which would add
    * columns to it) makes the factory throw. Turning the feature off leaves its tables and rows.
+   * `enums` and `sequences` are the types and sequences its migrations create: what
+   * `dropFeatureTables` removes beside its tables.
    */
-  schema?: { tables?: Record<string, PgTable>; migrations?: readonly Migration[] };
+  schema?: {
+    tables?: Record<string, PgTable>;
+    enums?: Record<string, Pick<PgEnum<[string, ...string[]]>, "enumName" | "schema">>;
+    sequences?: Record<string, PgSequence>;
+    migrations?: readonly Migration[];
+  };
   /** User-scoped methods: each takes the user's id. The Host calls them as `sdk.<id>.<method>`. */
   api?: (context: FeatureContext<Needs>) => Api;
   /**
