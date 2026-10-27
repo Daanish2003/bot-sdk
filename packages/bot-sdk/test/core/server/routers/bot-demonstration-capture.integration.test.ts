@@ -10,20 +10,13 @@ import { asc, eq } from "drizzle-orm";
 import { type Browser, chromium } from "playwright-core";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import {
-  botDemonstration,
-  botDemonstrationEvent,
-  postgresBlobStore,
-} from "../../../../core/server/storage";
-import type { BlobStore } from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { deleteUserData } from "../../../../core/server/user-data";
-import {
-  demonstrationEventLimit,
-  maskedValue,
-} from "../../../../plugins/bot/server/demonstrations";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
-import { inProcessRunner, type JobRunner } from "../../../../plugins/runner/server/internal";
+import { botDemonstration, botDemonstrationEvent, postgresBlobStore } from "@botsdk/bot/storage";
+import type { BlobStore } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { deleteUserData } from "@botsdk/bot/user-data";
+import { demonstrationEventLimit, maskedValue } from "@botsdk/bot/bot/demonstrations";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { skills } from "../../../../plugins/skills/server/plugin";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";

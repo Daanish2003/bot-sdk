@@ -12,19 +12,15 @@ import {
   job,
   jobEvent,
   message,
-} from "../../../../core/server/storage";
-import { encryptCredentials } from "../../../../core/server/credentials/encryption";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { deleteUserData } from "../../../../core/server/user-data";
+} from "@botsdk/bot/storage";
+import { encryptCredentials } from "@botsdk/bot/credentials/encryption";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { deleteUserData } from "@botsdk/bot/user-data";
 import { richControlJsonSchema } from "../../../../plugins/bot/client/index";
-import {
-  rotateSecretKeys,
-  loadSecretValues,
-  secretEncryption,
-} from "../../../../plugins/bot/server/safety";
-import type { CommandResult } from "../../../../plugins/computer/server/internal";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
-import { inProcessRunner, type JobRunner } from "../../../../plugins/runner/server/internal";
+import { rotateSecretKeys, loadSecretValues, secretEncryption } from "@botsdk/bot/bot/safety";
+import type { CommandResult } from "@botsdk/bot/computer/internal";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { fakeReviewer } from "../../../support/fake-reviewer";

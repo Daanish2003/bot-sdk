@@ -2,15 +2,15 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq, inArray } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { bot as botTable, botPromptStart, botTurn, usage } from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
+import { bot as botTable, botPromptStart, botTurn, usage } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { saveCredentials } from "@botsdk/bot/models/internal";
 import {
   inProcessRunner,
   type JobRunner,
   systemClock,
   claimJob,
-} from "../../../../plugins/runner/server/internal";
+} from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, withUsage } from "../../../support/fake-adapter";
 import { chatRpc } from "../../../support/sdk";

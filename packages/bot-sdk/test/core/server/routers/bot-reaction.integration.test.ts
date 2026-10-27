@@ -4,10 +4,10 @@ import { convertSchemaToJsonSchema } from "@tanstack/ai";
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { botTrigger, botTurn } from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
-import { inProcessRunner, type JobRunner } from "../../../../plugins/runner/server/internal";
+import { botTrigger, botTurn } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";

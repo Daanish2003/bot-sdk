@@ -2,25 +2,25 @@ import type { AnyTextAdapter, ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { botHelper, botReview, botTurn, job, usage } from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { deleteUserData } from "../../../../core/server/user-data";
-import { interruptedShellError } from "../../../../plugins/bot/server/agent-loop";
+import { botHelper, botReview, botTurn, job, usage } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { deleteUserData } from "@botsdk/bot/user-data";
+import { interruptedShellError } from "@botsdk/bot/bot/agent-loop";
 import {
   listedReviews,
   reviewFailedReason,
   reviewTimeoutMs,
   type ReviewVerdict,
-} from "../../../../plugins/bot/server/safety";
-import type { CommandResult } from "../../../../plugins/computer/server/internal";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
+} from "@botsdk/bot/bot/safety";
+import type { CommandResult } from "@botsdk/bot/computer/internal";
+import { saveCredentials } from "@botsdk/bot/models/internal";
 import {
   inProcessRunner,
   type JobRunner,
   systemClock,
   claimJob,
   reapStaleJobs,
-} from "../../../../plugins/runner/server/internal";
+} from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, runError, text, toolCall } from "../../../support/fake-adapter";
 import {

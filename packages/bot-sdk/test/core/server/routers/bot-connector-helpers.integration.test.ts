@@ -2,16 +2,12 @@ import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { botHelper, botReview, botTurn } from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { botHelper, botReview, botTurn } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { mcp } from "../../../../plugins/mcp/server/plugin";
 import type { McpServerConfig } from "../../../../plugins/mcp/server/servers";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
-import {
-  inProcessRunner,
-  type JobRunner,
-  claimJob,
-} from "../../../../plugins/runner/server/internal";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import { inProcessRunner, type JobRunner, claimJob } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { createFakeMcpAuth, fakeMcpResource } from "../../../support/fake-mcp-auth";

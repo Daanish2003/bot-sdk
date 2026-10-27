@@ -1,16 +1,12 @@
 import { asc, eq, like } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { botTurn, job } from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { botTurn, job } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { fakeEmailProvider } from "../../../../plugins/channel/fake/index";
-import { emailChannel, type OutboundMail } from "../../../../plugins/channel/server/index";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
-import {
-  inProcessRunner,
-  type JobRunner,
-  claimJob,
-} from "../../../../plugins/runner/server/internal";
+import { emailChannel, type OutboundMail } from "@botsdk/bot/channel";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import { inProcessRunner, type JobRunner, claimJob } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { fakeJobClock } from "../../../support/jobs";

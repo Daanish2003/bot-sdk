@@ -2,29 +2,17 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  botDemonstration,
-  botDemonstrationEvent,
-  botHelper,
-  botTurn,
-} from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { botDemonstration, botDemonstrationEvent, botHelper, botTurn } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import {
   computerUseHelperHoldsScreenError,
   demonstrationEndedWhileOpeningError,
   demonstrationRunningError,
-} from "../../../../plugins/bot/server/demonstrations";
-import {
-  demonstrationHoldsScreenError,
-  screensInUseError,
-} from "../../../../plugins/bot/server/helpers";
-import { findBot } from "../../../../plugins/bot/server/conversation";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
-import {
-  inProcessRunner,
-  type JobRunner,
-  claimJob,
-} from "../../../../plugins/runner/server/internal";
+} from "@botsdk/bot/bot/demonstrations";
+import { demonstrationHoldsScreenError, screensInUseError } from "@botsdk/bot/bot/helpers";
+import { findBot } from "@botsdk/bot/bot/conversation";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import { inProcessRunner, type JobRunner, claimJob } from "@botsdk/bot/runner/internal";
 import { skills } from "../../../../plugins/skills/server/plugin";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";

@@ -10,18 +10,18 @@ import { asc, eq } from "drizzle-orm";
 import { chromium } from "playwright-core";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { botHelper, botTurn, computer as computerTable } from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { botHelper, botTurn, computer as computerTable } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import {
   snapshotLimit,
   staleRefError,
   computerUseHelperPrompt,
   computerUseHelperTakenError,
   screensInUseError,
-} from "../../../../plugins/bot/server/helpers";
-import { rebuiltNote, spillPath } from "../../../../plugins/bot/server/agent-loop";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
-import { inProcessRunner, type JobRunner } from "../../../../plugins/runner/server/internal";
+} from "@botsdk/bot/bot/helpers";
+import { rebuiltNote, spillPath } from "@botsdk/bot/bot/agent-loop";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { chatRpc } from "../../../support/sdk";

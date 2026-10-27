@@ -2,28 +2,28 @@ import type { AnyTextAdapter, ModelMessage, TextOptions } from "@tanstack/ai";
 import { and, asc, eq, inArray, like } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { blob, botHelper, botReview, jobEvent } from "../../../../core/server/storage";
-import { deleteUserData } from "../../../../core/server/user-data";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { blob, botHelper, botReview, jobEvent } from "@botsdk/bot/storage";
+import { deleteUserData } from "@botsdk/bot/user-data";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import {
   noVisionError,
   botHelperJob,
   computerUseHelperPrompt,
   helperEndings,
   helperTimeLimitMs,
-} from "../../../../plugins/bot/server/helpers";
-import { keptScreenshots, removedScreenshot } from "../../../../plugins/bot/server/conversation";
+} from "@botsdk/bot/bot/helpers";
+import { keptScreenshots, removedScreenshot } from "@botsdk/bot/bot/conversation";
 
 import {
   reapStaleJobs,
   inProcessRunner,
   type JobRunner,
   systemClock,
-} from "../../../../plugins/runner/server/internal";
-import type { ReviewVerdict } from "../../../../plugins/bot/server/safety";
-import type { CommandResult } from "../../../../plugins/computer/server/internal";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
-import type { HostProvider } from "../../../../plugins/models/server/internal";
+} from "@botsdk/bot/runner/internal";
+import type { ReviewVerdict } from "@botsdk/bot/bot/safety";
+import type { CommandResult } from "@botsdk/bot/computer/internal";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import type { HostProvider } from "@botsdk/bot/models/internal";
 
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";

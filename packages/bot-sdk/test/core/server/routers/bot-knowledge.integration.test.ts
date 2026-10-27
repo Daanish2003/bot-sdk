@@ -2,17 +2,13 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { botPromptStart, botSecret } from "../../../../core/server/storage";
-import { encryptCredentials } from "../../../../core/server/credentials/encryption";
-import { secretEncryption } from "../../../../plugins/bot/server/safety";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { botPromptStart, botSecret } from "@botsdk/bot/storage";
+import { encryptCredentials } from "@botsdk/bot/credentials/encryption";
+import { secretEncryption } from "@botsdk/bot/bot/safety";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { knowledge } from "../../../../plugins/knowledge/server/plugin";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
-import {
-  inProcessRunner,
-  type JobRunner,
-  systemClock,
-} from "../../../../plugins/runner/server/internal";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import { inProcessRunner, type JobRunner, systemClock } from "@botsdk/bot/runner/internal";
 import { skills } from "../../../../plugins/skills/server/plugin";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";

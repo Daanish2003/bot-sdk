@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { bot, botTurn } from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { bot, botTurn } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { insertConversation } from "../../../support/conversations";
 import { getTestDb } from "../../../support/test-database";
 

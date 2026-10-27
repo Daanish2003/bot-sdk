@@ -2,31 +2,26 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  bot as botTable,
-  botTurn,
-  computer as computerTable,
-  job,
-} from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { deleteUserData } from "../../../../core/server/user-data";
+import { bot as botTable, botTurn, computer as computerTable, job } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { deleteUserData } from "@botsdk/bot/user-data";
 import {
   maxTextBytes,
   computerUnavailableError,
   interruptedShellError,
   rebuiltNote,
-} from "../../../../plugins/bot/server/agent-loop";
+} from "@botsdk/bot/bot/agent-loop";
 
-import { turnTimeLimitMs } from "../../../../plugins/bot/server/conversation";
-import { botSystemPrompt } from "../../../../plugins/bot/server/context";
-import type { CommandResult } from "../../../../plugins/computer/server/internal";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
+import { turnTimeLimitMs } from "@botsdk/bot/bot/conversation";
+import { botSystemPrompt } from "@botsdk/bot/bot/context";
+import type { CommandResult } from "@botsdk/bot/computer/internal";
+import { saveCredentials } from "@botsdk/bot/models/internal";
 import {
   inProcessRunner,
   type JobRunner,
   claimJob,
   reapStaleJobs,
-} from "../../../../plugins/runner/server/internal";
+} from "@botsdk/bot/runner/internal";
 
 import { knowledge } from "../../../../plugins/knowledge/server/plugin";
 import { createTestSdk, type TestDeps } from "../../../support/deps";

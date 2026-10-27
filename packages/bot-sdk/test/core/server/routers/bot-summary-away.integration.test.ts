@@ -12,15 +12,11 @@ import {
   botTurn,
   job,
   usage,
-} from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { findBot } from "../../../../plugins/bot/server/conversation";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
-import {
-  inProcessRunner,
-  type JobRunner,
-  claimJob,
-} from "../../../../plugins/runner/server/internal";
+} from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { findBot } from "@botsdk/bot/bot/conversation";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import { inProcessRunner, type JobRunner, claimJob } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import {
   createFakeAdapter,

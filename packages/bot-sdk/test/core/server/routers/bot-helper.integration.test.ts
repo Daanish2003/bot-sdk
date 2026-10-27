@@ -14,12 +14,12 @@ import {
   jobEvent,
   usage,
   relations,
-} from "../../../../core/server/storage";
-import type { Database } from "../../../../core/server/storage";
+} from "@botsdk/bot/storage";
+import type { Database } from "@botsdk/bot/storage";
 
-import { encryptCredentials } from "../../../../core/server/credentials/encryption";
-import { deleteUserData } from "../../../../core/server/user-data";
-import type { HostProvider } from "../../../../plugins/models/server/internal";
+import { encryptCredentials } from "@botsdk/bot/credentials/encryption";
+import { deleteUserData } from "@botsdk/bot/user-data";
+import type { HostProvider } from "@botsdk/bot/models/internal";
 import {
   botHelperJob,
   computerUseModelError,
@@ -31,18 +31,18 @@ import {
   helperTimeLimitMs,
   tooManyGeneralHelpersError,
   listHelpers,
-} from "../../../../plugins/bot/server/helpers";
-import { secretEncryption } from "../../../../plugins/bot/server/safety";
+} from "@botsdk/bot/bot/helpers";
+import { secretEncryption } from "@botsdk/bot/bot/safety";
 
-import type { CommandResult } from "../../../../plugins/computer/server/internal";
-import { saveCredentials, quotaLookup } from "../../../../plugins/models/server/internal";
+import type { CommandResult } from "@botsdk/bot/computer/internal";
+import { saveCredentials, quotaLookup } from "@botsdk/bot/models/internal";
 
 import {
   inProcessRunner,
   type JobRunner,
   claimJob,
   reapStaleJobs,
-} from "../../../../plugins/runner/server/internal";
+} from "@botsdk/bot/runner/internal";
 
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall, withUsage } from "../../../support/fake-adapter";
@@ -50,7 +50,7 @@ import { fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { fakeComputerProvider, type FakeCommandRun } from "../../../support/fake-computer-provider";
 import { followSend } from "../../../support/follow-send";
 

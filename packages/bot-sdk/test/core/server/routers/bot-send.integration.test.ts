@@ -2,29 +2,17 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq, inArray, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createHookEmitter } from "../../../../core/server/chat/hooks";
-import { createMemoryPubSub, type PubSub } from "../../../../core/server/chat/pubsub";
-import {
-  botTrigger,
-  botTurn,
-  conversation,
-  job,
-  message,
-  usage,
-} from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import type { Transaction } from "../../../../core/server/plugin";
-import type { HostProvider } from "../../../../plugins/models/server/internal";
-import { appendMessage } from "../../../../core/server/chat/message-tree";
-import { receive } from "../../../../plugins/bot/server/triggers";
-import {
-  turnTimeLimitMs,
-  findBot,
-  newestTimeZone,
-  textParts,
-} from "../../../../plugins/bot/server/conversation";
+import { createHookEmitter } from "@botsdk/bot/chat/hooks";
+import { createMemoryPubSub, type PubSub } from "@botsdk/bot/chat/pubsub";
+import { botTrigger, botTurn, conversation, job, message, usage } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import type { Transaction } from "@botsdk/bot/plugin";
+import type { HostProvider } from "@botsdk/bot/models/internal";
+import { appendMessage } from "@botsdk/bot/chat/message-tree";
+import { receive } from "@botsdk/bot/bot/triggers";
+import { turnTimeLimitMs, findBot, newestTimeZone, textParts } from "@botsdk/bot/bot/conversation";
 
-import { saveCredentials, quotaLookup } from "../../../../plugins/models/server/internal";
+import { saveCredentials, quotaLookup } from "@botsdk/bot/models/internal";
 
 import {
   inProcessRunner,
@@ -32,7 +20,7 @@ import {
   type JobClock,
   claimJob,
   reapStaleJobs,
-} from "../../../../plugins/runner/server/internal";
+} from "@botsdk/bot/runner/internal";
 
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import {

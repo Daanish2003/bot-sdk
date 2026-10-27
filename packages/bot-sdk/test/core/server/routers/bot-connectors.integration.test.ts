@@ -2,18 +2,14 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { encryptCredentials } from "../../../../core/server/credentials/encryption";
-import { botReview, botSecret, botTurn } from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { secretEncryption } from "../../../../plugins/bot/server/safety";
+import { encryptCredentials } from "@botsdk/bot/credentials/encryption";
+import { botReview, botSecret, botTurn } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { secretEncryption } from "@botsdk/bot/bot/safety";
 import { mcp } from "../../../../plugins/mcp/server/plugin";
 import type { McpServerConfig } from "../../../../plugins/mcp/server/servers";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
-import {
-  inProcessRunner,
-  type JobRunner,
-  systemClock,
-} from "../../../../plugins/runner/server/internal";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import { inProcessRunner, type JobRunner, systemClock } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { createFakeMcpAuth, fakeMcpResource } from "../../../support/fake-mcp-auth";

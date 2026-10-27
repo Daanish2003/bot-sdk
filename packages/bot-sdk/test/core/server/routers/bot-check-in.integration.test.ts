@@ -2,18 +2,14 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { and, asc, eq, like } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { conversationChannel } from "../../../../core/server/chat/conversation-events";
-import { botCheckIn, botTrigger, job, usage } from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { deleteUserData } from "../../../../core/server/user-data";
-import type { HostProvider } from "../../../../plugins/models/server/internal";
-import { findBot } from "../../../../plugins/bot/server/conversation";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
-import {
-  inProcessRunner,
-  type JobRunner,
-  claimJob,
-} from "../../../../plugins/runner/server/internal";
+import { conversationChannel } from "@botsdk/bot/chat/conversation-events";
+import { botCheckIn, botTrigger, job, usage } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { deleteUserData } from "@botsdk/bot/user-data";
+import type { HostProvider } from "@botsdk/bot/models/internal";
+import { findBot } from "@botsdk/bot/bot/conversation";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import { inProcessRunner, type JobRunner, claimJob } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { fakeJobClock } from "../../../support/jobs";

@@ -2,18 +2,18 @@ import type { TextOptions } from "@tanstack/ai";
 import { eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { botPromptStart, botSecret, botTurn, job } from "../../../../core/server/storage";
-import { encryptCredentials } from "../../../../core/server/credentials/encryption";
-import { secretEncryption } from "../../../../plugins/bot/server/safety";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
+import { botPromptStart, botSecret, botTurn, job } from "@botsdk/bot/storage";
+import { encryptCredentials } from "@botsdk/bot/credentials/encryption";
+import { secretEncryption } from "@botsdk/bot/bot/safety";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { saveCredentials } from "@botsdk/bot/models/internal";
 import {
   inProcessRunner,
   type JobRunner,
   systemClock,
   claimJob,
   reapStaleJobs,
-} from "../../../../plugins/runner/server/internal";
+} from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { fakeJobClock } from "../../../support/jobs";

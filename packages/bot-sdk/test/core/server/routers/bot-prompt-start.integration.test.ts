@@ -2,16 +2,16 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { botHelper, botPromptStart, botTurn, job, usage } from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
+import { botHelper, botPromptStart, botTurn, job, usage } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { saveCredentials } from "@botsdk/bot/models/internal";
 import {
   inProcessRunner,
   type JobRunner,
   systemClock,
   claimJob,
   reapStaleJobs,
-} from "../../../../plugins/runner/server/internal";
+} from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { fakeJobClock } from "../../../support/jobs";

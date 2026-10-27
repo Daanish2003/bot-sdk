@@ -2,23 +2,19 @@ import type { AnyTextAdapter, ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { conversationChannel } from "../../../../core/server/chat/conversation-events";
-import { botHelper, botHelperMessage, botTrigger, job } from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { conversationChannel } from "@botsdk/bot/chat/conversation-events";
+import { botHelper, botHelperMessage, botTrigger, job } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import {
   askUserToolName,
   handOffAnswers,
   computerUseHelperPrompt,
   hasRunningHelper,
   helperMessagePrefix,
-} from "../../../../plugins/bot/server/helpers";
-import { findBot } from "../../../../plugins/bot/server/conversation";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
-import {
-  inProcessRunner,
-  type JobRunner,
-  systemClock,
-} from "../../../../plugins/runner/server/internal";
+} from "@botsdk/bot/bot/helpers";
+import { findBot } from "@botsdk/bot/bot/conversation";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import { inProcessRunner, type JobRunner, systemClock } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { chatRpc } from "../../../support/sdk";

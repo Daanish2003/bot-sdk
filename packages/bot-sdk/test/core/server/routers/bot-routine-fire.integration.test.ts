@@ -2,20 +2,16 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { and, asc, eq, inArray, like } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { botRoutine, botTrigger, botTurn, job, usage } from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { deleteUserData } from "../../../../core/server/user-data";
-import type { HostProvider } from "../../../../plugins/models/server/internal";
-import { bot } from "../../../../plugins/bot/server/plugin";
-import { changeNotesFraming } from "../../../../plugins/bot/server/context";
-import { routineFireJobName } from "../../../../plugins/bot/server/routines";
-import { findBot } from "../../../../plugins/bot/server/conversation";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
-import {
-  inProcessRunner,
-  type JobRunner,
-  claimJob,
-} from "../../../../plugins/runner/server/internal";
+import { botRoutine, botTrigger, botTurn, job, usage } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { deleteUserData } from "@botsdk/bot/user-data";
+import type { HostProvider } from "@botsdk/bot/models/internal";
+import { bot } from "@botsdk/bot/bot/plugin";
+import { changeNotesFraming } from "@botsdk/bot/bot/context";
+import { routineFireJobName } from "@botsdk/bot/bot/routines";
+import { findBot } from "@botsdk/bot/bot/conversation";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import { inProcessRunner, type JobRunner, claimJob } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { fakeJobClock } from "../../../support/jobs";

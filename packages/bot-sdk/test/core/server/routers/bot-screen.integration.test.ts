@@ -2,25 +2,21 @@ import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { botHelper, botTrigger, computer as computerTable } from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { askUserToolName, closeScreen } from "../../../../plugins/bot/server/helpers";
-import type { ScreenPeer } from "../../../../plugins/bot/server/helpers";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
-import {
-  inProcessRunner,
-  type JobRunner,
-  systemClock,
-} from "../../../../plugins/runner/server/internal";
+import { botHelper, botTrigger, computer as computerTable } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { askUserToolName, closeScreen } from "@botsdk/bot/bot/helpers";
+import type { ScreenPeer } from "@botsdk/bot/bot/helpers";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import { inProcessRunner, type JobRunner, systemClock } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { fakeNovnc } from "../../../support/fake-novnc";
 import { chatRpc, createTestChat } from "../../../support/sdk";
-import { createScreenSocketOver } from "../../../../core/server/over";
+import { createScreenSocketOver } from "@botsdk/bot/over";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import { fakeComputerProvider, type FakeCommandRun } from "../../../support/fake-computer-provider";
-import type { CommandResult } from "../../../../plugins/computer/server/internal";
+import type { CommandResult } from "@botsdk/bot/computer/internal";
 import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-6-luna";

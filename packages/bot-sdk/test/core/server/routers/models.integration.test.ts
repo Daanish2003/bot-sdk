@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { eq } from "drizzle-orm";
 
-import { userCredentials } from "../../../../core/server/storage";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
+import { userCredentials } from "@botsdk/bot/storage";
+import { saveCredentials } from "@botsdk/bot/models/internal";
 import { createTestSdk } from "../../../support/deps";
 import { liveModelsFetch } from "../../../support/live-models";
 import { getTestDb } from "../../../support/test-database";

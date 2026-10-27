@@ -2,23 +2,23 @@ import type { TextOptions } from "@tanstack/ai";
 import { and, eq, inArray } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { conversationChannel } from "../../../../core/server/chat/conversation-events";
-import type { FeatureContext } from "../../../../core/server/feature";
-import type { Transaction } from "../../../../core/server/plugin";
-import { createMemoryPubSub } from "../../../../core/server/chat/pubsub";
-import { botTurn, job, usage } from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import type { HostProvider } from "../../../../plugins/models/server/internal";
-import { findBot } from "../../../../plugins/bot/server/conversation";
+import { conversationChannel } from "@botsdk/bot/chat/conversation-events";
+import type { FeatureContext } from "@botsdk/bot/feature";
+import type { Transaction } from "@botsdk/bot/plugin";
+import { createMemoryPubSub } from "@botsdk/bot/chat/pubsub";
+import { botTurn, job, usage } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import type { HostProvider } from "@botsdk/bot/models/internal";
+import { findBot } from "@botsdk/bot/bot/conversation";
 import { botMemoryPassJob } from "../../../../plugins/memory/server/bot-pass";
-import { saveCredentials, quotaLookup } from "../../../../plugins/models/server/internal";
+import { saveCredentials, quotaLookup } from "@botsdk/bot/models/internal";
 
 import {
   inProcessRunner,
   type JobRunner,
   systemClock,
   createWorkflow,
-} from "../../../../plugins/runner/server/internal";
+} from "@botsdk/bot/runner/internal";
 
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, runError, text, withUsage } from "../../../support/fake-adapter";

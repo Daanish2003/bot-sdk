@@ -2,16 +2,12 @@ import { maxFileBytes } from "@botsdk/client/bot/files";
 import { and, asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { botTrigger, message } from "../../../../core/server/storage";
-import { findBot } from "../../../../plugins/bot/server/conversation";
+import { botTrigger, message } from "@botsdk/bot/storage";
+import { findBot } from "@botsdk/bot/bot/conversation";
 import { fakeEmailProvider } from "../../../../plugins/channel/fake/index";
-import { emailChannel, type InboundMail } from "../../../../plugins/channel/server/index";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
-import {
-  inProcessRunner,
-  type JobRunner,
-  claimJob,
-} from "../../../../plugins/runner/server/internal";
+import { emailChannel, type InboundMail } from "@botsdk/bot/channel";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import { inProcessRunner, type JobRunner, claimJob } from "@botsdk/bot/runner/internal";
 import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round } from "../../../support/fake-adapter";

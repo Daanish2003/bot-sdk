@@ -2,25 +2,16 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { and, asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  botDemonstration,
-  botDemonstrationEvent,
-  botTrigger,
-  usage,
-} from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import type { HostProvider } from "../../../../plugins/models/server/internal";
+import { botDemonstration, botDemonstrationEvent, botTrigger, usage } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import type { HostProvider } from "@botsdk/bot/models/internal";
 import {
   demonstrationEventBlobKey,
   demonstrationDraftMarker,
-} from "../../../../plugins/bot/server/demonstrations";
+} from "@botsdk/bot/bot/demonstrations";
 
-import { saveCredentials } from "../../../../plugins/models/server/internal";
-import {
-  inProcessRunner,
-  type JobRunner,
-  claimJob,
-} from "../../../../plugins/runner/server/internal";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import { inProcessRunner, type JobRunner, claimJob } from "@botsdk/bot/runner/internal";
 
 import { skills } from "../../../../plugins/skills/server/plugin";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
