@@ -6,10 +6,10 @@ import { z } from "zod";
 
 import { bot, botTrigger, botTurn, message } from "@botsdk/bot/storage";
 import type { Database } from "@botsdk/bot/storage";
-import { coreContextOf, type FeatureContext } from "@botsdk/bot/feature";
-import type { BotSdkContext, Transaction } from "@botsdk/bot/plugin";
+import type { FeatureContext } from "@botsdk/bot/feature";
+import type { Transaction } from "@botsdk/bot/plugin";
 import { lockConversation } from "@botsdk/bot/bot/triggers";
-import { hintChanged, recordBotChange } from "@botsdk/bot/bot/conversation";
+import { recordBotChange } from "@botsdk/bot/bot/conversation";
 import { sendToUserToolName } from "@botsdk/bot/bot/context";
 import type { ComputerHandle } from "@botsdk/bot/computer/internal";
 import { defineJob, type JobContext } from "@botsdk/bot/runner/internal";
@@ -86,12 +86,14 @@ export type ShownLine = {
   importance?: number;
 };
 
+/** What the pass reads of the core: the Computer, the Models and the thread hint (`needs` of Memory). */
+export type PassContext = FeatureContext<"computer" | "models" | "threads">;
+
 /** The job that runs a Turn's pass. Its key is `memory-pass:<turnId>`. */
-export const botMemoryPassJob = defineJob<PassPayload, FeatureContext<"computer">>({
+export const botMemoryPassJob = defineJob<PassPayload, PassContext>({
   name: "memory.bot-pass",
   payload: passPayload,
-  // It still reads the core's Models and Bots, which a feature's context doesn't carry.
-  run: (payload, context) => runBotMemoryPass(coreContextOf(context), payload.turnId, context),
+  run: (payload, context) => runBotMemoryPass(context, payload.turnId, context),
 });
 
 /**
@@ -126,7 +128,7 @@ export async function enqueueBotMemoryPass(
  * Computer failure throws.
  */
 async function runBotMemoryPass(
-  deps: BotSdkContext,
+  deps: PassContext,
   turnId: string,
   { step, signal }: Pick<JobContext, "step" | "signal">,
 ): Promise<void> {
@@ -144,7 +146,7 @@ async function runBotMemoryPass(
     .innerJoin(bot, eq(bot.id, botTurn.botId))
     .where(eq(botTurn.id, turnId));
   if (!turn || (turn.status !== "complete" && turn.status !== "stopped")) return;
-  const computer = () => deps.computer!.forUser(turn.userId);
+  const computer = () => deps.computer.forUser(turn.userId);
 
   const changes = await deps.db.transaction(async (lock) => {
     // One pass at a time per Bot, as the assistant's Memory job does per user: a later pass is
@@ -155,7 +157,7 @@ async function runBotMemoryPass(
     // The checks are part of the recorded call: a retry applies the operations its first attempt
     // planned, even once Memory is off or the Quota is spent.
     const planned = await step("memory_ops", async () => {
-      if (!deps.computer || !(await memoryEnabledFor(deps, turn.userId))) return null;
+      if (!(await memoryEnabledFor(deps, turn.userId))) return null;
       const call = await deps.models.resolveModelCall(turn.userId, turn.model);
       if (!call || !(await call.meter.mayRun()).ok) return null;
       const shown = await shownLines(computer(), {
@@ -196,7 +198,7 @@ async function runBotMemoryPass(
     });
   });
   if (changes.length === 0) return;
-  await hintChanged(deps, turn.conversationId);
+  await deps.threads.hintChanged(turn.conversationId);
 }
 
 /**

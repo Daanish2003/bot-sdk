@@ -1,4 +1,5 @@
-import type { BotSdkContext } from "@botsdk/bot/plugin";
+import type { FeatureContext } from "@botsdk/bot/feature";
+
 import { parseInput, type WithUser } from "@botsdk/bot/rpc-error";
 import { pathInput, uploadDocumentInput, uploadInput } from "../shared/contract";
 import {
@@ -18,7 +19,7 @@ import {
  */
 
 /** The `knowledge` namespace over the core context. */
-export function knowledgeApi(sdk: BotSdkContext) {
+export function knowledgeApi(sdk: FeatureContext<"computer">) {
   return {
     /** Whether the user can have Knowledge, which needs the computer slot. Reads nothing. */
     status: () => ({ available: knowledgeAvailable(sdk) }),

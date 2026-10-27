@@ -2,7 +2,8 @@ import { and, eq } from "drizzle-orm";
 
 import { bot } from "@botsdk/bot/storage";
 import type { ListedSkill, SkillFile } from "../shared/contract";
-import type { BotSdkContext } from "@botsdk/bot/plugin";
+import type { FeatureContext } from "@botsdk/bot/feature";
+
 import { rpcError } from "@botsdk/bot/rpc-error";
 import { ComputerUnavailableError, type ComputerHandle } from "@botsdk/bot/computer/internal";
 import { namePattern, nameLimit, problemOf, skillsDirectory } from "@botsdk/bot/bot/skill-files";
@@ -17,11 +18,11 @@ import { readBotSkills, shellQuote } from "./skills";
 export type { ListedSkill, SkillFile };
 
 /** Whether the Computer is there to hold Skills: they need the computer slot. */
-export function skillsAvailable(deps: BotSdkContext): boolean {
+export function skillsAvailable(deps: FeatureContext<"computer">): boolean {
   return Boolean(deps.computer);
 }
 
-function computerOf(deps: BotSdkContext, userId: string): ComputerHandle {
+function computerOf(deps: FeatureContext<"computer">, userId: string): ComputerHandle {
   if (!deps.computer) {
     throw rpcError("BAD_REQUEST", "error.skillsNeedComputer", "Skills need a Computer");
   }
@@ -45,7 +46,7 @@ async function onComputer<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 /** Refuses a Bot that isn't one of the user's Bots. */
-async function requireOwnBot(deps: BotSdkContext, userId: string, botId: string) {
+async function requireOwnBot(deps: FeatureContext<"computer">, userId: string, botId: string) {
   const [own] = await deps.db
     .select({ id: bot.id })
     .from(bot)
@@ -87,7 +88,7 @@ const notUsable = /^\(not usable: (.*)\)$/;
 
 /** Bot `botId`'s Skills, sorted by name, each with its problem if any and when it last changed. */
 export async function listSkills(
-  deps: BotSdkContext,
+  deps: FeatureContext<"computer">,
   { userId, botId }: { userId: string; botId: string },
 ): Promise<ListedSkill[]> {
   await requireOwnBot(deps, userId, botId);
@@ -109,7 +110,7 @@ export async function listSkills(
 
 /** One Skill's SKILL.md; refused when the Skill has none. */
 export async function readSkill(
-  deps: BotSdkContext,
+  deps: FeatureContext<"computer">,
   { userId, botId, name }: { userId: string; botId: string; name: string },
 ): Promise<SkillFile> {
   await requireOwnBot(deps, userId, botId);
@@ -134,7 +135,7 @@ export async function readSkill(
  * the rule is saved only when it exists already, as the popover lists it, never as a new Skill.
  */
 export async function saveSkill(
-  deps: BotSdkContext,
+  deps: FeatureContext<"computer">,
   {
     userId,
     botId,
@@ -168,7 +169,7 @@ export async function saveSkill(
 
 /** Deletes a Skill's whole folder. */
 export async function deleteSkill(
-  deps: BotSdkContext,
+  deps: FeatureContext<"computer">,
   { userId, botId, name }: { userId: string; botId: string; name: string },
 ) {
   await requireOwnBot(deps, userId, botId);

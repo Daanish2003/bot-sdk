@@ -311,4 +311,25 @@ describe("a feature built with defineFeature", { timeout: 30_000 }, () => {
     });
     expect(await getTestDb().select().from(pin).where(eq(pin.userId, user.id))).toEqual([]);
   });
+
+  it("gives its context only the core services in its needs, never the whole core", async () => {
+    const seen: (string | symbol)[][] = [];
+    const spy = defineFeature({
+      id: "spy",
+      needs: ["models"],
+      afterTurn: async (_tx, _turn, context) => {
+        seen.push(Reflect.ownKeys(context));
+      },
+    });
+    const { client, botId } = await botWithPins([round()], [spy]);
+    await send(client, botId, "hello");
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("models");
+    expect(seen[0]).not.toContain("computer");
+    for (const key of ["bots", "runner", "pubsub", "parts", "secrets"]) {
+      expect(seen[0]).not.toContain(key);
+    }
+    expect(seen[0]!.filter((key) => typeof key === "symbol")).toEqual([]);
+  });
 });

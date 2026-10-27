@@ -1,4 +1,4 @@
-import { coreContextOf, defineFeature } from "@botsdk/bot/feature";
+import { defineFeature } from "@botsdk/bot/feature";
 import { isComputerFailure } from "@botsdk/bot/computer/internal";
 import { skillChangeNotes } from "./changes";
 import { skillsContract } from "../shared/contract";
@@ -18,7 +18,7 @@ export function skills() {
     demonstrations: true,
     contract: skillsContract,
     // The domain methods: `sdk.skills` (spec #873).
-    api: (context) => skillsApi(coreContextOf(context)),
+    api: (context) => skillsApi(context),
     // Read once as a Turn starts: the section the Prompt start keeps, and what changed since.
     prompt: async (turn, { computer, logger }) => {
       // A Computer that can't be woken or read leaves the Turn without a Skills section; any

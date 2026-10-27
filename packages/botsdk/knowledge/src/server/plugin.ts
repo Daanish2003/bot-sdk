@@ -1,4 +1,4 @@
-import { coreContextOf, defineFeature } from "@botsdk/bot/feature";
+import { defineFeature } from "@botsdk/bot/feature";
 import { isComputerFailure } from "@botsdk/bot/computer/internal";
 import { knowledgeApi } from "./knowledge-api";
 import { knowledgeNotes } from "./notes";
@@ -19,7 +19,7 @@ export function knowledge() {
     needs: ["computer"],
     contract: knowledgeContract,
     // The domain methods: `sdk.knowledge` (spec #873).
-    api: (context) => knowledgeApi(coreContextOf(context)),
+    api: (context) => knowledgeApi(context),
     // A Computer that can't be woken or read leaves the Turn without a Knowledge section; any
     // other failure, or a Stop or the time limit, throws.
     prompt: async (turn, { computer, logger }) => {

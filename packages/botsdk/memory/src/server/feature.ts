@@ -2,7 +2,7 @@ import { toolDefinition } from "@tanstack/ai";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { coreContextOf, defineFeature } from "@botsdk/bot/feature";
+import { defineFeature } from "@botsdk/bot/feature";
 import { isComputerFailure } from "@botsdk/bot/computer/internal";
 import { botMemoryPassJob, enqueueBotMemoryPass } from "./bot-pass";
 import { botMemorySnapshot, botsOf, exportBotMemory, memoryDirectory } from "./bot-memory";
@@ -36,10 +36,10 @@ const searchMemoryDefinition = toolDefinition({
 export function memory() {
   return defineFeature({
     id: "memory",
-    needs: ["computer"],
+    needs: ["computer", "models", "threads"],
     schema: { tables: { memorySettings }, migrations: memoryMigrations },
     // The domain methods: `sdk.memory` (spec #873).
-    api: (context) => memoryApi(coreContextOf(context)),
+    api: (context) => memoryApi(context),
     // Sent on every call, by name (`isDirectTool`), only with the user's Memory on.
     tools: async (turn, context, kit) => {
       // Read once and recorded, so a replay lists what its attempt did, even if the switch moved.
