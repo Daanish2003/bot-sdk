@@ -3,7 +3,13 @@ import { and, eq } from "drizzle-orm";
 import { bot, botRoutine, botTrigger } from "../../storage";
 import { uuidv7 } from "../../lib/uuidv7";
 import type { BotSdkContext } from "../../plugin";
-import { routineSnapshot, untrustedBlock, webhookPayloadLabel, webhookTokenHash } from "./routine";
+import {
+  fireKeyPrefix,
+  routineSnapshot,
+  untrustedBlock,
+  webhookPayloadLabel,
+  webhookTokenHash,
+} from "./routine";
 import { lockConversation, receive } from "../triggers";
 import { hintChanged } from "../conversation";
 
@@ -141,7 +147,7 @@ async function receiveWebhook(
     // Paused, sent back for approval or rotated since the lookup: not found.
     if (routine?.state !== "active" || routine.webhookTokenHash !== tokenHash) return undefined;
 
-    const id = `routine:${routine.id}:${key ?? uuidv7()}`;
+    const id = `${fireKeyPrefix(routine.id)}${key ?? uuidv7()}`;
     const [seen] = await tx
       .select({ id: botTrigger.id })
       .from(botTrigger)

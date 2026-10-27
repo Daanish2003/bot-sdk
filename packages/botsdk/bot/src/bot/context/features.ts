@@ -278,6 +278,11 @@ export function featureTurnChanges(deps: BotSdkContext, turn: FeatureEndedTurn):
     if (!feature.turnChanges) continue;
     try {
       const changes = feature.turnChanges(turn);
+      // Typed out, but an untyped feature can still return one: it would hold the lock.
+      if (changes instanceof Promise) {
+        changes.catch(() => {});
+        throw new Error("turnChanges returned a Promise: it must be synchronous");
+      }
       skillChanges.push(...(changes?.skillChanges ?? []));
       knowledgeChanges.push(...(changes?.knowledgeChanges ?? []));
     } catch (error) {

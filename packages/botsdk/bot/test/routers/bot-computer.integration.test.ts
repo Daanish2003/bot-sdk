@@ -25,6 +25,7 @@ import {
 
 import { knowledge } from "@botsdk/knowledge";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
+import { isTurnCall } from "@ai-chat/test-support/bot-turns";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { drainJobs, fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
@@ -264,13 +265,8 @@ describe("the shell tool", () => {
     await send(client, botId, "first");
     await send(client, botId, "second");
 
-    // The Helper's own model calls share the fake; the Bot's are the ones without its prompt.
-    const turnCalls = fake.calls.filter(
-      (call) =>
-        !(call.systemPrompts ?? []).some((prompt) =>
-          (typeof prompt === "string" ? prompt : prompt.content).startsWith("You are a Helper"),
-        ),
-    );
+    // The Helper's own model calls share the fake.
+    const turnCalls = fake.calls.filter(isTurnCall);
     const names = turnCalls.map(toolNamesOf);
     expect(names.length).toBeGreaterThanOrEqual(3);
     for (const turnNames of names) expect(turnNames).toEqual(names[0]);
