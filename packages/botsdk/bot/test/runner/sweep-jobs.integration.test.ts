@@ -2,21 +2,16 @@ import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import {
-  type CoreRun,
-  defineJob,
-  type Executor,
-  jobTable,
-  sweepJobs,
-  systemClock,
-} from "../../src/runner/internal";
+import { uuidv7 } from "../../src/lib/uuidv7";
+import { defineJob, jobTable, systemClock } from "../../src/runner/internal";
 import { job } from "../../src/storage";
 import { crashingRunner, poll, testRunners } from "@ai-chat/test-support/executor.contract";
+import { manualExecutor } from "@ai-chat/test-support/executors";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 
 /*
  * The sweep an Executor that doesn't poll calls (Inngest's, spec #878): it re-queues expired leases,
- * prunes finished jobs, and returns the jobs to wake up.
+ * wakes the due jobs, and prunes finished jobs.
  */
 
 const started: string[] = [];
@@ -38,18 +33,24 @@ const table = jobTable([
 ]);
 const runners = testRunners(() => table);
 
-/** A runner on an Executor that only keeps the core's `run`, whose sweep the test calls. */
+/** A runner on a manual Executor, whose sweep the test calls. */
 async function sweeper() {
-  let run: CoreRun | undefined;
-  const executor: Executor = {
-    start: async (given) => {
-      run = given;
-    },
-    notify: async () => {},
-    stop: async () => {},
-  };
-  const runner = await runners.over(executor, systemClock);
-  return { runner, sweep: () => run![sweepJobs]!() };
+  const manual = manualExecutor();
+  const runner = await runners.over(manual.executor, systemClock);
+  return { runner, sweep: manual.sweep };
+}
+
+/** Queues a job whose lease expired in a crashed process, and returns its id. */
+async function crashedJob() {
+  let open!: () => void;
+  gate = new Promise((resolve) => (open = resolve));
+  const { runner, run } = await crashingRunner(runners, new Date());
+  const id = await runner.enqueue("sweep.hold", { label: "crashed" });
+  void run(id);
+  await expect.poll(() => started, poll).toEqual(["crashed"]);
+  await runner.stop();
+  open();
+  return id;
 }
 
 afterEach(async () => {
@@ -59,29 +60,37 @@ afterEach(async () => {
 });
 
 describe("sweepJobs", () => {
+  it("wakes a job whose lease it re-queued, once", { timeout: 30_000 }, async () => {
+    const crashed = await crashedJob();
+    const { sweep } = await sweeper();
+
+    expect(await sweep()).toEqual([crashed]);
+  });
+
   it(
-    "returns a job whose lease it re-queued first, even behind a full sweep of older due jobs",
+    "wakes a job whose lease it re-queued first, even behind a full sweep of older due jobs",
     { timeout: 30_000 },
     async () => {
-      let open!: () => void;
-      gate = new Promise((resolve) => (open = resolve));
-      const { runner: elsewhere, run } = await crashingRunner(runners, new Date());
-      const crashed = await elsewhere.enqueue("sweep.hold", { label: "crashed" });
-      void run(crashed);
-      await expect.poll(() => started, poll).toEqual(["crashed"]);
-      await elsewhere.stop();
-      open();
-
-      const { runner, sweep } = await sweeper();
+      const crashed = await crashedJob();
+      const { sweep } = await sweeper();
       const older = new Date(Date.now() - 60 * 60_000);
-      for (let i = 0; i < 501; i++) {
-        await runner.enqueue("sweep.hold", { label: `old ${i}` }, { runAfter: older });
-      }
+      await getTestDb()
+        .insert(job)
+        .values(
+          Array.from({ length: 501 }, (_, i) => ({
+            id: uuidv7(older.getTime()),
+            name: "sweep.hold",
+            payload: { label: `old ${i}` },
+            runAfter: older,
+            createdAt: older,
+            updatedAt: older,
+          })),
+        );
 
-      const due = await sweep();
+      const woken = await sweep();
 
-      expect(due[0]).toBe(crashed);
-      expect(due.filter((id) => id === crashed)).toHaveLength(1);
+      expect(woken[0]).toBe(crashed);
+      expect(woken.filter((id) => id === crashed)).toHaveLength(1);
     },
   );
 

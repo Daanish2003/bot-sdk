@@ -1,11 +1,11 @@
-import type { Executor } from "@botsdk/bot/runner/internal";
+import { type CoreRun, type Executor, sweepJobs } from "@botsdk/bot/runner/internal";
 
 /**
  * An Executor that runs nothing by itself (spec #872): it records each `notify`, and the test calls
  * `run` when it decides to, twice at once or after a simulated crash included.
  */
 export function manualExecutor() {
-  let run: ((jobId: string) => Promise<void>) | undefined;
+  let run: CoreRun | undefined;
   const notified: { jobId: string; runAfter?: Date }[] = [];
   const executor: Executor = {
     start: async (given) => {
@@ -25,6 +25,15 @@ export function manualExecutor() {
     run: (jobId: string) => {
       if (!run) throw new Error("The manual Executor hasn't been started");
       return run(jobId);
+    },
+    /** Sweeps as a non-polling Executor does, and resolves to the ids it would wake. */
+    sweep: async () => {
+      if (!run) throw new Error("The manual Executor hasn't been started");
+      let woken: string[] = [];
+      await run[sweepJobs]!(async (jobIds) => {
+        woken = jobIds;
+      });
+      return woken;
     },
   };
 }

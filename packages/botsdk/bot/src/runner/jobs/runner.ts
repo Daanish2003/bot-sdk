@@ -125,12 +125,13 @@ export type JobRunner = {
   runClaimed: (claimed: ClaimedJob, options?: { drain?: AbortSignal }) => Promise<void>;
   /** Has the in-process Executor claim due jobs now instead of at its next poll. */
   wake: () => void;
+  /** Re-queues the jobs whose lease has expired at `now` and returns their ids. */
+  reap: (now: Date) => Promise<string[]>;
   /**
-   * The runner's housekeeping at `now`: re-queues the jobs whose lease has expired and returns their
-   * ids, and deletes finished jobs past their retention, at most once an hour per process. The
-   * reaper and an Executor's sweep share it, and so its prune throttle.
+   * Deletes finished jobs past their retention, at most once an hour for this runner; a failure is
+   * logged. The reaper and an Executor's sweep share it, and so its throttle.
    */
-  tidy: (now: Date) => Promise<string[]>;
+  pruneIfDue: (now: Date) => Promise<void>;
   /** Re-queued jobs (a retry, a yield, an expired lease) are passed to the Executor through it. */
   requeued: (jobId: string, runAfter: Date) => void;
   start: () => Promise<void>;
@@ -185,9 +186,9 @@ export const claimNext = Symbol("claimNext");
 export const jobBudgets = Symbol("jobBudgets");
 
 /**
- * The way in of an Executor that doesn't poll (Inngest's sweep): the reaper's housekeeping (`tidy`),
- * then the ids of the jobs to wake: those it re-queued, then the queued jobs that are due, oldest
- * first.
+ * The way in of an Executor that doesn't poll (Inngest's sweep): re-queues the jobs whose lease has
+ * expired, has `wake` wake the jobs that are due (those it re-queued first, then the other queued
+ * due jobs, oldest first, up to a limit), then prunes finished jobs (`JobRunner.pruneIfDue`).
  */
 export const sweepJobs = Symbol("sweepJobs");
 
@@ -195,7 +196,7 @@ export const sweepJobs = Symbol("sweepJobs");
 const JOB_PRUNE_MS = 60 * 60_000;
 
 export type CoreRun = ((jobId: string) => Promise<void>) & {
-  [sweepJobs]?: () => Promise<string[]>;
+  [sweepJobs]?: (wake: (jobIds: string[]) => Promise<void>) => Promise<void>;
   [claimNext]?: (names: JobNames) => Promise<{ name: string; attempt: Promise<void> } | undefined>;
   [jobBudgets]?: () => readonly JobBudget[];
 };
@@ -267,23 +268,23 @@ export function createJobRunner({
     return job && { name: job.name, attempt: work };
   };
   runJob[jobBudgets] = () => budgetsOf(jobs());
+  const reap = (now: Date) => reapStaleJobs(db, now, logger, jobs());
   let lastPrune = Number.NEGATIVE_INFINITY;
-  const tidy = async (now: Date) => {
-    const reaped = await reapStaleJobs(db, now, logger, jobs());
-    if (Date.now() - lastPrune >= JOB_PRUNE_MS) {
-      lastPrune = Date.now();
-      await pruneFinishedJobs(db, now).catch((error: unknown) =>
-        logger.error("Pruning finished background jobs failed", error),
-      );
-    }
-    return reaped;
+  const pruneIfDue = async (now: Date) => {
+    if (Date.now() - lastPrune < JOB_PRUNE_MS) return;
+    lastPrune = Date.now();
+    await pruneFinishedJobs(db, now).catch((error: unknown) =>
+      logger.error("Pruning finished background jobs failed", error),
+    );
   };
-  runJob[sweepJobs] = async () => {
+  runJob[sweepJobs] = async (wake) => {
     const now = clock.now();
-    const reaped = await tidy(now);
-    const due = await dueJobIds(db, now);
+    const reaped = await reap(now);
+    const listed = new Set(reaped);
     // The jobs it re-queued first, so that older due jobs never push them past the limit.
-    return [...reaped, ...due.filter((id) => !reaped.includes(id))];
+    const due = (await dueJobIds(db, now)).filter((id) => !listed.has(id));
+    await wake([...reaped, ...due]);
+    await pruneIfDue(now);
   };
 
   return {
@@ -331,7 +332,9 @@ export function createJobRunner({
 
     wake: () => wakeable.get(executor)?.(),
 
-    tidy,
+    reap,
+
+    pruneIfDue,
 
     requeued,
 

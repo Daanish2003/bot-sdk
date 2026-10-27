@@ -17,12 +17,12 @@ export function createRunnerLifecycle(deps: BotSdkContext, jobs: JobRunner): Run
   let timer: ReturnType<typeof setInterval> | undefined;
   const reap = async () => {
     const now = new Date();
-    // Reaps, and prunes at most once an hour (`JobRunner.tidy`).
-    const requeued = await jobs.tidy(now).catch((error: unknown) => {
+    const requeued = await jobs.reap(now).catch((error: unknown) => {
       logger.error("Reaping background jobs failed", error);
       return [];
     });
     for (const jobId of requeued) jobs.requeued(jobId, now);
+    await jobs.pruneIfDue(now);
   };
 
   return {
