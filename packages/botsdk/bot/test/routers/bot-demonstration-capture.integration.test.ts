@@ -532,19 +532,39 @@ describe("capturing a Demonstration", () => {
   it(`ends as Done at ${demonstrationEventLimit} stored steps`, async () => {
     const { client, botId, demonstrationId, page } = await demonstrating();
 
-    // Masked steps take no screenshot, so 200 of them are quick.
+    // All but the last few steps, stored as the capture stores a masked key press: capturing 200
+    // one by one takes seconds, more than a poll waits under load (#945).
+    await getTestDb()
+      .insert(botDemonstrationEvent)
+      .values(
+        Array.from({ length: demonstrationEventLimit - 3 }, (_, index) => ({
+          id: uuidv7(),
+          demonstrationId,
+          sequence: index + 2,
+          offsetMs: 0,
+          kind: "key" as const,
+          url: `${origin}/`,
+          label: "Password",
+          selector: "#pw",
+          value: maskedValue,
+        })),
+      );
     await page.locator("#pw").focus();
-    for (let i = 0; i < demonstrationEventLimit + 5; i += 1) await page.keyboard.press("Enter");
+    for (let i = 0; i < 5; i += 1) await page.keyboard.press("Enter");
 
-    await expect
-      .poll(async () => {
-        const [row] = await getTestDb()
-          .select({ state: botDemonstration.state })
-          .from(botDemonstration)
-          .where(eq(botDemonstration.id, demonstrationId));
-        return row?.state;
-      }, poll)
-      .toBe("drafting");
+    // Done moves it to `drafting`, which its drafting pass soon moves on (#945), so wait for it to
+    // stop recording; bot-demonstration-draft covers how the pass ends.
+    const demonstrationRow = async () => {
+      const [row] = await getTestDb()
+        .select({ state: botDemonstration.state, endedAt: botDemonstration.endedAt })
+        .from(botDemonstration)
+        .where(eq(botDemonstration.id, demonstrationId));
+      return row;
+    };
+    await expect.poll(async () => (await demonstrationRow())?.state, poll).not.toBe("recording");
+    const ended = await demonstrationRow();
+    expect(["drafting", "saved", "failed"]).toContain(ended?.state);
+    expect(ended?.endedAt).toEqual(expect.any(Date));
     await page.waitForTimeout(500);
     expect(await eventsOf(demonstrationId)).toHaveLength(demonstrationEventLimit);
     const { messages } = await client.bots.get({ botId });
