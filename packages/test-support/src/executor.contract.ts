@@ -423,8 +423,13 @@ function conformance(
         { idempotencyKey: "turn" },
       );
       await harness.deliver(old);
-      await expect.poll(async () => (await jobs.status(old))?.attempts, poll).toBe(1);
-      expect((await jobs.status(old))?.status).toBe("queued");
+      // `attempts` counts at claim time, so wait until the attempt has ended and the job is queued again.
+      await expect
+        .poll(async () => {
+          const job = await jobs.status(old);
+          return job && { status: job.status, attempts: job.attempts };
+        }, poll)
+        .toEqual({ status: "queued", attempts: 1 });
 
       expect(await replace("turn", "new")).toBeUndefined();
       expect((await jobs.status(old))?.status).toBe("queued");
