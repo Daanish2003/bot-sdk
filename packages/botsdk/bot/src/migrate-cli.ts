@@ -46,10 +46,10 @@ export function printSql(pending: readonly PendingMigration[]): string {
 }
 
 /**
- * The statements that remove a feature's tables, the enums and sequences they used that nothing
- * else uses and the core doesn't define (its own: a sequence a table owns goes with it), and its
- * journal rows, so enabling it again migrates it from its baseline. Its enums and sequences are
- * found through its tables' columns and defaults: one no column of its tables uses isn't dropped.
+ * The statements that remove a feature's tables, the enums and sequences its `schema` declares
+ * that no other table uses or owns, no enabled feature declares and the core doesn't define, and
+ * its journal rows, so enabling it again
+ * migrates it from its baseline. A sequence a table owns goes with it.
  * Throws for a feature in `enabled`: removal is for a disabled feature.
  */
 function dropStatements(feature: AnyFeature, enabled: readonly AnyFeature[]): string {
@@ -57,19 +57,28 @@ function dropStatements(feature: AnyFeature, enabled: readonly AnyFeature[]): st
     throw new Error(`Feature "${feature.id}" is enabled: turn it off before removing its tables`);
   }
   const id = (text: string) => `"${text.replaceAll('"', '""')}"`;
+  const qualified = (schema: string | undefined, name: string) =>
+    quote(`${id(schema ?? "public")}.${id(name)}`);
   const tables = Object.values(feature.schema?.tables ?? {}).map((table) => {
     const { name, schema } = getTableConfig(table);
-    return quote(`${id(schema ?? "public")}.${id(name)}`);
+    return qualified(schema, name);
   });
+  const enumsOf = ({ schema }: AnyFeature) =>
+    Object.values(schema?.enums ?? {}).map((value) => qualified(value.schema, value.enumName));
+  const sequencesOf = ({ schema }: AnyFeature) =>
+    Object.values(schema?.sequences ?? {}).flatMap((value) =>
+      value.seqName === undefined ? [] : [qualified(value.schema, value.seqName)],
+    );
+  // What an enabled feature also declares stays.
+  const kept = new Set(enabled.flatMap((other) => [...enumsOf(other), ...sequencesOf(other)]));
+  const enums = enumsOf(feature).filter((name) => !kept.has(name));
+  const sequences = sequencesOf(feature).filter((name) => !kept.has(name));
   const coreEnums = (Object.values(coreSchema) as unknown[])
     .filter(isPgEnum)
-    .map((value) => quote(`${id(value.schema ?? "public")}.${id(value.enumName)}`));
+    .map((value) => qualified(value.schema, value.enumName));
   return `do $$
 declare
   listed text[] := array[${tables.join(", ")}]::text[];
-  dropped regclass[] := array(
-    select to_regclass(name_) from unnest(listed) as name_ where to_regclass(name_) is not null
-  );
   core_enums oid[] := array(
     select to_regtype(name_) from unnest(array[${coreEnums.join(", ")}]::text[]) as name_
     where to_regtype(name_) is not null
@@ -78,28 +87,27 @@ declare
   sequences oid[];
   entry oid;
 begin
-  -- The enums the tables' columns (or arrays of them) are of, and the sequences their defaults use.
-  select coalesce(array_agg(distinct element.oid), '{}') into enums
-  from pg_attribute column_
-  join pg_type type_ on type_.oid = column_.atttypid
-  join pg_type element on element.typtype = 'e'
-    and element.oid = case when type_.typcategory = 'A' then type_.typelem else type_.oid end
-  where column_.attrelid = any(dropped) and column_.attnum > 0 and not column_.attisdropped;
-  select coalesce(array_agg(distinct used.refobjid), '{}') into sequences
-  from pg_attrdef default_
-  join pg_depend used on used.classid = 'pg_attrdef'::regclass and used.objid = default_.oid
-    and used.refclassid = 'pg_class'::regclass
-  join pg_class sequence_ on sequence_.oid = used.refobjid and sequence_.relkind = 'S'
-  where default_.adrelid = any(dropped);
-
   -- By name: a cascade from an earlier table may already have dropped a later one.
   for i in 1 .. coalesce(array_length(listed, 1), 0) loop
     execute format('drop table if exists %s cascade', listed[i]);
   end loop;
-  -- Only what no other table still uses, and never a core enum.
+
+  -- The declared enums and sequences that are still there.
+  enums := array(
+    select type_.oid from unnest(array[${enums.join(", ")}]::text[]) as name_
+    join pg_type type_ on type_.oid = to_regtype(name_) and type_.typtype = 'e'
+  );
+  sequences := array(
+    select class_.oid from unnest(array[${sequences.join(", ")}]::text[]) as name_
+    join pg_class class_ on class_.oid = to_regclass(name_) and class_.relkind = 'S'
+  );
+  -- Only what no other table still uses or owns, and never a core enum.
   foreach entry in array sequences loop
-    if exists (select 1 from pg_class where oid = entry) and not exists (
+    if not exists (
       select 1 from pg_depend where refobjid = entry and classid = 'pg_attrdef'::regclass
+    ) and not exists (
+      select 1 from pg_depend where objid = entry and classid = 'pg_class'::regclass
+        and refclassid = 'pg_class'::regclass and deptype in ('a', 'i')
     ) then
       execute format('drop sequence %s', entry::regclass);
     end if;
