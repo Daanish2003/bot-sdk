@@ -281,7 +281,7 @@ export async function cancelTurn(
     status: "stopped",
     error: null,
     transcript: played.transcript,
-    ...(await changesOf(deps, turn, played.transcript)),
+    ...changesOf(deps, turn, played.transcript),
     usage: played.usage,
     endedAt,
   });
@@ -381,7 +381,7 @@ async function runTurnJob(
       await endTurn(tx, turnId, {
         ...endingOf(played),
         transcript: played.transcript,
-        ...(await changesOf(deps, turn, played.transcript)),
+        ...changesOf(deps, turn, played.transcript),
         usage: played.usage,
         endedAt,
       });
@@ -464,7 +464,7 @@ async function endRunningTurn(
       .set({
         ...ending,
         transcript: played.transcript,
-        ...(await changesOf(deps, turn, played.transcript)),
+        ...changesOf(deps, turn, played.transcript),
         usage: played.usage,
         endedAt,
       })
@@ -524,10 +524,10 @@ function changesOf(
   deps: BotSdkContext,
   turn: ContextTurn | undefined,
   transcript: readonly ModelMessage[],
-): Promise<TurnChanges> {
+): TurnChanges {
   return turn
     ? featureTurnChanges(deps, { ...featureTurnOf(turn), transcript })
-    : Promise.resolve({ skillChanges: null, knowledgeChanges: null });
+    : { skillChanges: null, knowledgeChanges: null };
 }
 
 /** Ends the Turn's row, with its `turn` change, in its last Checkpoint's transaction. */

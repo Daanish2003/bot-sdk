@@ -271,16 +271,13 @@ export type TurnChanges = {
  * answers by kind, in the order the Host listed the features. A feature's throw is logged and adds
  * nothing. With no feature that reports a kind, it is null and nothing reads the transcript for it.
  */
-export async function featureTurnChanges(
-  deps: BotSdkContext,
-  turn: FeatureEndedTurn,
-): Promise<TurnChanges> {
+export function featureTurnChanges(deps: BotSdkContext, turn: FeatureEndedTurn): TurnChanges {
   const skillChanges: NonNullable<FeatureTurnChanges["skillChanges"]> = [];
   const knowledgeChanges: NonNullable<FeatureTurnChanges["knowledgeChanges"]> = [];
   for (const { feature } of enabledFeatures(deps)) {
     if (!feature.turnChanges) continue;
     try {
-      const changes = await feature.turnChanges(turn);
+      const changes = feature.turnChanges(turn);
       skillChanges.push(...(changes?.skillChanges ?? []));
       knowledgeChanges.push(...(changes?.knowledgeChanges ?? []));
     } catch (error) {

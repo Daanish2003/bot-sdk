@@ -2,6 +2,7 @@ import type { BotSkillChange } from "@botsdk/client/skills/changes";
 import type { ModelMessage } from "@tanstack/ai";
 
 import { skillsDirectory } from "@botsdk/bot/bot/skill-files";
+import { writtenFiles } from "@botsdk/bot/feature";
 
 /**
  * The Skills a Turn's `transcript` wrote, for its Skill chip: its successful `write` and `edit`
@@ -15,29 +16,14 @@ export function skillChangesOf(
   transcript: readonly ModelMessage[],
 ): BotSkillChange[] | null {
   const prefix = `${skillsDirectory(botId)}/`;
-  const names = new Map<string, string>();
-  for (const entry of transcript) {
-    for (const call of entry.toolCalls ?? []) names.set(call.id, call.function.name);
-  }
   const changes = new Map<string, BotSkillChange>();
-  for (const entry of transcript) {
-    if (entry.role !== "tool" || !entry.toolCallId || typeof entry.content !== "string") continue;
-    let result: { path?: unknown; error?: unknown; created?: unknown };
-    try {
-      result = JSON.parse(entry.content);
-    } catch {
-      continue;
-    }
-    if (typeof result !== "object" || result === null || "error" in result) continue;
-    const called = names.get(entry.toolCallId);
-    if (called !== "write" && called !== "edit" && called !== "run_tool") continue;
-    const path = typeof result.path === "string" ? result.path : "";
+  for (const { path, created } of writtenFiles(transcript)) {
     const name = path.startsWith(prefix)
       ? /^([^/]+)\/SKILL\.md$/.exec(path.slice(prefix.length))?.[1]
       : undefined;
     if (!name) continue;
     if (changes.get(name)?.kind === "saved") continue;
-    changes.set(name, { kind: result.created === true ? "saved" : "updated", name });
+    changes.set(name, { kind: created ? "saved" : "updated", name });
   }
   return changes.size > 0 ? [...changes.values()] : null;
 }

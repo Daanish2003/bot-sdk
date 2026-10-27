@@ -2,6 +2,7 @@ import type { BotKnowledgeChange } from "@botsdk/client/knowledge/changes";
 import type { ModelMessage } from "@tanstack/ai";
 
 import { knowledgeDirectory } from "@botsdk/bot/bot/knowledge-files";
+import { writtenFiles } from "@botsdk/bot/feature";
 
 /**
  * The files a Turn's `transcript` saved to Knowledge, for its chip: the paths of its successful
@@ -14,25 +15,9 @@ export function knowledgeChangesOf(
   transcript: readonly ModelMessage[],
 ): BotKnowledgeChange[] | null {
   const prefix = `${knowledgeDirectory}/`;
-  const names = new Map<string, string>();
-  for (const entry of transcript) {
-    for (const call of entry.toolCalls ?? []) names.set(call.id, call.function.name);
-  }
   const paths = new Set<string>();
-  for (const entry of transcript) {
-    if (entry.role !== "tool" || !entry.toolCallId || typeof entry.content !== "string") continue;
-    const called = names.get(entry.toolCallId);
-    if (called !== "write" && called !== "edit" && called !== "run_tool") continue;
-    let result: { path?: unknown; error?: unknown };
-    try {
-      result = JSON.parse(entry.content);
-    } catch {
-      continue;
-    }
-    if (typeof result !== "object" || result === null || "error" in result) continue;
-    if (typeof result.path === "string" && result.path.startsWith(prefix)) {
-      paths.add(result.path.slice(prefix.length));
-    }
+  for (const { path } of writtenFiles(transcript)) {
+    if (path.startsWith(prefix)) paths.add(path.slice(prefix.length));
   }
   return paths.size > 0 ? [...paths].map((path) => ({ botId, path })) : null;
 }

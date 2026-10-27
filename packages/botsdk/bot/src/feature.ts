@@ -22,7 +22,6 @@ import type { BotSdkContext, BotSdkPlugin, Route, Transaction } from "./plugin";
 import { requireAuth } from "./procedures";
 import type { ComputerApi } from "./computer/internal";
 import type { ModelsApi } from "./models/internal";
-import { hintChanged } from "./bot/conversation";
 import type { EnqueueOptions, JobDefinition } from "./runner/internal";
 
 /*
@@ -34,12 +33,10 @@ import type { EnqueueOptions, JobDefinition } from "./runner/internal";
 /** The core services a feature may declare in `needs`. */
 export type CoreService = "computer" | "models" | "threads";
 
-type Services = {
-  computer: ComputerApi;
-  models: ModelsApi;
-  /** What a feature tells a Conversation's open tabs. */
-  threads: { hintChanged: (conversationId: string) => Promise<void> };
-};
+/** What a feature tells a Conversation's open tabs. */
+export type ThreadsService = { hintChanged: (conversationId: string) => Promise<void> };
+
+type Services = { computer: ComputerApi; models: ModelsApi; threads: ThreadsService };
 
 /** What the core gives every feature, plus the services it declared in `needs`, non-optional. */
 export type FeatureContext<Needs extends CoreService = never> = {
@@ -168,6 +165,37 @@ export type FeaturePrompt = {
 /** The Turn a feature's `turnChanges` reads: what it did, as its transcript holds it. */
 export type FeatureEndedTurn = FeatureTurn & { transcript: readonly ModelMessage[] };
 
+/** A file a Turn's tool call wrote, and whether that call created it. */
+export type WrittenFile = { path: string; created: boolean };
+
+/**
+ * The files a Turn's `transcript` wrote, for a feature's `turnChanges`: the `path` of each
+ * successful `write`, `edit` and `run_tool` call's result, in the order of the results. A result
+ * that isn't JSON, has an `error` or has no `path` string is left out.
+ */
+export function writtenFiles(transcript: readonly ModelMessage[]): WrittenFile[] {
+  const names = new Map<string, string>();
+  for (const entry of transcript) {
+    for (const call of entry.toolCalls ?? []) names.set(call.id, call.function.name);
+  }
+  const written: WrittenFile[] = [];
+  for (const entry of transcript) {
+    if (entry.role !== "tool" || !entry.toolCallId || typeof entry.content !== "string") continue;
+    const called = names.get(entry.toolCallId);
+    if (called !== "write" && called !== "edit" && called !== "run_tool") continue;
+    let result: { path?: unknown; error?: unknown; created?: unknown };
+    try {
+      result = JSON.parse(entry.content);
+    } catch {
+      continue;
+    }
+    if (typeof result !== "object" || result === null || "error" in result) continue;
+    if (typeof result.path !== "string") continue;
+    written.push({ path: result.path, created: result.created === true });
+  }
+  return written;
+}
+
 /**
  * What a Turn changed of a feature, for the Turn's chips: the core stores each kind in the Turn's
  * column of that name. A kind left out, or empty, is no change.
@@ -241,9 +269,7 @@ export type FeatureDefinition<
    * lost ones too, from what they recorded), with no reads or writes: the core stores it on the
    * Turn. A throw is logged and stores none of the feature's changes.
    */
-  turnChanges?: (
-    turn: FeatureEndedTurn,
-  ) => FeatureTurnChanges | null | Promise<FeatureTurnChanges | null>;
+  turnChanges?: (turn: FeatureEndedTurn) => FeatureTurnChanges | null;
   /**
    * The jobs the feature queues, built with `defineJob` (spec #872). Each one's context has the
    * feature's, with the services in `needs`. A job name can be listed once per instance.
@@ -428,15 +454,23 @@ export function featureMigrations(features: readonly AnyFeature[]): FeatureMigra
 export const hasConnectorFeature = (sdk: Pick<BotSdkContext, "parts">): boolean =>
   enabledFeatures(sdk).some(({ feature }) => feature.connectorTools);
 
-/** A feature, enabled on `sdk`: its context holds the core services it needs. */
-export function enableFeature(sdk: BotSdkContext, feature: AnyFeature): EnabledFeature {
-  return { feature, context: contextOf(sdk, feature.needs ?? []) };
+/**
+ * A feature, enabled on `sdk`, whose Models are set: its context holds the core services it
+ * needs, with `threads` as the instance builds it.
+ */
+export function enableFeature(
+  sdk: BotSdkContext,
+  feature: AnyFeature,
+  threads: ThreadsService,
+): EnabledFeature {
+  return { feature, context: contextOf(sdk, feature.needs ?? [], threads) };
 }
 
 /** The context the core gives a feature (or the Host's jobs) that needs `needs`. */
 export function contextOf(
   sdk: BotSdkContext,
   needs: readonly CoreService[],
+  threads: ThreadsService,
 ): FeatureContext<CoreService> {
   const base: FeatureContext = {
     db: sdk.db,
@@ -451,18 +485,12 @@ export function contextOf(
       wake: () => sdk.runner.wake(),
     },
   };
-  const context = {
+  return {
     ...base,
     ...(needs.includes("computer") && { computer: sdk.computer }),
-    ...(needs.includes("threads") && {
-      threads: { hintChanged: (conversationId: string) => hintChanged(sdk, conversationId) },
-    }),
+    ...(needs.includes("models") && { models: sdk.models }),
+    ...(needs.includes("threads") && { threads }),
   } as FeatureContext<CoreService>;
-  // Read when used: the Models part sets `sdk.models` in its `init`, after the features are enabled.
-  if (needs.includes("models")) {
-    Object.defineProperty(context, "models", { get: () => sdk.models, enumerable: true });
-  }
-  return context;
 }
 
 /**

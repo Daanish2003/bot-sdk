@@ -185,11 +185,11 @@ describe("a feature built with defineFeature", { timeout: 30_000 }, () => {
     const reporting = (id: string, name: string) =>
       defineFeature({
         id,
-        turnChanges: async () => ({ skillChanges: [{ kind: "saved", name }] }),
+        turnChanges: () => ({ skillChanges: [{ kind: "saved", name }] }),
       });
     const failing = defineFeature({
       id: "failing",
-      turnChanges: async () => {
+      turnChanges: () => {
         throw new Error("reading failed");
       },
     });
@@ -215,6 +215,14 @@ describe("a feature built with defineFeature", { timeout: 30_000 }, () => {
         { kind: "saved", name: "two" },
       ],
       knowledgeChanges: null,
+    });
+  });
+
+  it("takes only a synchronous turnChanges, which runs under the Conversation's lock", () => {
+    defineFeature({
+      id: "waits",
+      // @ts-expect-error A Promise would hold the lock while it waits.
+      turnChanges: async () => null,
     });
   });
 
