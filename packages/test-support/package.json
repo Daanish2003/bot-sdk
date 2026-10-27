@@ -21,6 +21,7 @@
     "./jobs": "./src/jobs.ts",
     "./live-models": "./src/live-models.ts",
     "./model-providers": "./src/model-providers.ts",
+    "./package-shape": "./src/package-shape.ts",
     "./pins-feature": "./src/pins-feature.ts",
     "./pubsub.contract": "./src/pubsub.contract.ts",
     "./sdk": "./src/sdk.ts",
