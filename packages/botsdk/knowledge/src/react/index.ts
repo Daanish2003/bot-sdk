@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { useOrpc } from "@botsdk/react/provider";
+import { type ProcedureMutationOptions, useOrpc } from "@botsdk/react/provider";
 import type { KnowledgeContract } from "../shared/contract";
 
 /*
@@ -14,9 +14,6 @@ function useKnowledge() {
 }
 
 type Knowledge = ReturnType<typeof useKnowledge>;
-/** A procedure's mutation options, as its TanStack Query helper takes them. */
-type MutationOptions<Procedure extends { mutationOptions: (...args: never[]) => unknown }> =
-  Parameters<Procedure["mutationOptions"]>[0];
 
 /** Whether the user can have Knowledge (`knowledge.status`). */
 export function useKnowledgeStatus() {
@@ -41,22 +38,26 @@ export function useKnowledgeFile(path: string) {
 }
 
 /** Saves a text file to Knowledge (`knowledge.upload`). */
-export function useUploadKnowledge(options?: MutationOptions<Knowledge["upload"]>) {
+export function useUploadKnowledge(options?: ProcedureMutationOptions<Knowledge["upload"]>) {
   return useMutation(useKnowledge().upload.mutationOptions(options));
 }
 
 /** Saves a PDF or DOCX to Knowledge, with its readable text (`knowledge.uploadDocument`). */
-export function useUploadKnowledgeDocument(options?: MutationOptions<Knowledge["uploadDocument"]>) {
+export function useUploadKnowledgeDocument(
+  options?: ProcedureMutationOptions<Knowledge["uploadDocument"]>,
+) {
   return useMutation(useKnowledge().uploadDocument.mutationOptions(options));
 }
 
 /** Deletes a Knowledge file or folder (`knowledge.remove`). */
-export function useDeleteKnowledge(options?: MutationOptions<Knowledge["remove"]>) {
+export function useDeleteKnowledge(options?: ProcedureMutationOptions<Knowledge["remove"]>) {
   return useMutation(useKnowledge().remove.mutationOptions(options));
 }
 
 /** Makes a Knowledge folder (`knowledge.createFolder`). */
-export function useCreateKnowledgeFolder(options?: MutationOptions<Knowledge["createFolder"]>) {
+export function useCreateKnowledgeFolder(
+  options?: ProcedureMutationOptions<Knowledge["createFolder"]>,
+) {
   return useMutation(useKnowledge().createFolder.mutationOptions(options));
 }
 

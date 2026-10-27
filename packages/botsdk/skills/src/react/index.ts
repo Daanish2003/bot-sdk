@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { useOrpc } from "@botsdk/react/provider";
+import { type ProcedureMutationOptions, useOrpc } from "@botsdk/react/provider";
 import type { SkillsContract } from "../shared/contract";
 
 /*
@@ -14,9 +14,6 @@ function useSkills() {
 }
 
 type Skills = ReturnType<typeof useSkills>;
-/** A procedure's mutation options, as its TanStack Query helper takes them. */
-type MutationOptions<Procedure extends { mutationOptions: (...args: never[]) => unknown }> =
-  Parameters<Procedure["mutationOptions"]>[0];
 
 /** Whether Bots can have Skills (`skills.status`). */
 export function useSkillsStatus() {
@@ -34,12 +31,12 @@ export function useBotSkill(botId: string, name: string) {
 }
 
 /** Writes a Skill's `SKILL.md`, and says why it is not usable, if so (`skills.save`). */
-export function useSaveBotSkill(options?: MutationOptions<Skills["save"]>) {
+export function useSaveBotSkill(options?: ProcedureMutationOptions<Skills["save"]>) {
   return useMutation(useSkills().save.mutationOptions(options));
 }
 
 /** Deletes a Skill (`skills.remove`). */
-export function useDeleteBotSkill(options?: MutationOptions<Skills["remove"]>) {
+export function useDeleteBotSkill(options?: ProcedureMutationOptions<Skills["remove"]>) {
   return useMutation(useSkills().remove.mutationOptions(options));
 }
 

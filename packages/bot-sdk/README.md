@@ -3,7 +3,7 @@
 Bots a Host copies into its own source tree: each user's Bots, with their Turns, Routines, Helpers, Memory, Skills, Knowledge, Computer and email (ADR 0027). The SDK is one folder with these parts:
 
 - `core/` (`shared`, `server`, `client`, including `client/react`): runtime code the Host never edits. Updating means copying it again.
-- `plugins/<name>/` (`models`, `runner`, `bot`, `memory`, `skills`, `knowledge`, `computer`, `channel`, `mcp`): each plugin's `shared`, `server` and `client` are runtime code like `core/`; its `ui/` is the Host's.
+- `plugins/<name>/` (`models`, `runner`, `bot`, `computer`, `channel`); the features Memory, Skills, Knowledge and MCP are packages of their own (below): each plugin's `shared`, `server` and `client` are runtime code like `core/`; its `ui/` is the Host's.
 - The core's React components, `theme.css` and `settings/export-data-button.tsx` live in the private `@botsdk/ui` package (`packages/botsdk/ui`), on the hooks and provider of `@botsdk/react`. The features' components (Memory, Skills, Knowledge, MCP) are in `@botsdk/ui` too, under `memory/`, `skills/`, `knowledge/` and `mcp/`, on each feature's hooks. They sit on the Host's own shadcn primitives.
 - `package.json`, `README.md` and `NOTICE`: copied alongside, for reference. The Host installs the dependencies listed here.
 
@@ -30,7 +30,7 @@ Your imports then read exactly like this repo's: `@botsdk/bot`, `@botsdk/bot/mod
 ### Updating
 
 1. Copy the SDK folder in again.
-2. Copy `core/` and each plugin's `shared`, `server` and `client` over yours, but not the `ui/` folders (the root one and each plugin's) or `theme.css`: those are yours. If the release changed a component you also edited, merge that by hand: diff the new SDK's `ui/` folders against yours. A copy from before the Bot-only SDK (ADR 0027) still holds the assistant's folders: delete `plugins/assistant/` and any `ui/chat/`, `ui/shell/`, `ui/pages/` and `ui/settings/` left in your root `ui/`, and drop `@source "../plugins/assistant/ui";` from your `theme.css`. A `theme.css` copied before this release also lacks `@source "../plugins/knowledge/ui";` and `@source "../plugins/skills/ui";`: add them, or the Knowledge and Skills screens lose their styles.
+2. Copy `core/` and each plugin's `shared`, `server` and `client` over yours, but not the `ui/` folders (the root one and each plugin's) or `theme.css`: those are yours. If the release changed a component you also edited, merge that by hand: diff the new SDK's `ui/` folders against yours. A copy from before the Bot-only SDK (ADR 0027) still holds the assistant's folders: delete `plugins/assistant/` and any `ui/chat/`, `ui/shell/`, `ui/pages/` and `ui/settings/` left in your root `ui/`, and drop `@source "../plugins/assistant/ui";` from your `theme.css`. The Memory, Skills, Knowledge and MCP screens are in `@botsdk/ui` now (#911), and its `theme.css` scans them: drop any `@source "../plugins/<feature>/ui";` line from yours.
 3. Install any new dependencies listed below, then run your type check.
 
 ## Dependencies
@@ -58,14 +58,13 @@ Install these in the Host. There is one `package.json` for the whole SDK, and ve
 - `playwright-core` (pinned at 1.63.0), which drives the Computer's browser over CDP; `react-dom` for its `ui/`
 - for its `ui/`: `lucide-react`
 
-**What the `mcp` plugin needs (on top of `core/`):**
+**What `@botsdk/mcp` brings (it depends on it, so it installs with the package):**
 
-- `@tanstack/ai-mcp`, pinned at 0.8.1 (the release whose `@tanstack/ai` range matches), the MCP client. The sign-in itself is the SDK's own: the library exports no OAuth helpers. It brings `@modelcontextprotocol/*` and `jose`.
+- `@tanstack/ai-mcp`, pinned at 1.0.0 (the release whose `@tanstack/ai` range matches), the MCP client. The sign-in itself is the SDK's own: the library exports no OAuth helpers. It brings `@modelcontextprotocol/*` and `jose`.
 
-**What the `knowledge` plugin needs (on top of `core/`):**
+**What `@botsdk/knowledge` brings (its dependencies, so they install with the package):**
 
 - for converting uploaded files to text: `cheerio`, `htmlparser2`, `csv-parse`, `mammoth`, `pdfjs-dist`, `@thednp/dommatrix`
-- for its `ui/`: `lucide-react`
 
 **What the `computer` plugin needs (on top of `core/`):**
 
@@ -75,7 +74,7 @@ Install these in the Host. There is one `package.json` for the whole SDK, and ve
 
 - `email-reply-parser` (pinned at 2.3.9), which strips the quoted history from an inbound email so the Bot reads only the new text.
 
-The `runner` and `memory` plugins and the `skills` feature need nothing beyond `core/` (and `lucide-react` for the `ui/` folders).
+The `runner` plugin, `@botsdk/memory` and `@botsdk/skills` need nothing beyond the core.
 
 The core server is its own package, `@botsdk/bot` (`packages/botsdk/bot`, spec #875): the Bot core, Models, Runner, Computer and Channel, with the HTTP layer at `@botsdk/bot/http`. It depends on `@tanstack/ai` and no model Provider: the Host installs the `@tanstack/ai-*` Providers it uses and passes them in `models.providers`. The features import it, and `@botsdk/client` (`packages/botsdk/client`), by package name.
 

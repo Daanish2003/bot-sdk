@@ -93,6 +93,14 @@ export function useOrpc<
   return useChatAdapter().orpc as unknown as BotSdkOrpc<CoreContract & Features>;
 }
 
+/**
+ * A procedure's mutation options, as its TanStack Query helper takes them: a feature's mutation
+ * hook takes them and passes them on (`useMutation(memory.botAddLine.mutationOptions(options))`).
+ */
+export type ProcedureMutationOptions<
+  Procedure extends { mutationOptions: (...args: never[]) => unknown },
+> = Parameters<Procedure["mutationOptions"]>[0];
+
 /** The text for a key and the locale to format with, from the provider's dictionary. */
 export function useI18n(): I18n {
   return useChatAdapter().i18n;

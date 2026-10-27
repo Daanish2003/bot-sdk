@@ -1018,21 +1018,9 @@ importers:
       '@botsdk/client':
         specifier: workspace:*
         version: link:../client
-      '@botsdk/knowledge':
-        specifier: workspace:*
-        version: link:../knowledge
-      '@botsdk/mcp':
-        specifier: workspace:*
-        version: link:../mcp
-      '@botsdk/memory':
-        specifier: workspace:*
-        version: link:../memory
       '@botsdk/react':
         specifier: workspace:*
         version: link:../react
-      '@botsdk/skills':
-        specifier: workspace:*
-        version: link:../skills
       lucide-react:
         specifier: 'catalog:'
         version: 1.52.0(@types/react@19.3.0)(react@19.3.0)
@@ -1043,6 +1031,18 @@ importers:
       '@ai-chat/config':
         specifier: workspace:*
         version: link:../../config
+      '@botsdk/knowledge':
+        specifier: workspace:*
+        version: link:../knowledge
+      '@botsdk/mcp':
+        specifier: workspace:*
+        version: link:../mcp
+      '@botsdk/memory':
+        specifier: workspace:*
+        version: link:../memory
+      '@botsdk/skills':
+        specifier: workspace:*
+        version: link:../skills
       '@tanstack/react-query':
         specifier: ^5.102.8
         version: 5.104.1(react@19.3.0)

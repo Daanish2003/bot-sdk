@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { useOrpc } from "@botsdk/react/provider";
+import { type ProcedureMutationOptions, useOrpc } from "@botsdk/react/provider";
 import type { McpContract } from "../shared/contract";
 
 /*
@@ -14,9 +14,6 @@ function useMcp() {
 }
 
 type Mcp = ReturnType<typeof useMcp>;
-/** A procedure's mutation options, as its TanStack Query helper takes them. */
-type MutationOptions<Procedure extends { mutationOptions: (...args: never[]) => unknown }> =
-  Parameters<Procedure["mutationOptions"]>[0];
 
 /** The MCP servers the Host offers, with the user's connection to each (`mcp.listConnections`). */
 export function useMcpConnections() {
@@ -24,7 +21,7 @@ export function useMcpConnections() {
 }
 
 /** Forgets the user's connection to one MCP server (`mcp.disconnect`). */
-export function useDisconnectMcpServer(options?: MutationOptions<Mcp["disconnect"]>) {
+export function useDisconnectMcpServer(options?: ProcedureMutationOptions<Mcp["disconnect"]>) {
   return useMutation(useMcp().disconnect.mutationOptions(options));
 }
 

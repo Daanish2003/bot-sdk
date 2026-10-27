@@ -64,16 +64,16 @@
   },
   "dependencies": {
     "@botsdk/client": "workspace:*",
-    "@botsdk/knowledge": "workspace:*",
-    "@botsdk/mcp": "workspace:*",
-    "@botsdk/memory": "workspace:*",
     "@botsdk/react": "workspace:*",
-    "@botsdk/skills": "workspace:*",
     "lucide-react": "catalog:",
     "sonner": "catalog:"
   },
   "devDependencies": {
     "@ai-chat/config": "workspace:*",
+    "@botsdk/knowledge": "workspace:*",
+    "@botsdk/mcp": "workspace:*",
+    "@botsdk/memory": "workspace:*",
+    "@botsdk/skills": "workspace:*",
     "@tanstack/react-query": "^5.102.8",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
@@ -82,8 +82,26 @@
     "typescript": "catalog:"
   },
   "peerDependencies": {
+    "@botsdk/knowledge": "workspace:*",
+    "@botsdk/mcp": "workspace:*",
+    "@botsdk/memory": "workspace:*",
+    "@botsdk/skills": "workspace:*",
     "@tanstack/react-query": "^5.102.8",
     "react": "catalog:",
     "react-dom": "catalog:"
+  },
+  "peerDependenciesMeta": {
+    "@botsdk/knowledge": {
+      "optional": true
+    },
+    "@botsdk/mcp": {
+      "optional": true
+    },
+    "@botsdk/memory": {
+      "optional": true
+    },
+    "@botsdk/skills": {
+      "optional": true
+    }
   }
 }

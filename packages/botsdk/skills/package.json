@@ -36,5 +36,16 @@
     "@botsdk/react": "workspace:*",
     "@tanstack/react-query": "^5.102.8",
     "react": "catalog:"
+  },
+  "peerDependenciesMeta": {
+    "@botsdk/react": {
+      "optional": true
+    },
+    "@tanstack/react-query": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
   }
 }

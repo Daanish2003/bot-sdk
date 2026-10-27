@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { useOrpc } from "@botsdk/react/provider";
+import { type ProcedureMutationOptions, useOrpc } from "@botsdk/react/provider";
 import type { MemoryContract, MemoryFileRef } from "../shared/contract";
 
 /*
@@ -14,9 +14,6 @@ function useMemory() {
 }
 
 type Memory = ReturnType<typeof useMemory>;
-/** A procedure's mutation options, as its TanStack Query helper takes them. */
-type MutationOptions<Procedure extends { mutationOptions: (...args: never[]) => unknown }> =
-  Parameters<Procedure["mutationOptions"]>[0];
 
 /** The user's Memory switch, and whether Bots can have memory (`memory.status`). */
 export function useMemoryStatus() {
@@ -24,7 +21,7 @@ export function useMemoryStatus() {
 }
 
 /** Turns the user's Memory switch on or off (`memory.setEnabled`). */
-export function useSetMemoryEnabled(options?: MutationOptions<Memory["setEnabled"]>) {
+export function useSetMemoryEnabled(options?: ProcedureMutationOptions<Memory["setEnabled"]>) {
   return useMutation(useMemory().setEnabled.mutationOptions(options));
 }
 
@@ -46,22 +43,24 @@ export function useBotMemoryFile(file: MemoryFileRef) {
 }
 
 /** Adds a line to a Bot's Profile, Log or Notes (`memory.botAddLine`). */
-export function useAddBotMemoryLine(options?: MutationOptions<Memory["botAddLine"]>) {
+export function useAddBotMemoryLine(options?: ProcedureMutationOptions<Memory["botAddLine"]>) {
   return useMutation(useMemory().botAddLine.mutationOptions(options));
 }
 
 /** Changes one line of a memory file (`memory.botEditLine`). */
-export function useEditBotMemoryLine(options?: MutationOptions<Memory["botEditLine"]>) {
+export function useEditBotMemoryLine(options?: ProcedureMutationOptions<Memory["botEditLine"]>) {
   return useMutation(useMemory().botEditLine.mutationOptions(options));
 }
 
 /** Deletes one line of a memory file (`memory.botDeleteLine`). */
-export function useDeleteBotMemoryLine(options?: MutationOptions<Memory["botDeleteLine"]>) {
+export function useDeleteBotMemoryLine(
+  options?: ProcedureMutationOptions<Memory["botDeleteLine"]>,
+) {
   return useMutation(useMemory().botDeleteLine.mutationOptions(options));
 }
 
 /** Writes a memory file whole, refused when it changed since it was read (`memory.botSaveFile`). */
-export function useSaveBotMemoryFile(options?: MutationOptions<Memory["botSaveFile"]>) {
+export function useSaveBotMemoryFile(options?: ProcedureMutationOptions<Memory["botSaveFile"]>) {
   return useMutation(useMemory().botSaveFile.mutationOptions(options));
 }
 
