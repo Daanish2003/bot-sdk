@@ -8,7 +8,7 @@ Bots for a Host app: each user's Bots, with their Turns, Routines, Helpers, Memo
 - `@botsdk/client`: the core's contracts, `createBotSdkClient` and the Channels client part (`channelClient`). No server dependencies.
 - `@botsdk/react`: `BotSdkProvider` and the core's hooks. React and React Query are peers: the Host's own.
 - `@botsdk/memory`, `@botsdk/skills`, `@botsdk/knowledge`, `@botsdk/mcp`: the optional features. Each has the feature at its root, its client part at `/client` and its hooks at `/react`. Each takes `@botsdk/bot`, `@botsdk/client` and `@botsdk/react` as peers and never imports another feature.
-- Adapters, each carrying its own client library: `@botsdk/computer-e2b` (E2B), `@botsdk/blobs-s3` (`s3BlobStore`), `@botsdk/pubsub-redis` (`redisRuntime()`) and `@botsdk/channel-email` (a local Mailpit). Each takes the core as a peer.
+- Adapters, each carrying its own client library: `@botsdk/computer-e2b` (E2B), `@botsdk/blobs-s3` (`s3BlobStore`), `@botsdk/pubsub-redis` (`redisRuntime()`), `@botsdk/channel-email` (a local Mailpit) and `@botsdk/executor-inngest` (`inngestExecutor`, background jobs on Inngest). Each takes the core as a peer.
 - `@botsdk/testing`: a test SDK, a scripted model adapter, a fake Computer and a fake email provider, for a Host's tests. It peers only on `@botsdk/bot` and `@botsdk/client`.
 - `@botsdk/ui` (private): the React components and `theme.css`, the core's and the features', on the hooks above and the Host's shadcn primitives.
 
@@ -170,6 +170,8 @@ const client = createBotSdkClient({
 The runner is part of the core: it runs the background work (ADR 0011), Bot Turns, Routines, Check-ins and Memory passes. A Host lists nothing for it.
 
 The `runner` slot (`createBotSdk({ runner })`) takes the runner for background work. The default is the in-process runner: it keeps jobs in the `botsdk.job` table, which the `botsdk` schema already has, polls it every 2 s, runs two jobs at once and retries a failed job up to three times, after about 10 s and 1 min. `start()` starts it, and `stop()` takes no new jobs and waits for the running ones. Nothing else to configure, and no second database.
+
+On a serverless platform, or to use Inngest's retries and dashboard, pass `inngestExecutor({ client })` from `@botsdk/executor-inngest` instead: see [its README](../executor-inngest/README.md) for local and cloud setup.
 
 A custom runner is any object with `enqueue(name, payload, options?)`, `start()` and `stop()`, and it takes the place of the default.
 

@@ -8,8 +8,10 @@ import {
   cancelJob,
   cancelJobIn,
   claimJob,
+  dueJobIds,
   enqueueJob,
   readJob,
+  reapStaleJobs,
   replaceJobIfNotStartedIn,
   runClaimedJob,
   type ClaimedJob,
@@ -175,7 +177,14 @@ export const claimNext = Symbol("claimNext");
 /** The in-process Executor's other way in: the budgets of the jobs with a `concurrency`. */
 export const jobBudgets = Symbol("jobBudgets");
 
+/**
+ * The way in of an Executor that doesn't poll (Inngest's sweep): re-queues the jobs whose lease has
+ * expired, as the reaper does, and returns the ids of the queued jobs that are due, oldest first.
+ */
+export const sweepJobs = Symbol("sweepJobs");
+
 export type CoreRun = ((jobId: string) => Promise<void>) & {
+  [sweepJobs]?: () => Promise<string[]>;
   [claimNext]?: (names: JobNames) => Promise<{ name: string; attempt: Promise<void> } | undefined>;
   [jobBudgets]?: () => readonly JobBudget[];
 };
@@ -247,6 +256,11 @@ export function createJobRunner({
     return job && { name: job.name, attempt: work };
   };
   runJob[jobBudgets] = () => budgetsOf(jobs());
+  runJob[sweepJobs] = async () => {
+    const now = clock.now();
+    await reapStaleJobs(db, now, logger, jobs());
+    return dueJobIds(db, now);
+  };
 
   return {
     executor,

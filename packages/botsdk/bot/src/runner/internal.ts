@@ -14,10 +14,12 @@ export { loadHistory } from "./jobs/history";
 export type { Executor } from "./jobs/executor";
 export { inProcessExecutor, inProcessRunner } from "./jobs/in-process";
 export {
+  type CoreRun,
   createJobRunner,
   type EnqueueOptions,
   type JobClock,
   type JobRunner,
+  sweepJobs,
   systemClock,
 } from "./jobs/runner";
 export {

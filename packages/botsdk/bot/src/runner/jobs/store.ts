@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lt, lte, notInArray, or, sql } from "drizzle-orm";
 
 import type { Database } from "../../storage";
 import type { Transaction } from "../../plugin";
@@ -338,6 +338,20 @@ export async function runClaimedJob(
     handlers.add(handled);
   }
   await done;
+}
+
+/** How many due jobs one sweep returns; the next sweep takes the rest. */
+const SWEEP_LIMIT = 500;
+
+/** The ids of the queued jobs that are due at `now`, the longest due first, up to the sweep's limit. */
+export async function dueJobIds(db: Database, now: Date): Promise<string[]> {
+  const rows = await db
+    .select({ id: job.id })
+    .from(job)
+    .where(and(eq(job.status, "queued"), lte(job.runAfter, now)))
+    .orderBy(job.runAfter, job.createdAt)
+    .limit(SWEEP_LIMIT);
+  return rows.map(({ id }) => id);
 }
 
 /**

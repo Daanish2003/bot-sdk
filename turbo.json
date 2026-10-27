@@ -16,7 +16,12 @@
     },
     "//#test:vitest": {
       "cache": false,
-      "passThroughEnv": ["TEST_DATABASE_URL", "TEST_REDIS_URL"]
+      "passThroughEnv": [
+        "TEST_DATABASE_URL",
+        "TEST_REDIS_URL",
+        "TEST_INNGEST_URL",
+        "TEST_INNGEST_CALLBACK_HOST"
+      ]
     },
     "dev": {
       "cache": false,
