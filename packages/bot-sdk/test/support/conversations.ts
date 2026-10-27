@@ -1,8 +1,8 @@
-import { conversation, message } from "../../core/server/storage";
+import { conversation, message } from "@botsdk/bot/storage";
 import { getTestDb } from "./test-database";
 import { eq } from "drizzle-orm";
 
-import { uuidv7 } from "../../core/server/lib/uuidv7";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { TestUser } from "./users";
 
 /** Inserts a Conversation for `user` straight into the test database: a Bot one by default. */

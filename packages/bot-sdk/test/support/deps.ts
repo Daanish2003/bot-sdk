@@ -2,18 +2,19 @@ import type { AnyTextAdapter } from "@tanstack/ai";
 
 import { getTestDb } from "./test-database";
 
-import { postgresBlobStore } from "../../core/server/storage";
-import { createMemoryCounters } from "../../core/server/chat/counters";
-import { createHookEmitter, type HookEmitter } from "../../core/server/chat/hooks";
-import { createMemoryPubSub } from "../../core/server/chat/pubsub";
-import type { FeatureEntry, GivenContext } from "../../core/server/create-chat";
-import { createBotSdkOver, type OverSlots, type SdkOver } from "../../core/server/over";
-import type { BotSdkPlugin } from "../../core/server/plugin";
+import { postgresBlobStore } from "@botsdk/bot/storage";
+import { createMemoryCounters } from "@botsdk/bot/chat/counters";
+import { createHookEmitter, type HookEmitter } from "@botsdk/bot/chat/hooks";
+import { createMemoryPubSub } from "@botsdk/bot/chat/pubsub";
+import type { FeatureEntry, GivenContext } from "@botsdk/bot/create-chat";
+import { createBotSdkOver, type OverSlots, type SdkOver } from "@botsdk/bot/over";
+import type { BotSdkPlugin } from "@botsdk/bot/plugin";
 import { memory } from "../../plugins/memory/server/feature";
-import type { ComputerProvider } from "../../plugins/computer/server/internal";
-import type { ModelsDeps } from "../../plugins/models/server/internal";
-import type { JobRunner } from "../../plugins/runner/server/internal";
+import type { ComputerProvider } from "@botsdk/bot/computer/internal";
+import type { ModelsDeps } from "@botsdk/bot/models/internal";
+import type { JobRunner } from "@botsdk/bot/runner/internal";
 import { fakeReviewer, withReviewer } from "./fake-reviewer";
+import { testModelProviders } from "./model-providers";
 
 /** The `test` value of `KEY_ENCRYPTION_SECRET` in `apps/web/.env.schema`. */
 export const testKeyEncryptionSecret = "test-key-encryption-secret-not-for-production";
@@ -97,6 +98,7 @@ export function createTestSdk({
     logger,
     fetch,
     ollamaFetch: overrides.ollamaFetch ?? fetch,
+    providers: overrides.providers ?? testModelProviders,
     // A Bot's Auto-review calls go to the fake reviewer, so a test's scripted rounds are the Bot's.
     adapterFor: withReviewer(
       overrides.adapterFor ??

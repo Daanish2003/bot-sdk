@@ -3,7 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { pgSchema, text } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
-import { defineFeature, defineJob, type Database } from "../../core/server/index";
+import { defineFeature, defineJob, type Database } from "@botsdk/bot";
 
 /*
  * A test-only feature written against the public `defineFeature` (spec #871): a Bot pins short

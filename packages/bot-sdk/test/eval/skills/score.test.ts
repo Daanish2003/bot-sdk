@@ -9,7 +9,7 @@ import {
   skillRead,
   useRates,
 } from "../../../eval/skills/score";
-import { problemOf } from "../../../plugins/skills/server/skills";
+import { problemOf } from "@botsdk/bot/bot/skill-files";
 
 const read = (name: string): Call => ({ name: "read", args: { path: `skills/${name}/SKILL.md` } });
 const shell = (command: string): Call => ({ name: "shell", args: { command } });

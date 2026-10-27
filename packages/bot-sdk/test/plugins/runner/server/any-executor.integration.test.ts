@@ -1,11 +1,11 @@
 import { and, asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { botTrigger, botTurn, computer, job } from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { findBot } from "../../../../plugins/bot/server/conversation";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
-import { createJobRunner, type JobRunner } from "../../../../plugins/runner/server/internal";
+import { botTrigger, botTurn, computer, job } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { findBot } from "@botsdk/bot/bot/conversation";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import { createJobRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { createTestSdk } from "../../../support/deps";
 import { manualExecutor } from "../../../support/executors";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";

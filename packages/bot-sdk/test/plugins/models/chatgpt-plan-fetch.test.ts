@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { chatgptPlanFetch } from "../../../plugins/models/server/internal";
+import { chatgptPlanFetch } from "@botsdk/bot/models/internal";
 
 function planAnswers(status: number, body: unknown) {
   return chatgptPlanFetch(

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isFeature } from "../../../../core/server/feature";
+import { isFeature } from "@botsdk/bot/feature";
 import { knowledge } from "../../../../plugins/knowledge/server/plugin";
 
 describe("the knowledge feature", () => {

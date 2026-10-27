@@ -1,5 +1,5 @@
-import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { inProcessRunner, type JobRunner } from "../../plugins/runner/server/internal";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "./deps";
 import { followSend, type BotSendEvent } from "./follow-send";
 import { chatRpc } from "./sdk";

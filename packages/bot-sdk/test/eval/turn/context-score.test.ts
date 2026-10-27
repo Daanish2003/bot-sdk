@@ -1,7 +1,7 @@
 import type { ModelMessage } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
-import type { PromptHash } from "../../../core/server/chat/hooks";
+import type { PromptHash } from "@botsdk/bot/chat/hooks";
 import {
   type CacheCall,
   missingKept,

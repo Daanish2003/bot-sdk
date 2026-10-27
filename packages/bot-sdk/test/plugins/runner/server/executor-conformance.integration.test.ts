@@ -10,7 +10,7 @@ import {
   inProcessExecutor,
   type JobRunner,
   reapStaleJobs,
-} from "../../../../plugins/runner/server/internal";
+} from "@botsdk/bot/runner/internal";
 import { manualExecutor, recordingNotify } from "../../../support/executors";
 import { fakeJobClock } from "../../../support/jobs";
 import { getTestDb } from "../../../support/test-database";

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { SearchError, createTavilyClient } from "../../../../plugins/bot/server/agent-loop";
+import { SearchError, createTavilyClient } from "@botsdk/bot/bot/agent-loop";
 
 /** A trimmed Tavily `/search` response, written by hand from the API reference. */
 const tavilyResponse = {

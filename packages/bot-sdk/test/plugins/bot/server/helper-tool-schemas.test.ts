@@ -1,7 +1,7 @@
 import { convertSchemaToJsonSchema } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
-import { BrowserSession, browserTools, askUserTool } from "../../../../plugins/bot/server/helpers";
+import { BrowserSession, browserTools, askUserTool } from "@botsdk/bot/bot/helpers";
 
 /** The keywords a JSON Schema draft 2020-12 validator (Anthropic's) rejects from earlier drafts. */
 const draft7Only = ["additionalItems"];

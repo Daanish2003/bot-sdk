@@ -3,7 +3,7 @@ import { createAnthropicChat } from "@tanstack/ai-anthropic";
 import { createOpenaiChat } from "@tanstack/ai-openai";
 import { describe, expect, it } from "vitest";
 
-import { withCacheControl } from "../../../plugins/models/server/internal";
+import { withCacheControl } from "@botsdk/bot/models/internal";
 
 const options = (): TextOptions =>
   ({

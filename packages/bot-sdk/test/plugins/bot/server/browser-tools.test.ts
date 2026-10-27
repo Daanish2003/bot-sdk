@@ -1,12 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  type BrowserSession,
-  browserTools,
-  snapshotLimit,
-} from "../../../../plugins/bot/server/helpers";
-import type { LoopKit } from "../../../../plugins/bot/server/agent-loop";
-import { maskSecrets } from "../../../../plugins/bot/server/safety";
+import { type BrowserSession, browserTools, snapshotLimit } from "@botsdk/bot/bot/helpers";
+import type { LoopKit } from "@botsdk/bot/bot/agent-loop";
+import { maskSecrets } from "@botsdk/bot/bot/safety";
 
 const secret = "ghp_0123456789abcdef";
 

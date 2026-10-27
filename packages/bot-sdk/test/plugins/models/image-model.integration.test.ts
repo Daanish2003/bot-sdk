@@ -2,16 +2,16 @@ import { randomUUID } from "node:crypto";
 
 import { describe, expect, it } from "vitest";
 
-import { createBotSdk } from "../../../core/server/create-chat";
+import { createBotSdk } from "@botsdk/bot/create-chat";
 
-import { modelSettings } from "../../../core/server/storage";
-import { saveCredentials } from "../../../plugins/models/server/internal";
-import type { HostProvider } from "../../../plugins/models/server/internal";
+import { modelSettings } from "@botsdk/bot/storage";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import type { HostProvider } from "@botsdk/bot/models/internal";
 import { createTestSdk } from "../../support/deps";
 import { chatRpc } from "../../support/sdk";
 import { insertUser, type TestUser } from "../../support/users";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
-import { postgres } from "../../../core/server/database";
+import { postgres } from "@botsdk/bot/database";
 
 // The Host's Image Model is Gemini's, so the tests can tell it from the user's own OpenAI key.
 const hostProviders: HostProvider[] = [

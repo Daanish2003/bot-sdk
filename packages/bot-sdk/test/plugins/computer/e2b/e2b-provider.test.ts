@@ -1,14 +1,16 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import { e2bProvider } from "../../../../plugins/computer/e2b";
 import { keptEndCharacters } from "../../../../plugins/computer/e2b/bounded-output";
-import { SandboxGoneError } from "../../../../plugins/computer/server/internal";
+import { SandboxGoneError } from "@botsdk/bot/computer/internal";
 
 const sdkRoot = fileURLToPath(new URL("../../../../", import.meta.url));
+const botRoot = dirname(createRequire(import.meta.url).resolve("@botsdk/bot/package.json"));
 
 function sourceFiles(directory: string): string[] {
   return readdirSync(directory).flatMap((name) => {
@@ -21,7 +23,7 @@ function sourceFiles(directory: string): string[] {
 describe("the E2B adapter's subpath", () => {
   it("is the only SDK module that imports e2b", () => {
     const importers = [
-      ...sourceFiles(join(sdkRoot, "core")),
+      ...sourceFiles(join(botRoot, "src")),
       ...sourceFiles(join(sdkRoot, "plugins")),
     ]
       .filter((file) => /\.tsx?$/.test(file))

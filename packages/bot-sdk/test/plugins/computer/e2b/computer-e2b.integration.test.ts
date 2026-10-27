@@ -1,9 +1,9 @@
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { computer as computerTable } from "../../../../core/server/storage";
+import { computer as computerTable } from "@botsdk/bot/storage";
 import { e2bProvider } from "../../../../plugins/computer/e2b";
-import { computerIdleMs } from "../../../../plugins/computer/server/internal";
+import { computerIdleMs } from "@botsdk/bot/computer/internal";
 import { createTestSdk } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";
 import { getTestDb } from "../../../support/test-database";

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { BotSdkContext } from "../../../../core/server/plugin";
-import { type ReviewKit, reviewToolCall } from "../../../../plugins/bot/server/safety";
+import type { BotSdkContext } from "@botsdk/bot/plugin";
+import { type ReviewKit, reviewToolCall } from "@botsdk/bot/bot/safety";
 
 describe("a review's replay", () => {
   it("reads its recorded verdict and write without resolving the review Model's meter", async () => {

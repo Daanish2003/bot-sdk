@@ -1,12 +1,13 @@
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 
 import { asc, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { job, jobEvent } from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { job, jobEvent } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import {
   type JobDefinition,
   jobTable,
@@ -17,7 +18,7 @@ import {
   claimJob,
   reapStaleJobs,
   NonDeterminismError,
-} from "../../../../plugins/runner/server/internal";
+} from "@botsdk/bot/runner/internal";
 import { fakeJobClock } from "../../../support/jobs";
 import { getTestDb } from "../../../support/test-database";
 
@@ -685,12 +686,8 @@ describe("a deploy or a cancel", () => {
 
 describe("the workflow engine", () => {
   it("imports nothing from the Bot SDK", () => {
-    const source = readFileSync(
-      fileURLToPath(
-        new URL("../../../../plugins/runner/server/workflow/engine.ts", import.meta.url),
-      ),
-      "utf8",
-    );
+    const botRoot = dirname(createRequire(import.meta.url).resolve("@botsdk/bot/package.json"));
+    const source = readFileSync(join(botRoot, "src/runner/workflow/engine.ts"), "utf8");
 
     expect(source).not.toMatch(/\bimport\b|\bfrom\s+["']|\brequire\(/);
   });

@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  maskedFormsOf,
-  maskResult,
-  maskSecrets,
-  secretMasker,
-} from "../../../../plugins/bot/server/safety";
+import { maskedFormsOf, maskResult, maskSecrets, secretMasker } from "@botsdk/bot/bot/safety";
 
 const base64 = (text: string) => Buffer.from(text, "utf8").toString("base64");
 

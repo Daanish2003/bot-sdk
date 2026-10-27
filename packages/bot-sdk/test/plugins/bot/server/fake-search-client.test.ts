@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { SearchError } from "../../../../plugins/bot/server/agent-loop";
+import { SearchError } from "@botsdk/bot/bot/agent-loop";
 import { createFakeSearchClient } from "../../../support/fake-search-client";
 
 const result = {

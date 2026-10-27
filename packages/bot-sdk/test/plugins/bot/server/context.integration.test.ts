@@ -2,12 +2,12 @@ import type { ModelMessage } from "@tanstack/ai";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { bot } from "../../../../core/server/storage";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { build, type ContextTurn } from "../../../../plugins/bot/server/context";
-import type { FeatureSection } from "../../../../plugins/bot/server/context";
-import { forTurn } from "../../../../plugins/bot/server/tools";
-import { saveCredentials } from "../../../../plugins/models/server/internal";
+import { bot } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { build, type ContextTurn } from "@botsdk/bot/bot/context";
+import type { FeatureSection } from "@botsdk/bot/bot/context";
+import { forTurn } from "@botsdk/bot/bot/tools";
+import { saveCredentials } from "@botsdk/bot/models/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";

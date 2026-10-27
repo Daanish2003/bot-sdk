@@ -1,4 +1,4 @@
-import type { Executor } from "../../plugins/runner/server/internal";
+import type { Executor } from "@botsdk/bot/runner/internal";
 
 /**
  * An Executor that runs nothing by itself (spec #872): it records each `notify`, and the test calls

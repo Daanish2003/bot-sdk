@@ -6,8 +6,8 @@ import { skillsClient } from "../../plugins/skills/client/index";
 import { knowledgeClient } from "../../plugins/knowledge/client/index";
 import { mcpClient } from "../../plugins/mcp/client/index";
 import { channelClient } from "../../plugins/channel/client/index";
-import type { HttpHandlerOptions } from "../../core/http";
-import { createHttpHandlerOver } from "../../core/server/over";
+import type { HttpHandlerOptions } from "@botsdk/bot/http";
+import { createHttpHandlerOver } from "@botsdk/bot/over";
 import { createTestSdk } from "./deps";
 import type { TestUser } from "./users";
 

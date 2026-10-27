@@ -7,13 +7,13 @@ import {
   type ComputerProvider,
   type FileEntry,
   type TimedOutCommand,
-} from "../../plugins/computer/server/internal";
+} from "@botsdk/bot/computer/internal";
 import {
   fetchedLineBytes,
   maxFetchedBytes,
   readScript,
   sizeScript,
-} from "../../plugins/bot/server/agent-loop";
+} from "@botsdk/bot/bot/agent-loop";
 import { boundedOutput } from "../../plugins/computer/e2b/bounded-output";
 import { stampScript, walkScript } from "../../plugins/knowledge/server/files";
 import { readSkillsScript, skillHeadBytes } from "../../plugins/skills/server/skills";

@@ -8,19 +8,19 @@ import {
   botTurn,
   computer as computerTable,
   job,
-} from "../../../../core/server/storage";
-import type { BlobStore } from "../../../../core/server/storage";
+} from "@botsdk/bot/storage";
+import type { BlobStore } from "@botsdk/bot/storage";
 
-import { deleteUserData } from "../../../../core/server/user-data";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { createBot } from "../../../../plugins/bot/server/conversation";
+import { deleteUserData } from "@botsdk/bot/user-data";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { createBot } from "@botsdk/bot/bot/conversation";
 import {
   ComputerOperationError,
   ComputerUnavailableError,
   syncCapBytes,
   SandboxGoneError,
   type CommandResult,
-} from "../../../../plugins/computer/server/internal";
+} from "@botsdk/bot/computer/internal";
 
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";

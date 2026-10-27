@@ -1,10 +1,10 @@
-import type { Database } from "../../core/server/storage";
+import type { Database } from "@botsdk/bot/storage";
 import {
   inProcessRunner,
   type JobClock,
   type JobTable,
   claimJob,
-} from "../../plugins/runner/server/internal";
+} from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "./deps";
 import { getTestDb } from "./test-database";
 

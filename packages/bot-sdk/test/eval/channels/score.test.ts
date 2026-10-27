@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { channelsCases } from "../../../eval/channels/cases";
 import { type Call, normalise, scoreChannels, tallyChannels } from "../../../eval/channels/score";
-import { forwardedEmailLabel } from "../../../plugins/bot/server/routines";
-import { emailText } from "../../../plugins/bot/server/turn";
+import { forwardedEmailLabel } from "@botsdk/bot/bot/routines";
+import { emailText } from "@botsdk/bot/bot/turn";
 
 const caseOf = (id: string) => channelsCases.find((c) => c.id === id)!;
 const callsOf = (steps: { name: string; input: Record<string, unknown> }[]): Call[] =>

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { BotSdkContext } from "../../../../core/server/plugin";
-import { hintChanged } from "../../../../plugins/bot/server/conversation";
+import type { BotSdkContext } from "@botsdk/bot/plugin";
+import { hintChanged } from "@botsdk/bot/bot/conversation";
 
 describe("hintChanged", () => {
   it("logs a failed publish and never throws: the change log holds the change anyway", async () => {

@@ -2,9 +2,9 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { buildBotSdk } from "../../../../core/server/create-chat";
-import { models } from "../../../../plugins/models/server/internal";
-import { job } from "../../../../core/server/storage";
+import { buildBotSdk } from "@botsdk/bot/create-chat";
+import { models } from "@botsdk/bot/models/internal";
+import { job } from "@botsdk/bot/storage";
 import {
   type JobDefinition,
   jobTable,
@@ -16,11 +16,11 @@ import {
   claimJob,
   pruneFinishedJobs,
   reapStaleJobs,
-} from "../../../../plugins/runner/server/internal";
-import type { Executor, JobRunner } from "../../../../plugins/runner/server/internal";
+} from "@botsdk/bot/runner/internal";
+import type { Executor, JobRunner } from "@botsdk/bot/runner/internal";
 import { drainJobs, fakeJobClock } from "../../../support/jobs";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
-import { postgres } from "../../../../core/server/database";
+import { postgres } from "@botsdk/bot/database";
 
 const start = new Date("2026-10-14T10:00:00Z");
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

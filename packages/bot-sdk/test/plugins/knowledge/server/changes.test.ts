@@ -1,7 +1,7 @@
 import type { ModelMessage } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
-import { knowledgeChangesOf } from "../../../../plugins/knowledge/server/changes";
+import { knowledgeChangesOf } from "@botsdk/bot/bot/knowledge-files";
 
 const call = (id: string, name: string): ModelMessage => ({
   role: "assistant",

@@ -9,7 +9,7 @@ import { Toaster } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { rpcError } from "../../../core/server/rpc-error";
+import { rpcError } from "@botsdk/bot/rpc-error";
 import { en } from "@botsdk/client/i18n";
 import { BotConversation } from "@botsdk/ui/bot/bot-conversation";
 import { providerFor } from "../fake-dictionary";
