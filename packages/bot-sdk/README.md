@@ -268,7 +268,7 @@ A user's Computer is created on their first operation, and with `bot` on, only f
 Build it into self-hosted E2B with the E2B CLI (no dependency is added; `pnpm dlx` fetches it), from `packages/bot-sdk`, with the three variables above in the environment:
 
 ```sh
-pnpm dlx @e2b/cli@2.22.0 template create ai-chat-computer-v3 --memory-mb 1536 -p packages/botsdk/computer-e2b/template -d Dockerfile
+pnpm dlx @e2b/cli@2.22.0 template create ai-chat-computer-v3 --memory-mb 1536 -p ../botsdk/computer-e2b/template -d Dockerfile
 ```
 
 Notes from building it on local E2B Embed:

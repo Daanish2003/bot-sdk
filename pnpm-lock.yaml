@@ -487,24 +487,12 @@ importers:
       '@ai-chat/db':
         specifier: workspace:*
         version: link:../db
-      '@botsdk/blobs-s3':
-        specifier: workspace:*
-        version: link:../botsdk/blobs-s3
       '@botsdk/bot':
         specifier: workspace:*
         version: link:../botsdk/bot
-      '@botsdk/channel-email':
-        specifier: workspace:*
-        version: link:../botsdk/channel-email
       '@botsdk/client':
         specifier: workspace:*
         version: link:../botsdk/client
-      '@botsdk/computer-e2b':
-        specifier: workspace:*
-        version: link:../botsdk/computer-e2b
-      '@botsdk/pubsub-redis':
-        specifier: workspace:*
-        version: link:../botsdk/pubsub-redis
       '@botsdk/react':
         specifier: workspace:*
         version: link:../botsdk/react
@@ -569,6 +557,18 @@ importers:
       '@ai-chat/config':
         specifier: workspace:*
         version: link:../config
+      '@botsdk/blobs-s3':
+        specifier: workspace:*
+        version: link:../botsdk/blobs-s3
+      '@botsdk/channel-email':
+        specifier: workspace:*
+        version: link:../botsdk/channel-email
+      '@botsdk/computer-e2b':
+        specifier: workspace:*
+        version: link:../botsdk/computer-e2b
+      '@botsdk/pubsub-redis':
+        specifier: workspace:*
+        version: link:../botsdk/pubsub-redis
       '@botsdk/ui':
         specifier: workspace:*
         version: link:../botsdk/ui

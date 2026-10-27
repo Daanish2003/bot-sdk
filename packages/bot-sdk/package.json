@@ -41,12 +41,8 @@
   },
   "dependencies": {
     "@ai-chat/db": "workspace:*",
-    "@botsdk/blobs-s3": "workspace:*",
     "@botsdk/bot": "workspace:*",
-    "@botsdk/channel-email": "workspace:*",
     "@botsdk/client": "workspace:*",
-    "@botsdk/computer-e2b": "workspace:*",
-    "@botsdk/pubsub-redis": "workspace:*",
     "@botsdk/react": "workspace:*",
     "@orpc/client": "catalog:",
     "@orpc/contract": "catalog:",
@@ -70,6 +66,10 @@
   "devDependencies": {
     "@ai-chat/auth": "workspace:*",
     "@ai-chat/config": "workspace:*",
+    "@botsdk/blobs-s3": "workspace:*",
+    "@botsdk/channel-email": "workspace:*",
+    "@botsdk/computer-e2b": "workspace:*",
+    "@botsdk/pubsub-redis": "workspace:*",
     "@botsdk/ui": "workspace:*",
     "@cloudflare/workers-types": "4.20260702.1",
     "@tanstack/ai-anthropic": "1.0.0",
