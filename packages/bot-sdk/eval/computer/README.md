@@ -1,7 +1,7 @@
 # Computer evals
 
 Three hand-run evals for the Bot's Computer (spec #519, "Evals", and spec #587). None is in CI, and all are
-excluded from the SDK copy script (it skips every `eval/` folder).
+not part of the SDK a Host copies.
 
 - **Tool use** (`eval:computer`, needs a real Model): does the Bot use `shell` and the file tools when
   a task needs them, and leave the Computer alone in plain chat?

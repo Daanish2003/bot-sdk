@@ -11,7 +11,7 @@ The SDK assumes nothing about the Host's stack beyond the npm packages below. It
 
 ## Adopting the SDK
 
-Copy the SDK folder into your Host by hand, into a folder such as `src/lib/bot-sdk`.
+Copy the SDK folder into your Host by hand, into a folder such as `src/lib/bot-sdk`. Copy every plugin (`core/` imports them), and leave out tests, evals, `scripts/` and `node_modules` (`*.test.*` files and `test`, `tests`, `testing`, `__tests__`, `eval` folders).
 
 Then add one alias to your `tsconfig.json`, pointing at the destination folder:
 
@@ -30,7 +30,7 @@ Your imports then read exactly like this repo's: `@ai-chat/bot-sdk/core/server`,
 ### Updating
 
 1. Copy the SDK folder in again.
-2. Your `ui/` folders are untouched. If the release changed a component you also edited, merge that by hand: diff the new SDK's `ui/` folders against yours. A copy from before the Bot-only SDK (ADR 0027) still holds the assistant's folders: delete `plugins/assistant/` and any `ui/chat/`, `ui/shell/`, `ui/pages/` and `ui/settings/` left in your root `ui/`, and drop `@source "../plugins/assistant/ui";` from your `theme.css`. A `theme.css` copied before this release also lacks `@source "../plugins/knowledge/ui";` and `@source "../plugins/skills/ui";`: add them, or the Knowledge and Skills screens lose their styles.
+2. Copy `core/` and each plugin's `shared`, `server` and `client` over yours, but not the `ui/` folders (the root one and each plugin's) or `theme.css`: those are yours. If the release changed a component you also edited, merge that by hand: diff the new SDK's `ui/` folders against yours. A copy from before the Bot-only SDK (ADR 0027) still holds the assistant's folders: delete `plugins/assistant/` and any `ui/chat/`, `ui/shell/`, `ui/pages/` and `ui/settings/` left in your root `ui/`, and drop `@source "../plugins/assistant/ui";` from your `theme.css`. A `theme.css` copied before this release also lacks `@source "../plugins/knowledge/ui";` and `@source "../plugins/skills/ui";`: add them, or the Knowledge and Skills screens lose their styles.
 3. Install any new dependencies listed below, then run your type check.
 
 ## Dependencies

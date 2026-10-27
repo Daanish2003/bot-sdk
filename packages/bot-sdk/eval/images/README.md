@@ -1,7 +1,7 @@
 # Images eval
 
 A hand-run score for a Bot's use of `generate_image` (spec #801, ticket #809). It is not in CI and is
-excluded from the SDK copy script. Each case is a fresh user and Bot with the real `bot` plugin on the
+not part of the SDK a Host copies. Each case is a fresh user and Bot with the real `bot` plugin on the
 fake Computer, under a Host with one Image Model drawn by the fake image adapter. What is scored is what
 the Bot asks for, not the picture. Everything is scored deterministically, with no judge, from the
 Turn's tool calls (`run_tool` calls already unwrapped).

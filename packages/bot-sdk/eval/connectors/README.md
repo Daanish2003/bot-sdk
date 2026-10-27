@@ -1,7 +1,7 @@
 # Connectors eval
 
 A hand-run score for how a Bot uses its Connector tools (spec #801, ticket #807). It is not in CI and
-is excluded from the SDK copy script. Each case is a fresh user and Bot with the real `bot` and `mcp`
+is not part of the SDK a Host copies. Each case is a fresh user and Bot with the real `bot` and `mcp`
 plugins on the fake Computer, the user holding one Connection, "Linear", over the SDK's fake MCP
 server (`test/support/fake-mcp-server.ts`). Everything is scored deterministically, with no judge,
 from the Turn's tool calls (a `run_tool` call counts as the tool it names). Text is normalised first.

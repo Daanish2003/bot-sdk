@@ -1,7 +1,7 @@
 # Skills evals
 
-Hand-run scores for a Bot's Skills (spec #713, ticket #721). They are not in CI and are excluded from
-the SDK copy script. Everything is scored deterministically, with no judge: from the Turn's tool
+Hand-run scores for a Bot's Skills (spec #713, ticket #721). They are not in CI and are not part of the SDK a Host
+copies. Everything is scored deterministically, with no judge: from the Turn's tool
 calls, the Messages the Bot sent, and the `SKILL.md` files left on its Computer.
 
 - **`eval:skills`**: real Turns on a real Model, through the real `bot` and `skills` plugins, on the

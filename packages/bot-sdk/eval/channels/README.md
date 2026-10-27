@@ -1,7 +1,7 @@
 # Channels eval
 
 A hand-run score for what the Channels step changed in a Bot's behaviour (spec #761, ticket #774).
-It is not in CI and is excluded from the SDK copy script. Each case is a fresh user and Bot with the
+It is not in CI and is not part of the SDK a Host copies. Each case is a fresh user and Bot with the
 real `bot` and `channel` plugins on the fake Computer. Everything is scored deterministically, with
 no judge, from the Turn's tool calls. Text is normalised first (curly quotes and dashes made plain).
 

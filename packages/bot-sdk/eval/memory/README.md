@@ -1,7 +1,7 @@
 # Bot memory eval
 
 A hand-run score for a Bot's file memory (ADR 0022, spec #624, ticket #633). It is not in CI and is
-excluded from the SDK copy script. Each case is a fresh user with one or two Bots on the SDK's fake
+not part of the SDK a Host copies. Each case is a fresh user with one or two Bots on the SDK's fake
 Computer disk. The Turns go through the real `bot` plugin, each Turn's post-turn pass runs on the Bot's
 own Model, and then the Bot's memory files (`profile.md`, `notes.md`, `log/YYYY-MM.md`) are scored.
 Bot memory is plain files and `search_memory` ranks lines with BM25, so this eval needs no embedding

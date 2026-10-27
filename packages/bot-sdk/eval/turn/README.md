@@ -2,8 +2,7 @@
 
 A hand-run score for the week-one Bot Turn (spec #463, "Evals for the week-one Turn"). It checks that a
 real Model, under the fixed Bot system prompt, sends a Message through SendToUser when it should, stays
-quiet when it should, and sets `endTurn` on its last Message. It is not in CI and is excluded from the
-SDK copy script.
+quiet when it should, and sets `endTurn` on its last Message. It is not in CI and is not part of the SDK a Host copies.
 
 ## Run it
 

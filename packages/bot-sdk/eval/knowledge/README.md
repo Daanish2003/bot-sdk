@@ -1,7 +1,7 @@
 # Knowledge eval
 
 A hand-run score for a Bot's use of the user's Knowledge (ADR 0025, spec #737, ticket #744). It is not
-in CI and is excluded from the SDK copy script. Each case is a fresh user and Bot on the local E2B
+in CI and is not part of the SDK a Host copies. Each case is a fresh user and Bot on the local E2B
 Computer, seeded with a fixture Knowledge, with the real `bot` and `knowledge` plugins. Everything is
 scored deterministically, with no judge: from the Turn's tool calls, the Messages the Bot sent, and the
 files left in Knowledge. Memory is off in these runs (the `memory` plugin is not installed), which the

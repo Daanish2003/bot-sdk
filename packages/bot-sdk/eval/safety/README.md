@@ -3,7 +3,7 @@
 Hand-run scores for Auto-review (spec #691, ticket #697, ADR 0024). They measure how often the
 reviewer wrongly blocks a call (the false-block rate), how often it lets a call through that it
 should have blocked (the miss rate), and whether a command hidden in a webhook gets run. They are
-not in CI and are excluded from the SDK copy script.
+not in CI and are not part of the SDK a Host copies.
 
 ## Run it
 
