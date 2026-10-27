@@ -2,7 +2,7 @@
 //
 // Fetches models.dev and rewrites plugins/models/shared/models-snapshot.ts with each curated Model's
 // context window, max output and reasoning efforts. The app never fetches models.dev at runtime,
-// and this script stays in the canonical repo: `copy` ships only core/, so Hosts don't get it.
+// and this script stays in the canonical repo: Hosts don't get it.
 //
 // Every curated Model needs a row in `sources`: its models.dev `[provider, model]`, or `null` when
 // it has no entry (its limits stay unknown). A curated Model without a row, or a row for a Model

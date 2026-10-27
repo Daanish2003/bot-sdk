@@ -11,19 +11,7 @@ The SDK assumes nothing about the Host's stack beyond the npm packages below. It
 
 ## Adopting the SDK
 
-From this repo, run the copy script with the destination folder inside your Host:
-
-```sh
-pnpm -F @ai-chat/bot-sdk copy ../my-host/src/lib/bot-sdk
-```
-
-The destination is resolved from the folder you ran `pnpm` in. The script:
-
-- replaces `core/` and every plugin's folders except `ui/` on every run, and writes `VERSION` at the destination root with the commit hash and the date it was copied (`commit:` and `date:` lines);
-- copies every plugin, whether or not your Host enables it;
-- copies each `ui/` folder (the root one and each plugin's) only when that folder is missing at the destination, checked folder by folder, so your edits to components and `theme.css` survive updates;
-- copies `package.json`, `README.md` and `NOTICE` to the destination root on every run;
-- never copies tests, test helpers or evals (`*.test.*` files and `test`, `tests`, `testing`, `__tests__`, `eval` folders).
+Copy the SDK folder into your Host by hand, into a folder such as `src/lib/bot-sdk`.
 
 Then add one alias to your `tsconfig.json`, pointing at the destination folder:
 
@@ -41,13 +29,13 @@ Your imports then read exactly like this repo's: `@ai-chat/bot-sdk/core/server`,
 
 ### Updating
 
-1. Run the copy script again. `VERSION` shows the commit you now run.
+1. Copy the SDK folder in again.
 2. Your `ui/` folders are untouched. If the release changed a component you also edited, merge that by hand: diff the new SDK's `ui/` folders against yours. A copy from before the Bot-only SDK (ADR 0027) still holds the assistant's folders: delete `plugins/assistant/` and any `ui/chat/`, `ui/shell/`, `ui/pages/` and `ui/settings/` left in your root `ui/`, and drop `@source "../plugins/assistant/ui";` from your `theme.css`. A `theme.css` copied before this release also lacks `@source "../plugins/knowledge/ui";` and `@source "../plugins/skills/ui";`: add them, or the Knowledge and Skills screens lose their styles.
 3. Install any new dependencies listed below, then run your type check.
 
 ## Dependencies
 
-Install these in the Host. There is one `package.json` for the whole SDK, and versions come from it. The copy script copies every plugin, so a Host installs every group below.
+Install these in the Host. There is one `package.json` for the whole SDK, and versions come from it. A Host that copies every plugin installs every group below.
 
 **What `core/` needs:**
 
