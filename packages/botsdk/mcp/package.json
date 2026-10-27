@@ -9,10 +9,7 @@
     "./client": "./src/client/index.ts",
     "./react": "./src/react/index.ts",
     "./server/connections": "./src/server/connections.ts",
-    "./server/connector-tools": "./src/server/connector-tools.ts",
-    "./server/db/connection": "./src/server/db/connection.ts",
-    "./server/oauth": "./src/server/oauth.ts",
-    "./server/servers": "./src/server/servers.ts"
+    "./server/db/connection": "./src/server/db/connection.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit"

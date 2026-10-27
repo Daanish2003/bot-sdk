@@ -5,11 +5,7 @@
   "sideEffects": false,
   "exports": {
     "./package.json": "./package.json",
-    ".": "./src/index.ts",
-    "./redis-connection": "./src/redis-connection.ts",
-    "./redis-counters": "./src/redis-counters.ts",
-    "./redis-pubsub": "./src/redis-pubsub.ts",
-    "./redis-store": "./src/redis-store.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit"

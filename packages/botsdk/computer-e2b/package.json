@@ -17,6 +17,7 @@
   "devDependencies": {
     "@ai-chat/config": "workspace:*",
     "@botsdk/bot": "workspace:*",
+    "drizzle-orm": "catalog:",
     "typescript": "catalog:"
   },
   "peerDependencies": {

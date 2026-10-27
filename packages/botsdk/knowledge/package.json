@@ -8,7 +8,6 @@
     ".": "./src/index.ts",
     "./client": "./src/client/index.ts",
     "./react": "./src/react/index.ts",
-    "./server/extract": "./src/server/extract.ts",
     "./server/files": "./src/server/files.ts",
     "./server/knowledge-api": "./src/server/knowledge-api.ts",
     "./server/prompt": "./src/server/prompt.ts"

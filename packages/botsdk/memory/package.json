@@ -9,7 +9,6 @@
     "./client": "./src/client/index.ts",
     "./react": "./src/react/index.ts",
     "./server/bot-memory": "./src/server/bot-memory.ts",
-    "./server/bot-pass": "./src/server/bot-pass.ts",
     "./server/memory-api": "./src/server/memory-api.ts",
     "./server/schema": "./src/server/schema.ts"
   },
