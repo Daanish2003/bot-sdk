@@ -96,8 +96,8 @@ jobs:
         working-directory: packages/bot-sdk
         run: |
           pnpm db:generate
-          git status --porcelain -- ../botsdk/bot/src plugins
-          test -z "$(git status --porcelain -- ../botsdk/bot/src plugins)"
+          git status --porcelain -- ../botsdk/bot/src ../botsdk/memory/src ../botsdk/mcp/src
+          test -z "$(git status --porcelain -- ../botsdk/bot/src ../botsdk/memory/src ../botsdk/mcp/src)"
 
       - name: Create the RustFS test bucket
         env:

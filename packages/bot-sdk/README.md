@@ -4,7 +4,7 @@ Bots a Host copies into its own source tree: each user's Bots, with their Turns,
 
 - `core/` (`shared`, `server`, `client`, including `client/react`): runtime code the Host never edits. Updating means copying it again.
 - `plugins/<name>/` (`models`, `runner`, `bot`, `memory`, `skills`, `knowledge`, `computer`, `channel`, `mcp`): each plugin's `shared`, `server` and `client` are runtime code like `core/`; its `ui/` is the Host's.
-- The core's React components, `theme.css` and `settings/export-data-button.tsx` live in the private `@botsdk/ui` package (`packages/botsdk/ui`), on the hooks and provider of `@botsdk/react`. The features' `plugins/<name>/ui/` folders are still here until they join `@botsdk/ui`. They sit on the Host's own shadcn primitives.
+- The core's React components, `theme.css` and `settings/export-data-button.tsx` live in the private `@botsdk/ui` package (`packages/botsdk/ui`), on the hooks and provider of `@botsdk/react`. The features' components (Memory, Skills, Knowledge, MCP) are in `@botsdk/ui` too, under `memory/`, `skills/`, `knowledge/` and `mcp/`, on each feature's hooks. They sit on the Host's own shadcn primitives.
 - `package.json`, `README.md` and `NOTICE`: copied alongside, for reference. The Host installs the dependencies listed here.
 
 The SDK assumes nothing about the Host's stack beyond the npm packages below. It knows users only by an opaque id.
@@ -77,7 +77,9 @@ Install these in the Host. There is one `package.json` for the whole SDK, and ve
 
 The `runner` and `memory` plugins and the `skills` feature need nothing beyond `core/` (and `lucide-react` for the `ui/` folders).
 
-The core server is its own package, `@botsdk/bot` (`packages/botsdk/bot`, spec #875): the Bot core, Models, Runner, Computer and Channel, with the HTTP layer at `@botsdk/bot/http`. It depends on `@tanstack/ai` and no model Provider: the Host installs the `@tanstack/ai-*` Providers it uses and passes them in `models.providers`. The features in `plugins/` import it, and `@botsdk/client` (`packages/botsdk/client`), by package name.
+The core server is its own package, `@botsdk/bot` (`packages/botsdk/bot`, spec #875): the Bot core, Models, Runner, Computer and Channel, with the HTTP layer at `@botsdk/bot/http`. It depends on `@tanstack/ai` and no model Provider: the Host installs the `@tanstack/ai-*` Providers it uses and passes them in `models.providers`. The features import it, and `@botsdk/client` (`packages/botsdk/client`), by package name.
+
+The optional features are packages of their own (#911): `@botsdk/memory`, `@botsdk/skills`, `@botsdk/knowledge` and `@botsdk/mcp` (`packages/botsdk/<feature>`). Each has the feature at its root, its client part at `/client` and its hooks at `/react`; it takes `@botsdk/bot`, `@botsdk/client` and `@botsdk/react` as peers and never imports another feature.
 
 ## shadcn components
 
@@ -112,8 +114,8 @@ The package's `botsdk` bin migrates from a config module, by default `botsdk.con
 ```ts
 // botsdk.config.ts
 import { postgres } from "@botsdk/bot";
-import { mcp } from "@ai-chat/bot-sdk/plugins/mcp/server";
-import { memory } from "@ai-chat/bot-sdk/plugins/memory/server";
+import { mcp } from "@botsdk/mcp";
+import { memory } from "@botsdk/memory";
 
 export default {
   database: postgres({ connectionString: process.env.DATABASE_URL! }),
@@ -218,7 +220,7 @@ const client = createBotSdkClient({
 
 - `getUser(request)` returns `{ id } | null`. The HTTP handler answers 401 when it returns `null`. The core never sees a request: its own methods (`chat.bots.send({ userId, ... })`) take the user's id.
 - `reviewModel` (optional) is the Model that Auto-reviews each Bot's risky tool calls before they run, a `"provider:model"` id from the Models' list, resolved per user: `createBotSdk({ reviewModel: "openai:gpt-5.4-mini" })`. Unset, or one the user can't use, the Bot's own Model reviews, in a fresh context.
-- The client is typed by contracts alone (spec #873): the core's (`coreContract` in `@botsdk/client`) and each feature's (`plugins/<name>/shared/contract.ts`), so no server code reaches the browser bundle, not even a type. It mirrors the instance: `client.rpc.bots.send` is `sdk.bots.send`, and a feature's procedures are under its id (`client.rpc.memory.status`). One link carries them all.
+- The client is typed by contracts alone (spec #873): the core's (`coreContract` in `@botsdk/client`) and each feature's (`src/shared/contract.ts` in `@botsdk/<feature>`), so no server code reaches the browser bundle, not even a type. It mirrors the instance: `client.rpc.bots.send` is `sdk.bots.send`, and a feature's procedures are under its id (`client.rpc.memory.status`). One link carries them all.
 - The `router` adapter maps the SDK's pages (`keys`, and `bots` with an optional Bot `id`) to your URLs. It provides `Link` and `navigate(page)`. Pass your own TanStack Query client as `queryClient` if you have one; otherwise the provider creates its own.
 - The Bots app is `BotsApp` from `@botsdk/ui/bot`, with the Host's account menu at the foot of its sidebar (`accountMenu`); the keys page is `KeySettingsPage` from `@botsdk/ui/models`.
 - `GET <basePath>/export` answers the signed-in user's export as a JSON download (`chat-export-<date>.json`), the same document as `users.export`. The `ExportDataButton` in `ui/settings/export-data-button.tsx` calls it.
@@ -237,7 +239,7 @@ A Host runs its own background work on the same runner. `defineJob({ name, paylo
 
 ## Memory: `memory`
 
-The `memory` feature keeps each Bot's file memory (ADR 0022), its post-turn pass, the `search_memory` tool and the user's Memory switch. A Host turns it on in `features`: `features: [memory()]`, with `memoryClient()` on the client. It needs a Computer, where the files live: `createBotSdk` throws at construction when the `computer` slot is empty. It's imported from `@ai-chat/bot-sdk/plugins/memory/server` (and `/client`, `/ui`). A Host turns Memory off by leaving it out: Bots then keep no Memory, and the keys page shows no Memory section.
+The `memory` feature keeps each Bot's file memory (ADR 0022), its post-turn pass, the `search_memory` tool and the user's Memory switch. A Host turns it on in `features`: `features: [memory()]`, with `memoryClient()` on the client. It needs a Computer, where the files live: `createBotSdk` throws at construction when the `computer` slot is empty. It's the `@botsdk/memory` package, with `@botsdk/memory/client` and the hooks at `@botsdk/memory/react`; its components are `@botsdk/ui/memory`. A Host turns Memory off by leaving it out: Bots then keep no Memory, and the keys page shows no Memory section.
 
 The `skills` feature (each Bot's `SKILL.md` files, spec #713) and the `knowledge` feature (a user's Knowledge as plain files, spec #737), both listed in `features`, keep their files on the user's Computer, so they need `computer`. Without it, `createBotSdk` throws for `skills()` and `knowledge()`.
 
@@ -595,7 +597,7 @@ const chat = createBotSdk({
 
 ## Connections to MCP servers
 
-The `mcp` feature (listed in `features`) lists remote MCP servers your users may sign in to: `mcp({ servers: [{ key, name, url, oauth: { clientId, clientSecret } }] })`, with `mcpClient()` on the client and its `ConnectionsSection` on the keys page. It's imported from `@ai-chat/bot-sdk/plugins/mcp/server` (and `/client`, `/ui`). Only Streamable HTTP servers on HTTPS are accepted; a `url` that isn't HTTPS throws when `createBotSdk` runs. `key` names the server in storage (letters, digits, `_` and `-`). Register your OAuth client with each server ahead of time: the SDK doesn't use Dynamic Client Registration.
+The `mcp` feature (listed in `features`) lists remote MCP servers your users may sign in to: `mcp({ servers: [{ key, name, url, oauth: { clientId, clientSecret } }] })`, with `mcpClient()` on the client and its `ConnectionsSection` on the keys page. It's the `@botsdk/mcp` package, with `@botsdk/mcp/client` and the hooks at `@botsdk/mcp/react`; `ConnectionsSection` is `@botsdk/ui/mcp`. Only Streamable HTTP servers on HTTPS are accepted; a `url` that isn't HTTPS throws when `createBotSdk` runs. `key` names the server in storage (letters, digits, `_` and `-`). Register your OAuth client with each server ahead of time: the SDK doesn't use Dynamic Client Registration.
 
 Register this redirect URI with each server, with your app's origin in place of the host: `https://<your-app>/<basePath>/mcp/callback`, for example `https://app.example/api/chat/mcp/callback`. The SDK serves the sign-in start (`<basePath>/mcp/connect`) and this callback through the same handler, so the Host mounts no new route.
 

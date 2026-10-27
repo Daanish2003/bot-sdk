@@ -35,6 +35,15 @@
     "./bot/warm-line": "./src/bot/warm-line.tsx",
     "./channel/email-popover": "./src/channel/email-popover.tsx",
     "./channel": "./src/channel/index.ts",
+    "./knowledge": "./src/knowledge/index.ts",
+    "./knowledge/knowledge-chip": "./src/knowledge/knowledge-chip.tsx",
+    "./knowledge/knowledge-popover": "./src/knowledge/knowledge-popover.tsx",
+    "./mcp": "./src/mcp/index.ts",
+    "./mcp/connections-section": "./src/mcp/connections-section.tsx",
+    "./memory": "./src/memory/index.ts",
+    "./memory/bot-memory-chip": "./src/memory/bot-memory-chip.tsx",
+    "./memory/bot-memory-popover": "./src/memory/bot-memory-popover.tsx",
+    "./memory/memory-section": "./src/memory/memory-section.tsx",
     "./models": "./src/models/index.ts",
     "./models/key-rows": "./src/models/key-rows.ts",
     "./models/key-settings": "./src/models/key-settings.tsx",
@@ -44,6 +53,10 @@
     "./models/settings/image-model-select": "./src/models/settings/image-model-select.tsx",
     "./models/shell/model-picker": "./src/models/shell/model-picker.tsx",
     "./settings/export-data-button": "./src/settings/export-data-button.tsx",
+    "./skills": "./src/skills/index.ts",
+    "./skills/bot-skill-chip": "./src/skills/bot-skill-chip.tsx",
+    "./skills/bot-skills-popover": "./src/skills/bot-skills-popover.tsx",
+    "./skills/skill-editor": "./src/skills/skill-editor.tsx",
     "./theme.css": "./src/theme.css"
   },
   "scripts": {
@@ -51,7 +64,11 @@
   },
   "dependencies": {
     "@botsdk/client": "workspace:*",
+    "@botsdk/knowledge": "workspace:*",
+    "@botsdk/mcp": "workspace:*",
+    "@botsdk/memory": "workspace:*",
     "@botsdk/react": "workspace:*",
+    "@botsdk/skills": "workspace:*",
     "lucide-react": "catalog:",
     "sonner": "catalog:"
   },

@@ -61,8 +61,8 @@ the Model. It is billed on your key. Run it deliberately.
 
 ## Results
 
-The framing (`memoryFraming` in `plugins/memory/server/bot-memory.ts`) and the pass prompt
-(`passPrompt` in `plugins/memory/server/bot-pass.ts`) are the ones these passed with.
+The framing (`memoryFraming` in `packages/botsdk/memory/src/server/bot-memory.ts`) and the pass prompt
+(`passPrompt` in `packages/botsdk/memory/src/server/bot-pass.ts`) are the ones these passed with.
 
 | Case                       | Bot Model            | Judge                | Result |
 | -------------------------- | -------------------- | -------------------- | ------ |

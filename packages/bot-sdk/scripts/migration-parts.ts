@@ -17,7 +17,8 @@ const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
  * Each part: its id in the journal, the folder of its `migrations/` and `migrations.json`, the
- * folder drizzle-kit runs in and its config there. The core's first, in `@botsdk/bot`.
+ * folder drizzle-kit runs in and its config there. The core's first, in `@botsdk/bot`; then the
+ * features', each in its own `@botsdk/<feature>` package.
  */
 export const migrationParts = [
   {
@@ -28,15 +29,15 @@ export const migrationParts = [
   },
   {
     feature: "memory",
-    folder: "plugins/memory/server",
-    cwd: ".",
-    config: "plugins/memory/drizzle.config.ts",
+    folder: "../botsdk/memory/src/server",
+    cwd: "../botsdk/memory",
+    config: "drizzle.config.ts",
   },
   {
     feature: "mcp",
-    folder: "plugins/mcp/server",
-    cwd: ".",
-    config: "plugins/mcp/drizzle.config.ts",
+    folder: "../botsdk/mcp/src/server",
+    cwd: "../botsdk/mcp",
+    config: "drizzle.config.ts",
   },
 ] as const;
 

@@ -3,11 +3,10 @@
 @source "./bot";
 @source "./channel";
 @source "./settings";
-/* The features' screens stay in the SDK until they join this package (#911). */
-@source "../../../bot-sdk/plugins/memory/ui";
-@source "../../../bot-sdk/plugins/mcp/ui";
-@source "../../../bot-sdk/plugins/knowledge/ui";
-@source "../../../bot-sdk/plugins/skills/ui";
+@source "./memory";
+@source "./mcp";
+@source "./knowledge";
+@source "./skills";
 
 /* Phones: tap targets at least 44px (WCAG 2.5.5). Desktop keeps the shadcn sizes. */
 @media (max-width: 767px) {

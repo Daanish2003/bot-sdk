@@ -95,6 +95,374 @@
       }
     },
     {
+      "files": ["packages/botsdk/memory/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, storage (#889)."
+              },
+              {
+                "group": [
+                  "@botsdk/bot/runner/**",
+                  "!@botsdk/bot/runner/internal",
+                  "!@botsdk/bot/runner/index"
+                ],
+                "message": "Import the runner service through its entry point, runner/internal (#889)."
+              },
+              {
+                "group": [
+                  "@botsdk/bot/computer/**",
+                  "!@botsdk/bot/computer/internal",
+                  "!@botsdk/bot/computer/index"
+                ],
+                "message": "Import the computer service through its entry point, computer/internal (#889)."
+              },
+              {
+                "group": [
+                  "@botsdk/bot/models/**",
+                  "!@botsdk/bot/models/internal",
+                  "!@botsdk/bot/models/index"
+                ],
+                "message": "Import the models service through its entry point, models/internal (#889)."
+              },
+              {
+                "group": [
+                  "@botsdk/bot/channel/**",
+                  "!@botsdk/bot/channel/internal",
+                  "!@botsdk/bot/channel/index"
+                ],
+                "message": "Import the channel service through its entry point, channel/internal (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/conversation/**"],
+                "message": "Import the conversation module through its entry point, bot/conversation (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/triggers/**"],
+                "message": "Import the triggers module through its entry point, bot/triggers (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/routines/**"],
+                "message": "Import the routines module through its entry point, bot/routines (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/safety/**"],
+                "message": "Import the safety module through its entry point, bot/safety (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/agent-loop/**"],
+                "message": "Import the agent-loop module through its entry point, bot/agent-loop (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/context/**"],
+                "message": "Import the context module through its entry point, bot/context (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/helpers/**"],
+                "message": "Import the helpers module through its entry point, bot/helpers (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/demonstrations/**"],
+                "message": "Import the demonstrations module through its entry point, bot/demonstrations (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/tools/**"],
+                "message": "Import the tools module through its entry point, bot/tools (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/turn/**"],
+                "message": "Import the turn module through its entry point, bot/turn (#889)."
+              },
+              {
+                "regex": "^@botsdk/(skills|knowledge|mcp)(/|$)",
+                "message": "A feature never imports another feature (spec #875): features depend on the core alone."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/botsdk/skills/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, storage (#889)."
+              },
+              {
+                "group": [
+                  "@botsdk/bot/runner/**",
+                  "!@botsdk/bot/runner/internal",
+                  "!@botsdk/bot/runner/index"
+                ],
+                "message": "Import the runner service through its entry point, runner/internal (#889)."
+              },
+              {
+                "group": [
+                  "@botsdk/bot/computer/**",
+                  "!@botsdk/bot/computer/internal",
+                  "!@botsdk/bot/computer/index"
+                ],
+                "message": "Import the computer service through its entry point, computer/internal (#889)."
+              },
+              {
+                "group": [
+                  "@botsdk/bot/models/**",
+                  "!@botsdk/bot/models/internal",
+                  "!@botsdk/bot/models/index"
+                ],
+                "message": "Import the models service through its entry point, models/internal (#889)."
+              },
+              {
+                "group": [
+                  "@botsdk/bot/channel/**",
+                  "!@botsdk/bot/channel/internal",
+                  "!@botsdk/bot/channel/index"
+                ],
+                "message": "Import the channel service through its entry point, channel/internal (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/conversation/**"],
+                "message": "Import the conversation module through its entry point, bot/conversation (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/triggers/**"],
+                "message": "Import the triggers module through its entry point, bot/triggers (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/routines/**"],
+                "message": "Import the routines module through its entry point, bot/routines (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/safety/**"],
+                "message": "Import the safety module through its entry point, bot/safety (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/agent-loop/**"],
+                "message": "Import the agent-loop module through its entry point, bot/agent-loop (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/context/**"],
+                "message": "Import the context module through its entry point, bot/context (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/helpers/**"],
+                "message": "Import the helpers module through its entry point, bot/helpers (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/demonstrations/**"],
+                "message": "Import the demonstrations module through its entry point, bot/demonstrations (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/tools/**"],
+                "message": "Import the tools module through its entry point, bot/tools (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/turn/**"],
+                "message": "Import the turn module through its entry point, bot/turn (#889)."
+              },
+              {
+                "regex": "^@botsdk/(memory|knowledge|mcp)(/|$)",
+                "message": "A feature never imports another feature (spec #875): features depend on the core alone."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/botsdk/knowledge/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, storage (#889)."
+              },
+              {
+                "group": [
+                  "@botsdk/bot/runner/**",
+                  "!@botsdk/bot/runner/internal",
+                  "!@botsdk/bot/runner/index"
+                ],
+                "message": "Import the runner service through its entry point, runner/internal (#889)."
+              },
+              {
+                "group": [
+                  "@botsdk/bot/computer/**",
+                  "!@botsdk/bot/computer/internal",
+                  "!@botsdk/bot/computer/index"
+                ],
+                "message": "Import the computer service through its entry point, computer/internal (#889)."
+              },
+              {
+                "group": [
+                  "@botsdk/bot/models/**",
+                  "!@botsdk/bot/models/internal",
+                  "!@botsdk/bot/models/index"
+                ],
+                "message": "Import the models service through its entry point, models/internal (#889)."
+              },
+              {
+                "group": [
+                  "@botsdk/bot/channel/**",
+                  "!@botsdk/bot/channel/internal",
+                  "!@botsdk/bot/channel/index"
+                ],
+                "message": "Import the channel service through its entry point, channel/internal (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/conversation/**"],
+                "message": "Import the conversation module through its entry point, bot/conversation (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/triggers/**"],
+                "message": "Import the triggers module through its entry point, bot/triggers (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/routines/**"],
+                "message": "Import the routines module through its entry point, bot/routines (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/safety/**"],
+                "message": "Import the safety module through its entry point, bot/safety (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/agent-loop/**"],
+                "message": "Import the agent-loop module through its entry point, bot/agent-loop (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/context/**"],
+                "message": "Import the context module through its entry point, bot/context (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/helpers/**"],
+                "message": "Import the helpers module through its entry point, bot/helpers (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/demonstrations/**"],
+                "message": "Import the demonstrations module through its entry point, bot/demonstrations (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/tools/**"],
+                "message": "Import the tools module through its entry point, bot/tools (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/turn/**"],
+                "message": "Import the turn module through its entry point, bot/turn (#889)."
+              },
+              {
+                "regex": "^@botsdk/(memory|skills|mcp)(/|$)",
+                "message": "A feature never imports another feature (spec #875): features depend on the core alone."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/botsdk/mcp/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, storage (#889)."
+              },
+              {
+                "group": [
+                  "@botsdk/bot/runner/**",
+                  "!@botsdk/bot/runner/internal",
+                  "!@botsdk/bot/runner/index"
+                ],
+                "message": "Import the runner service through its entry point, runner/internal (#889)."
+              },
+              {
+                "group": [
+                  "@botsdk/bot/computer/**",
+                  "!@botsdk/bot/computer/internal",
+                  "!@botsdk/bot/computer/index"
+                ],
+                "message": "Import the computer service through its entry point, computer/internal (#889)."
+              },
+              {
+                "group": [
+                  "@botsdk/bot/models/**",
+                  "!@botsdk/bot/models/internal",
+                  "!@botsdk/bot/models/index"
+                ],
+                "message": "Import the models service through its entry point, models/internal (#889)."
+              },
+              {
+                "group": [
+                  "@botsdk/bot/channel/**",
+                  "!@botsdk/bot/channel/internal",
+                  "!@botsdk/bot/channel/index"
+                ],
+                "message": "Import the channel service through its entry point, channel/internal (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/conversation/**"],
+                "message": "Import the conversation module through its entry point, bot/conversation (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/triggers/**"],
+                "message": "Import the triggers module through its entry point, bot/triggers (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/routines/**"],
+                "message": "Import the routines module through its entry point, bot/routines (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/safety/**"],
+                "message": "Import the safety module through its entry point, bot/safety (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/agent-loop/**"],
+                "message": "Import the agent-loop module through its entry point, bot/agent-loop (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/context/**"],
+                "message": "Import the context module through its entry point, bot/context (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/helpers/**"],
+                "message": "Import the helpers module through its entry point, bot/helpers (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/demonstrations/**"],
+                "message": "Import the demonstrations module through its entry point, bot/demonstrations (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/tools/**"],
+                "message": "Import the tools module through its entry point, bot/tools (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/turn/**"],
+                "message": "Import the turn module through its entry point, bot/turn (#889)."
+              },
+              {
+                "regex": "^@botsdk/(memory|skills|knowledge)(/|$)",
+                "message": "A feature never imports another feature (spec #875): features depend on the core alone."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "files": ["packages/botsdk/bot/**"],
       "rules": {
         "no-restricted-imports": [
@@ -1149,8 +1517,6 @@
     {
       "files": [
         "packages/bot-sdk/plugins/*/client/**",
-        "packages/bot-sdk/plugins/*/shared/**",
-        "packages/bot-sdk/plugins/*/ui/**",
         "packages/botsdk/react/**",
         "packages/botsdk/ui/**"
       ],
@@ -1171,6 +1537,158 @@
                   "@botsdk/bot/**"
                 ],
                 "message": "Browser code never imports server code, not even a type (ADR 0005, spec #873): the client is typed by the contracts in @botsdk/client and plugins/*/shared/contract. Move shared code under a shared/ folder."
+              },
+              {
+                "regex": "^@botsdk/(memory|skills|knowledge|mcp)(/server(/.*)?)?$",
+                "message": "Browser code takes a feature's /client or /react, never its server entry or server modules (spec #875)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "packages/botsdk/memory/src/client/**",
+        "packages/botsdk/memory/src/react/**",
+        "packages/botsdk/memory/src/shared/**"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "**/server",
+                  "**/server/**",
+                  "**/http",
+                  "**/http/**",
+                  "@orpc/server",
+                  "@orpc/server/**",
+                  "@botsdk/bot",
+                  "@botsdk/bot/**"
+                ],
+                "message": "Browser code never imports server code, not even a type (ADR 0005, spec #873): the client is typed by the contracts in @botsdk/client and plugins/*/shared/contract. Move shared code under a shared/ folder."
+              },
+              {
+                "group": ["@ai-chat/*", "@ai-chat/**", "@botsdk/bot", "@botsdk/bot/**"],
+                "message": "A feature's /client and /react are browser code (spec #875): never import the Bot SDK server, the database or another @ai-chat package."
+              },
+              {
+                "regex": "^@botsdk/(skills|knowledge|mcp)(/|$)",
+                "message": "A feature never imports another feature (spec #875): features depend on the core alone."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "packages/botsdk/skills/src/client/**",
+        "packages/botsdk/skills/src/react/**",
+        "packages/botsdk/skills/src/shared/**"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "**/server",
+                  "**/server/**",
+                  "**/http",
+                  "**/http/**",
+                  "@orpc/server",
+                  "@orpc/server/**",
+                  "@botsdk/bot",
+                  "@botsdk/bot/**"
+                ],
+                "message": "Browser code never imports server code, not even a type (ADR 0005, spec #873): the client is typed by the contracts in @botsdk/client and plugins/*/shared/contract. Move shared code under a shared/ folder."
+              },
+              {
+                "group": ["@ai-chat/*", "@ai-chat/**", "@botsdk/bot", "@botsdk/bot/**"],
+                "message": "A feature's /client and /react are browser code (spec #875): never import the Bot SDK server, the database or another @ai-chat package."
+              },
+              {
+                "regex": "^@botsdk/(memory|knowledge|mcp)(/|$)",
+                "message": "A feature never imports another feature (spec #875): features depend on the core alone."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "packages/botsdk/knowledge/src/client/**",
+        "packages/botsdk/knowledge/src/react/**",
+        "packages/botsdk/knowledge/src/shared/**"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "**/server",
+                  "**/server/**",
+                  "**/http",
+                  "**/http/**",
+                  "@orpc/server",
+                  "@orpc/server/**",
+                  "@botsdk/bot",
+                  "@botsdk/bot/**"
+                ],
+                "message": "Browser code never imports server code, not even a type (ADR 0005, spec #873): the client is typed by the contracts in @botsdk/client and plugins/*/shared/contract. Move shared code under a shared/ folder."
+              },
+              {
+                "group": ["@ai-chat/*", "@ai-chat/**", "@botsdk/bot", "@botsdk/bot/**"],
+                "message": "A feature's /client and /react are browser code (spec #875): never import the Bot SDK server, the database or another @ai-chat package."
+              },
+              {
+                "regex": "^@botsdk/(memory|skills|mcp)(/|$)",
+                "message": "A feature never imports another feature (spec #875): features depend on the core alone."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "packages/botsdk/mcp/src/client/**",
+        "packages/botsdk/mcp/src/react/**",
+        "packages/botsdk/mcp/src/shared/**"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "**/server",
+                  "**/server/**",
+                  "**/http",
+                  "**/http/**",
+                  "@orpc/server",
+                  "@orpc/server/**",
+                  "@botsdk/bot",
+                  "@botsdk/bot/**"
+                ],
+                "message": "Browser code never imports server code, not even a type (ADR 0005, spec #873): the client is typed by the contracts in @botsdk/client and plugins/*/shared/contract. Move shared code under a shared/ folder."
+              },
+              {
+                "group": ["@ai-chat/*", "@ai-chat/**", "@botsdk/bot", "@botsdk/bot/**"],
+                "message": "A feature's /client and /react are browser code (spec #875): never import the Bot SDK server, the database or another @ai-chat package."
+              },
+              {
+                "regex": "^@botsdk/(memory|skills|knowledge)(/|$)",
+                "message": "A feature never imports another feature (spec #875): features depend on the core alone."
               }
             ]
           }
@@ -1187,6 +1705,10 @@
               {
                 "group": ["@ai-chat/*", "@ai-chat/**", "@botsdk/bot", "@botsdk/bot/**"],
                 "message": "@botsdk/react and @botsdk/ui are browser code (spec #875): never import the Bot SDK server, the database or another @ai-chat package."
+              },
+              {
+                "regex": "^@botsdk/(memory|skills|knowledge|mcp)(/server(/.*)?)?$",
+                "message": "Browser code takes a feature's /client or /react, never its server entry or server modules (spec #875)."
               }
             ]
           }
