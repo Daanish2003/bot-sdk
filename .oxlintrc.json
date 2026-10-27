@@ -15,79 +15,79 @@
             "patterns": [
               {
                 "group": ["**/storage/**", "!**/storage"],
-                "message": "Import storage through its entry point, core/server/storage (#889)."
+                "message": "Import storage through its entry point, storage (#889)."
               },
               {
                 "group": [
-                  "**/runner/server/**",
-                  "!**/runner/server/internal",
-                  "!**/runner/server/index"
+                  "@botsdk/bot/runner/**",
+                  "!@botsdk/bot/runner/internal",
+                  "!@botsdk/bot/runner/index"
                 ],
-                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+                "message": "Import the runner service through its entry point, runner/internal (#889)."
               },
               {
                 "group": [
-                  "**/computer/server/**",
-                  "!**/computer/server/internal",
-                  "!**/computer/server/index"
+                  "@botsdk/bot/computer/**",
+                  "!@botsdk/bot/computer/internal",
+                  "!@botsdk/bot/computer/index"
                 ],
-                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+                "message": "Import the computer service through its entry point, computer/internal (#889)."
               },
               {
                 "group": [
-                  "**/models/server/**",
-                  "!**/models/server/internal",
-                  "!**/models/server/index"
+                  "@botsdk/bot/models/**",
+                  "!@botsdk/bot/models/internal",
+                  "!@botsdk/bot/models/index"
                 ],
-                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+                "message": "Import the models service through its entry point, models/internal (#889)."
               },
               {
                 "group": [
-                  "**/channel/server/**",
-                  "!**/channel/server/internal",
-                  "!**/channel/server/index"
+                  "@botsdk/bot/channel/**",
+                  "!@botsdk/bot/channel/internal",
+                  "!@botsdk/bot/channel/index"
                 ],
-                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+                "message": "Import the channel service through its entry point, channel/internal (#889)."
               },
               {
-                "group": ["**/bot/server/conversation/**"],
-                "message": "Import the conversation module through its entry point, plugins/bot/server/conversation (#889)."
+                "group": ["@botsdk/bot/bot/conversation/**"],
+                "message": "Import the conversation module through its entry point, bot/conversation (#889)."
               },
               {
-                "group": ["**/bot/server/triggers/**"],
-                "message": "Import the triggers module through its entry point, plugins/bot/server/triggers (#889)."
+                "group": ["@botsdk/bot/bot/triggers/**"],
+                "message": "Import the triggers module through its entry point, bot/triggers (#889)."
               },
               {
-                "group": ["**/bot/server/routines/**"],
-                "message": "Import the routines module through its entry point, plugins/bot/server/routines (#889)."
+                "group": ["@botsdk/bot/bot/routines/**"],
+                "message": "Import the routines module through its entry point, bot/routines (#889)."
               },
               {
-                "group": ["**/bot/server/safety/**"],
-                "message": "Import the safety module through its entry point, plugins/bot/server/safety (#889)."
+                "group": ["@botsdk/bot/bot/safety/**"],
+                "message": "Import the safety module through its entry point, bot/safety (#889)."
               },
               {
-                "group": ["**/bot/server/agent-loop/**"],
-                "message": "Import the agent-loop module through its entry point, plugins/bot/server/agent-loop (#889)."
+                "group": ["@botsdk/bot/bot/agent-loop/**"],
+                "message": "Import the agent-loop module through its entry point, bot/agent-loop (#889)."
               },
               {
-                "group": ["**/bot/server/context/**"],
-                "message": "Import the context module through its entry point, plugins/bot/server/context (#889)."
+                "group": ["@botsdk/bot/bot/context/**"],
+                "message": "Import the context module through its entry point, bot/context (#889)."
               },
               {
-                "group": ["**/bot/server/helpers/**"],
-                "message": "Import the helpers module through its entry point, plugins/bot/server/helpers (#889)."
+                "group": ["@botsdk/bot/bot/helpers/**"],
+                "message": "Import the helpers module through its entry point, bot/helpers (#889)."
               },
               {
-                "group": ["**/bot/server/demonstrations/**"],
-                "message": "Import the demonstrations module through its entry point, plugins/bot/server/demonstrations (#889)."
+                "group": ["@botsdk/bot/bot/demonstrations/**"],
+                "message": "Import the demonstrations module through its entry point, bot/demonstrations (#889)."
               },
               {
-                "group": ["**/bot/server/tools/**"],
-                "message": "Import the tools module through its entry point, plugins/bot/server/tools (#889)."
+                "group": ["@botsdk/bot/bot/tools/**"],
+                "message": "Import the tools module through its entry point, bot/tools (#889)."
               },
               {
-                "group": ["**/bot/server/turn/**"],
-                "message": "Import the turn module through its entry point, plugins/bot/server/turn (#889)."
+                "group": ["@botsdk/bot/bot/turn/**"],
+                "message": "Import the turn module through its entry point, bot/turn (#889)."
               }
             ]
           }
@@ -95,7 +95,7 @@
       }
     },
     {
-      "files": ["packages/bot-sdk/core/server/storage/**"],
+      "files": ["packages/botsdk/bot/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -103,10 +103,103 @@
             "patterns": [
               {
                 "group": ["**/storage/**", "!**/storage"],
-                "message": "Import storage through its entry point, core/server/storage (#889)."
+                "message": "Import storage through its entry point, storage (#889)."
               },
               {
-                "regex": "(^|/)plugins/[^/]+/server(/|$)",
+                "group": [
+                  "**/runner/**",
+                  "!**/runner/internal",
+                  "!**/runner/index",
+                  "!@botsdk/client/**"
+                ],
+                "message": "Import the runner service through its entry point, runner/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/computer/**",
+                  "!**/computer/internal",
+                  "!**/computer/index",
+                  "!@botsdk/client/**"
+                ],
+                "message": "Import the computer service through its entry point, computer/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/models/**",
+                  "!**/models/internal",
+                  "!**/models/index",
+                  "!**/models/shared/**",
+                  "!@botsdk/client/**"
+                ],
+                "message": "Import the models service through its entry point, models/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/channel/**",
+                  "!**/channel/internal",
+                  "!**/channel/index",
+                  "!@botsdk/client/**"
+                ],
+                "message": "Import the channel service through its entry point, channel/internal (#889)."
+              },
+              {
+                "group": ["**/bot/conversation/**"],
+                "message": "Import the conversation module through its entry point, bot/conversation (#889)."
+              },
+              {
+                "group": ["**/bot/triggers/**"],
+                "message": "Import the triggers module through its entry point, bot/triggers (#889)."
+              },
+              {
+                "group": ["**/bot/routines/**"],
+                "message": "Import the routines module through its entry point, bot/routines (#889)."
+              },
+              {
+                "group": ["**/bot/safety/**"],
+                "message": "Import the safety module through its entry point, bot/safety (#889)."
+              },
+              {
+                "group": ["**/bot/agent-loop/**"],
+                "message": "Import the agent-loop module through its entry point, bot/agent-loop (#889)."
+              },
+              {
+                "group": ["**/bot/context/**"],
+                "message": "Import the context module through its entry point, bot/context (#889)."
+              },
+              {
+                "group": ["**/bot/helpers/**"],
+                "message": "Import the helpers module through its entry point, bot/helpers (#889)."
+              },
+              {
+                "group": ["**/bot/demonstrations/**"],
+                "message": "Import the demonstrations module through its entry point, bot/demonstrations (#889)."
+              },
+              {
+                "group": ["**/bot/tools/**"],
+                "message": "Import the tools module through its entry point, bot/tools (#889)."
+              },
+              {
+                "group": ["**/bot/turn/**"],
+                "message": "Import the turn module through its entry point, bot/turn (#889)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/botsdk/bot/src/storage/*.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, storage (#889)."
+              },
+              {
+                "regex": "^../(bot|models|runner|computer|channel|http)(/|$)",
                 "message": "storage is the lowest module: it imports no other module at run time (#889).",
                 "allowTypeImports": true
               }
@@ -116,7 +209,7 @@
       }
     },
     {
-      "files": ["packages/bot-sdk/plugins/runner/server/**"],
+      "files": ["packages/botsdk/bot/src/storage/*/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -124,10 +217,31 @@
             "patterns": [
               {
                 "group": ["**/storage/**", "!**/storage"],
-                "message": "Import storage through its entry point, core/server/storage (#889)."
+                "message": "Import storage through its entry point, storage (#889)."
               },
               {
-                "regex": "(^|/)(bot|models|computer|channel)/server(/|$)",
+                "regex": "^../../(bot|models|runner|computer|channel|http)(/|$)",
+                "message": "storage is the lowest module: it imports no other module at run time (#889).",
+                "allowTypeImports": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/botsdk/bot/src/runner/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, storage (#889)."
+              },
+              {
+                "regex": "^(../)+(bot|models|computer|channel)(/|$)",
                 "message": "The runner imports only storage (#889)."
               }
             ]
@@ -136,7 +250,7 @@
       }
     },
     {
-      "files": ["packages/bot-sdk/plugins/models/server/**"],
+      "files": ["packages/botsdk/bot/src/models/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -144,10 +258,10 @@
             "patterns": [
               {
                 "group": ["**/storage/**", "!**/storage"],
-                "message": "Import storage through its entry point, core/server/storage (#889)."
+                "message": "Import storage through its entry point, storage (#889)."
               },
               {
-                "regex": "(^|/)(bot|runner|computer|channel)/server(/|$)",
+                "regex": "^(../)+(bot|runner|computer|channel)(/|$)",
                 "message": "The models service imports only storage (#889)."
               }
             ]
@@ -156,7 +270,7 @@
       }
     },
     {
-      "files": ["packages/bot-sdk/plugins/computer/server/**"],
+      "files": ["packages/botsdk/bot/src/computer/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -164,18 +278,19 @@
             "patterns": [
               {
                 "group": ["**/storage/**", "!**/storage"],
-                "message": "Import storage through its entry point, core/server/storage (#889)."
+                "message": "Import storage through its entry point, storage (#889)."
               },
               {
                 "group": [
-                  "**/runner/server/**",
-                  "!**/runner/server/internal",
-                  "!**/runner/server/index"
+                  "**/runner/**",
+                  "!**/runner/internal",
+                  "!**/runner/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+                "message": "Import the runner service through its entry point, runner/internal (#889)."
               },
               {
-                "regex": "(^|/)(bot|models|channel)/server(/|$)",
+                "regex": "^(../)+(bot|models|channel)(/|$)",
                 "message": "The computer service imports only storage and the runner (#889)."
               }
             ]
@@ -184,7 +299,7 @@
       }
     },
     {
-      "files": ["packages/bot-sdk/plugins/channel/server/**"],
+      "files": ["packages/botsdk/bot/src/channel/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -192,10 +307,10 @@
             "patterns": [
               {
                 "group": ["**/storage/**", "!**/storage"],
-                "message": "Import storage through its entry point, core/server/storage (#889)."
+                "message": "Import storage through its entry point, storage (#889)."
               },
               {
-                "regex": "(^|/)(bot|runner|models|computer)/server(/|$)",
+                "regex": "^(../)+(bot|runner|models|computer)(/|$)",
                 "message": "The channel service is the email wire format: it imports only storage (#889)."
               }
             ]
@@ -204,7 +319,7 @@
       }
     },
     {
-      "files": ["packages/bot-sdk/plugins/channel/server/index.ts"],
+      "files": ["packages/botsdk/bot/src/channel/index.ts"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -212,79 +327,84 @@
             "patterns": [
               {
                 "group": ["**/storage/**", "!**/storage"],
-                "message": "Import storage through its entry point, core/server/storage (#889)."
+                "message": "Import storage through its entry point, storage (#889)."
               },
               {
                 "group": [
-                  "**/runner/server/**",
-                  "!**/runner/server/internal",
-                  "!**/runner/server/index"
+                  "**/runner/**",
+                  "!**/runner/internal",
+                  "!**/runner/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+                "message": "Import the runner service through its entry point, runner/internal (#889)."
               },
               {
                 "group": [
-                  "**/computer/server/**",
-                  "!**/computer/server/internal",
-                  "!**/computer/server/index"
+                  "**/computer/**",
+                  "!**/computer/internal",
+                  "!**/computer/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+                "message": "Import the computer service through its entry point, computer/internal (#889)."
               },
               {
                 "group": [
-                  "**/models/server/**",
-                  "!**/models/server/internal",
-                  "!**/models/server/index"
+                  "**/models/**",
+                  "!**/models/internal",
+                  "!**/models/index",
+                  "!**/models/shared/**",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+                "message": "Import the models service through its entry point, models/internal (#889)."
               },
               {
                 "group": [
-                  "**/channel/server/**",
-                  "!**/channel/server/internal",
-                  "!**/channel/server/index"
+                  "**/channel/**",
+                  "!**/channel/internal",
+                  "!**/channel/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+                "message": "Import the channel service through its entry point, channel/internal (#889)."
               },
               {
-                "group": ["**/bot/server/conversation/**"],
-                "message": "Import the conversation module through its entry point, plugins/bot/server/conversation (#889)."
+                "group": ["**/bot/conversation/**"],
+                "message": "Import the conversation module through its entry point, bot/conversation (#889)."
               },
               {
-                "group": ["**/bot/server/triggers/**"],
-                "message": "Import the triggers module through its entry point, plugins/bot/server/triggers (#889)."
+                "group": ["**/bot/triggers/**"],
+                "message": "Import the triggers module through its entry point, bot/triggers (#889)."
               },
               {
-                "group": ["**/bot/server/routines/**"],
-                "message": "Import the routines module through its entry point, plugins/bot/server/routines (#889)."
+                "group": ["**/bot/routines/**"],
+                "message": "Import the routines module through its entry point, bot/routines (#889)."
               },
               {
-                "group": ["**/bot/server/safety/**"],
-                "message": "Import the safety module through its entry point, plugins/bot/server/safety (#889)."
+                "group": ["**/bot/safety/**"],
+                "message": "Import the safety module through its entry point, bot/safety (#889)."
               },
               {
-                "group": ["**/bot/server/agent-loop/**"],
-                "message": "Import the agent-loop module through its entry point, plugins/bot/server/agent-loop (#889)."
+                "group": ["**/bot/agent-loop/**"],
+                "message": "Import the agent-loop module through its entry point, bot/agent-loop (#889)."
               },
               {
-                "group": ["**/bot/server/context/**"],
-                "message": "Import the context module through its entry point, plugins/bot/server/context (#889)."
+                "group": ["**/bot/context/**"],
+                "message": "Import the context module through its entry point, bot/context (#889)."
               },
               {
-                "group": ["**/bot/server/helpers/**"],
-                "message": "Import the helpers module through its entry point, plugins/bot/server/helpers (#889)."
+                "group": ["**/bot/helpers/**"],
+                "message": "Import the helpers module through its entry point, bot/helpers (#889)."
               },
               {
-                "group": ["**/bot/server/demonstrations/**"],
-                "message": "Import the demonstrations module through its entry point, plugins/bot/server/demonstrations (#889)."
+                "group": ["**/bot/demonstrations/**"],
+                "message": "Import the demonstrations module through its entry point, bot/demonstrations (#889)."
               },
               {
-                "group": ["**/bot/server/tools/**"],
-                "message": "Import the tools module through its entry point, plugins/bot/server/tools (#889)."
+                "group": ["**/bot/tools/**"],
+                "message": "Import the tools module through its entry point, bot/tools (#889)."
               },
               {
-                "group": ["**/bot/server/turn/**"],
-                "message": "Import the turn module through its entry point, plugins/bot/server/turn (#889)."
+                "group": ["**/bot/turn/**"],
+                "message": "Import the turn module through its entry point, bot/turn (#889)."
               }
             ]
           }
@@ -292,10 +412,7 @@
       }
     },
     {
-      "files": [
-        "packages/bot-sdk/plugins/bot/server/*.ts",
-        "packages/bot-sdk/plugins/bot/server/routers/**"
-      ],
+      "files": ["packages/botsdk/bot/src/bot/*.ts", "packages/botsdk/bot/src/bot/routers/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -303,79 +420,84 @@
             "patterns": [
               {
                 "group": ["**/storage/**", "!**/storage"],
-                "message": "Import storage through its entry point, core/server/storage (#889)."
+                "message": "Import storage through its entry point, storage (#889)."
               },
               {
                 "group": [
-                  "**/runner/server/**",
-                  "!**/runner/server/internal",
-                  "!**/runner/server/index"
+                  "**/runner/**",
+                  "!**/runner/internal",
+                  "!**/runner/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+                "message": "Import the runner service through its entry point, runner/internal (#889)."
               },
               {
                 "group": [
-                  "**/computer/server/**",
-                  "!**/computer/server/internal",
-                  "!**/computer/server/index"
+                  "**/computer/**",
+                  "!**/computer/internal",
+                  "!**/computer/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+                "message": "Import the computer service through its entry point, computer/internal (#889)."
               },
               {
                 "group": [
-                  "**/models/server/**",
-                  "!**/models/server/internal",
-                  "!**/models/server/index"
+                  "**/models/**",
+                  "!**/models/internal",
+                  "!**/models/index",
+                  "!**/models/shared/**",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+                "message": "Import the models service through its entry point, models/internal (#889)."
               },
               {
                 "group": [
-                  "**/channel/server/**",
-                  "!**/channel/server/internal",
-                  "!**/channel/server/index"
+                  "**/channel/**",
+                  "!**/channel/internal",
+                  "!**/channel/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+                "message": "Import the channel service through its entry point, channel/internal (#889)."
               },
               {
                 "group": ["**/conversation/**"],
-                "message": "Import the conversation module through its entry point, plugins/bot/server/conversation (#889)."
+                "message": "Import the conversation module through its entry point, bot/conversation (#889)."
               },
               {
                 "group": ["**/triggers/**"],
-                "message": "Import the triggers module through its entry point, plugins/bot/server/triggers (#889)."
+                "message": "Import the triggers module through its entry point, bot/triggers (#889)."
               },
               {
                 "group": ["**/routines/**"],
-                "message": "Import the routines module through its entry point, plugins/bot/server/routines (#889)."
+                "message": "Import the routines module through its entry point, bot/routines (#889)."
               },
               {
                 "group": ["**/safety/**"],
-                "message": "Import the safety module through its entry point, plugins/bot/server/safety (#889)."
+                "message": "Import the safety module through its entry point, bot/safety (#889)."
               },
               {
                 "group": ["**/agent-loop/**"],
-                "message": "Import the agent-loop module through its entry point, plugins/bot/server/agent-loop (#889)."
+                "message": "Import the agent-loop module through its entry point, bot/agent-loop (#889)."
               },
               {
                 "group": ["**/context/**"],
-                "message": "Import the context module through its entry point, plugins/bot/server/context (#889)."
+                "message": "Import the context module through its entry point, bot/context (#889)."
               },
               {
                 "group": ["**/helpers/**"],
-                "message": "Import the helpers module through its entry point, plugins/bot/server/helpers (#889)."
+                "message": "Import the helpers module through its entry point, bot/helpers (#889)."
               },
               {
                 "group": ["**/demonstrations/**"],
-                "message": "Import the demonstrations module through its entry point, plugins/bot/server/demonstrations (#889)."
+                "message": "Import the demonstrations module through its entry point, bot/demonstrations (#889)."
               },
               {
                 "group": ["**/tools/**"],
-                "message": "Import the tools module through its entry point, plugins/bot/server/tools (#889)."
+                "message": "Import the tools module through its entry point, bot/tools (#889)."
               },
               {
                 "group": ["**/turn/**"],
-                "message": "Import the turn module through its entry point, plugins/bot/server/turn (#889)."
+                "message": "Import the turn module through its entry point, bot/turn (#889)."
               }
             ]
           }
@@ -383,7 +505,7 @@
       }
     },
     {
-      "files": ["packages/bot-sdk/plugins/bot/server/conversation/**"],
+      "files": ["packages/botsdk/bot/src/bot/conversation/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -391,39 +513,44 @@
             "patterns": [
               {
                 "group": ["**/storage/**", "!**/storage"],
-                "message": "Import storage through its entry point, core/server/storage (#889)."
+                "message": "Import storage through its entry point, storage (#889)."
               },
               {
                 "group": [
-                  "**/runner/server/**",
-                  "!**/runner/server/internal",
-                  "!**/runner/server/index"
+                  "**/runner/**",
+                  "!**/runner/internal",
+                  "!**/runner/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+                "message": "Import the runner service through its entry point, runner/internal (#889)."
               },
               {
                 "group": [
-                  "**/computer/server/**",
-                  "!**/computer/server/internal",
-                  "!**/computer/server/index"
+                  "**/computer/**",
+                  "!**/computer/internal",
+                  "!**/computer/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+                "message": "Import the computer service through its entry point, computer/internal (#889)."
               },
               {
                 "group": [
-                  "**/models/server/**",
-                  "!**/models/server/internal",
-                  "!**/models/server/index"
+                  "**/models/**",
+                  "!**/models/internal",
+                  "!**/models/index",
+                  "!**/models/shared/**",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+                "message": "Import the models service through its entry point, models/internal (#889)."
               },
               {
                 "group": [
-                  "**/channel/server/**",
-                  "!**/channel/server/internal",
-                  "!**/channel/server/index"
+                  "**/channel/**",
+                  "!**/channel/internal",
+                  "!**/channel/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+                "message": "Import the channel service through its entry point, channel/internal (#889)."
               },
               {
                 "regex": "^\\.\\./(triggers|routines|safety|agent-loop|context|helpers|demonstrations|tools|turn)(/|$)",
@@ -439,7 +566,7 @@
       }
     },
     {
-      "files": ["packages/bot-sdk/plugins/bot/server/triggers/**"],
+      "files": ["packages/botsdk/bot/src/bot/triggers/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -447,39 +574,44 @@
             "patterns": [
               {
                 "group": ["**/storage/**", "!**/storage"],
-                "message": "Import storage through its entry point, core/server/storage (#889)."
+                "message": "Import storage through its entry point, storage (#889)."
               },
               {
                 "group": [
-                  "**/runner/server/**",
-                  "!**/runner/server/internal",
-                  "!**/runner/server/index"
+                  "**/runner/**",
+                  "!**/runner/internal",
+                  "!**/runner/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+                "message": "Import the runner service through its entry point, runner/internal (#889)."
               },
               {
                 "group": [
-                  "**/computer/server/**",
-                  "!**/computer/server/internal",
-                  "!**/computer/server/index"
+                  "**/computer/**",
+                  "!**/computer/internal",
+                  "!**/computer/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+                "message": "Import the computer service through its entry point, computer/internal (#889)."
               },
               {
                 "group": [
-                  "**/models/server/**",
-                  "!**/models/server/internal",
-                  "!**/models/server/index"
+                  "**/models/**",
+                  "!**/models/internal",
+                  "!**/models/index",
+                  "!**/models/shared/**",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+                "message": "Import the models service through its entry point, models/internal (#889)."
               },
               {
                 "group": [
-                  "**/channel/server/**",
-                  "!**/channel/server/internal",
-                  "!**/channel/server/index"
+                  "**/channel/**",
+                  "!**/channel/internal",
+                  "!**/channel/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+                "message": "Import the channel service through its entry point, channel/internal (#889)."
               },
               {
                 "regex": "^\\.\\./(conversation)/",
@@ -499,7 +631,7 @@
       }
     },
     {
-      "files": ["packages/bot-sdk/plugins/bot/server/routines/**"],
+      "files": ["packages/botsdk/bot/src/bot/routines/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -507,39 +639,44 @@
             "patterns": [
               {
                 "group": ["**/storage/**", "!**/storage"],
-                "message": "Import storage through its entry point, core/server/storage (#889)."
+                "message": "Import storage through its entry point, storage (#889)."
               },
               {
                 "group": [
-                  "**/runner/server/**",
-                  "!**/runner/server/internal",
-                  "!**/runner/server/index"
+                  "**/runner/**",
+                  "!**/runner/internal",
+                  "!**/runner/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+                "message": "Import the runner service through its entry point, runner/internal (#889)."
               },
               {
                 "group": [
-                  "**/computer/server/**",
-                  "!**/computer/server/internal",
-                  "!**/computer/server/index"
+                  "**/computer/**",
+                  "!**/computer/internal",
+                  "!**/computer/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+                "message": "Import the computer service through its entry point, computer/internal (#889)."
               },
               {
                 "group": [
-                  "**/models/server/**",
-                  "!**/models/server/internal",
-                  "!**/models/server/index"
+                  "**/models/**",
+                  "!**/models/internal",
+                  "!**/models/index",
+                  "!**/models/shared/**",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+                "message": "Import the models service through its entry point, models/internal (#889)."
               },
               {
                 "group": [
-                  "**/channel/server/**",
-                  "!**/channel/server/internal",
-                  "!**/channel/server/index"
+                  "**/channel/**",
+                  "!**/channel/internal",
+                  "!**/channel/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+                "message": "Import the channel service through its entry point, channel/internal (#889)."
               },
               {
                 "regex": "^\\.\\./(conversation|triggers)/",
@@ -559,7 +696,7 @@
       }
     },
     {
-      "files": ["packages/bot-sdk/plugins/bot/server/safety/**"],
+      "files": ["packages/botsdk/bot/src/bot/safety/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -567,39 +704,44 @@
             "patterns": [
               {
                 "group": ["**/storage/**", "!**/storage"],
-                "message": "Import storage through its entry point, core/server/storage (#889)."
+                "message": "Import storage through its entry point, storage (#889)."
               },
               {
                 "group": [
-                  "**/runner/server/**",
-                  "!**/runner/server/internal",
-                  "!**/runner/server/index"
+                  "**/runner/**",
+                  "!**/runner/internal",
+                  "!**/runner/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+                "message": "Import the runner service through its entry point, runner/internal (#889)."
               },
               {
                 "group": [
-                  "**/computer/server/**",
-                  "!**/computer/server/internal",
-                  "!**/computer/server/index"
+                  "**/computer/**",
+                  "!**/computer/internal",
+                  "!**/computer/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+                "message": "Import the computer service through its entry point, computer/internal (#889)."
               },
               {
                 "group": [
-                  "**/models/server/**",
-                  "!**/models/server/internal",
-                  "!**/models/server/index"
+                  "**/models/**",
+                  "!**/models/internal",
+                  "!**/models/index",
+                  "!**/models/shared/**",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+                "message": "Import the models service through its entry point, models/internal (#889)."
               },
               {
                 "group": [
-                  "**/channel/server/**",
-                  "!**/channel/server/internal",
-                  "!**/channel/server/index"
+                  "**/channel/**",
+                  "!**/channel/internal",
+                  "!**/channel/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+                "message": "Import the channel service through its entry point, channel/internal (#889)."
               },
               {
                 "regex": "^\\.\\./(conversation|triggers|routines)/",
@@ -619,7 +761,7 @@
       }
     },
     {
-      "files": ["packages/bot-sdk/plugins/bot/server/agent-loop/**"],
+      "files": ["packages/botsdk/bot/src/bot/agent-loop/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -627,39 +769,44 @@
             "patterns": [
               {
                 "group": ["**/storage/**", "!**/storage"],
-                "message": "Import storage through its entry point, core/server/storage (#889)."
+                "message": "Import storage through its entry point, storage (#889)."
               },
               {
                 "group": [
-                  "**/runner/server/**",
-                  "!**/runner/server/internal",
-                  "!**/runner/server/index"
+                  "**/runner/**",
+                  "!**/runner/internal",
+                  "!**/runner/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+                "message": "Import the runner service through its entry point, runner/internal (#889)."
               },
               {
                 "group": [
-                  "**/computer/server/**",
-                  "!**/computer/server/internal",
-                  "!**/computer/server/index"
+                  "**/computer/**",
+                  "!**/computer/internal",
+                  "!**/computer/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+                "message": "Import the computer service through its entry point, computer/internal (#889)."
               },
               {
                 "group": [
-                  "**/models/server/**",
-                  "!**/models/server/internal",
-                  "!**/models/server/index"
+                  "**/models/**",
+                  "!**/models/internal",
+                  "!**/models/index",
+                  "!**/models/shared/**",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+                "message": "Import the models service through its entry point, models/internal (#889)."
               },
               {
                 "group": [
-                  "**/channel/server/**",
-                  "!**/channel/server/internal",
-                  "!**/channel/server/index"
+                  "**/channel/**",
+                  "!**/channel/internal",
+                  "!**/channel/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+                "message": "Import the channel service through its entry point, channel/internal (#889)."
               },
               {
                 "regex": "^\\.\\./(conversation|triggers|routines|safety)/",
@@ -679,7 +826,7 @@
       }
     },
     {
-      "files": ["packages/bot-sdk/plugins/bot/server/context/**"],
+      "files": ["packages/botsdk/bot/src/bot/context/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -687,39 +834,44 @@
             "patterns": [
               {
                 "group": ["**/storage/**", "!**/storage"],
-                "message": "Import storage through its entry point, core/server/storage (#889)."
+                "message": "Import storage through its entry point, storage (#889)."
               },
               {
                 "group": [
-                  "**/runner/server/**",
-                  "!**/runner/server/internal",
-                  "!**/runner/server/index"
+                  "**/runner/**",
+                  "!**/runner/internal",
+                  "!**/runner/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+                "message": "Import the runner service through its entry point, runner/internal (#889)."
               },
               {
                 "group": [
-                  "**/computer/server/**",
-                  "!**/computer/server/internal",
-                  "!**/computer/server/index"
+                  "**/computer/**",
+                  "!**/computer/internal",
+                  "!**/computer/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+                "message": "Import the computer service through its entry point, computer/internal (#889)."
               },
               {
                 "group": [
-                  "**/models/server/**",
-                  "!**/models/server/internal",
-                  "!**/models/server/index"
+                  "**/models/**",
+                  "!**/models/internal",
+                  "!**/models/index",
+                  "!**/models/shared/**",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+                "message": "Import the models service through its entry point, models/internal (#889)."
               },
               {
                 "group": [
-                  "**/channel/server/**",
-                  "!**/channel/server/internal",
-                  "!**/channel/server/index"
+                  "**/channel/**",
+                  "!**/channel/internal",
+                  "!**/channel/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+                "message": "Import the channel service through its entry point, channel/internal (#889)."
               },
               {
                 "regex": "^\\.\\./(conversation|triggers|routines|safety|agent-loop)/",
@@ -739,7 +891,7 @@
       }
     },
     {
-      "files": ["packages/bot-sdk/plugins/bot/server/helpers/**"],
+      "files": ["packages/botsdk/bot/src/bot/helpers/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -747,39 +899,44 @@
             "patterns": [
               {
                 "group": ["**/storage/**", "!**/storage"],
-                "message": "Import storage through its entry point, core/server/storage (#889)."
+                "message": "Import storage through its entry point, storage (#889)."
               },
               {
                 "group": [
-                  "**/runner/server/**",
-                  "!**/runner/server/internal",
-                  "!**/runner/server/index"
+                  "**/runner/**",
+                  "!**/runner/internal",
+                  "!**/runner/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+                "message": "Import the runner service through its entry point, runner/internal (#889)."
               },
               {
                 "group": [
-                  "**/computer/server/**",
-                  "!**/computer/server/internal",
-                  "!**/computer/server/index"
+                  "**/computer/**",
+                  "!**/computer/internal",
+                  "!**/computer/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+                "message": "Import the computer service through its entry point, computer/internal (#889)."
               },
               {
                 "group": [
-                  "**/models/server/**",
-                  "!**/models/server/internal",
-                  "!**/models/server/index"
+                  "**/models/**",
+                  "!**/models/internal",
+                  "!**/models/index",
+                  "!**/models/shared/**",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+                "message": "Import the models service through its entry point, models/internal (#889)."
               },
               {
                 "group": [
-                  "**/channel/server/**",
-                  "!**/channel/server/internal",
-                  "!**/channel/server/index"
+                  "**/channel/**",
+                  "!**/channel/internal",
+                  "!**/channel/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+                "message": "Import the channel service through its entry point, channel/internal (#889)."
               },
               {
                 "regex": "^\\.\\./(conversation|triggers|routines|safety|agent-loop|context)/",
@@ -799,7 +956,7 @@
       }
     },
     {
-      "files": ["packages/bot-sdk/plugins/bot/server/demonstrations/**"],
+      "files": ["packages/botsdk/bot/src/bot/demonstrations/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -807,39 +964,44 @@
             "patterns": [
               {
                 "group": ["**/storage/**", "!**/storage"],
-                "message": "Import storage through its entry point, core/server/storage (#889)."
+                "message": "Import storage through its entry point, storage (#889)."
               },
               {
                 "group": [
-                  "**/runner/server/**",
-                  "!**/runner/server/internal",
-                  "!**/runner/server/index"
+                  "**/runner/**",
+                  "!**/runner/internal",
+                  "!**/runner/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+                "message": "Import the runner service through its entry point, runner/internal (#889)."
               },
               {
                 "group": [
-                  "**/computer/server/**",
-                  "!**/computer/server/internal",
-                  "!**/computer/server/index"
+                  "**/computer/**",
+                  "!**/computer/internal",
+                  "!**/computer/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+                "message": "Import the computer service through its entry point, computer/internal (#889)."
               },
               {
                 "group": [
-                  "**/models/server/**",
-                  "!**/models/server/internal",
-                  "!**/models/server/index"
+                  "**/models/**",
+                  "!**/models/internal",
+                  "!**/models/index",
+                  "!**/models/shared/**",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+                "message": "Import the models service through its entry point, models/internal (#889)."
               },
               {
                 "group": [
-                  "**/channel/server/**",
-                  "!**/channel/server/internal",
-                  "!**/channel/server/index"
+                  "**/channel/**",
+                  "!**/channel/internal",
+                  "!**/channel/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+                "message": "Import the channel service through its entry point, channel/internal (#889)."
               },
               {
                 "regex": "^\\.\\./(conversation|triggers|routines|safety|agent-loop|context|helpers)/",
@@ -859,7 +1021,7 @@
       }
     },
     {
-      "files": ["packages/bot-sdk/plugins/bot/server/tools/**"],
+      "files": ["packages/botsdk/bot/src/bot/tools/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -867,39 +1029,44 @@
             "patterns": [
               {
                 "group": ["**/storage/**", "!**/storage"],
-                "message": "Import storage through its entry point, core/server/storage (#889)."
+                "message": "Import storage through its entry point, storage (#889)."
               },
               {
                 "group": [
-                  "**/runner/server/**",
-                  "!**/runner/server/internal",
-                  "!**/runner/server/index"
+                  "**/runner/**",
+                  "!**/runner/internal",
+                  "!**/runner/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+                "message": "Import the runner service through its entry point, runner/internal (#889)."
               },
               {
                 "group": [
-                  "**/computer/server/**",
-                  "!**/computer/server/internal",
-                  "!**/computer/server/index"
+                  "**/computer/**",
+                  "!**/computer/internal",
+                  "!**/computer/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+                "message": "Import the computer service through its entry point, computer/internal (#889)."
               },
               {
                 "group": [
-                  "**/models/server/**",
-                  "!**/models/server/internal",
-                  "!**/models/server/index"
+                  "**/models/**",
+                  "!**/models/internal",
+                  "!**/models/index",
+                  "!**/models/shared/**",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+                "message": "Import the models service through its entry point, models/internal (#889)."
               },
               {
                 "group": [
-                  "**/channel/server/**",
-                  "!**/channel/server/internal",
-                  "!**/channel/server/index"
+                  "**/channel/**",
+                  "!**/channel/internal",
+                  "!**/channel/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+                "message": "Import the channel service through its entry point, channel/internal (#889)."
               },
               {
                 "regex": "^\\.\\./(conversation|triggers|routines|safety|agent-loop|context|helpers|demonstrations)/",
@@ -919,7 +1086,7 @@
       }
     },
     {
-      "files": ["packages/bot-sdk/plugins/bot/server/turn/**"],
+      "files": ["packages/botsdk/bot/src/bot/turn/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -927,39 +1094,44 @@
             "patterns": [
               {
                 "group": ["**/storage/**", "!**/storage"],
-                "message": "Import storage through its entry point, core/server/storage (#889)."
+                "message": "Import storage through its entry point, storage (#889)."
               },
               {
                 "group": [
-                  "**/runner/server/**",
-                  "!**/runner/server/internal",
-                  "!**/runner/server/index"
+                  "**/runner/**",
+                  "!**/runner/internal",
+                  "!**/runner/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+                "message": "Import the runner service through its entry point, runner/internal (#889)."
               },
               {
                 "group": [
-                  "**/computer/server/**",
-                  "!**/computer/server/internal",
-                  "!**/computer/server/index"
+                  "**/computer/**",
+                  "!**/computer/internal",
+                  "!**/computer/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+                "message": "Import the computer service through its entry point, computer/internal (#889)."
               },
               {
                 "group": [
-                  "**/models/server/**",
-                  "!**/models/server/internal",
-                  "!**/models/server/index"
+                  "**/models/**",
+                  "!**/models/internal",
+                  "!**/models/index",
+                  "!**/models/shared/**",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+                "message": "Import the models service through its entry point, models/internal (#889)."
               },
               {
                 "group": [
-                  "**/channel/server/**",
-                  "!**/channel/server/internal",
-                  "!**/channel/server/index"
+                  "**/channel/**",
+                  "!**/channel/internal",
+                  "!**/channel/index",
+                  "!@botsdk/client/**"
                 ],
-                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+                "message": "Import the channel service through its entry point, channel/internal (#889)."
               },
               {
                 "regex": "^\\.\\./(conversation|triggers|routines|safety|agent-loop|context|helpers|demonstrations|tools)/",
@@ -995,7 +1167,9 @@
                   "**/http",
                   "**/http/**",
                   "@orpc/server",
-                  "@orpc/server/**"
+                  "@orpc/server/**",
+                  "@botsdk/bot",
+                  "@botsdk/bot/**"
                 ],
                 "message": "Browser code never imports server code, not even a type (ADR 0005, spec #873): the client is typed by the contracts in @botsdk/client and plugins/*/shared/contract. Move shared code under a shared/ folder."
               }
@@ -1034,7 +1208,9 @@
                   "**/http",
                   "**/http/**",
                   "@orpc/server",
-                  "@orpc/server/**"
+                  "@orpc/server/**",
+                  "@botsdk/bot",
+                  "@botsdk/bot/**"
                 ],
                 "message": "Browser code never imports server code, not even a type (ADR 0005, spec #873): the client is typed by the contracts in @botsdk/client and plugins/*/shared/contract. Move shared code under a shared/ folder."
               },
