@@ -3,7 +3,6 @@ import { and, eq, inArray } from "drizzle-orm";
 
 import { changesSince } from "../chat/change-log";
 import { bot, botReview, botSecret, botTurn, message } from "../storage";
-import type { Database } from "../storage";
 import type { BotSdkContext } from "../plugin";
 import { rpcError } from "../rpc-error";
 import { listCheckIns, listRoutines } from "./routines";
@@ -60,7 +59,7 @@ async function threadChanges(
   const logged = await changesSince(deps.db, owner.conversationId, since);
   if (logged.reload) return logged;
   const { changes } = logged;
-  const data = await changeData(deps.db, owner, changes);
+  const data = await changeData(deps, owner, changes);
   return {
     reload: false,
     changes: changes.map(
@@ -72,10 +71,11 @@ async function threadChanges(
 
 /** What each of `changes` points at, keyed `<kind>:<refId>`, read once per kind. */
 async function changeData(
-  db: Database,
+  deps: Pick<BotSdkContext, "db" | "runner">,
   owner: { userId: string; botId: string; conversationId: string },
   changes: { kind: string; refId: string }[],
 ): Promise<Map<string, unknown>> {
+  const { db } = deps;
   const data = new Map<string, unknown>();
   const put = (kind: BotChangeKind, rows: { id: string }[]) => {
     for (const row of rows) data.set(`${kind}:${row.id}`, row);
@@ -119,7 +119,7 @@ async function changeData(
           for (const row of rows) data.set(`secret:${row.name}`, row);
         }),
     idsOf(changes, "routine").length > 0 &&
-      listRoutines(db, owner.botId).then((rows) => put("routine", rows)),
+      listRoutines(deps, owner.botId).then((rows) => put("routine", rows)),
     reviewIds.length > 0 &&
       db
         .select(reviewFields)
@@ -127,7 +127,7 @@ async function changeData(
         .where(and(eq(botReview.botId, owner.botId), inArray(botReview.id, reviewIds)))
         .then((rows) => put("review", rows)),
     helperIds.length > 0 &&
-      listHelpers(db, owner.botId, helperIds).then((rows) => put("helper", rows)),
+      listHelpers(deps, owner.botId, helperIds).then((rows) => put("helper", rows)),
     idsOf(changes, "check_in").length > 0 &&
       listCheckIns(db, owner.botId).then((rows) => put("check_in", rows)),
     idsOf(changes, "summary").length > 0 &&

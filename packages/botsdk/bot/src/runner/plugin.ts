@@ -5,7 +5,10 @@ import { createJobRunner, type EnqueueOptions, type JobRunner } from "./jobs/run
 import { createRunnerLifecycle, type RunnerLifecycle } from "./lifecycle";
 
 /** The runner, a core service (`sdk.runner`, spec #871): the background jobs the SDK queues. */
-export type RunnerApi = Pick<JobRunner, "enqueue" | "cancel" | "status"> & {
+export type RunnerApi = Pick<
+  JobRunner,
+  "enqueue" | "cancel" | "status" | "activeJobs" | "checkpointCounts" | "newestCheckpoints"
+> & {
   /**
    * Queues a job in the caller's transaction, so it exists only if that transaction commits, and
    * returns its id. The Executor is notified once the transaction has committed, when it is the
@@ -69,6 +72,9 @@ export function createRunner(
     enqueue: (name, payload, enqueueOptions) => jobs.enqueue(name, payload, enqueueOptions),
     cancel: (idempotencyKey) => jobs.cancel(idempotencyKey),
     status: (jobId) => jobs.status(jobId),
+    activeJobs: (db, query) => jobs.activeJobs(db, query),
+    checkpointCounts: (db, jobIds, name) => jobs.checkpointCounts(db, jobIds, name),
+    newestCheckpoints: (db, jobIds, name) => jobs.newestCheckpoints(db, jobIds, name),
     enqueueIn: (tx, name, payload, enqueueOptions) =>
       jobs.enqueueIn(tx, name, payload, { ...enqueueOptions, now: sdk.clock() }),
     cancelIn: (tx, idempotencyKey) => jobs.cancelIn(tx, idempotencyKey, sdk.clock()),
