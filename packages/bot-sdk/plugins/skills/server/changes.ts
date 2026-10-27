@@ -1,9 +1,10 @@
 import type { ModelMessage } from "@tanstack/ai";
 
-import type { FeaturePromptTurn } from "../../../core/server/feature";
-import { runToolName } from "../../bot/server/context";
-import { isSkillFile, type SkillLine, skillLineOf, skillsDirectory } from "./skills";
-import { resolvePath } from "../../bot/server/conversation";
+import type { FeaturePromptTurn } from "@botsdk/bot/feature";
+import { runToolName } from "@botsdk/bot/bot/context";
+import { isSkillFile, skillsDirectory } from "@botsdk/bot/bot/skill-files";
+import { type SkillLine, skillLineOf } from "./skills";
+import { resolvePath } from "@botsdk/bot/bot/conversation";
 
 /*
  * The Skills feature's Change notes (slide 31): what the Bot has been told of its Skills since its

@@ -6,9 +6,9 @@ import {
   encryptCredentials,
   encryptionKid,
   kidOf,
-} from "../../../core/server/credentials/encryption";
-import { rotateInPasses } from "../../../core/server/credentials/rotation";
-import type { BotSdkContext } from "../../../core/server/plugin";
+} from "@botsdk/bot/credentials/encryption";
+import { rotateInPasses } from "@botsdk/bot/credentials/rotation";
+import type { BotSdkContext } from "@botsdk/bot/plugin";
 import type { TokenSet } from "./oauth";
 import type { McpServerConfig } from "./servers";
 import type { ConnectionSummary } from "../shared/contract";

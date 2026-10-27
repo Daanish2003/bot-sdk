@@ -1,5 +1,5 @@
-import { coreContextOf, defineFeature } from "../../../core/server/feature";
-import { isComputerFailure } from "../../computer/server/internal";
+import { coreContextOf, defineFeature } from "@botsdk/bot/feature";
+import { isComputerFailure } from "@botsdk/bot/computer/internal";
 import { skillChangeNotes } from "./changes";
 import { skillsContract } from "../shared/contract";
 import { skillsApi } from "./skills-api";

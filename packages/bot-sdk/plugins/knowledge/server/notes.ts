@@ -1,10 +1,11 @@
 import type { ModelMessage } from "@tanstack/ai";
 
-import type { FeaturePromptTurn } from "../../../core/server/feature";
-import { runToolName } from "../../bot/server/context";
-import { knowledgeDirectory, readableCopyPath } from "../shared/folder";
+import type { FeaturePromptTurn } from "@botsdk/bot/feature";
+import { runToolName } from "@botsdk/bot/bot/context";
+import { knowledgeDirectory } from "@botsdk/bot/bot/knowledge-files";
+import { readableCopyPath } from "../shared/folder";
 import { byCodeUnit, isMoreKnowledge, knowledgeBlockLimit, promptSafePath } from "./prompt";
-import { resolvePath } from "../../bot/server/conversation";
+import { resolvePath } from "@botsdk/bot/bot/conversation";
 
 /*
  * The Knowledge Change notes (slide 31, ADR 0022 amended, ADR 0025): what the Bot has seen of the

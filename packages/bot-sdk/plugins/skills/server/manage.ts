@@ -1,18 +1,12 @@
 import { and, eq } from "drizzle-orm";
 
-import { bot } from "../../../core/server/storage";
+import { bot } from "@botsdk/bot/storage";
 import type { ListedSkill, SkillFile } from "../shared/contract";
-import type { BotSdkContext } from "../../../core/server/plugin";
-import { rpcError } from "../../../core/server/rpc-error";
-import { ComputerUnavailableError, type ComputerHandle } from "../../computer/server/internal";
-import {
-  namePattern,
-  nameLimit,
-  problemOf,
-  readBotSkills,
-  shellQuote,
-  skillsDirectory,
-} from "./skills";
+import type { BotSdkContext } from "@botsdk/bot/plugin";
+import { rpcError } from "@botsdk/bot/rpc-error";
+import { ComputerUnavailableError, type ComputerHandle } from "@botsdk/bot/computer/internal";
+import { namePattern, nameLimit, problemOf, skillsDirectory } from "@botsdk/bot/bot/skill-files";
+import { readBotSkills, shellQuote } from "./skills";
 
 /*
  * The user's view of a Bot's Skills (spec #713): list, read, save and delete the plain SKILL.md

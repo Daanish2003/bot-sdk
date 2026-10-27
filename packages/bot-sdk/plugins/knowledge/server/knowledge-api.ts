@@ -1,5 +1,5 @@
-import type { BotSdkContext } from "../../../core/server/plugin";
-import { parseInput, type WithUser } from "../../../core/server/rpc-error";
+import type { BotSdkContext } from "@botsdk/bot/plugin";
+import { parseInput, type WithUser } from "@botsdk/bot/rpc-error";
 import { pathInput, uploadDocumentInput, uploadInput } from "../shared/contract";
 import {
   createKnowledgeFolder,

@@ -10,8 +10,13 @@ import {
   type CommandResult as E2bCommandResult,
 } from "e2b";
 
-import type { CommandResult, ComputerProvider, FileEntry, TimedOutCommand } from "../server";
-import { SandboxGoneError } from "../server/internal";
+import type {
+  CommandResult,
+  ComputerProvider,
+  FileEntry,
+  TimedOutCommand,
+} from "@botsdk/bot/computer";
+import { SandboxGoneError } from "@botsdk/bot/computer/internal";
 import { boundedOutput, redactedOutput } from "./bounded-output";
 
 /** The self-hosted E2B a Host points the adapter at, and the template it builds Computers from. */

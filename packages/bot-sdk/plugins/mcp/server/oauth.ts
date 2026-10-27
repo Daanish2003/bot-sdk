@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import type { BotSdkContext } from "../../../core/server/plugin";
-import { isAllowListed } from "../../../core/server/lib/guarded-fetch";
+import type { BotSdkContext } from "@botsdk/bot/plugin";
+import { isAllowListed } from "@botsdk/bot/lib/guarded-fetch";
 import type { McpServerConfig } from "./servers";
 
 /** A sign-in that failed for a reason the user can read. The routes answer it as text. */

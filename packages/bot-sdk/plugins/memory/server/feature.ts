@@ -2,8 +2,8 @@ import { toolDefinition } from "@tanstack/ai";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { coreContextOf, defineFeature } from "../../../core/server/feature";
-import { isComputerFailure } from "../../computer/server/internal";
+import { coreContextOf, defineFeature } from "@botsdk/bot/feature";
+import { isComputerFailure } from "@botsdk/bot/computer/internal";
 import { botMemoryPassJob, enqueueBotMemoryPass } from "./bot-pass";
 import { botMemorySnapshot, botsOf, exportBotMemory, memoryDirectory } from "./bot-memory";
 import { memoryChangeNotes } from "./change-notes";

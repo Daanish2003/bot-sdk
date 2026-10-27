@@ -1,6 +1,6 @@
 import { boolean, text } from "drizzle-orm/pg-core";
 
-import { botsdkSchema } from "../../../../core/server/storage";
+import { botsdkSchema } from "@botsdk/bot/storage";
 
 /** A user's Memory switch; a user without a row has Memory on (ADR 0022). */
 export const memorySettings = botsdkSchema.table("memory_settings", {

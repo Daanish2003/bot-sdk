@@ -1,4 +1,4 @@
-import { isAllowListed } from "../../../core/server/lib/guarded-fetch";
+import { isAllowListed } from "@botsdk/bot/lib/guarded-fetch";
 
 /**
  * One remote MCP server a Host offers (`mcp({ servers })`, spec #91). The Host is the

@@ -2,9 +2,9 @@ import type { AnyServerTool } from "@tanstack/ai";
 import { eq } from "drizzle-orm";
 import type { z } from "zod";
 
-import { defineFeature } from "../../../core/server/feature";
-import type { Route } from "../../../core/server/plugin";
-import { parseInput } from "../../../core/server/rpc-error";
+import { defineFeature } from "@botsdk/bot/feature";
+import type { Route } from "@botsdk/bot/plugin";
+import { parseInput } from "@botsdk/bot/rpc-error";
 import {
   deleteConnection,
   listConnections,

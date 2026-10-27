@@ -1,4 +1,4 @@
-import type { ComputerHandle } from "../../computer/server/internal";
+import type { ComputerHandle } from "@botsdk/bot/computer/internal";
 import {
   dayOf,
   decay,

@@ -1,9 +1,8 @@
 import { chat, type ModelMessage } from "@tanstack/ai";
-import type { z } from "zod";
 
-import { promptCharactersOf, reportedUsageOf } from "../../models/server/internal";
-import type { BotSdkContext } from "../../../core/server/plugin";
-import type { ModelCall } from "../../models/server/internal";
+import { promptCharactersOf, reportedUsageOf } from "@botsdk/bot/models/internal";
+import type { BotSdkContext } from "@botsdk/bot/plugin";
+import type { ModelCall } from "@botsdk/bot/models/internal";
 
 /**
  * One call on a Bot's Model for its post-turn pass, recorded against the Quota when it is on Host
@@ -36,10 +35,4 @@ export async function askBackground(
     reportedCost: reported.cost,
   });
   return result.text;
-}
-
-/** Parses a Model reply as JSON and validates it with Zod, after stripping code fences. */
-export function parseReply<T extends z.ZodType>(schema: T, reply: string): z.infer<T> {
-  const json = reply.trim().replace(/^```(?:json)?\s*|\s*```$/g, "");
-  return schema.parse(JSON.parse(json));
 }

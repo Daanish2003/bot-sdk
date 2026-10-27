@@ -1,16 +1,16 @@
 import { sql } from "drizzle-orm";
 
-import { bot, botTurn } from "../../../core/server/storage";
-import type { BotSdkContext } from "../../../core/server/plugin";
-import { rpcError } from "../../../core/server/rpc-error";
+import { bot, botTurn } from "@botsdk/bot/storage";
+import type { BotSdkContext } from "@botsdk/bot/plugin";
+import { rpcError } from "@botsdk/bot/rpc-error";
 import {
   ComputerOperationError,
   ComputerUnavailableError,
   type ComputerHandle,
   type FileOperationOptions,
-} from "../../computer/server/internal";
+} from "@botsdk/bot/computer/internal";
+import { knowledgeDirectory } from "@botsdk/bot/bot/knowledge-files";
 import {
-  knowledgeDirectory,
   knowledgeDocumentExtensions,
   knowledgeDocumentLimitBytes,
   knowledgeExtensions,

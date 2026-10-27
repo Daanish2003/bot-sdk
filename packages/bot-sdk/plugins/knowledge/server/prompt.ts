@@ -1,5 +1,6 @@
-import type { ComputerHandle, FileOperationOptions } from "../../computer/server/internal";
-import { knowledgeDirectory, readableCopyPath } from "../shared/folder";
+import type { ComputerHandle, FileOperationOptions } from "@botsdk/bot/computer/internal";
+import { knowledgeDirectory } from "@botsdk/bot/bot/knowledge-files";
+import { readableCopyPath } from "../shared/folder";
 import { walk } from "./files";
 
 /*

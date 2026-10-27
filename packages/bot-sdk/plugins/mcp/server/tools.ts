@@ -1,7 +1,7 @@
 import type { AnyServerTool } from "@tanstack/ai";
 import { createMCPClient } from "@tanstack/ai-mcp";
 
-import type { BotSdkContext } from "../../../core/server/plugin";
+import type { BotSdkContext } from "@botsdk/bot/plugin";
 import { isExpired, readTokens, saveTokens } from "./connections";
 import { discoverEndpoints, refreshAccess } from "./oauth";
 import type { McpServerConfig } from "./servers";

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { EmailProvider, InboundMail, OutboundMail } from "../server/internal";
+import type { EmailProvider, InboundMail, OutboundMail } from "@botsdk/bot/channel/internal";
 
 const verdict = z.enum(["pass", "fail", "none"]);
 

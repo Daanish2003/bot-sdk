@@ -1,14 +1,14 @@
 import { asc, eq } from "drizzle-orm";
 
-import { bot, computer as computerTable } from "../../../core/server/storage";
-import type { FeatureContext } from "../../../core/server/feature";
-import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
+import { bot, computer as computerTable } from "@botsdk/bot/storage";
+import type { FeatureContext } from "@botsdk/bot/feature";
+import type { BotSdkContext, Transaction } from "@botsdk/bot/plugin";
 import {
   ComputerOperationError,
   ComputerUnavailableError,
   type ComputerHandle,
   type FileOperationOptions,
-} from "../../computer/server/internal";
+} from "@botsdk/bot/computer/internal";
 import { memoryEnabledFor } from "./manage";
 
 /*

@@ -1,4 +1,4 @@
-import type { BotSdkContext } from "../../../core/server/plugin";
+import type { BotSdkContext } from "@botsdk/bot/plugin";
 import { beginSignIn, claimSignIn, saveTokens } from "./connections";
 import {
   authorizeUrl,

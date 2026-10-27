@@ -1,5 +1,5 @@
-import { coreContextOf, defineFeature } from "../../../core/server/feature";
-import { isComputerFailure } from "../../computer/server/internal";
+import { coreContextOf, defineFeature } from "@botsdk/bot/feature";
+import { isComputerFailure } from "@botsdk/bot/computer/internal";
 import { knowledgeApi } from "./knowledge-api";
 import { knowledgeNotes } from "./notes";
 import { knowledgePrompt, readKnowledgePaths } from "./prompt";

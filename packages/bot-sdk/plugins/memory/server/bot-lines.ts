@@ -1,6 +1,6 @@
-import type { BotSdkContext } from "../../../core/server/plugin";
-import { rpcError } from "../../../core/server/rpc-error";
-import { ComputerUnavailableError, type ComputerHandle } from "../../computer/server/internal";
+import type { BotSdkContext } from "@botsdk/bot/plugin";
+import { rpcError } from "@botsdk/bot/rpc-error";
+import { ComputerUnavailableError, type ComputerHandle } from "@botsdk/bot/computer/internal";
 import {
   botsOf,
   dayOf,

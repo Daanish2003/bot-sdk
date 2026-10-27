@@ -1,5 +1,5 @@
-import type { BotSdkContext } from "../../../core/server/plugin";
-import { parseInput, type WithUser } from "../../../core/server/rpc-error";
+import type { BotSdkContext } from "@botsdk/bot/plugin";
+import { parseInput, type WithUser } from "@botsdk/bot/rpc-error";
 import { deleteSkill, listSkills, readSkill, saveSkill, skillsAvailable } from "./manage";
 import { listInput, saveInput, skillInput } from "../shared/contract";
 

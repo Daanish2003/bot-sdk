@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import { type EmailProvider, type InboundMail, MailFileTooLargeError } from "../server/internal";
+import {
+  type EmailProvider,
+  type InboundMail,
+  MailFileTooLargeError,
+} from "@botsdk/bot/channel/internal";
 
 /** What Mailpit POSTs for each message it receives (its message summary): only the ID is used. */
 const webhookSchema = z.object({ ID: z.string().regex(/^[A-Za-z0-9]+$/) });

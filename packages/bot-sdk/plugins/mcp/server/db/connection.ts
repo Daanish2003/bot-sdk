@@ -1,6 +1,6 @@
 import { primaryKey, text, timestamp } from "drizzle-orm/pg-core";
 
-import { botsdkSchema } from "../../../../core/server/storage";
+import { botsdkSchema } from "@botsdk/bot/storage";
 
 /**
  * A user's OAuth sign-in to one Host MCP server (a Connection, spec #91). One row per user and

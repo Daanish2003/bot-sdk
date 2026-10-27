@@ -4,15 +4,15 @@ import type { ModelMessage } from "@tanstack/ai";
 import { asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { bot, botTrigger, botTurn, message } from "../../../core/server/storage";
-import type { Database } from "../../../core/server/storage";
-import { coreContextOf, type FeatureContext } from "../../../core/server/feature";
-import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
-import { lockConversation } from "../../bot/server/triggers";
-import { hintChanged, recordBotChange } from "../../bot/server/conversation";
-import { sendToUserToolName } from "../../bot/server/context";
-import type { ComputerHandle } from "../../computer/server/internal";
-import { defineJob, type JobContext } from "../../runner/server/internal";
+import { bot, botTrigger, botTurn, message } from "@botsdk/bot/storage";
+import type { Database } from "@botsdk/bot/storage";
+import { coreContextOf, type FeatureContext } from "@botsdk/bot/feature";
+import type { BotSdkContext, Transaction } from "@botsdk/bot/plugin";
+import { lockConversation } from "@botsdk/bot/bot/triggers";
+import { hintChanged, recordBotChange } from "@botsdk/bot/bot/conversation";
+import { sendToUserToolName } from "@botsdk/bot/bot/context";
+import type { ComputerHandle } from "@botsdk/bot/computer/internal";
+import { defineJob, type JobContext } from "@botsdk/bot/runner/internal";
 import {
   dayOf,
   defaultImportance,
@@ -27,7 +27,8 @@ import {
   readBotMemory,
   readText,
 } from "./bot-memory";
-import { askBackground, parseReply } from "./ask";
+import { parseReply } from "@botsdk/bot/lib/parse-reply";
+import { askBackground } from "./ask";
 import { memoryEnabledFor } from "./manage";
 
 /*

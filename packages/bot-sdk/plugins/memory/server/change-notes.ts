@@ -1,5 +1,5 @@
-import type { FeaturePromptTurn } from "../../../core/server/feature";
-import { type FeatureCall, successfulCalls } from "../../bot/server/context";
+import type { FeaturePromptTurn } from "@botsdk/bot/feature";
+import { type FeatureCall, successfulCalls } from "@botsdk/bot/bot/context";
 
 /*
  * The Change notes of the memory block (slide 31, ADR 0022 amended): the Prompt start freezes the
