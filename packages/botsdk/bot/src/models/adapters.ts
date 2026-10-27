@@ -1,0 +1,109 @@
+import type { AspectRatio } from "@botsdk/client/models/image-models";
+import { isKnownModel, parseModelId } from "@botsdk/client/models/models";
+import type { AnyImageAdapter, AnyTextAdapter } from "@tanstack/ai";
+
+import { chatgptPlanFetch } from "./chatgpt-plan";
+import type { Credentials, ModelProviders } from "./types";
+
+/**
+ * The production `deps.adapterFor` and `deps.imageAdapterFor` (spec #875), over the Providers the
+ * Host passed in `models.providers`. A Model whose Provider the Host didn't pass, or that the Provider
+ * has no adapter for, throws, so it fails loudly rather than run on nothing. On a linked ChatGPT
+ * plan (`options.linked`), the Provider's adapter sends through the plan's `fetch` (ADR 0023).
+ */
+export function adaptersOf(providers: ModelProviders) {
+  return {
+    adapterFor(
+      model: string,
+      credentials: Credentials,
+      options?: { linked?: boolean },
+    ): AnyTextAdapter {
+      const parsed = parseModelId(model);
+      if (!parsed || !isKnownModel(model)) {
+        throw new Error(`"${model}" is not an available Model`);
+      }
+      const text = providers[parsed.provider]?.text;
+      if (!text) throw new Error(`No adapter is available for the ${parsed.provider} Provider`);
+      return text(
+        parsed.modelId,
+        credentials,
+        options?.linked ? { fetch: chatgptPlanFetch() } : {},
+      );
+    },
+    imageAdapterFor(model: string, credentials: Credentials): AnyImageAdapter {
+      const parsed = parseModelId(model);
+      if (!parsed) throw new Error(`"${model}" is not an Image Model`);
+      const image = providers[parsed.provider]?.image;
+      if (!image) {
+        throw new Error(`No image adapter is available for the ${parsed.provider} Provider`);
+      }
+      return image(parsed.modelId, credentials);
+    },
+  };
+}
+
+/** The size each image adapter takes for each aspect ratio, from its own size rules (spec #278). */
+type SizeTable = Record<AspectRatio, string>;
+
+const gptImageSizes: SizeTable = {
+  square: "1024x1024",
+  landscape: "1536x1024",
+  portrait: "1024x1536",
+};
+
+/**
+ * The size table of an Image Model. Each Provider's sizes come from its TanStack AI package
+ * (validated there, so a value outside its list is refused by the adapter): OpenAI and the
+ * gpt-image Models on Lovable, Vercel and Cloudflare take WIDTHxHEIGHT; Gemini's Models take
+ * `aspect_resolution`; Grok takes an aspect ratio; BytePlus takes pixels at 2K.
+ */
+function sizeTableFor(provider: string, modelId: string): SizeTable {
+  switch (provider) {
+    case "openai":
+      if (modelId === "dall-e-2") {
+        return { square: "1024x1024", landscape: "1024x1024", portrait: "1024x1024" };
+      }
+      if (modelId === "dall-e-3") {
+        return { square: "1024x1024", landscape: "1792x1024", portrait: "1024x1792" };
+      }
+      return gptImageSizes;
+    case "gemini":
+      // Every Gemini Image Model is a native one since TanStack AI 1.0 dropped Imagen.
+      return { square: "1:1_1K", landscape: "16:9_1K", portrait: "9:16_1K" };
+    case "grok":
+      return { square: "1:1", landscape: "16:9", portrait: "9:16" };
+    case "byteplus":
+      return { square: "2048x2048", landscape: "2560x1440", portrait: "1440x2560" };
+    case "openrouter":
+      return { square: "1024x1024", landscape: "1248x832", portrait: "832x1248" };
+    case "lovable":
+    case "vercel-gateway":
+    case "cloudflare":
+      return gptImageSizes;
+    default:
+      throw new Error(`No image sizes are known for the ${provider} Provider`);
+  }
+}
+
+/** Providers whose image adapter takes a GPT-style `quality` (`low`, `medium`, `high`). */
+const qualityProviders = new Set(["openai", "lovable"]);
+
+/**
+ * The size and provider options one `generate_image` call sends (spec #278). On Host credentials
+ * the Host Image Model's pinned size and quality are used whatever the aspect ratio, so the flat
+ * price is accurate. On a user's own credentials the aspect ratio maps to the nearest size the
+ * adapter takes, and the quality is the adapter's default.
+ */
+export type ImageRequest = { size: string; modelOptions?: { quality: string } };
+
+export function imageRequestFor(
+  model: string,
+  aspectRatio: AspectRatio,
+  pinned?: { size: string; quality: string },
+): ImageRequest {
+  const parsed = parseModelId(model);
+  if (!parsed) throw new Error(`"${model}" is not an Image Model`);
+  if (!pinned) return { size: sizeTableFor(parsed.provider, parsed.modelId)[aspectRatio] };
+  if (!qualityProviders.has(parsed.provider)) return { size: pinned.size };
+  return { size: pinned.size, modelOptions: { quality: pinned.quality } };
+}
