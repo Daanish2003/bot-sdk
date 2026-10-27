@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, expectTypeOf, it } from "vitest";
 
-import { createBotSdk } from "../../../core/server/create-chat";
-import { featureApi } from "../../../core/server/feature";
-import { uuidv7 } from "../../../core/server/lib/uuidv7";
-import { bot } from "../../../core/server/storage";
+import { createBotSdk } from "@botsdk/bot/create-chat";
+import { featureApi } from "@botsdk/bot/feature";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { bot } from "@botsdk/bot/storage";
 import { knowledge } from "../../../plugins/knowledge/server/plugin";
 import type { KnowledgeApi } from "../../../plugins/knowledge/server/knowledge-api";
 import { mcp } from "../../../plugins/mcp/server/plugin";
@@ -18,7 +18,7 @@ import { createPinsTable, dropPinsTable, pin, pins } from "../../support/pins-fe
 import { chatRpc } from "../../support/sdk";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertOwner, insertUser, type TestUser } from "../../support/users";
-import { postgres } from "../../../core/server/database";
+import { postgres } from "@botsdk/bot/database";
 
 /*
  * Each enabled feature's API is `sdk.<feature id>` (spec #873): Memory, Skills, Knowledge, MCP and

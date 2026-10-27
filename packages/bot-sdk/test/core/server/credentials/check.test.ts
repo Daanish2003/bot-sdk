@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { checkCredentials } from "../../../../plugins/models/server/internal";
+import { checkCredentials } from "@botsdk/bot/models/internal";
 
 type Call = { url: string; headers: Headers };
 

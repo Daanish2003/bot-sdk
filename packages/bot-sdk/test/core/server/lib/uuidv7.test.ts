@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 
 describe("uuidv7", () => {
   it("is a version 7 RFC 9562 uuid", () => {

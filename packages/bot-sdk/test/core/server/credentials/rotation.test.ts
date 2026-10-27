@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { rotateInPasses } from "../../../../core/server/credentials/rotation";
+import { rotateInPasses } from "@botsdk/bot/credentials/rotation";
 
 describe("rotateInPasses", () => {
   it("scans again while a scan races a concurrent write, summing the re-encrypted rows", async () => {

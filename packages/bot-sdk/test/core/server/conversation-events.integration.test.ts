@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { hintChanged } from "../../../plugins/bot/server/conversation";
+import { hintChanged } from "@botsdk/bot/bot/conversation";
 import { insertConversation } from "../../support/conversations";
 import { createTestSdk } from "../../support/deps";
 import { sendAs } from "../../support/sdk";

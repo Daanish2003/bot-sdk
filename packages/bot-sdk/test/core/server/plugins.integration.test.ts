@@ -2,14 +2,14 @@ import { oc, type } from "@orpc/contract";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { createHttpHandler } from "../../../core/http";
-import { buildBotSdk, createBotSdk } from "../../../core/server/create-chat";
-import { defineFeature } from "../../../core/server/feature";
-import type { BotSdkPlugin } from "../../../core/server/plugin";
-import { memoryRuntime } from "../../../core/server/runtime";
-import { models } from "../../../plugins/models/server/internal";
+import { createHttpHandler } from "@botsdk/bot/http";
+import { buildBotSdk, createBotSdk } from "@botsdk/bot/create-chat";
+import { defineFeature } from "@botsdk/bot/feature";
+import type { BotSdkPlugin } from "@botsdk/bot/plugin";
+import { memoryRuntime } from "@botsdk/bot/runtime";
+import { models } from "@botsdk/bot/models/internal";
 import { testDatabaseUrl } from "../../support/test-database";
-import { postgres } from "../../../core/server/database";
+import { postgres } from "@botsdk/bot/database";
 
 const basePath = "/api/chat";
 const core = {

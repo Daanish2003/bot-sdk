@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  decryptCredentials,
-  encryptCredentials,
-} from "../../../../core/server/credentials/encryption";
+import { decryptCredentials, encryptCredentials } from "@botsdk/bot/credentials/encryption";
 
 const keyA = "a-key-encryption-secret-of-at-least-32-chars";
 const keyB = "another-secret-of-at-least-32-characters";

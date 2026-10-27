@@ -3,25 +3,18 @@ import { randomUUID } from "node:crypto";
 import { eq, inArray, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createBotSdk } from "../../../core/server/create-chat";
-import { deleteUserData } from "../../../core/server/user-data";
-import { saveCredentials } from "../../../plugins/models/server/internal";
-import {
-  bot,
-  botTurn,
-  conversation,
-  message,
-  userCredentials,
-  usage,
-} from "../../../core/server/storage";
-import { uuidv7 } from "../../../core/server/lib/uuidv7";
+import { createBotSdk } from "@botsdk/bot/create-chat";
+import { deleteUserData } from "@botsdk/bot/user-data";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import { bot, botTurn, conversation, message, userCredentials, usage } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { botOf, botSdk, sendToTurnEnd, stopBotRunners } from "../../support/bot-turns";
 import type { TestDeps } from "../../support/deps";
 import { createFakeAdapter, round, toolCall, withUsage } from "../../support/fake-adapter";
 import { followSend } from "../../support/follow-send";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser, type TestUser } from "../../support/users";
-import { postgres } from "../../../core/server/database";
+import { postgres } from "@botsdk/bot/database";
 
 const testKey = "test-key-encryption-secret-not-for-production";
 const sonnet = "anthropic:claude-sonnet-5-5";

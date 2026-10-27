@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { PubSub } from "../../../../core/server/chat/pubsub";
+import type { PubSub } from "@botsdk/bot/chat/pubsub";
 
 /**
  * The contract every `PubSub` implementation meets (ADR 0006). An implementation proves it by

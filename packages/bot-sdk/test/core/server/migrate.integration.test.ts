@@ -2,11 +2,11 @@ import { pgSchema, text, uuid } from "drizzle-orm/pg-core";
 import { Client, Pool } from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createBotSdk } from "../../../core/server/create-chat";
-import { type AnyFeature, defineFeature } from "../../../core/server/feature";
-import type { Migration } from "../../../core/server/migrate";
+import { createBotSdk } from "@botsdk/bot/create-chat";
+import { type AnyFeature, defineFeature } from "@botsdk/bot/feature";
+import type { Migration } from "@botsdk/bot/migrate";
 import { mcp } from "../../../plugins/mcp/server";
-import { featureMigrations } from "../../../core/server/feature";
+import { featureMigrations } from "@botsdk/bot/feature";
 import { memory } from "../../../plugins/memory/server";
 import {
   migrationParts,
@@ -19,7 +19,7 @@ import {
   freshDatabaseUrl,
   testDatabaseUrl,
 } from "../../support/test-database";
-import { postgres } from "../../../core/server/database";
+import { postgres } from "@botsdk/bot/database";
 
 const keyEncryptionSecrets = ["test-key-encryption-secret-not-for-production"];
 

@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
@@ -6,13 +8,14 @@ import { integer, pgSchema, text, uuid } from "drizzle-orm/pg-core";
 import { Client } from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { postgres } from "../../../core/server/database";
-import { defineFeature } from "../../../core/server/feature";
-import { migrate } from "../../../core/server/migrate";
-import { runMigrate } from "../../../core/server/migrate-cli";
+import { postgres } from "@botsdk/bot/database";
+import { defineFeature } from "@botsdk/bot/feature";
+import { migrate } from "@botsdk/bot/migrate";
+import { runMigrate } from "@botsdk/bot/migrate-cli";
 import { dropScratchDatabase, freshDatabaseUrl } from "../../support/test-database";
 
-const bin = fileURLToPath(new URL("../../../bin/botsdk.mjs", import.meta.url));
+const botRoot = dirname(createRequire(import.meta.url).resolve("@botsdk/bot/package.json"));
+const bin = join(botRoot, "bin/botsdk.mjs");
 const config = fileURLToPath(new URL("./fixtures/botsdk.config.ts", import.meta.url));
 
 const notes = defineFeature({

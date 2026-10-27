@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ollamaModels, openRouterModels } from "../../../../plugins/models/server/internal";
+import { ollamaModels, openRouterModels } from "@botsdk/bot/models/internal";
 
 function stubFetch(respond: () => Response | Promise<Response>) {
   const urls: string[] = [];
@@ -52,11 +52,26 @@ const openRouterList = {
   ],
 };
 
+/** The chat Model ids the OpenRouter adapter takes (`ModelProvider.chatModels`); not acme's. */
+const chatModels = ["anthropic/claude-sonnet-5.5", "deepseek/deepseek-v4-pro", "mancer/weaver"];
+
 describe("openRouterModels", () => {
-  it("lists OpenRouter's chat Models that support tools, with images from input modalities and PDFs off", async () => {
-    const { fetch, urls } = stubFetch(() => json(openRouterList));
+  it("keeps every Model that supports tools when the Provider names no chat Models", async () => {
+    const { fetch } = stubFetch(() => json(openRouterList));
 
     const models = await openRouterModels(fetch);
+
+    expect(models.map((model) => model.modelId)).toEqual([
+      "anthropic/claude-sonnet-5.5",
+      "deepseek/deepseek-v4-pro",
+      "acme/brand-new-model",
+    ]);
+  });
+
+  it("lists the OpenRouter chat Models its adapter takes that support tools, with images from input modalities and PDFs off", async () => {
+    const { fetch, urls } = stubFetch(() => json(openRouterList));
+
+    const models = await openRouterModels(fetch, chatModels);
 
     expect(urls).toEqual(["https://openrouter.ai/api/v1/models"]);
     expect(models).toEqual([
@@ -104,7 +119,7 @@ describe("openRouterModels", () => {
       }),
     );
 
-    const [model] = await openRouterModels(fetch);
+    const [model] = await openRouterModels(fetch, chatModels);
 
     expect(model?.reasoning).toEqual({ efforts: [], off: false, defaultEffort: null });
   });
@@ -124,7 +139,7 @@ describe("openRouterModels", () => {
       }),
     );
 
-    const [model] = await openRouterModels(fetch);
+    const [model] = await openRouterModels(fetch, chatModels);
 
     expect(model?.reasoning).toEqual({ efforts: [], off: false, defaultEffort: null });
   });
@@ -132,8 +147,8 @@ describe("openRouterModels", () => {
   it("keeps the list instead of asking again within the hour", async () => {
     const { fetch, urls } = stubFetch(() => json(openRouterList));
 
-    await openRouterModels(fetch);
-    const again = await openRouterModels(fetch);
+    await openRouterModels(fetch, chatModels);
+    const again = await openRouterModels(fetch, chatModels);
 
     expect(urls).toHaveLength(1);
     expect(again).toHaveLength(2);
@@ -143,9 +158,9 @@ describe("openRouterModels", () => {
     let answer = () => json({ error: "down" }, 503);
     const { fetch, urls } = stubFetch(() => answer());
 
-    await expect(openRouterModels(fetch)).resolves.toEqual([]);
+    await expect(openRouterModels(fetch, chatModels)).resolves.toEqual([]);
     answer = () => json(openRouterList);
-    await expect(openRouterModels(fetch)).resolves.toHaveLength(2);
+    await expect(openRouterModels(fetch, chatModels)).resolves.toHaveLength(2);
     expect(urls).toHaveLength(2);
   });
 
@@ -154,7 +169,7 @@ describe("openRouterModels", () => {
       throw new TypeError("fetch failed");
     });
 
-    await expect(openRouterModels(fetch)).resolves.toEqual([]);
+    await expect(openRouterModels(fetch, chatModels)).resolves.toEqual([]);
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { CounterStore } from "../../../../core/server/chat/counters";
+import type { CounterStore } from "@botsdk/bot/chat/counters";
 
 /**
  * The contract every `CounterStore` meets (spec 87, rate limits). An implementation proves it by

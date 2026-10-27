@@ -1,11 +1,11 @@
 import pg from "pg";
 import { describe, expect, it, vi } from "vitest";
 
-import { createHttpHandler } from "../../../core/http";
-import { createBotSdk, httpPartsOf } from "../../../core/server/create-chat";
-import { postgres } from "../../../core/server/database";
-import { memoryRuntime } from "../../../core/server/runtime";
-import { saveCredentials } from "../../../plugins/models/server/internal";
+import { createHttpHandler } from "@botsdk/bot/http";
+import { createBotSdk, httpPartsOf } from "@botsdk/bot/create-chat";
+import { postgres } from "@botsdk/bot/database";
+import { memoryRuntime } from "@botsdk/bot/runtime";
+import { saveCredentials } from "@botsdk/bot/models/internal";
 import { createTestSdk } from "../../support/deps";
 import { createTestChat } from "../../support/sdk";
 import { insertUser } from "../../support/users";

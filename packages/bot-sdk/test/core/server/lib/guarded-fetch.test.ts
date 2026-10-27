@@ -7,7 +7,7 @@ import {
   BlockedAddressError,
   createGuardedFetch,
   type GuardedFetchOptions,
-} from "../../../../core/server/lib/guarded-fetch";
+} from "@botsdk/bot/lib/guarded-fetch";
 
 // Public addresses in the tests are only names. `dial` sends their connections to the local
 // server, so nothing here reaches the internet.

@@ -1,10 +1,10 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { bot as botTable, conversation } from "../../../core/server/storage";
-import { deleteUserData, exportUserData } from "../../../core/server/user-data";
-import type { BotExport } from "../../../plugins/bot/server/conversation";
-import { saveCredentials } from "../../../plugins/models/server/internal";
+import { bot as botTable, conversation } from "@botsdk/bot/storage";
+import { deleteUserData, exportUserData } from "@botsdk/bot/user-data";
+import type { BotExport } from "@botsdk/bot/bot/conversation";
+import { saveCredentials } from "@botsdk/bot/models/internal";
 import { insertConversation, insertMessage } from "../../support/conversations";
 import { createTestSdk } from "../../support/deps";
 import { chatRpc } from "../../support/sdk";

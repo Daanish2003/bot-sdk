@@ -2,17 +2,14 @@ import net from "node:net";
 
 import { afterAll, describe, expect, it } from "vitest";
 
-import { createBotSdk } from "../../../../core/server/create-chat";
-import {
-  createRedisConnection,
-  type RedisConnection,
-} from "../../../../core/server/chat/redis-connection";
-import { createRedisCounters } from "../../../../core/server/chat/redis-counters";
-import { createRedisPubSub } from "../../../../core/server/chat/redis-pubsub";
-import { redisRuntime } from "../../../../core/server/runtime";
+import { createBotSdk } from "@botsdk/bot/create-chat";
+import { createRedisConnection, type RedisConnection } from "@botsdk/bot/chat/redis-connection";
+import { createRedisCounters } from "@botsdk/bot/chat/redis-counters";
+import { createRedisPubSub } from "@botsdk/bot/chat/redis-pubsub";
+import { redisRuntime } from "@botsdk/bot/runtime";
 import { counterStoreContract } from "./counters.contract";
 import { pubsubContract } from "./pubsub.contract";
-import { postgres } from "../../../../core/server/database";
+import { postgres } from "@botsdk/bot/database";
 
 /**
  * The Redis suites need a real Redis: set `TEST_REDIS_URL` (for example

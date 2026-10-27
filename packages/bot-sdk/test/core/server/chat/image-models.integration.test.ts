@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { saveCredentials } from "../../../../plugins/models/server/internal";
-import { modelSettings } from "../../../../core/server/storage";
-import type { HostProvider } from "../../../../plugins/models/server/internal";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import { modelSettings } from "@botsdk/bot/storage";
+import type { HostProvider } from "@botsdk/bot/models/internal";
 import { createTestSdk } from "../../../support/deps";
 import { insertUser, type TestUser } from "../../../support/users";
 import { getTestDb } from "../../../support/test-database";

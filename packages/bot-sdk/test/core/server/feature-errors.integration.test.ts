@@ -1,12 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { defineFeature } from "../../../core/server/index";
-import { uuidv7 } from "../../../core/server/lib/uuidv7";
-import { featureSectionsNow, featureTools } from "../../../plugins/bot/server/context";
-import {
-  ComputerOperationError,
-  ComputerUnavailableError,
-} from "../../../plugins/computer/server/internal";
+import { defineFeature } from "@botsdk/bot";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { featureSectionsNow, featureTools } from "@botsdk/bot/bot/context";
+import { ComputerOperationError, ComputerUnavailableError } from "@botsdk/bot/computer/internal";
 import { knowledge } from "../../../plugins/knowledge/server/plugin";
 import { memory } from "../../../plugins/memory/server/feature";
 import { skills } from "../../../plugins/skills/server/plugin";

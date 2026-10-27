@@ -1,17 +1,17 @@
 import { RateLimitedError } from "@botsdk/client";
 import { describe, expect, it } from "vitest";
 
-import { createHttpHandler } from "../../../../core/http";
-import { createBotSdk } from "../../../../core/server/create-chat";
+import { createHttpHandler } from "@botsdk/bot/http";
+import { createBotSdk } from "@botsdk/bot/create-chat";
 import { knowledge } from "../../../../plugins/knowledge/server/plugin";
-import { memoryRuntime } from "../../../../core/server/runtime";
-import { resolveRateLimits, type RateLimits } from "../../../../core/server/rate-limits";
+import { memoryRuntime } from "@botsdk/bot/runtime";
+import { resolveRateLimits, type RateLimits } from "@botsdk/bot/rate-limits";
 import { createTestSdk } from "../../../support/deps";
 import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { chatRpc, createTestChat } from "../../../support/sdk";
 import { testDatabaseUrl } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import { postgres } from "../../../../core/server/database";
+import { postgres } from "@botsdk/bot/database";
 
 /** The RPC routes of a Bot-only SDK that spec 87's per-user limits cover, with the override that turns each on. */
 const rpcCases = [

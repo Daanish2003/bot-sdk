@@ -1,10 +1,10 @@
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { saveCredentials, quotaLookup } from "../../../../plugins/models/server/internal";
-import { usage } from "../../../../core/server/storage";
-import type { HostProvider, QuotaSetting } from "../../../../plugins/models/server/internal";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { saveCredentials, quotaLookup } from "@botsdk/bot/models/internal";
+import { usage } from "@botsdk/bot/storage";
+import type { HostProvider, QuotaSetting } from "@botsdk/bot/models/internal";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { botOf, botSdk, sendToTurnEnd, stopBotRunners } from "../../../support/bot-turns";
 import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall, withUsage } from "../../../support/fake-adapter";

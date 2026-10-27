@@ -1,16 +1,16 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
-import { createHookEmitter, type UsageEvent } from "../../../../core/server/chat/hooks";
+import { createHookEmitter, type UsageEvent } from "@botsdk/bot/chat/hooks";
 import {
   freeMeter,
   freeModelMeter,
   hostModelMeter,
   hostSearchMeter,
   imageMeter,
-} from "../../../../plugins/models/server/internal";
+} from "@botsdk/bot/models/internal";
 import { createTestSdk } from "../../../support/deps";
-import { usage } from "../../../../core/server/storage";
+import { usage } from "@botsdk/bot/storage";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 

@@ -9,7 +9,7 @@ import {
   message,
   type ConversationRow,
   type MessageRow,
-} from "../../../../core/server/storage";
+} from "@botsdk/bot/storage";
 
 const empty = { tables: {}, enums: {} };
 

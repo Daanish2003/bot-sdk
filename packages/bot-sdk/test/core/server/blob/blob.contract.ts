@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { BlobStore } from "../../../../core/server/storage";
+import type { BlobStore } from "@botsdk/bot/storage";
 
 /**
  * The contract every `BlobStore` meets (ADR 0015). An implementation proves it by running this

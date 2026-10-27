@@ -1,5 +1,5 @@
-import type { BotSdkOptions } from "../../../../core/server/create-chat";
-import { postgres } from "../../../../core/server/database";
+import type { BotSdkOptions } from "@botsdk/bot/create-chat";
+import { postgres } from "@botsdk/bot/database";
 import { mcp } from "../../../../plugins/mcp/server";
 import { memory } from "../../../../plugins/memory/server";
 

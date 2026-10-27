@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { exportUserData } from "../../../core/server/user-data";
-import { saveCredentials } from "../../../plugins/models/server/internal";
+import { exportUserData } from "@botsdk/bot/user-data";
+import { saveCredentials } from "@botsdk/bot/models/internal";
 import { createTestSdk } from "../../support/deps";
 import { createTestChat } from "../../support/sdk";
 import { insertUser } from "../../support/users";

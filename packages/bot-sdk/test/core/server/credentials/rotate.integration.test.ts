@@ -1,17 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createBotSdk } from "../../../../core/server/create-chat";
-import { encryptCredentials } from "../../../../core/server/credentials/encryption";
+import { createBotSdk } from "@botsdk/bot/create-chat";
+import { encryptCredentials } from "@botsdk/bot/credentials/encryption";
 import {
   listCredentials,
   rotateCredentialKeys,
   saveCredentials,
-} from "../../../../plugins/models/server/internal";
+} from "@botsdk/bot/models/internal";
 import { createTestSdk } from "../../../support/deps";
-import { userCredentials } from "../../../../core/server/storage";
+import { userCredentials } from "@botsdk/bot/storage";
 import { insertUser } from "../../../support/users";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
-import { postgres } from "../../../../core/server/database";
+import { postgres } from "@botsdk/bot/database";
 
 const keyA = "key-a-of-at-least-32-characters-long!!";
 const keyB = "key-b-of-at-least-32-characters-long!!";

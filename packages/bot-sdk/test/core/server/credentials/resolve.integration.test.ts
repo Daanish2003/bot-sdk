@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  resolvedServices,
-  loadCredentials,
-  saveCredentials,
-} from "../../../../plugins/models/server/internal";
+import { resolvedServices, loadCredentials, saveCredentials } from "@botsdk/bot/models/internal";
 import { createTestSdk } from "../../../support/deps";
 import { insertUser } from "../../../support/users";
 

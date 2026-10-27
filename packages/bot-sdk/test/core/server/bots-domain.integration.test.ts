@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createMemoryPubSub, type PubSub } from "../../../core/server/chat/pubsub";
-import { uuidv7 } from "../../../core/server/lib/uuidv7";
-import { saveCredentials } from "../../../plugins/models/server/internal";
+import { createMemoryPubSub, type PubSub } from "@botsdk/bot/chat/pubsub";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { saveCredentials } from "@botsdk/bot/models/internal";
 import { botSdk, stopBotRunners } from "../../support/bot-turns";
 import { createTestSdk } from "../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../support/fake-adapter";

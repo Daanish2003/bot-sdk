@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { listConnections, readTokens, saveTokens } from "../../../plugins/mcp/server/connections";
-import { enabledFeatures } from "../../../core/server/feature";
+import { enabledFeatures } from "@botsdk/bot/feature";
 import { mcp, type McpApi } from "../../../plugins/mcp/server/plugin";
 import type { McpServerConfig } from "../../../plugins/mcp/server/servers";
 import { createTestSdk, type TestDeps } from "../../support/deps";

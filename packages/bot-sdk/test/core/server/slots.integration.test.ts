@@ -3,25 +3,20 @@ import { pgSchema, text } from "drizzle-orm/pg-core";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { z } from "zod";
 
-import { createHttpHandler } from "../../../core/http/index";
-import {
-  createBotSdk,
-  defineFeature,
-  memoryRuntime,
-  type BotSdkOptions,
-} from "../../../core/server/index";
-import { buildBotSdk } from "../../../core/server/create-chat";
-import { blob, bot, job } from "../../../core/server/storage";
-import type { ComputerApi } from "../../../plugins/computer/server/internal";
+import { createHttpHandler } from "@botsdk/bot/http";
+import { createBotSdk, defineFeature, memoryRuntime, type BotSdkOptions } from "@botsdk/bot";
+import { buildBotSdk } from "@botsdk/bot/create-chat";
+import { blob, bot, job } from "@botsdk/bot/storage";
+import type { ComputerApi } from "@botsdk/bot/computer/internal";
 import { fakeEmailProvider } from "../../../plugins/channel/fake/index";
-import { emailChannel, type InboundMail } from "../../../plugins/channel/server/index";
-import { models } from "../../../plugins/models/server/internal";
-import { defineJob } from "../../../plugins/runner/server/internal";
+import { emailChannel, type InboundMail } from "@botsdk/bot/channel";
+import { models } from "@botsdk/bot/models/internal";
+import { defineJob } from "@botsdk/bot/runner/internal";
 import { manualExecutor } from "../../support/executors";
 import { fakeComputerProvider } from "../../support/fake-computer-provider";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser } from "../../support/users";
-import { postgres } from "../../../core/server/database";
+import { postgres } from "@botsdk/bot/database";
 
 /*
  * The factory's flat slots (spec #871): what an omitted slot falls back to, and a feature's

@@ -1,4 +1,4 @@
-import { createMemoryPubSub } from "../../../../core/server/chat/pubsub";
+import { createMemoryPubSub } from "@botsdk/bot/chat/pubsub";
 import { pubsubContract } from "./pubsub.contract";
 
 pubsubContract("memory", () => createMemoryPubSub());

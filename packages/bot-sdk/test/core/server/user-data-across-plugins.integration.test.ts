@@ -4,38 +4,31 @@ import { count, eq, inArray, is } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import { describe, expect, it, vi } from "vitest";
 
-import type { BlobStore } from "../../../core/server/storage";
-import { createHookEmitter } from "../../../core/server/chat/hooks";
-import { buildBotSdk, createBotSdk } from "../../../core/server/create-chat";
-import { defineFeature } from "../../../core/server/feature";
-import { schema } from "../../../core/server/storage";
-import { encryptCredentials } from "../../../core/server/credentials/encryption";
-import {
-  bot,
-  botDemonstration,
-  botSecret,
-  job,
-  usage,
-  modelSettings,
-} from "../../../core/server/storage";
-import { uuidv7 } from "../../../core/server/lib/uuidv7";
-import { deleteUserData, exportUserData } from "../../../core/server/user-data";
-import { sentFileBlobKey, uploadBotFile } from "../../../plugins/bot/server/conversation";
-import { loadSecretValues, secretEncryption } from "../../../plugins/bot/server/safety";
-import type { BotExport } from "../../../plugins/bot/server/conversation";
-import { computerBlobKey } from "../../../plugins/computer/server/internal";
+import type { BlobStore } from "@botsdk/bot/storage";
+import { createHookEmitter } from "@botsdk/bot/chat/hooks";
+import { buildBotSdk, createBotSdk } from "@botsdk/bot/create-chat";
+import { defineFeature } from "@botsdk/bot/feature";
+import { schema } from "@botsdk/bot/storage";
+import { encryptCredentials } from "@botsdk/bot/credentials/encryption";
+import { bot, botDemonstration, botSecret, job, usage, modelSettings } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { deleteUserData, exportUserData } from "@botsdk/bot/user-data";
+import { sentFileBlobKey, uploadBotFile } from "@botsdk/bot/bot/conversation";
+import { loadSecretValues, secretEncryption } from "@botsdk/bot/bot/safety";
+import type { BotExport } from "@botsdk/bot/bot/conversation";
+import { computerBlobKey } from "@botsdk/bot/computer/internal";
 import { readTokens, saveTokens } from "../../../plugins/mcp/server/connections";
 import { mcpConnection } from "../../../plugins/mcp/server/db/connection";
 import { mcp } from "../../../plugins/mcp/server/plugin";
 import { profilePath } from "../../../plugins/memory/server/bot-memory";
 import { memorySettings } from "../../../plugins/memory/server/schema";
-import { listCredentials, saveCredentials, models } from "../../../plugins/models/server/internal";
+import { listCredentials, saveCredentials, models } from "@botsdk/bot/models/internal";
 import { insertConversation, insertMessage } from "../../support/conversations";
 import { createTestSdk, withPart, type TestDeps } from "../../support/deps";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { fakeComputerProvider } from "../../support/fake-computer-provider";
 import { insertUser, type TestUser } from "../../support/users";
-import { postgres } from "../../../core/server/database";
+import { postgres } from "@botsdk/bot/database";
 
 const testKey = "test-key-encryption-secret-not-for-production";
 

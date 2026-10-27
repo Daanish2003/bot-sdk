@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createHttpHandlerOver } from "../../../core/server/over";
+import { createHttpHandlerOver } from "@botsdk/bot/over";
 import { createTestSdk } from "../../support/deps";
 
 describe("createHttpHandlerOver", () => {

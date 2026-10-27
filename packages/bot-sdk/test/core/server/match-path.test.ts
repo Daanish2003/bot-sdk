@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { matchPath } from "../../../core/server/plugin";
+import { matchPath } from "@botsdk/bot/plugin";
 
 describe("matchPath", () => {
   it("gives a pattern's `:name` segments, each one segment that isn't empty", () => {

@@ -1,4 +1,4 @@
-import { postgresBlobStore } from "../../../../core/server/storage";
+import { postgresBlobStore } from "@botsdk/bot/storage";
 import { getTestDb } from "../../../support/test-database";
 import { blobStoreContract } from "./blob.contract";
 

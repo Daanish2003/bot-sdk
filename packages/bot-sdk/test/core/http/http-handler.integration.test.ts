@@ -8,18 +8,18 @@ import {
   createScreenSocket,
   toNodeHandler,
   type HttpHandler,
-} from "../../../core/http";
-import { createBotSdk, httpPartsOf } from "../../../core/server/create-chat";
-import { defineFeature } from "../../../core/server/feature";
-import { emailChannel } from "../../../plugins/channel/server/index";
+} from "@botsdk/bot/http";
+import { createBotSdk, httpPartsOf } from "@botsdk/bot/create-chat";
+import { defineFeature } from "@botsdk/bot/feature";
+import { emailChannel } from "@botsdk/bot/channel";
 import { fakeEmailProvider } from "../../../plugins/channel/fake/index";
-import { createHttpHandlerOver } from "../../../core/server/over";
-import { hintChanged } from "../../../plugins/bot/server/conversation";
+import { createHttpHandlerOver } from "@botsdk/bot/over";
+import { hintChanged } from "@botsdk/bot/bot/conversation";
 import { insertConversation } from "../../support/conversations";
 import { createTestSdk } from "../../support/deps";
 import { testDatabaseUrl } from "../../support/test-database";
 import { insertUser } from "../../support/users";
-import { postgres } from "../../../core/server/database";
+import { postgres } from "@botsdk/bot/database";
 
 const basePath = "/api/chat";
 const keyEncryptionSecrets = ["test-key-encryption-secret-not-for-production"];

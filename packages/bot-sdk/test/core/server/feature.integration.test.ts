@@ -3,21 +3,17 @@ import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { botTurn } from "../../../core/server/storage";
-import { uuidv7 } from "../../../core/server/lib/uuidv7";
-import { deleteUserData, exportUserData } from "../../../core/server/user-data";
-import { saveCredentials } from "../../../plugins/models/server/internal";
-import {
-  inProcessRunner,
-  type JobRunner,
-  systemClock,
-} from "../../../plugins/runner/server/internal";
+import { botTurn } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { deleteUserData, exportUserData } from "@botsdk/bot/user-data";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import { inProcessRunner, type JobRunner, systemClock } from "@botsdk/bot/runner/internal";
 import { fakeComputerProvider } from "../../support/fake-computer-provider";
 import { createTestSdk, type TestDeps } from "../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../support/fake-adapter";
 import { followSend } from "../../support/follow-send";
-import type { FeatureEntry } from "../../../core/server/create-chat";
-import { defineFeature } from "../../../core/server/index";
+import type { FeatureEntry } from "@botsdk/bot/create-chat";
+import { defineFeature } from "@botsdk/bot";
 import { createPinsTable, dropPinsTable, pin, pins } from "../../support/pins-feature";
 import { chatRpc } from "../../support/sdk";
 import { getTestDb } from "../../support/test-database";

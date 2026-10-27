@@ -1,9 +1,9 @@
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { createBotSdk, type BotSdkOptions } from "../../../core/server/create-chat";
+import { createBotSdk, type BotSdkOptions } from "@botsdk/bot/create-chat";
 import { mcp } from "../../../plugins/mcp/server/plugin";
-import { deleteUserData } from "../../../core/server/user-data";
+import { deleteUserData } from "@botsdk/bot/user-data";
 import { mcpConnection } from "../../../plugins/mcp/server/db/connection";
 import type { McpServerConfig } from "../../../plugins/mcp/server/servers";
 import { createTestSdk, testKeyEncryptionSecret } from "../../support/deps";
@@ -11,7 +11,7 @@ import { createTestChat } from "../../support/sdk";
 import { createFakeMcpAuth, fakeMcpResource } from "../../support/fake-mcp-auth";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser, type TestUser } from "../../support/users";
-import { postgres } from "../../../core/server/database";
+import { postgres } from "@botsdk/bot/database";
 
 const clientId = "ai-chat-test";
 const clientSecret = "test-client-secret";

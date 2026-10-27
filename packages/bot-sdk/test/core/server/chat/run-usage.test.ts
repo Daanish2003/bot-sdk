@@ -2,7 +2,7 @@ import { chat } from "@tanstack/ai";
 import { createAnthropicChat } from "@tanstack/ai-anthropic";
 import { describe, expect, it } from "vitest";
 
-import { reportedUsageOf } from "../../../../plugins/models/server/internal";
+import { reportedUsageOf } from "@botsdk/bot/models/internal";
 
 /** An Anthropic Messages stream that read 800 tokens from the cache and wrote 100, past 100 uncached. */
 function anthropicStream(): Response {
