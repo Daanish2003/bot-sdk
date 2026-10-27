@@ -81,6 +81,11 @@ describe("adaptersOf and Stop (issue #54)", () => {
         await send(options.chatOptions.wrapFetch);
         return { data: {}, rawText: "{}" };
       },
+      async *structuredOutputStream(options: {
+        chatOptions: { wrapFetch?: (next: typeof fetch) => typeof fetch };
+      }) {
+        yield await send(options.chatOptions.wrapFetch);
+      },
     } as unknown as AnyTextAdapter;
     return { adapter, signals };
   }
@@ -97,10 +102,37 @@ describe("adaptersOf and Stop (issue #54)", () => {
     await wrapped.structuredOutput({
       chatOptions: { request: { signal: run.signal } },
     } as never);
+    for await (const _ of wrapped.structuredOutputStream!({
+      chatOptions: { request: { signal: run.signal } },
+    } as never));
     run.abort();
 
-    expect(signals).toHaveLength(2);
+    expect(signals).toHaveLength(3);
     expect(signals.every((signal) => signal?.aborted)).toBe(true);
+  });
+});
+
+describe("adaptersOf's text adapter", () => {
+  it("is the Provider's adapter otherwise: its other members, and no method it lacks", () => {
+    class Stock {
+      kind = "text" as const;
+      model = "claude-sonnet-5-5";
+      #secret = "own";
+      secret() {
+        return this.#secret;
+      }
+    }
+    const stock = new Stock();
+    const wrapped = adaptersOf({
+      anthropic: { text: () => stock as unknown as AnyTextAdapter },
+    }).adapterFor("anthropic:claude-sonnet-5-5", { apiKey: "k" }) as unknown as Stock &
+      AnyTextAdapter;
+
+    expect(wrapped).toBeInstanceOf(Stock);
+    expect(wrapped.kind).toBe("text");
+    expect(wrapped.model).toBe("claude-sonnet-5-5");
+    expect(wrapped.secret()).toBe("own");
+    expect(wrapped.structuredOutputStream).toBeUndefined();
   });
 });
 

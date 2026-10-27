@@ -991,6 +991,9 @@ importers:
       '@ai-chat/config':
         specifier: workspace:*
         version: link:../../config
+      '@ai-chat/test-support':
+        specifier: workspace:*
+        version: link:../../test-support
       typescript:
         specifier: 'catalog:'
         version: 6.0.3

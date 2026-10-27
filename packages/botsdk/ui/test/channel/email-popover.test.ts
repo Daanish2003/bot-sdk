@@ -9,7 +9,7 @@ import { z } from "zod";
 
 import { BotConversation } from "../../src/bot/bot-conversation";
 import { EmailPopover } from "../../src/channel/email-popover";
-import { channelClient } from "@botsdk/client/bot/channel-client";
+import { channelClient } from "@botsdk/client";
 import { providerFor } from "@ai-chat/test-support/fake-dictionary";
 
 afterEach(() => {

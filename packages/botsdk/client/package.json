@@ -8,7 +8,6 @@
     ".": "./src/index.ts",
     "./message-parts": "./src/message-parts.ts",
     "./bot/changes": "./src/bot/changes.ts",
-    "./bot/channel-client": "./src/bot/channel-client.ts",
     "./bot/check-in": "./src/bot/check-in.ts",
     "./bot/choice": "./src/bot/choice.ts",
     "./bot/contract": "./src/bot/contract.ts",

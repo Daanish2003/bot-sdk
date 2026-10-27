@@ -12,7 +12,7 @@ Bots for a Host app: each user's Bots, with their Turns, Routines, Helpers, Memo
 - `@botsdk/testing`: a test SDK, a scripted model adapter, a fake Computer and a fake email provider, for a Host's tests. It peers only on `@botsdk/bot` and `@botsdk/client`.
 - `@botsdk/ui` (private): the React components and `theme.css`, the core's and the features', on the hooks above and the Host's shadcn primitives.
 
-Features and adapters depend on the core, never on each other. Each package lists its own runtime dependencies, so they install with it.
+At runtime, features and adapters depend on the core, never on each other. A package's tests may use other packages (the core's tests run the features), declared as devDependencies. Each package lists its own runtime dependencies, so they install with it.
 
 ## Model Providers
 

@@ -4,7 +4,7 @@ import { type AnyRouter, implement } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { describe, expect, it } from "vitest";
 
-import { channelClient } from "@botsdk/client/bot/channel-client";
+import { channelClient } from "@botsdk/client";
 import { knowledgeClient } from "@botsdk/knowledge/client";
 import { mcpClient } from "@botsdk/mcp/client";
 import { memoryClient } from "@botsdk/memory/client";

@@ -1,21 +1,16 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { packageManifest, packageRootOf } from "@ai-chat/test-support/package-shape";
+
 import * as testing from "../src";
 
-const packageRoot = fileURLToPath(new URL("..", import.meta.url));
+const packageRoot = packageRootOf(import.meta.url);
 
 /** What a Host gets from `@botsdk/testing` (spec #875): its export map and dependencies. */
-const manifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
-  name: string;
-  private?: boolean;
-  exports: Record<string, string>;
-  dependencies?: Record<string, string>;
-  peerDependencies?: Record<string, string>;
-};
+const manifest = packageManifest(packageRoot);
 
 describe("@botsdk/testing", () => {
   it("points every entry at a source file, so the workspace imports it without a build", () => {

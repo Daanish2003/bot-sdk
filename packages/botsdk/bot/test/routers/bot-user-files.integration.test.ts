@@ -11,6 +11,7 @@ import { inProcessRunner, type JobRunner, systemClock } from "../../src/runner/i
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { followSend } from "@ai-chat/test-support/follow-send";
+import { testModelProviders } from "@ai-chat/test-support/model-providers";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
@@ -51,6 +52,8 @@ async function botWith({
     ...(withComputer && { computer: computerFake.provider }),
     jobs,
     adapterFor: () => fake.adapter,
+    // Mistral's Models are listed only when the Host passes its Provider (spec #875).
+    providers: { ...testModelProviders, mistral: { text: () => fake.adapter } },
     memory: false,
     ...(clock && { clock }),
   });

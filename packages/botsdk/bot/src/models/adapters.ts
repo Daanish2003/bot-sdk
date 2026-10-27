@@ -70,6 +70,12 @@ function abortable(adapter: AnyTextAdapter): AnyTextAdapter {
         return (options: Parameters<AnyTextAdapter["structuredOutput"]>[0]) =>
           target.structuredOutput({ ...options, chatOptions: withRunSignal(options.chatOptions) });
       }
+      // Optional: the chat engine calls it in place of `structuredOutput` when the adapter has it.
+      if (key === "structuredOutputStream" && target.structuredOutputStream) {
+        const stream = target.structuredOutputStream.bind(target);
+        return (options: Parameters<typeof stream>[0]) =>
+          stream({ ...options, chatOptions: withRunSignal(options.chatOptions) });
+      }
       const value: unknown = Reflect.get(target, key, target);
       return typeof value === "function" ? value.bind(target) : value;
     },
@@ -77,7 +83,7 @@ function abortable(adapter: AnyTextAdapter): AnyTextAdapter {
 }
 
 /** `options` with a `wrapFetch` that adds the run's abort signal to every fetch. */
-export function withRunSignal<T extends Pick<TextOptions, "request" | "wrapFetch">>(options: T): T {
+function withRunSignal<T extends Pick<TextOptions, "request" | "wrapFetch">>(options: T): T {
   const signal = options.request?.signal;
   if (!signal) return options;
   const { wrapFetch } = options;
