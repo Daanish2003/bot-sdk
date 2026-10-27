@@ -1,7 +1,7 @@
 import type { JSONSchema } from "@tanstack/ai";
 import { type AnyPgColumn, index, jsonb, timestamp, uuid } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "../chat-schema";
+import { botsdkSchema } from "../botsdk-schema";
 import { bot } from "./bot";
 import { botSummary } from "./bot-summary";
 
@@ -16,7 +16,7 @@ export type PromptStartSection = { name: string; text: string; hash: string };
  * message, exactly as every model call sends them until the next Summary. A Turn's model calls
  * and their replays read the stored bytes, never a rebuild.
  */
-export const botPromptStart = chatSchema.table(
+export const botPromptStart = botsdkSchema.table(
   "bot_prompt_start",
   {
     /** uuidv7, generated in app code. */

@@ -11,6 +11,7 @@ import { createTestSdk } from "../../../support/deps";
 import { userCredentials } from "../../../../core/server/storage";
 import { insertUser } from "../../../support/users";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
+import { postgres } from "../../../../core/server/database";
 
 const keyA = "key-a-of-at-least-32-characters-long!!";
 const keyB = "key-b-of-at-least-32-characters-long!!";
@@ -66,7 +67,7 @@ describe("the keyring", () => {
     });
     const logger = { error: vi.fn() };
     const chat = createBotSdk({
-      databaseUrl: testDatabaseUrl,
+      database: postgres({ connectionString: testDatabaseUrl }),
       keyEncryptionSecrets: [keyB],
       logger,
       models: {},

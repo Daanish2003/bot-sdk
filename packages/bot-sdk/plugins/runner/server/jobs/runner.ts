@@ -54,7 +54,7 @@ export const systemClock: JobClock = {
 };
 
 /**
- * The core's runner (ADR 0029, #862): background jobs in `chat.job`, run through an Executor that
+ * The core's runner (ADR 0029, #862): background jobs in `botsdk.job`, run through an Executor that
  * only wakes them up. `start()` and `stop()` are called through `chat.start()` and `chat.stop()`.
  */
 export type JobRunner = {

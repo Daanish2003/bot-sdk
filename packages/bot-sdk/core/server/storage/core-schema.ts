@@ -11,7 +11,7 @@ import {
 
 import type { PartsEnvelope } from "../../shared/message-parts";
 import { blob } from "./blob";
-import { chatSchema } from "./chat-schema";
+import { botsdkSchema } from "./botsdk-schema";
 import { conversationChange } from "./conversation-change";
 import type { PluginSchema } from "./plugin-schema";
 import { conversation, message } from "./schema";
@@ -19,15 +19,15 @@ import { conversation, message } from "./schema";
 export * from "./blob";
 export * from "./conversation-change";
 
-export const messageRole = chatSchema.enum("message_role", ["user", "assistant"]);
-export const messageStatus = chatSchema.enum("message_status", [
+export const messageRole = botsdkSchema.enum("message_role", ["user", "assistant"]);
+export const messageStatus = botsdkSchema.enum("message_status", [
   "streaming",
   "complete",
   "stopped",
   "error",
   "awaiting_approval",
 ]);
-export const messageErrorReason = chatSchema.enum("message_error_reason", [
+export const messageErrorReason = botsdkSchema.enum("message_error_reason", [
   "invalid_key",
   "rate_limited",
   "provider_error",

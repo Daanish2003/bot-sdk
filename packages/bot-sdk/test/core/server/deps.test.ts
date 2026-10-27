@@ -10,12 +10,13 @@ import {
 import { buildBotSdk } from "../../../core/server/create-chat";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { BlockedAddressError } from "../../../core/server/lib/guarded-fetch";
+import { postgres } from "../../../core/server/database";
 
 /** The core context of a real instance. Nothing connects. */
 function buildDeps(): BotSdkContext {
   return buildBotSdk(
     {
-      databaseUrl: "postgresql://unused@127.0.0.1:9/unused",
+      database: postgres({ connectionString: "postgresql://unused@127.0.0.1:9/unused" }),
       keyEncryptionSecrets: ["test-secret"],
       logger: { error: () => {} },
       models: {},

@@ -19,6 +19,7 @@ import { insertConversation } from "../../support/conversations";
 import { createTestSdk } from "../../support/deps";
 import { testDatabaseUrl } from "../../support/test-database";
 import { insertUser } from "../../support/users";
+import { postgres } from "../../../core/server/database";
 
 const basePath = "/api/chat";
 const keyEncryptionSecrets = ["test-key-encryption-secret-not-for-production"];
@@ -40,7 +41,11 @@ async function nextEvent(reader: ReadableStreamDefaultReader<Uint8Array>) {
 
 describe("createHttpHandler", { timeout: 30_000 }, () => {
   it("answers 401 to an RPC call and a route when getUser returns null", async () => {
-    const sdk = createBotSdk({ databaseUrl: testDatabaseUrl, keyEncryptionSecrets, models: {} });
+    const sdk = createBotSdk({
+      database: postgres({ connectionString: testDatabaseUrl }),
+      keyEncryptionSecrets,
+      models: {},
+    });
     const http = createHttpHandler(sdk, { basePath, getUser: () => null });
 
     const rpc = await http(rpcCall("http://localhost", "bots/list"));
@@ -52,7 +57,11 @@ describe("createHttpHandler", { timeout: 30_000 }, () => {
 
   it("serves the signed-in user's RPC calls under its basePath, and 404s outside it", async () => {
     const user = await insertUser();
-    const sdk = createBotSdk({ databaseUrl: testDatabaseUrl, keyEncryptionSecrets, models: {} });
+    const sdk = createBotSdk({
+      database: postgres({ connectionString: testDatabaseUrl }),
+      keyEncryptionSecrets,
+      models: {},
+    });
     const http = createHttpHandler(sdk, { basePath: "/bots/", getUser: () => ({ id: user.id }) });
 
     const served = await http(
@@ -76,7 +85,11 @@ describe("createHttpHandler", { timeout: 30_000 }, () => {
 
   it("applies its rate limits over HTTP and not to in-process calls", async () => {
     const user = await insertUser();
-    const sdk = createBotSdk({ databaseUrl: testDatabaseUrl, keyEncryptionSecrets, models: {} });
+    const sdk = createBotSdk({
+      database: postgres({ connectionString: testDatabaseUrl }),
+      keyEncryptionSecrets,
+      models: {},
+    });
     const http = createHttpHandler(sdk, {
       basePath,
       getUser: () => ({ id: user.id }),
@@ -99,7 +112,7 @@ describe("createHttpHandler", { timeout: 30_000 }, () => {
   it("serves the webhook, email inbound and Screen routes under its basePath without a user", async () => {
     const email = fakeEmailProvider();
     const sdk = createBotSdk({
-      databaseUrl: testDatabaseUrl,
+      database: postgres({ connectionString: testDatabaseUrl }),
       keyEncryptionSecrets,
       models: {},
       channels: [emailChannel({ provider: email.provider, domain: "bots.example", appUrl: "" })],
@@ -132,7 +145,12 @@ describe("createHttpHandler", { timeout: 30_000 }, () => {
     const getUser = vi.fn(() => null);
     const inbound = (channels?: []) =>
       createHttpHandler(
-        createBotSdk({ databaseUrl: testDatabaseUrl, keyEncryptionSecrets, models: {}, channels }),
+        createBotSdk({
+          database: postgres({ connectionString: testDatabaseUrl }),
+          keyEncryptionSecrets,
+          models: {},
+          channels,
+        }),
         { basePath, getUser },
       )(new Request(`http://localhost${basePath}/channels/email`, { method: "POST", body: "{}" }));
 
@@ -144,7 +162,11 @@ describe("createHttpHandler", { timeout: 30_000 }, () => {
   });
 
   it("answers 405 with Allow to a public path called with another method, and asks no user", async () => {
-    const sdk = createBotSdk({ databaseUrl: testDatabaseUrl, keyEncryptionSecrets, models: {} });
+    const sdk = createBotSdk({
+      database: postgres({ connectionString: testDatabaseUrl }),
+      keyEncryptionSecrets,
+      models: {},
+    });
     const getUser = vi.fn(() => null);
     const http = createHttpHandler(sdk, { basePath, getUser });
     const call = (method: string, path: string) =>
@@ -168,7 +190,7 @@ describe("createHttpHandler", { timeout: 30_000 }, () => {
 
   it("still serves a signed-in route at a public path with its own method", async () => {
     const sdk = createBotSdk({
-      databaseUrl: testDatabaseUrl,
+      database: postgres({ connectionString: testDatabaseUrl }),
       keyEncryptionSecrets,
       models: {},
       features: [
@@ -196,7 +218,11 @@ describe("createHttpHandler", { timeout: 30_000 }, () => {
   });
 
   it("serves one instance at two basePaths, and the live view's links point under the first", async () => {
-    const sdk = createBotSdk({ databaseUrl: testDatabaseUrl, keyEncryptionSecrets, models: {} });
+    const sdk = createBotSdk({
+      database: postgres({ connectionString: testDatabaseUrl }),
+      keyEncryptionSecrets,
+      models: {},
+    });
     const first = createHttpHandler(sdk, { basePath, getUser: () => null });
     const second = createHttpHandler(sdk, { basePath: "/bots/", getUser: () => null });
     createScreenSocket(sdk, { basePath: "/bots" });
@@ -212,7 +238,7 @@ describe("createHttpHandler", { timeout: 30_000 }, () => {
 
   it("keeps createBotSdk's liveViewBase as the live view's link base", () => {
     const sdk = createBotSdk({
-      databaseUrl: testDatabaseUrl,
+      database: postgres({ connectionString: testDatabaseUrl }),
       keyEncryptionSecrets,
       models: {},
       liveViewBase: "/chat/",
@@ -222,7 +248,7 @@ describe("createHttpHandler", { timeout: 30_000 }, () => {
     expect(httpPartsOf(sdk).context.liveView.base).toBe("/chat");
     expect(() =>
       createBotSdk({
-        databaseUrl: testDatabaseUrl,
+        database: postgres({ connectionString: testDatabaseUrl }),
         keyEncryptionSecrets,
         models: {},
         liveViewBase: "chat",

@@ -1,124 +1,173 @@
-import { fileURLToPath } from "node:url";
-
-import { drizzle } from "drizzle-orm/node-postgres";
-import { migrate as applyMigrations } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 
-import type { BlobStore } from "./storage";
-import type { Logger } from "./create-chat";
+import type { PostgresDatabase } from "./database";
+import coreMigrations from "./migrations.json" with { type: "json" };
 
 /**
- * Kept in this file, with no runtime import from the rest of the SDK, so a Host's migrate script can load
- * it directly. The journal is `chat.__migrations`.
+ * Kept in this file, with no runtime import from the rest of the SDK but data, so a Host's migrate
+ * script can load it directly. The journal is `botsdk.__migrations`, one row per applied
+ * migration, keyed by its part (`core` or a feature's id) and its name (spec #874).
  */
 
-/** Any fixed number: every `chat.migrate()` and `start()` on one database uses it. */
+/** Any fixed number: every `chat.migrate()` on one database uses it. */
 const MIGRATION_LOCK_ID = 727_770_001;
 
+/** Makes the journal: shared with the SQL `botsdk migrate --print` gives a Host that applies it itself. */
+export const JOURNAL_DDL = `create table if not exists botsdk.__migrations (
+  feature text not null,
+  migration text not null,
+  applied_at timestamp with time zone not null default clock_timestamp(),
+  primary key (feature, migration)
+)`;
+
+/** One SQL migration of the core or a feature. Its `name` is unique within its part. */
+export type Migration = { name: string; sql: string };
+
+/** A feature's migrations, oldest first, under its id. */
+export type FeatureMigrations = { feature: string; migrations: readonly Migration[] };
+
+/** A migration the journal doesn't have yet, with its part. */
+export type PendingMigration = Migration & { feature: string };
+
+/** The core's migrations: the core's tables, which every Host has, and features may reference. */
+const core: FeatureMigrations = { feature: "core", migrations: coreMigrations };
+
 /**
- * The newest folder in `core/server/migrations`. A bundler can't read that folder at run time, so
- * `start()` compares against this name. A test keeps it equal to the folder listing.
- */
-export const LATEST_MIGRATION = "20261023121149_assistant_contract";
-
-function migrationsFolder() {
-  // Only `migrate()` reads the folder, from a migrate script that runs the file unbundled. The
-  // path is a variable so a bundler doesn't try to resolve the folder at build time.
-  const folder = ["", "migrations"].join("./");
-  return fileURLToPath(new URL(folder, import.meta.url));
-}
-
-/** Milliseconds for a migration folder's `yyyymmddhhmmss` prefix, as drizzle records them. */
-function folderMillis(name: string) {
-  const at = (start: number, length = 2) => Number(name.slice(start, start + length));
-  return Date.UTC(at(0, 4), at(4) - 1, at(6), at(8), at(10), at(12));
-}
-
-/**
- * Creates the `chat` schema and `pg_trgm`, and then applies the bundled migrations. A
- * session advisory lock is held for the whole run, so concurrent runs queue up and only one applies.
- *
- * The contract migration (#819) deletes every `attachment/` and `generated-image/` byte in
- * `chat.blob` itself. With the Host's own `blobStore`, the run that applies it then deletes the
- * bytes the dropped `chat.attachment` and `chat.generated_image` rows pointed at from that store
- * too, by the keys those rows held. `BlobStore` can't list keys, so that part is best effort (ADR 0015): a store object with
- * no row, or one left by a run that stopped before its deletes, stays.
+ * Creates the `botsdk` schema and `pg_trgm`, then applies what the journal lacks: the core's
+ * migrations, then each feature's in the order given, each in its own transaction with its journal
+ * row. A session advisory lock is held for the whole run, so concurrent runs queue up and only one
+ * applies. A feature left out keeps its tables and rows.
  */
 export async function migrate(
-  databaseUrl: string,
-  { blobStore, logger = console }: { blobStore?: Pick<BlobStore, "delete">; logger?: Logger } = {},
+  database: PostgresDatabase,
+  features: readonly FeatureMigrations[] = [],
 ): Promise<void> {
-  const client = new pg.Client({ connectionString: databaseUrl });
+  await withConnection(database, async (client) => {
+    await client.query("select pg_advisory_lock($1)", [MIGRATION_LOCK_ID]);
+    await createSchema(client);
+    await createTrigramExtension(client);
+    await client.query(JOURNAL_DDL);
+    for (const pending of pendingIn(await journalOf(client), features)) {
+      try {
+        await inTransaction(client, async () => {
+          await client.query(pending.sql);
+          await client.query(
+            "insert into botsdk.__migrations (feature, migration) values ($1, $2)",
+            [pending.feature, pending.name],
+          );
+        });
+      } catch (cause) {
+        throw new Error(`Migration ${pending.name} of "${pending.feature}" failed`, { cause });
+      }
+    }
+    await client.query("select pg_advisory_unlock($1)", [MIGRATION_LOCK_ID]);
+  });
+}
+
+/**
+ * What `migrate` would apply now for these features, in order, with each one's part and SQL. Only
+ * reads. `start()` checks with it; the `botsdk migrate --print` CLI prints it, with the
+ * journal rows a Host applying the SQL itself must add.
+ */
+export async function pendingMigrations(
+  database: PostgresDatabase,
+  features: readonly FeatureMigrations[] = [],
+): Promise<PendingMigration[]> {
+  return pendingIn(await withConnection(database, journalOf), features);
+}
+
+/**
+ * The core's and the features' migrations that `applied` lacks, the core's first. Throws when a
+ * part names two migrations alike: the journal would take the second for the first.
+ */
+function pendingIn(
+  applied: ReadonlySet<string>,
+  features: readonly FeatureMigrations[],
+): PendingMigration[] {
+  return [core, ...features].flatMap(({ feature, migrations }) => {
+    const names = new Set<string>();
+    for (const { name } of migrations) {
+      if (names.has(name)) {
+        throw new Error(`Feature "${feature}" has two migrations named "${name}"`);
+      }
+      names.add(name);
+    }
+    return migrations
+      .filter(({ name }) => !applied.has(journalKey(feature, name)))
+      .map((migration) => ({ ...migration, feature }));
+  });
+}
+
+const journalKey = (feature: string, migration: string) => `${feature}/${migration}`;
+
+/** The journal's rows as `journalKey`s: none before the first `migrate`. */
+async function journalOf(client: Connection): Promise<Set<string>> {
+  const { rows } = await client.query<{ present: boolean }>(
+    "select to_regclass('botsdk.__migrations') is not null as present",
+  );
+  if (!rows[0]?.present) return new Set();
+  const journal = await client.query<{ feature: string; migration: string }>(
+    "select feature, migration from botsdk.__migrations",
+  );
+  return new Set(journal.rows.map((row) => journalKey(row.feature, row.migration)));
+}
+
+/**
+ * Runs `use` on one connection of `database`, for work that needs a single session (an advisory
+ * lock): its own client for a connection string, or a client checked out of the Host's pool,
+ * which goes back to the pool afterwards, or is destroyed when `use` throws.
+ */
+export async function withConnection<T>(
+  database: PostgresDatabase,
+  use: (client: Connection) => Promise<T>,
+): Promise<T> {
+  if ("pool" in database) {
+    const client = await database.pool.connect();
+    let result: T;
+    try {
+      result = await use(client);
+    } catch (error) {
+      // Destroyed, not returned: the session may still hold a lock the failure left taken.
+      client.release(error instanceof Error ? error : true);
+      throw error;
+    }
+    client.release();
+    return result;
+  }
+  const client = new pg.Client({ connectionString: database.connectionString });
   await client.connect();
   try {
-    await client.query("select pg_advisory_lock($1)", [MIGRATION_LOCK_ID]);
-    await createChatSchema(client);
-    await createTrigramExtension(client);
-    const assistantKeys = blobStore ? await assistantBlobKeys(client) : [];
-    await applyMigrations(drizzle({ client }), {
-      migrationsFolder: migrationsFolder(),
-      migrationsSchema: "chat",
-      migrationsTable: "__migrations",
-    });
-    await client.query("select pg_advisory_unlock($1)", [MIGRATION_LOCK_ID]);
-    if (blobStore) await deleteAssistantBlobs(assistantKeys, blobStore, logger);
+    return await use(client);
   } finally {
     await client.end();
   }
 }
 
 /**
- * The blob keys of the assistant's Attachments and Generated images, while their tables exist
- * (the contract migration hasn't run); none after.
+ * Runs `work` in a transaction on `client`: commits, or rolls back and rethrows its error. A failed
+ * rollback (a dropped connection) mustn't hide that error.
  */
-async function assistantBlobKeys(client: pg.Client): Promise<string[]> {
-  const keys: string[] = [];
-  for (const [table, prefix] of [
-    ["attachment", "attachment/"],
-    ["generated_image", "generated-image/"],
-  ]) {
-    const { rows } = await client.query<{ present: boolean }>(
-      "select to_regclass($1) is not null as present",
-      [`chat.${table}`],
-    );
-    if (!rows[0]?.present) continue;
-    const ids = await client.query<{ id: string }>(`select id from chat.${table}`);
-    keys.push(...ids.rows.map((row) => prefix + row.id));
+export async function inTransaction(client: Connection, work: () => Promise<void>): Promise<void> {
+  await client.query("begin");
+  try {
+    await work();
+    await client.query("commit");
+  } catch (error) {
+    await client.query("rollback").catch(() => undefined);
+    throw error;
   }
-  return keys;
 }
 
-/**
- * Deletes the assistant's bytes from the Host's store once the migration that dropped their rows
- * has committed, one key at a time so one failure skips only its own key. Logged to the Host's
- * logger, never thrown: a stray object costs storage but no data (ADR 0015).
- */
-async function deleteAssistantBlobs(
-  keys: string[],
-  blobStore: Pick<BlobStore, "delete">,
-  logger: Logger,
-) {
-  let failed = 0;
-  for (const key of keys) {
-    try {
-      await blobStore.delete([key]);
-    } catch (error) {
-      failed += 1;
-      if (failed === 1) logger.error("Deleting an assistant blob failed", error);
-    }
-  }
-  if (failed > 0) {
-    logger.error(`${failed} of the assistant's ${keys.length} blobs are still stored`);
-  }
-}
+/** A connection `withConnection` lends. */
+export type Connection = pg.Client | pg.PoolClient;
 
 /** Only creates the schema when it is missing, so a Host may create it itself with fewer rights. */
-async function createChatSchema(client: pg.Client) {
-  const { rowCount } = await client.query("select 1 from pg_namespace where nspname = 'chat'");
-  if (rowCount === 0) await client.query("create schema chat");
+async function createSchema(client: Connection) {
+  const { rowCount } = await client.query("select 1 from pg_namespace where nspname = 'botsdk'");
+  if (rowCount === 0) await client.query("create schema botsdk");
 }
 
-async function createTrigramExtension(client: pg.Client) {
+async function createTrigramExtension(client: Connection) {
   try {
     await client.query("create extension if not exists pg_trgm");
   } catch (cause) {
@@ -130,29 +179,23 @@ async function createTrigramExtension(client: pg.Client) {
 }
 
 /**
- * Throws unless the journal has applied the bundled latest migration. Only reads, and holds no
- * lock: a run in progress is reported as behind until it finishes.
+ * Throws unless the journal has every migration of the core and of these (the enabled) features.
+ * Only reads, and holds no lock: a run in progress is reported as behind until it finishes.
  */
-export async function assertMigrated(databaseUrl: string): Promise<void> {
-  const latest = folderMillis(LATEST_MIGRATION);
-  const client = new pg.Client({ connectionString: databaseUrl });
-  await client.connect();
-  try {
-    const journal = await client.query<{ present: boolean }>(
-      "select to_regclass('chat.__migrations') is not null as present",
+export async function assertMigrated(
+  database: PostgresDatabase,
+  features: readonly FeatureMigrations[] = [],
+): Promise<void> {
+  // Thrown after the connection is back, so a behind schema doesn't cost the Host's pool one.
+  const behind = (await pendingMigrations(database, features))[0]?.feature;
+  if (behind === "core") {
+    throw new Error(
+      "The `botsdk` schema is behind the bundled migrations: run chat.migrate() before start().",
     );
-    const applied = journal.rows[0]?.present
-      ? await client.query<{ created_at: string | null }>(
-          "select max(created_at) as created_at from chat.__migrations",
-        )
-      : undefined;
-    const appliedUpTo = Number(applied?.rows[0]?.created_at ?? 0);
-    if (appliedUpTo < latest) {
-      throw new Error(
-        "The chat schema is behind the bundled migrations: run chat.migrate() before start().",
-      );
-    }
-  } finally {
-    await client.end();
+  }
+  if (behind !== undefined) {
+    throw new Error(
+      `Feature "${behind}" is behind its migrations: run chat.migrate() with it enabled before start().`,
+    );
   }
 }

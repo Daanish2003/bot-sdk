@@ -73,7 +73,7 @@ async function setup({
   return { owner, deps, client, botId, adapterCredentials };
 }
 
-/** Records spend in `chat.usage` directly, at `createdAt`. */
+/** Records spend in `botsdk.usage` directly, at `createdAt`. */
 async function spend(userId: string, costMicros: number, createdAt: Date) {
   await getTestDb().insert(usage).values({
     id: uuidv7(),

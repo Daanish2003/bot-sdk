@@ -8,6 +8,10 @@ services:
       dockerfile: apps/web/Dockerfile
     image: ai-chat-web
     command: ["node", "scripts/migrate.ts"]
+    # The same env as web: botsdk.config.ts lists its features from E2B_* and MCP_SERVER_*.
+    env_file:
+      - path: apps/web/.env
+        required: false
     environment:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/ai-chat
     depends_on:

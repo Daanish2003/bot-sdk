@@ -1,16 +1,16 @@
 import { primaryKey, text, timestamp } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "../../../../core/server/storage";
+import { botsdkSchema } from "../../../../core/server/storage";
 
 /**
  * A user's OAuth sign-in to one Host MCP server (a Connection, spec #91). One row per user and
  * server key; the `mcp` plugin owns it. A row holds a pending sign-in while the redirect is out, tokens once it finishes,
  * or both while a sign-in is pending again.
  */
-export const mcpConnection = chatSchema.table(
+export const mcpConnection = botsdkSchema.table(
   "mcp_connection",
   {
-    /** The Host's user id, with no foreign key, as everywhere in the `chat` schema. */
+    /** The Host's user id, with no foreign key, as everywhere in the `botsdk` schema. */
     userId: text("user_id").notNull(),
     /** The `key` of the Host's server (`mcp({ servers })`). */
     serverKey: text("server_key").notNull(),

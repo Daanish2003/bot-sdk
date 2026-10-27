@@ -25,6 +25,7 @@ import { insertConversation } from "../../support/conversations";
 import { createTestSdk } from "../../support/deps";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser, type TestUser } from "../../support/users";
+import { postgres } from "../../../core/server/database";
 
 const testKey = "test-key-encryption-secret-not-for-production";
 const providerKey = "sk-ant-secret-never-exported";
@@ -37,7 +38,7 @@ afterEach(stopBotRunners);
 /** The Host's SDK with every Bot-only plugin that exports a part of a user's data. */
 function chatFor() {
   return createBotSdk({
-    databaseUrl: testDatabaseUrl,
+    database: postgres({ connectionString: testDatabaseUrl }),
     keyEncryptionSecrets: [testKey],
     computer: fakeComputerProvider().provider,
     models: {},

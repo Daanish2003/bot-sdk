@@ -75,7 +75,7 @@ export type HostImageModel = {
 
 /**
  * A Tool the Host pays for (ADR 0007): the Host's Tavily key, with a fixed price per search. A
- * search on it is recorded in `chat.usage`, so it counts against the user's Quota.
+ * search on it is recorded in `botsdk.usage`, so it counts against the user's Quota.
  */
 export type HostTool = {
   tool: "tavily";

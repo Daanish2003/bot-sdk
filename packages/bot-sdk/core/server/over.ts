@@ -13,6 +13,7 @@ import {
   type HttpHandlerOptions,
   type ScreenSocketHooks,
 } from "../http";
+import { postgres } from "./database";
 import { enabledFeatures } from "./feature";
 import { enabledPlugins, type BotSdkContext } from "./plugin";
 import { modelsOver } from "../../plugins/models/server/internal";
@@ -53,7 +54,7 @@ export function createBotSdkOver(
 ): { instance: BotSdk; sdk: SdkOver } {
   const slots: BotSdkOptions = {
     ...options,
-    databaseUrl: "",
+    database: postgres({ connectionString: "" }),
     keyEncryptionSecrets: given.context.keyring ?? given.models.keyEncryptionSecrets,
     models: {},
     computer: given.computer,
@@ -120,7 +121,7 @@ function instanceOver(sdk: SdkOver): BotSdk {
   const core = enabledPlugins(sdk).filter(({ id }) => id !== "models" && !featureIds.has(id));
   const { instance } = buildBotSdk(
     {
-      databaseUrl: "",
+      database: postgres({ connectionString: "" }),
       logger: sdk.logger,
       keyEncryptionSecrets: sdk.keyring,
       models: {},

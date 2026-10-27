@@ -1,6 +1,6 @@
 import { index, integer, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "../chat-schema";
+import { botsdkSchema } from "../botsdk-schema";
 
 /**
  * A file the user uploaded to send their Bot (spec #801), until a Message sends it. Its bytes sit
@@ -8,12 +8,12 @@ import { chatSchema } from "../chat-schema";
  * `files` part holds the file from then on. A row no send took is an orphan, deleted with its bytes
  * after 24 hours.
  */
-export const botUpload = chatSchema.table(
+export const botUpload = botsdkSchema.table(
   "bot_upload",
   {
     /** uuidv7, generated in app code; also the file's id in the `files` part. */
     id: uuid("id").primaryKey(),
-    /** The Host's user id, with no foreign key, as everywhere in the `chat` schema. */
+    /** The Host's user id, with no foreign key, as everywhere in the `botsdk` schema. */
     userId: text("user_id").notNull(),
     name: text("name").notNull(),
     mediaType: text("media_type").notNull(),

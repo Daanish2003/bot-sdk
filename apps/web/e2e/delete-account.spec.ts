@@ -26,7 +26,7 @@ async function countRows(table: "bot" | "conversation", userId: string): Promise
   const db = createDb({ DATABASE_URL: e2eDatabaseUrl() });
   try {
     const result = await db.$client.query(
-      `select count(*) as count from chat.${table} where user_id = $1`,
+      `select count(*) as count from botsdk.${table} where user_id = $1`,
       [userId],
     );
     return Number(result.rows[0].count);

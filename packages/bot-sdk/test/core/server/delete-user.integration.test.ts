@@ -21,6 +21,7 @@ import { createFakeAdapter, round, toolCall, withUsage } from "../../support/fak
 import { followSend } from "../../support/follow-send";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser, type TestUser } from "../../support/users";
+import { postgres } from "../../../core/server/database";
 
 const testKey = "test-key-encryption-secret-not-for-production";
 const sonnet = "anthropic:claude-sonnet-5-5";
@@ -118,17 +119,17 @@ describe("deleteUserData, with Bots", () => {
     // The models plugin's step runs after the bot plugin's, and deletes usage last, so a trigger
     // that fails there fails after the user's Bots and credentials are gone.
     await getTestDb().execute(sql`
-      create function chat.fail_usage_delete() returns trigger language plpgsql as $$
+      create function botsdk.fail_usage_delete() returns trigger language plpgsql as $$
       begin raise exception 'injected failure'; end $$`);
     await getTestDb().execute(sql`
-      create trigger fail_usage_delete before delete on chat.usage
-      for each row execute function chat.fail_usage_delete()`);
+      create trigger fail_usage_delete before delete on botsdk.usage
+      for each row execute function botsdk.fail_usage_delete()`);
     try {
       await expect(deleteUserData(deps, owner.id)).rejects.toMatchObject({
         cause: { message: expect.stringContaining("injected failure") },
       });
     } finally {
-      await getTestDb().execute(sql`drop function chat.fail_usage_delete() cascade`);
+      await getTestDb().execute(sql`drop function botsdk.fail_usage_delete() cascade`);
     }
 
     expect(await ownedRows(owner.id)).toEqual(before);
@@ -165,7 +166,7 @@ describe("createBotSdk().users.delete", () => {
     await seedOwner(owner, deps);
     await seedOwner(other, deps);
     const chat = createBotSdk({
-      databaseUrl: testDatabaseUrl,
+      database: postgres({ connectionString: testDatabaseUrl }),
       keyEncryptionSecrets: [testKey],
       models: {},
     });

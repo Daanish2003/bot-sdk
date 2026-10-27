@@ -11,6 +11,7 @@ import { createTestSdk } from "../../support/deps";
 import { chatRpc } from "../../support/sdk";
 import { insertUser, type TestUser } from "../../support/users";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
+import { postgres } from "../../../core/server/database";
 
 // The Host's Image Model is Gemini's, so the tests can tell it from the user's own OpenAI key.
 const hostProviders: HostProvider[] = [
@@ -139,7 +140,7 @@ describe("models.setImageModel", () => {
 describe("createBotSdk().users.export, the models plugin", () => {
   const exportFor = (userId: string) =>
     createBotSdk({
-      databaseUrl: testDatabaseUrl,
+      database: postgres({ connectionString: testDatabaseUrl }),
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       models: {},
     }).users.export({ userId });

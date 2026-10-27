@@ -13,6 +13,7 @@ import {
 } from "./connections";
 import { connectorTools } from "./connector-tools";
 import { mcpConnection } from "./db/connection";
+import mcpMigrations from "./migrations.json" with { type: "json" };
 import { callbackRoute, connectRoute } from "./routes";
 import { disconnectInput, mcpContract } from "../shared/contract";
 import { checkMcpServers, type McpServerConfig } from "./servers";
@@ -54,7 +55,7 @@ export function mcp(options: McpOptions = {}) {
   const servers = options.servers ?? [];
   return defineFeature({
     id: "mcp",
-    schema: { mcpConnection },
+    schema: { tables: { mcpConnection }, migrations: mcpMigrations },
     connectorTools: true,
     contract: mcpContract,
     routes: mcpRoutes(servers),

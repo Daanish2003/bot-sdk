@@ -35,6 +35,7 @@ import { createTestSdk, withPart, type TestDeps } from "../../support/deps";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { fakeComputerProvider } from "../../support/fake-computer-provider";
 import { insertUser, type TestUser } from "../../support/users";
+import { postgres } from "../../../core/server/database";
 
 const testKey = "test-key-encryption-secret-not-for-production";
 
@@ -230,7 +231,7 @@ describe("deleteUser across plugins", () => {
       .insert(modelSettings)
       .values({ userId: owner.id, imageModel: "openai:gpt-image-2" });
     const sdk = createBotSdk({
-      databaseUrl: testDatabaseUrl,
+      database: postgres({ connectionString: testDatabaseUrl }),
       keyEncryptionSecrets: [testKey],
       models: {},
     });
@@ -339,7 +340,7 @@ describe("deleteUser across plugins", () => {
 describe("exportUser across plugins", () => {
   it("has the core's version and timestamp, and the models plugin's section, on an instance of models alone", async () => {
     const options = {
-      databaseUrl: testDatabaseUrl,
+      database: postgres({ connectionString: testDatabaseUrl }),
       keyEncryptionSecrets: [testKey],
       models: {},
     };
@@ -393,7 +394,7 @@ describe("sdk.users on a Host's instance", () => {
       },
     });
     const sdk = createBotSdk({
-      databaseUrl: testDatabaseUrl,
+      database: postgres({ connectionString: testDatabaseUrl }),
       keyEncryptionSecrets: [testKey],
       models: {},
       features: [extra],
@@ -448,7 +449,7 @@ describe("rotateKeys across plugins", () => {
       .values({ userId: user.id, serverKey: "broken", encrypted: "v1:unknown:garbage" });
     const logger = { error: vi.fn() };
     const sdk = createBotSdk({
-      databaseUrl: testDatabaseUrl,
+      database: postgres({ connectionString: testDatabaseUrl }),
       keyEncryptionSecrets: [keyB, keyA],
       logger,
       models: {},

@@ -1,4 +1,4 @@
-import { postgresBlobStore, createDb } from "./storage";
+import { postgresBlobStore, databaseOf } from "./storage";
 import type { BlobStore } from "./storage";
 import { handleConversationEvents } from "./chat/conversation-events";
 import { createHookEmitter } from "./chat/hooks";
@@ -7,11 +7,13 @@ import {
   checkFeature,
   contextOf,
   enableFeature,
+  featureMigrations,
   featurePlugin,
   featureRouter,
   type AnyFeature,
   type FeatureApis,
 } from "./feature";
+import type { PostgresDatabase } from "./database";
 import { assertMigrated, migrate as migrateSchema } from "./migrate";
 import {
   mergeRateLimits,
@@ -79,7 +81,12 @@ export type UsersSlot = {
  * and infrastructure goes in flat adapter slots, each with a default.
  */
 export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly FeatureEntry[]> = {
-  databaseUrl: string;
+  /**
+   * The Postgres the SDK keeps its data in: `postgres({ connectionString })`, or
+   * `postgres({ pool })` with the Host's own node-postgres-compatible pool (`pg`, Neon serverless).
+   * The SDK ends only a pool it opened (on `stop()`), and listens for `error` only on that one.
+   */
+  database: PostgresDatabase;
   /**
    * The keyring (ADR 0010), at least one secret. The first encrypts Provider and Tool credentials
    * at rest; every entry decrypts, so a key can be added in front of the old one.
@@ -102,7 +109,7 @@ export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly Fe
    */
   fetchAllowHosts?: string[];
   /**
-   * Where file bytes are kept (ADR 0015). Defaults to a `chat.blob` table in the same database;
+   * Where file bytes are kept (ADR 0015). Defaults to a `botsdk.blob` table in the same database;
    * a Host with object storage passes its store, and then the bytes of files already stored
    * stay where they are.
    */
@@ -184,17 +191,21 @@ export type BotSdk = {
   reviews: ReviewsApi;
   /** The core's Channels (spec #871): the inbound handler of each adapter in the channels slot. */
   channels: ChannelApi;
-  /** Creates the `chat` schema and applies the bundled migrations. Run it at deploy time. */
+  /**
+   * Creates the `botsdk` schema and applies the core's and the enabled features' migrations that
+   * aren't applied yet (spec #874). A feature turned off keeps its tables. Run it at deploy time.
+   */
   migrate: () => Promise<void>;
   /**
-   * Refuses (throws) while the `chat` schema is behind the bundled migrations; then starts the
+   * Refuses (throws) while the core's or an enabled feature's migrations aren't all applied; then starts the
    * core's parts, in order. `models` refuses with neither `hostProviders` nor `byok` on; the
    * runner starts its job reaper and the jobs runner (ADR 0011).
    */
   start: () => Promise<void>;
   /**
    * Sets `stopping`, stops the core's parts in reverse order, then closes the runtime's
-   * connections. The runner drains its jobs for up to 250 s, then aborts the rest and waits up to
+   * connections and ends the pool the SDK opened from a connection string (a Host's own pool is
+   * left open). The runner drains its jobs for up to 250 s, then aborts the rest and waits up to
    * 250 s more for their handlers to end. A part whose stop throws doesn't stop the others; its
    * error is rethrown once the runtime closes. Call it on SIGTERM.
    */
@@ -341,6 +352,7 @@ export function buildBotSdk(
 
   // Building the context opens nothing: the pool and the runtime connect on first use.
   const sdk = buildContext(options, given) as BotSdkContext;
+  const ownsPool = !given.db && !("pool" in options.database);
   // The core services, over the context they belong to, before any part's `init` runs.
   const runner = createRunner(sdk, options.runner, given.jobs);
   sdk.runner = runner.api;
@@ -375,13 +387,9 @@ export function buildBotSdk(
     demonstrations: sdk.demonstrations,
     reviews: sdk.reviews,
     channels: sdk.channels,
-    migrate: () =>
-      migrateSchema(options.databaseUrl, {
-        blobStore: options.blobs,
-        logger: options.logger,
-      }),
+    migrate: () => migrateSchema(options.database, featureMigrations(features)),
     start: async () => {
-      await assertMigrated(options.databaseUrl);
+      await assertMigrated(options.database, featureMigrations(features));
       if (!options.pubsub && !given.runtime && !given.pubsub) {
         const logger = options.logger ?? console;
         const warning =
@@ -412,7 +420,14 @@ export function buildBotSdk(
       } catch (error) {
         errors.push(error);
       }
-      await options.pubsub?.close?.();
+      try {
+        await options.pubsub?.close?.();
+      } catch (error) {
+        errors.push(error);
+      }
+      // The pool the SDK opened from a connection string is its own to end, once, even when stop()
+      // overlaps itself; a Host's pool is the Host's.
+      if (ownsPool && !sdk.db.$client.ending) await sdk.db.$client.end();
       if (errors.length === 1) throw errors[0];
       if (errors.length > 1) throw new AggregateError(errors, "Several parts failed to stop");
     },
@@ -462,7 +477,7 @@ function buildContext(
   given: GivenContext,
 ): Omit<BotSdkContext, "runner" | "computer" | "channels" | "parts"> {
   const logger = options.logger ?? console;
-  const db = given.db ?? createDb({ DATABASE_URL: options.databaseUrl }, logger);
+  const db = given.db ?? databaseOf(options.database, logger);
   const runtime = given.runtime ?? options.pubsub ?? memoryRuntime();
   const counters = given.counters ?? runtime.counters;
   const fetchAllowHosts = given.fetchAllowHosts ?? options.fetchAllowHosts ?? [];

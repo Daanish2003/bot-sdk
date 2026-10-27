@@ -11,6 +11,7 @@ import { createTestChat } from "../../support/sdk";
 import { createFakeMcpAuth, fakeMcpResource } from "../../support/fake-mcp-auth";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser, type TestUser } from "../../support/users";
+import { postgres } from "../../../core/server/database";
 
 const clientId = "ai-chat-test";
 const clientSecret = "test-client-secret";
@@ -49,7 +50,7 @@ async function startConnect(user: TestUser, deps: ReturnType<typeof depsWith>) {
 describe("mcp({ servers })", () => {
   it("refuses a server URL that isn't HTTPS", () => {
     const options: BotSdkOptions = {
-      databaseUrl: testDatabaseUrl,
+      database: postgres({ connectionString: testDatabaseUrl }),
       keyEncryptionSecrets: [testKeyEncryptionSecret],
       models: {},
       features: [mcp({ servers: [{ ...linear, url: "http://mcp.test/mcp" }] })],

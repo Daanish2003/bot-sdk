@@ -1,12 +1,12 @@
 import { type AnyPgColumn, jsonb, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "../chat-schema";
+import { botsdkSchema } from "../botsdk-schema";
 import type { RoutineSchedule } from "../../../../plugins/bot/shared/routine";
 import { bot } from "./bot";
 import { botTurn } from "./bot-turn";
 
 /** How a Routine stands: `pending` until the user's Approval, then `active` or `paused`. */
-export const botRoutineState = chatSchema.enum("bot_routine_state", [
+export const botRoutineState = botsdkSchema.enum("bot_routine_state", [
   "pending",
   "active",
   "paused",
@@ -16,7 +16,7 @@ export const botRoutineState = chatSchema.enum("bot_routine_state", [
  * A Routine (#537): a prompt one Bot runs on a schedule, created by the Bot from its Conversation
  * and run only once the user approves it.
  */
-export const botRoutine = chatSchema.table(
+export const botRoutine = botsdkSchema.table(
   "bot_routine",
   {
     /** uuidv7, generated in app code. */

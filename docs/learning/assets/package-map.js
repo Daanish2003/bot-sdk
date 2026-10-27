@@ -90,7 +90,7 @@
       x: 545,
       y: 340,
       w: 190,
-      job: "The Host's own tables (Better Auth, Quota). Not the chat tables: those live in core/server/db, in the chat schema.",
+      job: "The Host's own tables (Better Auth, Quota). Not the Bot SDK's tables: those live in packages/bot-sdk (core/server/storage and each feature's), in the botsdk schema.",
     },
   ];
   const H = 44;

@@ -1,1 +1,0 @@
-ALTER TABLE "chat"."conversation" ADD COLUMN "temporary" boolean DEFAULT false NOT NULL;

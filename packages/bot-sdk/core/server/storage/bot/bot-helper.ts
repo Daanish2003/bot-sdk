@@ -9,20 +9,20 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "../chat-schema";
+import { botsdkSchema } from "../botsdk-schema";
 import { job } from "../runner/job";
 import type { MessageUsage } from "../../../../plugins/models/shared/usage";
 import { bot } from "./bot";
 import { botTurn } from "./bot-turn";
 
 /** What a Helper works with: the Shell and Files, or a Screen's browser and desktop (#565). */
-export const botHelperType = chatSchema.enum("bot_helper_type", ["general", "computer_use"]);
+export const botHelperType = botsdkSchema.enum("bot_helper_type", ["general", "computer_use"]);
 
 /**
  * How a Helper stands: `running`, `waiting` for the user at a hand-off (Computer-use only), then it
  * ends `complete`, `error` or `stopped`.
  */
-export const botHelperStatus = chatSchema.enum("bot_helper_status", [
+export const botHelperStatus = botsdkSchema.enum("bot_helper_status", [
   "running",
   "waiting",
   "complete",
@@ -35,7 +35,7 @@ export const botHelperStatus = chatSchema.enum("bot_helper_status", [
  * fresh context. It outlives the Turn that started it, and its finish reaches the Bot as a `helper`
  * Trigger. Shaped like `bot_turn`.
  */
-export const botHelper = chatSchema.table(
+export const botHelper = botsdkSchema.table(
   "bot_helper",
   {
     /** uuidv7, generated in app code. */
@@ -70,7 +70,7 @@ export const botHelper = chatSchema.table(
  * A Message from the Bot to one of its Helpers (#566), from `message_helper`. The Helper reads the
  * undelivered ones before its next model call, in an `inbox` activity that sets `deliveredAt`.
  */
-export const botHelperMessage = chatSchema.table(
+export const botHelperMessage = botsdkSchema.table(
   "bot_helper_message",
   {
     /** uuidv7, generated in app code. */
@@ -91,7 +91,7 @@ export const botHelperMessage = chatSchema.table(
  * `screenshot/<id>`, stored once; the Helper's transcript and its `computer` Checkpoints hold only
  * the id. The row goes with its Helper, so a delete reads the keys first (ADR 0015).
  */
-export const botHelperScreenshot = chatSchema.table(
+export const botHelperScreenshot = botsdkSchema.table(
   "bot_helper_screenshot",
   {
     /** uuidv7, generated in app code. */

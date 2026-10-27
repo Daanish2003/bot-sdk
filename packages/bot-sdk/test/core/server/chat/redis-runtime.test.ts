@@ -12,6 +12,7 @@ import { createRedisPubSub } from "../../../../core/server/chat/redis-pubsub";
 import { redisRuntime } from "../../../../core/server/runtime";
 import { counterStoreContract } from "./counters.contract";
 import { pubsubContract } from "./pubsub.contract";
+import { postgres } from "../../../../core/server/database";
 
 /**
  * The Redis suites need a real Redis: set `TEST_REDIS_URL` (for example
@@ -87,7 +88,9 @@ describe("redisRuntime without Redis", () => {
     try {
       const runtime = redisRuntime({ url: server.url });
       createBotSdk({
-        databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
+        database: postgres({
+          connectionString: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
+        }),
         keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
         pubsub: runtime,
         models: {},
@@ -105,7 +108,9 @@ describe("redisRuntime without Redis", () => {
     try {
       const runtime = redisRuntime({ url: server.url });
       const chat = createBotSdk({
-        databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
+        database: postgres({
+          connectionString: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
+        }),
         keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
         pubsub: runtime,
         models: {},

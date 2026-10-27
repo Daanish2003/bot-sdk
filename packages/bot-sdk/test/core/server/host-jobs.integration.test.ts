@@ -10,8 +10,9 @@ import {
   type Database,
 } from "../../../core/server/index";
 import { buildBotSdk, type BotSdk } from "../../../core/server/create-chat";
-import { createDb, job, jobEvent } from "../../../core/server/storage";
+import { databaseOf, job, jobEvent } from "../../../core/server/storage";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
+import { postgres } from "../../../core/server/database";
 
 /*
  * The public `defineJob` (spec #872): a Host registers its own jobs through the factory's `jobs`
@@ -19,7 +20,7 @@ import { getTestDb, testDatabaseUrl } from "../../support/test-database";
  */
 
 const poll = { timeout: 10_000 };
-const note = pgSchema("chat").table("test_host_note", {
+const note = pgSchema("botsdk").table("test_host_note", {
   id: text("id").primaryKey(),
   text: text("text").notNull(),
 });
@@ -54,7 +55,7 @@ const instances: BotSdk[] = [];
 function hostSdk(options: Partial<BotSdkOptions> = {}): BotSdk {
   const { instance } = buildBotSdk(
     {
-      databaseUrl: testDatabaseUrl,
+      database: postgres({ connectionString: testDatabaseUrl }),
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       logger: { error: () => {} },
       models: {},
@@ -73,7 +74,7 @@ const notes = async () =>
 
 beforeAll(async () => {
   await getTestDb().execute(
-    sql`create table if not exists chat.test_host_note (id text primary key, text text not null)`,
+    sql`create table if not exists botsdk.test_host_note (id text primary key, text text not null)`,
   );
 });
 
@@ -88,7 +89,7 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  await getTestDb().execute(sql`drop table if exists chat.test_host_note`);
+  await getTestDb().execute(sql`drop table if exists botsdk.test_host_note`);
 });
 
 describe("a Host job registered through the factory", () => {
@@ -143,7 +144,7 @@ describe("a Host job registered through the factory", () => {
       await sdk.start();
       // Another pool on the same database: its transactions aren't the SDK's, so nothing notifies
       // the Executor and the in-process poll picks the job up.
-      const hostDb = createDb({ DATABASE_URL: testDatabaseUrl });
+      const hostDb = databaseOf(postgres({ connectionString: testDatabaseUrl }));
       try {
         const committed = await hostDb.transaction((tx) =>
           sdk.runner.enqueueIn(tx, "host.note", { id: "own", text: "x" }),

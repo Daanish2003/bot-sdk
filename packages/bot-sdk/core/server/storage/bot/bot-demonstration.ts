@@ -8,7 +8,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "../chat-schema";
+import { botsdkSchema } from "../botsdk-schema";
 import { conversation } from "../schema";
 import { bot } from "./bot";
 
@@ -17,7 +17,7 @@ import { bot } from "./bot";
  * then `drafting` once they tap Done, and `saved` with its Skill, or `failed`. Cancel, while it
  * records or is paused, ends it `cancelled`.
  */
-export const botDemonstrationState = chatSchema.enum("bot_demonstration_state", [
+export const botDemonstrationState = botsdkSchema.enum("bot_demonstration_state", [
   "recording",
   "paused",
   "drafting",
@@ -31,7 +31,7 @@ export const botDemonstrationState = chatSchema.enum("bot_demonstration_state", 
  * watches, started by the Bot's `watch_user`. It holds the Screen while it records or is paused,
  * and outlives the Turn that started it. The row stays as a record once it ends.
  */
-export const botDemonstration = chatSchema.table(
+export const botDemonstration = botsdkSchema.table(
   "bot_demonstration",
   {
     /** uuidv7, generated in app code. */
@@ -39,7 +39,7 @@ export const botDemonstration = chatSchema.table(
     botId: uuid("bot_id")
       .notNull()
       .references((): AnyPgColumn => bot.id, { onDelete: "cascade" }),
-    /** The Host's user id, with no foreign key, as everywhere in the `chat` schema. */
+    /** The Host's user id, with no foreign key, as everywhere in the `botsdk` schema. */
     userId: text("user_id").notNull(),
     /** The Bot's Conversation, where its Show me card is. */
     conversationId: uuid("conversation_id")
@@ -66,7 +66,7 @@ export const botDemonstration = chatSchema.table(
  * page loaded in the top frame), or `pause`, the mark where the user paused, which the step list
  * shows as the gap and the cap doesn't count.
  */
-export const botDemonstrationEventKind = chatSchema.enum("bot_demonstration_event_kind", [
+export const botDemonstrationEventKind = botsdkSchema.enum("bot_demonstration_event_kind", [
   "click",
   "input",
   "change",
@@ -80,7 +80,7 @@ export const botDemonstrationEventKind = chatSchema.enum("bot_demonstration_even
  * Chrome, with the screenshot the server took of it. A password field's value is stored masked,
  * and no screenshot is taken for it. Nothing is stored while the Demonstration is paused.
  */
-export const botDemonstrationEvent = chatSchema.table(
+export const botDemonstrationEvent = botsdkSchema.table(
   "bot_demonstration_event",
   {
     /** uuidv7, generated in app code. */

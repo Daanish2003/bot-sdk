@@ -10,11 +10,11 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "../chat-schema";
+import { botsdkSchema } from "../botsdk-schema";
 import type { HistoryKind } from "../../../../plugins/runner/server/internal";
 
 /** Where a background job is. `queued` and `running` are active (ADR 0011). */
-export const jobStatus = chatSchema.enum("job_status", [
+export const jobStatus = botsdkSchema.enum("job_status", [
   "queued",
   "running",
   "succeeded",
@@ -27,7 +27,7 @@ export const jobStatus = chatSchema.enum("job_status", [
  * backoff through `run_after`, and failed once its attempts are used up. No foreign keys: a job
  * names its own rows through its payload.
  */
-export const job = chatSchema.table(
+export const job = botsdkSchema.table(
   "job",
   {
     /** uuidv7, generated in app code. */
@@ -66,7 +66,7 @@ export type JobRow = typeof job.$inferSelect;
  * retried or re-claimed job replays its code against these rows and carries on after the last one.
  * Pruning the job removes them.
  */
-export const jobEvent = chatSchema.table(
+export const jobEvent = botsdkSchema.table(
   "job_event",
   {
     jobId: uuid("job_id")

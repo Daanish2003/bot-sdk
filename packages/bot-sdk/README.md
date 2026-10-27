@@ -112,21 +112,49 @@ The `runner` and `memory` plugins and the `skills` feature need nothing beyond `
 ## Postgres
 
 - The database needs the `pg_trgm` extension. `chat.migrate()` runs `CREATE EXTENSION IF NOT EXISTS pg_trgm` before its migrations and fails naming it, so a role allowed to create extensions (or a database that already has it) is needed.
-- The SDK's tables live in the `chat` schema of the Host's database, not in your ORM's schema. Your ORM's migrations never touch them.
-- The SDK's migrations are expand-then-contract: they add tables, columns and indexes, and never drop or rename one in the same release. The version still running during a deploy keeps working against the migrated schema.
+- The `database` slot takes `postgres({ connectionString })`, and the SDK opens its own pool on first use, or `postgres({ pool })` with your own node-postgres-compatible pool (`pg`, or a Neon serverless `Pool`). The SDK owns only the pool it opened: it listens for that pool's `error` events (an idle connection Postgres closed is logged to `logger`, not thrown) and ends it in `stop()`. Your own pool it only queries through: it adds no listener (handle `error` on it yourself, or an idle connection's failure crashes the process) and never ends it. `migrate()` holds a session advisory lock on one of its connections, so the pool must reach Postgres directly or through a session-mode pooler, not a transaction-mode one (PgBouncer in transaction mode, Neon's `-pooler` host).
+- The SDK's tables live in the `botsdk` schema of the Host's database, not in your ORM's schema. Your ORM's migrations never touch them.
+- The core and each feature ship their own migrations. `migrate()` applies the core's, then each enabled feature's in your `features` order, and records each one in `botsdk.__migrations` by feature and name, so enabling a feature later applies only its migrations. Turning a feature off leaves its tables and rows as they are. A feature you write with `defineFeature` lists its tables and its SQL migrations, oldest first, in `schema: { tables, migrations: [{ name, sql }] }`; its tables may have foreign keys into the core's, since the core migrates first.
+- The SDK's migrations are expand-then-contract: they add tables, columns and indexes, and never drop or rename one in the same release. The version still running during a deploy keeps working against the migrated schema. The one exception is the move to the `botsdk` schema and its fresh baseline: data in the old `chat` schema is not carried over.
+
+### Migrating: `botsdk migrate`
+
+The package's `botsdk` bin migrates from a config module, by default `botsdk.config.ts` in the working directory. Its default export is the options you pass `createBotSdk` (at least `database` and `features`), so the server and the migration read one list of features:
+
+```ts
+// botsdk.config.ts
+import { postgres } from "@ai-chat/bot-sdk/core/server";
+import { mcp } from "@ai-chat/bot-sdk/plugins/mcp/server";
+import { memory } from "@ai-chat/bot-sdk/plugins/memory/server";
+
+export default {
+  database: postgres({ connectionString: process.env.DATABASE_URL! }),
+  features: [mcp({ servers })],
+};
+
+// optional: features you once enabled, whose tables `--drop` may remove
+export const disabled = [memory()];
+
+// server: createBotSdk({ ...config, keyEncryptionSecrets, models, ... })
+```
+
+- `botsdk migrate [--config <file>]` does what `chat.migrate()` does for the config's features.
+- `--print` applies nothing: it writes the pending SQL to stdout (the schema, `pg_trgm`, the journal, then each pending migration in its own transaction with its `botsdk.__migrations` row), for a Host that applies SQL with its own tool.
+- `--drop <feature>` removes a disabled feature's tables, the enums and sequences they used that nothing else uses, and its journal rows, so enabling it again migrates it from its baseline. The feature must be in the module's `disabled` export (it refuses one the default export enables). With `--print`, it writes that SQL instead. It deletes data, so it never runs on its own; `dropFeatureTables(database, feature, enabled)` from `core/server` does the same from code.
+- The bin loads the config with Node's type stripping and a resolve hook for extensionless relative imports, so a config in TypeScript needs no build step.
 
 ## File storage: `blobs`
 
 File bytes go to a `BlobStore`, which `createBotSdk({ blobs })` takes: the files a user sends their Bot and the files a Bot sends back. Names, types, sizes and owners stay in Postgres either way. The store holds bytes only, under keys the SDK makes up, such as `bot-file/<id>`.
 
-- **`postgresBlobStore()`** is the default: bytes in the `chat.blob` table of your database. Leave `blobs` out and nothing changes.
+- **`postgresBlobStore()`** is the default: bytes in the `botsdk.blob` table of your database. Leave `blobs` out and nothing changes.
 - **`s3BlobStore({ endpoint, bucket, region, accessKeyId, secretAccessKey, forcePathStyle? })`** keeps bytes in any S3-compatible bucket, such as Cloudflare R2 (`region: "auto"`) or RustFS. It needs an existing bucket: the store never creates one, so the app needs no bucket-admin rights. It is built on `aws4fetch`, and `forcePathStyle` defaults to `true`.
 
 ```ts
-import { createBotSdk, s3BlobStore } from "@ai-chat/bot-sdk/core/server";
+import { createBotSdk, postgres, s3BlobStore } from "@ai-chat/bot-sdk/core/server";
 
 const chat = createBotSdk({
-  databaseUrl,
+  database: postgres({ connectionString: databaseUrl }),
   keyEncryptionSecrets,
   models: {},
   blobs: s3BlobStore({
@@ -150,7 +178,7 @@ const chat = createBotSdk({
 // `mcp(...)`, a background jobs runner to the `runner` slot, and the Computer's provider to the
 // `computer` slot
 const chat = createBotSdk({
-  databaseUrl,
+  database: postgres({ connectionString: databaseUrl }),
   keyEncryptionSecrets,
   computer: e2bProvider({ apiKey, apiUrl, sandboxUrl, template }),
   models: {},
@@ -206,14 +234,14 @@ const client = createBotSdkClient({
 - The `router` adapter maps the SDK's pages (`keys`, and `bots` with an optional Bot `id`) to your URLs. It provides `Link` and `navigate(page)`. Pass your own TanStack Query client as `queryClient` if you have one; otherwise the provider creates its own.
 - The Bots app is `BotsApp` from `plugins/bot/ui`, with the Host's account menu at the foot of its sidebar (`accountMenu`); the keys page is `KeySettingsPage` from `plugins/models/ui`.
 - `GET <basePath>/export` answers the signed-in user's export as a JSON download (`chat-export-<date>.json`), the same document as `users.export`. The `ExportDataButton` in `ui/settings/export-data-button.tsx` calls it.
-- `start()` refuses to run while the `chat` schema is behind the bundled migrations.
-- `stop()` stops the plugins (the runner takes no new jobs and waits for the running ones), then closes the runtime's connections.
+- `start()` refuses to run while the core's or an enabled feature's migrations aren't all applied.
+- `stop()` stops the plugins (the runner takes no new jobs and waits for the running ones), then closes the runtime's connections and ends the database pool the SDK opened from a connection string (never your own pool).
 
 ## Background jobs: `runner`
 
 The runner is part of the core: it runs the background work (ADR 0011), Bot Turns, Routines, Check-ins and Memory passes. A Host lists nothing for it.
 
-The `runner` slot (`createBotSdk({ runner })`) takes the runner for background work. The default is the in-process runner: it keeps jobs in the `chat.job` table, which the `chat` schema already has, polls it every 2 s, runs two jobs at once and retries a failed job up to three times, after about 10 s and 1 min. `start()` starts it, and `stop()` takes no new jobs and waits for the running ones. Nothing else to configure, and no second database.
+The `runner` slot (`createBotSdk({ runner })`) takes the runner for background work. The default is the in-process runner: it keeps jobs in the `botsdk.job` table, which the `botsdk` schema already has, polls it every 2 s, runs two jobs at once and retries a failed job up to three times, after about 10 s and 1 min. `start()` starts it, and `stop()` takes no new jobs and waits for the running ones. Nothing else to configure, and no second database.
 
 A custom runner is any object with `enqueue(name, payload, options?)`, `start()` and `stop()`, and it takes the place of the default.
 
@@ -507,7 +535,7 @@ The processes of your app share signals (the data-less hints that a Bot's thread
 
 ```ts
 const chat = createBotSdk({
-  databaseUrl,
+  database: postgres({ connectionString: databaseUrl }),
   keyEncryptionSecrets,
   models: {},
   pubsub: redisRuntime({ url: process.env.REDIS_URL! }),
@@ -555,7 +583,7 @@ Three modes, chosen by those two options:
 
 ```ts
 const chat = createBotSdk({
-  databaseUrl,
+  database: postgres({ connectionString: databaseUrl }),
   keyEncryptionSecrets,
   models: {
     hostProviders: [

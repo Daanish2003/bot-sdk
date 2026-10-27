@@ -1,21 +1,14 @@
 import { defineConfig } from "drizzle-kit";
 import "varlock/auto-load";
 
-// The SDK's own tables, in the fixed `chat` schema. Better Auth's tables are packages/db's.
+// The core's tables, in the fixed `botsdk` schema. Better Auth's tables are packages/db's. Each
+// feature with tables has its own config beside its schema (`plugins/<id>/drizzle.config.ts`), so
+// its migrations are its own (spec #874); `pnpm db:generate` runs them all.
 export default defineConfig({
-  // A feature's tables are listed beside the core's: they are not part of its composed schema.
-  schema: [
-    "./core/server/storage/schema.ts",
-    "./plugins/mcp/server/db/connection.ts",
-    "./plugins/memory/server/schema.ts",
-  ],
+  schema: "./core/server/storage/schema.ts",
   out: "./core/server/migrations",
   dialect: "postgresql",
-  schemaFilter: ["chat"],
-  migrations: {
-    table: "__migrations",
-    schema: "chat",
-  },
+  schemaFilter: ["botsdk"],
   dbCredentials: {
     url: process.env.DATABASE_URL || "",
   },

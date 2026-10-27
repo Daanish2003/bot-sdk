@@ -6,6 +6,7 @@ export {
   type Logger,
   type UsersSlot,
 } from "./create-chat";
+export { postgres, type PostgresDatabase, type PostgresPool } from "./database";
 export type { UserExport, UsersApi } from "./user-data";
 export type { BotSdkContext, Route, Transaction } from "./plugin";
 export {
@@ -18,6 +19,7 @@ export {
   type FeaturePromptTurn,
   type FeatureTurn,
 } from "./feature";
+export { dropFeatureTables, type MigrateConfigModule } from "./migrate-cli";
 export {
   defineJob,
   type JobContext,
@@ -34,7 +36,7 @@ export {
 export { redisStore, type RedisStore } from "./chat/redis-store";
 export type { PubSub } from "./chat/pubsub";
 export type { RateLimit, RateLimits } from "./rate-limits";
-export { createDb, type Database } from "./storage";
+export type { Database } from "./storage";
 export type { BlobStore } from "./storage";
 export { postgresBlobStore } from "./storage";
 export { s3BlobStore, type S3BlobStoreOptions } from "./storage";

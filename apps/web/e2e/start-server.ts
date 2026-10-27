@@ -35,7 +35,7 @@ async function createDatabaseIfMissing() {
   }
 }
 
-/** The app's own migrate script: Better Auth's tables, then the chat schema. */
+/** The app's own migrate script: Better Auth's tables, then the `botsdk` schema. */
 async function runMigrateScript() {
   execFileSync(
     process.execPath,
@@ -47,14 +47,14 @@ async function runMigrateScript() {
   );
 }
 
-/** Empties the app's tables and the chat schema's, but not the chat migration journal. */
+/** Empties the app's tables and the `botsdk` schema's, but not the SDK's migration journal. */
 async function empty() {
   // Drizzle opens its own pool: it doesn't recognise a client from another copy of `pg`.
   const db = drizzle(databaseUrl);
   try {
     const { rows } = await db.$client.query(
       `select schemaname, tablename from pg_tables
-       where schemaname = 'public' or (schemaname = 'chat' and tablename <> '__migrations')`,
+       where schemaname = 'public' or (schemaname = 'botsdk' and tablename <> '__migrations')`,
     );
     const tables = rows.map(
       ({ schemaname, tablename }: { schemaname: string; tablename: string }) =>

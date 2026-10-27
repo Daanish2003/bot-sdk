@@ -1,6 +1,6 @@
 /**
  * What wakes up and runs a due job (ADR 0029, #862): the runner's one seam. The core keeps
- * everything that makes Checkpoints exactly-once (history replay, `chat.job`, leases and the
+ * everything that makes Checkpoints exactly-once (history replay, `botsdk.job`, leases and the
  * attempt fence, retries, transactional enqueue and cancel, pruning, abort), whatever the Executor.
  *
  * - `start(run)` hands the Executor the core's entry point. `run(jobId)` claims the job's lease and

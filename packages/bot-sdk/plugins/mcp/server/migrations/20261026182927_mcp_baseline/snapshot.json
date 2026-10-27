@@ -1,0 +1,127 @@
+{
+  "version": "8",
+  "dialect": "postgres",
+  "id": "9690daac-8827-44d8-bca0-655995bed353",
+  "prevIds": ["00000000-0000-0000-0000-000000000000"],
+  "ddl": [
+    {
+      "isRlsEnabled": false,
+      "name": "mcp_connection",
+      "entityType": "tables",
+      "schema": "botsdk"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "mcp_connection"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "server_key",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "mcp_connection"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "encrypted",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "mcp_connection"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "scopes",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "mcp_connection"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "pending_state",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "mcp_connection"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "pending_encrypted",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "mcp_connection"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "mcp_connection"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "mcp_connection"
+    },
+    {
+      "columns": ["user_id", "server_key"],
+      "nameExplicit": false,
+      "name": "mcp_connection_pkey",
+      "entityType": "pks",
+      "schema": "botsdk",
+      "table": "mcp_connection"
+    }
+  ],
+  "renames": []
+}

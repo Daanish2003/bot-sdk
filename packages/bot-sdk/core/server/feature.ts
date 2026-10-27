@@ -14,6 +14,7 @@ import { schema as coreTables } from "./storage";
 import type { Database } from "./storage";
 import type { BotSdk } from "./create-chat";
 import type { Context } from "./context";
+import type { FeatureMigrations, Migration } from "./migrate";
 import type { BotSdkContext, BotSdkPlugin, Route, Transaction } from "./plugin";
 import { requireAuth } from "./procedures";
 import type { ComputerApi } from "../../plugins/computer/server/internal";
@@ -168,10 +169,12 @@ export type FeatureDefinition<
   /** The core services the feature uses. The factory throws when one isn't configured. */
   needs?: readonly Needs[];
   /**
-   * The feature's own tables. Foreign keys into core tables are allowed; a table named like a core
-   * table (which would add columns to it) makes the factory throw.
+   * The feature's own tables, for its queries, and the SQL migrations that create them, oldest
+   * first (spec #874): `migrate` applies them after the core's, and `start` refuses until they are.
+   * Foreign keys into core tables are allowed; a table named like a core table (which would add
+   * columns to it) makes the factory throw. Turning the feature off leaves its tables and rows.
    */
-  schema?: Record<string, PgTable>;
+  schema?: { tables?: Record<string, PgTable>; migrations?: readonly Migration[] };
   /** User-scoped methods: each takes the user's id. The Host calls them as `sdk.<id>.<method>`. */
   api?: (context: FeatureContext<Needs>) => Api;
   /**
@@ -346,7 +349,7 @@ export function checkFeature(feature: AnyFeature, services: ReadonlySet<string>)
   ) {
     throw new Error(`Feature id "${feature.id}" is reserved by the core`);
   }
-  for (const table of Object.values(feature.schema ?? {})) {
+  for (const table of Object.values(feature.schema?.tables ?? {})) {
     const { name } = getTableConfig(table);
     if (coreTableNames.has(name)) {
       throw new Error(
@@ -373,6 +376,11 @@ export type EnabledFeature = {
 /** The instance's enabled features, in the order the Host listed them. */
 export function enabledFeatures(sdk: Pick<BotSdkContext, "parts">): readonly EnabledFeature[] {
   return sdk.parts.features;
+}
+
+/** Each feature's migrations, under its id, in the order given: what `migrate` applies. */
+export function featureMigrations(features: readonly AnyFeature[]): FeatureMigrations[] {
+  return features.map(({ id, schema }) => ({ feature: id, migrations: schema?.migrations ?? [] }));
 }
 
 /** Whether an enabled feature gives Connector tools (`mcp`). */

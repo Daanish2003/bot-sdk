@@ -5,8 +5,10 @@ import { sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Client } from "pg";
 
-import { createDb, type Database } from "../../core/server/storage";
-import { migrate as migrateChatSchema } from "../../core/server/migrate";
+import { databaseOf, type Database } from "../../core/server/storage";
+import { postgres } from "../../core/server/database";
+import { migrate as migrateBotSdk } from "../../core/server/migrate";
+import { sdkFeatureMigrations } from "../../scripts/migration-parts";
 
 const DEFAULT_TEST_DATABASE_URL = "postgresql://postgres:password@localhost:5432/ai-chat_test";
 
@@ -40,22 +42,24 @@ export const testDatabaseUrl = process.env.VITEST_POOL_ID
   ? workerDatabaseUrl(process.env.VITEST_POOL_ID)
   : baseTestDatabaseUrl;
 
-/** Better Auth's tables are in `public`; the chat tables reference none of them. */
+/** Better Auth's tables are in `public`; the SDK's tables reference none of them. */
 const authMigrationsFolder = fileURLToPath(new URL("../../../db/src/migrations", import.meta.url));
 
 /**
- * Creates the configured test database if it is missing and applies every migration, then makes
- * one copy of it per worker (`<test database>_r<run>_w1` … `_w<workers>`).
+ * Creates the configured test database if it is missing and applies every migration (the core's and
+ * every SDK feature's), then makes one copy of it per worker (`<test database>_r<run>_w1` …
+ * `_w<workers>`).
  */
 export async function prepareTestDatabases(workers: number) {
   await createDatabaseIfMissing(baseTestDatabaseUrl);
-  const db = createDb({ DATABASE_URL: baseTestDatabaseUrl });
+  const db = databaseOf(postgres({ connectionString: baseTestDatabaseUrl }));
   try {
     await migrate(db, { migrationsFolder: authMigrationsFolder });
   } finally {
     await db.$client.end();
   }
-  await migrateChatSchema(baseTestDatabaseUrl);
+  // Every SDK feature's tables, so any test may enable any feature.
+  await migrateBotSdk(postgres({ connectionString: baseTestDatabaseUrl }), sdkFeatureMigrations());
 
   const template = quoteIdentifier(databaseName(baseTestDatabaseUrl));
   const client = await serverClient(baseTestDatabaseUrl);
@@ -152,7 +156,7 @@ let db: Database | undefined;
 
 /** One connection pool to the test database per test file. */
 export function getTestDb(): Database {
-  db ??= createDb({ DATABASE_URL: testDatabaseUrl });
+  db ??= databaseOf(postgres({ connectionString: testDatabaseUrl }));
   return db;
 }
 
@@ -162,13 +166,13 @@ export async function closeTestDb() {
 }
 
 /**
- * Empties every table in `public` and in `chat`, except the chat migration journal: it records
+ * Empties every table in `public` and in `botsdk`, except the SDK's migration journal: it records
  * what has been applied, so it must survive.
  */
 export async function truncateAllTables(database: Database) {
   const { rows } = await database.execute<{ schemaname: string; tablename: string }>(
     sql`select schemaname, tablename from pg_tables
-      where schemaname = 'public' or (schemaname = 'chat' and tablename <> '__migrations')`,
+      where schemaname = 'public' or (schemaname = 'botsdk' and tablename <> '__migrations')`,
   );
   if (rows.length === 0) return;
   const tables = rows

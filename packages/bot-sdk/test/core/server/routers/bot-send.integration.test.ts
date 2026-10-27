@@ -2028,7 +2028,7 @@ describe("a Turn that resumes after a crash", () => {
     await sendSaved(client, botId, "hi");
     // Another connection holds the usage table, so the bill's transaction waits on it.
     const usageTable = await holdLocks((tx) =>
-      tx.execute(sql`lock table chat.usage in share mode`),
+      tx.execute(sql`lock table botsdk.usage in share mode`),
     );
 
     const drain = new AbortController();
