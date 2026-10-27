@@ -34,14 +34,14 @@ export const poll = { timeout: 10_000 };
 export function testRunners(jobs: () => JobTable) {
   const runners: JobRunner[] = [];
   return {
-    async over(executor: Executor, clock: JobClock) {
+    async over(executor: Executor, clock: JobClock, drainMs = 20) {
       const runner = createJobRunner({
         db: getTestDb(),
         logger: silent,
         jobs,
         executor,
         clock,
-        drainMs: 20,
+        drainMs,
       });
       runners.push(runner);
       await runner.start();
@@ -194,7 +194,8 @@ function conformance(
   let jobs: JobRunner;
 
   /** A runner over the test database, the Executor `executor` and the clock `clock`. */
-  const runnerOver = (executor: Executor, clock = timer.clock) => runners.over(executor, clock);
+  const runnerOver = (executor: Executor, clock = timer.clock, drainMs?: number) =>
+    runners.over(executor, clock, drainMs);
 
   beforeEach(async () => {
     for (const list of [ran, started, aborted, fires]) list.length = 0;
@@ -439,7 +440,8 @@ function conformance(
       let open!: () => void;
       gate = new Promise((resolve) => (open = resolve));
       const deploying = manualExecutor();
-      const elsewhere = await runnerOver(deploying.executor);
+      // A slow yield must not outlast the drain: past it, stop() aborts the attempt and leaves its row running.
+      const elsewhere = await runnerOver(deploying.executor, timer.clock, 5_000);
       const old = await elsewhere.enqueue(
         "conformance.steps",
         { label: "old" },
