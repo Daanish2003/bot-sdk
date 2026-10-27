@@ -173,16 +173,22 @@ describe("the search_memory tool", () => {
     ).toBeLessThan(rank("Started a plan for the garden"));
   });
 
-  it("is absent with Memory off or with no computer plugin, and present otherwise", async () => {
+  // One test each: a second `botsWith` in one test starts a second runner, and either runner may
+  // claim a Turn (#950).
+  it("is absent with Memory off", async () => {
     const off = await botsWith([round()]);
     await off.client.memory.setEnabled({ enabled: false });
     await send(off.client, off.botIds[0]!, "hi");
     expect(toolNamesOf(off.fake.calls[0])).not.toContain("search_memory");
+  });
 
+  it("is absent with no computer plugin", async () => {
     const none = await botsWith([round()], { withComputer: false });
     await send(none.client, none.botIds[0]!, "hi");
     expect(toolNamesOf(none.fake.calls[0])).not.toContain("search_memory");
+  });
 
+  it("is present with Memory on and a computer plugin", async () => {
     const on = await botsWith([round()]);
     await send(on.client, on.botIds[0]!, "hi");
     expect(toolNamesOf(on.fake.calls[0])).toContain("search_memory");

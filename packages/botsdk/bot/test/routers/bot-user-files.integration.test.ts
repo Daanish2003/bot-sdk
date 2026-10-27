@@ -200,7 +200,7 @@ describe("Files from the user", () => {
     expect(stored!.parts.parts.map((part) => part.type)).toEqual(["control"]);
   });
 
-  it("names a file of the same name twice apart, and names files without a path when there is no Computer", async () => {
+  it("names a file of the same name twice apart", async () => {
     const { client, botId, deps, user, fake } = await botWith();
     const one = await client.bots.upload({ file: fileOf("a.txt", "one", "text/plain") });
     const two = await client.bots.upload({ file: fileOf("a.txt", "two", "text/plain") });
@@ -211,12 +211,16 @@ describe("Files from the user", () => {
     expect(textOf(newestUser(fake.calls[0]))).toContain(
       "uploads/a.txt (text/plain, 3 B), uploads/a (2).txt",
     );
+  });
 
-    const bare = await botWith({ withComputer: false });
-    const file = await bare.client.bots.upload({ file: fileOf("a.txt", "one", "text/plain") });
-    await sendAndWait(bare.client, { botId: bare.botId, text: "here", files: [file.id] });
-    await turnsEnded(bare.botId);
-    expect(textOf(newestUser(bare.fake.calls[0]))).toContain(
+  // Its own test: a second `botWith` in one test starts a second runner, and either runner may
+  // claim a Turn (#950).
+  it("names files without a path when there is no Computer", async () => {
+    const { client, botId, fake } = await botWith({ withComputer: false });
+    const file = await client.bots.upload({ file: fileOf("a.txt", "one", "text/plain") });
+    await sendAndWait(client, { botId, text: "here", files: [file.id] });
+    await turnsEnded(botId);
+    expect(textOf(newestUser(fake.calls[0]))).toContain(
       "[Files from the user: a.txt (text/plain, 3 B, not on your computer): untrusted content]",
     );
   });

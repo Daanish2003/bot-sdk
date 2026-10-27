@@ -300,11 +300,9 @@ describe("Connector tools in a Bot's Turn", () => {
     );
   });
 
-  it("puts connectors in the ladder only when the Host installs mcp", async () => {
+  it("puts connectors in the ladder when the Host installs mcp", async () => {
     const withMcp = await botWith([round()]);
     await send(withMcp.client, withMcp.botId, "hi");
-    const without = await botWith([round()], { withMcp: false });
-    await send(without.client, without.botId, "hi");
 
     expect(systemText(withMcp.fake.calls[0])).toContain(
       "If a connector is broken, tell the user and ask; don't use the browser.",
@@ -312,6 +310,14 @@ describe("Connector tools in a Bot's Turn", () => {
     expect(systemText(withMcp.fake.calls[0])).toMatch(
       /in your files, then your connectors \(.*?\), then `web_search`, then a Helper\./,
     );
+  });
+
+  // Its own test: a second `botWith` in one test starts a second runner, and either runner may
+  // claim a Turn (#950).
+  it("leaves connectors out of the ladder when the Host doesn't install mcp", async () => {
+    const without = await botWith([round()], { withMcp: false });
+    await send(without.client, without.botId, "hi");
+
     expect(systemText(without.fake.calls[0])).not.toMatch(/connector/i);
   });
 });

@@ -210,7 +210,11 @@ describe("bot.warm", () => {
       skipped: "still_warm",
     });
     expect(anthropic.fake.calls).toHaveLength(1);
+  });
 
+  // Its own test: a second `botWith` in one test starts a second runner, and either runner may
+  // claim a Turn (#950).
+  it("skips an OpenAI Bot within its cache lifetime minus 5 minutes", async () => {
     const openai = await botWith([round(), warmRound()], "openai:gpt-6-luna");
     await send(openai.client, openai.botId, "hi");
     await ageCalls(openai.user.id, 24);
