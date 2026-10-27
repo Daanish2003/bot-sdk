@@ -1,7 +1,5 @@
 import { maxFilesPerMessage } from "@botsdk/client/bot/files";
 import type { BotMessage, TurnStatus } from "@botsdk/client/bot/turn";
-import type { BotKnowledgeChange } from "@botsdk/client/knowledge/changes";
-import type { BotSkillChange } from "@botsdk/client/skills/changes";
 import type { ModelMessage } from "@tanstack/ai";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -35,7 +33,10 @@ import {
   recordedReads,
   type TodoItem,
   featuresAfterTurn,
+  featureTurnChanges,
+  featureTurnOf,
   queueAwaySummary,
+  type TurnChanges,
   sendToUserToolName,
   checkedTool,
 } from "../context";
@@ -51,9 +52,6 @@ import {
 import { todoList } from "../helpers";
 import { type LoopResult, runLoop, seesImagesOnce } from "../agent-loop";
 import { closeWaitingReviews } from "../safety";
-
-import { knowledgeChangesOf } from "../knowledge-files";
-import { skillChangesOf } from "../skill-files";
 
 import { forTurn } from "../tools";
 
@@ -283,8 +281,7 @@ export async function cancelTurn(
     status: "stopped",
     error: null,
     transcript: played.transcript,
-    skillChanges: turn ? skillChangesOf(turn.botId, played.transcript) : null,
-    knowledgeChanges: turn ? knowledgeChangesOf(turn.botId, played.transcript) : null,
+    ...(await changesOf(deps, turn, played.transcript)),
     usage: played.usage,
     endedAt,
   });
@@ -384,8 +381,7 @@ async function runTurnJob(
       await endTurn(tx, turnId, {
         ...endingOf(played),
         transcript: played.transcript,
-        skillChanges: skillChangesOf(turn.botId, played.transcript),
-        knowledgeChanges: knowledgeChangesOf(turn.botId, played.transcript),
+        ...(await changesOf(deps, turn, played.transcript)),
         usage: played.usage,
         endedAt,
       });
@@ -468,8 +464,7 @@ async function endRunningTurn(
       .set({
         ...ending,
         transcript: played.transcript,
-        skillChanges: skillChangesOf(turn.botId, played.transcript),
-        knowledgeChanges: knowledgeChangesOf(turn.botId, played.transcript),
+        ...(await changesOf(deps, turn, played.transcript)),
         usage: played.usage,
         endedAt,
       })
@@ -521,16 +516,28 @@ async function replayedTurn(
   }
 }
 
+/**
+ * What the enabled features say a Turn's `transcript` changed, for its chips (#919): none
+ * without a Turn.
+ */
+function changesOf(
+  deps: BotSdkContext,
+  turn: ContextTurn | undefined,
+  transcript: readonly ModelMessage[],
+): Promise<TurnChanges> {
+  return turn
+    ? featureTurnChanges(deps, { ...featureTurnOf(turn), transcript })
+    : Promise.resolve({ skillChanges: null, knowledgeChanges: null });
+}
+
 /** Ends the Turn's row, with its `turn` change, in its last Checkpoint's transaction. */
 async function endTurn(
   tx: Transaction,
   turnId: string,
-  ending: {
+  ending: TurnChanges & {
     status: TurnStatus;
     error: string | null;
     transcript: ModelMessage[];
-    skillChanges: BotSkillChange[] | null;
-    knowledgeChanges: BotKnowledgeChange[] | null;
     usage: MessageUsage | null;
     endedAt: Date;
   },
