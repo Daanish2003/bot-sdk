@@ -1,5 +1,5 @@
 {
-  "include": ["**/*.ts", "**/*.tsx", "../../packages/bot-sdk/test/e2e/**/*.ts"],
+  "include": ["**/*.ts", "**/*.tsx"],
   "compilerOptions": {
     "target": "ES2022",
     "jsx": "react-jsx",

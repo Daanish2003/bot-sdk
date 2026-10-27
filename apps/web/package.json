@@ -17,7 +17,6 @@
   },
   "dependencies": {
     "@ai-chat/auth": "workspace:*",
-    "@ai-chat/bot-sdk": "workspace:*",
     "@ai-chat/db": "workspace:*",
     "@ai-chat/email": "workspace:*",
     "@ai-chat/ui": "workspace:*",
@@ -73,6 +72,8 @@
   },
   "devDependencies": {
     "@ai-chat/config": "workspace:*",
+    "@ai-chat/test-support": "workspace:*",
+    "@botsdk/testing": "workspace:*",
     "@playwright/test": "^1.63.0",
     "@tanstack/react-query-devtools": "^5.102.8",
     "@tanstack/react-router-devtools": "^1.167.2",

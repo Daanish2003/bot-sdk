@@ -1,4 +1,4 @@
-import type { Expect, Page } from "@e2e-types/playwright-test";
+import type { Expect, Page } from "@playwright/test";
 
 import type { HostFixture } from "./host";
 

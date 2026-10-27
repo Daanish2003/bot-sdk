@@ -1,4 +1,4 @@
-import { fakeEmailProvider } from "@ai-chat/bot-sdk/plugins/channel/fake";
+import { fakeEmailProvider } from "@botsdk/testing/fake-channel";
 import { describe, expect, it, vi } from "vitest";
 
 import { emailProviderOf } from "./email-provider";

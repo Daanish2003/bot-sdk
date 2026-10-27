@@ -1,4 +1,4 @@
-import type { HostFixture } from "../../../packages/bot-sdk/test/e2e/host";
+import type { HostFixture } from "./support/host";
 
 import { fakeOllamaHost } from "./env";
 import { seedUser } from "./seed-user";

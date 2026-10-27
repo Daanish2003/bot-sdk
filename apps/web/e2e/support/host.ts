@@ -1,4 +1,4 @@
-import type { Page } from "@e2e-types/playwright-test";
+import type { Page } from "@playwright/test";
 
 /** A verified user with a password, as a Host's fixture seeds one. */
 export type SeededUser = { id: string; name: string; email: string; password: string };

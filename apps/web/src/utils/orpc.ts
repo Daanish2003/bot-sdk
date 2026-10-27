@@ -1,5 +1,5 @@
 import { createBotSdkClient } from "@botsdk/client";
-import { channelClient } from "@ai-chat/bot-sdk/plugins/channel/client";
+import { channelClient } from "@botsdk/channel-email/client";
 import { knowledgeClient } from "@botsdk/knowledge/client";
 import { mcpClient } from "@botsdk/mcp/client";
 import { memoryClient } from "@botsdk/memory/client";

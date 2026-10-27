@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { botReply, fileReply, sendMarker } from "../../../packages/bot-sdk/test/e2e/fake-ollama";
+import { botReply, fileReply, sendMarker } from "./support/fake-ollama";
 import { appWebHost } from "./host";
 import { signInAsSeededUserWithModel } from "./helpers";
 

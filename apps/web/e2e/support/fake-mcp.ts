@@ -1,8 +1,8 @@
 /// <reference types="node" />
 import { createServer, type Server } from "node:http";
 
-import { createFakeMcpAuth } from "../support/fake-mcp-auth";
-import { createFakeMcpServer, type FakeMcpTool } from "../support/fake-mcp-server";
+import { createFakeMcpAuth } from "@ai-chat/test-support/fake-mcp-auth";
+import { createFakeMcpServer, type FakeMcpTool } from "@ai-chat/test-support/fake-mcp-server";
 
 const tools: FakeMcpTool[] = [{ name: "list_issues" }, { name: "create_issue" }];
 

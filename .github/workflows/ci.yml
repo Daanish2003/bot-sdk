@@ -89,11 +89,12 @@ jobs:
       - name: Typecheck
         run: pnpm check-types
 
-      # Every part's schema (the core's and each feature's, scripts/migration-parts.ts) must equal its
-      # last migration's snapshot, and its migrations.json its migration folders (spec #439, #874):
+      # Every part's schema (the core's and each feature's, scripts/migration-parts.ts in
+      # @ai-chat/test-support) must equal its last migration's snapshot, and its migrations.json its
+      # migration folders (spec #439, #874):
       # `db:generate` writes nothing, so the parts stay unchanged.
       - name: No unmigrated schema change
-        working-directory: packages/bot-sdk
+        working-directory: packages/test-support
         run: |
           pnpm db:generate
           git status --porcelain -- ../botsdk/bot/src ../botsdk/memory/src ../botsdk/mcp/src
@@ -114,7 +115,7 @@ jobs:
 
       # The Bot SDK's Browser tool tests launch a local headless Chromium.
       - name: Install Chromium for the Browser tool tests
-        run: pnpm -F @ai-chat/bot-sdk exec playwright-core install --with-deps chromium
+        run: pnpm -F @botsdk/bot exec playwright-core install --with-deps chromium
 
       - name: Test
         run: pnpm test

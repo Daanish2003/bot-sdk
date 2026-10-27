@@ -1,4 +1,4 @@
-import { fakeImageModel, fakeModel } from "../../../packages/bot-sdk/test/e2e/fake-ollama.ts";
+import { fakeImageModel, fakeModel } from "./support/fake-ollama.ts";
 
 /** Where the end-to-end run's server, fake Ollama and fake MCP server live. */
 
