@@ -399,7 +399,10 @@ describe("a webhook Routine's URL", () => {
       timer.advance(500);
       await runDue();
 
-      const seen = fromWebhook(fake.calls.at(-1));
+      // The Turn's call, not the memory pass's.
+      const seen = fromWebhook(
+        fake.calls.findLast((made) => JSON.stringify(made.systemPrompts).includes("send_to_user")),
+      );
       const [path] = [...computerFake.files.keys()];
       expect(path?.startsWith(`/home/user/bots/${botId}/.outputs/`)).toBe(true);
       const saved = new TextDecoder().decode(computerFake.files.get(path!));

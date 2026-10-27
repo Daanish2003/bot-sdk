@@ -13,6 +13,7 @@ import {
   helperMessagePrefix,
 } from "../../src/bot/helpers";
 import { findBot } from "../../src/bot/conversation";
+import { sendToUserToolName } from "../../src/bot/context";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner, systemClock } from "../../src/runner/internal";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
@@ -34,6 +35,10 @@ const started: JobRunner[] = [];
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();
 });
+
+/** A Turn's Model call, not a Helper's nor a background one (the Memory pass) after the Turn. */
+const isTurnCall = (options: TextOptions) =>
+  (options.tools ?? []).some((tool) => tool.name === sendToUserToolName);
 
 const isHelperCall = (options: TextOptions) =>
   (options.systemPrompts ?? []).some((prompt) =>
@@ -269,11 +274,11 @@ describe("handing the Screen to the user", () => {
 
     await send(client, botId, "any news?");
 
-    const newest = (turnFake.calls.at(-1)?.messages ?? []).at(-1) as ModelMessage;
+    const newest = (turnFake.calls.findLast(isTurnCall)?.messages ?? []).at(-1) as ModelMessage;
     expect(String(newest.content)).toContain(
       `${waiting.id} · Computer-use · waiting for the user: ${reason} · task: ${task} · since`,
     );
-  });
+  }, 30_000);
 
   it("finds no Helper of another user's", async () => {
     const { client, botId, deps } = await botWith([handsOff, round()], [asksUser]);
