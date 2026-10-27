@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { reviewCases } from "../../../eval/safety/cases";
-import { e2eOutcome, tallyReviews } from "../../../eval/safety/score";
+import { reviewCases } from "../../src/safety/cases";
+import { e2eOutcome, tallyReviews } from "../../src/safety/score";
 
 describe("tallyReviews", () => {
   it("rates each group, the false-block rate over expected passes and the miss rate over expected blocks", () => {

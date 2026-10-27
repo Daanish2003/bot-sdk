@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { imagesCases } from "../../../eval/images/cases";
-import { type Call, scoreImages } from "../../../eval/images/score";
+import { imagesCases } from "../../src/images/cases";
+import { type Call, scoreImages } from "../../src/images/score";
 
 const caseOf = (id: string) => imagesCases.find((c) => c.id === id)!;
 const callsOf = (steps: { name: string; input: Record<string, unknown> }[]): Call[] =>

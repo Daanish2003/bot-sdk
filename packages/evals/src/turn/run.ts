@@ -1,7 +1,7 @@
 // The week-one Turn eval (spec #463, "Evals for the week-one Turn"): scores whether a real Model,
 // under the fixed Bot system prompt, replies through SendToUser when it should, stays quiet when it
-// should, and sets `endTurn` on its last Message. Run it with `pnpm -F @ai-chat/bot-sdk eval:turn`;
-// see eval/turn/README.md.
+// should, and sets `endTurn` on its last Message. Run it with `pnpm -F @ai-chat/evals eval:turn`;
+// see src/turn/README.md.
 //
 // `--fake` (or EVAL_FAKE=1) runs the same wiring with the SDK's fake chat adapter, which plays what
 // each case expects, for checking the script without any Model. `--limit=<n>` runs the first n cases.
@@ -18,15 +18,15 @@ import { createHookEmitter } from "@botsdk/bot/chat/hooks";
 import { createGuardedFetch } from "@botsdk/bot/lib/guarded-fetch";
 import { postgres } from "@botsdk/bot/database";
 import { migrate as migrateBotSdk } from "@botsdk/bot/migrate";
-import { sdkFeatureMigrations } from "../../scripts/migration-parts";
+import { sdkFeatureMigrations } from "@ai-chat/test-support/migration-parts";
 import type { BotSdkContext } from "@botsdk/bot/plugin";
 import { memoryRuntime } from "@botsdk/bot/runtime";
 import { createBotSdkOver } from "@botsdk/bot/over";
 import { runnerJobs } from "@botsdk/bot/runner/internal";
 import { productionDeps } from "@botsdk/bot/models/internal";
 import type { ModelsDeps } from "@botsdk/bot/models/internal";
-import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
-import { testModelProviders } from "../../test/support/model-providers";
+import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
+import { testModelProviders } from "@ai-chat/test-support/model-providers";
 import { type TurnCase, turnCases } from "./cases";
 import { runCase, type TurnRunResult } from "./case";
 import { queueCases } from "./queue-cases";
@@ -130,7 +130,7 @@ async function main() {
   const model = fake
     ? (process.env.EVAL_BOT_MODEL ?? "openai:gpt-5.4-mini")
     : process.env.EVAL_BOT_MODEL;
-  if (!model) fail("EVAL_BOT_MODEL is not set. See packages/bot-sdk/eval/turn/README.md.");
+  if (!model) fail("EVAL_BOT_MODEL is not set. See packages/evals/src/turn/README.md.");
   for (const [name, value] of [
     ["EVAL_REPEATS", repeats],
     ["EVAL_CONCURRENCY", concurrency],
@@ -141,7 +141,7 @@ async function main() {
   const databaseUrl = process.env.EVAL_DATABASE_URL;
   if (!databaseUrl) fail("EVAL_DATABASE_URL is not set: a scratch Postgres.");
 
-  // `null`: the Model runs on the owner's ChatGPT plan (eval/chatgpt-plan.ts), not on a key.
+  // `null`: the Model runs on the owner's ChatGPT plan (src/chatgpt-plan.ts), not on a key.
   const plan = fake ? null : await chatgptPlanFromEnv();
   const apiKey = fake ? "sk-fake" : keyFor(model, plan);
 

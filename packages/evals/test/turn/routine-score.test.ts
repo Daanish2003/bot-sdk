@@ -1,7 +1,7 @@
 import type { ModelMessage } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
-import { routineCases } from "../../../eval/turn/routine-cases";
+import { routineCases } from "../../src/turn/routine-cases";
 import {
   callInputs,
   callNames,
@@ -13,7 +13,7 @@ import {
   toolCallsOf,
   turnIdOf,
   type RoutineObserved,
-} from "../../../eval/turn/routine-score";
+} from "../../src/turn/routine-score";
 
 const calls = (...names: string[]): ModelMessage[] => [
   {

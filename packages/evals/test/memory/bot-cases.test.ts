@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { botMemoryCases, changedFiles, linesIn, linesOf } from "../../../eval/memory/bot-cases";
+import { botMemoryCases, changedFiles, linesIn, linesOf } from "../../src/memory/bot-cases";
 
 describe("the Bot memory eval's cases", () => {
   it("has the 8 cases of the spec, with unique ids", () => {

@@ -2,9 +2,9 @@ import { inflateSync } from "node:zlib";
 
 import { describe, expect, it } from "vitest";
 
-import { filesCases } from "../../../eval/files/cases";
-import { receiptLines, textPng } from "../../../eval/files/receipt";
-import { type Call, normalise, scoreFiles, tallyFiles } from "../../../eval/files/score";
+import { filesCases } from "../../src/files/cases";
+import { receiptLines, textPng } from "../../src/files/receipt";
+import { type Call, normalise, scoreFiles, tallyFiles } from "../../src/files/score";
 
 const caseOf = (id: string) => filesCases.find((c) => c.id === id)!;
 const callsOf = (steps: { name: string; input: Record<string, unknown> }[]): Call[] =>

@@ -1,14 +1,14 @@
 import type { ModelMessage } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
-import { type HelperExpect, helperCases } from "../../../eval/computer/helper-cases";
+import { type HelperExpect, helperCases } from "../../src/computer/helper-cases";
 import {
   type HelperObserved,
   helperTools,
   scoreHelperRun,
   typedTexts,
-} from "../../../eval/computer/helper-score";
-import { fixturePages } from "../../../eval/computer/fixture";
+} from "../../src/computer/helper-score";
+import { fixturePages } from "../../src/computer/fixture";
 
 const step = (name: string, input: object = {}): ModelMessage => ({
   role: "assistant",

@@ -10,7 +10,7 @@ import {
   scoreCache,
   scoreSummary,
   scoreToolSearch,
-} from "../../../eval/turn/context-score";
+} from "../../src/turn/context-score";
 
 const hashes = (changed?: { section: string; kind: "bug" | "expected" }): PromptHash[] =>
   ["tools", "rules", "first_message", "history"].map((name) => ({

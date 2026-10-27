@@ -1,8 +1,8 @@
 import type { ModelMessage } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
-import { ladderCases } from "../../../eval/turn/ladder-cases";
-import { helperStarts, type LadderObserved, scoreLadder } from "../../../eval/turn/ladder-score";
+import { ladderCases } from "../../src/turn/ladder-cases";
+import { helperStarts, type LadderObserved, scoreLadder } from "../../src/turn/ladder-score";
 
 const observed = (over: Partial<LadderObserved> = {}): LadderObserved => ({
   status: "complete",

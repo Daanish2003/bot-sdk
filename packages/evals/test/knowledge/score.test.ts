@@ -7,7 +7,7 @@ import {
   fixture,
   injectionCanary,
   knowledgeCases,
-} from "../../../eval/knowledge/cases";
+} from "../../src/knowledge/cases";
 import {
   type Call,
   type Observed,
@@ -16,7 +16,7 @@ import {
   searchesKnowledge,
   tallyKnowledge,
   writes,
-} from "../../../eval/knowledge/score";
+} from "../../src/knowledge/score";
 import { knowledgePrompt, readablePaths } from "@botsdk/knowledge/server/prompt";
 
 const dir = "../../shared/knowledge";

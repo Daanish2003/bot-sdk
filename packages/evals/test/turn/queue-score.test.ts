@@ -1,7 +1,7 @@
 import type { ModelMessage } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
-import { queueCases } from "../../../eval/turn/queue-cases";
+import { queueCases } from "../../src/turn/queue-cases";
 import {
   judgePrompt,
   parseVerdict,
@@ -9,8 +9,8 @@ import {
   scoreQueue,
   formatJudge,
   tallyQueue,
-} from "../../../eval/turn/queue-score";
-import { sentTexts } from "../../../eval/turn/score";
+} from "../../src/turn/queue-score";
+import { sentTexts } from "../../src/turn/score";
 
 const turn = (
   status: QueueObserved["turns"][number]["status"],

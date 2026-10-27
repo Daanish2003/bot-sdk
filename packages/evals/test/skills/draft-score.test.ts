@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { scoreDraft } from "../../../eval/skills/draft-score";
-import { draftExpectations, fakeDraft, loadFixture } from "../../../eval/skills/fixtures";
+import { scoreDraft } from "../../src/skills/draft-score";
+import { draftExpectations, fakeDraft, loadFixture } from "../../src/skills/fixtures";
 
 const ids = Object.keys(draftExpectations);
 

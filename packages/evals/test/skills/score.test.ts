@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { fakeObserved, skillLibrary, skillsCases, skillText } from "../../../eval/skills/cases";
+import { fakeObserved, skillLibrary, skillsCases, skillText } from "../../src/skills/cases";
 import {
   type Call,
   type Observed,
@@ -8,7 +8,7 @@ import {
   scoreSkills,
   skillRead,
   useRates,
-} from "../../../eval/skills/score";
+} from "../../src/skills/score";
 import { problemOf } from "@botsdk/bot/bot/skill-files";
 
 const read = (name: string): Call => ({ name: "read", args: { path: `skills/${name}/SKILL.md` } });

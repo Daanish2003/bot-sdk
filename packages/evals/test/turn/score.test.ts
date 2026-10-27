@@ -1,8 +1,8 @@
 import type { ModelMessage } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
-import { turnCases } from "../../../eval/turn/cases";
-import { type Observed, observeTranscript, scoreTurn, tally } from "../../../eval/turn/score";
+import { turnCases } from "../../src/turn/cases";
+import { type Observed, observeTranscript, scoreTurn, tally } from "../../src/turn/score";
 
 const call = (
   text: string,

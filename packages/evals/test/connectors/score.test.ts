@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { connectorsCases, type Step } from "../../../eval/connectors/cases";
-import { type Call, scoreConnectors } from "../../../eval/connectors/score";
+import { connectorsCases, type Step } from "../../src/connectors/cases";
+import { type Call, scoreConnectors } from "../../src/connectors/score";
 
 /** A script's calls as a Turn's transcript gives them: a `run_tool` call is the tool it names. */
 const callsOf = (steps: Step[]): Call[] =>

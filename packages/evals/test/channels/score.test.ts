@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { channelsCases } from "../../../eval/channels/cases";
-import { type Call, normalise, scoreChannels, tallyChannels } from "../../../eval/channels/score";
+import { channelsCases } from "../../src/channels/cases";
+import { type Call, normalise, scoreChannels, tallyChannels } from "../../src/channels/score";
 import { forwardedEmailLabel } from "@botsdk/bot/bot/routines";
 import { emailText } from "@botsdk/bot/bot/turn";
 

@@ -1,13 +1,13 @@
 import type { ModelMessage } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
-import { computerCases } from "../../../eval/computer/cases";
+import { computerCases } from "../../src/computer/cases";
 import {
   type Observed,
   observeTools,
   scoreComputerRun,
   tallyComputer,
-} from "../../../eval/computer/score";
+} from "../../src/computer/score";
 
 const step = (...names: string[]): ModelMessage => ({
   role: "assistant",
