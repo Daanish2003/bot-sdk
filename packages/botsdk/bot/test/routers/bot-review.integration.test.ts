@@ -693,11 +693,15 @@ describe("Auto-review of the Bot's shell commands", () => {
     expect((await reviewUsage(user.id)).map((row) => row.model)).toEqual(["openai:gpt-5.4-mini"]);
   });
 
-  it("reviews on the Bot's own Model with no reviewModel, or one the user can't use", async () => {
+  it("reviews on the Bot's own Model with no reviewModel", async () => {
     const without = await botWith([round(shell("ls")), round()]);
     await send(without.client, without.botId, "list my files");
     expect(without.reviewedOn).toEqual([model]);
+  });
 
+  // Its own test: a second `botWith` in one test starts a second runner, and either runner may
+  // claim a Turn (#950).
+  it("reviews on the Bot's own Model with a reviewModel the user can't use", async () => {
     // No Anthropic key: the user can't use it.
     const unusable = await botWith([round(shell("ls")), round()], {
       reviewModel: "anthropic:claude-haiku-4-5",

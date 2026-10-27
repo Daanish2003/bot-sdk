@@ -346,12 +346,20 @@ describe("generate_image", () => {
   );
 
   it(
-    "is absent without a Computer, and without Host Image Models",
+    "is absent without a Computer",
     async () => {
       const noComputer = await botWith([round(done)], { withComputer: false });
       await send(noComputer.client, noComputer.botId, "hi");
       expect(JSON.stringify(inputOf(noComputer.turnFake.calls[0]))).not.toContain("generate_image");
+    },
+    testTimeout,
+  );
 
+  // Its own test: a second `botWith` in one test starts a second runner, and either runner may
+  // claim a Turn (#950).
+  it(
+    "is absent without Host Image Models",
+    async () => {
       const noImages = await botWith([round(done)], { images: false });
       await send(noImages.client, noImages.botId, "hi");
       expect(JSON.stringify(inputOf(noImages.turnFake.calls[0]))).not.toContain("generate_image");

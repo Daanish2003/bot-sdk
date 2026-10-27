@@ -946,24 +946,28 @@ describe("checking on a Helper (#591)", () => {
   });
 
   it("refuses an unknown id, and another Bot's Helper, with a next step", async () => {
-    const other = await botWith([handsOff("Elsewhere.")], [round(text("Never comes."))], {
-      manualHelpers: true,
-    });
-    await send(other.client, other.botId, "go");
-    const [elsewhere] = await helpersOf(other.botId);
-    const { client, botId } = await botWith(
+    let elsewhere: { id: string } | undefined;
+    // One runner for both Bots: a second `botWith`'s runner could claim the other Bot's Turn (#950).
+    const other = await botWith(
       [
-        round(
-          checkHelper(uuidv7()),
-          checkHelper("h_3f2a"),
-          checkHelper(elsewhere!.id),
-          messageHelper(elsewhere!.id, "Hi."),
-          stopHelpers(elsewhere!.id),
-          sends({ text: "None.", endTurn: true }),
-        ),
+        handsOff("Elsewhere."),
+        () =>
+          round(
+            checkHelper(uuidv7()),
+            checkHelper("h_3f2a"),
+            checkHelper(elsewhere!.id),
+            messageHelper(elsewhere!.id, "Hi."),
+            stopHelpers(elsewhere!.id),
+            sends({ text: "None.", endTurn: true }),
+          ),
       ],
-      [],
+      [round(text("Never comes."))],
+      { manualHelpers: true },
     );
+    await send(other.client, other.botId, "go");
+    [elsewhere] = await helpersOf(other.botId);
+    const client = other.client;
+    const { id: botId } = await client.bots.create({ name: "Bea", model });
 
     await send(client, botId, "go");
 
