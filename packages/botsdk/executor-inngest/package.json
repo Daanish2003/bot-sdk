@@ -1,0 +1,24 @@
+{
+  "name": "@botsdk/executor-inngest",
+  "version": "0.0.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json",
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "inngest": "4.23.0"
+  },
+  "devDependencies": {
+    "@ai-chat/config": "workspace:*",
+    "@ai-chat/test-support": "workspace:*",
+    "typescript": "catalog:"
+  },
+  "peerDependencies": {
+    "@botsdk/bot": "workspace:*"
+  }
+}

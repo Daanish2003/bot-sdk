@@ -11,6 +11,7 @@
     "./conversations": "./src/conversations.ts",
     "./counters.contract": "./src/counters.contract.ts",
     "./deps": "./src/deps.ts",
+    "./executor.contract": "./src/executor.contract.ts",
     "./executors": "./src/executors.ts",
     "./fake-dictionary": "./src/fake-dictionary.ts",
     "./fake-mcp-auth": "./src/fake-mcp-auth.ts",
