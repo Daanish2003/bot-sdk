@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { isFeature } from "@botsdk/bot/feature";
-import { knowledge } from "../../../../plugins/knowledge/server/plugin";
+import { knowledge } from "@botsdk/knowledge";
 
 describe("the knowledge feature", () => {
   it("registers as `knowledge`, needing the Computer", () => {

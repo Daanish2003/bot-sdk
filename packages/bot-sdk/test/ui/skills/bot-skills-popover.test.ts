@@ -4,9 +4,9 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { skillsClient } from "../../../plugins/skills/client/index";
-import { BotSkillChip } from "../../../plugins/skills/ui/bot-skill-chip";
-import { BotSkillsPopover } from "../../../plugins/skills/ui/bot-skills-popover";
+import { skillsClient } from "@botsdk/skills/client";
+import { BotSkillChip } from "@botsdk/ui/skills/bot-skill-chip";
+import { BotSkillsPopover } from "@botsdk/ui/skills/bot-skills-popover";
 import { providerFor, type TestClient } from "../fake-dictionary";
 
 afterEach(() => {

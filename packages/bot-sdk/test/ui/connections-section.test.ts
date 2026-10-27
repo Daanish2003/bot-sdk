@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { mcpClient } from "../../plugins/mcp/client/index";
+import { mcpClient } from "@botsdk/mcp/client";
 import { BotSdkProvider, type ChatLinkProps, type ChatRouter } from "@botsdk/react/provider";
 import { HostKeysPage } from "./host-keys-page";
 

@@ -5,7 +5,7 @@ import {
   type ConnectorListing,
   connectorTools,
   reconnectError,
-} from "../../../../plugins/mcp/server/connector-tools";
+} from "@botsdk/mcp/server/connector-tools";
 
 /** The wiring of a Turn whose one server, keyed `web`, lists `tools`, and the user has no Secrets. */
 const wiring = (tools: AnyServerTool[]) => ({

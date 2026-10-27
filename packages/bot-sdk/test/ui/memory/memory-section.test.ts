@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { MemorySection } from "../../../plugins/memory/ui/memory-section";
+import { MemorySection } from "@botsdk/ui/memory/memory-section";
 import { providerFor, type TestClient } from "../fake-dictionary";
 
 afterEach(() => {

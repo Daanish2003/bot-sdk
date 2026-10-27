@@ -9,7 +9,7 @@ import { createMemoryPubSub } from "@botsdk/bot/chat/pubsub";
 import type { FeatureEntry, GivenContext } from "@botsdk/bot/create-chat";
 import { createBotSdkOver, type OverSlots, type SdkOver } from "@botsdk/bot/over";
 import type { BotSdkPlugin } from "@botsdk/bot/plugin";
-import { memory } from "../../plugins/memory/server/feature";
+import { memory } from "@botsdk/memory";
 import type { ComputerProvider } from "@botsdk/bot/computer/internal";
 import type { ModelsDeps } from "@botsdk/bot/models/internal";
 import type { JobRunner } from "@botsdk/bot/runner/internal";

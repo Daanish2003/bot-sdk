@@ -4,8 +4,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { memoryClient } from "../../../plugins/memory/client/index";
-import { BotMemoryPopover } from "../../../plugins/memory/ui/bot-memory-popover";
+import { memoryClient } from "@botsdk/memory/client";
+import { BotMemoryPopover } from "@botsdk/ui/memory/bot-memory-popover";
 import { providerFor, type TestClient } from "../fake-dictionary";
 
 afterEach(() => {

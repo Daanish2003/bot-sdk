@@ -4,10 +4,10 @@ import { describe, expect, it } from "vitest";
 import { createBotSdk, httpPartsOf } from "@botsdk/bot/create-chat";
 import { emailChannel } from "@botsdk/bot/channel";
 import { fakeEmailProvider } from "../../../plugins/channel/fake/index";
-import { knowledge } from "../../../plugins/knowledge/server/plugin";
-import { mcp } from "../../../plugins/mcp/server/plugin";
-import { memory } from "../../../plugins/memory/server/feature";
-import { skills } from "../../../plugins/skills/server/plugin";
+import { knowledge } from "@botsdk/knowledge";
+import { mcp } from "@botsdk/mcp";
+import { memory } from "@botsdk/memory";
+import { skills } from "@botsdk/skills";
 import { fakeComputerProvider } from "../../support/fake-computer-provider";
 import { postgres } from "@botsdk/bot/database";
 

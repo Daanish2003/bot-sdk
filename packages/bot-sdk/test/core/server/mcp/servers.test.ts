@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { discoverEndpoints, SignInError } from "../../../../plugins/mcp/server/oauth";
-import { checkMcpServers, type McpServerConfig } from "../../../../plugins/mcp/server/servers";
+import { discoverEndpoints, SignInError } from "@botsdk/mcp/server/oauth";
+import { checkMcpServers, type McpServerConfig } from "@botsdk/mcp/server/servers";
 import type { TestDeps } from "../../../support/deps";
 
 const server = (url: string): McpServerConfig => ({

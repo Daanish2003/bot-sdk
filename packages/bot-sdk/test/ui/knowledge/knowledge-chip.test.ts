@@ -5,8 +5,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { knowledgeClient } from "../../../plugins/knowledge/client/index";
-import { KnowledgeChip } from "../../../plugins/knowledge/ui/knowledge-chip";
+import { knowledgeClient } from "@botsdk/knowledge/client";
+import { KnowledgeChip } from "@botsdk/ui/knowledge/knowledge-chip";
 import { providerFor } from "../fake-dictionary";
 
 afterEach(cleanup);

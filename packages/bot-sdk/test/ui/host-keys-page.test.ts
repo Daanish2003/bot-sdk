@@ -5,8 +5,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { BotSdkProvider, type ChatLinkProps, type ChatRouter } from "@botsdk/react/provider";
-import { mcpClient } from "../../plugins/mcp/client/index";
-import { memoryClient } from "../../plugins/memory/client/index";
+import { mcpClient } from "@botsdk/mcp/client";
+import { memoryClient } from "@botsdk/memory/client";
 import { HostKeysPage } from "./host-keys-page";
 
 const client = createBotSdkClient({

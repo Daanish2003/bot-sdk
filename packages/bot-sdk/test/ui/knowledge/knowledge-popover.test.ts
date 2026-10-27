@@ -4,9 +4,9 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { knowledgeClient } from "../../../plugins/knowledge/client/index";
-import type { KnowledgeListing } from "../../../plugins/knowledge/server/files";
-import { KnowledgePopover } from "../../../plugins/knowledge/ui/knowledge-popover";
+import { knowledgeClient } from "@botsdk/knowledge/client";
+import type { KnowledgeListing } from "@botsdk/knowledge/server/files";
+import { KnowledgePopover } from "@botsdk/ui/knowledge/knowledge-popover";
 import { providerFor, type TestClient } from "../fake-dictionary";
 
 afterEach(() => {

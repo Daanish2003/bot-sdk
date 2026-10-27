@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { botTurn } from "@botsdk/bot/storage";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
-import { knowledge } from "../../../../plugins/knowledge/server/plugin";
+import { knowledge } from "@botsdk/knowledge";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { inProcessRunner, type JobRunner, systemClock } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";

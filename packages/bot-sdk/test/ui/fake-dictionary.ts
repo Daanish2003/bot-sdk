@@ -10,10 +10,10 @@ import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { ChannelsClient } from "../../plugins/channel/client/index";
-import type { KnowledgeFeatureClient } from "../../plugins/knowledge/client/index";
-import type { McpFeatureClient } from "../../plugins/mcp/client/index";
-import type { MemoryFeatureClient } from "../../plugins/memory/client/index";
-import type { SkillsFeatureClient } from "../../plugins/skills/client/index";
+import type { KnowledgeFeatureClient } from "@botsdk/knowledge/client";
+import type { McpFeatureClient } from "@botsdk/mcp/client";
+import type { MemoryFeatureClient } from "@botsdk/memory/client";
+import type { SkillsFeatureClient } from "@botsdk/skills/client";
 import { type ChatLinkProps, BotSdkProvider, type ChatRouter } from "@botsdk/react/provider";
 import { en, type Messages } from "@botsdk/client/i18n";
 

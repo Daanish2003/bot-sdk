@@ -17,7 +17,7 @@ import { deleteUserData } from "@botsdk/bot/user-data";
 import { demonstrationEventLimit, maskedValue } from "@botsdk/bot/bot/demonstrations";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
-import { skills } from "../../../../plugins/skills/server/plugin";
+import { skills } from "@botsdk/skills";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { chatRpc } from "../../../support/sdk";

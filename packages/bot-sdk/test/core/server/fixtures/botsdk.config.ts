@@ -1,7 +1,7 @@
 import type { BotSdkOptions } from "@botsdk/bot/create-chat";
 import { postgres } from "@botsdk/bot/database";
-import { mcp } from "../../../../plugins/mcp/server";
-import { memory } from "../../../../plugins/memory/server";
+import { mcp } from "@botsdk/mcp";
+import { memory } from "@botsdk/memory";
 
 // The config the `botsdk migrate` CLI test loads, shaped as a Host's: the factory's options (the
 // test's database, with Connectors on), and Memory as a feature it once enabled.

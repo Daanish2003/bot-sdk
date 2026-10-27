@@ -23,7 +23,7 @@ import {
   reapStaleJobs,
 } from "@botsdk/bot/runner/internal";
 
-import { knowledge } from "../../../../plugins/knowledge/server/plugin";
+import { knowledge } from "@botsdk/knowledge";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { drainJobs, fakeJobClock } from "../../../support/jobs";

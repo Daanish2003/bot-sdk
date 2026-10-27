@@ -8,8 +8,8 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { BotConversation } from "@botsdk/ui/bot/bot-conversation";
-import { memoryClient } from "../../../plugins/memory/client/index";
-import { BotMemoryChip } from "../../../plugins/memory/ui/bot-memory-chip";
+import { memoryClient } from "@botsdk/memory/client";
+import { BotMemoryChip } from "@botsdk/ui/memory/bot-memory-chip";
 import { providerFor } from "../fake-dictionary";
 
 afterEach(() => {

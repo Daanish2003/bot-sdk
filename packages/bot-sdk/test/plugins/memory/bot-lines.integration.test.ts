@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { memory } from "../../../plugins/memory/server/feature";
-import { memorySettings } from "../../../plugins/memory/server/schema";
+import { memory } from "@botsdk/memory";
+import { memorySettings } from "@botsdk/memory/server/schema";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { createTestSdk } from "../../support/deps";
 import { chatRpc } from "../../support/sdk";

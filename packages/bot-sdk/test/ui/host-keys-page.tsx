@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import { ImageModelSelect } from "@botsdk/ui/models";
-import { ConnectionsSection } from "../../plugins/mcp/ui/index";
+import { ConnectionsSection } from "@botsdk/ui/mcp";
 import {
   CredentialsSections,
   KeySettingsPage,

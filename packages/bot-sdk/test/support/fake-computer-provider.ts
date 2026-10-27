@@ -15,8 +15,8 @@ import {
   sizeScript,
 } from "@botsdk/bot/bot/agent-loop";
 import { boundedOutput } from "../../plugins/computer/e2b/bounded-output";
-import { stampScript, walkScript } from "../../plugins/knowledge/server/files";
-import { readSkillsScript, skillHeadBytes } from "../../plugins/skills/server/skills";
+import { stampScript, walkScript } from "@botsdk/knowledge/server/files";
+import { readSkillsScript, skillHeadBytes } from "@botsdk/skills/server/skills";
 
 /** One command the fake ran: where, on which sandbox, and with what time limit. */
 export type FakeCommand = {

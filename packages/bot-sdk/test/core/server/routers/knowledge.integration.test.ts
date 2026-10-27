@@ -5,7 +5,7 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { insertConversation } from "../../../support/conversations";
 import { getTestDb } from "../../../support/test-database";
 
-import { knowledge } from "../../../../plugins/knowledge/server/plugin";
+import { knowledge } from "@botsdk/knowledge";
 import { createTestSdk } from "../../../support/deps";
 import { chatRpc } from "../../../support/sdk";
 import { insertOwner } from "../../../support/users";

@@ -2,7 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { createElement, type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import { ConnectionsSection } from "../../../plugins/mcp/ui/connections-section";
+import { ConnectionsSection } from "@botsdk/ui/mcp/connections-section";
 import { ExportDataButton } from "@botsdk/ui/settings/export-data-button";
 import { renderWrapped, untranslated, type TestClient } from "../fake-dictionary";
 

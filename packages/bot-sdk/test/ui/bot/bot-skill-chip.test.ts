@@ -3,7 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { BotSkillChip } from "../../../plugins/skills/ui/bot-skill-chip";
+import { BotSkillChip } from "@botsdk/ui/skills/bot-skill-chip";
 import { providerFor } from "../fake-dictionary";
 
 afterEach(cleanup);

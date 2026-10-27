@@ -12,9 +12,16 @@ const serverDir = join(
   dirname(createRequire(import.meta.url).resolve("@botsdk/bot/package.json")),
   "src",
 );
-// The server code: the core's, and each feature plugin's.
+// The server code: the core's, each feature package's (#911), and each plugin's left here.
 const serverDirs = [
   serverDir,
+  ...["memory", "skills", "knowledge", "mcp"].map((feature) =>
+    join(
+      dirname(createRequire(import.meta.url).resolve(`@botsdk/${feature}/package.json`)),
+      "src",
+      "server",
+    ),
+  ),
   ...readdirSync(join(sdkDir, "plugins"))
     .map((name) => join(sdkDir, "plugins", name, "server"))
     .filter((dir) => existsSync(dir)),

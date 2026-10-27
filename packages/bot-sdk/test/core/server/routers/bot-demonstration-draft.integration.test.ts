@@ -13,7 +13,7 @@ import {
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { inProcessRunner, type JobRunner, claimJob } from "@botsdk/bot/runner/internal";
 
-import { skills } from "../../../../plugins/skills/server/plugin";
+import { skills } from "@botsdk/skills";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, runError, text, toolCall } from "../../../support/fake-adapter";
 import { fakeReviewer } from "../../../support/fake-reviewer";

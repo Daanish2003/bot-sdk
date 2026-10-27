@@ -10,7 +10,7 @@ import { botTurn, job, usage } from "@botsdk/bot/storage";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { HostProvider } from "@botsdk/bot/models/internal";
 import { findBot } from "@botsdk/bot/bot/conversation";
-import { botMemoryPassJob } from "../../../../plugins/memory/server/bot-pass";
+import { botMemoryPassJob } from "@botsdk/memory/server/bot-pass";
 import { saveCredentials, quotaLookup } from "@botsdk/bot/models/internal";
 
 import {

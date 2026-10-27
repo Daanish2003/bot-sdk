@@ -7,7 +7,7 @@ import {
   extractKnowledgeText,
   pdfMediaType,
   wordMediaType,
-} from "../../../../plugins/knowledge/server/extract";
+} from "@botsdk/knowledge/server/extract";
 
 const sampleDocx = readFileSync(new URL("../fixtures/sample.docx", import.meta.url));
 const samplePdf = readFileSync(new URL("../fixtures/sample-text.pdf", import.meta.url));

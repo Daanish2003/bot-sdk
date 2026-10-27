@@ -8,16 +8,16 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { exportUserData } from "@botsdk/bot/user-data";
 import type { BotExport } from "@botsdk/bot/bot/conversation";
 import { saveSecret } from "@botsdk/bot/bot/safety";
-import { saveTokens } from "../../../plugins/mcp/server/connections";
-import { mcp } from "../../../plugins/mcp/server/plugin";
+import { saveTokens } from "@botsdk/mcp/server/connections";
+import { mcp } from "@botsdk/mcp";
 import {
   logPath,
   notesPath,
   profilePath,
   type ExportedBotMemory,
-} from "../../../plugins/memory/server/bot-memory";
-import { memorySettings } from "../../../plugins/memory/server/schema";
-import { memory } from "../../../plugins/memory/server/feature";
+} from "@botsdk/memory/server/bot-memory";
+import { memorySettings } from "@botsdk/memory/server/schema";
+import { memory } from "@botsdk/memory";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { fakeComputerProvider } from "../../support/fake-computer-provider";
 import { botOf, botSdk, stopBotRunners } from "../../support/bot-turns";

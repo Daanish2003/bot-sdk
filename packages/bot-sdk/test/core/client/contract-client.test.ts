@@ -5,10 +5,10 @@ import { RPCHandler } from "@orpc/server/fetch";
 import { describe, expect, it } from "vitest";
 
 import { channelClient } from "../../../plugins/channel/client/index";
-import { knowledgeClient } from "../../../plugins/knowledge/client/index";
-import { mcpClient } from "../../../plugins/mcp/client/index";
-import { memoryClient } from "../../../plugins/memory/client/index";
-import { skillsClient } from "../../../plugins/skills/client/index";
+import { knowledgeClient } from "@botsdk/knowledge/client";
+import { mcpClient } from "@botsdk/mcp/client";
+import { memoryClient } from "@botsdk/memory/client";
+import { skillsClient } from "@botsdk/skills/client";
 
 /*
  * The browser client is built from contracts alone (spec #873): no server module, not even a type.

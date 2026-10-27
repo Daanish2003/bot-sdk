@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { listConnections, readTokens, saveTokens } from "../../../plugins/mcp/server/connections";
+import { listConnections, readTokens, saveTokens } from "@botsdk/mcp/server/connections";
 import { enabledFeatures } from "@botsdk/bot/feature";
-import { mcp, type McpApi } from "../../../plugins/mcp/server/plugin";
-import type { McpServerConfig } from "../../../plugins/mcp/server/servers";
+import { mcp, type McpApi } from "@botsdk/mcp";
+import type { McpServerConfig } from "@botsdk/mcp";
 import { createTestSdk, type TestDeps } from "../../support/deps";
 import { createFakeMcpAuth, fakeMcpResource } from "../../support/fake-mcp-auth";
 import { createFakeMcpServer, type FakeMcpTool } from "../../support/fake-mcp-server";

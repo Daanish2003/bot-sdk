@@ -1,10 +1,10 @@
 import { createBotSdkClient } from "@botsdk/client";
 
 import type { TestDeps } from "./deps";
-import { memoryClient } from "../../plugins/memory/client/index";
-import { skillsClient } from "../../plugins/skills/client/index";
-import { knowledgeClient } from "../../plugins/knowledge/client/index";
-import { mcpClient } from "../../plugins/mcp/client/index";
+import { memoryClient } from "@botsdk/memory/client";
+import { skillsClient } from "@botsdk/skills/client";
+import { knowledgeClient } from "@botsdk/knowledge/client";
+import { mcpClient } from "@botsdk/mcp/client";
 import { channelClient } from "../../plugins/channel/client/index";
 import type { HttpHandlerOptions } from "@botsdk/bot/http";
 import { createHttpHandlerOver } from "@botsdk/bot/over";

@@ -17,7 +17,7 @@ import {
   tallyKnowledge,
   writes,
 } from "../../../eval/knowledge/score";
-import { knowledgePrompt, readablePaths } from "../../../plugins/knowledge/server/prompt";
+import { knowledgePrompt, readablePaths } from "@botsdk/knowledge/server/prompt";
 
 const dir = "../../shared/knowledge";
 const read = (path: string): Call => ({ name: "read", args: { path: `${dir}/${path}` } });

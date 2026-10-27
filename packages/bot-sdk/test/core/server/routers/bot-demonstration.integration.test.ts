@@ -13,7 +13,7 @@ import { demonstrationHoldsScreenError, screensInUseError } from "@botsdk/bot/bo
 import { findBot } from "@botsdk/bot/bot/conversation";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { inProcessRunner, type JobRunner, claimJob } from "@botsdk/bot/runner/internal";
-import { skills } from "../../../../plugins/skills/server/plugin";
+import { skills } from "@botsdk/skills";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { fakeJobClock } from "../../../support/jobs";

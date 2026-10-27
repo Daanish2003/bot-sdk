@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { botHelper, botReview, botTurn } from "@botsdk/bot/storage";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
-import { mcp } from "../../../../plugins/mcp/server/plugin";
-import type { McpServerConfig } from "../../../../plugins/mcp/server/servers";
+import { mcp } from "@botsdk/mcp";
+import type { McpServerConfig } from "@botsdk/mcp";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { inProcessRunner, type JobRunner, claimJob } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";

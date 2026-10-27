@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { memorySettings } from "../../../plugins/memory/server/schema";
+import { memorySettings } from "@botsdk/memory/server/schema";
 import { createTestSdk } from "../../support/deps";
 import { chatRpc } from "../../support/sdk";
 import { getTestDb } from "../../support/test-database";

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { createHttpHandler } from "@botsdk/bot/http";
 import { createBotSdk } from "@botsdk/bot/create-chat";
-import { knowledge } from "../../../../plugins/knowledge/server/plugin";
+import { knowledge } from "@botsdk/knowledge";
 import { memoryRuntime } from "@botsdk/bot/runtime";
 import { resolveRateLimits, type RateLimits } from "@botsdk/bot/rate-limits";
 import { createTestSdk } from "../../../support/deps";

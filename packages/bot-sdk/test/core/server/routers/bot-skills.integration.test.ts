@@ -13,8 +13,8 @@ import {
   systemClock,
   claimJob,
 } from "@botsdk/bot/runner/internal";
-import { skills } from "../../../../plugins/skills/server/plugin";
-import { readSkillsScript } from "../../../../plugins/skills/server/skills";
+import { skills } from "@botsdk/skills";
+import { readSkillsScript } from "@botsdk/skills/server/skills";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { fakeJobClock } from "../../../support/jobs";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";

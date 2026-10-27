@@ -5,9 +5,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createBotSdk } from "@botsdk/bot/create-chat";
 import { type AnyFeature, defineFeature } from "@botsdk/bot/feature";
 import type { Migration } from "@botsdk/bot/migrate";
-import { mcp } from "../../../plugins/mcp/server";
+import { mcp } from "@botsdk/mcp";
 import { featureMigrations } from "@botsdk/bot/feature";
-import { memory } from "../../../plugins/memory/server";
+import { memory } from "@botsdk/memory";
 import {
   migrationParts,
   migrationsOf,

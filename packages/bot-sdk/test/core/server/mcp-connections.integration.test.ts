@@ -2,10 +2,10 @@ import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createBotSdk, type BotSdkOptions } from "@botsdk/bot/create-chat";
-import { mcp } from "../../../plugins/mcp/server/plugin";
+import { mcp } from "@botsdk/mcp";
 import { deleteUserData } from "@botsdk/bot/user-data";
-import { mcpConnection } from "../../../plugins/mcp/server/db/connection";
-import type { McpServerConfig } from "../../../plugins/mcp/server/servers";
+import { mcpConnection } from "@botsdk/mcp/server/db/connection";
+import type { McpServerConfig } from "@botsdk/mcp";
 import { createTestSdk, testKeyEncryptionSecret } from "../../support/deps";
 import { createTestChat } from "../../support/sdk";
 import { createFakeMcpAuth, fakeMcpResource } from "../../support/fake-mcp-auth";

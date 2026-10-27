@@ -3,7 +3,7 @@ import { crc32, deflateRawSync } from "node:zlib";
 
 import { describe, expect, it } from "vitest";
 
-import { knowledge } from "../../../../plugins/knowledge/server/plugin";
+import { knowledge } from "@botsdk/knowledge";
 import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { createTestSdk } from "../../../support/deps";
 import { chatRpc } from "../../../support/sdk";
