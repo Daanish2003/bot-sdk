@@ -1,0 +1,24 @@
+{
+  "name": "@botsdk/blobs-s3",
+  "version": "0.0.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json",
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "aws4fetch": "^1.0.20"
+  },
+  "devDependencies": {
+    "@ai-chat/config": "workspace:*",
+    "@botsdk/bot": "workspace:*",
+    "typescript": "catalog:"
+  },
+  "peerDependencies": {
+    "@botsdk/bot": "workspace:*"
+  }
+}

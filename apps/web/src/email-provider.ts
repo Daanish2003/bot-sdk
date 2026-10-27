@@ -1,4 +1,4 @@
-import { mailpitEmailProvider } from "@ai-chat/bot-sdk/plugins/channel/mailpit";
+import { mailpitEmailProvider } from "@botsdk/channel-email";
 import type { EmailProvider } from "@botsdk/bot/channel";
 
 /**

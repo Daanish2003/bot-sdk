@@ -14,7 +14,7 @@ import {
   readScript,
   sizeScript,
 } from "@botsdk/bot/bot/agent-loop";
-import { boundedOutput } from "../../plugins/computer/e2b/bounded-output";
+import { boundedOutput } from "@botsdk/computer-e2b/bounded-output";
 import { stampScript, walkScript } from "../../plugins/knowledge/server/files";
 import { readSkillsScript, skillHeadBytes } from "../../plugins/skills/server/skills";
 

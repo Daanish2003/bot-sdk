@@ -42,9 +42,9 @@ Install these in the Host. There is one `package.json` for the whole SDK, and ve
 - `@tanstack/ai`
 - `@tanstack/react-query`, `react`, `sonner`
 - `drizzle-orm` and `pg` (the Postgres driver it uses)
-- `redis` (the Redis client, used by `redisRuntime()`)
+- `redis` is not needed here: `redisRuntime()` lives in `@botsdk/pubsub-redis`, which carries it
 - `undici` and `ipaddr.js`, for the SSRF-guarded `fetch` (`@botsdk/bot`'s `src/lib/guarded-fetch.ts`). `undici` pins each connection to the address that was checked, and `ipaddr.js` classifies that address. Install `undici` at the major your Node bundles (7.x on Node 24): undici 8's dispatcher is rejected by Node's built-in `fetch`.
-- `aws4fetch`, which signs requests for `s3BlobStore`
+- `aws4fetch` is not needed here: `s3BlobStore` lives in `@botsdk/blobs-s3`, which carries it
 - `@orpc/client`, `@orpc/contract`, `@orpc/server`, `@orpc/tanstack-query`
 - `zod`
 
@@ -69,7 +69,7 @@ Install these in the Host. There is one `package.json` for the whole SDK, and ve
 
 **What the `computer` plugin needs (on top of `core/`):**
 
-- `e2b` (pinned at 2.55.0), the E2B JS SDK. Only `plugins/computer/e2b` imports it, so a Host that does not use that subpath can leave it out.
+- `e2b` (pinned at 2.55.0), the E2B JS SDK. Only `@botsdk/computer-e2b` imports it, so a Host that does not use that package can leave it out.
 
 **What the `channel` plugin needs (on top of `core/`):**
 
@@ -139,7 +139,8 @@ File bytes go to a `BlobStore`, which `createBotSdk({ blobs })` takes: the files
 - **`s3BlobStore({ endpoint, bucket, region, accessKeyId, secretAccessKey, forcePathStyle? })`** keeps bytes in any S3-compatible bucket, such as Cloudflare R2 (`region: "auto"`) or RustFS. It needs an existing bucket: the store never creates one, so the app needs no bucket-admin rights. It is built on `aws4fetch`, and `forcePathStyle` defaults to `true`.
 
 ```ts
-import { createBotSdk, postgres, s3BlobStore } from "@botsdk/bot";
+import { createBotSdk, postgres } from "@botsdk/bot";
+import { s3BlobStore } from "@botsdk/blobs-s3";
 
 const chat = createBotSdk({
   database: postgres({ connectionString: databaseUrl }),
@@ -245,10 +246,10 @@ The `skills` feature (each Bot's `SKILL.md` files, spec #713) and the `knowledge
 
 The Computer is part of the core: it gives each user one Computer, a real machine where their Bots run shell commands and keep files. Leave the `computer` slot unset and Bots run without a Computer: no tools, and no mention of them in the system prompt.
 
-The slot takes a provider. The E2B provider is on its own subpath, so a Host that never imports it never loads the `e2b` package:
+The slot takes a provider. The E2B provider is its own package, `@botsdk/computer-e2b`, so a Host that never installs it never loads the `e2b` package:
 
 ```ts
-import { e2bProvider } from "@ai-chat/bot-sdk/plugins/computer/e2b";
+import { e2bProvider } from "@botsdk/computer-e2b";
 
 createBotSdk({
   // ...
@@ -262,12 +263,12 @@ A user's Computer is created on their first operation, and with `bot` on, only f
 
 ### The template
 
-`plugins/computer/template/Dockerfile` is a Debian image with Screens: Xvfb, x11vnc, noVNC (websockify), xdotool, scrot and Chromium, plus the `ai-chat-screen` start script that `openScreen`, `closeScreen` and `setScreenControl` run. A Computer without Screens only needs `/home/user`, `bash` and `tar`, so a Host that never opens a Screen can pass any template with those. The template's name is its version: change the name with every change to the Dockerfile, and every Computer is rebuilt on its next wake. `apps/web` keeps the name in `computerTemplate` (`src/services.ts`).
+`packages/botsdk/computer-e2b/template/Dockerfile` is a Debian image with Screens: Xvfb, x11vnc, noVNC (websockify), xdotool, scrot and Chromium, plus the `ai-chat-screen` start script that `openScreen`, `closeScreen` and `setScreenControl` run. A Computer without Screens only needs `/home/user`, `bash` and `tar`, so a Host that never opens a Screen can pass any template with those. The template's name is its version: change the name with every change to the Dockerfile, and every Computer is rebuilt on its next wake. `apps/web` keeps the name in `computerTemplate` (`src/services.ts`).
 
 Build it into self-hosted E2B with the E2B CLI (no dependency is added; `pnpm dlx` fetches it), from `packages/bot-sdk`, with the three variables above in the environment:
 
 ```sh
-pnpm dlx @e2b/cli@2.22.0 template create ai-chat-computer-v3 --memory-mb 1536 -p plugins/computer/template -d Dockerfile
+pnpm dlx @e2b/cli@2.22.0 template create ai-chat-computer-v3 --memory-mb 1536 -p packages/botsdk/computer-e2b/template -d Dockerfile
 ```
 
 Notes from building it on local E2B Embed:
@@ -333,7 +334,7 @@ The core's Channels (`sdk.channels`) give each Bot its own email address (spec #
 
 ```ts
 import { emailChannel } from "@botsdk/bot/channel";
-import { mailpitEmailProvider } from "@ai-chat/bot-sdk/plugins/channel/mailpit";
+import { mailpitEmailProvider } from "@botsdk/channel-email";
 
 createBotSdk({
   // …
@@ -355,7 +356,7 @@ A mail is a Trigger only when it is from the user's verified email, is addressed
 
 A provider is the seam to a mail service (`EmailProvider`: `parseInbound` and `send`). Two ship:
 
-- `plugins/channel/mailpit`: a local Mailpit. Its received-message webhook POSTs to the inbound route, and the provider fetches that mail from Mailpit's REST API, so it refuses a webhook for a message Mailpit doesn't hold. Mailpit gives no SPF, DKIM or DMARC verdict, so the provider vouches for every mail it holds: use it only on a Host that listens on localhost.
+- `@botsdk/channel-email`: a local Mailpit. Its received-message webhook POSTs to the inbound route, and the provider fetches that mail from Mailpit's REST API, so it refuses a webhook for a message Mailpit doesn't hold. Mailpit gives no SPF, DKIM or DMARC verdict, so the provider vouches for every mail it holds: use it only on a Host that listens on localhost.
 - `plugins/channel/fake`: for tests and evals. An inbound request's body is the mail as JSON, with its own `authentication`, and each sent mail is kept in `sent`. It vouches for whatever it is sent, so never mount it on a route others can reach.
 
 ## Keeping a Bot's thread in sync: `conversations.changes`
@@ -520,6 +521,7 @@ The route answers `202` at once, `413` to a body over 64 KB, and `404` to a toke
 The processes of your app share signals (the data-less hints that a Bot's thread changed, ADR 0026) and rate-limit counters through the `pubsub` slot. The default, `memoryRuntime()`, keeps them in one process's memory, which is fine for local development and for a Host that runs as a single process.
 
 **Use `redisRuntime()` when more than one process can serve requests, including the overlap of a zero-downtime deploy.** Without it, a tab connected to the other process misses the hints until it fetches the changes on its own, and each process counts rate limits by itself.
+Import it from `@botsdk/pubsub-redis`.
 
 ```ts
 const chat = createBotSdk({

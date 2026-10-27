@@ -5,7 +5,7 @@ import {
   boundedOutput,
   keptEndCharacters,
   redactedOutput,
-} from "../../../../plugins/computer/e2b/bounded-output";
+} from "@botsdk/computer-e2b/bounded-output";
 
 describe("boundedOutput", () => {
   it("keeps a short output whole, however it arrives", () => {

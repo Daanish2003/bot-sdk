@@ -115,7 +115,7 @@ default `ai-chat-computer-v3-eval`). Build it from the same Dockerfile under ano
 `EVAL_REBUILD_TEMPLATE` at any other template that exists (the rebuilt Computer opens no Screen):
 
 ```sh
-pnpm dlx @e2b/cli@2.22.0 template create ai-chat-computer-v3-eval -p plugins/computer/template -d Dockerfile
+pnpm dlx @e2b/cli@2.22.0 template create ai-chat-computer-v3-eval -p packages/botsdk/computer-e2b/template -d Dockerfile
 ```
 
 It drives one user's Computer through the real plugin, and prints pass or fail for each check:

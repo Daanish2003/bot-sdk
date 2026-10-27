@@ -5,11 +5,14 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { e2bProvider } from "../../../../plugins/computer/e2b";
-import { keptEndCharacters } from "../../../../plugins/computer/e2b/bounded-output";
+import { e2bProvider } from "@botsdk/computer-e2b";
+import { keptEndCharacters } from "@botsdk/computer-e2b/bounded-output";
 import { SandboxGoneError } from "@botsdk/bot/computer/internal";
 
 const sdkRoot = fileURLToPath(new URL("../../../../", import.meta.url));
+const adapterRoot = dirname(
+  createRequire(import.meta.url).resolve("@botsdk/computer-e2b/package.json"),
+);
 const botRoot = dirname(createRequire(import.meta.url).resolve("@botsdk/bot/package.json"));
 
 function sourceFiles(directory: string): string[] {
@@ -20,16 +23,17 @@ function sourceFiles(directory: string): string[] {
   });
 }
 
-describe("the E2B adapter's subpath", () => {
+describe("the E2B adapter package", () => {
   it("is the only SDK module that imports e2b", () => {
     const importers = [
       ...sourceFiles(join(botRoot, "src")),
       ...sourceFiles(join(sdkRoot, "plugins")),
+      ...sourceFiles(join(adapterRoot, "src")),
     ]
       .filter((file) => /\.tsx?$/.test(file))
       .filter((file) => /from\s+["']e2b["']/.test(readFileSync(file, "utf8")))
-      .map((file) => relative(sdkRoot, file).replaceAll("\\", "/"));
-    expect(importers).toEqual(["plugins/computer/e2b/index.ts"]);
+      .map((file) => relative(adapterRoot, file).replaceAll("\\", "/"));
+    expect(importers).toEqual(["src/index.ts"]);
   });
 });
 

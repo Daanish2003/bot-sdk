@@ -17,7 +17,7 @@ vi.mock("e2b", async (importOriginal) => ({
   },
 }));
 
-import { e2bProvider } from "../../../../plugins/computer/e2b";
+import { e2bProvider } from "@botsdk/computer-e2b";
 
 const provider = e2bProvider({
   apiKey: "key",

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { createAuth, type AuthConfig } from "@ai-chat/auth";
 import { createDb } from "@ai-chat/db";
 import { createCaptureMailbox, createMemorySender } from "@ai-chat/email";
-import { redisStore } from "@botsdk/bot";
+import { redisStore } from "@botsdk/pubsub-redis";
 
 import { afterAll, describe, expect, it } from "vitest";
 

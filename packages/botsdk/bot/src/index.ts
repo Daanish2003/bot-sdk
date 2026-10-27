@@ -27,16 +27,9 @@ export {
   PermanentJobError,
 } from "./runner/internal";
 export type { EventHooks, ConversationDeletedEvent } from "./chat/hooks";
-export {
-  memoryRuntime,
-  redisRuntime,
-  type BotSdkRuntime,
-  type RedisRuntimeOptions,
-} from "./runtime";
-export { redisStore, type RedisStore } from "./chat/redis-store";
+export { memoryRuntime, type BotSdkRuntime } from "./runtime";
 export type { PubSub } from "./chat/pubsub";
 export type { RateLimit, RateLimits } from "./rate-limits";
 export type { Database } from "./storage";
 export type { BlobStore } from "./storage";
 export { postgresBlobStore } from "./storage";
-export { s3BlobStore, type S3BlobStoreOptions } from "./storage";

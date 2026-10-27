@@ -5,7 +5,7 @@ const { adapterLoads, e2bProvider } = vi.hoisted(() => ({
   e2bProvider: vi.fn(() => ({ kind: "e2b-provider" })),
 }));
 
-vi.mock("@ai-chat/bot-sdk/plugins/computer/e2b", () => {
+vi.mock("@botsdk/computer-e2b", () => {
   adapterLoads.count += 1;
   return { e2bProvider };
 });

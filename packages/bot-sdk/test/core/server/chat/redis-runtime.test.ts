@@ -3,10 +3,10 @@ import net from "node:net";
 import { afterAll, describe, expect, it } from "vitest";
 
 import { createBotSdk } from "@botsdk/bot/create-chat";
-import { createRedisConnection, type RedisConnection } from "@botsdk/bot/chat/redis-connection";
-import { createRedisCounters } from "@botsdk/bot/chat/redis-counters";
-import { createRedisPubSub } from "@botsdk/bot/chat/redis-pubsub";
-import { redisRuntime } from "@botsdk/bot/runtime";
+import { createRedisConnection, type RedisConnection } from "@botsdk/pubsub-redis/redis-connection";
+import { createRedisCounters } from "@botsdk/pubsub-redis/redis-counters";
+import { createRedisPubSub } from "@botsdk/pubsub-redis/redis-pubsub";
+import { redisRuntime } from "@botsdk/pubsub-redis";
 import { counterStoreContract } from "./counters.contract";
 import { pubsubContract } from "./pubsub.contract";
 import { postgres } from "@botsdk/bot/database";

@@ -1,4 +1,4 @@
-import type { CounterHit, CounterStore } from "./counters";
+import type { CounterHit, CounterStore } from "@botsdk/bot/chat/counters";
 import type { RedisConnection } from "./redis-connection";
 
 /**
