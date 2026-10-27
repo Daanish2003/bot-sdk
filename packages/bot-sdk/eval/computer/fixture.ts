@@ -2,7 +2,7 @@
 // so the Screen's Chrome reaches it on localhost and nothing leaves the machine. The login page's
 // form posts to the server, which logs the body, so a case can tell that a form was submitted.
 
-import type { ComputerHandle } from "../../plugins/computer/server/internal";
+import type { ComputerHandle } from "@botsdk/bot/computer/internal";
 
 export const fixturePort = 8099;
 export const fixtureUrl = `http://127.0.0.1:${fixturePort}`;

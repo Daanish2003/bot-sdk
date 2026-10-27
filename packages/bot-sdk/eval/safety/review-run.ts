@@ -2,12 +2,12 @@
 // into a fresh Bot's Conversation, then the real Auto-review (`judge`, the reviewer's own call) gives
 // its verdict. Nothing runs: only the verdict is read.
 
-import { appendMessage } from "../../core/server/chat/message-tree";
-import { botTrigger, botTurn } from "../../core/server/storage";
-import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { judge, type ReviewKit, reviewFailedReason } from "../../plugins/bot/server/safety";
-import { routineSnapshot, webhookPayloadLabel } from "../../plugins/bot/server/routines";
-import { defaultTimeZone, textParts } from "../../plugins/bot/server/conversation";
+import { appendMessage } from "@botsdk/bot/chat/message-tree";
+import { botTrigger, botTurn } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { judge, type ReviewKit, reviewFailedReason } from "@botsdk/bot/bot/safety";
+import { routineSnapshot, webhookPayloadLabel } from "@botsdk/bot/bot/routines";
+import { defaultTimeZone, textParts } from "@botsdk/bot/bot/conversation";
 import { freshBot, type TurnEnv } from "../turn/case";
 import type { ReviewCase } from "./cases";
 import type { Outcome } from "./score";

@@ -17,10 +17,10 @@ import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
 import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 
-import { botTrigger, computer as computerTable } from "../../core/server/storage";
-import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { uploadBotFile } from "../../plugins/bot/server/conversation";
-import { runnerJobs } from "../../plugins/runner/server/internal";
+import { botTrigger, computer as computerTable } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { uploadBotFile } from "@botsdk/bot/bot/conversation";
+import { runnerJobs } from "@botsdk/bot/runner/internal";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
 import { isReviewCall, passVerdict, verdictRound } from "../../test/support/fake-reviewer";
 import { sendAndFollow } from "../../test/support/follow-send";

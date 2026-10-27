@@ -5,20 +5,21 @@ import { fileURLToPath } from "node:url";
 
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 
-import { databaseOf, postgresBlobStore, type Database } from "../../core/server/storage";
-import { createHookEmitter } from "../../core/server/chat/hooks";
-import type { FeatureEntry } from "../../core/server/create-chat";
-import { createGuardedFetch } from "../../core/server/lib/guarded-fetch";
-import { postgres } from "../../core/server/database";
-import { migrate as migrateBotSdk } from "../../core/server/migrate";
+import { databaseOf, postgresBlobStore, type Database } from "@botsdk/bot/storage";
+import { createHookEmitter } from "@botsdk/bot/chat/hooks";
+import type { FeatureEntry } from "@botsdk/bot/create-chat";
+import { createGuardedFetch } from "@botsdk/bot/lib/guarded-fetch";
+import { postgres } from "@botsdk/bot/database";
+import { migrate as migrateBotSdk } from "@botsdk/bot/migrate";
 import { sdkFeatureMigrations } from "../../scripts/migration-parts";
-import type { BotSdkContext } from "../../core/server/plugin";
-import { memoryRuntime } from "../../core/server/runtime";
-import { createBotSdkOver, type OverSlots } from "../../core/server/over";
+import type { BotSdkContext } from "@botsdk/bot/plugin";
+import { memoryRuntime } from "@botsdk/bot/runtime";
+import { createBotSdkOver, type OverSlots } from "@botsdk/bot/over";
 import { e2bProvider } from "../../plugins/computer/e2b";
-import type { ComputerProvider } from "../../plugins/computer/server";
-import { productionDeps } from "../../plugins/models/server/internal";
-import type { ModelsDeps } from "../../plugins/models/server/internal";
+import type { ComputerProvider } from "@botsdk/bot/computer";
+import { productionDeps } from "@botsdk/bot/models/internal";
+import type { ModelsDeps } from "@botsdk/bot/models/internal";
+import { testModelProviders } from "../../test/support/model-providers";
 
 /** The key the eval's own credentials are encrypted with. Test data only: nothing is kept. */
 const evalKeySecret = "eval-computer-key-secret-not-for-production";
@@ -76,10 +77,9 @@ export function createComputerSdk(
   const guarded = createGuardedFetch({ schemes: "http-and-https" });
   const fetch = wrapFetch ? wrapFetch(guarded) : guarded;
   const keyring = [evalKeySecret];
-  const real = productionDeps(
-    { db, keyring, events, logger, fetch } as unknown as BotSdkContext,
-    {},
-  );
+  const real = productionDeps({ db, keyring, events, logger, fetch } as unknown as BotSdkContext, {
+    providers: testModelProviders,
+  });
   return createBotSdkOver(
     {
       context: {

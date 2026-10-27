@@ -16,10 +16,10 @@ import {
   botTurn,
   computer as computerTable,
   job as jobTable,
-} from "../../core/server/storage";
-import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { computerOf } from "../../plugins/bot/server/agent-loop";
-import { runnerJobs } from "../../plugins/runner/server/internal";
+} from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { computerOf } from "@botsdk/bot/bot/agent-loop";
+import { runnerJobs } from "@botsdk/bot/runner/internal";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";
 import { freshBot } from "../turn/case";
 import { keyFor } from "../turn/judge-model";

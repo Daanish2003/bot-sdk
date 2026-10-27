@@ -10,15 +10,15 @@ import { Readable } from "node:stream";
 
 import { chromium } from "playwright-core";
 
-import { botHelper, botTurn } from "../../core/server/storage";
-import type { Database } from "../../core/server/storage";
-import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { screenView } from "../../plugins/bot/server/helpers";
-import { createBot } from "../../plugins/bot/server/conversation";
-import type { ComputerHandle } from "../../plugins/computer/server/internal";
+import { botHelper, botTurn } from "@botsdk/bot/storage";
+import type { Database } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { screenView } from "@botsdk/bot/bot/helpers";
+import { createBot } from "@botsdk/bot/bot/conversation";
+import type { ComputerHandle } from "@botsdk/bot/computer/internal";
 import type { createComputerSdk } from "./setup";
 import { acceptSocket } from "./ws-server";
-import { createHttpHandlerOver, createScreenSocketOver } from "../../core/server/over";
+import { createHttpHandlerOver, createScreenSocketOver } from "@botsdk/bot/over";
 
 /** Where the throwaway server serves the HTTP layer. */
 const basePath = "/api/chat";

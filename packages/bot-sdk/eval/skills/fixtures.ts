@@ -6,7 +6,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { maskedValue } from "../../plugins/bot/server/demonstrations";
+import { maskedValue } from "@botsdk/bot/bot/demonstrations";
 import type { DraftExpect } from "./draft-score";
 
 const directory = fileURLToPath(new URL("./fixtures/", import.meta.url));

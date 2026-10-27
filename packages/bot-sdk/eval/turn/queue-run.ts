@@ -4,8 +4,8 @@ import { sendAndFollow } from "../../test/support/follow-send";
 
 import { and, asc, eq, inArray } from "drizzle-orm";
 
-import { botTurn, job, botTrigger } from "../../core/server/storage";
-import { uuidv7 } from "../../core/server/lib/uuidv7";
+import { botTurn, job, botTrigger } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { freshBot, type TurnEnv } from "./case";
 import type { QueueCase } from "./queue-cases";
 import { judge, scoreQueue } from "./queue-score";

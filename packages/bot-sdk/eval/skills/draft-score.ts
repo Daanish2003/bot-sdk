@@ -2,7 +2,7 @@
 // valid frontmatter that starts "Use this when", the expected inputs named, the key URLs and field
 // labels in the text, and no masked or secret value leaked.
 
-import { draftedSkill } from "../../plugins/bot/server/demonstrations";
+import { draftedSkill } from "@botsdk/bot/bot/demonstrations";
 
 /** What a fixture's drafted Skill must contain. */
 export type DraftExpect = {

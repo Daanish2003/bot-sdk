@@ -7,11 +7,11 @@ import { sendAndFollow } from "../../test/support/follow-send";
 
 import { eq } from "drizzle-orm";
 
-import { botTrigger } from "../../core/server/storage";
-import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { gistOf } from "../../plugins/bot/server/helpers";
-import { lockConversation, receive } from "../../plugins/bot/server/triggers";
-import { saveCredentials } from "../../plugins/models/server/internal";
+import { botTrigger } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { gistOf } from "@botsdk/bot/bot/helpers";
+import { lockConversation, receive } from "@botsdk/bot/bot/triggers";
+import { saveCredentials } from "@botsdk/bot/models/internal";
 import { freshBot, seedHistory, type TurnEnv } from "./case";
 import type { LadderCase } from "./ladder-cases";
 import { helperStarts, scoreLadder } from "./ladder-score";

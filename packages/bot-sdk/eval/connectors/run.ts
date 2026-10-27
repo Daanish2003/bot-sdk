@@ -22,11 +22,11 @@ import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
 import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 
-import { botTrigger } from "../../core/server/storage";
-import { uuidv7 } from "../../core/server/lib/uuidv7";
+import { botTrigger } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { saveTokens } from "../../plugins/mcp/server/connections";
 import { mcp } from "../../plugins/mcp/server/plugin";
-import { runnerJobs } from "../../plugins/runner/server/internal";
+import { runnerJobs } from "@botsdk/bot/runner/internal";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
 import { type FakeMcpAuth, fakeMcpResource } from "../../test/support/fake-mcp-auth";
 import { createFakeMcpServer, type FakeMcpServer } from "../../test/support/fake-mcp-server";

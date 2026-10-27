@@ -9,8 +9,10 @@
 import { chatgptPlanModels } from "@botsdk/client/models/credentials/services";
 import { chat } from "@tanstack/ai";
 
-import { adapterFor } from "../plugins/models/server/internal";
-import type { LinkedCredentialsHook } from "../plugins/models/server/internal";
+import { adaptersOf } from "@botsdk/bot/models/internal";
+import type { LinkedCredentialsHook } from "@botsdk/bot/models/internal";
+
+import { testModelProviders } from "../test/support/model-providers";
 
 /** The owner's linked plan: a fresh access token on each call, and the models plugin's hook over it. */
 export type ChatgptPlan = {
@@ -92,7 +94,11 @@ export function planJudgeCompletion(model: string, plan: ChatgptPlan) {
     fail(`The judge "${model}" is not a ChatGPT plan Model (${chatgptPlanModels.join(", ")})`);
   }
   return async (prompt: string) => {
-    const adapter = adapterFor(model, { apiKey: await plan.token() }, { linked: true });
+    const adapter = adaptersOf(testModelProviders).adapterFor(
+      model,
+      { apiKey: await plan.token() },
+      { linked: true },
+    );
     const result = await chat({
       adapter,
       threadId: "eval-judge",

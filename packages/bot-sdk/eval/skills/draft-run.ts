@@ -10,13 +10,13 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { botDemonstration, botDemonstrationEvent } from "../../core/server/storage";
-import { uuidv7 } from "../../core/server/lib/uuidv7";
+import { botDemonstration, botDemonstrationEvent } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import {
   demonstrationEventBlobKey,
   draftSkill,
   type Drafted,
-} from "../../plugins/bot/server/demonstrations";
+} from "@botsdk/bot/bot/demonstrations";
 import { skills } from "../../plugins/skills/server/plugin";
 import { createFakeAdapter, round, text } from "../../test/support/fake-adapter";
 import { fakeComputerProvider } from "../../test/support/fake-computer-provider";

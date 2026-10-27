@@ -1,7 +1,7 @@
 // Scores the Skills eval (spec #713, #721) from what a Turn left behind: its tool calls, its Messages
 // and the Skills on the Bot's Computer afterwards. Everything here is deterministic; no judge.
 
-import { problemOf } from "../../plugins/skills/server/skills";
+import { problemOf } from "@botsdk/bot/bot/skill-files";
 
 /** One tool call of a Turn, in order, with its args (a `run_tool` call already unwrapped). */
 export type Call = { name: string; args: unknown };

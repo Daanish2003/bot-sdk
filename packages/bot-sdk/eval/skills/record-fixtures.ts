@@ -18,11 +18,11 @@ import { fileURLToPath } from "node:url";
 import { asc, eq } from "drizzle-orm";
 import { type Page, chromium } from "playwright-core";
 
-import { botDemonstration, botDemonstrationEvent } from "../../core/server/storage";
-import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { sendToUserToolName } from "../../plugins/bot/server/context";
+import { botDemonstration, botDemonstrationEvent } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { sendToUserToolName } from "@botsdk/bot/bot/context";
 import { skills } from "../../plugins/skills/server/plugin";
-import { runnerJobs } from "../../plugins/runner/server/internal";
+import { runnerJobs } from "@botsdk/bot/runner/internal";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
 import { fakeComputerProvider } from "../../test/support/fake-computer-provider";
 import type { RecordedFixture } from "./fixtures";

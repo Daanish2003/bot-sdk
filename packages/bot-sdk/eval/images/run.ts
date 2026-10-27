@@ -20,11 +20,11 @@ import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
 import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 
-import { botTrigger } from "../../core/server/storage";
-import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { computerOf } from "../../plugins/bot/server/agent-loop";
-import { fakeImageAdapter, fakePngBase64 } from "../../plugins/models/server/internal";
-import { runnerJobs } from "../../plugins/runner/server/internal";
+import { botTrigger } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { computerOf } from "@botsdk/bot/bot/agent-loop";
+import { fakeImageAdapter, fakePngBase64 } from "@botsdk/bot/models/internal";
+import { runnerJobs } from "@botsdk/bot/runner/internal";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
 import { isReviewCall, passVerdict, verdictRound } from "../../test/support/fake-reviewer";
 import { fakeComputerProvider } from "../../test/support/fake-computer-provider";
@@ -36,7 +36,7 @@ import { toolCallsOf } from "../turn/routine-score";
 import { waitForTurn } from "../turn/routine-run";
 import { type ImagesCase, imagesCases } from "./cases";
 import { type Call, type Expect, type Score, scoreImages, tallyImages } from "./score";
-import { botDirectory } from "../../plugins/bot/server/conversation";
+import { botDirectory } from "@botsdk/bot/bot/conversation";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const resultsDir = join(here, "results");

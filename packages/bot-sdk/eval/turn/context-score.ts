@@ -4,7 +4,7 @@
 
 import type { ModelMessage } from "@tanstack/ai";
 
-import type { PromptHash } from "../../core/server/chat/hooks";
+import type { PromptHash } from "@botsdk/bot/chat/hooks";
 
 export type ContextScore = { passed: boolean; reasons: string[] };
 

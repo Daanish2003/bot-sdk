@@ -12,8 +12,8 @@ import { fileURLToPath } from "node:url";
 
 import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 
-import { saveCredentials } from "../../plugins/models/server/internal";
-import { runnerJobs } from "../../plugins/runner/server/internal";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import { runnerJobs } from "@botsdk/bot/runner/internal";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
 import { isReviewCall, verdictRound } from "../../test/support/fake-reviewer";
 import { fakeComputerProvider } from "../../test/support/fake-computer-provider";

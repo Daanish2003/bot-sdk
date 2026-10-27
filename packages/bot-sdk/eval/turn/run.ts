@@ -13,19 +13,20 @@ import { fileURLToPath } from "node:url";
 import type { AnyTextAdapter } from "@tanstack/ai";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 
-import { databaseOf, postgresBlobStore, type Database } from "../../core/server/storage";
-import { createHookEmitter } from "../../core/server/chat/hooks";
-import { createGuardedFetch } from "../../core/server/lib/guarded-fetch";
-import { postgres } from "../../core/server/database";
-import { migrate as migrateBotSdk } from "../../core/server/migrate";
+import { databaseOf, postgresBlobStore, type Database } from "@botsdk/bot/storage";
+import { createHookEmitter } from "@botsdk/bot/chat/hooks";
+import { createGuardedFetch } from "@botsdk/bot/lib/guarded-fetch";
+import { postgres } from "@botsdk/bot/database";
+import { migrate as migrateBotSdk } from "@botsdk/bot/migrate";
 import { sdkFeatureMigrations } from "../../scripts/migration-parts";
-import type { BotSdkContext } from "../../core/server/plugin";
-import { memoryRuntime } from "../../core/server/runtime";
-import { createBotSdkOver } from "../../core/server/over";
-import { runnerJobs } from "../../plugins/runner/server/internal";
-import { productionDeps } from "../../plugins/models/server/internal";
-import type { ModelsDeps } from "../../plugins/models/server/internal";
+import type { BotSdkContext } from "@botsdk/bot/plugin";
+import { memoryRuntime } from "@botsdk/bot/runtime";
+import { createBotSdkOver } from "@botsdk/bot/over";
+import { runnerJobs } from "@botsdk/bot/runner/internal";
+import { productionDeps } from "@botsdk/bot/models/internal";
+import type { ModelsDeps } from "@botsdk/bot/models/internal";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
+import { testModelProviders } from "../../test/support/model-providers";
 import { type TurnCase, turnCases } from "./cases";
 import { runCase, type TurnRunResult } from "./case";
 import { queueCases } from "./queue-cases";
@@ -159,7 +160,7 @@ async function main() {
   const keyring = [evalKeySecret];
   const realModels = productionDeps(
     { db, keyring, events, logger, fetch } as unknown as BotSdkContext,
-    { linkedCredentials: plan?.linkedCredentials },
+    { providers: testModelProviders, linkedCredentials: plan?.linkedCredentials },
   );
   /** The fake Model's case for each run, found by the run's own API key. */
   const scripts = new Map<string, { id: string; rounds: () => ReturnType<typeof round>[] }>();

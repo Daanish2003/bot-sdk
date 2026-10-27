@@ -15,16 +15,16 @@ import { fileURLToPath } from "node:url";
 
 import { eq } from "drizzle-orm";
 
-import { botTrigger } from "../../core/server/storage";
-import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { computerOf } from "../../plugins/bot/server/agent-loop";
-import { lockConversation, receive } from "../../plugins/bot/server/triggers";
-import { routineSnapshot, webhookPayloadLabel } from "../../plugins/bot/server/routines";
-import { defaultTimeZone } from "../../plugins/bot/server/conversation";
-import { sendToUserToolName } from "../../plugins/bot/server/context";
+import { botTrigger } from "@botsdk/bot/storage";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { computerOf } from "@botsdk/bot/bot/agent-loop";
+import { lockConversation, receive } from "@botsdk/bot/bot/triggers";
+import { routineSnapshot, webhookPayloadLabel } from "@botsdk/bot/bot/routines";
+import { defaultTimeZone } from "@botsdk/bot/bot/conversation";
+import { sendToUserToolName } from "@botsdk/bot/bot/context";
 import { skills } from "../../plugins/skills/server/plugin";
-import { skillsDirectory } from "../../plugins/skills/server/skills";
-import { runnerJobs } from "../../plugins/runner/server/internal";
+import { skillsDirectory } from "@botsdk/bot/bot/skill-files";
+import { runnerJobs } from "@botsdk/bot/runner/internal";
 import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
