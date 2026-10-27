@@ -3,7 +3,7 @@ import type { PgEnum, PgTable } from "drizzle-orm/pg-core";
 
 /**
  * A part's static schema module (the core's or a plugin's): its own tables and enums in plain
- * Drizzle. `core/server/storage/schema.ts` composes them.
+ * Drizzle. `storage/schema.ts` composes them.
  */
 export type PluginSchema = {
   tables: Record<string, PgTable>;

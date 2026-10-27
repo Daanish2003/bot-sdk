@@ -11,7 +11,7 @@ import {
 
 import { botsdkSchema } from "../botsdk-schema";
 import { job } from "../runner/job";
-import type { MessageUsage } from "../../../../plugins/models/shared/usage";
+import type { MessageUsage } from "../../models/shared/usage";
 import { bot } from "./bot";
 import { botTurn } from "./bot-turn";
 

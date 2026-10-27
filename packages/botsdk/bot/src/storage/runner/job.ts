@@ -11,7 +11,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 import { botsdkSchema } from "../botsdk-schema";
-import type { HistoryKind } from "../../../../plugins/runner/server/internal";
+import type { HistoryKind } from "../../runner/internal";
 
 /** Where a background job is. `queued` and `running` are active (ADR 0011). */
 export const jobStatus = botsdkSchema.enum("job_status", [
