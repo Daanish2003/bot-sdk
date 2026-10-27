@@ -6,6 +6,7 @@ import { type AddressInfo, connect, createServer as createTcpServer, type Socket
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { type Browser, chromium } from "playwright-core";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -14,12 +15,16 @@ import { botDemonstration, botDemonstrationEvent, postgresBlobStore } from "../.
 import type { BlobStore } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { deleteUserData } from "../../src/user-data";
-import { demonstrationEventLimit, maskedValue } from "../../src/bot/demonstrations";
+import {
+  demonstrationDraftMarker,
+  demonstrationEventLimit,
+  maskedValue,
+} from "../../src/bot/demonstrations";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner } from "../../src/runner/internal";
 import { skills } from "@botsdk/skills";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
-import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
+import { createFakeAdapter, round, text, toolCall } from "@botsdk/testing/fake-adapter";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
@@ -155,13 +160,35 @@ const watchUser = toolCall({
 });
 const ends = toolCall({ name: "send_to_user", input: { text: "Go ahead.", endTurn: true } });
 
+/** The drafting pass's reply: a Skill it saves. */
+const drafted = text(
+  [
+    "---",
+    "name: copy-payouts",
+    "description: Use this when the user wants the payouts copied",
+    "---",
+    "## Steps",
+    "1. Open the payouts page.",
+  ].join("\n"),
+);
+
 /**
  * A Bot whose Turn starts a Demonstration on its Screen, whose Chrome is `chrome`, with a page of
  * the test's site already open in it, as the user's tab is. Resolves once the capture is set up,
  * which its first step, the open page's navigation, shows.
  */
 async function demonstrating(path = "/") {
-  const fake = createFakeAdapter({ rounds: [round(watchUser, ends)] });
+  const turns = [round(watchUser, ends)];
+  // The drafting pass's calls get a Skill; the Bot's Turns after the first are quiet.
+  const fake = createFakeAdapter({
+    rounds: Array.from(
+      { length: 10 },
+      () => (options: TextOptions) =>
+        JSON.stringify(options.systemPrompts ?? []).includes(demonstrationDraftMarker)
+          ? round(drafted)
+          : (turns.shift() ?? round()),
+    ),
+  });
   const computerFake = fakeComputerProvider({
     hostUrl: (sandboxId, port) =>
       port > 9222 ? chrome.proxied : `https://${port}-${sandboxId}.fake.test`,
@@ -532,15 +559,18 @@ describe("capturing a Demonstration", () => {
   it(`ends as Done at ${demonstrationEventLimit} stored steps`, async () => {
     const { client, botId, demonstrationId, page } = await demonstrating();
 
-    // All but the last few steps, stored as the capture stores a masked key press: capturing 200
-    // one by one takes seconds, more than a poll waits under load (#945).
+    // All but the last few steps, stored as the capture stores a masked key press, after the steps
+    // already stored: capturing 200 one by one takes seconds, more than a poll waits under load
+    // (#945).
+    const stored = await eventsOf(demonstrationId);
+    const next = (stored.at(-1)?.sequence ?? 0) + 1;
     await getTestDb()
       .insert(botDemonstrationEvent)
       .values(
-        Array.from({ length: demonstrationEventLimit - 3 }, (_, index) => ({
+        Array.from({ length: demonstrationEventLimit - stored.length - 2 }, (_, index) => ({
           id: uuidv7(),
           demonstrationId,
-          sequence: index + 2,
+          sequence: next + index,
           offsetMs: 0,
           kind: "key" as const,
           url: `${origin}/`,
@@ -552,8 +582,8 @@ describe("capturing a Demonstration", () => {
     await page.locator("#pw").focus();
     for (let i = 0; i < 5; i += 1) await page.keyboard.press("Enter");
 
-    // Done moves it to `drafting`, which its drafting pass soon moves on (#945), so wait for it to
-    // stop recording; bot-demonstration-draft covers how the pass ends.
+    // Done moves it to `drafting`, which its drafting pass soon moves on (#945): the pass's Model
+    // call drafts a Skill, so the pass ends it `saved`, never `failed`.
     const demonstrationRow = async () => {
       const [row] = await getTestDb()
         .select({ state: botDemonstration.state, endedAt: botDemonstration.endedAt })
@@ -561,10 +591,8 @@ describe("capturing a Demonstration", () => {
         .where(eq(botDemonstration.id, demonstrationId));
       return row;
     };
-    await expect.poll(async () => (await demonstrationRow())?.state, poll).not.toBe("recording");
-    const ended = await demonstrationRow();
-    expect(["drafting", "saved", "failed"]).toContain(ended?.state);
-    expect(ended?.endedAt).toEqual(expect.any(Date));
+    await expect.poll(async () => (await demonstrationRow())?.state, poll).toBe("saved");
+    expect((await demonstrationRow())?.endedAt).toEqual(expect.any(Date));
     await page.waitForTimeout(500);
     expect(await eventsOf(demonstrationId)).toHaveLength(demonstrationEventLimit);
     const { messages } = await client.bots.get({ botId });
