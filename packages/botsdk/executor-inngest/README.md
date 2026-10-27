@@ -45,7 +45,7 @@ The process that serves the functions must have called `chat.start()`: a deliver
 
 A job runs inside one Inngest request, so your platform's request time limit must cover your longest job (a Bot Turn can take minutes). A job cut off mid-way resumes from its last Checkpoint once the sweep finds its lease expired.
 
-Concurrency limits aren't mapped yet: the in-process runner's shared budget of two and each job's `concurrency` don't apply on Inngest, so every delivered job runs at once. Size your database pool for it.
+A job with a `concurrency` (or a group of jobs with one `budget`) runs at most that many at once on Inngest, across every process that serves the functions (the in-process runner counts per process). For each such budget, `botsdkRunner.functions` has a function `botsdk-run-job-<budget>` with Inngest's `concurrency` limit set to it; the Executor looks up a job's budget when it sends its event (`budget` in the event data), and that function alone takes the event. Jobs with no `concurrency` run at once, as before, so size your database pool for them. The budgets come from the jobs the SDK started with, so read `functions` after `chat.start()`, as in the setup above, and re-sync the app after a deploy that adds or changes a `concurrency`.
 
 Queue jobs in the SDK's own transactions (`ctx.db` in a job or a feature). A job queued in a transaction of your own Drizzle instance is written but not sent to Inngest; the next sweep sends it, up to 5 minutes later.
 

@@ -343,6 +343,15 @@ export async function runClaimedJob(
 /** How many due jobs one sweep returns; the next sweep takes the rest. */
 const SWEEP_LIMIT = 500;
 
+/** The names of the jobs with the given ids, for those that exist. */
+export async function jobNames(
+  db: Database,
+  ids: string[],
+): Promise<{ id: string; name: string }[]> {
+  if (ids.length === 0) return [];
+  return db.select({ id: job.id, name: job.name }).from(job).where(inArray(job.id, ids));
+}
+
 /** The ids of the queued jobs that are due at `now`, the longest due first, up to the sweep's limit. */
 export async function dueJobIds(db: Database, now: Date): Promise<string[]> {
   const rows = await db
