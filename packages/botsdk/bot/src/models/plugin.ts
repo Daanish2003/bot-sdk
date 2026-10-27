@@ -324,6 +324,18 @@ function checkStart(options: ModelsOptions) {
       `defaultImageModel "${defaultImage}" is not one of the hostProviders' Image Models`,
     );
   }
+  // A Host Model needs its Provider's adapter (spec #875); without it every call on it would fail.
+  const providers = options.providers ?? {};
+  for (const { provider, models, imageModels = [] } of hostProviders) {
+    if (models.length > 0 && !providers[provider]?.text) {
+      throw new Error(`Host Models of "${provider}" need "${provider}" in models.providers`);
+    }
+    if (imageModels.length > 0 && !options.imageAdapterFor && !providers[provider]?.image) {
+      throw new Error(
+        `Host Image Models of "${provider}" need its image adapter in models.providers`,
+      );
+    }
+  }
 }
 
 const isHostTool = (entry: HostProvider | HostTool): entry is HostTool => "tool" in entry;

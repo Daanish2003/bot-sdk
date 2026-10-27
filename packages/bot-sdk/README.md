@@ -43,7 +43,7 @@ Install these in the Host. There is one `package.json` for the whole SDK, and ve
 - `@tanstack/react-query`, `react`, `sonner`
 - `drizzle-orm` and `pg` (the Postgres driver it uses)
 - `redis` (the Redis client, used by `redisRuntime()`)
-- `undici` and `ipaddr.js`, for the SSRF-guarded `fetch` (`core/server/lib/guarded-fetch.ts`). `undici` pins each connection to the address that was checked, and `ipaddr.js` classifies that address. Install `undici` at the major your Node bundles (7.x on Node 24): undici 8's dispatcher is rejected by Node's built-in `fetch`.
+- `undici` and `ipaddr.js`, for the SSRF-guarded `fetch` (`@botsdk/bot`'s `src/lib/guarded-fetch.ts`). `undici` pins each connection to the address that was checked, and `ipaddr.js` classifies that address. Install `undici` at the major your Node bundles (7.x on Node 24): undici 8's dispatcher is rejected by Node's built-in `fetch`.
 - `aws4fetch`, which signs requests for `s3BlobStore`
 - `@orpc/client`, `@orpc/contract`, `@orpc/server`, `@orpc/tanstack-query`
 - `zod`
@@ -77,7 +77,7 @@ Install these in the Host. There is one `package.json` for the whole SDK, and ve
 
 The `runner` and `memory` plugins and the `skills` feature need nothing beyond `core/` (and `lucide-react` for the `ui/` folders).
 
-`core/` is not self-contained: `core/server`, `core/http` and `core/client` import the `plugins/` they compose (the Bot core, Models, Runner, Computer and Channel, and the features' parts), and both import `@botsdk/client` (`packages/botsdk/client`: the core's contracts and `createBotSdkClient`), so a Host outside this repo copies `core/` together with `plugins/` and depends on `@botsdk/client`.
+The core server is its own package, `@botsdk/bot` (`packages/botsdk/bot`, spec #875): the Bot core, Models, Runner, Computer and Channel, with the HTTP layer at `@botsdk/bot/http`. It depends on `@tanstack/ai` and no model Provider: the Host installs the `@tanstack/ai-*` Providers it uses and passes them in `models.providers`. The features in `plugins/` import it, and `@botsdk/client` (`packages/botsdk/client`), by package name.
 
 ## shadcn components
 
@@ -424,7 +424,7 @@ const chat = createBotSdk({
 The SDK ships no webhooks (ADR 0018). A Host that wants them signs and POSTs from its event hooks. The recipe below uses only Web Crypto and the platform's `fetch`. Its hook sends directly to keep the example short. In your app, have the hook add the event to your own queue and let the queue's worker call `sendWebhook`: a failed send throws, so the queue retries it. The hooks fire at most once, so your queue is what makes delivery reliable.
 
 ```ts
-import type { EventHooks } from "@/lib/bot-sdk/core/server";
+import type { EventHooks } from "@botsdk/bot";
 
 const timestampHeader = "x-webhook-timestamp"; // Unix seconds when the event was sent
 const signatureHeader = "x-webhook-signature"; // "sha256=" + hex HMAC-SHA256 of `<timestamp>.<raw body>`

@@ -158,6 +158,57 @@ describe("createBotSdk start", () => {
     await expect(chat.start()).rejects.toThrow(/hostProviders|byok/);
   });
 
+  it("refuses Host Models of a Provider the Host didn't pass in providers", async () => {
+    const hostProviders = [
+      {
+        provider: "anthropic" as const,
+        credentials: { apiKey: "host-key" },
+        models: [
+          {
+            modelId: "claude-sonnet-5-5",
+            maxOutputTokens: 1000,
+            inputUsdPerMillion: 3,
+            outputUsdPerMillion: 15,
+          },
+        ],
+      },
+    ];
+    const chat = createBotSdk({
+      database: postgres({ connectionString: testDatabaseUrl }),
+      keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
+      models: { providers: { openai: { text: () => ({}) as never } }, hostProviders },
+    });
+
+    await expect(chat.start()).rejects.toThrow(/anthropic.*providers/);
+  });
+
+  it("refuses Host Image Models of a Provider with no image adapter", async () => {
+    const chat = createBotSdk({
+      database: postgres({ connectionString: testDatabaseUrl }),
+      keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
+      models: {
+        providers: { openai: { text: () => ({}) as never } },
+        hostProviders: [
+          {
+            provider: "openai",
+            credentials: { apiKey: "host-key" },
+            models: [],
+            imageModels: [
+              {
+                modelId: "gpt-image-1-mini",
+                size: "1024x1024",
+                quality: "medium",
+                pricePerImageUsd: 0.01,
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    await expect(chat.start()).rejects.toThrow(/openai.*image adapter/);
+  });
+
   it("refuses a defaultImageModel that is not one of the Host's Image Models", async () => {
     const chat = createBotSdk({
       database: postgres({ connectionString: testDatabaseUrl }),

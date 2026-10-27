@@ -1148,7 +1148,6 @@
     },
     {
       "files": [
-        "packages/bot-sdk/core/shared/**",
         "packages/bot-sdk/plugins/*/client/**",
         "packages/bot-sdk/plugins/*/shared/**",
         "packages/bot-sdk/plugins/*/ui/**",

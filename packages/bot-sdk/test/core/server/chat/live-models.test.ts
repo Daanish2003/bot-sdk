@@ -154,6 +154,16 @@ describe("openRouterModels", () => {
     expect(again).toHaveLength(2);
   });
 
+  it("filters the kept list by each call's chat Models", async () => {
+    const { fetch, urls } = stubFetch(() => json(openRouterList));
+
+    await openRouterModels(fetch);
+    const filtered = await openRouterModels(fetch, chatModels);
+
+    expect(urls).toHaveLength(1);
+    expect(filtered.map((model) => model.modelId)).not.toContain("acme/brand-new-model");
+  });
+
   it("lists nothing when OpenRouter fails, and asks again next time", async () => {
     let answer = () => json({ error: "down" }, 503);
     const { fetch, urls } = stubFetch(() => answer());

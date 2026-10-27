@@ -52,16 +52,17 @@ export async function openRouterModels(
   fetch: typeof globalThis.fetch,
   chatModels?: readonly string[],
 ): Promise<CuratedModel[]> {
+  const known = chatModels && new Set(chatModels);
+  const kept = (models: CuratedModel[]) =>
+    known ? models.filter((model) => known.has(model.modelId)) : models;
   const cached = openRouterCache.get(fetch);
-  if (cached && cached.expiresAt > Date.now()) return cached.models;
+  if (cached && cached.expiresAt > Date.now()) return kept(cached.models);
 
   const list = await fetchJson(fetch, "https://openrouter.ai/api/v1/models", openRouterListSchema);
   if (!list) return [];
-  const known = chatModels && new Set(chatModels);
+  // Kept before the `chatModels` filter, so each call filters by its own.
   const models = list.data
-    .filter(
-      (entry) => (!known || known.has(entry.id)) && entry.supported_parameters?.includes("tools"),
-    )
+    .filter((entry) => entry.supported_parameters?.includes("tools"))
     .map((entry) =>
       liveModel("openrouter", entry.id, entry.name, {
         images: entry.architecture?.input_modalities.includes("image") ?? false,
@@ -71,7 +72,7 @@ export async function openRouterModels(
       }),
     );
   openRouterCache.set(fetch, { expiresAt: Date.now() + openRouterTtlMs, models });
-  return models;
+  return kept(models);
 }
 
 /**
