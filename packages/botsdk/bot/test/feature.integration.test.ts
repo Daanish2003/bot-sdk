@@ -314,17 +314,22 @@ describe("a feature built with defineFeature", { timeout: 30_000 }, () => {
 
   it("gives its context only the core services in its needs, never the whole core", async () => {
     const seen: (string | symbol)[][] = [];
+    const resolves: string[] = [];
     const spy = defineFeature({
       id: "spy",
-      needs: ["models"],
-      afterTurn: async (_tx, _turn, context) => {
+      needs: ["models", "threads"],
+      afterTurn: async (_tx, turn, context) => {
         seen.push(Reflect.ownKeys(context));
+        // The services resolve to the core's own, not to what was unset when the feature was enabled.
+        resolves.push(typeof context.models.resolveModelCall);
+        await context.threads.hintChanged(turn.conversationId);
       },
     });
     const { client, botId } = await botWithPins([round()], [spy]);
     await send(client, botId, "hello");
 
     expect(seen).toHaveLength(1);
+    expect(resolves).toEqual(["function"]);
     expect(seen[0]).toContain("models");
     expect(seen[0]).not.toContain("computer");
     for (const key of ["bots", "runner", "pubsub", "parts", "secrets"]) {

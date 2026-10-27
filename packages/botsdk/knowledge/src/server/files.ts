@@ -2,7 +2,6 @@ import { sql } from "drizzle-orm";
 
 import { bot, botTurn } from "@botsdk/bot/storage";
 import type { FeatureContext } from "@botsdk/bot/feature";
-
 import { rpcError } from "@botsdk/bot/rpc-error";
 import {
   ComputerOperationError,

@@ -1,5 +1,4 @@
 import type { FeatureContext } from "@botsdk/bot/feature";
-
 import { rpcError } from "@botsdk/bot/rpc-error";
 import { ComputerUnavailableError, type ComputerHandle } from "@botsdk/bot/computer/internal";
 import {

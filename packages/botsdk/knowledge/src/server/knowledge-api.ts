@@ -1,5 +1,4 @@
 import type { FeatureContext } from "@botsdk/bot/feature";
-
 import { parseInput, type WithUser } from "@botsdk/bot/rpc-error";
 import { pathInput, uploadDocumentInput, uploadInput } from "../shared/contract";
 import {
