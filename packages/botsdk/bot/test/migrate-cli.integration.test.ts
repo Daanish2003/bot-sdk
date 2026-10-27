@@ -243,6 +243,48 @@ describe("botsdk migrate", () => {
       expect((await journalOf(url)).map((row) => row.feature)).not.toContain("palette");
     }, 60_000);
 
+    it("keeps a declared enum or sequence an enabled feature also declares, or a live table owns", async () => {
+      const sql = [
+        "create type botsdk.test_mood as enum ('calm');",
+        "create sequence if not exists botsdk.test_counter;",
+      ].join(" ");
+      const declares = {
+        enums: { mood: botsdk.enum("test_mood", ["calm"]) },
+        sequences: { counter: botsdk.sequence("test_counter") },
+      };
+      const before = defineFeature({
+        id: "before",
+        schema: { ...declares, migrations: [{ name: "0001_mood", sql }] },
+      });
+      const after = defineFeature({
+        id: "after",
+        schema: {
+          ...declares,
+          sequences: { ...declares.sequences, owned: botsdk.sequence("test_owned") },
+          migrations: [
+            {
+              name: "0001_owned",
+              sql: "create table botsdk.test_owner (id integer); create sequence botsdk.test_owned owned by botsdk.test_owner.id;",
+            },
+          ],
+        },
+      });
+      const url = await scratchDatabase("cli_drop_declared");
+      const database = postgres({ connectionString: url });
+      await runMigrate({ default: { database, features: [before, after] } }, {}, () => {});
+
+      await runMigrate(
+        { default: { database, features: [before] }, disabled: [after] },
+        { drop: "after" },
+        () => {},
+      );
+      const left = await rows<{ name: string }>(
+        url,
+        "select typname as name from pg_type where typname = 'test_mood' union select relname from pg_class where relname in ('test_counter', 'test_owned') order by 1",
+      );
+      expect(left.map((row) => row.name)).toEqual(["test_counter", "test_mood", "test_owned"]);
+    }, 60_000);
+
     it("takes the feature to drop from the config module's `disabled` export", async () => {
       const url = await scratchDatabase("cli_drop_bin");
       const { stdout } = await promisify(execFile)(

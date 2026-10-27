@@ -180,7 +180,7 @@ export type FeatureDefinition<
   schema?: {
     tables?: Record<string, PgTable>;
     enums?: Record<string, Pick<PgEnum<[string, ...string[]]>, "enumName" | "schema">>;
-    sequences?: Record<string, PgSequence>;
+    sequences?: Record<string, Pick<PgSequence, "seqName" | "schema">>;
     migrations?: readonly Migration[];
   };
   /** User-scoped methods: each takes the user's id. The Host calls them as `sdk.<id>.<method>`. */

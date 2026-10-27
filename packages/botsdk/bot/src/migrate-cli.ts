@@ -47,7 +47,8 @@ export function printSql(pending: readonly PendingMigration[]): string {
 
 /**
  * The statements that remove a feature's tables, the enums and sequences its `schema` declares
- * that nothing else uses and the core doesn't define, and its journal rows, so enabling it again
+ * that no other table uses or owns, no enabled feature declares and the core doesn't define, and
+ * its journal rows, so enabling it again
  * migrates it from its baseline. A sequence a table owns goes with it.
  * Throws for a feature in `enabled`: removal is for a disabled feature.
  */
@@ -62,12 +63,16 @@ function dropStatements(feature: AnyFeature, enabled: readonly AnyFeature[]): st
     const { name, schema } = getTableConfig(table);
     return qualified(schema, name);
   });
-  const enums = Object.values(feature.schema?.enums ?? {}).map((value) =>
-    qualified(value.schema, value.enumName),
-  );
-  const sequences = Object.values(feature.schema?.sequences ?? {}).flatMap(({ schema, seqName }) =>
-    seqName === undefined ? [] : [qualified(schema, seqName)],
-  );
+  const enumsOf = ({ schema }: AnyFeature) =>
+    Object.values(schema?.enums ?? {}).map((value) => qualified(value.schema, value.enumName));
+  const sequencesOf = ({ schema }: AnyFeature) =>
+    Object.values(schema?.sequences ?? {}).flatMap((value) =>
+      value.seqName === undefined ? [] : [qualified(value.schema, value.seqName)],
+    );
+  // What an enabled feature also declares stays.
+  const kept = new Set(enabled.flatMap((other) => [...enumsOf(other), ...sequencesOf(other)]));
+  const enums = enumsOf(feature).filter((name) => !kept.has(name));
+  const sequences = sequencesOf(feature).filter((name) => !kept.has(name));
   const coreEnums = (Object.values(coreSchema) as unknown[])
     .filter(isPgEnum)
     .map((value) => qualified(value.schema, value.enumName));
@@ -96,10 +101,13 @@ begin
     select class_.oid from unnest(array[${sequences.join(", ")}]::text[]) as name_
     join pg_class class_ on class_.oid = to_regclass(name_) and class_.relkind = 'S'
   );
-  -- Only what no other table still uses, and never a core enum.
+  -- Only what no other table still uses or owns, and never a core enum.
   foreach entry in array sequences loop
     if not exists (
       select 1 from pg_depend where refobjid = entry and classid = 'pg_attrdef'::regclass
+    ) and not exists (
+      select 1 from pg_depend where objid = entry and classid = 'pg_class'::regclass
+        and refclassid = 'pg_class'::regclass and deptype in ('a', 'i')
     ) then
       execute format('drop sequence %s', entry::regclass);
     end if;
