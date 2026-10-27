@@ -185,11 +185,11 @@ describe("a feature built with defineFeature", { timeout: 30_000 }, () => {
     const reporting = (id: string, name: string) =>
       defineFeature({
         id,
-        turnChanges: () => ({ skillChanges: [{ kind: "saved", name }] }),
+        turnChanges: async () => ({ skillChanges: [{ kind: "saved", name }] }),
       });
     const failing = defineFeature({
       id: "failing",
-      turnChanges: () => {
+      turnChanges: async () => {
         throw new Error("reading failed");
       },
     });

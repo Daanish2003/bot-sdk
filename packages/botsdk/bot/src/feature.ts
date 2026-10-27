@@ -226,7 +226,9 @@ export type FeatureDefinition<
    * lost ones too, from what they recorded), with no reads or writes: the core stores it on the
    * Turn. A throw is logged and stores none of the feature's changes.
    */
-  turnChanges?: (turn: FeatureEndedTurn) => FeatureTurnChanges | null;
+  turnChanges?: (
+    turn: FeatureEndedTurn,
+  ) => FeatureTurnChanges | null | Promise<FeatureTurnChanges | null>;
   /**
    * The jobs the feature queues, built with `defineJob` (spec #872). Each one's context has the
    * feature's, with the services in `needs`. A job name can be listed once per instance.
