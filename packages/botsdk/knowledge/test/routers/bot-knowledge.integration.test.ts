@@ -11,6 +11,7 @@ import { saveCredentials } from "@botsdk/bot/models/internal";
 import { inProcessRunner, type JobRunner, systemClock } from "@botsdk/bot/runner/internal";
 import { skills } from "@botsdk/skills";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
+import { isTurnCall } from "@ai-chat/test-support/bot-turns";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
@@ -37,11 +38,6 @@ const knowledgePath = (path: string) => `${folder}/${path}`;
 const profilePath = (botId: string) => `/home/user/bots/${botId}/memory/profile.md`;
 const skillPath = (botId: string, name: string) =>
   `/home/user/bots/${botId}/skills/${name}/SKILL.md`;
-
-const isTurnCall = (options: TextOptions) =>
-  String((options.messages as ModelMessage[] | undefined)?.[0]?.content).startsWith(
-    "[Your environment]",
-  );
 
 /**
  * A user with an OpenAI key and a Bot "Ada". `computer`, `memory`, `skills` and `knowledge` are on

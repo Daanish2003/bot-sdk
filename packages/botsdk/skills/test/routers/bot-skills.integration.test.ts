@@ -16,6 +16,7 @@ import {
 import { skills } from "../../src";
 import { readSkillsScript } from "@botsdk/bot/bot/skill-files";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
+import { isTurnCall } from "@ai-chat/test-support/bot-turns";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { chatRpc } from "@ai-chat/test-support/sdk";
@@ -46,11 +47,6 @@ const profilePath = (botId: string) => `/home/user/bots/${botId}/memory/profile.
 /** A `SKILL.md` with `name` and `description` in its frontmatter, and a body. */
 const skillFile = (name: string, description: string, body = "## Steps\n1. Do it.\n") =>
   `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}`;
-
-const isTurnCall = (options: TextOptions) =>
-  String((options.messages as ModelMessage[] | undefined)?.[0]?.content).startsWith(
-    "[Your environment]",
-  );
 
 /**
  * A user with an OpenAI key and a Bot "Ada". `computer`, `memory` and `skills` are on unless told

@@ -9,6 +9,7 @@ import { findBot } from "../../src/bot/conversation";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner, claimJob } from "../../src/runner/internal";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "@ai-chat/test-support/deps";
+import { isTurnCall } from "@ai-chat/test-support/bot-turns";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc, createTestChat } from "@ai-chat/test-support/sdk";
@@ -388,8 +389,7 @@ describe("a webhook Routine's URL", () => {
         .map((entry) => String(entry.content))
         .find((content) => content.includes("From a webhook"))!;
     // The Turns' model calls, not the memory pass's.
-    const lastTurnCall = (fake: { calls: TextOptions[] }) =>
-      fake.calls.findLast((made) => JSON.stringify(made.systemPrompts).includes("send_to_user"));
+    const lastTurnCall = (fake: { calls: TextOptions[] }) => fake.calls.findLast(isTurnCall);
 
     it("cuts the Trigger's text to its ends and saves the full text on the Computer", async () => {
       const computerFake = fakeComputerProvider({});

@@ -13,10 +13,10 @@ import {
   helperMessagePrefix,
 } from "../../src/bot/helpers";
 import { findBot } from "../../src/bot/conversation";
-import { sendToUserToolName } from "../../src/bot/context";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner, systemClock } from "../../src/runner/internal";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
+import { isTurnCall } from "@ai-chat/test-support/bot-turns";
 import { createFakeAdapter, round, text, toolCall } from "@botsdk/testing/fake-adapter";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
@@ -35,10 +35,6 @@ const started: JobRunner[] = [];
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();
 });
-
-/** A Turn's Model call, not a Helper's nor a background one (the Memory pass) after the Turn. */
-const isTurnCall = (options: TextOptions) =>
-  (options.tools ?? []).some((tool) => tool.name === sendToUserToolName);
 
 const isHelperCall = (options: TextOptions) =>
   (options.systemPrompts ?? []).some((prompt) =>

@@ -1,3 +1,6 @@
+import type { TextOptions } from "@tanstack/ai";
+
+import { sendToUserToolName } from "@botsdk/bot/bot/context";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "./deps";
@@ -35,6 +38,13 @@ export async function botSdk(
   started.push(jobs);
   return { deps, jobs };
 }
+
+/**
+ * Whether a fake Model's call is a Turn's: it offers `send_to_user`, which no Helper's call, nor a
+ * background one after the Turn (the Memory pass, a Demonstration's draft), does.
+ */
+export const isTurnCall = (options: TextOptions): boolean =>
+  (options.tools ?? []).some((tool) => tool.name === sendToUserToolName);
 
 /** Stops every runner `botSdk` started. */
 export async function stopBotRunners(): Promise<void> {
