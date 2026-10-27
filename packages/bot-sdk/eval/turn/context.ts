@@ -10,7 +10,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { memory } from "../../plugins/memory/server/feature";
+import { memory } from "@botsdk/memory";
 import { runnerJobs } from "@botsdk/bot/runner/internal";
 import { fakeComputerProvider } from "../../test/support/fake-computer-provider";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";

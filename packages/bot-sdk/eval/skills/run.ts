@@ -22,7 +22,7 @@ import { lockConversation, receive } from "@botsdk/bot/bot/triggers";
 import { routineSnapshot, webhookPayloadLabel } from "@botsdk/bot/bot/routines";
 import { defaultTimeZone } from "@botsdk/bot/bot/conversation";
 import { sendToUserToolName } from "@botsdk/bot/bot/context";
-import { skills } from "../../plugins/skills/server/plugin";
+import { skills } from "@botsdk/skills";
 import { skillsDirectory } from "@botsdk/bot/bot/skill-files";
 import { runnerJobs } from "@botsdk/bot/runner/internal";
 import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";

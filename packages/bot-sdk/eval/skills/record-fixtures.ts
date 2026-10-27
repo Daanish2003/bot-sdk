@@ -21,7 +21,7 @@ import { type Page, chromium } from "playwright-core";
 import { botDemonstration, botDemonstrationEvent } from "@botsdk/bot/storage";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { sendToUserToolName } from "@botsdk/bot/bot/context";
-import { skills } from "../../plugins/skills/server/plugin";
+import { skills } from "@botsdk/skills";
 import { runnerJobs } from "@botsdk/bot/runner/internal";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
 import { fakeComputerProvider } from "../../test/support/fake-computer-provider";

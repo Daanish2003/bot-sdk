@@ -1,6 +1,6 @@
 /// <reference types="node" />
 import { postgres, type BotSdkOptions } from "@botsdk/bot";
-import { mcp } from "@ai-chat/bot-sdk/plugins/mcp/server";
+import { mcp } from "@botsdk/mcp";
 
 import { e2bConfigOf } from "./src/computer";
 import { computerFeatures } from "./src/features";

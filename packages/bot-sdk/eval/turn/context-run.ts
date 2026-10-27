@@ -36,7 +36,7 @@ import {
 } from "@botsdk/bot/bot/context";
 import { defaultTimeZone } from "@botsdk/bot/bot/conversation";
 
-import { profilePath } from "../../plugins/memory/server/bot-memory";
+import { profilePath } from "@botsdk/memory/server/bot-memory";
 
 import {
   createFakeAdapter,

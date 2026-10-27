@@ -1,8 +1,8 @@
 import { BotCacheChip, BotConversation } from "@botsdk/ui/bot";
 import { EmailPopover } from "@botsdk/ui/channel";
-import { KnowledgeChip, KnowledgePopover } from "@ai-chat/bot-sdk/plugins/knowledge/ui";
-import { BotMemoryChip, BotMemoryPopover } from "@ai-chat/bot-sdk/plugins/memory/ui";
-import { BotSkillChip, BotSkillsPopover } from "@ai-chat/bot-sdk/plugins/skills/ui";
+import { KnowledgeChip, KnowledgePopover } from "@botsdk/ui/knowledge";
+import { BotMemoryChip, BotMemoryPopover } from "@botsdk/ui/memory";
+import { BotSkillChip, BotSkillsPopover } from "@botsdk/ui/skills";
 import { createFileRoute, getRouteApi } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/bots/$botId")({

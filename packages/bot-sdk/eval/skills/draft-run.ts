@@ -17,7 +17,7 @@ import {
   draftSkill,
   type Drafted,
 } from "@botsdk/bot/bot/demonstrations";
-import { skills } from "../../plugins/skills/server/plugin";
+import { skills } from "@botsdk/skills";
 import { createFakeAdapter, round, text } from "../../test/support/fake-adapter";
 import { fakeComputerProvider } from "../../test/support/fake-computer-provider";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";

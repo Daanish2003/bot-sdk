@@ -24,8 +24,8 @@ import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 
 import { botTrigger } from "@botsdk/bot/storage";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
-import { saveTokens } from "../../plugins/mcp/server/connections";
-import { mcp } from "../../plugins/mcp/server/plugin";
+import { saveTokens } from "@botsdk/mcp/server/connections";
+import { mcp } from "@botsdk/mcp";
 import { runnerJobs } from "@botsdk/bot/runner/internal";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
 import { type FakeMcpAuth, fakeMcpResource } from "../../test/support/fake-mcp-auth";

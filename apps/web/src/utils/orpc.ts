@@ -1,9 +1,9 @@
 import { createBotSdkClient } from "@botsdk/client";
 import { channelClient } from "@ai-chat/bot-sdk/plugins/channel/client";
-import { knowledgeClient } from "@ai-chat/bot-sdk/plugins/knowledge/client";
-import { mcpClient } from "@ai-chat/bot-sdk/plugins/mcp/client";
-import { memoryClient } from "@ai-chat/bot-sdk/plugins/memory/client";
-import { skillsClient } from "@ai-chat/bot-sdk/plugins/skills/client";
+import { knowledgeClient } from "@botsdk/knowledge/client";
+import { mcpClient } from "@botsdk/mcp/client";
+import { memoryClient } from "@botsdk/memory/client";
+import { skillsClient } from "@botsdk/skills/client";
 import { QueryCache, QueryClient } from "@tanstack/react-query";
 import { createIsomorphicFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";

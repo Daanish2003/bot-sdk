@@ -15,7 +15,7 @@ import { log } from "evlog";
 register("@botsdk/bot/ts-extensionless", import.meta.url);
 
 const { createBotSdk, postgres } = await import("@botsdk/bot");
-const { mcp } = await import("@ai-chat/bot-sdk/plugins/mcp/server");
+const { mcp } = await import("@botsdk/mcp");
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("Set DATABASE_URL");

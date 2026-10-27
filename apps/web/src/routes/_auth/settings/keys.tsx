@@ -1,4 +1,4 @@
-import { ConnectionsSection } from "@ai-chat/bot-sdk/plugins/mcp/ui";
+import { ConnectionsSection } from "@botsdk/ui/mcp";
 import {
   CredentialsSections,
   ImageModelSelect,
