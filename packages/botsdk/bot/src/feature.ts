@@ -6,6 +6,8 @@ import {
   isContractProcedure,
 } from "@orpc/contract";
 import { type AnyRouter, implement } from "@orpc/server";
+import type { BotKnowledgeChange } from "@botsdk/client/knowledge/changes";
+import type { BotSkillChange } from "@botsdk/client/skills/changes";
 import type { AnyServerTool, ModelMessage } from "@tanstack/ai";
 import { is } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
@@ -155,6 +157,18 @@ export type FeaturePrompt = {
   environment?: string;
 };
 
+/** The Turn a feature's `turnChanges` reads: what it did, as its transcript holds it. */
+export type FeatureEndedTurn = FeatureTurn & { transcript: readonly ModelMessage[] };
+
+/**
+ * What a Turn changed of a feature, for the Turn's chips: the core stores each kind in the Turn's
+ * column of that name. A kind left out, or empty, is no change.
+ */
+export type FeatureTurnChanges = {
+  skillChanges?: BotSkillChange[] | null;
+  knowledgeChanges?: BotKnowledgeChange[] | null;
+};
+
 /**
  * A feature, as `defineFeature` takes it. Every part is optional but `id`, which names its API on
  * the SDK, its Prompt start section and its part of a user's export.
@@ -207,6 +221,12 @@ export type FeatureDefinition<
    * undoes only the feature's writes.
    */
   afterTurn?: (tx: Transaction, turn: FeatureTurn, context: FeatureContext<Needs>) => Promise<void>;
+  /**
+   * What the Turn changed of the feature, read from its transcript as the Turn ends (stopped and
+   * lost ones too, from what they recorded), with no reads or writes: the core stores it on the
+   * Turn. A throw is logged and stores none of the feature's changes.
+   */
+  turnChanges?: (turn: FeatureEndedTurn) => FeatureTurnChanges | null;
   /**
    * The jobs the feature queues, built with `defineJob` (spec #872). Each one's context has the
    * feature's, with the services in `needs`. A job name can be listed once per instance.

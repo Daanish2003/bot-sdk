@@ -181,6 +181,43 @@ describe("a feature built with defineFeature", { timeout: 30_000 }, () => {
     expect(await rowsOf(user.id, "failing")).toEqual([]);
   });
 
+  it("stores the changes its turnChanges gives for the Turn, joined in the listed order, and a throw adds none", async () => {
+    const reporting = (id: string, name: string) =>
+      defineFeature({
+        id,
+        turnChanges: () => ({ skillChanges: [{ kind: "saved", name }] }),
+      });
+    const failing = defineFeature({
+      id: "failing",
+      turnChanges: () => {
+        throw new Error("reading failed");
+      },
+    });
+    const { client, botId } = await botWithPins(
+      [round()],
+      [reporting("first", "one"), failing, reporting("second", "two")],
+    );
+
+    await send(client, botId, "hello");
+
+    const [turn] = await getTestDb()
+      .select({
+        status: botTurn.status,
+        skillChanges: botTurn.skillChanges,
+        knowledgeChanges: botTurn.knowledgeChanges,
+      })
+      .from(botTurn)
+      .where(eq(botTurn.botId, botId));
+    expect(turn).toEqual({
+      status: "complete",
+      skillChanges: [
+        { kind: "saved", name: "one" },
+        { kind: "saved", name: "two" },
+      ],
+      knowledgeChanges: null,
+    });
+  });
+
   it("ends the Turn error when its tools throw, as a Connection whose listing failed did", async () => {
     const failing = defineFeature({
       id: "failing",

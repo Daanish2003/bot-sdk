@@ -3,7 +3,13 @@ import { and, asc, eq, lt, ne, or } from "drizzle-orm";
 
 import { botPromptStart, botTurn } from "../../storage";
 import type { Database } from "../../storage";
-import { enabledFeatures, type FeaturePromptTurn, type FeatureTurn } from "../../feature";
+import {
+  enabledFeatures,
+  type FeatureEndedTurn,
+  type FeaturePromptTurn,
+  type FeatureTurnChanges,
+  type FeatureTurn,
+} from "../../feature";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { notesIn } from "./change-notes";
 import type { LoopKit } from "../agent-loop";
@@ -13,7 +19,7 @@ import { type DecryptedSecrets, loadSecretValues, secretMasker } from "../safety
 
 /*
  * The core's calls into the enabled features (spec #871): their tools and Prompt start sections
- * for a Turn, and their `afterTurn` in the Turn's end. Features never call each other.
+ * for a Turn, and their `turnChanges` and `afterTurn` in the Turn's end. Features never call each other.
  */
 
 /** A feature's part of a Turn's Prompt start: its section now, and its Change notes to tell. */
@@ -253,4 +259,33 @@ export async function featuresAfterTurn(
       deps.logger.error(`Feature "${feature.id}" failed after Turn ${turn.id}`, error);
     }
   }
+}
+
+/** What the enabled features say a Turn changed, by the Turn's column: null for none. */
+export type TurnChanges = {
+  [Kind in keyof FeatureTurnChanges]-?: NonNullable<FeatureTurnChanges[Kind]> | null;
+};
+
+/**
+ * Asks each enabled feature with `turnChanges` what the ended Turn changed of it, and joins their
+ * answers by kind, in the order the Host listed the features. A feature's throw is logged and adds
+ * nothing. With no feature that reports a kind, it is null and nothing reads the transcript for it.
+ */
+export function featureTurnChanges(deps: BotSdkContext, turn: FeatureEndedTurn): TurnChanges {
+  const skillChanges: NonNullable<FeatureTurnChanges["skillChanges"]> = [];
+  const knowledgeChanges: NonNullable<FeatureTurnChanges["knowledgeChanges"]> = [];
+  for (const { feature } of enabledFeatures(deps)) {
+    if (!feature.turnChanges) continue;
+    try {
+      const changes = feature.turnChanges(turn);
+      skillChanges.push(...(changes?.skillChanges ?? []));
+      knowledgeChanges.push(...(changes?.knowledgeChanges ?? []));
+    } catch (error) {
+      deps.logger.error(`Feature "${feature.id}" failed to read Turn ${turn.id}'s changes`, error);
+    }
+  }
+  return {
+    skillChanges: skillChanges.length > 0 ? skillChanges : null,
+    knowledgeChanges: knowledgeChanges.length > 0 ? knowledgeChanges : null,
+  };
 }
