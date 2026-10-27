@@ -1,4 +1,4 @@
-import { BotsApp } from "@ai-chat/bot-sdk/plugins/bot/ui";
+import { BotsApp } from "@botsdk/ui/bot";
 import { Outlet, useRouteContext } from "@tanstack/react-router";
 
 import AccountMenu from "@/components/account-menu";

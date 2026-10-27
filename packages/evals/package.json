@@ -1,0 +1,50 @@
+{
+  "name": "@ai-chat/evals",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "eval:bot-memory": "node --import ./src/memory/register-ts.mjs src/memory/bot-run.ts",
+    "eval:turn": "node --import ./src/memory/register-ts.mjs src/turn/run.ts",
+    "eval:context": "node --import ./src/memory/register-ts.mjs src/turn/context.ts",
+    "eval:ladder": "node --import ./src/memory/register-ts.mjs src/turn/ladder.ts",
+    "eval:safety": "node --import ./src/memory/register-ts.mjs src/safety/run.ts",
+    "eval:computer": "node --import ./src/memory/register-ts.mjs src/computer/run.ts",
+    "eval:computer:helper": "node --import ./src/memory/register-ts.mjs src/computer/helper.ts",
+    "eval:computer:lifecycle": "node --import ./src/memory/register-ts.mjs src/computer/lifecycle.ts",
+    "eval:skills": "node --import ./src/memory/register-ts.mjs src/skills/run.ts",
+    "eval:knowledge": "node --import ./src/memory/register-ts.mjs src/knowledge/run.ts",
+    "eval:channels": "node --import ./src/memory/register-ts.mjs src/channels/run.ts",
+    "eval:connectors": "node --import ./src/memory/register-ts.mjs src/connectors/run.ts",
+    "eval:files": "node --import ./src/memory/register-ts.mjs src/files/run.ts",
+    "eval:images": "node --import ./src/memory/register-ts.mjs src/images/run.ts",
+    "eval:skills:draft": "node --import ./src/memory/register-ts.mjs src/skills/draft-run.ts",
+    "eval:skills:record": "node --import ./src/memory/register-ts.mjs src/skills/record-fixtures.ts"
+  },
+  "dependencies": {
+    "@ai-chat/auth": "workspace:*",
+    "@ai-chat/db": "workspace:*",
+    "@ai-chat/test-support": "workspace:*",
+    "@botsdk/bot": "workspace:*",
+    "@botsdk/client": "workspace:*",
+    "@botsdk/computer-e2b": "workspace:*",
+    "@botsdk/knowledge": "workspace:*",
+    "@botsdk/mcp": "workspace:*",
+    "@botsdk/memory": "workspace:*",
+    "@botsdk/skills": "workspace:*",
+    "@botsdk/testing": "workspace:*",
+    "@tanstack/ai": "1.0.0",
+    "@tanstack/ai-anthropic": "1.0.0",
+    "@tanstack/ai-openai": "1.0.0",
+    "@tanstack/ai-openrouter": "1.0.0",
+    "drizzle-orm": "catalog:",
+    "playwright-core": "1.63.0",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@ai-chat/config": "workspace:*",
+    "typescript": "catalog:",
+    "varlock": "catalog:",
+    "vitest": "^5.0.3"
+  }
+}

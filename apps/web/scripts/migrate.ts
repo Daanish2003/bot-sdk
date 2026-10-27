@@ -11,7 +11,7 @@
 import { createRequire, register } from "node:module";
 import { fileURLToPath } from "node:url";
 
-register("../../../packages/bot-sdk/bin/ts-extensionless.mjs", import.meta.url);
+register("@botsdk/bot/ts-extensionless", import.meta.url);
 
 // Drizzle is the db package's dependency, not the web app's.
 const dbRequire = createRequire(new URL("../../../packages/db/package.json", import.meta.url));
@@ -32,5 +32,5 @@ try {
   await db.$client.end();
 }
 
-const { runMigrate } = await import("../../../packages/bot-sdk/core/server/migrate-cli.ts");
+const { runMigrate } = await import("@botsdk/bot/migrate-cli");
 await runMigrate(await import("../botsdk.config.ts"), {}, (text) => process.stdout.write(text));

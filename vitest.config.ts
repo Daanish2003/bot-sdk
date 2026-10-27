@@ -4,8 +4,15 @@ import { fileURLToPath } from "node:url";
 
 import { configDefaults, defineConfig } from "vitest/config";
 
-const testFiles = ["{apps,packages}/*/{src,test}/**/*.test.ts"];
-const integrationTestFiles = ["{apps,packages}/*/{src,test}/**/*.integration.test.ts"];
+// The `@botsdk/*` packages sit one level deeper, in packages/botsdk/<name> (spec #875).
+const testFiles = [
+  "{apps,packages}/*/{src,test}/**/*.test.ts",
+  "packages/botsdk/*/{src,test}/**/*.test.ts",
+];
+const integrationTestFiles = [
+  "{apps,packages}/*/{src,test}/**/*.integration.test.ts",
+  "packages/botsdk/*/{src,test}/**/*.integration.test.ts",
+];
 
 const rootDir = fileURLToPath(new URL(".", import.meta.url));
 
@@ -30,8 +37,8 @@ const mockingIntegrationTestFiles = globSync(integrationTestFiles, { cwd: rootDi
 // Each worker has its own copy of the test database (global setup), so integration files run in
 // parallel. Both projects name the global setup; it makes the copies once per run.
 const integrationTest = {
-  globalSetup: ["packages/bot-sdk/test/support/global-setup.ts"],
-  setupFiles: ["packages/bot-sdk/test/support/setup.ts"],
+  globalSetup: ["packages/test-support/src/global-setup.ts"],
+  setupFiles: ["packages/test-support/src/setup.ts"],
 };
 
 export default defineConfig({

@@ -54,7 +54,7 @@ Vitest runs every package's tests from the root config (`vitest.config.ts`):
 ```bash
 pnpm db:start          # the compose Postgres
 pnpm test              # whole suite, through Turbo
-pnpm test:vitest packages/bot-sdk/test/core/server/routers   # one file or folder, without Turbo
+pnpm test:vitest packages/botsdk/memory   # one package, file or folder, without Turbo
 pnpm test:watch        # watch mode
 ```
 
@@ -62,7 +62,7 @@ The compose Postgres image is `pgvector/pgvector:0.8.7-pg18-trixie` (Postgres 18
 
 - `*.test.ts` files are unit tests. `*.integration.test.ts` files run one at a time against a real Postgres database: it is created if missing, migrated once per run, and every table is truncated before each test.
 - The test database defaults to `postgresql://postgres:password@localhost:5432/ai-chat_test`. Point `TEST_DATABASE_URL` at another one, for example to give parallel runs their own database: `TEST_DATABASE_URL=postgresql://postgres:password@localhost:5434/ai-chat_test_2 pnpm test`.
-- Tests never call a Provider, Tavily or the network. Build a real instance with `createTestSdk`, over the fakes in `packages/bot-sdk/test/support/` (scripted text adapter, search client, in-process router client).
+- Tests never call a Provider, Tavily or the network. Each package keeps its tests in its own `test/` folder. Build a real instance with `createTestSdk`, over the fakes in `@botsdk/testing` (scripted model adapter, fake Computer, fake channel, search client); `@ai-chat/test-support` wraps it with the test database and holds the repo's other test helpers. Live-model evals live in the private `packages/evals` and never run in CI.
 
 CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every pull request.
 

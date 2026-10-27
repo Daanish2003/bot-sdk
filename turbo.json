@@ -12,7 +12,7 @@
     },
     "check-types": {
       "dependsOn": ["^check-types"],
-      "outputs": ["dist/**"]
+      "cache": false
     },
     "//#test:vitest": {
       "cache": false,

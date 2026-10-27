@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { mcpMarker } from "../../../packages/bot-sdk/test/e2e/fake-ollama";
+import { mcpMarker } from "./support/fake-ollama";
 import { createBot, signInAsSeededUserWithModel } from "./helpers";
 
 const server = "E2E Tracker";

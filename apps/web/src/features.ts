@@ -1,6 +1,6 @@
-import { knowledge } from "@ai-chat/bot-sdk/plugins/knowledge/server";
-import { memory } from "@ai-chat/bot-sdk/plugins/memory/server";
-import { skills } from "@ai-chat/bot-sdk/plugins/skills/server";
+import { knowledge } from "@botsdk/knowledge";
+import { memory } from "@botsdk/memory";
+import { skills } from "@botsdk/skills";
 
 /**
  * The features that need the Computer (spec #871), in the Host's feature order: Memory (ADR 0022),

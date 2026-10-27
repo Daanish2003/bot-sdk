@@ -62,33 +62,33 @@ temp
 # Claude Code: personal settings stay local
 .claude/settings.local.json
 
-# Memory eval (packages/bot-sdk/eval/memory): the downloaded dataset and the answers it writes
-packages/bot-sdk/eval/memory/cache/
-packages/bot-sdk/eval/memory/results/
+# Memory eval (packages/evals/src/memory): the downloaded dataset and the answers it writes
+packages/evals/src/memory/cache/
+packages/evals/src/memory/results/
 
-# Turn eval (packages/bot-sdk/eval/turn): the results it writes
-packages/bot-sdk/eval/turn/results/
+# Turn eval (packages/evals/src/turn): the results it writes
+packages/evals/src/turn/results/
 
-# Safety evals (packages/bot-sdk/eval/safety): the results they write
-packages/bot-sdk/eval/safety/results/
+# Safety evals (packages/evals/src/safety): the results they write
+packages/evals/src/safety/results/
 
-# Computer evals (packages/bot-sdk/eval/computer): the results they write
-packages/bot-sdk/eval/computer/results/
+# Computer evals (packages/evals/src/computer): the results they write
+packages/evals/src/computer/results/
 
-# Skills evals (packages/bot-sdk/eval/skills): the results they write
-packages/bot-sdk/eval/skills/results/
+# Skills evals (packages/evals/src/skills): the results they write
+packages/evals/src/skills/results/
 
-# Knowledge eval (packages/bot-sdk/eval/knowledge): the results it writes
-packages/bot-sdk/eval/knowledge/results/
+# Knowledge eval (packages/evals/src/knowledge): the results it writes
+packages/evals/src/knowledge/results/
 
-# Channels eval (packages/bot-sdk/eval/channels): the results it writes
-packages/bot-sdk/eval/channels/results/
+# Channels eval (packages/evals/src/channels): the results it writes
+packages/evals/src/channels/results/
 
-# Files eval (packages/bot-sdk/eval/files): the results it writes
-packages/bot-sdk/eval/files/results/
+# Files eval (packages/evals/src/files): the results it writes
+packages/evals/src/files/results/
 
-# Connectors eval (packages/bot-sdk/eval/connectors): the results it writes
-packages/bot-sdk/eval/connectors/results/
+# Connectors eval (packages/evals/src/connectors): the results it writes
+packages/evals/src/connectors/results/
 
-# Images eval (packages/bot-sdk/eval/images): the results it writes
-packages/bot-sdk/eval/images/results/
+# Images eval (packages/evals/src/images): the results it writes
+packages/evals/src/images/results/

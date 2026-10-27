@@ -1,10 +1,10 @@
-import { ConnectionsSection } from "@ai-chat/bot-sdk/plugins/mcp/ui";
+import { ConnectionsSection } from "@botsdk/ui/mcp";
 import {
   CredentialsSections,
   ImageModelSelect,
   KeySettingsPage,
   type LinkedCredentialsHost,
-} from "@ai-chat/bot-sdk/plugins/models/ui";
+} from "@botsdk/ui/models";
 import { createFileRoute } from "@tanstack/react-router";
 
 import { getChatgptLinkEnabled } from "@/functions/chatgpt-link-enabled";

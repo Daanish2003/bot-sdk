@@ -1,6 +1,6 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
-import { chatPage } from "../../../packages/bot-sdk/test/e2e/chat-page";
+import { chatPage } from "./support/chat-page";
 
 import { baseURL } from "./env";
 import { appWebHost } from "./host";
@@ -41,7 +41,7 @@ export async function signInOnForm(page: Page, email: string, password: string) 
   );
 }
 
-const chat = chatPage(expect, appWebHost);
+const chat = chatPage(appWebHost);
 
 export const { addFakeOllama } = chat;
 

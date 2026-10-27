@@ -1,4 +1,4 @@
-import type { LinkedCredentialsHook } from "@ai-chat/bot-sdk/plugins/models/server";
+import type { LinkedCredentialsHook } from "@botsdk/bot/models";
 
 /** "Connect ChatGPT" is on only when both CHATGPT_* settings are set (the same test the auth link uses). */
 export function chatgptLinkEnabled(env: {

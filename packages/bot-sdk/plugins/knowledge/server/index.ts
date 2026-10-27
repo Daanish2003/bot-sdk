@@ -1,1 +1,0 @@
-export { knowledge } from "./plugin";

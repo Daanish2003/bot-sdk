@@ -1,0 +1,52 @@
+{
+  "name": "@botsdk/mcp",
+  "version": "0.0.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json",
+    ".": "./src/index.ts",
+    "./client": "./src/client/index.ts",
+    "./react": "./src/react/index.ts",
+    "./server/connections": "./src/server/connections.ts",
+    "./server/db/connection": "./src/server/db/connection.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@orpc/contract": "catalog:",
+    "@tanstack/ai": "1.0.0",
+    "@tanstack/ai-mcp": "1.0.0",
+    "drizzle-orm": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@ai-chat/config": "workspace:*",
+    "@ai-chat/test-support": "workspace:*",
+    "@botsdk/testing": "workspace:*",
+    "@tanstack/react-query": "^5.102.8",
+    "@types/react": "catalog:",
+    "drizzle-kit": "1.0.0-rc.4",
+    "react": "catalog:",
+    "typescript": "catalog:"
+  },
+  "peerDependencies": {
+    "@botsdk/bot": "workspace:*",
+    "@botsdk/client": "workspace:*",
+    "@botsdk/react": "workspace:*",
+    "@tanstack/react-query": "^5.102.8",
+    "react": "catalog:"
+  },
+  "peerDependenciesMeta": {
+    "@botsdk/react": {
+      "optional": true
+    },
+    "@tanstack/react-query": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  }
+}

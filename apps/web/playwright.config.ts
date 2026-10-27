@@ -4,7 +4,7 @@ import { baseURL, mcpBaseURL, serverEnv } from "./e2e/env";
 
 /**
  * End-to-end tests against the production build, its own database (`e2e/start-server.ts`) and
- * a fake Ollama host (`packages/bot-sdk/test/e2e/fake-ollama.ts`), so no Provider key is needed. `*.phone.spec.ts`
+ * a fake Ollama host (`apps/web/e2e/support/fake-ollama.ts`), so no Provider key is needed. `*.phone.spec.ts`
  * runs on a phone, the rest on a desktop browser. `mcp.spec.ts` runs against the server that
  * offers one MCP server (`mcpBaseURL`), and the rest against the server that offers none.
  */

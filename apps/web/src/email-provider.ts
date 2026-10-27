@@ -1,5 +1,5 @@
-import { mailpitEmailProvider } from "@ai-chat/bot-sdk/plugins/channel/mailpit";
-import type { EmailProvider } from "@ai-chat/bot-sdk/plugins/channel/server";
+import { mailpitEmailProvider } from "@botsdk/channel-email";
+import type { EmailProvider } from "@botsdk/bot/channel";
 
 /**
  * The Host's email provider for the Channel (spec #761). Mail comes in through Mailpit, which

@@ -1,9 +1,4 @@
-import {
-  type ChatLinkProps,
-  type ChatPage,
-  ChatProvider,
-  type ChatRouter,
-} from "@ai-chat/bot-sdk/core/client";
+import { type ChatLinkProps, type ChatPage, BotSdkProvider, type ChatRouter } from "@botsdk/react";
 import type { QueryClient } from "@tanstack/react-query";
 import { Link, useRouter } from "@tanstack/react-router";
 import { type ReactNode, useMemo } from "react";
@@ -47,8 +42,8 @@ export function WebChatProvider({
     [router],
   );
   return (
-    <ChatProvider client={chatClient} router={chatRouter} queryClient={queryClient}>
+    <BotSdkProvider client={chatClient} router={chatRouter} queryClient={queryClient}>
       {children}
-    </ChatProvider>
+    </BotSdkProvider>
   );
 }
