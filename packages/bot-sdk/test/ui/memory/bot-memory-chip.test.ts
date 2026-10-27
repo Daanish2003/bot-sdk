@@ -7,7 +7,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
+import { BotConversation } from "@botsdk/ui/bot/bot-conversation";
 import { memoryClient } from "../../../plugins/memory/client/index";
 import { BotMemoryChip } from "../../../plugins/memory/ui/bot-memory-chip";
 import { providerFor } from "../fake-dictionary";

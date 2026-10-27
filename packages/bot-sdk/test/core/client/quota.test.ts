@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  quotaBlocksModel,
-  quotaExceeded,
-  quotaResetsAt,
-} from "../../../plugins/models/client/quota";
+import { quotaBlocksModel, quotaExceeded, quotaResetsAt } from "@botsdk/ui/models/quota";
 
 const hostModel = { onHostCredentials: true };
 const ownModel = { onHostCredentials: false };

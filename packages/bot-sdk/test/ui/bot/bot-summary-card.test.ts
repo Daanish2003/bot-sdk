@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { SummaryCard } from "../../../plugins/bot/ui/summary-card";
+import { SummaryCard } from "@botsdk/ui/bot/summary-card";
 import { providerFor } from "../fake-dictionary";
 
 afterEach(cleanup);

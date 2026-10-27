@@ -2,7 +2,7 @@ import type { BotMemoryChange, MemoryTier } from "@botsdk/client/memory/changes"
 import { BrainIcon } from "lucide-react";
 import { useState } from "react";
 
-import { useI18n } from "../../../core/client/react/provider";
+import { useI18n } from "@botsdk/react/provider";
 
 const tierKeys = {
   profile: "bots.memoryProfile",

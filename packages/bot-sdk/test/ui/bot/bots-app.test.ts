@@ -8,10 +8,10 @@ import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ChatRouter } from "../../../core/client/react/provider";
-import { safetyFetchMs } from "../../../plugins/bot/client/react/bot-sync";
-import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
-import { BotSidebar } from "../../../plugins/bot/ui/bot-sidebar";
+import type { ChatRouter } from "@botsdk/react/provider";
+import { safetyFetchMs } from "@botsdk/react/bot/bot-sync";
+import { BotConversation } from "@botsdk/ui/bot/bot-conversation";
+import { BotSidebar } from "@botsdk/ui/bot/bot-sidebar";
 import { providerFor, renderWrapped, untranslated } from "../fake-dictionary";
 
 afterEach(() => {

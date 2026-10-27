@@ -10,8 +10,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { rpcError } from "../../../core/server/rpc-error";
-import { en } from "../../../core/shared/i18n";
-import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
+import { en } from "@botsdk/client/i18n";
+import { BotConversation } from "@botsdk/ui/bot/bot-conversation";
 import { providerFor } from "../fake-dictionary";
 import { changeLog, hint, settle, stubEventSource } from "./fake-change-log";
 

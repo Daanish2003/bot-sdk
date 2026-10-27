@@ -7,8 +7,8 @@ import { createElement, Fragment, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
-import { BotSidebar } from "../../../plugins/bot/ui/bot-sidebar";
+import { BotConversation } from "@botsdk/ui/bot/bot-conversation";
+import { BotSidebar } from "@botsdk/ui/bot/bot-sidebar";
 import { providerFor } from "../fake-dictionary";
 import { changeLog, hint, settle, stubEventSource } from "./fake-change-log";
 

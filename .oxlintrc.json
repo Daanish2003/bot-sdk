@@ -976,12 +976,12 @@
     },
     {
       "files": [
-        "packages/bot-sdk/core/client/**",
         "packages/bot-sdk/core/shared/**",
         "packages/bot-sdk/plugins/*/client/**",
         "packages/bot-sdk/plugins/*/shared/**",
         "packages/bot-sdk/plugins/*/ui/**",
-        "packages/bot-sdk/ui/**"
+        "packages/botsdk/react/**",
+        "packages/botsdk/ui/**"
       ],
       "rules": {
         "no-restricted-imports": [

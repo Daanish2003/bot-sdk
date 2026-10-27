@@ -6,8 +6,8 @@ import { BrainIcon, PencilIcon, PlusIcon, XIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { useI18n, useOrpc } from "../../../core/client/react/provider";
-import { serverErrorText } from "../../../core/client/rpc-error";
+import { useI18n, useOrpc } from "@botsdk/react/provider";
+import { serverErrorText } from "@botsdk/react/rpc-error";
 import type { MemoryContract } from "../shared/contract";
 
 type Tier = "profile" | "log" | "notes";

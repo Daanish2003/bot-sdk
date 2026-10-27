@@ -6,8 +6,8 @@ import { LibraryIcon } from "lucide-react";
 import { useRef, useState, type DragEvent } from "react";
 import { toast } from "sonner";
 
-import { useI18n, useOrpc } from "../../../core/client/react/provider";
-import { serverErrorText } from "../../../core/client/rpc-error";
+import { useI18n, useOrpc } from "@botsdk/react/provider";
+import { serverErrorText } from "@botsdk/react/rpc-error";
 import type { KnowledgeContract } from "../shared/contract";
 
 const kib = 1024;

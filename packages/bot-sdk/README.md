@@ -4,7 +4,7 @@ Bots a Host copies into its own source tree: each user's Bots, with their Turns,
 
 - `core/` (`shared`, `server`, `client`, including `client/react`): runtime code the Host never edits. Updating means copying it again.
 - `plugins/<name>/` (`models`, `runner`, `bot`, `memory`, `skills`, `knowledge`, `computer`, `channel`, `mcp`): each plugin's `shared`, `server` and `client` are runtime code like `core/`; its `ui/` is the Host's.
-- `ui/` (the SDK's `theme.css` and `settings/export-data-button.tsx`), and each plugin's `ui/`: React components the Host owns and may change. They sit on the Host's own shadcn primitives.
+- The core's React components, `theme.css` and `settings/export-data-button.tsx` live in the private `@botsdk/ui` package (`packages/botsdk/ui`), on the hooks and provider of `@botsdk/react`. The features' `plugins/<name>/ui/` folders are still here until they join `@botsdk/ui`. They sit on the Host's own shadcn primitives.
 - `package.json`, `README.md` and `NOTICE`: copied alongside, for reference. The Host installs the dependencies listed here.
 
 The SDK assumes nothing about the Host's stack beyond the npm packages below. It knows users only by an opaque id.
@@ -92,7 +92,7 @@ The `runner` and `memory` plugins and the `skills` feature need nothing beyond `
 ```css
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "./lib/bot-sdk/ui/theme.css";
+@import "@botsdk/ui/theme.css";
 ```
 
 `theme.css` starts with `@source` lines (`@source "../plugins/<name>/ui";` for each plugin with screens), which tell Tailwind to scan those folders wherever the copy sits. Your shadcn theme variables (`--background`, `--primary`, and so on) must also be defined in your stylesheet.
@@ -624,7 +624,7 @@ Sign-up, sign-in and password reset stay with your own auth.
 The dictionary, `messages`, covers the labels listed in the SDK's dictionary (`core/shared/i18n`). Other text is still English and moves into the dictionary over time. Dates, times and numbers are formatted in `locale`. Both are optional and English (`"en"`) is the default.
 
 ```tsx
-import { type Messages } from "@ai-chat/bot-sdk/core/client";
+import { type Messages } from "@botsdk/react";
 
 const messages: Partial<Messages> = {
   "bots.newBot": "Neuer Bot",
@@ -636,7 +636,7 @@ const messages: Partial<Messages> = {
 </ChatProvider>;
 ```
 
-- Keys are the English dictionary's keys (`en` in `core/shared/i18n`, exported from `@ai-chat/bot-sdk/core/client` with the `Messages` type). Your editor checks them, so a misspelt key is an error.
+- Keys are the English dictionary's keys (`en` in `@botsdk/client/i18n`, exported from `@botsdk/react` with the `Messages` type). Your editor checks them, so a misspelt key is an error.
 - A value is a string, or a function of its params. Use `Intl.PluralRules` inside the function for plural forms; there is no i18n library.
 - A key you leave out falls back to English, so a partial dictionary works.
 - The dictionary lives in the SDK, so it survives copying a new version of the SDK in: translate once, pass it in.

@@ -14,12 +14,8 @@ import type { KnowledgeFeatureClient } from "../../plugins/knowledge/client/inde
 import type { McpFeatureClient } from "../../plugins/mcp/client/index";
 import type { MemoryFeatureClient } from "../../plugins/memory/client/index";
 import type { SkillsFeatureClient } from "../../plugins/skills/client/index";
-import {
-  type ChatLinkProps,
-  ChatProvider,
-  type ChatRouter,
-} from "../../core/client/react/provider";
-import { en, type Messages } from "../../core/shared/i18n";
+import { type ChatLinkProps, BotSdkProvider, type ChatRouter } from "@botsdk/react/provider";
+import { en, type Messages } from "@botsdk/client/i18n";
 
 /**
  * A Host dictionary whose every value wraps the English in ⟦ ⟧. Text the UI shows from the
@@ -71,14 +67,14 @@ function decode(text: string) {
 }
 
 /**
- * Renders `ui` inside a ChatProvider with the English dictionary, for render tests that check the
+ * Renders `ui` inside a BotSdkProvider with the English dictionary, for render tests that check the
  * English text. A component that reads the dictionary needs the provider around it.
  */
 export function renderEnglish(ui: ReactElement): string {
   return renderWrapped(ui, { messages: {} });
 }
 
-/** Renders `ui` inside a ChatProvider with the fake dictionary, seeding its queries from `seed`. */
+/** Renders `ui` inside a BotSdkProvider with the fake dictionary, seeding its queries from `seed`. */
 export function renderWrapped(ui: ReactElement, options: WrapOptions = {}) {
   return renderToStaticMarkup(providerFor(ui, options));
 }
@@ -110,7 +106,7 @@ type WrapOptions = {
 };
 
 /**
- * The ChatProvider tree around `ui`, with the fake dictionary, for a client-rendered (jsdom) test
+ * The BotSdkProvider tree around `ui`, with the fake dictionary, for a client-rendered (jsdom) test
  * to mount with RTL. `renderWrapped` renders the same tree to static markup.
  */
 export function providerFor(
@@ -136,7 +132,7 @@ export function providerFor(
   };
   const queryClient = new QueryClient();
   seed?.(queryClient, client as unknown as TestClient);
-  return createElement(ChatProvider, {
+  return createElement(BotSdkProvider, {
     client,
     router,
     queryClient,

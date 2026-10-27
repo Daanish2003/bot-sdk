@@ -1,7 +1,7 @@
 import { ORPCError, ValidationError } from "@orpc/server";
 import type { z } from "zod";
 
-import type { ErrorCode } from "../shared/i18n";
+import type { ErrorCode } from "@botsdk/client/i18n";
 
 export type RpcErrorStatus =
   | "BAD_REQUEST"

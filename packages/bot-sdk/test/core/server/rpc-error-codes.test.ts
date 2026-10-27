@@ -3,7 +3,7 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { en } from "../../../core/shared/i18n";
+import { en } from "@botsdk/client/i18n";
 
 const sdkDir = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 const serverDir = join(sdkDir, "core/server");

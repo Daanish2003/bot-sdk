@@ -1,5 +1,5 @@
-import { BotCacheChip, BotConversation } from "@ai-chat/bot-sdk/plugins/bot/ui";
-import { EmailPopover } from "@ai-chat/bot-sdk/plugins/channel/ui";
+import { BotCacheChip, BotConversation } from "@botsdk/ui/bot";
+import { EmailPopover } from "@botsdk/ui/channel";
 import { KnowledgeChip, KnowledgePopover } from "@ai-chat/bot-sdk/plugins/knowledge/ui";
 import { BotMemoryChip, BotMemoryPopover } from "@ai-chat/bot-sdk/plugins/memory/ui";
 import { BotSkillChip, BotSkillsPopover } from "@ai-chat/bot-sdk/plugins/skills/ui";

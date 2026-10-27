@@ -8,8 +8,8 @@ import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { safetyFetchMs } from "../../../plugins/bot/client/react/bot-sync";
-import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
+import { safetyFetchMs } from "@botsdk/react/bot/bot-sync";
+import { BotConversation } from "@botsdk/ui/bot/bot-conversation";
 import { providerFor } from "../fake-dictionary";
 import { changeLog, FakeEventSource, hint, settle, stubEventSource } from "./fake-change-log";
 

@@ -8,7 +8,7 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
+import { BotConversation } from "@botsdk/ui/bot/bot-conversation";
 import { providerFor } from "../fake-dictionary";
 
 afterEach(cleanup);

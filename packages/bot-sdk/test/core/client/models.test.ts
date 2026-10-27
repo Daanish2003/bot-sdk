@@ -1,7 +1,7 @@
 import { findModel, unknownReasoning } from "@botsdk/client/models/models";
 import { describe, expect, it } from "vitest";
 
-import { modelGroups } from "../../../plugins/models/client/models";
+import { modelGroups } from "@botsdk/ui/models/models";
 
 const available = [
   "openai:gpt-6-luna",

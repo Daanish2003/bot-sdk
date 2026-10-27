@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { serverErrorText } from "../../../core/client/rpc-error";
-import { createI18n } from "../../../core/shared/i18n";
+import { serverErrorText } from "@botsdk/react/rpc-error";
+import { createI18n } from "@botsdk/client/i18n";
 import { wrappedDictionary } from "../../ui/fake-dictionary";
 
 const wrapped = createI18n(wrappedDictionary(), "en");

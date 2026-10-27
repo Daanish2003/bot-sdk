@@ -7,8 +7,8 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
-import { EmailPopover } from "../../../plugins/channel/ui/email-popover";
+import { BotConversation } from "@botsdk/ui/bot/bot-conversation";
+import { EmailPopover } from "@botsdk/ui/channel/email-popover";
 import { channelClient } from "../../../plugins/channel/client/index";
 import { providerFor } from "../fake-dictionary";
 

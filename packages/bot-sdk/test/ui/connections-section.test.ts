@@ -5,11 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { mcpClient } from "../../plugins/mcp/client/index";
-import {
-  ChatProvider,
-  type ChatLinkProps,
-  type ChatRouter,
-} from "../../core/client/react/provider";
+import { BotSdkProvider, type ChatLinkProps, type ChatRouter } from "@botsdk/react/provider";
 import { HostKeysPage } from "./host-keys-page";
 
 const client = createBotSdkClient({
@@ -39,7 +35,7 @@ function renderKeys(
   queryClient.setQueryData(client.orpc.models.credentials.list.queryKey(), []);
   queryClient.setQueryData(client.orpc.mcp.listConnections.queryKey(), servers);
   return renderToStaticMarkup(
-    createElement(ChatProvider, {
+    createElement(BotSdkProvider, {
       client,
       router,
       queryClient,

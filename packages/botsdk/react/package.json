@@ -1,0 +1,47 @@
+{
+  "name": "@botsdk/react",
+  "version": "0.0.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json",
+    "./bot/bot-sync": "./src/bot/bot-sync.ts",
+    "./bot/bot-turn": "./src/bot/bot-turn.ts",
+    "./bot/check-ins": "./src/bot/check-ins.ts",
+    "./bot/choices": "./src/bot/choices.ts",
+    "./bot/demonstrations": "./src/bot/demonstrations.ts",
+    "./bot/helpers": "./src/bot/helpers.ts",
+    "./bot/reactions": "./src/bot/reactions.ts",
+    "./bot/reviews": "./src/bot/reviews.ts",
+    "./bot/routines": "./src/bot/routines.ts",
+    "./bot/secrets": "./src/bot/secrets.ts",
+    "./bot/turn-list": "./src/bot/turn-list.ts",
+    "./bot/uploads": "./src/bot/uploads.ts",
+    "./bot/warm": "./src/bot/warm.ts",
+    ".": "./src/index.ts",
+    "./intl": "./src/intl.ts",
+    "./models/byok": "./src/models/byok.ts",
+    "./models/quota": "./src/models/quota.ts",
+    "./provider": "./src/provider.tsx",
+    "./rpc-error": "./src/rpc-error.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@botsdk/client": "workspace:*",
+    "@orpc/client": "catalog:",
+    "@orpc/contract": "catalog:"
+  },
+  "devDependencies": {
+    "@ai-chat/config": "workspace:*",
+    "@tanstack/react-query": "^5.102.8",
+    "@types/react": "catalog:",
+    "react": "catalog:",
+    "typescript": "catalog:"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "^5.102.8",
+    "react": "catalog:"
+  }
+}

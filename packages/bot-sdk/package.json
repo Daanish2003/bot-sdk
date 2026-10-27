@@ -7,14 +7,11 @@
   "exports": {
     "./package.json": "./package.json",
     "./core/server": "./core/server/index.ts",
-    "./core/client": "./core/client/index.ts",
     "./core/http": "./core/http/index.ts",
     "./plugins/models/server": "./plugins/models/server/index.ts",
-    "./plugins/models/ui": "./plugins/models/ui/index.ts",
     "./plugins/runner/server": "./plugins/runner/server/index.ts",
     "./plugins/bot/server": "./plugins/bot/server/index.ts",
     "./plugins/bot/client": "./plugins/bot/client/index.ts",
-    "./plugins/bot/ui": "./plugins/bot/ui/index.ts",
     "./plugins/computer/server": "./plugins/computer/server/index.ts",
     "./plugins/computer/e2b": "./plugins/computer/e2b/index.ts",
     "./plugins/memory/server": "./plugins/memory/server/index.ts",
@@ -28,7 +25,6 @@
     "./plugins/skills/server": "./plugins/skills/server/index.ts",
     "./plugins/channel/server": "./plugins/channel/server/index.ts",
     "./plugins/channel/client": "./plugins/channel/client/index.ts",
-    "./plugins/channel/ui": "./plugins/channel/ui/index.ts",
     "./plugins/channel/fake": "./plugins/channel/fake/index.ts",
     "./plugins/channel/mailpit": "./plugins/channel/mailpit/index.ts",
     "./plugins/mcp/server": "./plugins/mcp/server/index.ts",
@@ -60,6 +56,7 @@
   "dependencies": {
     "@ai-chat/db": "workspace:*",
     "@botsdk/client": "workspace:*",
+    "@botsdk/react": "workspace:*",
     "@orpc/client": "catalog:",
     "@orpc/contract": "catalog:",
     "@orpc/server": "catalog:",
@@ -105,6 +102,7 @@
   "devDependencies": {
     "@ai-chat/auth": "workspace:*",
     "@ai-chat/config": "workspace:*",
+    "@botsdk/ui": "workspace:*",
     "@cloudflare/workers-types": "4.20260702.1",
     "@testing-library/react": "^16.3.3",
     "@types/pg": "^8.23.1",

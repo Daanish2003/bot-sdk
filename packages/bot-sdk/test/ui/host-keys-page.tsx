@@ -1,12 +1,12 @@
 import type { ReactNode } from "react";
 
-import { ImageModelSelect } from "../../plugins/models/ui/index";
+import { ImageModelSelect } from "@botsdk/ui/models";
 import { ConnectionsSection } from "../../plugins/mcp/ui/index";
 import {
   CredentialsSections,
   KeySettingsPage,
   type LinkedCredentialsHost,
-} from "../../plugins/models/ui/key-settings";
+} from "@botsdk/ui/models/key-settings";
 
 /** The Keys page as the Host composes it (`apps/web` keys route): Provider keys and Tool credentials, Connections and the Image Model. */
 export function HostKeysPage({

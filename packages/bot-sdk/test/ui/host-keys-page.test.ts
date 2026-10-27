@@ -4,11 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import {
-  ChatProvider,
-  type ChatLinkProps,
-  type ChatRouter,
-} from "../../core/client/react/provider";
+import { BotSdkProvider, type ChatLinkProps, type ChatRouter } from "@botsdk/react/provider";
 import { mcpClient } from "../../plugins/mcp/client/index";
 import { memoryClient } from "../../plugins/memory/client/index";
 import { HostKeysPage } from "./host-keys-page";
@@ -35,7 +31,7 @@ function renderKeys() {
     { key: "tracker", name: "E2E Tracker", state: "disconnected", scopes: [] },
   ]);
   return renderToStaticMarkup(
-    createElement(ChatProvider, {
+    createElement(BotSdkProvider, {
       client,
       router,
       queryClient,

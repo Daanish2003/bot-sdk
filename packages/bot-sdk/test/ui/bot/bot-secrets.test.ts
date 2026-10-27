@@ -8,8 +8,8 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
-import type { RichControlRenderers } from "../../../plugins/bot/ui/rich-control";
+import { BotConversation } from "@botsdk/ui/bot/bot-conversation";
+import type { RichControlRenderers } from "@botsdk/ui/bot/rich-control";
 import { providerFor } from "../fake-dictionary";
 
 afterEach(cleanup);

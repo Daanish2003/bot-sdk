@@ -1,7 +1,7 @@
 import type { ListedImageModel } from "@botsdk/client/models/image-models";
 import { describe, expect, it } from "vitest";
 
-import { groupImageModels } from "../../../plugins/models/ui/settings/image-model-groups";
+import { groupImageModels } from "@botsdk/ui/models/settings/image-model-groups";
 
 function model(provider: string, modelId: string, onHostCredentials: boolean): ListedImageModel {
   return {

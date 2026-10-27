@@ -1,1 +1,1 @@
-export { uuidv7 } from "../../shared/uuidv7";
+export { uuidv7 } from "@botsdk/client/uuidv7";

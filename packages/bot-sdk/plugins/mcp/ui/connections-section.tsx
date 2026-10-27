@@ -2,8 +2,8 @@ import { Button } from "@/components/ui/button";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-import { useChatAdapter, useI18n, useOrpc } from "../../../core/client/react/provider";
-import { serverErrorText } from "../../../core/client/rpc-error";
+import { useChatAdapter, useI18n, useOrpc } from "@botsdk/react/provider";
+import { serverErrorText } from "@botsdk/react/rpc-error";
 import type { McpUrls } from "../client/index";
 import type { McpContract } from "../shared/contract";
 

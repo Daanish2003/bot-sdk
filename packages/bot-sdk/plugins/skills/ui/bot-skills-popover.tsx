@@ -4,8 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { BookOpenIcon } from "lucide-react";
 import { useState } from "react";
 
-import { useI18n, useOrpc } from "../../../core/client/react/provider";
-import { serverErrorText } from "../../../core/client/rpc-error";
+import { useI18n, useOrpc } from "@botsdk/react/provider";
+import { serverErrorText } from "@botsdk/react/rpc-error";
 import { NewSkillEditor, SkillEditor } from "./skill-editor";
 import type { SkillsContract } from "../shared/contract";
 

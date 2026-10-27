@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { en } from "../../../../core/shared/i18n";
+import { en } from "@botsdk/client/i18n";
 import { createTestSdk } from "../../../support/deps";
 import { chatRpc } from "../../../support/sdk";
 import { insertUser } from "../../../support/users";

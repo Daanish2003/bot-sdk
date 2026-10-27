@@ -1,0 +1,70 @@
+{
+  "name": "@botsdk/ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./package.json": "./package.json",
+    "./bot/avatar": "./src/bot/avatar.ts",
+    "./bot/bot-avatar": "./src/bot/bot-avatar.tsx",
+    "./bot/bot-cache-chip": "./src/bot/bot-cache-chip.tsx",
+    "./bot/bot-conversation": "./src/bot/bot-conversation.tsx",
+    "./bot/bot-sidebar": "./src/bot/bot-sidebar.tsx",
+    "./bot/bots-app": "./src/bot/bots-app.tsx",
+    "./bot/check-in-line": "./src/bot/check-in-line.tsx",
+    "./bot/choice-card": "./src/bot/choice-card.tsx",
+    "./bot/computer-card": "./src/bot/computer-card.tsx",
+    "./bot/draft-files": "./src/bot/draft-files.tsx",
+    "./bot/files-card": "./src/bot/files-card.tsx",
+    "./bot/helper-card": "./src/bot/helper-card.tsx",
+    "./bot": "./src/bot/index.ts",
+    "./bot/new-bot-dialog": "./src/bot/new-bot-dialog.tsx",
+    "./bot/reactions": "./src/bot/reactions.tsx",
+    "./bot/refusal-toast": "./src/bot/refusal-toast.ts",
+    "./bot/review-passes-line": "./src/bot/review-passes-line.tsx",
+    "./bot/review-request": "./src/bot/review-request.tsx",
+    "./bot/rich-control": "./src/bot/rich-control.tsx",
+    "./bot/routine-card": "./src/bot/routine-card.tsx",
+    "./bot/routines-popover": "./src/bot/routines-popover.tsx",
+    "./bot/run-divider": "./src/bot/run-divider.tsx",
+    "./bot/secret-card": "./src/bot/secret-card.tsx",
+    "./bot/secrets-popover": "./src/bot/secrets-popover.tsx",
+    "./bot/show-me-card": "./src/bot/show-me-card.tsx",
+    "./bot/summary-card": "./src/bot/summary-card.tsx",
+    "./bot/todo-popover": "./src/bot/todo-popover.tsx",
+    "./bot/warm-line": "./src/bot/warm-line.tsx",
+    "./channel/email-popover": "./src/channel/email-popover.tsx",
+    "./channel": "./src/channel/index.ts",
+    "./models": "./src/models/index.ts",
+    "./models/key-rows": "./src/models/key-rows.ts",
+    "./models/key-settings": "./src/models/key-settings.tsx",
+    "./models/models": "./src/models/models.ts",
+    "./models/quota": "./src/models/quota.ts",
+    "./models/settings/image-model-groups": "./src/models/settings/image-model-groups.ts",
+    "./models/settings/image-model-select": "./src/models/settings/image-model-select.tsx",
+    "./models/shell/model-picker": "./src/models/shell/model-picker.tsx",
+    "./settings/export-data-button": "./src/settings/export-data-button.tsx",
+    "./theme.css": "./src/theme.css"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@botsdk/client": "workspace:*",
+    "@botsdk/react": "workspace:*",
+    "lucide-react": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "sonner": "catalog:"
+  },
+  "devDependencies": {
+    "@ai-chat/config": "workspace:*",
+    "@tanstack/react-query": "^5.102.8",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "typescript": "catalog:"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "^5.102.8"
+  }
+}

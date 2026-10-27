@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { toolRows } from "../../../plugins/models/client/key-settings";
+import { toolRows } from "@botsdk/ui/models/key-rows";
 
 describe("toolRows", () => {
   it("lists Tavily for web search, missing until a key is saved", () => {

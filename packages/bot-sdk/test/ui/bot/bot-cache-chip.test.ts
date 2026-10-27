@@ -4,8 +4,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { BotCacheChip } from "../../../plugins/bot/ui/bot-cache-chip";
-import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
+import { BotCacheChip } from "@botsdk/ui/bot/bot-cache-chip";
+import { BotConversation } from "@botsdk/ui/bot/bot-conversation";
 import { providerFor } from "../fake-dictionary";
 
 afterEach(cleanup);

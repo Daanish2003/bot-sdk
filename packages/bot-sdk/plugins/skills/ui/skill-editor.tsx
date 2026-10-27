@@ -4,9 +4,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { dateFormat } from "../../../core/client/intl";
-import { useI18n, useOrpc } from "../../../core/client/react/provider";
-import { serverErrorText } from "../../../core/client/rpc-error";
+import { dateFormat } from "@botsdk/react/intl";
+import { useI18n, useOrpc } from "@botsdk/react/provider";
+import { serverErrorText } from "@botsdk/react/rpc-error";
 import type { SkillsContract } from "../shared/contract";
 
 /** Refetches the Bot's Skills after a change to its files. */

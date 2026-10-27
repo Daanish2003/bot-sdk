@@ -1,7 +1,7 @@
 import type { BotSkillChange } from "@botsdk/client/skills/changes";
 import { useState } from "react";
 
-import { useI18n } from "../../../core/client/react/provider";
+import { useI18n } from "@botsdk/react/provider";
 import { SkillEditor } from "./skill-editor";
 
 /**

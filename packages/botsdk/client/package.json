@@ -28,7 +28,9 @@
     "./models/models-snapshot": "./src/models/models-snapshot.ts",
     "./memory/changes": "./src/memory/changes.ts",
     "./knowledge/changes": "./src/knowledge/changes.ts",
-    "./skills/changes": "./src/skills/changes.ts"
+    "./skills/changes": "./src/skills/changes.ts",
+    "./i18n": "./src/i18n/index.ts",
+    "./uuidv7": "./src/uuidv7.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit"

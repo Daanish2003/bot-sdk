@@ -4,12 +4,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import {
-  ChatProvider,
-  type ChatLinkProps,
-  type ChatRouter,
-} from "../../core/client/react/provider";
-import { CredentialsSections, KeySettingsPage } from "../../plugins/models/ui/key-settings";
+import { BotSdkProvider, type ChatLinkProps, type ChatRouter } from "@botsdk/react/provider";
+import { CredentialsSections, KeySettingsPage } from "@botsdk/ui/models/key-settings";
 
 const client = createBotSdkClient({
   baseUrl: "http://localhost/api/chat",
@@ -28,7 +24,7 @@ function render(children: ReturnType<typeof createElement>[]) {
   queryClient.setQueryData(client.orpc.models.credentials.mode.queryKey(), { byok: true });
   queryClient.setQueryData(client.orpc.models.credentials.list.queryKey(), []);
   return renderToStaticMarkup(
-    createElement(ChatProvider, {
+    createElement(BotSdkProvider, {
       client,
       router,
       queryClient,
