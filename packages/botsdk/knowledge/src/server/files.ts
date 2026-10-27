@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 
 import { bot, botTurn } from "@botsdk/bot/storage";
-import type { BotSdkContext } from "@botsdk/bot/plugin";
+import type { FeatureContext } from "@botsdk/bot/feature";
 import { rpcError } from "@botsdk/bot/rpc-error";
 import {
   ComputerOperationError,
@@ -41,11 +41,11 @@ const shellQuote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
 export type { KnowledgeFile, KnowledgeListing };
 
 /** Whether the user can have Knowledge, which needs the computer slot. */
-export function knowledgeAvailable(deps: BotSdkContext): boolean {
+export function knowledgeAvailable(deps: FeatureContext<"computer">): boolean {
   return Boolean(deps.computer);
 }
 
-function computerOf(deps: BotSdkContext, userId: string): ComputerHandle {
+function computerOf(deps: FeatureContext<"computer">, userId: string): ComputerHandle {
   if (!deps.computer) {
     throw rpcError("BAD_REQUEST", "error.knowledgeNeedsComputer", "Knowledge needs a Computer");
   }
@@ -178,7 +178,10 @@ const byPath = (a: { path: string }, b: { path: string }) =>
   a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
 
 /** For each path a recorded Turn of the user's Bots saved, the Bot of the latest such Turn. */
-async function botSavers(deps: BotSdkContext, userId: string): Promise<Map<string, string>> {
+async function botSavers(
+  deps: FeatureContext<"computer">,
+  userId: string,
+): Promise<Map<string, string>> {
   const result = await deps.db.execute<{ path: string; name: string }>(sql`
     select distinct on (change.path) change.path as path, ${bot.name} as name
     from ${botTurn}
@@ -195,7 +198,7 @@ async function botSavers(deps: BotSdkContext, userId: string): Promise<Map<strin
  * their upload wrote it; once anything rewrites it, it is a Bot's.
  */
 export async function listKnowledge(
-  deps: BotSdkContext,
+  deps: FeatureContext<"computer">,
   { userId }: { userId: string },
 ): Promise<KnowledgeListing> {
   const computer = computerOf(deps, userId);
@@ -240,7 +243,7 @@ export async function listKnowledge(
 
 /** One file's text; refused when there is none. */
 export async function readKnowledge(
-  deps: BotSdkContext,
+  deps: FeatureContext<"computer">,
   { userId, path }: { userId: string; path: string },
 ) {
   requirePath(path);
@@ -260,7 +263,7 @@ export async function readKnowledge(
  * already there (unless `replace`), or when the files would take Knowledge past its cap.
  */
 async function writeUpload(
-  deps: BotSdkContext,
+  deps: FeatureContext<"computer">,
   userId: string,
   { path, writes, replace }: { path: string; writes: [string, Uint8Array][]; replace: boolean },
 ) {
@@ -310,7 +313,7 @@ async function writeUpload(
  * would take Knowledge past its cap.
  */
 export async function uploadKnowledge(
-  deps: BotSdkContext,
+  deps: FeatureContext<"computer">,
   {
     userId,
     folder = "",
@@ -338,7 +341,7 @@ export async function uploadKnowledge(
 
 /** Deletes a file; refused when there is none. */
 export async function deleteKnowledge(
-  deps: BotSdkContext,
+  deps: FeatureContext<"computer">,
   { userId, path }: { userId: string; path: string },
 ) {
   requirePath(path);
@@ -367,7 +370,7 @@ export async function deleteKnowledge(
 
 /** Creates a folder (and its parents); one that exists is left as it is. */
 export async function createKnowledgeFolder(
-  deps: BotSdkContext,
+  deps: FeatureContext<"computer">,
   { userId, path }: { userId: string; path: string },
 ) {
   requirePath(path);
@@ -425,7 +428,7 @@ const failureError = (name: string, code: ExtractionFailure["code"], pdf: boolea
  * overwrites both files.
  */
 export async function uploadKnowledgeDocument(
-  deps: BotSdkContext,
+  deps: FeatureContext<"computer">,
   {
     userId,
     folder = "",

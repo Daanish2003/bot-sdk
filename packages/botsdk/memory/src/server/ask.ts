@@ -1,7 +1,7 @@
 import { chat, type ModelMessage } from "@tanstack/ai";
 
 import { promptCharactersOf, reportedUsageOf } from "@botsdk/bot/models/internal";
-import type { BotSdkContext } from "@botsdk/bot/plugin";
+import type { FeatureContext } from "@botsdk/bot/feature";
 import type { ModelCall } from "@botsdk/bot/models/internal";
 
 /**
@@ -9,7 +9,7 @@ import type { ModelCall } from "@botsdk/bot/models/internal";
  * credentials (ADR 0007).
  */
 export async function askBackground(
-  deps: BotSdkContext,
+  deps: Pick<FeatureContext<"models">, "models">,
   {
     botId,
     plan,

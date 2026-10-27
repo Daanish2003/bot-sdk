@@ -21,6 +21,8 @@ import type { FeatureMigrations, Migration } from "./migrate";
 import type { BotSdkContext, BotSdkPlugin, Route, Transaction } from "./plugin";
 import { requireAuth } from "./procedures";
 import type { ComputerApi } from "./computer/internal";
+import type { ModelsApi } from "./models/internal";
+import { hintChanged } from "./bot/conversation";
 import type { EnqueueOptions, JobDefinition } from "./runner/internal";
 
 /*
@@ -30,9 +32,14 @@ import type { EnqueueOptions, JobDefinition } from "./runner/internal";
  */
 
 /** The core services a feature may declare in `needs`. */
-export type CoreService = "computer";
+export type CoreService = "computer" | "models" | "threads";
 
-type Services = { computer: ComputerApi };
+type Services = {
+  computer: ComputerApi;
+  models: ModelsApi;
+  /** What a feature tells a Conversation's open tabs. */
+  threads: { hintChanged: (conversationId: string) => Promise<void> };
+};
 
 /** What the core gives every feature, plus the services it declared in `needs`, non-optional. */
 export type FeatureContext<Needs extends CoreService = never> = {
@@ -364,7 +371,11 @@ const coreTableNames = new Set(
   ),
 );
 
-const serviceNames: Record<CoreService, string> = { computer: "the Computer" };
+const serviceNames: Record<CoreService, string> = {
+  computer: "the Computer",
+  models: "the Models",
+  threads: "the Conversation threads",
+};
 
 /**
  * Throws when a feature's id is reserved, a table of its schema is a core table, or a service it
@@ -422,25 +433,12 @@ export function enableFeature(sdk: BotSdkContext, feature: AnyFeature): EnabledF
   return { feature, context: contextOf(sdk, feature.needs ?? []) };
 }
 
-const coreContext = Symbol("coreContext");
-
-/**
- * The whole core context behind a feature's context, or a job context that spreads one: for the
- * SDK's own Memory feature, whose job still reads the core's Models and Bots. Never public.
- */
-export function coreContextOf(context: object): BotSdkContext {
-  const sdk = (context as { [coreContext]?: BotSdkContext })[coreContext];
-  if (!sdk) throw new Error("Not a feature's context");
-  return sdk;
-}
-
 /** The context the core gives a feature (or the Host's jobs) that needs `needs`. */
 export function contextOf(
   sdk: BotSdkContext,
   needs: readonly CoreService[],
 ): FeatureContext<CoreService> {
-  const base: FeatureContext & { [coreContext]: BotSdkContext } = {
-    [coreContext]: sdk,
+  const base: FeatureContext = {
     db: sdk.db,
     logger: sdk.logger,
     clock: sdk.clock,
@@ -453,10 +451,18 @@ export function contextOf(
       wake: () => sdk.runner.wake(),
     },
   };
-  return {
+  const context = {
     ...base,
     ...(needs.includes("computer") && { computer: sdk.computer }),
+    ...(needs.includes("threads") && {
+      threads: { hintChanged: (conversationId: string) => hintChanged(sdk, conversationId) },
+    }),
   } as FeatureContext<CoreService>;
+  // Read when used: the Models part sets `sdk.models` in its `init`, after the features are enabled.
+  if (needs.includes("models")) {
+    Object.defineProperty(context, "models", { get: () => sdk.models, enumerable: true });
+  }
+  return context;
 }
 
 /**

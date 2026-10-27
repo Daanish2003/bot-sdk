@@ -3,14 +3,13 @@ import { and, eq, inArray } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { conversationChannel } from "@botsdk/bot/chat/conversation-events";
-import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { createMemoryPubSub } from "@botsdk/bot/chat/pubsub";
 import { botTurn, job, usage } from "@botsdk/bot/storage";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { HostProvider } from "@botsdk/bot/models/internal";
 import { findBot } from "@botsdk/bot/bot/conversation";
-import { botMemoryPassJob } from "../../src/server/bot-pass";
+import { botMemoryPassJob, type PassContext } from "../../src/server/bot-pass";
 import { saveCredentials, quotaLookup } from "@botsdk/bot/models/internal";
 
 import {
@@ -433,7 +432,7 @@ describe("the post-turn memory pass", () => {
     await botMemoryPassJob.run(
       { turnId: turn!.id },
       {
-        ...(deps.parts.jobs.get(botMemoryPassJob.name)!.services as FeatureContext<"computer">),
+        ...(deps.parts.jobs.get(botMemoryPassJob.name)!.services as PassContext),
         ...workflow.context,
         signal: new AbortController().signal,
       },

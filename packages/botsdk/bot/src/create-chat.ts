@@ -314,7 +314,12 @@ export function buildBotSdk(
   if (core[0]?.id !== "models") throw new Error("The core's parts must start with Models");
   const features: readonly AnyFeature[] = options.features ?? [];
   // The core services the instance has: a feature's `needs` are checked against them.
-  const services = new Set(["runner", ...(options.computer ? ["computer"] : [])]);
+  const services = new Set([
+    "runner",
+    "models",
+    "threads",
+    ...(options.computer ? ["computer"] : []),
+  ]);
   const ids = new Set<string>();
   for (const feature of features) {
     if (ids.has(feature.id)) throw new Error(`Feature "${feature.id}" is enabled twice`);

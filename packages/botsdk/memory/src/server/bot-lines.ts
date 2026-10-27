@@ -1,4 +1,4 @@
-import type { BotSdkContext } from "@botsdk/bot/plugin";
+import type { FeatureContext } from "@botsdk/bot/feature";
 import { rpcError } from "@botsdk/bot/rpc-error";
 import { ComputerUnavailableError, type ComputerHandle } from "@botsdk/bot/computer/internal";
 import {
@@ -53,7 +53,7 @@ export function memoryFilePath({ botId, tier, month }: MemoryFileRef): string {
 }
 
 /** The user's Computer, or the error the popover shows when there is none to read. */
-function computerOf(deps: BotSdkContext, userId: string): ComputerHandle {
+function computerOf(deps: FeatureContext<"computer">, userId: string): ComputerHandle {
   if (!deps.computer) {
     throw rpcError("BAD_REQUEST", "error.memoryNeedsComputer", "Bot memory needs a Computer");
   }
@@ -77,7 +77,7 @@ async function onComputer<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 /** Refuses a Bot that isn't one of the user's Bots. */
-async function requireOwnBot(deps: BotSdkContext, userId: string, botId: string) {
+async function requireOwnBot(deps: FeatureContext<"computer">, userId: string, botId: string) {
   const bots = await botsOf(deps, userId);
   if (!bots.some((other) => other.id === botId)) {
     throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
@@ -91,7 +91,7 @@ async function requireOwnBot(deps: BotSdkContext, userId: string, botId: string)
  * (the snapshot's own selection, read the same way).
  */
 export async function listBotMemory(
-  deps: BotSdkContext,
+  deps: FeatureContext<"computer">,
   { userId, botId, now }: { userId: string; botId: string; now: Date },
 ): Promise<BotMemoryList> {
   const bots = await requireOwnBot(deps, userId, botId);
@@ -200,7 +200,7 @@ export function appendLine(content: string, text: string): string {
 
 /** Changes line `line` of a file of one of the user's Bots to `text`; refused if it changed. */
 export async function editBotLine(
-  deps: BotSdkContext,
+  deps: FeatureContext<"computer">,
   {
     userId,
     file,
@@ -221,7 +221,7 @@ export async function editBotLine(
 
 /** Deletes line `line` of a file of one of the user's Bots; refused if it changed. */
 export async function deleteBotLine(
-  deps: BotSdkContext,
+  deps: FeatureContext<"computer">,
   {
     userId,
     file,
@@ -243,7 +243,7 @@ export async function deleteBotLine(
  * Notes (dated today).
  */
 export async function addBotLine(
-  deps: BotSdkContext,
+  deps: FeatureContext<"computer">,
   { userId, botId, tier, text }: { userId: string; botId: string; tier: MemoryTier; text: string },
 ) {
   const body = lineText(text);
@@ -267,7 +267,7 @@ export async function addBotLine(
 
 /** A file's raw text, "" when there is none. */
 export async function readBotFile(
-  deps: BotSdkContext,
+  deps: FeatureContext<"computer">,
   { userId, file }: { userId: string; file: MemoryFileRef },
 ): Promise<string> {
   await requireOwnBot(deps, userId, file.botId);
@@ -281,7 +281,7 @@ export async function readBotFile(
  * `expected`, the text the user started from.
  */
 export async function saveBotFile(
-  deps: BotSdkContext,
+  deps: FeatureContext<"computer">,
   {
     userId,
     file,
