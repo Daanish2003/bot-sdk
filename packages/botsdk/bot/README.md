@@ -1,94 +1,32 @@
 # Bot SDK
 
-Bots a Host copies into its own source tree: each user's Bots, with their Turns, Routines, Helpers, Memory, Skills, Knowledge, Computer and email (ADR 0027). The SDK is one folder with these parts:
+Bots for a Host app: each user's Bots, with their Turns, Routines, Helpers, Memory, Skills, Knowledge, Computer and email (ADR 0027). The SDK is a set of `@botsdk/*` workspace packages under `packages/botsdk/` (spec #875). They aren't published: a Host in this repo depends on them with `workspace:*`, and each package exports its TypeScript source, so there is no build step. The SDK knows users only by an opaque id.
 
-- `core/` (`shared`, `server`, `client`, including `client/react`): runtime code the Host never edits. Updating means copying it again.
-- `plugins/<name>/` (`models`, `runner`, `bot`, `computer`, `channel`); the features Memory, Skills, Knowledge and MCP are packages of their own (below): each plugin's `shared`, `server` and `client` are runtime code like `core/`; its `ui/` is the Host's.
-- The core's React components, `theme.css` and `settings/export-data-button.tsx` live in the private `@botsdk/ui` package (`packages/botsdk/ui`), on the hooks and provider of `@botsdk/react`. The features' components (Memory, Skills, Knowledge, MCP) are in `@botsdk/ui` too, under `memory/`, `skills/`, `knowledge/` and `mcp/`, on each feature's hooks. They sit on the Host's own shadcn primitives.
-- `package.json`, `README.md` and `NOTICE`: copied alongside, for reference. The Host installs the dependencies listed here.
+## Packages
 
-The SDK assumes nothing about the Host's stack beyond the npm packages below. It knows users only by an opaque id.
+- `@botsdk/bot`: the core server (the Bot core, Models, Runner, Computer and Channel), with the HTTP layer at `@botsdk/bot/http`.
+- `@botsdk/client`: the core's contracts, `createBotSdkClient` and the Channels client part (`channelClient`). No server dependencies.
+- `@botsdk/react`: `BotSdkProvider` and the core's hooks. React and React Query are peers: the Host's own.
+- `@botsdk/memory`, `@botsdk/skills`, `@botsdk/knowledge`, `@botsdk/mcp`: the optional features. Each has the feature at its root, its client part at `/client` and its hooks at `/react`. Each takes `@botsdk/bot`, `@botsdk/client` and `@botsdk/react` as peers and never imports another feature.
+- Adapters, each carrying its own client library: `@botsdk/computer-e2b` (E2B), `@botsdk/blobs-s3` (`s3BlobStore`), `@botsdk/pubsub-redis` (`redisRuntime()`) and `@botsdk/channel-email` (a local Mailpit). Each takes the core as a peer.
+- `@botsdk/testing`: a test SDK, a scripted model adapter, a fake Computer and a fake email provider, for a Host's tests. It peers only on `@botsdk/bot` and `@botsdk/client`.
+- `@botsdk/ui` (private): the React components and `theme.css`, the core's and the features', on the hooks above and the Host's shadcn primitives.
 
-## Adopting the SDK
+Features and adapters depend on the core, never on each other. Each package lists its own runtime dependencies, so they install with it.
 
-Copy the SDK folder into your Host by hand, into a folder such as `src/lib/bot-sdk`. Copy every plugin (`core/` imports them), and leave out tests, evals, `scripts/` and `node_modules` (`*.test.*` files and `test`, `tests`, `testing`, `__tests__`, `eval` folders).
+## Model Providers
 
-Then add one alias to your `tsconfig.json`, pointing at the destination folder:
-
-```json
-{
-  "compilerOptions": {
-    "paths": {
-      "@ai-chat/bot-sdk/*": ["./src/lib/bot-sdk/*"]
-    }
-  }
-}
-```
-
-Your imports then read exactly like this repo's: `@botsdk/bot`, `@botsdk/bot/models`, `@botsdk/ui/bot`, and so on.
-
-### Updating
-
-1. Copy the SDK folder in again.
-2. Copy `core/` and each plugin's `shared`, `server` and `client` over yours, but not the `ui/` folders (the root one and each plugin's) or `theme.css`: those are yours. If the release changed a component you also edited, merge that by hand: diff the new SDK's `ui/` folders against yours. A copy from before the Bot-only SDK (ADR 0027) still holds the assistant's folders: delete `plugins/assistant/` and any `ui/chat/`, `ui/shell/`, `ui/pages/` and `ui/settings/` left in your root `ui/`, and drop `@source "../plugins/assistant/ui";` from your `theme.css`. The Memory, Skills, Knowledge and MCP screens are in `@botsdk/ui` now (#911), and its `theme.css` scans them: drop any `@source "../plugins/<feature>/ui";` line from yours.
-3. Install any new dependencies listed below, then run your type check.
-
-## Dependencies
-
-Install these in the Host. There is one `package.json` for the whole SDK, and versions come from it. A Host that copies every plugin installs every group below.
-
-**What `core/` needs:**
-
-- `@tanstack/ai`
-- `@tanstack/react-query`, `react`, `sonner`
-- `drizzle-orm` and `pg` (the Postgres driver it uses)
-- `redis` is not needed here: `redisRuntime()` lives in `@botsdk/pubsub-redis`, which carries it
-- `undici` and `ipaddr.js`, for the SSRF-guarded `fetch` (`@botsdk/bot`'s `src/lib/guarded-fetch.ts`). `undici` pins each connection to the address that was checked, and `ipaddr.js` classifies that address. Install `undici` at the major your Node bundles (7.x on Node 24): undici 8's dispatcher is rejected by Node's built-in `fetch`.
-- `aws4fetch` is not needed here: `s3BlobStore` lives in `@botsdk/blobs-s3`, which carries it
-- `@orpc/client`, `@orpc/contract`, `@orpc/server`, `@orpc/tanstack-query`
-- `zod`
-
-**What the `models` plugin needs (on top of `core/`):**
-
-- the provider packages: `@tanstack/ai-anthropic`, `@tanstack/ai-bedrock`, `@tanstack/ai-byteplus`, `@tanstack/ai-cloudflare`, `@tanstack/ai-gemini`, `@tanstack/ai-grok`, `@tanstack/ai-groq`, `@tanstack/ai-llmgateway`, `@tanstack/ai-lovable`, `@tanstack/ai-mistral`, `@tanstack/ai-ollama`, `@tanstack/ai-openai`, `@tanstack/ai-openrouter`, `@tanstack/ai-vercel-gateway`
-- for its `ui/`: `lucide-react`
-
-**What the `bot` plugin needs (on top of `core/`):**
-
-- `playwright-core` (pinned at 1.63.0), which drives the Computer's browser over CDP; `react-dom` for its `ui/`
-- for its `ui/`: `lucide-react`
-
-**What `@botsdk/mcp` brings (it depends on it, so it installs with the package):**
-
-- `@tanstack/ai-mcp`, pinned at 1.0.0 (the release whose `@tanstack/ai` range matches), the MCP client. The sign-in itself is the SDK's own: the library exports no OAuth helpers. It brings `@modelcontextprotocol/*` and `jose`.
-
-**What `@botsdk/knowledge` brings (its dependencies, so they install with the package):**
-
-- for converting uploaded files to text: `cheerio`, `htmlparser2`, `csv-parse`, `mammoth`, `pdfjs-dist`, `@thednp/dommatrix`
-
-**What the `computer` plugin needs (on top of `core/`):**
-
-- `e2b` (pinned at 2.55.0), the E2B JS SDK. Only `@botsdk/computer-e2b` imports it, so a Host that does not use that package can leave it out.
-
-**What the `channel` plugin needs (on top of `core/`):**
-
-- `email-reply-parser` (pinned at 2.3.9), which strips the quoted history from an inbound email so the Bot reads only the new text.
-
-The `runner` plugin, `@botsdk/memory` and `@botsdk/skills` need nothing beyond the core.
-
-The core server is its own package, `@botsdk/bot` (`packages/botsdk/bot`, spec #875): the Bot core, Models, Runner, Computer and Channel, with the HTTP layer at `@botsdk/bot/http`. It depends on `@tanstack/ai` and no model Provider: the Host installs the `@tanstack/ai-*` Providers it uses and passes them in `models.providers`. The features import it, and `@botsdk/client` (`packages/botsdk/client`), by package name.
-
-The optional features are packages of their own (#911): `@botsdk/memory`, `@botsdk/skills`, `@botsdk/knowledge` and `@botsdk/mcp` (`packages/botsdk/<feature>`). Each has the feature at its root, its client part at `/client` and its hooks at `/react`; it takes `@botsdk/bot`, `@botsdk/client` and `@botsdk/react` as peers and never imports another feature.
+The core depends on `@tanstack/ai` and no model Provider. The Host installs the `@tanstack/ai-*` packages it uses and passes one adapter factory per Provider in `models.providers` (see `apps/web/src/model-providers.ts`). Only those Providers' Models are listed and run. A linked ChatGPT plan's Models (ADR 0023) appear only when the OpenAI entry sets `honoursFetch: true`, meaning its `text` sends every request through the `fetch` the SDK passes.
 
 ## shadcn components
 
-`ui/` and each plugin's `ui/` import these from the Host's `@/components/ui/*` (and `@/lib/utils` for `cn`). Add them with the shadcn CLI, which also installs each component's own dependencies:
+`@botsdk/ui` imports these from the Host's `@/components/ui/*` (and `@/lib/utils` for `cn`). Add them with the shadcn CLI, which also installs each component's own dependencies:
 
 - `button`, `card`, `dialog`, `input`, `label`, `popover`, `select`, `textarea`, `attachment`
 
 ## Tailwind v4
 
-`ui/` and each plugin's `ui/` use Tailwind v4 classes. In your global stylesheet, import Tailwind and then the SDK's `theme.css`:
+`@botsdk/ui` uses Tailwind v4 classes. In your global stylesheet, import Tailwind and then the SDK's `theme.css`:
 
 ```css
 @import "tailwindcss";
@@ -96,7 +34,7 @@ The optional features are packages of their own (#911): `@botsdk/memory`, `@bots
 @import "@botsdk/ui/theme.css";
 ```
 
-`theme.css` starts with `@source` lines (`@source "./<folder>";` for each folder of screens), which tell Tailwind to scan those folders wherever the copy sits. Your shadcn theme variables (`--background`, `--primary`, and so on) must also be defined in your stylesheet.
+`theme.css` starts with `@source` lines (`@source "./<folder>";` for each folder of screens), which tell Tailwind to scan those folders. Your shadcn theme variables (`--background`, `--primary`, and so on) must also be defined in your stylesheet.
 
 ## Postgres
 
@@ -129,7 +67,7 @@ export const disabled = [memory()];
 
 - `botsdk migrate [--config <file>]` does what `chat.migrate()` does for the config's features.
 - `--print` applies nothing: it writes the pending SQL to stdout (the schema, `pg_trgm`, the journal, then each pending migration in its own transaction with its `botsdk.__migrations` row), for a Host that applies SQL with its own tool.
-- `--drop <feature>` removes a disabled feature's tables, the enums and sequences they used that nothing else uses, and its journal rows, so enabling it again migrates it from its baseline. The feature must be in the module's `disabled` export (it refuses one the default export enables). With `--print`, it writes that SQL instead. It deletes data, so it never runs on its own; `dropFeatureTables(database, feature, enabled)` from `core/server` does the same from code.
+- `--drop <feature>` removes a disabled feature's tables, the enums and sequences they used that nothing else uses, and its journal rows, so enabling it again migrates it from its baseline. The feature must be in the module's `disabled` export (it refuses one the default export enables). With `--print`, it writes that SQL instead. It deletes data, so it never runs on its own; `dropFeatureTables(database, feature, enabled)` from `@botsdk/bot` does the same from code.
 - The bin loads the config with Node's type stripping and a resolve hook for extensionless relative imports, so a config in TypeScript needs no build step.
 
 ## File storage: `blobs`
@@ -624,7 +562,7 @@ Sign-up, sign-in and password reset stay with your own auth.
 
 ## Text and locale
 
-The dictionary, `messages`, covers the labels listed in the SDK's dictionary (`core/shared/i18n`). Other text is still English and moves into the dictionary over time. Dates, times and numbers are formatted in `locale`. Both are optional and English (`"en"`) is the default.
+The dictionary, `messages`, covers the labels listed in the SDK's dictionary (`@botsdk/client/i18n`). Other text is still English and moves into the dictionary over time. Dates, times and numbers are formatted in `locale`. Both are optional and English (`"en"`) is the default.
 
 ```tsx
 import { type Messages } from "@botsdk/react";
@@ -642,7 +580,7 @@ const messages: Partial<Messages> = {
 - Keys are the English dictionary's keys (`en` in `@botsdk/client/i18n`, exported from `@botsdk/react` with the `Messages` type). Your editor checks them, so a misspelt key is an error.
 - A value is a string, or a function of its params. Use `Intl.PluralRules` inside the function for plural forms; there is no i18n library.
 - A key you leave out falls back to English, so a partial dictionary works.
-- The dictionary lives in the SDK, so it survives copying a new version of the SDK in: translate once, pass it in.
+- Your `messages` live in your app, so they survive updating the SDK: translate once, pass them in.
 - Build `messages` once, outside render (a module-level constant). A new object on every render gives the provider a new value and re-renders the UI.
 - An unknown key shows as itself.
 - `useI18n()` gives a component `{ t, locale }`, the same translator the SDK uses.
