@@ -1,14 +1,17 @@
 import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { and, asc, eq, inArray, like } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { botRoutine, botTrigger, botTurn, job, usage } from "../../src/storage";
+import { botRoutine, botTrigger, botTurn, job, relations, usage } from "../../src/storage";
+import type { Database } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { deleteUserData } from "../../src/user-data";
 import type { HostProvider } from "../../src/models/internal";
 import { bot } from "../../src/bot/plugin";
 import { changeNotesFraming } from "../../src/bot/context";
 import { routineFireJobName } from "../../src/bot/routines";
+import { routineReconcileJob } from "../../src/bot/routines/routine-fire";
 import { findBot } from "../../src/bot/conversation";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner, claimJob } from "../../src/runner/internal";
@@ -873,6 +876,31 @@ describe("a Routine whose chain of fires broke", () => {
 
     expect(await queuedFires(routineId)).toEqual(["2026-10-20T07:00:00.000Z"]);
   });
+
+  it("finds the Routines with no fire in one read of the Routines and the jobs", async () => {
+    const { deps, routineId } = await approvedRoutine({ at: sunday });
+    const other = await approvedRoutine({ at: sunday });
+    await breakChain(routineId);
+    const queries: string[] = [];
+    const counted = drizzle({
+      client: getTestDb().$client,
+      relations,
+      logger: { logQuery: (query) => queries.push(query) },
+    }) as unknown as Database;
+
+    await routineReconcileJob.run({ at: sunday.toISOString() }, {
+      deps: { ...deps, db: counted },
+    } as never);
+
+    // The scan for active scheduled Routines; a repair then reads its one Routine.
+    const reads = queries.filter(
+      (query) => query.includes(`"schedule" is not null`) && !query.includes("for update"),
+    );
+    expect(reads).toHaveLength(1);
+    expect(reads[0]).toContain(`"botsdk"."job"`);
+    expect(await queuedFires(routineId)).toEqual([mondaySlot]);
+    expect(await queuedFires(other.routineId)).toEqual([mondaySlot]);
+  }, 30_000);
 
   it("leaves a paused Routine and one whose fire is queued as they are", async () => {
     const queued = await approvedRoutine({ at: sunday });
