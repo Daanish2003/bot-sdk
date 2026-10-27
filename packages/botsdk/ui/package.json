@@ -53,8 +53,6 @@
     "@botsdk/client": "workspace:*",
     "@botsdk/react": "workspace:*",
     "lucide-react": "catalog:",
-    "react": "catalog:",
-    "react-dom": "catalog:",
     "sonner": "catalog:"
   },
   "devDependencies": {
@@ -62,9 +60,13 @@
     "@tanstack/react-query": "^5.102.8",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
     "typescript": "catalog:"
   },
   "peerDependencies": {
-    "@tanstack/react-query": "^5.102.8"
+    "@tanstack/react-query": "^5.102.8",
+    "react": "catalog:",
+    "react-dom": "catalog:"
   }
 }

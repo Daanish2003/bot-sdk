@@ -25,7 +25,7 @@ Then add one alias to your `tsconfig.json`, pointing at the destination folder:
 }
 ```
 
-Your imports then read exactly like this repo's: `@ai-chat/bot-sdk/core/server`, `@ai-chat/bot-sdk/plugins/models/server`, `@ai-chat/bot-sdk/plugins/bot/ui`, and so on.
+Your imports then read exactly like this repo's: `@ai-chat/bot-sdk/core/server`, `@ai-chat/bot-sdk/plugins/models/server`, `@botsdk/ui/bot`, and so on.
 
 ### Updating
 
@@ -95,7 +95,7 @@ The `runner` and `memory` plugins and the `skills` feature need nothing beyond `
 @import "@botsdk/ui/theme.css";
 ```
 
-`theme.css` starts with `@source` lines (`@source "../plugins/<name>/ui";` for each plugin with screens), which tell Tailwind to scan those folders wherever the copy sits. Your shadcn theme variables (`--background`, `--primary`, and so on) must also be defined in your stylesheet.
+`theme.css` starts with `@source` lines (`@source "./<folder>";` for each folder of screens), which tell Tailwind to scan those folders wherever the copy sits. Your shadcn theme variables (`--background`, `--primary`, and so on) must also be defined in your stylesheet.
 
 ## Postgres
 
@@ -211,16 +211,16 @@ const client = createBotSdkClient({
   features: [memoryClient(), skillsClient(), knowledgeClient(), mcpClient(), channelClient()],
 });
 
-<ChatProvider client={client} router={router}>
+<BotSdkProvider client={client} router={router}>
   {children}
-</ChatProvider>;
+</BotSdkProvider>;
 ```
 
 - `getUser(request)` returns `{ id } | null`. The HTTP handler answers 401 when it returns `null`. The core never sees a request: its own methods (`chat.bots.send({ userId, ... })`) take the user's id.
 - `reviewModel` (optional) is the Model that Auto-reviews each Bot's risky tool calls before they run, a `"provider:model"` id from the Models' list, resolved per user: `createBotSdk({ reviewModel: "openai:gpt-5.4-mini" })`. Unset, or one the user can't use, the Bot's own Model reviews, in a fresh context.
 - The client is typed by contracts alone (spec #873): the core's (`coreContract` in `@botsdk/client`) and each feature's (`plugins/<name>/shared/contract.ts`), so no server code reaches the browser bundle, not even a type. It mirrors the instance: `client.rpc.bots.send` is `sdk.bots.send`, and a feature's procedures are under its id (`client.rpc.memory.status`). One link carries them all.
 - The `router` adapter maps the SDK's pages (`keys`, and `bots` with an optional Bot `id`) to your URLs. It provides `Link` and `navigate(page)`. Pass your own TanStack Query client as `queryClient` if you have one; otherwise the provider creates its own.
-- The Bots app is `BotsApp` from `plugins/bot/ui`, with the Host's account menu at the foot of its sidebar (`accountMenu`); the keys page is `KeySettingsPage` from `plugins/models/ui`.
+- The Bots app is `BotsApp` from `@botsdk/ui/bot`, with the Host's account menu at the foot of its sidebar (`accountMenu`); the keys page is `KeySettingsPage` from `@botsdk/ui/models`.
 - `GET <basePath>/export` answers the signed-in user's export as a JSON download (`chat-export-<date>.json`), the same document as `users.export`. The `ExportDataButton` in `ui/settings/export-data-button.tsx` calls it.
 - `start()` refuses to run while the core's or an enabled feature's migrations aren't all applied.
 - `stop()` stops the plugins (the runner takes no new jobs and waits for the running ones), then closes the runtime's connections and ends the database pool the SDK opened from a connection string (never your own pool).
@@ -631,9 +631,9 @@ const messages: Partial<Messages> = {
   "bots.todoCount": ({ count }) => `Aufgaben ${count}`,
 };
 
-<ChatProvider client={client} router={router} messages={messages} locale="de">
+<BotSdkProvider client={client} router={router} messages={messages} locale="de">
   {children}
-</ChatProvider>;
+</BotSdkProvider>;
 ```
 
 - Keys are the English dictionary's keys (`en` in `@botsdk/client/i18n`, exported from `@botsdk/react` with the `Messages` type). Your editor checks them, so a misspelt key is an error.

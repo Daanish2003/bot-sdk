@@ -1005,6 +1005,22 @@
       }
     },
     {
+      "files": ["packages/botsdk/react/**", "packages/botsdk/ui/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@ai-chat/*", "@ai-chat/**", "@botsdk/bot", "@botsdk/bot/**"],
+                "message": "@botsdk/react and @botsdk/ui are browser code (spec #875): never import the Bot SDK server, the database or another @ai-chat package."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "files": ["packages/botsdk/client/**"],
       "rules": {
         "no-restricted-imports": [
