@@ -10,6 +10,7 @@ import {
   claimJob,
   dueJobIds,
   enqueueJob,
+  jobNames,
   pruneFinishedJobs,
   readJob,
   reapStaleJobs,
@@ -186,6 +187,12 @@ export const claimNext = Symbol("claimNext");
 export const jobBudgets = Symbol("jobBudgets");
 
 /**
+ * The way in of an Executor that limits concurrency itself (Inngest's): the budget key (see
+ * `JobBudget`) of each given job that is in a budget, by job id.
+ */
+export const jobBudgetKeys = Symbol("jobBudgetKeys");
+
+/**
  * The way in of an Executor that doesn't poll (Inngest's sweep): re-queues the jobs whose lease has
  * expired, has `wake` wake the jobs that are due (those it re-queued first, then the other queued
  * due jobs, oldest first, up to a limit), then prunes finished jobs (`JobRunner.pruneIfDue`).
@@ -199,6 +206,7 @@ export type CoreRun = ((jobId: string) => Promise<void>) & {
   [sweepJobs]?: (wake: (jobIds: string[]) => Promise<void>) => Promise<void>;
   [claimNext]?: (names: JobNames) => Promise<{ name: string; attempt: Promise<void> } | undefined>;
   [jobBudgets]?: () => readonly JobBudget[];
+  [jobBudgetKeys]?: (jobIds: string[]) => Promise<Map<string, string>>;
 };
 
 /** The core's runner over `executor` (see `JobRunner`). Nothing runs before `start()`. */
@@ -268,6 +276,18 @@ export function createJobRunner({
     return job && { name: job.name, attempt: work };
   };
   runJob[jobBudgets] = () => budgetsOf(jobs());
+  let keysByName: Map<string, string> | undefined;
+  runJob[jobBudgetKeys] = async (jobIds) => {
+    // The job table is fixed, so the map is made once.
+    keysByName ??= new Map(budgetsOf(jobs()).flatMap((b) => b.names.map((name) => [name, b.key])));
+    const keys = keysByName;
+    const keyed = new Map<string, string>();
+    for (const { id, name } of await jobNames(db, jobIds)) {
+      const key = keys.get(name);
+      if (key !== undefined) keyed.set(id, key);
+    }
+    return keyed;
+  };
   const reap = (now: Date) => reapStaleJobs(db, now, logger, jobs());
   let lastPrune = Number.NEGATIVE_INFINITY;
   const pruneIfDue = async (now: Date) => {

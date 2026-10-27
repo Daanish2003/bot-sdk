@@ -1,6 +1,13 @@
 import type { Inngest, InngestFunction } from "inngest";
 
-import { type CoreRun, type Executor, sweepJobs } from "@botsdk/bot/runner/internal";
+import {
+  type CoreRun,
+  type Executor,
+  type JobBudget,
+  jobBudgetKeys,
+  jobBudgets,
+  sweepJobs,
+} from "@botsdk/bot/runner/internal";
 
 /**
  * How long past its due time a delivery that arrives early (its process's clock a little behind the
@@ -22,14 +29,20 @@ export type InngestExecutorOptions = {
 };
 
 export type InngestExecutor = Executor & {
-  /** The functions to pass to Inngest's `serve()`, alongside the Host's own. */
-  functions: InngestFunction.Any[];
+  /**
+   * The functions to pass to Inngest's `serve()`, alongside the Host's own. They include one for
+   * each concurrency budget of the jobs, so read this after the SDK has started.
+   */
+  readonly functions: InngestFunction.Any[];
   /**
    * The events the Executor sends and its functions receive, named after the client's app id, so
    * that two apps in one Inngest environment never wake each other's jobs.
    */
   events: {
-    /** A job is due at `runAfter` (now when absent): `{ jobId, runAfter? }`. */
+    /**
+     * A job is due at `runAfter` (now when absent): `{ jobId, runAfter?, budget? }`, where `budget`
+     * is the key of its concurrency budget, if it has one.
+     */
     due: string;
     /** Sweeps now, as the cron does: `{}`. */
     sweep: string;
@@ -57,21 +70,48 @@ export function inngestExecutor({
     return run;
   };
 
+  const runDue = async ({
+    event,
+    step,
+  }: {
+    event: { data: unknown };
+    step: { sleepUntil(id: string, until: Date): Promise<unknown> };
+  }) => {
+    const { jobId, runAfter } = event.data as { jobId: string; runAfter?: string };
+    // Due by this process's clock: run now, with no extra round trip. Otherwise sleep until a
+    // little past it, which also covers this clock being a little behind the notifier's.
+    const due = runAfter === undefined ? undefined : Date.parse(runAfter);
+    if (due !== undefined && Date.now() < due) {
+      await step.sleepUntil("until-due", new Date(due + WAKE_MARGIN_MS));
+    }
+    // Claims, replays and runs it; a job that isn't queued and due, or whose lease another
+    // delivery holds, is left alone.
+    await started()(jobId);
+  };
+
+  // Jobs in no budget run at once. A budget's jobs have its key in their event, which only its
+  // own function takes, and Inngest runs at most its limit of that function at once.
   const runJob = client.createFunction(
-    { id: "botsdk-run-job", triggers: [{ event: events.due }] },
-    async ({ event, step }) => {
-      const { jobId, runAfter } = event.data as { jobId: string; runAfter?: string };
-      // Due by this process's clock: run now, with no extra round trip. Otherwise sleep until a
-      // little past it, which also covers this clock being a little behind the notifier's.
-      const due = runAfter === undefined ? undefined : Date.parse(runAfter);
-      if (due !== undefined && Date.now() < due) {
-        await step.sleepUntil("until-due", new Date(due + WAKE_MARGIN_MS));
-      }
-      // Claims, replays and runs it; a job that isn't queued and due, or whose lease another
-      // delivery holds, is left alone.
-      await started()(jobId);
+    {
+      id: "botsdk-run-job",
+      triggers: [{ event: events.due, if: "event.data.budget == null" }],
     },
+    runDue,
   );
+  let budgetFunctions: InngestFunction.Any[] = [];
+  const budgetFunction = ({ key, concurrency }: JobBudget) =>
+    client.createFunction(
+      {
+        id: `botsdk-run-job-${key.replace(/[^a-zA-Z0-9]/g, (c) => `_${c.charCodeAt(0).toString(16)}_`)}`,
+        triggers: [{ event: events.due, if: `event.data.budget == ${JSON.stringify(key)}` }],
+        concurrency: { limit: concurrency },
+      },
+      runDue,
+    );
+
+  /** Which budget each job is in, for the events that wake them. */
+  const budgetsOfJobs = async (jobIds: string[]) =>
+    jobIds.length === 0 ? new Map<string, string>() : await started()[jobBudgetKeys]!(jobIds);
 
   const sweep = client.createFunction(
     {
@@ -86,11 +126,13 @@ export function inngestExecutor({
         const now = new Date();
         const window = Math.floor(now.getTime() / SWEEP_WINDOW_MS);
         for (let i = 0; i < jobIds.length; i += SEND_BATCH) {
+          const batch = jobIds.slice(i, i + SEND_BATCH);
+          const budgets = await budgetsOfJobs(batch);
           await client.send(
-            jobIds.slice(i, i + SEND_BATCH).map((jobId) => ({
+            batch.map((jobId) => ({
               id: `${jobId}@sweep-${window}`,
               name: events.due,
-              data: { jobId, runAfter: now.toISOString() },
+              data: { jobId, runAfter: now.toISOString(), budget: budgets.get(jobId) },
             })),
           );
         }
@@ -99,13 +141,21 @@ export function inngestExecutor({
   );
 
   return {
-    functions: [runJob, sweep],
+    get functions() {
+      return [runJob, sweep, ...budgetFunctions];
+    },
     events,
 
     async start(given: CoreRun) {
       if (!given[sweepJobs])
         throw new Error("The Inngest Executor runs only under the core's runner");
       run = given;
+      const budgets = given[jobBudgets]?.() ?? [];
+      const ids = new Set(budgets.map(({ key }) => key.toLowerCase()));
+      if (ids.size < budgets.length) {
+        throw new Error("Two concurrency budgets have keys that differ only in case");
+      }
+      budgetFunctions = budgets.map(budgetFunction);
     },
 
     async notify(jobId, runAfter) {
@@ -113,10 +163,11 @@ export function inngestExecutor({
       // it. The id makes the same wake-up sent twice one event, while a later one (a re-notify, a
       // retry's new due time) is a new event.
       const dueAt = (runAfter ?? new Date()).toISOString();
+      const budget = (await budgetsOfJobs([jobId])).get(jobId);
       await client.send({
         id: `${jobId}@${dueAt}`,
         name: events.due,
-        data: { jobId, runAfter: dueAt },
+        data: { jobId, runAfter: dueAt, budget },
       });
     },
 

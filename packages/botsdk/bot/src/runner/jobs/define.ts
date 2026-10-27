@@ -72,18 +72,21 @@ export function defineCoreJob<P>(definition: CoreJobDefinition<P>): CoreJobDefin
   return definition;
 }
 
-/** A concurrency budget: at most `concurrency` of the jobs it names run at once in one process. */
-export type JobBudget = { names: string[]; concurrency: number };
+/**
+ * A concurrency budget: at most `concurrency` of the jobs it names run at once in one process. Its
+ * `key` is the jobs' `budget`, or the name of the one job that has none.
+ */
+export type JobBudget = { key: string; names: string[]; concurrency: number };
 
 /** The budgets of the jobs with a `concurrency`, one per `budget` key, or per job without one. */
 export function budgetsOf(jobs: JobTable): JobBudget[] {
-  const budgets = new Map<string, { names: string[]; concurrency: number }>();
+  const budgets = new Map<string, JobBudget>();
   for (const { definition } of jobs.values()) {
     const { name, concurrency } = definition;
     if (concurrency === undefined) continue;
     const key = definition.budget ?? name;
     const budget = budgets.get(key);
-    if (!budget) budgets.set(key, { names: [name], concurrency });
+    if (!budget) budgets.set(key, { key, names: [name], concurrency });
     else if (budget.concurrency === concurrency) budget.names.push(name);
     else throw new Error(`The jobs of the budget "${key}" have different concurrencies`);
   }

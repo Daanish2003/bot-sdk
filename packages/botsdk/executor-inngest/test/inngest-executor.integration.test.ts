@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { z } from "zod";
 
 import {
+  defineCoreJob,
   defineJob,
   type Executor,
   jobTable,
@@ -61,21 +62,26 @@ describe.skipIf(!devServer)("the Inngest Executor", () => {
       ),
   };
   let server: Server;
+  let handler: ReturnType<typeof serve> | undefined;
+  let port = 0;
 
-  beforeAll(async () => {
-    let handler: ReturnType<typeof serve> | undefined;
-    server = createServer((request, response) => handler?.(request, response));
-    await new Promise<void>((resolve) => server.listen(0, "0.0.0.0", resolve));
-    const { port } = server.address() as AddressInfo;
+  /** Registers the Executor's functions as they are now (its budgets' come with a start). */
+  const register = async () => {
     handler = serve({
       client,
       functions: inngest.functions,
       serveOrigin: `http://${callbackHost}:${port}`,
       servePath: "/api/inngest",
     });
-    // Registers the app's functions with the dev server.
     const registered = await fetch(`http://127.0.0.1:${port}/api/inngest`, { method: "PUT" });
     expect(registered.ok, await registered.text()).toBe(true);
+  };
+
+  beforeAll(async () => {
+    server = createServer((request, response) => handler?.(request, response));
+    await new Promise<void>((resolve) => server.listen(0, "0.0.0.0", resolve));
+    port = (server.address() as AddressInfo).port;
+    await register();
   }, 30_000);
 
   afterAll(async () => {
@@ -110,7 +116,42 @@ describe.skipIf(!devServer)("the Inngest Executor", () => {
     const ran: string[] = [];
     const started: string[] = [];
     let gate: Promise<void> | undefined;
+    const limited = (name: string) =>
+      defineJob({
+        name,
+        payload: z.object({ label: z.string() }),
+        concurrency: 2,
+        run: async ({ label }, ctx) => {
+          await ctx.step("record", async () => {
+            started.push(label);
+            await gate;
+            ran.push(label);
+          });
+        },
+      });
+    const shared = (name: string) =>
+      defineCoreJob({
+        name,
+        budget: "inngest.shared",
+        payload: z.object({ label: z.string() }),
+        concurrency: 2,
+        run: async ({ label }, ctx) => {
+          await ctx.step("record", async () => {
+            started.push(label);
+            await gate;
+            ran.push(label);
+          });
+        },
+      });
     const table = jobTable([
+      {
+        jobs: [limited("inngest.limited")],
+        services: {},
+      },
+      {
+        jobs: [shared("inngest.shared-a"), shared("inngest.shared-b")],
+        services: { deps: {} as never },
+      },
       {
         jobs: [
           defineJob({
@@ -142,6 +183,50 @@ describe.skipIf(!devServer)("the Inngest Executor", () => {
 
     /** The calls Inngest made to the core's `run` for job `id`. */
     const callsFor = (id: string) => calls.filter((call) => call.jobId === id);
+
+    /** Holds the jobs' handlers, then lets `seen` of them start and checks no more do. */
+    const startedAtMost = async (seen: number) => {
+      await expect.poll(() => started.length, { timeout: 10_000 }).toBe(seen);
+      // Long enough for Inngest to start another if its limit let it.
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+      expect(started).toHaveLength(seen);
+    };
+
+    it(
+      "runs at most a job's concurrency of it at once, the rest as those end",
+      { timeout: 30_000 },
+      async () => {
+        await register();
+        let open!: () => void;
+        gate = new Promise((resolve) => (open = resolve));
+        const ids = await Promise.all(
+          ["a", "b", "c", "d"].map((label) => jobs.enqueue("inngest.limited", { label })),
+        );
+
+        await startedAtMost(2);
+        open();
+
+        await expect.poll(() => ran.length, { timeout: 10_000 }).toBe(4);
+        for (const id of ids) {
+          await expect.poll(async () => (await jobs.status(id))?.status, poll).toBe("succeeded");
+        }
+      },
+    );
+
+    it("shares one concurrency between the jobs of a budget", { timeout: 30_000 }, async () => {
+      await register();
+      let open!: () => void;
+      gate = new Promise((resolve) => (open = resolve));
+      await jobs.enqueue("inngest.shared-a", { label: "a1" });
+      await jobs.enqueue("inngest.shared-a", { label: "a2" });
+      await jobs.enqueue("inngest.shared-b", { label: "b1" });
+      await jobs.enqueue("inngest.shared-b", { label: "b2" });
+
+      await startedAtMost(2);
+      open();
+
+      await expect.poll(() => ran.length, { timeout: 10_000 }).toBe(4);
+    });
 
     it("runs a job once when its event is sent twice", { timeout: 30_000 }, async () => {
       const runAfter = new Date(Date.now() + 1_000);
