@@ -22,7 +22,7 @@ if (positionals[0] !== "migrate") {
   console.error("Usage: botsdk migrate [--config <file>] [--print] [--drop <feature>]");
   process.exit(1);
 }
-const { runMigrate } = await import("../core/server/migrate-cli.ts");
+const { runMigrate } = await import("../src/migrate-cli.ts");
 const config = await import(pathToFileURL(resolve(values.config)).href);
 await runMigrate(config, values, (text) => process.stdout.write(text));
 // A Host's own pool or other handles in its config must not keep the CLI alive.

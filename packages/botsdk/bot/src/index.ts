@@ -25,7 +25,7 @@ export {
   type JobContext,
   type JobDefinition,
   PermanentJobError,
-} from "../../plugins/runner/server/internal";
+} from "./runner/internal";
 export type { EventHooks, ConversationDeletedEvent } from "./chat/hooks";
 export {
   memoryRuntime,

@@ -17,8 +17,8 @@ import type { Context } from "./context";
 import type { FeatureMigrations, Migration } from "./migrate";
 import type { BotSdkContext, BotSdkPlugin, Route, Transaction } from "./plugin";
 import { requireAuth } from "./procedures";
-import type { ComputerApi } from "../../plugins/computer/server/internal";
-import type { EnqueueOptions, JobDefinition } from "../../plugins/runner/server/internal";
+import type { ComputerApi } from "./computer/internal";
+import type { EnqueueOptions, JobDefinition } from "./runner/internal";
 
 /*
  * Features (spec #871, ADR 0029): optional capabilities beside the Bot core, written against

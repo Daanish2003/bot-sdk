@@ -6,8 +6,4 @@ export {
 } from "./handler";
 export { toNodeHandler } from "./node";
 export { createScreenSocket } from "./screen-socket";
-export type {
-  ScreenMessage,
-  ScreenPeer,
-  ScreenSocketHooks,
-} from "../../plugins/bot/server/helpers";
+export type { ScreenMessage, ScreenPeer, ScreenSocketHooks } from "../bot/helpers";

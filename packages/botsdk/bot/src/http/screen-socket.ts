@@ -1,7 +1,7 @@
 import { screensPath } from "@botsdk/client/bot/helper";
 
-import { httpPartsOf, type BotSdk } from "../server/create-chat";
-import { screenSocketHooks, type ScreenSocketHooks } from "../../plugins/bot/server/helpers";
+import { httpPartsOf, type BotSdk } from "../create-chat";
+import { screenSocketHooks, type ScreenSocketHooks } from "../bot/helpers";
 import { serveAt } from "./handler";
 
 /**

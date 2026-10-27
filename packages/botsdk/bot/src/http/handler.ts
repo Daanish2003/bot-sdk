@@ -1,17 +1,17 @@
 import { onError } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 
-import type { ChatUser, Context } from "../server/context";
-import { httpPartsOf, type BotSdk } from "../server/create-chat";
+import type { ChatUser, Context } from "../context";
+import { httpPartsOf, type BotSdk } from "../create-chat";
 import {
   matchPath,
   normalizeBasePath,
   type BotSdkContext,
   type RateLimitsOf,
   type Route,
-} from "../server/plugin";
-import { rateLimitedFor, rpcRateLimits, type RateLimit } from "../server/rate-limits";
-import type { ModelsPlugin } from "../../plugins/models/server/internal";
+} from "../plugin";
+import { rateLimitedFor, rpcRateLimits, type RateLimit } from "../rate-limits";
+import type { ModelsPlugin } from "../models/internal";
 
 /** A fetch handler: one `Request` in, one `Response` out. */
 export type HttpHandler = (request: Request) => Promise<Response>;

@@ -8,18 +8,18 @@ import type { ChatUser } from "./context";
 import type { RateLimit } from "./rate-limits";
 import type { BotSdkRuntime } from "./runtime";
 import type { EnabledFeature } from "./feature";
-import type { BotApi } from "../../plugins/bot/server/plugin";
-import type { ConversationsApi } from "../../plugins/bot/server/conversations-api";
-import type { ScreensApi } from "../../plugins/bot/server/screens-api";
-import type { SecretsApi } from "../../plugins/bot/server/secrets-api";
-import type { CheckInsApi, RoutinesApi } from "../../plugins/bot/server/routines-api";
-import type { DemonstrationsApi } from "../../plugins/bot/server/demonstrations-api";
-import type { HelpersApi } from "../../plugins/bot/server/helpers-api";
-import type { ReviewsApi } from "../../plugins/bot/server/reviews-api";
-import type { ChannelApi } from "../../plugins/channel/server/internal";
-import type { ComputerApi } from "../../plugins/computer/server/internal";
-import type { ModelsApi } from "../../plugins/models/server/internal";
-import type { JobTable, RunnerApi } from "../../plugins/runner/server/internal";
+import type { BotApi } from "./bot/plugin";
+import type { ConversationsApi } from "./bot/conversations-api";
+import type { ScreensApi } from "./bot/screens-api";
+import type { SecretsApi } from "./bot/secrets-api";
+import type { CheckInsApi, RoutinesApi } from "./bot/routines-api";
+import type { DemonstrationsApi } from "./bot/demonstrations-api";
+import type { HelpersApi } from "./bot/helpers-api";
+import type { ReviewsApi } from "./bot/reviews-api";
+import type { ChannelApi } from "./channel/internal";
+import type { ComputerApi } from "./computer/internal";
+import type { ModelsApi } from "./models/internal";
+import type { JobTable, RunnerApi } from "./runner/internal";
 
 /** What the core gives its parts: the infrastructure and the core services. */
 export type BotSdkContext = {

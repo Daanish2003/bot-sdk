@@ -29,31 +29,21 @@ import {
 import { defaultRateLimits, type RateLimit } from "./rate-limits";
 import { memoryRuntime, type BotSdkRuntime } from "./runtime";
 import { usersApi, type UserExport, type UsersApi } from "./user-data";
-import { bot, botJobs, type BotApi } from "../../plugins/bot/server/plugin";
-import type { ConversationsApi } from "../../plugins/bot/server/conversations-api";
-import type { ScreensApi } from "../../plugins/bot/server/screens-api";
-import type { SecretsApi } from "../../plugins/bot/server/secrets-api";
-import type { CheckInsApi, RoutinesApi } from "../../plugins/bot/server/routines-api";
-import type { DemonstrationsApi } from "../../plugins/bot/server/demonstrations-api";
-import type { HelpersApi } from "../../plugins/bot/server/helpers-api";
-import type { ReviewsApi } from "../../plugins/bot/server/reviews-api";
-import { channel, createChannels, noChannels } from "../../plugins/bot/server/channels";
-import type { ChannelAdapter, ChannelApi } from "../../plugins/channel/server/internal";
-import { computerSleepJob, createComputer } from "../../plugins/computer/server/internal";
-import type { ComputerProvider } from "../../plugins/computer/server/internal";
-import {
-  models,
-  type ModelsApi,
-  type ModelsOptions,
-  type ModelsPlugin,
-} from "../../plugins/models/server/internal";
-import type {
-  CoreJobServices,
-  Executor,
-  JobDefinition,
-  JobRunner,
-} from "../../plugins/runner/server/internal";
-import { createRunner, jobTable, type RunnerApi } from "../../plugins/runner/server/internal";
+import { bot, botJobs, type BotApi } from "./bot/plugin";
+import type { ConversationsApi } from "./bot/conversations-api";
+import type { ScreensApi } from "./bot/screens-api";
+import type { SecretsApi } from "./bot/secrets-api";
+import type { CheckInsApi, RoutinesApi } from "./bot/routines-api";
+import type { DemonstrationsApi } from "./bot/demonstrations-api";
+import type { HelpersApi } from "./bot/helpers-api";
+import type { ReviewsApi } from "./bot/reviews-api";
+import { channel, createChannels, noChannels } from "./bot/channels";
+import type { ChannelAdapter, ChannelApi } from "./channel/internal";
+import { computerSleepJob, createComputer } from "./computer/internal";
+import type { ComputerProvider } from "./computer/internal";
+import { models, type ModelsApi, type ModelsOptions, type ModelsPlugin } from "./models/internal";
+import type { CoreJobServices, Executor, JobDefinition, JobRunner } from "./runner/internal";
+import { createRunner, jobTable, type RunnerApi } from "./runner/internal";
 
 /** Where the RPC calls' errors go, and the SDK's warnings when it has `warn`. */
 export type Logger = Pick<Console, "error"> & Partial<Pick<Console, "warn">>;

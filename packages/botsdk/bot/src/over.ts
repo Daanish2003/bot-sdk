@@ -12,16 +12,16 @@ import {
   type HttpHandler,
   type HttpHandlerOptions,
   type ScreenSocketHooks,
-} from "../http";
+} from "./http";
 import { postgres } from "./database";
 import { enabledFeatures } from "./feature";
 import { enabledPlugins, type BotSdkContext } from "./plugin";
-import { modelsOver } from "../../plugins/models/server/internal";
-import type { ModelsDeps } from "../../plugins/models/server/internal";
-import { computerProvider } from "../../plugins/computer/server/internal";
-import type { ComputerProvider } from "../../plugins/computer/server/internal";
-import type { JobRunner } from "../../plugins/runner/server/internal";
-import { runnerJobs } from "../../plugins/runner/server/internal";
+import { modelsOver } from "./models/internal";
+import type { ModelsDeps } from "./models/internal";
+import { computerProvider } from "./computer/internal";
+import type { ComputerProvider } from "./computer/internal";
+import type { JobRunner } from "./runner/internal";
+import { runnerJobs } from "./runner/internal";
 
 type OverOptions = Pick<BotSdkOptions, "logger">;
 
