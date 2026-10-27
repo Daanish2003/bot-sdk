@@ -11,6 +11,7 @@ export {
   PermanentJobError,
 } from "./jobs/define";
 export { loadHistory } from "./jobs/history";
+export type { JobBudget } from "./jobs/define";
 export type { Executor } from "./jobs/executor";
 export { inProcessExecutor, inProcessRunner } from "./jobs/in-process";
 export {
@@ -18,6 +19,8 @@ export {
   createJobRunner,
   type EnqueueOptions,
   type JobClock,
+  jobBudgetKeys,
+  jobBudgets,
   type JobRunner,
   sweepJobs,
   systemClock,

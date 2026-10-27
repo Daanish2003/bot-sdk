@@ -45,9 +45,11 @@ The process that serves the functions must have called `chat.start()`: a deliver
 
 A job runs inside one Inngest request, so your platform's request time limit must cover your longest job (a Bot Turn can take minutes). A job cut off mid-way resumes from its last Checkpoint once the sweep finds its lease expired.
 
-Concurrency limits aren't mapped yet: the in-process runner's shared budget of two and each job's `concurrency` don't apply on Inngest, so every delivered job runs at once. Size your database pool for it.
+A job with a `concurrency` (or a group of jobs with one `budget`) runs at most that many at once on Inngest, across every process that serves the functions (the in-process runner counts per process). For each such budget, `botsdkRunner.functions` has a function `botsdk-run-job-<budget>` with Inngest's `concurrency` limit set to it; the Executor looks up a job's budget when it sends its event (`budget` in the event data), and that function alone takes the event. The in-process runner's shared budget of two doesn't apply on Inngest: jobs with no `concurrency` run at once, so size your database pool for them. The budgets come from the jobs the SDK started with, so read `functions` after `chat.start()`, as in the setup above, and re-sync the app after a deploy that adds, renames or changes a `concurrency`. An event for a budget no synced function has yet waits unrun until the next sweep (every 5 minutes) sends it again under the new routing.
 
 Queue jobs in the SDK's own transactions (`ctx.db` in a job or a feature). A job queued in a transaction of your own Drizzle instance is written but not sent to Inngest; the next sweep sends it, up to 5 minutes later.
+
+The `botsdk-run-job` function compares `runAfter` with the clock of the process Inngest delivers it to. If that clock and the notifier's differ by more than about 1 s, a job that is due now can wait for a sweep: usually within one `sweepCron` interval (5 minutes by default), and at most about two. If the clocks differ by more than an interval, it waits longer. Keep the clocks synchronised (NTP; serverless platforms already do), or pass a shorter `sweepCron`.
 
 ## Local development
 
