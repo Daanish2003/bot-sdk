@@ -1,13 +1,13 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
-import { botRoutine, botTurn } from "@botsdk/bot/storage";
-import { saveCredentials } from "@botsdk/bot/models/internal";
-import { createTestSdk } from "../../support/deps";
-import { chatRpc } from "../../support/sdk";
-import { getTestDb } from "../../support/test-database";
-import { insertUser } from "../../support/users";
+import { uuidv7 } from "../src/lib/uuidv7";
+import { botRoutine, botTurn } from "../src/storage";
+import { saveCredentials } from "../src/models/internal";
+import { createTestSdk } from "@ai-chat/test-support/deps";
+import { chatRpc } from "@ai-chat/test-support/sdk";
+import { getTestDb } from "@ai-chat/test-support/test-database";
+import { insertUser } from "@ai-chat/test-support/users";
 
 const model = "openai:gpt-6-luna";
 

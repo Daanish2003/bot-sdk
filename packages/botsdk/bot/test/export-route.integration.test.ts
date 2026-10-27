@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { exportUserData } from "@botsdk/bot/user-data";
-import { saveCredentials } from "@botsdk/bot/models/internal";
-import { createTestSdk } from "../../support/deps";
-import { createTestChat } from "../../support/sdk";
-import { insertUser } from "../../support/users";
+import { exportUserData } from "../src/user-data";
+import { saveCredentials } from "../src/models/internal";
+import { createTestSdk } from "@ai-chat/test-support/deps";
+import { createTestChat } from "@ai-chat/test-support/sdk";
+import { insertUser } from "@ai-chat/test-support/users";
 
 const exportRequest = () => new Request("http://localhost/api/chat/export");
 

@@ -3,11 +3,11 @@ import { pgSchema, text } from "drizzle-orm/pg-core";
 import { afterAll, afterEach, beforeAll, describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 
-import { defineFeature, defineJob, type BotSdkOptions, type Database } from "@botsdk/bot";
-import { buildBotSdk, type BotSdk } from "@botsdk/bot/create-chat";
-import { databaseOf, job, jobEvent } from "@botsdk/bot/storage";
-import { getTestDb, testDatabaseUrl } from "../../support/test-database";
-import { postgres } from "@botsdk/bot/database";
+import { defineFeature, defineJob, type BotSdkOptions, type Database } from "../src";
+import { buildBotSdk, type BotSdk } from "../src/create-chat";
+import { databaseOf, job, jobEvent } from "../src/storage";
+import { getTestDb, testDatabaseUrl } from "@ai-chat/test-support/test-database";
+import { postgres } from "../src/database";
 
 /*
  * The public `defineJob` (spec #872): a Host registers its own jobs through the factory's `jobs`

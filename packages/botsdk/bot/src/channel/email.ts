@@ -64,7 +64,7 @@ export type OutboundMail = {
 
 /**
  * The seam between the email Channel and a mail service (spec #761): it parses what the service
- * POSTs to the Host's inbound route, and sends a mail. The fake (`plugins/channel/fake`) is one.
+ * POSTs to the Host's inbound route, and sends a mail. The fake (`@botsdk/testing/fake-channel`) is one.
  */
 export type EmailProvider = {
   /** The mail an inbound request carries, or why the request was refused (answered 400). */

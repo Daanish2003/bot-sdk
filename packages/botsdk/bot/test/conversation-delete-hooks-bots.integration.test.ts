@@ -1,16 +1,16 @@
 import { eq, inArray, type SQL } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
-import { deleteConversations } from "@botsdk/bot/chat/delete-conversations";
-import { createHookEmitter } from "@botsdk/bot/chat/hooks";
-import { bot, conversation } from "@botsdk/bot/storage";
-import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
-import type { BotSdkContext, BotSdkPlugin } from "@botsdk/bot/plugin";
-import { deleteUserData } from "@botsdk/bot/user-data";
-import { insertConversation } from "../../support/conversations";
-import { createTestSdk, withPart, type TestDeps } from "../../support/deps";
-import { getTestDb } from "../../support/test-database";
-import { insertUser, type TestUser } from "../../support/users";
+import { deleteConversations } from "../src/chat/delete-conversations";
+import { createHookEmitter } from "../src/chat/hooks";
+import { bot, conversation } from "../src/storage";
+import { uuidv7 } from "../src/lib/uuidv7";
+import type { BotSdkContext, BotSdkPlugin } from "../src/plugin";
+import { deleteUserData } from "../src/user-data";
+import { insertConversation } from "@ai-chat/test-support/conversations";
+import { createTestSdk, withPart, type TestDeps } from "@ai-chat/test-support/deps";
+import { getTestDb } from "@ai-chat/test-support/test-database";
+import { insertUser, type TestUser } from "@ai-chat/test-support/users";
 
 type Call = { conversationIds: string[]; userId: string | null; collected?: unknown };
 

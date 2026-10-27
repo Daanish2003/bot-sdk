@@ -8,11 +8,11 @@ import { integer, pgSchema, text, uuid } from "drizzle-orm/pg-core";
 import { Client } from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { postgres } from "@botsdk/bot/database";
-import { defineFeature } from "@botsdk/bot/feature";
-import { migrate } from "@botsdk/bot/migrate";
-import { runMigrate } from "@botsdk/bot/migrate-cli";
-import { dropScratchDatabase, freshDatabaseUrl } from "../../support/test-database";
+import { postgres } from "../src/database";
+import { defineFeature } from "../src/feature";
+import { migrate } from "../src/migrate";
+import { runMigrate } from "../src/migrate-cli";
+import { dropScratchDatabase, freshDatabaseUrl } from "@ai-chat/test-support/test-database";
 
 const botRoot = dirname(createRequire(import.meta.url).resolve("@botsdk/bot/package.json"));
 const bin = join(botRoot, "bin/botsdk.mjs");

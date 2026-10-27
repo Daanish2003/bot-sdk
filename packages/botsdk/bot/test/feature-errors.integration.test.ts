@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { defineFeature } from "@botsdk/bot";
-import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
-import { featureSectionsNow, featureTools } from "@botsdk/bot/bot/context";
-import { ComputerOperationError, ComputerUnavailableError } from "@botsdk/bot/computer/internal";
+import { defineFeature } from "../src";
+import { uuidv7 } from "../src/lib/uuidv7";
+import { featureSectionsNow, featureTools } from "../src/bot/context";
+import { ComputerOperationError, ComputerUnavailableError } from "../src/computer/internal";
 import { knowledge } from "@botsdk/knowledge";
 import { memory } from "@botsdk/memory";
 import { skills } from "@botsdk/skills";
-import { createTestSdk } from "../../support/deps";
-import { getTestDb } from "../../support/test-database";
-import { insertUser } from "../../support/users";
+import { createTestSdk } from "@ai-chat/test-support/deps";
+import { getTestDb } from "@ai-chat/test-support/test-database";
+import { insertUser } from "@ai-chat/test-support/users";
 
 /*
  * What a feature's failure does to a Turn (spec #871), as main's memory, Skills and Knowledge

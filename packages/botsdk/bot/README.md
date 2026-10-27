@@ -266,10 +266,10 @@ A user's Computer is created on their first operation, and with `bot` on, only f
 
 `packages/botsdk/computer-e2b/template/Dockerfile` is a Debian image with Screens: Xvfb, x11vnc, noVNC (websockify), xdotool, scrot and Chromium, plus the `ai-chat-screen` start script that `openScreen`, `closeScreen` and `setScreenControl` run. A Computer without Screens only needs `/home/user`, `bash` and `tar`, so a Host that never opens a Screen can pass any template with those. The template's name is its version: change the name with every change to the Dockerfile, and every Computer is rebuilt on its next wake. `apps/web` keeps the name in `computerTemplate` (`src/services.ts`).
 
-Build it into self-hosted E2B with the E2B CLI (no dependency is added; `pnpm dlx` fetches it), from `packages/bot-sdk`, with the three variables above in the environment:
+Build it into self-hosted E2B with the E2B CLI (no dependency is added; `pnpm dlx` fetches it), from `packages/botsdk/computer-e2b`, with the three variables above in the environment:
 
 ```sh
-pnpm dlx @e2b/cli@2.22.0 template create ai-chat-computer-v3 --memory-mb 1536 -p ../botsdk/computer-e2b/template -d Dockerfile
+pnpm dlx @e2b/cli@2.22.0 template create ai-chat-computer-v3 --memory-mb 1536 -p template -d Dockerfile
 ```
 
 Notes from building it on local E2B Embed:
@@ -326,7 +326,7 @@ A sandbox is created with a 1 hour timeout and `lifecycle: { onTimeout: "pause" 
 With the three variables set and the template built, two test files run the adapter on a real sandbox (they skip without the variables). Run them one file at a time from the repo root, with `TEST_DATABASE_URL` set:
 
 ```sh
-pnpm exec vitest run --maxWorkers=1 --no-file-parallelism packages/bot-sdk/test/plugins/computer/e2b
+pnpm exec vitest run --maxWorkers=1 --no-file-parallelism packages/botsdk/computer-e2b/test
 ```
 
 ## Email for Bots: `channels`
@@ -358,7 +358,7 @@ A mail is a Trigger only when it is from the user's verified email, is addressed
 A provider is the seam to a mail service (`EmailProvider`: `parseInbound` and `send`). Two ship:
 
 - `@botsdk/channel-email`: a local Mailpit. Its received-message webhook POSTs to the inbound route, and the provider fetches that mail from Mailpit's REST API, so it refuses a webhook for a message Mailpit doesn't hold. Mailpit gives no SPF, DKIM or DMARC verdict, so the provider vouches for every mail it holds: use it only on a Host that listens on localhost.
-- `plugins/channel/fake`: for tests and evals. An inbound request's body is the mail as JSON, with its own `authentication`, and each sent mail is kept in `sent`. It vouches for whatever it is sent, so never mount it on a route others can reach.
+- `fakeEmailProvider` from `@botsdk/testing/fake-channel`: for tests and evals. An inbound request's body is the mail as JSON, with its own `authentication`, and each sent mail is kept in `sent`. It vouches for whatever it is sent, so never mount it on a route others can reach.
 
 ## Keeping a Bot's thread in sync: `conversations.changes`
 

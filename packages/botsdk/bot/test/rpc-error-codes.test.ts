@@ -1,18 +1,16 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { en } from "@botsdk/client/i18n";
 
-const sdkDir = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 // The core's source (@botsdk/bot), its HTTP layer included.
 const serverDir = join(
   dirname(createRequire(import.meta.url).resolve("@botsdk/bot/package.json")),
   "src",
 );
-// The server code: the core's, each feature package's (#911), and each plugin's left here.
+// The server code: the core's and each feature package's (#911).
 const serverDirs = [
   serverDir,
   ...["memory", "skills", "knowledge", "mcp"].map((feature) =>
@@ -22,9 +20,6 @@ const serverDirs = [
       "server",
     ),
   ),
-  ...readdirSync(join(sdkDir, "plugins"))
-    .map((name) => join(sdkDir, "plugins", name, "server"))
-    .filter((dir) => existsSync(dir)),
 ];
 
 /** Every `.ts` file under `dir`, relative to the core's source. */

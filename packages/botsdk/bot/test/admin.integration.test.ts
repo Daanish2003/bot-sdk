@@ -1,16 +1,16 @@
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createBotSdk } from "@botsdk/bot/create-chat";
-import { botTurn, usage } from "@botsdk/bot/storage";
-import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
-import type { HostProvider } from "@botsdk/bot/models/internal";
-import { botOf, botSdk, sendToTurnEnd, stopBotRunners } from "../../support/bot-turns";
-import { createFakeAdapter, round, toolCall, withUsage } from "../../support/fake-adapter";
-import { followSend } from "../../support/follow-send";
-import { insertUser, type TestUser } from "../../support/users";
-import { getTestDb, testDatabaseUrl } from "../../support/test-database";
-import { postgres } from "@botsdk/bot/database";
+import { createBotSdk } from "../src/create-chat";
+import { botTurn, usage } from "../src/storage";
+import { uuidv7 } from "../src/lib/uuidv7";
+import type { HostProvider } from "../src/models/internal";
+import { botOf, botSdk, sendToTurnEnd, stopBotRunners } from "@ai-chat/test-support/bot-turns";
+import { createFakeAdapter, round, toolCall, withUsage } from "@botsdk/testing/fake-adapter";
+import { followSend } from "@ai-chat/test-support/follow-send";
+import { insertUser, type TestUser } from "@ai-chat/test-support/users";
+import { getTestDb, testDatabaseUrl } from "@ai-chat/test-support/test-database";
+import { postgres } from "../src/database";
 
 const keyEncryptionSecrets = ["test-key-encryption-secret-not-for-production"];
 const sonnet = "anthropic:claude-sonnet-5-5";

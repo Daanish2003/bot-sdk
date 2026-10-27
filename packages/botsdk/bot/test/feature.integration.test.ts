@@ -3,21 +3,21 @@ import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { botTurn } from "@botsdk/bot/storage";
-import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
-import { deleteUserData, exportUserData } from "@botsdk/bot/user-data";
-import { saveCredentials } from "@botsdk/bot/models/internal";
-import { inProcessRunner, type JobRunner, systemClock } from "@botsdk/bot/runner/internal";
-import { fakeComputerProvider } from "../../support/fake-computer-provider";
-import { createTestSdk, type TestDeps } from "../../support/deps";
-import { createFakeAdapter, round, toolCall } from "../../support/fake-adapter";
-import { followSend } from "../../support/follow-send";
-import type { FeatureEntry } from "@botsdk/bot/create-chat";
-import { defineFeature } from "@botsdk/bot";
-import { createPinsTable, dropPinsTable, pin, pins } from "../../support/pins-feature";
-import { chatRpc } from "../../support/sdk";
-import { getTestDb } from "../../support/test-database";
-import { insertUser } from "../../support/users";
+import { botTurn } from "../src/storage";
+import { uuidv7 } from "../src/lib/uuidv7";
+import { deleteUserData, exportUserData } from "../src/user-data";
+import { saveCredentials } from "../src/models/internal";
+import { inProcessRunner, type JobRunner, systemClock } from "../src/runner/internal";
+import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
+import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
+import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
+import { followSend } from "@ai-chat/test-support/follow-send";
+import type { FeatureEntry } from "../src/create-chat";
+import { defineFeature } from "../src";
+import { createPinsTable, dropPinsTable, pin, pins } from "@ai-chat/test-support/pins-feature";
+import { chatRpc } from "@ai-chat/test-support/sdk";
+import { getTestDb } from "@ai-chat/test-support/test-database";
+import { insertUser } from "@ai-chat/test-support/users";
 
 /*
  * A feature written only against the public `defineFeature` (spec #871), enabled on a test

@@ -1,15 +1,15 @@
 import pg from "pg";
 import { describe, expect, it, vi } from "vitest";
 
-import { createHttpHandler } from "@botsdk/bot/http";
-import { createBotSdk, httpPartsOf } from "@botsdk/bot/create-chat";
-import { postgres } from "@botsdk/bot/database";
-import { memoryRuntime } from "@botsdk/bot/runtime";
-import { saveCredentials } from "@botsdk/bot/models/internal";
-import { createTestSdk } from "../../support/deps";
-import { createTestChat } from "../../support/sdk";
-import { insertUser } from "../../support/users";
-import { testDatabaseUrl } from "../../support/test-database";
+import { createHttpHandler } from "../src/http";
+import { createBotSdk, httpPartsOf } from "../src/create-chat";
+import { postgres } from "../src/database";
+import { memoryRuntime } from "../src/runtime";
+import { saveCredentials } from "../src/models/internal";
+import { createTestSdk } from "@ai-chat/test-support/deps";
+import { createTestChat } from "@ai-chat/test-support/sdk";
+import { insertUser } from "@ai-chat/test-support/users";
+import { testDatabaseUrl } from "@ai-chat/test-support/test-database";
 
 const basePath = "/api/chat";
 const baseUrl = `http://localhost${basePath}`;

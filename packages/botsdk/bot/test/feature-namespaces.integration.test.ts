@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, expectTypeOf, it } from "vitest";
 
-import { createBotSdk } from "@botsdk/bot/create-chat";
-import { featureApi } from "@botsdk/bot/feature";
-import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
-import { bot } from "@botsdk/bot/storage";
+import { createBotSdk } from "../src/create-chat";
+import { featureApi } from "../src/feature";
+import { uuidv7 } from "../src/lib/uuidv7";
+import { bot } from "../src/storage";
 import { knowledge } from "@botsdk/knowledge";
 import type { KnowledgeApi } from "@botsdk/knowledge/server/knowledge-api";
 import { mcp } from "@botsdk/mcp";
@@ -11,14 +11,14 @@ import { memory } from "@botsdk/memory";
 import type { MemoryApi } from "@botsdk/memory/server/memory-api";
 import { skills } from "@botsdk/skills";
 import type { SkillsApi } from "@botsdk/skills/server/skills-api";
-import { fakeComputerProvider } from "../../support/fake-computer-provider";
-import { insertConversation } from "../../support/conversations";
-import { createTestSdk } from "../../support/deps";
-import { createPinsTable, dropPinsTable, pin, pins } from "../../support/pins-feature";
-import { chatRpc } from "../../support/sdk";
-import { getTestDb, testDatabaseUrl } from "../../support/test-database";
-import { insertOwner, insertUser, type TestUser } from "../../support/users";
-import { postgres } from "@botsdk/bot/database";
+import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
+import { insertConversation } from "@ai-chat/test-support/conversations";
+import { createTestSdk } from "@ai-chat/test-support/deps";
+import { createPinsTable, dropPinsTable, pin, pins } from "@ai-chat/test-support/pins-feature";
+import { chatRpc } from "@ai-chat/test-support/sdk";
+import { getTestDb, testDatabaseUrl } from "@ai-chat/test-support/test-database";
+import { insertOwner, insertUser, type TestUser } from "@ai-chat/test-support/users";
+import { postgres } from "../src/database";
 
 /*
  * Each enabled feature's API is `sdk.<feature id>` (spec #873): Memory, Skills, Knowledge, MCP and

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { hintChanged } from "@botsdk/bot/bot/conversation";
-import { insertConversation } from "../../support/conversations";
-import { createTestSdk } from "../../support/deps";
-import { sendAs } from "../../support/sdk";
-import { insertUser } from "../../support/users";
+import { hintChanged } from "../src/bot/conversation";
+import { insertConversation } from "@ai-chat/test-support/conversations";
+import { createTestSdk } from "@ai-chat/test-support/deps";
+import { sendAs } from "@ai-chat/test-support/sdk";
+import { insertUser } from "@ai-chat/test-support/users";
 
 const eventsRequest = (conversationId: string) =>
   new Request(`http://localhost/api/chat/events?conversationId=${conversationId}`);

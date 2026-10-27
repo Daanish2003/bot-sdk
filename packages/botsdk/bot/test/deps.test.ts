@@ -2,11 +2,11 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { checkCredentials, ollamaModels, productionDeps } from "@botsdk/bot/models/internal";
-import { buildBotSdk } from "@botsdk/bot/create-chat";
-import type { BotSdkContext } from "@botsdk/bot/plugin";
-import { BlockedAddressError } from "@botsdk/bot/lib/guarded-fetch";
-import { postgres } from "@botsdk/bot/database";
+import { checkCredentials, ollamaModels, productionDeps } from "../src/models/internal";
+import { buildBotSdk } from "../src/create-chat";
+import type { BotSdkContext } from "../src/plugin";
+import { BlockedAddressError } from "../src/lib/guarded-fetch";
+import { postgres } from "../src/database";
 
 /** The core context of a real instance. Nothing connects. */
 function buildDeps(): BotSdkContext {

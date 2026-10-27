@@ -1,15 +1,15 @@
 import { isProcedure, type AnyProcedure, type AnyRouter } from "@orpc/server";
 import { describe, expect, it } from "vitest";
 
-import { createBotSdk, httpPartsOf } from "@botsdk/bot/create-chat";
-import { emailChannel } from "@botsdk/bot/channel";
-import { fakeEmailProvider } from "../../../plugins/channel/fake/index";
+import { createBotSdk, httpPartsOf } from "../src/create-chat";
+import { emailChannel } from "../src/channel";
+import { fakeEmailProvider } from "@botsdk/testing/fake-channel";
 import { knowledge } from "@botsdk/knowledge";
 import { mcp } from "@botsdk/mcp";
 import { memory } from "@botsdk/memory";
 import { skills } from "@botsdk/skills";
-import { fakeComputerProvider } from "../../support/fake-computer-provider";
-import { postgres } from "@botsdk/bot/database";
+import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
+import { postgres } from "../src/database";
 
 /** Every procedure under `router`, by its dotted path. */
 function proceduresOf(router: AnyRouter, path: string[] = []): [string, AnyProcedure][] {

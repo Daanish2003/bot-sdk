@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { saveCredentials } from "@botsdk/bot/models/internal";
-import { createTestSdk } from "../../support/deps";
-import { chatRpc } from "../../support/sdk";
-import { insertUser } from "../../support/users";
+import { saveCredentials } from "../src/models/internal";
+import { createTestSdk } from "@ai-chat/test-support/deps";
+import { chatRpc } from "@ai-chat/test-support/sdk";
+import { insertUser } from "@ai-chat/test-support/users";
 
 const model = "openai:gpt-6-luna";
 

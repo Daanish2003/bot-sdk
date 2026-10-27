@@ -2,12 +2,12 @@ import { randomUUID } from "node:crypto";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createBotSdk } from "@botsdk/bot/create-chat";
-import { bot } from "@botsdk/bot/storage";
-import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
-import { exportUserData } from "@botsdk/bot/user-data";
-import type { BotExport } from "@botsdk/bot/bot/conversation";
-import { saveSecret } from "@botsdk/bot/bot/safety";
+import { createBotSdk } from "../src/create-chat";
+import { bot } from "../src/storage";
+import { uuidv7 } from "../src/lib/uuidv7";
+import { exportUserData } from "../src/user-data";
+import type { BotExport } from "../src/bot/conversation";
+import { saveSecret } from "../src/bot/safety";
 import { saveTokens } from "@botsdk/mcp/server/connections";
 import { mcp } from "@botsdk/mcp";
 import {
@@ -18,14 +18,14 @@ import {
 } from "@botsdk/memory/server/bot-memory";
 import { memorySettings } from "@botsdk/memory/server/schema";
 import { memory } from "@botsdk/memory";
-import { saveCredentials } from "@botsdk/bot/models/internal";
-import { fakeComputerProvider } from "../../support/fake-computer-provider";
-import { botOf, botSdk, stopBotRunners } from "../../support/bot-turns";
-import { insertConversation } from "../../support/conversations";
-import { createTestSdk } from "../../support/deps";
-import { getTestDb, testDatabaseUrl } from "../../support/test-database";
-import { insertUser, type TestUser } from "../../support/users";
-import { postgres } from "@botsdk/bot/database";
+import { saveCredentials } from "../src/models/internal";
+import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
+import { botOf, botSdk, stopBotRunners } from "@ai-chat/test-support/bot-turns";
+import { insertConversation } from "@ai-chat/test-support/conversations";
+import { createTestSdk } from "@ai-chat/test-support/deps";
+import { getTestDb, testDatabaseUrl } from "@ai-chat/test-support/test-database";
+import { insertUser, type TestUser } from "@ai-chat/test-support/users";
+import { postgres } from "../src/database";
 
 const testKey = "test-key-encryption-secret-not-for-production";
 const providerKey = "sk-ant-secret-never-exported";

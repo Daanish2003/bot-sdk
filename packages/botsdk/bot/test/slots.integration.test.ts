@@ -3,20 +3,20 @@ import { pgSchema, text } from "drizzle-orm/pg-core";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { z } from "zod";
 
-import { createHttpHandler } from "@botsdk/bot/http";
-import { createBotSdk, defineFeature, memoryRuntime, type BotSdkOptions } from "@botsdk/bot";
-import { buildBotSdk } from "@botsdk/bot/create-chat";
-import { blob, bot, job } from "@botsdk/bot/storage";
-import type { ComputerApi } from "@botsdk/bot/computer/internal";
-import { fakeEmailProvider } from "../../../plugins/channel/fake/index";
-import { emailChannel, type InboundMail } from "@botsdk/bot/channel";
-import { models } from "@botsdk/bot/models/internal";
-import { defineJob } from "@botsdk/bot/runner/internal";
-import { manualExecutor } from "../../support/executors";
-import { fakeComputerProvider } from "../../support/fake-computer-provider";
-import { getTestDb, testDatabaseUrl } from "../../support/test-database";
-import { insertUser } from "../../support/users";
-import { postgres } from "@botsdk/bot/database";
+import { createHttpHandler } from "../src/http";
+import { createBotSdk, defineFeature, memoryRuntime, type BotSdkOptions } from "../src";
+import { buildBotSdk } from "../src/create-chat";
+import { blob, bot, job } from "../src/storage";
+import type { ComputerApi } from "../src/computer/internal";
+import { fakeEmailProvider } from "@botsdk/testing/fake-channel";
+import { emailChannel, type InboundMail } from "../src/channel";
+import { models } from "../src/models/internal";
+import { defineJob } from "../src/runner/internal";
+import { manualExecutor } from "@ai-chat/test-support/executors";
+import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
+import { getTestDb, testDatabaseUrl } from "@ai-chat/test-support/test-database";
+import { insertUser } from "@ai-chat/test-support/users";
+import { postgres } from "../src/database";
 
 /*
  * The factory's flat slots (spec #871): what an omitted slot falls back to, and a feature's
