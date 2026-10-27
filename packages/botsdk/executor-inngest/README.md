@@ -49,6 +49,8 @@ Concurrency limits aren't mapped yet: the in-process runner's shared budget of t
 
 Queue jobs in the SDK's own transactions (`ctx.db` in a job or a feature). A job queued in a transaction of your own Drizzle instance is written but not sent to Inngest; the next sweep sends it, up to 5 minutes later.
 
+The `botsdk-run-job` function compares `runAfter` with the clock of the process Inngest delivers it to. If that clock and the notifier's differ by more than about 1 s, a job that is due now can wait for a sweep: usually within one `sweepCron` interval (5 minutes by default), and at most about two. If the clocks differ by more than an interval, it waits longer. Keep the clocks synchronised (NTP; serverless platforms already do), or pass a shorter `sweepCron`.
+
 ## Local development
 
 Run the Inngest dev server and point your app at it:
