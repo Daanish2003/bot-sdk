@@ -5,7 +5,13 @@ import { bot, botRoutine, botTrigger } from "../../storage";
 import type { Database } from "../../storage";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { defineCoreJob } from "../../runner/internal";
-import { fireKey, queueFire, routineFireJobName, routineSnapshot } from "./routine";
+import {
+  fireKey,
+  queueFire,
+  routineFireJobName,
+  routineOfFireKey,
+  routineSnapshot,
+} from "./routine";
 import { lockConversation, receive } from "../triggers";
 import { nextSlot } from "./schedule";
 import { hintChanged, recordBotChange } from "../conversation";
@@ -145,17 +151,17 @@ async function queueReconcile(deps: BotSdkContext, at: Date): Promise<void> {
  */
 export const startRoutineReconcile = (deps: BotSdkContext) => queueReconcile(deps, deps.clock());
 
-/** The ids of the Routines among `routineIds` that have a fire queued or running, read in `db`. */
+/** The ids of the Routines among `routineIds` (or of all) that have a fire queued or running, read in `db`. */
 async function routinesWithFire(
   deps: BotSdkContext,
   db: Database | Transaction,
-  routineIds: string[],
+  routineIds: string[] | "all",
 ): Promise<Set<string>> {
   const fires = await deps.runner.activeJobs(db, {
     name: routineFireJobName,
-    keyPrefixes: routineIds.map((id) => `routine:${id}:`),
+    keyPrefixes: routineIds === "all" ? ["routine:"] : routineIds.map((id) => `routine:${id}:`),
   });
-  return new Set(fires.map((fire) => fire.idempotencyKey.split(":")[1]!));
+  return new Set(fires.map((fire) => routineOfFireKey(fire.idempotencyKey)));
 }
 
 /**
@@ -173,11 +179,7 @@ export const routineReconcileJob = defineCoreJob({
       .select({ id: botRoutine.id })
       .from(botRoutine)
       .where(and(eq(botRoutine.state, "active"), isNotNull(botRoutine.schedule)));
-    const fired = await routinesWithFire(
-      deps,
-      deps.db,
-      active.map((routine) => routine.id),
-    );
+    const fired = await routinesWithFire(deps, deps.db, "all");
     for (const { id } of active.filter((routine) => !fired.has(routine.id))) {
       await repairChain(deps, id).catch((error: unknown) =>
         deps.logger.error(`Repairing the fires of Routine ${id} failed`, error),

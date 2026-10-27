@@ -41,6 +41,11 @@ export function fireKey(routineId: string, slot: Date): string {
   return `routine:${routineId}:${slot.toISOString()}`;
 }
 
+/** The Routine a fire's key (see `fireKey`) belongs to. */
+export function routineOfFireKey(key: string): string {
+  return key.split(":")[1]!;
+}
+
 /** Queues the Routine's fire at `slot`, in `tx`. */
 export async function queueFire(
   deps: BotSdkContext,
@@ -471,7 +476,7 @@ export async function listRoutines(
   });
   const nextRun = new Map<string, Date>();
   for (const { idempotencyKey, runAfter } of fires) {
-    const id = idempotencyKey.split(":")[1]!;
+    const id = routineOfFireKey(idempotencyKey);
     const earliest = nextRun.get(id);
     if (!earliest || runAfter < earliest) nextRun.set(id, runAfter);
   }

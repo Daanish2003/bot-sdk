@@ -71,7 +71,7 @@ async function threadChanges(
 
 /** What each of `changes` points at, keyed `<kind>:<refId>`, read once per kind. */
 async function changeData(
-  deps: BotSdkContext,
+  deps: Pick<BotSdkContext, "db" | "runner">,
   owner: { userId: string; botId: string; conversationId: string },
   changes: { kind: string; refId: string }[],
 ): Promise<Map<string, unknown>> {

@@ -6,6 +6,7 @@ import {
   gte,
   inArray,
   isNull,
+  like,
   lt,
   lte,
   notInArray,
@@ -584,6 +585,9 @@ export async function readJob(db: Database, id: string): Promise<JobStatus | und
   };
 }
 
+/** `text` with the characters `LIKE` reads as wildcards escaped. */
+const escapeLike = (text: string) => text.replace(/[\\%_]/g, (char) => `\\${char}`);
+
 /** An active job as a reader sees it: its key, whether it runs, and when it is due. */
 export type ActiveJob = {
   idempotencyKey: string;
@@ -608,7 +612,7 @@ export async function activeJobsByKeyPrefix(
         eq(job.name, query.name),
         inArray(job.status, query.status ? [query.status] : [...ACTIVE]),
         or(
-          ...query.keyPrefixes.map((prefix) => sql`starts_with(${job.idempotencyKey}, ${prefix})`),
+          ...query.keyPrefixes.map((prefix) => like(job.idempotencyKey, `${escapeLike(prefix)}%`)),
         ),
       ),
     );
