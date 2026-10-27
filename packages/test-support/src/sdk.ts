@@ -1,23 +1,17 @@
-import { createBotSdkClient } from "@botsdk/client";
-
-import type { TestDeps } from "./deps";
+import { createTestChat as createChat } from "@botsdk/testing/test-sdk";
+import type { HttpHandlerOptions } from "@botsdk/bot/http";
 import { memoryClient } from "@botsdk/memory/client";
 import { skillsClient } from "@botsdk/skills/client";
 import { knowledgeClient } from "@botsdk/knowledge/client";
 import { mcpClient } from "@botsdk/mcp/client";
-import { channelClient } from "../../plugins/channel/client/index";
-import type { HttpHandlerOptions } from "@botsdk/bot/http";
-import { createHttpHandlerOver } from "@botsdk/bot/over";
-import { createTestSdk } from "./deps";
+import { channelClient } from "@botsdk/channel-email/client";
+
+import { createTestSdk, type TestDeps } from "./deps";
 import type { TestUser } from "./users";
 
-const basePath = "/api/chat";
-
 /**
- * The SDK as a test drives it: the headless client whose fetch is the handler, built over the
- * test dependencies. `user` is who `getUser` returns; leave it out for a signed-out caller.
- * The client has every feature's client part, and `rateLimits` are the handler's. Errors are not logged (the test context's logger is silent), since the tests
- * assert on the responses.
+ * The SDK as this repo's tests drive it (`@botsdk/testing`'s `createTestChat`), over the test
+ * database's instance by default. The client has every feature's client part.
  */
 export function createTestChat({
   user,
@@ -28,15 +22,11 @@ export function createTestChat({
   deps?: TestDeps;
   rateLimits?: HttpHandlerOptions["rateLimits"];
 } = {}) {
-  const handler = createHttpHandlerOver(deps, {
-    basePath,
-    getUser: () => (user ? { id: user.id } : null),
+  return createChat({
+    deps,
+    user,
     rateLimits,
-  });
-  return createBotSdkClient({
     features: [memoryClient(), skillsClient(), knowledgeClient(), mcpClient(), channelClient()],
-    baseUrl: `http://localhost${basePath}`,
-    fetch: handler,
   });
 }
 

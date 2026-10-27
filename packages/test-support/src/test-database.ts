@@ -8,7 +8,7 @@ import { Client } from "pg";
 import { databaseOf, type Database } from "@botsdk/bot/storage";
 import { postgres } from "@botsdk/bot/database";
 import { migrate as migrateBotSdk } from "@botsdk/bot/migrate";
-import { sdkFeatureMigrations } from "../../scripts/migration-parts";
+import { sdkFeatureMigrations } from "../scripts/migration-parts";
 
 const DEFAULT_TEST_DATABASE_URL = "postgresql://postgres:password@localhost:5432/ai-chat_test";
 
@@ -43,7 +43,7 @@ export const testDatabaseUrl = process.env.VITEST_POOL_ID
   : baseTestDatabaseUrl;
 
 /** Better Auth's tables are in `public`; the SDK's tables reference none of them. */
-const authMigrationsFolder = fileURLToPath(new URL("../../../db/src/migrations", import.meta.url));
+const authMigrationsFolder = fileURLToPath(new URL("../../db/src/migrations", import.meta.url));
 
 /**
  * Creates the configured test database if it is missing and applies every migration (the core's and

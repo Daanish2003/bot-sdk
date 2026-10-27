@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { user } from "@ai-chat/db/schema/auth";
-import { getTestDb } from "./test-database";
+import { getTestDb } from "../src/test-database";
 
 // The two tests insert the same unique email: the second only passes if the
 // tables were truncated after the first.

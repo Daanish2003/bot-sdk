@@ -7,94 +7,6 @@
   "rules": {},
   "overrides": [
     {
-      "files": ["packages/bot-sdk/**"],
-      "rules": {
-        "no-restricted-imports": [
-          "error",
-          {
-            "patterns": [
-              {
-                "group": ["**/storage/**", "!**/storage"],
-                "message": "Import storage through its entry point, storage (#889)."
-              },
-              {
-                "group": [
-                  "@botsdk/bot/runner/**",
-                  "!@botsdk/bot/runner/internal",
-                  "!@botsdk/bot/runner/index"
-                ],
-                "message": "Import the runner service through its entry point, runner/internal (#889)."
-              },
-              {
-                "group": [
-                  "@botsdk/bot/computer/**",
-                  "!@botsdk/bot/computer/internal",
-                  "!@botsdk/bot/computer/index"
-                ],
-                "message": "Import the computer service through its entry point, computer/internal (#889)."
-              },
-              {
-                "group": [
-                  "@botsdk/bot/models/**",
-                  "!@botsdk/bot/models/internal",
-                  "!@botsdk/bot/models/index"
-                ],
-                "message": "Import the models service through its entry point, models/internal (#889)."
-              },
-              {
-                "group": [
-                  "@botsdk/bot/channel/**",
-                  "!@botsdk/bot/channel/internal",
-                  "!@botsdk/bot/channel/index"
-                ],
-                "message": "Import the channel service through its entry point, channel/internal (#889)."
-              },
-              {
-                "group": ["@botsdk/bot/bot/conversation/**"],
-                "message": "Import the conversation module through its entry point, bot/conversation (#889)."
-              },
-              {
-                "group": ["@botsdk/bot/bot/triggers/**"],
-                "message": "Import the triggers module through its entry point, bot/triggers (#889)."
-              },
-              {
-                "group": ["@botsdk/bot/bot/routines/**"],
-                "message": "Import the routines module through its entry point, bot/routines (#889)."
-              },
-              {
-                "group": ["@botsdk/bot/bot/safety/**"],
-                "message": "Import the safety module through its entry point, bot/safety (#889)."
-              },
-              {
-                "group": ["@botsdk/bot/bot/agent-loop/**"],
-                "message": "Import the agent-loop module through its entry point, bot/agent-loop (#889)."
-              },
-              {
-                "group": ["@botsdk/bot/bot/context/**"],
-                "message": "Import the context module through its entry point, bot/context (#889)."
-              },
-              {
-                "group": ["@botsdk/bot/bot/helpers/**"],
-                "message": "Import the helpers module through its entry point, bot/helpers (#889)."
-              },
-              {
-                "group": ["@botsdk/bot/bot/demonstrations/**"],
-                "message": "Import the demonstrations module through its entry point, bot/demonstrations (#889)."
-              },
-              {
-                "group": ["@botsdk/bot/bot/tools/**"],
-                "message": "Import the tools module through its entry point, bot/tools (#889)."
-              },
-              {
-                "group": ["@botsdk/bot/bot/turn/**"],
-                "message": "Import the turn module through its entry point, bot/turn (#889)."
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
       "files": ["packages/botsdk/{memory,skills,knowledge,mcp}/**"],
       "rules": {
         "no-restricted-imports": [
@@ -1240,7 +1152,7 @@
     },
     {
       "files": [
-        "packages/bot-sdk/plugins/*/client/**",
+        "packages/botsdk/channel-email/src/client.ts",
         "packages/botsdk/react/**",
         "packages/botsdk/ui/**"
       ],
@@ -1360,6 +1272,94 @@
               {
                 "group": ["@ai-chat/*", "@ai-chat/**", "@botsdk/bot", "@botsdk/bot/**"],
                 "message": "@botsdk/client has no server dependencies (spec #875): never import the Bot SDK server, the database or another @ai-chat package."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/botsdk/*/test/**", "packages/test-support/**", "packages/evals/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, storage (#889)."
+              },
+              {
+                "group": [
+                  "@botsdk/bot/runner/**",
+                  "!@botsdk/bot/runner/internal",
+                  "!@botsdk/bot/runner/index"
+                ],
+                "message": "Import the runner service through its entry point, runner/internal (#889)."
+              },
+              {
+                "group": [
+                  "@botsdk/bot/computer/**",
+                  "!@botsdk/bot/computer/internal",
+                  "!@botsdk/bot/computer/index"
+                ],
+                "message": "Import the computer service through its entry point, computer/internal (#889)."
+              },
+              {
+                "group": [
+                  "@botsdk/bot/models/**",
+                  "!@botsdk/bot/models/internal",
+                  "!@botsdk/bot/models/index"
+                ],
+                "message": "Import the models service through its entry point, models/internal (#889)."
+              },
+              {
+                "group": [
+                  "@botsdk/bot/channel/**",
+                  "!@botsdk/bot/channel/internal",
+                  "!@botsdk/bot/channel/index"
+                ],
+                "message": "Import the channel service through its entry point, channel/internal (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/conversation/**"],
+                "message": "Import the conversation module through its entry point, bot/conversation (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/triggers/**"],
+                "message": "Import the triggers module through its entry point, bot/triggers (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/routines/**"],
+                "message": "Import the routines module through its entry point, bot/routines (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/safety/**"],
+                "message": "Import the safety module through its entry point, bot/safety (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/agent-loop/**"],
+                "message": "Import the agent-loop module through its entry point, bot/agent-loop (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/context/**"],
+                "message": "Import the context module through its entry point, bot/context (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/helpers/**"],
+                "message": "Import the helpers module through its entry point, bot/helpers (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/demonstrations/**"],
+                "message": "Import the demonstrations module through its entry point, bot/demonstrations (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/tools/**"],
+                "message": "Import the tools module through its entry point, bot/tools (#889)."
+              },
+              {
+                "group": ["@botsdk/bot/bot/turn/**"],
+                "message": "Import the turn module through its entry point, bot/turn (#889)."
               }
             ]
           }

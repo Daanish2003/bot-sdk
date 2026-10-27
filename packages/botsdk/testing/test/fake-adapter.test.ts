@@ -10,7 +10,7 @@ import {
   thinking,
   toolCall,
   withUsage,
-} from "./fake-adapter";
+} from "../src/fake-adapter";
 
 const hello = [{ role: "user" as const, content: "Hello" }];
 

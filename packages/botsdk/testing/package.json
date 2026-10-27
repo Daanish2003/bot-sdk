@@ -1,0 +1,39 @@
+{
+  "name": "@botsdk/testing",
+  "version": "0.0.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json",
+    ".": "./src/index.ts",
+    "./fake-adapter": "./src/fake-adapter.ts",
+    "./fake-channel": "./src/fake-channel.ts",
+    "./fake-computer-provider": "./src/fake-computer-provider.ts",
+    "./fake-reviewer": "./src/fake-reviewer.ts",
+    "./fake-search-client": "./src/fake-search-client.ts",
+    "./test-sdk": "./src/test-sdk.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tanstack/ai": "1.0.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@ai-chat/config": "workspace:*",
+    "@botsdk/bot": "workspace:*",
+    "@botsdk/client": "workspace:*",
+    "@botsdk/computer-e2b": "workspace:*",
+    "@botsdk/knowledge": "workspace:*",
+    "@botsdk/skills": "workspace:*",
+    "typescript": "catalog:"
+  },
+  "peerDependencies": {
+    "@botsdk/bot": "workspace:*",
+    "@botsdk/client": "workspace:*",
+    "@botsdk/computer-e2b": "workspace:*",
+    "@botsdk/knowledge": "workspace:*",
+    "@botsdk/skills": "workspace:*"
+  }
+}

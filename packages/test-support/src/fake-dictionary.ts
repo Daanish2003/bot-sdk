@@ -9,7 +9,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { ChannelsClient } from "../../plugins/channel/client/index";
+import type { ChannelsClient } from "@botsdk/channel-email/client";
 import type { KnowledgeFeatureClient } from "@botsdk/knowledge/client";
 import type { McpFeatureClient } from "@botsdk/mcp/client";
 import type { MemoryFeatureClient } from "@botsdk/memory/client";

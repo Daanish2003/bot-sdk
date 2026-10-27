@@ -1,22 +1,25 @@
 import type { AnyTextAdapter } from "@tanstack/ai";
 
-import { getTestDb } from "./test-database";
-
-import { postgresBlobStore } from "@botsdk/bot/storage";
+import { createBotSdkClient, type FeatureClient } from "@botsdk/client";
+import { type Database, postgresBlobStore } from "@botsdk/bot/storage";
 import { createMemoryCounters } from "@botsdk/bot/chat/counters";
 import { createHookEmitter, type HookEmitter } from "@botsdk/bot/chat/hooks";
 import { createMemoryPubSub } from "@botsdk/bot/chat/pubsub";
 import type { FeatureEntry, GivenContext } from "@botsdk/bot/create-chat";
-import { createBotSdkOver, type OverSlots, type SdkOver } from "@botsdk/bot/over";
+import type { HttpHandlerOptions } from "@botsdk/bot/http";
+import {
+  createBotSdkOver,
+  createHttpHandlerOver,
+  type OverSlots,
+  type SdkOver,
+} from "@botsdk/bot/over";
 import type { BotSdkPlugin } from "@botsdk/bot/plugin";
-import { memory } from "@botsdk/memory";
 import type { ComputerProvider } from "@botsdk/bot/computer/internal";
 import type { ModelsDeps } from "@botsdk/bot/models/internal";
 import type { JobRunner } from "@botsdk/bot/runner/internal";
 import { fakeReviewer, withReviewer } from "./fake-reviewer";
-import { testModelProviders } from "./model-providers";
 
-/** The `test` value of `KEY_ENCRYPTION_SECRET` in `apps/web/.env.schema`. */
+/** A key encryption secret for tests (the `test` value of `KEY_ENCRYPTION_SECRET` in `apps/web/.env.schema`). */
 export const testKeyEncryptionSecret = "test-key-encryption-secret-not-for-production";
 
 /** What the tests run on: the core context of a test instance, with its `models` plugin's bundle. */
@@ -36,8 +39,6 @@ export type TestDepsOverrides = Partial<
       computer: ComputerProvider;
       /** The features, as the `features` slot takes them. */
       features: readonly FeatureEntry[];
-      /** Whether the Memory feature is on; `true` by default, and only with a `computer`. */
-      memory: boolean;
       /**
        * The adapter a Bot's Auto-review calls on `model` go to, in place of `adapterFor`'s: by
        * default a fake reviewer that passes every call.
@@ -50,12 +51,13 @@ export type TestDepsOverrides = Partial<
 const passingReviewer = fakeReviewer().adapter;
 
 /**
- * A real `createBotSdk` instance for tests, over the test database and fakes, with nothing that
+ * A real `createBotSdk` instance for tests, over the given `db` and fakes, with nothing that
  * reaches the network; it returns the instance's core context with its `models` bundle: the Bot
- * core, the runner, the given `computer` and `channels`, the Memory feature (with a `computer`) and
- * the given `features`. Pass overrides for the parts a test scripts (for example `adapterFor` returning a fake adapter).
+ * core, the runner, and the given `computer`, `channels` and `features`. Pass overrides for the
+ * parts a test scripts (for example `adapterFor` returning a fake adapter).
  */
 export function createTestSdk({
+  db,
   features,
   computer,
   channels,
@@ -63,9 +65,8 @@ export function createTestSdk({
   reviewModel,
   liveViewBase,
   ...overrides
-}: TestDepsOverrides = {}): TestDeps {
-  const db = overrides.db ?? getTestDb();
-  // Silent, like the handler's logger in `support/sdk.ts`: the tests assert on rows, not logs.
+}: Omit<TestDepsOverrides, "db"> & { db: Database }): TestDeps {
+  // Silent: the tests assert on rows, not logs.
   const logger = overrides.logger ?? { error: () => {} };
   const events = overrides.hooks ?? createHookEmitter(undefined, { error: () => {} });
   const keyring = overrides.keyEncryptionSecrets ?? [testKeyEncryptionSecret];
@@ -98,7 +99,7 @@ export function createTestSdk({
     logger,
     fetch,
     ollamaFetch: overrides.ollamaFetch ?? fetch,
-    providers: overrides.providers ?? testModelProviders,
+    providers: overrides.providers ?? {},
     // A Bot's Auto-review calls go to the fake reviewer, so a test's scripted rounds are the Bot's.
     adapterFor: withReviewer(
       overrides.adapterFor ??
@@ -122,8 +123,6 @@ export function createTestSdk({
     recentModelSources: [],
     getQuota: overrides.getQuota ?? (async () => null),
   };
-  // Memory keeps its files on the Computer, so it needs one.
-  const withMemory = overrides.memory !== false && computer !== undefined;
   return createBotSdkOver(
     {
       context,
@@ -134,7 +133,7 @@ export function createTestSdk({
       users,
       reviewModel,
       liveViewBase,
-      features: [...(withMemory ? [memory()] : []), ...(features ?? [])],
+      features: features ?? [],
     },
     { logger: { error: () => {} } },
   ).sdk;
@@ -146,4 +145,35 @@ export function createTestSdk({
  */
 export function withPart(deps: TestDeps, part: BotSdkPlugin): TestDeps {
   return { ...deps, parts: { ...deps.parts, all: [...deps.parts.all, part] } };
+}
+
+const basePath = "/api/chat";
+
+/**
+ * The SDK as a test drives it: the headless client whose fetch is the handler, built over `deps`.
+ * `user` is who `getUser` returns; leave it out for a signed-out caller. `features` are the
+ * client parts the client has, and `rateLimits` are the handler's. Errors are not logged, since
+ * the tests assert on the responses.
+ */
+export function createTestChat<const Features extends readonly FeatureClient[] = []>({
+  deps,
+  user,
+  features,
+  rateLimits,
+}: {
+  deps: TestDeps;
+  user?: { id: string } | null;
+  features?: Features;
+  rateLimits?: HttpHandlerOptions["rateLimits"];
+}) {
+  const handler = createHttpHandlerOver(deps, {
+    basePath,
+    getUser: () => (user ? { id: user.id } : null),
+    rateLimits,
+  });
+  return createBotSdkClient({
+    features,
+    baseUrl: `http://localhost${basePath}`,
+    fetch: handler,
+  });
 }

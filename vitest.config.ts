@@ -37,8 +37,8 @@ const mockingIntegrationTestFiles = globSync(integrationTestFiles, { cwd: rootDi
 // Each worker has its own copy of the test database (global setup), so integration files run in
 // parallel. Both projects name the global setup; it makes the copies once per run.
 const integrationTest = {
-  globalSetup: ["packages/bot-sdk/test/support/global-setup.ts"],
-  setupFiles: ["packages/bot-sdk/test/support/setup.ts"],
+  globalSetup: ["packages/test-support/src/global-setup.ts"],
+  setupFiles: ["packages/test-support/src/setup.ts"],
 };
 
 export default defineConfig({
