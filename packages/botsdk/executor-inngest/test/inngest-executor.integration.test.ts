@@ -18,7 +18,7 @@ import { executorContract } from "@ai-chat/test-support/executor.contract";
 import { manualExecutor, recordingNotify } from "@ai-chat/test-support/executors";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { getTestDb } from "@ai-chat/test-support/test-database";
-import { inngestEvents, inngestExecutor } from "../src";
+import { inngestExecutor } from "../src";
 
 /*
  * The Inngest Executor against a real Inngest dev server (spec #878): the Executor conformance
@@ -43,9 +43,11 @@ describe.skipIf(!devServer)("the Inngest Executor", () => {
     isDev: true,
     baseUrl: devServer,
   });
-  const inngest = inngestExecutor({ client });
+  // The sweep runs only when a test sends its event: a cron sweep mid-test would run jobs a test
+  // expects to stay queued.
+  const inngest = inngestExecutor({ client, sweepCron: "0 0 1 1 *" });
   /** Each call Inngest made to the core's `run`, with when it ended. */
-  const calls: { jobId: string; done: Promise<void> }[] = [];
+  const calls: { jobId: string; done: Promise<void>; delivered?: true }[] = [];
   const executor: Executor = {
     ...inngest,
     start: (run) =>
@@ -82,11 +84,15 @@ describe.skipIf(!devServer)("the Inngest Executor", () => {
   /** Has Inngest run the job now: an event with no id, which is never deduplicated. */
   const deliver = async (jobId: string) => {
     const before = calls.length;
-    await client.send({ name: inngestEvents.due, data: { jobId } });
+    await client.send({ name: inngest.events.due, data: { jobId } });
     const call = await vi.waitFor(
       () => {
-        const found = calls.slice(before).find((entry) => entry.jobId === jobId);
+        // Each delivery waits for its own call, never one another delivery has waited for.
+        const found = calls
+          .slice(before)
+          .find((entry) => entry.jobId === jobId && !entry.delivered);
         if (!found) throw new Error(`Inngest hasn't run job ${jobId} yet`);
+        found.delivered = true;
         return found;
       },
       { timeout: 10_000, interval: 20 },
@@ -185,7 +191,7 @@ describe.skipIf(!devServer)("the Inngest Executor", () => {
       await elsewhere.stop();
       gate = undefined;
 
-      await client.send({ name: inngestEvents.sweep, data: {} });
+      await client.send({ name: inngest.events.sweep, data: {} });
 
       await expect.poll(() => ran, poll).toEqual(["a"]);
       await expect.poll(async () => (await jobs.status(id))?.status, poll).toBe("succeeded");
@@ -200,7 +206,7 @@ describe.skipIf(!devServer)("the Inngest Executor", () => {
         const elsewhere = await runnerOver(manualExecutor().executor);
         const id = await elsewhere.enqueue("inngest.record", { label: "a" });
 
-        await client.send({ name: inngestEvents.sweep, data: {} });
+        await client.send({ name: inngest.events.sweep, data: {} });
 
         await expect.poll(() => ran, poll).toEqual(["a"]);
         await expect.poll(async () => (await jobs.status(id))?.status, poll).toBe("succeeded");

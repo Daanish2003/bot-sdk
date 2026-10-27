@@ -4,9 +4,9 @@ Runs the Bot SDK's background jobs (Turns, Routines, Check-ins, sleep checks and
 
 Jobs still live in the `botsdk.job` table, and the core still claims, leases and replays them, so a Turn stays exactly-once however often Inngest delivers its event. Inngest only wakes jobs up:
 
-- When a job is queued (after its transaction commits), the Executor sends one `botsdk/job.due` event with `{ jobId, runAfter }`. The event id is the job id (with `runAfter` for a retry), so sending the same wake-up twice is a no-op.
-- The `botsdk-run-job` function sleeps until `runAfter`, then has the core run the job. A job that already ran, or that another delivery holds, is left alone.
-- The `botsdk-sweep-jobs` function runs every 5 minutes. It re-queues jobs whose lease expired (their process crashed) and sends an event for every due job, so a lost event never strands a job. Sending a `botsdk/jobs.sweep` event runs it at once.
+- When a job is queued (after its transaction commits), the Executor sends one `<app id>/botsdk.job.due` event (the client's app id, so two apps in one Inngest environment never wake each other's jobs; `botsdkRunner.events` names both events) with `{ jobId, runAfter }`. The event id is the job id (with `runAfter` for a retry), so sending the same wake-up twice is a no-op.
+- The `botsdk-run-job` function sleeps until a second past `runAfter`, then has the core run the job. A job that already ran, or that another delivery holds, is left alone.
+- The `botsdk-sweep-jobs` function runs every 5 minutes (`sweepCron` changes that). It re-queues jobs whose lease expired (their process crashed) and sends an event for every due job, so a lost event never strands a job. Sending its `<app id>/botsdk.jobs.sweep` event runs it at once. A long-lived process also re-queues expired leases every 30 s, as with the in-process runner; the sweep is what does it on a serverless platform.
 
 `inngest` is a dependency of this package only; `@botsdk/bot` is a peer.
 
@@ -41,9 +41,11 @@ export const { GET, POST, PUT } = serve({
 });
 ```
 
-The process that serves the functions must have called `chat.start()`: a delivery to one that hasn't started (or has stopped) fails, and Inngest retries it. `chat.stop()` stops taking deliveries; Inngest delivers to another process.
+The process that serves the functions must have called `chat.start()`: a delivery to one that hasn't started (or has stopped) fails, and Inngest retries it. `chat.stop()` stops taking deliveries: Inngest retries each one (its default retries, with backoff), usually on another process, and a job whose retries all landed on stopped processes waits for the next sweep.
 
 A job runs inside one Inngest request, so your platform's request time limit must cover your longest job (a Bot Turn can take minutes). A job cut off mid-way resumes from its last Checkpoint once the sweep finds its lease expired.
+
+Concurrency limits aren't mapped yet: the in-process runner's shared budget of two and each job's `concurrency` don't apply on Inngest, so every delivered job runs at once. Size your database pool for it.
 
 Queue jobs in the SDK's own transactions (`ctx.db` in a job or a feature). A job queued in a transaction of your own Drizzle instance is written but not sent to Inngest; the next sweep sends it, up to 5 minutes later.
 
