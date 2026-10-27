@@ -57,7 +57,6 @@
   },
   "peerDependencies": {
     "@botsdk/bot": "workspace:*",
-    "@botsdk/channel-email": "workspace:*",
     "@botsdk/client": "workspace:*",
     "@botsdk/knowledge": "workspace:*",
     "@botsdk/mcp": "workspace:*",

@@ -5,8 +5,7 @@
   "sideEffects": false,
   "exports": {
     "./package.json": "./package.json",
-    ".": "./src/index.ts",
-    "./client": "./src/client.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit"
@@ -19,7 +18,6 @@
     "typescript": "catalog:"
   },
   "peerDependencies": {
-    "@botsdk/bot": "workspace:*",
-    "@botsdk/client": "workspace:*"
+    "@botsdk/bot": "workspace:*"
   }
 }

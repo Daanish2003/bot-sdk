@@ -1,5 +1,5 @@
 import { createBotSdkClient } from "@botsdk/client";
-import { channelClient } from "@botsdk/channel-email/client";
+import { channelClient } from "@botsdk/client/bot/channel-client";
 import { knowledgeClient } from "@botsdk/knowledge/client";
 import { mcpClient } from "@botsdk/mcp/client";
 import { memoryClient } from "@botsdk/memory/client";

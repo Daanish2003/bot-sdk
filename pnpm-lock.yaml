@@ -600,9 +600,6 @@ importers:
       '@botsdk/bot':
         specifier: workspace:*
         version: link:../bot
-      '@botsdk/client':
-        specifier: workspace:*
-        version: link:../client
       zod:
         specifier: 'catalog:'
         version: 4.6.5
@@ -632,9 +629,6 @@ importers:
       '@ai-chat/config':
         specifier: workspace:*
         version: link:../../config
-      '@botsdk/channel-email':
-        specifier: workspace:*
-        version: link:../channel-email
       '@botsdk/knowledge':
         specifier: workspace:*
         version: link:../knowledge
@@ -1037,9 +1031,6 @@ importers:
       '@botsdk/bot':
         specifier: workspace:*
         version: link:../bot
-      '@botsdk/channel-email':
-        specifier: workspace:*
-        version: link:../channel-email
       '@orpc/server':
         specifier: 'catalog:'
         version: 1.15.4(@opentelemetry/api@1.10.0)(crossws@0.4.12)(ws@8.22.0)
@@ -1207,9 +1198,6 @@ importers:
       '@botsdk/bot':
         specifier: workspace:*
         version: link:../botsdk/bot
-      '@botsdk/channel-email':
-        specifier: workspace:*
-        version: link:../botsdk/channel-email
       '@botsdk/client':
         specifier: workspace:*
         version: link:../botsdk/client
