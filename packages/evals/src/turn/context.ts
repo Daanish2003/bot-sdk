@@ -1,6 +1,6 @@
 // The step-8 evals (spec #665, #678, "Context engineering"): cache stability, Summaries and tool
-// search with a real Model. Run them with `pnpm -F @ai-chat/bot-sdk eval:context`; see
-// eval/turn/README.md.
+// search with a real Model. Run them with `pnpm -F @ai-chat/evals eval:context`; see
+// src/turn/README.md.
 //
 // `--only=cache,summary,tools` runs some of the three. `--fake` (or EVAL_FAKE=1) plays a scripted
 // Model in place of a real one, for checking the script and the scoring without a key; its cache
@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 
 import { memory } from "@botsdk/memory";
 import { runnerJobs } from "@botsdk/bot/runner/internal";
-import { fakeComputerProvider } from "../../test/support/fake-computer-provider";
+import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";
 import { createComputerSdk, databaseUrlFromEnv, prepareSchema } from "../computer/setup";
 import { toolSearchCases } from "./context-cases";
@@ -56,14 +56,14 @@ async function main() {
   const model = fake
     ? (process.env.EVAL_BOT_MODEL ?? "anthropic:claude-haiku-4-5")
     : process.env.EVAL_BOT_MODEL;
-  if (!model) fail("EVAL_BOT_MODEL is not set. See packages/bot-sdk/eval/turn/README.md.");
+  if (!model) fail("EVAL_BOT_MODEL is not set. See packages/evals/src/turn/README.md.");
   if (only.includes("cache") && !model.startsWith("anthropic:")) {
     fail(
       `The cache eval needs a direct Anthropic Model ("anthropic:<model>"), not "${model}": ` +
         "its warming call and cache reads are Anthropic's.",
     );
   }
-  // `null`: the Model runs on the owner's ChatGPT plan (eval/chatgpt-plan.ts), not on a key.
+  // `null`: the Model runs on the owner's ChatGPT plan (src/chatgpt-plan.ts), not on a key.
   const plan = fake ? null : await chatgptPlanFromEnv();
   const apiKey = fake ? "sk-fake" : keyFor(model, plan);
   const judgeModel = process.env.EVAL_JUDGE_MODEL ?? model;

@@ -1,6 +1,6 @@
 // The drafting-pass eval (spec #713, ticket #721): calls the real drafting pass (`draftSkill`, #720)
 // directly, with no Turn, on the checked-in fixture Demonstrations, and scores the Skill it writes.
-// Run it with `pnpm -F @ai-chat/bot-sdk eval:skills:draft`; see eval/skills/README.md.
+// Run it with `pnpm -F @ai-chat/evals eval:skills:draft`; see src/skills/README.md.
 //
 // The fixtures were recorded on a local Chromium, not the real Computer (record-fixtures.ts).
 // `--fake` (or EVAL_FAKE=1) plays a scripted drafting reply instead of a Model, for checking the script.
@@ -18,8 +18,8 @@ import {
   type Drafted,
 } from "@botsdk/bot/bot/demonstrations";
 import { skills } from "@botsdk/skills";
-import { createFakeAdapter, round, text } from "../../test/support/fake-adapter";
-import { fakeComputerProvider } from "../../test/support/fake-computer-provider";
+import { createFakeAdapter, round, text } from "@botsdk/testing/fake-adapter";
+import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";
 import { createComputerSdk, databaseUrlFromEnv, prepareSchema } from "../computer/setup";
 import { freshBot, type TurnEnv } from "../turn/case";
@@ -48,7 +48,7 @@ async function main() {
   if (!Number.isInteger(repeats) || repeats < 1)
     fail("EVAL_REPEATS must be a whole number, 1 or more");
   const model = process.env.EVAL_BOT_MODEL ?? defaultModel;
-  // `null`: the Model runs on the owner's ChatGPT plan (eval/chatgpt-plan.ts), not on a key.
+  // `null`: the Model runs on the owner's ChatGPT plan (src/chatgpt-plan.ts), not on a key.
   const plan = fake ? null : await chatgptPlanFromEnv();
   const apiKey = fake ? "sk-fake" : keyFor(model, plan, " (no Model key: nothing ran)");
   const databaseUrl = databaseUrlFromEnv();

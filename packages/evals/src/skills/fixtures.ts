@@ -1,5 +1,5 @@
 // The drafting-pass eval's fixture Demonstrations (spec #713, ticket #721): the events and screenshots
-// under eval/skills/fixtures/<id>/, recorded by record-fixtures.ts against a local Chromium (not the
+// under src/skills/fixtures/<id>/, recorded by record-fixtures.ts against a local Chromium (not the
 // real Computer), and what a good Skill drafted from each must contain.
 
 import { readFile } from "node:fs/promises";

@@ -1,4 +1,4 @@
-import { sendAndFollow } from "../../test/support/follow-send";
+import { sendAndFollow } from "@ai-chat/test-support/follow-send";
 // One run of a step-4 eval case (spec #543), through the real `bot` plugin: a fresh user and Bot, the
 // case's history, then either a user Message or a Trigger as a Routine's run or a fired Check-in hands
 // the Router (the same `receive`, with the text `routineSnapshot` and `checkInNotice` make).

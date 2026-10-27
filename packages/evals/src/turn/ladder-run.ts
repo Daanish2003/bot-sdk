@@ -1,6 +1,6 @@
 import { tavilyService } from "@botsdk/client/models/credentials/services";
 
-import { sendAndFollow } from "../../test/support/follow-send";
+import { sendAndFollow } from "@ai-chat/test-support/follow-send";
 // One run of a step-6 ladder case (spec #587), through the real `bot` plugin with the `computer`
 // plugin on, so the Turn has the Computer system prompt and the Helper tools: a fresh user and Bot,
 // the case's history, then a user Message or a Helper's report as the Trigger.

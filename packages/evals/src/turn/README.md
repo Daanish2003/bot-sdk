@@ -13,7 +13,7 @@ does not create the database), and the API key of the Model's Provider:
 EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval \
 EVAL_BOT_MODEL=anthropic:claude-haiku-4-5 \
 ANTHROPIC_API_KEY=... \
-pnpm -F @ai-chat/bot-sdk eval:turn
+pnpm -F @ai-chat/evals eval:turn
 ```
 
 - `EVAL_BOT_MODEL` is the Bot's Model, a curated `"provider:model"` id. It is required.
@@ -41,7 +41,7 @@ out" after a Bot answer). Borderline messages like "thanks!" are left out on pur
   (#531), so plain text the Model meant only for itself can still turn into a sent Message and fail.
 - The run prints the pass rate for the reply group, the quiet group, and the endTurn group (the runs
   that sent something and got `endTurn` right), and the reason for each failure. Every run, with the
-  text it sent, is saved to `eval/turn/results/turn-<time>.json` (gitignored).
+  text it sent, is saved to `src/turn/results/turn-<time>.json` (gitignored).
 
 ## What it costs
 
@@ -77,7 +77,7 @@ EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval \
 EVAL_BOT_MODEL=openai:gpt-6-luna EVAL_JUDGE_MODEL=openai:gpt-6.1-sol \
 EVAL_CHATGPT_USER_ID=<your user id> DATABASE_URL=... BETTER_AUTH_URL=... BETTER_AUTH_SECRET=... \
 CHATGPT_CLIENT_ID=... CHATGPT_HOST_ID=... \
-pnpm -F @ai-chat/bot-sdk eval:turn
+pnpm -F @ai-chat/evals eval:turn
 ```
 
 - The token is read from the link on each call through Better Auth, which refreshes it and saves the
@@ -94,7 +94,7 @@ case expects: no Model is called and no key is needed. Use it to check the scrip
 mean nothing.
 
 ```sh
-EVAL_DATABASE_URL=... pnpm -F @ai-chat/bot-sdk eval:turn -- --fake
+EVAL_DATABASE_URL=... pnpm -F @ai-chat/evals eval:turn -- --fake
 ```
 
 ## Queue evals (batching, interrupting, and refusals and questions)
@@ -179,7 +179,7 @@ the Computer system prompt and the Helper tools. They run in their own script, b
 changes the prompt and tools of every Turn:
 
 ```sh
-EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval EVAL_BOT_MODEL=openai:gpt-5.4-mini EVAL_JUDGE_MODEL=anthropic:claude-haiku-4-5 OPENAI_API_KEY=... ANTHROPIC_API_KEY=... pnpm -F @ai-chat/bot-sdk eval:ladder
+EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval EVAL_BOT_MODEL=openai:gpt-5.4-mini EVAL_JUDGE_MODEL=anthropic:claude-haiku-4-5 OPENAI_API_KEY=... ANTHROPIC_API_KEY=... pnpm -F @ai-chat/evals eval:ladder
 ```
 
 `EVAL_BOT_MODEL`, `EVAL_JUDGE_MODEL`, `EVAL_REPEATS`, `EVAL_CONCURRENCY`, `--limit=<n>` and `--fake` work as
@@ -187,7 +187,7 @@ above. No Computer or E2B is needed: a Helper the Bot starts never runs (its job
 the Computer is a provider that fails every call, and the eval answers Tavily itself, so the run scores
 only the main agent's choice. Each case has a structural check on the Turn's `start_helper` calls and
 Messages, and a judge check (same judge and results file format as above, saved as
-`eval/turn/results/ladder-<time>.json`):
+`src/turn/results/ladder-<time>.json`):
 
 - **quick-question:** "What's the capital of Australia?". Structural: no `start_helper` call, at least
   one Message. Judge: the reply says Canberra.
@@ -207,18 +207,18 @@ Messages, and a judge check (same judge and results file format as above, saved 
 
 ## Context engineering evals (spec #665, #678)
 
-Three evals of Bot step 8, in their own script (`eval/turn/context.ts`) because they use the `bot` and
+Three evals of Bot step 8, in their own script (`src/turn/context.ts`) because they use the `bot` and
 `memory` plugins together and a direct Anthropic key:
 
 ```sh
-EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval_context EVAL_BOT_MODEL=anthropic:claude-haiku-4-5 EVAL_JUDGE_MODEL=anthropic:claude-sonnet-4-5 ANTHROPIC_API_KEY=... pnpm -F @ai-chat/bot-sdk eval:context
+EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval_context EVAL_BOT_MODEL=anthropic:claude-haiku-4-5 EVAL_JUDGE_MODEL=anthropic:claude-sonnet-4-5 ANTHROPIC_API_KEY=... pnpm -F @ai-chat/evals eval:context
 ```
 
 `EVAL_BOT_MODEL`, `EVAL_JUDGE_MODEL`, `EVAL_REPEATS`, `EVAL_CONCURRENCY` and `--fake` work as above.
 `--only=cache,summary,tools` runs some of the three. `EVAL_REPEATS` defaults to 1 for the cache and
 Summary evals (each is big) and 3 for the tool search cases. The cache eval fails at start unless
 `EVAL_BOT_MODEL` is an `anthropic:` Model. Use a fresh `EVAL_DATABASE_URL` database
-per run. Results are saved as `eval/turn/results/context-<time>.json`, with each run's usage rows,
+per run. Results are saved as `src/turn/results/context-<time>.json`, with each run's usage rows,
 Summary text, replies and tool calls.
 
 On a ChatGPT plan, the summary and tool search evals run with no key (see "On a ChatGPT plan" above
@@ -226,7 +226,7 @@ for the variables). The cache eval stays on a direct Anthropic key, since the pl
 (#664), so run it on its own:
 
 ```sh
-EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval_context EVAL_BOT_MODEL=openai:gpt-6.1-sol EVAL_JUDGE_MODEL=openai:gpt-6.1-sol EVAL_CHATGPT_USER_ID=<your user id> DATABASE_URL=... BETTER_AUTH_URL=... BETTER_AUTH_SECRET=... CHATGPT_CLIENT_ID=... CHATGPT_HOST_ID=... pnpm -F @ai-chat/bot-sdk eval:context --only=summary,tools
+EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval_context EVAL_BOT_MODEL=openai:gpt-6.1-sol EVAL_JUDGE_MODEL=openai:gpt-6.1-sol EVAL_CHATGPT_USER_ID=<your user id> DATABASE_URL=... BETTER_AUTH_URL=... BETTER_AUTH_SECRET=... CHATGPT_CLIENT_ID=... CHATGPT_HOST_ID=... pnpm -F @ai-chat/evals eval:context --only=summary,tools
 ```
 
 - **cache:** a scripted Conversation of four user Messages and a Routine's run, a memory line added

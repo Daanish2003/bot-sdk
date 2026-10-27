@@ -17,24 +17,24 @@ do not create the database), and a Model key:
 ```sh
 EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval_skills \
 OPENROUTER_API_KEY=... \
-pnpm -F @ai-chat/bot-sdk eval:skills
+pnpm -F @ai-chat/evals eval:skills
 
 EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval_skills \
 OPENROUTER_API_KEY=... \
-pnpm -F @ai-chat/bot-sdk eval:skills:draft
+pnpm -F @ai-chat/evals eval:skills:draft
 ```
 
 - `EVAL_BOT_MODEL` is the Bots' Model (and the drafting pass's), a `"provider:model"` id (default
   `openrouter:anthropic/claude-sonnet-5.5`). The key variable is the Provider's (`OPENROUTER_API_KEY`,
   `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `GEMINI_API_KEY`).
 - `EVAL_CHATGPT_USER_ID` (with the web app's settings, as in "On a ChatGPT plan" in
-  `eval/turn/README.md`) runs a plan Model on that user's linked plan instead of `OPENAI_API_KEY`
+  `src/turn/README.md`) runs a plan Model on that user's linked plan instead of `OPENAI_API_KEY`
   (ADR 0023). On the owner's plan:
 
   ```sh
   EVAL_CHATGPT_USER_ID=<user id> EVAL_BOT_MODEL=openai:gpt-6.1-sol \
   EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval_skills \
-  pnpm -F @ai-chat/bot-sdk eval:skills
+  pnpm -F @ai-chat/evals eval:skills
   ```
 
   Also set the web app's own `DATABASE_URL`, `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`, `CHATGPT_CLIENT_ID` and `CHATGPT_HOST_ID` (from `apps/web/.env`), as for the other evals.
@@ -50,7 +50,7 @@ pnpm -F @ai-chat/bot-sdk eval:skills:draft
 
 They print pass or FAIL per run with the reasons, and exit 1 unless every run passed. Every run's tool
 calls, Messages and Skills (or drafted `SKILL.md`) are saved to
-`eval/skills/results/skills-<time>.json` and `skills-draft-<time>.json` (gitignored).
+`src/skills/results/skills-<time>.json` and `skills-draft-<time>.json` (gitignored).
 
 ## `eval:skills` cases
 
@@ -78,14 +78,14 @@ Skill's path) with "No such file or directory", in every case; no other case's c
 
 ## `eval:skills:draft`
 
-The 3 fixture Demonstrations are in `eval/skills/fixtures/<id>/`: `events.json` (the goal, the inputs
+The 3 fixture Demonstrations are in `src/skills/fixtures/<id>/`: `events.json` (the goal, the inputs
 and each step as the capture stores it) and one PNG per screenshot, 168 KB in all.
 
 **They did not come from the real Computer.** There was no E2B or Screen when they were made, so
 `record-fixtures.ts` recorded them with the real capture code (#719) against a real local headless
 Chromium, driving small scripted pages the way `bot-demonstration-capture.integration.test.ts` does.
 The local address was rewritten to a made-up host (`dashboard.example.com`...). Run
-`pnpm -F @ai-chat/bot-sdk eval:skills:record` to record them again (it needs `EVAL_DATABASE_URL` and a
+`pnpm -F @ai-chat/evals eval:skills:record` to record them again (it needs `EVAL_DATABASE_URL` and a
 Chromium that Playwright can launch). Re-record on the real Computer when you can: the drafting prompt
 is the thing under test, and the steps and screenshots are what a Screen's Chrome would report.
 

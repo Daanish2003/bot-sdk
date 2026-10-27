@@ -2,7 +2,7 @@
 // Computer system prompt with the Helper tools, answer a quick question itself, hand research to a
 // General Helper and a website task to a Computer-use Helper, relay a Helper's report in one
 // Message, and tell the user about a broken tool instead of working around it with a browser? Run it
-// with `pnpm -F @ai-chat/bot-sdk eval:ladder`; see eval/turn/README.md.
+// with `pnpm -F @ai-chat/evals eval:ladder`; see src/turn/README.md.
 //
 // A Helper started in a run never runs: its job is queued for a day from now, so the run scores the
 // main agent's choice alone. The Computer is a provider whose calls succeed with empty output, so the
@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 
 import type { ComputerProvider } from "@botsdk/bot/computer";
 import { runnerJobs } from "@botsdk/bot/runner/internal";
-import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
+import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { createComputerSdk, databaseUrlFromEnv, prepareSchema } from "../computer/setup";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";
 import { fail, judgeCompletion, keyFor } from "./judge-model";
@@ -114,8 +114,8 @@ async function main() {
   const model = fake
     ? (process.env.EVAL_BOT_MODEL ?? "openai:gpt-5.4-mini")
     : process.env.EVAL_BOT_MODEL;
-  if (!model) fail("EVAL_BOT_MODEL is not set. See packages/bot-sdk/eval/turn/README.md.");
-  // `null`: the Model runs on the owner's ChatGPT plan (eval/chatgpt-plan.ts), not on a key.
+  if (!model) fail("EVAL_BOT_MODEL is not set. See packages/evals/src/turn/README.md.");
+  // `null`: the Model runs on the owner's ChatGPT plan (src/chatgpt-plan.ts), not on a key.
   const plan = fake ? null : await chatgptPlanFromEnv();
   const apiKey = fake ? "sk-fake" : keyFor(model, plan);
 

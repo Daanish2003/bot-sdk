@@ -1,8 +1,8 @@
-import { sendAndFollow } from "../../test/support/follow-send";
+import { sendAndFollow } from "@ai-chat/test-support/follow-send";
 // The Skills eval (spec #713, ticket #721): real Turns on a real Model, through the real `bot` and
 // `skills` plugins, on the SDK's fake Computer seeded with Skills. It scores when the Bot reads a Skill
 // (Use), when it saves one (Save), and whether it follows and fixes the ones it has (Follow and fix).
-// Run it with `pnpm -F @ai-chat/bot-sdk eval:skills`; see eval/skills/README.md.
+// Run it with `pnpm -F @ai-chat/evals eval:skills`; see src/skills/README.md.
 //
 // `--fake` (or EVAL_FAKE=1) runs the same wiring with the SDK's fake chat adapter, which plays each
 // case's scripted tool calls, for checking the script without any Model or key.
@@ -27,9 +27,9 @@ import { skillsDirectory } from "@botsdk/bot/bot/skill-files";
 import { runnerJobs } from "@botsdk/bot/runner/internal";
 import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 
-import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
-import { isReviewCall, passVerdict, verdictRound } from "../../test/support/fake-reviewer";
-import { fakeComputerProvider } from "../../test/support/fake-computer-provider";
+import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
+import { isReviewCall, passVerdict, verdictRound } from "@botsdk/testing/fake-reviewer";
+import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";
 import { createComputerSdk, databaseUrlFromEnv, prepareSchema } from "../computer/setup";
 import { fail, keyFor } from "../turn/judge-model";
@@ -93,7 +93,7 @@ async function main() {
     fail("--group must be use, save or follow-fix");
   }
   const model = process.env.EVAL_BOT_MODEL ?? defaultModel;
-  // `null`: the Model runs on the owner's ChatGPT plan (eval/chatgpt-plan.ts), not on a key.
+  // `null`: the Model runs on the owner's ChatGPT plan (src/chatgpt-plan.ts), not on a key.
   const plan = fake ? null : await chatgptPlanFromEnv();
   const apiKey = fake ? "sk-fake" : keyFor(model, plan, " (no Model key: nothing ran)");
   const databaseUrl = databaseUrlFromEnv();

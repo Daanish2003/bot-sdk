@@ -1,10 +1,10 @@
-import { sendAndFollow } from "../../test/support/follow-send";
+import { sendAndFollow } from "@ai-chat/test-support/follow-send";
 // Records the drafting-pass eval's fixture Demonstrations (spec #713, ticket #721), once, by hand:
-// `pnpm -F @ai-chat/bot-sdk eval:skills:record`. Each fixture is scripted browser steps on a small
+// `pnpm -F @ai-chat/evals eval:skills:record`. Each fixture is scripted browser steps on a small
 // local site, captured by the real capture code (#719) against a real local Chromium, as
 // bot-demonstration-capture.integration.test.ts does. They did NOT come from the real Computer:
 // there is no E2B here, so Chromium stands in for the Screen's Chrome. The result is checked in
-// under eval/skills/fixtures/<id>/ (events.json and one PNG per screenshot); this script only needs
+// under src/skills/fixtures/<id>/ (events.json and one PNG per screenshot); this script only needs
 // running again if the capture changes. The local site's address is rewritten to a made-up host.
 
 import { existsSync } from "node:fs";
@@ -23,8 +23,8 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { sendToUserToolName } from "@botsdk/bot/bot/context";
 import { skills } from "@botsdk/skills";
 import { runnerJobs } from "@botsdk/bot/runner/internal";
-import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
-import { fakeComputerProvider } from "../../test/support/fake-computer-provider";
+import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
+import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 import type { RecordedFixture } from "./fixtures";
 import { createComputerSdk, databaseUrlFromEnv, prepareSchema } from "../computer/setup";
 import { freshBot, type TurnEnv } from "../turn/case";

@@ -1,6 +1,6 @@
 import { searchTextOf } from "@botsdk/client/message-parts";
 
-import { sendAndFollow } from "../../test/support/follow-send";
+import { sendAndFollow } from "@ai-chat/test-support/follow-send";
 // One run of each step-8 eval (spec #665, #678), through the real `bot` and `memory` plugins: a
 // fresh user and Bot, then the scenario. The cache eval plays a scripted Conversation and a warm
 // and reads the usage rows; the Summary eval pushes a Conversation past the away Summary's input
@@ -45,7 +45,7 @@ import {
   text,
   toolCall,
   withUsage,
-} from "../../test/support/fake-adapter";
+} from "@botsdk/testing/fake-adapter";
 import { freshBot, seedHistory, type TurnEnv } from "./case";
 import {
   cacheFakeReplies,

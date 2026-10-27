@@ -1,5 +1,5 @@
-// The judge Model and the API keys the Turn evals share (eval/turn/run.ts and eval/turn/ladder.ts),
-// or the owner's ChatGPT plan in place of an OpenAI key (eval/chatgpt-plan.ts).
+// The judge Model and the API keys the Turn evals share (src/turn/run.ts and src/turn/ladder.ts),
+// or the owner's ChatGPT plan in place of an OpenAI key (src/chatgpt-plan.ts).
 
 import { type AnthropicChatModel, createAnthropicChat } from "@tanstack/ai-anthropic";
 import { chat } from "@tanstack/ai";

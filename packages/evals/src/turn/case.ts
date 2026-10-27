@@ -1,4 +1,4 @@
-import { sendAndFollow } from "../../test/support/follow-send";
+import { sendAndFollow } from "@ai-chat/test-support/follow-send";
 // One eval run of one case, through the real `bot` plugin: a fresh user and Bot, the case's history
 // written as earlier Turns, then `sendToBot` with the new user Message.
 
@@ -29,7 +29,7 @@ export type TurnEnv = {
   model: string;
   /**
    * The Credentials the user saves for the Model's Provider, or `null` when the Model runs on the
-   * owner's linked ChatGPT plan (eval/chatgpt-plan.ts), so no key is saved.
+   * owner's linked ChatGPT plan (src/chatgpt-plan.ts), so no key is saved.
    */
   credentialsFor: (caseId: string, repeat: number) => Credentials | null;
 };

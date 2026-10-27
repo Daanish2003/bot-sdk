@@ -1,4 +1,4 @@
-import { sendAndFollow } from "../../test/support/follow-send";
+import { sendAndFollow } from "@ai-chat/test-support/follow-send";
 // One run of a step-3 eval case (spec #510), through the real `bot` plugin: a fresh user and Bot,
 // then each of the case's Messages sent with `sendToBot` and a client id, as the web client does.
 
