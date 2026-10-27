@@ -102,7 +102,7 @@ export function inngestExecutor({
   const budgetFunction = ({ key, concurrency }: JobBudget) =>
     client.createFunction(
       {
-        id: `botsdk-run-job-${key}`,
+        id: `botsdk-run-job-${key.replace(/[^a-zA-Z0-9]/g, (c) => `_${c.charCodeAt(0).toString(16)}_`)}`,
         triggers: [{ event: events.due, if: `event.data.budget == ${JSON.stringify(key)}` }],
         concurrency: { limit: concurrency },
       },
@@ -111,7 +111,7 @@ export function inngestExecutor({
 
   /** Which budget each job is in, for the events that wake them. */
   const budgetsOfJobs = async (jobIds: string[]) =>
-    (jobIds.length > 0 && (await run?.[jobBudgetKeys]?.(jobIds))) || new Map<string, string>();
+    jobIds.length === 0 ? new Map<string, string>() : await started()[jobBudgetKeys]!(jobIds);
 
   const sweep = client.createFunction(
     {
@@ -150,7 +150,12 @@ export function inngestExecutor({
       if (!given[sweepJobs])
         throw new Error("The Inngest Executor runs only under the core's runner");
       run = given;
-      budgetFunctions = (given[jobBudgets]?.() ?? []).map(budgetFunction);
+      const budgets = given[jobBudgets]?.() ?? [];
+      const ids = new Set(budgets.map(({ key }) => key.toLowerCase()));
+      if (ids.size < budgets.length) {
+        throw new Error("Two concurrency budgets have keys that differ only in case");
+      }
+      budgetFunctions = budgets.map(budgetFunction);
     },
 
     async notify(jobId, runAfter) {

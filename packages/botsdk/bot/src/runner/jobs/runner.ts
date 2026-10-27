@@ -276,8 +276,11 @@ export function createJobRunner({
     return job && { name: job.name, attempt: work };
   };
   runJob[jobBudgets] = () => budgetsOf(jobs());
+  let keysByName: Map<string, string> | undefined;
   runJob[jobBudgetKeys] = async (jobIds) => {
-    const keys = new Map(budgetsOf(jobs()).flatMap((b) => b.names.map((name) => [name, b.key])));
+    // The job table is fixed, so the map is made once.
+    keysByName ??= new Map(budgetsOf(jobs()).flatMap((b) => b.names.map((name) => [name, b.key])));
+    const keys = keysByName;
     const keyed = new Map<string, string>();
     for (const { id, name } of await jobNames(db, jobIds)) {
       const key = keys.get(name);
