@@ -73,6 +73,12 @@
   },
   "devDependencies": {
     "@ai-chat/config": "workspace:*",
+    "@ai-chat/test-support": "workspace:*",
+    "@botsdk/knowledge": "workspace:*",
+    "@botsdk/mcp": "workspace:*",
+    "@botsdk/memory": "workspace:*",
+    "@botsdk/skills": "workspace:*",
+    "@botsdk/testing": "workspace:*",
     "@tanstack/ai-anthropic": "1.0.0",
     "@tanstack/ai-openai": "1.0.0",
     "@types/pg": "^8.23.1",

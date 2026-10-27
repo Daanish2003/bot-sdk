@@ -224,30 +224,6 @@ importers:
       '@ai-chat/config':
         specifier: workspace:*
         version: link:packages/config
-      '@ai-chat/test-support':
-        specifier: workspace:*
-        version: link:packages/test-support
-      '@botsdk/bot':
-        specifier: workspace:*
-        version: link:packages/botsdk/bot
-      '@botsdk/channel-email':
-        specifier: workspace:*
-        version: link:packages/botsdk/channel-email
-      '@botsdk/knowledge':
-        specifier: workspace:*
-        version: link:packages/botsdk/knowledge
-      '@botsdk/mcp':
-        specifier: workspace:*
-        version: link:packages/botsdk/mcp
-      '@botsdk/memory':
-        specifier: workspace:*
-        version: link:packages/botsdk/memory
-      '@botsdk/skills':
-        specifier: workspace:*
-        version: link:packages/botsdk/skills
-      '@botsdk/testing':
-        specifier: workspace:*
-        version: link:packages/botsdk/testing
       '@types/node':
         specifier: ^26.4.1
         version: 26.6.4
@@ -523,6 +499,9 @@ importers:
 
   packages/botsdk/blobs-s3:
     dependencies:
+      '@botsdk/bot':
+        specifier: workspace:*
+        version: link:../bot
       aws4fetch:
         specifier: ^1.0.20
         version: 1.0.20
@@ -530,9 +509,9 @@ importers:
       '@ai-chat/config':
         specifier: workspace:*
         version: link:../../config
-      '@botsdk/bot':
+      '@ai-chat/test-support':
         specifier: workspace:*
-        version: link:../bot
+        version: link:../../test-support
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -579,6 +558,24 @@ importers:
       '@ai-chat/config':
         specifier: workspace:*
         version: link:../../config
+      '@ai-chat/test-support':
+        specifier: workspace:*
+        version: link:../../test-support
+      '@botsdk/knowledge':
+        specifier: workspace:*
+        version: link:../knowledge
+      '@botsdk/mcp':
+        specifier: workspace:*
+        version: link:../mcp
+      '@botsdk/memory':
+        specifier: workspace:*
+        version: link:../memory
+      '@botsdk/skills':
+        specifier: workspace:*
+        version: link:../skills
+      '@botsdk/testing':
+        specifier: workspace:*
+        version: link:../testing
       '@tanstack/ai-anthropic':
         specifier: 1.0.0
         version: 1.0.0(@tanstack/ai@1.0.0(@opentelemetry/api@1.10.0)(zod@4.6.5))(zod@4.6.5)
@@ -600,6 +597,12 @@ importers:
 
   packages/botsdk/channel-email:
     dependencies:
+      '@botsdk/bot':
+        specifier: workspace:*
+        version: link:../bot
+      '@botsdk/client':
+        specifier: workspace:*
+        version: link:../client
       zod:
         specifier: 'catalog:'
         version: 4.6.5
@@ -607,12 +610,6 @@ importers:
       '@ai-chat/config':
         specifier: workspace:*
         version: link:../../config
-      '@botsdk/bot':
-        specifier: workspace:*
-        version: link:../bot
-      '@botsdk/client':
-        specifier: workspace:*
-        version: link:../client
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -635,6 +632,21 @@ importers:
       '@ai-chat/config':
         specifier: workspace:*
         version: link:../../config
+      '@botsdk/channel-email':
+        specifier: workspace:*
+        version: link:../channel-email
+      '@botsdk/knowledge':
+        specifier: workspace:*
+        version: link:../knowledge
+      '@botsdk/mcp':
+        specifier: workspace:*
+        version: link:../mcp
+      '@botsdk/memory':
+        specifier: workspace:*
+        version: link:../memory
+      '@botsdk/skills':
+        specifier: workspace:*
+        version: link:../skills
       '@cloudflare/workers-types':
         specifier: 4.20260702.1
         version: 4.20260702.1
@@ -683,6 +695,9 @@ importers:
 
   packages/botsdk/computer-e2b:
     dependencies:
+      '@botsdk/bot':
+        specifier: workspace:*
+        version: link:../bot
       e2b:
         specifier: 2.55.0
         version: 2.55.0
@@ -690,9 +705,9 @@ importers:
       '@ai-chat/config':
         specifier: workspace:*
         version: link:../../config
-      '@botsdk/bot':
+      '@ai-chat/test-support':
         specifier: workspace:*
-        version: link:../bot
+        version: link:../../test-support
       drizzle-orm:
         specifier: 'catalog:'
         version: 1.0.0-rc.4(@cloudflare/workers-types@4.20260702.1)(@opentelemetry/api@1.10.0)(@types/pg@8.23.1)(pg@8.23.1)(zod@4.6.5)
@@ -702,6 +717,15 @@ importers:
 
   packages/botsdk/knowledge:
     dependencies:
+      '@botsdk/bot':
+        specifier: workspace:*
+        version: link:../bot
+      '@botsdk/client':
+        specifier: workspace:*
+        version: link:../client
+      '@botsdk/react':
+        specifier: workspace:*
+        version: link:../react
       '@orpc/contract':
         specifier: 'catalog:'
         version: 1.15.4(@opentelemetry/api@1.10.0)
@@ -736,15 +760,15 @@ importers:
       '@ai-chat/config':
         specifier: workspace:*
         version: link:../../config
-      '@botsdk/bot':
+      '@ai-chat/test-support':
         specifier: workspace:*
-        version: link:../bot
-      '@botsdk/client':
+        version: link:../../test-support
+      '@botsdk/skills':
         specifier: workspace:*
-        version: link:../client
-      '@botsdk/react':
+        version: link:../skills
+      '@botsdk/testing':
         specifier: workspace:*
-        version: link:../react
+        version: link:../testing
       '@tanstack/react-query':
         specifier: ^5.102.8
         version: 5.104.1(react@19.3.0)
@@ -760,6 +784,15 @@ importers:
 
   packages/botsdk/mcp:
     dependencies:
+      '@botsdk/bot':
+        specifier: workspace:*
+        version: link:../bot
+      '@botsdk/client':
+        specifier: workspace:*
+        version: link:../client
+      '@botsdk/react':
+        specifier: workspace:*
+        version: link:../react
       '@orpc/contract':
         specifier: 'catalog:'
         version: 1.15.4(@opentelemetry/api@1.10.0)
@@ -779,15 +812,12 @@ importers:
       '@ai-chat/config':
         specifier: workspace:*
         version: link:../../config
-      '@botsdk/bot':
+      '@ai-chat/test-support':
         specifier: workspace:*
-        version: link:../bot
-      '@botsdk/client':
+        version: link:../../test-support
+      '@botsdk/testing':
         specifier: workspace:*
-        version: link:../client
-      '@botsdk/react':
-        specifier: workspace:*
-        version: link:../react
+        version: link:../testing
       '@tanstack/react-query':
         specifier: ^5.102.8
         version: 5.104.1(react@19.3.0)
@@ -806,6 +836,15 @@ importers:
 
   packages/botsdk/memory:
     dependencies:
+      '@botsdk/bot':
+        specifier: workspace:*
+        version: link:../bot
+      '@botsdk/client':
+        specifier: workspace:*
+        version: link:../client
+      '@botsdk/react':
+        specifier: workspace:*
+        version: link:../react
       '@orpc/contract':
         specifier: 'catalog:'
         version: 1.15.4(@opentelemetry/api@1.10.0)
@@ -822,15 +861,12 @@ importers:
       '@ai-chat/config':
         specifier: workspace:*
         version: link:../../config
-      '@botsdk/bot':
+      '@ai-chat/test-support':
         specifier: workspace:*
-        version: link:../bot
-      '@botsdk/client':
+        version: link:../../test-support
+      '@botsdk/testing':
         specifier: workspace:*
-        version: link:../client
-      '@botsdk/react':
-        specifier: workspace:*
-        version: link:../react
+        version: link:../testing
       '@tanstack/react-query':
         specifier: ^5.102.8
         version: 5.104.1(react@19.3.0)
@@ -849,6 +885,9 @@ importers:
 
   packages/botsdk/pubsub-redis:
     dependencies:
+      '@botsdk/bot':
+        specifier: workspace:*
+        version: link:../bot
       redis:
         specifier: ^6.3.0
         version: 6.3.0(@opentelemetry/api@1.10.0)
@@ -856,9 +895,9 @@ importers:
       '@ai-chat/config':
         specifier: workspace:*
         version: link:../../config
-      '@botsdk/bot':
+      '@ai-chat/test-support':
         specifier: workspace:*
-        version: link:../bot
+        version: link:../../test-support
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -878,6 +917,9 @@ importers:
       '@ai-chat/config':
         specifier: workspace:*
         version: link:../../config
+      '@ai-chat/test-support':
+        specifier: workspace:*
+        version: link:../../test-support
       '@tanstack/react-query':
         specifier: ^5.102.8
         version: 5.104.1(react@19.3.0)
@@ -893,6 +935,15 @@ importers:
 
   packages/botsdk/skills:
     dependencies:
+      '@botsdk/bot':
+        specifier: workspace:*
+        version: link:../bot
+      '@botsdk/client':
+        specifier: workspace:*
+        version: link:../client
+      '@botsdk/react':
+        specifier: workspace:*
+        version: link:../react
       '@orpc/contract':
         specifier: 'catalog:'
         version: 1.15.4(@opentelemetry/api@1.10.0)
@@ -909,15 +960,12 @@ importers:
       '@ai-chat/config':
         specifier: workspace:*
         version: link:../../config
-      '@botsdk/bot':
+      '@ai-chat/test-support':
         specifier: workspace:*
-        version: link:../bot
-      '@botsdk/client':
+        version: link:../../test-support
+      '@botsdk/testing':
         specifier: workspace:*
-        version: link:../client
-      '@botsdk/react':
-        specifier: workspace:*
-        version: link:../react
+        version: link:../testing
       '@tanstack/react-query':
         specifier: ^5.102.8
         version: 5.104.1(react@19.3.0)
@@ -933,6 +981,12 @@ importers:
 
   packages/botsdk/testing:
     dependencies:
+      '@botsdk/bot':
+        specifier: workspace:*
+        version: link:../bot
+      '@botsdk/client':
+        specifier: workspace:*
+        version: link:../client
       '@tanstack/ai':
         specifier: 1.0.0
         version: 1.0.0(@opentelemetry/api@1.10.0)(zod@4.6.5)
@@ -943,12 +997,6 @@ importers:
       '@ai-chat/config':
         specifier: workspace:*
         version: link:../../config
-      '@botsdk/bot':
-        specifier: workspace:*
-        version: link:../bot
-      '@botsdk/client':
-        specifier: workspace:*
-        version: link:../client
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -958,9 +1006,21 @@ importers:
       '@botsdk/client':
         specifier: workspace:*
         version: link:../client
+      '@botsdk/knowledge':
+        specifier: workspace:*
+        version: link:../knowledge
+      '@botsdk/mcp':
+        specifier: workspace:*
+        version: link:../mcp
+      '@botsdk/memory':
+        specifier: workspace:*
+        version: link:../memory
       '@botsdk/react':
         specifier: workspace:*
         version: link:../react
+      '@botsdk/skills':
+        specifier: workspace:*
+        version: link:../skills
       lucide-react:
         specifier: 'catalog:'
         version: 1.52.0(@types/react@19.3.0)(react@19.3.0)
@@ -971,18 +1031,15 @@ importers:
       '@ai-chat/config':
         specifier: workspace:*
         version: link:../../config
-      '@botsdk/knowledge':
+      '@ai-chat/test-support':
         specifier: workspace:*
-        version: link:../knowledge
-      '@botsdk/mcp':
+        version: link:../../test-support
+      '@botsdk/bot':
         specifier: workspace:*
-        version: link:../mcp
-      '@botsdk/memory':
+        version: link:../bot
+      '@botsdk/channel-email':
         specifier: workspace:*
-        version: link:../memory
-      '@botsdk/skills':
-        specifier: workspace:*
-        version: link:../skills
+        version: link:../channel-email
       '@orpc/server':
         specifier: 'catalog:'
         version: 1.15.4(@opentelemetry/api@1.10.0)(crossws@0.4.12)(ws@8.22.0)

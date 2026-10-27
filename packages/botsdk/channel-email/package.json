@@ -16,8 +16,6 @@
   },
   "devDependencies": {
     "@ai-chat/config": "workspace:*",
-    "@botsdk/bot": "workspace:*",
-    "@botsdk/client": "workspace:*",
     "typescript": "catalog:"
   },
   "peerDependencies": {

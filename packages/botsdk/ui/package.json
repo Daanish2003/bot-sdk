@@ -70,10 +70,9 @@
   },
   "devDependencies": {
     "@ai-chat/config": "workspace:*",
-    "@botsdk/knowledge": "workspace:*",
-    "@botsdk/mcp": "workspace:*",
-    "@botsdk/memory": "workspace:*",
-    "@botsdk/skills": "workspace:*",
+    "@ai-chat/test-support": "workspace:*",
+    "@botsdk/bot": "workspace:*",
+    "@botsdk/channel-email": "workspace:*",
     "@orpc/server": "catalog:",
     "@tanstack/react-query": "^5.102.8",
     "@testing-library/react": "^16.3.3",

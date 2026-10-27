@@ -23,9 +23,8 @@
   },
   "devDependencies": {
     "@ai-chat/config": "workspace:*",
-    "@botsdk/bot": "workspace:*",
-    "@botsdk/client": "workspace:*",
-    "@botsdk/react": "workspace:*",
+    "@ai-chat/test-support": "workspace:*",
+    "@botsdk/testing": "workspace:*",
     "@tanstack/react-query": "^5.102.8",
     "@types/react": "catalog:",
     "drizzle-kit": "1.0.0-rc.4",

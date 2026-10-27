@@ -34,15 +34,6 @@
   },
   "dependencies": {
     "@ai-chat/db": "workspace:*",
-    "@botsdk/bot": "workspace:*",
-    "@botsdk/channel-email": "workspace:*",
-    "@botsdk/client": "workspace:*",
-    "@botsdk/knowledge": "workspace:*",
-    "@botsdk/mcp": "workspace:*",
-    "@botsdk/memory": "workspace:*",
-    "@botsdk/react": "workspace:*",
-    "@botsdk/skills": "workspace:*",
-    "@botsdk/testing": "workspace:*",
     "@tanstack/ai": "1.0.0",
     "@tanstack/ai-anthropic": "1.0.0",
     "@tanstack/ai-gemini": "1.0.0",
@@ -63,5 +54,16 @@
     "drizzle-kit": "1.0.0-rc.4",
     "typescript": "catalog:",
     "vitest": "^5.0.3"
+  },
+  "peerDependencies": {
+    "@botsdk/bot": "workspace:*",
+    "@botsdk/channel-email": "workspace:*",
+    "@botsdk/client": "workspace:*",
+    "@botsdk/knowledge": "workspace:*",
+    "@botsdk/mcp": "workspace:*",
+    "@botsdk/memory": "workspace:*",
+    "@botsdk/react": "workspace:*",
+    "@botsdk/skills": "workspace:*",
+    "@botsdk/testing": "workspace:*"
   }
 }

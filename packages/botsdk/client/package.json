@@ -43,6 +43,11 @@
   },
   "devDependencies": {
     "@ai-chat/config": "workspace:*",
+    "@botsdk/channel-email": "workspace:*",
+    "@botsdk/knowledge": "workspace:*",
+    "@botsdk/mcp": "workspace:*",
+    "@botsdk/memory": "workspace:*",
+    "@botsdk/skills": "workspace:*",
     "@cloudflare/workers-types": "4.20260702.1",
     "@orpc/server": "catalog:",
     "@tanstack/ai-anthropic": "1.0.0",
