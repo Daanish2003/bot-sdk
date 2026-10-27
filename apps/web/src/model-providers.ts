@@ -1,5 +1,5 @@
 import type { Credentials, ModelProvider, ModelProviders } from "@botsdk/bot/models";
-import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
+import type { AnyTextAdapter } from "@tanstack/ai";
 import { type AnthropicChatModel, createAnthropicChat } from "@tanstack/ai-anthropic";
 import { BedrockConverseTextAdapter, type BedrockConverseModels } from "@tanstack/ai-bedrock";
 import { createBytePlusImage, createBytePlusText } from "@tanstack/ai-byteplus";
@@ -18,7 +18,7 @@ import { createGrokImage, createGrokText } from "@tanstack/ai-grok";
 import { createGroqText } from "@tanstack/ai-groq";
 import { createLLMGatewayText } from "@tanstack/ai-llmgateway";
 import { createLovableImage, createLovableText } from "@tanstack/ai-lovable";
-import { createMistralText, MistralTextAdapter } from "@tanstack/ai-mistral";
+import { createMistralText } from "@tanstack/ai-mistral";
 import { createOllamaChat } from "@tanstack/ai-ollama";
 import { createOpenaiChat, createOpenaiImage, type OpenAIChatModel } from "@tanstack/ai-openai";
 import { createOpenRouterImage, createOpenRouterText } from "@tanstack/ai-openrouter";
@@ -57,6 +57,8 @@ export const modelProviders = {
         apiKeyOf("openai", credentials),
         fetch ? { fetch } : undefined,
       ),
+    // The linked ChatGPT plan's calls go through the fetch the SDK passes (ADR 0023).
+    honoursFetch: true,
     image: (model, credentials) =>
       createOpenaiImage(
         model as ModelOf<typeof createOpenaiImage>,
@@ -85,7 +87,10 @@ export const modelProviders = {
   },
   mistral: {
     text: (model, credentials) =>
-      createAbortableMistralText(model as MistralModel, apiKeyOf("mistral", credentials)),
+      createMistralText(
+        model as ModelOf<typeof createMistralText>,
+        apiKeyOf("mistral", credentials),
+      ),
   },
   groq: {
     text: (model, credentials) =>
@@ -169,8 +174,10 @@ export const modelProviders = {
 
 /**
  * Bedrock's Converse adapter doesn't hand the run's abort signal to the AWS SDK, so Stop would
- * leave the request to Bedrock running (issue #54). This one passes it to `send`. Each run builds
- * its own adapter, so the signal of the run in progress fits on the instance.
+ * leave the request to Bedrock running (issue #54). The SDK adds the signal to requests that go
+ * through `wrapFetch` (Mistral's), but Bedrock's go through the AWS SDK's own client, so this one
+ * passes it to `send`. Each run builds its own adapter, so the signal of the run in progress fits
+ * on the instance.
  */
 class AbortableBedrockConverseAdapter<
   TModel extends BedrockConverseModels,
@@ -195,51 +202,6 @@ class AbortableBedrockConverseAdapter<
     if (!response.stream) throw new Error("Bedrock Converse: empty stream response");
     return response.stream;
   }
-}
-
-/**
- * Mistral's adapter doesn't hand the run's abort signal to its fetch, so Stop would leave the
- * request to Mistral running. This one adds it to every fetch through `wrapFetch`.
- */
-class AbortableMistralTextAdapter<TModel extends MistralModel> extends MistralTextAdapter<TModel> {
-  override chatStream(options: Parameters<MistralTextAdapter<TModel>["chatStream"]>[0]) {
-    return super.chatStream(withRunSignal(options));
-  }
-
-  override structuredOutput(
-    options: Parameters<MistralTextAdapter<TModel>["structuredOutput"]>[0],
-  ) {
-    return super.structuredOutput({ ...options, chatOptions: withRunSignal(options.chatOptions) });
-  }
-}
-
-/** `options` with a `wrapFetch` that adds the run's abort signal to every fetch. */
-function withRunSignal<T extends Pick<TextOptions, "request" | "wrapFetch">>(options: T): T {
-  const signal = options.request?.signal;
-  if (!signal) return options;
-  const { wrapFetch } = options;
-  return {
-    ...options,
-    wrapFetch: (next: typeof fetch): typeof fetch => {
-      const base = wrapFetch ? wrapFetch(next) : next;
-      return (input, init) =>
-        base(input, {
-          ...init,
-          signal: init?.signal ? AbortSignal.any([init.signal, signal]) : signal,
-        });
-    },
-  };
-}
-
-type MistralModel = ModelOf<typeof createMistralText>;
-
-/** The Mistral adapter, with Stop cancelling the request. `baseURL` is for tests. */
-export function createAbortableMistralText(
-  model: MistralModel,
-  apiKey: string,
-  config?: { baseURL?: string },
-): AnyTextAdapter {
-  return new AbortableMistralTextAdapter({ ...config, apiKey }, model);
 }
 
 /**

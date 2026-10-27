@@ -13,7 +13,7 @@ describe("adaptersOf", () => {
     const text = vi.fn<TextFactory>(() => textAdapter);
     const { adapterFor } = adaptersOf({ anthropic: { text } });
 
-    expect(adapterFor("anthropic:claude-sonnet-5-5", { apiKey: "sk-ant" })).toBe(textAdapter);
+    expect(adapterFor("anthropic:claude-sonnet-5-5", { apiKey: "sk-ant" }).name).toBe("text");
     expect(text).toHaveBeenCalledWith("claude-sonnet-5-5", { apiKey: "sk-ant" }, {});
   });
 
@@ -26,7 +26,7 @@ describe("adaptersOf", () => {
 
   it("sends a linked ChatGPT plan's call through the plan's fetch (ADR 0023)", () => {
     const text = vi.fn<TextFactory>(() => textAdapter);
-    const { adapterFor } = adaptersOf({ openai: { text } });
+    const { adapterFor } = adaptersOf({ openai: { text, honoursFetch: true } });
 
     adapterFor("openai:gpt-6-luna", { apiKey: "t" }, { linked: true });
     adapterFor("openai:gpt-6-luna", { apiKey: "sk-own" });
@@ -44,6 +44,63 @@ describe("adaptersOf", () => {
     expect(() => imageAdapterFor("anthropic:claude-sonnet-5-5", { apiKey: "k" })).toThrow(
       /anthropic Provider/,
     );
+  });
+});
+
+describe("adaptersOf on a linked ChatGPT plan (ADR 0023)", () => {
+  it("refuses to run a plan Model on a Provider that doesn't declare it honours fetch, so the token never goes to the public API", () => {
+    const text = vi.fn<TextFactory>(() => textAdapter);
+    const { adapterFor } = adaptersOf({ openai: { text } });
+
+    expect(() => adapterFor("openai:gpt-6-luna", { apiKey: "t" }, { linked: true })).toThrow(
+      /honoursFetch/,
+    );
+    expect(text).not.toHaveBeenCalled();
+  });
+});
+
+describe("adaptersOf and Stop (issue #54)", () => {
+  /** A stock adapter that sends one request through `wrapFetch` and records its signal. */
+  function fetchingAdapter() {
+    const signals: Array<AbortSignal | null | undefined> = [];
+    const send = (wrapFetch?: (next: typeof fetch) => typeof fetch) => {
+      const base: typeof fetch = async (_input, init) => {
+        signals.push(init?.signal);
+        return new Response("{}");
+      };
+      return (wrapFetch ? wrapFetch(base) : base)("https://provider.test", {});
+    };
+    const adapter = {
+      name: "stock",
+      async *chatStream(options: { wrapFetch?: (next: typeof fetch) => typeof fetch }) {
+        yield await send(options.wrapFetch);
+      },
+      async structuredOutput(options: {
+        chatOptions: { wrapFetch?: (next: typeof fetch) => typeof fetch };
+      }) {
+        await send(options.chatOptions.wrapFetch);
+        return { data: {}, rawText: "{}" };
+      },
+    } as unknown as AnyTextAdapter;
+    return { adapter, signals };
+  }
+
+  it("hands the run's abort signal to every request of a stock adapter", async () => {
+    const { adapter, signals } = fetchingAdapter();
+    const run = new AbortController();
+    const wrapped = adaptersOf({ anthropic: { text: () => adapter } }).adapterFor(
+      "anthropic:claude-sonnet-5-5",
+      { apiKey: "k" },
+    );
+
+    for await (const _ of wrapped.chatStream({ request: { signal: run.signal } } as never));
+    await wrapped.structuredOutput({
+      chatOptions: { request: { signal: run.signal } },
+    } as never);
+    run.abort();
+
+    expect(signals).toHaveLength(2);
+    expect(signals.every((signal) => signal?.aborted)).toBe(true);
   });
 });
 

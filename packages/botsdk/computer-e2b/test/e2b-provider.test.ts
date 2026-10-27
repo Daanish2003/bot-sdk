@@ -5,7 +5,7 @@ import { dirname, join, relative } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { e2bProvider } from "../src";
-import { keptEndCharacters } from "../src/bounded-output";
+import { keptEndCharacters } from "@botsdk/bot/computer/internal";
 import { SandboxGoneError } from "@botsdk/bot/computer/internal";
 
 const adapterRoot = dirname(

@@ -116,6 +116,8 @@ export function createTestSdk({
           `No fake image adapter for model "${model}"; pass imageAdapterFor to createTestSdk`,
         );
       }),
+    // A test's own `imageAdapterFor` serves every Image Model, as a Host's does.
+    imageAdapterOverride: overrides.imageAdapterOverride ?? overrides.imageAdapterFor !== undefined,
     hostProviders: overrides.hostProviders ?? [],
     hostTools: overrides.hostTools ?? [],
     byok: overrides.byok ?? true,

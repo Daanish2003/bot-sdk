@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { capOutput, spillThreshold } from "@botsdk/bot/bot/agent-loop";
-import { boundedOutput, keptEndCharacters, redactedOutput } from "../src/bounded-output";
+import { capOutput, spillThreshold } from "../../src/bot/agent-loop";
+import {
+  boundedOutput,
+  keptEndCharacters,
+  redactedOutput,
+} from "../../src/computer/bounded-output";
 
 describe("boundedOutput", () => {
   it("keeps a short output whole, however it arrives", () => {

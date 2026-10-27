@@ -102,3 +102,26 @@ export function isSkillFile(botId: string, path: string): boolean {
   const prefix = `${skillsDirectory(botId)}/`;
   return path.startsWith(prefix) && /^[^/]+\/SKILL\.md$/.test(path.slice(prefix.length));
 }
+
+/** How much of each SKILL.md `readBotSkills` looks through for its frontmatter. */
+export const skillHeadBytes = 65_536;
+
+/**
+ * `readBotSkills`' one command, after `d=<Skills folder>`: a line per folder in it, its name in
+ * base64, then `none` (no SKILL.md), `unreadable` (not a file, or denied), or `file` and, in
+ * base64, the SKILL.md's lines up to the second `---` line (the frontmatter's end), from its first
+ * `skillHeadBytes` bytes, each line ending in a newline. Prints nothing when there is no Skills
+ * folder. awk reads all it is given, so head never meets a closed pipe.
+ */
+export const readSkillsScript = [
+  "set -o pipefail",
+  "shopt -s nullglob dotglob",
+  `[ -d "$d" ] || exit 0`,
+  `for f in "$d"/*/; do`,
+  `  n=\${f%/}; n=\${n##*/}; s="\${f}SKILL.md"`,
+  `  if [ ! -e "$s" ]; then r=none`,
+  `  elif [ -f "$s" ] && c=$(head -c ${skillHeadBytes} -- "$s" | awk '!done { print } /^[[:space:]]*---[[:space:]]*$/ && ++n == 2 { done = 1 }' | base64 -w0); then r="file $c"`,
+  `  else r=unreadable; fi`,
+  `  printf '%s %s\\n' "$(printf %s "$n" | base64 -w0)" "$r"`,
+  "done",
+].join("\n");

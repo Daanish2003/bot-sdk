@@ -21,6 +21,7 @@ export {
   ScreenNotOpenError,
   syncCapBytes,
 } from "./plugin";
+export { boundedOutput, keptEndCharacters, redactedOutput } from "./bounded-output";
 export {
   type CommandResult,
   type ComputerProvider,

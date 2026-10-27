@@ -31,6 +31,8 @@ export const testModelProviders: ModelProviders = {
         apiKeyOf("openai", credentials),
         fetch ? { fetch } : undefined,
       ),
+    // The linked ChatGPT plan's calls go through the fetch the SDK passes (ADR 0023).
+    honoursFetch: true,
     image: (model, credentials) =>
       createOpenaiImage(
         model as Parameters<typeof createOpenaiImage>[0],

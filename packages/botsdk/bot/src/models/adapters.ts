@@ -1,6 +1,6 @@
 import type { AspectRatio } from "@botsdk/client/models/image-models";
 import { isKnownModel, parseModelId } from "@botsdk/client/models/models";
-import type { AnyImageAdapter, AnyTextAdapter } from "@tanstack/ai";
+import type { AnyImageAdapter, AnyTextAdapter, TextOptions } from "@tanstack/ai";
 
 import { chatgptPlanFetch } from "./chatgpt-plan";
 import type { Credentials, ModelProviders } from "./types";
@@ -9,7 +9,9 @@ import type { Credentials, ModelProviders } from "./types";
  * The production `deps.adapterFor` and `deps.imageAdapterFor` (spec #875), over the Providers the
  * Host passed in `models.providers`. A Model whose Provider the Host didn't pass, or that the Provider
  * has no adapter for, throws, so it fails loudly rather than run on nothing. On a linked ChatGPT
- * plan (`options.linked`), the Provider's adapter sends through the plan's `fetch` (ADR 0023).
+ * plan (`options.linked`), the Provider's adapter sends through the plan's `fetch` (ADR 0023), and
+ * a Provider that doesn't declare `honoursFetch` is refused. Every text adapter gets the run's
+ * abort signal on its requests (`withRunSignal`).
  */
 export function adaptersOf(providers: ModelProviders) {
   return {
@@ -22,12 +24,21 @@ export function adaptersOf(providers: ModelProviders) {
       if (!parsed || !isKnownModel(model)) {
         throw new Error(`"${model}" is not an available Model`);
       }
-      const text = providers[parsed.provider]?.text;
-      if (!text) throw new Error(`No adapter is available for the ${parsed.provider} Provider`);
-      return text(
-        parsed.modelId,
-        credentials,
-        options?.linked ? { fetch: chatgptPlanFetch() } : {},
+      const provider = providers[parsed.provider];
+      if (!provider?.text) {
+        throw new Error(`No adapter is available for the ${parsed.provider} Provider`);
+      }
+      if (options?.linked && !provider.honoursFetch) {
+        throw new Error(
+          `The ${parsed.provider} Provider doesn't declare honoursFetch, so a linked plan's Models can't run on it`,
+        );
+      }
+      return abortable(
+        provider.text(
+          parsed.modelId,
+          credentials,
+          options?.linked ? { fetch: chatgptPlanFetch() } : {},
+        ),
       );
     },
     imageAdapterFor(model: string, credentials: Credentials): AnyImageAdapter {
@@ -38,6 +49,47 @@ export function adaptersOf(providers: ModelProviders) {
         throw new Error(`No image adapter is available for the ${parsed.provider} Provider`);
       }
       return image(parsed.modelId, credentials);
+    },
+  };
+}
+
+/**
+ * `adapter` with the run's abort signal added to every request it sends through `wrapFetch`.
+ * Some stock adapters (Mistral's) don't hand the signal to their fetch, so Stop would leave the
+ * request running (issue #54). An adapter whose requests don't go through `wrapFetch` (Bedrock's,
+ * on the AWS SDK) needs a Host-side fix.
+ */
+function abortable(adapter: AnyTextAdapter): AnyTextAdapter {
+  return new Proxy(adapter, {
+    get(target, key) {
+      if (key === "chatStream") {
+        return (options: Parameters<AnyTextAdapter["chatStream"]>[0]) =>
+          target.chatStream(withRunSignal(options));
+      }
+      if (key === "structuredOutput") {
+        return (options: Parameters<AnyTextAdapter["structuredOutput"]>[0]) =>
+          target.structuredOutput({ ...options, chatOptions: withRunSignal(options.chatOptions) });
+      }
+      const value: unknown = Reflect.get(target, key, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+/** `options` with a `wrapFetch` that adds the run's abort signal to every fetch. */
+export function withRunSignal<T extends Pick<TextOptions, "request" | "wrapFetch">>(options: T): T {
+  const signal = options.request?.signal;
+  if (!signal) return options;
+  const { wrapFetch } = options;
+  return {
+    ...options,
+    wrapFetch: (next: typeof fetch): typeof fetch => {
+      const base = wrapFetch ? wrapFetch(next) : next;
+      return (input, init) =>
+        base(input, {
+          ...init,
+          signal: init?.signal ? AbortSignal.any([init.signal, signal]) : signal,
+        });
     },
   };
 }

@@ -15,13 +15,20 @@ export type Credentials = Record<string, string>;
 export type ModelProvider = {
   /**
    * The text adapter for one of its Models, from the credentials it runs on. `options.fetch` is set
-   * when the call must go through it (a linked ChatGPT plan, ADR 0023).
+   * when the call must go through it (a linked ChatGPT plan, ADR 0023); only a Provider that sets
+   * `honoursFetch` is given one.
    */
   text?: (
     modelId: string,
     credentials: Credentials,
     options: { fetch?: typeof fetch },
   ) => AnyTextAdapter;
+  /**
+   * Set when `text` sends every request through `options.fetch`. A linked ChatGPT plan's Models
+   * (ADR 0023) are offered and run only on an OpenAI Provider that sets it, so the plan's token
+   * never goes to the public API.
+   */
+  honoursFetch?: boolean;
   /** The image adapter for one of its Image Models (spec #278), from the credentials it runs on. */
   image?: (modelId: string, credentials: Credentials) => AnyImageAdapter;
   /**
@@ -152,6 +159,11 @@ export type ModelsDeps = {
    * Injected so tests and CI can pass a fake.
    */
   imageAdapterFor: (model: string, credentials: Credentials) => AnyImageAdapter | undefined;
+  /**
+   * Set when `imageAdapterFor` is the Host's own (`models.imageAdapterFor`): it serves every
+   * Image Model, so the user's Image Models aren't limited to `providers` with an image adapter.
+   */
+  imageAdapterOverride?: boolean;
   /** The Host's model Providers (`models.providers`, spec #875). */
   providers: ModelProviders;
   /** The Host credentials (`hostProviders`, ADR 0007). Never stored. */

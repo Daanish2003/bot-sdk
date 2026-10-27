@@ -7,6 +7,7 @@ import {
   type ComputerProvider,
   type FileEntry,
   type TimedOutCommand,
+  boundedOutput,
 } from "@botsdk/bot/computer/internal";
 import {
   fetchedLineBytes,
@@ -14,9 +15,8 @@ import {
   readScript,
   sizeScript,
 } from "@botsdk/bot/bot/agent-loop";
-import { boundedOutput } from "@botsdk/computer-e2b/bounded-output";
-import { stampScript, walkScript } from "@botsdk/knowledge/server/files";
-import { readSkillsScript, skillHeadBytes } from "@botsdk/skills/server/skills";
+import { stampScript, walkScript } from "@botsdk/bot/bot/knowledge-files";
+import { readSkillsScript, skillHeadBytes } from "@botsdk/bot/bot/skill-files";
 
 /** One command the fake ran: where, on which sandbox, and with what time limit. */
 export type FakeCommand = {

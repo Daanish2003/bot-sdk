@@ -24,16 +24,10 @@
     "@ai-chat/config": "workspace:*",
     "@botsdk/bot": "workspace:*",
     "@botsdk/client": "workspace:*",
-    "@botsdk/computer-e2b": "workspace:*",
-    "@botsdk/knowledge": "workspace:*",
-    "@botsdk/skills": "workspace:*",
     "typescript": "catalog:"
   },
   "peerDependencies": {
     "@botsdk/bot": "workspace:*",
-    "@botsdk/client": "workspace:*",
-    "@botsdk/computer-e2b": "workspace:*",
-    "@botsdk/knowledge": "workspace:*",
-    "@botsdk/skills": "workspace:*"
+    "@botsdk/client": "workspace:*"
   }
 }

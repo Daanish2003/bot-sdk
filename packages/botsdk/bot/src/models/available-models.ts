@@ -29,6 +29,7 @@ type Deps = Pick<
   | "linkedCredentials"
   | "logger"
   | "defaultImageModel"
+  | "imageAdapterOverride"
   | "recentModelSources"
 >;
 
@@ -53,18 +54,24 @@ export async function listAvailableModels(
   webSearchOnHost: boolean;
 }> {
   const services = deps.byok ? await resolvedServices(deps, userId) : [];
+  // Only Providers the Host passed in `models.providers` can run a Model (spec #875).
+  const runnable = services.filter((service) => deps.providers[service]?.text);
   // A linked plan offers its Models when the user has no OpenAI key; a broken link still lists
-  // them, so picking one asks to reconnect rather than running on the Host (ADR 0023).
+  // them, so picking one asks to reconnect rather than running on the Host (ADR 0023). Its token
+  // goes only to an OpenAI adapter that declares it honours the plan's fetch.
   const planModels =
-    !services.includes("openai") && (await shownLinkedPlan(deps, userId))
+    !services.includes("openai") &&
+    deps.providers.openai?.text &&
+    deps.providers.openai.honoursFetch &&
+    (await shownLinkedPlan(deps, userId))
       ? curatedModels.filter((model) => chatgptPlanModels.includes(model.id))
       : [];
   const own = [
-    ...curatedModels.filter((model) => services.includes(model.provider)),
+    ...curatedModels.filter((model) => runnable.includes(model.provider)),
     ...planModels,
     ...(
       await Promise.all(
-        services.filter(isLiveListProvider).map((provider) => liveModels(deps, userId, provider)),
+        runnable.filter(isLiveListProvider).map((provider) => liveModels(deps, userId, provider)),
       )
     ).flat(),
   ];
@@ -133,7 +140,7 @@ async function liveModels(deps: Deps, userId: string, provider: string) {
     const openRouter = deps.providers.openrouter;
     return openRouter?.text ? openRouterModels(deps.fetch, openRouter.chatModels) : [];
   }
-  if (provider !== "ollama") return [];
+  if (provider !== "ollama" || !deps.providers.ollama?.text) return [];
   const host = (await loadCredentials(deps, userId, "ollama"))?.host;
   return host ? ollamaModels(deps.ollamaFetch, host) : [];
 }

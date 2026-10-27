@@ -6,12 +6,21 @@ import {
 } from "node:http2";
 import type { AddressInfo } from "node:net";
 
+import { adaptersOf } from "@botsdk/bot/models/internal";
 import { type AnyTextAdapter, chat } from "@tanstack/ai";
+import { createMistralText } from "@tanstack/ai-mistral";
 import { createOllamaChat } from "@tanstack/ai-ollama";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { createAbortableBedrockText, createAbortableMistralText } from "./model-providers";
+import { createAbortableBedrockText } from "./model-providers";
+
+/** The stock Mistral adapter as the SDK runs it, which adds the run's signal (`adaptersOf`). */
+function mistralAt(baseURL: string) {
+  return adaptersOf({
+    mistral: { text: () => createMistralText("mistral-medium-latest", "key-test", { baseURL }) },
+  }).adapterFor("mistral:mistral-medium-latest", { apiKey: "key-test" });
+}
 
 /**
  * A Provider that takes a request and never answers it. `connectionClosed` settles when the
@@ -100,18 +109,14 @@ describe("aborting a run cancels the request to the Provider", () => {
 
   it("for Mistral", async () => {
     provider = await hangingProvider();
-    const adapter = createAbortableMistralText("mistral-medium-latest", "key-test", {
-      baseURL: provider.url,
-    });
+    const adapter = mistralAt(provider.url);
 
     expect(await abortMidRequest(adapter, provider)).toBe("settled");
   });
 
   it("for a Mistral structured output", async () => {
     provider = await hangingProvider();
-    const adapter = createAbortableMistralText("mistral-medium-latest", "key-test", {
-      baseURL: provider.url,
-    });
+    const adapter = mistralAt(provider.url);
 
     expect(await abortMidRequest(adapter, provider, z.object({ answer: z.string() }))).toBe(
       "settled",

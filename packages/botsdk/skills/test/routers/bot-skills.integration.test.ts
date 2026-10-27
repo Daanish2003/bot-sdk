@@ -14,7 +14,7 @@ import {
   claimJob,
 } from "@botsdk/bot/runner/internal";
 import { skills } from "../../src";
-import { readSkillsScript } from "../../src/server/skills";
+import { readSkillsScript } from "@botsdk/bot/bot/skill-files";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";

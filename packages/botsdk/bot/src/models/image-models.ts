@@ -7,7 +7,7 @@ import {
 import { parseModelId } from "@botsdk/client/models/models";
 
 import { type ResolveDeps, resolvePayer } from "./credentials/resolve";
-import type { Credentials, HostImageModel } from "./types";
+import type { Credentials, HostImageModel, ModelsDeps } from "./types";
 import { type ImageMeter, imageMeter } from "./meter";
 
 type Deps = ResolveDeps;
@@ -48,10 +48,19 @@ export function hostImageModelList(deps: Pick<Deps, "hostProviders">): ImageMode
  * The Image Models a user can pick, given the Providers they have credentials for (`services`):
  * the curated ones of those Providers first, then the Host's for the other Providers, marked as
  * running on Host credentials. The same rule as chat Models: the user's own key wins (ADR 0007).
+ * A Provider's own Image Models need its image adapter in `providers`, unless the Host passed its
+ * own `imageAdapterFor` (spec #875).
  */
-export function listImageModels(deps: Pick<Deps, "hostProviders">, services: string[]) {
+export function listImageModels(
+  deps: Pick<ModelsDeps, "hostProviders" | "providers" | "imageAdapterOverride">,
+  services: string[],
+) {
   const own: ListedImageModel[] = curatedImageModels
-    .filter((model) => services.includes(model.provider))
+    .filter(
+      (model) =>
+        services.includes(model.provider) &&
+        (deps.imageAdapterOverride || deps.providers[model.provider]?.image),
+    )
     .map((model) => ({ ...model, onHostCredentials: false }));
   const hosted: ListedImageModel[] = hostImageModelList(deps)
     .filter((model) => !services.includes(model.provider))

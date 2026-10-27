@@ -6,6 +6,8 @@ import { userCredentials } from "../../src/storage";
 import { saveCredentials } from "../../src/models/internal";
 import { createTestSdk } from "@ai-chat/test-support/deps";
 import { liveModelsFetch } from "@ai-chat/test-support/live-models";
+import { testModelProviders } from "@ai-chat/test-support/model-providers";
+import { createFakeAdapter } from "@botsdk/testing/fake-adapter";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser, type TestUser } from "@ai-chat/test-support/users";
 import { chatRpc } from "@ai-chat/test-support/sdk";
@@ -83,7 +85,14 @@ describe("models.list", () => {
 describe("models.list with live lists", () => {
   async function signedInWith(fetch: typeof globalThis.fetch) {
     const user = await insertUser();
-    const liveDeps = createTestSdk({ fetch });
+    // The test Providers have no Ollama, so it gets a stand-in adapter for its live list.
+    const liveDeps = createTestSdk({
+      fetch,
+      providers: {
+        ...testModelProviders,
+        ollama: { text: () => createFakeAdapter({ rounds: [] }).adapter },
+      },
+    });
     return { user, deps: liveDeps, client: chatRpc({ user, deps: liveDeps }) };
   }
 
@@ -295,5 +304,68 @@ describe("models.list default with the bot plugin", () => {
     const { defaultModel } = await client.models.list();
 
     expect(defaultModel).toBe("openai:gpt-6-luna");
+  });
+});
+
+describe("models.list and the Host's model Providers (spec #875)", () => {
+  /** A user with keys for `services`, on an SDK with only `providers`. */
+  async function userWith(services: string[], overrides: Parameters<typeof createTestSdk>[0] = {}) {
+    const user = await insertUser();
+    const sdk = createTestSdk(overrides);
+    for (const service of services) {
+      await saveCredentials(sdk, user.id, {
+        service,
+        fields: service === "ollama" ? { host: "http://ollama.test:11434" } : { apiKey: "k" },
+        hint: "…k",
+        verified: true,
+      });
+    }
+    return chatRpc({ user, deps: sdk });
+  }
+
+  it("lists no Model of a Provider the Host didn't pass, though the user has its key", async () => {
+    const client = await userWith(["openai", "anthropic"], {
+      providers: { anthropic: testModelProviders.anthropic! },
+    });
+
+    const { models, imageModels, defaultModel } = await client.models.list();
+
+    expect(models.length).toBeGreaterThan(0);
+    expect(models.every((model) => model.provider === "anthropic")).toBe(true);
+    expect(imageModels).toEqual([]);
+    expect(defaultModel?.startsWith("anthropic:")).toBe(true);
+  });
+
+  it("lists no Image Model of a Provider whose image adapter the Host didn't pass, unless the Host passes imageAdapterFor", async () => {
+    const textOnly = { openai: { text: testModelProviders.openai!.text } };
+    const without = await userWith(["openai"], { providers: textOnly });
+    expect((await without.models.list()).imageModels).toEqual([]);
+
+    const overridden = await userWith(["openai"], {
+      providers: textOnly,
+      imageAdapterFor: () => undefined,
+    });
+    expect((await overridden.models.list()).imageModels.map((model) => model.id)).toContain(
+      "openai:gpt-image-2",
+    );
+  });
+
+  it("doesn't ask the user's Ollama host for its Models when the Host didn't pass Ollama", async () => {
+    const live = liveModelsFetch({ ollama: ["qwen3:8b"] });
+    const client = await userWith(["ollama"], { fetch: live.fetch });
+
+    const { models } = await client.models.list();
+
+    expect(live.urls).toEqual([]);
+    expect(models).toEqual([]);
+  });
+
+  it("offers no linked ChatGPT plan Models when the Host's OpenAI adapter doesn't declare it honours fetch (ADR 0023)", async () => {
+    const client = await userWith([], {
+      providers: { openai: { text: testModelProviders.openai!.text } },
+      linkedCredentials: async () => ({ apiKey: "chatgpt-access-token" }),
+    });
+
+    expect((await client.models.list()).models).toEqual([]);
   });
 });

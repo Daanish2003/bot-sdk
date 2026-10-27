@@ -242,6 +242,7 @@ export function productionDeps(sdk: BotSdkContext, options: ModelsOptions): Mode
     providers,
     adapterFor: adapters.adapterFor,
     imageAdapterFor: options.imageAdapterFor ?? adapters.imageAdapterFor,
+    imageAdapterOverride: options.imageAdapterFor !== undefined,
     hostProviders: (options.hostProviders ?? []).filter(isHostProvider),
     hostTools: (options.hostProviders ?? []).filter(isHostTool),
     byok: options.byok ?? true,

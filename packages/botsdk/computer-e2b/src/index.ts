@@ -16,8 +16,7 @@ import type {
   FileEntry,
   TimedOutCommand,
 } from "@botsdk/bot/computer";
-import { SandboxGoneError } from "@botsdk/bot/computer/internal";
-import { boundedOutput, redactedOutput } from "./bounded-output";
+import { boundedOutput, redactedOutput, SandboxGoneError } from "@botsdk/bot/computer/internal";
 
 /** The self-hosted E2B a Host points the adapter at, and the template it builds Computers from. */
 export type E2bProviderOptions = {

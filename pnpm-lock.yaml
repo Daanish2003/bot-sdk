@@ -949,15 +949,6 @@ importers:
       '@botsdk/client':
         specifier: workspace:*
         version: link:../client
-      '@botsdk/computer-e2b':
-        specifier: workspace:*
-        version: link:../computer-e2b
-      '@botsdk/knowledge':
-        specifier: workspace:*
-        version: link:../knowledge
-      '@botsdk/skills':
-        specifier: workspace:*
-        version: link:../skills
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
