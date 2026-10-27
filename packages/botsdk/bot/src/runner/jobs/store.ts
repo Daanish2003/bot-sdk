@@ -1,4 +1,21 @@
-import { and, eq, gte, inArray, isNull, lt, lte, notInArray, or, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  like,
+  lt,
+  lte,
+  notExists,
+  notInArray,
+  or,
+  type SQL,
+  sql,
+} from "drizzle-orm";
+import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 
 import type { Database } from "../../storage";
 import type { Transaction } from "../../plugin";
@@ -569,4 +586,104 @@ export async function readJob(db: Database, id: string): Promise<JobStatus | und
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+/** `text` with the characters `LIKE` reads as wildcards escaped. */
+const escapeLike = (text: string) => text.replace(/[\\%_]/g, (char) => `\\${char}`);
+
+/** An active job as a reader sees it: its key, whether it runs, and when it is due. */
+export type ActiveJob = {
+  idempotencyKey: string;
+  status: (typeof ACTIVE)[number];
+  runAfter: Date;
+};
+
+/**
+ * The active jobs `name` whose key starts with one of `keyPrefixes`, in `db` or a transaction. With
+ * `status`, only those in that status.
+ */
+export async function activeJobsByKeyPrefix(
+  db: Database | Transaction,
+  query: { name: string; keyPrefixes: string[]; status?: ActiveJob["status"] },
+): Promise<ActiveJob[]> {
+  if (query.keyPrefixes.length === 0) return [];
+  const rows = await db
+    .select({ key: job.idempotencyKey, status: job.status, runAfter: job.runAfter })
+    .from(job)
+    .where(
+      and(
+        eq(job.name, query.name),
+        inArray(job.status, query.status ? [query.status] : [...ACTIVE]),
+        or(
+          ...query.keyPrefixes.map((prefix) => like(job.idempotencyKey, `${escapeLike(prefix)}%`)),
+        ),
+      ),
+    );
+  // The key prefix and the status filter make both of these certain.
+  return rows.map((row) => ({
+    idempotencyKey: row.key!,
+    status: row.status as ActiveJob["status"],
+    runAfter: row.runAfter,
+  }));
+}
+
+/**
+ * The `id` of each row of `from` that matches `where` and has no active job `name` whose key
+ * starts with `keyPrefix(id)`, in one anti-join, so a reader never reads the job table itself.
+ */
+export async function idsWithoutActiveJob(
+  db: Database | Transaction,
+  query: {
+    from: PgTable;
+    id: PgColumn;
+    where?: SQL;
+    name: string;
+    keyPrefix: (id: PgColumn) => SQL;
+  },
+): Promise<string[]> {
+  const active = db
+    .select({ one: sql`1` })
+    .from(job)
+    .where(
+      and(
+        eq(job.name, query.name),
+        inArray(job.status, [...ACTIVE]),
+        like(job.idempotencyKey, sql`${query.keyPrefix(query.id)} || '%'`),
+      ),
+    );
+  const rows = await db
+    .select({ id: query.id })
+    .from(query.from)
+    .where(and(query.where, notExists(active)));
+  return rows.map((row) => row.id as string);
+}
+
+/** How many Checkpoints named `name` each of the jobs has recorded. Jobs with none are left out. */
+export async function checkpointCounts(
+  db: Database | Transaction,
+  jobIds: string[],
+  name: string,
+): Promise<Map<string, number>> {
+  if (jobIds.length === 0) return new Map();
+  const rows = await db
+    .select({ jobId: jobEvent.jobId, steps: count() })
+    .from(jobEvent)
+    .where(and(inArray(jobEvent.jobId, jobIds), eq(jobEvent.name, name)))
+    .groupBy(jobEvent.jobId);
+  return new Map(rows.map((row) => [row.jobId, row.steps]));
+}
+
+/** The result of the newest Checkpoint named `name` of each of the jobs. Jobs with none are left out. */
+export async function newestCheckpoints(
+  db: Database | Transaction,
+  jobIds: string[],
+  name: string,
+): Promise<Map<string, unknown>> {
+  if (jobIds.length === 0) return new Map();
+  const rows = await db
+    .selectDistinctOn([jobEvent.jobId], { jobId: jobEvent.jobId, result: jobEvent.result })
+    .from(jobEvent)
+    .where(and(inArray(jobEvent.jobId, jobIds), eq(jobEvent.name, name)))
+    .orderBy(jobEvent.jobId, desc(jobEvent.seq));
+  return new Map(rows.map((row) => [row.jobId, row.result]));
 }

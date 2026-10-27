@@ -6,9 +6,12 @@ import {
   isContractProcedure,
 } from "@orpc/contract";
 import { type AnyRouter, implement } from "@orpc/server";
+import type { BotKnowledgeChange } from "@botsdk/client/knowledge/changes";
+import type { BotSkillChange } from "@botsdk/client/skills/changes";
 import type { AnyServerTool, ModelMessage } from "@tanstack/ai";
 import { is } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
+import type { PgEnum, PgSequence } from "drizzle-orm/pg-core";
 
 import { schema as coreTables } from "./storage";
 import type { Database } from "./storage";
@@ -18,6 +21,7 @@ import type { FeatureMigrations, Migration } from "./migrate";
 import type { BotSdkContext, BotSdkPlugin, Route, Transaction } from "./plugin";
 import { requireAuth } from "./procedures";
 import type { ComputerApi } from "./computer/internal";
+import type { ModelsApi } from "./models/internal";
 import type { EnqueueOptions, JobDefinition } from "./runner/internal";
 
 /*
@@ -27,9 +31,12 @@ import type { EnqueueOptions, JobDefinition } from "./runner/internal";
  */
 
 /** The core services a feature may declare in `needs`. */
-export type CoreService = "computer";
+export type CoreService = "computer" | "models" | "threads";
 
-type Services = { computer: ComputerApi };
+/** What a feature tells a Conversation's open tabs. */
+export type ThreadsService = { hintChanged: (conversationId: string) => Promise<void> };
+
+type Services = { computer: ComputerApi; models: ModelsApi; threads: ThreadsService };
 
 /** What the core gives every feature, plus the services it declared in `needs`, non-optional. */
 export type FeatureContext<Needs extends CoreService = never> = {
@@ -155,6 +162,49 @@ export type FeaturePrompt = {
   environment?: string;
 };
 
+/** The Turn a feature's `turnChanges` reads: what it did, as its transcript holds it. */
+export type FeatureEndedTurn = FeatureTurn & { transcript: readonly ModelMessage[] };
+
+/** A file a Turn's tool call wrote, and whether that call created it. */
+export type WrittenFile = { path: string; created: boolean };
+
+/**
+ * The files a Turn's `transcript` wrote, for a feature's `turnChanges`: the `path` of each
+ * successful `write`, `edit` and `run_tool` call's result, in the order of the results. A result
+ * that isn't JSON, has an `error` or has no `path` string is left out.
+ */
+export function writtenFiles(transcript: readonly ModelMessage[]): WrittenFile[] {
+  const names = new Map<string, string>();
+  for (const entry of transcript) {
+    for (const call of entry.toolCalls ?? []) names.set(call.id, call.function.name);
+  }
+  const written: WrittenFile[] = [];
+  for (const entry of transcript) {
+    if (entry.role !== "tool" || !entry.toolCallId || typeof entry.content !== "string") continue;
+    const called = names.get(entry.toolCallId);
+    if (called !== "write" && called !== "edit" && called !== "run_tool") continue;
+    let result: { path?: unknown; error?: unknown; created?: unknown };
+    try {
+      result = JSON.parse(entry.content);
+    } catch {
+      continue;
+    }
+    if (typeof result !== "object" || result === null || "error" in result) continue;
+    if (typeof result.path !== "string") continue;
+    written.push({ path: result.path, created: result.created === true });
+  }
+  return written;
+}
+
+/**
+ * What a Turn changed of a feature, for the Turn's chips: the core stores each kind in the Turn's
+ * column of that name. A kind left out, or empty, is no change.
+ */
+export type FeatureTurnChanges = {
+  skillChanges?: BotSkillChange[] | null;
+  knowledgeChanges?: BotKnowledgeChange[] | null;
+};
+
 /**
  * A feature, as `defineFeature` takes it. Every part is optional but `id`, which names its API on
  * the SDK, its Prompt start section and its part of a user's export.
@@ -173,8 +223,15 @@ export type FeatureDefinition<
    * first (spec #874): `migrate` applies them after the core's, and `start` refuses until they are.
    * Foreign keys into core tables are allowed; a table named like a core table (which would add
    * columns to it) makes the factory throw. Turning the feature off leaves its tables and rows.
+   * `enums` and `sequences` are the types and sequences its migrations create: what
+   * `dropFeatureTables` removes beside its tables.
    */
-  schema?: { tables?: Record<string, PgTable>; migrations?: readonly Migration[] };
+  schema?: {
+    tables?: Record<string, PgTable>;
+    enums?: Record<string, Pick<PgEnum<[string, ...string[]]>, "enumName" | "schema">>;
+    sequences?: Record<string, Pick<PgSequence, "seqName" | "schema">>;
+    migrations?: readonly Migration[];
+  };
   /** User-scoped methods: each takes the user's id. The Host calls them as `sdk.<id>.<method>`. */
   api?: (context: FeatureContext<Needs>) => Api;
   /**
@@ -207,6 +264,12 @@ export type FeatureDefinition<
    * undoes only the feature's writes.
    */
   afterTurn?: (tx: Transaction, turn: FeatureTurn, context: FeatureContext<Needs>) => Promise<void>;
+  /**
+   * What the Turn changed of the feature, read from its transcript as the Turn ends (stopped and
+   * lost ones too, from what they recorded), with no reads or writes: the core stores it on the
+   * Turn. A throw is logged and stores none of the feature's changes.
+   */
+  turnChanges?: (turn: FeatureEndedTurn) => FeatureTurnChanges | null;
   /**
    * The jobs the feature queues, built with `defineJob` (spec #872). Each one's context has the
    * feature's, with the services in `needs`. A job name can be listed once per instance.
@@ -334,7 +397,11 @@ const coreTableNames = new Set(
   ),
 );
 
-const serviceNames: Record<CoreService, string> = { computer: "the Computer" };
+const serviceNames: Record<CoreService, string> = {
+  computer: "the Computer",
+  models: "the Models",
+  threads: "the Conversation threads",
+};
 
 /**
  * Throws when a feature's id is reserved, a table of its schema is a core table, or a service it
@@ -387,30 +454,25 @@ export function featureMigrations(features: readonly AnyFeature[]): FeatureMigra
 export const hasConnectorFeature = (sdk: Pick<BotSdkContext, "parts">): boolean =>
   enabledFeatures(sdk).some(({ feature }) => feature.connectorTools);
 
-/** A feature, enabled on `sdk`: its context holds the core services it needs. */
-export function enableFeature(sdk: BotSdkContext, feature: AnyFeature): EnabledFeature {
-  return { feature, context: contextOf(sdk, feature.needs ?? []) };
-}
-
-const coreContext = Symbol("coreContext");
-
 /**
- * The whole core context behind a feature's context, or a job context that spreads one: for the
- * SDK's own Memory feature, whose job still reads the core's Models and Bots. Never public.
+ * A feature, enabled on `sdk`, whose Models are set: its context holds the core services it
+ * needs, with `threads` as the instance builds it.
  */
-export function coreContextOf(context: object): BotSdkContext {
-  const sdk = (context as { [coreContext]?: BotSdkContext })[coreContext];
-  if (!sdk) throw new Error("Not a feature's context");
-  return sdk;
+export function enableFeature(
+  sdk: BotSdkContext,
+  feature: AnyFeature,
+  threads: ThreadsService,
+): EnabledFeature {
+  return { feature, context: contextOf(sdk, feature.needs ?? [], threads) };
 }
 
 /** The context the core gives a feature (or the Host's jobs) that needs `needs`. */
 export function contextOf(
   sdk: BotSdkContext,
   needs: readonly CoreService[],
+  threads: ThreadsService,
 ): FeatureContext<CoreService> {
-  const base: FeatureContext & { [coreContext]: BotSdkContext } = {
-    [coreContext]: sdk,
+  const base: FeatureContext = {
     db: sdk.db,
     logger: sdk.logger,
     clock: sdk.clock,
@@ -426,6 +488,8 @@ export function contextOf(
   return {
     ...base,
     ...(needs.includes("computer") && { computer: sdk.computer }),
+    ...(needs.includes("models") && { models: sdk.models }),
+    ...(needs.includes("threads") && { threads }),
   } as FeatureContext<CoreService>;
 }
 

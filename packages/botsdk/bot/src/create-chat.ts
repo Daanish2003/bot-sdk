@@ -12,6 +12,7 @@ import {
   featureRouter,
   type AnyFeature,
   type FeatureApis,
+  type ThreadsService,
 } from "./feature";
 import type { PostgresDatabase } from "./database";
 import { assertMigrated, migrate as migrateSchema } from "./migrate";
@@ -38,6 +39,7 @@ import type { DemonstrationsApi } from "./bot/demonstrations-api";
 import type { HelpersApi } from "./bot/helpers-api";
 import type { ReviewsApi } from "./bot/reviews-api";
 import { channel, createChannels, noChannels } from "./bot/channels";
+import { hintChanged } from "./bot/conversation";
 import type { ChannelAdapter, ChannelApi } from "./channel/internal";
 import { computerSleepJob, createComputer } from "./computer/internal";
 import type { ComputerProvider } from "./computer/internal";
@@ -314,7 +316,12 @@ export function buildBotSdk(
   if (core[0]?.id !== "models") throw new Error("The core's parts must start with Models");
   const features: readonly AnyFeature[] = options.features ?? [];
   // The core services the instance has: a feature's `needs` are checked against them.
-  const services = new Set(["runner", ...(options.computer ? ["computer"] : [])]);
+  const services = new Set([
+    "runner",
+    "models",
+    "threads",
+    ...(options.computer ? ["computer"] : []),
+  ]);
   const ids = new Set<string>();
   for (const feature of features) {
     if (ids.has(feature.id)) throw new Error(`Feature "${feature.id}" is enabled twice`);
@@ -349,20 +356,28 @@ export function buildBotSdk(
   sdk.computer = options.computer ? createComputer(sdk, options.computer) : null;
   // No Channel besides web, until the channels slot's init sets its adapters.
   sdk.channels = createChannels(sdk, { adapters: [], verifiedEmail: async () => null });
+  // The Models' init first, so a feature's context holds them: it reads nothing the parts set.
+  const modelsInit = core[0].init?.(sdk);
+  const threads: ThreadsService = {
+    hintChanged: (conversationId) => hintChanged(sdk, conversationId),
+  };
   // Each feature in the Host's order, with the core services it needs.
-  const enabled = features.map((feature) => enableFeature(sdk, feature));
+  const enabled = features.map((feature) => enableFeature(sdk, feature, threads));
   const plugins = [...core, ...enabled.map(featurePlugin)];
   // Every job the runner runs: the core's, each feature's with its context, then the Host's.
   const coreServices: CoreJobServices = { deps: sdk };
   const jobs = jobTable([
     { jobs: [...botJobs, computerSleepJob], services: coreServices },
     ...enabled.map(({ feature, context }) => ({ jobs: feature.jobs ?? [], services: context })),
-    { jobs: options.jobs ?? [], services: contextOf(sdk, []) },
+    { jobs: options.jobs ?? [], services: contextOf(sdk, [], threads) },
   ]);
   const apis = new Map<string, object>();
   sdk.parts = { all: plugins, features: enabled, jobs, apis };
   // In order: the core's parts first, then each feature's API.
-  for (const plugin of plugins) apis.set(plugin.id, plugin.init?.(sdk)?.api ?? {});
+  for (const plugin of plugins) {
+    const init = plugin === core[0] ? modelsInit : plugin.init?.(sdk);
+    apis.set(plugin.id, init?.api ?? {});
+  }
 
   const instance: BotSdk = {
     runner: sdk.runner,

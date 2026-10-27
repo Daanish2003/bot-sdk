@@ -7,6 +7,7 @@ import { uuidv7 } from "../../src/lib/uuidv7";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner, systemClock } from "../../src/runner/internal";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
+import { isTurnCall } from "@ai-chat/test-support/bot-turns";
 import { createFakeAdapter, round, text, toolCall, withUsage } from "@botsdk/testing/fake-adapter";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
@@ -29,11 +30,6 @@ afterEach(async () => {
 
 const profilePath = (botId: string) => `/home/user/bots/${botId}/memory/profile.md`;
 const encode = (text: string) => new TextEncoder().encode(text);
-
-const isTurnCall = (options: TextOptions) =>
-  String((options.messages as ModelMessage[] | undefined)?.[0]?.content).startsWith(
-    "[Your environment]",
-  );
 
 /**
  * A user with an OpenAI key and a Bot "Ada", with `computer` and `memory` on. The Model plays
@@ -93,8 +89,7 @@ async function send(client: ReturnType<typeof chatRpc>, botId: string, text: str
 const messagesOf = (call: TextOptions | undefined) => (call?.messages ?? []) as ModelMessage[];
 
 /** The Bot's Turn calls: the memory pass's own calls don't start with the environment. */
-const turnCalls = (calls: TextOptions[]) =>
-  calls.filter((call) => String(messagesOf(call)[0]?.content).startsWith("[Your environment]"));
+const turnCalls = (calls: TextOptions[]) => calls.filter(isTurnCall);
 
 /** The newest message of the first call whose newest message holds `text`. */
 function newestWith(calls: TextOptions[], text: string): string {

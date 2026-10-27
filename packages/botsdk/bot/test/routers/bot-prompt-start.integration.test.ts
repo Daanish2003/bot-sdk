@@ -13,6 +13,7 @@ import {
   reapStaleJobs,
 } from "../../src/runner/internal";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
+import { isTurnCall } from "@ai-chat/test-support/bot-turns";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
@@ -92,8 +93,7 @@ const firstMessageOf = (call: TextOptions | undefined) =>
   String((call?.messages as ModelMessage[] | undefined)?.[0]?.content ?? "");
 
 /** The model calls of the Bot's Turns, not of its memory pass. */
-const turnCalls = (calls: TextOptions[]) =>
-  calls.filter((call) => firstMessageOf(call).startsWith("[Your environment]"));
+const turnCalls = (calls: TextOptions[]) => calls.filter(isTurnCall);
 
 /** What a model call sent of the Prompt start: tools, system blocks and the first message. */
 const promptStartSent = (call: TextOptions | undefined) =>

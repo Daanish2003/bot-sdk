@@ -1,9 +1,10 @@
 import { type BotHelper, isLiveHelper } from "@botsdk/client/bot/helper";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { EventType, type StreamChunk } from "@tanstack/ai";
 
-import { bot, botHelper, botTurn, jobEvent } from "../../storage";
+import { bot, botHelper, botTurn } from "../../storage";
 import type { Database } from "../../storage";
+import { checkpointCounts, newestCheckpoints } from "../../runner/internal";
 import { askUserToolName } from "./hand-off";
 import { gistOf } from "./helper";
 import { lastMessageOfTurn } from "../routines";
@@ -74,27 +75,13 @@ export async function listHelpers(
     .orderBy(asc(botHelper.startedAt), asc(botHelper.id));
 
   const jobIds = rows.flatMap((row) => (row.jobId ? [row.jobId] : []));
-  const counts = jobIds.length
-    ? await db
-        .select({ jobId: jobEvent.jobId, steps: sql<number>`count(*)::int` })
-        .from(jobEvent)
-        .where(and(inArray(jobEvent.jobId, jobIds), eq(jobEvent.name, "model")))
-        .groupBy(jobEvent.jobId)
-    : [];
-  const stepsOf = new Map(counts.map((row) => [row.jobId, row.steps]));
+  const stepsOf = await checkpointCounts(db, jobIds, "model");
 
   // Each live Helper's newest model call, all in one query.
   const liveJobIds = rows.flatMap((row) =>
     row.jobId && isLiveHelper(row.status) ? [row.jobId] : [],
   );
-  const newest = liveJobIds.length
-    ? await db
-        .selectDistinctOn([jobEvent.jobId], { jobId: jobEvent.jobId, result: jobEvent.result })
-        .from(jobEvent)
-        .where(and(inArray(jobEvent.jobId, liveJobIds), eq(jobEvent.name, "model")))
-        .orderBy(jobEvent.jobId, desc(jobEvent.seq))
-    : [];
-  const newestOf = new Map(newest.map((row) => [row.jobId, row.result]));
+  const newestOf = await newestCheckpoints(db, liveJobIds, "model");
 
   return rows.map(({ jobId, savedSteps, handedOff, ...row }) => {
     let latest: string | null = null;

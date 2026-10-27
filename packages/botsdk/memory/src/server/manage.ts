@@ -1,7 +1,8 @@
 import { eq } from "drizzle-orm";
 
 import { memorySettings } from "./db/settings";
-import type { BotSdkContext, Transaction } from "@botsdk/bot/plugin";
+import type { FeatureContext } from "@botsdk/bot/feature";
+import type { Transaction } from "@botsdk/bot/plugin";
 
 /** What the Memory switch shows: the switch, and whether Bots can have memory. */
 import type { MemoryStatus } from "../shared/contract";
@@ -21,7 +22,10 @@ export async function memoryEnabledFor(
 }
 
 /** The user's Memory switch, and whether Bots can have memory. */
-export async function memoryStatus(deps: BotSdkContext, userId: string): Promise<MemoryStatus> {
+export async function memoryStatus(
+  deps: FeatureContext<"computer">,
+  userId: string,
+): Promise<MemoryStatus> {
   return {
     enabled: await memoryEnabledFor(deps, userId),
     botMemoryAvailable: Boolean(deps.computer),
@@ -29,7 +33,11 @@ export async function memoryStatus(deps: BotSdkContext, userId: string): Promise
 }
 
 /** Saves the "Use and make Memories" switch. Off keeps every memory file; it only stops using and making them. */
-export async function setMemoryEnabled(deps: BotSdkContext, userId: string, enabled: boolean) {
+export async function setMemoryEnabled(
+  deps: FeatureContext<"computer">,
+  userId: string,
+  enabled: boolean,
+) {
   await deps.db
     .insert(memorySettings)
     .values({ userId, enabled })

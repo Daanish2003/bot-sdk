@@ -1,4 +1,4 @@
-import type { ModelMessage, TextOptions } from "@tanstack/ai";
+import type { TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -8,6 +8,7 @@ import { knowledge } from "../../src";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { inProcessRunner, type JobRunner, systemClock } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
+import { isTurnCall } from "@ai-chat/test-support/bot-turns";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
@@ -23,11 +24,6 @@ const started: JobRunner[] = [];
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();
 });
-
-const isTurnCall = (options: TextOptions) =>
-  String((options.messages as ModelMessage[] | undefined)?.[0]?.content).startsWith(
-    "[Your environment]",
-  );
 
 /** A user with an OpenAI key and a Bot "Ada"; the Model plays `turnRounds` in the Bot's Turn calls. */
 async function botWith(turnRounds: ReturnType<typeof round>[]) {

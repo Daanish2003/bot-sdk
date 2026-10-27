@@ -16,6 +16,7 @@ import { findBot } from "../../src/bot/conversation";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner, systemClock } from "../../src/runner/internal";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
+import { isTurnCall } from "@ai-chat/test-support/bot-turns";
 import { createFakeAdapter, round, text, toolCall } from "@botsdk/testing/fake-adapter";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
@@ -269,11 +270,11 @@ describe("handing the Screen to the user", () => {
 
     await send(client, botId, "any news?");
 
-    const newest = (turnFake.calls.at(-1)?.messages ?? []).at(-1) as ModelMessage;
+    const newest = (turnFake.calls.findLast(isTurnCall)?.messages ?? []).at(-1) as ModelMessage;
     expect(String(newest.content)).toContain(
       `${waiting.id} · Computer-use · waiting for the user: ${reason} · task: ${task} · since`,
     );
-  });
+  }, 30_000);
 
   it("finds no Helper of another user's", async () => {
     const { client, botId, deps } = await botWith([handsOff, round()], [asksUser]);

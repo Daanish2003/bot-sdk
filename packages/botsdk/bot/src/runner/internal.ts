@@ -26,9 +26,14 @@ export {
   systemClock,
 } from "./jobs/runner";
 export {
+  type ActiveJob,
+  activeJobsByKeyPrefix,
   cancelJob,
   cancelQueuedJobsIn,
+  checkpointCounts,
   claimJob,
+  idsWithoutActiveJob,
+  newestCheckpoints,
   pruneFinishedJobs,
   reapStaleJobs,
 } from "./jobs/store";

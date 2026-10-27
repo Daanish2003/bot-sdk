@@ -16,8 +16,10 @@ export {
   type FeatureSection,
   featureSectionsNow,
   featureTools,
+  featureTurnChanges,
   featureTurnOf,
   takenNames,
+  type TurnChanges,
 } from "./features";
 export { definitionsOf, latestPromptStartId, loopPromptStart } from "./prompt-start";
 export {

@@ -1,9 +1,10 @@
-import { coreContextOf, defineFeature } from "@botsdk/bot/feature";
+import { defineFeature } from "@botsdk/bot/feature";
 import { isComputerFailure } from "@botsdk/bot/computer/internal";
 import { skillChangeNotes } from "./changes";
 import { skillsContract } from "../shared/contract";
 import { skillsApi } from "./skills-api";
 import { readBotSkills, skillsPrompt } from "./skills";
+import { skillChangesOf } from "./turn-changes";
 
 /**
  * The `skills` feature (spec #713, #871): each Bot's Skills, plain `SKILL.md` files in its folder
@@ -18,7 +19,9 @@ export function skills() {
     demonstrations: true,
     contract: skillsContract,
     // The domain methods: `sdk.skills` (spec #873).
-    api: (context) => skillsApi(coreContextOf(context)),
+    api: (context) => skillsApi(context),
+    // The Skills the Turn wrote, for its Skill chip.
+    turnChanges: (turn) => ({ skillChanges: skillChangesOf(turn.botId, turn.transcript) }),
     // Read once as a Turn starts: the section the Prompt start keeps, and what changed since.
     prompt: async (turn, { computer, logger }) => {
       // A Computer that can't be woken or read leaves the Turn without a Skills section; any

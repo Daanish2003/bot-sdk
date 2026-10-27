@@ -36,13 +36,15 @@ const notes = defineFeature({
   },
 });
 
-// A feature with its own enum and a sequence no table owns: --drop removes both, so enabling it
-// again creates them anew.
+// A feature with its own enums (one no column uses) and a sequence no table owns: --drop removes
+// what it declares, so enabling it again creates them anew.
 const botsdk = pgSchema("botsdk");
 const tagKind = botsdk.enum("test_tag_kind", ["red", "blue"]);
 const tags = defineFeature({
   id: "tags",
   schema: {
+    enums: { tagKind, tagShade: botsdk.enum("test_tag_shade", ["light", "dark"]) },
+    sequences: { tagPosition: botsdk.sequence("test_tag_position") },
     tables: {
       tag: botsdk.table("test_tag", {
         id: text("id").primaryKey(),
@@ -55,6 +57,7 @@ const tags = defineFeature({
         name: "0001_tag",
         sql: [
           "create type botsdk.test_tag_kind as enum ('red', 'blue');",
+          "create type botsdk.test_tag_shade as enum ('light', 'dark');",
           "create sequence botsdk.test_tag_position;",
           "create table botsdk.test_tag (id text primary key, kind botsdk.test_tag_kind not null, position integer default nextval('botsdk.test_tag_position'));",
         ].join(" "),
@@ -191,7 +194,7 @@ describe("botsdk migrate", () => {
           )
         ).map((row) => row.name);
       expect(await typesOf()).toEqual(
-        expect.arrayContaining(["test_tag_kind", "test_tag_position"]),
+        expect.arrayContaining(["test_tag_kind", "test_tag_position", "test_tag_shade"]),
       );
 
       await runMigrate(
@@ -207,6 +210,122 @@ describe("botsdk migrate", () => {
       expect(await tablesOf(url)).toContain("test_tag");
     }, 60_000);
 
+    it("removes an enum and a sequence its table uses but its schema doesn't declare", async () => {
+      const stamps = defineFeature({
+        id: "stamps",
+        schema: {
+          tables: {
+            stamp: botsdk.table("test_stamp", {
+              shape: botsdk.enum("test_stamp_shape", ["round"])("shape"),
+            }),
+          },
+          migrations: [
+            {
+              name: "0001_stamp",
+              sql: [
+                "create type botsdk.test_stamp_shape as enum ('round');",
+                "create sequence botsdk.test_stamp_number;",
+                "create table botsdk.test_stamp (shape botsdk.test_stamp_shape, number integer default nextval('botsdk.test_stamp_number'));",
+              ].join(" "),
+            },
+          ],
+        },
+      });
+      const url = await scratchDatabase("cli_drop_undeclared");
+      const database = postgres({ connectionString: url });
+      await runMigrate({ default: { database, features: [stamps] } }, {}, () => {});
+
+      await runMigrate(
+        { default: { database, features: [] }, disabled: [stamps] },
+        { drop: "stamps" },
+        () => {},
+      );
+      expect(
+        await rows(
+          url,
+          "select 1 from pg_type where typname = 'test_stamp_shape' union all select 1 from pg_class where relname = 'test_stamp_number'",
+        ),
+      ).toEqual([]);
+      // Enabling it again creates them anew.
+      await runMigrate({ default: { database, features: [stamps] } }, {}, () => {});
+      expect(await tablesOf(url)).toContain("test_stamp");
+    }, 60_000);
+
+    it("keeps a declared enum another feature's table still uses", async () => {
+      const color = botsdk.enum("test_color", ["red", "blue"]);
+      const palette = defineFeature({
+        id: "palette",
+        schema: {
+          enums: { color },
+          migrations: [
+            { name: "0001_color", sql: "create type botsdk.test_color as enum ('red', 'blue')" },
+          ],
+        },
+      });
+      const paints = defineFeature({
+        id: "paints",
+        schema: {
+          tables: { paint: botsdk.table("test_paint", { color: color("color") }) },
+          migrations: [
+            { name: "0001_paint", sql: "create table botsdk.test_paint (color botsdk.test_color)" },
+          ],
+        },
+      });
+      const url = await scratchDatabase("cli_drop_shared");
+      const database = postgres({ connectionString: url });
+      await runMigrate({ default: { database, features: [palette, paints] } }, {}, () => {});
+
+      await runMigrate(
+        { default: { database, features: [paints] }, disabled: [palette] },
+        { drop: "palette" },
+        () => {},
+      );
+      expect(await rows(url, "select 1 from pg_type where typname = 'test_color'")).toHaveLength(1);
+      expect((await journalOf(url)).map((row) => row.feature)).not.toContain("palette");
+    }, 60_000);
+
+    it("keeps a declared enum or sequence an enabled feature also declares, or a live table owns", async () => {
+      const sql = [
+        "create type botsdk.test_mood as enum ('calm');",
+        "create sequence if not exists botsdk.test_counter;",
+      ].join(" ");
+      const declares = {
+        enums: { mood: botsdk.enum("test_mood", ["calm"]) },
+        sequences: { counter: botsdk.sequence("test_counter") },
+      };
+      const before = defineFeature({
+        id: "before",
+        schema: { ...declares, migrations: [{ name: "0001_mood", sql }] },
+      });
+      const after = defineFeature({
+        id: "after",
+        schema: {
+          ...declares,
+          sequences: { ...declares.sequences, owned: botsdk.sequence("test_owned") },
+          migrations: [
+            {
+              name: "0001_owned",
+              sql: "create table botsdk.test_owner (id integer); create sequence botsdk.test_owned owned by botsdk.test_owner.id;",
+            },
+          ],
+        },
+      });
+      const url = await scratchDatabase("cli_drop_declared");
+      const database = postgres({ connectionString: url });
+      await runMigrate({ default: { database, features: [before, after] } }, {}, () => {});
+
+      await runMigrate(
+        { default: { database, features: [before] }, disabled: [after] },
+        { drop: "after" },
+        () => {},
+      );
+      const left = await rows<{ name: string }>(
+        url,
+        "select typname as name from pg_type where typname = 'test_mood' union select relname from pg_class where relname in ('test_counter', 'test_owned') order by 1",
+      );
+      expect(left.map((row) => row.name)).toEqual(["test_counter", "test_mood", "test_owned"]);
+    }, 60_000);
+
     it("takes the feature to drop from the config module's `disabled` export", async () => {
       const url = await scratchDatabase("cli_drop_bin");
       const { stdout } = await promisify(execFile)(
@@ -217,14 +336,16 @@ describe("botsdk migrate", () => {
       expect(stdout).toContain('"botsdk"."memory_settings"');
     }, 60_000);
 
-    it("keeps a core enum the feature's table uses, and drops a table a cascade already took", async () => {
+    it("keeps a core enum the feature declares and uses, and drops a table a cascade already took", async () => {
       // A child table that inherits from the first: the cascade on the parent drops it first.
+      const checkInState = botsdk.enum("bot_check_in_state", ["pending"]);
       const borrowed = defineFeature({
         id: "borrowed",
         schema: {
+          enums: { checkInState },
           tables: {
             parent: botsdk.table("test_parent", {
-              state: botsdk.enum("bot_check_in_state", ["pending"])("state"),
+              state: checkInState("state"),
             }),
             child: botsdk.table("test_child", {}),
           },

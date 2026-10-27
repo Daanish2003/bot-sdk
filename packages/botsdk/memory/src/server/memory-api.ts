@@ -1,4 +1,4 @@
-import type { BotSdkContext } from "@botsdk/bot/plugin";
+import type { FeatureContext } from "@botsdk/bot/feature";
 import { parseInput, type WithUser } from "@botsdk/bot/rpc-error";
 import {
   addBotLine,
@@ -26,7 +26,7 @@ import {
  */
 
 /** The `memory` namespace over the core context. */
-export function memoryApi(sdk: BotSdkContext) {
+export function memoryApi(sdk: FeatureContext<"computer">) {
   return {
     /** The user's Memory switch: on for a user who never saved it. */
     isEnabled: ({ userId }: { userId: string }) => memoryEnabledFor(sdk, userId),

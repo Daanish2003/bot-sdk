@@ -1,11 +1,25 @@
 import { type BotRoutine, type RoutineSchedule, scheduleText } from "@botsdk/client/bot/routine";
 import { createHash, randomBytes } from "node:crypto";
 
-import { and, asc, desc, eq, inArray, isNull, like, lt, lte, min, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  isNull,
+  like,
+  lt,
+  lte,
+  or,
+  type SQL,
+  type SQLWrapper,
+  sql,
+} from "drizzle-orm";
 
-import { bot, botRoutine, botTrigger, botTurn, job, message } from "../../storage";
+import { bot, botRoutine, botTrigger, botTurn, message } from "../../storage";
 import type { Database } from "../../storage";
 import { uuidv7 } from "../../lib/uuidv7";
+import { activeJobsByKeyPrefix } from "../../runner/internal";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { rpcError } from "../../rpc-error";
 import {
@@ -38,7 +52,24 @@ export const routineFireJobName = "bot.routine_fire";
  * Trigger it hands the Router (#539): `routine:<id>:<slot>`, the slot in UTC.
  */
 export function fireKey(routineId: string, slot: Date): string {
-  return `routine:${routineId}:${slot.toISOString()}`;
+  return `${fireKeyPrefix(routineId)}${slot.toISOString()}`;
+}
+
+/**
+ * How every fire key (see `fireKey`) of Routine `routineId` starts; given a column, the SQL that
+ * builds it from the column's value.
+ */
+export function fireKeyPrefix(routineId: string): string;
+export function fireKeyPrefix(routineId: SQLWrapper): SQL;
+export function fireKeyPrefix(routineId: string | SQLWrapper): string | SQL {
+  return typeof routineId === "string"
+    ? `routine:${routineId}:`
+    : sql`'routine:' || ${routineId} || ':'`;
+}
+
+/** The Routine a fire's key (see `fireKey`) belongs to. */
+export function routineOfFireKey(key: string): string {
+  return key.split(":")[1]!;
 }
 
 /** Queues the Routine's fire at `slot`, in `tx`. */
@@ -80,19 +111,11 @@ async function cancelFires(
   tx: Transaction,
   routineIds: string[],
 ): Promise<void> {
-  if (routineIds.length === 0) return;
-  const fires = await tx
-    .select({ key: job.idempotencyKey })
-    .from(job)
-    .where(
-      and(
-        eq(job.name, routineFireJobName),
-        inArray(job.status, ["queued", "running"]),
-        or(...routineIds.map((id) => like(job.idempotencyKey, `routine:${id}:%`))),
-      ),
-    );
-  const runner = deps.runner;
-  for (const { key } of fires) if (key) await runner.cancelIn(tx, key);
+  const fires = await activeJobsByKeyPrefix(tx, {
+    name: routineFireJobName,
+    keyPrefixes: routineIds.map((id) => fireKeyPrefix(id)),
+  });
+  for (const { idempotencyKey } of fires) await deps.runner.cancelIn(tx, idempotencyKey);
 }
 
 /**
@@ -108,7 +131,7 @@ async function stopRoutine(deps: BotSdkContext, tx: Transaction, routineId: stri
       and(
         eq(botTrigger.source, "routine"),
         isNull(botTrigger.turnId),
-        like(botTrigger.id, `routine:${routineId}:%`),
+        like(botTrigger.id, `${fireKeyPrefix(routineId)}%`),
       ),
     );
 }
@@ -453,18 +476,7 @@ export function lastMessageOfTurn(db: Database) {
  * is queued.
  */
 export async function listRoutines(db: Database, botId: string): Promise<BotRoutine[]> {
-  // When the Routine's queued fire is due: its next run.
-  const nextRun = db
-    .select({ at: min(job.runAfter) })
-    .from(job)
-    .where(
-      and(
-        eq(job.name, routineFireJobName),
-        eq(job.status, "queued"),
-        like(job.idempotencyKey, sql`'routine:' || ${botRoutine.id} || ':%'`),
-      ),
-    );
-  return db
+  const rows = await db
     .select({
       id: botRoutine.id,
       name: botRoutine.name,
@@ -475,11 +487,23 @@ export async function listRoutines(db: Database, botId: string): Promise<BotRout
       state: botRoutine.state,
       approvedAt: botRoutine.approvedAt,
       createdAt: botRoutine.createdAt,
-      nextRunAt: sql<Date | null>`(${nextRun})`.mapWith(job.runAfter),
     })
     .from(botRoutine)
     .where(eq(botRoutine.botId, botId))
     .orderBy(asc(botRoutine.name));
+  // When each Routine's queued fire is due: its next run.
+  const fires = await activeJobsByKeyPrefix(db, {
+    name: routineFireJobName,
+    keyPrefixes: rows.map((row) => fireKeyPrefix(row.id)),
+    status: "queued",
+  });
+  const nextRun = new Map<string, Date>();
+  for (const { idempotencyKey, runAfter } of fires) {
+    const id = routineOfFireKey(idempotencyKey);
+    const earliest = nextRun.get(id);
+    if (!earliest || runAfter < earliest) nextRun.set(id, runAfter);
+  }
+  return rows.map((row) => ({ ...row, nextRunAt: nextRun.get(row.id) ?? null }));
 }
 
 /**

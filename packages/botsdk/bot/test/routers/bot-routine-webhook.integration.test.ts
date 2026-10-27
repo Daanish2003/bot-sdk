@@ -9,6 +9,7 @@ import { findBot } from "../../src/bot/conversation";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner, claimJob } from "../../src/runner/internal";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "@ai-chat/test-support/deps";
+import { isTurnCall } from "@ai-chat/test-support/bot-turns";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc, createTestChat } from "@ai-chat/test-support/sdk";
@@ -387,6 +388,8 @@ describe("a webhook Routine's URL", () => {
       (call?.messages ?? [])
         .map((entry) => String(entry.content))
         .find((content) => content.includes("From a webhook"))!;
+    // The Turns' model calls, not the memory pass's.
+    const lastTurnCall = (fake: { calls: TextOptions[] }) => fake.calls.findLast(isTurnCall);
 
     it("cuts the Trigger's text to its ends and saves the full text on the Computer", async () => {
       const computerFake = fakeComputerProvider({});
@@ -399,7 +402,7 @@ describe("a webhook Routine's URL", () => {
       timer.advance(500);
       await runDue();
 
-      const seen = fromWebhook(fake.calls.at(-1));
+      const seen = fromWebhook(lastTurnCall(fake));
       const [path] = [...computerFake.files.keys()];
       expect(path?.startsWith(`/home/user/bots/${botId}/.outputs/`)).toBe(true);
       const saved = new TextDecoder().decode(computerFake.files.get(path!));
@@ -433,22 +436,19 @@ describe("a webhook Routine's URL", () => {
         [round(), round(), round(), round()],
         { computerFake },
       );
-      // The Turns' model calls, not the memory pass's.
-      const lastTurnCall = () =>
-        fake.calls.findLast((made) => JSON.stringify(made.systemPrompts).includes("send_to_user"));
 
       timer.advance(1_000);
       await call(token, payload);
       timer.advance(500);
       await runDue();
-      const seen = fromWebhook(lastTurnCall());
+      const seen = fromWebhook(lastTurnCall(fake));
       const outputs = () =>
         [...computerFake.files.keys()].filter((path) => path.includes("/.outputs/"));
       const files = outputs();
       expect(files).toHaveLength(1);
 
       await send("Anything new?");
-      expect(fromWebhook(lastTurnCall())).toBe(seen);
+      expect(fromWebhook(lastTurnCall(fake))).toBe(seen);
       expect(outputs()).toEqual(files);
     });
   });

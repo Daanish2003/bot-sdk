@@ -1,10 +1,10 @@
-import { and, eq, inArray, isNotNull, like, not, sql } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 
-import { bot, botRoutine, botTrigger, job } from "../../storage";
+import { bot, botRoutine, botTrigger } from "../../storage";
 import type { BotSdkContext, Transaction } from "../../plugin";
-import { defineCoreJob } from "../../runner/internal";
-import { fireKey, queueFire, routineFireJobName, routineSnapshot } from "./routine";
+import { activeJobsByKeyPrefix, defineCoreJob, idsWithoutActiveJob } from "../../runner/internal";
+import { fireKey, fireKeyPrefix, queueFire, routineFireJobName, routineSnapshot } from "./routine";
 import { lockConversation, receive } from "../triggers";
 import { nextSlot } from "./schedule";
 import { hintChanged, recordBotChange } from "../conversation";
@@ -144,13 +144,6 @@ async function queueReconcile(deps: BotSdkContext, at: Date): Promise<void> {
  */
 export const startRoutineReconcile = (deps: BotSdkContext) => queueReconcile(deps, deps.clock());
 
-/** Whether the Routine of the row being read has a fire queued or running. */
-const hasFire = sql`exists (select 1 from ${job} where ${and(
-  eq(job.name, routineFireJobName),
-  inArray(job.status, ["queued", "running"]),
-  like(job.idempotencyKey, sql`'routine:' || ${botRoutine.id} || ':%'`),
-)})`;
-
 /**
  * Queues the next fire of every active scheduled Routine that has none (#578): one whose chain of
  * fires broke, because its `onFailed` threw or the process died during it. The next reconcile is
@@ -162,11 +155,14 @@ export const routineReconcileJob = defineCoreJob({
   payload: z.object({ at: z.iso.datetime() }),
   run: async ({ at }, { deps }) => {
     await queueNextReconcile(deps, new Date(at));
-    const broken = await deps.db
-      .select({ id: botRoutine.id })
-      .from(botRoutine)
-      .where(and(eq(botRoutine.state, "active"), isNotNull(botRoutine.schedule), not(hasFire)));
-    for (const { id } of broken) {
+    const broken = await idsWithoutActiveJob(deps.db, {
+      from: botRoutine,
+      id: botRoutine.id,
+      where: and(eq(botRoutine.state, "active"), isNotNull(botRoutine.schedule)),
+      name: routineFireJobName,
+      keyPrefix: (id) => fireKeyPrefix(id),
+    });
+    for (const id of broken) {
       await repairChain(deps, id).catch((error: unknown) =>
         deps.logger.error(`Repairing the fires of Routine ${id} failed`, error),
       );
@@ -204,9 +200,14 @@ async function repairChain(deps: BotSdkContext, routineId: string): Promise<void
     const [routine] = await tx
       .select({ schedule: botRoutine.schedule, timeZone: botRoutine.timeZone })
       .from(botRoutine)
-      .where(and(eq(botRoutine.id, routineId), eq(botRoutine.state, "active"), not(hasFire)))
+      .where(and(eq(botRoutine.id, routineId), eq(botRoutine.state, "active")))
       .for("update");
     if (!routine?.schedule) return;
+    const fires = await activeJobsByKeyPrefix(tx, {
+      name: routineFireJobName,
+      keyPrefixes: [fireKeyPrefix(routineId)],
+    });
+    if (fires.length > 0) return;
     await queueFire(
       deps,
       tx,

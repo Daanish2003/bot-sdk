@@ -181,6 +181,51 @@ describe("a feature built with defineFeature", { timeout: 30_000 }, () => {
     expect(await rowsOf(user.id, "failing")).toEqual([]);
   });
 
+  it("stores the changes its turnChanges gives for the Turn, joined in the listed order, and a throw adds none", async () => {
+    const reporting = (id: string, name: string) =>
+      defineFeature({
+        id,
+        turnChanges: () => ({ skillChanges: [{ kind: "saved", name }] }),
+      });
+    const failing = defineFeature({
+      id: "failing",
+      turnChanges: () => {
+        throw new Error("reading failed");
+      },
+    });
+    const { client, botId } = await botWithPins(
+      [round()],
+      [reporting("first", "one"), failing, reporting("second", "two")],
+    );
+
+    await send(client, botId, "hello");
+
+    const [turn] = await getTestDb()
+      .select({
+        status: botTurn.status,
+        skillChanges: botTurn.skillChanges,
+        knowledgeChanges: botTurn.knowledgeChanges,
+      })
+      .from(botTurn)
+      .where(eq(botTurn.botId, botId));
+    expect(turn).toEqual({
+      status: "complete",
+      skillChanges: [
+        { kind: "saved", name: "one" },
+        { kind: "saved", name: "two" },
+      ],
+      knowledgeChanges: null,
+    });
+  });
+
+  it("takes only a synchronous turnChanges, which runs under the Conversation's lock", () => {
+    defineFeature({
+      id: "waits",
+      // @ts-expect-error A Promise would hold the lock while it waits.
+      turnChanges: async () => null,
+    });
+  });
+
   it("ends the Turn error when its tools throw, as a Connection whose listing failed did", async () => {
     const failing = defineFeature({
       id: "failing",
@@ -310,5 +355,31 @@ describe("a feature built with defineFeature", { timeout: 30_000 }, () => {
       pins: ["digest: buy milk", "pin: buy milk", "turn_end: complete"],
     });
     expect(await getTestDb().select().from(pin).where(eq(pin.userId, user.id))).toEqual([]);
+  });
+
+  it("gives its context only the core services in its needs, never the whole core", async () => {
+    const seen: (string | symbol)[][] = [];
+    const resolves: string[] = [];
+    const spy = defineFeature({
+      id: "spy",
+      needs: ["models", "threads"],
+      afterTurn: async (_tx, turn, context) => {
+        seen.push(Reflect.ownKeys(context));
+        // The services resolve to the core's own, not to what was unset when the feature was enabled.
+        resolves.push(typeof context.models.resolveModelCall);
+        await context.threads.hintChanged(turn.conversationId);
+      },
+    });
+    const { client, botId } = await botWithPins([round()], [spy]);
+    await send(client, botId, "hello");
+
+    expect(seen).toHaveLength(1);
+    expect(resolves).toEqual(["function"]);
+    expect(seen[0]).toContain("models");
+    expect(seen[0]).not.toContain("computer");
+    for (const key of ["bots", "runner", "pubsub", "parts", "secrets"]) {
+      expect(seen[0]).not.toContain(key);
+    }
+    expect(seen[0]!.filter((key) => typeof key === "symbol")).toEqual([]);
   });
 });

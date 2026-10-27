@@ -1,4 +1,4 @@
-import type { BotSdkContext } from "@botsdk/bot/plugin";
+import type { FeatureContext } from "@botsdk/bot/feature";
 import { parseInput, type WithUser } from "@botsdk/bot/rpc-error";
 import { deleteSkill, listSkills, readSkill, saveSkill, skillsAvailable } from "./manage";
 import { listInput, saveInput, skillInput } from "../shared/contract";
@@ -10,7 +10,7 @@ import { listInput, saveInput, skillInput } from "../shared/contract";
  */
 
 /** The `skills` namespace over the core context. */
-export function skillsApi(sdk: BotSdkContext) {
+export function skillsApi(sdk: FeatureContext<"computer">) {
   return {
     /** Whether Bots can have Skills, which needs the `computer` plugin. Reads nothing. */
     status: () => ({ available: skillsAvailable(sdk) }),
