@@ -46,10 +46,11 @@ export function printSql(pending: readonly PendingMigration[]): string {
 }
 
 /**
- * The statements that remove a feature's tables, the enums and sequences its `schema` declares
- * that no other table uses or owns, no enabled feature declares and the core doesn't define, and
- * its journal rows, so enabling it again
- * migrates it from its baseline. A sequence a table owns goes with it.
+ * The statements that remove a feature's tables, its enums and sequences, and its journal rows, so
+ * enabling it again migrates it from its baseline. Its enums and sequences are the ones its
+ * `schema` declares and the ones its tables' columns and defaults use; of those, only what no
+ * other table uses or owns, no enabled feature declares and the core doesn't define is dropped. A
+ * sequence a table owns goes with it.
  * Throws for a feature in `enabled`: removal is for a disabled feature.
  */
 function dropStatements(feature: AnyFeature, enabled: readonly AnyFeature[]): string {
@@ -69,16 +70,25 @@ function dropStatements(feature: AnyFeature, enabled: readonly AnyFeature[]): st
     Object.values(schema?.sequences ?? {}).flatMap((value) =>
       value.seqName === undefined ? [] : [qualified(value.schema, value.seqName)],
     );
-  // What an enabled feature also declares stays.
-  const kept = new Set(enabled.flatMap((other) => [...enumsOf(other), ...sequencesOf(other)]));
-  const enums = enumsOf(feature).filter((name) => !kept.has(name));
-  const sequences = sequencesOf(feature).filter((name) => !kept.has(name));
+  const keptEnums = enabled.flatMap(enumsOf);
+  const keptSequences = enabled.flatMap(sequencesOf);
   const coreEnums = (Object.values(coreSchema) as unknown[])
     .filter(isPgEnum)
     .map((value) => qualified(value.schema, value.enumName));
   return `do $$
 declare
   listed text[] := array[${tables.join(", ")}]::text[];
+  dropped regclass[] := array(
+    select to_regclass(name_) from unnest(listed) as name_ where to_regclass(name_) is not null
+  );
+  -- What an enabled feature also declares stays.
+  kept oid[] := array(
+    select to_regtype(name_)::oid from unnest(array[${keptEnums.join(", ")}]::text[]) as name_
+    where to_regtype(name_) is not null
+    union
+    select to_regclass(name_)::oid from unnest(array[${keptSequences.join(", ")}]::text[]) as name_
+    where to_regclass(name_) is not null
+  );
   core_enums oid[] := array(
     select to_regtype(name_) from unnest(array[${coreEnums.join(", ")}]::text[]) as name_
     where to_regtype(name_) is not null
@@ -87,23 +97,38 @@ declare
   sequences oid[];
   entry oid;
 begin
+  -- The enums the tables' columns (or arrays of them) are of, and the sequences their defaults
+  -- use, with the ones the feature declares.
+  select coalesce(array_agg(distinct element.oid), '{}') into enums
+  from pg_attribute column_
+  join pg_type type_ on type_.oid = column_.atttypid
+  join pg_type element on element.typtype = 'e'
+    and element.oid = case when type_.typcategory = 'A' then type_.typelem else type_.oid end
+  where column_.attrelid = any(dropped) and column_.attnum > 0 and not column_.attisdropped;
+  enums := enums || array(
+    select type_.oid from unnest(array[${enumsOf(feature).join(", ")}]::text[]) as name_
+    join pg_type type_ on type_.oid = to_regtype(name_) and type_.typtype = 'e'
+  );
+  select coalesce(array_agg(distinct used.refobjid), '{}') into sequences
+  from pg_attrdef default_
+  join pg_depend used on used.classid = 'pg_attrdef'::regclass and used.objid = default_.oid
+    and used.refclassid = 'pg_class'::regclass
+  join pg_class sequence_ on sequence_.oid = used.refobjid and sequence_.relkind = 'S'
+  where default_.adrelid = any(dropped);
+  sequences := sequences || array(
+    select class_.oid from unnest(array[${sequencesOf(feature).join(", ")}]::text[]) as name_
+    join pg_class class_ on class_.oid = to_regclass(name_) and class_.relkind = 'S'
+  );
+
   -- By name: a cascade from an earlier table may already have dropped a later one.
   for i in 1 .. coalesce(array_length(listed, 1), 0) loop
     execute format('drop table if exists %s cascade', listed[i]);
   end loop;
 
-  -- The declared enums and sequences that are still there.
-  enums := array(
-    select type_.oid from unnest(array[${enums.join(", ")}]::text[]) as name_
-    join pg_type type_ on type_.oid = to_regtype(name_) and type_.typtype = 'e'
-  );
-  sequences := array(
-    select class_.oid from unnest(array[${sequences.join(", ")}]::text[]) as name_
-    join pg_class class_ on class_.oid = to_regclass(name_) and class_.relkind = 'S'
-  );
-  -- Only what no other table still uses or owns, and never a core enum.
-  foreach entry in array sequences loop
-    if not exists (
+  -- Only what no other table still uses or owns, no enabled feature declares, and never a core
+  -- enum. A sequence its table owned went with it.
+  foreach entry in array array(select distinct unnest(sequences)) loop
+    if exists (select 1 from pg_class where oid = entry) and not entry = any(kept) and not exists (
       select 1 from pg_depend where refobjid = entry and classid = 'pg_attrdef'::regclass
     ) and not exists (
       select 1 from pg_depend where objid = entry and classid = 'pg_class'::regclass
@@ -112,8 +137,8 @@ begin
       execute format('drop sequence %s', entry::regclass);
     end if;
   end loop;
-  foreach entry in array enums loop
-    if not entry = any(core_enums) and not exists (
+  foreach entry in array array(select distinct unnest(enums)) loop
+    if not entry = any(core_enums) and not entry = any(kept) and not exists (
       select 1 from pg_attribute column_ join pg_type type_ on type_.oid = column_.atttypid
       where not column_.attisdropped and (type_.oid = entry or type_.typelem = entry)
     ) then

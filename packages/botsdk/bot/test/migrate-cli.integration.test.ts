@@ -210,6 +210,47 @@ describe("botsdk migrate", () => {
       expect(await tablesOf(url)).toContain("test_tag");
     }, 60_000);
 
+    it("removes an enum and a sequence its table uses but its schema doesn't declare", async () => {
+      const stamps = defineFeature({
+        id: "stamps",
+        schema: {
+          tables: {
+            stamp: botsdk.table("test_stamp", {
+              shape: botsdk.enum("test_stamp_shape", ["round"])("shape"),
+            }),
+          },
+          migrations: [
+            {
+              name: "0001_stamp",
+              sql: [
+                "create type botsdk.test_stamp_shape as enum ('round');",
+                "create sequence botsdk.test_stamp_number;",
+                "create table botsdk.test_stamp (shape botsdk.test_stamp_shape, number integer default nextval('botsdk.test_stamp_number'));",
+              ].join(" "),
+            },
+          ],
+        },
+      });
+      const url = await scratchDatabase("cli_drop_undeclared");
+      const database = postgres({ connectionString: url });
+      await runMigrate({ default: { database, features: [stamps] } }, {}, () => {});
+
+      await runMigrate(
+        { default: { database, features: [] }, disabled: [stamps] },
+        { drop: "stamps" },
+        () => {},
+      );
+      expect(
+        await rows(
+          url,
+          "select 1 from pg_type where typname = 'test_stamp_shape' union all select 1 from pg_class where relname = 'test_stamp_number'",
+        ),
+      ).toEqual([]);
+      // Enabling it again creates them anew.
+      await runMigrate({ default: { database, features: [stamps] } }, {}, () => {});
+      expect(await tablesOf(url)).toContain("test_stamp");
+    }, 60_000);
+
     it("keeps a declared enum another feature's table still uses", async () => {
       const color = botsdk.enum("test_color", ["red", "blue"]);
       const palette = defineFeature({
