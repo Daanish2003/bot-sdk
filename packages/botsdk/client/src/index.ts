@@ -9,4 +9,4 @@ export {
   type FeaturesUrls,
 } from "./chat-client";
 export { type CoreContract, coreContract } from "./contract";
-export { RateLimitedError, throwIfRateLimited } from "./rate-limit";
+export { RateLimitedError } from "./rate-limit";

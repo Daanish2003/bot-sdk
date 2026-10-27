@@ -77,7 +77,7 @@ Install these in the Host. There is one `package.json` for the whole SDK, and ve
 
 The `runner` and `memory` plugins and the `skills` feature need nothing beyond `core/` (and `lucide-react` for the `ui/` folders).
 
-`core/` is not self-contained: `core/server`, `core/http` and `core/client` import the `plugins/` they compose (the Bot core, Models, Runner, Computer and Channel, and the features' parts), so a Host outside this repo copies `core/` together with `plugins/`.
+`core/` is not self-contained: `core/server`, `core/http` and `core/client` import the `plugins/` they compose (the Bot core, Models, Runner, Computer and Channel, and the features' parts), and both import `@botsdk/client` (`packages/botsdk/client`: the core's contracts and `createBotSdkClient`), so a Host outside this repo copies `core/` together with `plugins/` and depends on `@botsdk/client`.
 
 ## shadcn components
 
@@ -203,7 +203,7 @@ const copy = await chat.users.export({ userId: String(user.id) });
 await chat.bots.stopTurns({ userId: String(user.id) });
 ```
 
-On the client, build a headless client from the core's contract and your features' client parts, and wrap your pages in the provider:
+On the client, build a headless client (`createBotSdkClient` from `@botsdk/client`) from the core's contract and your features' client parts, and wrap your pages in the provider:
 
 ```tsx
 const client = createBotSdkClient({
@@ -218,7 +218,7 @@ const client = createBotSdkClient({
 
 - `getUser(request)` returns `{ id } | null`. The HTTP handler answers 401 when it returns `null`. The core never sees a request: its own methods (`chat.bots.send({ userId, ... })`) take the user's id.
 - `reviewModel` (optional) is the Model that Auto-reviews each Bot's risky tool calls before they run, a `"provider:model"` id from the Models' list, resolved per user: `createBotSdk({ reviewModel: "openai:gpt-5.4-mini" })`. Unset, or one the user can't use, the Bot's own Model reviews, in a fresh context.
-- The client is typed by contracts alone (spec #873): the core's (`coreContract` in `core/client`) and each feature's (`plugins/<name>/shared/contract.ts`), so no server code reaches the browser bundle, not even a type. It mirrors the instance: `client.rpc.bots.send` is `sdk.bots.send`, and a feature's procedures are under its id (`client.rpc.memory.status`). One link carries them all.
+- The client is typed by contracts alone (spec #873): the core's (`coreContract` in `@botsdk/client`) and each feature's (`plugins/<name>/shared/contract.ts`), so no server code reaches the browser bundle, not even a type. It mirrors the instance: `client.rpc.bots.send` is `sdk.bots.send`, and a feature's procedures are under its id (`client.rpc.memory.status`). One link carries them all.
 - The `router` adapter maps the SDK's pages (`keys`, and `bots` with an optional Bot `id`) to your URLs. It provides `Link` and `navigate(page)`. Pass your own TanStack Query client as `queryClient` if you have one; otherwise the provider creates its own.
 - The Bots app is `BotsApp` from `plugins/bot/ui`, with the Host's account menu at the foot of its sidebar (`accountMenu`); the keys page is `KeySettingsPage` from `plugins/models/ui`.
 - `GET <basePath>/export` answers the signed-in user's export as a JSON download (`chat-export-<date>.json`), the same document as `users.export`. The `ExportDataButton` in `ui/settings/export-data-button.tsx` calls it.
