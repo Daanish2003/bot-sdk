@@ -70,7 +70,12 @@ export function ReviewRequest({
         ? [ShieldCheckIcon, t("bots.reviewAllowed", { summary }), "text-emerald-600"]
         : review.state === "denied"
           ? [ShieldXIcon, t("bots.reviewDenied", { summary }), "text-red-600"]
-          : [ShieldXIcon, t("bots.reviewExpired", { summary }), "text-red-600"];
+          : [
+              ShieldXIcon,
+              // One that went pending has an expiry: it lapsed after 7 days, not after the 15-second wait.
+              t(review.expiresAt ? "bots.reviewLapsed" : "bots.reviewExpired", { summary }),
+              "text-red-600",
+            ];
     return (
       <div
         data-review={review.id}

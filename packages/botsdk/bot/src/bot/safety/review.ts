@@ -21,6 +21,7 @@ import { parseReply } from "../../lib/parse-reply";
 import { lockConversation } from "../triggers";
 import { forwardedEmailLabel, routineNameOf, routinePromptOf } from "../routines";
 import { appendBotMessage, controlParts, hintChanged, recordBotChange } from "../conversation";
+import { approvalExpiryJobName, approvalExpiryKey } from "./approval-expiry";
 import { reviewedRules } from "./custom-rule";
 import { isSavedSecretText } from "./secret-values";
 
@@ -397,9 +398,12 @@ async function decide(
             : undefined,
         ),
       )
-      .returning({ id: botReview.id });
+      .returning({ id: botReview.id, expiresAt: botReview.expiresAt });
     if (!changed) return null;
     await recordBotChange(tx, owner, "review", reviewId, now);
+    if (change.state === "pending" && changed.expiresAt) {
+      await scheduleExpiry(deps, tx, changed.id, changed.expiresAt);
+    }
     return owner;
   });
   if (decided) await hintChanged(deps, decided.conversationId);
@@ -433,7 +437,7 @@ export async function closeWaitingReviews(
         : { state, decidedAt: now },
     )
     .where(and(owned, eq(botReview.state, "waiting")))
-    .returning({ id: botReview.id, botId: botReview.botId });
+    .returning({ id: botReview.id, botId: botReview.botId, expiresAt: botReview.expiresAt });
   // One Turn's or Helper's, so one Bot's: its Conversation is looked up once.
   const [first] = closed;
   if (!first) return;
@@ -442,7 +446,25 @@ export async function closeWaitingReviews(
     .from(bot)
     .where(eq(bot.id, first.botId));
   if (!owner) return;
-  for (const row of closed) await recordBotChange(tx, owner, "review", row.id, now);
+  for (const row of closed) {
+    await recordBotChange(tx, owner, "review", row.id, now);
+    if (row.expiresAt) await scheduleExpiry(deps, tx, row.id, row.expiresAt);
+  }
+}
+
+/** Schedules the job that expires pending Approval `reviewId` at `expiresAt` (ADR 0030), in `tx`. */
+async function scheduleExpiry(
+  deps: BotSdkContext,
+  tx: Transaction,
+  reviewId: string,
+  expiresAt: Date,
+): Promise<void> {
+  await deps.runner.enqueueIn(
+    tx,
+    approvalExpiryJobName,
+    { reviewId },
+    { idempotencyKey: approvalExpiryKey(reviewId), runAfter: expiresAt },
+  );
 }
 
 /** The meter a review on `model` bills. */
