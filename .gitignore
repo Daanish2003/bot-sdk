@@ -92,3 +92,6 @@ packages/evals/src/connectors/results/
 
 # Images eval (packages/evals/src/images): the results it writes
 packages/evals/src/images/results/
+
+# Proactive eval (packages/evals/src/proactive): the results it writes
+packages/evals/src/proactive/results/
