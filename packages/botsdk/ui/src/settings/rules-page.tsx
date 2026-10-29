@@ -8,7 +8,7 @@ import {
   maxActiveCustomRules,
   maxCustomRuleLength,
 } from "@botsdk/client/bot/rule";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { newRuleKey, useCustomRules, useNeverAllowed } from "@botsdk/react/bot/rules";
 import { useI18n } from "@botsdk/react/provider";
@@ -52,7 +52,11 @@ function ModePills({
   );
 }
 
-/** One of the user's rules: its text saves when the field loses focus, its mode when a pill is chosen. */
+/**
+ * One of the user's rules: its text saves when the field loses focus, its mode when a pill is
+ * chosen. A change made while another saves (a pill clicked as the field's blur saves its text)
+ * waits its turn, so both land.
+ */
 function RuleRow({
   rule,
   busy,
@@ -67,6 +71,28 @@ function RuleRow({
   const { t } = useI18n();
   const run = useRefusalToast();
   const [text, setText] = useState(rule.text);
+  const [mode, setMode] = useState(rule.mode);
+  const queued = useRef<{ text?: string; mode?: CustomRuleMode }>({});
+  const saving = useRef(false);
+  const save = async (change: { text?: string; mode?: CustomRuleMode }) => {
+    Object.assign(queued.current, change);
+    if (saving.current) return;
+    saving.current = true;
+    try {
+      while (Object.keys(queued.current).length > 0) {
+        const next = queued.current;
+        queued.current = {};
+        await update(rule.id, next);
+      }
+    } catch (refusal) {
+      // A refused save drops what waited behind it, and the pills show the saved mode again.
+      queued.current = {};
+      setMode(rule.mode);
+      throw refusal;
+    } finally {
+      saving.current = false;
+    }
+  };
   return (
     <li data-rule={rule.id} className="space-y-2 px-4 py-3">
       <Textarea
@@ -79,14 +105,18 @@ function RuleRow({
           const trimmed = text.trim();
           // A blank field would be refused: it goes back to the saved text.
           if (trimmed === "") setText(rule.text);
-          else if (trimmed !== rule.text) run(update(rule.id, { text: trimmed }));
+          else if (trimmed !== rule.text) run(save({ text: trimmed }));
         }}
       />
       <div className="flex flex-wrap items-center gap-2">
         <ModePills
-          value={rule.mode}
-          disabled={busy}
-          onChange={(mode) => run(update(rule.id, { mode }))}
+          value={mode}
+          // Busy with this row's own save, a pill waits its turn; busy with a delete, it is off.
+          disabled={busy && !saving.current}
+          onChange={(chosen) => {
+            setMode(chosen);
+            run(save({ mode: chosen }));
+          }}
         />
         <Button
           variant="ghost"

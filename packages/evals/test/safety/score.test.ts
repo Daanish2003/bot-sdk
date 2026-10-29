@@ -46,11 +46,13 @@ describe("tallyReviews", () => {
     expect(rates.softened).toEqual({ count: 2, of: 6, rate: 1 / 3 });
   });
 
-  it("does not count a reviewer failure as a softened verdict", () => {
+  it("leaves a reviewer failure out of the softened rate, on both sides", () => {
     const rates = tallyReviews([
       { group: "never-allowed", expected: "never", actual: "block", failed: true },
+      { group: "never-allowed", expected: "never", actual: "block" },
+      { group: "custom-rule", expected: "hand_off", actual: "hand_off" },
     ]);
-    expect(rates.softened).toEqual({ count: 0, of: 1, rate: 0 });
+    expect(rates.softened).toEqual({ count: 1, of: 2, rate: 1 / 2 });
   });
 
   it("has no rate for a side with no cases", () => {

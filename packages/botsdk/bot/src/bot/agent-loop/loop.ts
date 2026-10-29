@@ -13,6 +13,7 @@ import {
 
 import type { PromptHash } from "../../chat/hooks";
 import type { BotSdkContext, Transaction } from "../../plugin";
+import type { Database } from "../../storage";
 import {
   withCacheControl,
   addUsage,
@@ -27,7 +28,7 @@ import { type WorkflowContext, WorkflowYieldedError } from "../../runner/interna
 import {
   capResult,
   isLong,
-  computerFailureResult,
+  operateComputer,
   computerOf,
   computerToolDefinitions,
   editDefinition,
@@ -38,7 +39,6 @@ import {
   listTool,
   readDefinition,
   readTool,
-  rebuiltNote,
   shellDefinition,
   shellStartActivity,
   shellToolName,
@@ -58,6 +58,7 @@ import { type LoopPromptStart, type PreviousCall, promptHashesOf } from "./promp
 import {
   blockedError,
   type PendingApproval,
+  PendingAtEndError,
   type ReviewAsk,
   type ReviewOutcome,
   type ReviewSource,
@@ -238,6 +239,8 @@ export type LoopOptions = {
    * is reviewed.
    */
   review?: ReviewSource;
+  /** Reads what a review reads outside its activities (`deps.db` unless given): a replay's `tx`. */
+  db?: Database | Transaction;
 };
 
 /** What a played loop came to. `failure` is an activity that threw, which recorded nothing. */
@@ -334,6 +337,8 @@ export async function runLoop(
   const billed: MessageUsage[] = [];
   /** The tool calls whose activity threw: they recorded nothing, so they stay unanswered. */
   const unanswered = new Set<string>();
+  /** The pending results of unanswered calls whose wait the loop's end cut off (ADR 0030). */
+  const pendingAtEnd = new Map<string, PendingApproval>();
   let failure: unknown;
   let error: string | undefined;
   let finished = false;
@@ -619,6 +624,8 @@ export async function runLoop(
     } catch (caught) {
       if (!abortController.signal.aborted) failure ??= caught;
       if (toolCallId) unanswered.add(toolCallId);
+      if (toolCallId && caught instanceof PendingAtEndError)
+        pendingAtEnd.set(toolCallId, caught.result);
       abortController.abort();
       throw caught;
     }
@@ -694,22 +701,18 @@ export async function runLoop(
     operate: (computer: ComputerHandle) => Promise<T>,
   ) => {
     const computer = (userComputer ??= computerOf(deps, owner.userId));
-    try {
-      const result = await operate(computer);
-      const rebuild = computer.rebuild();
-      if (!rebuild) return result;
-      if (rebuildSeenAt === undefined)
-        rebuildSeenAt = await computerRebuildSeenAt(deps.db, owner.botId);
-      if (rebuildSeenAt && rebuild.rebuiltAt <= rebuildSeenAt) return result;
-      telling = rebuild.rebuiltAt;
-      return { ...result, note: rebuiltNote(rebuild) };
-    } catch (caught) {
-      if (!abortController.signal.aborted) {
-        const failed = computerFailureResult(caught);
-        if (failed) return failed;
-      }
-      throw caught;
-    }
+    return operateComputer(computer, () => operate(computer), {
+      signal: abortController.signal,
+      seenAt: async () => {
+        if (rebuildSeenAt === undefined) {
+          rebuildSeenAt = await computerRebuildSeenAt(deps.db, owner.botId);
+        }
+        return rebuildSeenAt;
+      },
+      tell: (rebuiltAt) => {
+        telling = rebuiltAt;
+      },
+    });
   };
   /**
    * `onComputer` for a live call: the loop's time limit, like a Stop, stops its operations
@@ -768,6 +771,7 @@ export async function runLoop(
           inLiveCall = true;
         },
         signal: abortController.signal,
+        db: options.db ?? deps.db,
         usageOf: (chunks, sent) => callUsage(deps, chunks, sent),
       },
       { owner, source: options.review, toolCallId, tool, input, ask, strict },
@@ -999,7 +1003,12 @@ export async function runLoop(
     stopped: abortController.signal.aborted,
     error,
     finished,
-    transcript: answeredCalls(messages.filter((entry) => !unanswered.has(entry.toolCallId ?? ""))),
+    transcript: answeredCalls(
+      withPendingResults(
+        messages.filter((entry) => !unanswered.has(entry.toolCallId ?? "")),
+        pendingAtEnd,
+      ),
+    ),
     usage: billed.length > 0 ? totalUsage(billed) : null,
     lastInput: lastStepInput,
     failure,
@@ -1075,6 +1084,31 @@ function endsInPlainText(messages: readonly ModelMessage[]): boolean {
       ? last.content
       : (last.content ?? []).map((part) => (part.type === "text" ? part.content : "")).join("");
   return content.trim() !== "";
+}
+
+/**
+ * `messages` with each call of `pending` answered by its pending result, after its Step's other
+ * results: a later Turn reads that the call waits for the user's Approval (ADR 0030).
+ */
+function withPendingResults(
+  messages: readonly ModelMessage[],
+  pending: ReadonlyMap<string, PendingApproval>,
+): ModelMessage[] {
+  if (pending.size === 0) return [...messages];
+  const out: ModelMessage[] = [];
+  let owed: ModelMessage[] = [];
+  for (const entry of messages) {
+    if (entry.role !== "tool") {
+      out.push(...owed);
+      owed = [];
+    }
+    out.push(entry);
+    for (const call of entry.toolCalls ?? []) {
+      const result = pending.get(call.id);
+      if (result) owed.push({ role: "tool", toolCallId: call.id, content: JSON.stringify(result) });
+    }
+  }
+  return [...out, ...owed];
 }
 
 /**

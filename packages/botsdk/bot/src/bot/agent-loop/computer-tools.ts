@@ -34,13 +34,44 @@ export function computerOperationError(message: string): string {
   return `Your computer reported an error: ${message}`;
 }
 
-/** The Computer's failure (it couldn't wake, or failed its operation) as a tool's result; else undefined. */
-export function computerFailureResult(caught: unknown): { error: string } | undefined {
-  if (caught instanceof ComputerUnavailableError) return { error: computerUnavailableError };
-  if (caught instanceof ComputerOperationError) {
-    return { error: computerOperationError(caught.message) };
+/**
+ * One tool call's `operate` on `computer`, for a Turn's (or a Helper's) loop and the approved-call
+ * job alike. A failed wake, or an operation the provider failed, is the result, unless `signal`
+ * aborted meanwhile: then it throws, and the call stays unanswered. After a rebuild of the
+ * Computer the Bot wasn't told of (it was last told of the one at `seenAt()`), the result carries
+ * the rebuilt note (#553), and `tell` gets that rebuild's time, to record as told once the result
+ * is saved.
+ */
+export async function operateComputer<T extends object>(
+  computer: ComputerHandle,
+  operate: () => Promise<T>,
+  {
+    signal,
+    seenAt,
+    tell,
+  }: {
+    signal: AbortSignal;
+    seenAt: () => Promise<Date | null>;
+    tell: (rebuiltAt: Date) => void;
+  },
+): Promise<T | (T & { note: string }) | { error: string }> {
+  try {
+    const result = await operate();
+    const rebuild = computer.rebuild();
+    if (!rebuild) return result;
+    const seen = await seenAt();
+    if (seen && rebuild.rebuiltAt <= seen) return result;
+    tell(rebuild.rebuiltAt);
+    return { ...result, note: rebuiltNote(rebuild) };
+  } catch (caught) {
+    if (!signal.aborted) {
+      if (caught instanceof ComputerUnavailableError) return { error: computerUnavailableError };
+      if (caught instanceof ComputerOperationError) {
+        return { error: computerOperationError(caught.message) };
+      }
+    }
+    throw caught;
   }
-  return undefined;
 }
 
 /**

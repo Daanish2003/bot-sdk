@@ -1,7 +1,7 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { bot, botReview, botTrigger, job } from "../../storage";
+import { bot, botHelper, botReview, botTrigger, job } from "../../storage";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import {
   defineCoreJob,
@@ -11,11 +11,10 @@ import {
 } from "../../runner/internal";
 import {
   capResult,
-  computerFailureResult,
   computerOf,
   computerUnavailableError,
   type FileToolOptions,
-  rebuiltNote,
+  operateComputer,
   runShell,
   type ShellInput,
   shellToolName,
@@ -64,9 +63,11 @@ const callActivity = "call";
 /** The marker saved just before the call starts. */
 const startActivity = "call_start";
 
-/** An allowed review's stored call, with its Bot. */
+/** An allowed review's stored call, with its Bot and the Turn it came from. */
 type StoredCall = {
   reviewId: string;
+  /** The Turn whose call it was, or that started the Helper whose call it was. */
+  turnId: string;
   toolCallId: string;
   tool: string;
   input: Record<string, unknown>;
@@ -113,6 +114,7 @@ async function storedCall(deps: BotSdkContext, reviewId: string): Promise<Stored
   const [row] = await deps.db
     .select({
       reviewId: botReview.id,
+      turnId: sql<string>`coalesce(${botReview.turnId}, ${botHelper.startedByTurnId})`,
       toolCallId: botReview.toolCallId,
       tool: botReview.tool,
       input: botReview.input,
@@ -124,6 +126,7 @@ async function storedCall(deps: BotSdkContext, reviewId: string): Promise<Stored
     })
     .from(botReview)
     .innerJoin(bot, eq(bot.id, botReview.botId))
+    .leftJoin(botHelper, eq(botHelper.id, botReview.helperId))
     .where(and(eq(botReview.id, reviewId), eq(botReview.state, "allowed")));
   return row ?? null;
 }
@@ -212,19 +215,13 @@ function shellCall(deps: BotSdkContext, call: StoredCall, signal: AbortSignal) {
   ): Promise<T | { error: string }> => {
     if (!deps.computer) return { error: computerUnavailableError };
     const computer = computerOf(deps, call.userId);
-    try {
-      const result = await operate(computer, { signal });
-      const rebuild = computer.rebuild();
-      if (!rebuild) return result;
-      const seenAt = await computerRebuildSeenAt(deps.db, call.botId);
-      if (seenAt && rebuild.rebuiltAt <= seenAt) return result;
-      telling = rebuild.rebuiltAt;
-      return { ...result, note: rebuiltNote(rebuild) };
-    } catch (caught) {
-      const failed = signal.aborted ? undefined : computerFailureResult(caught);
-      if (failed) return failed;
-      throw caught;
-    }
+    return operateComputer(computer, () => operate(computer, { signal }), {
+      signal,
+      seenAt: () => computerRebuildSeenAt(deps.db, call.botId),
+      tell: (rebuiltAt) => {
+        telling = rebuiltAt;
+      },
+    });
   };
   return {
     run: () =>
@@ -243,8 +240,8 @@ function shellCall(deps: BotSdkContext, call: StoredCall, signal: AbortSignal) {
 
 /**
  * The stored call of a feature's tool, such as a Connector tool: the features' tools listed afresh
- * (recorded activities), and the one it names. A Connection that is down now, or no longer offers
- * the tool, is the error.
+ * (recorded activities) for the Turn the call came from, up to the feature that gives the one it
+ * names. A Connection that is down now, or no longer offers the tool, is the error.
  */
 async function featureCall(
   deps: BotSdkContext,
@@ -255,7 +252,7 @@ async function featureCall(
   const features = await featureTools(
     deps,
     featureTurnOf({
-      id: call.reviewId,
+      id: call.turnId,
       userId: call.userId,
       botId: call.botId,
       conversationId: call.conversationId,
@@ -269,6 +266,7 @@ async function featureCall(
       record: (featureId, list) => ctx.step(`${featureId}:tools`, list),
       computerCall: async () => ({ error: computerUnavailableError }),
     },
+    { find: call.tool },
   );
   const tool = features.tools.find((each) => each.name === call.tool);
   const execute = tool?.execute;
