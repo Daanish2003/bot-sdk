@@ -337,7 +337,7 @@ function coreToolsOf(
   const sendToUser = sendToUserDefinition.server(
     async ({ text, endTurn: last, secret, files, choice, react, urgent }, context) => {
       if (react) {
-        if (secret || files || choice || urgent || text.trim())
+        if (secret || files || choice || urgent !== undefined || text.trim())
           return {
             error: "A reaction is sent alone, with no text, secret, files, choice or urgent.",
           };
