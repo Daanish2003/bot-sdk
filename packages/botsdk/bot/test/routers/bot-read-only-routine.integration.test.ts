@@ -2,7 +2,7 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { botReview, botTurn } from "../../src/storage";
+import { botReview, botTrigger, botTurn } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import type { HostProvider } from "../../src/models/internal";
 import { readOnlyError } from "../../src/bot/tools";
@@ -120,8 +120,8 @@ async function approvedRoutine({ readOnly, rounds }: { readOnly: boolean; rounds
     timer.advance(new Date(when).getTime() - timer.clock.now().getTime());
   };
 
-  /** Sends the user's `text` and runs the Turn it starts. */
-  const send = async (text: string) => {
+  /** Sends the user's `text` without running the Turn it starts. */
+  const post = async (text: string) => {
     const stream = await followSend(client, {
       botId,
       id: uuidv7(),
@@ -130,6 +130,9 @@ async function approvedRoutine({ readOnly, rounds }: { readOnly: boolean; rounds
     });
     await stream.next();
     await stream.return(undefined);
+  };
+  const send = async (text: string) => {
+    await post(text);
     timer.advance(500);
     await runDue();
   };
@@ -148,6 +151,14 @@ async function approvedRoutine({ readOnly, rounds }: { readOnly: boolean; rounds
     fire: async () => {
       advanceTo(mondaySlot);
       await runDue();
+      advanceTo("2026-10-19T10:00:00.500Z");
+      await runDue();
+    },
+    /** Runs the Monday fire with the user's `text` sent before its Turn starts, so one Turn takes both. */
+    fireWithMessage: async (text: string) => {
+      advanceTo(mondaySlot);
+      await runDue();
+      await post(text);
       advanceTo("2026-10-19T10:00:00.500Z");
       await runDue();
     },
@@ -303,6 +314,27 @@ describe("a read-only Routine", () => {
     const { messages } = await client.bots.get({ botId });
     expect(messages.map((sent) => sent.text)).toContain("Acme replied.");
   });
+
+  it(
+    "refuses nothing in a Turn that took the user's message along with a read-only fire",
+    testTimeout,
+    async () => {
+      const { botId, fireWithMessage } = await approvedRoutine({
+        readOnly: true,
+        rounds: [round(call("shell", { command: "ls" })), round()],
+      });
+      await fireWithMessage("Go ahead and tidy my inbox");
+
+      const turns = await turnsOf(botId);
+      expect(turns).toHaveLength(2);
+      const triggers = await getTestDb()
+        .select({ source: botTrigger.source })
+        .from(botTrigger)
+        .where(eq(botTrigger.turnId, turns[1]!.id));
+      expect(triggers.map((trigger) => trigger.source).sort()).toEqual(["routine", "user"]);
+      expect(resultsOf(turns[1]!.transcript).shell).not.toEqual({ error: readOnlyError });
+    },
+  );
 
   it("refuses nothing in a run of a Routine that isn't read-only", testTimeout, async () => {
     const { botId, fire } = await approvedRoutine({

@@ -59,15 +59,17 @@ export function refusedConnectorInReadOnly(tool: AnyServerTool): boolean {
 }
 
 /**
- * Whether Turn `turnId` is a read-only run: it took a Trigger of a read-only Routine. A Routine
- * deleted since its fire counts as read-only, so a run whose Routine is gone fails closed.
+ * Whether Turn `turnId` is a read-only run: it took a Trigger of a read-only Routine and no user
+ * Trigger, whose message gives the user's permission. A Routine deleted since its fire counts as
+ * read-only, so a run whose Routine is gone fails closed.
  */
 export async function isReadOnlyRun(tx: Transaction, turnId: string): Promise<boolean> {
-  const fires = await tx
-    .select({ id: botTrigger.id })
+  const taken = await tx
+    .select({ id: botTrigger.id, source: botTrigger.source })
     .from(botTrigger)
-    .where(and(eq(botTrigger.turnId, turnId), eq(botTrigger.source, "routine")));
-  const routineIds = [...new Set(fires.map((fire) => routineOfFireKey(fire.id)))];
+    .where(and(eq(botTrigger.turnId, turnId), inArray(botTrigger.source, ["routine", "user"])));
+  if (taken.some((trigger) => trigger.source === "user")) return false;
+  const routineIds = [...new Set(taken.map((fire) => routineOfFireKey(fire.id)))];
   if (routineIds.length === 0) return false;
   const writable = await tx
     .select({ id: botRoutine.id })
