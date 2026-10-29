@@ -20,6 +20,7 @@
     "./bot/routine": "./src/bot/routine.ts",
     "./bot/rule": "./src/bot/rule.ts",
     "./bot/secret": "./src/bot/secret.ts",
+    "./bot/tasks": "./src/bot/tasks.ts",
     "./bot/time-zone": "./src/bot/time-zone.ts",
     "./bot/turn": "./src/bot/turn.ts",
     "./models/contract": "./src/models/contract.ts",

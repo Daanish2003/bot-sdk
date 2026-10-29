@@ -16,11 +16,11 @@ describe("createI18n", () => {
   });
 
   it("passes params to a function value", () => {
-    const i18n = createI18n({ "bots.todoCount": ({ count }) => `Aufgaben ${count}` });
+    const i18n = createI18n({ "bots.tasksCount": ({ count }) => `Aufgaben ${count}` });
 
-    expect(i18n.t("bots.todoCount", { count: 5 })).toBe("Aufgaben 5");
+    expect(i18n.t("bots.tasksCount", { count: 5 })).toBe("Aufgaben 5");
     // @ts-expect-error a function key needs its params (and throws without them at runtime)
-    expect(() => i18n.t("bots.todoCount")).toThrow(TypeError);
+    expect(() => i18n.t("bots.tasksCount")).toThrow(TypeError);
   });
 
   it("picks the plural form inside a function with Intl.PluralRules", () => {

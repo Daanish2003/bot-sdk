@@ -11,6 +11,7 @@ import type { BotReview, ReviewApprovalState } from "./review";
 import type { BotRoutine } from "./routine";
 import { type CustomRule, customRuleModes, customRuleTextSchema } from "./rule";
 import { type BotSecret, secretNameSchema } from "./secret";
+import type { BotTasks } from "./tasks";
 import { isTimeZone } from "./time-zone";
 import {
   type BotMessage,
@@ -201,6 +202,11 @@ const bots = {
   upload: oc.input(uploadInput).output(type<BotUpload>()),
   /** Stops the user's Bot's running Turn. */
   stop: oc.input(botInput).output(type<void>()),
+  /**
+   * One of the user's Bots' Tasks view (spec #1007): In progress, Scheduled and Done, in one read.
+   * Another user's Bot is not found.
+   */
+  tasks: oc.input(botInput).output(type<BotTasks>()),
   /** Warms the Bot's cache, on opening and on a draft's first keystroke. */
   warm: oc.input(botInput).output(type<WarmResult>()),
   /** Answers the choice a Bot asked in Message `messageId`. */

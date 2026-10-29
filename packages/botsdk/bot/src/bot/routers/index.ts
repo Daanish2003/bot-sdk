@@ -37,6 +37,9 @@ const bots = os.bots.router({
   stop: os.bots.stop.handler(({ context, input }) =>
     context.sdk.bots.stop({ ...input, userId: context.user.id }),
   ),
+  tasks: os.bots.tasks.handler(({ context, input }) =>
+    context.sdk.bots.tasks({ ...input, userId: context.user.id }),
+  ),
   warm: os.bots.warm.handler(({ context, input }) =>
     context.sdk.bots.warm({ ...input, userId: context.user.id }),
   ),

@@ -16,6 +16,7 @@
     "./bot/routines": "./src/bot/routines.ts",
     "./bot/rules": "./src/bot/rules.ts",
     "./bot/secrets": "./src/bot/secrets.ts",
+    "./bot/tasks": "./src/bot/tasks.ts",
     "./bot/turn-list": "./src/bot/turn-list.ts",
     "./bot/uploads": "./src/bot/uploads.ts",
     "./bot/warm": "./src/bot/warm.ts",

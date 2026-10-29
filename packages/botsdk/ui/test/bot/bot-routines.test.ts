@@ -11,6 +11,7 @@ import { z } from "zod";
 import { BotConversation } from "../../src/bot/bot-conversation";
 import { providerFor } from "@ai-chat/test-support/fake-dictionary";
 import { changeLog, hint, settle, stubEventSource } from "./fake-change-log";
+import { tasksOf } from "./fake-tasks";
 
 beforeEach(stubEventSource);
 
@@ -88,6 +89,7 @@ function fakeBotServer(
         lastSeq: log.last,
       })),
       stop: os.handler(() => {}),
+      tasks: os.handler(() => tasksOf({ routines })),
       send: os
         .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }).loose())
         .handler(({ input }) => {
@@ -447,7 +449,7 @@ describe("an approved Routine", () => {
   });
 });
 
-describe("the Routines popover in the header", () => {
+describe("the Tasks popover's Routines in the header", () => {
   const routines = (): BotRoutine[] => [
     { ...morningBrief(), state: "active", approvedAt: createdAt },
     {
@@ -461,9 +463,10 @@ describe("the Routines popover in the header", () => {
     { ...morningBrief(), id: "r3", name: "inbox-sweep" },
   ];
 
-  /** Opens the popover and returns its list of Routines. */
-  const open = async (count: number) => {
-    fireEvent.click(await screen.findByRole("button", { name: new RegExp(`^Routines ${count}`) }));
+  /** Opens the popover on Scheduled and returns its list of Routines. */
+  const open = async () => {
+    fireEvent.click(await screen.findByRole("button", { name: /^Tasks/ }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Scheduled" }));
     return screen.findByRole("list", { name: "Routines" });
   };
   const row = (list: HTMLElement, name: string) =>
@@ -471,11 +474,11 @@ describe("the Routines popover in the header", () => {
       .getAllByRole("listitem")
       .find((item) => item.textContent?.includes(name))!;
 
-  it("counts the approved Routines and lists every Routine with its schedule and state", async () => {
+  it("lists every Routine with its schedule and state", async () => {
     const server = fakeBotServer([said("m1", "user", "Brief me")], routines());
     mount(server);
 
-    const list = await open(2);
+    const list = await open();
 
     expect(
       within(list)
@@ -493,7 +496,7 @@ describe("the Routines popover in the header", () => {
   it("pauses, resumes and deletes through the router", async () => {
     const server = fakeBotServer([said("m1", "user", "Brief me")], routines());
     mount(server);
-    const list = await open(2);
+    const list = await open();
 
     fireEvent.click(
       within(row(list, "morning-brief")).getByRole("button", { name: "Pause morning-brief" }),
@@ -531,7 +534,7 @@ describe("the Routines popover in the header", () => {
 
     const divider = container.querySelector<HTMLElement>("[data-routine=morning-brief]")!;
     fireEvent.click(within(divider).getByRole("button", { name: "Pause morning-brief" }));
-    const list = await open(1);
+    const list = await open();
     const remove = within(row(list, "morning-brief")).getByRole<HTMLButtonElement>("button", {
       name: "Delete morning-brief",
     });
@@ -582,8 +585,9 @@ describe("a webhook Routine", () => {
   // Under the client's baseUrl, where the HTTP layer serves the webhook route.
   const urlOf = (token: string) => `http://localhost/api/chat/routines/webhook/${token}`;
 
-  const open = async (count: number) => {
-    fireEvent.click(await screen.findByRole("button", { name: new RegExp(`^Routines ${count}`) }));
+  const open = async () => {
+    fireEvent.click(await screen.findByRole("button", { name: /^Tasks/ }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Scheduled" }));
     return screen.findByRole("list", { name: "Routines" });
   };
   const row = (list: HTMLElement, name: string) =>
@@ -615,7 +619,7 @@ describe("a webhook Routine", () => {
     );
     mount(server);
 
-    const list = await open(2);
+    const list = await open();
 
     expect(within(row(list, "stripe-payouts")).getByText(/on webhook/)).toBeTruthy();
     expect(
@@ -632,7 +636,7 @@ describe("a webhook Routine", () => {
     vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
     const server = fakeBotServer([said("m1", "user", "Watch my payouts")], [payouts("active")]);
     mount(server);
-    const list = await open(1);
+    const list = await open();
     // Only its hash is stored, so the URL shows once: after approving, or after a rotate.
     expect(within(row(list, "stripe-payouts")).queryByRole("button", { name: "Copy" })).toBeNull();
 
@@ -656,7 +660,7 @@ describe("a webhook Routine", () => {
     await screen.findByText(/stripe-payouts approved/);
     expect(await screen.findByText(urlOf("approved-token"))).toBeTruthy();
     expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
-    const list = await open(1);
+    const list = await open();
 
     expect(within(row(list, "stripe-payouts")).getByText(urlOf("approved-token"))).toBeTruthy();
   });

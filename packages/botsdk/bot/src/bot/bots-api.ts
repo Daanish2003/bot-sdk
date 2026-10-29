@@ -21,6 +21,7 @@ import {
 } from "./conversation";
 import { turnProvenance } from "./safety";
 import { botSummaries, botWarmings, warmBot } from "./context";
+import { botTasks } from "./tasks";
 import { sendToBot, stopBot } from "./turn";
 import { answerChoice, reactToMessage } from "./triggers";
 
@@ -115,6 +116,18 @@ export function botsApi(sdk: BotSdkContext) {
      */
     stop: async ({ userId, ...rest }: WithUser<typeof botInput>) =>
       stopBot(sdk, userId, parseInput(botInput, rest).botId),
+
+    /**
+     * One of the user's Bots' Tasks view (spec #1007): what it is doing (In progress), what is
+     * waiting or repeating (Scheduled) and what ended in the last 7 days (Done), including the
+     * Triggers skipped and why. Another user's Bot is not found.
+     */
+    tasks: async ({ userId, ...rest }: WithUser<typeof botInput>) => {
+      const { botId } = parseInput(botInput, rest);
+      const found = await findBot(sdk.db, userId, botId);
+      if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
+      return botTasks(sdk.db, { botId, conversationId: found.conversationId, now: sdk.clock() });
+    },
 
     /**
      * Warms the cache of the user's Bot (slide 32). It does nothing while a Turn runs, while the

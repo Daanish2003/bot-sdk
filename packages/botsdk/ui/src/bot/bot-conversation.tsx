@@ -18,6 +18,7 @@ import { allHelpers, useBotHelpers } from "@botsdk/react/bot/helpers";
 import { useBotReviews } from "@botsdk/react/bot/reviews";
 import { useCustomRules } from "@botsdk/react/bot/rules";
 import { useBotRoutines } from "@botsdk/react/bot/routines";
+import { useBotTasks } from "@botsdk/react/bot/tasks";
 import { useBotChoices } from "@botsdk/react/bot/choices";
 import { useBotReactions } from "@botsdk/react/bot/reactions";
 import { useBotUploads } from "@botsdk/react/bot/uploads";
@@ -31,11 +32,10 @@ import { HelperCard } from "./helper-card";
 import { NeverAllowedLine } from "./never-allowed-line";
 import { ReviewPassesLine } from "./review-passes-line";
 import { defaultRichControlRenderers, type RichControlRenderers } from "./rich-control";
-import { RoutinesPopover } from "./routines-popover";
 import { SecretsPopover } from "./secrets-popover";
 import { RunDivider } from "./run-divider";
 import { SummaryCard } from "./summary-card";
-import { TodoPopover } from "./todo-popover";
+import { TasksPopover } from "./tasks-popover";
 import { WarmLine } from "./warm-line";
 
 /**
@@ -43,8 +43,8 @@ import { WarmLine } from "./warm-line";
  * ••• while a Turn runs, and "Seen ✓" under the user's last Message when the Bot stayed quiet, or "Couldn't reply" when the
  * Turn failed. A Routine the Bot created shows after the Turn that created it, as does a Check-in
  * it set, and each Helper it started shows as a card after it (a hand-off Message is followed by its Computer card), a Demonstration's Message is its Show me card, and each run of a Routine or fired Check-in gets a divider above what it sent, or one of its own when it stayed quiet. Where a Summary replaced the Bot's context, a card that expands to it sits before the next Message. The Bot's Messages are
- * never collapsed. The header lists the Routines, to pause, resume or delete them, and the To-do
- * list of live Helpers, to stop them. A Message's Rich control renders with the Host's renderer for
+ * never collapsed. The header's Tasks view lists what the Bot is doing, what is scheduled and what
+ * is done, with the controls to stop, pause, resume, delete and cancel. A Message's Rich control renders with the Host's renderer for
  * its kind in `controls`, or the default one.
  */
 export function BotConversation({
@@ -171,7 +171,9 @@ function BotConversationView({
     void actOnDemonstration(...args).catch((refusal) =>
       toast.error(serverErrorText(i18n, refusal)),
     );
-  const todo = helpers.filter((helper) => isLiveHelper(helper.status));
+  const { tasks } = useBotTasks(botId, working);
+  const onStopTurn = () =>
+    void stop().catch((refusal) => toast.error(serverErrorText(i18n, refusal)));
   const actions = { onPause: pause, onResume: resume, onDelete: remove, actingRoutines: acting };
   const checkInActions = { onCancelCheckIn, actingCheckIns };
 
@@ -341,10 +343,12 @@ function BotConversationView({
         <BotAvatar name={bot.name} size={28} />
         <h1 className="font-semibold">{bot.name}</h1>
         <div className="ml-auto flex items-center gap-2">
-          {(routines.length > 0 || checkIns.some((checkIn) => checkIn.state === "pending")) && (
-            <RoutinesPopover
-              routines={routines}
-              checkIns={checkIns}
+          {tasks && (
+            <TasksPopover
+              tasks={tasks}
+              onStopTurn={onStopTurn}
+              onStopHelper={onStopHelper}
+              actingHelpers={actingHelpers}
               {...checkInActions}
               webhookTokens={webhookTokens}
               onRotate={rotate}
@@ -353,9 +357,6 @@ function BotConversationView({
           )}
           {secrets.length > 0 && (
             <SecretsPopover secrets={secrets} onDelete={removeSecret} acting={actingSecrets} />
-          )}
-          {todo.length > 0 && (
-            <TodoPopover helpers={todo} onStop={onStopHelper} acting={actingHelpers} />
           )}
           {headerEnd}
         </div>
@@ -547,13 +548,7 @@ function BotConversationView({
           className="max-h-40 min-h-10 resize-none"
         />
         {working && (
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() =>
-              void stop().catch((refusal) => toast.error(serverErrorText(i18n, refusal)))
-            }
-          >
+          <Button type="button" variant="outline" onClick={onStopTurn}>
             ■ {t("bots.stop")}
           </Button>
         )}

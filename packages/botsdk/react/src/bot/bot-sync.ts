@@ -93,6 +93,7 @@ async function fetchOnce(queryClient: QueryClient, orpc: BotSdkOrpc, botId: stri
         });
       }
     } else if (change.kind === "turn") {
+      void queryClient.invalidateQueries({ queryKey: lists.tasks });
       // A Turn starting or ending changes its provenance and what "Seen ✓" reads: read the thread.
       rereadThread = true;
       const { data } = change;
@@ -106,6 +107,10 @@ async function fetchOnce(queryClient: QueryClient, orpc: BotSdkOrpc, botId: stri
       rereadThread = true;
     } else {
       void queryClient.invalidateQueries({ queryKey: lists[change.kind] });
+      // The Tasks view lists Routines, Helpers and Check-ins too.
+      if (change.kind === "routine" || change.kind === "helper" || change.kind === "check_in") {
+        void queryClient.invalidateQueries({ queryKey: lists.tasks });
+      }
     }
   }
   queryClient.setQueryData(
@@ -131,6 +136,7 @@ function listKeys(orpc: BotSdkOrpc, botId: string) {
     review: orpc.reviews.list.queryKey(input),
     helper: orpc.helpers.list.queryKey(input),
     check_in: orpc.checkIns.list.queryKey(input),
+    tasks: orpc.bots.tasks.queryKey(input),
   };
 }
 
