@@ -16,7 +16,7 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **Formatting:** `pnpm check` runs `oxfmt --write` and rewrites line endings in every file. Use `pnpm exec oxlint` and `pnpm exec oxfmt --check` instead.
 - **Scripted edits:** this machine has no `python`; use `node -e`.
 - **Fresh worktrees:** the first `pnpm exec` in a worktree with no `node_modules` runs a `pnpm install`. Two at once can fail with `ERR_PNPM_LOCKFILE_RENAME_FILE`; retry once the install has finished.
-- **Merged branches:** GitHub deletes the remote branch when a PR merges, so `git push origin --delete <branch>` fails afterwards with "remote ref does not exist" (#644). Run `git fetch --prune` and move on.
+- **Merged branches:** GitHub deletes the remote branch when a PR merges, so `git push origin --delete <branch>` fails afterwards with "remote ref does not exist" (#644). Run `git fetch --prune` and move on. In the #1007 run, one `git push origin --delete <gone> <live>` failed as a whole, and the live docs branch stayed until a second push. Delete each remote branch in its own push.
 - **Repo name:** the GitHub repo is `Daanish2003/bot-sdk` (renamed from `Daanish2003/ai-chat`; old URLs redirect). `origin` points at it since 2026-10-20.
 - **Main moves during the run (#624):** another session merged a PR touching the same eval files while #648 was open, so the PR showed `CONFLICTING` and CI never started (`gh pr checks` said "no checks reported"). After opening the PR, check `gh pr view <n> --json mergeable`; merge `origin/main` in (with `-c core.autocrlf=false`; the #624 run forgot it once and had to repair 61 CRLF files).
 - **A fast-forward that skips verify can carry a stale test (#624):** #631 changed `bot.get`, its agent ran only the affected tests, and the next full verify failed on an untouched test in `bot.integration`. Skip the verify only when the agent ran the whole suite.
@@ -173,6 +173,7 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
   - **Shared course numbering:** two specs can write the same lesson number. The spec that merges second renumbers its lesson file, the nav links, `names.js` `lesson:` and `data-upto`, and the later `counter-reset` values in `docs/learning/index.html`.
   - drizzle-kit writes `snapshot.json` in a shape that `oxfmt --check` can refuse. Run `pnpm exec oxfmt` on the new snapshot before committing.
   - **A new migration changes the migrate-cli `--print` snapshot (#989):** the first verify after #990 failed on `migrate-cli.integration`, whose `--print` snapshot lists every migration. The migration ticket updates that `.snap` in the same change.
+  - **A migration regenerated in place (#1007):** the owner approved folding a branch-review index into the spec's unreleased migration, under the same name. The journal is keyed by name, so `ai-chat_test_int_<spec>` and `ai-chat_e2e_<spec>` would keep the old version without the index. Drop them (and their `_r…_w…` copies) before the next verify.
 
 ## Evals
 
