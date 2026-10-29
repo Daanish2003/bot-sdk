@@ -8,7 +8,7 @@ import type { BotSdkContext } from "../plugin";
 import { rpcError } from "../rpc-error";
 import { listCheckIns, listRoutines } from "./routines";
 import { listHelpers } from "./helpers";
-import { reviewFields } from "./safety";
+import { listRules, reviewFields } from "./safety";
 import { botSummaries } from "./context";
 import { toBotMessage } from "./conversation";
 
@@ -83,6 +83,7 @@ async function changeData(
   const messageIds = idsOf(changes, "message");
   const turnIds = idsOf(changes, "turn");
   const secretNames = idsOf(changes, "secret");
+  const ruleIds = idsOf(changes, "rule");
   const reviewIds = idsOf(changes, "review");
   const helperIds = idsOf(changes, "helper");
   await Promise.all([
@@ -118,6 +119,13 @@ async function changeData(
         .then((rows) => {
           for (const row of rows) data.set(`secret:${row.name}`, row);
         }),
+    ruleIds.length > 0 &&
+      listRules(db, owner.userId).then((rows) =>
+        put(
+          "rule",
+          rows.filter((row) => ruleIds.includes(row.id)),
+        ),
+      ),
     idsOf(changes, "routine").length > 0 &&
       listRoutines(db, owner.botId).then((rows) => put("routine", rows)),
     reviewIds.length > 0 &&

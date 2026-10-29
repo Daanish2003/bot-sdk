@@ -14,6 +14,7 @@
     "./bot/reactions": "./src/bot/reactions.ts",
     "./bot/reviews": "./src/bot/reviews.ts",
     "./bot/routines": "./src/bot/routines.ts",
+    "./bot/rules": "./src/bot/rules.ts",
     "./bot/secrets": "./src/bot/secrets.ts",
     "./bot/turn-list": "./src/bot/turn-list.ts",
     "./bot/uploads": "./src/bot/uploads.ts",

@@ -274,7 +274,7 @@ const reviews = {
 
 /**
  * The user's Custom Rules (ADR 0031), shared by all their Bots. Another user's rule is not found.
- * Not served yet: the SDK adds it to `botContract` once it implements it (spec #989).
+ * `botContract` serves `list`, `create`, `update` and `delete`; `approve` and `deny` are not served yet (spec #989).
  */
 export const rulesContract = {
   /** The user's Custom Rules, active and proposed, the oldest first. */
@@ -292,6 +292,14 @@ export const rulesContract = {
 };
 
 export type RulesContract = typeof rulesContract;
+
+/** The rules methods the SDK serves: `approve` and `deny` follow with Bots proposing rules. */
+const rules = {
+  list: rulesContract.list,
+  create: rulesContract.create,
+  update: rulesContract.update,
+  delete: rulesContract.delete,
+};
 
 /**
  * The user's Secrets (spec #691), shared by all their Bots. A value goes in through `save` and
@@ -354,6 +362,7 @@ export const botContract = {
   checkIns,
   helpers,
   reviews,
+  rules,
   secrets,
   demonstrations,
   computer,

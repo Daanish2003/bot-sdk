@@ -7,6 +7,7 @@ import type { Transaction } from "../../plugin";
 import type { FeatureSection } from "./features";
 import { canonicalJson, firstMessageSection, sha256 } from "../agent-loop";
 import { listedToolNames } from "./prompt-start";
+import { customRulesHeader } from "../safety";
 import { createRoutineToolName, deleteRoutineToolName, updateRoutineToolName } from "../routines";
 import { describeToolName, runToolName } from "./tool-search";
 
@@ -47,6 +48,8 @@ export type CurrentState = {
   features?: FeatureSection[];
   /** The Routines block, or null when the Bot has none. */
   routines: string | null;
+  /** The user's Custom Rules block, or null when they have none. */
+  customRules?: string | null;
   /** The definitions of every tool the code has now, deferred ones included. */
   tools: PromptStartTool[];
   /**
@@ -62,6 +65,8 @@ export type CurrentState = {
  */
 type Seen = {
   routines: Map<string, string>;
+  /** The user's Custom Rules lines (mode and text), as the Bot was told them. */
+  customRules: string[];
   /** Each sent tool's definition hash, and each deferred one's the Bot loaded with describe_tool. */
   tools: Map<string, string>;
   /** Every tool name the Bot was told of: sent, or listed in the first message or a note. */
@@ -72,6 +77,11 @@ const waiting = "(waiting for OK)";
 
 /** The first eight hex digits of a tool definition's sha256: enough to tell one deploy from another. */
 export const toolHash = (tool: PromptStartTool) => sha256(canonicalJson(tool)).slice(0, 8);
+
+/** A Custom Rules block's lines, without its header. */
+function customRuleLinesOf(block: string | null | undefined): string[] {
+  return block?.startsWith(customRulesHeader) ? block.split("\n").slice(1) : [];
+}
 
 /** A Routines block's lines by Routine name. */
 function routinesOf(block: string | null | undefined): Map<string, string> {
@@ -102,6 +112,14 @@ function applyNotes(seen: Seen, notes: string[]) {
   for (const note of notes) {
     const routine = /^Routine (?:created|approved|changed): (.*)$/.exec(note);
     if (routine) seen.routines.set(routine[1]!.split("  ")[0]!, routine[1]!);
+    const rule = /^Custom rule (added|removed): (.*)$/.exec(note);
+    if (rule) {
+      if (rule[1] === "added") seen.customRules.push(rule[2]!);
+      else {
+        const at = seen.customRules.indexOf(rule[2]!);
+        if (at !== -1) seen.customRules.splice(at, 1);
+      }
+    }
     const deleted = /^Routine deleted: (.*)$/.exec(note);
     if (deleted) seen.routines.delete(deleted[1]!);
     const added = /^\[Tool added: (.+?)\. /.exec(note);
@@ -237,6 +255,7 @@ export async function changeNotesFor(
   const block = (name: string) => start.sections.find((section) => section.name === name)?.text;
   const seen: Seen = {
     routines: routinesOf(block("routines")),
+    customRules: customRuleLinesOf(block("custom_rules")),
     tools: new Map(start.tools.map((tool) => [tool.name, toolHash(tool)])),
     listed: listedToolNames(block(firstMessageSection) ?? ""),
   };
@@ -263,6 +282,15 @@ export async function changeNotesFor(
   for (const name of seen.routines.keys()) {
     if (!routines.has(name)) notes.push(`Routine deleted: ${name}`);
   }
+  // An edit reads as the old line removed and the new one added.
+  // Compared as lists, so two identical rules count twice.
+  const unseen = [...seen.customRules];
+  for (const line of customRuleLinesOf(current.customRules)) {
+    const at = unseen.indexOf(line);
+    if (at === -1) notes.push(`Custom rule added: ${line}`);
+    else unseen.splice(at, 1);
+  }
+  for (const line of unseen) notes.push(`Custom rule removed: ${line}`);
   for (const tool of current.tools) {
     const before = seen.tools.get(tool.name);
     const hash = toolHash(tool);

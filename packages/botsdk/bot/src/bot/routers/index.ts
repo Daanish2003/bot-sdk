@@ -111,6 +111,19 @@ const reviews = os.reviews.router({
   ),
 });
 
+const rules = os.rules.router({
+  list: os.rules.list.handler(({ context }) => context.sdk.rules.list({ userId: context.user.id })),
+  create: os.rules.create.handler(({ context, input }) =>
+    context.sdk.rules.create({ ...input, userId: context.user.id }),
+  ),
+  update: os.rules.update.handler(({ context, input }) =>
+    context.sdk.rules.update({ ...input, userId: context.user.id }),
+  ),
+  delete: os.rules.delete.handler(({ context, input }) =>
+    context.sdk.rules.delete({ ...input, userId: context.user.id }),
+  ),
+});
+
 const secrets = os.secrets.router({
   save: os.secrets.save.handler(({ context, input }) =>
     context.sdk.secrets.save({ ...input, userId: context.user.id }),
@@ -153,6 +166,7 @@ export const botPluginRouter = {
   checkIns,
   helpers,
   reviews,
+  rules,
   secrets,
   demonstrations,
   computer,

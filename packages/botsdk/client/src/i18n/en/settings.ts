@@ -29,4 +29,25 @@ export const settingsMessages = {
   "settings.imageModelHelp":
     "Makes images when you ask for one. Images on the Host's credentials count against your allowance.",
   "settings.onHost": "· Host",
+  // Custom Rules (spec #989).
+  "settings.rulesTitle": "Rules",
+  "settings.rulesIntro":
+    "Tell your Bots what is fine to do without asking, what to ask about first, and what you want to do yourself. Rules apply to all your Bots.",
+  "settings.rulesCount": ({ count, max }: { count: number; max: number }) =>
+    `${count} of ${max} rules`,
+  "settings.rulesEmpty": "No rules yet.",
+  "settings.rulesLimit": ({ max }: { max: number }) =>
+    `You have ${max} rules, the most allowed. Delete one to add another.`,
+  "settings.rulesFootnote":
+    "Rules reach only the calls Auto-review checks, such as shell commands and browser or desktop actions. A rule about reading a file does nothing.",
+  "settings.addRule": "Add a rule",
+  "settings.saveRule": "Save rule",
+  "settings.ruleText": "Rule",
+  "settings.ruleTextPlaceholder": "Reply to emails from anyone @acme.com",
+  "settings.ruleMode": "What happens",
+  "settings.ruleModeWithoutAsking": "Without asking",
+  "settings.ruleModePreApproved": "If pre-approved",
+  "settings.ruleModeAsk": "Ask before",
+  "settings.ruleModeHandOff": "Hand off to me",
+  "settings.deleteRule": "Delete rule",
 };

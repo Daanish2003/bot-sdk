@@ -62,10 +62,15 @@ const kit = {
 async function started(
   deps: TestDeps,
   turn: ContextTurn,
-  { routines, features }: { routines: string | null; features: FeatureSection[] },
+  {
+    routines,
+    features,
+    customRules = null,
+  }: { routines: string | null; features: FeatureSection[]; customRules?: string | null },
 ) {
   const context = await build(deps, turn, {
     routines: async () => routines,
+    customRules: async () => customRules,
     features: async () => features,
     tools: (sections) => forTurn(deps, turn, sections),
   });
