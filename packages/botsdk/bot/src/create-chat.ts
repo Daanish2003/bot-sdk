@@ -533,10 +533,11 @@ function buildContext(
       pause: true,
       resume: true,
       delete: true,
+      edit: true,
       rotate: true,
       receiveWebhook: true,
     }),
-    checkIns: botsStub<CheckInsApi>({ list: true, cancel: true }),
+    checkIns: botsStub<CheckInsApi>({ list: true, cancel: true, edit: true }),
     triggers: botsStub<TriggersApi>({ skip: true }),
     helpers: botsStub<HelpersApi>({ list: true, done: true, stop: true }),
     demonstrations: botsStub<DemonstrationsApi>({

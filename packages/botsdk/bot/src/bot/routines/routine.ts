@@ -662,6 +662,53 @@ export async function pauseRoutine(
 }
 
 /**
+ * The user's edit of Routine `routineId`'s prompt and schedule: its own Approval, so the Routine
+ * keeps its state (the Bot's `update_routine` is what sends one back to `pending`). An active one
+ * whose schedule changed has its queued fire cancelled and the next slot queued; a fire already
+ * waiting or running keeps the snapshot it took. A webhook Routine takes the prompt only.
+ */
+export async function editRoutine(
+  deps: BotSdkContext,
+  userId: string,
+  {
+    routineId,
+    prompt,
+    schedule,
+  }: { routineId: string; prompt?: string; schedule?: RoutineSchedule },
+): Promise<{ id: string; state: BotRoutine["state"] }> {
+  const now = deps.clock();
+  const result = await deps.db.transaction(async (tx) => {
+    const routine = await lockedRoutine(tx, userId, routineId);
+    if (schedule !== undefined && routine.webhookTokenHash !== null) {
+      throw rpcError(
+        "BAD_REQUEST",
+        "error.routineWebhookSchedule",
+        "A webhook Routine has no schedule to edit",
+      );
+    }
+    const scheduleChanged =
+      schedule !== undefined &&
+      (!routine.schedule || scheduleText(schedule) !== scheduleText(routine.schedule));
+    await tx
+      .update(botRoutine)
+      .set({
+        ...(prompt !== undefined && { prompt }),
+        ...(scheduleChanged && { schedule }),
+        updatedAt: now,
+      })
+      .where(eq(botRoutine.id, routineId));
+    await recordBotChange(tx, { botId: routine.botId }, "routine", routineId, now);
+    if (scheduleChanged && routine.state === "active") {
+      await cancelFires(deps, tx, [routineId]);
+      await queueFire(deps, tx, routineId, nextSlot(schedule, routine.timeZone, now));
+    }
+    return { id: routine.id, state: routine.state, conversationId: routine.conversationId };
+  });
+  await hintChanged(deps, result.conversationId);
+  return { id: result.id, state: result.state };
+}
+
+/**
  * The user resumes a paused Routine: it turns `active` with no fresh OK, and its next slot's fire is
  * queued. Any other Routine stays as it is. Nothing wakes the Bot.
  */

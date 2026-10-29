@@ -82,6 +82,9 @@ const routines = os.routines.router({
   delete: os.routines.delete.handler(({ context, input }) =>
     context.sdk.routines.delete({ ...input, userId: context.user.id }),
   ),
+  edit: os.routines.edit.handler(({ context, input }) =>
+    context.sdk.routines.edit({ ...input, userId: context.user.id }),
+  ),
   rotate: os.routines.rotate.handler(({ context, input }) =>
     context.sdk.routines.rotate({ ...input, userId: context.user.id }),
   ),
@@ -93,6 +96,9 @@ const checkIns = os.checkIns.router({
   ),
   cancel: os.checkIns.cancel.handler(({ context, input }) =>
     context.sdk.checkIns.cancel({ ...input, userId: context.user.id }),
+  ),
+  edit: os.checkIns.edit.handler(({ context, input }) =>
+    context.sdk.checkIns.edit({ ...input, userId: context.user.id }),
   ),
 });
 

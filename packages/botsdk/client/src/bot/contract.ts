@@ -8,7 +8,7 @@ import type { DemonstrationState, DemonstrationStep } from "./demonstration";
 import type { BotHelper } from "./helper";
 import { emojiSchema } from "./reaction";
 import type { BotReview, ReviewApprovalState } from "./review";
-import type { BotRoutine } from "./routine";
+import { type BotRoutine, routineScheduleSchema } from "./routine";
 import { type CustomRule, customRuleModes, customRuleTextSchema } from "./rule";
 import { type BotSecret, secretNameSchema } from "./secret";
 import type { BotTasks } from "./tasks";
@@ -139,6 +139,23 @@ export const triggerInput = z.object({ triggerId: z.string().min(1).max(512) });
 /** `checkIns.cancel`'s input, besides `userId`. */
 export const checkInInput = z.object({ checkInId: z.uuid() });
 
+/** `routines.edit`'s input, besides `userId`: a new prompt, a new schedule, or both. */
+export const editRoutineInput = routineInput
+  .extend({
+    prompt: z.string().trim().min(1).optional(),
+    schedule: routineScheduleSchema.optional(),
+  })
+  .refine((input) => input.prompt !== undefined || input.schedule !== undefined, {
+    error: "An edit needs a prompt or a schedule",
+  });
+
+/** `checkIns.edit`'s input, besides `userId`: a new time, a new note, or both. */
+export const editCheckInInput = checkInInput
+  .extend({ at: z.date().optional(), note: z.string().trim().min(1).optional() })
+  .refine((input) => input.at !== undefined || input.note !== undefined, {
+    error: "An edit needs a time or a note",
+  });
+
 /** `helpers.list`'s input, besides `userId`. */
 export const helperListInput = z.object({ botId: z.uuid() });
 
@@ -263,6 +280,11 @@ const routines = {
   resume: oc.input(routineInput).output(type<RoutineStateChange>()),
   /** Deletes a Routine in any state, and nothing of it fires again. */
   delete: oc.input(routineInput).output(type<void>()),
+  /**
+   * The user's edit of a Routine's prompt and schedule (a webhook Routine takes the prompt only).
+   * It needs no Approval and keeps the Routine's state; it applies from the next run.
+   */
+  edit: oc.input(editRoutineInput).output(type<RoutineStateChange>()),
   /** Gives an approved webhook Routine a new URL (ADR 0021). */
   rotate: oc.input(routineInput).output(type<{ webhookToken: string }>()),
 };
@@ -273,6 +295,8 @@ const checkIns = {
   list: oc.input(botScopeInput).output(type<BotCheckIn[]>()),
   /** Cancels a pending Check-in: it never fires. */
   cancel: oc.input(checkInInput).output(type<void>()),
+  /** Changes a pending Check-in's time and note. One that already fired or ended is refused. */
+  edit: oc.input(editCheckInInput).output(type<void>()),
 };
 
 /** The Triggers waiting in a Bot's Conversation queue (spec #1007). */

@@ -92,6 +92,12 @@ describe("sdk.routines, checkIns, helpers, demonstrations and reviews, called in
       );
     }
     await expect(deps.checkIns.cancel({ userId, checkInId: id })).rejects.toMatchObject(notFound);
+    await expect(deps.routines.edit({ userId, routineId: id, prompt: "x" })).rejects.toMatchObject(
+      notFound,
+    );
+    await expect(deps.checkIns.edit({ userId, checkInId: id, note: "x" })).rejects.toMatchObject(
+      notFound,
+    );
     await expect(deps.helpers.done({ userId, helperId: id })).rejects.toMatchObject(notFound);
     await expect(deps.reviews.allow({ userId, reviewId: id })).rejects.toMatchObject(notFound);
     await expect(deps.reviews.deny({ userId, reviewId: id })).rejects.toMatchObject(notFound);

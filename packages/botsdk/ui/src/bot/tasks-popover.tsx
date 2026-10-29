@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { scheduleText } from "@botsdk/client/bot/routine";
 import { type BotTasks, type TaskTrigger, taskCount } from "@botsdk/client/bot/tasks";
-import { ClockIcon, ListTodoIcon, XIcon } from "lucide-react";
+import { ClockIcon, ListTodoIcon, PencilIcon, XIcon } from "lucide-react";
 import { useState } from "react";
 
 import { allHelpers } from "@botsdk/react/bot/helpers";
@@ -17,6 +17,12 @@ import {
 } from "./routine-card";
 import { useRefusalToast } from "./refusal-toast";
 import { runTime } from "./run-divider";
+import {
+  type CheckInEdit,
+  CheckInEditForm,
+  type RoutineEdit,
+  RoutineEditForm,
+} from "./task-edit-forms";
 
 const tabs = ["inProgress", "scheduled", "done"] as const;
 type Tab = (typeof tabs)[number];
@@ -90,8 +96,8 @@ function useTriggerText() {
  * running Turn, the live Helpers and the Triggers waiting in the Conversation queue, with a dot when
  * a Helper needs the user. It opens a popover with three tabs. In progress lists the running Turn
  * (Stop) and the live Helpers (Stop). Scheduled lists the waiting Triggers, the Routines (Pause /
- * Resume, Delete, an approved webhook Routine's URL with Rotate) and the pending Check-ins
- * (Cancel). Done lists the last 7 days' ended Helpers with their reports, fired Check-ins and
+ * Resume, Edit, Delete, an approved webhook Routine's URL with Rotate) and the pending Check-ins
+ * (Edit, Cancel), each Edit an inline form. Done lists the last 7 days' ended Helpers with their reports, fired Check-ins and
  * skipped Triggers with why. There is no create button: new Routines come from the Bot.
  */
 export function TasksPopover({
@@ -103,6 +109,8 @@ export function TasksPopover({
   actingCheckIns,
   webhookTokens,
   onRotate,
+  onEditRoutine,
+  onEditCheckIn,
   onSkipTrigger,
   actingTriggers,
   ...actions
@@ -116,12 +124,18 @@ export function TasksPopover({
   /** The webhook tokens approving or rotating gave on this page, by Routine. */
   webhookTokens: Record<string, string>;
   onRotate: (routineId: string) => Promise<void>;
+  /** The user's edit of a Routine's prompt and schedule. */
+  onEditRoutine: (edit: RoutineEdit) => Promise<void>;
+  /** The user's edit of a pending Check-in's time and note. */
+  onEditCheckIn: (edit: CheckInEdit) => Promise<void>;
 } & SkipTriggerHandlers &
   CheckInActionHandlers &
   RoutineActionHandlers) {
   const i18n = useI18n();
   const { t } = i18n;
   const [tab, setTab] = useState<Tab>("inProgress");
+  // The Routine or Check-in whose inline edit form is open.
+  const [editing, setEditing] = useState<string | null>(null);
   const triggerText = useTriggerText();
   const { inProgress, scheduled, done } = tasks;
   const needsYou = inProgress.helpers.some((helper) => helper.status === "waiting");
@@ -250,8 +264,27 @@ export function TasksPopover({
                         <span className="ml-auto text-xs text-muted-foreground">
                           {t(stateKeys[routine.state])}
                         </span>
+                        {/* A pending Routine is approved or declined on its card. */}
+                        {routine.state !== "pending" && (
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={t("bots.edit", { name: routine.name })}
+                            onClick={() => setEditing(editing === routine.id ? null : routine.id)}
+                          >
+                            <PencilIcon />
+                          </Button>
+                        )}
                         <RoutineActions routine={routine} {...actions} />
                       </div>
+                      {editing === routine.id && routine.state !== "pending" && (
+                        <RoutineEditForm
+                          routine={routine}
+                          onEdit={onEditRoutine}
+                          onClose={() => setEditing(null)}
+                          busy={actions.actingRoutines.has(routine.id)}
+                        />
+                      )}
                       {routine.webhook && routine.state !== "pending" && (
                         <div className="pl-6">
                           <WebhookUrl
@@ -269,16 +302,34 @@ export function TasksPopover({
               {scheduled.checkIns.length > 0 && (
                 <ul aria-label={t("bots.checkIns")} className="flex flex-col gap-2">
                   {scheduled.checkIns.map((checkIn) => (
-                    <li key={checkIn.id} className="flex items-center gap-2">
-                      <ClockIcon className="size-4 shrink-0" />
-                      <span>{checkInText(i18n, checkIn)}</span>
-                      <span className="ml-auto">
-                        <CancelCheckIn
+                    <li key={checkIn.id} className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <ClockIcon className="size-4 shrink-0" />
+                        <span>{checkInText(i18n, checkIn)}</span>
+                        <span className="ml-auto inline-flex gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={t("bots.editCheckIn")}
+                            onClick={() => setEditing(editing === checkIn.id ? null : checkIn.id)}
+                          >
+                            <PencilIcon />
+                          </Button>
+                          <CancelCheckIn
+                            checkIn={checkIn}
+                            onCancelCheckIn={onCancelCheckIn}
+                            actingCheckIns={actingCheckIns}
+                          />
+                        </span>
+                      </div>
+                      {editing === checkIn.id && (
+                        <CheckInEditForm
                           checkIn={checkIn}
-                          onCancelCheckIn={onCancelCheckIn}
-                          actingCheckIns={actingCheckIns}
+                          onEdit={onEditCheckIn}
+                          onClose={() => setEditing(null)}
+                          busy={actingCheckIns.has(checkIn.id)}
                         />
-                      </span>
+                      )}
                     </li>
                   ))}
                 </ul>

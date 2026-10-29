@@ -914,3 +914,91 @@ describe("a Routine whose chain of fires broke", () => {
     expect(await queuedFires(paused.routineId)).toEqual([]);
   });
 });
+
+describe("the user's edit of a Routine", () => {
+  it("keeps an active Routine active, moves its next fire to the new schedule, and fires there with the old fire gone", async () => {
+    const { client, botId, conversationId, routineId, runDue, advanceTo } = await approvedRoutine({
+      at: sunday,
+    });
+    expect(await queuedFires(routineId)).toEqual([mondaySlot]);
+
+    const edited = await client.routines.edit({
+      routineId,
+      schedule: { days: ["mon", "tue", "wed", "thu", "fri"], at: "09:00" },
+    });
+
+    expect(edited).toEqual({ id: routineId, state: "active" });
+    expect(await queuedFires(routineId)).toEqual(["2026-10-19T08:00:00.000Z"]);
+    expect((await client.routines.list({ botId }))[0]).toMatchObject({
+      state: "active",
+      schedule: { days: weekdays, at: "09:00" },
+    });
+    advanceTo(mondaySlot);
+    await runDue();
+    expect(await routineTriggers(conversationId)).toEqual([]);
+    advanceTo("2026-10-19T08:00:00.000Z");
+    await runDue();
+    expect((await routineTriggers(conversationId)).map((trigger) => trigger.id)).toEqual([
+      `routine:${routineId}:2026-10-19T08:00:00.000Z`,
+    ]);
+  });
+
+  it("uses the new prompt from the next run, while a fire already waiting keeps the old snapshot", async () => {
+    const { fake, client, routineId, runDue, advanceTo } = await approvedRoutine({
+      at: sunday,
+      rounds: [round()],
+    });
+    advanceTo(mondaySlot);
+    await runDue();
+
+    await client.routines.edit({ routineId, prompt: "Summarize my inbox." });
+    advanceTo("2026-10-19T07:00:00.500Z");
+    await runDue();
+
+    const waiting = String(inputOf(fake.calls.at(-1)).at(-1)?.content);
+    expect(waiting.endsWith(`\n\n${morningBrief.prompt}`)).toBe(true);
+    // Tuesday's fire was queued by Monday's, and reads the edited Routine.
+    advanceTo("2026-10-20T07:00:00.000Z");
+    await runDue();
+    const tuesday = await getTestDb()
+      .select()
+      .from(botTrigger)
+      .where(like(botTrigger.id, `routine:${routineId}:2026-10-20%`));
+    expect(tuesday[0]?.text?.endsWith("\n\nSummarize my inbox.")).toBe(true);
+  });
+
+  it("keeps a paused Routine paused and queues nothing; resuming runs the new schedule", async () => {
+    const { client, routineId, advanceTo } = await approvedRoutine({ at: sunday });
+    await client.routines.pause({ routineId });
+
+    const edited = await client.routines.edit({
+      routineId,
+      schedule: { days: ["mon"], at: "09:00" },
+    });
+
+    expect(edited.state).toBe("paused");
+    expect(await queuedFires(routineId)).toEqual([]);
+    advanceTo("2026-10-18T12:00:00.000Z");
+    await client.routines.resume({ routineId });
+    expect(await queuedFires(routineId)).toEqual(["2026-10-19T08:00:00.000Z"]);
+  });
+
+  it("refuses an edit with neither a prompt nor a schedule", async () => {
+    const { client, routineId } = await approvedRoutine({ at: sunday });
+
+    await expect(client.routines.edit({ routineId })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+  });
+
+  it("is not found for another user's Routine, and changes nothing", async () => {
+    const { deps, client, botId, routineId } = await approvedRoutine({ at: sunday });
+    const other = chatRpc({ user: await insertUser(), deps });
+
+    await expect(other.routines.edit({ routineId, prompt: "Mine now." })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+
+    expect((await client.routines.list({ botId }))[0]?.prompt).toBe(morningBrief.prompt);
+  });
+});

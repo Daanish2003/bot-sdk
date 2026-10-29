@@ -135,12 +135,23 @@ function BotConversationView({
   });
 
   const warmCache = useCacheWarming(botId);
-  const { routines, webhookTokens, acting, approve, decline, pause, resume, remove, rotate } =
-    useBotRoutines(botId, working);
+  const {
+    routines,
+    webhookTokens,
+    acting,
+    approve,
+    decline,
+    pause,
+    resume,
+    remove,
+    rotate,
+    edit: editRoutine,
+  } = useBotRoutines(botId, working);
   const {
     checkIns,
     acting: actingCheckIns,
     cancel: onCancelCheckIn,
+    edit: editCheckIn,
   } = useBotCheckIns(botId, working);
   const {
     helpers,
@@ -365,6 +376,8 @@ function BotConversationView({
               actingTriggers={actingTriggers}
               webhookTokens={webhookTokens}
               onRotate={rotate}
+              onEditRoutine={editRoutine}
+              onEditCheckIn={editCheckIn}
               {...actions}
             />
           )}
