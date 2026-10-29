@@ -277,7 +277,7 @@ export function TasksPopover({
                         )}
                         <RoutineActions routine={routine} {...actions} />
                       </div>
-                      {editing === routine.id && (
+                      {editing === routine.id && routine.state !== "pending" && (
                         <RoutineEditForm
                           routine={routine}
                           onEdit={onEditRoutine}
