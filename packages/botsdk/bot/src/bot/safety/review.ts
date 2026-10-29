@@ -7,10 +7,10 @@ import {
 import { searchTextOf } from "@botsdk/client/message-parts";
 import { sdkNeverAllowed } from "@botsdk/client/bot/rule";
 import { chat, EventType, type ModelMessage, type StreamChunk } from "@tanstack/ai";
-import { and, asc, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { bot, botReview, botTrigger, message } from "../../storage";
+import { bot, botHelper, botReview, botTrigger, message } from "../../storage";
 import type { Database } from "../../storage";
 import { uuidv7 } from "../../lib/uuidv7";
 import { rpcError } from "../../rpc-error";
@@ -155,15 +155,30 @@ export type ReviewKit = {
  */
 export type PendingApproval = { pending: string; reviewId: string };
 
+/** A reviewer's reason as a clause of the Model's result: trimmed, without its closing stop. */
+const clause = (reason: string) => reason.trim().replace(/[.!\s]+$/, "");
+
 /** The pending result of review `reviewId`, blocked for `reason`. */
 export function pendingApproval(reviewId: string, reason: string): PendingApproval {
   return {
     pending:
-      `Waiting for the user's Approval: ${reason.trim().replace(/[.!\s]+$/, "")}. The call ` +
+      `Waiting for the user's Approval: ${clause(reason)}. The call ` +
       "hasn't run. It runs if the user approves it, and its result then comes to you. Don't " +
       "retry it. Carry on with anything that doesn't depend on it.",
     reviewId,
   };
+}
+
+/**
+ * What a review throws when the loop's end cut off its wait after the Approval went pending: the
+ * call stays unanswered in its attempt, but the transcript the Turn ends with holds `result`.
+ */
+export class PendingAtEndError extends Error {
+  readonly result: PendingApproval;
+  constructor(result: PendingApproval, cause: unknown) {
+    super("The wait for an Approval that went pending was cut off", { cause });
+    this.result = result;
+  }
 }
 
 /** What a review gives the call: the Model's error for a block, its pending result, or `null` to run. */
@@ -272,10 +287,24 @@ export async function reviewToolCall(
   if (!reviewId || !deadline) return { error: blockedError(reviewed.reason) };
   // The wait (ADR 0024, ADR 0030): no transaction, since it holds for up to 15 seconds. Re-run
   // after a crash before its Checkpoint, it reads the row's outcome, or the same deadline.
-  const decided = await kit.step("review:wait", async () => {
-    kit.beforeLive();
-    return waitForApproval(deps, reviewId, deadline, strict ? "expired" : "pending", kit.signal);
-  });
+  const decided = await kit
+    .step("review:wait", async () => {
+      kit.beforeLive();
+      return waitForApproval(deps, reviewId, deadline, strict ? "expired" : "pending", kit.signal);
+    })
+    .catch(async (caught: unknown) => {
+      // A wait the Turn's end cut off once its Approval went pending (the user's Message that
+      // interrupted it): the call's result is still its pending one, so the next Turn never makes
+      // it again (ADR 0030).
+      const [row] = await deps.db
+        .select({ expiresAt: botReview.expiresAt })
+        .from(botReview)
+        .where(eq(botReview.id, reviewId));
+      if (row?.expiresAt) {
+        throw new PendingAtEndError(pendingApproval(reviewId, reviewed.reason), caught);
+      }
+      throw caught;
+    });
   if (decided === "allowed") return null;
   if (decided === "pending") return pendingApproval(reviewId, reviewed.reason);
   return { error: blockedError(reviewed.reason, decided) };
@@ -373,9 +402,10 @@ export function approvalTriggerText(
 
 /**
  * The user's answer to Approval `reviewId` of one of their Bots: it changes the row only while it
- * is `waiting` before its deadline, or `pending` before its expiry. A pending one's yes queues its
- * approved-call job, and its no wakes the Bot with an Approval Trigger (ADR 0030). A late or second
- * answer changes nothing, and says the request is closed (`decided: false`) and how it stands.
+ * is `waiting` (an action on a Screen only before its deadline), or `pending` before its expiry.
+ * An answer past the wait's deadline is a late one: its yes queues its approved-call job, and its
+ * no wakes the Bot with an Approval Trigger (ADR 0030). A too-late or second answer changes
+ * nothing, and says the request is closed (`decided: false`) and how it stands.
  * Another user's is not found.
  */
 export async function decideReview(
@@ -398,8 +428,8 @@ export async function decideReview(
     .select({ state: botReview.state })
     .from(botReview)
     .where(eq(botReview.id, reviewId));
-  // Past its deadline, a request the wait hasn't marked yet is closed all the same, as is a pending
-  // one past its expiry that the expiry hasn't marked yet.
+  // Past its deadline, an action on a Screen the wait hasn't marked yet is closed all the same, as
+  // is a pending one past its expiry that the expiry hasn't marked yet.
   const state = row?.state ?? found.state;
   return {
     decided: false,
@@ -409,10 +439,13 @@ export async function decideReview(
 
 /**
  * Moves Approval `reviewId` on as `change` says at `now`, with its `review` change, under its
- * Conversation's row lock: an answer to a waiting one only before its deadline, and to a pending
- * one only before its expiry; an expiry, or going pending past the wait, of a waiting one at any
- * time. An answer to a pending one queues its approved-call job (a yes) or its Approval Trigger (a
- * no) in the same transaction, so it happens once. Returns whether it changed.
+ * Conversation's row lock: an answer to a waiting one before its deadline, or just past it while
+ * the wait hasn't marked it (an action on a Screen keeps its 15 seconds, ADR 0024), and to a
+ * pending one before its expiry; an expiry, or going pending past the wait, of a waiting one at any
+ * time. An answer past the deadline is a late one, as if the row had gone pending first: the wait
+ * then reads it as pending, so only the approved-call job runs the call. A late answer queues its
+ * approved-call job (a yes) or its Approval Trigger (a no) in the same transaction, so it happens
+ * once. Returns whether it changed.
  */
 async function decide(
   deps: BotSdkContext,
@@ -420,7 +453,6 @@ async function decide(
   change: { state: "allowed" | "denied" | "expired"; decidedAt: Date } | { state: "pending" },
   now: Date,
 ): Promise<boolean> {
-  const answer = change.state === "allowed" || change.state === "denied";
   let woke = false;
   const decided = await deps.db.transaction(async (tx) => {
     const [owner] = await tx
@@ -430,20 +462,37 @@ async function decide(
       .where(eq(botReview.id, reviewId));
     if (!owner) return null;
     await lockConversation(tx, owner.conversationId);
+    if (change.state === "pending") {
+      const moved = await goPending(deps, tx, eq(botReview.id, reviewId));
+      if (moved.length === 0) return null;
+      await recordBotChange(tx, owner, "review", reviewId, now);
+      return owner;
+    }
+    // Read under the lock, which every change of the row takes. A Computer-use Helper's reviewed
+    // calls are its actions on a Screen.
+    const [row] = await tx
+      .select({
+        state: botReview.state,
+        deadline: botReview.deadline,
+        expiresAt: botReview.expiresAt,
+        helperType: botHelper.type,
+      })
+      .from(botReview)
+      .leftJoin(botHelper, eq(botHelper.id, botReview.helperId))
+      .where(eq(botReview.id, reviewId));
+    if (!row) return null;
+    const answer = change.state !== "expired";
+    const inTime = row.state === "waiting" && row.deadline !== null && row.deadline > now;
+    const late = answer && row.state === "waiting" && !inTime && row.helperType !== "computer_use";
+    const open = answer
+      ? inTime || late || (row.state === "pending" && row.expiresAt !== null && row.expiresAt > now)
+      : row.state === "waiting";
+    if (!open) return null;
     const [changed] = await tx
       .update(botReview)
-      .set(change.state === "pending" ? { ...change, expiresAt: pendingExpiresAt } : change)
-      .where(
-        and(
-          eq(botReview.id, reviewId),
-          answer
-            ? or(
-                and(eq(botReview.state, "waiting"), gt(botReview.deadline, now)),
-                and(eq(botReview.state, "pending"), gt(botReview.expiresAt, now)),
-              )
-            : eq(botReview.state, "waiting"),
-        ),
-      )
+      .set(late ? { ...change, expiresAt: pendingExpiresAt } : change)
+      // The state it was read in: the lock holds it.
+      .where(and(eq(botReview.id, reviewId), eq(botReview.state, row.state!)))
       .returning({
         id: botReview.id,
         tool: botReview.tool,
@@ -452,12 +501,8 @@ async function decide(
       });
     if (!changed) return null;
     await recordBotChange(tx, owner, "review", reviewId, now);
-    // Only going pending schedules the expiry, so an answered row never queues it again.
-    if (change.state === "pending" && changed.expiresAt) {
-      await scheduleExpiry(deps, tx, changed.id, changed.expiresAt);
-    }
-    // A late answer (ADR 0030): no Turn waits on a pending call, so the answer wakes the Bot. A
-    // waiting one's answer is the wait's to read.
+    // A late answer (ADR 0030): no Turn runs a call past its wait, so the answer wakes the Bot. A
+    // waiting one's answer in time is the wait's to read.
     if (answer && changed.expiresAt) {
       woke = true;
       if (change.state === "allowed") {
@@ -486,6 +531,23 @@ async function decide(
 }
 
 /**
+ * Moves the waiting Approvals `which` picks to `pending` in `tx`, which holds their Conversation's
+ * row lock (ADR 0030): each expires 7 days after its block, by the expiry job scheduled here.
+ * Returns the rows it moved.
+ */
+async function goPending(deps: BotSdkContext, tx: Transaction, which: SQL) {
+  const moved = await tx
+    .update(botReview)
+    .set({ state: "pending", expiresAt: pendingExpiresAt })
+    .where(and(which, eq(botReview.state, "waiting")))
+    .returning({ id: botReview.id, botId: botReview.botId, expiresAt: botReview.expiresAt });
+  for (const row of moved) {
+    if (row.expiresAt) await scheduleExpiry(deps, tx, row.id, row.expiresAt);
+  }
+  return moved;
+}
+
+/**
  * Closes the waiting Approvals of a Turn or a Helper (`of`), with their `review` changes, in `tx`,
  * which holds the Conversation's row lock: `denied` for the user's Stop, which counts as no,
  * `pending` for a Turn the user's new Message interrupts (ADR 0030: they may not have seen it yet),
@@ -501,18 +563,14 @@ export async function closeWaitingReviews(
   const owned =
     "turnId" in of ? eq(botReview.turnId, of.turnId) : eq(botReview.helperId, of.helperId);
   const now = deps.clock();
-  const closed = await tx
-    .update(botReview)
-    .set(
-      state === "pending"
-        ? {
-            state,
-            expiresAt: pendingExpiresAt,
-          }
-        : { state, decidedAt: now },
-    )
-    .where(and(owned, eq(botReview.state, "waiting")))
-    .returning({ id: botReview.id, botId: botReview.botId, expiresAt: botReview.expiresAt });
+  const closed =
+    state === "pending"
+      ? await goPending(deps, tx, owned)
+      : await tx
+          .update(botReview)
+          .set({ state, decidedAt: now })
+          .where(and(owned, eq(botReview.state, "waiting")))
+          .returning({ id: botReview.id, botId: botReview.botId });
   // One Turn's or Helper's, so one Bot's: its Conversation is looked up once.
   const [first] = closed;
   if (!first) return;
@@ -521,10 +579,7 @@ export async function closeWaitingReviews(
     .from(bot)
     .where(eq(bot.id, first.botId));
   if (!owner) return;
-  for (const row of closed) {
-    await recordBotChange(tx, owner, "review", row.id, now);
-    if (row.expiresAt) await scheduleExpiry(deps, tx, row.id, row.expiresAt);
-  }
+  for (const row of closed) await recordBotChange(tx, owner, "review", row.id, now);
 }
 
 /** Schedules the job that expires pending Approval `reviewId` at `expiresAt` (ADR 0030), in `tx`. */
@@ -560,13 +615,13 @@ function meterOf(
 
 /** What the Model gets for a Never-allowed call: no Approval, and no other way (ADR 0032). */
 export function neverAllowedError(reason: string): string {
-  return `Never allowed: ${reason.trim().replace(/[.!\s]+$/, "")}. Tell the user to do it themselves; don't try another way.`;
+  return `Never allowed: ${clause(reason)}. Tell the user to do it themselves; don't try another way.`;
 }
 
 /** What the Model gets for a call a hand-off rule matched: the user does it themselves. */
 export function handOffError(reason: string): string {
   return (
-    `Handed off: ${reason.trim().replace(/[.!\s]+$/, "")}. The user does this themselves, and no ` +
+    `Handed off: ${clause(reason)}. The user does this themselves, and no ` +
     "Approval is offered. Tell them what to do; don't try another way."
   );
 }
@@ -580,7 +635,7 @@ export function blockedError(reason: string, decided?: "denied" | "expired"): st
         ? "The user didn't approve it within 15 seconds."
         : "The command didn't run.";
   return (
-    `Blocked: ${reason.trim().replace(/[.!\s]+$/, "")}. ${outcome} Don't retry it; ` +
+    `Blocked: ${clause(reason)}. ${outcome} Don't retry it; ` +
     "ask the user in a message or find another way."
   );
 }

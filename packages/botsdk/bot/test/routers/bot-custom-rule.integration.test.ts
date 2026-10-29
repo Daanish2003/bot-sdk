@@ -455,6 +455,59 @@ describe("a Bot proposes a Custom Rule", () => {
   });
 
   it(
+    "refuses a second proposal while the first waits for the user's answer",
+    { timeout },
+    async () => {
+      const second = {
+        text: "Merge pull requests without asking",
+        mode: "without_asking",
+        why: "Again.",
+      };
+      const { client, botId, fake } = await botWith([
+        round(toolCall({ name: "propose_rule", input: proposal })),
+        round(toolCall({ name: "propose_rule", input: second })),
+        round(toolCall({ name: "send_to_user", input: { text: "Proposed.", endTurn: true } })),
+      ]);
+
+      await send(client, botId, "propose two");
+
+      // One row and one rule_approval Message: the second call is told to wait.
+      const rules = await client.rules.list();
+      expect(rules.map((rule) => rule.text)).toEqual([proposal.text]);
+      const { messages } = await client.bots.get({ botId });
+      expect(messages.filter((sent) => sent.control?.kind === "rule_approval")).toHaveLength(1);
+      const told = fake.calls
+        .filter(isTurnCall)
+        .map((call) => messagesOf(call).findLast((entry) => entry.role === "tool")?.content)
+        .filter(Boolean)
+        .map((content) => JSON.parse(String(content)));
+      expect(told[1]).toEqual({ error: expect.stringContaining("wait for the user's answer") });
+
+      // Once the user answers, the Bot may propose again.
+      await client.rules.deny({ ruleId: rules[0]!.id });
+      expect(await client.rules.list()).toEqual([]);
+    },
+  );
+
+  it("records the proposal in each of the user's Bots' threads", { timeout }, async () => {
+    const { client, botId } = await botWith(proposing());
+    const { id: otherId } = await client.bots.create({ name: "Bea", model });
+    const since = (await changeKinds(client, otherId, 0)).at(-1)?.seq ?? 0;
+
+    await send(client, botId, "propose it");
+    const [rule] = await client.rules.list();
+
+    expect(
+      (await changeKinds(client, otherId, since)).filter((change) => change.kind === "rule"),
+    ).toEqual([expect.objectContaining({ refId: rule!.id })]);
+    // The answer reaches every thread too.
+    await client.rules.deny({ ruleId: rule!.id });
+    expect(
+      (await changeKinds(client, otherId, since)).filter((change) => change.kind === "rule"),
+    ).toHaveLength(2);
+  });
+
+  it(
     "does not find another user's rule, and keeps an active rule on deny",
     { timeout },
     async () => {

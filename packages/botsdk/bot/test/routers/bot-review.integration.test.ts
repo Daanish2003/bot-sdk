@@ -614,6 +614,69 @@ describe("Auto-review of the Bot's shell commands", () => {
     ]);
   });
 
+  it("tells the next Turn a call the user's Message interrupted mid-wait is pending", async () => {
+    const reviewer = reviewerPlaying(
+      verdict({ outcome: "block", reason: "You didn't ask to deploy.", summary: "Deploy" }),
+    );
+    const { client, botId, fake } = await botWith([round(shell("make deploy")), round(), round()], {
+      reviewer,
+    });
+
+    const stream = await followSend(client, { botId, id: uuidv7(), text: "ship it" });
+    const waiting = await waitingReview(botId);
+    await send(client, botId, "actually, wait");
+    for await (const _event of stream);
+
+    // The next Turn's Model input holds the stopped call and its pending result, so it never
+    // makes the call again (ADR 0030).
+    const next = inputOf(fake.calls[1]);
+    const result = next.find(
+      (entry) => entry.role === "tool" && entry.toolCallId === waiting.toolCallId,
+    );
+    expect(JSON.parse(String(result?.content))).toEqual(
+      pendingResult(waiting.id, "You didn't ask to deploy"),
+    );
+    expect(
+      next.some((entry) => entry.toolCalls?.some((call) => call.id === waiting.toolCallId)),
+    ).toBe(true);
+  }, 30_000);
+
+  it("counts an Allow just past the deadline, before the wait marks it pending, and runs the call once", async () => {
+    const reviewer = reviewerPlaying(
+      verdict({ outcome: "block", reason: "You didn't ask to deploy.", summary: "Deploy" }),
+    );
+    const { client, botId, fake, computerFake } = await botWith(
+      [round(shell("make deploy")), round(), round()],
+      { reviewer, onCommand: () => ({ exitCode: 0, stdout: "deployed", stderr: "" }) },
+    );
+
+    const stream = await followSend(client, { botId, id: uuidv7(), text: "ship it" });
+    const waiting = await waitingReview(botId);
+    // Its deadline has passed, and the wait (on its own copy of the deadline) hasn't marked it.
+    await getTestDb()
+      .update(botReview)
+      .set({ deadline: new Date(Date.now() - 1_000) })
+      .where(eq(botReview.id, waiting.id));
+    expect(await client.reviews.allow({ reviewId: waiting.id })).toEqual({
+      decided: true,
+      state: "allowed",
+    });
+    for await (const _event of stream);
+    await expect.poll(() => fake.calls.length, { timeout: 10_000 }).toBe(3);
+
+    // The Turn reads it as pending and never runs it; the approved-call job runs it, once.
+    expect(toolResultOf(fake.calls[1])).toEqual(
+      pendingResult(waiting.id, "You didn't ask to deploy"),
+    );
+    expect(computerFake.callsOf("run").map((run) => run.command)).toEqual(["make deploy"]);
+    expect(String(inputOf(fake.calls[2]).at(-1)?.content)).toContain(
+      `The user approved your earlier shell call "Deploy" (review ${waiting.id})`,
+    );
+    expect(await reviewsOf(botId)).toEqual([
+      expect.objectContaining({ id: waiting.id, state: "allowed", expiresAt: expect.any(Date) }),
+    ]);
+  }, 30_000);
+
   it("denies only the waiting call when the user stops the Turn, never a pending one", async () => {
     const reviewer = reviewerPlaying(
       verdict({ outcome: "block", reason: "You didn't ask to deploy.", summary: "Deploy" }),
@@ -1306,6 +1369,41 @@ describe("Auto-review of a Helper's calls", () => {
         decidedAt: expect.any(Date),
       }),
     ]);
+  }, 30_000);
+
+  it("refuses an Allow of a Computer-use Helper's acting call past its deadline", async () => {
+    const reviewer = reviewerPlaying(
+      verdict({ outcome: "block", reason: "You didn't ask to buy it.", summary: "Buy the mug" }),
+    );
+    const { client, botId, helperFake, advance } = await botWith(
+      [handsOff("computer_use", "Order the blue mug from the shop."), round(), round()],
+      {
+        reviewer,
+        helpers: [
+          round(call("browser_navigate", { url: "https://shop.example" })),
+          round(call("browser_click", { ref: "e1" })),
+          round(text("Not bought.")),
+        ],
+      },
+    );
+
+    await send(client, botId, "find me a mug");
+    const waiting = await waitingReview(botId);
+    await getTestDb()
+      .update(botReview)
+      .set({ deadline: new Date(Date.now() - 1_000) })
+      .where(eq(botReview.id, waiting.id));
+    // An action on a Screen keeps its 15 seconds (ADR 0024).
+    expect(await client.reviews.allow({ reviewId: waiting.id })).toEqual({
+      decided: false,
+      state: "expired",
+    });
+    advance(15_000);
+
+    expect(await helperEnded(botId)).toMatchObject({ status: "complete" });
+    expect(toolResultOf(helperFake.calls.at(-1))).toEqual({
+      error: expiredError("You didn't ask to buy it"),
+    });
   }, 30_000);
 
   it("denies a Helper's waiting call when the user stops the Helper", async () => {

@@ -191,6 +191,30 @@ describe("the rules page", () => {
     expect(screen.getByText("1 of 50 rules")).toBeTruthy();
   });
 
+  it("saves both an edited text and the mode pill clicked right after it", async () => {
+    const server = fakeRulesServer([ruleOf(1)]);
+    mount(server);
+
+    const field = (await screen.findByDisplayValue("Rule 1")) as HTMLTextAreaElement;
+    const row = field.closest("li")!;
+    fireEvent.change(field, { target: { value: "Rule one, reworded" } });
+    // Clicking a pill takes the focus first: the text's save is in flight when the click lands.
+    fireEvent.blur(field);
+    fireEvent.click(pill(row, "Without asking"));
+
+    await waitFor(() =>
+      expect(server.rules[0]).toMatchObject({ text: "Rule one, reworded", mode: "without_asking" }),
+    );
+    await waitFor(() =>
+      expect(
+        pill(
+          screen.getByDisplayValue("Rule one, reworded").closest("li")!,
+          "Without asking",
+        ).getAttribute("aria-checked"),
+      ).toBe("true"),
+    );
+  });
+
   it("puts a blank edit back instead of saving it", async () => {
     const server = fakeRulesServer([ruleOf(1)]);
     mount(server);

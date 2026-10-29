@@ -81,9 +81,35 @@ export async function customRulesPrompt(
 }
 
 /**
- * Runs `write` in a transaction that holds the row lock of each of the user's Bots' Conversations,
- * in one order as every write that changes a thread does, then records a `rule` change for the rule
- * `write` names in each and hints them. `write` returns the rule's id and the method's result.
+ * Takes, in `tx`, the user's rule lock, then the row lock of each of their Bots' Conversations in
+ * one order, as every write that changes a thread does: every rule write takes them so. Returns
+ * those Conversations, for the `rule` change each records.
+ */
+async function lockRules(tx: Transaction, userId: string) {
+  // One writer per user at a time, even for a user with no Bot to lock: the limit counts rows.
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${"custom_rule:" + userId}))`);
+  const owned = await tx
+    .select({ conversationId: bot.conversationId })
+    .from(bot)
+    .where(eq(bot.userId, userId))
+    .orderBy(asc(bot.conversationId));
+  for (const { conversationId } of owned) await lockConversation(tx, conversationId);
+  return owned;
+}
+
+/** Hints each of the user's Bots' threads that a rule changed, once its write has committed. */
+export async function hintRuleChanged(sdk: BotSdkContext, userId: string): Promise<void> {
+  const owned = await sdk.db
+    .select({ conversationId: bot.conversationId })
+    .from(bot)
+    .where(eq(bot.userId, userId));
+  for (const { conversationId } of owned) await hintChanged(sdk, conversationId);
+}
+
+/**
+ * Runs `write` in a transaction that holds the user's rule locks (`lockRules`), then records a
+ * `rule` change for the rule `write` names in each of their Bots' threads and hints them. `write`
+ * returns the rule's id and the method's result.
  */
 async function changeRules<T>(
   sdk: BotSdkContext,
@@ -92,14 +118,7 @@ async function changeRules<T>(
 ): Promise<T> {
   const now = sdk.clock();
   const { owned, result } = await sdk.db.transaction(async (tx) => {
-    // One writer per user at a time, even for a user with no Bot to lock: the limit counts rows.
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${"custom_rule:" + userId}))`);
-    const owned = await tx
-      .select({ conversationId: bot.conversationId })
-      .from(bot)
-      .where(eq(bot.userId, userId))
-      .orderBy(asc(bot.conversationId));
-    for (const { conversationId } of owned) await lockConversation(tx, conversationId);
+    const owned = await lockRules(tx, userId);
     const written = await write(tx, now);
     for (const owner of owned) await recordBotChange(tx, owner, "rule", written.ruleId, now);
     return { owned, result: written.result };
@@ -190,6 +209,11 @@ export const proposeRuleToolName = "propose_rule";
 /** What `propose_rule` returns once the rule is saved: it applies once the user approves it. */
 export const ruleProposedResult = "Proposed; it applies once the user approves it.";
 
+/** What `propose_rule` returns while the Bot's earlier proposal waits for the user's answer. */
+export const openProposalError =
+  "You already proposed a Custom Rule the user hasn't answered yet: wait for the user's answer " +
+  "to that proposal before you propose another.";
+
 /** The id of rule `ruleId`'s Approval Trigger: one per rule, so a repeat is dropped. */
 /** Not under `approval:`, which is a review id's prefix. */
 export const ruleApprovalTriggerId = (ruleId: string) => `rule-approval:${ruleId}`;
@@ -207,9 +231,12 @@ export function ruleApprovalTriggerText(
 
 /**
  * Saves the Custom Rule a Turn's `propose_rule` call asked for, `proposed` until the user's
- * Approval, and appends the Message that asks for it: the Bot's reason and a `rule_approval`
- * control holding the rule's id, whose state the client reads from the row. In the caller's
- * transaction. Returns the tool's result.
+ * Approval, with its `rule` change in each of the user's Bots' threads, and appends the Message
+ * that asks for it: the Bot's reason and a `rule_approval` control holding the rule's id, whose
+ * state the client reads from the row. One open proposal per Bot: while its earlier one waits for
+ * the user's answer, it saves nothing and the result says to wait. In the caller's transaction,
+ * under the user's rule locks; the caller hints the threads (`hintRuleChanged`) once it commits.
+ * Returns the tool's result.
  */
 export async function proposeRule(
   deps: BotSdkContext,
@@ -233,8 +260,14 @@ export async function proposeRule(
     why: string;
     now: Date;
   },
-): Promise<{ saved: string }> {
-  await lockConversation(tx, conversationId);
+): Promise<{ saved: string } | { error: string }> {
+  const owned = await lockRules(tx, userId);
+  const [open] = await tx
+    .select({ id: customRule.id })
+    .from(customRule)
+    .where(and(eq(customRule.proposedByBotId, botId), eq(customRule.state, "proposed")))
+    .limit(1);
+  if (open) return { error: openProposalError };
   const id = uuidv7();
   await tx.insert(customRule).values({
     id,
@@ -246,7 +279,7 @@ export async function proposeRule(
     createdAt: now,
     updatedAt: now,
   });
-  await recordBotChange(tx, { conversationId }, "rule", id, now);
+  for (const owner of owned) await recordBotChange(tx, owner, "rule", id, now);
   await appendBotMessage(deps, tx, conversationId, {
     parts: controlParts(`I'd like to add a Custom Rule: [${modeLabels[mode]}] ${text}\n\n${why}`, {
       kind: "rule_approval",

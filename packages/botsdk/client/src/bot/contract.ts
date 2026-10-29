@@ -274,7 +274,7 @@ const reviews = {
 
 /**
  * The user's Custom Rules (ADR 0031), shared by all their Bots. Another user's rule is not found.
- * `botContract` serves `list`, `neverAllowed`, `create`, `update` and `delete`; `approve` and `deny` are not served yet (spec #989).
+ * `botContract` serves all of them (spec #989).
  */
 export const rulesContract = {
   /** The user's Custom Rules, active and proposed, the oldest first. */

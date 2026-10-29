@@ -47,7 +47,7 @@ import {
   updateRoutineToolName,
 } from "../routines";
 import { computerToolDefinitions, webSearchTool } from "../agent-loop";
-import { proposeRule, proposeRuleToolName } from "../safety";
+import { hintRuleChanged, proposeRule, proposeRuleToolName } from "../safety";
 import { helperTools } from "../helpers";
 import { watchUserTool } from "../demonstrations";
 import type { LoopKit } from "../agent-loop";
@@ -433,8 +433,8 @@ function coreToolsOf(
   );
 
   // The Turn carries on once the rule is saved: the Approval is the rule's, not the call's.
-  const proposeRuleTool = proposeRuleDefinition.server(async (input, context) =>
-    liveActivity(proposeRuleToolName, context?.toolCallId, (tx) =>
+  const proposeRuleTool = proposeRuleDefinition.server(async (input, context) => {
+    const proposed = await liveActivity(proposeRuleToolName, context?.toolCallId, (tx) =>
       proposeRule(deps, tx, {
         ...input,
         botId: turn.botId,
@@ -443,8 +443,10 @@ function coreToolsOf(
         turnId: turn.id,
         now: deps.clock(),
       }),
-    ),
-  );
+    );
+    if ("saved" in proposed) await hintRuleChanged(deps, turn.userId);
+    return proposed;
+  });
 
   const setCheckInTool = setCheckInDefinition.server(async ({ at, note }, context) =>
     liveActivity(setCheckInToolName, context?.toolCallId, (tx) =>
