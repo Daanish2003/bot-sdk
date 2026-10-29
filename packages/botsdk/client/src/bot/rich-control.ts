@@ -75,6 +75,8 @@ export const botMessagePartsSchema = z.object({
   channel: z.literal("email").optional(),
   subject: z.string().optional(),
   reactions: storedReactionsSchema.optional(),
+  /** The Bot marked this Message urgent (spec #1024). */
+  urgent: z.literal(true).optional(),
 });
 
 export type BotMessageParts = z.infer<typeof botMessagePartsSchema>;

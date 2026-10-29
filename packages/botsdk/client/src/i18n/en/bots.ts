@@ -288,6 +288,7 @@ description: Use this when
   "bots.emailRotateConfirm": "Rotate? The old address stops working at once.",
   "bots.viaEmail": "via email",
   "bots.emailed": "✉ emailed",
+  "bots.urgent": "Urgent",
   "bots.emailNextChannel": ({ channel }: { channel: string }) =>
     `Next Bot-initiated Message goes by ${channel}`,
   "bots.web": "web",

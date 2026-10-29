@@ -116,6 +116,14 @@ const sendToUserDefinition = toolDefinition({
           "Ask the user to pick one option; the text is the question. You are woken with " +
           'Answered "<question>": <option> once they answer. Not with secret or files.',
       }),
+    urgent: z
+      .boolean()
+      .optional()
+      .meta({
+        description:
+          "true to mark the message urgent, for something the user must see now, such as a " +
+          "deadline or a failure that cannot wait. Leave it out otherwise. Not with react.",
+      }),
     react: z
       .object({
         messageId: z.uuid().meta({ description: "The id of the user's message to react to." }),
@@ -327,10 +335,12 @@ function coreToolsOf(
 ): AnyServerTool[] {
   const { liveActivity } = kit;
   const sendToUser = sendToUserDefinition.server(
-    async ({ text, endTurn: last, secret, files, choice, react }, context) => {
+    async ({ text, endTurn: last, secret, files, choice, react, urgent }, context) => {
       if (react) {
-        if (secret || files || choice || text.trim())
-          return { error: "A reaction is sent alone, with no text, secret, files or choice." };
+        if (secret || files || choice || urgent || text.trim())
+          return {
+            error: "A reaction is sent alone, with no text, secret, files, choice or urgent.",
+          };
         const reacted = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
           await lockConversation(tx, turn.conversationId);
           const [target] = await tx
@@ -383,7 +393,9 @@ function coreToolsOf(
       const result = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
         if (!text.trim()) return { error: emptyTextError };
         await appendBotMessage(deps, tx, turn.conversationId, {
-          parts: control ? controlParts(text, control) : textParts(text),
+          parts: control
+            ? controlParts(text, control, undefined, urgent)
+            : textParts(text, undefined, urgent),
           createdAt: deps.clock(),
           turnId: turn.id,
         });
