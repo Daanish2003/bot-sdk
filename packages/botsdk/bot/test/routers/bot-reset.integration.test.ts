@@ -18,7 +18,7 @@ import {
 } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { findBot } from "../../src/bot/conversation";
-import { controlParts } from "../../src/bot/conversation/store";
+import { controlParts, textParts } from "../../src/bot/conversation/store";
 import { storeScreenshot } from "../../src/bot/conversation/screenshots";
 import { handleRoutineWebhook, routineFireJobName, webhookTokenHash } from "../../src/bot/routines";
 import { fireKey } from "../../src/bot/routines/routine";
@@ -374,7 +374,7 @@ describe("bots.reset", () => {
   );
 
   it(
-    "refuses an answer to a choice asked before the reset, and queues nothing",
+    "refuses an answer or a reaction to a Message from before the reset, and queues nothing",
     { timeout },
     async () => {
       const { client, ada, timer } = await resettableBots();
@@ -393,6 +393,9 @@ describe("bots.reset", () => {
 
       await expect(
         client.bots.choose({ botId: ada.botId, messageId: asked.id, answer: { option: "Red" } }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND", data: { code: "error.messageNotFound" } });
+      await expect(
+        client.bots.react({ botId: ada.botId, messageId: asked.id, emoji: "👍" }),
       ).rejects.toMatchObject({ code: "NOT_FOUND", data: { code: "error.messageNotFound" } });
       expect(
         await db.select().from(botTrigger).where(eq(botTrigger.conversationId, ada.conversationId)),
@@ -420,6 +423,34 @@ describe("bots.reset", () => {
       timer.advance(batchLongestMs);
       await runDue();
       expect(fake.calls.filter(isTurnCall)).toHaveLength(1);
+      // A later Turn failed before its first model call: it stored no input, and took its Message.
+      timer.advance(60_000);
+      const pin = await getTestDb().transaction((tx) =>
+        appendMessage(tx, ada.conversationId, {
+          role: "user",
+          parts: textParts("My PIN is 9921"),
+          status: "complete",
+          createdAt: timer.clock.now(),
+        }),
+      );
+      const failedTurn = uuidv7();
+      await getTestDb().insert(botTurn).values({
+        id: failedTurn,
+        botId: ada.botId,
+        status: "error",
+        startedAt: timer.clock.now(),
+        endedAt: timer.clock.now(),
+      });
+      await getTestDb().insert(botTrigger).values({
+        id: pin.id,
+        conversationId: ada.conversationId,
+        source: "user",
+        channel: "web",
+        messageId: pin.id,
+        text: "My PIN is 9921",
+        receivedAt: timer.clock.now(),
+        turnId: failedTurn,
+      });
 
       timer.advance(60_000);
       await client.bots.reset({ botId: ada.botId, name: "Ada" });
@@ -433,10 +464,12 @@ describe("bots.reset", () => {
       const told = JSON.stringify([calls[1]!.systemPrompts, calls[1]!.messages]);
       expect(told).toContain("Hello again");
       expect(told).not.toContain("4417");
+      expect(told).not.toContain("9921");
       // The user still sees the old Messages.
       const { messages } = await client.bots.get({ botId: ada.botId });
       expect(messages.map((shown) => [shown.role, shown.text])).toEqual([
         ["user", "The code is 4417"],
+        ["user", "My PIN is 9921"],
         ["reset", ""],
         ["user", "Hello again"],
       ]);

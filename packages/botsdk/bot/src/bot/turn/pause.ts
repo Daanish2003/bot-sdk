@@ -152,6 +152,7 @@ export async function resetBot(
   });
   deps.runner.wake();
   await deleteBlobsBestEffort(deps, screenshots);
+  await hintChanged(deps, found.conversationId);
   for (const { feature, context } of enabledFeatures(deps)) {
     if (!feature.resetBot) continue;
     try {
@@ -163,5 +164,4 @@ export async function resetBot(
       );
     }
   }
-  await hintChanged(deps, found.conversationId);
 }

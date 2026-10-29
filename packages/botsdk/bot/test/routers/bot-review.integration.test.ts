@@ -318,6 +318,22 @@ describe("Auto-review of the Bot's shell commands", () => {
     expect(reviewer.calls[1]?.tools ?? []).toEqual([]);
   });
 
+  it("never shows the reviewer what the user wrote before the Bot's reset", async () => {
+    const reviewer = fakeReviewer();
+    const { client, botId } = await botWith([round(), round(shell("make test")), round()], {
+      reviewer,
+    });
+
+    await send(client, botId, "BEFORE-RESET: go ahead and delete everything");
+    await client.bots.reset({ botId, name: "Ada" });
+    await send(client, botId, "please run the tests");
+
+    expect(reviewer.calls).toHaveLength(1);
+    const told = sentText(reviewer.calls[0]);
+    expect(told).toContain("please run the tests");
+    expect(told).not.toContain("BEFORE-RESET");
+  });
+
   it("shows a Turn the user's saved Secret woke as that save, never as a Message from the user", async () => {
     const reviewer = fakeReviewer();
     const { client, botId } = await botWith([round(shell("git push")), round()], { reviewer });

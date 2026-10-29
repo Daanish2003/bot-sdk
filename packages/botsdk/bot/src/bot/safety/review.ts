@@ -20,7 +20,13 @@ import type { MessageUsage } from "../../models/shared/usage";
 import { parseReply } from "../../lib/parse-reply";
 import { lockConversation, pauseOf, receive } from "../triggers";
 import { forwardedEmailLabel, routineNameOf, routinePromptOf, untrustedBlock } from "../routines";
-import { appendBotMessage, controlParts, hintChanged, recordBotChange } from "../conversation";
+import {
+  appendBotMessage,
+  controlParts,
+  hintChanged,
+  noResetAfter,
+  recordBotChange,
+} from "../conversation";
 import { approvalExpiryJobName, approvalExpiryKey } from "./approval-expiry";
 import { reviewedRules, ruleApprovalTriggerId } from "./custom-rule";
 import { isSavedSecretText } from "./secret-values";
@@ -806,7 +812,14 @@ async function reviewerInput(
     db
       .select({ parts: message.parts, createdAt: message.createdAt })
       .from(message)
-      .where(and(eq(message.conversationId, source.conversationId), eq(message.role, "user")))
+      .where(
+        and(
+          eq(message.conversationId, source.conversationId),
+          eq(message.role, "user"),
+          // What the user wrote before the Bot's reset authorizes nothing after it (spec #1007).
+          noResetAfter(db, { conversationId: source.conversationId }, message.createdAt),
+        ),
+      )
       .orderBy(desc(message.createdAt), desc(message.id))
       .limit(reviewedMessages),
     // A Helper's: what started the Turn that started it, such as an approved Routine.

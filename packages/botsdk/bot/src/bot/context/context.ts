@@ -426,6 +426,8 @@ async function lastInputAt(
         // input is from before inputs were stored. One that never ran (stopped while queued, or
         // failed before its first call) has neither, and what it took is still new.
         or(isNotNull(botTurn.input), sql`jsonb_array_length(${botTurn.transcript}) > 0`),
+        // A Turn from before the Bot's reset mark took nothing it still knows (spec #1007).
+        noResetAfter(db, { botId: turn.botId }, botTurn.startedAt),
       ),
     )
     .orderBy(desc(botTurn.startedAt), desc(botTurn.id))
@@ -459,6 +461,8 @@ async function newestInput(
     eq(message.conversationId, turn.conversationId),
     eq(message.role, "user"),
     lt(message.createdAt, turn.startedAt),
+    // Nothing from before the Bot's reset mark is new to it (spec #1007).
+    noResetAfter(db, { conversationId: turn.conversationId }, message.createdAt),
     // A Message whose Trigger was skipped, by a Bot pause (spec #1007), never reached a Turn.
     notExists(
       db
@@ -488,6 +492,7 @@ async function newestInput(
           isNotNull(botTrigger.text),
           lte(botTurn.startedAt, turn.startedAt),
           lte(botTrigger.receivedAt, turn.startedAt),
+          noResetAfter(db, { conversationId: turn.conversationId }, botTrigger.receivedAt),
           since && or(gt(botTurn.startedAt, since), gt(botTrigger.receivedAt, since)),
         ),
       )
