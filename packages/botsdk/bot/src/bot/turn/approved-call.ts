@@ -55,8 +55,14 @@ export const failedApprovedCallError =
 /** What a call to a tool the Bot no longer has is. */
 export const unavailableToolError = (tool: string) => `The tool ${tool} isn't available any more.`;
 
+/** What the call is when the job gave up on it before it started: it never ran. */
+export const notRunApprovedCallError =
+  "The approved call couldn't start, so it didn't run. Tell the user.";
+
 /** The activity that runs the stored call, whose Checkpoint holds its result. */
 const callActivity = "call";
+/** The marker saved just before the call starts. */
+const startActivity = "call_start";
 
 /** An allowed review's stored call, with its Bot. */
 type StoredCall = {
@@ -90,8 +96,11 @@ export const approvedCallJob = defineCoreJob({
   onFailed: async ({ reviewId }, _error, { deps }) => {
     const call = await storedCall(deps, reviewId);
     if (!call) return;
-    const saved = await savedResult(deps, reviewId);
-    const result = saved ? saved.result : { error: failedApprovedCallError };
+    const saved = await savedCall(deps, reviewId);
+    const result =
+      saved.result !== undefined
+        ? saved.result.value
+        : { error: saved.started ? failedApprovedCallError : notRunApprovedCallError };
     const woke = await deps.db.transaction((tx) => wakeWith(deps, tx, call, result));
     if (!woke) return;
     deps.runner.wake();
@@ -119,22 +128,29 @@ async function storedCall(deps: BotSdkContext, reviewId: string): Promise<Stored
   return row ?? null;
 }
 
-/** The result the job of review `reviewId` saved for its call, if its Checkpoint was saved. */
-async function savedResult(
+/**
+ * How far the job of review `reviewId` got with its call: whether it started (its start marker was
+ * saved), and its result, if its Checkpoint was saved.
+ */
+async function savedCall(
   deps: BotSdkContext,
   reviewId: string,
-): Promise<{ result: unknown } | undefined> {
+): Promise<{ started: boolean; result?: { value: unknown } }> {
   const [ran] = await deps.db
     .select({ id: job.id })
     .from(job)
     .where(eq(job.idempotencyKey, approvedCallKey(reviewId)))
     .orderBy(desc(job.createdAt))
     .limit(1);
-  if (!ran) return undefined;
-  const saved = (await loadHistory(deps.db, ran.id)).find(
-    (entry) => entry.kind === "activity" && entry.name === callActivity,
-  );
-  return saved && { result: saved.result };
+  if (!ran) return { started: false };
+  const history = await loadHistory(deps.db, ran.id);
+  const saved = (name: string) =>
+    history.find((entry) => entry.kind === "activity" && entry.name === name);
+  const result = saved(callActivity);
+  return {
+    started: saved(startActivity) !== undefined,
+    ...(result && { result: { value: result.result } }),
+  };
 }
 
 /**
@@ -163,7 +179,7 @@ async function runStoredCall(
     if (typeof run !== "function") return run;
     let startedHere = false;
     await ctx.step(
-      "call_start",
+      startActivity,
       async () => {
         startedHere = true;
         return null;
