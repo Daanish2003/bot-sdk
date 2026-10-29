@@ -13,8 +13,12 @@ An app that embeds the Bot SDK and supplies its users and a Postgres database. I
 _Avoid_: Consumer, client app, integrator
 
 **Conversation**:
-The chat thread between a user and one of their Bots. A Bot has exactly one Conversation with the user, and it only ever grows at the end.
+The chat thread between a user and one of their Bots, or several in a Room. A Bot has exactly one 1:1 Conversation with the user, and a Conversation only ever grows at the end.
 _Avoid_: Chat, thread, session
+
+**Room**:
+A Conversation the user shares with several of their Bots. A Message goes to the Bots it @mentions, or to the Room's lead Bot when it mentions none; a Bot that mentions another wakes it, and a mention carrying a task is a handoff. Bot-to-Bot wake-ups stop after a few hops until the user speaks again. Every Bot in the Room sees everything said there and keeps its own memory and Skills; a new Message interrupts only the Bots it goes to. A group chat on another Channel is a Room too.
+_Avoid_: Team, channel, group chat, workspace
 
 **Message**:
 One entry in a Conversation, written by the user or a Bot. A Bot's own model text is never a Message; only what it sends is.
@@ -101,7 +105,7 @@ The Model a user picks for Generated images, independent of their Bots' Models. 
 _Avoid_: Image generator, image Provider
 
 **Bot**:
-An always-on agent a user has: it runs on the server, wakes on Triggers, keeps its memory and Skills, and talks to the user only through the Messages it sends. It has one Conversation with the user and can work across others, such as group chats later. A user can have many Bots; they share the Profiles and one Computer.
+An always-on agent a user has: it runs on the server, wakes on Triggers, keeps its memory and Skills, and talks to the user only through the Messages it sends. It has one Conversation with the user and can work across others, such as Rooms. A user can have many Bots; they share the Profiles and one Computer.
 _Avoid_: Agent, assistant, persona
 
 **Turn**:
