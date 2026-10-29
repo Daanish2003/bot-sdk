@@ -5,5 +5,6 @@ CREATE TABLE "botsdk"."notification_settings" (
 	"quiet_end" text,
 	"urgent_route" "botsdk"."notification_route",
 	"other_route" "botsdk"."notification_route",
-	"updated_at" timestamp NOT NULL
+	"updated_at" timestamp NOT NULL,
+	CONSTRAINT "notification_settings_quiet_hours_check" CHECK (("quiet_start" is null) = ("quiet_end" is null) and ("quiet_start" is null or "quiet_start" <> "quiet_end"))
 );

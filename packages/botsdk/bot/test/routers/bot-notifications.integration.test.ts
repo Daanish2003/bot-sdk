@@ -107,9 +107,12 @@ async function notifiedBot(rounds: Round[]) {
     timer.advance(3_000);
     await runDue();
   };
-  /** Sends the Bot a web Message, from `timeZone` when given, then runs the Turn it starts. */
-  const write = async (text: string, timeZone?: string) => {
-    await client.bots.send({ botId, id: uuidv7(), text, ...(timeZone && { timeZone }) });
+  /**
+   * Sends the Bot (or Bot `to`) a web Message, from `timeZone` when given, then runs the Turn it
+   * starts.
+   */
+  const write = async (text: string, timeZone?: string, to = botId) => {
+    await client.bots.send({ botId: to, id: uuidv7(), text, ...(timeZone && { timeZone }) });
     timer.advance(3_000);
     await runDue();
   };
@@ -264,6 +267,17 @@ describe("where a Message from a Turn the user didn't start goes", () => {
     expect(await next()).toBe("web");
   });
 
+  it("is in-app in the email popover during quiet hours", timeout, async () => {
+    const { client, botId, write, settle } = await notifiedBot([round(says("A."))]);
+    const next = async () => (await client.channels.email.address({ botId })).nextChannel;
+
+    await write("from the app", losAngeles);
+    await settle({ quietHours: night, other: "email" });
+    expect(await next()).toBe("web");
+    await settle({ other: "email" });
+    expect(await next()).toBe("email");
+  });
+
   it("falls back to the Channel the user last wrote from on an empty choice", timeout, async () => {
     const { mail, checkIn, settle, sent } = await checkingIn("Your flight is cancelled.", {
       urgent: true,
@@ -294,6 +308,45 @@ describe("quiet hours", () => {
       expect(sent).toEqual([]);
     },
   );
+
+  it(
+    "read the time zone the user last sent, though they wrote by email since",
+    timeout,
+    async () => {
+      const { write, mail, checkIn, settle, sent } = await notifiedBot([
+        round(setsCheckIn(60)),
+        round(says("I'll check back in an hour.")),
+        round(says("Booked.")),
+        round(says("Any news?")),
+      ]);
+      await settle({ quietHours: night, other: "email" });
+
+      await write("Remind me later", losAngeles);
+      await mail("first@mail.example");
+      await checkIn();
+
+      // Only the reply to the user's email went out; the Check-in's Message was held back.
+      expect(sent.map((one) => one.text.split("\n")[0])).toEqual(["Booked."]);
+    },
+  );
+
+  it("read the time zone the user sent another of their Bots", timeout, async () => {
+    const { client, write, checkIn, settle, sent, assistantMessages } = await notifiedBot([
+      round(says("Hello.")),
+      round(setsCheckIn(60)),
+      round(says("I'll check back in an hour.")),
+      round(says("Any news?")),
+    ]);
+    await settle({ quietHours: night, other: "email" });
+    const { id: otherBot } = await client.bots.create({ name: "Grace", model });
+
+    await write("Hi", losAngeles, otherBot);
+    await write("Remind me later");
+    await checkIn();
+
+    expect((await assistantMessages()).at(-1)).toMatchObject({ text: "Any news?" });
+    expect(sent).toEqual([]);
+  });
 
   it("don't hold back outside them in the user's time zone", timeout, async () => {
     const { write, checkIn, settle, sent } = await checkingIn("Any news?");

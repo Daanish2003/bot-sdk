@@ -71,4 +71,6 @@ export const settingsMessages = {
   "settings.routeHelp": "Every message is in the app, whatever you choose.",
   "settings.saveNotifications": "Save notifications",
   "settings.notificationsSaved": "Notifications saved",
+  "settings.notificationsLoadFailed":
+    "Couldn't load your notification settings. Reload to try again.",
 };

@@ -3,7 +3,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { bot, botTrigger, message } from "../../storage";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { sentFileBlobKey } from "./files";
-import { controlOf, newestTimeZone, subjectOf, toBotMessage, urgentOf } from "./store";
+import { controlOf, subjectOf, toBotMessage, urgentOf } from "./store";
 import { knownZone } from "@botsdk/client/bot/time-zone";
 import type { NotificationRoute } from "@botsdk/client/bot/notifications";
 import { inQuietHours, notificationSettingsOf } from "../notifications-api";
@@ -82,11 +82,7 @@ async function routeOf(
   return route === "in_app" ? null : { channel: route };
 }
 
-/**
- * Where a Message from a Turn the user didn't start goes (spec #1024): the user's choice for urgent
- * Messages or for the rest, or the Channel they last wrote from when that choice is empty. During
- * Quiet hours, in the user's time zone, only an urgent Message leaves the app.
- */
+/** Where Message `messageId`, from a Turn the user didn't start, goes (spec #1024). */
 async function unpromptedRouteOf(
   deps: BotSdkContext,
   tx: Transaction,
@@ -98,14 +94,53 @@ async function unpromptedRouteOf(
     .innerJoin(bot, eq(bot.conversationId, message.conversationId))
     .where(eq(message.id, messageId));
   if (!sent) return "in_app";
-  const urgent = urgentOf(sent.parts);
-  const settings = await notificationSettingsOf(tx, sent.userId);
+  return notificationRouteOf(deps, tx, {
+    userId: sent.userId,
+    owner: { conversationId },
+    urgent: urgentOf(sent.parts),
+  });
+}
+
+/**
+ * Where a Message of Bot `owner` from a Turn the user didn't start goes now (spec #1024): the user's
+ * choice for urgent Messages or for the rest, or the Channel they last wrote from when that choice
+ * is empty. During Quiet hours, in the user's time zone, only an urgent Message leaves the app.
+ */
+export async function notificationRouteOf(
+  deps: BotSdkContext,
+  db: BotSdkContext["db"] | Transaction,
+  {
+    userId,
+    owner,
+    urgent,
+  }: { userId: string; owner: Parameters<typeof lastUsedChannel>[1]; urgent: boolean },
+): Promise<NotificationRoute> {
+  const settings = await notificationSettingsOf(db, userId);
   const route =
     (urgent ? settings.urgent : settings.other) ??
-    ((await lastUsedChannel(tx, { conversationId })) === "email" ? "email" : "in_app");
-  if (route === "in_app" || urgent) return route;
-  const zone = knownZone(await newestTimeZone(tx, conversationId));
+    ((await lastUsedChannel(db, owner)) === "email" ? "email" : "in_app");
+  if (route === "in_app" || urgent || !settings.quietHours) return route;
+  const zone = await userTimeZoneOf(db, userId);
   return inQuietHours(settings.quietHours, deps.clock(), zone) ? "in_app" : route;
+}
+
+/**
+ * The time zone the user last sent, with a Message to any of their Bots (an email carries none), or
+ * UTC when they never sent one.
+ */
+async function userTimeZoneOf(
+  db: BotSdkContext["db"] | Transaction,
+  userId: string,
+): Promise<string> {
+  const zoneOf = sql<string | null>`${message.parts}->>'timeZone'`;
+  const [newest] = await db
+    .select({ zone: zoneOf })
+    .from(message)
+    .innerJoin(bot, eq(bot.conversationId, message.conversationId))
+    .where(and(eq(bot.userId, userId), eq(message.role, "user"), sql`${zoneOf} is not null`))
+    .orderBy(desc(message.createdAt), desc(message.id))
+    .limit(1);
+  return knownZone(newest?.zone ?? undefined);
 }
 
 /**

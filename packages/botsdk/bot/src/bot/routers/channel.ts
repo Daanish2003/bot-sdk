@@ -3,8 +3,7 @@ import { implement } from "@orpc/server";
 
 import type { Context } from "../../context";
 import { requireAuth } from "../../procedures";
-import { emailAddressOf, rotateEmailAddress, lastUsedChannel } from "../conversation";
-import { notificationSettingsOf } from "../notifications-api";
+import { emailAddressOf, rotateEmailAddress, notificationRouteOf } from "../conversation";
 
 const os = implement({ channels: channelsContract }).$context<Context>().use(requireAuth);
 
@@ -17,13 +16,13 @@ export const channelRouter = os.channels.router({
         botId: input.botId,
         domain: context.sdk.channels.emailDomain(),
       });
-      // A non-urgent Message the Bot starts goes where the user chose, else where they last wrote.
-      const { other } = await notificationSettingsOf(context.sdk.db, context.user.id);
-      const nextChannel = other
-        ? other === "email"
-          ? ("email" as const)
-          : ("web" as const)
-        : await lastUsedChannel(context.sdk.db, input);
+      // Where a Message the Bot starts, not urgent, would go now.
+      const route = await notificationRouteOf(context.sdk, context.sdk.db, {
+        userId: context.user.id,
+        owner: input,
+        urgent: false,
+      });
+      const nextChannel = route === "email" ? ("email" as const) : ("web" as const);
       return { address, nextChannel };
     }),
     rotate: os.channels.email.rotate.handler(async ({ context, input }) => ({

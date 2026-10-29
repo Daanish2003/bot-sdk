@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "671231cf-36a3-463a-9ac4-3d317cc06c1d",
+  "id": "84cdd5f2-d7ca-4582-b181-2e40549776af",
   "prevIds": ["03906726-980c-4cb8-8b8e-0e7fdf2fcfdf"],
   "ddl": [
     {
@@ -4623,6 +4623,13 @@
       "entityType": "checks",
       "schema": "botsdk",
       "table": "bot_trigger"
+    },
+    {
+      "value": "(\"quiet_start\" is null) = (\"quiet_end\" is null) and (\"quiet_start\" is null or \"quiet_start\" <> \"quiet_end\")",
+      "name": "notification_settings_quiet_hours_check",
+      "entityType": "checks",
+      "schema": "botsdk",
+      "table": "notification_settings"
     }
   ],
   "renames": []

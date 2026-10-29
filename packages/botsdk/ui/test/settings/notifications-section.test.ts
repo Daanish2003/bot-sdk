@@ -3,7 +3,7 @@ import {
   type NotificationSettings,
   notificationSettingsSchema,
 } from "@botsdk/client/bot/notifications";
-import { os } from "@orpc/server";
+import { ORPCError, os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createElement } from "react";
@@ -15,11 +15,17 @@ import { providerFor } from "@ai-chat/test-support/fake-dictionary";
 afterEach(cleanup);
 
 /** A stand-in for the server's `notifications` router that holds the settings and records saves. */
-function fakeNotificationsServer(settings: NotificationSettings) {
+function fakeNotificationsServer(
+  settings: NotificationSettings,
+  { failing }: { failing?: boolean } = {},
+) {
   const saved: NotificationSettings[] = [];
   const router = {
     notifications: {
-      get: os.handler(() => settings),
+      get: os.handler(() => {
+        if (failing) throw new ORPCError("INTERNAL_SERVER_ERROR");
+        return settings;
+      }),
       update: os.input(notificationSettingsSchema).handler(({ input }) => {
         saved.push(input);
         settings = input;
@@ -36,7 +42,12 @@ function fakeNotificationsServer(settings: NotificationSettings) {
 
 function mount(server: ReturnType<typeof fakeNotificationsServer>) {
   return render(
-    providerFor(createElement(NotificationsSection), { fetch: server.fetch, messages: {} }),
+    providerFor(createElement(NotificationsSection), {
+      fetch: server.fetch,
+      messages: {},
+      // A failed read shows its failure at once, without the default retries.
+      seed: (queryClient) => queryClient.setDefaultOptions({ queries: { retry: false } }),
+    }),
   );
 }
 
@@ -109,6 +120,15 @@ describe("the Notifications section", () => {
     await waitFor(() =>
       expect(server.saved).toEqual([{ quietHours: null, urgent: "email", other: null }]),
     );
+  });
+
+  it("says so when the settings can't load", async () => {
+    mount(fakeNotificationsServer(nothingSet, { failing: true }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Couldn't load your notification settings",
+    );
+    expect(screen.queryByRole("button", { name: "Save notifications" })).toBeNull();
   });
 
   it("won't save quiet hours that start when they end", async () => {

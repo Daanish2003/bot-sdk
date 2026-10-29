@@ -76,7 +76,15 @@ export function NotificationsSection() {
     <section className="space-y-2">
       <h2 className="text-sm font-medium">{t("settings.notifications")}</h2>
       <p className="text-xs text-muted-foreground">{t("settings.notificationsHelp")}</p>
-      {settings.data && <NotificationsForm saved={settings.data} />}
+      {settings.isError && (
+        <p role="alert" className="text-sm text-destructive">
+          {t("settings.notificationsLoadFailed")}
+        </p>
+      )}
+      {/* Settings that change elsewhere (another tab) start the form over from them. */}
+      {settings.data && (
+        <NotificationsForm key={JSON.stringify(settings.data)} saved={settings.data} />
+      )}
     </section>
   );
 }
