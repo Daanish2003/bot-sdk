@@ -135,8 +135,16 @@ The Triggers a Conversation has received that no Turn has taken yet, in the orde
 _Avoid_: Inbox, backlog, job queue (that is the runner's)
 
 **Routine**:
-A prompt one Bot runs on a schedule (days of the week at a time, in the user's time zone) or when an inbound webhook arrives. A Bot can create one from its Conversation, but it runs only after the user's Approval. Each run lands in the Bot's Conversation, marked as the Routine's, never as the user's; a run missed while nothing was running happens once, late.
+A prompt one Bot runs on a schedule (days of the week at one or more times, in the user's time zone) or when an inbound webhook arrives. A Bot can create one from its Conversation, but it runs only after the user's Approval. Each run lands in the Bot's Conversation, marked as the Routine's, never as the user's; a run missed while nothing was running happens once, late. A read-only Routine's runs can look but not change anything: a call that would is refused, so the Bot drafts it and asks the user.
 _Avoid_: Cron job, schedule, automation
+
+**Morning brief**:
+The Routine a Bot proposes when the user's first Connection appears: on weekdays at 8:00 it looks through the user's Connections and the Watch's Notes, tells the user what most needs attention with first steps drafted, and stays quiet when nothing does. It needs the user's Approval like any Routine.
+_Avoid_: Daily digest, Summary (that shortens a Conversation)
+
+**Watch**:
+The read-only Routine a Bot proposes next to the Morning brief, which checks the user's Connections a few times a day. It messages the user only when something is done, needs a decision or is urgent; anything else waits for the Morning brief as a Note. Pausing it is how the user turns a Bot's proactive checking off.
+_Avoid_: Polling, monitor, heartbeat
 
 **Check-in**:
 A single moment a Bot sets for itself to wake and check on something, with a note to its future self. It needs no Approval; anything that repeats is a Routine.
@@ -195,8 +203,12 @@ Anything that sends to a Bot or shows what it sends: the user's apps (web, deskt
 _Avoid_: App, surface, client, platform
 
 **SendToUser**:
-The one tool a Bot talks to the user with. A Message it sends is text plus at most one Rich control. The text is what every Channel can always show. A Bot that sends nothing stays quiet, and its own model text is never shown.
+The one tool a Bot talks to the user with. A Message it sends is text plus at most one Rich control. The text is what every Channel can always show. A Bot can mark a Message urgent, which decides where it is delivered and lets it through Quiet hours. A Bot that sends nothing stays quiet, and its own model text is never shown.
 _Avoid_: Reply, respond, notify
+
+**Quiet hours**:
+The hours, set by the user for all their Bots, when a Message from a Turn they didn't start is not emailed or pushed unless it is urgent. The Message is still in the Conversation for when they next look.
+_Avoid_: Do not disturb, mute
 
 **Rich control**:
 A purpose-built control in a Bot's Message, such as a choice, files, a password entry or an Approval, that the Host draws with its own components and that each Channel shows in the simplest form it can. The user's answer to a choice wakes the Bot like any Trigger.
