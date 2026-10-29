@@ -66,7 +66,7 @@ export type CurrentState = {
 type Seen = {
   routines: Map<string, string>;
   /** The user's Custom Rules lines (mode and text), as the Bot was told them. */
-  customRules: Set<string>;
+  customRules: string[];
   /** Each sent tool's definition hash, and each deferred one's the Bot loaded with describe_tool. */
   tools: Map<string, string>;
   /** Every tool name the Bot was told of: sent, or listed in the first message or a note. */
@@ -114,8 +114,11 @@ function applyNotes(seen: Seen, notes: string[]) {
     if (routine) seen.routines.set(routine[1]!.split("  ")[0]!, routine[1]!);
     const rule = /^Custom rule (added|removed): (.*)$/.exec(note);
     if (rule) {
-      if (rule[1] === "added") seen.customRules.add(rule[2]!);
-      else seen.customRules.delete(rule[2]!);
+      if (rule[1] === "added") seen.customRules.push(rule[2]!);
+      else {
+        const at = seen.customRules.indexOf(rule[2]!);
+        if (at !== -1) seen.customRules.splice(at, 1);
+      }
     }
     const deleted = /^Routine deleted: (.*)$/.exec(note);
     if (deleted) seen.routines.delete(deleted[1]!);
@@ -252,7 +255,7 @@ export async function changeNotesFor(
   const block = (name: string) => start.sections.find((section) => section.name === name)?.text;
   const seen: Seen = {
     routines: routinesOf(block("routines")),
-    customRules: new Set(customRuleLinesOf(block("custom_rules"))),
+    customRules: customRuleLinesOf(block("custom_rules")),
     tools: new Map(start.tools.map((tool) => [tool.name, toolHash(tool)])),
     listed: listedToolNames(block(firstMessageSection) ?? ""),
   };
@@ -280,13 +283,14 @@ export async function changeNotesFor(
     if (!routines.has(name)) notes.push(`Routine deleted: ${name}`);
   }
   // An edit reads as the old line removed and the new one added.
-  const rules = customRuleLinesOf(current.customRules);
-  for (const line of rules) {
-    if (!seen.customRules.has(line)) notes.push(`Custom rule added: ${line}`);
+  // Compared as lists, so two identical rules count twice.
+  const unseen = [...seen.customRules];
+  for (const line of customRuleLinesOf(current.customRules)) {
+    const at = unseen.indexOf(line);
+    if (at === -1) notes.push(`Custom rule added: ${line}`);
+    else unseen.splice(at, 1);
   }
-  for (const line of seen.customRules) {
-    if (!rules.includes(line)) notes.push(`Custom rule removed: ${line}`);
-  }
+  for (const line of unseen) notes.push(`Custom rule removed: ${line}`);
   for (const tool of current.tools) {
     const before = seen.tools.get(tool.name);
     const hash = toolHash(tool);

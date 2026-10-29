@@ -3,7 +3,7 @@ import {
   type CustomRuleMode,
   maxActiveCustomRules,
 } from "@botsdk/client/bot/rule";
-import { and, asc, count, eq } from "drizzle-orm";
+import { and, asc, count, eq, sql } from "drizzle-orm";
 
 import { uuidv7 } from "../../lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../plugin";
@@ -92,6 +92,8 @@ async function changeRules<T>(
 ): Promise<T> {
   const now = sdk.clock();
   const { owned, result } = await sdk.db.transaction(async (tx) => {
+    // One writer per user at a time, even for a user with no Bot to lock: the limit counts rows.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${"custom_rule:" + userId}))`);
     const owned = await tx
       .select({ conversationId: bot.conversationId })
       .from(bot)
