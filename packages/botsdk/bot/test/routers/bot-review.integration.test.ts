@@ -812,9 +812,10 @@ describe("a pending Approval expires after 7 days", () => {
   it("leaves one answered before its expiry as answered", { timeout: 30_000 }, async () => {
     const { botId, advance, reviewId } = await withPendingCall();
     // The user answers the pending request; the expiry job then finds it no longer pending.
+    const answeredAt = new Date("2026-01-01T00:00:00.000Z");
     await getTestDb()
       .update(botReview)
-      .set({ state: "denied", decidedAt: new Date() })
+      .set({ state: "denied", decidedAt: answeredAt })
       .where(eq(botReview.id, reviewId));
 
     advance(week);
@@ -828,7 +829,7 @@ describe("a pending Approval expires after 7 days", () => {
       )
       .toEqual(["succeeded"]);
 
-    expect((await reviewsOf(botId))[0]).toMatchObject({ state: "denied" });
+    expect((await reviewsOf(botId))[0]).toMatchObject({ state: "denied", decidedAt: answeredAt });
   });
 
   it("refuses an Allow after the expiry and runs nothing", { timeout: 30_000 }, async () => {
