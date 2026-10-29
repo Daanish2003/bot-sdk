@@ -38,6 +38,7 @@ import type { CheckInsApi, RoutinesApi } from "./bot/routines-api";
 import type { DemonstrationsApi } from "./bot/demonstrations-api";
 import type { HelpersApi } from "./bot/helpers-api";
 import type { ReviewsApi } from "./bot/reviews-api";
+import type { RulesApi } from "./bot/rules-api";
 import { channel, createChannels, noChannels } from "./bot/channels";
 import { hintChanged } from "./bot/conversation";
 import type { ChannelAdapter, ChannelApi } from "./channel/internal";
@@ -145,6 +146,12 @@ export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly Fe
    */
   reviewModel?: string;
   /**
+   * Safety settings of Auto-review. `neverAllowed` adds classes of action, in plain language, to
+   * the SDK's Never-allowed list: Auto-review blocks them with no Approval offered. The SDK's
+   * own classes can't be removed.
+   */
+  safety?: { neverAllowed?: readonly string[] };
+  /**
    * The Host's callbacks into the SDK. Each hook is optional and runs after its change is written,
    * never awaited, at most once and without retries (README, "Host hooks").
    */
@@ -181,6 +188,8 @@ export type BotSdk = {
   helpers: HelpersApi;
   demonstrations: DemonstrationsApi;
   reviews: ReviewsApi;
+  /** The core's Custom Rules (spec #989): the user's standing instructions for Auto-review. */
+  rules: RulesApi;
   /** The core's Channels (spec #871): the inbound handler of each adapter in the channels slot. */
   channels: ChannelApi;
   /**
@@ -258,6 +267,7 @@ export type GivenContext = Partial<
     | "helpers"
     | "demonstrations"
     | "reviews"
+    | "rules"
     | "channels"
   > & {
     /** A runner built by the test seam, in place of one over the runner slot's Executor. */
@@ -287,7 +297,7 @@ export function coreParts(options: BotSdkOptions, modelsPart?: BotSdkPlugin): Bo
   }
   return [
     modelsPart ?? models(options.models),
-    bot({ reviewModel: options.reviewModel }),
+    bot({ reviewModel: options.reviewModel, neverAllowed: options.safety?.neverAllowed }),
     ...(options.channels
       ? [
           channel({
@@ -391,6 +401,7 @@ export function buildBotSdk(
     helpers: sdk.helpers,
     demonstrations: sdk.demonstrations,
     reviews: sdk.reviews,
+    rules: sdk.rules,
     channels: sdk.channels,
     migrate: () => migrateSchema(options.database, featureMigrations(features)),
     start: async () => {
@@ -532,6 +543,15 @@ function buildContext(
       steps: true,
     }),
     reviews: botsStub<ReviewsApi>({ list: true, allow: true, deny: true }),
+    rules: botsStub<RulesApi>({
+      list: true,
+      neverAllowed: true,
+      create: true,
+      update: true,
+      delete: true,
+      approve: true,
+      deny: true,
+    }),
   };
 }
 
@@ -628,4 +648,5 @@ const botApiKeys: Record<keyof BotApi, true> = {
   react: true,
   stopTurns: true,
   reviewModel: true,
+  neverAllowed: true,
 };

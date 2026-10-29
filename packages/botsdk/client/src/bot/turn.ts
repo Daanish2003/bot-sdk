@@ -44,7 +44,7 @@ export type BotTurnStatus = TurnStatus | "running";
  * when it was received.
  */
 export type BotTurnTrigger = {
-  source: "user" | "routine" | "check_in" | "helper";
+  source: "user" | "routine" | "check_in" | "helper" | "approval";
   channel: "web" | "schedule" | "webhook" | "helper" | "email";
   routineName: string | null;
   at: Date;

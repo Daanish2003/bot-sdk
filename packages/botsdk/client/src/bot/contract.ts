@@ -9,6 +9,7 @@ import type { BotHelper } from "./helper";
 import { emojiSchema } from "./reaction";
 import type { BotReview, ReviewApprovalState } from "./review";
 import type { BotRoutine } from "./routine";
+import { type CustomRule, customRuleModes, customRuleTextSchema } from "./rule";
 import { type BotSecret, secretNameSchema } from "./secret";
 import { isTimeZone } from "./time-zone";
 import {
@@ -142,6 +143,22 @@ export const reviewListInput = z.object({ botId: z.uuid() });
 /** The input of `reviews.allow` and `reviews.deny`, besides `userId`. */
 export const reviewDecisionInput = z.object({ reviewId: z.uuid() });
 
+/** `rules.create`'s input, besides `userId`. */
+export const createRuleInput = z.object({
+  text: customRuleTextSchema,
+  mode: z.enum(customRuleModes),
+});
+
+/** The input of the `rules` methods that act on one of the user's Custom Rules, besides `userId`. */
+export const ruleInput = z.object({ ruleId: z.uuid() });
+
+/** `rules.update`'s input, besides `userId`: a new text, a new mode, or both. */
+export const updateRuleInput = ruleInput
+  .extend({ text: customRuleTextSchema.optional(), mode: z.enum(customRuleModes).optional() })
+  .refine((input) => input.text !== undefined || input.mode !== undefined, {
+    error: "An edit needs a text or a mode",
+  });
+
 /** `secrets.save`'s input, besides `userId`. */
 export const saveSecretInput = z.object({
   botId: z.uuid(),
@@ -256,6 +273,40 @@ const reviews = {
 };
 
 /**
+ * The user's Custom Rules (ADR 0031), shared by all their Bots. Another user's rule is not found.
+ * `botContract` serves all of them (spec #989).
+ */
+export const rulesContract = {
+  /** The user's Custom Rules, active and proposed, the oldest first. */
+  list: oc.output(type<CustomRule[]>()),
+  /** The Never-allowed classes (ADR 0032), read-only: the SDK's, then the Host's extra ones. */
+  neverAllowed: oc.output(type<string[]>()),
+  /** Writes an active rule. Refused past the 50 active rules. */
+  create: oc.input(createRuleInput).output(type<CustomRule>()),
+  /** Edits a rule's text or mode. */
+  update: oc.input(updateRuleInput).output(type<CustomRule>()),
+  /** Deletes a rule in any state. */
+  delete: oc.input(ruleInput).output(type<void>()),
+  /** Approves a rule a Bot proposed: it turns `active`. Refused past the 50 active rules. */
+  approve: oc.input(ruleInput).output(type<CustomRule>()),
+  /** Denies a rule a Bot proposed, which deletes it. */
+  deny: oc.input(ruleInput).output(type<void>()),
+};
+
+export type RulesContract = typeof rulesContract;
+
+/** The rules methods the SDK serves. */
+const rules = {
+  list: rulesContract.list,
+  neverAllowed: rulesContract.neverAllowed,
+  create: rulesContract.create,
+  update: rulesContract.update,
+  delete: rulesContract.delete,
+  approve: rulesContract.approve,
+  deny: rulesContract.deny,
+};
+
+/**
  * The user's Secrets (spec #691), shared by all their Bots. A value goes in through `save` and
  * never comes out: `list` returns names and dates only.
  */
@@ -316,6 +367,7 @@ export const botContract = {
   checkIns,
   helpers,
   reviews,
+  rules,
   secrets,
   demonstrations,
   computer,

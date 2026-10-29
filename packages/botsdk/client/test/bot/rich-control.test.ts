@@ -8,9 +8,10 @@ const secret = { kind: "secret", name: "GITHUB_TOKEN", why: "To push to your rep
 const computer = { kind: "computer", helperId: "h1", reason: "Log in for me.", state: "open" };
 
 describe("isApproval", () => {
-  it("is true for the two Approvals only, which are not Bot bubbles", () => {
+  it("is true for the three Approvals only, which are not Bot bubbles", () => {
     expect(isApproval("routine_approval")).toBe(true);
     expect(isApproval("review_approval")).toBe(true);
+    expect(isApproval("rule_approval")).toBe(true);
     for (const kind of [
       "secret",
       "computer",
@@ -37,15 +38,18 @@ describe("the Rich control catalog", () => {
     expect(botMessagePartsSchema.safeParse(two).success).toBe(false);
   });
 
-  it("takes the Routine approval and the review approval, holding only the row id", () => {
+  it("takes the Routine, review and rule approvals, holding only the row id", () => {
     const published = z.fromJSONSchema(richControlJsonSchema);
     const routine = { kind: "routine_approval", routineId: "r1" };
     const review = { kind: "review_approval", reviewId: "v1" };
+    const rule = { kind: "rule_approval", ruleId: "c1" };
 
     expect(published.safeParse(routine).success).toBe(true);
     expect(published.safeParse(review).success).toBe(true);
+    expect(published.safeParse(rule).success).toBe(true);
     expect(published.safeParse({ kind: "routine_approval" }).success).toBe(false);
     expect(published.safeParse({ kind: "review_approval" }).success).toBe(false);
+    expect(published.safeParse({ kind: "rule_approval" }).success).toBe(false);
   });
 
   it("reserves draft and payment_approval, and refuses a kind it doesn't know", () => {

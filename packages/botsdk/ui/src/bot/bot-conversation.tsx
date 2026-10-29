@@ -16,6 +16,7 @@ import { useBotCheckIns } from "@botsdk/react/bot/check-ins";
 import { useDemonstrationActions } from "@botsdk/react/bot/demonstrations";
 import { allHelpers, useBotHelpers } from "@botsdk/react/bot/helpers";
 import { useBotReviews } from "@botsdk/react/bot/reviews";
+import { useCustomRules } from "@botsdk/react/bot/rules";
 import { useBotRoutines } from "@botsdk/react/bot/routines";
 import { useBotChoices } from "@botsdk/react/bot/choices";
 import { useBotReactions } from "@botsdk/react/bot/reactions";
@@ -27,6 +28,7 @@ import { AttachButton, DraftFileChips } from "./draft-files";
 import { ReactionBar, ReactionChips } from "./reactions";
 import { CheckInLine } from "./check-in-line";
 import { HelperCard } from "./helper-card";
+import { NeverAllowedLine } from "./never-allowed-line";
 import { ReviewPassesLine } from "./review-passes-line";
 import { defaultRichControlRenderers, type RichControlRenderers } from "./rich-control";
 import { RoutinesPopover } from "./routines-popover";
@@ -101,6 +103,7 @@ function BotConversationView({
   const RoutineApproval =
     controls?.routine_approval ?? defaultRichControlRenderers.routine_approval;
   const ReviewApproval = controls?.review_approval ?? defaultRichControlRenderers.review_approval;
+  const RuleApproval = controls?.rule_approval ?? defaultRichControlRenderers.rule_approval;
   const i18n = useI18n();
   const { t } = i18n;
   const [draft, setDraft] = useState("");
@@ -160,6 +163,7 @@ function BotConversationView({
     save: saveSecret,
     remove: removeSecret,
   } = useBotSecrets(botId);
+  const customRules = useCustomRules();
   const { acting: actingChoices, answer: answerChoice } = useBotChoices(botId);
   const { acting: actingReactions, react } = useBotReactions(botId);
   const { acting: actingDemonstrations, act: actOnDemonstration } = useDemonstrationActions(botId);
@@ -220,9 +224,11 @@ function BotConversationView({
   // has none yet.
   const runsBefore = new Map<string, ReactNode[]>();
   for (const turn of turns) {
-    // A Helper's report wakes a Turn too, but it shows on the Helper's card, not as a divider.
+    // A Helper's report wakes a Turn too, but it shows on the Helper's card, not as a divider, as
+    // a late Approval's answer shows on its card.
     const fired = turn.triggers.find(
-      (trigger) => trigger.source !== "user" && trigger.source !== "helper",
+      (trigger) =>
+        trigger.source !== "user" && trigger.source !== "helper" && trigger.source !== "approval",
     );
     if (!fired) continue;
     const from = turn.startedAt.getTime();
@@ -272,9 +278,12 @@ function BotConversationView({
   // before its end ("" with none), so its Steps still show.
   const afterTurnOf = new Map<string, ReactNode[]>();
   const passesOf = new Map<string, typeof reviews>();
+  const neversOf = new Map<string, typeof reviews>();
   for (const review of reviews) {
-    if (review.verdict !== "pass" || !review.turnId) continue;
-    passesOf.set(review.turnId, [...(passesOf.get(review.turnId) ?? []), review]);
+    if (!review.turnId) continue;
+    const into =
+      review.verdict === "pass" ? passesOf : review.verdict === "never" ? neversOf : null;
+    into?.set(review.turnId, [...(into.get(review.turnId) ?? []), review]);
   }
   for (const [index, turn] of turns.entries()) {
     const from = turn.startedAt.getTime();
@@ -289,13 +298,17 @@ function BotConversationView({
         .filter((message) => message.role === "assistant" && message.createdAt.getTime() >= from)
         .at(-1) ?? before.at(-1);
     const passes = passesOf.get(turn.id) ?? [];
+    const nevers = neversOf.get(turn.id) ?? [];
     const shown = afterTurn?.(turn);
     const key = anchor?.id ?? "";
-    if (passes.length > 0 || shown)
+    if (passes.length > 0 || nevers.length > 0 || shown)
       afterTurnOf.set(key, [
         ...(afterTurnOf.get(key) ?? []),
         <Fragment key={turn.id}>
           {passes.length > 0 && <ReviewPassesLine passes={passes} />}
+          {nevers.map((review) => (
+            <NeverAllowedLine key={review.id} review={review} />
+          ))}
           {shown}
         </Fragment>,
       ]);
@@ -452,6 +465,20 @@ function BotConversationView({
                       onAllow={allowReview}
                       onDeny={denyReview}
                       acting={actingReviews.has(review.id)}
+                    />
+                  )
+                );
+              })()}
+            {control?.kind === "rule_approval" &&
+              (() => {
+                const rule = customRules.rules.find((found) => found.id === control.ruleId);
+                return (
+                  rule && (
+                    <RuleApproval
+                      rule={rule}
+                      onApprove={customRules.approve}
+                      onDeny={customRules.deny}
+                      acting={customRules.acting.has(rule.id)}
                     />
                   )
                 );

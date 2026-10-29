@@ -3,6 +3,7 @@ import { approvalWaitMs, type BotReview } from "@botsdk/client/bot/review";
 import { ShieldAlertIcon, ShieldCheckIcon, ShieldXIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { dateFormat } from "@botsdk/react/intl";
 import { useI18n } from "@botsdk/react/provider";
 import { useRefusalToast } from "./refusal-toast";
 
@@ -23,38 +24,58 @@ function useNow(ticking: boolean): number {
   return now;
 }
 
+/** How a pending request's expiry reads: its day and time. */
+const expiryFormat: Intl.DateTimeFormatOptions = {
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+};
+
 /**
  * A blocked call's Approval request at the call's place in the thread (spec #691, prototype
  * variant A): while it waits, an amber card with the call in plain words, the reviewer's reason,
  * the raw command, Allow and Deny, and "Blocked in Ns unless you allow it" over a bar draining for
- * 15 s. Answered or past its deadline, it is a one-line divider. A reviewer failure is a block
- * like any other.
+ * 15 s. Pending past its wait (ADR 0030), the same card says "waiting · expires <date>" in place
+ * of the countdown. Answered or expired, it is a one-line divider. A reviewer
+ * failure is a block like any other.
  */
 export function ReviewRequest({
   review,
   onAllow,
   onDeny,
   acting,
+  allowLabel,
 }: {
   review: BotReview;
   onAllow: (reviewId: string) => Promise<void>;
   onDeny: (reviewId: string) => Promise<void>;
   acting: boolean;
+  /** The Allow button's text, when a surface calls it something else, such as "Approve". */
+  allowLabel?: string;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const run = useRefusalToast();
   const waiting = review.state === "waiting";
+  const pending = review.state === "pending";
   const now = useNow(waiting);
-  const leftMs = review.deadline ? review.deadline.getTime() - now : 0;
+  const leftMs = review.deadline ? Math.max(0, review.deadline.getTime() - now) : 0;
 
-  if (!waiting || leftMs <= 0) {
+  // Past its deadline, a waiting card stays until the wait marks it pending or expired.
+  if (!pending && !waiting) {
     const summary = review.summary;
     const [Icon, text, tone] =
       review.state === "allowed"
         ? [ShieldCheckIcon, t("bots.reviewAllowed", { summary }), "text-emerald-600"]
         : review.state === "denied"
           ? [ShieldXIcon, t("bots.reviewDenied", { summary }), "text-red-600"]
-          : [ShieldXIcon, t("bots.reviewExpired", { summary }), "text-red-600"];
+          : [
+              ShieldXIcon,
+              // One that went pending has an expiry: it lapsed after 7 days, not after the 15-second wait.
+              t(review.expiresAt ? "bots.reviewLapsed" : "bots.reviewExpired", { summary }),
+              "text-red-600",
+            ];
     return (
       <div
         data-review={review.id}
@@ -91,7 +112,7 @@ export function ReviewRequest({
       </pre>
       <div className="flex items-center gap-2">
         <Button size="sm" disabled={acting} onClick={() => run(onAllow(review.id))}>
-          {t("bots.reviewAllow")}
+          {allowLabel ?? t("bots.reviewAllow")}
         </Button>
         <Button
           size="sm"
@@ -102,22 +123,30 @@ export function ReviewRequest({
           {t("bots.reviewDeny")}
         </Button>
         <span className="ml-auto text-xs text-muted-foreground">
-          {t("bots.reviewCountdown", { seconds })}
+          {pending
+            ? t("bots.reviewPending", {
+                expires: review.expiresAt
+                  ? dateFormat(locale, expiryFormat).format(review.expiresAt)
+                  : "",
+              })
+            : t("bots.reviewCountdown", { seconds })}
         </span>
       </div>
-      <div
-        role="progressbar"
-        aria-label={t("bots.reviewCountdown", { seconds })}
-        aria-valuemin={0}
-        aria-valuemax={approvalWaitMs / 1000}
-        aria-valuenow={seconds}
-        className="-mx-3 -mb-3 h-1 bg-amber-200"
-      >
+      {!pending && (
         <div
-          className="h-full bg-amber-500 transition-[width] duration-200"
-          style={{ width: `${fraction * 100}%` }}
-        />
-      </div>
+          role="progressbar"
+          aria-label={t("bots.reviewCountdown", { seconds })}
+          aria-valuemin={0}
+          aria-valuemax={approvalWaitMs / 1000}
+          aria-valuenow={seconds}
+          className="-mx-3 -mb-3 h-1 bg-amber-200"
+        >
+          <div
+            className="h-full bg-amber-500 transition-[width] duration-200"
+            style={{ width: `${fraction * 100}%` }}
+          />
+        </div>
+      )}
     </div>
   );
 }

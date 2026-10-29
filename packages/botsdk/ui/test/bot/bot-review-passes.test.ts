@@ -54,6 +54,7 @@ const reviewOf = (
   reason,
   state: null,
   deadline: null,
+  expiresAt: null,
   decidedAt: null,
   createdAt: at(1),
 });
@@ -96,6 +97,29 @@ function mount(fetch: (request: Request) => Promise<Response>) {
     providerFor(createElement(BotConversation, { botId: "b1" }), { fetch, messages: {} }),
   );
 }
+
+describe("the Never-allowed divider", () => {
+  it("shows a one-line divider for a never review, under its Turn's last Bot Message", async () => {
+    mount(
+      fakeBotServer(
+        [said("m1", "user", "move my money", 0), said("m2", "assistant", "Over to you.", 2)],
+        [turnOf("t1", 0, 3)],
+        [reviewOf("r1", "t1", "never", "Transfer $5,000", "moving money between accounts")],
+      ),
+    );
+
+    const divider = await screen.findByText("Never allowed · Transfer $5,000");
+
+    const line = divider.closest("[data-never-allowed]");
+    expect(line?.getAttribute("title")).toBe("moving money between accounts");
+    expect(document.querySelector('[data-id="m2"]')?.compareDocumentPosition(line!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    // It is not a pass, and offers no Approval.
+    expect(screen.queryByRole("button", { name: /auto-approved/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+  });
+});
 
 describe("the Auto-review passes line", () => {
   it("shows each Turn's passes under its last Bot Message and expands to their summaries and reasons", async () => {

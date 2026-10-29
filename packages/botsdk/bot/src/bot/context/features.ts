@@ -148,7 +148,8 @@ export type FeatureToolSet = {
  * is left out and logged. A feature whose `tools` throws ends the Turn `error`, as a Connection
  * whose listing failed did. Each feature gets the section it gave in `sections`. Without `kit`,
  * only the definitions are read, as an away Summary does, and a feature whose `tools` throws is
- * logged and left out.
+ * logged and left out. With `find`, the listing stops at the feature that gives the tool of that
+ * name, so a call run outside a Turn (an approved one) lists no more than it needs.
  */
 export async function featureTools(
   deps: BotSdkContext,
@@ -163,7 +164,7 @@ export async function featureTools(
     /** The loop's Computer call, for the tools a feature lists in `computerTools`. */
     computerCall: LoopKit["computerCall"];
   },
-  { connectorsOnly = false }: { connectorsOnly?: boolean } = {},
+  { connectorsOnly = false, find }: { connectorsOnly?: boolean; find?: string } = {},
 ): Promise<FeatureToolSet> {
   const names = new Set(taken);
   const decrypted: DecryptedSecrets = new Map();
@@ -230,6 +231,7 @@ export async function featureTools(
           ),
       } as AnyServerTool);
     }
+    if (find !== undefined && set.tools.some((tool) => tool.name === find)) break;
   }
   set.missing = (name) => {
     for (const missing of missings) {

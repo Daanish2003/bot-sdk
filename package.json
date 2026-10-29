@@ -54,7 +54,7 @@
   "lint-staged": {
     "*": [
       "oxlint --no-error-on-unmatched-pattern",
-      "oxfmt --write"
+      "oxfmt --write --no-error-on-unmatched-pattern"
     ]
   },
   "packageManager": "pnpm@12.6.0"

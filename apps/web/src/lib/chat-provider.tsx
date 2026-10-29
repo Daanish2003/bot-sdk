@@ -10,6 +10,8 @@ function routeOf(page: ChatPage) {
   switch (page.to) {
     case "keys":
       return { to: "/settings/keys" };
+    case "rules":
+      return { to: "/settings/rules" };
     case "bots":
       return page.id ? { to: "/bots/$botId", params: { botId: page.id } } : { to: "/bots" };
   }

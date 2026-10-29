@@ -7,6 +7,7 @@ import { filesControlSchema } from "./files";
 import { computerCardSchema } from "./helper";
 import { reviewApprovalSchema } from "./review";
 import { routineApprovalSchema } from "./routine";
+import { ruleApprovalSchema } from "./rule";
 import { storedReactionsSchema } from "./reaction";
 import { secretRequestSchema } from "./secret";
 
@@ -29,6 +30,7 @@ export const richControlSchema = z.discriminatedUnion("kind", [
   choiceControlSchema,
   routineApprovalSchema,
   reviewApprovalSchema,
+  ruleApprovalSchema,
   reservedControlSchema("draft"),
   reservedControlSchema("payment_approval"),
 ]);
@@ -42,7 +44,7 @@ export type RichControlKind = RichControl["kind"];
  * Bot sent (spec #761): none shows it, and it doesn't count as the Bot sending.
  */
 export const isApproval = (kind: RichControlKind | undefined) =>
-  kind === "routine_approval" || kind === "review_approval";
+  kind === "routine_approval" || kind === "review_approval" || kind === "rule_approval";
 
 /**
  * The catalog as JSON Schema, for a Host's own app to render it. It can't carry the Zod checks

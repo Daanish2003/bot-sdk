@@ -39,12 +39,13 @@ import { botPluginRouter } from "./routers";
 import { botsApi, type BotsApi } from "./bots-api";
 import { conversationsApi } from "./conversations-api";
 import { screensApi } from "./screens-api";
+import { rulesApi } from "./rules-api";
 import { secretsApi } from "./secrets-api";
 import { checkInsApi, routinesApi } from "./routines-api";
 import { demonstrationsApi } from "./demonstrations-api";
 import { helpersApi } from "./helpers-api";
 import { reviewsApi } from "./reviews-api";
-import { rotateSecretKeys } from "./safety";
+import { approvalExpiryJob, rotateSecretKeys } from "./safety";
 
 export type BotPlugin = BotSdkPlugin<"bot", never, never>;
 
@@ -56,6 +57,7 @@ export const botJobs = [
   botHelperJob,
   helperStoppedJob,
   deliveryJob,
+  approvalExpiryJob,
 ];
 
 /**
@@ -70,19 +72,23 @@ export type BotApi = BotsApi & {
   stopTurns: (input: { userId: string }) => Promise<void>;
   /** The Model that reviews the Bots' risky tool calls, as the `reviewModel` option named it, if any. */
   reviewModel: string | undefined;
+  /** The Host's extra Never-allowed classes, as the `safety.neverAllowed` option named them. */
+  neverAllowed: readonly string[];
 };
 
 /** How the core sets up its Bots, from the factory's options. */
 export type BotOptions = {
   /** The factory's `reviewModel` option: the Model that Auto-reviews the Bots' risky tool calls. */
   reviewModel?: string;
+  /** The factory's `safety.neverAllowed` option: the Host's extra Never-allowed classes. */
+  neverAllowed?: readonly string[];
 };
 
 /**
  * The core's Bots (spec #871): always-on Bots, each a name and a Model talking to its user in one
  * Conversation of kind `bot`. Its `init` sets `sdk.bots`; the slots always enable it.
  */
-export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
+export function bot({ reviewModel, neverAllowed = [] }: BotOptions = {}): BotPlugin {
   return {
     id: "bot",
     init: (sdk) => {
@@ -111,6 +117,7 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
           await stopUserDemonstrations(sdk, userId);
         },
         reviewModel,
+        neverAllowed,
       };
       sdk.bots = api;
       sdk.conversations = conversationsApi(sdk);
@@ -121,6 +128,7 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
       sdk.helpers = helpersApi(sdk);
       sdk.demonstrations = demonstrationsApi(sdk);
       sdk.reviews = reviewsApi(sdk);
+      sdk.rules = rulesApi(sdk);
     },
     // Repairs a Routine whose chain of fires broke, now and then hourly (#578).
     start: startRoutineReconcile,

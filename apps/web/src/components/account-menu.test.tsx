@@ -33,10 +33,11 @@ afterEach(() => {
 const open = () => fireEvent.click(screen.getByRole("button", { name: /Ada/ }));
 
 describe("AccountMenu", () => {
-  it("offers Keys, Account and Sign out, but not Admin, to a user", () => {
+  it("offers Keys, Rules, Account and Sign out, but not Admin, to a user", () => {
     render(<AccountMenu name="Ada" email="ada@example.com" isAdmin={false} />);
     open();
     expect(screen.getByRole("menuitem", { name: "Keys" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Rules" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Account" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Sign out" })).toBeTruthy();
     expect(screen.queryByRole("menuitem", { name: "Admin" })).toBeNull();

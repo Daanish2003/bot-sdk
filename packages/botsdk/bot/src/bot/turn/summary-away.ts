@@ -30,6 +30,7 @@ import {
 } from "../context";
 import { lockConversation, waitingIn } from "../triggers";
 import { nextSlot, routinesPrompt } from "../routines";
+import { customRulesPrompt } from "../safety";
 
 import { forTurn } from "../tools";
 
@@ -171,6 +172,7 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
     };
     const context = await build(deps, turn, {
       routines: async () => (await routinesPrompt(tx, botId)) ?? null,
+      customRules: async () => (await customRulesPrompt(tx, seen.userId)) ?? null,
       features: async () => features,
       tools: (sections) => forTurn(deps, turn, sections),
     });

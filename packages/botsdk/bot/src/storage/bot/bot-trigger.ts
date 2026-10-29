@@ -5,12 +5,16 @@ import { botsdkSchema } from "../botsdk-schema";
 import { conversation, message } from "../schema";
 import { botTurn } from "./bot-turn";
 
-/** Who sent a Trigger: the user, one of the Bot's Routines, a Check-in it set (#539), or a Helper (#565). */
+/**
+ * Who sent a Trigger: the user, one of the Bot's Routines, a Check-in it set (#539), a Helper
+ * (#565), or an Approval answered after its wait (ADR 0030).
+ */
 export const botTriggerSource = botsdkSchema.enum("bot_trigger_source", [
   "user",
   "routine",
   "check_in",
   "helper",
+  "approval",
 ]);
 
 /**

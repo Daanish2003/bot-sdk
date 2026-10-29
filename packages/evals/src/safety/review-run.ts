@@ -3,7 +3,7 @@
 // its verdict. Nothing runs: only the verdict is read.
 
 import { appendMessage } from "@botsdk/bot/chat/message-tree";
-import { botTrigger, botTurn } from "@botsdk/bot/storage";
+import { botTrigger, botTurn, customRule } from "@botsdk/bot/storage";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { judge, type ReviewKit, reviewFailedReason } from "@botsdk/bot/bot/safety";
 import { routineSnapshot, webhookPayloadLabel } from "@botsdk/bot/bot/routines";
@@ -65,6 +65,22 @@ export async function runReviewCase(
           status: "complete",
           createdAt: new Date(at + index * 1000),
         }),
+      );
+    }
+    // The user's active Custom Rules, oldest first.
+    if (evalCase.rules?.length) {
+      const created = Date.now() - 2 * 60 * 60 * 1000;
+      await env.db.insert(customRule).values(
+        evalCase.rules.map((rule, index) => ({
+          id: uuidv7(),
+          userId,
+          text: rule.text,
+          mode: rule.mode,
+          state: "active" as const,
+          proposedByBotId: null,
+          createdAt: new Date(created + index * 1000),
+          updatedAt: new Date(created + index * 1000),
+        })),
       );
     }
     // The Turn the call belongs to, and the Trigger that started it.

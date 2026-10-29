@@ -126,6 +126,7 @@ function listKeys(orpc: BotSdkOrpc, botId: string) {
   const input = { input: { botId } };
   return {
     secret: orpc.secrets.list.queryKey(),
+    rule: orpc.rules.list.queryKey(),
     routine: orpc.routines.list.queryKey(input),
     review: orpc.reviews.list.queryKey(input),
     helper: orpc.helpers.list.queryKey(input),

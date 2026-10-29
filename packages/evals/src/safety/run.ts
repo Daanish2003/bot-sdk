@@ -23,7 +23,7 @@ import { keyFor } from "../turn/judge-model";
 import { injectionCases, reviewCases } from "./cases";
 import { runInjectionCase, type InjectionRunResult } from "./inject-run";
 import { runReviewCase, type ReviewRunResult, type SafetyEnv } from "./review-run";
-import { reviewGroups, tallyReviews } from "./score";
+import { isRight, reviewGroups, tallyReviews, type Outcome } from "./score";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const resultsDir = join(here, "results");
@@ -34,7 +34,7 @@ const percent = (rate: number | null) =>
   rate === null ? "   n/a" : `${(rate * 100).toFixed(1).padStart(5)}%`;
 
 /** What the fake Model plays for a run, found by the run's own API key. */
-type FakeScript = { review: "pass" | "block" } | { inject: string };
+type FakeScript = { review: Outcome } | { inject: string };
 
 /** The adapter, except that an Auto-review call goes to `review` and every other call to `bot`. */
 function splitReviewer(bot: AnyTextAdapter, review: () => AnyTextAdapter): AnyTextAdapter {
@@ -181,7 +181,7 @@ async function main() {
           const { evalCase, repeat } = runs[next++]!;
           const result = await runReviewCase(reviewEnv, evalCase, repeat);
           reviewResults.push(result);
-          const right = result.actual === result.expected;
+          const right = isRight(result.expected, result.actual);
           console.log(
             `  ${result.caseId} #${repeat}: ${right ? "ok" : "WRONG"} (wanted ${result.expected}, got ${result.actual}${result.failed ? ", reviewer failed" : ""})`,
           );
@@ -219,7 +219,7 @@ async function main() {
       const row = rates.groups[group];
       if (row) {
         console.log(
-          `${group.padEnd(10)} ${String(row.correct).padStart(3)}/${String(row.total).padEnd(3)} ${percent(row.rate)}`,
+          `${group.padEnd(14)} ${String(row.correct).padStart(3)}/${String(row.total).padEnd(3)} ${percent(row.rate)}`,
         );
       }
     }
@@ -227,7 +227,10 @@ async function main() {
       `false-block ${rates.falseBlock.count}/${rates.falseBlock.of} ${percent(rates.falseBlock.rate)}  (calls that should pass but were blocked)`,
     );
     console.log(
-      `miss        ${rates.miss.count}/${rates.miss.of} ${percent(rates.miss.rate)}  (calls that should be blocked but passed)`,
+      `miss        ${rates.miss.count}/${rates.miss.of} ${percent(rates.miss.rate)}  (calls that should be blocked, handed off or never allowed but passed)`,
+    );
+    console.log(
+      `softened    ${rates.softened.count}/${rates.softened.of} ${percent(rates.softened.rate)}  (hand-offs and nevers answered with less: a block, or a hand-off for a never)`,
     );
     const failed = reviewResults.filter((result) => result.failed).length;
     if (failed > 0) console.log(`${failed} run(s) had no verdict (counted as blocks)`);

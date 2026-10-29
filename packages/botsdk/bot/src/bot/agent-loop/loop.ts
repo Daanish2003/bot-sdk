@@ -1,4 +1,3 @@
-import { isReservedSecretName, reservedSecretNameMessage } from "@botsdk/client/bot/secret";
 import { parseModelId } from "@botsdk/client/models/models";
 import { modelsDevSnapshot } from "@botsdk/client/models/models-snapshot";
 import {
@@ -14,7 +13,7 @@ import {
 
 import type { PromptHash } from "../../chat/hooks";
 import type { BotSdkContext, Transaction } from "../../plugin";
-import { uuidv7 } from "../../lib/uuidv7";
+import type { Database } from "../../storage";
 import {
   withCacheControl,
   addUsage,
@@ -24,21 +23,14 @@ import {
 
 import type { ModelUsage } from "../../models/internal";
 import type { MessageUsage } from "../../models/shared/usage";
-import {
-  type ComputerHandle,
-  ComputerOperationError,
-  ComputerUnavailableError,
-} from "../../computer/internal";
+import { type ComputerHandle } from "../../computer/internal";
 import { type WorkflowContext, WorkflowYieldedError } from "../../runner/internal";
 import {
-  capOutput,
   capResult,
   isLong,
+  operateComputer,
   computerOf,
-  computerOperationError,
   computerToolDefinitions,
-  computerUnavailableError,
-  defaultShellTimeoutSeconds,
   editDefinition,
   editTool,
   type FileToolOptions,
@@ -47,17 +39,15 @@ import {
   listTool,
   readDefinition,
   readTool,
-  rebuiltNote,
   shellDefinition,
   shellStartActivity,
   shellToolName,
   spillPath,
-  timedOutHint,
   writeDefinition,
   writeTool,
 } from "./computer-tools";
+import { runShell } from "./shell";
 import {
-  resolvePath,
   pruneScreenshots,
   resolveImageRefs,
   computerRebuildSeenAt,
@@ -67,15 +57,16 @@ import {
 import { type LoopPromptStart, type PreviousCall, promptHashesOf } from "./prompt-hashes";
 import {
   blockedError,
+  type PendingApproval,
+  PendingAtEndError,
   type ReviewAsk,
+  type ReviewOutcome,
   type ReviewSource,
   reviewToolCall,
   type DecryptedSecrets,
   loadSecretValues,
   maskResult,
-  maskedFormsOf,
   secretMasker,
-  unknownSecretError,
 } from "../safety";
 
 /**
@@ -122,8 +113,8 @@ export type LoopKit = {
    * Both run only live; a replay returns `run`'s recorded result. A tool call's result over the
    * long-output limit is recorded, and returned, as its cut text (`capResult`), as for
    * `liveActivity`. `reviewed` is the call's input, given only for a call Auto-review checks (a
-   * Connector tool's): it is reviewed first, as `computerCall`'s is, and a block is its result,
-   * with neither `run` nor `write` called.
+   * Connector tool's): it is reviewed first, as `computerCall`'s is, and a block (or its pending
+   * result, once it outlives its wait) is its result, with neither `run` nor `write` called.
    */
   liveRequest: <T>(
     name: string,
@@ -131,7 +122,7 @@ export type LoopKit = {
     run: () => Promise<T>,
     write?: (tx: Transaction, result: T | string) => Promise<void>,
     reviewed?: Record<string, unknown>,
-  ) => Promise<T | string | { error: string }>;
+  ) => Promise<T | string | { error: string } | PendingApproval>;
   /** The Computer's tools: Shell, then the file tools Read, Write, Edit and List. */
   computerTools: AnyServerTool[];
   /** Aborts on a Stop or the loop's time limit. */
@@ -248,6 +239,8 @@ export type LoopOptions = {
    * is reviewed.
    */
   review?: ReviewSource;
+  /** Reads what a review reads outside its activities (`deps.db` unless given): a replay's `tx`. */
+  db?: Database | Transaction;
 };
 
 /** What a played loop came to. `failure` is an activity that threw, which recorded nothing. */
@@ -344,6 +337,8 @@ export async function runLoop(
   const billed: MessageUsage[] = [];
   /** The tool calls whose activity threw: they recorded nothing, so they stay unanswered. */
   const unanswered = new Set<string>();
+  /** The pending results of unanswered calls whose wait the loop's end cut off (ADR 0030). */
+  const pendingAtEnd = new Map<string, PendingApproval>();
   let failure: unknown;
   let error: string | undefined;
   let finished = false;
@@ -629,6 +624,8 @@ export async function runLoop(
     } catch (caught) {
       if (!abortController.signal.aborted) failure ??= caught;
       if (toolCallId) unanswered.add(toolCallId);
+      if (toolCallId && caught instanceof PendingAtEndError)
+        pendingAtEnd.set(toolCallId, caught.result);
       abortController.abort();
       throw caught;
     }
@@ -704,24 +701,18 @@ export async function runLoop(
     operate: (computer: ComputerHandle) => Promise<T>,
   ) => {
     const computer = (userComputer ??= computerOf(deps, owner.userId));
-    try {
-      const result = await operate(computer);
-      const rebuild = computer.rebuild();
-      if (!rebuild) return result;
-      if (rebuildSeenAt === undefined)
-        rebuildSeenAt = await computerRebuildSeenAt(deps.db, owner.botId);
-      if (rebuildSeenAt && rebuild.rebuiltAt <= rebuildSeenAt) return result;
-      telling = rebuild.rebuiltAt;
-      return { ...result, note: rebuiltNote(rebuild) };
-    } catch (caught) {
-      if (!abortController.signal.aborted) {
-        if (caught instanceof ComputerUnavailableError) return { error: computerUnavailableError };
-        if (caught instanceof ComputerOperationError) {
-          return { error: computerOperationError(caught.message) };
+    return operateComputer(computer, () => operate(computer), {
+      signal: abortController.signal,
+      seenAt: async () => {
+        if (rebuildSeenAt === undefined) {
+          rebuildSeenAt = await computerRebuildSeenAt(deps.db, owner.botId);
         }
-      }
-      throw caught;
-    }
+        return rebuildSeenAt;
+      },
+      tell: (rebuiltAt) => {
+        telling = rebuiltAt;
+      },
+    });
   };
   /**
    * `onComputer` for a live call: the loop's time limit, like a Stop, stops its operations
@@ -755,17 +746,19 @@ export async function runLoop(
     return result;
   };
   /**
-   * Auto-review of a reviewed tool's call, before it runs: the error the Model gets for a block, or
-   * `null` to run it. A loop with no `review` source reviews nothing.
+   * Auto-review of a reviewed tool's call, before it runs: the error the Model gets for a block,
+   * its pending result once it outlives the wait, or `null` to run it. A `strict` call (an action
+   * on a Screen) never goes pending. A loop with no `review` source reviews nothing.
    */
   const review = async (
     tool: string,
     toolCallId: string | undefined,
     input: Record<string, unknown>,
-    ask?: ReviewAsk,
-  ): Promise<{ error: string } | null> => {
+    { ask, strict }: { ask?: ReviewAsk; strict?: boolean } = {},
+  ): Promise<ReviewOutcome> => {
     // A loop with no review source has no one to ask: what the user always decides is refused.
     if (!options.review) return ask ? { error: blockedError(ask.reason) } : null;
+    // A Screen action keeps the strict 15 seconds; shell and Connector calls go pending.
     // The live review is a model call: the loop's time limit cuts it off, as a Stop does.
     return reviewToolCall(
       deps,
@@ -778,9 +771,10 @@ export async function runLoop(
           inLiveCall = true;
         },
         signal: abortController.signal,
+        db: options.db ?? deps.db,
         usageOf: (chunks, sent) => callUsage(deps, chunks, sent),
       },
-      { owner, source: options.review, toolCallId, tool, input, ask },
+      { owner, source: options.review, toolCallId, tool, input, ask, strict },
     ).finally(() => {
       inLiveCall = false;
     });
@@ -789,7 +783,6 @@ export async function runLoop(
   const decrypted: DecryptedSecrets = new Map();
   const shell = shellDefinition.server((input, context) =>
     toolCall(context?.toolCallId, async () => {
-      const { command, cwd, timeoutSeconds, secrets } = input;
       // Auto-review first: a blocked command never starts.
       const blocked = await review(shellToolName, context?.toolCallId, input);
       if (blocked) return blocked;
@@ -810,39 +803,13 @@ export async function runLoop(
       const result = await ctx.step(shellToolName, async () => {
         beforeLiveTool();
         if (!startedHere) return { error: interruptedShellError };
-        // The user's Secrets, read for this one command: it gets only the ones it names, and the
-        // result is masked of all of them.
-        const values = await loadSecretValues(deps, owner.userId, decrypted);
-        const unknown = (secrets ?? []).filter((name) => !values.has(name));
-        if (unknown.length > 0) return { error: unknownSecretError(unknown, values.keys()) };
-        // Defence in depth: a reserved name can't be saved, but one that was would not be set.
-        const reserved = (secrets ?? []).filter(isReservedSecretName);
-        if (reserved.length > 0) return { error: reservedSecretNameMessage(reserved.join(", ")) };
-        const secretValues = [...values.values()];
-        const mask = secretMasker(secretValues);
-        const envs = Object.fromEntries((secrets ?? []).map((name) => [name, values.get(name)!]));
-        return onLiveComputer(async (computer, live) => {
-          const output = await computer.run(command, {
-            ...live,
-            cwd: resolvePath(owner.botId, cwd),
-            timeoutMs: (timeoutSeconds ?? defaultShellTimeoutSeconds) * 1000,
-            ...(secrets?.length && { envs }),
-            ...(secretValues.length > 0 && { redact: maskedFormsOf(secretValues) }),
-          });
-          // Masked before the output is cut down to its ends, so a value is never half kept by the cut.
-          const result = {
-            ...output,
-            stdout: mask(output.stdout),
-            stderr: mask(output.stderr),
-          };
-          // The cap is applied here, so the Checkpoint holds only the truncated form.
-          const capped = await capOutput(
-            result,
-            spillPath(owner.botId, context?.toolCallId ?? uuidv7()),
-            computer.writeFile,
-          );
-          return "timedOut" in capped ? { ...capped, hint: timedOutHint } : capped;
-        });
+        return runShell(
+          deps,
+          { userId: owner.userId, botId: owner.botId, toolCallId: context?.toolCallId },
+          input,
+          decrypted,
+          onLiveComputer,
+        );
       });
       return recordTold(result);
     }),
@@ -862,9 +829,11 @@ export async function runLoop(
         });
         if (refused) return refused;
       }
-      // Auto-review first: a blocked call never reaches the Computer.
-      const blocked = reviewed && (await review(name, toolCallId, reviewed, ask));
-      if (blocked) return blocked;
+      // Auto-review first: a blocked call never reaches the Computer. A reviewed Computer call is an
+      // action on a Screen, which never waits past its 15 seconds (ADR 0030).
+      const blocked = reviewed && (await review(name, toolCallId, reviewed, { ask, strict: true }));
+      // Strict, so never pending: a block is always its error.
+      if (blocked) return blocked as { error: string };
       return recordTold(
         await ctx.step(name, async () => {
           beforeLiveTool();
@@ -1034,7 +1003,12 @@ export async function runLoop(
     stopped: abortController.signal.aborted,
     error,
     finished,
-    transcript: answeredCalls(messages.filter((entry) => !unanswered.has(entry.toolCallId ?? ""))),
+    transcript: answeredCalls(
+      withPendingResults(
+        messages.filter((entry) => !unanswered.has(entry.toolCallId ?? "")),
+        pendingAtEnd,
+      ),
+    ),
     usage: billed.length > 0 ? totalUsage(billed) : null,
     lastInput: lastStepInput,
     failure,
@@ -1110,6 +1084,31 @@ function endsInPlainText(messages: readonly ModelMessage[]): boolean {
       ? last.content
       : (last.content ?? []).map((part) => (part.type === "text" ? part.content : "")).join("");
   return content.trim() !== "";
+}
+
+/**
+ * `messages` with each call of `pending` answered by its pending result, after its Step's other
+ * results: a later Turn reads that the call waits for the user's Approval (ADR 0030).
+ */
+function withPendingResults(
+  messages: readonly ModelMessage[],
+  pending: ReadonlyMap<string, PendingApproval>,
+): ModelMessage[] {
+  if (pending.size === 0) return [...messages];
+  const out: ModelMessage[] = [];
+  let owed: ModelMessage[] = [];
+  for (const entry of messages) {
+    if (entry.role !== "tool") {
+      out.push(...owed);
+      owed = [];
+    }
+    out.push(entry);
+    for (const call of entry.toolCalls ?? []) {
+      const result = pending.get(call.id);
+      if (result) owed.push({ role: "tool", toolCallId: call.id, content: JSON.stringify(result) });
+    }
+  }
+  return [...out, ...owed];
 }
 
 /**

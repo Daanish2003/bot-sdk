@@ -1,4 +1,4 @@
-import { BotCacheChip, BotConversation } from "@botsdk/ui/bot";
+import { BotCacheChip, BotConversation, WaitingPopover } from "@botsdk/ui/bot";
 import { EmailPopover } from "@botsdk/ui/channel";
 import { KnowledgeChip, KnowledgePopover } from "@botsdk/ui/knowledge";
 import { BotMemoryChip, BotMemoryPopover } from "@botsdk/ui/memory";
@@ -28,6 +28,7 @@ function BotPage() {
             </>
           )}
           <EmailPopover botId={botId} />
+          <WaitingPopover botId={botId} />
         </>
       }
       afterTurn={(turn) => (

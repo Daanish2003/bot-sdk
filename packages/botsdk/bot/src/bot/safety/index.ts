@@ -1,13 +1,24 @@
 // The safety module's entry point (#889): other modules import it only through this file.
+export { approvalExpiryJob, approvalExpiryJobName } from "./approval-expiry";
 export { turnProvenance } from "./provenance";
 export {
+  approvalTriggerId,
+  approvalTriggerText,
+  approvedCallJobName,
+  approvedCallKey,
   blockedError,
   closeWaitingReviews,
   decideReview,
   judge,
   listedReviews,
+  handOffError,
   listReviews,
+  neverAllowedError,
+  neverAllowedList,
+  type PendingApproval,
+  PendingAtEndError,
   type ReviewAsk,
+  type ReviewOutcome,
   reviewerSystemPrompt,
   reviewFailedReason,
   reviewFields,
@@ -17,6 +28,20 @@ export {
   reviewToolCall,
   type ReviewVerdict,
 } from "./review";
+export {
+  approveRule,
+  createRule,
+  customRulesHeader,
+  customRulesPrompt,
+  deleteRule,
+  denyRule,
+  hintRuleChanged,
+  listRules,
+  proposeRule,
+  proposeRuleToolName,
+  reviewedRules,
+  updateRule,
+} from "./custom-rule";
 export { deleteSecret, listSecrets, rotateSecretKeys, saveSecret } from "./secret";
 export {
   type DecryptedSecrets,

@@ -121,7 +121,7 @@ async function deliver(
         receivedAt: now,
       });
       // Like a web Message, it interrupts a running Turn, and the Turn that follows takes it.
-      if (waitsFor) await cancelTurn(sdk, tx, waitsFor);
+      if (waitsFor) await cancelTurn(sdk, tx, waitsFor, "message");
       return owner.conversationId;
     })
     // The same Message-ID handed in another Conversation's transaction meanwhile.

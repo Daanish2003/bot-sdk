@@ -178,7 +178,7 @@ export async function sendToBot(
     });
     // The owner skips the line (#500): a Message sent while a Turn's job runs interrupts that Turn,
     // and the Turn that follows it takes the Message.
-    const ended = waitsFor ? await cancelTurn(deps, tx, waitsFor) : false;
+    const ended = waitsFor ? await cancelTurn(deps, tx, waitsFor, "message") : false;
     return { userMessage: toBotMessage(row), started: true, ended };
   });
   if (sent.started) deps.runner.wake();
@@ -230,7 +230,7 @@ export async function stopBot(deps: BotSdkContext, userId: string, botId: string
     const running = await runningTurnOf(tx, botId);
     if (!running) return false;
     await tx.update(botTrigger).set({ turnId: running }).where(waitingIn(found.conversationId));
-    return cancelTurn(deps, tx, running);
+    return cancelTurn(deps, tx, running, "stop");
   });
   if (!ended) return;
   deps.runner.wake();
@@ -258,18 +258,20 @@ async function runningTurnOf(tx: Transaction, botId: string): Promise<string | u
  * (#500). A queued job never runs again, so its Turn ends `stopped` here and the next Turn takes
  * what waits in the Conversation queue; a running one ends `stopped` as its attempt aborts
  * (`runTurnJob`), or in `onCancelled` when that attempt dies first. Either way, an Approval the
- * Turn waits on is denied: a Stop, or the user's Message that interrupts it, counts as no
- * (ADR 0024). Returns whether the Turn ended here.
+ * Turn waits on is closed by `by`: the user's Stop counts as no (ADR 0024), and the user's Message
+ * that interrupts it leaves it pending, since they may not have seen it yet (ADR 0030). Returns
+ * whether the Turn ended here.
  */
 export async function cancelTurn(
   deps: BotSdkContext,
   tx: Transaction,
   turnId: string,
+  by: "stop" | "message",
 ): Promise<boolean> {
   const cancelled = await deps.runner.cancelIn(tx, turnId);
   // Cancelled first: under the job's row lock, a `waiting` row's Checkpoint either committed
-  // before the denial reads it, or fails its fence and rolls back.
-  await closeWaitingReviews(deps, tx, { turnId }, "denied");
+  // before the close reads it, or fails its fence and rolls back.
+  await closeWaitingReviews(deps, tx, { turnId }, by === "stop" ? "denied" : "pending");
   if (cancelled !== "queued") return false;
   // A queued job may have run already (handed back by a deploy, waiting out a retry, or re-queued
   // after a crash), so the Turn keeps what its Checkpoints hold. The job's row is locked, so its
@@ -592,6 +594,7 @@ async function playTurn(
       seesImages: canSee,
       // Each shell call of the Turn gets Auto-review before it runs (spec #691).
       review: { turnId: turn.id, conversationId: turn.conversationId },
+      db,
       setup: async (kit) => {
         // The Turn's context and its tool catalogue, read once as it starts (spec #871).
         const context = await build(deps, turn, {

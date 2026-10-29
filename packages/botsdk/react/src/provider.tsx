@@ -17,6 +17,8 @@ export type { BotSdkOrpc } from "@botsdk/client";
 /** A page the chat UI links or navigates to. The host app maps each to its own route. */
 export type ChatPage =
   | { to: "keys" }
+  /** The rules page, where the user manages the rules for all their Bots. */
+  | { to: "rules" }
   /** The Bots app; `id` opens that Bot's Conversation. */
   | { to: "bots"; id?: string };
 
