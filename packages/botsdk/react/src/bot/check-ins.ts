@@ -24,5 +24,8 @@ export function useBotCheckIns(botId: string, working: boolean) {
     cancel: async (checkInId: string) => {
       await act(checkInId, () => orpc.checkIns.cancel.call({ checkInId }));
     },
+    edit: async (input: { checkInId: string; at?: Date; note?: string }) => {
+      await act(input.checkInId, () => orpc.checkIns.edit.call(input));
+    },
   };
 }

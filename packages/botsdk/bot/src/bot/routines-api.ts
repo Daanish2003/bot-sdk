@@ -1,4 +1,10 @@
-import { botScopeInput, routineInput, checkInInput } from "@botsdk/client/bot/contract";
+import {
+  botScopeInput,
+  routineInput,
+  checkInInput,
+  editRoutineInput,
+  editCheckInInput,
+} from "@botsdk/client/bot/contract";
 
 import type { BotSdkContext } from "../plugin";
 import { parseInput, type WithUser } from "../rpc-error";
@@ -7,6 +13,8 @@ import {
   approveRoutine,
   cancelCheckIn,
   declineRoutine,
+  editCheckIn,
+  editRoutine,
   listCheckIns,
   listRoutines,
   pauseRoutine,
@@ -55,6 +63,14 @@ export function routinesApi(sdk: BotSdkContext) {
       removeRoutine(sdk, userId, parseInput(routineInput, rest).routineId),
 
     /**
+     * The user's edit of a Routine's prompt and schedule, which is its own Approval: the state is
+     * kept and the next fire is queued from the new schedule. A webhook Routine takes the prompt
+     * only. Another user's is not found.
+     */
+    edit: async ({ userId, ...rest }: WithUser<typeof editRoutineInput>) =>
+      editRoutine(sdk, userId, parseInput(editRoutineInput, rest)),
+
+    /**
      * Gives an approved webhook Routine a new URL (ADR 0021): the new token comes back this once, and
      * the old URL answers 404 from then on. Another user's is not found.
      */
@@ -92,6 +108,10 @@ export function checkInsApi(sdk: BotSdkContext) {
     /** Cancels a pending Check-in: it never fires. Another user's is not found. */
     cancel: async ({ userId, ...rest }: WithUser<typeof checkInInput>) =>
       cancelCheckIn(sdk, userId, parseInput(checkInInput, rest).checkInId),
+
+    /** Changes a pending Check-in's time and note. One no longer pending is refused. */
+    edit: async ({ userId, ...rest }: WithUser<typeof editCheckInInput>) =>
+      editCheckIn(sdk, userId, parseInput(editCheckInInput, rest)),
   };
 }
 

@@ -517,3 +517,39 @@ describe("create_routine and update_routine with a webhook", () => {
     expect(toolResults(fake.calls[3]).at(-1)?.error).toMatch(/webhook/);
   });
 });
+
+describe("the user's edit of a webhook Routine", () => {
+  it("takes a prompt-only edit, stays approved, and its URL keeps working", async () => {
+    const { client, botId, routineId, token, call } = await approvedWebhook();
+
+    const edited = await client.routines.edit({ routineId, prompt: "Check payouts over $1,000." });
+
+    expect(edited).toEqual({ id: routineId, state: "active" });
+    expect((await client.routines.list({ botId }))[0]).toMatchObject({
+      prompt: "Check payouts over $1,000.",
+      schedule: null,
+      webhook: true,
+    });
+    expect((await call(token)).status).toBe(202);
+  });
+
+  it("refuses a schedule and changes nothing", async () => {
+    const { client, botId, routineId } = await approvedWebhook();
+
+    await expect(
+      client.routines.edit({
+        routineId,
+        prompt: "Something else.",
+        schedule: { days: ["mon"], at: "08:00" },
+      }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      data: { code: "error.routineWebhookSchedule" },
+    });
+
+    expect((await client.routines.list({ botId }))[0]).toMatchObject({
+      prompt: payouts.prompt,
+      schedule: null,
+    });
+  });
+});

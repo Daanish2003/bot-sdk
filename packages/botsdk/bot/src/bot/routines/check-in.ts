@@ -131,6 +131,52 @@ export async function cancelCheckIn(
 }
 
 /**
+ * The user's edit of a Check-in of theirs: a new time re-queues its fire, and a new note is read
+ * when it fires. `NOT_FOUND` for another user's; one that already fired, failed or was cancelled is
+ * refused.
+ */
+export async function editCheckIn(
+  deps: BotSdkContext,
+  userId: string,
+  { checkInId, at, note }: { checkInId: string; at?: Date; note?: string },
+): Promise<void> {
+  const now = deps.clock();
+  if (at && at.getTime() - now.getTime() < minLeadMs) {
+    throw rpcError("BAD_REQUEST", "error.checkInTooSoon", checkInTooSoonError);
+  }
+  const conversationId = await deps.db.transaction(async (tx) => {
+    const [owner] = await tx
+      .select({ conversationId: bot.conversationId })
+      .from(botCheckIn)
+      .innerJoin(bot, eq(bot.id, botCheckIn.botId))
+      .where(and(eq(botCheckIn.id, checkInId), eq(bot.userId, userId)));
+    if (!owner) throw rpcError("NOT_FOUND", "error.checkInNotFound", "Check-in not found");
+    // The Conversation's row lock first, as in a fire.
+    await lockConversation(tx, owner.conversationId);
+    const [row] = await tx
+      .update(botCheckIn)
+      .set({ ...(at && { at }), ...(note !== undefined && { note }), updatedAt: now })
+      .where(and(eq(botCheckIn.id, checkInId), eq(botCheckIn.state, "pending")))
+      .returning({ botId: botCheckIn.botId });
+    if (!row) {
+      throw rpcError("CONFLICT", "error.checkInNotPending", "The Check-in is no longer pending");
+    }
+    await recordBotChange(tx, { botId: row.botId }, "check_in", checkInId, now);
+    if (at) {
+      await deps.runner.cancelIn(tx, checkInKey(checkInId));
+      await deps.runner.enqueueIn(
+        tx,
+        checkInFireJobName,
+        { checkInId },
+        { idempotencyKey: checkInKey(checkInId), runAfter: at },
+      );
+    }
+    return owner.conversationId;
+  });
+  await hintChanged(deps, conversationId);
+}
+
+/**
  * The Bot's Check-ins, soonest first, each with `afterMessageId`, the Message its inline line
  * follows (`lastMessageOfTurn`).
  */

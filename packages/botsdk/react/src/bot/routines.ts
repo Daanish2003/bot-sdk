@@ -1,3 +1,4 @@
+import type { RoutineSchedule } from "@botsdk/client/bot/routine";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
@@ -40,5 +41,8 @@ export function useBotRoutines(botId: string, working: boolean) {
     resume: action((input) => orpc.routines.resume.call(input)),
     remove: action((input) => orpc.routines.delete.call(input)),
     rotate: action((input) => orpc.routines.rotate.call(input)),
+    edit: async (input: { routineId: string; prompt?: string; schedule?: RoutineSchedule }) => {
+      await act(input.routineId, () => orpc.routines.edit.call(input));
+    },
   };
 }
