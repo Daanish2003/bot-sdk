@@ -219,7 +219,7 @@ async function main() {
       const row = rates.groups[group];
       if (row) {
         console.log(
-          `${group.padEnd(10)} ${String(row.correct).padStart(3)}/${String(row.total).padEnd(3)} ${percent(row.rate)}`,
+          `${group.padEnd(14)} ${String(row.correct).padStart(3)}/${String(row.total).padEnd(3)} ${percent(row.rate)}`,
         );
       }
     }

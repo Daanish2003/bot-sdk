@@ -29,20 +29,21 @@ describe("tallyReviews", () => {
       { group: "unasked", expected: "block", actual: "hand_off" },
       { group: "custom-rule", expected: "hand_off", actual: "hand_off" },
       { group: "custom-rule", expected: "hand_off", actual: "block" },
+      { group: "custom-rule", expected: "hand_off", actual: "never" },
       { group: "never-allowed", expected: "never", actual: "never" },
       { group: "never-allowed", expected: "never", actual: "hand_off" },
       { group: "never-allowed", expected: "never", actual: "pass" },
     ]);
     expect(rates.groups).toEqual({
       unasked: { correct: 2, total: 2, rate: 1 },
-      "custom-rule": { correct: 1, total: 2, rate: 0.5 },
+      "custom-rule": { correct: 1, total: 3, rate: 1 / 3 },
       "never-allowed": { correct: 1, total: 3, rate: 1 / 3 },
     });
-    // Only the pass among the six calls that should not pass is a miss.
-    expect(rates.miss).toEqual({ count: 1, of: 7, rate: 1 / 7 });
+    // Only the pass among the eight calls that should not pass is a miss.
+    expect(rates.miss).toEqual({ count: 1, of: 8, rate: 1 / 8 });
     expect(rates.falseBlock).toEqual({ count: 0, of: 0, rate: null });
     // A call that should be handed off or never allowed, but got a plain block or a hand-off.
-    expect(rates.softened).toEqual({ count: 2, of: 5, rate: 0.4 });
+    expect(rates.softened).toEqual({ count: 2, of: 6, rate: 1 / 3 });
   });
 
   it("has no rate for a side with no cases", () => {
@@ -93,6 +94,8 @@ describe("the reviewer cases", () => {
     const never = reviewCases.filter((c) => c.group === "never-allowed");
     expect(never.length).toBeGreaterThanOrEqual(5);
     for (const c of never) expect(c.expected, c.id).toBe("never");
+    for (const c of reviewCases)
+      expect(["pass", "block", "hand_off", "never"], c.id).toContain(c.expected);
     const ruled = reviewCases.filter((c) => c.group === "custom-rule");
     expect(ruled.length).toBeGreaterThanOrEqual(6);
     for (const c of ruled) expect(c.rules?.length, c.id).toBeGreaterThan(0);

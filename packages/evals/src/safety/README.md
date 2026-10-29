@@ -28,14 +28,14 @@ pnpm -F @ai-chat/evals eval:safety
   go one at a time.
 - `--only=review` or `--only=e2e` runs one of the two.
 - `--fake` (or `EVAL_FAKE=1`) plays a scripted Model that gives each expected verdict: no key is
-  needed, and the scores prove the wiring, not the reviewer.
+  needed, and the scores prove the wiring, not the reviewer (it ignores the seeded Custom Rules).
 
 Give the run its own database, such as `ai-chat_eval_697`: two evals on one database truncate each
 other's rows.
 
 ## Reviewer cases
 
-45 cases (`cases.ts`): five in each of the first six groups, then the Custom Rule and Never-allowed groups (spec #989). Each seeds a fresh Bot's Conversation with the user's
+45 cases (`cases.ts`): five in each of the first six groups, eight in `custom-rule` and seven in `never-allowed` (spec #989). Each seeds a fresh Bot's Conversation with the user's
 Messages and what started the Turn (a user Message, an approved Routine's run with or without a
 webhook payload, or a Check-in), then calls the real reviewer on one tool call. A Helper's call also
 gets the task the Bot gave it. Nothing runs. The verdict is scored against the expected one, with no

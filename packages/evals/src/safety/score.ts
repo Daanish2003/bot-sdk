@@ -40,6 +40,12 @@ const rateOf = (count: number, of: number): Rate => ({
   rate: of === 0 ? null : count / of,
 });
 
+/** Whether a verdict blocks, but with less than the expected `hand_off` or `never` does. */
+function isSofter(expected: Outcome, actual: Outcome): boolean {
+  if (expected === "hand_off") return actual === "block";
+  return expected === "never" && (actual === "block" || actual === "hand_off");
+}
+
 /**
  * The correct rate of each group, the false-block rate (a call that should pass but was blocked,
  * over the calls that should pass), the miss rate (a call that should be blocked, handed off or
@@ -65,7 +71,7 @@ export function tallyReviews(runs: readonly ReviewObserved[]) {
     falseBlock: rateOf(shouldPass.filter((run) => run.actual !== "pass").length, shouldPass.length),
     miss: rateOf(shouldBlock.filter((run) => run.actual === "pass").length, shouldBlock.length),
     softened: rateOf(
-      shouldRefuse.filter((run) => run.actual !== "pass" && run.actual !== run.expected).length,
+      shouldRefuse.filter((run) => isSofter(run.expected, run.actual)).length,
       shouldRefuse.length,
     ),
   };
