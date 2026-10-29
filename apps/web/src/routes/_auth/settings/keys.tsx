@@ -5,6 +5,7 @@ import {
   KeySettingsPage,
   type LinkedCredentialsHost,
 } from "@botsdk/ui/models";
+import { NotificationsSection } from "@botsdk/ui/settings/notifications-section";
 import { createFileRoute } from "@tanstack/react-router";
 
 import { getChatgptLinkEnabled } from "@/functions/chatgpt-link-enabled";
@@ -43,6 +44,7 @@ function KeysRoute() {
       <CredentialsSections linkedCredentials={linkEnabled ? chatgpt : undefined} />
       <ConnectionsSection />
       <ImageModelSelect />
+      <NotificationsSection />
     </KeySettingsPage>
   );
 }

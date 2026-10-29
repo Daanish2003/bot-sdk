@@ -39,6 +39,7 @@ import { botPluginRouter } from "./routers";
 import { botsApi, type BotsApi } from "./bots-api";
 import { conversationsApi } from "./conversations-api";
 import { screensApi } from "./screens-api";
+import { notificationsApi } from "./notifications-api";
 import { rulesApi } from "./rules-api";
 import { triggersApi } from "./triggers-api";
 import { secretsApi } from "./secrets-api";
@@ -131,6 +132,7 @@ export function bot({ reviewModel, neverAllowed = [] }: BotOptions = {}): BotPlu
       sdk.demonstrations = demonstrationsApi(sdk);
       sdk.reviews = reviewsApi(sdk);
       sdk.rules = rulesApi(sdk);
+      sdk.notifications = notificationsApi(sdk);
     },
     // Repairs a Routine whose chain of fires broke, now and then hourly (#578).
     start: startRoutineReconcile,

@@ -17,6 +17,7 @@ import type { TriggersApi } from "./bot/triggers-api";
 import type { DemonstrationsApi } from "./bot/demonstrations-api";
 import type { HelpersApi } from "./bot/helpers-api";
 import type { ReviewsApi } from "./bot/reviews-api";
+import type { NotificationsApi } from "./bot/notifications-api";
 import type { RulesApi } from "./bot/rules-api";
 import type { ChannelApi } from "./channel/internal";
 import type { ComputerApi } from "./computer/internal";
@@ -76,6 +77,8 @@ export type BotSdkContext = {
   reviews: ReviewsApi;
   /** The core's Custom Rules (spec #989): the user's standing instructions for Auto-review. */
   rules: RulesApi;
+  /** The core's notification settings (spec #1024): Quiet hours and where Messages go. */
+  notifications: NotificationsApi;
   /**
    * The core's Channels besides web (spec #871), over the channels slot's adapters. With none,
    * every inbound answers 404 and no reply goes out by email.

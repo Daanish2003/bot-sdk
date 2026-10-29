@@ -111,6 +111,7 @@ function instanceOver(sdk: SdkOver): BotSdk {
     demonstrations: _demonstrations,
     reviews: _reviews,
     rules: _rules,
+    notifications: _notifications,
     channels: _channels,
     ...context
   } = sdk;

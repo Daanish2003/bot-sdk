@@ -14,6 +14,7 @@
     "./bot/demonstration": "./src/bot/demonstration.ts",
     "./bot/files": "./src/bot/files.ts",
     "./bot/helper": "./src/bot/helper.ts",
+    "./bot/notifications": "./src/bot/notifications.ts",
     "./bot/reaction": "./src/bot/reaction.ts",
     "./bot/review": "./src/bot/review.ts",
     "./bot/rich-control": "./src/bot/rich-control.ts",

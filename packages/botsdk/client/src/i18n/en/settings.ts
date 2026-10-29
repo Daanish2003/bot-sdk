@@ -1,4 +1,4 @@
-/** The Keys & settings sections that aren't credentials: Memory, Connections, the Image Model and Export data. */
+/** The Keys & settings sections that aren't credentials: Memory, Connections, the Image Model, Notifications and Export data. */
 export const settingsMessages = {
   "settings.exportFailed": "Couldn't export your data",
   "settings.preparing": "Preparing…",
@@ -54,4 +54,23 @@ export const settingsMessages = {
   "settings.ruleModeAsk": "Ask before",
   "settings.ruleModeHandOff": "Hand off to me",
   "settings.deleteRule": "Delete rule",
+  // Notification settings (spec #1024).
+  "settings.notifications": "Notifications",
+  "settings.notificationsHelp":
+    "For messages your Bots send on their own, from a Routine, a Check-in, a Helper or a webhook. Replies to your messages go back where you wrote from. These apply to all your Bots.",
+  "settings.quietHours": "Quiet hours",
+  "settings.quietHoursHelp":
+    "In your time zone. During them, only urgent messages are emailed. The rest are still in the conversation for when you look.",
+  "settings.quietFrom": "From",
+  "settings.quietTo": "To",
+  "settings.urgentRoute": "Urgent messages",
+  "settings.otherRoute": "Other messages",
+  "settings.routeDefault": "Where I last wrote",
+  "settings.routeInApp": "In-app only",
+  "settings.routeEmail": "Email",
+  "settings.routeHelp": "Every message is in the app, whatever you choose.",
+  "settings.saveNotifications": "Save notifications",
+  "settings.notificationsSaved": "Notifications saved",
+  "settings.notificationsLoadFailed":
+    "Couldn't load your notification settings. Reload to try again.",
 };

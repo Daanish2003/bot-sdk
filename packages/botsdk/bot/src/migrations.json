@@ -16,7 +16,11 @@
     "sql": "-- A Routine's schedule holds a list of times (#1025): each one-time schedule becomes a one-item list.\nUPDATE \"botsdk\".\"bot_routine\" SET \"schedule\" = jsonb_build_object('days', \"schedule\"->'days', 'times', jsonb_build_array(\"schedule\"->'at')) WHERE \"schedule\" ? 'at';\n"
   },
   {
-    "name": "20261029221156_read_only_routines",
+    "name": "20261029220925_notification_settings",
+    "sql": "CREATE TYPE \"botsdk\".\"notification_route\" AS ENUM('in_app', 'email');--> statement-breakpoint\nCREATE TABLE \"botsdk\".\"notification_settings\" (\n\t\"user_id\" text PRIMARY KEY,\n\t\"quiet_start\" text,\n\t\"quiet_end\" text,\n\t\"urgent_route\" \"botsdk\".\"notification_route\",\n\t\"other_route\" \"botsdk\".\"notification_route\",\n\t\"updated_at\" timestamp NOT NULL,\n\tCONSTRAINT \"notification_settings_quiet_hours_check\" CHECK ((\"quiet_start\" is null) = (\"quiet_end\" is null) and (\"quiet_start\" is null or \"quiet_start\" <> \"quiet_end\"))\n);\n"
+  },
+  {
+    "name": "20261029222631_read_only_routines",
     "sql": "ALTER TABLE \"botsdk\".\"bot_routine\" ADD COLUMN \"read_only\" boolean DEFAULT false NOT NULL;"
   }
 ]
