@@ -190,7 +190,8 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261029163647_tasks_view" },
       { feature: "core", migration: "20261029212409_routine_times" },
       { feature: "core", migration: "20261029220925_notification_settings" },
-      { feature: "core", migration: "20261029222858_push_subscription" },
+      { feature: "core", migration: "20261029222631_read_only_routines" },
+      { feature: "core", migration: "20261029232026_push_subscription" },
     ]);
     // Images and PDFs are already compressed, so the bytes are kept out of line uncompressed.
     expect(
@@ -232,7 +233,8 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261029163647_tasks_view" },
       { feature: "core", migration: "20261029212409_routine_times" },
       { feature: "core", migration: "20261029220925_notification_settings" },
-      { feature: "core", migration: "20261029222858_push_subscription" },
+      { feature: "core", migration: "20261029222631_read_only_routines" },
+      { feature: "core", migration: "20261029232026_push_subscription" },
     ]);
     expect(
       await rows(url, "update botsdk.bot_review set state = 'pending' returning state, expires_at"),
@@ -316,7 +318,8 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261029163647_tasks_view" },
       { feature: "core", migration: "20261029212409_routine_times" },
       { feature: "core", migration: "20261029220925_notification_settings" },
-      { feature: "core", migration: "20261029222858_push_subscription" },
+      { feature: "core", migration: "20261029222631_read_only_routines" },
+      { feature: "core", migration: "20261029232026_push_subscription" },
       { feature: "notes", migration: "0001_note" },
       { feature: "mcp", migration: "20261026182927_mcp_baseline" },
     ]);
@@ -339,7 +342,8 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261029163647_tasks_view" },
       { feature: "core", migration: "20261029212409_routine_times" },
       { feature: "core", migration: "20261029220925_notification_settings" },
-      { feature: "core", migration: "20261029222858_push_subscription" },
+      { feature: "core", migration: "20261029222631_read_only_routines" },
+      { feature: "core", migration: "20261029232026_push_subscription" },
       { feature: "notes", migration: "0001_note" },
       { feature: "notes", migration: "0002_note_text" },
     ]);
@@ -466,7 +470,8 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261029163647_tasks_view" },
       { feature: "core", migration: "20261029212409_routine_times" },
       { feature: "core", migration: "20261029220925_notification_settings" },
-      { feature: "core", migration: "20261029222858_push_subscription" },
+      { feature: "core", migration: "20261029222631_read_only_routines" },
+      { feature: "core", migration: "20261029232026_push_subscription" },
       { feature: "notes", migration: "0001_note" },
     ]);
   });

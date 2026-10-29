@@ -261,6 +261,11 @@ export function TasksPopover({
                         <span className="text-muted-foreground">
                           {routine.schedule ? scheduleText(routine.schedule) : t("bots.onWebhook")}
                         </span>
+                        {routine.readOnly && (
+                          <span className="text-xs text-muted-foreground">
+                            {t("bots.routineReadOnly")}
+                          </span>
+                        )}
                         <span className="ml-auto text-xs text-muted-foreground">
                           {t(stateKeys[routine.state])}
                         </span>

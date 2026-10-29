@@ -95,6 +95,8 @@ export function RoutineCard({
               })
             : t("bots.routineRunsOnWebhook")}
         </CardDescription>
+        {/* So an Approval that turns read-only off (or on) says so (spec #1024). */}
+        {routine.readOnly && <CardDescription>{t("bots.routineReadOnlyNote")}</CardDescription>}
       </CardHeader>
       <CardContent className="text-sm whitespace-pre-wrap">{routine.prompt}</CardContent>
       <CardFooter className="gap-2">

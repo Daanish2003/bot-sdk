@@ -148,15 +148,18 @@ export const triggerInput = z.object({ triggerId: z.string().min(1).max(512) });
 /** `checkIns.cancel`'s input, besides `userId`. */
 export const checkInInput = z.object({ checkInId: z.uuid() });
 
-/** `routines.edit`'s input, besides `userId`: a new prompt, a new schedule, or both. */
+/** `routines.edit`'s input, besides `userId`: a new prompt, a new schedule, read-only or not. */
 export const editRoutineInput = routineInput
   .extend({
     prompt: z.string().trim().min(1).optional(),
     schedule: routineScheduleSchema.optional(),
+    readOnly: z.boolean().optional(),
   })
-  .refine((input) => input.prompt !== undefined || input.schedule !== undefined, {
-    error: "An edit needs a prompt or a schedule",
-  });
+  .refine(
+    (input) =>
+      input.prompt !== undefined || input.schedule !== undefined || input.readOnly !== undefined,
+    { error: "An edit needs a prompt, a schedule or readOnly" },
+  );
 
 /** `checkIns.edit`'s input, besides `userId`: a new time, a new note, or both. */
 export const editCheckInInput = checkInInput
@@ -296,7 +299,8 @@ const routines = {
   /** Deletes a Routine in any state, and nothing of it fires again. */
   delete: oc.input(routineInput).output(type<void>()),
   /**
-   * The user's edit of a Routine's prompt and schedule (a webhook Routine takes the prompt only).
+   * The user's edit of a Routine's prompt, schedule and read-only setting (a webhook Routine has no
+   * schedule).
    * It needs no Approval and keeps the Routine's state; it applies from the next run.
    */
   edit: oc.input(editRoutineInput).output(type<RoutineStateChange>()),

@@ -46,7 +46,8 @@ async function accessTokenFor(deps: Deps, userId: string, server: McpServerConfi
  * aborts. The servers are opened side by side, so a slow one holds up no other. A server that is
  * down, or whose Connection can't be used, is skipped. Each tool is named `<server key>_<tool>`,
  * filtered by the server's `tools` allowlist, and needs approval unless the server's `approvalFree`
- * lists it.
+ * lists it. Each tool's `metadata.readOnly` says whether a read-only run may call it: the server
+ * marks it `readOnlyHint: true`, or `readOnlyTools` names it.
  */
 export async function openMcpTools(
   deps: Deps,
@@ -80,7 +81,15 @@ export async function openMcpTools(
           needsApproval: (tool) => !(server.approvalFree ?? []).includes(tool.name),
         });
         if (signal.aborted) throw signal.reason;
-        const tools = (await client.tools()) as AnyServerTool[];
+        const tools = ((await client.tools()) as AnyServerTool[]).map((tool) => {
+          const meta = tool.metadata?.mcp as
+            | { serverToolName?: string; annotations?: { readOnlyHint?: boolean } }
+            | undefined;
+          const readOnly =
+            meta?.annotations?.readOnlyHint === true ||
+            (server.readOnlyTools ?? []).includes(meta?.serverToolName ?? "");
+          return { ...tool, metadata: { ...tool.metadata, readOnly } } as AnyServerTool;
+        });
         clients.push(client);
         // A client opened as the signal aborted is closed at once.
         if (signal.aborted) closeAll();

@@ -140,6 +140,7 @@ describe("the Tasks popover", () => {
         prompt: "x",
         schedule: { days: ["mon"], times: ["08:00"] },
         webhook: false,
+        readOnly: false,
         timeZone: "Europe/London",
         state: "active",
         approvedAt: createdAt,

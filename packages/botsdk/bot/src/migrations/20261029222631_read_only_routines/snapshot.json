@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "336889f6-50dd-4e8d-b3e5-33926517aa89",
+  "id": "baab419e-c30e-466b-8bec-8579257735b2",
   "prevIds": ["e39fb03d-bb03-4ef7-9c2e-f652019e1c0b"],
   "ddl": [
     {
@@ -95,7 +95,7 @@
       "schema": "botsdk"
     },
     {
-      "values": ["in_app", "email", "push"],
+      "values": ["in_app", "email"],
       "name": "notification_route",
       "entityType": "enums",
       "schema": "botsdk"
@@ -261,12 +261,6 @@
     {
       "isRlsEnabled": false,
       "name": "notification_settings",
-      "entityType": "tables",
-      "schema": "botsdk"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "push_subscription",
       "entityType": "tables",
       "schema": "botsdk"
     },
@@ -1833,6 +1827,19 @@
       "table": "bot_routine"
     },
     {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "read_only",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "bot_routine"
+    },
+    {
       "type": "uuid",
       "typeSchema": null,
       "notNull": true,
@@ -2455,71 +2462,6 @@
       "entityType": "columns",
       "schema": "botsdk",
       "table": "notification_settings"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "endpoint",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "push_subscription"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "user_id",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "push_subscription"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "p256dh",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "push_subscription"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "auth",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "push_subscription"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "push_subscription"
     },
     {
       "type": "uuid",
@@ -3925,27 +3867,6 @@
           "asc": true,
           "nullsFirst": false,
           "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "push_subscription_user_id_idx",
-      "entityType": "indexes",
-      "schema": "botsdk",
-      "table": "push_subscription"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "user_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
         },
         {
           "value": "created_at",
@@ -4641,14 +4562,6 @@
       "name": "notification_settings_pkey",
       "schema": "botsdk",
       "table": "notification_settings",
-      "entityType": "pks"
-    },
-    {
-      "columns": ["endpoint"],
-      "nameExplicit": false,
-      "name": "push_subscription_pkey",
-      "schema": "botsdk",
-      "table": "push_subscription",
       "entityType": "pks"
     },
     {

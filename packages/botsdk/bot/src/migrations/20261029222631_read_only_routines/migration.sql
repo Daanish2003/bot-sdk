@@ -1,0 +1,1 @@
+ALTER TABLE "botsdk"."bot_routine" ADD COLUMN "read_only" boolean DEFAULT false NOT NULL;

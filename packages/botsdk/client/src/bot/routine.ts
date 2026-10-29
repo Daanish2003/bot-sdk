@@ -46,6 +46,8 @@ export type BotRoutine = {
   webhook: boolean;
   timeZone: string;
   state: RoutineState;
+  /** Whether its runs may only look (spec #1024): a call that would change anything is refused. */
+  readOnly: boolean;
   approvedAt: Date | null;
   createdAt: Date;
   nextRunAt: Date | null;

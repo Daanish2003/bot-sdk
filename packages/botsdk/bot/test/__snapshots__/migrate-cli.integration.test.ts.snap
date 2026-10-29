@@ -447,7 +447,14 @@ CREATE TABLE "botsdk"."notification_settings" (
 insert into botsdk.__migrations (feature, migration) values ('core', '20261029220925_notification_settings');
 commit;
 
--- core/20261029222858_push_subscription
+-- core/20261029222631_read_only_routines
+begin;
+ALTER TABLE "botsdk"."bot_routine" ADD COLUMN "read_only" boolean DEFAULT false NOT NULL;
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261029222631_read_only_routines');
+commit;
+
+-- core/20261029232026_push_subscription
 begin;
 ALTER TYPE "botsdk"."notification_route" ADD VALUE 'push';--> statement-breakpoint
 CREATE TABLE "botsdk"."push_subscription" (
@@ -460,7 +467,7 @@ CREATE TABLE "botsdk"."push_subscription" (
 --> statement-breakpoint
 CREATE INDEX "push_subscription_user_id_idx" ON "botsdk"."push_subscription" ("user_id");
 ;
-insert into botsdk.__migrations (feature, migration) values ('core', '20261029222858_push_subscription');
+insert into botsdk.__migrations (feature, migration) values ('core', '20261029232026_push_subscription');
 commit;
 
 -- notes/0001_note

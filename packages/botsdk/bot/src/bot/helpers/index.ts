@@ -34,13 +34,17 @@ export {
   helperTimeLimitMs,
   lockScreen,
   screensInUseError,
+  startHelperToolName,
   todoList,
   tooManyGeneralHelpersError,
 } from "./helper";
 export { listHelpers } from "./helper-card";
 export {
+  checkHelperToolName,
   deleteBotHelpers,
   helperTools,
+  messageHelperToolName,
+  stopHelpersToolName,
   stopBotHelpers,
   stopHelpers,
   stopUserHelpers,

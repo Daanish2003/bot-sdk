@@ -42,6 +42,7 @@ const morningBrief = (): BotRoutine => ({
   prompt: "Summarize today's calendar.",
   schedule: { days: ["mon", "tue", "wed", "thu", "fri"], times: ["08:00"] },
   webhook: false,
+  readOnly: false,
   timeZone: "Europe/London",
   state: "pending",
   approvedAt: null,
@@ -215,6 +216,18 @@ describe("a Routine waiting for the user's OK", () => {
     expect(card.textContent).toContain("weekdays 08:00");
     expect(card.textContent).toContain("Europe/London");
     expect(card.textContent).toContain("Summarize today's calendar.");
+  });
+
+  it("says on its approval card whether it is read-only", async () => {
+    const readOnlyNote = "Read-only: its runs can look but not change anything.";
+    mount(fakeBotServer([approvalOf()], [{ ...morningBrief(), readOnly: true }]));
+    const card = await screen.findByRole("group", { name: "Created morning-brief routine" });
+    expect(card.textContent).toContain(readOnlyNote);
+    cleanup();
+
+    mount(fakeBotServer([approvalOf()], [morningBrief()]));
+    const plain = await screen.findByRole("group", { name: "Created morning-brief routine" });
+    expect(plain.textContent).not.toContain(readOnlyNote);
   });
 
   it("shows one card when an edit sent the Routine back for a second Approval", async () => {
