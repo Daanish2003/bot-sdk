@@ -254,6 +254,10 @@ description: Use this when
   "bots.emailChannel": "email",
   "bots.reviewAllow": "Allow",
   "bots.reviewDeny": "Deny",
+  "bots.waiting": ({ count }: { count: number }) => `Waiting ${count}`,
+  "bots.waitingApprove": "Approve",
+  "bots.waitingNothing": "Nothing is waiting for you",
+  "bots.waitingRules": "Rules for all your Bots →",
   "bots.reviewCountdown": ({ seconds }: { seconds: number }) =>
     `Blocked in ${seconds}s unless you allow it`,
   "bots.reviewPending": ({ expires }: { expires: string }) => `waiting · expires ${expires}`,

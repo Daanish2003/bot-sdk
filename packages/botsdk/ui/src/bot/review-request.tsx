@@ -46,11 +46,14 @@ export function ReviewRequest({
   onAllow,
   onDeny,
   acting,
+  allowLabel,
 }: {
   review: BotReview;
   onAllow: (reviewId: string) => Promise<void>;
   onDeny: (reviewId: string) => Promise<void>;
   acting: boolean;
+  /** The Allow button's text, when a surface calls it something else, such as "Approve". */
+  allowLabel?: string;
 }) {
   const { t, locale } = useI18n();
   const run = useRefusalToast();
@@ -104,7 +107,7 @@ export function ReviewRequest({
       </pre>
       <div className="flex items-center gap-2">
         <Button size="sm" disabled={acting} onClick={() => run(onAllow(review.id))}>
-          {t("bots.reviewAllow")}
+          {allowLabel ?? t("bots.reviewAllow")}
         </Button>
         <Button
           size="sm"
