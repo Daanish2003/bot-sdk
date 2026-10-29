@@ -18,6 +18,8 @@ import { controlParts, textParts } from "../../src/bot/conversation/store";
 import { handleRoutineWebhook, routineFireJobName, webhookTokenHash } from "../../src/bot/routines";
 import { fireKey } from "../../src/bot/routines/routine";
 import { checkInFireJobName, checkInKey } from "../../src/bot/routines/check-in";
+import { approvedCallKey } from "../../src/bot/safety";
+import { approvalExpiryKey } from "../../src/bot/safety/approval-expiry";
 import { waitingIn } from "../../src/bot/triggers";
 import { batchLongestMs } from "../../src/bot/triggers/router";
 import { saveCredentials } from "../../src/models/internal";
@@ -377,6 +379,64 @@ describe("bots.pause", () => {
   );
 
   it(
+    "cancels an allowed call that hasn't started and leaves its Approval pending, to answer again after resume",
+    { timeout },
+    async () => {
+      const { client, botId, conversationId, turnId, runDue } = await pausableBot();
+      const db = getTestDb();
+      const reviewId = uuidv7();
+      const expiresAt = new Date(sunday.getTime() + 7 * 24 * 60 * 60_000);
+      await db.insert(botReview).values({
+        id: reviewId,
+        botId,
+        turnId,
+        toolCallId: uuidv7(),
+        tool: "shell",
+        input: { command: "git push" },
+        summary: "Pushes to GitHub",
+        verdict: "block",
+        reason: "The user never asked to push",
+        state: "pending",
+        expiresAt,
+        createdAt: sunday,
+      });
+      // Their statuses, in name order: both jobs are made at the same clock time.
+      const callJobs = async () =>
+        (
+          await db
+            .select({ status: job.status })
+            .from(job)
+            .where(eq(job.idempotencyKey, approvedCallKey(reviewId)))
+        ).sort((a, b) => a.status.localeCompare(b.status));
+      // The yes queues the call; the pause comes before it starts.
+      await client.reviews.allow({ reviewId });
+      expect(await callJobs()).toEqual([{ status: "queued" }]);
+
+      await client.bots.pause({ botId });
+      await runDue();
+
+      expect(await callJobs()).toEqual([{ status: "cancelled" }]);
+      const [review] = await db.select().from(botReview).where(eq(botReview.id, reviewId));
+      expect(review).toMatchObject({ state: "pending", expiresAt, decidedAt: null });
+      expect(await triggersOf(conversationId)).toEqual([]);
+      // Its expiry is queued, so it still expires after 7 days.
+      expect(
+        await db
+          .select({ status: job.status, runAfter: job.runAfter })
+          .from(job)
+          .where(eq(job.idempotencyKey, approvalExpiryKey(reviewId))),
+      ).toEqual([{ status: "queued", runAfter: expiresAt }]);
+
+      await client.bots.resume({ botId });
+      await expect(client.reviews.allow({ reviewId })).resolves.toEqual({
+        decided: true,
+        state: "allowed",
+      });
+      expect(await callJobs()).toEqual([{ status: "cancelled" }, { status: "queued" }]);
+    },
+  );
+
+  it(
     "resume replays nothing, and the next slot runs; the next Turn never sees a user Message the pause skipped",
     { timeout },
     async () => {
@@ -398,6 +458,21 @@ describe("bots.pause", () => {
           source: "user",
           channel: "web",
           messageId: skippedId,
+          receivedAt: sunday,
+        });
+        // An emailed one, whose Trigger id isn't its Message's.
+        const emailed = await appendMessage(tx, conversationId, {
+          role: "user",
+          parts: { ...textParts("Cancel the hotel"), channel: "email", subject: "Hotel" },
+          status: "complete",
+          createdAt: sunday,
+        });
+        await tx.insert(botTrigger).values({
+          id: "email:hotel@mail.example",
+          conversationId,
+          source: "user",
+          channel: "email",
+          messageId: emailed.id,
           receivedAt: sunday,
         });
       });
@@ -433,6 +508,7 @@ describe("bots.pause", () => {
       const input = JSON.stringify(calls[0]!.messages);
       expect(input).toContain("morning-brief");
       expect(input).not.toContain("Book the flight");
+      expect(input).not.toContain("Cancel the hotel");
     },
   );
 

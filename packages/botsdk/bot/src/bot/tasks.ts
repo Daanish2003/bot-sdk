@@ -1,36 +1,61 @@
 import { isLiveHelper } from "@botsdk/client/bot/helper";
 import { type BotTasks, type TaskTrigger, tasksDoneDays } from "@botsdk/client/bot/tasks";
-import { and, asc, desc, eq, gte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, or } from "drizzle-orm";
 
 import { botHelper, botTrigger, botTurn } from "../storage";
 import type { Database } from "../storage";
-import { listHelpers } from "./helpers";
-import { listCheckIns, listRoutines, routineNameOf } from "./routines";
+import { helperGistOf, helperOfTriggerId, listHelpers } from "./helpers";
+import { checkInNoteOf, checkInOfKey, listCheckIns, listRoutines, routineNameOf } from "./routines";
 import { waitingIn } from "./triggers";
+
+/** The most skipped Triggers Done lists, the newest. */
+export const tasksSkippedLimit = 100;
 
 /**
  * A Bot's Tasks view (spec #1007), read for the Bot whose Conversation is `conversationId`: In
  * progress (the running Turn, the running and waiting Helpers), Scheduled (the Triggers waiting in
  * the Conversation queue, the Routines, the pending Check-ins) and Done (the Helpers that ended, the
- * Check-ins that fired and the Triggers skipped, within the last `tasksDoneDays` days up to `now`,
- * newest first).
+ * Check-ins that fired and the newest `tasksSkippedLimit` Triggers skipped, within the last
+ * `tasksDoneDays` days up to `now`, newest first).
  */
 export async function botTasks(
   db: Database,
   { botId, conversationId, now }: { botId: string; conversationId: string; now: Date },
 ): Promise<BotTasks> {
   const since = new Date(now.getTime() - tasksDoneDays * 24 * 60 * 60_000);
-  const [running, helpers, endings, routines, checkIns, waiting, skipped] = await Promise.all([
+  // Only the Helpers the view shows: the live ones, and those that ended within the window.
+  const shown = db
+    .select({ id: botHelper.id, endedAt: botHelper.endedAt })
+    .from(botHelper)
+    .where(
+      and(
+        eq(botHelper.botId, botId),
+        or(
+          inArray(botHelper.status, ["running", "waiting"]),
+          gte(botHelper.endedAt, since),
+          and(isNull(botHelper.endedAt), gte(botHelper.startedAt, since)),
+        ),
+      ),
+    );
+  const [running, [helpers, endings], routines, checkIns, waiting, skipped] = await Promise.all([
     db
       .select({ id: botTurn.id, startedAt: botTurn.startedAt })
       .from(botTurn)
       .where(and(eq(botTurn.botId, botId), eq(botTurn.status, "running")))
       .limit(1),
-    listHelpers(db, botId),
-    db
-      .select({ id: botHelper.id, endedAt: botHelper.endedAt })
-      .from(botHelper)
-      .where(and(eq(botHelper.botId, botId), gte(botHelper.endedAt, since))),
+    shown.then(
+      async (rows) =>
+        [
+          rows.length
+            ? await listHelpers(
+                db,
+                botId,
+                rows.map((row) => row.id),
+              )
+            : [],
+          rows,
+        ] as const,
+    ),
     listRoutines(db, botId),
     listCheckIns(db, botId),
     db
@@ -42,17 +67,27 @@ export async function botTasks(
       .select()
       .from(botTrigger)
       .where(and(eq(botTrigger.conversationId, conversationId), gte(botTrigger.skippedAt, since)))
-      .orderBy(desc(botTrigger.skippedAt), desc(botTrigger.id)),
+      .orderBy(desc(botTrigger.skippedAt), desc(botTrigger.id))
+      .limit(tasksSkippedLimit),
   ]);
 
   const endedAt = new Map(endings.map((ending) => [ending.id, ending.endedAt]));
+  // The Trigger's own snapshot first, as a reset deletes the Check-in or Helper it came from.
   const labelOf = (row: typeof botTrigger.$inferSelect): string | null => {
     if (row.source === "routine") return routineNameOf(row.text);
     if (row.source === "check_in") {
-      return checkIns.find((checkIn) => row.id === `check_in:${checkIn.id}`)?.note ?? null;
+      const checkInId = checkInOfKey(row.id);
+      return (
+        checkInNoteOf(row.text) ??
+        checkIns.find((checkIn) => checkIn.id === checkInId)?.note ??
+        null
+      );
     }
     if (row.source === "helper") {
-      return helpers.find((helper) => row.id === `helper:${helper.id}`)?.gist ?? null;
+      const helperId = helperOfTriggerId(row.id);
+      return (
+        helperGistOf(row.text) ?? helpers.find((helper) => helper.id === helperId)?.gist ?? null
+      );
     }
     return null;
   };
@@ -65,6 +100,12 @@ export async function botTasks(
     skippedAt: row.skippedAt,
     skipReason: row.skipReason,
   });
+  const skippedCheckIns = new Set(
+    skipped.flatMap((row) => {
+      const checkInId = row.source === "check_in" ? checkInOfKey(row.id) : undefined;
+      return checkInId ? [checkInId] : [];
+    }),
+  );
 
   return {
     inProgress: {
@@ -90,9 +131,7 @@ export async function botTasks(
         // A fire the user skipped never reached a Turn: it shows once, under skipped.
         .filter(
           (checkIn) =>
-            checkIn.state === "fired" &&
-            checkIn.at >= since &&
-            !skipped.some((row) => row.id === `check_in:${checkIn.id}`),
+            checkIn.state === "fired" && checkIn.at >= since && !skippedCheckIns.has(checkIn.id),
         )
         .sort((a, b) => b.at.getTime() - a.at.getTime()),
       skipped: skipped.map(triggerOf),

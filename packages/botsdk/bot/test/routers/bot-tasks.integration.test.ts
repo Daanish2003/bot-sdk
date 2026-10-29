@@ -163,6 +163,69 @@ describe("bots.tasks", () => {
     ]);
   });
 
+  it(
+    "labels a skipped Check-in fire and Helper report from the Trigger's own text, once their rows are gone",
+    { timeout: 30_000 },
+    async () => {
+      const { client, botId, conversationId } = await botWithTurn();
+      const skipped = (id: string, source: "check_in" | "helper", text: string) => ({
+        id,
+        conversationId,
+        source,
+        channel: source === "helper" ? ("helper" as const) : ("schedule" as const),
+        text,
+        receivedAt: daysAgo(1),
+        skippedAt: daysAgo(1),
+        skipReason: "reset" as const,
+      });
+      // No Check-in or Helper row: a reset deleted them.
+      await getTestDb()
+        .insert(botTrigger)
+        .values([
+          skipped(
+            `check_in:${uuidv7()}`,
+            "check_in",
+            'Check-in you set on Tue 09:00 for Wed 09:00 (UTC): "Ask about \\"the\\" build". It\'s due now: do what the note says.',
+          ),
+          skipped(
+            `helper:${uuidv7()}`,
+            "helper",
+            "General Helper finished: Find flights, status complete\n\nFound three.",
+          ),
+        ]);
+
+      const tasks = await client.bots.tasks({ botId });
+
+      expect(tasks.done.skipped.map((t) => [t.source, t.label])).toEqual([
+        ["helper", "Find flights"],
+        ["check_in", 'Ask about "the" build'],
+      ]);
+    },
+  );
+
+  it("lists at most the newest 100 skipped Triggers", { timeout: 30_000 }, async () => {
+    const { client, botId, conversationId } = await botWithTurn();
+    await getTestDb()
+      .insert(botTrigger)
+      .values(
+        Array.from({ length: 101 }, (_, index) => ({
+          id: `routine:${uuidv7()}:${index}`,
+          conversationId,
+          source: "routine" as const,
+          channel: "schedule" as const,
+          receivedAt: new Date(daysAgo(1).getTime() + index * 1000),
+          skippedAt: new Date(daysAgo(1).getTime() + index * 1000),
+          skipReason: "paused" as const,
+        })),
+      );
+
+    const tasks = await client.bots.tasks({ botId });
+
+    expect(tasks.done.skipped).toHaveLength(100);
+    expect(tasks.done.skipped[0]!.id).toMatch(/:100$/);
+    expect(tasks.done.skipped.at(-1)!.id).toMatch(/:1$/);
+  });
+
   it("is empty for a Bot that has done nothing", { timeout: 30_000 }, async () => {
     const { client, botId } = await botWithTurn();
 

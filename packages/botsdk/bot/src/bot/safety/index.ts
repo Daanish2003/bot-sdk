@@ -10,6 +10,7 @@ export {
   closeWaitingReviews,
   decideReview,
   declineBotApprovals,
+  reopenUnstartedCalls,
   judge,
   listedReviews,
   handOffError,

@@ -13,7 +13,7 @@ import {
   lt,
   lte,
   ne,
-  notExists,
+  notInArray,
   or,
   sql,
 } from "drizzle-orm";
@@ -463,12 +463,21 @@ async function newestInput(
     lt(message.createdAt, turn.startedAt),
     // Nothing from before the Bot's reset mark is new to it (spec #1007).
     noResetAfter(db, { conversationId: turn.conversationId }, message.createdAt),
-    // A Message whose Trigger was skipped, by a Bot pause (spec #1007), never reached a Turn.
-    notExists(
+    // A Message whose Trigger was skipped, by a Bot pause (spec #1007), never reached a Turn. Read
+    // once per query (an uncorrelated subquery), not once per row: an email's Trigger id isn't its
+    // Message's, so the Conversation's skipped Triggers are matched by the Message they carry.
+    notInArray(
+      message.id,
       db
-        .select({ id: botTrigger.id })
+        .select({ id: botTrigger.messageId })
         .from(botTrigger)
-        .where(and(eq(botTrigger.messageId, message.id), isNotNull(botTrigger.skippedAt))),
+        .where(
+          and(
+            eq(botTrigger.conversationId, turn.conversationId),
+            isNotNull(botTrigger.skippedAt),
+            isNotNull(botTrigger.messageId),
+          ),
+        ),
     ),
   );
   const [users, woken, [newestUser], reacted] = await Promise.all([

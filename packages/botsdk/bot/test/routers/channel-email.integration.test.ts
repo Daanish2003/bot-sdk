@@ -249,6 +249,39 @@ describe("an email to a Bot's address", () => {
     expect((await client.bots.tasks({ botId })).done.skipped).toHaveLength(1);
   }, 30_000);
 
+  it("keeps the attachments of a mail whose Bot is resumed while they are stored", async () => {
+    const { client, deps, botId, deliver } = await emailBot();
+    await client.bots.pause({ botId });
+    const put = deps.blobStore.put.bind(deps.blobStore);
+    // The resume lands after the mail's first read of the pause, before its transaction.
+    vi.spyOn(deps.blobStore, "put").mockImplementationOnce(async (...args) => {
+      await client.bots.resume({ botId });
+      return put(...args);
+    });
+
+    await deliver({}, [{ name: "notes.txt", contentType: "text/plain", content: "milk, eggs" }]);
+
+    const { messages } = await client.bots.get({ botId });
+    expect(messages[0]!.control).toEqual({
+      kind: "files",
+      files: [{ id: expect.any(String), name: "notes.txt", size: 10, mediaType: "text/plain" }],
+    });
+  }, 30_000);
+
+  it("deletes the stored attachments of a mail to a paused Bot", async () => {
+    const { client, deps, botId, deliver } = await emailBot();
+    await client.bots.pause({ botId });
+    const stored = vi.spyOn(deps.blobStore, "put");
+
+    await deliver({}, [{ name: "notes.txt", contentType: "text/plain", content: "milk, eggs" }]);
+
+    const keys = stored.mock.calls.map(([key]) => key);
+    for (const key of keys) {
+      await expect.poll(() => deps.blobStore.get(key), { timeout: 10_000 }).toBeNull();
+    }
+    expect((await client.bots.get({ botId })).messages).toEqual([]);
+  }, 30_000);
+
   it("drops a redelivery of the same Message-ID", async () => {
     const { conversationId, deliver, logged } = await emailBot();
 

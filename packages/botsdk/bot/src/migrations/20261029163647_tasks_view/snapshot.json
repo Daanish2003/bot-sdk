@@ -3591,6 +3591,34 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "conversation_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "skipped_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "\"skipped_at\" is not null",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "bot_trigger_skipped_idx",
+      "entityType": "indexes",
+      "schema": "botsdk",
+      "table": "bot_trigger"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "bot_id",
           "isExpression": false,
           "asc": true,

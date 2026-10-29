@@ -7,8 +7,9 @@ import type { Transaction } from "../../plugin";
 /**
  * Whether no reset mark (Bot reset, spec #1007) came after `at` in the Bot's Conversation: that of
  * Bot `botId`, or Conversation `conversationId`. The Bot sees nothing from before its latest reset
- * mark, so a Turn, Prompt start or Message it is told of must pass this. The latest mark is read
- * once per query (an uncorrelated subquery), not once per row.
+ * mark, so a Turn, Prompt start or Message it is told of must pass this. Only what is stamped after
+ * the mark's millisecond passes: one stamped in it, even after the mark, counts as from before. The
+ * latest mark is read once per query (an uncorrelated subquery), not once per row.
  */
 export function noResetAfter(
   db: Database | Transaction,
@@ -27,5 +28,5 @@ export function noResetAfter(
           .select({ at: max(message.createdAt) })
           .from(message)
           .where(and(eq(message.conversationId, owner.conversationId), isMark));
-  return sql`${at} >= coalesce((${latest}), '-infinity')`;
+  return sql`${at} > coalesce((${latest}), '-infinity')`;
 }

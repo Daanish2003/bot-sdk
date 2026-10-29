@@ -1,23 +1,26 @@
 import { and, eq, isNotNull, isNull, notExists, or, sql } from "drizzle-orm";
+import { z } from "zod";
 
 import { appendMessage } from "../../chat/message-tree";
 import { bot, botTrigger, botTurn, deleteBlobsBestEffort } from "../../storage";
 import { enabledFeatures } from "../../feature";
 import type { BotSdkContext, Transaction } from "../../plugin";
+import { defineCoreJob } from "../../runner/internal";
 import { rpcError } from "../../rpc-error";
 import { findBot, hintChanged, recordBotChange } from "../conversation";
 import { deleteBotHelpers, stopHelpers } from "../helpers";
 import { deleteBotCheckIns, deleteBotRoutines } from "../routines";
-import { declineBotApprovals } from "../safety";
+import { declineBotApprovals, reopenUnstartedCalls } from "../safety";
 import { awaySummaryKey, lockConversation, skipWaiting } from "../triggers";
 import { cancelTurn, runningTurnOf } from "./turn";
 
 /**
  * Pauses the user's Bot (Bot pause, spec #1007): under its Conversation's row lock, it marks the
  * Bot paused, skips every Trigger waiting in its Conversation queue with reason `paused`, stops its
- * running Turn the way Stop does and stops all its Helpers. Each Routine keeps its own state. From
- * then on the Router keeps each Trigger as skipped (`receive`), so nothing wakes the Bot until it
- * is resumed. Pausing a paused Bot changes nothing. Another user's Bot is not found.
+ * running Turn the way Stop does and stops all its Helpers. An allowed call that hasn't started is
+ * cancelled, and its Approval is pending again. Each Routine keeps its own state. From then on the
+ * Router keeps each Trigger as skipped (`receive`), so nothing wakes the Bot until it is resumed.
+ * Pausing a paused Bot changes nothing. Another user's Bot is not found.
  */
 export async function pauseBot(deps: BotSdkContext, userId: string, botId: string): Promise<void> {
   const found = await findBot(deps.db, userId, botId);
@@ -32,6 +35,8 @@ export async function pauseBot(deps: BotSdkContext, userId: string, botId: strin
       .returning({ id: bot.id });
     if (!row) return false;
     await haltBot(deps, tx, found, "paused", now);
+    // A yes whose call hasn't started is taken back: no work runs while paused.
+    await reopenUnstartedCalls(deps, tx, { botId, conversationId: found.conversationId }, now);
     await recordBotChange(tx, found, "bot", botId, now);
     return true;
   });
@@ -110,10 +115,10 @@ async function haltBot(
  * `reset`; declines its pending Approvals; deletes its Routines and Check-ins with their queued
  * fires; deletes its Helpers and their transcripts; and appends the reset mark, from which its
  * Turns' history and Prompt start begin. It keeps its pause state, Messages and Turns. Once that
- * commits, the Helpers' screenshots are deleted and each enabled feature forgets the Bot
- * (`resetBot`; Memory deletes its files), best-effort: a feature's failure is logged. A reset
- * can't be undone. A wrong name is refused, checked against the Bot's row locked for update so a
- * rename can't race it; another user's Bot is not found.
+ * commits, the Helpers' screenshots are deleted, best-effort, and each enabled feature forgets the
+ * Bot (`resetBot`; Memory deletes its files) in `botResetJob`, queued in the same transaction. A
+ * reset can't be undone. A wrong name is refused, checked against the Bot's row locked for update
+ * so a rename can't race it; another user's Bot is not found.
  */
 export async function resetBot(
   deps: BotSdkContext,
@@ -148,20 +153,38 @@ export async function resetBot(
       createdAt: now,
     });
     await recordBotChange(tx, found, "bot", botId, now);
+    // Runs only once the reset stands, and again after a failure or a crash.
+    await deps.runner.enqueueIn(tx, botResetJobName, { botId, userId });
     return keys;
   });
   deps.runner.wake();
   await deleteBlobsBestEffort(deps, screenshots);
   await hintChanged(deps, found.conversationId);
-  for (const { feature, context } of enabledFeatures(deps)) {
-    if (!feature.resetBot) continue;
-    try {
-      await feature.resetBot(botId, userId, context);
-    } catch (error) {
-      deps.logger.error(
-        `Feature "${feature.id}" failed to forget Bot ${botId} on its reset`,
-        error,
-      );
-    }
-  }
 }
+
+/** The runner job that has each enabled feature forget a reset Bot. */
+export const botResetJobName = "bot.reset";
+
+/**
+ * What a Bot reset leaves to after its commit, enqueued in its transaction (`resetBot`): each
+ * enabled feature's `resetBot`, once per feature (a recorded step), so a failure is retried with the
+ * runner's backoff without repeating the features that are done. A job that fails for good is
+ * logged; the reset stands.
+ */
+export const botResetJob = defineCoreJob({
+  name: botResetJobName,
+  payload: z.object({ botId: z.uuid(), userId: z.string() }),
+  run: async ({ botId, userId }, ctx) => {
+    for (const { feature, context } of enabledFeatures(ctx.deps)) {
+      const forget = feature.resetBot;
+      if (!forget) continue;
+      await ctx.step(`forget:${feature.id}`, async () => {
+        await forget(botId, userId, context);
+        return null;
+      });
+    }
+  },
+  onFailed: ({ botId }, error, { deps }) => {
+    deps.logger.error(`Features failed to forget Bot ${botId} on its reset`, error);
+  },
+});

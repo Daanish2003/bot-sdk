@@ -153,7 +153,7 @@ async function resettableBots({ rounds = [] }: { rounds?: Parameters<typeof roun
       await jobs.runClaimed(claimed);
     }
   };
-  return { deps, fake, user, client, ada, grace, timer, runDue };
+  return { deps, jobs, fake, user, client, ada, grace, timer, runDue };
 }
 
 const turnsOf = (botId: string) =>
@@ -400,6 +400,81 @@ describe("bots.reset", () => {
       expect(
         await db.select().from(botTrigger).where(eq(botTrigger.conversationId, ada.conversationId)),
       ).toEqual([]);
+    },
+  );
+
+  it(
+    "never wakes the Bot with the result of an approved call that was already running at the reset",
+    { timeout },
+    async () => {
+      const { deps, jobs, client, ada, timer, runDue } = await resettableBots();
+      const db = getTestDb();
+      const allowedId = uuidv7();
+      await db.insert(botReview).values({
+        id: allowedId,
+        botId: ada.botId,
+        turnId: ada.turnId,
+        toolCallId: uuidv7(),
+        tool: "shell",
+        input: { command: "git push" },
+        summary: "Pushes to GitHub",
+        verdict: "block",
+        reason: "The user never asked to push",
+        state: "allowed",
+        expiresAt: new Date(sunday.getTime() + 7 * 24 * 60 * 60_000),
+        decidedAt: sunday,
+        createdAt: sunday,
+      });
+      await deps.runner.enqueue(
+        approvedCallJobName,
+        { reviewId: allowedId },
+        { idempotencyKey: approvedCallKey(allowedId) },
+      );
+      // The call's job has started when the reset comes.
+      const claimed = await claimJob(db, timer.clock.now(), { respectRunAfter: true });
+      expect(claimed?.name).toBe(approvedCallJobName);
+      timer.advance(60_000);
+      await client.bots.reset({ botId: ada.botId, name: "Ada" });
+
+      // It ends after the reset.
+      await jobs.runClaimed(claimed!);
+      await runDue();
+
+      expect(
+        await db
+          .select({ id: botTrigger.id })
+          .from(botTrigger)
+          .where(eq(botTrigger.conversationId, ada.conversationId)),
+      ).toEqual([]);
+      expect((await turnsOf(ada.botId)).map((turn) => turn.id)).toEqual([ada.turnId]);
+    },
+  );
+
+  it(
+    "tells the next Turn nothing stamped in the reset's own millisecond before it",
+    { timeout },
+    async () => {
+      const { client, fake, ada, timer, runDue } = await resettableBots({ rounds: [[]] });
+      await getTestDb().transaction((tx) =>
+        appendMessage(tx, ada.conversationId, {
+          role: "user",
+          parts: textParts("The code is 4417"),
+          status: "complete",
+          createdAt: timer.clock.now(),
+        }),
+      );
+      // The same millisecond.
+      await client.bots.reset({ botId: ada.botId, name: "Ada" });
+      timer.advance(60_000);
+      await client.bots.send({ botId: ada.botId, id: uuidv7(), text: "Hello again" });
+      timer.advance(batchLongestMs);
+      await runDue();
+
+      const calls = fake.calls.filter(isTurnCall);
+      expect(calls).toHaveLength(1);
+      const told = JSON.stringify([calls[0]!.systemPrompts, calls[0]!.messages]);
+      expect(told).toContain("Hello again");
+      expect(told).not.toContain("4417");
     },
   );
 

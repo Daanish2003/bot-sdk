@@ -1,20 +1,7 @@
 import { type BotRoutine, type RoutineSchedule, scheduleText } from "@botsdk/client/bot/routine";
 import { createHash, randomBytes } from "node:crypto";
 
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  isNull,
-  like,
-  lt,
-  lte,
-  or,
-  type SQL,
-  type SQLWrapper,
-  sql,
-} from "drizzle-orm";
+import { and, asc, desc, eq, isNull, like, lt, lte, or, sql } from "drizzle-orm";
 
 import { bot, botRoutine, botTrigger, botTurn, message } from "../../storage";
 import type { Database } from "../../storage";
@@ -32,7 +19,7 @@ import {
   formatterIn,
   knownZone,
 } from "../conversation";
-import { lockConversation } from "../triggers";
+import { fireKeyPrefix, lockConversation, routineOfFireKey } from "../triggers";
 import { nextSlot } from "./schedule";
 
 /** The Bot's tool that saves a Routine for the user's Approval (#538). */
@@ -55,22 +42,8 @@ export function fireKey(routineId: string, slot: Date): string {
   return `${fireKeyPrefix(routineId)}${slot.toISOString()}`;
 }
 
-/**
- * How every fire key (see `fireKey`) of Routine `routineId` starts; given a column, the SQL that
- * builds it from the column's value.
- */
-export function fireKeyPrefix(routineId: string): string;
-export function fireKeyPrefix(routineId: SQLWrapper): SQL;
-export function fireKeyPrefix(routineId: string | SQLWrapper): string | SQL {
-  return typeof routineId === "string"
-    ? `routine:${routineId}:`
-    : sql`'routine:' || ${routineId} || ':'`;
-}
-
-/** The Routine a fire's key (see `fireKey`) belongs to. */
-export function routineOfFireKey(key: string): string {
-  return key.split(":")[1]!;
-}
+// The Router reads whose a Trigger is, so the key's parts live in the triggers module.
+export { fireKeyPrefix, routineOfFireKey };
 
 /** Queues the Routine's fire at `slot`, in `tx`. */
 export async function queueFire(

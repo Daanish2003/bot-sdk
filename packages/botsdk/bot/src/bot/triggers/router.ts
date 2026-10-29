@@ -4,6 +4,7 @@ import { bot, botTrigger, botTurn, conversation, message } from "../../storage";
 import { uuidv7 } from "../../lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { recordBotChange } from "../conversation";
+import { checkInOfKey, routineOfFireKey } from "./trigger-ids";
 
 /** The runner job that runs one Turn (`botTurnJob` in `turn.ts`). */
 export const botTurnJobName = "bot.turn";
@@ -86,10 +87,8 @@ export async function recordSkipChange(
   trigger: { id: string; source: ReceivedTrigger["source"] },
   at: Date,
 ): Promise<void> {
-  const routineId =
-    trigger.source === "routine" ? /^routine:([0-9a-f-]{36}):/.exec(trigger.id)?.[1] : undefined;
-  const checkInId =
-    trigger.source === "check_in" ? /^check_in:([0-9a-f-]{36})$/.exec(trigger.id)?.[1] : undefined;
+  const routineId = trigger.source === "routine" ? routineOfFireKey(trigger.id) : undefined;
+  const checkInId = trigger.source === "check_in" ? checkInOfKey(trigger.id) : undefined;
   if (routineId) await recordBotChange(tx, owner, "routine", routineId, at);
   else if (checkInId) await recordBotChange(tx, owner, "check_in", checkInId, at);
   else await recordBotChange(tx, owner, "bot", owner.botId, at);

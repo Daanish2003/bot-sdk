@@ -7,10 +7,10 @@ import {
 import { searchTextOf } from "@botsdk/client/message-parts";
 import { sdkNeverAllowed } from "@botsdk/client/bot/rule";
 import { chat, EventType, type ModelMessage, type StreamChunk } from "@tanstack/ai";
-import { and, asc, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, notExists, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { bot, botHelper, botReview, botTrigger, job, message } from "../../storage";
+import { bot, botHelper, botReview, botTrigger, job, jobEvent, message } from "../../storage";
 import type { Database } from "../../storage";
 import { uuidv7 } from "../../lib/uuidv7";
 import { rpcError } from "../../rpc-error";
@@ -597,10 +597,52 @@ export async function closeWaitingReviews(
 }
 
 /**
+ * Takes back the yes to each of Bot `owner`'s allowed calls whose job hasn't started (a Bot pause,
+ * spec #1007), in `tx`, which holds its Conversation's row lock: the job is cancelled, so the call
+ * never runs while the Bot is paused, and the Approval is `pending` again, with its `review` change
+ * and its expiry job, so the user can answer it once the Bot is resumed. A job that has started
+ * (it ran, or used an attempt) may have run the call, so it is left to finish.
+ */
+export async function reopenUnstartedCalls(
+  deps: BotSdkContext,
+  tx: Transaction,
+  owner: { botId: string; conversationId: string },
+  at: Date,
+): Promise<void> {
+  const unstarted = await tx
+    .select({ id: botReview.id, expiresAt: botReview.expiresAt })
+    .from(botReview)
+    .innerJoin(job, eq(job.idempotencyKey, sql`${approvedCallKey("")} || ${botReview.id}`))
+    .where(
+      and(
+        eq(botReview.botId, owner.botId),
+        eq(botReview.state, "allowed"),
+        eq(job.status, "queued"),
+        eq(job.attempts, 0),
+        notExists(
+          tx.select({ seq: jobEvent.seq }).from(jobEvent).where(eq(jobEvent.jobId, job.id)),
+        ),
+      ),
+    )
+    // The job's row is locked, so no runner claims it before this commits.
+    .for("update", { of: job });
+  for (const { id, expiresAt } of unstarted) {
+    await deps.runner.cancelIn(tx, approvedCallKey(id));
+    await tx
+      .update(botReview)
+      .set({ state: "pending", decidedAt: null })
+      .where(eq(botReview.id, id));
+    await recordBotChange(tx, owner, "review", id, at);
+    // A late yes skipped the pending state, so it never had an expiry job.
+    if (expiresAt) await scheduleExpiry(deps, tx, id, expiresAt);
+  }
+}
+
+/**
  * Declines every open Approval of Bot `botId` (a Bot reset, spec #1007), waiting or pending, in
  * `tx`, which holds its Conversation's row lock: each is `denied` with its `review` change and its
  * expiry job cancelled. An allowed call whose job hasn't started is cancelled too, so it never
- * runs. Nothing wakes the Bot.
+ * runs; one already running wakes no one (`approved-call.ts`). Nothing wakes the Bot.
  */
 export async function declineBotApprovals(
   deps: BotSdkContext,

@@ -2,10 +2,12 @@ import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { Transaction } from "@botsdk/bot/plugin";
-import { botTurn } from "@botsdk/bot/storage";
+import { botTurn, job } from "@botsdk/bot/storage";
+import { botResetJobName } from "@botsdk/bot/bot/turn";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import {
+  claimJob,
   createWorkflow,
   inProcessRunner,
   type JobRunner,
@@ -42,11 +44,16 @@ const memoryDir = (botId: string) => `/home/user/bots/${botId}/memory`;
 async function adaAndGrace(rounds: Parameters<typeof round>[] = []) {
   const fake = createFakeAdapter({ rounds: rounds.map((args) => round(...args)) });
   const removed: string[] = [];
+  let failing = false;
   const computerFake = fakeComputerProvider({
     onCommand: ({ command }) => {
       const dir = /^rm -rf -- '([^']+)'$/.exec(command)?.[1];
       if (dir) {
         removed.push(dir);
+        if (failing) {
+          failing = false;
+          return { exitCode: 1, stdout: "", stderr: "Device busy" };
+        }
         for (const path of computerFake.files.keys()) {
           if (path.startsWith(`${dir}/`)) computerFake.files.delete(path);
         }
@@ -88,7 +95,11 @@ async function adaAndGrace(rounds: Parameters<typeof round>[] = []) {
     const bytes = computerFake.files.get(`${memoryDir(botId)}/${file}`);
     return bytes ? new TextDecoder().decode(bytes) : null;
   };
-  return { deps, client, user, ada, grace, seed, read, removed };
+  /** Makes the next delete fail. */
+  const failNext = () => {
+    failing = true;
+  };
+  return { deps, jobs, clock, client, user, ada, grace, seed, read, removed, failNext };
 }
 
 describe("a Bot reset and Memory", () => {
@@ -111,6 +122,43 @@ describe("a Bot reset and Memory", () => {
       expect(read(ada, "notes.md")).toBeNull();
       expect(read(ada, "log/2030-03.md")).toBeNull();
       expect(read(grace, "profile.md")).toBe("- Likes espresso\n");
+    },
+  );
+
+  it(
+    "retries the delete in a runner job when it fails, until the files are gone",
+    { timeout },
+    async () => {
+      const { deps, jobs, clock, client, user, ada, seed, read, removed, failNext } =
+        await adaAndGrace();
+      seed(ada, "profile.md", "- Lives in Berlin\n");
+      await deps.computer!.forUser(user.id).list("/home/user");
+      failNext();
+
+      await client.bots.reset({ botId: ada, name: "Ada" });
+
+      // The first attempt failed, and the job waits out its backoff.
+      const retried = () =>
+        getTestDb()
+          .select({ id: job.id, status: job.status, attempts: job.attempts })
+          .from(job)
+          .where(eq(job.name, botResetJobName));
+      await expect
+        .poll(async () => (await retried()).map((row) => [row.status, row.attempts]), {
+          timeout: 10_000,
+        })
+        .toEqual([["queued", 1]]);
+      expect(read(ada, "profile.md")).toBe("- Lives in Berlin\n");
+      const [due] = await retried();
+      const claimed = await claimJob(getTestDb(), clock(), {
+        respectRunAfter: false,
+      });
+      expect(claimed?.id).toBe(due!.id);
+      await jobs.runClaimed(claimed!);
+
+      expect(removed).toEqual([memoryDir(ada), memoryDir(ada)]);
+      expect(read(ada, "profile.md")).toBeNull();
+      expect((await retried()).map((row) => row.status)).toEqual(["succeeded"]);
     },
   );
 

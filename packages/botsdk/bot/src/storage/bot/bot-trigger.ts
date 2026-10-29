@@ -77,6 +77,11 @@ export const botTrigger = botsdkSchema.table(
       .on(table.conversationId, table.receivedAt)
       .where(sql`${table.turnId} is null and ${table.skippedAt} is null`),
     index("bot_trigger_turn_id_idx").on(table.turnId),
+    // The skipped Triggers of a Conversation (spec #1007): the Tasks view's Done, and the Messages a
+    // Turn leaves out.
+    index("bot_trigger_skipped_idx")
+      .on(table.conversationId, table.skippedAt)
+      .where(sql`${table.skippedAt} is not null`),
     // A skipped Trigger has its reason, and no Turn took it.
     check(
       "bot_trigger_skipped_check",

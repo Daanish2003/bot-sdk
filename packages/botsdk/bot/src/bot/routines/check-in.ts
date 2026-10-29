@@ -7,14 +7,14 @@ import { uuidv7 } from "../../lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { rpcError } from "../../rpc-error";
 import { hintChanged, recordBotChange, newestTimeZone, knownZone } from "../conversation";
-import { lockConversation } from "../triggers";
+import { checkInKey, checkInOfKey, lockConversation } from "../triggers";
 import { lastMessageOfTurn, zonedTime } from "./routine";
 
 /** The runner job of one Check-in's fire (`check-in-fire.ts`). */
 export const checkInFireJobName = "bot.check_in_fire";
 
-/** The key of a Check-in's job, which is also the ID of the Trigger it hands the Router. */
-export const checkInKey = (checkInId: string) => `check_in:${checkInId}`;
+// The Router reads whose a Trigger is, so the key lives in the triggers module.
+export { checkInKey, checkInOfKey };
 
 /** How far ahead a Check-in must be set. */
 const minLeadMs = 60_000;
@@ -232,6 +232,9 @@ export async function cancelUserCheckIns(
   for (const { id } of rows) await runner.cancelIn(tx, checkInKey(id));
 }
 
+/** How a Check-in's notice (`checkInNotice`) ends, after its note. */
+const checkInNoticeEnd = ". It's due now: do what the note says.";
+
 /**
  * What a Check-in's fire gives the Model: the notice of what woke it, with the note its past self
  * left. Times read in the user's zone, so "set on" and "for" are on their clock.
@@ -244,6 +247,18 @@ export async function checkInNotice(
   const zone = knownZone(await newestTimeZone(tx, conversationId));
   return (
     `Check-in you set on ${zonedTime(row.createdAt, zone)} for ${zonedTime(row.at, zone)} ` +
-    `(${zone}): ${JSON.stringify(row.note)}. It's due now: do what the note says.`
+    `(${zone}): ${JSON.stringify(row.note)}${checkInNoticeEnd}`
   );
+}
+
+/** The note a Check-in's notice (`checkInNotice`) carries, or `null` when `text` is none. */
+export function checkInNoteOf(text: string | null): string | null {
+  if (!text?.endsWith(checkInNoticeEnd)) return null;
+  const quoted = /: ("(?:[^"\\]|\\.)*")$/.exec(text.slice(0, -checkInNoticeEnd.length))?.[1];
+  if (!quoted) return null;
+  try {
+    return JSON.parse(quoted) as string;
+  } catch {
+    return null;
+  }
 }
