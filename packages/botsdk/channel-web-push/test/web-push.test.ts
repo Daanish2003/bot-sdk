@@ -119,7 +119,7 @@ describe("the web push provider", () => {
     expect(webPushProvider({ ...vapid, subject }).publicKey).toBe(vapid.publicKey);
   });
 
-  it.each([403, 404, 410])("reports a %i as a subscription that is gone", async (status) => {
+  it.each([404, 410])("reports a %i as a subscription that is gone", async (status) => {
     const service = await fakePushService(status);
     const provider = webPushProvider({ ...vapid, subject });
 
@@ -130,7 +130,28 @@ describe("the web push provider", () => {
     ).toBe("gone");
   });
 
-  it("reports a subscription whose keys can't be encrypted for as gone, sending nothing", async () => {
+  it("throws on a 403, so the push fails and the subscription is kept", async () => {
+    const service = await fakePushService(403);
+    const provider = webPushProvider({ ...vapid, subject });
+
+    await expect(
+      provider.send(device(`${service.origin}/push/other-key`).subscription, notification, {
+        fetch,
+      }),
+    ).rejects.toThrow("The push service refused the push (403): push refused");
+  });
+
+  it("throws when the push can't be built (a bad VAPID subject), sending nothing", async () => {
+    const service = await fakePushService();
+    const provider = webPushProvider({ ...vapid, subject: "not a contact" });
+
+    await expect(
+      provider.send(device(`${service.origin}/push/phone`).subscription, notification, { fetch }),
+    ).rejects.toThrow();
+    expect(service.received).toEqual([]);
+  });
+
+  it("throws for keys that can't be encrypted for, sending nothing", async () => {
     const service = await fakePushService();
     const provider = webPushProvider({ ...vapid, subject });
     const broken = {
@@ -138,7 +159,7 @@ describe("the web push provider", () => {
       keys: { p256dh: "abc", auth: "x" },
     };
 
-    expect(await provider.send(broken, notification, { fetch })).toBe("gone");
+    await expect(provider.send(broken, notification, { fetch })).rejects.toThrow();
     expect(service.received).toEqual([]);
   });
 

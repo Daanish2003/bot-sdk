@@ -8,7 +8,7 @@ import type { PushProvider } from "@botsdk/bot/channel/internal";
 const timeoutMs = 10_000;
 
 /** What a push service answers for a subscription no push can reach. */
-const goneStatuses = new Set([403, 404, 410]);
+const goneStatuses = new Set([404, 410]);
 
 /** How long a push service keeps a push for a device that is offline: a day. */
 const ttlSeconds = 24 * 60 * 60;
@@ -16,9 +16,9 @@ const ttlSeconds = 24 * 60 * 60;
 /**
  * The web push provider (spec #1024) over `web-push`: it encrypts each push for the device's keys
  * (RFC 8291) and signs it with the Host's VAPID key pair (RFC 8292), then POSTs it to the device's
- * push service with the `fetch` the SDK gives it. The subscription is gone when the push service
- * answers 404 or 410, or 403 (it was made with another VAPID key, so no push to it can succeed), and
- * when its keys can't be encrypted for.
+ * push service with the `fetch` the SDK gives it. The subscription is gone only when the push
+ * service answers 404 or 410. Anything else (a 403, or a push that can't be built from the VAPID
+ * details or the keys) throws, so the delivery job fails and shows as an error.
  */
 export function webPushProvider({
   publicKey,
@@ -35,16 +35,10 @@ export function webPushProvider({
   return {
     publicKey,
     send: async (subscription, notification, { fetch: fetcher }) => {
-      let request;
-      try {
-        request = webPush.generateRequestDetails(subscription, JSON.stringify(notification), {
-          vapidDetails,
-          TTL: ttlSeconds,
-        });
-      } catch {
-        // Keys of the wrong length: no retry can encrypt for them.
-        return "gone";
-      }
+      const request = webPush.generateRequestDetails(subscription, JSON.stringify(notification), {
+        vapidDetails,
+        TTL: ttlSeconds,
+      });
       // `fetch` sets the length itself, from the body.
       const headers = Object.fromEntries(
         Object.entries(request.headers)
