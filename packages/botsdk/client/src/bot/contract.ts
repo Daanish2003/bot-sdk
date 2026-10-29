@@ -127,7 +127,7 @@ export const botScopeInput = z.object({ botId: z.uuid() });
 export const routineInput = z.object({ routineId: z.uuid() });
 
 /** `triggers.skip`'s input, besides `userId`. */
-export const triggerInput = z.object({ triggerId: z.string().min(1) });
+export const triggerInput = z.object({ triggerId: z.string().min(1).max(512) });
 
 /** `checkIns.cancel`'s input, besides `userId`. */
 export const checkInInput = z.object({ checkInId: z.uuid() });

@@ -114,6 +114,8 @@ describe("triggers.skip", () => {
       const botId = (await client.bots.list())[0]!.id;
       const tasks = await client.bots.tasks({ botId });
       expect(tasks.scheduled.triggers).toEqual([]);
+      // The skipped Check-in fire shows once, not also as fired.
+      expect(tasks.done.checkIns).toEqual([]);
       expect(tasks.done.skipped.map((t) => [t.source, t.label, t.skipReason]).sort()).toEqual([
         ["check_in", "Look at the build", "cancelled"],
         ["routine", "morning-brief", "cancelled"],

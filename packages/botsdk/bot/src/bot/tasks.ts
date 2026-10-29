@@ -87,7 +87,13 @@ export async function botTasks(
             (a.id < b.id ? 1 : -1),
         ),
       checkIns: checkIns
-        .filter((checkIn) => checkIn.state === "fired" && checkIn.at >= since)
+        // A fire the user skipped never reached a Turn: it shows once, under skipped.
+        .filter(
+          (checkIn) =>
+            checkIn.state === "fired" &&
+            checkIn.at >= since &&
+            !skipped.some((row) => row.id === `check_in:${checkIn.id}`),
+        )
         .sort((a, b) => b.at.getTime() - a.at.getTime()),
       skipped: skipped.map(triggerOf),
     },
