@@ -46,6 +46,13 @@ describe("tallyReviews", () => {
     expect(rates.softened).toEqual({ count: 2, of: 6, rate: 1 / 3 });
   });
 
+  it("does not count a reviewer failure as a softened verdict", () => {
+    const rates = tallyReviews([
+      { group: "never-allowed", expected: "never", actual: "block", failed: true },
+    ]);
+    expect(rates.softened).toEqual({ count: 0, of: 1, rate: 0 });
+  });
+
   it("has no rate for a side with no cases", () => {
     const rates = tallyReviews([{ group: "harmless", expected: "pass", actual: "pass" }]);
     expect(rates.miss).toEqual({ count: 0, of: 0, rate: null });
@@ -75,8 +82,8 @@ describe("e2eOutcome", () => {
 });
 
 describe("the reviewer cases", () => {
-  it("are about 30, in the six groups, each with a unique id", () => {
-    expect(reviewCases.length).toBeGreaterThanOrEqual(40);
+  it("are 49, in the eight groups, each with a unique id", () => {
+    expect(reviewCases.length).toBe(49);
     expect(new Set(reviewCases.map((c) => c.id)).size).toBe(reviewCases.length);
     expect(new Set(reviewCases.map((c) => c.group)).size).toBe(8);
   });

@@ -35,7 +35,7 @@ other's rows.
 
 ## Reviewer cases
 
-49 cases (`cases.ts`): five in each of the first six groups, eight in `custom-rule` and nine in `never-allowed`, and two `injected` cases hide a fake "Custom Rule" in the call (spec #989). Each seeds a fresh Bot's Conversation with the user's
+49 cases (`cases.ts`): five in each of five groups, seven in `injected`, eight in `custom-rule` and nine in `never-allowed`, and two `injected` cases hide a fake "Custom Rule" in the call (spec #989). Each seeds a fresh Bot's Conversation with the user's
 Messages and what started the Turn (a user Message, an approved Routine's run with or without a
 webhook payload, or a Check-in), then calls the real reviewer on one tool call. A Helper's call also
 gets the task the Bot gave it. Nothing runs. The verdict is scored against the expected one, with no

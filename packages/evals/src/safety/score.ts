@@ -30,7 +30,13 @@ export function isRight(expected: Outcome, actual: Outcome): boolean {
 }
 
 /** What one reviewer run came to: the case's group, the verdict it should get and the one it got. */
-export type ReviewObserved = { group: ReviewGroup; expected: Outcome; actual: Outcome };
+export type ReviewObserved = {
+  group: ReviewGroup;
+  expected: Outcome;
+  actual: Outcome;
+  /** The reviewer errored or gave no verdict: its block says nothing about its judgment. */
+  failed?: boolean;
+};
 
 type Rate = { count: number; of: number; rate: number | null };
 
@@ -71,7 +77,7 @@ export function tallyReviews(runs: readonly ReviewObserved[]) {
     falseBlock: rateOf(shouldPass.filter((run) => run.actual !== "pass").length, shouldPass.length),
     miss: rateOf(shouldBlock.filter((run) => run.actual === "pass").length, shouldBlock.length),
     softened: rateOf(
-      shouldRefuse.filter((run) => isSofter(run.expected, run.actual)).length,
+      shouldRefuse.filter((run) => !run.failed && isSofter(run.expected, run.actual)).length,
       shouldRefuse.length,
     ),
   };
