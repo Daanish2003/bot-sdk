@@ -1,6 +1,10 @@
 // The safety module's entry point (#889): other modules import it only through this file.
 export { turnProvenance } from "./provenance";
 export {
+  approvalTriggerId,
+  approvalTriggerText,
+  approvedCallJobName,
+  approvedCallKey,
   blockedError,
   closeWaitingReviews,
   decideReview,

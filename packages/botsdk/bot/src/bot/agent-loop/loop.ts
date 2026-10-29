@@ -1,4 +1,3 @@
-import { isReservedSecretName, reservedSecretNameMessage } from "@botsdk/client/bot/secret";
 import { parseModelId } from "@botsdk/client/models/models";
 import { modelsDevSnapshot } from "@botsdk/client/models/models-snapshot";
 import {
@@ -14,7 +13,6 @@ import {
 
 import type { PromptHash } from "../../chat/hooks";
 import type { BotSdkContext, Transaction } from "../../plugin";
-import { uuidv7 } from "../../lib/uuidv7";
 import {
   withCacheControl,
   addUsage,
@@ -31,14 +29,12 @@ import {
 } from "../../computer/internal";
 import { type WorkflowContext, WorkflowYieldedError } from "../../runner/internal";
 import {
-  capOutput,
   capResult,
   isLong,
   computerOf,
   computerOperationError,
   computerToolDefinitions,
   computerUnavailableError,
-  defaultShellTimeoutSeconds,
   editDefinition,
   editTool,
   type FileToolOptions,
@@ -52,12 +48,11 @@ import {
   shellStartActivity,
   shellToolName,
   spillPath,
-  timedOutHint,
   writeDefinition,
   writeTool,
 } from "./computer-tools";
+import { runShell } from "./shell";
 import {
-  resolvePath,
   pruneScreenshots,
   resolveImageRefs,
   computerRebuildSeenAt,
@@ -75,9 +70,7 @@ import {
   type DecryptedSecrets,
   loadSecretValues,
   maskResult,
-  maskedFormsOf,
   secretMasker,
-  unknownSecretError,
 } from "../safety";
 
 /**
@@ -793,7 +786,6 @@ export async function runLoop(
   const decrypted: DecryptedSecrets = new Map();
   const shell = shellDefinition.server((input, context) =>
     toolCall(context?.toolCallId, async () => {
-      const { command, cwd, timeoutSeconds, secrets } = input;
       // Auto-review first: a blocked command never starts.
       const blocked = await review(shellToolName, context?.toolCallId, input);
       if (blocked) return blocked;
@@ -814,39 +806,13 @@ export async function runLoop(
       const result = await ctx.step(shellToolName, async () => {
         beforeLiveTool();
         if (!startedHere) return { error: interruptedShellError };
-        // The user's Secrets, read for this one command: it gets only the ones it names, and the
-        // result is masked of all of them.
-        const values = await loadSecretValues(deps, owner.userId, decrypted);
-        const unknown = (secrets ?? []).filter((name) => !values.has(name));
-        if (unknown.length > 0) return { error: unknownSecretError(unknown, values.keys()) };
-        // Defence in depth: a reserved name can't be saved, but one that was would not be set.
-        const reserved = (secrets ?? []).filter(isReservedSecretName);
-        if (reserved.length > 0) return { error: reservedSecretNameMessage(reserved.join(", ")) };
-        const secretValues = [...values.values()];
-        const mask = secretMasker(secretValues);
-        const envs = Object.fromEntries((secrets ?? []).map((name) => [name, values.get(name)!]));
-        return onLiveComputer(async (computer, live) => {
-          const output = await computer.run(command, {
-            ...live,
-            cwd: resolvePath(owner.botId, cwd),
-            timeoutMs: (timeoutSeconds ?? defaultShellTimeoutSeconds) * 1000,
-            ...(secrets?.length && { envs }),
-            ...(secretValues.length > 0 && { redact: maskedFormsOf(secretValues) }),
-          });
-          // Masked before the output is cut down to its ends, so a value is never half kept by the cut.
-          const result = {
-            ...output,
-            stdout: mask(output.stdout),
-            stderr: mask(output.stderr),
-          };
-          // The cap is applied here, so the Checkpoint holds only the truncated form.
-          const capped = await capOutput(
-            result,
-            spillPath(owner.botId, context?.toolCallId ?? uuidv7()),
-            computer.writeFile,
-          );
-          return "timedOut" in capped ? { ...capped, hint: timedOutHint } : capped;
-        });
+        return runShell(
+          deps,
+          { userId: owner.userId, botId: owner.botId, toolCallId: context?.toolCallId },
+          input,
+          decrypted,
+          onLiveComputer,
+        );
       });
       return recordTold(result);
     }),

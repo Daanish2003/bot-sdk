@@ -1,6 +1,7 @@
 // The agent-loop module's entry point (#889): other modules import it only through this file.
 export {
   capOutput,
+  capResult,
   capText,
   computerOf,
   computerOperationError,
@@ -14,6 +15,7 @@ export {
   maxTextBytes,
   readScript,
   rebuiltNote,
+  shellToolName,
   sizeScript,
   spillPath,
   spillThreshold,
@@ -35,6 +37,7 @@ export {
   type PreviousCall,
   sha256,
 } from "./prompt-hashes";
+export { runShell, type ShellInput } from "./shell";
 export { type SearchClient, SearchError } from "./search-client";
 export { createTavilyClient } from "./tavily";
 export { webSearchTool, webSearchUnavailableError } from "./web-search";
