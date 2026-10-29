@@ -183,7 +183,12 @@ export async function appendBotMessage(
     createdAt,
   });
   // A no-op with no email adapter in the channels slot.
-  await deps.channels.deliverIn(tx, { conversationId, messageId: row.id, turnId });
+  await deps.channels.deliverIn(tx, {
+    conversationId,
+    messageId: row.id,
+    turnId,
+    urgent: urgentOf(parts),
+  });
 }
 
 /** A Message row as the client sees it, with its Rich control when it has one. */

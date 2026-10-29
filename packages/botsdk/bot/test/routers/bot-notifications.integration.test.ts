@@ -310,7 +310,7 @@ describe("quiet hours", () => {
   );
 
   it(
-    "read the time zone the user last sent, though they wrote by email since",
+    "read the zone of the Conversation's newest user Message, as Routines do: an email carries none",
     timeout,
     async () => {
       const { write, mail, checkIn, settle, sent } = await notifiedBot([
@@ -325,12 +325,12 @@ describe("quiet hours", () => {
       await mail("first@mail.example");
       await checkIn();
 
-      // Only the reply to the user's email went out; the Check-in's Message was held back.
-      expect(sent.map((one) => one.text.split("\n")[0])).toEqual(["Booked."]);
+      // The email since carries no zone, so the Check-in's 10:00 is in UTC, outside quiet hours.
+      expect(sent.map((one) => one.text.split("\n")[0])).toEqual(["Booked.", "Any news?"]);
     },
   );
 
-  it("read the time zone the user sent another of their Bots", timeout, async () => {
+  it("don't read the time zone the user sent another of their Bots", timeout, async () => {
     const { client, write, checkIn, settle, sent, assistantMessages } = await notifiedBot([
       round(says("Hello.")),
       round(setsCheckIn(60)),
@@ -344,8 +344,12 @@ describe("quiet hours", () => {
     await write("Remind me later");
     await checkIn();
 
-    expect((await assistantMessages()).at(-1)).toMatchObject({ text: "Any news?" });
-    expect(sent).toEqual([]);
+    // This Conversation's zone is UTC, where the Check-in's 10:00 is outside quiet hours.
+    expect((await assistantMessages()).at(-1)).toMatchObject({
+      text: "Any news?",
+      channel: "email",
+    });
+    expect(sent).toHaveLength(1);
   });
 
   it("don't hold back outside them in the user's time zone", timeout, async () => {

@@ -3,7 +3,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { bot, botTrigger, message } from "../../storage";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { sentFileBlobKey } from "./files";
-import { controlOf, subjectOf, toBotMessage, urgentOf } from "./store";
+import { controlOf, newestTimeZone, subjectOf, toBotMessage } from "./store";
 import { knownZone } from "@botsdk/client/bot/time-zone";
 import type { NotificationRoute } from "@botsdk/client/bot/notifications";
 import { inQuietHours, notificationSettingsOf } from "../notifications-api";
@@ -62,6 +62,15 @@ export async function lastUsedChannel(
   return last?.channel === "email" ? "email" : "web";
 }
 
+/** What `deliverIn` knows of the Message it routes, and asks of its user once. */
+type Routed = {
+  conversationId: string;
+  turnId: string | null;
+  userId: string;
+  urgent: boolean;
+  hasDevice: () => Promise<boolean>;
+};
+
 /**
  * Where a Bot Message goes besides web (spec #761, "Where a Bot's reply is delivered"): by email
  * when Turn `turnId` took a user Trigger by email, and only on web when it took another user
@@ -72,47 +81,33 @@ export async function lastUsedChannel(
 async function routeOf(
   deps: BotSdkContext,
   tx: Transaction,
-  args: { conversationId: string; messageId: string; turnId: string | null },
+  { conversationId, turnId, userId, urgent, hasDevice }: Routed,
 ): Promise<{ channel: DeliveryChannel; answers?: string } | null> {
-  if (args.turnId) {
+  if (turnId) {
     const taken = await tx
       .select({ id: botTrigger.id, channel: botTrigger.channel, messageId: botTrigger.messageId })
       .from(botTrigger)
-      .where(and(eq(botTrigger.turnId, args.turnId), eq(botTrigger.source, "user")))
+      .where(and(eq(botTrigger.turnId, turnId), eq(botTrigger.source, "user")))
       .orderBy(desc(botTrigger.receivedAt), desc(botTrigger.id));
     const emailed = taken.find((trigger) => trigger.channel === "email");
     if (emailed) return { channel: "email", answers: emailed.messageId ?? undefined };
     if (taken.length > 0) return null;
   }
-  const route = await unpromptedRouteOf(deps, tx, args);
-  return route === "in_app" ? null : { channel: route };
-}
-
-/** Where Message `messageId`, from a Turn the user didn't start, goes (spec #1024). */
-async function unpromptedRouteOf(
-  deps: BotSdkContext,
-  tx: Transaction,
-  { conversationId, messageId }: { conversationId: string; messageId: string },
-): Promise<NotificationRoute> {
-  const [sent] = await tx
-    .select({ parts: message.parts, userId: bot.userId })
-    .from(message)
-    .innerJoin(bot, eq(bot.conversationId, message.conversationId))
-    .where(eq(message.id, messageId));
-  if (!sent) return "in_app";
-  return notificationRouteOf(deps, tx, {
-    userId: sent.userId,
+  const route = await notificationRouteOf(deps, tx, {
+    userId,
     owner: { conversationId },
-    urgent: urgentOf(sent.parts),
+    urgent,
+    hasDevice,
   });
+  return route === "in_app" ? null : { channel: route };
 }
 
 /**
  * Where a Message of Bot `owner` from a Turn the user didn't start goes now (spec #1024): the user's
  * choice for urgent Messages or for the rest. When that choice is empty, an urgent Message is pushed
- * if the Host has web push and the user a subscribed device, and otherwise it goes to the Channel
- * they last wrote from. During Quiet hours, in the user's time zone, only an urgent Message leaves
- * the app.
+ * if the Host has web push and the user a subscribed device (`hasDevice`, read when not given), and
+ * otherwise it goes to the Channel they last wrote from. During Quiet hours, in the Conversation's
+ * time zone as for Routines, only an urgent Message leaves the app.
  */
 export async function notificationRouteOf(
   deps: BotSdkContext,
@@ -121,38 +116,39 @@ export async function notificationRouteOf(
     userId,
     owner,
     urgent,
-  }: { userId: string; owner: Parameters<typeof lastUsedChannel>[1]; urgent: boolean },
+    hasDevice = () => hasPushSubscription(db, userId),
+  }: {
+    userId: string;
+    owner: Parameters<typeof lastUsedChannel>[1];
+    urgent: boolean;
+    hasDevice?: () => Promise<boolean>;
+  },
 ): Promise<NotificationRoute> {
   const settings = await notificationSettingsOf(db, userId);
   const defaultRouteOf = async (): Promise<NotificationRoute> => {
-    if (urgent && deps.channels.pushKey() !== null && (await hasPushSubscription(db, userId))) {
+    if (urgent && deps.channels.pushKey() !== null && (await hasDevice())) {
       return "push";
     }
     return (await lastUsedChannel(db, owner)) === "email" ? "email" : "in_app";
   };
   const route = (urgent ? settings.urgent : settings.other) ?? (await defaultRouteOf());
   if (route === "in_app" || urgent || !settings.quietHours) return route;
-  const zone = await userTimeZoneOf(db, userId);
+  const conversationId = await conversationIdOf(db, owner);
+  const zone = knownZone(conversationId && (await newestTimeZone(db, conversationId)));
   return inQuietHours(settings.quietHours, deps.clock(), zone) ? "in_app" : route;
 }
 
-/**
- * The time zone the user last sent, with a Message to any of their Bots (an email carries none), or
- * UTC when they never sent one.
- */
-async function userTimeZoneOf(
+/** The Conversation of Bot `owner`, or `undefined` when the Bot is gone. */
+async function conversationIdOf(
   db: BotSdkContext["db"] | Transaction,
-  userId: string,
-): Promise<string> {
-  const zoneOf = sql<string | null>`${message.parts}->>'timeZone'`;
-  const [newest] = await db
-    .select({ zone: zoneOf })
-    .from(message)
-    .innerJoin(bot, eq(bot.conversationId, message.conversationId))
-    .where(and(eq(bot.userId, userId), eq(message.role, "user"), sql`${zoneOf} is not null`))
-    .orderBy(desc(message.createdAt), desc(message.id))
-    .limit(1);
-  return knownZone(newest?.zone ?? undefined);
+  owner: Parameters<typeof lastUsedChannel>[1],
+): Promise<string | undefined> {
+  if ("conversationId" in owner) return owner.conversationId;
+  const [row] = await db
+    .select({ id: bot.conversationId })
+    .from(bot)
+    .where(eq(bot.id, owner.botId));
+  return row?.id;
 }
 
 /**
@@ -202,19 +198,26 @@ export async function deliverIn(
   deps: BotSdkContext,
   tx: Transaction,
   { email, push }: { email?: EmailChannel; push?: WebPushChannel },
-  args: { conversationId: string; messageId: string; turnId: string | null },
+  args: { conversationId: string; messageId: string; turnId: string | null; urgent: boolean },
 ): Promise<void> {
-  const route = await routeOf(deps, tx, args);
-  if (route?.channel === "push") {
-    if (push) await enqueuePush(deps, tx, args);
-    return;
-  }
-  if (!route || !email) return;
   const [owner] = await tx
-    .select({ name: bot.name })
+    .select({ name: bot.name, userId: bot.userId })
     .from(bot)
     .where(eq(bot.conversationId, args.conversationId));
   if (!owner) return;
+  let devices: Promise<boolean> | undefined;
+  const hasDevice = () => (devices ??= hasPushSubscription(tx, owner.userId));
+  const route = await routeOf(deps, tx, { ...args, userId: owner.userId, hasDevice });
+  if (route?.channel === "push") {
+    if (push && (await hasDevice())) {
+      const payload: DeliveryPayload = { channel: "push", messageId: args.messageId };
+      await deps.runner.enqueueIn(tx, deliveryJobName, payload, {
+        idempotencyKey: deliveryKey(args.messageId, "push"),
+      });
+    }
+    return;
+  }
+  if (!route || !email) return;
   let subject = headerText(owner.name);
   if (route.answers) {
     const [answered] = await tx
@@ -236,23 +239,6 @@ export async function deliverIn(
   };
   await deps.runner.enqueueIn(tx, deliveryJobName, payload, {
     idempotencyKey: deliveryKey(args.messageId, "email"),
-  });
-}
-
-/** Enqueues the push job of Bot Message `messageId`, when its user has a subscribed device. */
-async function enqueuePush(
-  deps: BotSdkContext,
-  tx: Transaction,
-  { conversationId, messageId }: { conversationId: string; messageId: string },
-): Promise<void> {
-  const [owner] = await tx
-    .select({ userId: bot.userId })
-    .from(bot)
-    .where(eq(bot.conversationId, conversationId));
-  if (!owner || !(await hasPushSubscription(tx, owner.userId))) return;
-  const payload: DeliveryPayload = { channel: "push", messageId };
-  await deps.runner.enqueueIn(tx, deliveryJobName, payload, {
-    idempotencyKey: deliveryKey(messageId, "push"),
   });
 }
 
