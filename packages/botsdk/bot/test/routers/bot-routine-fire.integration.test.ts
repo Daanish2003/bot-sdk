@@ -217,7 +217,7 @@ const sunday = new Date("2026-10-18T10:00:00.000Z");
 const mondaySlot = "2026-10-19T07:00:00.000Z";
 
 const wakeNotice =
-  `Routine "morning-brief" ran at Mon 2026-10-19 08:00 (Europe/London). The user didn't send ` +
+  `Routine "morning-brief" ran at Mon 2026-10-19 08:00 (Europe/London). It has not run before. The user didn't send ` +
   `this; it's their approved Routine. Message the user only if this run finds something new. If ` +
   `it finds nothing new, send nothing at all, not even a message saying nothing changed.`;
 
@@ -320,6 +320,28 @@ describe("a scheduled Routine", () => {
     expect(messages.filter((sent) => sent.role === "user").map((sent) => sent.text)).toEqual([
       "Set it up, please",
     ]);
+  });
+
+  it("says in the wake notice when the Routine last ran", { timeout: 30_000 }, async () => {
+    const { fake, runDue, advanceTo } = await approvedRoutine({
+      at: sunday,
+      rounds: [round(), round()],
+    });
+    advanceTo(mondaySlot);
+    await runDue();
+    advanceTo("2026-10-19T07:00:00.500Z");
+    await runDue();
+    expect(String(inputOf(fake.calls.at(-1)).at(-1)?.content)).toContain("It has not run before.");
+
+    advanceTo("2026-10-20T07:00:00.000Z");
+    await runDue();
+    advanceTo("2026-10-20T07:00:00.500Z");
+    await runDue();
+
+    expect(String(inputOf(fake.calls.at(-1)).at(-1)?.content)).toContain(
+      'Routine "morning-brief" ran at Tue 2026-10-20 08:00 (Europe/London). It last ran at Mon ' +
+        "2026-10-19 08:00. The user didn't send this",
+    );
   });
 
   it("keeps the snapshot a Turn reads when the Routine's prompt is edited mid-Turn", async () => {

@@ -216,7 +216,7 @@ describe("a webhook Routine's URL", () => {
     expect(trigger).toMatchObject({ source: "routine", channel: "webhook", messageId: null });
     expect(trigger?.id).toMatch(new RegExp(`^routine:${routineId}:`));
     expect(trigger?.text).toBe(
-      `Routine "stripe-payouts" ran at Mon 2026-10-19 11:42 (Europe/London). The user didn't send ` +
+      `Routine "stripe-payouts" ran at Mon 2026-10-19 11:42 (Europe/London). It has not run before. The user didn't send ` +
         `this; it's their approved Routine. Message the user only if this run finds something ` +
         `new. If it finds nothing new, send nothing at all, not even a message saying nothing ` +
         `changed.\n\n${payouts.prompt}\n\n` +

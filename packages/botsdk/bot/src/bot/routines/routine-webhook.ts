@@ -5,6 +5,7 @@ import { uuidv7 } from "../../lib/uuidv7";
 import type { BotSdkContext } from "../../plugin";
 import {
   fireKeyPrefix,
+  lastRanAt,
   routineSnapshot,
   untrustedBlock,
   webhookPayloadLabel,
@@ -159,7 +160,7 @@ async function receiveWebhook(
       conversationId: owner.conversationId,
       source: "routine",
       channel: "webhook",
-      text: `${routineSnapshot({ ...routine, slot: now })}\n\n${untrusted(payload)}`,
+      text: `${routineSnapshot({ ...routine, slot: now, lastRanAt: await lastRanAt(tx, routine.id) })}\n\n${untrusted(payload)}`,
       receivedAt: now,
     });
     return owner.conversationId;

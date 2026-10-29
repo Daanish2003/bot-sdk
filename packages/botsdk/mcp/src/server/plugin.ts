@@ -1,10 +1,11 @@
 import type { AnyServerTool } from "@tanstack/ai";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import type { z } from "zod";
 
 import { defineFeature } from "@botsdk/bot/feature";
 import type { Route } from "@botsdk/bot/plugin";
 import { parseInput } from "@botsdk/bot/rpc-error";
+import { bot } from "@botsdk/bot/storage";
 import {
   deleteConnection,
   listConnections,
@@ -82,6 +83,30 @@ export function mcp(options: McpOptions = {}) {
         ...kit,
       });
     },
+    // The first Connection reaches each Bot in its next Turn's Change notes (spec #1024). The
+    // section is what the Prompt start saw of it, so "none yet" in it and a Connection now is news.
+    prompt: async (turn, context) => {
+      const connected = (await listConnections(context, servers, turn.userId)).filter(
+        ({ state }) => state === "connected",
+      );
+      const section =
+        connected.length > 0 ? connectedSection : servers.length > 0 ? noConnectionSection : null;
+      if (
+        turn.built !== noConnectionSection ||
+        connected.length === 0 ||
+        turn.told.includes(firstConnectionNote(true)) ||
+        turn.told.includes(firstConnectionNote(false))
+      ) {
+        return { section };
+      }
+      const [first] = await context.db
+        .select({ id: bot.id })
+        .from(bot)
+        .where(eq(bot.userId, turn.userId))
+        .orderBy(asc(bot.createdAt), asc(bot.id))
+        .limit(1);
+      return { section, changeNotes: [firstConnectionNote(first?.id === turn.botId)] };
+    },
     userData: {
       delete: {
         before: async (tx, userId) => {
@@ -98,6 +123,16 @@ export function mcp(options: McpOptions = {}) {
     },
   });
 }
+
+const noConnectionSection = "Connections: the user has not connected any app yet.";
+const connectedSection = "Connections: the user has connected an app.";
+
+/** The Change note that tells a Bot its user gained their first Connection (spec #1024). */
+const firstConnectionNote = (firstBot: boolean) =>
+  "The user connected their first Connection (an app you can use through connector tools). " +
+  (firstBot
+    ? "You are their first Bot: offer them the Morning brief and the Watch now, as your rules say."
+    : "You are not their first Bot: set up a Morning brief or Watch only if the user asks.");
 
 /** The sign-in routes, under `basePath`: `/mcp/connect` starts one and `/mcp/callback` ends it. */
 function mcpRoutes(servers: readonly McpServerConfig[]): Route[] {

@@ -4,7 +4,14 @@ import { z } from "zod";
 import { bot, botRoutine, botTrigger } from "../../storage";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { activeJobsByKeyPrefix, defineCoreJob, idsWithoutActiveJob } from "../../runner/internal";
-import { fireKey, fireKeyPrefix, queueFire, routineFireJobName, routineSnapshot } from "./routine";
+import {
+  fireKey,
+  lastRanAt,
+  fireKeyPrefix,
+  queueFire,
+  routineFireJobName,
+  routineSnapshot,
+} from "./routine";
 import { lockConversation, receive } from "../triggers";
 import { nextSlot } from "./schedule";
 import { hintChanged, recordBotChange } from "../conversation";
@@ -111,7 +118,7 @@ async function fireRoutine(
     conversationId: owner.conversationId,
     source: "routine",
     channel: "schedule",
-    text: routineSnapshot({ ...routine, slot }),
+    text: routineSnapshot({ ...routine, slot, lastRanAt: await lastRanAt(tx, routineId) }),
     receivedAt: now,
   });
   return { ...fired, woke: true };

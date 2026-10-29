@@ -1,7 +1,7 @@
 import { type BotRoutine, type RoutineSchedule, scheduleText } from "@botsdk/client/bot/routine";
 import { createHash, randomBytes } from "node:crypto";
 
-import { and, asc, desc, eq, isNull, like, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, max, like, lt, lte, or, sql } from "drizzle-orm";
 
 import { bot, botRoutine, botTrigger, botTurn, message } from "../../storage";
 import type { Database } from "../../storage";
@@ -141,19 +141,37 @@ export function routineSnapshot({
   prompt,
   slot,
   timeZone,
+  lastRanAt = null,
 }: {
   name: string;
   prompt: string;
   slot: Date;
   timeZone: string;
+  /** When a Turn last took one of the Routine's Triggers (spec #1024), or null if none has. */
+  lastRanAt?: Date | null;
 }): string {
   const zone = knownZone(timeZone);
   const when = zonedTime(slot, zone);
+  const last = lastRanAt
+    ? `It last ran at ${zonedTime(lastRanAt, zone)}.`
+    : "It has not run before.";
   return (
-    `Routine ${JSON.stringify(name)} ran at ${when} (${zone}). The user didn't send this; it's ` +
+    `Routine ${JSON.stringify(name)} ran at ${when} (${zone}). ${last} The user didn't send this; it's ` +
     `their approved Routine. Message the user only if this run finds something new. If it finds ` +
     `nothing new, send nothing at all, not even a message saying nothing changed.\n\n${prompt}`
   );
+}
+
+/**
+ * When a Turn last took one of the Routine's Triggers, for its wake notice (spec #1024): a fire
+ * that was skipped, or still waits for a Turn, has not run.
+ */
+export async function lastRanAt(tx: Transaction, routineId: string): Promise<Date | null> {
+  const [last] = await tx
+    .select({ at: max(botTrigger.receivedAt) })
+    .from(botTrigger)
+    .where(and(like(botTrigger.id, `${fireKeyPrefix(routineId)}%`), isNotNull(botTrigger.turnId)));
+  return last?.at ?? null;
 }
 
 /** What opens a webhook's payload after its Routine's snapshot, in a webhook Trigger's text. */
