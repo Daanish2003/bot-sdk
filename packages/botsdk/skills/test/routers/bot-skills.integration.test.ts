@@ -285,7 +285,7 @@ describe("the Skills block", { timeout: 30_000 }, () => {
           input: {
             name: "morning-brief",
             prompt: "Summarise the news.",
-            schedule: { days: ["mon"], at: "08:00" },
+            schedule: { days: ["mon"], times: ["08:00"] },
           },
         }),
       ),

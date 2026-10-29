@@ -121,8 +121,8 @@ async function fireRoutine(
 const routineReconcileJobName = "bot.routine_reconcile";
 
 /**
- * How often the reconcile runs. A Routine's slots are a day apart at least, so an hour finds a
- * broken chain long before its next slot.
+ * How often the reconcile runs: a broken chain is found within the hour, and the next slot from
+ * then is queued.
  */
 const reconcileEveryMs = 60 * 60_000;
 

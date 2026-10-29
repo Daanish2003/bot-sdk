@@ -460,7 +460,7 @@ describe("bot.routine.rotate", () => {
       routine: {
         name: "morning-brief",
         prompt: "Brief me.",
-        schedule: { days: ["mon"], at: "08:00" },
+        schedule: { days: ["mon"], times: ["08:00"] },
       },
     });
     const scheduledId = scheduled.routines[0]!.id;
@@ -492,7 +492,10 @@ describe("create_routine and update_routine with a webhook", () => {
   });
 
   it.each([
-    ["both a schedule and a webhook", { ...payouts, schedule: { days: ["mon"], at: "08:00" } }],
+    [
+      "both a schedule and a webhook",
+      { ...payouts, schedule: { days: ["mon"], times: ["08:00"] } },
+    ],
     ["neither", { name: payouts.name, prompt: payouts.prompt }],
     ["webhook: false and no schedule", { ...payouts, webhook: false }],
   ])("refuses %s with a clear tool error, and saves nothing", async (_case, routine) => {
@@ -506,7 +509,7 @@ describe("create_routine and update_routine with a webhook", () => {
 
   it("refuses to give a webhook Routine a schedule", async () => {
     const { fake, botId, send } = await approvedWebhook([
-      round(updateRoutine({ name: payouts.name, schedule: { days: ["mon"], at: "08:00" } })),
+      round(updateRoutine({ name: payouts.name, schedule: { days: ["mon"], times: ["08:00"] } })),
       round(),
     ]);
 
@@ -540,7 +543,7 @@ describe("the user's edit of a webhook Routine", () => {
       client.routines.edit({
         routineId,
         prompt: "Something else.",
-        schedule: { days: ["mon"], at: "08:00" },
+        schedule: { days: ["mon"], times: ["08:00"] },
       }),
     ).rejects.toMatchObject({
       code: "BAD_REQUEST",

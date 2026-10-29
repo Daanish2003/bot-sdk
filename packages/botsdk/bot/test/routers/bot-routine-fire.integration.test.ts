@@ -59,7 +59,7 @@ const sends = (input: { text: string; endTurn: boolean }) =>
 type RoutineInput = {
   name: string;
   prompt: string;
-  schedule: { days: string[]; at: string };
+  schedule: { days: string[]; times: string[] };
 };
 
 const weekdays = ["mon", "tue", "wed", "thu", "fri"];
@@ -68,7 +68,7 @@ const everyDay = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const morningBrief: RoutineInput = {
   name: "morning-brief",
   prompt: "Summarize today's calendar.",
-  schedule: { days: weekdays, at: "08:00" },
+  schedule: { days: weekdays, times: ["08:00"] },
 };
 
 /**
@@ -494,11 +494,62 @@ describe("a scheduled Routine", () => {
     expect(await queuedFires(routineId)).toEqual(["2026-10-22T07:00:00.000Z"]);
   });
 
+  it("with several times fires at each one in the user's zone, the earliest next, and stores them in order", async () => {
+    const { client, botId, conversationId, routineId, runDue, advanceTo } = await approvedRoutine({
+      at: sunday,
+      routine: { ...morningBrief, schedule: { days: weekdays, times: ["17:00", "08:00"] } },
+      rounds: [round(), round(), round()],
+    });
+    expect((await client.routines.list({ botId }))[0]?.schedule).toEqual({
+      days: weekdays,
+      times: ["08:00", "17:00"],
+    });
+    expect(await queuedFires(routineId)).toEqual([mondaySlot]);
+
+    advanceTo(mondaySlot);
+    await runDue();
+    // Monday 17:00 in London.
+    expect(await queuedFires(routineId)).toEqual(["2026-10-19T16:00:00.000Z"]);
+
+    advanceTo("2026-10-19T16:00:00.000Z");
+    await runDue();
+    expect(await queuedFires(routineId)).toEqual(["2026-10-20T07:00:00.000Z"]);
+
+    advanceTo("2026-10-20T07:00:00.000Z");
+    await runDue();
+    expect((await routineTriggers(conversationId)).map((trigger) => trigger.id)).toEqual([
+      `routine:${routineId}:${mondaySlot}`,
+      `routine:${routineId}:2026-10-19T16:00:00.000Z`,
+      `routine:${routineId}:2026-10-20T07:00:00.000Z`,
+    ]);
+  });
+
+  it("with several times runs missed slots once, late, and counts the next from then", async () => {
+    const { conversationId, routineId, runDue, advanceTo } = await approvedRoutine({
+      at: sunday,
+      routine: {
+        ...morningBrief,
+        schedule: { days: weekdays, times: ["08:00", "11:00", "14:00"] },
+      },
+      rounds: [round()],
+    });
+
+    // Monday 12:00 in London: the 08:00 and 11:00 slots passed.
+    advanceTo("2026-10-19T11:00:00.000Z");
+    await runDue();
+
+    expect((await routineTriggers(conversationId)).map((trigger) => trigger.id)).toEqual([
+      `routine:${routineId}:${mondaySlot}`,
+    ]);
+    // Monday 14:00 in London.
+    expect(await queuedFires(routineId)).toEqual(["2026-10-19T13:00:00.000Z"]);
+  });
+
   it("in Europe/London keeps 08:00 local across the March change", async () => {
     // Saturday 28 March 2026, noon GMT; summer time starts at 01:00 UTC on Sunday.
     const { routineId, runDue, advanceTo } = await approvedRoutine({
       at: new Date("2026-03-28T12:00:00.000Z"),
-      routine: { ...morningBrief, schedule: { days: everyDay, at: "08:00" } },
+      routine: { ...morningBrief, schedule: { days: everyDay, times: ["08:00"] } },
       rounds: [round()],
     });
     expect(await queuedFires(routineId)).toEqual(["2026-03-29T07:00:00.000Z"]);
@@ -513,7 +564,7 @@ describe("a scheduled Routine", () => {
     // Saturday 24 October 2026, 13:00 in London; summer time ends at 01:00 UTC on Sunday.
     const { routineId, runDue, advanceTo } = await approvedRoutine({
       at: new Date("2026-10-24T12:00:00.000Z"),
-      routine: { ...morningBrief, schedule: { days: everyDay, at: "08:00" } },
+      routine: { ...morningBrief, schedule: { days: everyDay, times: ["08:00"] } },
       rounds: [round()],
     });
     expect(await queuedFires(routineId)).toEqual(["2026-10-25T08:00:00.000Z"]);
@@ -529,7 +580,7 @@ describe("a scheduled Routine", () => {
     const { routineId, runDue, advanceTo } = await approvedRoutine({
       at: new Date("2026-03-07T12:00:00.000Z"),
       timeZone: "America/New_York",
-      routine: { ...morningBrief, schedule: { days: everyDay, at: "02:30" } },
+      routine: { ...morningBrief, schedule: { days: everyDay, times: ["02:30"] } },
       rounds: [round()],
     });
     // 03:00 EDT.
@@ -636,7 +687,10 @@ describe("changing a Routine", () => {
         at: sunday,
         rounds: [
           round(
-            updateRoutine({ name: "morning-brief", schedule: { days: weekdays, at: "09:00" } }),
+            updateRoutine({
+              name: "morning-brief",
+              schedule: { days: weekdays, times: ["09:00"] },
+            }),
           ),
           round(),
           round(),
@@ -649,7 +703,7 @@ describe("changing a Routine", () => {
     const [edited] = await client.routines.list({ botId });
     expect(edited).toMatchObject({
       state: "pending",
-      schedule: { days: weekdays, at: "09:00" },
+      schedule: { days: weekdays, times: ["09:00"] },
       nextRunAt: null,
     });
     expect(await queuedFires(routineId)).toEqual([]);
@@ -702,6 +756,63 @@ describe("changing a Routine", () => {
       ],
     });
     await sendSaved("Rename it");
+    advanceTo("2026-10-18T10:00:01.000Z");
+    await runDue();
+
+    expect((await client.routines.list({ botId }))[0]).toMatchObject({ state: "active" });
+    expect(await queuedFires(routineId)).toEqual([mondaySlot]);
+  });
+
+  it("sends a Routine back to pending when update_routine adds a time, and approved again it fires at both", async () => {
+    const { client, botId, conversationId, routineId, runDue, advanceTo, sendSaved } =
+      await approvedRoutine({
+        at: sunday,
+        rounds: [
+          round(
+            updateRoutine({
+              name: "morning-brief",
+              schedule: { days: weekdays, times: ["08:00", "12:30"] },
+            }),
+          ),
+          round(),
+          round(),
+          round(),
+        ],
+      });
+    await sendSaved("Also brief me at lunch");
+    advanceTo("2026-10-18T10:00:01.000Z");
+    await runDue();
+
+    expect((await client.routines.list({ botId }))[0]).toMatchObject({
+      state: "pending",
+      schedule: { days: weekdays, times: ["08:00", "12:30"] },
+    });
+    await client.routines.approve({ routineId });
+    advanceTo(mondaySlot);
+    await runDue();
+    advanceTo("2026-10-19T11:30:00.000Z");
+    await runDue();
+    expect((await routineTriggers(conversationId)).map((trigger) => trigger.id)).toEqual([
+      `routine:${routineId}:${mondaySlot}`,
+      `routine:${routineId}:2026-10-19T11:30:00.000Z`,
+    ]);
+  });
+
+  it("keeps an active Routine active when update_routine gives the same times in another order", async () => {
+    const { client, botId, routineId, runDue, advanceTo, sendSaved } = await approvedRoutine({
+      at: sunday,
+      routine: { ...morningBrief, schedule: { days: weekdays, times: ["08:00", "17:00"] } },
+      rounds: [
+        round(
+          updateRoutine({
+            name: "morning-brief",
+            schedule: { days: weekdays, times: ["17:00", "08:00"] },
+          }),
+        ),
+        round(),
+      ],
+    });
+    await sendSaved("Keep it as it is");
     advanceTo("2026-10-18T10:00:01.000Z");
     await runDue();
 
@@ -924,14 +1035,14 @@ describe("the user's edit of a Routine", () => {
 
     const edited = await client.routines.edit({
       routineId,
-      schedule: { days: ["mon", "tue", "wed", "thu", "fri"], at: "09:00" },
+      schedule: { days: ["mon", "tue", "wed", "thu", "fri"], times: ["09:00"] },
     });
 
     expect(edited).toEqual({ id: routineId, state: "active" });
     expect(await queuedFires(routineId)).toEqual(["2026-10-19T08:00:00.000Z"]);
     expect((await client.routines.list({ botId }))[0]).toMatchObject({
       state: "active",
-      schedule: { days: weekdays, at: "09:00" },
+      schedule: { days: weekdays, times: ["09:00"] },
     });
     advanceTo(mondaySlot);
     await runDue();
@@ -941,6 +1052,35 @@ describe("the user's edit of a Routine", () => {
     expect((await routineTriggers(conversationId)).map((trigger) => trigger.id)).toEqual([
       `routine:${routineId}:2026-10-19T08:00:00.000Z`,
     ]);
+  });
+
+  it("takes several times, keeps the Routine active, and queues the earliest of them", async () => {
+    const { client, botId, routineId } = await approvedRoutine({ at: sunday });
+
+    const edited = await client.routines.edit({
+      routineId,
+      schedule: { days: ["mon", "tue", "wed", "thu", "fri"], times: ["20:00", "11:00", "14:00"] },
+    });
+
+    expect(edited).toEqual({ id: routineId, state: "active" });
+    // Stored in order, so every reader sees the earliest first.
+    expect((await client.routines.list({ botId }))[0]).toMatchObject({
+      schedule: { days: weekdays, times: ["11:00", "14:00", "20:00"] },
+    });
+    // Monday 11:00 in London.
+    expect(await queuedFires(routineId)).toEqual(["2026-10-19T10:00:00.000Z"]);
+  });
+
+  it("refuses an edit whose times repeat a time, and changes nothing", async () => {
+    const { client, botId, routineId } = await approvedRoutine({ at: sunday });
+
+    await expect(
+      client.routines.edit({
+        routineId,
+        schedule: { days: ["mon", "tue", "wed", "thu", "fri"], times: ["09:00", "09:00"] },
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect((await client.routines.list({ botId }))[0]?.schedule).toEqual(morningBrief.schedule);
   });
 
   it("uses the new prompt from the next run, while a fire already waiting keeps the old snapshot", async () => {
@@ -973,7 +1113,7 @@ describe("the user's edit of a Routine", () => {
 
     const edited = await client.routines.edit({
       routineId,
-      schedule: { days: ["mon"], at: "09:00" },
+      schedule: { days: ["mon"], times: ["09:00"] },
     });
 
     expect(edited.state).toBe("paused");

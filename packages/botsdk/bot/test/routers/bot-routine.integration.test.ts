@@ -70,7 +70,7 @@ const createRoutine = (input: unknown) => toolCall({ name: "create_routine", inp
 const morningBrief = {
   name: "morning-brief",
   prompt: "Summarize today's calendar.\nKeep it short.",
-  schedule: { days: ["mon", "tue", "wed", "thu", "fri"], at: "08:00" },
+  schedule: { days: ["mon", "tue", "wed", "thu", "fri"], times: ["08:00"] },
 };
 
 const inputOf = (call: TextOptions | undefined) => (call?.messages ?? []) as ModelMessage[];
@@ -147,9 +147,16 @@ describe("createRoutine", () => {
   });
 
   it.each([
-    ["an empty days", { days: [], at: "08:00" }, /days must name at least one day/],
-    ["a malformed at", { days: ["mon"], at: "8am" }, /at must be a 24-hour time as HH:MM/],
-    ["an hour past 23", { days: ["mon"], at: "24:00" }, /at must be a 24-hour time as HH:MM/],
+    ["an empty days", { days: [], times: ["08:00"] }, /days must name at least one day/],
+    ["a malformed time", { days: ["mon"], times: ["8am"] }, /times must be 24-hour times as HH:MM/],
+    [
+      "an hour past 23",
+      { days: ["mon"], times: ["24:00"] },
+      /times must be 24-hour times as HH:MM/,
+    ],
+    ["no times", { days: ["mon"], times: [] }, /times must name at least one time/],
+    ["a time twice", { days: ["mon"], times: ["08:00", "08:00"] }, /times must not repeat a time/],
+    ["the one-time shape", { days: ["mon"], at: "08:00" }, /times/],
   ])("refuses %s with a clear tool error, and saves nothing", async (_case, schedule, error) => {
     const { fake, client, botId } = await botWith([
       round(createRoutine({ ...morningBrief, schedule })),
@@ -183,7 +190,7 @@ describe("the system prompt's Routines", () => {
         createRoutine({
           name: "inbox-sweep",
           prompt: "Sweep the inbox.",
-          schedule: { days: ["sat", "sun"], at: "18:30" },
+          schedule: { days: ["sat", "sun"], times: ["18:30"] },
         }),
       ),
       round(),

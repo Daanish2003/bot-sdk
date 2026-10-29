@@ -227,7 +227,7 @@ describe("Connector tools in a Routine Turn", () => {
             input: {
               name: "issue-brief",
               prompt: "List the open issues in Linear.",
-              schedule: { days: ["mon"], at: "08:00" },
+              schedule: { days: ["mon"], times: ["08:00"] },
             },
           }),
         ),

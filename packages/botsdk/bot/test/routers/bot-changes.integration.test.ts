@@ -222,7 +222,7 @@ describe("bot.changes", () => {
       const routine = (name: string) =>
         toolCall({
           name: "create_routine",
-          input: { name, prompt: "Summarize.", schedule: { days: ["mon"], at: "08:00" } },
+          input: { name, prompt: "Summarize.", schedule: { days: ["mon"], times: ["08:00"] } },
         });
       const { client, botId } = await botWith([
         round(routine("morning-brief"), routine("evening-brief")),

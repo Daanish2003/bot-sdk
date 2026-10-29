@@ -145,7 +145,7 @@ describe("the Bots and the Computer on a manual Executor", () => {
           input: {
             name: "morning-brief",
             prompt: "Summarize today's calendar.",
-            schedule: { days: ["mon", "tue", "wed", "thu", "fri"], at: "08:00" },
+            schedule: { days: ["mon", "tue", "wed", "thu", "fri"], times: ["08:00"] },
           },
         }),
       ),
