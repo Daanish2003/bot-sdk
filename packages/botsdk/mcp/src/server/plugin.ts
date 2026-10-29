@@ -1,11 +1,11 @@
 import type { AnyServerTool } from "@tanstack/ai";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, ne } from "drizzle-orm";
 import type { z } from "zod";
 
 import { defineFeature } from "@botsdk/bot/feature";
 import type { Route } from "@botsdk/bot/plugin";
 import { parseInput } from "@botsdk/bot/rpc-error";
-import { bot } from "@botsdk/bot/storage";
+import { bot, botTurn } from "@botsdk/bot/storage";
 import {
   deleteConnection,
   listConnections,
@@ -85,7 +85,8 @@ export function mcp(options: McpOptions = {}) {
     },
     // The first Connection reaches each Bot in its next Turn's Change notes (spec #1024). The
     // section is what the Prompt start saw of it, so "none yet" in it and a Connection now is news,
-    // and so is a Bot with no Prompt start yet (its first Turn), whose user already connected.
+    // and so is a Bot's first-ever Turn, whose user already connected. A Bot with earlier Turns
+    // whose Prompt start lacks the section (the Host turned the feature on since) isn't told.
     prompt: async (turn, context) => {
       const connected = (await listConnections(context, servers, turn.userId)).filter(
         ({ state }) => state === "connected",
@@ -99,6 +100,14 @@ export function mcp(options: McpOptions = {}) {
         turn.told.includes(firstConnectionNote(false))
       ) {
         return { section };
+      }
+      if (turn.built === null) {
+        const [earlier] = await context.db
+          .select({ id: botTurn.id })
+          .from(botTurn)
+          .where(and(eq(botTurn.botId, turn.botId), ne(botTurn.id, turn.id)))
+          .limit(1);
+        if (earlier) return { section };
       }
       const [first] = await context.db
         .select({ id: bot.id })

@@ -42,8 +42,15 @@ afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();
 });
 
-/** Two Bots of a user who has no Connection yet, on the fake Linear server. */
-async function botsWithoutConnection(queue: ReturnType<typeof round>[] = []) {
+/**
+ * Two Bots of a user who has no Connection yet, on the fake Linear server. With `turnBeforeMcp`, the
+ * first Bot has a Turn on a Host without the `mcp` feature first, so its Prompt start lacks the
+ * section, and then the Host turns the feature on.
+ */
+async function botsWithoutConnection(
+  queue: ReturnType<typeof round>[] = [],
+  { turnBeforeMcp = false }: { turnBeforeMcp?: boolean } = {},
+) {
   const fake = createFakeAdapter({
     rounds: Array.from(
       { length: 40 },
@@ -65,14 +72,16 @@ async function botsWithoutConnection(queue: ReturnType<typeof round>[] = []) {
     clock: systemClock,
     jobs: () => deps!.parts.jobs,
   });
-  deps = createTestSdk({
-    computer: fakeComputerProvider().provider,
-    features: [mcp({ servers: [linear] })],
-    fetch,
-    jobs,
-    adapterFor: () => fake.adapter,
-    memory: false,
-  });
+  const host = (features: Parameters<typeof createTestSdk>[0]["features"]) =>
+    createTestSdk({
+      computer: fakeComputerProvider().provider,
+      features,
+      fetch,
+      jobs,
+      adapterFor: () => fake.adapter,
+      memory: false,
+    });
+  deps = host(turnBeforeMcp ? [] : [mcp({ servers: [linear] })]);
   await jobs.start();
   started.push(jobs);
   const user = await insertUser();
@@ -82,9 +91,14 @@ async function botsWithoutConnection(queue: ReturnType<typeof round>[] = []) {
     hint: "…-key",
     verified: true,
   });
-  const client = chatRpc({ user, deps });
+  let client = chatRpc({ user, deps });
   const { id: first } = await client.bots.create({ name: "Ada", model });
   const { id: second } = await client.bots.create({ name: "Bea", model });
+  if (turnBeforeMcp) {
+    await send(client, first, "before mcp");
+    deps = host([mcp({ servers: [linear] })]);
+    client = chatRpc({ user, deps });
+  }
   return { fake, auth, deps, user, client, first, second };
 }
 
@@ -165,6 +179,17 @@ describe("The first Connection", () => {
     expect(forFirst).toContain("You are their first Bot: offer them the Morning brief");
     expect(newestWith(fake.calls, "hello two")).toContain("You are not their first Bot");
     expect(newestWith(fake.calls, "again one")).not.toContain("first Connection");
+  });
+
+  it("isn't noted for a Bot that had Turns before the Host turned the feature on", async () => {
+    const { fake, auth, deps, user, client, first } = await botsWithoutConnection([], {
+      turnBeforeMcp: true,
+    });
+    await connect(user, deps, auth);
+
+    await send(client, first, "after mcp");
+
+    expect(newestWith(fake.calls, "after mcp")).not.toContain("first Connection");
   });
 
   it("is offered to the first Bot with the default schedules and prompts in its system prompt", async () => {
