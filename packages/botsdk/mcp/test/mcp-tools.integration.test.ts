@@ -128,7 +128,7 @@ describe("mcp's forUser(id).tools()", () => {
     const listed = await tools(controller.signal);
     controller.abort();
 
-    // delete_issue carries readOnlyHint: true; create_issue has no hint and is not listed.
+    // list_issues is named in readOnlyTools; delete_issue carries readOnlyHint: true; create_issue has neither.
     expect(listed.map((tool) => [tool.name, tool.metadata?.readOnly === true])).toEqual([
       ["linear_list_issues", true],
       ["linear_create_issue", false],
