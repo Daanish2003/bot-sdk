@@ -126,6 +126,9 @@ export const botScopeInput = z.object({ botId: z.uuid() });
 /** The input of the methods that act on one of the user's Routines. */
 export const routineInput = z.object({ routineId: z.uuid() });
 
+/** `triggers.skip`'s input, besides `userId`. */
+export const triggerInput = z.object({ triggerId: z.string().min(1) });
+
 /** `checkIns.cancel`'s input, besides `userId`. */
 export const checkInInput = z.object({ checkInId: z.uuid() });
 
@@ -258,6 +261,12 @@ const checkIns = {
   cancel: oc.input(checkInInput).output(type<void>()),
 };
 
+/** The Triggers waiting in a Bot's Conversation queue (spec #1007). */
+const triggers = {
+  /** Skips one waiting Routine or Check-in Trigger: no Turn takes it, and Done lists it as skipped. */
+  skip: oc.input(triggerInput).output(type<void>()),
+};
+
 /** The Helpers of the user's Bots (#590). */
 const helpers = {
   /** One of the user's Bots' Helpers, oldest first, each with the Message its card follows. */
@@ -371,6 +380,7 @@ export const botContract = {
   conversations,
   routines,
   checkIns,
+  triggers,
   helpers,
   reviews,
   rules,

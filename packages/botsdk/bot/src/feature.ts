@@ -379,6 +379,7 @@ const instanceKeys: Record<keyof BotSdk, true> = {
   computer: true,
   routines: true,
   checkIns: true,
+  triggers: true,
   helpers: true,
   demonstrations: true,
   reviews: true,

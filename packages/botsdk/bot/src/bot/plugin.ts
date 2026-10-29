@@ -40,6 +40,7 @@ import { botsApi, type BotsApi } from "./bots-api";
 import { conversationsApi } from "./conversations-api";
 import { screensApi } from "./screens-api";
 import { rulesApi } from "./rules-api";
+import { triggersApi } from "./triggers-api";
 import { secretsApi } from "./secrets-api";
 import { checkInsApi, routinesApi } from "./routines-api";
 import { demonstrationsApi } from "./demonstrations-api";
@@ -125,6 +126,7 @@ export function bot({ reviewModel, neverAllowed = [] }: BotOptions = {}): BotPlu
       sdk.screens = screensApi(sdk);
       sdk.routines = routinesApi(sdk);
       sdk.checkIns = checkInsApi(sdk);
+      sdk.triggers = triggersApi(sdk);
       sdk.helpers = helpersApi(sdk);
       sdk.demonstrations = demonstrationsApi(sdk);
       sdk.reviews = reviewsApi(sdk);
