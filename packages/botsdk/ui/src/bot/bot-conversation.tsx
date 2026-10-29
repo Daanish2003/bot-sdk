@@ -221,9 +221,11 @@ function BotConversationView({
   // has none yet.
   const runsBefore = new Map<string, ReactNode[]>();
   for (const turn of turns) {
-    // A Helper's report wakes a Turn too, but it shows on the Helper's card, not as a divider.
+    // A Helper's report wakes a Turn too, but it shows on the Helper's card, not as a divider, as
+    // a late Approval's answer shows on its card.
     const fired = turn.triggers.find(
-      (trigger) => trigger.source !== "user" && trigger.source !== "helper",
+      (trigger) =>
+        trigger.source !== "user" && trigger.source !== "helper" && trigger.source !== "approval",
     );
     if (!fired) continue;
     const from = turn.startedAt.getTime();

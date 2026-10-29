@@ -2,6 +2,10 @@
 export { approvalExpiryJob, approvalExpiryJobName } from "./approval-expiry";
 export { turnProvenance } from "./provenance";
 export {
+  approvalTriggerId,
+  approvalTriggerText,
+  approvedCallJobName,
+  approvedCallKey,
   blockedError,
   closeWaitingReviews,
   decideReview,

@@ -6,6 +6,8 @@ import { z } from "zod";
 import type { BotSdkContext } from "../../plugin";
 import {
   type ComputerHandle,
+  ComputerOperationError,
+  ComputerUnavailableError,
   defaultCommandTimeoutMs,
   type Rebuild,
 } from "../../computer/internal";
@@ -30,6 +32,15 @@ export const computerUnavailableError =
 /** What a tool returns when the Computer failed its operation, with the Computer's own message. */
 export function computerOperationError(message: string): string {
   return `Your computer reported an error: ${message}`;
+}
+
+/** The Computer's failure (it couldn't wake, or failed its operation) as a tool's result; else undefined. */
+export function computerFailureResult(caught: unknown): { error: string } | undefined {
+  if (caught instanceof ComputerUnavailableError) return { error: computerUnavailableError };
+  if (caught instanceof ComputerOperationError) {
+    return { error: computerOperationError(caught.message) };
+  }
+  return undefined;
 }
 
 /**

@@ -189,4 +189,41 @@ describe("a Check-in the Bot set", () => {
     await screen.findByText("Acme has not replied.");
     expect(container.querySelector("[data-run]")?.textContent).toMatch(/^Check-in · \S.*$/);
   });
+
+  it("gives a Turn a late Approval woke no run divider: the Approval's card shows its answer", async () => {
+    const woken: BotTurnProvenance = {
+      id: "t2",
+      status: "complete",
+      startedAt: new Date("2026-10-22T08:00:01.000Z"),
+      endedAt: new Date("2026-10-22T08:00:05.000Z"),
+      sent: true,
+      memoryChanges: null,
+      skillChanges: null,
+      knowledgeChanges: null,
+      steps: [],
+      triggers: [
+        {
+          source: "approval",
+          channel: "web",
+          routineName: null,
+          at: new Date("2026-10-22T08:00:00.000Z"),
+        },
+      ],
+    };
+    const server = fakeBotServer(
+      [
+        said("m1", "user", "Ship it"),
+        {
+          ...said("m2", "assistant", "Deployed."),
+          createdAt: new Date("2026-10-22T08:00:03.000Z"),
+        },
+      ],
+      [],
+      [woken],
+    );
+    const { container } = mount(server);
+
+    await screen.findByText("Deployed.");
+    expect(container.querySelector("[data-run]")).toBeNull();
+  });
 });
