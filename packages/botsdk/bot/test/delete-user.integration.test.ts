@@ -6,7 +6,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createBotSdk } from "../src/create-chat";
 import { deleteUserData } from "../src/user-data";
 import { saveCredentials } from "../src/models/internal";
-import { bot, botTurn, conversation, message, userCredentials, usage } from "../src/storage";
+import {
+  bot,
+  botTurn,
+  conversation,
+  message,
+  notificationSettings,
+  userCredentials,
+  usage,
+} from "../src/storage";
 import { uuidv7 } from "../src/lib/uuidv7";
 import { botOf, botSdk, sendToTurnEnd, stopBotRunners } from "@ai-chat/test-support/bot-turns";
 import type { TestDeps } from "@ai-chat/test-support/deps";
@@ -29,7 +37,10 @@ const hello = () =>
 
 afterEach(stopBotRunners);
 
-/** A user with their own key and a Bot that has run a Turn: a Conversation, Messages and usage. */
+/**
+ * A user with their own key, notification settings and a Bot that has run a Turn: a Conversation,
+ * Messages and usage.
+ */
 async function seedOwner(user: TestUser, deps: TestDeps) {
   await saveCredentials(deps, user.id, {
     service: "anthropic",
@@ -39,6 +50,7 @@ async function seedOwner(user: TestUser, deps: TestDeps) {
   });
   const { client, botId } = await botOf(deps, user, sonnet);
   await sendToTurnEnd(client, botId);
+  await client.notifications.update({ quietHours: null, urgent: "email", other: null });
   return { client, botId };
 }
 
@@ -64,10 +76,21 @@ async function ownedRows(userId: string) {
       db.select().from(userCredentials).where(eq(userCredentials.userId, userId)),
     ),
     usage: await count(db.select().from(usage).where(eq(usage.userId, userId))),
+    notificationSettings: await count(
+      db.select().from(notificationSettings).where(eq(notificationSettings.userId, userId)),
+    ),
   };
 }
 
-const emptyRows = { conversations: 0, messages: 0, bots: 0, turns: 0, credentials: 0, usage: 0 };
+const emptyRows = {
+  conversations: 0,
+  messages: 0,
+  bots: 0,
+  turns: 0,
+  credentials: 0,
+  usage: 0,
+  notificationSettings: 0,
+};
 
 /** A test SDK whose Bots' Turns each send "Hello". */
 async function helloSdk() {

@@ -3,7 +3,10 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { bot, botTrigger, message } from "../../storage";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { sentFileBlobKey } from "./files";
-import { controlOf, subjectOf, toBotMessage } from "./store";
+import { controlOf, newestTimeZone, subjectOf, toBotMessage, urgentOf } from "./store";
+import { knownZone } from "@botsdk/client/bot/time-zone";
+import type { NotificationRoute } from "@botsdk/client/bot/notifications";
+import { inQuietHours, notificationSettingsOf } from "../notifications-api";
 import { defineCoreJob, PermanentJobError } from "../../runner/internal";
 import { emailAddressOf } from "./email-address";
 import { deliveryPayload, type DeliveryPayload, type EmailChannel } from "../../channel/internal";
@@ -55,25 +58,54 @@ export async function lastUsedChannel(
 
 /**
  * Where a Bot Message goes besides web (spec #761, "Where a Bot's reply is delivered"): by email
- * when Turn `turnId` took a user Trigger by email; with no user Trigger in the Turn (a Routine, a
- * Check-in, a Helper, a webhook) or with no Turn at all (a Helper's own Message), on the Channel the
- * user last wrote from. Returns the email Trigger the Message answers, when it answers one.
+ * when Turn `turnId` took a user Trigger by email, and only on web when it took another user
+ * Trigger. With no user Trigger in the Turn (a Routine, a Check-in, a Helper, a webhook) or with no
+ * Turn at all (a Helper's own Message), it follows the user's notification settings (spec #1024).
+ * Returns the email Trigger the Message answers, when it answers one.
  */
 async function routeOf(
+  deps: BotSdkContext,
   tx: Transaction,
-  { conversationId, turnId }: { conversationId: string; turnId: string | null },
+  args: { conversationId: string; messageId: string; turnId: string | null },
 ): Promise<{ channel: DeliveryChannel; answers?: string } | null> {
-  if (turnId) {
+  if (args.turnId) {
     const taken = await tx
       .select({ id: botTrigger.id, channel: botTrigger.channel, messageId: botTrigger.messageId })
       .from(botTrigger)
-      .where(and(eq(botTrigger.turnId, turnId), eq(botTrigger.source, "user")))
+      .where(and(eq(botTrigger.turnId, args.turnId), eq(botTrigger.source, "user")))
       .orderBy(desc(botTrigger.receivedAt), desc(botTrigger.id));
     const emailed = taken.find((trigger) => trigger.channel === "email");
     if (emailed) return { channel: "email", answers: emailed.messageId ?? undefined };
     if (taken.length > 0) return null;
   }
-  return (await lastUsedChannel(tx, { conversationId })) === "email" ? { channel: "email" } : null;
+  const route = await unpromptedRouteOf(deps, tx, args);
+  return route === "in_app" ? null : { channel: route };
+}
+
+/**
+ * Where a Message from a Turn the user didn't start goes (spec #1024): the user's choice for urgent
+ * Messages or for the rest, or the Channel they last wrote from when that choice is empty. During
+ * Quiet hours, in the user's time zone, only an urgent Message leaves the app.
+ */
+async function unpromptedRouteOf(
+  deps: BotSdkContext,
+  tx: Transaction,
+  { conversationId, messageId }: { conversationId: string; messageId: string },
+): Promise<NotificationRoute> {
+  const [sent] = await tx
+    .select({ parts: message.parts, userId: bot.userId })
+    .from(message)
+    .innerJoin(bot, eq(bot.conversationId, message.conversationId))
+    .where(eq(message.id, messageId));
+  if (!sent) return "in_app";
+  const urgent = urgentOf(sent.parts);
+  const settings = await notificationSettingsOf(tx, sent.userId);
+  const route =
+    (urgent ? settings.urgent : settings.other) ??
+    ((await lastUsedChannel(tx, { conversationId })) === "email" ? "email" : "in_app");
+  if (route === "in_app" || urgent) return route;
+  const zone = knownZone(await newestTimeZone(tx, conversationId));
+  return inQuietHours(settings.quietHours, deps.clock(), zone) ? "in_app" : route;
 }
 
 /**
@@ -124,7 +156,7 @@ export async function deliverIn(
   email: EmailChannel,
   args: { conversationId: string; messageId: string; turnId: string | null },
 ): Promise<void> {
-  const route = await routeOf(tx, args);
+  const route = await routeOf(deps, tx, args);
   if (!route) return;
   const [owner] = await tx
     .select({ name: bot.name })

@@ -138,6 +138,7 @@ const coreTables = [
   "job_event",
   "message",
   "model_settings",
+  "notification_settings",
   "secret",
   "usage",
   "user_credentials",
@@ -177,6 +178,7 @@ describe("chat.migrate()", () => {
       "message_error_reason",
       "message_role",
       "message_status",
+      "notification_route",
       "usage_kind",
     ]);
 
@@ -185,6 +187,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261026182921_botsdk_baseline" },
       { feature: "core", migration: "20261029113355_approval_rules" },
       { feature: "core", migration: "20261029163647_tasks_view" },
+      { feature: "core", migration: "20261029213823_notification_settings" },
     ]);
     // Images and PDFs are already compressed, so the bytes are kept out of line uncompressed.
     expect(
@@ -224,6 +227,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261026182921_botsdk_baseline" },
       { feature: "core", migration: "20261029113355_approval_rules" },
       { feature: "core", migration: "20261029163647_tasks_view" },
+      { feature: "core", migration: "20261029213823_notification_settings" },
     ]);
     expect(
       await rows(url, "update botsdk.bot_review set state = 'pending' returning state, expires_at"),
@@ -264,6 +268,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261026182921_botsdk_baseline" },
       { feature: "core", migration: "20261029113355_approval_rules" },
       { feature: "core", migration: "20261029163647_tasks_view" },
+      { feature: "core", migration: "20261029213823_notification_settings" },
       { feature: "notes", migration: "0001_note" },
       { feature: "mcp", migration: "20261026182927_mcp_baseline" },
     ]);
@@ -284,6 +289,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261026182921_botsdk_baseline" },
       { feature: "core", migration: "20261029113355_approval_rules" },
       { feature: "core", migration: "20261029163647_tasks_view" },
+      { feature: "core", migration: "20261029213823_notification_settings" },
       { feature: "notes", migration: "0001_note" },
       { feature: "notes", migration: "0002_note_text" },
     ]);
@@ -408,6 +414,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261026182921_botsdk_baseline" },
       { feature: "core", migration: "20261029113355_approval_rules" },
       { feature: "core", migration: "20261029163647_tasks_view" },
+      { feature: "core", migration: "20261029213823_notification_settings" },
       { feature: "notes", migration: "0001_note" },
     ]);
   });

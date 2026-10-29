@@ -6,6 +6,7 @@ import type { BotCheckIn } from "./check-in";
 import { maxChoiceOptionLength, maxChoiceOtherLength } from "./choice";
 import type { DemonstrationState, DemonstrationStep } from "./demonstration";
 import type { BotHelper } from "./helper";
+import { type NotificationSettings, notificationSettingsSchema } from "./notifications";
 import { emojiSchema } from "./reaction";
 import type { BotReview, ReviewApprovalState } from "./review";
 import { type BotRoutine, routineScheduleSchema } from "./routine";
@@ -369,6 +370,17 @@ const rules = {
 };
 
 /**
+ * The user's notification settings (spec #1024), for all their Bots: Quiet hours and where
+ * Messages from Turns they didn't start go.
+ */
+const notifications = {
+  /** The user's settings; the defaults when they have set nothing. */
+  get: oc.output(type<NotificationSettings>()),
+  /** Replaces the user's settings, and returns them. */
+  update: oc.input(notificationSettingsSchema).output(type<NotificationSettings>()),
+};
+
+/**
  * The user's Secrets (spec #691), shared by all their Bots. A value goes in through `save` and
  * never comes out: `list` returns names and dates only.
  */
@@ -431,6 +443,7 @@ export const botContract = {
   helpers,
   reviews,
   rules,
+  notifications,
   secrets,
   demonstrations,
   computer,

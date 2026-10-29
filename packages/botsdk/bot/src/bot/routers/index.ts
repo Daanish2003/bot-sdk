@@ -135,6 +135,15 @@ const reviews = os.reviews.router({
   ),
 });
 
+const notifications = os.notifications.router({
+  get: os.notifications.get.handler(({ context }) =>
+    context.sdk.notifications.get({ userId: context.user.id }),
+  ),
+  update: os.notifications.update.handler(({ context, input }) =>
+    context.sdk.notifications.update({ ...input, userId: context.user.id }),
+  ),
+});
+
 const rules = os.rules.router({
   list: os.rules.list.handler(({ context }) => context.sdk.rules.list({ userId: context.user.id })),
   neverAllowed: os.rules.neverAllowed.handler(({ context }) => context.sdk.rules.neverAllowed()),
@@ -199,6 +208,7 @@ export const botPluginRouter = {
   helpers,
   reviews,
   rules,
+  notifications,
   secrets,
   demonstrations,
   computer,

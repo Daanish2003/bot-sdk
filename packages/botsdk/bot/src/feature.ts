@@ -391,6 +391,7 @@ const instanceKeys: Record<keyof BotSdk, true> = {
   demonstrations: true,
   reviews: true,
   rules: true,
+  notifications: true,
   channels: true,
   migrate: true,
   start: true,

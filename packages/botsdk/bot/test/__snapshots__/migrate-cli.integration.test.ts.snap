@@ -423,6 +423,21 @@ ALTER TABLE "botsdk"."bot_trigger" ADD CONSTRAINT "bot_trigger_skipped_check" CH
 insert into botsdk.__migrations (feature, migration) values ('core', '20261029163647_tasks_view');
 commit;
 
+-- core/20261029213823_notification_settings
+begin;
+CREATE TYPE "botsdk"."notification_route" AS ENUM('in_app', 'email');--> statement-breakpoint
+CREATE TABLE "botsdk"."notification_settings" (
+	"user_id" text PRIMARY KEY,
+	"quiet_start" text,
+	"quiet_end" text,
+	"urgent_route" "botsdk"."notification_route",
+	"other_route" "botsdk"."notification_route",
+	"updated_at" timestamp NOT NULL
+);
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261029213823_notification_settings');
+commit;
+
 -- notes/0001_note
 begin;
 create table botsdk.test_note (id text primary key, bot_id uuid references botsdk.bot(id) on delete cascade)

@@ -15,6 +15,7 @@ import {
   bot,
   botSecret,
   customRule,
+  notificationSettings,
   botTrigger,
   botTurn,
   conversation,
@@ -453,9 +454,11 @@ export async function newestTimeZone(
  */
 export const botUserDelete: UserDeleteHooks<() => Promise<void>> = {
   before: async (sdk, { userId, tx }) => {
-    // The user's Secrets and Custom Rules are theirs, not a Bot's, so no cascade reaches them.
+    // The user's Secrets, Custom Rules and notification settings are theirs, not a Bot's, so no
+    // cascade reaches them.
     await tx.delete(botSecret).where(eq(botSecret.userId, userId));
     await tx.delete(customRule).where(eq(customRule.userId, userId));
+    await tx.delete(notificationSettings).where(eq(notificationSettings.userId, userId));
     const { afterCommit } = await deleteConversations(sdk, tx, {
       where: eq(conversation.kind, botKind),
       userId,
