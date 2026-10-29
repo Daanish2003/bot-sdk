@@ -7,11 +7,17 @@ export type PushSupport = "supported" | "needs-home-screen" | "unsupported";
 /** A device's subscription as the server takes it. */
 export type DeviceSubscription = { endpoint: string; keys: { p256dh: string; auth: string } };
 
+/**
+ * A device's subscription and the VAPID public key it was made with (its `applicationServerKey`,
+ * base64url without padding), `null` when the browser doesn't say.
+ */
+export type CurrentSubscription = { subscription: DeviceSubscription; serverKey: string | null };
+
 /** This device's web push, as the Notifications section uses it; tests pass a fake. */
 export type PushDevice = {
   support: () => PushSupport;
   /** This device's subscription, or `null` when it has none. */
-  current: () => Promise<DeviceSubscription | null>;
+  current: () => Promise<CurrentSubscription | null>;
   /**
    * Asks the user for notifications and subscribes the device with the Host's VAPID `publicKey`.
    * Throws `PushDeniedError` when the user or the browser refuses notifications.
@@ -56,6 +62,12 @@ function keyBytes(base64url: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
 
+/** Bytes as base64url without padding, as a VAPID public key is written. */
+function base64urlOf(bytes: ArrayBuffer): string {
+  const binary = String.fromCharCode(...new Uint8Array(bytes));
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
 /** A browser subscription as the server takes it. */
 function deviceSubscriptionOf(subscription: PushSubscription): DeviceSubscription {
   const { endpoint, keys } = subscription.toJSON();
@@ -84,7 +96,12 @@ export const browserPushDevice: PushDevice = {
     }),
   current: async () => {
     const subscription = await (await registration())?.pushManager.getSubscription();
-    return subscription ? deviceSubscriptionOf(subscription) : null;
+    if (!subscription) return null;
+    const serverKey = subscription.options.applicationServerKey;
+    return {
+      subscription: deviceSubscriptionOf(subscription),
+      serverKey: serverKey ? base64urlOf(serverKey) : null,
+    };
   },
   subscribe: async (publicKey) => {
     if ((await Notification.requestPermission()) !== "granted") throw new PushDeniedError();

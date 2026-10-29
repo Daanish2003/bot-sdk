@@ -86,4 +86,6 @@ export const settingsMessages = {
   "settings.pushDenied":
     "Notifications are blocked for this site. Allow them in your browser's settings, then try again.",
   "settings.pushFailed": "Couldn't change push on this device",
+  "settings.pushSaveFailed":
+    "Couldn't save this device for push. Turn push off and on again to retry.",
 };

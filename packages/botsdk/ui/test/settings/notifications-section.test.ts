@@ -26,7 +26,11 @@ afterEach(cleanup);
 /** A stand-in for the server's `notifications` router that holds the settings and records saves. */
 function fakeNotificationsServer(
   settings: NotificationSettings,
-  { failing, pushKey = null }: { failing?: boolean; pushKey?: string | null } = {},
+  {
+    failing,
+    pushKey = null,
+    subscribeFails = false,
+  }: { failing?: boolean; pushKey?: string | null; subscribeFails?: boolean } = {},
 ) {
   const saved: NotificationSettings[] = [];
   const subscribed: DeviceSubscription[] = [];
@@ -45,6 +49,7 @@ function fakeNotificationsServer(
       push: {
         key: os.handler(() => pushKey),
         subscribe: os.input(pushSubscriptionSchema).handler(({ input }) => {
+          if (subscribeFails) throw new ORPCError("INTERNAL_SERVER_ERROR");
           subscribed.push(input);
         }),
         unsubscribe: os.input(pushEndpointInput).handler(({ input }) => {
@@ -65,23 +70,32 @@ const phone: DeviceSubscription = {
   keys: { p256dh: "B".padEnd(87, "A"), auth: "a".padEnd(22, "A") },
 };
 
-/** A stand-in for this browser's push: its `support`, and the device's subscription, if any. */
+/** The Host's VAPID public key in these tests. */
+const hostKey = "BHostVapidKey";
+
+/**
+ * A stand-in for this browser's push: its `support`, and the device's subscription, if any, made
+ * with the VAPID key `subscribedWith` (the Host's by default).
+ */
 function fakeDevice(
   support: PushSupport,
   {
     subscription = null,
+    subscribedWith = hostKey,
     denied = false,
-  }: { subscription?: DeviceSubscription | null; denied?: boolean } = {},
+  }: { subscription?: DeviceSubscription | null; subscribedWith?: string; denied?: boolean } = {},
 ) {
   const keys: string[] = [];
   let current = subscription;
+  let serverKey = subscribedWith;
   const device: PushDevice = {
     support: () => support,
-    current: async () => current,
+    current: async () => current && { subscription: current, serverKey },
     subscribe: async (publicKey) => {
       keys.push(publicKey);
       if (denied) throw new PushDeniedError();
       current = phone;
+      serverKey = publicKey;
       return phone;
     },
     unsubscribe: async () => {
@@ -90,7 +104,7 @@ function fakeDevice(
       return endpoint;
     },
   };
-  return { device, keys };
+  return { device, keys, isSubscribed: () => current !== null };
 }
 
 function mount(server: ReturnType<typeof fakeNotificationsServer>, pushDevice?: PushDevice) {
@@ -196,7 +210,7 @@ describe("the Notifications section", () => {
   });
 });
 describe("web push in the Notifications section", () => {
-  const key = "BHostVapidKey";
+  const key = hostKey;
 
   it("isn't offered when the Host has no web push", async () => {
     mount(fakeNotificationsServer(nothingSet), fakeDevice("supported").device);
@@ -266,6 +280,34 @@ describe("web push in the Notifications section", () => {
 
     await screen.findByRole("status");
     expect(server.subscribed).toEqual([phone]);
+  });
+
+  it("unsubscribes a device subscribed with another key, and offers to enable push again", async () => {
+    const server = fakeNotificationsServer(nothingSet, { pushKey: key });
+    const { device, isSubscribed } = fakeDevice("supported", {
+      subscription: phone,
+      subscribedWith: "BOldVapidKey",
+    });
+    mount(server, device);
+
+    await screen.findByRole("button", { name: "Enable push on this device" });
+    await waitFor(() => expect(isSubscribed()).toBe(false));
+    expect(server.subscribed).toEqual([]);
+    expect(server.unsubscribed).toEqual([phone.endpoint]);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("says so when saving a subscribed device fails, and still lets the user turn push off", async () => {
+    const server = fakeNotificationsServer(nothingSet, { pushKey: key, subscribeFails: true });
+    mount(server, fakeDevice("supported", { subscription: phone }).device);
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Couldn't save this device for push. Turn push off and on again to retry.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Turn off push on this device" }));
+
+    await screen.findByRole("button", { name: "Enable push on this device" });
+    expect(server.unsubscribed).toEqual([phone.endpoint]);
   });
 
   it("saves nothing when notifications are blocked", async () => {

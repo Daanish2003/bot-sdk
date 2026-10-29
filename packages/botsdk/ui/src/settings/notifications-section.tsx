@@ -10,13 +10,19 @@ import {
   quietHoursSchema,
 } from "@botsdk/client/bot/notifications";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
 import { serverErrorText } from "@botsdk/react/rpc-error";
 import { useI18n, useOrpc } from "@botsdk/react/provider";
 
-import { browserPushDevice, type PushDevice, PushDeniedError } from "./push-device";
+import {
+  browserPushDevice,
+  type CurrentSubscription,
+  type DeviceSubscription,
+  type PushDevice,
+  PushDeniedError,
+} from "./push-device";
 
 /** Quiet hours as the form first offers them when turned on. */
 const suggestedQuietHours = { start: "22:00", end: "07:00" };
@@ -126,15 +132,32 @@ function PushDeviceRow({ publicKey, device }: { publicKey: string; device: PushD
   const deviceKey = ["notifications", "push-device"];
   const current = useQuery({
     queryKey: deviceKey,
-    // A device subscribed before, maybe by another user of this browser, is saved for this user,
-    // so "on" is true for them.
-    queryFn: async () => {
-      const subscription = await device.current();
-      if (subscription) await orpc.notifications.push.subscribe.call(subscription);
-      return subscription;
-    },
+    queryFn: () => device.current(),
     enabled: support === "supported",
   });
+  const { mutate: saveDevice, ...save } = useMutation({
+    mutationFn: (subscription: DeviceSubscription) =>
+      orpc.notifications.push.subscribe.call(subscription),
+  });
+  const { mutate: dropDevice } = useMutation({
+    mutationFn: async (endpoint: string) => {
+      await device.unsubscribe();
+      await orpc.notifications.push.unsubscribe.call({ endpoint });
+    },
+    onSettled: () => queryClient.setQueryData(deviceKey, null),
+  });
+  // A device subscribed before, maybe by another user of this browser, is saved once for this
+  // user, so "on" is true for them. One subscribed with another VAPID key (the Host changed its
+  // key) can't get pushes: it is unsubscribed, so the user can enable push again.
+  const handled = useRef<string | null>(null);
+  useEffect(() => {
+    const found = current.data;
+    if (!found || handled.current === found.subscription.endpoint) return;
+    handled.current = found.subscription.endpoint;
+    if (found.serverKey === publicKey) saveDevice(found.subscription);
+    else dropDevice(found.subscription.endpoint);
+  }, [current.data, publicKey, saveDevice, dropDevice]);
+  const on = current.data?.serverKey === publicKey;
   const failed = (error: unknown) =>
     toast.error(
       t(error instanceof PushDeniedError ? "settings.pushDenied" : "settings.pushFailed"),
@@ -145,7 +168,14 @@ function PushDeviceRow({ publicKey, device }: { publicKey: string; device: PushD
       await orpc.notifications.push.subscribe.call(subscription);
       return subscription;
     },
-    onSuccess: (subscription) => queryClient.setQueryData(deviceKey, subscription),
+    onSuccess: (subscription) => {
+      handled.current = subscription.endpoint;
+      save.reset();
+      queryClient.setQueryData<CurrentSubscription>(deviceKey, {
+        subscription,
+        serverKey: publicKey,
+      });
+    },
     onError: failed,
   });
   const disable = useMutation({
@@ -153,7 +183,10 @@ function PushDeviceRow({ publicKey, device }: { publicKey: string; device: PushD
       const endpoint = await device.unsubscribe();
       if (endpoint) await orpc.notifications.push.unsubscribe.call({ endpoint });
     },
-    onSuccess: () => queryClient.setQueryData(deviceKey, null),
+    onSuccess: () => {
+      save.reset();
+      queryClient.setQueryData(deviceKey, null);
+    },
     onError: failed,
   });
   if (support === null) return null;
@@ -168,7 +201,7 @@ function PushDeviceRow({ publicKey, device }: { publicKey: string; device: PushD
       {support === "needs-home-screen" && (
         <p className="text-xs text-muted-foreground">{t("settings.pushNeedsHomeScreen")}</p>
       )}
-      {support === "supported" && current.isSuccess && current.data && (
+      {support === "supported" && current.isSuccess && on && (
         <div className="flex flex-wrap items-center gap-3">
           <p role="status" className="text-xs">
             {t("settings.pushEnabled")}
@@ -183,6 +216,11 @@ function PushDeviceRow({ publicKey, device }: { publicKey: string; device: PushD
             {t("settings.pushDisable")}
           </Button>
         </div>
+      )}
+      {on && save.isError && (
+        <p role="alert" className="text-xs text-destructive">
+          {t("settings.pushSaveFailed")}
+        </p>
       )}
       {support === "supported" && current.isSuccess && !current.data && (
         <Button type="button" size="sm" disabled={enable.isPending} onClick={() => enable.mutate()}>
