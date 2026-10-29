@@ -121,6 +121,21 @@ describe("mcp's forUser(id).tools()", () => {
     ]);
   });
 
+  it("stamps each tool read-only when the server hints it or readOnlyTools names it", async () => {
+    const { tools } = await setup({ servers: [{ ...linear, readOnlyTools: ["list_issues"] }] });
+    const controller = new AbortController();
+
+    const listed = await tools(controller.signal);
+    controller.abort();
+
+    // delete_issue carries readOnlyHint: true; create_issue has no hint and is not listed.
+    expect(listed.map((tool) => [tool.name, tool.metadata?.readOnly === true])).toEqual([
+      ["linear_list_issues", true],
+      ["linear_create_issue", false],
+      ["linear_delete_issue", true],
+    ]);
+  });
+
   it("runs a tool on the server", async () => {
     const { server, tools } = await setup();
     const controller = new AbortController();

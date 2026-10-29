@@ -53,7 +53,12 @@ import { watchUserTool } from "../demonstrations";
 import type { LoopKit } from "../agent-loop";
 
 import { generateImageTool } from "./generate-image";
-import { gateReadOnly, isReadOnlyRun, refusedInReadOnly } from "./read-only";
+import {
+  gateReadOnly,
+  isReadOnlyRun,
+  refusedConnectorInReadOnly,
+  refusedInReadOnly,
+} from "./read-only";
 
 /*
  * The tool catalogue of a Turn (spec #871): the core's tools, then the enabled features' tools, and
@@ -333,8 +338,13 @@ export async function forTurn(
   // A read-only run (spec #1024) keeps this list and refuses the calls that could change something.
   // Whether the Turn is one is read once, at its first such call, in a recorded activity.
   const tools = live
-    ? gateReadOnly(listed, refusedInReadOnly, () =>
-        live.kit.liveActivity("read_only", undefined, (tx) => isReadOnlyRun(tx, turn.id)),
+    ? gateReadOnly(
+        listed,
+        (tool) =>
+          fromFeatures.connectorNames.has(tool.name)
+            ? refusedConnectorInReadOnly(tool)
+            : refusedInReadOnly(tool.name),
+        () => live.kit.liveActivity("read_only", undefined, (tx) => isReadOnlyRun(tx, turn.id)),
       )
     : listed;
   return {

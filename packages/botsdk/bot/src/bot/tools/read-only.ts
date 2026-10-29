@@ -50,6 +50,15 @@ export function refusedInReadOnly(name: string): boolean {
 }
 
 /**
+ * Whether a read-only run refuses a call of Connector tool `tool`: any whose `metadata.readOnly` is
+ * not `true`. The MCP feature sets it from the server's `readOnlyHint` or the Host's
+ * `readOnlyTools`; a tool with neither is refused.
+ */
+export function refusedConnectorInReadOnly(tool: AnyServerTool): boolean {
+  return tool.metadata?.readOnly !== true;
+}
+
+/**
  * Whether Turn `turnId` is a read-only run: it took a Trigger of a read-only Routine. A Routine
  * deleted since its fire counts as read-only, so a run whose Routine is gone fails closed.
  */
@@ -74,13 +83,13 @@ export async function isReadOnlyRun(tx: Transaction, turnId: string): Promise<bo
  */
 export function gateReadOnly(
   tools: AnyServerTool[],
-  refuses: (name: string) => boolean,
+  refuses: (tool: AnyServerTool) => boolean,
   readOnly: () => Promise<boolean>,
 ): AnyServerTool[] {
   let asked: Promise<boolean> | undefined;
   return tools.map((tool) => {
     const { execute } = tool;
-    if (!execute || !refuses(tool.name)) return tool;
+    if (!execute || !refuses(tool)) return tool;
     return {
       ...tool,
       execute: async (args, context) =>
