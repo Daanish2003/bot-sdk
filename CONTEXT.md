@@ -65,7 +65,7 @@ A tool a Bot gets from one of its user's Connections. It is a Deferred tool, and
 _Avoid_: MCP tool, integration tool
 
 **Approval**:
-A user's yes or no to one tool call before it runs, or to a new Routine. A Bot asks for one for a tool call only when Auto-review blocks it: the call waits inside its Turn for 15 seconds, then stays pending while the Bot carries on. A later yes runs the call exactly as it was asked and wakes the Bot with its result; a later no wakes it too. A pending Approval expires after 7 days. A Screen action that always asks waits only the 15 seconds, and there silence counts as no.
+A user's yes or no to one tool call before it runs, to a new Routine, or to a Custom Rule a Bot proposes. A Bot asks for one for a tool call only when Auto-review blocks it: the call waits inside its Turn for 15 seconds, then stays pending while the Bot carries on. A later yes runs the call exactly as it was asked and wakes the Bot with its result; a later no wakes it too. A pending Approval expires after 7 days. A Screen action that always asks waits only the 15 seconds, and there silence counts as no.
 _Avoid_: Confirmation, consent, permission
 
 **Attachment**:
@@ -163,8 +163,12 @@ One display on the Computer, with its own Chrome and Chrome profile, for one act
 _Avoid_: Display, desktop, browser
 
 **Auto-review**:
-A separate model's check of a Bot's risky tool call before it runs. Every shell command is risky, and so is every browser or desktop action that does more than look. A call it passes runs without asking; one it blocks waits for an Approval. It takes only the user's own Messages, or a Routine the user approved, as permission, so text from a webhook or a web page can't talk it into anything.
+A separate model's check of a Bot's risky tool call before it runs. Every shell command is risky, and so is every browser or desktop action that does more than look. A call it passes runs without asking; one it blocks waits for an Approval. It takes only the user's own Messages, a Routine the user approved, or their Custom Rules as permission, so text from a webhook or a web page can't talk it into anything.
 _Avoid_: Guardrail, moderation, safety check
+
+**Custom Rule**:
+A user's standing instruction, in their own words, for one kind of action their Bots might take, with one of four modes: do it without asking, do it only when the user asked for it, ask before doing it, or hand it off to the user. Auto-review reads it as the user's permission or restriction; the strictest matching rule wins, and none can make a Never-allowed action possible. It applies to all the user's Bots. The user writes it, or a Bot proposes it and it applies after the user's Approval.
+_Avoid_: Policy, permission rule, allowlist
 
 **Secret**:
 A value such as a password or token that the user typed into a secure entry field for their Bots. A command on the Computer can use it, but the model only ever sees its name. Each user's Secrets are shared by all their Bots.
