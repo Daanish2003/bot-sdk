@@ -16,7 +16,7 @@ export function useNeverAllowed(): string[] {
 /**
  * The user's Custom Rules (spec #989), shared by all their Bots, the oldest first. `create` writes
  * an active rule under `newRuleKey`; `update` and `remove` act on rule `ruleId`. `acting` holds the
- * rules with a call in flight, one at a time each. A refusal (the 50-rule limit) is thrown.
+ * rules with a call in flight, one at a time each. `approve` and `deny` answer a rule a Bot proposed. A refusal (the 50-rule limit) is thrown.
  */
 export function useCustomRules() {
   const { orpc } = useChatAdapter();
@@ -35,5 +35,11 @@ export function useCustomRules() {
     update: (ruleId: string, input: { text?: string; mode?: CustomRuleMode }) =>
       act(ruleId, () => orpc.rules.update.call({ ruleId, ...input })),
     remove: (ruleId: string) => act(ruleId, () => orpc.rules.delete.call({ ruleId })),
+    approve: async (ruleId: string) => {
+      await act(ruleId, () => orpc.rules.approve.call({ ruleId }));
+    },
+    deny: async (ruleId: string) => {
+      await act(ruleId, () => orpc.rules.deny.call({ ruleId }));
+    },
   };
 }

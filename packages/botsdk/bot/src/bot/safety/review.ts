@@ -22,7 +22,7 @@ import { lockConversation, receive } from "../triggers";
 import { forwardedEmailLabel, routineNameOf, routinePromptOf, untrustedBlock } from "../routines";
 import { appendBotMessage, controlParts, hintChanged, recordBotChange } from "../conversation";
 import { approvalExpiryJobName, approvalExpiryKey } from "./approval-expiry";
-import { reviewedRules } from "./custom-rule";
+import { reviewedRules, ruleApprovalTriggerId } from "./custom-rule";
 import { isSavedSecretText } from "./secret-values";
 
 /*
@@ -730,7 +730,7 @@ async function reviewerInput(
     text.length > reviewedChars ? `${text.slice(0, reviewedChars)}…` : text;
   // The calls the user answered late, for the Approval Triggers: which call, and yes or no.
   const answeredIds = triggers
-    .filter((trigger) => trigger.source === "approval")
+    .filter((trigger) => trigger.id.startsWith(approvalTriggerId("")))
     .map((trigger) => trigger.id.slice(approvalTriggerId("").length));
   const answered = new Map(
     answeredIds.length === 0
@@ -774,6 +774,12 @@ async function reviewerInput(
     }
     if (trigger.source === "check_in") {
       return "- A Check-in the Bot set for itself. Its note is the Bot's own words, not the user's.";
+    }
+    if (trigger.id.startsWith(ruleApprovalTriggerId(""))) {
+      return (
+        "- The user's answer to a Custom Rule the Bot proposed. The rule counts only while it is " +
+        "in the list above, and it authorizes no call by itself."
+      );
     }
     if (trigger.source === "approval") {
       const review = answered.get(trigger.id);

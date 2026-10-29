@@ -316,3 +316,163 @@ describe("Custom Rules in the Bot's prompt", () => {
     },
   );
 });
+
+describe("a Bot proposes a Custom Rule", () => {
+  const proposal = {
+    text: "Open pull requests without asking",
+    mode: "without_asking",
+    why: "You approved four pull requests in a row.",
+  };
+  const proposing = () => [
+    round(toolCall({ name: "propose_rule", input: proposal })),
+    round(toolCall({ name: "send_to_user", input: { text: "Proposed.", endTurn: true } })),
+  ];
+
+  /** The newest Message of a Turn call that the Approval Trigger woke, if one has run. */
+  const approvalNote = (fake: Awaited<ReturnType<typeof botWith>>["fake"]) =>
+    fake.calls
+      .filter(isTurnCall)
+      .map((call) => String(messagesOf(call).at(-1)?.content))
+      .find((content) => content.includes("[Approval]"));
+
+  it(
+    "saves a proposed rule and a rule_approval Message, and applies nothing yet",
+    { timeout },
+    async () => {
+      const { client, botId } = await botWith(proposing());
+
+      await send(client, botId, "I keep approving these");
+
+      const [rule] = await client.rules.list();
+      expect(rule).toMatchObject({
+        text: proposal.text,
+        mode: "without_asking",
+        state: "proposed",
+        proposedByBotId: botId,
+      });
+      const { messages } = await client.bots.get({ botId });
+      const asked = messages.find((sent) => sent.control?.kind === "rule_approval");
+      expect(asked).toMatchObject({
+        role: "assistant",
+        control: { kind: "rule_approval", ruleId: rule!.id },
+      });
+      expect(JSON.stringify(asked)).toContain(proposal.why);
+    },
+  );
+
+  it("never shows the reviewer a proposed rule", { timeout }, async () => {
+    const { client, botId, reviewer } = await botWith([
+      ...proposing(),
+      round(toolCall({ name: "shell", input: { command: "ls" } })),
+      round(toolCall({ name: "send_to_user", input: { text: "Done.", endTurn: true } })),
+    ]);
+    await send(client, botId, "propose it");
+
+    await send(client, botId, "list my files");
+
+    expect(reviewer.calls).toHaveLength(1);
+    const input = String(messagesOf(reviewer.calls[0])[0]?.content);
+    expect(input).toContain("(none)");
+    expect(input).not.toContain(proposal.text);
+  });
+
+  it("approving makes the rule active and wakes the Bot", { timeout }, async () => {
+    const { client, botId, fake } = await botWith(proposing());
+    await send(client, botId, "propose it");
+    const [rule] = await client.rules.list();
+
+    const approved = await client.rules.approve({ ruleId: rule!.id });
+
+    expect(approved).toMatchObject({ id: rule!.id, state: "active" });
+    expect((await client.rules.list())[0]).toMatchObject({ state: "active" });
+    await expect.poll(() => approvalNote(fake), { timeout: 10_000 }).toContain("approved");
+    expect(approvalNote(fake)).toContain(proposal.text);
+    // A second approval changes nothing.
+    await client.rules.approve({ ruleId: rule!.id });
+    expect(await client.rules.list()).toHaveLength(1);
+  });
+
+  it(
+    "tells the reviewer of the woken Turn about the answer, without reading it as a review",
+    { timeout },
+    async () => {
+      const { client, botId, reviewer } = await botWith([
+        ...proposing(),
+        round(toolCall({ name: "shell", input: { command: "ls" } })),
+        round(toolCall({ name: "send_to_user", input: { text: "Done.", endTurn: true } })),
+      ]);
+      await send(client, botId, "propose it");
+      const [rule] = await client.rules.list();
+
+      await client.rules.approve({ ruleId: rule!.id });
+
+      await expect.poll(() => reviewer.calls.length, { timeout: 10_000 }).toBe(1);
+      expect(String(messagesOf(reviewer.calls[0])[0]?.content)).toContain(
+        "The user's answer to a Custom Rule the Bot proposed",
+      );
+    },
+  );
+
+  it("denying deletes the rule and wakes the Bot", { timeout }, async () => {
+    const { client, botId, fake } = await botWith(proposing());
+    await send(client, botId, "propose it");
+    const [rule] = await client.rules.list();
+
+    await client.rules.deny({ ruleId: rule!.id });
+
+    expect(await client.rules.list()).toEqual([]);
+    await expect.poll(() => approvalNote(fake), { timeout: 10_000 }).toContain("denied");
+  });
+
+  it("refuses an approval at the limit, and the rule stays proposed", { timeout }, async () => {
+    const { client, botId, fake } = await botWith(proposing());
+    await send(client, botId, "propose it");
+    const [rule] = await client.rules.list();
+    for (let n = 1; n <= 50; n++) await client.rules.create({ text: `Rule ${n}`, mode: "ask" });
+
+    await expect(client.rules.approve({ ruleId: rule!.id })).rejects.toMatchObject({
+      data: { code: "error.customRuleLimit", params: { max: 50 } },
+    });
+
+    const listed = await client.rules.list();
+    expect(listed.find((each) => each.id === rule!.id)?.state).toBe("proposed");
+    expect(approvalNote(fake)).toBeUndefined();
+    // Denying still works, and does not keep the rule.
+    await client.rules.deny({ ruleId: rule!.id });
+    expect((await client.rules.list()).some((each) => each.id === rule!.id)).toBe(false);
+  });
+
+  it("answers a rule whose Bot is gone, with no one to wake", { timeout }, async () => {
+    const { client, botId, fake } = await botWith(proposing());
+    await send(client, botId, "propose it");
+    const [rule] = await client.rules.list();
+    await getTestDb().delete(bot).where(eq(bot.id, botId));
+
+    const approved = await client.rules.approve({ ruleId: rule!.id });
+
+    expect(approved).toMatchObject({ state: "active", proposedByBotId: null });
+    expect(approvalNote(fake)).toBeUndefined();
+  });
+
+  it(
+    "does not find another user's rule, and keeps an active rule on deny",
+    { timeout },
+    async () => {
+      const { client, deps, botId } = await botWith(proposing());
+      await send(client, botId, "propose it");
+      const [rule] = await client.rules.list();
+      const stranger = chatRpc({ user: await insertUser(), deps });
+
+      await expect(stranger.rules.approve({ ruleId: rule!.id })).rejects.toMatchObject({
+        data: { code: "error.customRuleNotFound" },
+      });
+      await expect(stranger.rules.deny({ ruleId: rule!.id })).rejects.toMatchObject({
+        data: { code: "error.customRuleNotFound" },
+      });
+      const mine = await client.rules.create({ text: "Mine", mode: "ask" });
+      await client.rules.deny({ ruleId: mine.id });
+
+      expect((await client.rules.list()).map((each) => each.id)).toContain(mine.id);
+    },
+  );
+});

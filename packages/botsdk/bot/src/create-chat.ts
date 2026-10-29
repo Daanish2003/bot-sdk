@@ -549,6 +549,8 @@ function buildContext(
       create: true,
       update: true,
       delete: true,
+      approve: true,
+      deny: true,
     }),
   };
 }

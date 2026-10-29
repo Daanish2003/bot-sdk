@@ -55,6 +55,19 @@ function fakeRulesServer(rules: CustomRule[]) {
           });
           return rule;
         }),
+      approve: os.input(z.object({ ruleId: z.string() })).handler(({ input }) => {
+        calls.push({ method: "approve", input });
+        const rule = rules.find((candidate) => candidate.id === input.ruleId)!;
+        rule.state = "active";
+        return rule;
+      }),
+      deny: os.input(z.object({ ruleId: z.string() })).handler(({ input }) => {
+        calls.push({ method: "deny", input });
+        rules.splice(
+          rules.findIndex((rule) => rule.id === input.ruleId),
+          1,
+        );
+      }),
       delete: os.input(z.object({ ruleId: z.string() })).handler(({ input }) => {
         calls.push({ method: "delete", input });
         rules.splice(
@@ -190,6 +203,44 @@ describe("the rules page", () => {
     expect(server.calls).toEqual([]);
   });
 
+  it("lists the rules Bots proposed with Approve and Deny, apart from the active ones", async () => {
+    const server = fakeRulesServer([
+      ruleOf(1),
+      ruleOf(2, { state: "proposed", mode: "without_asking" }),
+      ruleOf(3, { state: "proposed" }),
+    ]);
+    mount(server);
+
+    const proposed = await screen.findByRole("list", { name: "Proposed by your Bots" });
+    expect(
+      within(proposed)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual([expect.stringContaining("Rule 2"), expect.stringContaining("Rule 3")]);
+    expect(screen.getByText("1 of 50 rules")).toBeTruthy();
+    // A proposed rule is not an editable field.
+    expect(screen.queryByDisplayValue("Rule 2")).toBeNull();
+
+    fireEvent.click(within(proposed).getAllByRole("button", { name: "Approve" })[0]!);
+    await waitFor(() =>
+      expect(server.calls).toEqual([{ method: "approve", input: { ruleId: ruleOf(2).id } }]),
+    );
+    expect(await screen.findByDisplayValue("Rule 2")).toBeTruthy();
+    expect(screen.getByText("2 of 50 rules")).toBeTruthy();
+
+    fireEvent.click(
+      within(screen.getByRole("list", { name: "Proposed by your Bots" })).getByRole("button", {
+        name: "Deny",
+      }),
+    );
+    await waitFor(() =>
+      expect(server.calls.at(-1)).toEqual({ method: "deny", input: { ruleId: ruleOf(3).id } }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("list", { name: "Proposed by your Bots" })).toBeNull(),
+    );
+  });
+
   it("shows the limit at 50 rules and turns Add a rule off, until one is deleted", async () => {
     const rules = Array.from({ length: 50 }, (_, n) => ruleOf(n + 1));
     const server = fakeRulesServer([...rules, ruleOf(51, { state: "proposed" })]);
@@ -202,6 +253,7 @@ describe("the rules page", () => {
     );
     // A proposed rule isn't listed to edit here.
     expect(screen.queryByDisplayValue("Rule 51")).toBeNull();
+    expect(screen.getByText("Rule 51")).toBeTruthy();
 
     fireEvent.click(
       within(screen.getByDisplayValue("Rule 1").closest("li")!).getByRole("button", {

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type { BotReview } from "@botsdk/client/bot/review";
+import type { CustomRule } from "@botsdk/client/bot/rule";
 import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -42,8 +43,22 @@ const review = (id: string, state: BotReview["state"], input = { command: "git p
     createdAt,
   }) satisfies BotReview;
 
-/** A stand-in for the server: `reviews.list` answers `reviews`, and an answer changes its row. */
-function fakeBotServer(reviews: BotReview[]) {
+const ruleOf = (id: string, over: Partial<CustomRule> = {}): CustomRule => ({
+  id,
+  text: `Text of ${id}`,
+  mode: "ask",
+  state: "proposed",
+  proposedByBotId: "b1",
+  createdAt,
+  updatedAt: createdAt,
+  ...over,
+});
+
+/**
+ * A stand-in for the server: `reviews.list` answers `reviews`, and an answer changes its row;
+ * `rules.list` answers `rules`, and an answer to one changes it too.
+ */
+function fakeBotServer(reviews: BotReview[], rules: CustomRule[] = [], messages: unknown[] = []) {
   const log = changeLog();
   const answers: Array<{ answer: string; reviewId: string }> = [];
   const decide = (answer: "allowed" | "denied") =>
@@ -52,7 +67,24 @@ function fakeBotServer(reviews: BotReview[]) {
       reviews.find((row) => row.id === input.reviewId)!.state = answer;
       return { decided: true, state: answer };
     });
+  const ruleAnswers: Array<{ answer: string; ruleId: string }> = [];
   const router = {
+    rules: {
+      list: os.handler(() => rules.map((rule) => ({ ...rule }))),
+      approve: os.input(z.object({ ruleId: z.string() })).handler(({ input }) => {
+        ruleAnswers.push({ answer: "approve", ruleId: input.ruleId });
+        const rule = rules.find((row) => row.id === input.ruleId)!;
+        rule.state = "active";
+        return rule;
+      }),
+      deny: os.input(z.object({ ruleId: z.string() })).handler(({ input }) => {
+        ruleAnswers.push({ answer: "deny", ruleId: input.ruleId });
+        rules.splice(
+          rules.findIndex((row) => row.id === input.ruleId),
+          1,
+        );
+      }),
+    },
     conversations: {
       changes: os
         .input(z.object({ conversationId: z.string(), since: z.number() }))
@@ -63,7 +95,7 @@ function fakeBotServer(reviews: BotReview[]) {
         bot: { ...ada, turnStatus: null },
         conversationId: "c1",
         lastSeq: log.last,
-        messages: [],
+        messages,
         turns: [],
         summaries: [],
         warmings: [],
@@ -84,6 +116,7 @@ function fakeBotServer(reviews: BotReview[]) {
   const handler = new RPCHandler(router);
   return {
     answers,
+    ruleAnswers,
     log,
     fetch: async (request: Request) =>
       (await handler.handle(request, { prefix: "/api/chat/rpc" })).response ??
@@ -150,6 +183,51 @@ describe("the Waiting N popover", { timeout: 30_000 }, () => {
       expect(server.answers.at(-1)).toEqual({ answer: "denied", reviewId: "r2" }),
     );
     await waitFor(() => expect(screen.getByRole("button", { name: "Waiting 0" })).toBeTruthy());
+  });
+
+  it("counts the rules this Bot proposed with the Approvals, and answers them", async () => {
+    const server = fakeBotServer(
+      [review("r1", "pending")],
+      [
+        ruleOf("p1"),
+        ruleOf("p2", { proposedByBotId: "someone-else" }),
+        ruleOf("p3", { state: "active" }),
+        ruleOf("p4", { proposedByBotId: null }),
+      ],
+    );
+    mount(server);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Waiting 2" }));
+    const card = (await screen.findByText("Text of p1")).closest("[data-rule-approval]")!;
+    expect(screen.queryByText("Text of p2")).toBeNull();
+    fireEvent.click(within(card as HTMLElement).getByRole("button", { name: "Approve" }));
+
+    await waitFor(() => expect(server.ruleAnswers).toEqual([{ answer: "approve", ruleId: "p1" }]));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Waiting 1" })).toBeTruthy());
+  });
+
+  it("answers a proposed rule from its card in the thread, and shows it added afterwards", async () => {
+    const server = fakeBotServer(
+      [],
+      [ruleOf("p1", { text: "Open pull requests" })],
+      [
+        {
+          id: "m1",
+          role: "assistant",
+          text: "I'd like to add a Custom Rule",
+          createdAt,
+          control: { kind: "rule_approval", ruleId: "p1" },
+        },
+      ],
+    );
+    mount(server);
+
+    const card = (await screen.findByText("Open pull requests")).closest("[data-rule-approval]")!;
+    expect(card.getAttribute("data-state")).toBe("proposed");
+    fireEvent.click(within(card as HTMLElement).getByRole("button", { name: "Approve" }));
+
+    await waitFor(() => expect(server.ruleAnswers).toEqual([{ answer: "approve", ruleId: "p1" }]));
+    expect(await screen.findByText("Rule added: Open pull requests")).toBeTruthy();
   });
 
   it("updates the count when a review changes elsewhere", async () => {

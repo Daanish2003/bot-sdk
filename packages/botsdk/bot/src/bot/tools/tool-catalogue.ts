@@ -2,6 +2,7 @@ import { choiceOptionsSchema } from "@botsdk/client/bot/choice";
 import { maxFilesPerMessage } from "@botsdk/client/bot/files";
 import { emojiSchema } from "@botsdk/client/bot/reaction";
 import type { RichControl } from "@botsdk/client/bot/rich-control";
+import { customRuleModes, customRuleTextSchema } from "@botsdk/client/bot/rule";
 import { routineScheduleSchema } from "@botsdk/client/bot/routine";
 import { secretNameSchema } from "@botsdk/client/bot/secret";
 import { type AnyServerTool, toolDefinition } from "@tanstack/ai";
@@ -46,6 +47,7 @@ import {
   updateRoutineToolName,
 } from "../routines";
 import { computerToolDefinitions, webSearchTool } from "../agent-loop";
+import { proposeRule, proposeRuleToolName } from "../safety";
 import { helperTools } from "../helpers";
 import { watchUserTool } from "../demonstrations";
 import type { LoopKit } from "../agent-loop";
@@ -230,6 +232,27 @@ const listCheckInsDefinition = toolDefinition({
   inputSchema: z.object({}),
 });
 
+const proposeRuleDefinition = toolDefinition({
+  name: proposeRuleToolName,
+  description:
+    "Propose a Custom Rule to the user: a standing instruction for all their Bots, such as after " +
+    "they approved the same kind of call several times. It applies to nothing until they approve " +
+    "it, and you are woken with their answer. Don't propose one they already have or denied.",
+  inputSchema: z.object({
+    text: customRuleTextSchema.meta({
+      description: "The rule, as a sentence the user reads, up to 500 characters.",
+    }),
+    mode: z.enum(customRuleModes).meta({
+      description:
+        "without_asking: matching calls pass; pre_approved: pass only if the user asked for it; " +
+        "ask: always wait for their approval; hand_off: the user does it themselves.",
+    }),
+    why: z.string().trim().min(1, "why must not be empty").meta({
+      description: "Why you propose it, in a sentence or two the user reads.",
+    }),
+  }),
+});
+
 /** How a live Turn lists its tools: through its loop's `kit`. */
 export type LiveCatalogue = {
   kit: LoopKit;
@@ -409,6 +432,20 @@ function coreToolsOf(
     ),
   );
 
+  // The Turn carries on once the rule is saved: the Approval is the rule's, not the call's.
+  const proposeRuleTool = proposeRuleDefinition.server(async (input, context) =>
+    liveActivity(proposeRuleToolName, context?.toolCallId, (tx) =>
+      proposeRule(deps, tx, {
+        ...input,
+        botId: turn.botId,
+        userId: turn.userId,
+        conversationId: turn.conversationId,
+        turnId: turn.id,
+        now: deps.clock(),
+      }),
+    ),
+  );
+
   const setCheckInTool = setCheckInDefinition.server(async ({ at, note }, context) =>
     liveActivity(setCheckInToolName, context?.toolCallId, (tx) =>
       saveCheckIn(deps, tx, {
@@ -439,6 +476,7 @@ function coreToolsOf(
     createRoutine,
     updateRoutineTool,
     deleteRoutineTool,
+    proposeRuleTool,
     setCheckInTool,
     cancelCheckInToolImpl,
     listCheckInsTool,
