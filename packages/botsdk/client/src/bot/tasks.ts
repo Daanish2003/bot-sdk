@@ -28,7 +28,7 @@ export type DoneHelper = BotHelper & { endedAt: Date | null };
  * existing things, not a thing of its own. In progress holds the running Turn and the running and
  * waiting Helpers; Scheduled the Triggers waiting in the Conversation queue, the Routines and the
  * pending Check-ins; Done the last 7 days' ended Helpers, fired Check-ins and skipped Triggers,
- * newest first.
+ * each kind newest first.
  */
 export type BotTasks = {
   inProgress: { turn: { id: string; startedAt: Date } | null; helpers: BotHelper[] };

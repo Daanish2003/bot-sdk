@@ -1,8 +1,8 @@
 import { isLiveHelper } from "@botsdk/client/bot/helper";
 import { type BotTasks, type TaskTrigger, tasksDoneDays } from "@botsdk/client/bot/tasks";
-import { and, asc, desc, eq, gte, isNotNull } from "drizzle-orm";
+import { and, asc, desc, eq, gte } from "drizzle-orm";
 
-import { bot, botHelper, botTrigger, botTurn } from "../storage";
+import { botHelper, botTrigger, botTurn } from "../storage";
 import type { Database } from "../storage";
 import { listHelpers } from "./helpers";
 import { listCheckIns, listRoutines, routineNameOf } from "./routines";
@@ -24,14 +24,13 @@ export async function botTasks(
     db
       .select({ id: botTurn.id, startedAt: botTurn.startedAt })
       .from(botTurn)
-      .innerJoin(bot, eq(bot.id, botTurn.botId))
-      .where(and(eq(bot.id, botId), eq(botTurn.status, "running")))
+      .where(and(eq(botTurn.botId, botId), eq(botTurn.status, "running")))
       .limit(1),
     listHelpers(db, botId),
     db
       .select({ id: botHelper.id, endedAt: botHelper.endedAt })
       .from(botHelper)
-      .where(and(eq(botHelper.botId, botId), isNotNull(botHelper.endedAt))),
+      .where(and(eq(botHelper.botId, botId), gte(botHelper.endedAt, since))),
     listRoutines(db, botId),
     listCheckIns(db, botId),
     db

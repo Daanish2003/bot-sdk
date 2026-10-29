@@ -84,6 +84,8 @@ async function fetchOnce(queryClient: QueryClient, orpc: BotSdkOrpc, botId: stri
   await queryClient.cancelQueries({ queryKey: getKey });
   for (const change of changes) {
     if (change.kind === "message") {
+      // A Message sent while a Turn runs waits in the queue, which the Tasks view lists.
+      void queryClient.invalidateQueries({ queryKey: lists.tasks });
       const { data } = change;
       if (data) {
         queryClient.setQueryData(getKey, (thread) => {
