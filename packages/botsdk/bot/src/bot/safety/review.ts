@@ -98,7 +98,9 @@ const verdictSchema = z.object({
  * ones. The SDK's can't be removed.
  */
 export function neverAllowedList(hostClasses: readonly string[]): string[] {
-  return [...sdkNeverAllowed, ...hostClasses];
+  // One line each, so a Host's text can't open a heading in the reviewer's message.
+  const host = hostClasses.map((hostClass) => hostClass.replace(/\s+/g, " ").trim());
+  return [...sdkNeverAllowed, ...new Set(host.filter((hostClass) => hostClass !== ""))];
 }
 
 /** The reviewer's verdict on one call: `hand_off` and `never` are blocks with no Approval. */
