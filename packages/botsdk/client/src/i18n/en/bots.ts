@@ -256,6 +256,7 @@ description: Use this when
   "bots.reviewDeny": "Deny",
   "bots.reviewCountdown": ({ seconds }: { seconds: number }) =>
     `Blocked in ${seconds}s unless you allow it`,
+  "bots.reviewPending": ({ expires }: { expires: string }) => `waiting · expires ${expires}`,
   "bots.reviewAllowed": ({ summary }: { summary: string }) => `Allowed by you: ${summary}`,
   "bots.reviewDenied": ({ summary }: { summary: string }) => `Denied by you: ${summary}`,
   "bots.reviewExpired": ({ summary }: { summary: string }) =>

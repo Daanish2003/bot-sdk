@@ -195,18 +195,45 @@ describe("the Approval request card", () => {
     );
   });
 
-  it("closes into a divider once no answer came in 15 s", async () => {
+  it("keeps the card past 15 s until the wait marks it, never guessing it expired", async () => {
     vi.useFakeTimers({ toFake: ["Date"], now: at(2, 14) });
     const server = fakeBotServer(() => blockOf("waiting"));
     mount(server.fetch);
-    await screen.findByText("Push to the main branch");
+    const card = (await screen.findByText("Push to the main branch")).closest("[data-review]")!;
 
     act(() => vi.setSystemTime(at(2, 16)));
 
-    expect(
-      await screen.findByText("Blocked, no answer in 15 s: Push to the main branch"),
-    ).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+    await waitFor(() => expect(card.textContent).toContain("Blocked in 0s unless you allow it"));
+    expect(screen.queryByText("Blocked, no answer in 15 s: Push to the main branch")).toBeNull();
+    expect(screen.getByRole("button", { name: "Allow" })).toBeTruthy();
+  });
+
+  it("shows a pending request as waiting until its expiry, with Allow and Deny and no countdown", async () => {
+    // Long past its 15 s: it waits for the user until it expires.
+    vi.useFakeTimers({ toFake: ["Date"], now: at(30) });
+    const server = fakeBotServer(() => ({
+      ...blockOf("pending"),
+      expiresAt: new Date(2026, 9, 28, 9, 2),
+    }));
+    mount(server.fetch);
+
+    const card = (await screen.findByText("Push to the main branch")).closest("[data-review]")!;
+    expect(card.getAttribute("data-state")).toBe("pending");
+    expect(card.textContent).toContain("You asked to fix the tests, not to push to main.");
+    expect(card.querySelector("code")?.textContent).toBe("git push origin main");
+    expect(card.textContent).toContain("waiting · expires Oct 28, 09:02");
+    expect(card.textContent).not.toContain("Blocked in");
+    expect(card.querySelector("[role=progressbar]")).toBeNull();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Allow" }));
+    await waitFor(() => expect(server.answers).toEqual([{ answer: "allowed", reviewId: "r1" }]));
+    fireEvent.click(await screen.findByRole("button", { name: "Deny" }));
+    await waitFor(() =>
+      expect(server.answers).toEqual([
+        { answer: "allowed", reviewId: "r1" },
+        { answer: "denied", reviewId: "r1" },
+      ]),
+    );
   });
 
   it("shows a Helper's request in the thread like a Turn's, not under the Helper's line", async () => {

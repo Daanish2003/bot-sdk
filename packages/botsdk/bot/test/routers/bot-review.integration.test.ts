@@ -169,6 +169,15 @@ const expiredError = (reason: string) =>
   `Blocked: ${reason}. The user didn't approve it within 15 seconds. Don't retry it; ask the ` +
   "user in a message or find another way.";
 
+/** What the Model gets for a blocked call of `reason` still waiting for the user past 15 seconds. */
+const pendingResult = (reviewId: string, reason: string) => ({
+  pending:
+    `Waiting for the user's Approval: ${reason}. The call hasn't run. It runs if the user ` +
+    "approves it, and its result then comes to you. Don't retry it. Carry on with anything that " +
+    "doesn't depend on it.",
+  reviewId,
+});
+
 /** A reviewer that plays `replies` in order, one per review call. */
 function reviewerPlaying(
   ...replies: Array<() => ReturnType<typeof verdictRound> | Promise<never>>
@@ -405,7 +414,7 @@ describe("Auto-review of the Bot's shell commands", () => {
       }),
     );
     const { client, botId, fake, computerFake, clock, advance } = await botWith(
-      [round(shell("git push origin main")), round()],
+      [round(shell("git push origin main")), round(sends("I'll push once you approve.")), round()],
       { reviewer },
     );
 
@@ -424,27 +433,29 @@ describe("Auto-review of the Bot's shell commands", () => {
     expect(waiting.deadline!.getTime()).toBeLessThanOrEqual(clock().getTime() + 15_000);
     expect(computerFake.callsOf("run")).toEqual([]);
 
-    // No answer in 15 seconds: blocked.
+    // No answer in 15 seconds: the call waits for the user, and the Turn carries on.
     advance(15_000);
-    for await (const _event of stream) {
-      // Read to the end of the Turn.
-    }
+    const events = [];
+    for await (const event of stream) events.push(event);
 
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "complete" });
     expect(computerFake.callsOf("run")).toEqual([]);
-    expect(toolResultOf(fake.calls[1])).toEqual({
-      error: expiredError("You asked to fix the tests, not to push to main"),
+    expect(toolResultOf(fake.calls[1])).toEqual(
+      pendingResult(waiting.id, "You asked to fix the tests, not to push to main"),
+    );
+    // The Turn took another Step after the pending result, and one more after its send.
+    expect(fake.calls).toHaveLength(3);
+    const [pending] = await reviewsOf(botId);
+    expect(pending).toMatchObject({
+      state: "pending",
+      deadline: waiting.deadline,
+      decidedAt: null,
+      // 7 days after the block.
+      expiresAt: new Date(waiting.deadline!.getTime() - 15_000 + 7 * 24 * 60 * 60 * 1000),
     });
-    const [expired] = await reviewsOf(botId);
-    expect(expired).toMatchObject({ state: "expired", deadline: waiting.deadline });
-    expect(expired!.decidedAt).toEqual(expect.any(Date));
-
-    // A late yes changes nothing, and says the request is closed.
-    expect(await client.reviews.allow({ reviewId: waiting.id })).toEqual({
-      decided: false,
-      state: "expired",
-    });
-    expect(await reviewsOf(botId)).toEqual([expired]);
-    expect(computerFake.callsOf("run")).toEqual([]);
+    expect(await client.reviews.list({ botId })).toEqual([
+      expect.objectContaining({ id: waiting.id, state: "pending", expiresAt: pending!.expiresAt }),
+    ]);
   });
 
   it("puts a block's Approval in the thread as a control Message holding the review id", async () => {
@@ -573,7 +584,7 @@ describe("Auto-review of the Bot's shell commands", () => {
     });
   });
 
-  it("denies a waiting call when the user's Message interrupts the Turn", async () => {
+  it("leaves a waiting call pending when the user's Message interrupts the Turn", async () => {
     const reviewer = reviewerPlaying(
       verdict({ outcome: "block", reason: "You didn't ask to deploy.", summary: "Deploy" }),
     );
@@ -588,8 +599,43 @@ describe("Auto-review of the Bot's shell commands", () => {
     for await (const _event of stream);
 
     expect(computerFake.callsOf("run")).toEqual([]);
+    expect((await turnsOf(botId)).map((turn) => turn.status)).toEqual(["stopped", "complete"]);
+    // The next Turn's end never touches it.
     expect(await reviewsOf(botId)).toEqual([
-      expect.objectContaining({ id: waiting.id, state: "denied", decidedAt: expect.any(Date) }),
+      expect.objectContaining({
+        id: waiting.id,
+        state: "pending",
+        decidedAt: null,
+        expiresAt: new Date(waiting.deadline!.getTime() - 15_000 + 7 * 24 * 60 * 60 * 1000),
+      }),
+    ]);
+  });
+
+  it("denies only the waiting call when the user stops the Turn, never a pending one", async () => {
+    const reviewer = reviewerPlaying(
+      verdict({ outcome: "block", reason: "You didn't ask to deploy.", summary: "Deploy" }),
+      verdict({ outcome: "block", reason: "You didn't ask to release.", summary: "Release" }),
+    );
+    const { client, botId, computerFake, advance } = await botWith(
+      [round(shell("make deploy")), round(shell("make release")), round()],
+      { reviewer },
+    );
+
+    const stream = await followSend(client, { botId, id: uuidv7(), text: "ship it" });
+    const deploy = await waitingReview(botId);
+    advance(15_000);
+    await expect
+      .poll(async () => (await reviewsOf(botId)).map((row) => row.state), { timeout: 10_000 })
+      .toEqual(["pending", "waiting"]);
+    await client.bots.stop({ botId });
+    const events = [];
+    for await (const event of stream) events.push(event);
+
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "stopped" });
+    expect(computerFake.callsOf("run")).toEqual([]);
+    expect((await reviewsOf(botId)).map((row) => [row.id, row.state])).toEqual([
+      [deploy.id, "pending"],
+      [expect.any(String), "denied"],
     ]);
   });
 
@@ -724,20 +770,21 @@ describe("an Approval wait cut off by a crash", () => {
   /**
    * A Bot whose Turn's job the test runs by hand, one attempt at a time, on the fake job clock,
    * each attempt on its own SDK instance as on another process. The SDK's clock stands still, so
-   * only the job clock moves past a lease. Its reviewer blocks the first call and has no second
-   * reply.
+   * only the job clock moves past a lease, until `advanceSdk` moves it. Its reviewer blocks the
+   * first call and has no second reply, unless another `reviewer` is given.
    */
   async function botOnHandRunJobs(
     rounds: Round[],
     onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>,
-  ) {
-    const reviewer = reviewerPlaying(
+    reviewer = reviewerPlaying(
       verdict({ outcome: "block", reason: "You didn't ask to deploy.", summary: "Deploy" }),
-    );
+    ),
+  ) {
     const fake = createFakeAdapter({ rounds });
     const computerFake = fakeComputerProvider({ onCommand });
     const start = new Date();
     const timer = fakeJobClock(start);
+    let sdkNow = start;
     const runners = new Map<TestDeps, JobRunner>();
     const instance = () => {
       let deps: TestDeps | undefined;
@@ -752,7 +799,7 @@ describe("an Approval wait cut off by a crash", () => {
       deps = createTestSdk({
         computer: computerFake.provider,
         jobs,
-        clock: () => start,
+        clock: () => sdkNow,
         adapterFor: () => fake.adapter,
         reviewAdapterFor: () => reviewer.adapter,
         memory: false,
@@ -777,6 +824,10 @@ describe("an Approval wait cut off by a crash", () => {
       client,
       botId,
       start,
+      /** Moves the SDK's clock `ms` on, as past an Approval's deadline. */
+      advanceSdk: (ms: number) => {
+        sdkNow = new Date(sdkNow.getTime() + ms);
+      },
       /** Claims the Turn's job and runs one attempt of it on `on`, without waiting for it to end. */
       attempt: async (on: TestDeps = deps) => {
         const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: false });
@@ -817,7 +868,7 @@ describe("an Approval wait cut off by a crash", () => {
     expect((await turnsOf(botId))[0]).toMatchObject({ status: "complete" });
   });
 
-  it("denies the wait of a Turn re-queued by a crash once the user's Message ends it", async () => {
+  it("leaves the wait of a Turn re-queued by a crash pending once the user's Message ends it", async () => {
     const { client, botId, computerFake, attempt, crash } = await botOnHandRunJobs([
       round(shell("make deploy")),
       round(),
@@ -832,9 +883,76 @@ describe("an Approval wait cut off by a crash", () => {
 
     expect((await turnsOf(botId))[0]).toMatchObject({ status: "stopped" });
     expect(await reviewsOf(botId)).toEqual([
-      expect.objectContaining({ id: waiting.id, state: "denied", decidedAt: expect.any(Date) }),
+      expect.objectContaining({ id: waiting.id, state: "pending", decidedAt: null }),
     ]);
     expect(computerFake.callsOf("run")).toEqual([]);
+  });
+
+  it("never runs the call in a resumed wait whose row went pending and was answered since", async () => {
+    const { client, botId, fake, computerFake, attempt, crash, instance } = await botOnHandRunJobs([
+      round(shell("make deploy")),
+      round(),
+    ]);
+    await followSend(client, { botId, id: uuidv7(), text: "ship it" });
+
+    const lost = attempt();
+    const waiting = await waitingReview(botId);
+    await crash(lost);
+    // As the lost wait left it: pending past its deadline, then a late yes (whose stored call runs
+    // in its own job, never in the Turn).
+    await getTestDb()
+      .update(botReview)
+      .set({ state: "allowed", expiresAt: new Date(), decidedAt: new Date() })
+      .where(eq(botReview.id, waiting.id));
+    await attempt(instance());
+
+    expect(computerFake.callsOf("run")).toEqual([]);
+    expect(toolResultOf(fake.calls[1])).toEqual(
+      pendingResult(waiting.id, "You didn't ask to deploy"),
+    );
+  });
+
+  it("replays a wait that went pending after a crash, with no second review", async () => {
+    let testStarted = () => {};
+    const testRan = new Promise<void>((resolve) => (testStarted = resolve));
+    const { client, botId, fake, reviewer, computerFake, attempt, crash, instance, advanceSdk } =
+      await botOnHandRunJobs(
+        [round(shell("make deploy")), round(shell("make test")), round()],
+        // `make test` runs until the crash.
+        ({ signal }) => {
+          testStarted();
+          return new Promise<CommandResult>((_resolve, reject) => {
+            signal.addEventListener("abort", () => reject(new Error("killed")));
+          });
+        },
+        reviewerPlaying(
+          verdict({ outcome: "block", reason: "You didn't ask to deploy.", summary: "Deploy" }),
+          verdict(passVerdict),
+        ),
+      );
+    await followSend(client, { botId, id: uuidv7(), text: "ship it" });
+
+    const lost = attempt();
+    const waiting = await waitingReview(botId);
+    advanceSdk(15_000);
+    await testRan;
+    await crash(lost);
+    await attempt(instance());
+
+    expect(reviewer.calls).toHaveLength(2);
+    expect(computerFake.callsOf("run").map((call) => call.command)).toEqual(["make test"]);
+    const pending = pendingResult(waiting.id, "You didn't ask to deploy");
+    expect(toolResultOf(fake.calls[1])).toEqual(pending);
+    // The resumed attempt replays the pending result as the Model read it.
+    const told = inputOf(fake.calls[2])
+      .filter((entry) => entry.role === "tool")
+      .map((entry) => JSON.parse(String(entry.content)));
+    expect(told).toEqual([pending, { error: interruptedShellError }]);
+    expect((await reviewsOf(botId)).map((row) => [row.id, row.state])).toEqual([
+      [waiting.id, "pending"],
+      [expect.any(String), null],
+    ]);
+    expect((await turnsOf(botId))[0]).toMatchObject({ status: "complete" });
   });
 
   it("replays a decided wait after a crash, with no second review", async () => {
@@ -957,6 +1075,64 @@ describe("Auto-review of a Helper's calls", () => {
     ]);
   });
 
+  it("leaves a General Helper's unanswered call pending past its deadline", async () => {
+    const reviewer = reviewerPlaying(
+      verdict({ outcome: "block", reason: "You didn't ask to deploy.", summary: "Deploy" }),
+    );
+    const { client, botId, helperFake, computerFake, advance } = await botWith(
+      [handsOff("general", "Run the tests."), round(), round()],
+      { reviewer, helpers: [round(shell("make deploy")), round(text("Waiting on the deploy."))] },
+    );
+
+    await send(client, botId, "run the tests");
+    const waiting = await waitingReview(botId);
+    advance(15_000);
+
+    expect(await helperEnded(botId)).toMatchObject({ status: "complete" });
+    expect(toolResultOf(helperFake.calls[1])).toEqual(
+      pendingResult(waiting.id, "You didn't ask to deploy"),
+    );
+    expect(computerFake.callsOf("run")).toEqual([]);
+    // The Helper's end leaves it pending.
+    expect(await reviewsOf(botId)).toEqual([
+      expect.objectContaining({ id: waiting.id, state: "pending", decidedAt: null }),
+    ]);
+  }, 30_000);
+
+  it("expires a Computer-use Helper's unanswered acting call at its deadline", async () => {
+    const reviewer = reviewerPlaying(
+      verdict({ outcome: "block", reason: "You didn't ask to buy it.", summary: "Buy the mug" }),
+    );
+    const { client, botId, helperFake, advance } = await botWith(
+      [handsOff("computer_use", "Order the blue mug from the shop."), round(), round()],
+      {
+        reviewer,
+        helpers: [
+          round(call("browser_navigate", { url: "https://shop.example" })),
+          round(call("browser_click", { ref: "e1" })),
+          round(text("Not bought.")),
+        ],
+      },
+    );
+
+    await send(client, botId, "find me a mug");
+    const waiting = await waitingReview(botId);
+    advance(15_000);
+
+    expect(await helperEnded(botId)).toMatchObject({ status: "complete" });
+    expect(toolResultOf(helperFake.calls.at(-1))).toEqual({
+      error: expiredError("You didn't ask to buy it"),
+    });
+    expect(await reviewsOf(botId)).toEqual([
+      expect.objectContaining({
+        id: waiting.id,
+        state: "expired",
+        expiresAt: null,
+        decidedAt: expect.any(Date),
+      }),
+    ]);
+  }, 30_000);
+
   it("denies a Helper's waiting call when the user stops the Helper", async () => {
     const reviewer = reviewerPlaying(
       verdict({ outcome: "block", reason: "You didn't ask to deploy.", summary: "Deploy" }),
@@ -1004,10 +1180,10 @@ describe("bot.review.list", () => {
     await expect(stranger.reviews.list({ botId })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
-  it("lists only the newest reviews, and every waiting one however old", async () => {
+  it("lists only the newest reviews, and every waiting or pending one however old", async () => {
     const { client, botId } = await botWith([]);
     const start = new Date("2030-01-01T00:00:00Z").getTime();
-    const row = (index: number, state: "waiting" | null = null) => ({
+    const row = (index: number, state: "waiting" | "pending" | null = null) => ({
       id: uuidv7(),
       botId,
       toolCallId: `call-${index}`,
@@ -1020,15 +1196,17 @@ describe("bot.review.list", () => {
       createdAt: new Date(start + index * 1000),
     });
     const waiting = row(0, "waiting");
-    const passes = Array.from({ length: listedReviews + 5 }, (_, index) => row(index + 1));
+    const pending = row(1, "pending");
+    const passes = Array.from({ length: listedReviews + 5 }, (_, index) => row(index + 2));
     await getTestDb()
       .insert(botReview)
-      .values([waiting, ...passes]);
+      .values([waiting, pending, ...passes]);
 
     const listed = await client.reviews.list({ botId });
 
     expect(listed.map((review) => review.id)).toEqual([
       waiting.id,
+      pending.id,
       ...passes.slice(-listedReviews).map((review) => review.id),
     ]);
   });

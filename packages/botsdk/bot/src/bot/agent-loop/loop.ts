@@ -67,7 +67,9 @@ import {
 import { type LoopPromptStart, type PreviousCall, promptHashesOf } from "./prompt-hashes";
 import {
   blockedError,
+  type PendingApproval,
   type ReviewAsk,
+  type ReviewOutcome,
   type ReviewSource,
   reviewToolCall,
   type DecryptedSecrets,
@@ -122,8 +124,8 @@ export type LoopKit = {
    * Both run only live; a replay returns `run`'s recorded result. A tool call's result over the
    * long-output limit is recorded, and returned, as its cut text (`capResult`), as for
    * `liveActivity`. `reviewed` is the call's input, given only for a call Auto-review checks (a
-   * Connector tool's): it is reviewed first, as `computerCall`'s is, and a block is its result,
-   * with neither `run` nor `write` called.
+   * Connector tool's): it is reviewed first, as `computerCall`'s is, and a block (or its pending
+   * result, once it outlives its wait) is its result, with neither `run` nor `write` called.
    */
   liveRequest: <T>(
     name: string,
@@ -131,7 +133,7 @@ export type LoopKit = {
     run: () => Promise<T>,
     write?: (tx: Transaction, result: T | string) => Promise<void>,
     reviewed?: Record<string, unknown>,
-  ) => Promise<T | string | { error: string }>;
+  ) => Promise<T | string | { error: string } | PendingApproval>;
   /** The Computer's tools: Shell, then the file tools Read, Write, Edit and List. */
   computerTools: AnyServerTool[];
   /** Aborts on a Stop or the loop's time limit. */
@@ -755,17 +757,19 @@ export async function runLoop(
     return result;
   };
   /**
-   * Auto-review of a reviewed tool's call, before it runs: the error the Model gets for a block, or
-   * `null` to run it. A loop with no `review` source reviews nothing.
+   * Auto-review of a reviewed tool's call, before it runs: the error the Model gets for a block,
+   * its pending result once it outlives the wait, or `null` to run it. A `strict` call (an action
+   * on a Screen) never goes pending. A loop with no `review` source reviews nothing.
    */
   const review = async (
     tool: string,
     toolCallId: string | undefined,
     input: Record<string, unknown>,
-    ask?: ReviewAsk,
-  ): Promise<{ error: string } | null> => {
+    { ask, strict }: { ask?: ReviewAsk; strict?: boolean } = {},
+  ): Promise<ReviewOutcome> => {
     // A loop with no review source has no one to ask: what the user always decides is refused.
     if (!options.review) return ask ? { error: blockedError(ask.reason) } : null;
+    // A Screen action keeps the strict 15 seconds; shell and Connector calls go pending.
     // The live review is a model call: the loop's time limit cuts it off, as a Stop does.
     return reviewToolCall(
       deps,
@@ -780,7 +784,7 @@ export async function runLoop(
         signal: abortController.signal,
         usageOf: (chunks, sent) => callUsage(deps, chunks, sent),
       },
-      { owner, source: options.review, toolCallId, tool, input, ask },
+      { owner, source: options.review, toolCallId, tool, input, ask, strict },
     ).finally(() => {
       inLiveCall = false;
     });
@@ -862,9 +866,11 @@ export async function runLoop(
         });
         if (refused) return refused;
       }
-      // Auto-review first: a blocked call never reaches the Computer.
-      const blocked = reviewed && (await review(name, toolCallId, reviewed, ask));
-      if (blocked) return blocked;
+      // Auto-review first: a blocked call never reaches the Computer. A reviewed Computer call is an
+      // action on a Screen, which never waits past its 15 seconds (ADR 0030).
+      const blocked = reviewed && (await review(name, toolCallId, reviewed, { ask, strict: true }));
+      // Strict, so never pending: a block is always its error.
+      if (blocked) return blocked as { error: string };
       return recordTold(
         await ctx.step(name, async () => {
           beforeLiveTool();
