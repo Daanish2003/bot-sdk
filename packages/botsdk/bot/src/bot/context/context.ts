@@ -138,14 +138,16 @@ export const botSystemPrompt = promptOpening + onlyToolLimits + promptRules;
 /**
  * The system prompts of a Bot's Turn. With `computer` on, the Bot's limits allow its Computer, and
  * a second prompt names its own directory and the shared one, its ladder with connectors when
- * `withConnectors` (the Host installs `mcp`); with it off, it is `botSystemPrompt`.
+ * `withConnectors` (the Host installs `mcp`); with it off, it is `botSystemPrompt`. The Morning brief and Watch guidance follows `withConnectors` in both.
  */
 export function botSystemPrompts(
   botId: string,
   withComputer: boolean,
   withConnectors = false,
 ): string[] {
-  if (!withComputer) return [botSystemPrompt];
+  if (!withComputer) {
+    return [withConnectors ? botSystemPrompt + proactiveRoutinesPrompt : botSystemPrompt];
+  }
   return [
     promptOpening + computerLimits + promptRules + (withConnectors ? proactiveRoutinesPrompt : ""),
     computerPrompt(botId, withConnectors),
