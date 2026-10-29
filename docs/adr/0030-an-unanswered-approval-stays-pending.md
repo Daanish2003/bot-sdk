@@ -13,9 +13,9 @@ ADR 0024 follows the lecture (slide 29): a blocked call waits 15 seconds inside 
 - **A late yes runs the stored call** exactly as it was asked, with the input the user saw, in its own background job. Its result wakes the Bot as a Trigger. The Bot never makes the call again, so what runs is what was approved.
 - **A late no wakes the Bot** too, so it doesn't go on assuming the call will run.
 - **A pending Approval expires after 7 days**, a constant in the SDK. Expiry shows in the thread and wakes no one.
-- **A pending Approval belongs to the Bot, not the Turn.** Stop during the 15-second wait still counts as no. After that, neither Stop nor a new Message touches it.
+- **A pending Approval belongs to the Bot, not the Turn.** Stop during the 15-second wait still counts as no. A new Message during the wait ends the Turn but not the Approval, which goes pending: the user may not have seen it yet. After the wait, neither Stop nor a new Message touches it.
 - **A Helper's blocked call** goes pending the same way. Its stored call's result wakes the Bot, since the Helper has usually finished.
-- **A Computer-use safety check** (a Screen action that always asks) keeps ADR 0024's strict 15 seconds with silence as no: a stored click on a live Screen means nothing days later.
+- **Every browser or desktop action on a Screen** (a Computer-use Helper's acting calls, and the safety checks that always ask) keeps ADR 0024's strict 15 seconds with silence as no: a stored click on a live Screen means nothing days later. Pending covers shell commands and Connector tools.
 - **A Routine's Approval** is unchanged.
 
 ## Considered Options
