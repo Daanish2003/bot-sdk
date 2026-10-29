@@ -65,7 +65,7 @@ A tool a Bot gets from one of its user's Connections. It is a Deferred tool, and
 _Avoid_: MCP tool, integration tool
 
 **Approval**:
-A user's yes or no to one tool call before it runs, or to a new Routine. A Bot asks for one for a tool call only when Auto-review blocks it: the call waits inside its Turn for at most 15 seconds, and silence counts as no. A yes after that changes nothing.
+A user's yes or no to one tool call before it runs, or to a new Routine. A Bot asks for one for a tool call only when Auto-review blocks it: the call waits inside its Turn for 15 seconds, then stays pending while the Bot carries on. A later yes runs the call exactly as it was asked and wakes the Bot with its result; a later no wakes it too. A pending Approval expires after 7 days. A Screen action that always asks waits only the 15 seconds, and there silence counts as no.
 _Avoid_: Confirmation, consent, permission
 
 **Attachment**:
