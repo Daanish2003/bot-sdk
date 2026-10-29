@@ -10,7 +10,14 @@ import { message } from "../../storage";
 import type { BotSdkContext } from "../../plugin";
 import { rpcError } from "../../rpc-error";
 import { lockConversation, pauseOf, receive, type ReceivedTrigger } from "./router";
-import { controlOf, controlParts, findBot, hintChanged, recordBotChange } from "../conversation";
+import {
+  controlOf,
+  controlParts,
+  findBot,
+  hintChanged,
+  noResetAfter,
+  recordBotChange,
+} from "../conversation";
 
 /** The Trigger id of the answer to the choice on Message `messageId`: one answer, one Trigger. */
 export const choiceTriggerId = (messageId: string) => `action:${messageId}`;
@@ -51,6 +58,8 @@ export async function answerChoice(
           eq(message.id, messageId),
           eq(message.conversationId, found.conversationId),
           eq(message.role, "assistant"),
+          // A question from before the Bot's reset mark is one it no longer knows (spec #1007).
+          noResetAfter(tx, { conversationId: found.conversationId }, message.createdAt),
         ),
       );
     const choice = row && controlOf(row.parts, "choice");

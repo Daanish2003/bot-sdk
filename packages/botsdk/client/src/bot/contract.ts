@@ -240,8 +240,8 @@ const bots = {
   /** Resumes the user's paused Bot, replaying nothing. Idempotent; another user's Bot is not found. */
   resume: oc.input(botInput).output(type<void>()),
   /**
-   * Resets the user's Bot (spec #1007): it forgets its own Memory and drops its Routines, Check-ins,
-   * Helpers and pending Approvals, and its Conversation gets a reset mark. `name` must be the
+   * Resets the user's Bot (spec #1007): it drops its Routines, Check-ins, Helpers and pending
+   * Approvals, and its Conversation gets a reset mark. `name` must be the
    * Bot's name. Another user's Bot is not found.
    */
   reset: oc.input(resetBotInput).output(type<void>()),

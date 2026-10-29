@@ -10,7 +10,7 @@ import { chat, EventType, type ModelMessage, type StreamChunk } from "@tanstack/
 import { and, asc, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { bot, botHelper, botReview, botTrigger, message } from "../../storage";
+import { bot, botHelper, botReview, botTrigger, job, message } from "../../storage";
 import type { Database } from "../../storage";
 import { uuidv7 } from "../../lib/uuidv7";
 import { rpcError } from "../../rpc-error";
@@ -593,7 +593,8 @@ export async function closeWaitingReviews(
 /**
  * Declines every open Approval of Bot `botId` (a Bot reset, spec #1007), waiting or pending, in
  * `tx`, which holds its Conversation's row lock: each is `denied` with its `review` change and its
- * expiry job cancelled. Nothing wakes the Bot, and no call runs.
+ * expiry job cancelled. An allowed call whose job hasn't started is cancelled too, so it never
+ * runs. Nothing wakes the Bot.
  */
 export async function declineBotApprovals(
   deps: BotSdkContext,
@@ -610,6 +611,18 @@ export async function declineBotApprovals(
     await recordBotChange(tx, owner, "review", id, at);
     await deps.runner.cancelIn(tx, approvalExpiryKey(id));
   }
+  const queued = await tx
+    .select({ id: botReview.id })
+    .from(botReview)
+    .innerJoin(job, eq(job.idempotencyKey, sql`${approvedCallKey("")} || ${botReview.id}`))
+    .where(
+      and(
+        eq(botReview.botId, owner.botId),
+        eq(botReview.state, "allowed"),
+        eq(job.status, "queued"),
+      ),
+    );
+  for (const { id } of queued) await deps.runner.cancelIn(tx, approvedCallKey(id));
 }
 
 /** Schedules the job that expires pending Approval `reviewId` at `expiresAt` (ADR 0030), in `tx`. */

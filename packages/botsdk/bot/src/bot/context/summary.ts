@@ -8,10 +8,9 @@ import type { Database } from "../../storage";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { uuidv7 } from "../../lib/uuidv7";
 import { buildPromptStart, type PromptStartParts, userZoneAt } from "./prompt-start";
-import { noResetAfter } from "./reset-mark";
 import { midTurnNote } from "../agent-loop";
 import { awaySummaryKey } from "../triggers";
-import { toBotMessage, recordBotChange, formatterIn } from "../conversation";
+import { toBotMessage, recordBotChange, formatterIn, noResetAfter } from "../conversation";
 
 /** How many of the Bot's last Messages to the user a Summary keeps word for word. */
 const keptMessages = 3;
@@ -273,7 +272,7 @@ export function historyTurns(
         eq(botTurn.botId, botId),
         before ? lt(botTurn.startedAt, before) : undefined,
         // Nothing from before the Bot's latest reset mark (spec #1007).
-        noResetAfter(db, { botId: botTurn.botId }, botTurn.startedAt),
+        noResetAfter(db, { botId }, botTurn.startedAt),
         summary
           ? or(
               gte(botTurn.startedAt, summary.coversUntil),

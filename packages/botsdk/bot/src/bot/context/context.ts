@@ -44,6 +44,7 @@ import {
   formatterIn,
   knownZone,
   timeNotice,
+  noResetAfter,
 } from "../conversation";
 
 import type { LoopKit } from "../agent-loop";
@@ -58,7 +59,6 @@ import {
 import { createRoutineToolName, routinesPrompt } from "../routines";
 import { customRulesPrompt } from "../safety";
 
-import { noResetAfter } from "./reset-mark";
 import { historyFrom, historyTurns, summaryOf, writeSummary } from "./summary";
 
 import {

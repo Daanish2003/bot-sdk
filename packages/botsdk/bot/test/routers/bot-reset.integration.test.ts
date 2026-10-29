@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, like, or } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { conversationChannel } from "../../src/chat/conversation-events";
+import { appendMessage } from "../../src/chat/message-tree";
 import {
   bot,
   botCheckIn,
@@ -17,10 +18,12 @@ import {
 } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { findBot } from "../../src/bot/conversation";
+import { controlParts } from "../../src/bot/conversation/store";
 import { storeScreenshot } from "../../src/bot/conversation/screenshots";
 import { handleRoutineWebhook, routineFireJobName, webhookTokenHash } from "../../src/bot/routines";
 import { fireKey } from "../../src/bot/routines/routine";
 import { checkInFireJobName, checkInKey } from "../../src/bot/routines/check-in";
+import { approvedCallJobName, approvedCallKey } from "../../src/bot/safety";
 import { waitingIn } from "../../src/bot/triggers";
 import { batchLongestMs } from "../../src/bot/triggers/router";
 import { saveCredentials } from "../../src/models/internal";
@@ -241,6 +244,12 @@ describe("bots.reset", () => {
       const pending = review("pending");
       const allowed = review("allowed");
       await db.insert(botReview).values([pending, allowed]);
+      // A late yes queued the allowed call; it hasn't run.
+      await deps.runner.enqueue(
+        approvedCallJobName,
+        { reviewId: allowed.id },
+        { idempotencyKey: approvedCallKey(allowed.id) },
+      );
       const ruleId = uuidv7();
       await db.insert(customRule).values({
         id: ruleId,
@@ -282,6 +291,13 @@ describe("bots.reset", () => {
           [allowed.id, "allowed"],
         ]),
       );
+      // Its queued call is cancelled, so it never runs.
+      expect(
+        await db
+          .select({ status: job.status })
+          .from(job)
+          .where(eq(job.idempotencyKey, approvedCallKey(allowed.id))),
+      ).toEqual([{ status: "cancelled" }]);
       // Its Routines, Check-ins and Helpers are gone, with their queued fires and screenshots.
       expect(await db.select().from(botRoutine).where(eq(botRoutine.botId, ada.botId))).toEqual([]);
       expect(await db.select().from(botCheckIn).where(eq(botCheckIn.botId, ada.botId))).toEqual([]);
@@ -354,6 +370,33 @@ describe("bots.reset", () => {
       expect(
         await getTestDb().select().from(botRoutine).where(eq(botRoutine.botId, ada.botId)),
       ).toHaveLength(2);
+    },
+  );
+
+  it(
+    "refuses an answer to a choice asked before the reset, and queues nothing",
+    { timeout },
+    async () => {
+      const { client, ada, timer } = await resettableBots();
+      const db = getTestDb();
+      const choice = { kind: "choice" as const, options: ["Red", "Blue"], other: false };
+      const asked = await db.transaction((tx) =>
+        appendMessage(tx, ada.conversationId, {
+          role: "assistant",
+          parts: controlParts("Which color?", choice),
+          status: "complete",
+          createdAt: sunday,
+        }),
+      );
+      timer.advance(60_000);
+      await client.bots.reset({ botId: ada.botId, name: "Ada" });
+
+      await expect(
+        client.bots.choose({ botId: ada.botId, messageId: asked.id, answer: { option: "Red" } }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND", data: { code: "error.messageNotFound" } });
+      expect(
+        await db.select().from(botTrigger).where(eq(botTrigger.conversationId, ada.conversationId)),
+      ).toEqual([]);
     },
   );
 

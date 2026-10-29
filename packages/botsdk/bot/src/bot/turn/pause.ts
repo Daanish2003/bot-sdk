@@ -109,9 +109,10 @@ async function haltBot(
  * `reset`; declines its pending Approvals; deletes its Routines and Check-ins with their queued
  * fires; deletes its Helpers and their transcripts; and appends the reset mark, from which its
  * Turns' history and Prompt start begin. It keeps its pause state, Messages and Turns. Once that
- * commits, the Helpers' screenshots are deleted and each enabled feature forgets the Bot
- * (`resetBot`: Memory deletes its files). A reset can't be undone. A wrong name is refused;
- * another user's Bot is not found.
+ * commits, the Helpers' screenshots are deleted. Its own Memory files are not deleted yet: how
+ * waits on an owner decision (#1013). A reset can't be undone. A wrong name is refused, checked
+ * against the Bot's row locked for update so a rename can't race it; another user's Bot is not
+ * found.
  */
 export async function resetBot(
   deps: BotSdkContext,
@@ -120,11 +121,16 @@ export async function resetBot(
 ): Promise<void> {
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-  if (name !== found.name) {
-    throw rpcError("BAD_REQUEST", "error.botResetName", "The name doesn't match the Bot's");
-  }
   const screenshots = await deps.db.transaction(async (tx) => {
     await lockConversation(tx, found.conversationId);
+    const [current] = await tx
+      .select({ name: bot.name })
+      .from(bot)
+      .where(eq(bot.id, botId))
+      .for("update");
+    if (name !== current?.name) {
+      throw rpcError("BAD_REQUEST", "error.botResetName", "The name doesn't match the Bot's");
+    }
     const now = deps.clock();
     const owner = { botId, conversationId: found.conversationId };
     await haltBot(deps, tx, found, "reset", now);

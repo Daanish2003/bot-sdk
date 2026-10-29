@@ -5,9 +5,14 @@ import { bot, botPromptStart, botTurn, message, usage } from "../../storage";
 import type { Database, PromptStartSection, PromptStartTool } from "../../storage";
 import type { Transaction } from "../../plugin";
 import { uuidv7 } from "../../lib/uuidv7";
-import { formatterIn, knownZone, botDirectory, sharedDirectory } from "../conversation";
+import {
+  botDirectory,
+  formatterIn,
+  knownZone,
+  noResetAfter,
+  sharedDirectory,
+} from "../conversation";
 import { describeToolName, runToolName } from "./tool-search";
-import { noResetAfter } from "./reset-mark";
 import {
   firstMessageSection,
   type LoopPromptStart,
@@ -141,10 +146,7 @@ export async function latestPromptStart(
     .select({ id: botPromptStart.id, builtAt: botPromptStart.builtAt })
     .from(botPromptStart)
     .where(
-      and(
-        eq(botPromptStart.botId, botId),
-        noResetAfter(db, { botId: botPromptStart.botId }, botPromptStart.builtAt),
-      ),
+      and(eq(botPromptStart.botId, botId), noResetAfter(db, { botId }, botPromptStart.builtAt)),
     )
     .orderBy(desc(botPromptStart.builtAt), desc(botPromptStart.id))
     .limit(1);

@@ -137,7 +137,7 @@ export function botsApi(sdk: BotSdkContext) {
     /**
      * Resets the user's Bot (Bot reset, spec #1007), once `name` matches its name: it stops as a
      * pause stops it (what waits is skipped with reason `reset`), declines its pending Approvals,
-     * deletes its Routines, Check-ins, Helpers and their transcripts and its own Memory files, and
+     * deletes its Routines, Check-ins, Helpers and their transcripts, and
      * appends the reset mark, from which its Turns' history starts. It keeps its pause state and
      * everything else. A wrong name is refused; another user's Bot is not found.
      */
