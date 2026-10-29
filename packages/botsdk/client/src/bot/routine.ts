@@ -55,11 +55,13 @@ export type BotRoutine = {
 
 /**
  * A Routine's Approval in the thread (spec #761), the Rich control of kind `routine_approval`: it
- * holds only the Routine's id, and its state is read from the Routine's row.
+ * holds the Routine's id, and its state is read from the Routine's row. `readOnlyChanged` is set
+ * when the Bot's change it waits for turned read-only on or off (spec #1024), so the card says so.
  */
 export const routineApprovalSchema = z.object({
   kind: z.literal("routine_approval"),
   routineId: z.string(),
+  readOnlyChanged: z.boolean().optional(),
 });
 
 export type RoutineApproval = z.infer<typeof routineApprovalSchema>;

@@ -333,6 +333,7 @@ description: Use this when
   "bots.routineTime": "Time",
   "bots.routineReadOnly": "Read-only",
   "bots.routineReadOnlyNote": "Read-only: its runs can look but not change anything.",
+  "bots.routineNoLongerReadOnly": "No longer read-only: its runs can change things.",
   "bots.addRoutineTime": "Add time",
   "bots.removeRoutineTime": ({ time }: { time: string }) => `Remove ${time}`,
   "bots.checkInTime": "When",

@@ -230,6 +230,12 @@ describe("a read-only Routine", () => {
       expect(await client.routines.list({ botId })).toEqual([
         expect.objectContaining({ readOnly: true, state: "pending", approvedAt: null }),
       ]);
+      // Its approval card says read-only changed.
+      const approvals = (await client.bots.get({ botId })).messages.flatMap((sent) =>
+        sent.control?.kind === "routine_approval" ? [sent.control] : [],
+      );
+      expect(approvals.at(-1)).toMatchObject({ readOnlyChanged: true });
+      expect(approvals[0]).not.toHaveProperty("readOnlyChanged");
       await client.routines.approve({ routineId: (await client.routines.list({ botId }))[0]!.id });
       await send("Thanks");
       const sent = JSON.stringify(fake.calls.at(-1));

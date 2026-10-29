@@ -251,11 +251,13 @@ async function askApproval(
   { conversationId, turnId }: { conversationId: string; turnId: string },
   routine: { id: string; name: string },
   now: Date,
+  { readOnlyChanged = false }: { readOnlyChanged?: boolean } = {},
 ): Promise<void> {
   await appendBotMessage(deps, tx, conversationId, {
     parts: controlParts(`Routine "${routine.name}" waits for your approval.`, {
       kind: "routine_approval",
       routineId: routine.id,
+      ...(readOnlyChanged && { readOnlyChanged }),
     }),
     createdAt: now,
     turnId,
@@ -392,7 +394,7 @@ export async function updateRoutine(
   await recordBotChange(tx, { conversationId }, "routine", routine.id, now);
   if (!approved) return { saved: routineSavedResult };
   await stopRoutine(deps, tx, routine.id);
-  await askApproval(deps, tx, { conversationId, turnId }, routine, now);
+  await askApproval(deps, tx, { conversationId, turnId }, routine, now, { readOnlyChanged });
   return { saved: routineChangedResult };
 }
 

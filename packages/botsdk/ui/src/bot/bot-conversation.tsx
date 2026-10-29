@@ -498,6 +498,7 @@ function BotConversationView({
                     <RoutineApproval
                       routine={routine}
                       webhookToken={webhookTokens[routine.id]}
+                      readOnlyChanged={control.readOnlyChanged}
                       onApprove={approve}
                       onDecline={decline}
                       {...actions}

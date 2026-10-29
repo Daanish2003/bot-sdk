@@ -230,6 +230,28 @@ describe("a Routine waiting for the user's OK", () => {
     expect(plain.textContent).not.toContain(readOnlyNote);
   });
 
+  it("says on its approval card when the change it waits for turns read-only off", async () => {
+    const noLonger = "No longer read-only: its runs can change things.";
+    const changed: BotMessage = {
+      ...approvalOf(),
+      control: { kind: "routine_approval", routineId: "r1", readOnlyChanged: true },
+    };
+    mount(fakeBotServer([changed], [morningBrief()]));
+    const card = await screen.findByRole("group", { name: "Created morning-brief routine" });
+    expect(card.textContent).toContain(noLonger);
+    cleanup();
+
+    mount(fakeBotServer([changed], [{ ...morningBrief(), readOnly: true }]));
+    const turnedOn = await screen.findByRole("group", { name: "Created morning-brief routine" });
+    expect(turnedOn.textContent).toContain("Read-only: its runs can look but not change anything.");
+    expect(turnedOn.textContent).not.toContain(noLonger);
+    cleanup();
+
+    mount(fakeBotServer([approvalOf()], [morningBrief()]));
+    const unchanged = await screen.findByRole("group", { name: "Created morning-brief routine" });
+    expect(unchanged.textContent).not.toContain(noLonger);
+  });
+
   it("shows one card when an edit sent the Routine back for a second Approval", async () => {
     const server = fakeBotServer(
       [
