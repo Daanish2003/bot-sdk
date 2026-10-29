@@ -9,11 +9,12 @@ import { richControlSchema } from "./rich-control";
 /**
  * A Message of a Bot's Conversation: its text, never the Bot's private transcript, and at most one
  * Rich control: a Computer-use Helper's hand-off Message has its Computer card, a Message that
- * asks for a Secret has its request, and the Message `watch_user` posts has its Show me card.
+ * asks for a Secret has its request, and the Message `watch_user` posts has its Show me card. A
+ * `reset` Message is the reset mark a Bot reset appends (spec #1007), written by neither side.
  */
 export const botMessageSchema = z.object({
   id: z.string(),
-  role: z.enum(["user", "assistant"]),
+  role: z.enum(["user", "assistant", "reset"]),
   text: z.string(),
   createdAt: z.date(),
   control: richControlSchema.optional(),

@@ -120,8 +120,8 @@ async function cancelFires(
 
 /**
  * Stops a Routine at once (#539), in `tx`, which holds its Conversation's row lock: its queued fire
- * is cancelled, and its Triggers that no Turn has taken yet are dropped. One a Turn has taken
- * finishes.
+ * is cancelled, and its Triggers still waiting (not taken, not skipped) are dropped. One a Turn has
+ * taken finishes, and a skipped one stays for the Tasks view.
  */
 async function stopRoutine(deps: BotSdkContext, tx: Transaction, routineId: string) {
   await cancelFires(deps, tx, [routineId]);
@@ -131,6 +131,7 @@ async function stopRoutine(deps: BotSdkContext, tx: Transaction, routineId: stri
       and(
         eq(botTrigger.source, "routine"),
         isNull(botTrigger.turnId),
+        isNull(botTrigger.skippedAt),
         like(botTrigger.id, `${fireKeyPrefix(routineId)}%`),
       ),
     );

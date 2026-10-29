@@ -31,12 +31,22 @@ export async function cancelAwaySummary(
 export const batchQuietMs = 500;
 export const batchLongestMs = 2_500;
 
-/** A Trigger as the Router receives it: its row, before any Turn has taken it. */
-export type ReceivedTrigger = Omit<typeof botTrigger.$inferInsert, "turnId">;
+/** A Trigger as the Router receives it: its row, before any Turn has taken or skipped it. */
+export type ReceivedTrigger = Omit<
+  typeof botTrigger.$inferInsert,
+  "turnId" | "skippedAt" | "skipReason"
+>;
 
-/** The Conversation queue (#499): the Conversation's Triggers that no Turn has taken yet. */
+/**
+ * The Conversation queue (#499): the Conversation's Triggers that no Turn has taken yet and that
+ * were not skipped (spec #1007). A skipped Trigger is never taken.
+ */
 export function waitingIn(conversationId: string): SQL | undefined {
-  return and(eq(botTrigger.conversationId, conversationId), isNull(botTrigger.turnId));
+  return and(
+    eq(botTrigger.conversationId, conversationId),
+    isNull(botTrigger.turnId),
+    isNull(botTrigger.skippedAt),
+  );
 }
 
 /**
