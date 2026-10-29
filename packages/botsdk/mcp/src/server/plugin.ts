@@ -84,7 +84,8 @@ export function mcp(options: McpOptions = {}) {
       });
     },
     // The first Connection reaches each Bot in its next Turn's Change notes (spec #1024). The
-    // section is what the Prompt start saw of it, so "none yet" in it and a Connection now is news.
+    // section is what the Prompt start saw of it, so "none yet" in it and a Connection now is news,
+    // and so is a Bot with no Prompt start yet (its first Turn), whose user already connected.
     prompt: async (turn, context) => {
       const connected = (await listConnections(context, servers, turn.userId)).filter(
         ({ state }) => state === "connected",
@@ -92,7 +93,7 @@ export function mcp(options: McpOptions = {}) {
       const section =
         connected.length > 0 ? connectedSection : servers.length > 0 ? noConnectionSection : null;
       if (
-        turn.built !== noConnectionSection ||
+        (turn.built !== null && turn.built !== noConnectionSection) ||
         connected.length === 0 ||
         turn.told.includes(firstConnectionNote(true)) ||
         turn.told.includes(firstConnectionNote(false))

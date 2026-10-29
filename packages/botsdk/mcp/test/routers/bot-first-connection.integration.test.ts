@@ -153,13 +153,18 @@ describe("The first Connection", () => {
     expect(newestWith(fake.calls, "later one")).not.toContain("first Connection");
   });
 
-  it("is not noted to a Bot whose Prompt start already saw a Connection", async () => {
-    const { fake, auth, deps, user, client, first } = await botsWithoutConnection();
+  it("is noted in the first Turn of a Bot that never had a Prompt start, once", async () => {
+    const { fake, auth, deps, user, client, first, second } = await botsWithoutConnection();
     await connect(user, deps, auth);
 
-    await send(client, first, "hello");
+    await send(client, first, "hello one");
+    await send(client, second, "hello two");
+    await send(client, first, "again one");
 
-    expect(newestWith(fake.calls, "hello")).not.toContain("first Connection");
+    const forFirst = newestWith(fake.calls, "hello one");
+    expect(forFirst).toContain("You are their first Bot: offer them the Morning brief");
+    expect(newestWith(fake.calls, "hello two")).toContain("You are not their first Bot");
+    expect(newestWith(fake.calls, "again one")).not.toContain("first Connection");
   });
 
   it("is offered to the first Bot with the default schedules and prompts in its system prompt", async () => {
