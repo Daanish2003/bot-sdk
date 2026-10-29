@@ -563,7 +563,13 @@ function buildContext(
       approve: true,
       deny: true,
     }),
-    notifications: botsStub<NotificationsApi>({ get: true, update: true }),
+    notifications: botsStub<NotificationsApi>({
+      get: true,
+      update: true,
+      pushKey: true,
+      subscribe: true,
+      unsubscribe: true,
+    }),
   };
 }
 

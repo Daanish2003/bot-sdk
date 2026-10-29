@@ -6,7 +6,12 @@ import type { BotCheckIn } from "./check-in";
 import { maxChoiceOptionLength, maxChoiceOtherLength } from "./choice";
 import type { DemonstrationState, DemonstrationStep } from "./demonstration";
 import type { BotHelper } from "./helper";
-import { type NotificationSettings, notificationSettingsSchema } from "./notifications";
+import {
+  type NotificationSettings,
+  notificationSettingsSchema,
+  pushEndpointInput,
+  pushSubscriptionSchema,
+} from "./notifications";
 import { emojiSchema } from "./reaction";
 import type { BotReview, ReviewApprovalState } from "./review";
 import { type BotRoutine, routineScheduleSchema } from "./routine";
@@ -382,6 +387,15 @@ const notifications = {
   get: oc.output(type<NotificationSettings>()),
   /** Replaces the user's settings, and returns them. */
   update: oc.input(notificationSettingsSchema).output(type<NotificationSettings>()),
+  /** The user's devices that web push reaches, one subscription each. */
+  push: {
+    /** The Host's VAPID public key to subscribe a device with, or `null` when it offers no push. */
+    key: oc.output(type<string | null>()),
+    /** Saves this device's subscription for the user; a device subscribed again is replaced. */
+    subscribe: oc.input(pushSubscriptionSchema).output(type<void>()),
+    /** Removes this device's subscription, when it is the user's. */
+    unsubscribe: oc.input(pushEndpointInput).output(type<void>()),
+  },
 };
 
 /**

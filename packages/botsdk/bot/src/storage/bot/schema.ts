@@ -29,6 +29,7 @@ import { botTurn, botTurnStatus } from "./bot-turn";
 import { botUpload } from "./bot-upload";
 import { customRule, customRuleMode, customRuleState } from "./custom-rule";
 import { notificationRoute, notificationSettings } from "./notification-settings";
+import { pushSubscription } from "./push-subscription";
 
 export * from "./bot";
 export * from "./bot-check-in";
@@ -44,8 +45,9 @@ export * from "./bot-turn";
 export * from "./bot-upload";
 export * from "./custom-rule";
 export * from "./notification-settings";
+export * from "./push-subscription";
 
-/** The `bot` plugin's schema module: its `bot`, `bot_turn`, `bot_prompt_start`, `bot_summary`, `bot_trigger`, `bot_routine`, `bot_check_in`, `bot_helper`, `bot_helper_message`, `bot_helper_screenshot`, `bot_review`, `secret`, `bot_demonstration`, `bot_demonstration_event`, `bot_upload`, `custom_rule` and `notification_settings` tables. */
+/** The `bot` plugin's schema module: its `bot`, `bot_turn`, `bot_prompt_start`, `bot_summary`, `bot_trigger`, `bot_routine`, `bot_check_in`, `bot_helper`, `bot_helper_message`, `bot_helper_screenshot`, `bot_review`, `secret`, `bot_demonstration`, `bot_demonstration_event`, `bot_upload`, `custom_rule`, `notification_settings` and `push_subscription` tables. */
 export const botSchema = {
   tables: {
     bot,
@@ -65,6 +67,7 @@ export const botSchema = {
     botUpload,
     customRule,
     notificationSettings,
+    pushSubscription,
   },
   enums: {
     botTurnStatus,

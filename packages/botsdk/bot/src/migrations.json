@@ -22,5 +22,9 @@
   {
     "name": "20261029222631_read_only_routines",
     "sql": "ALTER TABLE \"botsdk\".\"bot_routine\" ADD COLUMN \"read_only\" boolean DEFAULT false NOT NULL;"
+  },
+  {
+    "name": "20261029232026_push_subscription",
+    "sql": "ALTER TYPE \"botsdk\".\"notification_route\" ADD VALUE 'push';--> statement-breakpoint\nCREATE TABLE \"botsdk\".\"push_subscription\" (\n\t\"endpoint\" text PRIMARY KEY,\n\t\"user_id\" text NOT NULL,\n\t\"p256dh\" text NOT NULL,\n\t\"auth\" text NOT NULL,\n\t\"created_at\" timestamp NOT NULL\n);\n--> statement-breakpoint\nCREATE INDEX \"push_subscription_user_id_idx\" ON \"botsdk\".\"push_subscription\" (\"user_id\");"
   }
 ]

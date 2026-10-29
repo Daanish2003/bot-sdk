@@ -1,12 +1,13 @@
 // The service worker for apps/web (hand-written, no build plugin). It caches the app's static
-// files and an offline page, and never touches the chat's API or auth.
+// files and an offline page, and never touches the chat's API or auth. It shows the Bots' web
+// pushes (spec #1024), and a click on one opens its Conversation.
 //
 // Served from the root so its scope covers the whole app. Registered in production builds only
 // (see src/lib/service-worker.ts). The routing and age decisions live in sw-logic.js, which the
 // unit tests load too.
 
 importScripts("/sw-logic.js");
-const { routeOf, isStale } = self.swLogic;
+const { routeOf, isStale, notificationOf, clickUrlOf } = self.swLogic;
 
 const ASSET_CACHE = "ai-chat-assets";
 const OFFLINE_CACHE = "ai-chat-offline";
@@ -82,4 +83,22 @@ async function trimAssets() {
     const cachedAt = Number(response?.headers.get(CACHED_AT_HEADER) ?? 0);
     if (isStale(cachedAt, now)) await cache.delete(request);
   }
+}
+
+self.addEventListener("push", (event) => {
+  const { title, options } = notificationOf(event.data ? event.data.text() : "");
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(openOrFocus(clickUrlOf(event.notification.data, self.location.origin)));
+});
+
+/** Focuses a tab already on `url`, or opens one. */
+async function openOrFocus(url) {
+  const tabs = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  const open = tabs.find((tab) => tab.url === url);
+  if (open) return open.focus();
+  return self.clients.openWindow(url);
 }

@@ -1,0 +1,23 @@
+{
+  "name": "@botsdk/channel-web-push",
+  "version": "0.0.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json",
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "web-push": "3.6.7"
+  },
+  "devDependencies": {
+    "@ai-chat/config": "workspace:*",
+    "typescript": "catalog:"
+  },
+  "peerDependencies": {
+    "@botsdk/bot": "workspace:*"
+  }
+}

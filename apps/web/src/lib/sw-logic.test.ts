@@ -4,13 +4,20 @@ import { describe, expect, it } from "vitest";
 import "../../public/sw-logic.js";
 
 type Request = { method: string; url: string; mode: string };
+type Shown = {
+  title: string;
+  options: { body: string; tag?: string; icon: string; data: { url: string } };
+};
 type SwLogic = {
   routeOf: (request: Request, selfOrigin: string) => "navigate" | "asset" | "bypass";
   isStale: (cachedAt: number, now: number) => boolean;
   ASSET_MAX_AGE_MS: number;
+  notificationOf: (payload: string) => Shown;
+  clickUrlOf: (data: unknown, selfOrigin: string) => string;
 };
-const { routeOf, isStale, ASSET_MAX_AGE_MS } = (globalThis as unknown as { swLogic: SwLogic })
-  .swLogic;
+const { routeOf, isStale, ASSET_MAX_AGE_MS, notificationOf, clickUrlOf } = (
+  globalThis as unknown as { swLogic: SwLogic }
+).swLogic;
 
 const origin = "http://localhost:3000";
 const get = (path: string, mode = "cors"): Request => ({
@@ -68,5 +75,48 @@ describe("the asset age trim", () => {
 
   it("treats an entry without a stamp as old", () => {
     expect(isStale(0, now)).toBe(true);
+  });
+});
+
+describe("a push", () => {
+  const push = {
+    title: "Ada Lovelace",
+    body: "Your train leaves at 9.",
+    url: `${origin}/bots/b1`,
+    tag: "m1",
+  };
+
+  it("shows the Bot's name and the Message's first line, to open the Conversation", () => {
+    expect(notificationOf(JSON.stringify(push))).toEqual({
+      title: "Ada Lovelace",
+      options: {
+        body: "Your train leaves at 9.",
+        tag: "m1",
+        icon: "/icons/icon-192.png",
+        data: { url: `${origin}/bots/b1` },
+      },
+    });
+  });
+
+  it("still shows a notification for a payload it can't read", () => {
+    for (const payload of ["", "not json", "[]", JSON.stringify({ title: 3 })]) {
+      expect(notificationOf(payload)).toMatchObject({
+        title: "New message",
+        options: { body: "", data: { url: "/" } },
+      });
+    }
+  });
+});
+
+describe("a click on a push", () => {
+  it("opens the Conversation the push names", () => {
+    expect(clickUrlOf({ url: `${origin}/bots/b1` }, origin)).toBe(`${origin}/bots/b1`);
+    expect(clickUrlOf({ url: "/bots/b1" }, origin)).toBe(`${origin}/bots/b1`);
+  });
+
+  it("opens the app instead of another origin or a missing URL", () => {
+    expect(clickUrlOf({ url: "https://evil.example/phish" }, origin)).toBe(`${origin}/`);
+    expect(clickUrlOf({ url: "javascript:alert(1)" }, origin)).toBe(`${origin}/`);
+    expect(clickUrlOf(undefined, origin)).toBe(`${origin}/`);
   });
 });

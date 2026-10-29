@@ -31,5 +31,54 @@
     return cachedAt < now - ASSET_MAX_AGE_MS;
   }
 
-  root.swLogic = { routeOf, isStale, ASSET_MAX_AGE_MS };
+  const NOTIFICATION_ICON = "/icons/icon-192.png";
+
+  /**
+   * The notification a push shows (spec #1024): its payload is JSON with the Bot's name (`title`),
+   * the Message's first line (`body`), the Conversation's `url` and the Message's `tag`. Every push
+   * must show a notification, so a payload it can't read shows a plain one that opens the app.
+   */
+  function notificationOf(payload) {
+    let push;
+    try {
+      push = JSON.parse(payload);
+    } catch {
+      push = undefined;
+    }
+    const readable =
+      push !== null &&
+      typeof push === "object" &&
+      typeof push.title === "string" &&
+      typeof push.body === "string" &&
+      typeof push.url === "string";
+    if (!readable) {
+      return {
+        title: "New message",
+        options: { body: "", icon: NOTIFICATION_ICON, data: { url: "/" } },
+      };
+    }
+    return {
+      title: push.title,
+      options: {
+        body: push.body,
+        ...(typeof push.tag === "string" && { tag: push.tag }),
+        icon: NOTIFICATION_ICON,
+        data: { url: push.url },
+      },
+    };
+  }
+
+  /** The page a click on a notification opens: the URL it names on this origin, else the app. */
+  function clickUrlOf(data, selfOrigin) {
+    const home = new URL("/", selfOrigin).href;
+    if (!data || typeof data.url !== "string") return home;
+    try {
+      const url = new URL(data.url, selfOrigin);
+      return url.origin === selfOrigin ? url.href : home;
+    } catch {
+      return home;
+    }
+  }
+
+  root.swLogic = { routeOf, isStale, ASSET_MAX_AGE_MS, notificationOf, clickUrlOf };
 })(typeof self !== "undefined" ? self : globalThis);
