@@ -10,7 +10,9 @@ export const customRuleModes = ["without_asking", "pre_approved", "ask", "hand_o
 export type CustomRuleMode = (typeof customRuleModes)[number];
 
 /** How a Custom Rule stands: `proposed` by a Bot until the user's Approval, then `active`. */
-export type CustomRuleState = "active" | "proposed";
+export const customRuleStates = ["active", "proposed"] as const;
+
+export type CustomRuleState = (typeof customRuleStates)[number];
 
 /** The longest a Custom Rule's text may be, in characters (ADR 0031). */
 export const maxCustomRuleLength = 500;

@@ -1,4 +1,4 @@
-import { customRuleModes } from "@botsdk/client/bot/rule";
+import { customRuleModes, customRuleStates } from "@botsdk/client/bot/rule";
 import { type AnyPgColumn, index, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 import { botsdkSchema } from "../botsdk-schema";
@@ -8,7 +8,7 @@ import { bot } from "./bot";
 export const customRuleMode = botsdkSchema.enum("custom_rule_mode", customRuleModes);
 
 /** How a Custom Rule stands: `proposed` by a Bot until the user's Approval, then `active`. */
-export const customRuleState = botsdkSchema.enum("custom_rule_state", ["active", "proposed"]);
+export const customRuleState = botsdkSchema.enum("custom_rule_state", customRuleStates);
 
 /**
  * A Custom Rule (ADR 0031): the user's standing instruction, in their own words, for one kind of
