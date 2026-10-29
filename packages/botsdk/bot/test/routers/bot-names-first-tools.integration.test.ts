@@ -163,7 +163,7 @@ describe("Names-first tools", () => {
         runTool("create_routine", {
           name: "morning-brief",
           prompt: "Summarize today.",
-          schedule: { days: ["mon"], at: "08:00" },
+          schedule: { days: ["mon"], times: ["08:00"] },
         }),
         runTool("set_check_in", { at: "2030-03-16T09:00:00Z", note: "Look at the brief" }),
       ),

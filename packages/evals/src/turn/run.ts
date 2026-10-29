@@ -77,7 +77,7 @@ function routineFakeScript(evalCase: RoutineCase) {
     const input = {
       name: "tech-news",
       prompt: "Give me a short summary of the top tech news.",
-      schedule: { days: ["mon", "tue", "wed", "thu", "fri"], at: "08:00" },
+      schedule: { days: ["mon", "tue", "wed", "thu", "fri"], times: ["08:00"] },
     };
     return [round(toolCall({ name: "create_routine", input })), round(send)];
   }

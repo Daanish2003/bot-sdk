@@ -39,7 +39,7 @@ describe("sdk.routines, checkIns, helpers, demonstrations and reviews, called in
         botId,
         name: "morning-brief",
         prompt: "Summarise the news.",
-        schedule: { days: ["mon" as const], at: "08:00" },
+        schedule: { days: ["mon" as const], times: ["08:00"] },
         timeZone: "Europe/London",
         state: "pending",
         createdByTurnId: turn!.id,

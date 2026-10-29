@@ -331,6 +331,8 @@ description: Use this when
   "bots.save": "Save",
   "bots.routinePrompt": "Prompt",
   "bots.routineTime": "Time",
+  "bots.addRoutineTime": "Add time",
+  "bots.removeRoutineTime": ({ time }: { time: string }) => `Remove ${time}`,
   "bots.checkInTime": "When",
   "bots.checkInNote": "Note",
   "bots.dayMon": "Mon",

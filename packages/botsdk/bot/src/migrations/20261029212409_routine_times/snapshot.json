@@ -1,8 +1,8 @@
 {
+  "id": "3fccacb8-0d90-4671-9eb9-2860da371b00",
+  "prevIds": ["03906726-980c-4cb8-8b8e-0e7fdf2fcfdf"],
   "version": "8",
   "dialect": "postgres",
-  "id": "84cdd5f2-d7ca-4582-b181-2e40549776af",
-  "prevIds": ["03906726-980c-4cb8-8b8e-0e7fdf2fcfdf"],
   "ddl": [
     {
       "values": ["pending", "fired", "failed", "cancelled"],
@@ -91,12 +91,6 @@
     {
       "values": ["active", "proposed"],
       "name": "custom_rule_state",
-      "entityType": "enums",
-      "schema": "botsdk"
-    },
-    {
-      "values": ["in_app", "email"],
-      "name": "notification_route",
       "entityType": "enums",
       "schema": "botsdk"
     },
@@ -255,12 +249,6 @@
     {
       "isRlsEnabled": false,
       "name": "custom_rule",
-      "entityType": "tables",
-      "schema": "botsdk"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "notification_settings",
       "entityType": "tables",
       "schema": "botsdk"
     },
@@ -2373,84 +2361,6 @@
       "table": "custom_rule"
     },
     {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "user_id",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "notification_settings"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "quiet_start",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "notification_settings"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "quiet_end",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "notification_settings"
-    },
-    {
-      "type": "notification_route",
-      "typeSchema": "botsdk",
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "urgent_route",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "notification_settings"
-    },
-    {
-      "type": "notification_route",
-      "typeSchema": "botsdk",
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "other_route",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "notification_settings"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "notification_settings"
-    },
-    {
       "type": "uuid",
       "typeSchema": null,
       "notNull": true,
@@ -4544,14 +4454,6 @@
       "entityType": "pks"
     },
     {
-      "columns": ["user_id"],
-      "nameExplicit": false,
-      "name": "notification_settings_pkey",
-      "schema": "botsdk",
-      "table": "notification_settings",
-      "entityType": "pks"
-    },
-    {
       "columns": ["bot_id"],
       "nameExplicit": false,
       "name": "channel_email_address_pkey",
@@ -4623,13 +4525,6 @@
       "entityType": "checks",
       "schema": "botsdk",
       "table": "bot_trigger"
-    },
-    {
-      "value": "(\"quiet_start\" is null) = (\"quiet_end\" is null) and (\"quiet_start\" is null or \"quiet_start\" <> \"quiet_end\")",
-      "name": "notification_settings_quiet_hours_check",
-      "entityType": "checks",
-      "schema": "botsdk",
-      "table": "notification_settings"
     }
   ],
   "renames": []

@@ -300,7 +300,7 @@ describe("a Helper a background run started (#591)", () => {
       id: "r1",
       name: "morning-brief",
       prompt: "Summarize today's calendar.",
-      schedule: { days: ["mon"], at: "08:00" },
+      schedule: { days: ["mon"], times: ["08:00"] },
       webhook: false,
       timeZone: "Europe/London",
       state: "active",

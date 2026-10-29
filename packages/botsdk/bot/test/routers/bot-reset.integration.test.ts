@@ -100,7 +100,7 @@ async function resettableBots({
       botId,
       name: "morning-brief",
       prompt: "Summarize.",
-      schedule: { days: [...everyDay], at: "08:00" },
+      schedule: { days: [...everyDay], times: ["08:00"] },
       timeZone: "UTC",
       state: "active" as const,
       createdByTurnId: turnId,
