@@ -52,10 +52,13 @@ export function BotConversation({
   headerEnd,
   afterTurn,
   controls,
+  hideTasks,
 }: {
   botId: string;
   /** Header buttons the Host adds after the Bot's own, such as the `memory` plugin's Memory popover. */
   headerEnd?: ReactNode;
+  /** PROTOTYPE (#1006): hides the Routines and To-do popovers while the Tasks view prototype is on. */
+  hideTasks?: boolean;
   /**
    * What the Host shows under the last Bot Message a Turn sent, such as the `memory` plugin's
    * "Memory updated" chip. It may return nothing.
@@ -72,6 +75,7 @@ export function BotConversation({
       headerEnd={headerEnd}
       afterTurn={afterTurn}
       controls={controls}
+      hideTasks={hideTasks}
     />
   );
 }
@@ -89,11 +93,13 @@ function BotConversationView({
   headerEnd,
   afterTurn,
   controls,
+  hideTasks,
 }: {
   botId: string;
   headerEnd?: ReactNode;
   afterTurn?: (turn: BotTurnProvenance) => ReactNode;
   controls?: RichControlRenderers;
+  hideTasks?: boolean;
 }) {
   const SecretCard = controls?.secret ?? defaultRichControlRenderers.secret;
   const ComputerCard = controls?.computer ?? defaultRichControlRenderers.computer;
@@ -341,20 +347,21 @@ function BotConversationView({
         <BotAvatar name={bot.name} size={28} />
         <h1 className="font-semibold">{bot.name}</h1>
         <div className="ml-auto flex items-center gap-2">
-          {(routines.length > 0 || checkIns.some((checkIn) => checkIn.state === "pending")) && (
-            <RoutinesPopover
-              routines={routines}
-              checkIns={checkIns}
-              {...checkInActions}
-              webhookTokens={webhookTokens}
-              onRotate={rotate}
-              {...actions}
-            />
-          )}
+          {!hideTasks &&
+            (routines.length > 0 || checkIns.some((checkIn) => checkIn.state === "pending")) && (
+              <RoutinesPopover
+                routines={routines}
+                checkIns={checkIns}
+                {...checkInActions}
+                webhookTokens={webhookTokens}
+                onRotate={rotate}
+                {...actions}
+              />
+            )}
           {secrets.length > 0 && (
             <SecretsPopover secrets={secrets} onDelete={removeSecret} acting={actingSecrets} />
           )}
-          {todo.length > 0 && (
+          {!hideTasks && todo.length > 0 && (
             <TodoPopover helpers={todo} onStop={onStopHelper} acting={actingHelpers} />
           )}
           {headerEnd}
