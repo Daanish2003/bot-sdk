@@ -12,6 +12,7 @@ import botsdkConfig, { e2b } from "../botsdk.config";
 import { isBanActive } from "./admin/ban";
 import { appName, sender } from "./email";
 import { emailProviderOf } from "./email-provider";
+import { webPushChannelsOf } from "./push-channel";
 import { ENV, ssrfAllowHosts } from "./env.server";
 import { blobStoreOf } from "./blob-store";
 import { getQuota } from "./admin/quota";
@@ -133,6 +134,13 @@ export const sdk = (shared.botSdk ??= createBotSdk({
       domain: ENV.EMAIL_CHANNEL_DOMAIN ?? "bots.localhost",
       // A Bot's emails link to its page in this app.
       appUrl: ENV.BETTER_AUTH_URL,
+    }),
+    // Web push (spec #1024): on only with the Host's VAPID key pair (VAPID_*).
+    ...webPushChannelsOf({
+      VAPID_PUBLIC_KEY: ENV.VAPID_PUBLIC_KEY,
+      VAPID_PRIVATE_KEY: ENV.VAPID_PRIVATE_KEY,
+      VAPID_SUBJECT: ENV.VAPID_SUBJECT,
+      BETTER_AUTH_URL: ENV.BETTER_AUTH_URL,
     }),
   ],
 }));

@@ -447,6 +447,22 @@ CREATE TABLE "botsdk"."notification_settings" (
 insert into botsdk.__migrations (feature, migration) values ('core', '20261029220925_notification_settings');
 commit;
 
+-- core/20261029222858_push_subscription
+begin;
+ALTER TYPE "botsdk"."notification_route" ADD VALUE 'push';--> statement-breakpoint
+CREATE TABLE "botsdk"."push_subscription" (
+	"endpoint" text PRIMARY KEY,
+	"user_id" text NOT NULL,
+	"p256dh" text NOT NULL,
+	"auth" text NOT NULL,
+	"created_at" timestamp NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX "push_subscription_user_id_idx" ON "botsdk"."push_subscription" ("user_id");
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261029222858_push_subscription');
+commit;
+
 -- notes/0001_note
 begin;
 create table botsdk.test_note (id text primary key, bot_id uuid references botsdk.bot(id) on delete cascade)

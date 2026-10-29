@@ -142,6 +142,15 @@ const notifications = os.notifications.router({
   update: os.notifications.update.handler(({ context, input }) =>
     context.sdk.notifications.update({ ...input, userId: context.user.id }),
   ),
+  push: {
+    key: os.notifications.push.key.handler(({ context }) => context.sdk.notifications.pushKey()),
+    subscribe: os.notifications.push.subscribe.handler(({ context, input }) =>
+      context.sdk.notifications.subscribe({ ...input, userId: context.user.id }),
+    ),
+    unsubscribe: os.notifications.push.unsubscribe.handler(({ context, input }) =>
+      context.sdk.notifications.unsubscribe({ ...input, userId: context.user.id }),
+    ),
+  },
 });
 
 const rules = os.rules.router({

@@ -60,7 +60,7 @@ export const settingsMessages = {
     "For messages your Bots send on their own, from a Routine, a Check-in, a Helper or a webhook. Replies to your messages go back where you wrote from. These apply to all your Bots.",
   "settings.quietHours": "Quiet hours",
   "settings.quietHoursHelp":
-    "In your time zone. During them, only urgent messages are emailed. The rest are still in the conversation for when you look.",
+    "In your time zone. During them, only urgent messages are emailed or pushed. The rest are still in the conversation for when you look.",
   "settings.quietFrom": "From",
   "settings.quietTo": "To",
   "settings.urgentRoute": "Urgent messages",
@@ -68,9 +68,22 @@ export const settingsMessages = {
   "settings.routeDefault": "Where I last wrote",
   "settings.routeInApp": "In-app only",
   "settings.routeEmail": "Email",
+  "settings.routePush": "Web push",
   "settings.routeHelp": "Every message is in the app, whatever you choose.",
   "settings.saveNotifications": "Save notifications",
   "settings.notificationsSaved": "Notifications saved",
   "settings.notificationsLoadFailed":
     "Couldn't load your notification settings. Reload to try again.",
+  "settings.pushDevice": "Web push on this device",
+  "settings.pushDeviceHelp":
+    "Each device gets pushes once it is turned on there. With no choice for urgent messages, they are pushed to your devices.",
+  "settings.pushEnable": "Enable push on this device",
+  "settings.pushEnabled": "Push is on for this device.",
+  "settings.pushDisable": "Turn off push on this device",
+  "settings.pushUnsupported": "This browser can't show push notifications.",
+  "settings.pushNeedsHomeScreen":
+    "On iPhone and iPad, push needs iOS 16.4 or later and this app on your Home Screen: tap Share, then Add to Home Screen, and open it from there.",
+  "settings.pushDenied":
+    "Notifications are blocked for this site. Allow them in your browser's settings, then try again.",
+  "settings.pushFailed": "Couldn't change push on this device",
 };

@@ -18,5 +18,9 @@
   {
     "name": "20261029220925_notification_settings",
     "sql": "CREATE TYPE \"botsdk\".\"notification_route\" AS ENUM('in_app', 'email');--> statement-breakpoint\nCREATE TABLE \"botsdk\".\"notification_settings\" (\n\t\"user_id\" text PRIMARY KEY,\n\t\"quiet_start\" text,\n\t\"quiet_end\" text,\n\t\"urgent_route\" \"botsdk\".\"notification_route\",\n\t\"other_route\" \"botsdk\".\"notification_route\",\n\t\"updated_at\" timestamp NOT NULL,\n\tCONSTRAINT \"notification_settings_quiet_hours_check\" CHECK ((\"quiet_start\" is null) = (\"quiet_end\" is null) and (\"quiet_start\" is null or \"quiet_start\" <> \"quiet_end\"))\n);\n"
+  },
+  {
+    "name": "20261029222858_push_subscription",
+    "sql": "ALTER TYPE \"botsdk\".\"notification_route\" ADD VALUE 'push';--> statement-breakpoint\nCREATE TABLE \"botsdk\".\"push_subscription\" (\n\t\"endpoint\" text PRIMARY KEY,\n\t\"user_id\" text NOT NULL,\n\t\"p256dh\" text NOT NULL,\n\t\"auth\" text NOT NULL,\n\t\"created_at\" timestamp NOT NULL\n);\n--> statement-breakpoint\nCREATE INDEX \"push_subscription_user_id_idx\" ON \"botsdk\".\"push_subscription\" (\"user_id\");"
   }
 ]

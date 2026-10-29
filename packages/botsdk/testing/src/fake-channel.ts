@@ -1,6 +1,13 @@
 import { z } from "zod";
 
-import type { EmailProvider, InboundMail, OutboundMail } from "@botsdk/bot/channel/internal";
+import type {
+  EmailProvider,
+  InboundMail,
+  OutboundMail,
+  PushNotification,
+  PushProvider,
+  PushSubscriptionKeys,
+} from "@botsdk/bot/channel/internal";
 
 const verdict = z.enum(["pass", "fail", "none"]);
 
@@ -83,4 +90,30 @@ export function fakeEmailProvider(): {
       }),
     });
   return { provider, sent, request };
+}
+
+/**
+ * A fake web push provider (spec #1024), for tests: each push is kept in `sent`. A push to an
+ * endpoint in `gone` answers as a dead subscription (404 or 410), and one in `failing` throws, as
+ * a push service that refused it.
+ */
+export function fakePushProvider(): {
+  provider: PushProvider;
+  sent: { subscription: PushSubscriptionKeys; notification: PushNotification }[];
+  gone: Set<string>;
+  failing: Set<string>;
+} {
+  const sent: { subscription: PushSubscriptionKeys; notification: PushNotification }[] = [];
+  const gone = new Set<string>();
+  const failing = new Set<string>();
+  const provider: PushProvider = {
+    publicKey: "BFakeVapidPublicKey",
+    send: async (subscription, notification) => {
+      if (failing.has(subscription.endpoint)) throw new Error("The push service refused the push");
+      if (gone.has(subscription.endpoint)) return "gone";
+      sent.push({ subscription, notification });
+      return "sent";
+    },
+  };
+  return { provider, sent, gone, failing };
 }

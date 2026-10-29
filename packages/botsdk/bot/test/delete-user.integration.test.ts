@@ -12,6 +12,7 @@ import {
   conversation,
   message,
   notificationSettings,
+  pushSubscription,
   userCredentials,
   usage,
 } from "../src/storage";
@@ -38,7 +39,7 @@ const hello = () =>
 afterEach(stopBotRunners);
 
 /**
- * A user with their own key, notification settings and a Bot that has run a Turn: a Conversation,
+ * A user with their own key, notification settings, a push subscription and a Bot that has run a Turn: a Conversation,
  * Messages and usage.
  */
 async function seedOwner(user: TestUser, deps: TestDeps) {
@@ -51,6 +52,10 @@ async function seedOwner(user: TestUser, deps: TestDeps) {
   const { client, botId } = await botOf(deps, user, sonnet);
   await sendToTurnEnd(client, botId);
   await client.notifications.update({ quietHours: null, urgent: "email", other: null });
+  await client.notifications.push.subscribe({
+    endpoint: `https://push.example/send/${user.id}`,
+    keys: { p256dh: "BKey", auth: "auth" },
+  });
   return { client, botId };
 }
 
@@ -79,6 +84,9 @@ async function ownedRows(userId: string) {
     notificationSettings: await count(
       db.select().from(notificationSettings).where(eq(notificationSettings.userId, userId)),
     ),
+    pushSubscriptions: await count(
+      db.select().from(pushSubscription).where(eq(pushSubscription.userId, userId)),
+    ),
   };
 }
 
@@ -90,6 +98,7 @@ const emptyRows = {
   credentials: 0,
   usage: 0,
   notificationSettings: 0,
+  pushSubscriptions: 0,
 };
 
 /** A test SDK whose Bots' Turns each send "Hello". */

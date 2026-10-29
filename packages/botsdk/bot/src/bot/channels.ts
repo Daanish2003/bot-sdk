@@ -6,13 +6,14 @@ import { receiveEmail } from "./turn";
 
 /**
  * The Channels over `adapters`: what `sdk.channels` is. With no adapter, the Bots talk on the web
- * only: `receive` throws and no reply goes out by email.
+ * only: `receive` throws and no reply goes out by email or web push.
  */
 export function createChannels(
   sdk: BotSdkContext,
   { adapters, verifiedEmail }: ChannelOptions,
 ): ChannelApi {
   const email = emailAdapterOf(adapters);
+  const push = adapters.find((adapter) => adapter.id === "push");
   return {
     receive: async (id, mail) => {
       if (id !== "email" || !email) throw new Error("The channel plugin has no email adapter");
@@ -23,12 +24,12 @@ export function createChannels(
       return email.domain;
     },
     deliverIn: async (tx, sent) => {
-      if (email) await deliverIn(sdk, tx, email, sent);
+      if (email || push) await deliverIn(sdk, tx, { email, push }, sent);
     },
     sendDelivery: async (payload) => {
-      if (!email) throw new Error("The channel plugin has no email adapter");
-      await sendDelivery(sdk, email, verifiedEmail, payload);
+      await sendDelivery(sdk, { email, push }, verifiedEmail, payload);
     },
+    pushKey: () => push?.provider.publicKey ?? null,
   };
 }
 
