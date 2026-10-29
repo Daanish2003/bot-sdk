@@ -1,11 +1,12 @@
 import {
+  approvalExpiryMs,
   approvalWaitMs,
   type BotReview,
   type ReviewApprovalState,
 } from "@botsdk/client/bot/review";
 import { searchTextOf } from "@botsdk/client/message-parts";
 import { chat, EventType, type ModelMessage, type StreamChunk } from "@tanstack/ai";
-import { and, asc, desc, eq, gt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { bot, botReview, botTrigger, message } from "../../storage";
@@ -122,11 +123,33 @@ export type ReviewKit = {
 };
 
 /**
+ * What the Model gets for a blocked call still unanswered past its wait (ADR 0030): not an error,
+ * since the call may yet run. It names the review, so a later answer can say which call it answers.
+ */
+export type PendingApproval = { pending: string; reviewId: string };
+
+/** The pending result of review `reviewId`, blocked for `reason`. */
+export function pendingApproval(reviewId: string, reason: string): PendingApproval {
+  return {
+    pending:
+      `Waiting for the user's Approval: ${reason.trim().replace(/[.!\s]+$/, "")}. The call ` +
+      "hasn't run. It runs if the user approves it, and its result then comes to you. Don't " +
+      "retry it. Carry on with anything that doesn't depend on it.",
+    reviewId,
+  };
+}
+
+/** What a review gives the call: the Model's error for a block, its pending result, or `null` to run. */
+export type ReviewOutcome = { error: string } | PendingApproval | null;
+
+/**
  * Reviews tool call `toolCallId` of `tool` with `input`, from `source`, before it runs: the review
  * as the recorded activity `review`, then its row and its `review` usage in the Checkpoint
- * `review:write`. A replay reads both. Returns the error the Model gets for a block, or `null` for
- * a pass. A Stop during the review throws, like any cut-off activity. With `ask`, no model reviews
- * the call: it is a block with `ask`'s reason and summary, so the user always decides.
+ * `review:write`. A replay reads both. Returns the error the Model gets for a block, its pending
+ * result for one unanswered past its wait, or `null` for a pass. A Stop during the review throws,
+ * like any cut-off activity. With `ask`, no model reviews the call: it is a block with `ask`'s
+ * reason and summary, so the user always decides. A `strict` call (an action on a Screen, ADR 0030)
+ * never goes pending: silence past its wait expires it.
  */
 export async function reviewToolCall(
   deps: BotSdkContext,
@@ -138,6 +161,7 @@ export async function reviewToolCall(
     tool,
     input,
     ask,
+    strict = false,
   }: {
     owner: { userId: string; botId: string; model: string };
     source: ReviewSource;
@@ -145,8 +169,9 @@ export async function reviewToolCall(
     tool: string;
     input: Record<string, unknown>;
     ask?: ReviewAsk;
+    strict?: boolean;
   },
-): Promise<{ error: string } | null> {
+): Promise<ReviewOutcome> {
   // The meter of the call the live review made; a live write after a replayed review resolves it
   // again, and a replayed write needs none.
   let liveMeter: ModelMeter | undefined;
@@ -215,43 +240,53 @@ export async function reviewToolCall(
   if (wrote) await hintChanged(deps, source.conversationId);
   if (reviewed.outcome === "pass") return null;
   if (!reviewId || !deadline) return { error: blockedError(reviewed.reason) };
-  // The wait (ADR 0024): no transaction, since it holds for up to 15 seconds. Re-run after a crash
-  // before its Checkpoint, it reads the row's decision, or the same deadline.
+  // The wait (ADR 0024, ADR 0030): no transaction, since it holds for up to 15 seconds. Re-run
+  // after a crash before its Checkpoint, it reads the row's outcome, or the same deadline.
   const decided = await kit.step("review:wait", async () => {
     kit.beforeLive();
-    return waitForApproval(deps, reviewId, deadline, kit.signal);
+    return waitForApproval(deps, reviewId, deadline, strict ? "expired" : "pending", kit.signal);
   });
   if (decided === "allowed") return null;
+  if (decided === "pending") return pendingApproval(reviewId, reviewed.reason);
   return { error: blockedError(reviewed.reason, decided) };
 }
 
 /** How often the wait reads its Approval's row. */
 const approvalPollMs = 500;
 
+/** When a blocked call's Approval expires if it goes pending: 7 days after the block (ADR 0030). */
+const pendingExpiresAt = sql`${botReview.deadline} + ${`${approvalExpiryMs - approvalWaitMs} milliseconds`}::interval`;
+
 /**
  * Waits for Approval `reviewId`: polls its row about every `approvalPollMs` until the user allows
- * or denies it, or marks it `expired` once `deadline` passes. A row gone with its Bot reads as
- * denied. A Stop throws, leaving the row to `closeWaitingReviews`.
+ * or denies it, or marks it `silence` (`pending`, or `expired` for a strict call) once `deadline`
+ * passes. A row gone with its Bot reads as denied. A row that has ever gone pending (it has an
+ * expiry) reads as pending, whatever came of it since: a late answer is never the Turn's to run.
+ * A Stop throws, leaving the row to `closeWaitingReviews`.
  */
 async function waitForApproval(
   deps: BotSdkContext,
   reviewId: string,
   deadline: Date,
+  silence: "pending" | "expired",
   signal: AbortSignal,
-): Promise<"allowed" | "denied" | "expired"> {
+): Promise<"allowed" | "denied" | "expired" | "pending"> {
   for (;;) {
     signal.throwIfAborted();
     const [row] = await deps.db
-      .select({ state: botReview.state })
+      .select({ state: botReview.state, expiresAt: botReview.expiresAt })
       .from(botReview)
       .where(eq(botReview.id, reviewId));
-    if (!row) return "denied";
-    if (row.state === "allowed" || row.state === "denied" || row.state === "expired") {
-      return row.state;
-    }
+    if (!row?.state) return "denied";
+    if (row.expiresAt) return "pending";
+    if (row.state !== "waiting") return row.state;
     const now = deps.clock();
     if (now >= deadline) {
-      if (await decide(deps, reviewId, "expired", now)) return "expired";
+      const marked =
+        silence === "pending"
+          ? await decide(deps, reviewId, { state: "pending" }, now)
+          : await decide(deps, reviewId, { state: "expired", decidedAt: now }, now);
+      if (marked) return silence;
       // The user answered first: read their answer.
       continue;
     }
@@ -290,7 +325,9 @@ export async function decideReview(
     .innerJoin(bot, eq(bot.id, botReview.botId))
     .where(and(eq(botReview.id, reviewId), eq(bot.userId, userId)));
   if (!found?.state) throw rpcError("NOT_FOUND", "error.reviewNotFound", "Request not found");
-  if (await decide(deps, reviewId, answer, now)) return { decided: true, state: answer };
+  if (await decide(deps, reviewId, { state: answer, decidedAt: now }, now)) {
+    return { decided: true, state: answer };
+  }
   const [row] = await deps.db
     .select({ state: botReview.state })
     .from(botReview)
@@ -301,14 +338,14 @@ export async function decideReview(
 }
 
 /**
- * Sets waiting Approval `reviewId` to `state` at `now`, with its `review` change, under its
- * Conversation's row lock: an answer only before its deadline, an expiry at any time. Returns whether
- * it was still waiting, so changed.
+ * Moves waiting Approval `reviewId` on as `change` says at `now`, with its `review` change, under
+ * its Conversation's row lock: an answer only before its deadline; an expiry, or going pending past
+ * the wait, at any time. Returns whether it was still waiting, so changed.
  */
 async function decide(
   deps: BotSdkContext,
   reviewId: string,
-  state: "allowed" | "denied" | "expired",
+  change: { state: "allowed" | "denied" | "expired"; decidedAt: Date } | { state: "pending" },
   now: Date,
 ): Promise<boolean> {
   const decided = await deps.db.transaction(async (tx) => {
@@ -321,12 +358,14 @@ async function decide(
     await lockConversation(tx, owner.conversationId);
     const [changed] = await tx
       .update(botReview)
-      .set({ state, decidedAt: now })
+      .set(change.state === "pending" ? { ...change, expiresAt: pendingExpiresAt } : change)
       .where(
         and(
           eq(botReview.id, reviewId),
           eq(botReview.state, "waiting"),
-          state === "expired" ? undefined : gt(botReview.deadline, now),
+          change.state === "allowed" || change.state === "denied"
+            ? gt(botReview.deadline, now)
+            : undefined,
         ),
       )
       .returning({ id: botReview.id });
@@ -340,22 +379,30 @@ async function decide(
 
 /**
  * Closes the waiting Approvals of a Turn or a Helper (`of`), with their `review` changes, in `tx`,
- * which holds the Conversation's row lock: `denied` for the user's Stop,
- * which counts as no, and `expired` for one that ended while one waited (its time limit), so none
- * stays open.
+ * which holds the Conversation's row lock: `denied` for the user's Stop, which counts as no,
+ * `pending` for a Turn the user's new Message interrupts (ADR 0030: they may not have seen it yet),
+ * and `expired` for one that ended while one waited (its time limit), so none stays waiting. A
+ * pending Approval belongs to the Bot, so none is ever touched here.
  */
 export async function closeWaitingReviews(
   deps: BotSdkContext,
   tx: Transaction,
   of: { turnId: string } | { helperId: string },
-  state: "denied" | "expired",
+  state: "denied" | "expired" | "pending",
 ): Promise<void> {
   const owned =
     "turnId" in of ? eq(botReview.turnId, of.turnId) : eq(botReview.helperId, of.helperId);
   const now = deps.clock();
   const closed = await tx
     .update(botReview)
-    .set({ state, decidedAt: now })
+    .set(
+      state === "pending"
+        ? {
+            state,
+            expiresAt: pendingExpiresAt,
+          }
+        : { state, decidedAt: now },
+    )
     .where(and(owned, eq(botReview.state, "waiting")))
     .returning({ id: botReview.id, botId: botReview.botId });
   // One Turn's or Helper's, so one Bot's: its Conversation is looked up once.
@@ -629,11 +676,11 @@ export const reviewFields = {
 
 /**
  * The Bot's reviews, oldest first, for its Turns' passes lines and its Approval cards: its newest
- * `listedReviews`, and every one still waiting for the user however old, so the list a live Turn
- * polls stays bounded. Older Turns show no passes line.
+ * `listedReviews`, and every one still waiting or pending for the user however old, so the list a
+ * live Turn polls stays bounded. Older Turns show no passes line.
  */
 export async function listReviews(db: Database, botId: string): Promise<BotReview[]> {
-  const [newest, waiting] = await Promise.all([
+  const [newest, open] = await Promise.all([
     db
       .select(reviewFields)
       .from(botReview)
@@ -643,9 +690,9 @@ export async function listReviews(db: Database, botId: string): Promise<BotRevie
     db
       .select(reviewFields)
       .from(botReview)
-      .where(and(eq(botReview.botId, botId), eq(botReview.state, "waiting"))),
+      .where(and(eq(botReview.botId, botId), inArray(botReview.state, ["waiting", "pending"]))),
   ]);
-  const byId = new Map([...newest, ...waiting].map((row) => [row.id, row]));
+  const byId = new Map([...newest, ...open].map((row) => [row.id, row]));
   return [...byId.values()].sort(
     (a, b) =>
       a.createdAt.getTime() - b.createdAt.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
