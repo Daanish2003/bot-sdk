@@ -146,6 +146,12 @@ export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly Fe
    */
   reviewModel?: string;
   /**
+   * Safety settings of Auto-review. `neverAllowed` adds classes of action, in plain language, to
+   * the SDK's Never-allowed list: Auto-review blocks them with no Approval offered. The SDK's
+   * own classes can't be removed.
+   */
+  safety?: { neverAllowed?: readonly string[] };
+  /**
    * The Host's callbacks into the SDK. Each hook is optional and runs after its change is written,
    * never awaited, at most once and without retries (README, "Host hooks").
    */
@@ -291,7 +297,7 @@ export function coreParts(options: BotSdkOptions, modelsPart?: BotSdkPlugin): Bo
   }
   return [
     modelsPart ?? models(options.models),
-    bot({ reviewModel: options.reviewModel }),
+    bot({ reviewModel: options.reviewModel, neverAllowed: options.safety?.neverAllowed }),
     ...(options.channels
       ? [
           channel({
@@ -537,7 +543,13 @@ function buildContext(
       steps: true,
     }),
     reviews: botsStub<ReviewsApi>({ list: true, allow: true, deny: true }),
-    rules: botsStub<RulesApi>({ list: true, create: true, update: true, delete: true }),
+    rules: botsStub<RulesApi>({
+      list: true,
+      neverAllowed: true,
+      create: true,
+      update: true,
+      delete: true,
+    }),
   };
 }
 
@@ -634,4 +646,5 @@ const botApiKeys: Record<keyof BotApi, true> = {
   react: true,
   stopTurns: true,
   reviewModel: true,
+  neverAllowed: true,
 };

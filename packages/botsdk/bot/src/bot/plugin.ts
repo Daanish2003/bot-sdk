@@ -71,19 +71,23 @@ export type BotApi = BotsApi & {
   stopTurns: (input: { userId: string }) => Promise<void>;
   /** The Model that reviews the Bots' risky tool calls, as the `reviewModel` option named it, if any. */
   reviewModel: string | undefined;
+  /** The Host's extra Never-allowed classes, as the `safety.neverAllowed` option named them. */
+  neverAllowed: readonly string[];
 };
 
 /** How the core sets up its Bots, from the factory's options. */
 export type BotOptions = {
   /** The factory's `reviewModel` option: the Model that Auto-reviews the Bots' risky tool calls. */
   reviewModel?: string;
+  /** The factory's `safety.neverAllowed` option: the Host's extra Never-allowed classes. */
+  neverAllowed?: readonly string[];
 };
 
 /**
  * The core's Bots (spec #871): always-on Bots, each a name and a Model talking to its user in one
  * Conversation of kind `bot`. Its `init` sets `sdk.bots`; the slots always enable it.
  */
-export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
+export function bot({ reviewModel, neverAllowed = [] }: BotOptions = {}): BotPlugin {
   return {
     id: "bot",
     init: (sdk) => {
@@ -112,6 +116,7 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
           await stopUserDemonstrations(sdk, userId);
         },
         reviewModel,
+        neverAllowed,
       };
       sdk.bots = api;
       sdk.conversations = conversationsApi(sdk);

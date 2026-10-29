@@ -7,6 +7,12 @@ import { useItemActions } from "./turn-list";
 /** The key of the one rule being written: it has no id yet. */
 export const newRuleKey = "new";
 
+/** The Never-allowed classes (ADR 0032), read-only: the SDK's, then the Host's extra ones. */
+export function useNeverAllowed(): string[] {
+  const { orpc } = useChatAdapter();
+  return useQuery(orpc.rules.neverAllowed.queryOptions()).data ?? [];
+}
+
 /**
  * The user's Custom Rules (spec #989), shared by all their Bots, the oldest first. `create` writes
  * an active rule under `newRuleKey`; `update` and `remove` act on rule `ruleId`. `acting` holds the

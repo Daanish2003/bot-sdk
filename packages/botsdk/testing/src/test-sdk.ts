@@ -64,6 +64,7 @@ export function createTestSdk({
   channels,
   users,
   reviewModel,
+  safety,
   liveViewBase,
   ...overrides
 }: Omit<TestDepsOverrides, "db"> & { db: Database }): TestDeps {
@@ -135,6 +136,7 @@ export function createTestSdk({
       channels,
       users,
       reviewModel,
+      safety,
       liveViewBase,
       features: features ?? [],
     },

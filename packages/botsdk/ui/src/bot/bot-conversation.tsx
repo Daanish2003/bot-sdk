@@ -27,6 +27,7 @@ import { AttachButton, DraftFileChips } from "./draft-files";
 import { ReactionBar, ReactionChips } from "./reactions";
 import { CheckInLine } from "./check-in-line";
 import { HelperCard } from "./helper-card";
+import { NeverAllowedLine } from "./never-allowed-line";
 import { ReviewPassesLine } from "./review-passes-line";
 import { defaultRichControlRenderers, type RichControlRenderers } from "./rich-control";
 import { RoutinesPopover } from "./routines-popover";
@@ -272,9 +273,12 @@ function BotConversationView({
   // before its end ("" with none), so its Steps still show.
   const afterTurnOf = new Map<string, ReactNode[]>();
   const passesOf = new Map<string, typeof reviews>();
+  const neversOf = new Map<string, typeof reviews>();
   for (const review of reviews) {
-    if (review.verdict !== "pass" || !review.turnId) continue;
-    passesOf.set(review.turnId, [...(passesOf.get(review.turnId) ?? []), review]);
+    if (!review.turnId) continue;
+    const into =
+      review.verdict === "pass" ? passesOf : review.verdict === "never" ? neversOf : null;
+    into?.set(review.turnId, [...(into.get(review.turnId) ?? []), review]);
   }
   for (const [index, turn] of turns.entries()) {
     const from = turn.startedAt.getTime();
@@ -289,13 +293,17 @@ function BotConversationView({
         .filter((message) => message.role === "assistant" && message.createdAt.getTime() >= from)
         .at(-1) ?? before.at(-1);
     const passes = passesOf.get(turn.id) ?? [];
+    const nevers = neversOf.get(turn.id) ?? [];
     const shown = afterTurn?.(turn);
     const key = anchor?.id ?? "";
-    if (passes.length > 0 || shown)
+    if (passes.length > 0 || nevers.length > 0 || shown)
       afterTurnOf.set(key, [
         ...(afterTurnOf.get(key) ?? []),
         <Fragment key={turn.id}>
           {passes.length > 0 && <ReviewPassesLine passes={passes} />}
+          {nevers.map((review) => (
+            <NeverAllowedLine key={review.id} review={review} />
+          ))}
           {shown}
         </Fragment>,
       ]);

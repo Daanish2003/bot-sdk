@@ -39,6 +39,18 @@ export type CustomRule = {
 };
 
 /**
+ * The SDK's Never-allowed classes (ADR 0032): kinds of action no Bot takes, whatever the rules or
+ * Approvals say. A Host can add classes of its own, but nobody can remove these.
+ */
+export const sdkNeverAllowed = [
+  "moving money between accounts, or trading securities or crypto",
+  "acting on someone else's account",
+  "changing passwords, two-factor or recovery settings",
+  "sending a Secret's value, or card or government ID numbers, off the Computer",
+  "weakening the Bot's own safety",
+] as const;
+
+/**
  * A rule a Bot proposed, in the thread (spec #989), the Rich control of kind `rule_approval`: it
  * holds only the rule's id, and its state is read from the rule's row.
  */
