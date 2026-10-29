@@ -26,7 +26,7 @@ import { useBotUploads } from "@botsdk/react/bot/uploads";
 import { useBotSecrets } from "@botsdk/react/bot/secrets";
 import { useCacheWarming } from "@botsdk/react/bot/warm";
 import { BotAvatar } from "./bot-avatar";
-import { BotMenu, PausedBadge, PausedBanner } from "./bot-menu";
+import { BotMenu, PausedBadge, PausedBanner, ResetDivider } from "./bot-menu";
 import { AttachButton, DraftFileChips } from "./draft-files";
 import { ReactionBar, ReactionChips } from "./reactions";
 import { CheckInLine } from "./check-in-line";
@@ -191,6 +191,11 @@ function BotConversationView({
     void botPause.pause().catch((refusal) => toast.error(serverErrorText(i18n, refusal)));
   const onResumeBot = () =>
     void botPause.resume().catch((refusal) => toast.error(serverErrorText(i18n, refusal)));
+  const onResetBot = (name: string) =>
+    botPause.reset(name).catch((refusal) => {
+      toast.error(serverErrorText(i18n, refusal));
+      throw refusal;
+    });
   const onStopTurn = () =>
     void stop().catch((refusal) => toast.error(serverErrorText(i18n, refusal)));
   const actions = { onPause: pause, onResume: resume, onDelete: remove, actingRoutines: acting };
@@ -386,10 +391,12 @@ function BotConversationView({
           )}
           {headerEnd}
           <BotMenu
+            name={bot.name}
             paused={paused}
             acting={botPause.acting}
             onPause={onPauseBot}
             onResume={onResumeBot}
+            onReset={onResetBot}
           />
         </div>
       </header>
@@ -402,7 +409,9 @@ function BotConversationView({
             {summariesBefore.get(message.id)}
             {warmingsBefore.get(message.id)}
             {runsBefore.get(message.id)}
-            {control?.kind === "demonstration" ? (
+            {message.role === "reset" ? (
+              <ResetDivider />
+            ) : control?.kind === "demonstration" ? (
               <ShowMeCard
                 card={control}
                 botName={bot.name}

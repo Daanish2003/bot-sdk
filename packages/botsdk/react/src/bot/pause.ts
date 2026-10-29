@@ -4,9 +4,9 @@ import { useState } from "react";
 import { useChatAdapter } from "../provider";
 
 /**
- * The user's Bot pause and resume (spec #1007), then the Bot's thread, Tasks view and the Bot list
- * asked for again, so the badge, the banner and the composer follow. `acting` is true while one is
- * in flight.
+ * The user's Bot pause, resume and reset (spec #1007), then the Bot's thread, Tasks view and the Bot
+ * list asked for again, so the badge, the banner, the composer and the reset mark follow. `acting`
+ * is true while one is in flight. `reset` takes the Bot's name as the user typed it.
  */
 export function useBotPause(botId: string) {
   const { orpc } = useChatAdapter();
@@ -32,5 +32,6 @@ export function useBotPause(botId: string) {
     acting,
     pause: () => act(() => orpc.bots.pause.call({ botId })),
     resume: () => act(() => orpc.bots.resume.call({ botId })),
+    reset: (name: string) => act(() => orpc.bots.reset.call({ botId, name })),
   };
 }

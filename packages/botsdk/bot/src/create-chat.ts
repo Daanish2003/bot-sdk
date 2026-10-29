@@ -651,6 +651,7 @@ const botApiKeys: Record<keyof BotApi, true> = {
   stop: true,
   pause: true,
   resume: true,
+  reset: true,
   tasks: true,
   warm: true,
   choose: true,

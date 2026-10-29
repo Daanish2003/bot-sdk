@@ -5,6 +5,7 @@ import {
   uploadInput,
   chooseInput,
   reactInput,
+  resetBotInput,
 } from "@botsdk/client/bot/contract";
 
 import { lastSeqOf } from "../chat/change-log";
@@ -22,7 +23,7 @@ import {
 import { turnProvenance } from "./safety";
 import { botSummaries, botWarmings, warmBot } from "./context";
 import { botTasks } from "./tasks";
-import { pauseBot, resumeBot, sendToBot, stopBot } from "./turn";
+import { pauseBot, resetBot, resumeBot, sendToBot, stopBot } from "./turn";
 import { answerChoice, reactToMessage } from "./triggers";
 
 /*
@@ -132,6 +133,16 @@ export function botsApi(sdk: BotSdkContext) {
      */
     resume: async ({ userId, ...rest }: WithUser<typeof botInput>) =>
       resumeBot(sdk, userId, parseInput(botInput, rest).botId),
+
+    /**
+     * Resets the user's Bot (Bot reset, spec #1007), once `name` matches its name: it stops as a
+     * pause stops it (what waits is skipped with reason `reset`), declines its pending Approvals,
+     * deletes its Routines, Check-ins, Helpers and their transcripts and its own Memory files, and
+     * appends the reset mark, from which its Turns' history starts. It keeps its pause state and
+     * everything else. A wrong name is refused; another user's Bot is not found.
+     */
+    reset: async ({ userId, ...rest }: WithUser<typeof resetBotInput>) =>
+      resetBot(sdk, userId, parseInput(resetBotInput, rest)),
 
     /**
      * One of the user's Bots' Tasks view (spec #1007): what it is doing (In progress), what is

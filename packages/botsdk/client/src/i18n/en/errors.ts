@@ -10,6 +10,7 @@ export const errorMessages = {
   "error.botNotFound": "Bot not found",
   "error.botPaused": "Bot is paused. Resume to send.",
   "error.botPausedApproval": "Bot is paused. Resume to approve.",
+  "error.botResetName": "Type the Bot's name to reset it.",
   "error.secretTooShort": ({ min }: { min: number }) =>
     `That value is too short to keep out of output: use at least ${min} characters.`,
   "error.customRuleNotFound": "Rule not found",

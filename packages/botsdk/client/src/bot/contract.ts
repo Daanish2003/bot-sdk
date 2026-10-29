@@ -85,6 +85,9 @@ export const createBotInput = z.object({
 /** The input of the methods that act on one of the user's Bots, besides `userId`. */
 export const botInput = z.object({ botId: z.uuid() });
 
+/** `bots.reset`'s input, besides `userId`: the Bot, and its name typed to confirm (spec #1007). */
+export const resetBotInput = z.object({ botId: z.uuid(), name: z.string().max(100) });
+
 /** `conversations.changes`' input, besides `userId`. */
 export const conversationChangesInput = z.object({
   conversationId: z.uuid(),
@@ -236,6 +239,12 @@ const bots = {
   pause: oc.input(botInput).output(type<void>()),
   /** Resumes the user's paused Bot, replaying nothing. Idempotent; another user's Bot is not found. */
   resume: oc.input(botInput).output(type<void>()),
+  /**
+   * Resets the user's Bot (spec #1007): it forgets its own Memory and drops its Routines, Check-ins,
+   * Helpers and pending Approvals, and its Conversation gets a reset mark. `name` must be the
+   * Bot's name. Another user's Bot is not found.
+   */
+  reset: oc.input(resetBotInput).output(type<void>()),
   /**
    * One of the user's Bots' Tasks view (spec #1007): In progress, Scheduled and Done, in one read.
    * Another user's Bot is not found.

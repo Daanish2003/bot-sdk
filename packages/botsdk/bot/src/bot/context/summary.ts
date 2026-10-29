@@ -8,6 +8,7 @@ import type { Database } from "../../storage";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { uuidv7 } from "../../lib/uuidv7";
 import { buildPromptStart, type PromptStartParts, userZoneAt } from "./prompt-start";
+import { noResetAfter } from "./reset-mark";
 import { midTurnNote } from "../agent-loop";
 import { awaySummaryKey } from "../triggers";
 import { toBotMessage, recordBotChange, formatterIn } from "../conversation";
@@ -78,6 +79,7 @@ async function lastMessagesToUser(
         eq(message.conversationId, conversationId),
         eq(message.role, "assistant"),
         lte(message.createdAt, now),
+        noResetAfter(tx, { conversationId }, message.createdAt),
       ),
     )
     .orderBy(desc(message.createdAt), desc(message.id))
@@ -270,6 +272,8 @@ export function historyTurns(
       and(
         eq(botTurn.botId, botId),
         before ? lt(botTurn.startedAt, before) : undefined,
+        // Nothing from before the Bot's latest reset mark (spec #1007).
+        noResetAfter(db, { botId: botTurn.botId }, botTurn.startedAt),
         summary
           ? or(
               gte(botTurn.startedAt, summary.coversUntil),

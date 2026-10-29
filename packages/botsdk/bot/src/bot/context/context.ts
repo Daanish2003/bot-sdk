@@ -58,6 +58,7 @@ import {
 import { createRoutineToolName, routinesPrompt } from "../routines";
 import { customRulesPrompt } from "../safety";
 
+import { noResetAfter } from "./reset-mark";
 import { historyFrom, historyTurns, summaryOf, writeSummary } from "./summary";
 
 import {
@@ -506,6 +507,8 @@ async function newestInput(
         and(
           eq(message.conversationId, turn.conversationId),
           eq(message.role, "assistant"),
+          // A Message from before the reset mark is one the Bot no longer sees (spec #1007).
+          noResetAfter(db, { conversationId: turn.conversationId }, message.createdAt),
           sql`(${message.parts}->'reactions'->'user'->>'at')::timestamptz <= ${turn.startedAt.toISOString()}::timestamptz`,
           since &&
             sql`(${message.parts}->'reactions'->'user'->>'at')::timestamptz > ${since.toISOString()}::timestamptz`,

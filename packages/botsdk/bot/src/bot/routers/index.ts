@@ -43,6 +43,9 @@ const bots = os.bots.router({
   resume: os.bots.resume.handler(({ context, input }) =>
     context.sdk.bots.resume({ ...input, userId: context.user.id }),
   ),
+  reset: os.bots.reset.handler(({ context, input }) =>
+    context.sdk.bots.reset({ ...input, userId: context.user.id }),
+  ),
   tasks: os.bots.tasks.handler(({ context, input }) =>
     context.sdk.bots.tasks({ ...input, userId: context.user.id }),
   ),

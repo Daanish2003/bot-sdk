@@ -197,6 +197,26 @@ export async function listCheckIns(db: Database, botId: string): Promise<BotChec
     .orderBy(asc(botCheckIn.at), asc(botCheckIn.id));
 }
 
+/**
+ * Deletes every Check-in of Bot `botId` (a Bot reset, spec #1007), in `tx`, which holds its
+ * Conversation's row lock: a pending one's fire is cancelled, so it never fires.
+ */
+export async function deleteBotCheckIns(
+  deps: BotSdkContext,
+  tx: Transaction,
+  owner: { botId: string; conversationId: string },
+  at: Date,
+): Promise<void> {
+  const deleted = await tx
+    .delete(botCheckIn)
+    .where(eq(botCheckIn.botId, owner.botId))
+    .returning({ id: botCheckIn.id, state: botCheckIn.state });
+  for (const { id, state } of deleted) {
+    await recordBotChange(tx, owner, "check_in", id, at);
+    if (state === "pending") await deps.runner.cancelIn(tx, checkInKey(id));
+  }
+}
+
 /** Cancels the queued jobs of the user's pending Check-ins, in `tx`, so none fires once they are deleted. */
 export async function cancelUserCheckIns(
   deps: BotSdkContext,

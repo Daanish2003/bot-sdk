@@ -590,6 +590,28 @@ export async function closeWaitingReviews(
   for (const row of closed) await recordBotChange(tx, owner, "review", row.id, now);
 }
 
+/**
+ * Declines every open Approval of Bot `botId` (a Bot reset, spec #1007), waiting or pending, in
+ * `tx`, which holds its Conversation's row lock: each is `denied` with its `review` change and its
+ * expiry job cancelled. Nothing wakes the Bot, and no call runs.
+ */
+export async function declineBotApprovals(
+  deps: BotSdkContext,
+  tx: Transaction,
+  owner: { botId: string; conversationId: string },
+  at: Date,
+): Promise<void> {
+  const declined = await tx
+    .update(botReview)
+    .set({ state: "denied", decidedAt: at })
+    .where(and(eq(botReview.botId, owner.botId), inArray(botReview.state, ["waiting", "pending"])))
+    .returning({ id: botReview.id });
+  for (const { id } of declined) {
+    await recordBotChange(tx, owner, "review", id, at);
+    await deps.runner.cancelIn(tx, approvalExpiryKey(id));
+  }
+}
+
 /** Schedules the job that expires pending Approval `reviewId` at `expiresAt` (ADR 0030), in `tx`. */
 async function scheduleExpiry(
   deps: BotSdkContext,

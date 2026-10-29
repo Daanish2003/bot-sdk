@@ -9,6 +9,7 @@ export {
   blockedError,
   closeWaitingReviews,
   decideReview,
+  declineBotApprovals,
   judge,
   listedReviews,
   handOffError,

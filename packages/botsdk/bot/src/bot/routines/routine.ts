@@ -739,6 +739,27 @@ export async function resumeRoutine(
   return result;
 }
 
+/**
+ * Deletes every Routine of Bot `botId` (a Bot reset, spec #1007), in `tx`, which holds its
+ * Conversation's row lock: each stops at once (`stopRoutine`), so none fires again and its webhook
+ * URL answers 404.
+ */
+export async function deleteBotRoutines(
+  deps: BotSdkContext,
+  tx: Transaction,
+  owner: { botId: string; conversationId: string },
+  at: Date,
+): Promise<void> {
+  const deleted = await tx
+    .delete(botRoutine)
+    .where(eq(botRoutine.botId, owner.botId))
+    .returning({ id: botRoutine.id });
+  for (const { id } of deleted) {
+    await recordBotChange(tx, owner, "routine", id, at);
+    await stopRoutine(deps, tx, id);
+  }
+}
+
 /** The user deletes a Routine in any state: it stops at once (`stopRoutine`). */
 export async function removeRoutine(
   deps: BotSdkContext,
