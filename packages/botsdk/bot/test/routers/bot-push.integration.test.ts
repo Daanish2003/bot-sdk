@@ -7,6 +7,7 @@ import { fakeEmailProvider, fakePushProvider } from "@botsdk/testing/fake-channe
 import { emailChannel, webPushChannel } from "../../src/channel";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner, claimJob } from "../../src/runner/internal";
+import { maxPushDevices } from "../../src/bot/notifications-api";
 import { job, pushSubscription } from "../../src/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
@@ -34,7 +35,7 @@ const night = { start: "22:00", end: "07:00" };
 /** A device's subscription as the browser gives it. */
 const device = (name: string) => ({
   endpoint: `https://push.example/send/${name}`,
-  keys: { p256dh: `BKey-${name}`, auth: `auth-${name}` },
+  keys: { p256dh: `B${name}`.padEnd(87, "A"), auth: `a${name}`.padEnd(22, "A") },
 });
 
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
@@ -202,19 +203,38 @@ describe("the push subscription API", () => {
     expect(await subscribed()).toEqual([]);
   });
 
-  it("refuses an endpoint that isn't HTTPS, or keys that aren't base64url", timeout, async () => {
-    const { client } = await pushedBot([]);
-
-    for (const subscription of [
-      { ...device("laptop"), endpoint: "http://push.example/send/laptop" },
-      { ...device("laptop"), endpoint: "file:///etc/passwd" },
-      { ...device("laptop"), keys: { p256dh: "not base64!", auth: "auth" } },
-    ]) {
-      await expect(client.notifications.push.subscribe(subscription)).rejects.toThrow(
-        "Input validation failed",
-      );
+  it("keeps a user's newest devices only, dropping the oldest past the cap", timeout, async () => {
+    const { client, timer, subscribed } = await pushedBot([]);
+    const names = Array.from({ length: maxPushDevices + 1 }, (_, n) => `d${n}`);
+    for (const name of names) {
+      await client.notifications.push.subscribe(device(name));
+      timer.advance(1_000);
     }
+
+    const kept = await subscribed();
+    expect(kept).toHaveLength(maxPushDevices);
+    expect(kept).not.toContain(device("d0").endpoint);
   });
+
+  it(
+    "refuses an endpoint that isn't HTTPS, or keys that aren't base64url of the right length",
+    timeout,
+    async () => {
+      const { client } = await pushedBot([]);
+
+      for (const subscription of [
+        { ...device("laptop"), endpoint: "http://push.example/send/laptop" },
+        { ...device("laptop"), endpoint: "file:///etc/passwd" },
+        { ...device("laptop"), keys: { ...device("laptop").keys, p256dh: "not base64!" } },
+        { ...device("laptop"), keys: { ...device("laptop").keys, p256dh: "BShort" } },
+        { ...device("laptop"), keys: { ...device("laptop").keys, auth: "short" } },
+      ]) {
+        await expect(client.notifications.push.subscribe(subscription)).rejects.toThrow(
+          "Input validation failed",
+        );
+      }
+    },
+  );
 });
 
 describe("a pushed Message", () => {

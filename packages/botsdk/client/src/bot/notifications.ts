@@ -44,12 +44,19 @@ export const defaultNotificationSettings: NotificationSettings = {
   other: null,
 };
 
-/** A base64url key of a push subscription. */
-const pushKeySchema = z
-  .string()
-  .min(1)
-  .max(200)
-  .regex(/^[A-Za-z0-9_-]+=*$/, "A push key is base64url");
+/** How many bytes a base64url string holds, its padding left out. */
+const byteLengthOf = (base64url: string) =>
+  Math.floor((base64url.replace(/=+$/, "").length * 3) / 4);
+
+/** A base64url key of a push subscription, of `bytes` bytes (or at least `bytes`, with `orMore`). */
+const pushKeySchema = (bytes: number, orMore = false) =>
+  z
+    .string()
+    .max(200)
+    .regex(/^[A-Za-z0-9_-]+=*$/, "A push key is base64url")
+    .refine((key) => (orMore ? byteLengthOf(key) >= bytes : byteLengthOf(key) === bytes), {
+      error: `A push key is ${orMore ? "at least " : ""}${bytes} bytes`,
+    });
 
 /** A push service's endpoint: HTTPS, as every browser's push service is. */
 const pushEndpointSchema = z.url({ protocol: /^https$/ }).max(2048);
@@ -60,7 +67,8 @@ const pushEndpointSchema = z.url({ protocol: /^https$/ }).max(2048);
  */
 export const pushSubscriptionSchema = z.object({
   endpoint: pushEndpointSchema,
-  keys: z.object({ p256dh: pushKeySchema, auth: pushKeySchema }),
+  // The device's uncompressed P-256 public key, and its auth secret (RFC 8291).
+  keys: z.object({ p256dh: pushKeySchema(65), auth: pushKeySchema(16, true) }),
 });
 
 /** A device's subscription, named by its endpoint. */

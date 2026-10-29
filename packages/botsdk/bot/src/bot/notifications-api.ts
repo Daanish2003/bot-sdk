@@ -7,11 +7,14 @@ import {
   type QuietHours,
 } from "@botsdk/client/bot/notifications";
 import { formatterIn } from "@botsdk/client/bot/time-zone";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, notInArray } from "drizzle-orm";
 
 import type { BotSdkContext, Transaction } from "../plugin";
 import { parseInput, type WithUser } from "../rpc-error";
 import { notificationSettings, pushSubscription } from "../storage";
+
+/** How many devices a user's pushes reach: the ones subscribed last. */
+export const maxPushDevices = 20;
 
 /*
  * The `notifications` namespace (spec #1024): the user's Quiet hours, where Messages from Turns
@@ -92,10 +95,25 @@ export function notificationsApi(sdk: BotSdkContext) {
     }: WithUser<typeof pushSubscriptionSchema>): Promise<void> => {
       const { endpoint, keys } = parseInput(pushSubscriptionSchema, rest);
       const columns = { userId, p256dh: keys.p256dh, auth: keys.auth, createdAt: sdk.clock() };
-      await sdk.db
-        .insert(pushSubscription)
-        .values({ endpoint, ...columns })
-        .onConflictDoUpdate({ target: pushSubscription.endpoint, set: columns });
+      await sdk.db.transaction(async (tx) => {
+        await tx
+          .insert(pushSubscription)
+          .values({ endpoint, ...columns })
+          .onConflictDoUpdate({ target: pushSubscription.endpoint, set: columns });
+        // The user's devices past the newest `maxPushDevices` are dropped, so a user can't make
+        // each push fan out without end.
+        const newest = tx
+          .select({ endpoint: pushSubscription.endpoint })
+          .from(pushSubscription)
+          .where(eq(pushSubscription.userId, userId))
+          .orderBy(desc(pushSubscription.createdAt), desc(pushSubscription.endpoint))
+          .limit(maxPushDevices);
+        await tx
+          .delete(pushSubscription)
+          .where(
+            and(eq(pushSubscription.userId, userId), notInArray(pushSubscription.endpoint, newest)),
+          );
+      });
     },
 
     /** Removes a device's subscription, when it is the user's. */

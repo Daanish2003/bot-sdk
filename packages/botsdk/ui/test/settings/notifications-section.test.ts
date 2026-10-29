@@ -62,7 +62,7 @@ function fakeNotificationsServer(
 
 const phone: DeviceSubscription = {
   endpoint: "https://push.example/send/phone",
-  keys: { p256dh: "BKey", auth: "auth" },
+  keys: { p256dh: "B".padEnd(87, "A"), auth: "a".padEnd(22, "A") },
 };
 
 /** A stand-in for this browser's push: its `support`, and the device's subscription, if any. */
@@ -258,6 +258,14 @@ describe("web push in the Notifications section", () => {
 
     await screen.findByRole("button", { name: "Enable push on this device" });
     expect(server.unsubscribed).toEqual([phone.endpoint]);
+  });
+
+  it("saves a device subscribed before for the signed-in user, who may not be who subscribed it", async () => {
+    const server = fakeNotificationsServer(nothingSet, { pushKey: key });
+    mount(server, fakeDevice("supported", { subscription: phone }).device);
+
+    await screen.findByRole("status");
+    expect(server.subscribed).toEqual([phone]);
   });
 
   it("saves nothing when notifications are blocked", async () => {

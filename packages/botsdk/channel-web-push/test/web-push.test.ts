@@ -119,7 +119,7 @@ describe("the web push provider", () => {
     expect(webPushProvider({ ...vapid, subject }).publicKey).toBe(vapid.publicKey);
   });
 
-  it.each([404, 410])("reports a %i as a subscription that is gone", async (status) => {
+  it.each([403, 404, 410])("reports a %i as a subscription that is gone", async (status) => {
     const service = await fakePushService(status);
     const provider = webPushProvider({ ...vapid, subject });
 
@@ -128,6 +128,18 @@ describe("the web push provider", () => {
         fetch,
       }),
     ).toBe("gone");
+  });
+
+  it("reports a subscription whose keys can't be encrypted for as gone, sending nothing", async () => {
+    const service = await fakePushService();
+    const provider = webPushProvider({ ...vapid, subject });
+    const broken = {
+      endpoint: `${service.origin}/push/broken`,
+      keys: { p256dh: "abc", auth: "x" },
+    };
+
+    expect(await provider.send(broken, notification, { fetch })).toBe("gone");
+    expect(service.received).toEqual([]);
   });
 
   it("throws on any other refusal, so the push is retried", async () => {

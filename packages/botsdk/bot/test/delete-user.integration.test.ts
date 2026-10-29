@@ -54,7 +54,7 @@ async function seedOwner(user: TestUser, deps: TestDeps) {
   await client.notifications.update({ quietHours: null, urgent: "email", other: null });
   await client.notifications.push.subscribe({
     endpoint: `https://push.example/send/${user.id}`,
-    keys: { p256dh: "BKey", auth: "auth" },
+    keys: { p256dh: "B".padEnd(87, "A"), auth: "a".padEnd(22, "A") },
   });
   return { client, botId };
 }

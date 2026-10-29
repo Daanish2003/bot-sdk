@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { bot, message, pushSubscription } from "../../storage";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import type { PushNotification, WebPushChannel } from "../../channel/internal";
-import { toBotMessage } from "./store";
+import { searchTextOf } from "@botsdk/client/message-parts";
 
 /** The longest push body: a push's payload is small (about 4 KB), and a notification shows less. */
 const maxBodyLength = 200;
@@ -45,10 +45,7 @@ export async function sendPushDelivery(
 ): Promise<void> {
   const [row] = await deps.db
     .select({
-      id: message.id,
-      role: message.role,
       parts: message.parts,
-      createdAt: message.createdAt,
       botId: bot.id,
       userId: bot.userId,
       name: bot.name,
@@ -63,7 +60,7 @@ export async function sendPushDelivery(
     .where(eq(pushSubscription.userId, row.userId));
   const notification: PushNotification = {
     title: row.name,
-    body: firstLineOf(toBotMessage(row).text),
+    body: firstLineOf(searchTextOf(row.parts)),
     url: `${push.appUrl}/bots/${row.botId}`,
     tag: messageId,
   };

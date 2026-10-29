@@ -124,11 +124,13 @@ export async function notificationRouteOf(
   }: { userId: string; owner: Parameters<typeof lastUsedChannel>[1]; urgent: boolean },
 ): Promise<NotificationRoute> {
   const settings = await notificationSettingsOf(db, userId);
-  const pushed =
-    urgent && deps.channels.pushKey() !== null && (await hasPushSubscription(db, userId));
-  const route =
-    (urgent ? settings.urgent : settings.other) ??
-    (pushed ? "push" : (await lastUsedChannel(db, owner)) === "email" ? "email" : "in_app");
+  const defaultRouteOf = async (): Promise<NotificationRoute> => {
+    if (urgent && deps.channels.pushKey() !== null && (await hasPushSubscription(db, userId))) {
+      return "push";
+    }
+    return (await lastUsedChannel(db, owner)) === "email" ? "email" : "in_app";
+  };
+  const route = (urgent ? settings.urgent : settings.other) ?? (await defaultRouteOf());
   if (route === "in_app" || urgent || !settings.quietHours) return route;
   const zone = await userTimeZoneOf(db, userId);
   return inQuietHours(settings.quietHours, deps.clock(), zone) ? "in_app" : route;

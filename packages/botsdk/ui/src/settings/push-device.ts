@@ -88,8 +88,9 @@ export const browserPushDevice: PushDevice = {
   },
   subscribe: async (publicKey) => {
     if ((await Notification.requestPermission()) !== "granted") throw new PushDeniedError();
-    const worker = await registration();
-    if (!worker) throw new Error("The app's service worker isn't registered");
+    if (!(await registration())) throw new Error("The app's service worker isn't registered");
+    // Subscribing needs an active worker; a just-registered one may still be installing.
+    const worker = await navigator.serviceWorker.ready;
     const subscription = await worker.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: keyBytes(publicKey),

@@ -126,7 +126,13 @@ function PushDeviceRow({ publicKey, device }: { publicKey: string; device: PushD
   const deviceKey = ["notifications", "push-device"];
   const current = useQuery({
     queryKey: deviceKey,
-    queryFn: () => device.current(),
+    // A device subscribed before, maybe by another user of this browser, is saved for this user,
+    // so "on" is true for them.
+    queryFn: async () => {
+      const subscription = await device.current();
+      if (subscription) await orpc.notifications.push.subscribe.call(subscription);
+      return subscription;
+    },
     enabled: support === "supported",
   });
   const failed = (error: unknown) =>

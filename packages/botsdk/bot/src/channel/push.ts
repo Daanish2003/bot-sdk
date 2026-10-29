@@ -26,8 +26,8 @@ export type PushProvider = {
   publicKey: string;
   /**
    * Sends `notification` to `subscription` through `fetch` (the SDK's, which reaches public
-   * addresses only). Resolves `gone` when the push service answers 404 or 410, so the subscription
-   * is dead; throws on any other refusal.
+   * addresses only). Resolves `gone` when no push can ever reach the subscription (the push service
+   * answers 404 or 410), so it is deleted; throws on a refusal a retry may get past.
    */
   send: (
     subscription: PushSubscriptionKeys,
