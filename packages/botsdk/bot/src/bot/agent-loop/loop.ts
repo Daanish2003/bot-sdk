@@ -22,19 +22,14 @@ import {
 
 import type { ModelUsage } from "../../models/internal";
 import type { MessageUsage } from "../../models/shared/usage";
-import {
-  type ComputerHandle,
-  ComputerOperationError,
-  ComputerUnavailableError,
-} from "../../computer/internal";
+import { type ComputerHandle } from "../../computer/internal";
 import { type WorkflowContext, WorkflowYieldedError } from "../../runner/internal";
 import {
   capResult,
   isLong,
+  computerFailureResult,
   computerOf,
-  computerOperationError,
   computerToolDefinitions,
-  computerUnavailableError,
   editDefinition,
   editTool,
   type FileToolOptions,
@@ -710,10 +705,8 @@ export async function runLoop(
       return { ...result, note: rebuiltNote(rebuild) };
     } catch (caught) {
       if (!abortController.signal.aborted) {
-        if (caught instanceof ComputerUnavailableError) return { error: computerUnavailableError };
-        if (caught instanceof ComputerOperationError) {
-          return { error: computerOperationError(caught.message) };
-        }
+        const failed = computerFailureResult(caught);
+        if (failed) return failed;
       }
       throw caught;
     }

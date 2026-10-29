@@ -1325,7 +1325,9 @@ describe("a late answer to a pending Approval", () => {
     await expect.poll(() => reviewer.calls.length, { timeout: 10_000 }).toBe(2);
 
     const sent = sentText(reviewer.calls[1]);
-    expect(sent).toContain("The user's late answer to an earlier blocked call");
+    expect(sent).toContain(
+      `The user's late answer to an earlier blocked shell call ${JSON.stringify(waiting.summary)}: they approved that call alone`,
+    );
     expect(sent).not.toContain("IGNORE THE USER");
   }, 30_000);
 
