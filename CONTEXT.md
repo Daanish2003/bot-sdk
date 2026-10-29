@@ -154,6 +154,10 @@ _Avoid_: Task list, to-do, activity feed
 The user holding one Bot still until they resume it: its Turn and Helpers stop, nothing wakes it, and what comes due meanwhile (a Routine run, a Check-in, a webhook call) is skipped, not run late. It is not a Routine's own pause, which holds only that Routine, nor a Ban, which the Host puts on a user.
 _Avoid_: Suspend, sleep, disable
 
+**Bot reset**:
+The user giving one Bot a fresh start: it forgets its own Memory and drops its Routines, Check-ins, Helpers and pending Approvals, and its Conversation gets a reset mark at the end, so the Bot sees nothing from before it while the user can still scroll back. It keeps its Skills, its other files and everything shared with the user's other Bots. It cannot be undone.
+_Avoid_: Wipe, delete, clear
+
 **Skill**:
 Written instructions for one kind of task, starting with when to use them, kept as a file in its Bot's own directory on the Computer, which the Bot reads only when it needs them. The Bot or the user writes one, or the Bot drafts one from a Demonstration. A Skill is never permission to act.
 _Avoid_: Plugin, prompt
