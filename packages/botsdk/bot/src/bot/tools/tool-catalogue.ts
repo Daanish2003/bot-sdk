@@ -53,6 +53,7 @@ import { watchUserTool } from "../demonstrations";
 import type { LoopKit } from "../agent-loop";
 
 import { generateImageTool } from "./generate-image";
+import { gateReadOnly, isReadOnlyRun, refusedInReadOnly } from "./read-only";
 
 /*
  * The tool catalogue of a Turn (spec #871): the core's tools, then the enabled features' tools, and
@@ -140,6 +141,16 @@ const routineName = z
   )
   .max(60, "name must be at most 60 characters");
 
+/** A Routine's read-only setting (spec #1024), as `create_routine` and `update_routine` take it. */
+const readOnlyField = z
+  .boolean()
+  .optional()
+  .meta({
+    description:
+      "true for a check that only looks: in its runs, a call that would change anything is " +
+      "refused, so you draft it and ask the user instead. Off unless you set it.",
+  });
+
 const createRoutineDefinition = toolDefinition({
   name: createRoutineToolName,
   description:
@@ -170,13 +181,15 @@ const createRoutineDefinition = toolDefinition({
           "true to run whenever its webhook URL is called, in place of a schedule. A run reads what " +
           "the call sent after the prompt, as untrusted data.",
       }),
+    readOnly: readOnlyField,
   }),
 });
 
 const updateRoutineDefinition = toolDefinition({
   name: updateRoutineToolName,
   description:
-    "Change the prompt or the schedule of one of your Routines, named as in your list. A change to " +
+    "Change the prompt, the schedule or the read-only setting of one of your Routines, named as in " +
+    "your list. A change to " +
     "a Routine the user approved sends it back for their OK: it stops running until they approve it.",
   inputSchema: z.object({
     name: routineName.meta({ description: "The name of the Routine to change." }),
@@ -189,6 +202,7 @@ const updateRoutineDefinition = toolDefinition({
     schedule: routineScheduleSchema.optional().meta({
       description: "The new schedule; leave it out to keep the current one.",
     }),
+    readOnly: readOnlyField,
   }),
 });
 
@@ -304,7 +318,14 @@ export async function forTurn(
       computerCall: kit.computerCall,
     },
   );
-  const tools = [...coreTools, ...fromFeatures.tools];
+  const listed = [...coreTools, ...fromFeatures.tools];
+  // A read-only run (spec #1024) keeps this list and refuses the calls that could change something.
+  // Whether the Turn is one is read once, at its first such call, in a recorded activity.
+  const tools = live
+    ? gateReadOnly(listed, refusedInReadOnly, () =>
+        live.kit.liveActivity("read_only", undefined, (tx) => isReadOnlyRun(tx, turn.id)),
+      )
+    : listed;
   return {
     tools,
     searchTools: toolSearchTools(tools, fromFeatures.missing),

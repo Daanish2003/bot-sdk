@@ -139,7 +139,7 @@ describe("the context of a Turn", () => {
       list_check_ins: List your pending Check-ins, soonest first, so you do not set the same one twice.
       propose_rule: Propose a Custom Rule to the user: a standing instruction for all their Bots, such as after they approved the same kind of call several times.
       set_check_in: Set a Check-in: a one-time reminder or wake-up at a moment you choose, with a note to your future self.
-      update_routine: Change the prompt or the schedule of one of your Routines, named as in your list."
+      update_routine: Change the prompt, the schedule or the read-only setting of one of your Routines, named as in your list."
     `);
     expect(start.history).toEqual([]);
     expect(start.retired).toEqual([]);

@@ -24,14 +24,19 @@ const dayKeys = {
 } as const;
 
 /** What the user's edit of a Routine sends: only what changed. */
-export type RoutineEdit = { routineId: string; prompt?: string; schedule?: RoutineSchedule };
+export type RoutineEdit = {
+  routineId: string;
+  prompt?: string;
+  schedule?: RoutineSchedule;
+  readOnly?: boolean;
+};
 
 /** What the user's edit of a Check-in sends: only what changed. */
 export type CheckInEdit = { checkInId: string; at?: Date; note?: string };
 
 /**
- * The small inline form that edits a Routine's prompt and, unless it runs on a webhook, its days and
- * time (spec #1007). Save sends only what changed, and closes the form once the server accepts it;
+ * The small inline form that edits a Routine's prompt, whether it is read-only (spec #1024) and,
+ * unless it runs on a webhook, its days and time (spec #1007). Save sends only what changed, and closes the form once the server accepts it;
  * a refusal says why in a toast and keeps the form.
  */
 export function RoutineEditForm({
@@ -56,6 +61,8 @@ export function RoutineEditForm({
     (at !== schedule.at ||
       routineDays.some((day) => days.includes(day) !== schedule.days.includes(day)));
   const promptChanged = prompt.trim() !== routine.prompt;
+  const [readOnly, setReadOnly] = useState(routine.readOnly);
+  const readOnlyChanged = readOnly !== routine.readOnly;
   const valid = prompt.trim() !== "" && (schedule === null || (days.length > 0 && at !== ""));
   const toggle = (day: RoutineDay) =>
     setDays((current) =>
@@ -64,7 +71,7 @@ export function RoutineEditForm({
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!valid) return;
-    if (!promptChanged && !scheduleChanged) return onClose();
+    if (!promptChanged && !scheduleChanged && !readOnlyChanged) return onClose();
     run(
       onEdit({
         routineId: routine.id,
@@ -72,6 +79,7 @@ export function RoutineEditForm({
         ...(scheduleChanged && {
           schedule: { days: routineDays.filter((day) => days.includes(day)), at },
         }),
+        ...(readOnlyChanged && { readOnly }),
       }).then(onClose),
     );
   };
@@ -114,6 +122,18 @@ export function RoutineEditForm({
         </div>
       )}
       <div className="flex justify-end gap-1">
+        {/* A read-only Routine's runs look but change nothing (spec #1024). */}
+        <Button
+          type="button"
+          size="xs"
+          variant={readOnly ? "secondary" : "ghost"}
+          className="mr-auto"
+          aria-pressed={readOnly}
+          disabled={busy}
+          onClick={() => setReadOnly((current) => !current)}
+        >
+          {t("bots.routineReadOnly")}
+        </Button>
         <Button type="button" size="xs" variant="ghost" onClick={onClose}>
           {t("bots.cancel")}
         </Button>

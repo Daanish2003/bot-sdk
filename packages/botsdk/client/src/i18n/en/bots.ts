@@ -330,6 +330,8 @@ description: Use this when
   "bots.save": "Save",
   "bots.routinePrompt": "Prompt",
   "bots.routineTime": "Time",
+  "bots.routineReadOnly": "Read-only",
+  "bots.routineReadOnlyNote": "Read-only: its runs can look but not change anything.",
   "bots.checkInTime": "When",
   "bots.checkInNote": "Note",
   "bots.dayMon": "Mon",

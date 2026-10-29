@@ -63,9 +63,9 @@ export function routinesApi(sdk: BotSdkContext) {
       removeRoutine(sdk, userId, parseInput(routineInput, rest).routineId),
 
     /**
-     * The user's edit of a Routine's prompt and schedule, which is its own Approval: the state is
-     * kept and the next fire is queued from the new schedule. A webhook Routine takes the prompt
-     * only. Another user's is not found.
+     * The user's edit of a Routine's prompt, schedule and read-only setting, which is its own
+     * Approval: the state is kept and the next fire is queued from the new schedule. A webhook
+     * Routine has no schedule. Another user's is not found.
      */
     edit: async ({ userId, ...rest }: WithUser<typeof editRoutineInput>) =>
       editRoutine(sdk, userId, parseInput(editRoutineInput, rest)),

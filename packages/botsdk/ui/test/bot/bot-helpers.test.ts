@@ -302,6 +302,7 @@ describe("a Helper a background run started (#591)", () => {
       prompt: "Summarize today's calendar.",
       schedule: { days: ["mon"], at: "08:00" },
       webhook: false,
+      readOnly: false,
       timeZone: "Europe/London",
       state: "active",
       approvedAt: createdAt,

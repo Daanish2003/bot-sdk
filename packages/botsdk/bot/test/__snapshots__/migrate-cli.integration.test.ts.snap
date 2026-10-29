@@ -423,6 +423,13 @@ ALTER TABLE "botsdk"."bot_trigger" ADD CONSTRAINT "bot_trigger_skipped_check" CH
 insert into botsdk.__migrations (feature, migration) values ('core', '20261029163647_tasks_view');
 commit;
 
+-- core/20261029212605_read_only_routines
+begin;
+ALTER TABLE "botsdk"."bot_routine" ADD COLUMN "read_only" boolean DEFAULT false NOT NULL;
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261029212605_read_only_routines');
+commit;
+
 -- notes/0001_note
 begin;
 create table botsdk.test_note (id text primary key, bot_id uuid references botsdk.bot(id) on delete cascade)

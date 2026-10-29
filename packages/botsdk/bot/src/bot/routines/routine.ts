@@ -261,6 +261,7 @@ export async function saveRoutine(
     prompt,
     schedule,
     webhook,
+    readOnly = false,
     now,
   }: {
     botId: string;
@@ -270,6 +271,7 @@ export async function saveRoutine(
     prompt: string;
     schedule?: RoutineSchedule;
     webhook?: boolean;
+    readOnly?: boolean;
     now: Date;
   },
 ): Promise<{ saved: string } | { error: string }> {
@@ -288,6 +290,7 @@ export async function saveRoutine(
       webhookTokenHash: webhook ? unissuedToken(id) : null,
       timeZone,
       state: "pending",
+      readOnly,
       createdByTurnId: turnId,
       createdAt: now,
       updatedAt: now,
@@ -308,10 +311,10 @@ export async function saveRoutine(
 export const routineChangedResult = "Saved; it runs again once the user approves the change.";
 
 /**
- * Applies a Turn's `update_routine` call (#538) to the Bot's Routine `name`. A changed prompt or
- * schedule sends an approved Routine back to `pending` and stops it at once (`stopRoutine`), so
- * editing never gets around the user's OK; a call that changes neither leaves it as it is. Returns the tool's
- * result: saved, or an error the Model can act on.
+ * Applies a Turn's `update_routine` call (#538) to the Bot's Routine `name`. A changed prompt,
+ * schedule or read-only setting (spec #1024) sends an approved Routine back to `pending` and stops
+ * it at once (`stopRoutine`), so editing never gets around the user's OK; a call that changes none
+ * of them leaves it as it is. Returns the tool's result: saved, or an error the Model can act on.
  */
 export async function updateRoutine(
   deps: BotSdkContext,
@@ -323,6 +326,7 @@ export async function updateRoutine(
     name,
     prompt,
     schedule,
+    readOnly,
     now,
   }: {
     botId: string;
@@ -331,6 +335,7 @@ export async function updateRoutine(
     name: string;
     prompt?: string;
     schedule?: RoutineSchedule;
+    readOnly?: boolean;
     now: Date;
   },
 ): Promise<{ saved: string } | { error: string }> {
@@ -353,13 +358,15 @@ export async function updateRoutine(
   const scheduleChanged =
     schedule !== undefined &&
     (!routine.schedule || scheduleText(schedule) !== scheduleText(routine.schedule));
-  if (!promptChanged && !scheduleChanged) return { saved: "Nothing changed." };
+  const readOnlyChanged = readOnly !== undefined && readOnly !== routine.readOnly;
+  if (!promptChanged && !scheduleChanged && !readOnlyChanged) return { saved: "Nothing changed." };
   const approved = routine.state !== "pending";
   await tx
     .update(botRoutine)
     .set({
       ...(promptChanged && { prompt }),
       ...(scheduleChanged && { schedule }),
+      ...(readOnlyChanged && { readOnly }),
       ...(approved && { state: "pending" as const, approvedAt: null }),
       updatedAt: now,
     })
@@ -396,8 +403,8 @@ const noRoutineNamed = (name: string) =>
 
 /**
  * The system prompt's list of the Bot's Routines (#538), sorted by name, one line each:
- * `morning-brief  weekdays 08:00 Europe/London  "<first line>"`, with `(waiting for OK)` on a
- * pending one. `undefined` when the Bot has none.
+ * `morning-brief  weekdays 08:00 Europe/London  "<first line>"`, with `(read-only)` on a read-only
+ * one and `(waiting for OK)` on a pending one. `undefined` when the Bot has none.
  */
 export async function routinesPrompt(
   db: Database | Transaction,
@@ -410,6 +417,7 @@ export async function routinesPrompt(
       schedule: botRoutine.schedule,
       timeZone: botRoutine.timeZone,
       state: botRoutine.state,
+      readOnly: botRoutine.readOnly,
     })
     .from(botRoutine)
     .where(eq(botRoutine.botId, botId))
@@ -419,8 +427,9 @@ export async function routinesPrompt(
     // Only that it runs on a webhook: the Model never sees the token (ADR 0021).
     const when = row.schedule ? scheduleText(row.schedule) : "on webhook";
     const firstLine = row.prompt.split("\n")[0]?.trim() ?? "";
+    const readOnly = row.readOnly ? " (read-only)" : "";
     const waiting = row.state === "pending" ? " (waiting for OK)" : "";
-    return `${row.name}  ${when} ${row.timeZone}  ${JSON.stringify(firstLine)}${waiting}`;
+    return `${row.name}  ${when} ${row.timeZone}  ${JSON.stringify(firstLine)}${readOnly}${waiting}`;
   });
   return `Your Routines:\n${lines.join("\n")}`;
 }
@@ -459,6 +468,7 @@ export async function listRoutines(db: Database, botId: string): Promise<BotRout
       webhook: sql<boolean>`(${botRoutine.webhookTokenHash} is not null)`,
       timeZone: botRoutine.timeZone,
       state: botRoutine.state,
+      readOnly: botRoutine.readOnly,
       approvedAt: botRoutine.approvedAt,
       createdAt: botRoutine.createdAt,
     })
@@ -635,10 +645,10 @@ export async function pauseRoutine(
 }
 
 /**
- * The user's edit of Routine `routineId`'s prompt and schedule: its own Approval, so the Routine
+ * The user's edit of Routine `routineId`'s prompt, schedule and read-only setting: its own Approval, so the Routine
  * keeps its state (the Bot's `update_routine` is what sends one back to `pending`). An active one
  * whose schedule changed has its queued fire cancelled and the next slot queued; a fire already
- * waiting or running keeps the snapshot it took. A webhook Routine takes the prompt only.
+ * waiting or running keeps the snapshot it took. A webhook Routine has no schedule to edit.
  */
 export async function editRoutine(
   deps: BotSdkContext,
@@ -647,7 +657,8 @@ export async function editRoutine(
     routineId,
     prompt,
     schedule,
-  }: { routineId: string; prompt?: string; schedule?: RoutineSchedule },
+    readOnly,
+  }: { routineId: string; prompt?: string; schedule?: RoutineSchedule; readOnly?: boolean },
 ): Promise<{ id: string; state: BotRoutine["state"] }> {
   const now = deps.clock();
   const result = await deps.db.transaction(async (tx) => {
@@ -667,6 +678,7 @@ export async function editRoutine(
       .set({
         ...(prompt !== undefined && { prompt }),
         ...(scheduleChanged && { schedule }),
+        ...(readOnly !== undefined && { readOnly }),
         updatedAt: now,
       })
       .where(eq(botRoutine.id, routineId));
