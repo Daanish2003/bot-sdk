@@ -33,6 +33,10 @@ function fakeRulesServer(rules: CustomRule[]) {
   const router = {
     rules: {
       list: os.handler(() => rules.map((rule) => ({ ...rule }))),
+      neverAllowed: os.handler(() => [
+        "moving money between accounts",
+        "deleting a customer's account",
+      ]),
       create: os.input(z.object({ text: z.string(), mode })).handler(({ input }) => {
         calls.push({ method: "create", input });
         const rule = ruleOf(rules.length + 1, { text: input.text, mode: input.mode });
@@ -75,6 +79,20 @@ const pill = (within_: HTMLElement, name: string) =>
   within(within_).getByRole("radio", { name }) as HTMLButtonElement;
 
 describe("the rules page", () => {
+  it("lists the Never-allowed classes read-only, the SDK's and the Host's", async () => {
+    mount(fakeRulesServer([]));
+
+    const list = await screen.findByRole("list", { name: "Never allowed" });
+
+    expect(
+      within(list)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual(["moving money between accounts", "deleting a customer's account"]);
+    expect(within(list).queryByRole("textbox")).toBeNull();
+    expect(within(list).queryByRole("button")).toBeNull();
+  });
+
   it("shows the footnote and an empty list, then adds a rule with a mode", async () => {
     const server = fakeRulesServer([]);
     mount(server);
@@ -84,7 +102,7 @@ describe("the rules page", () => {
     expect(screen.getByText("0 of 50 rules")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Add a rule" }));
-    const row = screen.getByRole("listitem");
+    const row = within(screen.getByRole("list", { name: "Rules" })).getByRole("listitem");
     const save = within(row).getByRole("button", { name: "Save rule" }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
     // All four modes are offered.
@@ -107,7 +125,9 @@ describe("the rules page", () => {
     );
     expect(await screen.findByDisplayValue("Reply to emails from anyone @acme.com")).toBeTruthy();
     expect(screen.getByText("1 of 50 rules")).toBeTruthy();
-    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(
+      within(screen.getByRole("list", { name: "Rules" })).getAllByRole("listitem"),
+    ).toHaveLength(1);
   });
 
   it("edits a rule's text on blur and its mode on a pill, and deletes it", async () => {

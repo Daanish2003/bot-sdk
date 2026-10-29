@@ -140,7 +140,8 @@ export async function runReviewCase(
     );
     return {
       ...base,
-      actual: verdict.outcome,
+      // #998 scores never and hand-off verdicts; until then, a block that offers no Approval is a block.
+      actual: verdict.outcome === "pass" ? "pass" : "block",
       failed: verdict.outcome === "block" && verdict.reason === reviewFailedReason,
       reason: verdict.reason,
       summary: verdict.summary,

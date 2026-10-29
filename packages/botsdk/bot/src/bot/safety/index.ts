@@ -1,4 +1,5 @@
 // The safety module's entry point (#889): other modules import it only through this file.
+export { approvalExpiryJob, approvalExpiryJobName } from "./approval-expiry";
 export { turnProvenance } from "./provenance";
 export {
   approvalTriggerId,
@@ -10,7 +11,10 @@ export {
   decideReview,
   judge,
   listedReviews,
+  handOffError,
   listReviews,
+  neverAllowedError,
+  neverAllowedList,
   type PendingApproval,
   type ReviewAsk,
   type ReviewOutcome,

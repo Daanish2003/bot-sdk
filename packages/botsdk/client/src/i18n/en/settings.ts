@@ -40,6 +40,9 @@ export const settingsMessages = {
     `You have ${max} rules, the most allowed. Delete one to add another.`,
   "settings.rulesFootnote":
     "Rules reach only the calls Auto-review checks, such as shell commands and browser or desktop actions. A rule about reading a file does nothing.",
+  "settings.neverAllowedTitle": "Never allowed",
+  "settings.neverAllowedIntro":
+    "Your Bots never do these, whatever your rules or Approvals say. They tell you to do it yourself. You can't change this list.",
   "settings.addRule": "Add a rule",
   "settings.saveRule": "Save rule",
   "settings.ruleText": "Rule",

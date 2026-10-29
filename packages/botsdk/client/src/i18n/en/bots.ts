@@ -215,6 +215,7 @@ description: Use this when
   }) => `Step ${number} · ${percent}% cached · ${cost}`,
   "bots.cacheSummaryStep": ({ percent, cost }: { percent: number; cost: string }) =>
     `Summary · ${percent}% cached · ${cost}`,
+  "bots.neverAllowed": ({ summary }: { summary: string }) => `Never allowed · ${summary}`,
   "bots.reviewPasses": ({ count }: { count: number }) =>
     `✓ ${count} ${count === 1 ? "call" : "calls"} auto-approved`,
   "bots.secretAsks": ({ bot, name }: { bot: string; name: string }) => `${bot} asks for ${name}`,
@@ -254,6 +255,10 @@ description: Use this when
   "bots.emailChannel": "email",
   "bots.reviewAllow": "Allow",
   "bots.reviewDeny": "Deny",
+  "bots.waiting": ({ count }: { count: number }) => `Waiting ${count}`,
+  "bots.waitingApprove": "Approve",
+  "bots.waitingNothing": "Nothing is waiting for you",
+  "bots.waitingRules": "Rules for all your Bots →",
   "bots.reviewCountdown": ({ seconds }: { seconds: number }) =>
     `Blocked in ${seconds}s unless you allow it`,
   "bots.reviewPending": ({ expires }: { expires: string }) => `waiting · expires ${expires}`,
@@ -261,6 +266,8 @@ description: Use this when
   "bots.reviewDenied": ({ summary }: { summary: string }) => `Denied by you: ${summary}`,
   "bots.reviewExpired": ({ summary }: { summary: string }) =>
     `Blocked, no answer in 15 s: ${summary}`,
+  "bots.reviewLapsed": ({ summary }: { summary: string }) =>
+    `Expired, no answer in 7 days: ${summary}`,
   "bots.cacheWarmed": ({ cost }: { cost: string }) => `Cache warmed · ${cost}`,
   "bots.cacheRead": "Read from cache",
   "bots.cacheWritten": "Written to cache",

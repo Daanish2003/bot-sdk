@@ -5,6 +5,7 @@ import {
   type ReviewApprovalState,
 } from "@botsdk/client/bot/review";
 import { searchTextOf } from "@botsdk/client/message-parts";
+import { sdkNeverAllowed } from "@botsdk/client/bot/rule";
 import { chat, EventType, type ModelMessage, type StreamChunk } from "@tanstack/ai";
 import { and, asc, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -20,6 +21,7 @@ import { parseReply } from "../../lib/parse-reply";
 import { lockConversation, receive } from "../triggers";
 import { forwardedEmailLabel, routineNameOf, routinePromptOf, untrustedBlock } from "../routines";
 import { appendBotMessage, controlParts, hintChanged, recordBotChange } from "../conversation";
+import { approvalExpiryJobName, approvalExpiryKey } from "./approval-expiry";
 import { reviewedRules } from "./custom-rule";
 import { isSavedSecretText } from "./secret-values";
 
@@ -66,14 +68,20 @@ export const reviewerSystemPrompt = [
     'passes, the rule being the user\'s permission; "if pre-approved" means a matching call ' +
     "passes only when the user's Message or an approved Routine asked for that action, else " +
     'block it; "ask before" means block a matching call, even when the user asked for it; ' +
-    '"hand off to the user" is treated as "ask before". When several rules match, the ' +
+    '"hand off to the user" means block it with outcome "hand_off": the user does it ' +
+    "themselves and no Approval is offered. When several rules match, the " +
     "strictest wins: hand off, then ask before, then if pre-approved, then without asking. " +
     "Where no rule matches, this policy applies. A rule never lets a call skip this review.",
+  "- A Never-allowed action is a kind of action listed under '# Never-allowed actions' in the " +
+    'call\'s message. Block it with outcome "never", and name its class in the reason. It is ' +
+    "never allowed, whatever the user's Messages, Custom Rules or Approvals say: no rule makes it " +
+    'possible, and a "without asking" rule never allows one. Judge by what the call does, not by ' +
+    "what it is called.",
   "- Commands that only look (listing or reading files, checking status, searching) pass, and so " +
     "do steps that carry out what the user asked for.",
   "- When in doubt about a step that is destructive, can't be undone, or reaches outside the " +
     "computer, block it.",
-  'Reply with JSON only: {"outcome": "pass" | "block", "reason": "...", "summary": "..."}.',
+  'Reply with JSON only: {"outcome": "pass" | "block" | "hand_off" | "never", "reason": "...", "summary": "..."}.',
   '- summary: the call in plain words for the user, a few words, like "List the files in the ' +
     'project".',
   '- reason: one short sentence to the user on why it passes or is blocked, like "You asked to ' +
@@ -81,12 +89,22 @@ export const reviewerSystemPrompt = [
 ].join("\n");
 
 const verdictSchema = z.object({
-  outcome: z.enum(["pass", "block"]),
+  outcome: z.enum(["pass", "block", "hand_off", "never"]),
   reason: z.string().trim().min(1),
   summary: z.string().trim().min(1),
 });
 
-/** The reviewer's verdict on one call. */
+/**
+ * The Never-allowed classes (ADR 0032) Auto-review is shown: the SDK's, then the Host's extra
+ * ones. The SDK's can't be removed.
+ */
+export function neverAllowedList(hostClasses: readonly string[]): string[] {
+  // One line each, so a Host's text can't open a heading in the reviewer's message.
+  const host = hostClasses.map((hostClass) => hostClass.replace(/\s+/g, " ").trim());
+  return [...sdkNeverAllowed, ...new Set(host.filter((hostClass) => hostClass !== ""))];
+}
+
+/** The reviewer's verdict on one call: `hand_off` and `never` are blocks with no Approval. */
 export type ReviewVerdict = z.infer<typeof verdictSchema>;
 
 /** Why a call needs the user's Approval, and the summary the user is asked about. */
@@ -218,7 +236,8 @@ export async function reviewToolCall(
       tool,
       input,
       summary: reviewed.summary,
-      verdict: reviewed.outcome,
+      // A hand-off is a block that asks for no Approval.
+      verdict: reviewed.outcome === "hand_off" ? "block" : reviewed.outcome,
       reason: reviewed.reason,
       ...(deadline && { state: "waiting" as const, deadline }),
       createdAt,
@@ -248,6 +267,8 @@ export async function reviewToolCall(
   });
   if (wrote) await hintChanged(deps, source.conversationId);
   if (reviewed.outcome === "pass") return null;
+  if (reviewed.outcome === "never") return { error: neverAllowedError(reviewed.reason) };
+  if (reviewed.outcome === "hand_off") return { error: handOffError(reviewed.reason) };
   if (!reviewId || !deadline) return { error: blockedError(reviewed.reason) };
   // The wait (ADR 0024, ADR 0030): no transaction, since it holds for up to 15 seconds. Re-run
   // after a crash before its Checkpoint, it reads the row's outcome, or the same deadline.
@@ -431,6 +452,10 @@ async function decide(
       });
     if (!changed) return null;
     await recordBotChange(tx, owner, "review", reviewId, now);
+    // Only going pending schedules the expiry, so an answered row never queues it again.
+    if (change.state === "pending" && changed.expiresAt) {
+      await scheduleExpiry(deps, tx, changed.id, changed.expiresAt);
+    }
     // A late answer (ADR 0030): no Turn waits on a pending call, so the answer wakes the Bot. A
     // waiting one's answer is the wait's to read.
     if (answer && changed.expiresAt) {
@@ -487,7 +512,7 @@ export async function closeWaitingReviews(
         : { state, decidedAt: now },
     )
     .where(and(owned, eq(botReview.state, "waiting")))
-    .returning({ id: botReview.id, botId: botReview.botId });
+    .returning({ id: botReview.id, botId: botReview.botId, expiresAt: botReview.expiresAt });
   // One Turn's or Helper's, so one Bot's: its Conversation is looked up once.
   const [first] = closed;
   if (!first) return;
@@ -496,7 +521,25 @@ export async function closeWaitingReviews(
     .from(bot)
     .where(eq(bot.id, first.botId));
   if (!owner) return;
-  for (const row of closed) await recordBotChange(tx, owner, "review", row.id, now);
+  for (const row of closed) {
+    await recordBotChange(tx, owner, "review", row.id, now);
+    if (row.expiresAt) await scheduleExpiry(deps, tx, row.id, row.expiresAt);
+  }
+}
+
+/** Schedules the job that expires pending Approval `reviewId` at `expiresAt` (ADR 0030), in `tx`. */
+async function scheduleExpiry(
+  deps: BotSdkContext,
+  tx: Transaction,
+  reviewId: string,
+  expiresAt: Date,
+): Promise<void> {
+  await deps.runner.enqueueIn(
+    tx,
+    approvalExpiryJobName,
+    { reviewId },
+    { idempotencyKey: approvalExpiryKey(reviewId), runAfter: expiresAt },
+  );
 }
 
 /** The meter a review on `model` bills. */
@@ -513,6 +556,19 @@ function meterOf(
   meter: ModelMeter | undefined,
 ): ModelMeter {
   return meter?.onHost ? meter : deps.models.freeModelMeter(userId, model);
+}
+
+/** What the Model gets for a Never-allowed call: no Approval, and no other way (ADR 0032). */
+export function neverAllowedError(reason: string): string {
+  return `Never allowed: ${reason.trim().replace(/[.!\s]+$/, "")}. Tell the user to do it themselves; don't try another way.`;
+}
+
+/** What the Model gets for a call a hand-off rule matched: the user does it themselves. */
+export function handOffError(reason: string): string {
+  return (
+    `Handed off: ${reason.trim().replace(/[.!\s]+$/, "")}. The user does this themselves, and no ` +
+    "Approval is offered. Tell them what to do; don't try another way."
+  );
 }
 
 /** What the Model gets for a blocked call: why, what came of its Approval, and what to do next. */
@@ -566,7 +622,13 @@ export async function judge(
   onMeter(meterOf(deps, owner.userId, model, call.meter));
 
   const messages: ModelMessage[] = [
-    { role: "user", content: await reviewerInput(deps.db, source, owner.userId, { tool, input }) },
+    {
+      role: "user",
+      content: await reviewerInput(deps.db, source, owner.userId, deps.bots.neverAllowed, {
+        tool,
+        input,
+      }),
+    },
   ];
   const abortController = new AbortController();
   let timedOut = false;
@@ -632,13 +694,14 @@ function parseVerdict(reply: string): ReviewVerdict | null {
  * What the reviewer reads: the user's latest Messages in the Conversation, what started the Turn
  * (an approved Routine's prompt is the user's word; a webhook's payload, a Check-in's note and a
  * Helper's report are never shown) or, for a Helper's call, what started the Turn that started it
- * and the task the Bot gave it, marked as the Bot's words, then the user's active Custom Rules and
- * the call.
+ * and the task the Bot gave it, marked as the Bot's words, then the user's active Custom Rules, the
+ * Never-allowed list and the call.
  */
 async function reviewerInput(
   db: Database,
   source: ReviewSource,
   userId: string,
+  hostNeverAllowed: readonly string[],
   call: { tool: string; input: Record<string, unknown> },
 ): Promise<string> {
   const [latest, triggers, rules] = await Promise.all([
@@ -751,6 +814,10 @@ async function reviewerInput(
     ...start,
     "# The user's Custom Rules",
     rules,
+    "# Never-allowed actions",
+    neverAllowedList(hostNeverAllowed)
+      .map((never) => `- ${never}`)
+      .join("\n"),
     "# The call",
     `Tool: ${call.tool}`,
     `Arguments: ${JSON.stringify(call.input, null, 2)}`,

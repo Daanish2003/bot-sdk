@@ -271,4 +271,18 @@ describe("the Approval request card", () => {
     expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
     expect(screen.queryByText("git push origin main")).toBeNull();
   });
+
+  it("closes a request that expired after going pending into an expired divider", async () => {
+    const server = fakeBotServer(() => ({
+      ...blockOf("expired"),
+      expiresAt: new Date(at(2).getTime() + 7 * 24 * 60 * 60 * 1000),
+    }));
+    mount(server.fetch);
+
+    const divider = (
+      await screen.findByText("Expired, no answer in 7 days: Push to the main branch")
+    ).closest("[data-review]")!;
+    expect(divider.getAttribute("data-state")).toBe("expired");
+    expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+  });
 });
