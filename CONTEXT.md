@@ -170,6 +170,10 @@ _Avoid_: Guardrail, moderation, safety check
 A user's standing instruction, in their own words, for one kind of action their Bots might take, with one of four modes: do it without asking, do it only when the user asked for it, ask before doing it, or hand it off to the user. Auto-review reads it as the user's permission or restriction; the strictest matching rule wins, and none can make a Never-allowed action possible. It applies to all the user's Bots. The user writes it, or a Bot proposes it and it applies after the user's Approval.
 _Avoid_: Policy, permission rule, allowlist
 
+**Never-allowed action**:
+A kind of action a Bot never takes, such as moving money between accounts or changing a password: Auto-review blocks it with no Approval offered, and the Bot tells the user to do it themselves. No Custom Rule or Approval changes that. The Bot SDK sets the list, and a Host can add to it but not take away; the user can't change it.
+_Avoid_: Forbidden action, blocked action, hard limit
+
 **Secret**:
 A value such as a password or token that the user typed into a secure entry field for their Bots. A command on the Computer can use it, but the model only ever sees its name. Each user's Secrets are shared by all their Bots.
 _Avoid_: Credential (that is for a Provider or Tool), password, env var
