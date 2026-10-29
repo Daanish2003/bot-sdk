@@ -18,7 +18,7 @@ import { allHelpers, useBotHelpers } from "@botsdk/react/bot/helpers";
 import { useBotReviews } from "@botsdk/react/bot/reviews";
 import { useCustomRules } from "@botsdk/react/bot/rules";
 import { useBotRoutines } from "@botsdk/react/bot/routines";
-import { useBotTasks } from "@botsdk/react/bot/tasks";
+import { useBotTasks, useSkipTrigger } from "@botsdk/react/bot/tasks";
 import { useBotChoices } from "@botsdk/react/bot/choices";
 import { useBotReactions } from "@botsdk/react/bot/reactions";
 import { useBotUploads } from "@botsdk/react/bot/uploads";
@@ -183,6 +183,7 @@ function BotConversationView({
       toast.error(serverErrorText(i18n, refusal)),
     );
   const { tasks } = useBotTasks(botId, working);
+  const { actingTriggers, skip: onSkipTrigger } = useSkipTrigger(botId);
   const onStopTurn = () =>
     void stop().catch((refusal) => toast.error(serverErrorText(i18n, refusal)));
   const actions = { onPause: pause, onResume: resume, onDelete: remove, actingRoutines: acting };
@@ -361,6 +362,8 @@ function BotConversationView({
               onStopHelper={onStopHelper}
               actingHelpers={actingHelpers}
               {...checkInActions}
+              onSkipTrigger={onSkipTrigger}
+              actingTriggers={actingTriggers}
               webhookTokens={webhookTokens}
               onRotate={rotate}
               onEditRoutine={editRoutine}

@@ -3,10 +3,11 @@ import type { BotHelper } from "@botsdk/client/bot/helper";
 import type { BotChange } from "@botsdk/client/bot/changes";
 import type { BotRoutine } from "@botsdk/client/bot/routine";
 import type { BotTasks, TaskTrigger } from "@botsdk/client/bot/tasks";
-import { os } from "@orpc/server";
+import { ORPCError, os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { createElement } from "react";
+import { createElement, Fragment } from "react";
+import { Toaster } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
@@ -57,7 +58,7 @@ const trigger = (over: Partial<TaskTrigger>): TaskTrigger => ({
 
 /** A stand-in for the server's `bot` router, whose Tasks view is `tasks` (a test changes it). */
 function mount(tasks: BotTasks, log = changeLog()) {
-  const state = { tasks, stops: 0, tasksCalls: 0 };
+  const state = { tasks, stops: 0, tasksCalls: 0, skips: [] as string[], refuse: false };
   const router = {
     conversations: {
       changes: os
@@ -80,6 +81,24 @@ function mount(tasks: BotTasks, log = changeLog()) {
         state.stops += 1;
       }),
     },
+    triggers: {
+      skip: os.input(z.object({ triggerId: z.string() })).handler(({ input }) => {
+        if (state.refuse) {
+          throw new ORPCError("CONFLICT", {
+            message: "taken",
+            data: { code: "error.triggerTaken" },
+          });
+        }
+        state.skips.push(input.triggerId);
+        state.tasks = {
+          ...state.tasks,
+          scheduled: {
+            ...state.tasks.scheduled,
+            triggers: state.tasks.scheduled.triggers.filter((t) => t.id !== input.triggerId),
+          },
+        };
+      }),
+    },
     routines: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
     checkIns: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
     helpers: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
@@ -88,7 +107,15 @@ function mount(tasks: BotTasks, log = changeLog()) {
   const fetch = async (request: Request) =>
     (await handler.handle(request, { prefix: "/api/chat/rpc" })).response ??
     new Response(null, { status: 404 });
-  render(providerFor(createElement(BotConversation, { botId: ada.id }), { fetch, messages: {} }));
+  render(
+    createElement(
+      Fragment,
+      null,
+      providerFor(createElement(BotConversation, { botId: ada.id }), { fetch, messages: {} }),
+      // A refusal shows in the Toaster, which the page mounts once.
+      createElement(Toaster),
+    ),
+  );
   return state;
 }
 
@@ -142,7 +169,7 @@ describe("the Tasks popover", () => {
     await waitFor(() => expect(state.stops).toBe(1));
   });
 
-  it("lists the waiting Triggers under Scheduled, with no skip control yet", async () => {
+  it("lists the waiting Triggers under Scheduled, with Skip on Routine and Check-in ones only", async () => {
     const tasks = empty();
     tasks.scheduled.triggers = [
       trigger({ id: "w1", source: "routine", channel: "schedule", label: "morning-brief" }),
@@ -165,6 +192,40 @@ describe("the Tasks popover", () => {
       expect.stringContaining("Report from Count the files."),
       expect.stringContaining("Your Message"),
     ]);
+    expect(
+      items.map((item) => within(item).queryByRole("button", { name: /^Skip/ }) !== null),
+    ).toEqual([true, true, true, false, false]);
+  });
+
+  it("skips a waiting Trigger and drops it from Scheduled", async () => {
+    const tasks = empty();
+    tasks.scheduled.triggers = [
+      trigger({ id: "w1", source: "routine", channel: "schedule", label: "morning-brief" }),
+      trigger({ id: "w3", source: "check_in", channel: "schedule", label: "Has Acme replied?" }),
+    ];
+    const state = mount(tasks);
+    await openTab("Scheduled");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Skip Routine morning-brief" }));
+
+    await waitFor(() => expect(state.skips).toEqual(["w1"]));
+    await waitFor(() => expect(screen.queryByText("Routine morning-brief")).toBeNull());
+    expect(screen.getByText("Check-in: Has Acme replied?")).toBeTruthy();
+  });
+
+  it("says why when the Bot already took the Trigger", async () => {
+    const tasks = empty();
+    tasks.scheduled.triggers = [
+      trigger({ id: "w1", source: "routine", channel: "schedule", label: "morning-brief" }),
+    ];
+    const state = mount(tasks);
+    state.refuse = true;
+    await openTab("Scheduled");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Skip Routine morning-brief" }));
+
+    expect(await screen.findByText("The Bot already started this one.")).toBeTruthy();
+    expect(state.skips).toEqual([]);
   });
 
   it("shows the skipped runs under Done as skipped, with why", async () => {

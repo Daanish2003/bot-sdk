@@ -96,6 +96,12 @@ const checkIns = os.checkIns.router({
   ),
 });
 
+const triggers = os.triggers.router({
+  skip: os.triggers.skip.handler(({ context, input }) =>
+    context.sdk.triggers.skip({ ...input, userId: context.user.id }),
+  ),
+});
+
 const helpers = os.helpers.router({
   list: os.helpers.list.handler(({ context, input }) =>
     context.sdk.helpers.list({ ...input, userId: context.user.id }),
@@ -180,6 +186,7 @@ export const botPluginRouter = {
   conversations,
   routines,
   checkIns,
+  triggers,
   helpers,
   reviews,
   rules,

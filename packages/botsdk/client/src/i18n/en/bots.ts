@@ -117,6 +117,8 @@ export const botsMessages = {
   "bots.taskHelperReport": ({ gist }: { gist: string }) => `Report from ${gist}`,
   "bots.taskApprovalAnswer": "Answer to an Approval",
   "bots.taskSkipped": "skipped",
+  "bots.skipTrigger": "Skip",
+  "bots.skipTriggerNamed": ({ task }: { task: string }) => `Skip ${task}`,
   "bots.skipCancelled": "you skipped it",
   "bots.skipPaused": "the Bot was paused",
   "bots.skipReset": "the Bot was reset",

@@ -15,6 +15,7 @@ import {
   RoutineIcon,
   WebhookUrl,
 } from "./routine-card";
+import { useRefusalToast } from "./refusal-toast";
 import { runTime } from "./run-divider";
 import {
   type CheckInEdit,
@@ -43,6 +44,35 @@ const skipKeys = {
   paused: "bots.skipPaused",
   reset: "bots.skipReset",
 } as const;
+
+/** What skipping a waiting Trigger needs. */
+export type SkipTriggerHandlers = {
+  onSkipTrigger: (triggerId: string) => Promise<void>;
+  actingTriggers: ReadonlySet<string>;
+};
+
+/** Skip, for a waiting Routine run, webhook call or Check-in fire; a Message or a report has none. */
+function SkipTrigger({
+  trigger,
+  text,
+  onSkipTrigger,
+  actingTriggers,
+}: { trigger: TaskTrigger; text: string } & SkipTriggerHandlers) {
+  const { t } = useI18n();
+  const run = useRefusalToast();
+  if (trigger.source !== "routine" && trigger.source !== "check_in") return null;
+  return (
+    <Button
+      size="xs"
+      variant="ghost"
+      aria-label={t("bots.skipTriggerNamed", { task: text })}
+      disabled={actingTriggers.has(trigger.id)}
+      onClick={() => run(onSkipTrigger(trigger.id))}
+    >
+      {t("bots.skipTrigger")}
+    </Button>
+  );
+}
 
 /** A Trigger in words: a Routine's run, a webhook call, a Check-in's fire, a Helper's report. */
 function useTriggerText() {
@@ -81,6 +111,8 @@ export function TasksPopover({
   onRotate,
   onEditRoutine,
   onEditCheckIn,
+  onSkipTrigger,
+  actingTriggers,
   ...actions
 }: {
   tasks: BotTasks;
@@ -96,7 +128,8 @@ export function TasksPopover({
   onEditRoutine: (edit: RoutineEdit) => Promise<void>;
   /** The user's edit of a pending Check-in's time and note. */
   onEditCheckIn: (edit: CheckInEdit) => Promise<void>;
-} & CheckInActionHandlers &
+} & SkipTriggerHandlers &
+  CheckInActionHandlers &
   RoutineActionHandlers) {
   const i18n = useI18n();
   const { t } = i18n;
@@ -208,6 +241,12 @@ export function TasksPopover({
                       <span className="ml-auto text-xs text-muted-foreground">
                         {runTime(i18n.locale, trigger.receivedAt)}
                       </span>
+                      <SkipTrigger
+                        trigger={trigger}
+                        text={triggerText(trigger)}
+                        onSkipTrigger={onSkipTrigger}
+                        actingTriggers={actingTriggers}
+                      />
                     </li>
                   ))}
                 </ul>

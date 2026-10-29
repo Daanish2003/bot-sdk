@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
 import { useChatAdapter } from "../provider";
+import { useItemActions } from "./turn-list";
 
 /**
  * A Bot's Tasks view (spec #1007): the one read behind the "Tasks N" popover. It is asked for again
@@ -27,4 +28,22 @@ export function useRefreshTasks(botId: string) {
   const queryClient = useQueryClient();
   return () =>
     queryClient.invalidateQueries({ queryKey: orpc.bots.tasks.queryKey({ input: { botId } }) });
+}
+
+/**
+ * The user's skip of a waiting Routine or Check-in Trigger (spec #1007), then the Tasks view asked
+ * for again. `acting` holds the Triggers with a skip in flight.
+ */
+export function useSkipTrigger(botId: string) {
+  const { orpc } = useChatAdapter();
+  const refreshTasks = useRefreshTasks(botId);
+  const { acting, act } = useItemActions(async () => {
+    await refreshTasks();
+  });
+  return {
+    actingTriggers: acting,
+    skip: async (triggerId: string) => {
+      await act(triggerId, () => orpc.triggers.skip.call({ triggerId }));
+    },
+  };
 }

@@ -35,6 +35,7 @@ import type { ConversationsApi } from "./bot/conversations-api";
 import type { ScreensApi } from "./bot/screens-api";
 import type { SecretsApi } from "./bot/secrets-api";
 import type { CheckInsApi, RoutinesApi } from "./bot/routines-api";
+import type { TriggersApi } from "./bot/triggers-api";
 import type { DemonstrationsApi } from "./bot/demonstrations-api";
 import type { HelpersApi } from "./bot/helpers-api";
 import type { ReviewsApi } from "./bot/reviews-api";
@@ -185,6 +186,7 @@ export type BotSdk = {
    */
   routines: RoutinesApi;
   checkIns: CheckInsApi;
+  triggers: TriggersApi;
   helpers: HelpersApi;
   demonstrations: DemonstrationsApi;
   reviews: ReviewsApi;
@@ -264,6 +266,7 @@ export type GivenContext = Partial<
     | "screens"
     | "routines"
     | "checkIns"
+    | "triggers"
     | "helpers"
     | "demonstrations"
     | "reviews"
@@ -398,6 +401,7 @@ export function buildBotSdk(
     computer: sdk.screens,
     routines: sdk.routines,
     checkIns: sdk.checkIns,
+    triggers: sdk.triggers,
     helpers: sdk.helpers,
     demonstrations: sdk.demonstrations,
     reviews: sdk.reviews,
@@ -534,6 +538,7 @@ function buildContext(
       receiveWebhook: true,
     }),
     checkIns: botsStub<CheckInsApi>({ list: true, cancel: true, edit: true }),
+    triggers: botsStub<TriggersApi>({ skip: true }),
     helpers: botsStub<HelpersApi>({ list: true, done: true, stop: true }),
     demonstrations: botsStub<DemonstrationsApi>({
       pause: true,
