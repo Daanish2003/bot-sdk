@@ -165,7 +165,7 @@ export const toolSearchCases: ToolSearchCase[] = [
     fakeArgs: {
       name: "weekly-priorities",
       prompt: "Send the user a short list of their priorities for the week.",
-      schedule: { days: ["mon"], at: "09:00" },
+      schedule: { days: ["mon"], times: ["09:00"] },
     },
   },
   {

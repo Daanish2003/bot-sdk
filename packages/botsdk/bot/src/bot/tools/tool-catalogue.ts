@@ -117,6 +117,14 @@ const sendToUserDefinition = toolDefinition({
           "Ask the user to pick one option; the text is the question. You are woken with " +
           'Answered "<question>": <option> once they answer. Not with secret or files.',
       }),
+    urgent: z
+      .boolean()
+      .optional()
+      .meta({
+        description:
+          "true to mark the message urgent, for something the user must see now, such as a " +
+          "deadline or a failure that cannot wait. Leave it out otherwise. Not with react.",
+      }),
     react: z
       .object({
         messageId: z.uuid().meta({ description: "The id of the user's message to react to." }),
@@ -154,7 +162,7 @@ const readOnlyField = z
 const createRoutineDefinition = toolDefinition({
   name: createRoutineToolName,
   description:
-    "Save a Routine: a prompt that repeats on a schedule (days of the week at a time in the user's " +
+    "Save a Routine: a prompt that repeats on a schedule (days of the week at one or more times in the user's " +
     "time zone) or whenever an outside service calls its webhook URL, never a one-time reminder. Give exactly one of schedule or " +
     "webhook. Use it when the user asks for something recurring, or for something to happen when " +
     "another service sends an event. It runs only once the user approves it, and each run wakes " +
@@ -170,7 +178,8 @@ const createRoutineDefinition = toolDefinition({
       .meta({ description: "What to do on each run, written as an instruction to yourself." }),
     schedule: routineScheduleSchema.optional().meta({
       description:
-        'When it runs, like { "days": ["mon", "tue", "wed", "thu", "fri"], "at": "08:00" }. ' +
+        'When it runs, like { "days": ["mon", "tue", "wed", "thu", "fri"], "times": ["08:00"] }; ' +
+        'give several times to run more than once a day, like "times": ["11:00", "17:00"]. ' +
         "Leave it out for a webhook Routine.",
     }),
     webhook: z
@@ -200,7 +209,9 @@ const updateRoutineDefinition = toolDefinition({
       .optional()
       .meta({ description: "The new prompt; leave it out to keep the current one." }),
     schedule: routineScheduleSchema.optional().meta({
-      description: "The new schedule; leave it out to keep the current one.",
+      description:
+        "The whole new schedule; leave it out to keep the current one. Its times replace the " +
+        "current ones, so to add a time, list the times you keep as well.",
     }),
     readOnly: readOnlyField,
   }),
@@ -348,10 +359,12 @@ function coreToolsOf(
 ): AnyServerTool[] {
   const { liveActivity } = kit;
   const sendToUser = sendToUserDefinition.server(
-    async ({ text, endTurn: last, secret, files, choice, react }, context) => {
+    async ({ text, endTurn: last, secret, files, choice, react, urgent }, context) => {
       if (react) {
-        if (secret || files || choice || text.trim())
-          return { error: "A reaction is sent alone, with no text, secret, files or choice." };
+        if (secret || files || choice || urgent !== undefined || text.trim())
+          return {
+            error: "A reaction is sent alone, with no text, secret, files, choice or urgent.",
+          };
         const reacted = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
           await lockConversation(tx, turn.conversationId);
           const [target] = await tx
@@ -404,7 +417,9 @@ function coreToolsOf(
       const result = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
         if (!text.trim()) return { error: emptyTextError };
         await appendBotMessage(deps, tx, turn.conversationId, {
-          parts: control ? controlParts(text, control) : textParts(text),
+          parts: control
+            ? controlParts(text, control, undefined, urgent)
+            : textParts(text, undefined, urgent),
           createdAt: deps.clock(),
           turnId: turn.id,
         });

@@ -1,8 +1,8 @@
 {
+  "id": "3fccacb8-0d90-4671-9eb9-2860da371b00",
+  "prevIds": ["03906726-980c-4cb8-8b8e-0e7fdf2fcfdf"],
   "version": "8",
   "dialect": "postgres",
-  "id": "d45198a2-28b0-4bb9-a592-0711ef7dcbb3",
-  "prevIds": ["03906726-980c-4cb8-8b8e-0e7fdf2fcfdf"],
   "ddl": [
     {
       "values": ["pending", "fired", "failed", "cancelled"],
@@ -1810,19 +1810,6 @@
       "generated": null,
       "identity": null,
       "name": "state",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "bot_routine"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "false",
-      "generated": null,
-      "identity": null,
-      "name": "read_only",
       "entityType": "columns",
       "schema": "botsdk",
       "table": "bot_routine"

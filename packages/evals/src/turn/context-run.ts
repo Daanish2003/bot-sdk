@@ -264,7 +264,7 @@ export async function runCacheCase(env: ContextEnv, repeat: number): Promise<Con
           botId: bot.id,
           name: step.name,
           prompt: step.prompt,
-          schedule: { days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], at: "08:00" },
+          schedule: { days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], times: ["08:00"] },
           timeZone: defaultTimeZone,
           state: "active",
           createdByTurnId: lastTurnId!,

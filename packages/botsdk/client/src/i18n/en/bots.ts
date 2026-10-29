@@ -288,6 +288,7 @@ description: Use this when
   "bots.emailRotateConfirm": "Rotate? The old address stops working at once.",
   "bots.viaEmail": "via email",
   "bots.emailed": "✉ emailed",
+  "bots.urgent": "Urgent",
   "bots.emailNextChannel": ({ channel }: { channel: string }) =>
     `Next Bot-initiated Message goes by ${channel}`,
   "bots.web": "web",
@@ -332,6 +333,8 @@ description: Use this when
   "bots.routineTime": "Time",
   "bots.routineReadOnly": "Read-only",
   "bots.routineReadOnlyNote": "Read-only: its runs can look but not change anything.",
+  "bots.addRoutineTime": "Add time",
+  "bots.removeRoutineTime": ({ time }: { time: string }) => `Remove ${time}`,
   "bots.checkInTime": "When",
   "bots.checkInNote": "Note",
   "bots.dayMon": "Mon",

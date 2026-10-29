@@ -134,7 +134,7 @@ describe("the context of a Turn", () => {
 
       [Deferred tools: call describe_tool with the name first, then run_tool]
       cancel_check_in: Cancel one of your pending Check-ins, by the id list_check_ins or set_check_in gave.
-      create_routine: Save a Routine: a prompt that repeats on a schedule (days of the week at a time in the user's time zone) or whenever an outside service calls its webhook URL, never a one-time reminder.
+      create_routine: Save a Routine: a prompt that repeats on a schedule (days of the week at one or more times in the user's time zone) or whenever an outside service calls its webhook URL, never a one-time reminder.
       delete_routine: Delete one of your Routines, named as in your list.
       list_check_ins: List your pending Check-ins, soonest first, so you do not set the same one twice.
       propose_rule: Propose a Custom Rule to the user: a standing instruction for all their Bots, such as after they approved the same kind of call several times.

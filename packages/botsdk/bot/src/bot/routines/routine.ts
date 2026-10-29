@@ -20,7 +20,7 @@ import {
   knownZone,
 } from "../conversation";
 import { fireKeyPrefix, lockConversation, routineOfFireKey } from "../triggers";
-import { nextSlot } from "./schedule";
+import { inOrder, nextSlot } from "./schedule";
 
 /** The Bot's tool that saves a Routine for the user's Approval (#538). */
 export const createRoutineToolName = "create_routine";
@@ -286,7 +286,7 @@ export async function saveRoutine(
       botId,
       name,
       prompt,
-      schedule: schedule ?? null,
+      schedule: schedule ? inOrder(schedule) : null,
       webhookTokenHash: webhook ? unissuedToken(id) : null,
       timeZone,
       state: "pending",
@@ -365,7 +365,7 @@ export async function updateRoutine(
     .update(botRoutine)
     .set({
       ...(promptChanged && { prompt }),
-      ...(scheduleChanged && { schedule }),
+      ...(scheduleChanged && { schedule: inOrder(schedule) }),
       ...(readOnlyChanged && { readOnly }),
       ...(approved && { state: "pending" as const, approvedAt: null }),
       updatedAt: now,
@@ -677,7 +677,7 @@ export async function editRoutine(
       .update(botRoutine)
       .set({
         ...(prompt !== undefined && { prompt }),
-        ...(scheduleChanged && { schedule }),
+        ...(scheduleChanged && { schedule: inOrder(schedule) }),
         ...(readOnly !== undefined && { readOnly }),
         updatedAt: now,
       })

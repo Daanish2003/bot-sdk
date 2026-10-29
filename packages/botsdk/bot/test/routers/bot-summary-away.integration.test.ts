@@ -429,7 +429,7 @@ describe("a Summary while the user is away", () => {
             name: "gym-reminder",
             prompt: "Remind me about the gym",
             // 10:50 in London, 50 minutes after the Turn.
-            schedule: { days: ["mon"], at: "10:50" },
+            schedule: { days: ["mon"], times: ["10:50"] },
             timeZone: "Europe/London",
             state: "active",
             createdByTurnId: turnId,

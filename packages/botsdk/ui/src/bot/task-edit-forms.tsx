@@ -7,7 +7,10 @@ import {
   type RoutineDay,
   type RoutineSchedule,
   routineDays,
+  routineScheduleSchema,
+  scheduleText,
 } from "@botsdk/client/bot/routine";
+import { PlusIcon, XIcon } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
 import { useI18n } from "@botsdk/react/provider";
@@ -36,8 +39,9 @@ export type CheckInEdit = { checkInId: string; at?: Date; note?: string };
 
 /**
  * The small inline form that edits a Routine's prompt, whether it is read-only (spec #1024) and,
- * unless it runs on a webhook, its days and time (spec #1007). Save sends only what changed, and closes the form once the server accepts it;
- * a refusal says why in a toast and keeps the form.
+ * unless it runs on a webhook, its days and times (spec #1007, #1025): one field per time, in order,
+ * with Add time and a remove button on each while there are several. Save sends only what changed,
+ * and closes the form once the server accepts it; a refusal says why in a toast and keeps the form.
  */
 export function RoutineEditForm({
   routine,
@@ -54,16 +58,18 @@ export function RoutineEditForm({
   const run = useRefusalToast();
   const [prompt, setPrompt] = useState(routine.prompt);
   const [days, setDays] = useState<readonly RoutineDay[]>(routine.schedule?.days ?? []);
-  const [at, setAt] = useState(routine.schedule?.at ?? "");
+  const [times, setTimes] = useState<readonly string[]>(routine.schedule?.times ?? []);
   const schedule = routine.schedule;
-  const scheduleChanged =
-    schedule !== null &&
-    (at !== schedule.at ||
-      routineDays.some((day) => days.includes(day) !== schedule.days.includes(day)));
+  const edited: RoutineSchedule = {
+    days: routineDays.filter((day) => days.includes(day)),
+    times: [...times].sort(),
+  };
+  const scheduleValid = routineScheduleSchema.safeParse(edited).success;
+  const scheduleChanged = schedule !== null && scheduleText(edited) !== scheduleText(schedule);
   const promptChanged = prompt.trim() !== routine.prompt;
   const [readOnly, setReadOnly] = useState(routine.readOnly);
   const readOnlyChanged = readOnly !== routine.readOnly;
-  const valid = prompt.trim() !== "" && (schedule === null || (days.length > 0 && at !== ""));
+  const valid = prompt.trim() !== "" && (schedule === null || scheduleValid);
   const toggle = (day: RoutineDay) =>
     setDays((current) =>
       current.includes(day) ? current.filter((one) => one !== day) : [...current, day],
@@ -76,9 +82,7 @@ export function RoutineEditForm({
       onEdit({
         routineId: routine.id,
         ...(promptChanged && { prompt: prompt.trim() }),
-        ...(scheduleChanged && {
-          schedule: { days: routineDays.filter((day) => days.includes(day)), at },
-        }),
+        ...(scheduleChanged && { schedule: edited }),
         ...(readOnlyChanged && { readOnly }),
       }).then(onClose),
     );
@@ -97,29 +101,65 @@ export function RoutineEditForm({
         onChange={(event) => setPrompt(event.target.value)}
       />
       {schedule && (
-        <div className="flex flex-wrap items-center gap-1">
-          {routineDays.map((day) => (
+        <>
+          <div className="flex flex-wrap items-center gap-1">
+            {routineDays.map((day) => (
+              <Button
+                key={day}
+                type="button"
+                size="xs"
+                variant={days.includes(day) ? "secondary" : "ghost"}
+                aria-pressed={days.includes(day)}
+                disabled={busy}
+                onClick={() => toggle(day)}
+              >
+                {t(dayKeys[day])}
+              </Button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-1">
+            {times.map((time, index) => (
+              <span key={index} className="flex items-center">
+                <Input
+                  type="time"
+                  aria-label={t("bots.routineTime")}
+                  className="w-28"
+                  value={time}
+                  disabled={busy}
+                  onChange={(event) =>
+                    setTimes((current) =>
+                      current.map((one, at) => (at === index ? event.target.value : one)),
+                    )
+                  }
+                />
+                {times.length > 1 && (
+                  <Button
+                    type="button"
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label={t("bots.removeRoutineTime", {
+                      time: time || t("bots.routineTime"),
+                    })}
+                    disabled={busy}
+                    onClick={() => setTimes((current) => current.filter((_, at) => at !== index))}
+                  >
+                    <XIcon />
+                  </Button>
+                )}
+              </span>
+            ))}
             <Button
-              key={day}
               type="button"
               size="xs"
-              variant={days.includes(day) ? "secondary" : "ghost"}
-              aria-pressed={days.includes(day)}
+              variant="ghost"
               disabled={busy}
-              onClick={() => toggle(day)}
+              onClick={() => setTimes((current) => [...current, ""])}
             >
-              {t(dayKeys[day])}
+              <PlusIcon />
+              {t("bots.addRoutineTime")}
             </Button>
-          ))}
-          <Input
-            type="time"
-            aria-label={t("bots.routineTime")}
-            className="ml-auto w-28"
-            value={at}
-            disabled={busy}
-            onChange={(event) => setAt(event.target.value)}
-          />
-        </div>
+          </div>
+        </>
       )}
       <div className="flex justify-end gap-1">
         {/* A read-only Routine's runs look but change nothing (spec #1024). */}

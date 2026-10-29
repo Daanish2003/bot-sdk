@@ -40,7 +40,7 @@ const morningBrief = (): BotRoutine => ({
   id: "r1",
   name: "morning-brief",
   prompt: "Summarize today's calendar.",
-  schedule: { days: ["mon", "tue", "wed", "thu", "fri"], at: "08:00" },
+  schedule: { days: ["mon", "tue", "wed", "thu", "fri"], times: ["08:00"] },
   webhook: false,
   readOnly: false,
   timeZone: "Europe/London",
@@ -469,7 +469,7 @@ describe("the Tasks popover's Routines in the header", () => {
       ...morningBrief(),
       id: "r2",
       name: "weekly-review",
-      schedule: { days: ["fri"], at: "16:00" },
+      schedule: { days: ["fri"], times: ["16:00", "09:00"] },
       state: "paused",
       approvedAt: createdAt,
     },
@@ -499,7 +499,7 @@ describe("the Tasks popover's Routines in the header", () => {
         .map((item) => item.textContent),
     ).toEqual([
       expect.stringMatching(/^morning-brief.*weekdays 08:00.*active/),
-      expect.stringMatching(/^weekly-review.*fri 16:00.*paused/),
+      expect.stringMatching(/^weekly-review.*fri 09:00, 16:00.*paused/),
       expect.stringMatching(/^inbox-sweep.*weekdays 08:00.*waiting for OK/),
     ]);
     // A pending Routine is approved or declined on its card, not here.

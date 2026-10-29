@@ -456,6 +456,14 @@ function BotConversationView({
                 )}
               </div>
             )}
+            {message.urgent && (
+              <span
+                data-urgent-mark
+                className="self-start rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-900 dark:bg-red-900 dark:text-red-100"
+              >
+                {t("bots.urgent")}
+              </span>
+            )}
             {message.channel === "email" && (
               <span
                 data-channel-pill

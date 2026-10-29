@@ -423,11 +423,19 @@ ALTER TABLE "botsdk"."bot_trigger" ADD CONSTRAINT "bot_trigger_skipped_check" CH
 insert into botsdk.__migrations (feature, migration) values ('core', '20261029163647_tasks_view');
 commit;
 
--- core/20261029212605_read_only_routines
+-- core/20261029212409_routine_times
+begin;
+-- A Routine's schedule holds a list of times (#1025): each one-time schedule becomes a one-item list.
+UPDATE "botsdk"."bot_routine" SET "schedule" = jsonb_build_object('days', "schedule"->'days', 'times', jsonb_build_array("schedule"->'at')) WHERE "schedule" ? 'at';
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261029212409_routine_times');
+commit;
+
+-- core/20261029221156_read_only_routines
 begin;
 ALTER TABLE "botsdk"."bot_routine" ADD COLUMN "read_only" boolean DEFAULT false NOT NULL;
 ;
-insert into botsdk.__migrations (feature, migration) values ('core', '20261029212605_read_only_routines');
+insert into botsdk.__migrations (feature, migration) values ('core', '20261029221156_read_only_routines');
 commit;
 
 -- notes/0001_note

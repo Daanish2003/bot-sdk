@@ -5,17 +5,27 @@ export const routineDays = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as 
 
 export type RoutineDay = (typeof routineDays)[number];
 
-/** When a scheduled Routine runs: `days` of the week at `at` (`HH:MM`, 24-hour) in its zone. */
+/**
+ * When a scheduled Routine runs: `days` of the week, at each of `times` (`HH:MM`, 24-hour) in its
+ * zone, so it may run several times a day.
+ */
 export const routineScheduleSchema = z.object({
   days: z
     .array(z.enum(routineDays))
     .min(1, 'schedule.days must name at least one day, like ["mon", "wed"]'),
-  at: z
-    .string()
-    .regex(
-      /^([01]\d|2[0-3]):[0-5]\d$/,
-      'schedule.at must be a 24-hour time as HH:MM, like "08:00"',
-    ),
+  times: z
+    .array(
+      z
+        .string()
+        .regex(
+          /^([01]\d|2[0-3]):[0-5]\d$/,
+          'schedule.times must be 24-hour times as HH:MM, like ["08:00", "17:30"]',
+        ),
+    )
+    .min(1, 'schedule.times must name at least one time, like ["08:00"]')
+    .refine((times) => new Set(times).size === times.length, {
+      error: "schedule.times must not repeat a time",
+    }),
 });
 
 export type RoutineSchedule = z.infer<typeof routineScheduleSchema>;
@@ -58,9 +68,10 @@ const weekdays: readonly RoutineDay[] = ["mon", "tue", "wed", "thu", "fri"];
 
 /**
  * A schedule in short words, as the system prompt and the approval card show it: `weekdays 08:00`,
- * `every day 08:00`, `weekends 08:00`, or the days in week order (`mon, thu 08:00`).
+ * `every day 08:00`, `weekends 08:00`, or the days in week order (`mon, thu 08:00`), then its
+ * times in order (`weekdays 11:00, 14:00`).
  */
-export function scheduleText({ days, at }: RoutineSchedule): string {
+export function scheduleText({ days, times }: RoutineSchedule): string {
   const ordered = routineDays.filter((day) => days.includes(day));
   const named =
     ordered.length === 7
@@ -70,5 +81,5 @@ export function scheduleText({ days, at }: RoutineSchedule): string {
         : ordered.length === 2 && ordered.includes("sat") && ordered.includes("sun")
           ? "weekends"
           : ordered.join(", ");
-  return `${named} ${at}`;
+  return `${named} ${[...times].sort().join(", ")}`;
 }

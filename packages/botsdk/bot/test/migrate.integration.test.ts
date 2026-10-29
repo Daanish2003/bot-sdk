@@ -185,7 +185,8 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261026182921_botsdk_baseline" },
       { feature: "core", migration: "20261029113355_approval_rules" },
       { feature: "core", migration: "20261029163647_tasks_view" },
-      { feature: "core", migration: "20261029212605_read_only_routines" },
+      { feature: "core", migration: "20261029212409_routine_times" },
+      { feature: "core", migration: "20261029221156_read_only_routines" },
     ]);
     // Images and PDFs are already compressed, so the bytes are kept out of line uncompressed.
     expect(
@@ -225,11 +226,53 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261026182921_botsdk_baseline" },
       { feature: "core", migration: "20261029113355_approval_rules" },
       { feature: "core", migration: "20261029163647_tasks_view" },
-      { feature: "core", migration: "20261029212605_read_only_routines" },
+      { feature: "core", migration: "20261029212409_routine_times" },
+      { feature: "core", migration: "20261029221156_read_only_routines" },
     ]);
     expect(
       await rows(url, "update botsdk.bot_review set state = 'pending' returning state, expires_at"),
     ).toEqual([{ state: "pending", expires_at: null }]);
+  });
+
+  it("moves each one-time Routine schedule to a one-item list of times, and leaves a webhook Routine's alone (#1025)", async () => {
+    const url = await scratchDatabase("k1025_times");
+    const before = shippedMigrations("../botsdk/bot/src").filter(
+      (migration) => migration.name < "20261029212409_routine_times",
+    );
+    await rows(url, "create schema botsdk; create extension if not exists pg_trgm");
+    for (const migration of before) await rows(url, migration.sql);
+    await rows(
+      url,
+      `create table botsdk.__migrations (
+         feature text not null, migration text not null,
+         applied_at timestamp with time zone not null default clock_timestamp(),
+         primary key (feature, migration));
+       insert into botsdk.__migrations (feature, migration) values
+         ${before.map((migration) => `('core', '${migration.name}')`).join(", ")}`,
+    );
+    const botId = await insertBot(url);
+    await rows(
+      url,
+      `with t as (
+         insert into botsdk.bot_turn (id, bot_id, status, started_at)
+         values (gen_random_uuid(), '${botId}', 'complete', now()) returning id)
+       insert into botsdk.bot_routine
+         (id, bot_id, name, prompt, schedule, webhook_token_hash, time_zone, state,
+          created_by_turn_id, created_at, updated_at)
+       select gen_random_uuid(), '${botId}', r.name, r.prompt, r.schedule::jsonb, r.hash,
+         'Europe/London', 'active', t.id, now(), now()
+       from t, (values
+         ('morning-brief', 'Brief me.', '{"days": ["mon", "fri"], "at": "08:00"}', null),
+         ('deploys', 'Read the deploy.', null, 'hash')
+       ) as r (name, prompt, schedule, hash)`,
+    );
+
+    await chatFor(url).migrate();
+
+    expect(await rows(url, "select name, schedule from botsdk.bot_routine order by name")).toEqual([
+      { name: "deploys", schedule: null },
+      { name: "morning-brief", schedule: { days: ["mon", "fri"], times: ["08:00"] } },
+    ]);
   });
 
   it("leaves a new database without the vector extension", async () => {
@@ -266,7 +309,8 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261026182921_botsdk_baseline" },
       { feature: "core", migration: "20261029113355_approval_rules" },
       { feature: "core", migration: "20261029163647_tasks_view" },
-      { feature: "core", migration: "20261029212605_read_only_routines" },
+      { feature: "core", migration: "20261029212409_routine_times" },
+      { feature: "core", migration: "20261029221156_read_only_routines" },
       { feature: "notes", migration: "0001_note" },
       { feature: "mcp", migration: "20261026182927_mcp_baseline" },
     ]);
@@ -287,7 +331,8 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261026182921_botsdk_baseline" },
       { feature: "core", migration: "20261029113355_approval_rules" },
       { feature: "core", migration: "20261029163647_tasks_view" },
-      { feature: "core", migration: "20261029212605_read_only_routines" },
+      { feature: "core", migration: "20261029212409_routine_times" },
+      { feature: "core", migration: "20261029221156_read_only_routines" },
       { feature: "notes", migration: "0001_note" },
       { feature: "notes", migration: "0002_note_text" },
     ]);
@@ -412,7 +457,8 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261026182921_botsdk_baseline" },
       { feature: "core", migration: "20261029113355_approval_rules" },
       { feature: "core", migration: "20261029163647_tasks_view" },
-      { feature: "core", migration: "20261029212605_read_only_routines" },
+      { feature: "core", migration: "20261029212409_routine_times" },
+      { feature: "core", migration: "20261029221156_read_only_routines" },
       { feature: "notes", migration: "0001_note" },
     ]);
   });

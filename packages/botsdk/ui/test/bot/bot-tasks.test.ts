@@ -138,7 +138,7 @@ describe("the Tasks popover", () => {
         id: "r1",
         name: "morning-brief",
         prompt: "x",
-        schedule: { days: ["mon"], at: "08:00" },
+        schedule: { days: ["mon"], times: ["08:00"] },
         webhook: false,
         readOnly: false,
         timeZone: "Europe/London",

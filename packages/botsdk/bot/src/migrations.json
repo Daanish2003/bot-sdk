@@ -12,7 +12,11 @@
     "sql": "CREATE TYPE \"botsdk\".\"bot_trigger_skip_reason\" AS ENUM('cancelled', 'paused', 'reset');--> statement-breakpoint\nALTER TYPE \"botsdk\".\"message_role\" ADD VALUE 'reset';--> statement-breakpoint\nALTER TABLE \"botsdk\".\"bot\" ADD COLUMN \"paused_at\" timestamp;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"bot_trigger\" ADD COLUMN \"skipped_at\" timestamp;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"bot_trigger\" ADD COLUMN \"skip_reason\" \"botsdk\".\"bot_trigger_skip_reason\";--> statement-breakpoint\nDROP INDEX \"botsdk\".\"bot_trigger_waiting_idx\";--> statement-breakpoint\nCREATE INDEX \"bot_trigger_waiting_idx\" ON \"botsdk\".\"bot_trigger\" (\"conversation_id\",\"received_at\") WHERE \"turn_id\" is null and \"skipped_at\" is null;--> statement-breakpoint\nCREATE INDEX \"bot_trigger_skipped_idx\" ON \"botsdk\".\"bot_trigger\" (\"conversation_id\",\"skipped_at\") WHERE \"skipped_at\" is not null;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"bot_trigger\" ADD CONSTRAINT \"bot_trigger_skipped_check\" CHECK ((\"skipped_at\" is null) = (\"skip_reason\" is null) and (\"skipped_at\" is null or \"turn_id\" is null));"
   },
   {
-    "name": "20261029212605_read_only_routines",
+    "name": "20261029212409_routine_times",
+    "sql": "-- A Routine's schedule holds a list of times (#1025): each one-time schedule becomes a one-item list.\nUPDATE \"botsdk\".\"bot_routine\" SET \"schedule\" = jsonb_build_object('days', \"schedule\"->'days', 'times', jsonb_build_array(\"schedule\"->'at')) WHERE \"schedule\" ? 'at';\n"
+  },
+  {
+    "name": "20261029221156_read_only_routines",
     "sql": "ALTER TABLE \"botsdk\".\"bot_routine\" ADD COLUMN \"read_only\" boolean DEFAULT false NOT NULL;"
   }
 ]

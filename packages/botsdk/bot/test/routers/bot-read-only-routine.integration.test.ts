@@ -64,7 +64,7 @@ const call = (name: string, input: unknown) => toolCall({ id: `call-${name}`, na
 const watch = {
   name: "check-my-apps",
   prompt: "Look through my apps.",
-  schedule: { days: ["mon", "tue", "wed", "thu", "fri"], at: "11:00" },
+  schedule: { days: ["mon", "tue", "wed", "thu", "fri"], times: ["11:00"] },
 };
 
 // Sunday 18 October 2026, 11:00 in London (summer time, UTC+1).
