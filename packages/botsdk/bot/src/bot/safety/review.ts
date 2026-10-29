@@ -7,10 +7,10 @@ import {
 import { searchTextOf } from "@botsdk/client/message-parts";
 import { sdkNeverAllowed } from "@botsdk/client/bot/rule";
 import { chat, EventType, type ModelMessage, type StreamChunk } from "@tanstack/ai";
-import { and, asc, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, notExists, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { bot, botHelper, botReview, botTrigger, message } from "../../storage";
+import { bot, botHelper, botReview, botTrigger, job, jobEvent, message } from "../../storage";
 import type { Database } from "../../storage";
 import { uuidv7 } from "../../lib/uuidv7";
 import { rpcError } from "../../rpc-error";
@@ -18,9 +18,15 @@ import type { BotSdkContext, Transaction } from "../../plugin";
 import type { ModelMeter } from "../../models/internal";
 import type { MessageUsage } from "../../models/shared/usage";
 import { parseReply } from "../../lib/parse-reply";
-import { lockConversation, receive } from "../triggers";
+import { lockConversation, pauseOf, receive } from "../triggers";
 import { forwardedEmailLabel, routineNameOf, routinePromptOf, untrustedBlock } from "../routines";
-import { appendBotMessage, controlParts, hintChanged, recordBotChange } from "../conversation";
+import {
+  appendBotMessage,
+  controlParts,
+  hintChanged,
+  noResetAfter,
+  recordBotChange,
+} from "../conversation";
 import { approvalExpiryJobName, approvalExpiryKey } from "./approval-expiry";
 import { reviewedRules, ruleApprovalTriggerId } from "./custom-rule";
 import { isSavedSecretText } from "./secret-values";
@@ -375,6 +381,9 @@ export const approvedCallJobName = "bot.approved_call";
 /** The key of review `reviewId`'s approved-call job: one Allow, one job. */
 export const approvedCallKey = (reviewId: string) => `approved-call:${reviewId}`;
 
+/** The marker an approved-call job records just before it starts the call. */
+export const approvedCallStartActivity = "call_start";
+
 /** The id of review `reviewId`'s Approval Trigger: one per review, so a repeat is dropped. */
 export const approvalTriggerId = (reviewId: string) => `approval:${reviewId}`;
 
@@ -491,6 +500,11 @@ async function decide(
       ? inTime || late || (row.state === "pending" && row.expiresAt !== null && row.expiresAt > now)
       : row.state === "waiting";
     if (!open) return null;
+    // A paused Bot runs no work (spec #1007): a yes to an open Approval is refused, and it stays as
+    // it was. A closed one answers as closed.
+    if (change.state === "allowed" && (await pauseOf(tx, owner.conversationId))?.paused) {
+      throw rpcError("CONFLICT", "error.botPausedApproval", "Bot is paused. Resume to approve.");
+    }
     const [changed] = await tx
       .update(botReview)
       .set(late ? { ...change, expiresAt: pendingExpiresAt } : change)
@@ -583,6 +597,86 @@ export async function closeWaitingReviews(
     .where(eq(bot.id, first.botId));
   if (!owner) return;
   for (const row of closed) await recordBotChange(tx, owner, "review", row.id, now);
+}
+
+/**
+ * Takes back the yes to each of Bot `owner`'s allowed calls whose job hasn't started (a Bot pause,
+ * spec #1007), in `tx`, which holds its Conversation's row lock: the job is cancelled, so the call
+ * never runs while the Bot is paused, and the Approval is `pending` again, with its `review` change
+ * and its expiry job, so the user can answer it once the Bot is resumed. A queued job counts as not
+ * started until it has recorded its start marker, even one waiting out a retry. One running now,
+ * or one past that marker, may have run the call, so it is left to finish.
+ */
+export async function reopenUnstartedCalls(
+  deps: BotSdkContext,
+  tx: Transaction,
+  owner: { botId: string; conversationId: string },
+  at: Date,
+): Promise<void> {
+  const unstarted = await tx
+    .select({ id: botReview.id, expiresAt: botReview.expiresAt })
+    .from(botReview)
+    .innerJoin(job, eq(job.idempotencyKey, sql`${approvedCallKey("")} || ${botReview.id}`))
+    .where(
+      and(
+        eq(botReview.botId, owner.botId),
+        eq(botReview.state, "allowed"),
+        eq(job.status, "queued"),
+        notExists(
+          tx
+            .select({ seq: jobEvent.seq })
+            .from(jobEvent)
+            .where(and(eq(jobEvent.jobId, job.id), eq(jobEvent.name, approvedCallStartActivity))),
+        ),
+      ),
+    )
+    // The job's row is locked, so no runner claims it before this commits.
+    .for("update", { of: job });
+  for (const { id, expiresAt } of unstarted) {
+    await deps.runner.cancelIn(tx, approvedCallKey(id));
+    await tx
+      .update(botReview)
+      .set({ state: "pending", decidedAt: null })
+      .where(eq(botReview.id, id));
+    await recordBotChange(tx, owner, "review", id, at);
+    // A late yes skipped the pending state, so it never had an expiry job.
+    if (expiresAt) await scheduleExpiry(deps, tx, id, expiresAt);
+  }
+}
+
+/**
+ * Declines every open Approval of Bot `botId` (a Bot reset, spec #1007), waiting or pending, in
+ * `tx`, which holds its Conversation's row lock: each is `denied` with its `review` change and its
+ * expiry job cancelled. An allowed call whose job hasn't started is cancelled too, so it never
+ * runs; one already running wakes no one (`approved-call.ts`). Nothing wakes the Bot.
+ */
+export async function declineBotApprovals(
+  deps: BotSdkContext,
+  tx: Transaction,
+  owner: { botId: string; conversationId: string },
+  at: Date,
+): Promise<void> {
+  const declined = await tx
+    .update(botReview)
+    .set({ state: "denied", decidedAt: at })
+    .where(and(eq(botReview.botId, owner.botId), inArray(botReview.state, ["waiting", "pending"])))
+    .returning({ id: botReview.id });
+  for (const { id } of declined) {
+    await recordBotChange(tx, owner, "review", id, at);
+    await deps.runner.cancelIn(tx, approvalExpiryKey(id));
+  }
+  const queued = await tx
+    .select({ id: botReview.id })
+    .from(botReview)
+    .innerJoin(job, eq(job.idempotencyKey, sql`${approvedCallKey("")} || ${botReview.id}`))
+    .where(
+      and(
+        eq(botReview.botId, owner.botId),
+        eq(botReview.state, "allowed"),
+        eq(job.status, "queued"),
+      ),
+    );
+  for (const { id } of queued) await deps.runner.cancelIn(tx, approvedCallKey(id));
 }
 
 /** Schedules the job that expires pending Approval `reviewId` at `expiresAt` (ADR 0030), in `tx`. */
@@ -766,7 +860,14 @@ async function reviewerInput(
     db
       .select({ parts: message.parts, createdAt: message.createdAt })
       .from(message)
-      .where(and(eq(message.conversationId, source.conversationId), eq(message.role, "user")))
+      .where(
+        and(
+          eq(message.conversationId, source.conversationId),
+          eq(message.role, "user"),
+          // What the user wrote before the Bot's reset authorizes nothing after it (spec #1007).
+          noResetAfter(db, { conversationId: source.conversationId }, message.createdAt),
+        ),
+      )
       .orderBy(desc(message.createdAt), desc(message.id))
       .limit(reviewedMessages),
     // A Helper's: what started the Turn that started it, such as an approved Routine.

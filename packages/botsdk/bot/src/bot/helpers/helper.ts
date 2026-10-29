@@ -149,6 +149,38 @@ const startHelperDefinition = toolDefinition({
 /** A Helper job's idempotency key, by which it is cancelled. A resumed Helper's job takes it too. */
 export const helperJobKey = (helperId: string) => `helper:${helperId}`;
 
+/** The id of the Trigger a Helper's report hands the Router: a Helper ends once. */
+export const helperTriggerId = (helperId: string) => `helper:${helperId}`;
+
+/** The Helper whose report's Trigger id (see `helperTriggerId`) `id` is, or `undefined`. */
+export function helperOfTriggerId(id: string): string | undefined {
+  return id.startsWith("helper:") ? id.slice("helper:".length) : undefined;
+}
+
+/** What a Helper's report Trigger opens with, by the Helper's type. */
+const helperKinds = { general: "General Helper", computer_use: "Computer-use Helper" } as const;
+
+/** The text of a Helper's report Trigger: its kind, gist and ending, then the report. */
+function helperReportText(
+  type: keyof typeof helperKinds,
+  task: string,
+  ending: { status: string; report: string },
+): string {
+  return `${helperKinds[type]} finished: ${gistOf(task)}, status ${ending.status}\n\n${ending.report}`;
+}
+
+/** The gist a Helper's report Trigger (`helperReportText`) names, or `null` when `text` is none. */
+export function helperGistOf(text: string | null): string | null {
+  const firstLine = text?.split("\n")[0] ?? "";
+  for (const kind of Object.values(helperKinds)) {
+    const opening = `${kind} finished: `;
+    if (!firstLine.startsWith(opening)) continue;
+    const ending = /, status \w+$/.exec(firstLine);
+    return ending ? firstLine.slice(opening.length, ending.index) : null;
+  }
+  return null;
+}
+
 /** What `start_helper` needs of the Turn that calls it. */
 type HelperStarter = {
   id: string;
@@ -715,13 +747,12 @@ async function endHelper(
   await recordBotChange(tx, owner, "helper", helper.id, now);
   // A Helper cut off mid-wait (its time limit, or a lost job) leaves no request open.
   await closeWaitingReviews(deps, tx, { helperId: helper.id }, "expired");
-  const kind = helper.type === "general" ? "General Helper" : "Computer-use Helper";
   await receive(deps, tx, {
-    id: `helper:${helper.id}`,
+    id: helperTriggerId(helper.id),
     conversationId: owner.conversationId,
     source: "helper",
     channel: "helper",
-    text: `${kind} finished: ${gistOf(helper.task)}, status ${ending.status}\n\n${ending.report}`,
+    text: helperReportText(helper.type, helper.task, ending),
     receivedAt: now,
   });
   return { conversationId: owner.conversationId };

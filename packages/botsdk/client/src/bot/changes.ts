@@ -1,4 +1,5 @@
 import type { BotCheckIn } from "./check-in";
+import type { Bot } from "./contract";
 import type { BotHelper } from "./helper";
 import type { BotReview } from "./review";
 import type { BotRoutine } from "./routine";
@@ -25,6 +26,8 @@ type BotChangeData = {
   helper: BotHelper;
   check_in: BotCheckIn;
   summary: BotSummary;
+  /** The Bot itself, paused or resumed (spec #1007). */
+  bot: Bot;
 };
 
 /** The kinds of change to a Bot's thread. */

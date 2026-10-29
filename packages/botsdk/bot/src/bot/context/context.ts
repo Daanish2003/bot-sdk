@@ -1,7 +1,22 @@
 import type { SentFile } from "@botsdk/client/bot/files";
 import { searchTextOf } from "@botsdk/client/message-parts";
 import { type AnyServerTool, type ModelMessage, toolDefinition } from "@tanstack/ai";
-import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import { botTrigger, botTurn, message, type MessageRow } from "../../storage";
@@ -29,6 +44,7 @@ import {
   formatterIn,
   knownZone,
   timeNotice,
+  noResetAfter,
 } from "../conversation";
 
 import type { LoopKit } from "../agent-loop";
@@ -410,6 +426,8 @@ async function lastInputAt(
         // input is from before inputs were stored. One that never ran (stopped while queued, or
         // failed before its first call) has neither, and what it took is still new.
         or(isNotNull(botTurn.input), sql`jsonb_array_length(${botTurn.transcript}) > 0`),
+        // A Turn from before the Bot's reset mark took nothing it still knows (spec #1007).
+        noResetAfter(db, { botId: turn.botId }, botTurn.startedAt),
       ),
     )
     .orderBy(desc(botTurn.startedAt), desc(botTurn.id))
@@ -443,6 +461,24 @@ async function newestInput(
     eq(message.conversationId, turn.conversationId),
     eq(message.role, "user"),
     lt(message.createdAt, turn.startedAt),
+    // Nothing from before the Bot's reset mark is new to it (spec #1007).
+    noResetAfter(db, { conversationId: turn.conversationId }, message.createdAt),
+    // A Message whose Trigger was skipped, by a Bot pause (spec #1007), never reached a Turn. Read
+    // once per query (an uncorrelated subquery), not once per row: an email's Trigger id isn't its
+    // Message's, so the Conversation's skipped Triggers are matched by the Message they carry.
+    notInArray(
+      message.id,
+      db
+        .select({ id: botTrigger.messageId })
+        .from(botTrigger)
+        .where(
+          and(
+            eq(botTrigger.conversationId, turn.conversationId),
+            isNotNull(botTrigger.skippedAt),
+            isNotNull(botTrigger.messageId),
+          ),
+        ),
+    ),
   );
   const [users, woken, [newestUser], reacted] = await Promise.all([
     db
@@ -465,6 +501,7 @@ async function newestInput(
           isNotNull(botTrigger.text),
           lte(botTurn.startedAt, turn.startedAt),
           lte(botTrigger.receivedAt, turn.startedAt),
+          noResetAfter(db, { conversationId: turn.conversationId }, botTrigger.receivedAt),
           since && or(gt(botTurn.startedAt, since), gt(botTrigger.receivedAt, since)),
         ),
       )
@@ -484,6 +521,8 @@ async function newestInput(
         and(
           eq(message.conversationId, turn.conversationId),
           eq(message.role, "assistant"),
+          // A Message from before the reset mark is one the Bot no longer sees (spec #1007).
+          noResetAfter(db, { conversationId: turn.conversationId }, message.createdAt),
           sql`(${message.parts}->'reactions'->'user'->>'at')::timestamptz <= ${turn.startedAt.toISOString()}::timestamptz`,
           since &&
             sql`(${message.parts}->'reactions'->'user'->>'at')::timestamptz > ${since.toISOString()}::timestamptz`,

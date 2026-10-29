@@ -84,6 +84,8 @@ async function fetchOnce(queryClient: QueryClient, orpc: BotSdkOrpc, botId: stri
   await queryClient.cancelQueries({ queryKey: getKey });
   for (const change of changes) {
     if (change.kind === "message") {
+      // A Message sent while a Turn runs waits in the queue, which the Tasks view lists.
+      void queryClient.invalidateQueries({ queryKey: lists.tasks });
       const { data } = change;
       if (data) {
         queryClient.setQueryData(getKey, (thread) => {
@@ -93,6 +95,7 @@ async function fetchOnce(queryClient: QueryClient, orpc: BotSdkOrpc, botId: stri
         });
       }
     } else if (change.kind === "turn") {
+      void queryClient.invalidateQueries({ queryKey: lists.tasks });
       // A Turn starting or ending changes its provenance and what "Seen ✓" reads: read the thread.
       rereadThread = true;
       const { data } = change;
@@ -104,8 +107,23 @@ async function fetchOnce(queryClient: QueryClient, orpc: BotSdkOrpc, botId: stri
       }
     } else if (change.kind === "summary") {
       rereadThread = true;
+    } else if (change.kind === "bot") {
+      // Paused or resumed (spec #1007): the badge and composer follow the thread's Bot, and a pause
+      // skips what waited.
+      void queryClient.invalidateQueries({ queryKey: lists.tasks });
+      const { data } = change;
+      if (data) {
+        queryClient.setQueryData(
+          getKey,
+          (thread) => thread && { ...thread, bot: { ...thread.bot, pausedAt: data.pausedAt } },
+        );
+      }
     } else {
       void queryClient.invalidateQueries({ queryKey: lists[change.kind] });
+      // The Tasks view lists Routines, Helpers and Check-ins too.
+      if (change.kind === "routine" || change.kind === "helper" || change.kind === "check_in") {
+        void queryClient.invalidateQueries({ queryKey: lists.tasks });
+      }
     }
   }
   queryClient.setQueryData(
@@ -131,6 +149,7 @@ function listKeys(orpc: BotSdkOrpc, botId: string) {
     review: orpc.reviews.list.queryKey(input),
     helper: orpc.helpers.list.queryKey(input),
     check_in: orpc.checkIns.list.queryKey(input),
+    tasks: orpc.bots.tasks.queryKey(input),
   };
 }
 

@@ -19,7 +19,11 @@ import { conversation, message } from "./schema";
 export * from "./blob";
 export * from "./conversation-change";
 
-export const messageRole = botsdkSchema.enum("message_role", ["user", "assistant"]);
+/**
+ * Who wrote a Message: the user or a Bot (`assistant`). A `reset` Message is written by neither:
+ * it is the reset mark a Bot reset appends (spec #1007), and the Bot sees nothing from before it.
+ */
+export const messageRole = botsdkSchema.enum("message_role", ["user", "assistant", "reset"]);
 export const messageStatus = botsdkSchema.enum("message_status", [
   "streaming",
   "complete",

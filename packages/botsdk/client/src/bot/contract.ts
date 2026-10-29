@@ -8,9 +8,10 @@ import type { DemonstrationState, DemonstrationStep } from "./demonstration";
 import type { BotHelper } from "./helper";
 import { emojiSchema } from "./reaction";
 import type { BotReview, ReviewApprovalState } from "./review";
-import type { BotRoutine } from "./routine";
+import { type BotRoutine, routineScheduleSchema } from "./routine";
 import { type CustomRule, customRuleModes, customRuleTextSchema } from "./rule";
 import { type BotSecret, secretNameSchema } from "./secret";
+import type { BotTasks } from "./tasks";
 import { isTimeZone } from "./time-zone";
 import {
   type BotMessage,
@@ -30,7 +31,14 @@ import {
  */
 
 /** A Bot as the client sees it. */
-export type Bot = { id: string; name: string; model: string; createdAt: Date };
+/** A Bot; `pausedAt` is when the user paused it (Bot pause, spec #1007), null while it isn't. */
+export type Bot = {
+  id: string;
+  name: string;
+  model: string;
+  createdAt: Date;
+  pausedAt: Date | null;
+};
 
 /** A Bot with the status of its latest Turn (`null` before its first). */
 export type BotWithStatus = Bot & { turnStatus: BotTurnStatus | null };
@@ -76,6 +84,9 @@ export const createBotInput = z.object({
 
 /** The input of the methods that act on one of the user's Bots, besides `userId`. */
 export const botInput = z.object({ botId: z.uuid() });
+
+/** `bots.reset`'s input, besides `userId`: the Bot, and its name typed to confirm (spec #1007). */
+export const resetBotInput = z.object({ botId: z.uuid(), name: z.string().max(100) });
 
 /** `conversations.changes`' input, besides `userId`. */
 export const conversationChangesInput = z.object({
@@ -125,8 +136,28 @@ export const botScopeInput = z.object({ botId: z.uuid() });
 /** The input of the methods that act on one of the user's Routines. */
 export const routineInput = z.object({ routineId: z.uuid() });
 
+/** `triggers.skip`'s input, besides `userId`. */
+export const triggerInput = z.object({ triggerId: z.string().min(1).max(512) });
+
 /** `checkIns.cancel`'s input, besides `userId`. */
 export const checkInInput = z.object({ checkInId: z.uuid() });
+
+/** `routines.edit`'s input, besides `userId`: a new prompt, a new schedule, or both. */
+export const editRoutineInput = routineInput
+  .extend({
+    prompt: z.string().trim().min(1).optional(),
+    schedule: routineScheduleSchema.optional(),
+  })
+  .refine((input) => input.prompt !== undefined || input.schedule !== undefined, {
+    error: "An edit needs a prompt or a schedule",
+  });
+
+/** `checkIns.edit`'s input, besides `userId`: a new time, a new note, or both. */
+export const editCheckInInput = checkInInput
+  .extend({ at: z.date().optional(), note: z.string().trim().min(1).optional() })
+  .refine((input) => input.at !== undefined || input.note !== undefined, {
+    error: "An edit needs a time or a note",
+  });
 
 /** `helpers.list`'s input, besides `userId`. */
 export const helperListInput = z.object({ botId: z.uuid() });
@@ -201,6 +232,24 @@ const bots = {
   upload: oc.input(uploadInput).output(type<BotUpload>()),
   /** Stops the user's Bot's running Turn. */
   stop: oc.input(botInput).output(type<void>()),
+  /**
+   * Pauses the user's Bot (spec #1007): its Turn and Helpers stop, what waits is skipped, and
+   * nothing wakes it until it is resumed. Idempotent; another user's Bot is not found.
+   */
+  pause: oc.input(botInput).output(type<void>()),
+  /** Resumes the user's paused Bot, replaying nothing. Idempotent; another user's Bot is not found. */
+  resume: oc.input(botInput).output(type<void>()),
+  /**
+   * Resets the user's Bot (spec #1007): it drops its Routines, Check-ins, Helpers and pending
+   * Approvals, each enabled feature forgets it (Memory deletes its files), and its Conversation
+   * gets a reset mark. `name` must be the Bot's name. Another user's Bot is not found.
+   */
+  reset: oc.input(resetBotInput).output(type<void>()),
+  /**
+   * One of the user's Bots' Tasks view (spec #1007): In progress, Scheduled and Done, in one read.
+   * Another user's Bot is not found.
+   */
+  tasks: oc.input(botInput).output(type<BotTasks>()),
   /** Warms the Bot's cache, on opening and on a draft's first keystroke. */
   warm: oc.input(botInput).output(type<WarmResult>()),
   /** Answers the choice a Bot asked in Message `messageId`. */
@@ -240,6 +289,11 @@ const routines = {
   resume: oc.input(routineInput).output(type<RoutineStateChange>()),
   /** Deletes a Routine in any state, and nothing of it fires again. */
   delete: oc.input(routineInput).output(type<void>()),
+  /**
+   * The user's edit of a Routine's prompt and schedule (a webhook Routine takes the prompt only).
+   * It needs no Approval and keeps the Routine's state; it applies from the next run.
+   */
+  edit: oc.input(editRoutineInput).output(type<RoutineStateChange>()),
   /** Gives an approved webhook Routine a new URL (ADR 0021). */
   rotate: oc.input(routineInput).output(type<{ webhookToken: string }>()),
 };
@@ -250,6 +304,14 @@ const checkIns = {
   list: oc.input(botScopeInput).output(type<BotCheckIn[]>()),
   /** Cancels a pending Check-in: it never fires. */
   cancel: oc.input(checkInInput).output(type<void>()),
+  /** Changes a pending Check-in's time and note. One that already fired or ended is refused. */
+  edit: oc.input(editCheckInInput).output(type<void>()),
+};
+
+/** The Triggers waiting in a Bot's Conversation queue (spec #1007). */
+const triggers = {
+  /** Skips one waiting Routine or Check-in Trigger: no Turn takes it, and Done lists it as skipped. */
+  skip: oc.input(triggerInput).output(type<void>()),
 };
 
 /** The Helpers of the user's Bots (#590). */
@@ -365,6 +427,7 @@ export const botContract = {
   conversations,
   routines,
   checkIns,
+  triggers,
   helpers,
   reviews,
   rules,

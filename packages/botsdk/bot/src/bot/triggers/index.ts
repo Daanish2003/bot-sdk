@@ -1,11 +1,15 @@
 // The triggers module's entry point (#889): other modules import it only through this file.
 export { answerChoice } from "./choice";
 export { reactToMessage } from "./reaction";
+export { skipTrigger } from "./skip";
+export { checkInKey, checkInOfKey, fireKeyPrefix, routineOfFireKey } from "./trigger-ids";
 export {
   awaySummaryKey,
   botTurnJobName,
   lockConversation,
+  pauseOf,
   receive,
+  skipWaiting,
   startTurn,
   turnStarted,
   waitingIn,

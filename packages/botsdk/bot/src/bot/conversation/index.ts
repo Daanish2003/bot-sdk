@@ -26,7 +26,8 @@ export {
   screenshotPart,
   userImageLeftOut,
 } from "./image-refs";
-export { screenshotsConversationDelete, storeScreenshot } from "./screenshots";
+export { noResetAfter } from "./reset-mark";
+export { screenshotBlobKey, screenshotsConversationDelete, storeScreenshot } from "./screenshots";
 export {
   appendBotMessage,
   type Bot,

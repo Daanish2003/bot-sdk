@@ -5,7 +5,7 @@ import { appendMessage } from "../../chat/message-tree";
 
 import type { BotSdkContext } from "../../plugin";
 import { sentFileBlobKey, storeMailFiles, textParts, hintChanged } from "../conversation";
-import { lockConversation, receive } from "../triggers";
+import { lockConversation, pauseOf, receive } from "../triggers";
 
 import { cancelTurn } from "./turn";
 import { emailText } from "./email-text";
@@ -74,6 +74,8 @@ async function deliver(
   if (alreadySeen) return redelivery;
 
   // The owner's attachments go to the blob store like a composer's files; the others stay named.
+  // Stored even for a paused Bot: only the transaction, under the lock, knows whether it still is
+  // (spec #1007), and a paused Bot's are deleted after it.
   const { stored, unkept } = await storeMailFiles(sdk, mail.files ?? []);
   const body = emailText(
     { ...mail, attachments: mail.files ? unkept : mail.attachments },
@@ -96,6 +98,17 @@ async function deliver(
         .where(eq(botTrigger.id, id));
       if (seen) return null;
       const now = sdk.clock();
+      // A paused Bot's mail (spec #1007) saves no Message: it is kept as a skipped Trigger only.
+      if ((await pauseOf(tx, owner.conversationId))?.paused) {
+        await receive(sdk, tx, {
+          id,
+          conversationId: owner.conversationId,
+          source: "user",
+          channel: "email",
+          receivedAt: now,
+        });
+        return "paused" as const;
+      }
       const row = await appendMessage(tx, owner.conversationId, {
         role: "user",
         parts: {
@@ -133,12 +146,17 @@ async function deliver(
       );
       throw error;
     });
-  if (handed === "rotated" || !handed) {
+  if (handed === "rotated" || handed === "paused" || !handed) {
     // No Message holds the files, so their bytes go.
     await deleteBlobsBestEffort(
       sdk,
       stored.map((file) => sentFileBlobKey(file.id)),
     );
+    if (handed === "paused") {
+      // The Tasks view lists it as skipped.
+      await hintChanged(sdk, owner.conversationId);
+      return null;
+    }
     return handed ? "no Bot has the address" : redelivery;
   }
   sdk.runner.wake();

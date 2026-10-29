@@ -148,6 +148,7 @@ describe("the bot plugin's user data", () => {
         name: "Ada",
         model,
         createdAt: created.createdAt,
+        pausedAt: null,
         messages: [
           {
             id: sent.id,

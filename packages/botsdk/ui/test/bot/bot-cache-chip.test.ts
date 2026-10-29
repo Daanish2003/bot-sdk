@@ -152,6 +152,7 @@ describe("the cache chip in a Bot's thread", () => {
                 name: "Ada",
                 model: "openai:gpt-6-luna",
                 createdAt,
+                pausedAt: null,
                 turnStatus: "error" as const,
                 userTurnStatus: "error" as const,
               },

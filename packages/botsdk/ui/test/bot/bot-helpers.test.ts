@@ -12,6 +12,7 @@ import { z } from "zod";
 import { BotConversation } from "../../src/bot/bot-conversation";
 import { providerFor } from "@ai-chat/test-support/fake-dictionary";
 import { changeLog, hint, stubEventSource } from "./fake-change-log";
+import { tasksOf } from "./fake-tasks";
 
 beforeEach(stubEventSource);
 
@@ -72,6 +73,7 @@ function mount(
         lastSeq: log.last,
       })),
       stop: os.handler(() => {}),
+      tasks: os.handler(() => tasksOf({ helpers, routines })),
       send: os
         .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }).loose())
         .handler(({ input }) => ({
@@ -217,7 +219,7 @@ describe("stopping a Helper from its card (#591)", () => {
   });
 });
 
-describe("the To-do list (#591)", () => {
+describe("the Tasks popover's Helpers (#591, spec #1007)", () => {
   const two = () => [
     helper("m1"),
     helper("m1", {
@@ -232,27 +234,27 @@ describe("the To-do list (#591)", () => {
   it("counts the running and waiting Helpers, with a dot when one needs the user", async () => {
     mount([said("m1", "assistant", "On it.")], two());
 
-    const button = await screen.findByRole("button", { name: /To-do 2/ });
+    const button = await screen.findByRole("button", { name: /Tasks 2/ });
     expect(button.querySelector("[data-needs-you]")).not.toBeNull();
   });
 
-  it("has no dot when no Helper needs the user, and no button when none is live", async () => {
+  it("has no dot when no Helper needs the user, and counts none once none is live", async () => {
     mount([said("m1", "assistant", "On it.")], [helper("m1")]);
-    const button = await screen.findByRole("button", { name: /To-do 1/ });
+    const button = await screen.findByRole("button", { name: /Tasks 1/ });
     expect(button.querySelector("[data-needs-you]")).toBeNull();
     cleanup();
 
     mount([said("m1", "assistant", "On it.")], [helper("m1", { status: "complete" })]);
     await screen.findByText("Done");
-    expect(screen.queryByRole("button", { name: /To-do/ })).toBeNull();
+    expect(await screen.findByRole("button", { name: /Tasks 0/ })).toBeTruthy();
   });
 
-  it("lists each live Helper with its status and a stop ×, and Stop all when there are several", async () => {
+  it("lists each live Helper under In progress with its status and a stop ×, and Stop all when there are several", async () => {
     const stops: unknown[] = [];
     mount([said("m1", "assistant", "On it.")], two(), { stops });
 
-    fireEvent.click(await screen.findByRole("button", { name: /To-do 2/ }));
-    const list = await screen.findByRole("list", { name: "To-do" });
+    fireEvent.click(await screen.findByRole("button", { name: /Tasks 2/ }));
+    const list = await screen.findByRole("list", { name: "In progress" });
     const items = within(list).getAllByRole("listitem");
     expect(items.map((item) => item.textContent)).toEqual([
       expect.stringContaining("Count the files in /home/user/shared."),
@@ -263,7 +265,7 @@ describe("the To-do list (#591)", () => {
 
     fireEvent.click(within(list).getByRole("button", { name: "Stop Sign in to Salesforce." }));
     await waitFor(() => expect(stops).toEqual([{ botId: "b2", helperId: "h2" }]));
-    await screen.findByRole("button", { name: /To-do 1/ });
+    await screen.findByRole("button", { name: /Tasks 1/ });
     // One left: no Stop all.
     expect(screen.queryByRole("button", { name: "Stop all Helpers" })).toBeNull();
   });
@@ -272,11 +274,23 @@ describe("the To-do list (#591)", () => {
     const stops: unknown[] = [];
     mount([said("m1", "assistant", "On it.")], two(), { stops });
 
-    fireEvent.click(await screen.findByRole("button", { name: /To-do 2/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Tasks 2/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Stop all Helpers" }));
 
     await waitFor(() => expect(stops).toEqual([{ botId: "b2" }]));
-    await waitFor(() => expect(screen.queryByRole("button", { name: /To-do/ })).toBeNull());
+    await screen.findByRole("button", { name: /Tasks 0/ });
+  });
+
+  it("lists the ended Helpers with their reports under Done", async () => {
+    mount([said("m1", "assistant", "On it.")], two());
+
+    fireEvent.click(await screen.findByRole("button", { name: /Tasks 2/ }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Done" }));
+
+    const list = await screen.findByRole("list", { name: "Done" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(1);
+    expect(list.textContent).toContain("Old task.");
+    expect(list.textContent).toContain("Done.");
   });
 });
 

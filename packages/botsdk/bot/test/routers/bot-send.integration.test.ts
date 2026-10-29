@@ -872,6 +872,68 @@ describe("one Turn at a time", () => {
       .toEqual(["error", "complete"]);
   });
 
+  it("never has a Turn take a skipped Trigger: the next Turn takes only the ones still waiting", async () => {
+    const { client, deps, user, botId, fake } = await botWith([round(), round()], { manual: true });
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    const firstStream = await followSend(client, { botId, id: uuidv7(), text: "one" });
+    await firstStream.next();
+    await expect.poll(() => fake.calls.length).toBe(1);
+    const routineRun = (id: string, text: string) =>
+      getTestDb().transaction((tx) =>
+        receive(deps, tx, {
+          id,
+          conversationId,
+          source: "routine",
+          channel: "schedule",
+          text,
+          receivedAt: deps.clock(),
+        }),
+      );
+    await routineRun("skipped-run", "The skipped run");
+    await routineRun("waiting-run", "The waiting run");
+    await getTestDb()
+      .update(botTrigger)
+      .set({ skippedAt: deps.clock(), skipReason: "cancelled" })
+      .where(eq(botTrigger.id, "skipped-run"));
+
+    await fake.releaseAll();
+    await readUntil(firstStream, () => false);
+    await expect
+      .poll(async () => (await turnsOf(botId)).map((turn) => turn.status), { timeout: 10_000 })
+      .toEqual(["complete", "complete"]);
+
+    const turns = await turnsOf(botId);
+    expect(await triggersOf(conversationId)).toMatchObject([
+      { turnId: turns[0]!.id },
+      { id: "skipped-run", turnId: null, skipReason: "cancelled" },
+      { id: "waiting-run", turnId: turns[1]!.id },
+    ]);
+    const input = JSON.stringify(inputOf(fake.calls[1]));
+    expect(input).toContain("The waiting run");
+    expect(input).not.toContain("The skipped run");
+  }, 30_000);
+
+  it("starts no Turn when every waiting Trigger is skipped", async () => {
+    const { client, deps, user, botId, fake } = await botWith([round()], { manual: true });
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    const firstStream = await followSend(client, { botId, id: uuidv7(), text: "one" });
+    await firstStream.next();
+    await expect.poll(() => fake.calls.length).toBe(1);
+    const skipped = await queueTrigger(deps, conversationId, "two");
+    await getTestDb()
+      .update(botTrigger)
+      .set({ skippedAt: deps.clock(), skipReason: "paused" })
+      .where(eq(botTrigger.id, skipped));
+
+    await fake.releaseAll();
+    await readUntil(firstStream, () => false);
+
+    expect((await turnsOf(botId)).map((turn) => turn.status)).toEqual(["complete"]);
+    expect(fake.calls).toHaveLength(1);
+    const [row] = await getTestDb().select().from(botTrigger).where(eq(botTrigger.id, skipped));
+    expect(row).toMatchObject({ turnId: null, skipReason: "paused" });
+  }, 30_000);
+
   it("refuses a second running Turn for one Bot by its index", async () => {
     const { botId } = await botWith([]);
     await insertRunningTurn(botId);

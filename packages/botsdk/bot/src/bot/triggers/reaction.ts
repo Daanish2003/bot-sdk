@@ -4,7 +4,7 @@ import { message } from "../../storage";
 import type { BotSdkContext } from "../../plugin";
 import { rpcError } from "../../rpc-error";
 import { lockConversation } from "./router";
-import { findBot, setReaction, hintChanged, recordBotChange } from "../conversation";
+import { findBot, setReaction, hintChanged, noResetAfter, recordBotChange } from "../conversation";
 
 /**
  * Puts the user's emoji on Message `messageId` of a Bot's reply, or takes it off when `emoji` is
@@ -31,6 +31,8 @@ export async function reactToMessage(
           eq(message.id, messageId),
           eq(message.conversationId, found.conversationId),
           eq(message.role, "assistant"),
+          // A Message from before the Bot's reset mark is one it no longer knows (spec #1007).
+          noResetAfter(tx, { conversationId: found.conversationId }, message.createdAt),
         ),
       );
     if (!row) throw rpcError("NOT_FOUND", "error.messageNotFound", "Message not found");

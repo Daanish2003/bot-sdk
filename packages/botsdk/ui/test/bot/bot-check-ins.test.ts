@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import { BotConversation } from "../../src/bot/bot-conversation";
 import { providerFor } from "@ai-chat/test-support/fake-dictionary";
+import { tasksOf } from "./fake-tasks";
 
 afterEach(() => {
   cleanup();
@@ -45,6 +46,7 @@ function fakeBotServer(
     bots: {
       get: os.handler(() => ({ bot: { ...ada, turnStatus: null }, messages, turns })),
       stop: os.handler(() => {}),
+      tasks: os.handler(() => tasksOf({ checkIns })),
       send: os
         .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }).loose())
         .handler(({ input }) => ({
@@ -135,14 +137,15 @@ describe("a Check-in the Bot set", () => {
     expect(within(line).queryByRole("button", { name: "Cancel" })).toBeNull();
   });
 
-  it("lists the pending Check-ins in the header popover, with Cancel", async () => {
+  it("lists the pending Check-ins under Scheduled in the Tasks popover, with Cancel", async () => {
     const server = fakeBotServer(
       [said("m1", "user", "Tell me Thursday")],
       [acme("m1"), { ...acme("m1"), id: "c2", note: "Done already", state: "cancelled" }],
     );
     mount(server);
 
-    fireEvent.click(await screen.findByRole("button", { name: /^Routines 0 · Check-ins 1/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Tasks 0/ }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Scheduled" }));
     const list = await screen.findByRole("list", { name: "Check-ins" });
 
     const items = within(list).getAllByRole("listitem");

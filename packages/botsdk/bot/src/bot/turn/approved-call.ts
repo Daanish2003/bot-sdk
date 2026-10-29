@@ -21,13 +21,19 @@ import {
   spillPath,
 } from "../agent-loop";
 import { featureTools, featureTurnOf } from "../context";
-import { computerRebuildSeenAt, hintChanged, markComputerRebuildSeen } from "../conversation";
+import {
+  computerRebuildSeenAt,
+  hintChanged,
+  markComputerRebuildSeen,
+  noResetAfter,
+} from "../conversation";
 import { lockConversation, receive } from "../triggers";
 import {
   approvalTriggerId,
   approvalTriggerText,
   approvedCallJobName,
   approvedCallKey,
+  approvedCallStartActivity,
 } from "../safety";
 
 /*
@@ -61,7 +67,7 @@ export const notRunApprovedCallError =
 /** The activity that runs the stored call, whose Checkpoint holds its result. */
 const callActivity = "call";
 /** The marker saved just before the call starts. */
-const startActivity = "call_start";
+const startActivity = approvedCallStartActivity;
 
 /** An allowed review's stored call, with its Bot and the Turn it came from. */
 type StoredCall = {
@@ -286,7 +292,8 @@ async function featureCall(
 
 /**
  * Wakes the Bot with the call's Approval Trigger, under its Conversation's row lock: once, since
- * its id comes from the review. A Bot deleted meanwhile wakes no one. Returns whether it woke.
+ * its id comes from the review. A Bot deleted meanwhile wakes no one, nor does one reset since the
+ * call was allowed (spec #1007): it forgot the call. Returns whether it woke.
  */
 async function wakeWith(
   deps: BotSdkContext,
@@ -295,7 +302,16 @@ async function wakeWith(
   result: unknown,
 ): Promise<boolean> {
   await lockConversation(tx, call.conversationId);
-  const [kept] = await tx.select({ id: bot.id }).from(bot).where(eq(bot.id, call.botId));
+  const [kept] = await tx
+    .select({ id: botReview.id })
+    .from(botReview)
+    .innerJoin(bot, eq(bot.id, botReview.botId))
+    .where(
+      and(
+        eq(botReview.id, call.reviewId),
+        noResetAfter(tx, { conversationId: call.conversationId }, botReview.decidedAt),
+      ),
+    );
   if (!kept) return false;
   const id = approvalTriggerId(call.reviewId);
   const [seen] = await tx

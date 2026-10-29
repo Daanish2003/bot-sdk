@@ -1,20 +1,7 @@
 import { type BotRoutine, type RoutineSchedule, scheduleText } from "@botsdk/client/bot/routine";
 import { createHash, randomBytes } from "node:crypto";
 
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  isNull,
-  like,
-  lt,
-  lte,
-  or,
-  type SQL,
-  type SQLWrapper,
-  sql,
-} from "drizzle-orm";
+import { and, asc, desc, eq, isNull, like, lt, lte, or, sql } from "drizzle-orm";
 
 import { bot, botRoutine, botTrigger, botTurn, message } from "../../storage";
 import type { Database } from "../../storage";
@@ -32,7 +19,7 @@ import {
   formatterIn,
   knownZone,
 } from "../conversation";
-import { lockConversation } from "../triggers";
+import { fireKeyPrefix, lockConversation, routineOfFireKey } from "../triggers";
 import { nextSlot } from "./schedule";
 
 /** The Bot's tool that saves a Routine for the user's Approval (#538). */
@@ -55,22 +42,8 @@ export function fireKey(routineId: string, slot: Date): string {
   return `${fireKeyPrefix(routineId)}${slot.toISOString()}`;
 }
 
-/**
- * How every fire key (see `fireKey`) of Routine `routineId` starts; given a column, the SQL that
- * builds it from the column's value.
- */
-export function fireKeyPrefix(routineId: string): string;
-export function fireKeyPrefix(routineId: SQLWrapper): SQL;
-export function fireKeyPrefix(routineId: string | SQLWrapper): string | SQL {
-  return typeof routineId === "string"
-    ? `routine:${routineId}:`
-    : sql`'routine:' || ${routineId} || ':'`;
-}
-
-/** The Routine a fire's key (see `fireKey`) belongs to. */
-export function routineOfFireKey(key: string): string {
-  return key.split(":")[1]!;
-}
+// The Router reads whose a Trigger is, so the key's parts live in the triggers module.
+export { fireKeyPrefix, routineOfFireKey };
 
 /** Queues the Routine's fire at `slot`, in `tx`. */
 export async function queueFire(
@@ -120,8 +93,8 @@ async function cancelFires(
 
 /**
  * Stops a Routine at once (#539), in `tx`, which holds its Conversation's row lock: its queued fire
- * is cancelled, and its Triggers that no Turn has taken yet are dropped. One a Turn has taken
- * finishes.
+ * is cancelled, and its Triggers still waiting (not taken, not skipped) are dropped. One a Turn has
+ * taken finishes, and a skipped one stays for the Tasks view.
  */
 async function stopRoutine(deps: BotSdkContext, tx: Transaction, routineId: string) {
   await cancelFires(deps, tx, [routineId]);
@@ -131,6 +104,7 @@ async function stopRoutine(deps: BotSdkContext, tx: Transaction, routineId: stri
       and(
         eq(botTrigger.source, "routine"),
         isNull(botTrigger.turnId),
+        isNull(botTrigger.skippedAt),
         like(botTrigger.id, `${fireKeyPrefix(routineId)}%`),
       ),
     );
@@ -661,6 +635,53 @@ export async function pauseRoutine(
 }
 
 /**
+ * The user's edit of Routine `routineId`'s prompt and schedule: its own Approval, so the Routine
+ * keeps its state (the Bot's `update_routine` is what sends one back to `pending`). An active one
+ * whose schedule changed has its queued fire cancelled and the next slot queued; a fire already
+ * waiting or running keeps the snapshot it took. A webhook Routine takes the prompt only.
+ */
+export async function editRoutine(
+  deps: BotSdkContext,
+  userId: string,
+  {
+    routineId,
+    prompt,
+    schedule,
+  }: { routineId: string; prompt?: string; schedule?: RoutineSchedule },
+): Promise<{ id: string; state: BotRoutine["state"] }> {
+  const now = deps.clock();
+  const result = await deps.db.transaction(async (tx) => {
+    const routine = await lockedRoutine(tx, userId, routineId);
+    if (schedule !== undefined && routine.webhookTokenHash !== null) {
+      throw rpcError(
+        "BAD_REQUEST",
+        "error.routineWebhookSchedule",
+        "A webhook Routine has no schedule to edit",
+      );
+    }
+    const scheduleChanged =
+      schedule !== undefined &&
+      (!routine.schedule || scheduleText(schedule) !== scheduleText(routine.schedule));
+    await tx
+      .update(botRoutine)
+      .set({
+        ...(prompt !== undefined && { prompt }),
+        ...(scheduleChanged && { schedule }),
+        updatedAt: now,
+      })
+      .where(eq(botRoutine.id, routineId));
+    await recordBotChange(tx, { botId: routine.botId }, "routine", routineId, now);
+    if (scheduleChanged && routine.state === "active") {
+      await cancelFires(deps, tx, [routineId]);
+      await queueFire(deps, tx, routineId, nextSlot(schedule, routine.timeZone, now));
+    }
+    return { id: routine.id, state: routine.state, conversationId: routine.conversationId };
+  });
+  await hintChanged(deps, result.conversationId);
+  return { id: result.id, state: result.state };
+}
+
+/**
  * The user resumes a paused Routine: it turns `active` with no fresh OK, and its next slot's fire is
  * queued. Any other Routine stays as it is. Nothing wakes the Bot.
  */
@@ -689,6 +710,27 @@ export async function resumeRoutine(
   );
   if (changed) await hintChanged(deps, changed);
   return result;
+}
+
+/**
+ * Deletes every Routine of Bot `botId` (a Bot reset, spec #1007), in `tx`, which holds its
+ * Conversation's row lock: each stops at once (`stopRoutine`), so none fires again and its webhook
+ * URL answers 404.
+ */
+export async function deleteBotRoutines(
+  deps: BotSdkContext,
+  tx: Transaction,
+  owner: { botId: string; conversationId: string },
+  at: Date,
+): Promise<void> {
+  const deleted = await tx
+    .delete(botRoutine)
+    .where(eq(botRoutine.botId, owner.botId))
+    .returning({ id: botRoutine.id });
+  for (const { id } of deleted) {
+    await recordBotChange(tx, owner, "routine", id, at);
+    await stopRoutine(deps, tx, id);
+  }
 }
 
 /** The user deletes a Routine in any state: it stops at once (`stopRoutine`). */

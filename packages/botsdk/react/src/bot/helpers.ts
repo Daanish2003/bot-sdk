@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
 import { useChatAdapter } from "../provider";
+import { useRefreshTasks } from "./tasks";
 import { useItemActions, useRefreshAfterTurns } from "./turn-list";
 
 /** The `acting` key of Stop all. */
@@ -23,8 +24,9 @@ export function useBotHelpers(botId: string, working: boolean) {
   const refreshHelpers = useRefreshAfterTurns(options.queryKey, working);
   const refreshConversation = () =>
     queryClient.invalidateQueries({ queryKey: orpc.bots.get.queryKey({ input: { botId } }) });
+  const refreshTasks = useRefreshTasks(botId);
   const { acting, act } = useItemActions(async () => {
-    await Promise.all([refreshHelpers(), refreshConversation()]);
+    await Promise.all([refreshHelpers(), refreshConversation(), refreshTasks()]);
   });
 
   const statuses = query.data?.map((helper) => `${helper.id}:${helper.status}`).join();

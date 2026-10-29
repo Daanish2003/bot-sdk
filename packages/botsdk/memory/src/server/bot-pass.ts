@@ -1,7 +1,7 @@
 import type { BotMemoryChange, MemoryTier } from "@botsdk/client/memory/changes";
 import { searchTextOf } from "@botsdk/client/message-parts";
 import type { ModelMessage } from "@tanstack/ai";
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { bot, botTrigger, botTurn, message } from "@botsdk/bot/storage";
@@ -9,7 +9,7 @@ import type { Database } from "@botsdk/bot/storage";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { lockConversation } from "@botsdk/bot/bot/triggers";
-import { recordBotChange } from "@botsdk/bot/bot/conversation";
+import { noResetAfter, recordBotChange } from "@botsdk/bot/bot/conversation";
 import { sendToUserToolName } from "@botsdk/bot/bot/context";
 import type { ComputerHandle } from "@botsdk/bot/computer/internal";
 import { defineJob, type JobContext } from "@botsdk/bot/runner/internal";
@@ -18,6 +18,7 @@ import {
   defaultImportance,
   logPath,
   memoryLines,
+  memoryPassLock,
   notesPath,
   parseNotes,
   parseProfile,
@@ -152,8 +153,20 @@ async function runBotMemoryPass(
     // One pass at a time per Bot, as the assistant's Memory job does per user: a later pass is
     // shown what an earlier one wrote.
     await lock.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${`memory-pass:${turn.botId}`}, 0))`,
+      sql`select pg_advisory_xact_lock(hashtextextended(${memoryPassLock(turn.botId)}, 0))`,
     );
+    // A Turn from before the Bot's reset is one it forgot (spec #1007): nothing of it is written.
+    // Read under the lock a reset's file delete also takes, so no pass writes after that delete.
+    const [kept] = await lock
+      .select({ id: botTurn.id })
+      .from(botTurn)
+      .where(
+        and(
+          eq(botTurn.id, turnId),
+          noResetAfter(lock, { conversationId: turn.conversationId }, botTurn.startedAt),
+        ),
+      );
+    if (!kept) return [];
     // The checks are part of the recorded call: a retry applies the operations its first attempt
     // planned, even once Memory is off or the Quota is spent.
     const planned = await step("memory_ops", async () => {

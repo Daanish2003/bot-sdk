@@ -19,7 +19,12 @@ import { botReview, botReviewState, botReviewVerdict } from "./bot-review";
 import { botSecret } from "./bot-secret";
 import { botSummary, botSummaryKind } from "./bot-summary";
 import { botRoutine, botRoutineState } from "./bot-routine";
-import { botTrigger, botTriggerChannel, botTriggerSource } from "./bot-trigger";
+import {
+  botTrigger,
+  botTriggerChannel,
+  botTriggerSkipReason,
+  botTriggerSource,
+} from "./bot-trigger";
 import { botTurn, botTurnStatus } from "./bot-turn";
 import { botUpload } from "./bot-upload";
 import { customRule, customRuleMode, customRuleState } from "./custom-rule";
@@ -62,6 +67,7 @@ export const botSchema = {
     botTurnStatus,
     botTriggerSource,
     botTriggerChannel,
+    botTriggerSkipReason,
     botRoutineState,
     botCheckInState,
     botHelperType,

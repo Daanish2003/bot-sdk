@@ -39,7 +39,7 @@ export async function* followSaved(
     // The status first: the Messages read after it hold every one sent before the Turn ended.
     // A Trigger no Turn has taken yet has no status: it waits in the Conversation queue.
     const [taken] = await db
-      .select({ status: botTurn.status })
+      .select({ status: botTurn.status, skippedAt: botTrigger.skippedAt })
       .from(botTrigger)
       .leftJoin(botTurn, eq(botTurn.id, botTrigger.turnId))
       .where(eq(botTrigger.id, saved.id));
@@ -50,6 +50,11 @@ export async function* followSaved(
     }
     if (!taken) {
       yield { type: "turnEnded", status: "error" };
+      return;
+    }
+    // A Trigger skipped while it waited (a Bot pause, spec #1007): no Turn will take it.
+    if (taken.skippedAt) {
+      yield { type: "turnEnded", status: "stopped" };
       return;
     }
     if (taken.status !== null && taken.status !== "running") {

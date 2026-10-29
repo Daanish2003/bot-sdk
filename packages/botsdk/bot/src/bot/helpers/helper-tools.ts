@@ -3,7 +3,7 @@ import { toolDefinition } from "@tanstack/ai";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
-import { bot, botHelper, botHelperMessage } from "../../storage";
+import { bot, botHelper, botHelperMessage, botHelperScreenshot } from "../../storage";
 import { uuidv7 } from "../../lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { helperJobKey, helperStoppedJobName, startHelperTool } from "./helper";
@@ -12,7 +12,7 @@ import { listHelpers } from "./helper-card";
 import type { LoopKit } from "../agent-loop";
 import { closeWaitingReviews } from "../safety";
 import { lockConversation } from "../triggers";
-import { hintChanged, recordBotChange } from "../conversation";
+import { hintChanged, recordBotChange, screenshotBlobKey } from "../conversation";
 
 /** The Bot's tool that reads how one of its Helpers stands (#566). */
 export const checkHelperToolName = "check_helper";
@@ -136,6 +136,30 @@ export async function stopHelpers(
     }
   }
   return { stopped: rows.map((row) => row.id) };
+}
+
+/**
+ * Deletes every Helper of Bot `botId` with its transcript (a Bot reset, spec #1007), in `tx`, which
+ * holds its Conversation's row lock: stop the live ones first (`stopHelpers`). Their Messages,
+ * screenshots and Approvals go with them by cascade; returns the screenshots' blob keys, for the
+ * caller to delete once `tx` commits.
+ */
+export async function deleteBotHelpers(
+  tx: Transaction,
+  owner: { botId: string; conversationId: string },
+  at: Date,
+): Promise<string[]> {
+  const shots = await tx
+    .select({ id: botHelperScreenshot.id })
+    .from(botHelperScreenshot)
+    .innerJoin(botHelper, eq(botHelper.id, botHelperScreenshot.helperId))
+    .where(eq(botHelper.botId, owner.botId));
+  const deleted = await tx
+    .delete(botHelper)
+    .where(eq(botHelper.botId, owner.botId))
+    .returning({ id: botHelper.id });
+  for (const { id } of deleted) await recordBotChange(tx, owner, "helper", id, at);
+  return shots.map((shot) => screenshotBlobKey(shot.id));
 }
 
 /** `stopHelpers` in a transaction of its own; the runner is woken once it has committed. */

@@ -20,6 +20,9 @@ Bot behaviour does not change.
   - **Adapters** fill flat config slots for infrastructure: `database`, `runner`, `computer`, `blobs`, `pubsub` and `channels`.
   - **Features** are optional capabilities: Memory, Skills, Knowledge and MCP Connections.
   - A feature is one `defineFeature({ id, needs, schema, contract, api, tools, prompt, afterTurn, jobs, userData })` object. It declares the core services it needs and receives them typed.
+
+    _Amended 2026-10-30 ([#1013](https://github.com/Daanish2003/bot-sdk/issues/1013), approved by the owner): `defineFeature` also takes an optional `resetBot(botId, userId, context)` hook. `bots.reset` calls it for each enabled feature once the reset commits. The call is best-effort: a failure is logged and the reset stands. Memory implements it by deleting the Bot's memory directory when the user has a Computer, so the core never learns where a feature keeps its files._
+
   - Features never call each other, never add columns to core tables, and contribute no routes.
   - `defineFeature` is public, so third parties write features exactly as we do.
 - **Memory, Skills and Knowledge sit on the Computer** ([#864](https://github.com/Daanish2003/bot-sdk/issues/864)). They have no store of their own, because the Bot edits these files itself (ADRs 0022, 0025). Any `ComputerProvider` works. An unmet `needs` throws at construction.

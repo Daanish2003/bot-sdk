@@ -5,6 +5,7 @@ import {
   uploadInput,
   chooseInput,
   reactInput,
+  resetBotInput,
 } from "@botsdk/client/bot/contract";
 
 import { lastSeqOf } from "../chat/change-log";
@@ -21,7 +22,8 @@ import {
 } from "./conversation";
 import { turnProvenance } from "./safety";
 import { botSummaries, botWarmings, warmBot } from "./context";
-import { sendToBot, stopBot } from "./turn";
+import { botTasks } from "./tasks";
+import { pauseBot, resetBot, resumeBot, sendToBot, stopBot } from "./turn";
 import { answerChoice, reactToMessage } from "./triggers";
 
 /*
@@ -115,6 +117,45 @@ export function botsApi(sdk: BotSdkContext) {
      */
     stop: async ({ userId, ...rest }: WithUser<typeof botInput>) =>
       stopBot(sdk, userId, parseInput(botInput, rest).botId),
+
+    /**
+     * Pauses the user's Bot (spec #1007): its running Turn stops as with `stop`, its Helpers stop,
+     * and every Trigger waiting in its Conversation queue is skipped. While paused, what comes due is
+     * kept as skipped and wakes nothing, a Message is refused and so is an Approval's yes. Each
+     * Routine keeps its own state. Idempotent; another user's Bot is not found.
+     */
+    pause: async ({ userId, ...rest }: WithUser<typeof botInput>) =>
+      pauseBot(sdk, userId, parseInput(botInput, rest).botId),
+
+    /**
+     * Resumes the user's paused Bot (spec #1007). Nothing skipped meanwhile is replayed; its
+     * Routines run from their next slot. Idempotent; another user's Bot is not found.
+     */
+    resume: async ({ userId, ...rest }: WithUser<typeof botInput>) =>
+      resumeBot(sdk, userId, parseInput(botInput, rest).botId),
+
+    /**
+     * Resets the user's Bot (Bot reset, spec #1007), once `name` matches its name: it stops as a
+     * pause stops it (what waits is skipped with reason `reset`), declines its pending Approvals,
+     * deletes its Routines, Check-ins, Helpers and their transcripts, and appends the reset mark,
+     * from which its Turns' history starts; then each enabled feature forgets it (Memory deletes
+     * its files). It keeps its pause state and
+     * everything else. A wrong name is refused; another user's Bot is not found.
+     */
+    reset: async ({ userId, ...rest }: WithUser<typeof resetBotInput>) =>
+      resetBot(sdk, userId, parseInput(resetBotInput, rest)),
+
+    /**
+     * One of the user's Bots' Tasks view (spec #1007): what it is doing (In progress), what is
+     * waiting or repeating (Scheduled) and what ended in the last 7 days (Done), including the
+     * Triggers skipped and why. Another user's Bot is not found.
+     */
+    tasks: async ({ userId, ...rest }: WithUser<typeof botInput>) => {
+      const { botId } = parseInput(botInput, rest);
+      const found = await findBot(sdk.db, userId, botId);
+      if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
+      return botTasks(sdk.db, { botId, conversationId: found.conversationId, now: sdk.clock() });
+    },
 
     /**
      * Warms the cache of the user's Bot (slide 32). It does nothing while a Turn runs, while the

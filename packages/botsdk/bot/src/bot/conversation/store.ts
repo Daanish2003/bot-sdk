@@ -29,7 +29,13 @@ import type { BotSdkContext, Transaction, UserDeleteHooks } from "../../plugin";
 /** The `kind` of every Bot's Conversation: the plugin's id. */
 export const botKind = "bot";
 
-const botColumns = { id: bot.id, name: bot.name, model: bot.model, createdAt: bot.createdAt };
+const botColumns = {
+  id: bot.id,
+  name: bot.name,
+  model: bot.model,
+  createdAt: bot.createdAt,
+  pausedAt: bot.pausedAt,
+};
 
 export type { Bot, BotWithStatus, ListedBot } from "@botsdk/client/bot/contract";
 

@@ -21,6 +21,7 @@ import {
 import {
   botTurnJobName,
   lockConversation,
+  pauseOf,
   receive,
   startTurn,
   turnStarted,
@@ -142,6 +143,10 @@ export async function sendToBot(
     // while its own Turn runs or once the Quota is spent. It saves nothing and re-joins its Turn.
     const earlier = await seenMessage(tx, found.conversationId, id);
     if (earlier) return { userMessage: earlier, started: false, ended: false };
+    // A paused Bot takes no Message (spec #1007), and saves none.
+    if ((await pauseOf(tx, found.conversationId))?.paused) {
+      throw rpcError("CONFLICT", "error.botPaused", "Bot is paused. Resume to send.");
+    }
     // A Turn on Host credentials is refused once its Quota's window has spent the budget (ADR 0007),
     // before the user's Message is saved. It is checked here only, so a resumed Turn is never refused.
     if (!(await call.meter.mayRun()).ok) {
@@ -244,7 +249,7 @@ export async function stopUserTurns(deps: BotSdkContext, userId: string): Promis
 }
 
 /** The id of the Bot's running Turn, or `undefined` when none runs. */
-async function runningTurnOf(tx: Transaction, botId: string): Promise<string | undefined> {
+export async function runningTurnOf(tx: Transaction, botId: string): Promise<string | undefined> {
   const [running] = await tx
     .select({ id: botTurn.id })
     .from(botTurn)

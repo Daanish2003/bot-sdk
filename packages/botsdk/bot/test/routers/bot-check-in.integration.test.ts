@@ -376,3 +376,86 @@ describe("a Check-in", () => {
     expect(await queuedJobs()).toEqual([]);
   });
 });
+
+describe("the user's edit of a Check-in", () => {
+  const fridayUtc = "2026-10-23T08:00:00.000Z";
+
+  it("moves it: it fires at the new time and not at the old one, with the new note", async () => {
+    const { client, botId, conversationId, runDue, advanceTo } = await botTurn({
+      rounds: [round(setCheckIn(setThursday)), round(), round()],
+    });
+    const [listed] = await client.checkIns.list({ botId });
+
+    await client.checkIns.edit({
+      checkInId: listed!.id,
+      at: new Date(fridayUtc),
+      note: "Ping Acme again.",
+    });
+
+    expect(await queuedJobs()).toEqual([
+      { key: `check_in:${listed!.id}`, runAfter: new Date(fridayUtc), status: "queued" },
+    ]);
+    expect((await client.checkIns.list({ botId }))[0]).toMatchObject({
+      at: new Date(fridayUtc),
+      note: "Ping Acme again.",
+      state: "pending",
+    });
+    advanceTo(thursdayUtc);
+    await runDue();
+    expect(await checkInTriggers(conversationId)).toEqual([]);
+    advanceTo(fridayUtc);
+    await runDue();
+    const [trigger] = await checkInTriggers(conversationId);
+    expect(trigger?.text).toContain('"Ping Acme again."');
+    expect((await checkIns(botId))[0]?.state).toBe("fired");
+  });
+
+  it("changes only the note and leaves the fire where it was", async () => {
+    const { client, botId } = await botTurn({
+      rounds: [round(setCheckIn(setThursday)), round()],
+    });
+    const [listed] = await client.checkIns.list({ botId });
+
+    await client.checkIns.edit({ checkInId: listed!.id, note: "New note." });
+
+    expect((await checkIns(botId))[0]).toMatchObject({
+      note: "New note.",
+      at: new Date(thursdayUtc),
+    });
+    expect((await queuedJobs()).map((row) => row.runAfter)).toEqual([new Date(thursdayUtc)]);
+  });
+
+  it("refuses an edit once it has fired or been cancelled, and a time under a minute away", async () => {
+    const { client, botId, runDue, advanceTo } = await botTurn({
+      rounds: [round(setCheckIn(setThursday)), round(), round()],
+    });
+    const [listed] = await client.checkIns.list({ botId });
+    await expect(
+      client.checkIns.edit({ checkInId: listed!.id, at: new Date("2026-10-19T09:00:30.000Z") }),
+    ).rejects.toMatchObject({ data: { code: "error.checkInTooSoon" } });
+
+    advanceTo(thursdayUtc);
+    await runDue();
+    await expect(
+      client.checkIns.edit({ checkInId: listed!.id, note: "Too late." }),
+    ).rejects.toMatchObject({ code: "CONFLICT", data: { code: "error.checkInNotPending" } });
+    expect((await checkIns(botId))[0]?.note).toBe(note);
+  });
+
+  it("refuses a cancelled one, and another user's is not found", async () => {
+    const { deps, client, botId } = await botTurn({
+      rounds: [round(setCheckIn(setThursday)), round()],
+    });
+    const [listed] = await client.checkIns.list({ botId });
+    const other = chatRpc({ user: await insertUser(), deps });
+    await expect(
+      other.checkIns.edit({ checkInId: listed!.id, note: "Mine." }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    await client.checkIns.cancel({ checkInId: listed!.id });
+    await expect(
+      client.checkIns.edit({ checkInId: listed!.id, note: "Back." }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await queuedJobs()).toEqual([]);
+  });
+});

@@ -10,7 +10,7 @@ import { uuidv7 } from "../../lib/uuidv7";
 import { buildPromptStart, type PromptStartParts, userZoneAt } from "./prompt-start";
 import { midTurnNote } from "../agent-loop";
 import { awaySummaryKey } from "../triggers";
-import { toBotMessage, recordBotChange, formatterIn } from "../conversation";
+import { toBotMessage, recordBotChange, formatterIn, noResetAfter } from "../conversation";
 
 /** How many of the Bot's last Messages to the user a Summary keeps word for word. */
 const keptMessages = 3;
@@ -78,6 +78,7 @@ async function lastMessagesToUser(
         eq(message.conversationId, conversationId),
         eq(message.role, "assistant"),
         lte(message.createdAt, now),
+        noResetAfter(tx, { conversationId }, message.createdAt),
       ),
     )
     .orderBy(desc(message.createdAt), desc(message.id))
@@ -270,6 +271,8 @@ export function historyTurns(
       and(
         eq(botTurn.botId, botId),
         before ? lt(botTurn.startedAt, before) : undefined,
+        // Nothing from before the Bot's latest reset mark (spec #1007).
+        noResetAfter(db, { botId }, botTurn.startedAt),
         summary
           ? or(
               gte(botTurn.startedAt, summary.coversUntil),

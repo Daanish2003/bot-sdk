@@ -7,14 +7,14 @@ import { uuidv7 } from "../../lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { rpcError } from "../../rpc-error";
 import { hintChanged, recordBotChange, newestTimeZone, knownZone } from "../conversation";
-import { lockConversation } from "../triggers";
+import { checkInKey, checkInOfKey, lockConversation } from "../triggers";
 import { lastMessageOfTurn, zonedTime } from "./routine";
 
 /** The runner job of one Check-in's fire (`check-in-fire.ts`). */
 export const checkInFireJobName = "bot.check_in_fire";
 
-/** The key of a Check-in's job, which is also the ID of the Trigger it hands the Router. */
-export const checkInKey = (checkInId: string) => `check_in:${checkInId}`;
+// The Router reads whose a Trigger is, so the key lives in the triggers module.
+export { checkInKey, checkInOfKey };
 
 /** How far ahead a Check-in must be set. */
 const minLeadMs = 60_000;
@@ -131,6 +131,52 @@ export async function cancelCheckIn(
 }
 
 /**
+ * The user's edit of a Check-in of theirs: a new time re-queues its fire, and a new note is read
+ * when it fires. `NOT_FOUND` for another user's; one that already fired, failed or was cancelled is
+ * refused.
+ */
+export async function editCheckIn(
+  deps: BotSdkContext,
+  userId: string,
+  { checkInId, at, note }: { checkInId: string; at?: Date; note?: string },
+): Promise<void> {
+  const now = deps.clock();
+  if (at && at.getTime() - now.getTime() < minLeadMs) {
+    throw rpcError("BAD_REQUEST", "error.checkInTooSoon", checkInTooSoonError);
+  }
+  const conversationId = await deps.db.transaction(async (tx) => {
+    const [owner] = await tx
+      .select({ conversationId: bot.conversationId })
+      .from(botCheckIn)
+      .innerJoin(bot, eq(bot.id, botCheckIn.botId))
+      .where(and(eq(botCheckIn.id, checkInId), eq(bot.userId, userId)));
+    if (!owner) throw rpcError("NOT_FOUND", "error.checkInNotFound", "Check-in not found");
+    // The Conversation's row lock first, as in a fire.
+    await lockConversation(tx, owner.conversationId);
+    const [row] = await tx
+      .update(botCheckIn)
+      .set({ ...(at && { at }), ...(note !== undefined && { note }), updatedAt: now })
+      .where(and(eq(botCheckIn.id, checkInId), eq(botCheckIn.state, "pending")))
+      .returning({ botId: botCheckIn.botId });
+    if (!row) {
+      throw rpcError("CONFLICT", "error.checkInNotPending", "The Check-in is no longer pending");
+    }
+    await recordBotChange(tx, { botId: row.botId }, "check_in", checkInId, now);
+    if (at) {
+      await deps.runner.cancelIn(tx, checkInKey(checkInId));
+      await deps.runner.enqueueIn(
+        tx,
+        checkInFireJobName,
+        { checkInId },
+        { idempotencyKey: checkInKey(checkInId), runAfter: at },
+      );
+    }
+    return owner.conversationId;
+  });
+  await hintChanged(deps, conversationId);
+}
+
+/**
  * The Bot's Check-ins, soonest first, each with `afterMessageId`, the Message its inline line
  * follows (`lastMessageOfTurn`).
  */
@@ -151,6 +197,26 @@ export async function listCheckIns(db: Database, botId: string): Promise<BotChec
     .orderBy(asc(botCheckIn.at), asc(botCheckIn.id));
 }
 
+/**
+ * Deletes every Check-in of Bot `botId` (a Bot reset, spec #1007), in `tx`, which holds its
+ * Conversation's row lock: a pending one's fire is cancelled, so it never fires.
+ */
+export async function deleteBotCheckIns(
+  deps: BotSdkContext,
+  tx: Transaction,
+  owner: { botId: string; conversationId: string },
+  at: Date,
+): Promise<void> {
+  const deleted = await tx
+    .delete(botCheckIn)
+    .where(eq(botCheckIn.botId, owner.botId))
+    .returning({ id: botCheckIn.id, state: botCheckIn.state });
+  for (const { id, state } of deleted) {
+    await recordBotChange(tx, owner, "check_in", id, at);
+    if (state === "pending") await deps.runner.cancelIn(tx, checkInKey(id));
+  }
+}
+
 /** Cancels the queued jobs of the user's pending Check-ins, in `tx`, so none fires once they are deleted. */
 export async function cancelUserCheckIns(
   deps: BotSdkContext,
@@ -166,6 +232,9 @@ export async function cancelUserCheckIns(
   for (const { id } of rows) await runner.cancelIn(tx, checkInKey(id));
 }
 
+/** How a Check-in's notice (`checkInNotice`) ends, after its note. */
+const checkInNoticeEnd = ". It's due now: do what the note says.";
+
 /**
  * What a Check-in's fire gives the Model: the notice of what woke it, with the note its past self
  * left. Times read in the user's zone, so "set on" and "for" are on their clock.
@@ -178,6 +247,18 @@ export async function checkInNotice(
   const zone = knownZone(await newestTimeZone(tx, conversationId));
   return (
     `Check-in you set on ${zonedTime(row.createdAt, zone)} for ${zonedTime(row.at, zone)} ` +
-    `(${zone}): ${JSON.stringify(row.note)}. It's due now: do what the note says.`
+    `(${zone}): ${JSON.stringify(row.note)}${checkInNoticeEnd}`
   );
+}
+
+/** The note a Check-in's notice (`checkInNotice`) carries, or `null` when `text` is none. */
+export function checkInNoteOf(text: string | null): string | null {
+  if (!text?.endsWith(checkInNoticeEnd)) return null;
+  const quoted = /: ("(?:[^"\\]|\\.)*")$/.exec(text.slice(0, -checkInNoticeEnd.length))?.[1];
+  if (!quoted) return null;
+  try {
+    return JSON.parse(quoted) as string;
+  } catch {
+    return null;
+  }
 }

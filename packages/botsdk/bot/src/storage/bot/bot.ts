@@ -26,4 +26,6 @@ export const bot = botsdkSchema.table("bot", {
    * or its creation time, since an older rebuild cost it nothing. Null for a Bot from before it.
    */
   computerRebuildSeenAt: timestamp("computer_rebuild_seen_at", { withTimezone: true }),
+  /** When the user paused the Bot (Bot pause, spec #1007); null while it is not paused. */
+  pausedAt: timestamp("paused_at"),
 });

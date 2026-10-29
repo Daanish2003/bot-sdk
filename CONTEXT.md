@@ -146,6 +146,18 @@ _Avoid_: Reminder, Routine (that is a prompt the user approved)
 An agent a Bot hands one complete task to, which works in its own fresh context, keeps going after the Turn that started it, and reports back briefly. It belongs to its Bot and is never a Bot itself. A General Helper works with the shell, files and web search; a Computer-use Helper works a Screen's browser and desktop, needs a model that can use a computer, and a Bot has at most one of those at a time. The user's Stop ends the Turn, not its Helpers; its report wakes the Bot as a Trigger like any other.
 _Avoid_: Sub-agent, worker, child agent
 
+**Tasks view**:
+One Bot's work in one place, in three sections: In progress (the running Turn and its live Helpers), Scheduled (the Conversation queue, Routines and Check-ins) and Done (finished Helpers and fired Check-ins). It is a view over those things, not a thing of its own; "task" stays an ordinary word.
+_Avoid_: Task list, to-do, activity feed
+
+**Bot pause**:
+The user holding one Bot still until they resume it: its Turn and Helpers stop, nothing wakes it, and what comes due meanwhile (a Routine run, a Check-in, a webhook call) is skipped, not run late. It is not a Routine's own pause, which holds only that Routine, nor a Ban, which the Host puts on a user.
+_Avoid_: Suspend, sleep, disable
+
+**Bot reset**:
+The user giving one Bot a fresh start: it forgets its own Memory and drops its Routines, Check-ins, Helpers and pending Approvals, and its Conversation gets a reset mark at the end, so the Bot sees nothing from before it while the user can still scroll back. It keeps its Skills, its other files and everything shared with the user's other Bots. It cannot be undone.
+_Avoid_: Wipe, delete, clear
+
 **Skill**:
 Written instructions for one kind of task, starting with when to use them, kept as a file in its Bot's own directory on the Computer, which the Bot reads only when it needs them. The Bot or the user writes one, or the Bot drafts one from a Demonstration. A Skill is never permission to act.
 _Avoid_: Plugin, prompt

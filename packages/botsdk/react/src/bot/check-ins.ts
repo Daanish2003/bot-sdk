@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { useChatAdapter } from "../provider";
+import { useRefreshTasks } from "./tasks";
 import { useItemActions, useRefreshAfterTurns } from "./turn-list";
 
 /**
@@ -12,12 +13,19 @@ export function useBotCheckIns(botId: string, working: boolean) {
   const { orpc } = useChatAdapter();
   const options = orpc.checkIns.list.queryOptions({ input: { botId } });
   const query = useQuery(options);
-  const { acting, act } = useItemActions(useRefreshAfterTurns(options.queryKey, working));
+  const refreshList = useRefreshAfterTurns(options.queryKey, working);
+  const refreshTasks = useRefreshTasks(botId);
+  const { acting, act } = useItemActions(async () => {
+    await Promise.all([refreshList(), refreshTasks()]);
+  });
   return {
     checkIns: query.data ?? [],
     acting,
     cancel: async (checkInId: string) => {
       await act(checkInId, () => orpc.checkIns.cancel.call({ checkInId }));
+    },
+    edit: async (input: { checkInId: string; at?: Date; note?: string }) => {
+      await act(input.checkInId, () => orpc.checkIns.edit.call(input));
     },
   };
 }

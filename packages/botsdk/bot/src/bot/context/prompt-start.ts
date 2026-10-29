@@ -5,7 +5,13 @@ import { bot, botPromptStart, botTurn, message, usage } from "../../storage";
 import type { Database, PromptStartSection, PromptStartTool } from "../../storage";
 import type { Transaction } from "../../plugin";
 import { uuidv7 } from "../../lib/uuidv7";
-import { formatterIn, knownZone, botDirectory, sharedDirectory } from "../conversation";
+import {
+  botDirectory,
+  formatterIn,
+  knownZone,
+  noResetAfter,
+  sharedDirectory,
+} from "../conversation";
 import { describeToolName, runToolName } from "./tool-search";
 import {
   firstMessageSection,
@@ -128,7 +134,10 @@ export type PromptStartParts = {
   features: string[];
 };
 
-/** The Bot's latest Prompt start's id and build time, or `undefined` before its first Turn builds one. */
+/**
+ * The Bot's latest Prompt start's id and build time, or `undefined` before its first Turn builds one,
+ * or since its latest reset mark (spec #1007): one built before it holds what came before.
+ */
 export async function latestPromptStart(
   db: Database | Transaction,
   botId: string,
@@ -136,7 +145,9 @@ export async function latestPromptStart(
   const [latest] = await db
     .select({ id: botPromptStart.id, builtAt: botPromptStart.builtAt })
     .from(botPromptStart)
-    .where(eq(botPromptStart.botId, botId))
+    .where(
+      and(eq(botPromptStart.botId, botId), noResetAfter(db, { botId }, botPromptStart.builtAt)),
+    )
     .orderBy(desc(botPromptStart.builtAt), desc(botPromptStart.id))
     .limit(1);
   return latest;

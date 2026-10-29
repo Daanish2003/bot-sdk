@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 
 import { bot, computer as computerTable } from "@botsdk/bot/storage";
 import type { FeatureContext } from "@botsdk/bot/feature";
@@ -21,6 +21,37 @@ import { memoryEnabledFor } from "./manage";
 export function memoryDirectory(botId: string): string {
   return `/home/user/bots/${botId}/memory`;
 }
+
+/**
+ * Deletes Bot `botId`'s memory directory on its user's Computer (Bot reset, spec #1007): its
+ * Profile, Log and Notes, so no Bot sees its Profile again. A user with no Computer has no files,
+ * so none is woken or created. Throws when the command fails.
+ */
+export async function forgetBotMemory(
+  { db, computer: computers }: Pick<FeatureContext<"computer">, "db" | "computer">,
+  botId: string,
+  userId: string,
+): Promise<void> {
+  const [row] = await db
+    .select({ userId: computerTable.userId })
+    .from(computerTable)
+    .where(eq(computerTable.userId, userId));
+  if (!row) return;
+  // Under the lock a Bot's memory pass holds: a pass running now finishes first, and a later one
+  // sees the reset mark and writes nothing.
+  await db.transaction(async (lock) => {
+    await lock.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${memoryPassLock(botId)}, 0))`,
+    );
+    const result = await computers.forUser(userId).run(`rm -rf -- '${memoryDirectory(botId)}'`);
+    if (!("exitCode" in result) || result.exitCode !== 0) {
+      throw new Error(`Deleting the memory of Bot ${botId} failed: ${result.stderr}`);
+    }
+  });
+}
+
+/** The advisory lock key one Bot's memory pass and its reset's file delete take. */
+export const memoryPassLock = (botId: string) => `memory-pass:${botId}`;
 
 /** A Bot's Profile: core facts about the user, one per line. */
 export const profilePath = (botId: string) => `${memoryDirectory(botId)}/profile.md`;
