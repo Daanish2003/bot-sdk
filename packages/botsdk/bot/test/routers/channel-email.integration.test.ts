@@ -227,6 +227,28 @@ describe("an email to a Bot's address", () => {
     expect(await triggersOf(conversationId)).toHaveLength(1);
   }, 30_000);
 
+  it("to a paused Bot answers 202, saves no Message and keeps a skipped Trigger, with no Turn or log", async () => {
+    const { client, botId, conversationId, deliver, logged } = await emailBot();
+    await client.bots.pause({ botId });
+
+    const response = await deliver();
+
+    expect(response.status).toBe(202);
+    expect(await userMessagesOf(conversationId)).toEqual([]);
+    expect(
+      (await triggersOf(conversationId)).map((row) => [
+        row.id,
+        row.source,
+        row.channel,
+        row.messageId,
+        row.turnId,
+        row.skipReason,
+      ]),
+    ).toEqual([["email:first@mail.example", "user", "email", null, null, "paused"]]);
+    expect(logged).toEqual([]);
+    expect((await client.bots.tasks({ botId })).done.skipped).toHaveLength(1);
+  }, 30_000);
+
   it("drops a redelivery of the same Message-ID", async () => {
     const { conversationId, deliver, logged } = await emailBot();
 

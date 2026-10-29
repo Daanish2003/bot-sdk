@@ -20,8 +20,14 @@ afterEach(() => {
 });
 
 const createdAt = new Date("2026-10-17T09:00:00.000Z");
-const inbox = { id: "b1", name: "Inbox Manager", model: "openai:gpt-6-luna", createdAt };
-const ada = { id: "b2", name: "Ada", model: "openai:gpt-6-luna", createdAt };
+const inbox = {
+  id: "b1",
+  name: "Inbox Manager",
+  model: "openai:gpt-6-luna",
+  createdAt,
+  pausedAt: null,
+};
+const ada = { id: "b2", name: "Ada", model: "openai:gpt-6-luna", createdAt, pausedAt: null };
 const idle = { turnStatus: null, lastMessage: null };
 
 const listed = (id: string, label: string): ListedModel => ({

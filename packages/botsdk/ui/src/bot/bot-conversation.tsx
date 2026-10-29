@@ -205,7 +205,7 @@ function BotConversationView({
   }
   if (!bot) return null;
   // A paused Bot takes no Message (spec #1007): the composer is disabled under its banner.
-  const paused = bot.pausedAt !== null;
+  const paused = Boolean(bot.pausedAt);
 
   const submit = (event?: FormEvent) => {
     event?.preventDefault();
