@@ -84,6 +84,11 @@ function RuleRow({
         queued.current = {};
         await update(rule.id, next);
       }
+    } catch (refusal) {
+      // A refused save drops what waited behind it, and the pills show the saved mode again.
+      queued.current = {};
+      setMode(rule.mode);
+      throw refusal;
     } finally {
       saving.current = false;
     }
@@ -106,7 +111,8 @@ function RuleRow({
       <div className="flex flex-wrap items-center gap-2">
         <ModePills
           value={mode}
-          disabled={false}
+          // Busy with this row's own save, a pill waits its turn; busy with a delete, it is off.
+          disabled={busy && !saving.current}
           onChange={(chosen) => {
             setMode(chosen);
             run(save({ mode: chosen }));

@@ -13,6 +13,7 @@ import {
 
 import type { PromptHash } from "../../chat/hooks";
 import type { BotSdkContext, Transaction } from "../../plugin";
+import type { Database } from "../../storage";
 import {
   withCacheControl,
   addUsage,
@@ -238,6 +239,8 @@ export type LoopOptions = {
    * is reviewed.
    */
   review?: ReviewSource;
+  /** Reads what a review reads outside its activities (`deps.db` unless given): a replay's `tx`. */
+  db?: Database | Transaction;
 };
 
 /** What a played loop came to. `failure` is an activity that threw, which recorded nothing. */
@@ -768,6 +771,7 @@ export async function runLoop(
           inLiveCall = true;
         },
         signal: abortController.signal,
+        db: options.db ?? deps.db,
         usageOf: (chunks, sent) => callUsage(deps, chunks, sent),
       },
       { owner, source: options.review, toolCallId, tool, input, ask, strict },

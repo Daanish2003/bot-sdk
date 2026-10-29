@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { CustomRule, CustomRuleMode } from "@botsdk/client/bot/rule";
-import { os } from "@orpc/server";
+import { ORPCError, os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createElement } from "react";
@@ -27,7 +27,7 @@ const ruleOf = (n: number, over: Partial<CustomRule> = {}): CustomRule => ({
 });
 
 /** A stand-in for the server's `rules` router that holds `rules` and records every write. */
-function fakeRulesServer(rules: CustomRule[]) {
+function fakeRulesServer(rules: CustomRule[], { refuse }: { refuse?: CustomRuleMode } = {}) {
   const calls: { method: string; input: unknown }[] = [];
   const mode = z.enum(modes);
   const router = {
@@ -47,6 +47,8 @@ function fakeRulesServer(rules: CustomRule[]) {
         .input(z.object({ ruleId: z.string(), text: z.string().optional(), mode: mode.optional() }))
         .handler(({ input }) => {
           calls.push({ method: "update", input });
+          if (input.mode !== undefined && input.mode === refuse)
+            throw new ORPCError("BAD_REQUEST", { message: "Refused" });
           const rule = rules.find((candidate) => candidate.id === input.ruleId)!;
           Object.assign(rule, {
             ...(input.text !== undefined && { text: input.text }),
@@ -213,6 +215,26 @@ describe("the rules page", () => {
         ).getAttribute("aria-checked"),
       ).toBe("true"),
     );
+  });
+
+  it("puts the pill back when the server refuses its mode, and never resends it", async () => {
+    const server = fakeRulesServer([ruleOf(1)], { refuse: "hand_off" });
+    mount(server);
+
+    const field = (await screen.findByDisplayValue("Rule 1")) as HTMLTextAreaElement;
+    const row = field.closest("li")!;
+    fireEvent.click(pill(row, "Hand off to me"));
+
+    await waitFor(() => expect(pill(row, "Ask before").getAttribute("aria-checked")).toBe("true"));
+    expect(server.rules[0]!.mode).toBe("ask");
+
+    fireEvent.change(field, { target: { value: "Rule one, reworded" } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(server.rules[0]!.text).toBe("Rule one, reworded"));
+    expect(server.calls.at(-1)).toEqual({
+      method: "update",
+      input: { ruleId: server.rules[0]!.id, text: "Rule one, reworded" },
+    });
   });
 
   it("puts a blank edit back instead of saving it", async () => {

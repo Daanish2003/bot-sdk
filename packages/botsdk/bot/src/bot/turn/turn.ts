@@ -594,6 +594,7 @@ async function playTurn(
       seesImages: canSee,
       // Each shell call of the Turn gets Auto-review before it runs (spec #691).
       review: { turnId: turn.id, conversationId: turn.conversationId },
+      db,
       setup: async (kit) => {
         // The Turn's context and its tool catalogue, read once as it starts (spec #871).
         const context = await build(deps, turn, {

@@ -1048,6 +1048,28 @@ describe("an Approval wait cut off by a crash", () => {
     expect(computerFake.callsOf("run")).toEqual([]);
   });
 
+  it("ends a Turn re-queued by a crash, then stopped by the user's Message, with the call's pending result", async () => {
+    const { client, botId, attempt, crash } = await botOnHandRunJobs([
+      round(shell("make deploy")),
+      round(),
+    ]);
+    await followSend(client, { botId, id: uuidv7(), text: "ship it" });
+
+    const lost = attempt();
+    const waiting = await waitingReview(botId);
+    await crash(lost);
+    await followSend(client, { botId, id: uuidv7(), text: "actually, wait" });
+
+    // The replay in the cancelling transaction sees the wait it left pending (ADR 0030).
+    const [stopped] = await turnsOf(botId);
+    const result = (
+      stopped!.transcript as { role: string; toolCallId?: string; content?: unknown }[]
+    ).find((entry) => entry.role === "tool" && entry.toolCallId === waiting.toolCallId);
+    expect(JSON.parse(String(result?.content))).toEqual(
+      pendingResult(waiting.id, "You didn't ask to deploy"),
+    );
+  }, 30_000);
+
   it("never runs the call in a resumed wait whose row went pending and was answered since", async () => {
     const { client, botId, fake, computerFake, attempt, crash, instance } = await botOnHandRunJobs([
       round(shell("make deploy")),

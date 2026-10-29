@@ -142,6 +142,8 @@ export type ReviewKit = {
   beforeLive: () => void;
   /** The loop's signal: a Stop aborts the reviewer's call and the wait. */
   signal: AbortSignal;
+  /** Reads outside the activities: a replay's transaction, which sees what it changed. */
+  db: Database | Transaction;
   /** Measures a model call's usage from its chunks (`callUsage`). */
   usageOf: (
     chunks: StreamChunk[],
@@ -295,8 +297,9 @@ export async function reviewToolCall(
     .catch(async (caught: unknown) => {
       // A wait the Turn's end cut off once its Approval went pending (the user's Message that
       // interrupted it): the call's result is still its pending one, so the next Turn never makes
-      // it again (ADR 0030).
-      const [row] = await deps.db
+      // it again (ADR 0030). Read on the kit's `db`: a replay in the cancelling transaction sees the
+      // close it made. The error keeps what cut the wait off as its cause.
+      const [row] = await kit.db
         .select({ expiresAt: botReview.expiresAt })
         .from(botReview)
         .where(eq(botReview.id, reviewId));
