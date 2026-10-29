@@ -41,6 +41,7 @@ import {
   promptStartFor,
 } from "./prompt-start";
 import { createRoutineToolName, routinesPrompt } from "../routines";
+import { customRulesPrompt } from "../safety";
 
 import { historyFrom, historyTurns, summaryOf, writeSummary } from "./summary";
 
@@ -155,6 +156,8 @@ export type ContextTurn = CatalogueTurn & { startedAt: Date };
  */
 export type ContextReads = {
   routines: () => Promise<string | null>;
+  /** The user's active Custom Rules block (ADR 0031), or null when they have none. */
+  customRules: () => Promise<string | null>;
   features: () => Promise<FeatureSection[]>;
   tools: (sections: readonly FeatureSection[]) => Promise<TurnTools>;
 };
@@ -208,6 +211,7 @@ export async function build(
   reads: ContextReads,
 ): Promise<BotContext> {
   const routines = await reads.routines();
+  const customRules = await reads.customRules();
   const features = await reads.features();
   const tools = await reads.tools(features);
   const withComputer = Boolean(deps.computer);
@@ -218,6 +222,7 @@ export async function build(
       withConnectors: hasConnectorFeature(deps),
       features,
       routines,
+      customRules,
     });
   return {
     tools,
@@ -241,6 +246,7 @@ export async function build(
       const changeNotes = await changeNotesFor(db, id, seenSince, {
         features,
         routines,
+        customRules,
         tools: definitionsOf(tools.tools),
         connectors: tools.connectorNames,
       });
@@ -270,8 +276,14 @@ export function recordedReads(
   deps: BotSdkContext,
   turn: ContextTurn,
   kit: LoopKit,
-): Pick<ContextReads, "routines" | "features"> {
+): Pick<ContextReads, "routines" | "customRules" | "features"> {
   return {
+    customRules: () =>
+      kit.liveActivity(
+        "custom_rules",
+        undefined,
+        async (tx) => (await customRulesPrompt(tx, turn.userId)) ?? null,
+      ),
     routines: () =>
       kit.liveActivity(
         "routines",
@@ -564,6 +576,7 @@ function startParts(
     withConnectors,
     features,
     routines,
+    customRules,
   }: {
     tools: AnyServerTool[];
     withComputer: boolean;
@@ -572,6 +585,7 @@ function startParts(
     /** The enabled features' sections, each named by its feature's id (spec #871). */
     features: FeatureSection[];
     routines: string | null;
+    customRules: string | null;
   },
 ): PromptStartParts {
   const [rules, computerBlock] = botSystemPrompts(turn.botId, withComputer, withConnectors);
@@ -583,6 +597,7 @@ function startParts(
       ...(computerBlock ? [{ name: "computer", text: computerBlock }] : []),
       ...features.flatMap(({ name, section }) => (section ? [{ name, text: section }] : [])),
       ...(routines ? [{ name: "routines", text: routines }] : []),
+      ...(customRules ? [{ name: "custom_rules", text: customRules }] : []),
     ],
     tools: [...tools.filter(isDirectTool), ...toolSearchTools(tools)],
     deferred: definitionsOf(tools.filter((tool) => !isDirectTool(tool))),

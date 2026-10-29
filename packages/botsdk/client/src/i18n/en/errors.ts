@@ -10,6 +10,9 @@ export const errorMessages = {
   "error.botNotFound": "Bot not found",
   "error.secretTooShort": ({ min }: { min: number }) =>
     `That value is too short to keep out of output: use at least ${min} characters.`,
+  "error.customRuleNotFound": "Rule not found",
+  "error.customRuleLimit": ({ max }: { max: number }) =>
+    `You can have at most ${max} active rules. Delete one to add another.`,
   "error.routineNotFound": "Routine not found",
   "error.routineNotWebhook": "Only an approved webhook Routine has a URL to rotate",
   "error.checkInNotFound": "Check-in not found",

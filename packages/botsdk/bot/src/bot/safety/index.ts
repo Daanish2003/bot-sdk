@@ -17,6 +17,15 @@ export {
   reviewToolCall,
   type ReviewVerdict,
 } from "./review";
+export {
+  createRule,
+  customRulesHeader,
+  customRulesPrompt,
+  deleteRule,
+  listRules,
+  reviewedRules,
+  updateRule,
+} from "./custom-rule";
 export { deleteSecret, listSecrets, rotateSecretKeys, saveSecret } from "./secret";
 export {
   type DecryptedSecrets,

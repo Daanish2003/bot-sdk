@@ -16,6 +16,7 @@ import type { CheckInsApi, RoutinesApi } from "./bot/routines-api";
 import type { DemonstrationsApi } from "./bot/demonstrations-api";
 import type { HelpersApi } from "./bot/helpers-api";
 import type { ReviewsApi } from "./bot/reviews-api";
+import type { RulesApi } from "./bot/rules-api";
 import type { ChannelApi } from "./channel/internal";
 import type { ComputerApi } from "./computer/internal";
 import type { ModelsApi } from "./models/internal";
@@ -71,6 +72,8 @@ export type BotSdkContext = {
   helpers: HelpersApi;
   demonstrations: DemonstrationsApi;
   reviews: ReviewsApi;
+  /** The core's Custom Rules (spec #989): the user's standing instructions for Auto-review. */
+  rules: RulesApi;
   /**
    * The core's Channels besides web (spec #871), over the channels slot's adapters. With none,
    * every inbound answers 404 and no reply goes out by email.

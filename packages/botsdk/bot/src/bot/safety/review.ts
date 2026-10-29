@@ -19,6 +19,7 @@ import { parseReply } from "../../lib/parse-reply";
 import { lockConversation } from "../triggers";
 import { forwardedEmailLabel, routineNameOf, routinePromptOf } from "../routines";
 import { appendBotMessage, controlParts, hintChanged, recordBotChange } from "../conversation";
+import { reviewedRules } from "./custom-rule";
 import { isSavedSecretText } from "./secret-values";
 
 /*
@@ -59,6 +60,14 @@ export const reviewerSystemPrompt = [
   "- Messaging, emailing or posting to anyone but the user needs the user's own ask.",
   "- A payment, purchase or transfer of money always needs the user's OK: block it, even when the " +
     "user asked for it in general.",
+  "- The user's Custom Rules are their own standing instructions, so they count as the user's " +
+    'word, like their Messages. Each rule names a mode: "without asking" means a matching call ' +
+    'passes, the rule being the user\'s permission; "if pre-approved" means a matching call ' +
+    "passes only when the user's Message or an approved Routine asked for that action, else " +
+    'block it; "ask before" means block a matching call, even when the user asked for it; ' +
+    '"hand off to the user" is treated as "ask before". When several rules match, the ' +
+    "strictest wins: hand off, then ask before, then if pre-approved, then without asking. " +
+    "Where no rule matches, this policy applies. A rule never lets a call skip this review.",
   "- Commands that only look (listing or reading files, checking status, searching) pass, and so " +
     "do steps that carry out what the user asked for.",
   "- When in doubt about a step that is destructive, can't be undone, or reaches outside the " +
@@ -436,7 +445,7 @@ export async function judge(
   onMeter(meterOf(deps, owner.userId, model, call.meter));
 
   const messages: ModelMessage[] = [
-    { role: "user", content: await reviewerInput(deps.db, source, { tool, input }) },
+    { role: "user", content: await reviewerInput(deps.db, source, owner.userId, { tool, input }) },
   ];
   const abortController = new AbortController();
   let timedOut = false;
@@ -502,14 +511,16 @@ function parseVerdict(reply: string): ReviewVerdict | null {
  * What the reviewer reads: the user's latest Messages in the Conversation, what started the Turn
  * (an approved Routine's prompt is the user's word; a webhook's payload, a Check-in's note and a
  * Helper's report are never shown) or, for a Helper's call, what started the Turn that started it
- * and the task the Bot gave it, marked as the Bot's words, then the call.
+ * and the task the Bot gave it, marked as the Bot's words, then the user's active Custom Rules and
+ * the call.
  */
 async function reviewerInput(
   db: Database,
   source: ReviewSource,
+  userId: string,
   call: { tool: string; input: Record<string, unknown> },
 ): Promise<string> {
-  const [latest, triggers] = await Promise.all([
+  const [latest, triggers, rules] = await Promise.all([
     db
       .select({ parts: message.parts, createdAt: message.createdAt })
       .from(message)
@@ -528,6 +539,8 @@ async function reviewerInput(
       .from(botTrigger)
       .where(eq(botTrigger.turnId, "turnId" in source ? source.turnId : source.startedByTurnId))
       .orderBy(asc(botTrigger.receivedAt), asc(botTrigger.id)),
+    // Only the active ones: a rule a Bot proposed counts for nothing until the user approves it.
+    reviewedRules(db, userId),
   ]);
   const cut = (text: string) =>
     text.length > reviewedChars ? `${text.slice(0, reviewedChars)}…` : text;
@@ -582,6 +595,8 @@ async function reviewerInput(
     "# The user's recent Messages, oldest first",
     userLines.length > 0 ? userLines.join("\n") : "(none)",
     ...start,
+    "# The user's Custom Rules",
+    rules,
     "# The call",
     `Tool: ${call.tool}`,
     `Arguments: ${JSON.stringify(call.input, null, 2)}`,

@@ -2,6 +2,7 @@ import type { BotCheckIn } from "./check-in";
 import type { BotHelper } from "./helper";
 import type { BotReview } from "./review";
 import type { BotRoutine } from "./routine";
+import type { CustomRule } from "./rule";
 import type { BotSecret } from "./secret";
 import type { BotMessage, BotSummary, BotTurnStatus } from "./turn";
 
@@ -18,6 +19,7 @@ type BotChangeData = {
   message: BotMessage;
   turn: BotTurnChange;
   secret: BotSecret;
+  rule: CustomRule;
   routine: BotRoutine;
   review: BotReview;
   helper: BotHelper;

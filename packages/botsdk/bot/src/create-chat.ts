@@ -38,6 +38,7 @@ import type { CheckInsApi, RoutinesApi } from "./bot/routines-api";
 import type { DemonstrationsApi } from "./bot/demonstrations-api";
 import type { HelpersApi } from "./bot/helpers-api";
 import type { ReviewsApi } from "./bot/reviews-api";
+import type { RulesApi } from "./bot/rules-api";
 import { channel, createChannels, noChannels } from "./bot/channels";
 import { hintChanged } from "./bot/conversation";
 import type { ChannelAdapter, ChannelApi } from "./channel/internal";
@@ -181,6 +182,8 @@ export type BotSdk = {
   helpers: HelpersApi;
   demonstrations: DemonstrationsApi;
   reviews: ReviewsApi;
+  /** The core's Custom Rules (spec #989): the user's standing instructions for Auto-review. */
+  rules: RulesApi;
   /** The core's Channels (spec #871): the inbound handler of each adapter in the channels slot. */
   channels: ChannelApi;
   /**
@@ -258,6 +261,7 @@ export type GivenContext = Partial<
     | "helpers"
     | "demonstrations"
     | "reviews"
+    | "rules"
     | "channels"
   > & {
     /** A runner built by the test seam, in place of one over the runner slot's Executor. */
@@ -391,6 +395,7 @@ export function buildBotSdk(
     helpers: sdk.helpers,
     demonstrations: sdk.demonstrations,
     reviews: sdk.reviews,
+    rules: sdk.rules,
     channels: sdk.channels,
     migrate: () => migrateSchema(options.database, featureMigrations(features)),
     start: async () => {
@@ -532,6 +537,7 @@ function buildContext(
       steps: true,
     }),
     reviews: botsStub<ReviewsApi>({ list: true, allow: true, deny: true }),
+    rules: botsStub<RulesApi>({ list: true, create: true, update: true, delete: true }),
   };
 }
 
