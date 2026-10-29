@@ -2,8 +2,9 @@ import type { AnyTextAdapter, ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { botHelper, botReview, botTurn, job, usage } from "../../src/storage";
+import { bot, botHelper, botReview, botTrigger, botTurn, job, usage } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
+import { approvalExpiryJobName } from "../../src/bot/safety";
 import { deleteUserData } from "../../src/user-data";
 import { interruptedShellError } from "../../src/bot/agent-loop";
 import {
@@ -755,6 +756,95 @@ describe("Auto-review of the Bot's shell commands", () => {
     await send(unusable.client, unusable.botId, "list my files");
     expect(unusable.reviewedOn).toEqual([model]);
     expect((await reviewUsage(unusable.user.id)).map((row) => row.model)).toEqual([model]);
+  });
+});
+
+describe("a pending Approval expires after 7 days", () => {
+  const week = 7 * 24 * 60 * 60 * 1000;
+
+  /** A Bot whose Turn ended with its blocked call pending, one week short of its expiry. */
+  async function withPendingCall() {
+    const reviewer = reviewerPlaying(
+      verdict({ outcome: "block", reason: "You didn't ask to deploy.", summary: "Deploy" }),
+    );
+    const bot = await botWith([round(shell("make deploy")), round(sends("Waiting.")), round()], {
+      reviewer,
+    });
+    const stream = await followSend(bot.client, {
+      botId: bot.botId,
+      id: uuidv7(),
+      text: "ship it",
+    });
+    const waiting = await waitingReview(bot.botId);
+    bot.advance(15_000);
+    for await (const _event of stream);
+    const [pending] = await reviewsOf(bot.botId);
+    expect(pending).toMatchObject({ id: waiting.id, state: "pending" });
+    return { ...bot, reviewId: waiting.id };
+  }
+
+  const triggersOf = (botId: string) =>
+    getTestDb()
+      .select({ id: botTrigger.id })
+      .from(botTrigger)
+      .innerJoin(bot, eq(bot.conversationId, botTrigger.conversationId))
+      .where(eq(bot.id, botId));
+
+  it("expires an unanswered one 7 days later and wakes nobody", { timeout: 30_000 }, async () => {
+    const { botId, advance, client, reviewId } = await withPendingCall();
+    const turns = (await turnsOf(botId)).length;
+    const triggers = (await triggersOf(botId)).length;
+
+    advance(week);
+    await expect
+      .poll(async () => (await reviewsOf(botId))[0]?.state, { timeout: 10_000 })
+      .toBe("expired");
+
+    expect((await reviewsOf(botId))[0]).toMatchObject({ decidedAt: expect.any(Date) });
+    expect((await client.reviews.list({ botId }))[0]).toMatchObject({
+      id: reviewId,
+      state: "expired",
+    });
+    expect(await turnsOf(botId)).toHaveLength(turns);
+    expect(await triggersOf(botId)).toHaveLength(triggers);
+  });
+
+  it("leaves one answered before its expiry as answered", { timeout: 30_000 }, async () => {
+    const { botId, advance, reviewId } = await withPendingCall();
+    // The user answers the pending request; the expiry job then finds it no longer pending.
+    await getTestDb()
+      .update(botReview)
+      .set({ state: "denied", decidedAt: new Date() })
+      .where(eq(botReview.id, reviewId));
+
+    advance(week);
+    await expect
+      .poll(
+        async () =>
+          (await getTestDb().select().from(job).where(eq(job.name, approvalExpiryJobName))).map(
+            (row) => row.status,
+          ),
+        { timeout: 10_000 },
+      )
+      .toEqual(["succeeded"]);
+
+    expect((await reviewsOf(botId))[0]).toMatchObject({ state: "denied" });
+  });
+
+  it("refuses an Allow after the expiry and runs nothing", { timeout: 30_000 }, async () => {
+    const { botId, advance, client, computerFake, reviewId } = await withPendingCall();
+    advance(week);
+    await expect
+      .poll(async () => (await reviewsOf(botId))[0]?.state, { timeout: 10_000 })
+      .toBe("expired");
+
+    expect(await client.reviews.allow({ reviewId })).toMatchObject({
+      decided: false,
+      state: "expired",
+    });
+
+    expect((await reviewsOf(botId))[0]).toMatchObject({ state: "expired" });
+    expect(computerFake.callsOf("run")).toEqual([]);
   });
 });
 

@@ -1,4 +1,5 @@
 // The safety module's entry point (#889): other modules import it only through this file.
+export { approvalExpiryJob, approvalExpiryJobName } from "./approval-expiry";
 export { turnProvenance } from "./provenance";
 export {
   blockedError,

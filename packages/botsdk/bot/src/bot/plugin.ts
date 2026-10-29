@@ -45,7 +45,7 @@ import { checkInsApi, routinesApi } from "./routines-api";
 import { demonstrationsApi } from "./demonstrations-api";
 import { helpersApi } from "./helpers-api";
 import { reviewsApi } from "./reviews-api";
-import { rotateSecretKeys } from "./safety";
+import { approvalExpiryJob, rotateSecretKeys } from "./safety";
 
 export type BotPlugin = BotSdkPlugin<"bot", never, never>;
 
@@ -57,6 +57,7 @@ export const botJobs = [
   botHelperJob,
   helperStoppedJob,
   deliveryJob,
+  approvalExpiryJob,
 ];
 
 /**

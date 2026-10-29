@@ -261,6 +261,8 @@ description: Use this when
   "bots.reviewDenied": ({ summary }: { summary: string }) => `Denied by you: ${summary}`,
   "bots.reviewExpired": ({ summary }: { summary: string }) =>
     `Blocked, no answer in 15 s: ${summary}`,
+  "bots.reviewLapsed": ({ summary }: { summary: string }) =>
+    `Expired, no answer in 7 days: ${summary}`,
   "bots.cacheWarmed": ({ cost }: { cost: string }) => `Cache warmed · ${cost}`,
   "bots.cacheRead": "Read from cache",
   "bots.cacheWritten": "Written to cache",
