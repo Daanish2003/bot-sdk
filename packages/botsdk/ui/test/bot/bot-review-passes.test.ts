@@ -54,6 +54,7 @@ const reviewOf = (
   reason,
   state: null,
   deadline: null,
+  expiresAt: null,
   decidedAt: null,
   createdAt: at(1),
 });

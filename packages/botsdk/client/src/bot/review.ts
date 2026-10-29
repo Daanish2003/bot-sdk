@@ -1,13 +1,19 @@
 import { z } from "zod";
 
-/** What Auto-review made of a call (spec #691). */
-export type ReviewVerdictOutcome = "pass" | "block";
+/** What Auto-review made of a call (spec #691): `never` for a Never-allowed action (ADR 0032). */
+export type ReviewVerdictOutcome = "pass" | "block" | "never";
 
 /** How long a blocked call waits for the user's Approval (ADR 0024). */
 export const approvalWaitMs = 15_000;
 
-/** Where a blocked call's Approval stands (ADR 0024). */
-export type ReviewApprovalState = "waiting" | "allowed" | "denied" | "expired";
+/** How long after the block a pending Approval expires (ADR 0030). */
+export const approvalExpiryMs = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Where a blocked call's Approval stands (ADR 0024, ADR 0030): `waiting` through the 15-second
+ * wait, `pending` past it until it expires, then `allowed`, `denied` or `expired`.
+ */
+export type ReviewApprovalState = "waiting" | "pending" | "allowed" | "denied" | "expired";
 
 /**
  * One Auto-review of a Bot's tool call as the client sees it: the call (`tool` and its `input`),
@@ -26,6 +32,8 @@ export type BotReview = {
   reason: string;
   state: ReviewApprovalState | null;
   deadline: Date | null;
+  /** When the Approval expires if it is still pending (ADR 0030); null when it has none. */
+  expiresAt: Date | null;
   decidedAt: Date | null;
   createdAt: Date;
 };

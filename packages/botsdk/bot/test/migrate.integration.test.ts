@@ -133,6 +133,7 @@ const coreTables = [
   "computer",
   "conversation",
   "conversation_change",
+  "custom_rule",
   "job",
   "job_event",
   "message",
@@ -169,6 +170,8 @@ describe("chat.migrate()", () => {
       "bot_trigger_source",
       "bot_turn_status",
       "computer_state",
+      "custom_rule_mode",
+      "custom_rule_state",
       "job_status",
       "message_error_reason",
       "message_role",
@@ -176,9 +179,10 @@ describe("chat.migrate()", () => {
       "usage_kind",
     ]);
 
-    // One baseline, journaled in the SDK's own schema under the core.
+    // The baseline and the migrations after it, journaled in the SDK's own schema under the core.
     expect(await journal(url)).toEqual([
       { feature: "core", migration: "20261026182921_botsdk_baseline" },
+      { feature: "core", migration: "20261029113355_approval_rules" },
     ]);
     // Images and PDFs are already compressed, so the bytes are kept out of line uncompressed.
     expect(
@@ -188,6 +192,39 @@ describe("chat.migrate()", () => {
          where attrelid = 'botsdk.blob'::regclass and attname = 'bytes'`,
       ),
     ).toEqual([{ attstorage: "e" }]);
+  });
+
+  it("brings a database at the baseline up to date, keeping its reviews", async () => {
+    const url = await scratchDatabase("baseline");
+    const [baseline] = shippedMigrations("../botsdk/bot/src");
+    await rows(url, "create schema botsdk; create extension if not exists pg_trgm");
+    await rows(url, baseline!.sql);
+    await rows(
+      url,
+      `create table botsdk.__migrations (
+         feature text not null, migration text not null,
+         applied_at timestamp with time zone not null default clock_timestamp(),
+         primary key (feature, migration));
+       insert into botsdk.__migrations (feature, migration) values ('core', '${baseline!.name}')`,
+    );
+    const botId = await insertBot(url);
+    await rows(
+      url,
+      `insert into botsdk.bot_review
+         (id, bot_id, tool_call_id, tool, input, summary, verdict, reason, state, deadline, created_at)
+       values (gen_random_uuid(), '${botId}', 'c1', 'shell', '{}', 'Deletes a file', 'block',
+         'Risky', 'waiting', now(), now())`,
+    );
+
+    await chatFor(url).migrate();
+
+    expect(await journal(url)).toEqual([
+      { feature: "core", migration: "20261026182921_botsdk_baseline" },
+      { feature: "core", migration: "20261029113355_approval_rules" },
+    ]);
+    expect(
+      await rows(url, "update botsdk.bot_review set state = 'pending' returning state, expires_at"),
+    ).toEqual([{ state: "pending", expires_at: null }]);
   });
 
   it("leaves a new database without the vector extension", async () => {
@@ -222,6 +259,7 @@ describe("chat.migrate()", () => {
     expect(await tablesOf(url)).toEqual([...coreTables, "mcp_connection", "test_note"].sort());
     expect(await journal(url)).toEqual([
       { feature: "core", migration: "20261026182921_botsdk_baseline" },
+      { feature: "core", migration: "20261029113355_approval_rules" },
       { feature: "notes", migration: "0001_note" },
       { feature: "mcp", migration: "20261026182927_mcp_baseline" },
     ]);
@@ -240,6 +278,7 @@ describe("chat.migrate()", () => {
     );
     expect(await journal(url)).toEqual([
       { feature: "core", migration: "20261026182921_botsdk_baseline" },
+      { feature: "core", migration: "20261029113355_approval_rules" },
       { feature: "notes", migration: "0001_note" },
       { feature: "notes", migration: "0002_note_text" },
     ]);
@@ -362,6 +401,7 @@ describe("chat.migrate()", () => {
 
     expect(await journal(url)).toEqual([
       { feature: "core", migration: "20261026182921_botsdk_baseline" },
+      { feature: "core", migration: "20261029113355_approval_rules" },
       { feature: "notes", migration: "0001_note" },
     ]);
   });
@@ -414,7 +454,8 @@ describe("chat.migrate()", () => {
           url,
           "select count(*) from botsdk.__migrations",
         );
-        expect(applied).toEqual([{ count: "1" }]);
+        const core = shippedMigrations("../botsdk/bot/src");
+        expect(applied).toEqual([{ count: String(core.length) }]);
       } finally {
         await pool.end();
       }

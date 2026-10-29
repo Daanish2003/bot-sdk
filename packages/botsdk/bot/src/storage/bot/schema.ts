@@ -22,6 +22,7 @@ import { botRoutine, botRoutineState } from "./bot-routine";
 import { botTrigger, botTriggerChannel, botTriggerSource } from "./bot-trigger";
 import { botTurn, botTurnStatus } from "./bot-turn";
 import { botUpload } from "./bot-upload";
+import { customRule, customRuleMode, customRuleState } from "./custom-rule";
 
 export * from "./bot";
 export * from "./bot-check-in";
@@ -35,8 +36,9 @@ export * from "./bot-summary";
 export * from "./bot-trigger";
 export * from "./bot-turn";
 export * from "./bot-upload";
+export * from "./custom-rule";
 
-/** The `bot` plugin's schema module: its `bot`, `bot_turn`, `bot_prompt_start`, `bot_summary`, `bot_trigger`, `bot_routine`, `bot_check_in`, `bot_helper`, `bot_helper_message`, `bot_helper_screenshot`, `bot_review`, `secret`, `bot_demonstration`, `bot_demonstration_event` and `bot_upload` tables. */
+/** The `bot` plugin's schema module: its `bot`, `bot_turn`, `bot_prompt_start`, `bot_summary`, `bot_trigger`, `bot_routine`, `bot_check_in`, `bot_helper`, `bot_helper_message`, `bot_helper_screenshot`, `bot_review`, `secret`, `bot_demonstration`, `bot_demonstration_event`, `bot_upload` and `custom_rule` tables. */
 export const botSchema = {
   tables: {
     bot,
@@ -54,6 +56,7 @@ export const botSchema = {
     botDemonstration,
     botDemonstrationEvent,
     botUpload,
+    customRule,
   },
   enums: {
     botTurnStatus,
@@ -68,5 +71,7 @@ export const botSchema = {
     botReviewState,
     botDemonstrationState,
     botDemonstrationEventKind,
+    customRuleMode,
+    customRuleState,
   },
 } satisfies PluginSchema;

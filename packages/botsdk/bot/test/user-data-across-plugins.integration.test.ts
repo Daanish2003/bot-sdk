@@ -10,7 +10,15 @@ import { buildBotSdk, createBotSdk } from "../src/create-chat";
 import { defineFeature } from "../src/feature";
 import { schema } from "../src/storage";
 import { encryptCredentials } from "../src/credentials/encryption";
-import { bot, botDemonstration, botSecret, job, usage, modelSettings } from "../src/storage";
+import {
+  bot,
+  botDemonstration,
+  botSecret,
+  customRule,
+  job,
+  usage,
+  modelSettings,
+} from "../src/storage";
 import { uuidv7 } from "../src/lib/uuidv7";
 import { deleteUserData, exportUserData } from "../src/user-data";
 import { sentFileBlobKey, uploadBotFile } from "../src/bot/conversation";
@@ -80,7 +88,7 @@ async function activeJobsNaming(ids: string[]) {
 }
 
 /**
- * A user with a row in every table above: a Bot with a Message, an ended Demonstration, a Secret, a file uploaded and not yet sent to the Bot, a
+ * A user with a row in every table above: a Bot with a Message, an ended Demonstration, a Secret, a Custom Rule, a file uploaded and not yet sent to the Bot, a
  * Computer, the Memory switch, a Connection, credentials and usage. Returns the blob keys and ids
  * it made.
  */
@@ -124,6 +132,18 @@ async function seedEverything(
     name: "GITHUB_TOKEN",
     encrypted: "v2.x.x.x.x",
     createdAt: new Date(),
+  });
+
+  // A rule the Bot proposed, so the delete reaches it before the Bot's cascade would null its Bot.
+  await getTestDb().insert(customRule).values({
+    id: uuidv7(),
+    userId: user.id,
+    text: "Reply to emails from anyone @acme.com",
+    mode: "without_asking",
+    state: "proposed",
+    proposedByBotId: botId,
+    createdAt: new Date(),
+    updatedAt: new Date(),
   });
 
   const upload = await uploadBotFile(

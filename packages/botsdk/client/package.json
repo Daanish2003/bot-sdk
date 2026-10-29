@@ -18,6 +18,7 @@
     "./bot/review": "./src/bot/review.ts",
     "./bot/rich-control": "./src/bot/rich-control.ts",
     "./bot/routine": "./src/bot/routine.ts",
+    "./bot/rule": "./src/bot/rule.ts",
     "./bot/secret": "./src/bot/secret.ts",
     "./bot/time-zone": "./src/bot/time-zone.ts",
     "./bot/turn": "./src/bot/turn.ts",

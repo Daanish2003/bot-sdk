@@ -622,6 +622,7 @@ export const reviewFields = {
   reason: botReview.reason,
   state: botReview.state,
   deadline: botReview.deadline,
+  expiresAt: botReview.expiresAt,
   decidedAt: botReview.decidedAt,
   createdAt: botReview.createdAt,
 };

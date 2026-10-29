@@ -5,15 +5,20 @@ import { bot } from "./bot";
 import { botHelper } from "./bot-helper";
 import { botTurn } from "./bot-turn";
 
-/** What Auto-review made of a call: it runs (`pass`), or it doesn't without the user's yes (`block`). */
-export const botReviewVerdict = botsdkSchema.enum("bot_review_verdict", ["pass", "block"]);
+/**
+ * What Auto-review made of a call: it runs (`pass`), it doesn't without the user's yes (`block`), or
+ * it never does, being a Never-allowed action (`never`, ADR 0032).
+ */
+export const botReviewVerdict = botsdkSchema.enum("bot_review_verdict", ["pass", "block", "never"]);
 
 /**
- * Where a blocked call's Approval stands (ADR 0024): `waiting` for the user until its deadline,
- * then `allowed` or `denied` by the user, or `expired` with no answer in time.
+ * Where a blocked call's Approval stands (ADR 0024, ADR 0030): `waiting` for the user until its
+ * deadline, `pending` past it until its expiry, then `allowed` or `denied` by the user, or `expired`
+ * with no answer in time.
  */
 export const botReviewState = botsdkSchema.enum("bot_review_state", [
   "waiting",
+  "pending",
   "allowed",
   "denied",
   "expired",
@@ -51,6 +56,8 @@ export const botReview = botsdkSchema.table(
     state: botReviewState("state"),
     /** When a waiting Approval expires. */
     deadline: timestamp("deadline"),
+    /** When the Approval expires if it is still pending (ADR 0030). */
+    expiresAt: timestamp("expires_at"),
     /** When the user allowed or denied it, or it expired. */
     decidedAt: timestamp("decided_at"),
     createdAt: timestamp("created_at").notNull(),
