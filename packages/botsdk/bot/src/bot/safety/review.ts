@@ -18,7 +18,7 @@ import type { BotSdkContext, Transaction } from "../../plugin";
 import type { ModelMeter } from "../../models/internal";
 import type { MessageUsage } from "../../models/shared/usage";
 import { parseReply } from "../../lib/parse-reply";
-import { lockConversation, receive } from "../triggers";
+import { lockConversation, pauseOf, receive } from "../triggers";
 import { forwardedEmailLabel, routineNameOf, routinePromptOf, untrustedBlock } from "../routines";
 import { appendBotMessage, controlParts, hintChanged, recordBotChange } from "../conversation";
 import { approvalExpiryJobName, approvalExpiryKey } from "./approval-expiry";
@@ -465,6 +465,10 @@ async function decide(
       .where(eq(botReview.id, reviewId));
     if (!owner) return null;
     await lockConversation(tx, owner.conversationId);
+    // A paused Bot runs no work (spec #1007): a yes is refused, and the Approval stays as it was.
+    if (change.state === "allowed" && (await pauseOf(tx, owner.conversationId))?.paused) {
+      throw rpcError("CONFLICT", "error.botPausedApproval", "Bot is paused. Resume to approve.");
+    }
     if (change.state === "pending") {
       const moved = await goPending(deps, tx, eq(botReview.id, reviewId));
       if (moved.length === 0) return null;

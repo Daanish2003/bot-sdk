@@ -31,7 +31,14 @@ import {
  */
 
 /** A Bot as the client sees it. */
-export type Bot = { id: string; name: string; model: string; createdAt: Date };
+/** A Bot; `pausedAt` is when the user paused it (Bot pause, spec #1007), null while it isn't. */
+export type Bot = {
+  id: string;
+  name: string;
+  model: string;
+  createdAt: Date;
+  pausedAt: Date | null;
+};
 
 /** A Bot with the status of its latest Turn (`null` before its first). */
 export type BotWithStatus = Bot & { turnStatus: BotTurnStatus | null };
@@ -205,6 +212,13 @@ const bots = {
   upload: oc.input(uploadInput).output(type<BotUpload>()),
   /** Stops the user's Bot's running Turn. */
   stop: oc.input(botInput).output(type<void>()),
+  /**
+   * Pauses the user's Bot (spec #1007): its Turn and Helpers stop, what waits is skipped, and
+   * nothing wakes it until it is resumed. Idempotent; another user's Bot is not found.
+   */
+  pause: oc.input(botInput).output(type<void>()),
+  /** Resumes the user's paused Bot, replaying nothing. Idempotent; another user's Bot is not found. */
+  resume: oc.input(botInput).output(type<void>()),
   /**
    * One of the user's Bots' Tasks view (spec #1007): In progress, Scheduled and Done, in one read.
    * Another user's Bot is not found.

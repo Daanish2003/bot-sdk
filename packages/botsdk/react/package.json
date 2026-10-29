@@ -11,6 +11,7 @@
     "./bot/choices": "./src/bot/choices.ts",
     "./bot/demonstrations": "./src/bot/demonstrations.ts",
     "./bot/helpers": "./src/bot/helpers.ts",
+    "./bot/pause": "./src/bot/pause.ts",
     "./bot/reactions": "./src/bot/reactions.ts",
     "./bot/reviews": "./src/bot/reviews.ts",
     "./bot/routines": "./src/bot/routines.ts",

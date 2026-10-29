@@ -10,7 +10,7 @@ import { listCheckIns, listRoutines } from "./routines";
 import { listHelpers } from "./helpers";
 import { listRules, reviewFields } from "./safety";
 import { botSummaries } from "./context";
-import { toBotMessage } from "./conversation";
+import { findBot, toBotMessage } from "./conversation";
 
 /** The ids of `changes` of `kind`, once each. */
 const idsOf = (changes: { kind: string; refId: string }[], kind: BotChangeKind) => [
@@ -140,6 +140,12 @@ async function changeData(
       listCheckIns(db, owner.botId).then((rows) => put("check_in", rows)),
     idsOf(changes, "summary").length > 0 &&
       botSummaries(db, owner.botId, owner.conversationId).then((rows) => put("summary", rows)),
+    idsOf(changes, "bot").length > 0 &&
+      findBot(db, owner.userId, owner.botId).then((found) => {
+        if (!found) return;
+        const { conversationId: _conversationId, ...row } = found;
+        put("bot", [row]);
+      }),
   ]);
   return data;
 }

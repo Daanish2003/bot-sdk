@@ -1,7 +1,22 @@
 import type { SentFile } from "@botsdk/client/bot/files";
 import { searchTextOf } from "@botsdk/client/message-parts";
 import { type AnyServerTool, type ModelMessage, toolDefinition } from "@tanstack/ai";
-import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  ne,
+  notExists,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import { botTrigger, botTurn, message, type MessageRow } from "../../storage";
@@ -448,7 +463,19 @@ async function newestInput(
     db
       .select({ id: message.id, parts: message.parts, createdAt: message.createdAt })
       .from(message)
-      .where(and(beforeTurn, since && gte(message.createdAt, since)))
+      .where(
+        and(
+          beforeTurn,
+          since && gte(message.createdAt, since),
+          // A Message whose Trigger was skipped, by a Bot pause (spec #1007), never reached a Turn.
+          notExists(
+            db
+              .select({ id: botTrigger.id })
+              .from(botTrigger)
+              .where(and(eq(botTrigger.messageId, message.id), isNotNull(botTrigger.skippedAt))),
+          ),
+        ),
+      )
       .orderBy(asc(message.createdAt), asc(message.id)),
     // The Triggers that carry no Message (a Routine's fire, #539), taken and received by the time
     // this Turn started: never one taken later. A Turn's input holds the ones taken and received by

@@ -107,6 +107,17 @@ async function fetchOnce(queryClient: QueryClient, orpc: BotSdkOrpc, botId: stri
       }
     } else if (change.kind === "summary") {
       rereadThread = true;
+    } else if (change.kind === "bot") {
+      // Paused or resumed (spec #1007): the badge and composer follow the thread's Bot, and a pause
+      // skips what waited.
+      void queryClient.invalidateQueries({ queryKey: lists.tasks });
+      const { data } = change;
+      if (data) {
+        queryClient.setQueryData(
+          getKey,
+          (thread) => thread && { ...thread, bot: { ...thread.bot, pausedAt: data.pausedAt } },
+        );
+      }
     } else {
       void queryClient.invalidateQueries({ queryKey: lists[change.kind] });
       // The Tasks view lists Routines, Helpers and Check-ins too.

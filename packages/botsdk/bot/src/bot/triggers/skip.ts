@@ -3,8 +3,8 @@ import { and, eq } from "drizzle-orm";
 import { bot, botTrigger } from "../../storage";
 import type { BotSdkContext } from "../../plugin";
 import { rpcError } from "../../rpc-error";
-import { hintChanged, recordBotChange } from "../conversation";
-import { lockConversation } from "./router";
+import { hintChanged } from "../conversation";
+import { lockConversation, recordSkipChange } from "./router";
 
 /**
  * The user skips one Trigger waiting in their Bot's Conversation queue (spec #1007): it is marked
@@ -21,7 +21,7 @@ export async function skipTrigger(
   let changed: string | undefined;
   await deps.db.transaction(async (tx) => {
     const [owner] = await tx
-      .select({ conversationId: bot.conversationId })
+      .select({ conversationId: bot.conversationId, botId: bot.id })
       .from(botTrigger)
       .innerJoin(bot, eq(bot.conversationId, botTrigger.conversationId))
       .where(and(eq(botTrigger.id, triggerId), eq(bot.userId, userId)));
@@ -51,12 +51,7 @@ export async function skipTrigger(
       .set({ skippedAt: now, skipReason: "cancelled" })
       .where(eq(botTrigger.id, triggerId));
     // The Tasks view refreshes on its Routine and Check-in changes.
-    const [kind, refId] =
-      trigger.source === "routine"
-        ? (["routine", /^routine:([0-9a-f-]{36}):/.exec(triggerId)?.[1]] as const)
-        : (["check_in", /^check_in:([0-9a-f-]{36})$/.exec(triggerId)?.[1]] as const);
-    if (refId)
-      await recordBotChange(tx, { conversationId: owner.conversationId }, kind, refId, now);
+    await recordSkipChange(tx, owner, trigger, now);
     changed = owner.conversationId;
   });
   if (changed) await hintChanged(deps, changed);

@@ -18,6 +18,7 @@ import { allHelpers, useBotHelpers } from "@botsdk/react/bot/helpers";
 import { useBotReviews } from "@botsdk/react/bot/reviews";
 import { useCustomRules } from "@botsdk/react/bot/rules";
 import { useBotRoutines } from "@botsdk/react/bot/routines";
+import { useBotPause } from "@botsdk/react/bot/pause";
 import { useBotTasks, useSkipTrigger } from "@botsdk/react/bot/tasks";
 import { useBotChoices } from "@botsdk/react/bot/choices";
 import { useBotReactions } from "@botsdk/react/bot/reactions";
@@ -25,6 +26,7 @@ import { useBotUploads } from "@botsdk/react/bot/uploads";
 import { useBotSecrets } from "@botsdk/react/bot/secrets";
 import { useCacheWarming } from "@botsdk/react/bot/warm";
 import { BotAvatar } from "./bot-avatar";
+import { BotMenu, PausedBadge, PausedBanner } from "./bot-menu";
 import { AttachButton, DraftFileChips } from "./draft-files";
 import { ReactionBar, ReactionChips } from "./reactions";
 import { CheckInLine } from "./check-in-line";
@@ -173,6 +175,11 @@ function BotConversationView({
     );
   const { tasks } = useBotTasks(botId, working);
   const { actingTriggers, skip: onSkipTrigger } = useSkipTrigger(botId);
+  const botPause = useBotPause(botId);
+  const onPauseBot = () =>
+    void botPause.pause().catch((refusal) => toast.error(serverErrorText(i18n, refusal)));
+  const onResumeBot = () =>
+    void botPause.resume().catch((refusal) => toast.error(serverErrorText(i18n, refusal)));
   const onStopTurn = () =>
     void stop().catch((refusal) => toast.error(serverErrorText(i18n, refusal)));
   const actions = { onPause: pause, onResume: resume, onDelete: remove, actingRoutines: acting };
@@ -186,12 +193,14 @@ function BotConversationView({
     );
   }
   if (!bot) return null;
+  // A paused Bot takes no Message (spec #1007): the composer is disabled under its banner.
+  const paused = bot.pausedAt !== null;
 
   const submit = (event?: FormEvent) => {
     event?.preventDefault();
     const text = draft.trim();
     // Send waits for the uploads; with files the text may be empty.
-    if ((!text && uploads.uploaded.length === 0) || uploads.pending) return;
+    if (paused || (!text && uploads.uploaded.length === 0) || uploads.pending) return;
     const files = uploads.uploaded;
     setDraft("");
     uploads.clear();
@@ -343,6 +352,7 @@ function BotConversationView({
       <header className="flex items-center gap-3 border-b px-4 py-3">
         <BotAvatar name={bot.name} size={28} />
         <h1 className="font-semibold">{bot.name}</h1>
+        {paused && <PausedBadge />}
         <div className="ml-auto flex items-center gap-2">
           {tasks && (
             <TasksPopover
@@ -362,6 +372,12 @@ function BotConversationView({
             <SecretsPopover secrets={secrets} onDelete={removeSecret} acting={actingSecrets} />
           )}
           {headerEnd}
+          <BotMenu
+            paused={paused}
+            acting={botPause.acting}
+            onPause={onPauseBot}
+            onResume={onResumeBot}
+          />
         </div>
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4">
@@ -535,8 +551,9 @@ function BotConversationView({
         )}
       </div>
       <DraftFileChips uploads={uploads} />
+      {paused && <PausedBanner acting={botPause.acting} onResume={onResumeBot} />}
       <form onSubmit={submit} className="flex items-end gap-2 border-t p-3">
-        <AttachButton uploads={uploads} />
+        <AttachButton uploads={uploads} disabled={paused} />
         <Textarea
           aria-label={t("bots.message")}
           placeholder={t("bots.message")}
@@ -547,6 +564,7 @@ function BotConversationView({
             setDraft(event.target.value);
           }}
           onKeyDown={onKeyDown}
+          disabled={paused}
           rows={1}
           className="max-h-40 min-h-10 resize-none"
         />
@@ -559,7 +577,7 @@ function BotConversationView({
           type="submit"
           size="icon"
           aria-label={t("bots.send")}
-          disabled={(!draft.trim() && uploads.uploaded.length === 0) || uploads.pending}
+          disabled={paused || (!draft.trim() && uploads.uploaded.length === 0) || uploads.pending}
         >
           <SendIcon />
         </Button>

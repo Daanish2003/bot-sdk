@@ -62,11 +62,62 @@ export async function lockConversation(tx: Transaction, conversationId: string):
 }
 
 /**
+ * Whether the Bot of Conversation `conversationId` is paused (Bot pause, spec #1007), with its id.
+ * Read it under the Conversation's row lock, which a pause and a resume take.
+ */
+export async function pauseOf(
+  tx: Transaction,
+  conversationId: string,
+): Promise<{ botId: string; paused: boolean } | undefined> {
+  const [row] = await tx
+    .select({ botId: bot.id, pausedAt: bot.pausedAt })
+    .from(bot)
+    .where(eq(bot.conversationId, conversationId));
+  return row && { botId: row.botId, paused: row.pausedAt !== null };
+}
+
+/**
+ * Records the change a skipped Trigger makes, in `tx`, so open Tasks views refresh (spec #1007): a
+ * Routine's run is its Routine's change, a Check-in's fire its Check-in's, and any other its Bot's.
+ */
+export async function recordSkipChange(
+  tx: Transaction,
+  owner: { conversationId: string; botId: string },
+  trigger: { id: string; source: ReceivedTrigger["source"] },
+  at: Date,
+): Promise<void> {
+  const routineId =
+    trigger.source === "routine" ? /^routine:([0-9a-f-]{36}):/.exec(trigger.id)?.[1] : undefined;
+  const checkInId =
+    trigger.source === "check_in" ? /^check_in:([0-9a-f-]{36})$/.exec(trigger.id)?.[1] : undefined;
+  if (routineId) await recordBotChange(tx, owner, "routine", routineId, at);
+  else if (checkInId) await recordBotChange(tx, owner, "check_in", checkInId, at);
+  else await recordBotChange(tx, owner, "bot", owner.botId, at);
+}
+
+/**
+ * Skips every Trigger waiting in the Conversation queue with `reason` (spec #1007), in `tx`, which
+ * holds the Conversation's row lock: no Turn takes them, and the Tasks view lists them as skipped.
+ */
+export async function skipWaiting(
+  tx: Transaction,
+  conversationId: string,
+  reason: "paused" | "reset",
+  at: Date,
+): Promise<void> {
+  await tx
+    .update(botTrigger)
+    .set({ skippedAt: at, skipReason: reason })
+    .where(waitingIn(conversationId));
+}
+
+/**
  * The Router's way in (#499): queues the Trigger in its Conversation queue and, when no Turn is
  * running, starts one that takes it. While the running Turn's job hasn't started, the Trigger joins
  * that Turn and pushes back its job (#501). Returns `takenBy`, the Turn that took it, or, when the
- * Trigger waits for the Turn that follows the running one, `waitsFor`, that running Turn. Call the
- * runner's `wake()` once `tx` has committed.
+ * Trigger waits for the Turn that follows the running one, `waitsFor`, that running Turn. While its
+ * Bot is paused (spec #1007), the Trigger is kept as skipped with reason `paused` and starts no
+ * Turn, so it returns neither. Call the runner's `wake()` once `tx` has committed.
  */
 export async function receive(
   deps: BotSdkContext,
@@ -74,6 +125,18 @@ export async function receive(
   trigger: ReceivedTrigger,
 ): Promise<{ takenBy?: string; waitsFor?: string }> {
   await lockConversation(tx, trigger.conversationId);
+  const owner = await pauseOf(tx, trigger.conversationId);
+  if (owner?.paused) {
+    const now = deps.clock();
+    await tx.insert(botTrigger).values({ ...trigger, skippedAt: now, skipReason: "paused" });
+    await recordSkipChange(
+      tx,
+      { conversationId: trigger.conversationId, botId: owner.botId },
+      trigger,
+      now,
+    );
+    return {};
+  }
   await tx.insert(botTrigger).values(trigger);
   const [running] = await tx
     .select({ id: botTurn.id })

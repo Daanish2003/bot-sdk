@@ -8,4 +8,5 @@ export const turnJobs = [botTurnJob, summarizeAwayJob, approvedCallJob];
 
 export { receiveEmail } from "./email-inbound";
 export { emailText } from "./email-text";
+export { pauseBot, resumeBot } from "./pause";
 export { sendToBot, stopBot, stopUserTurns } from "./turn";

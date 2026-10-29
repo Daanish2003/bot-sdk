@@ -37,6 +37,12 @@ const bots = os.bots.router({
   stop: os.bots.stop.handler(({ context, input }) =>
     context.sdk.bots.stop({ ...input, userId: context.user.id }),
   ),
+  pause: os.bots.pause.handler(({ context, input }) =>
+    context.sdk.bots.pause({ ...input, userId: context.user.id }),
+  ),
+  resume: os.bots.resume.handler(({ context, input }) =>
+    context.sdk.bots.resume({ ...input, userId: context.user.id }),
+  ),
   tasks: os.bots.tasks.handler(({ context, input }) =>
     context.sdk.bots.tasks({ ...input, userId: context.user.id }),
   ),

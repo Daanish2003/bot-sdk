@@ -22,7 +22,7 @@ import {
 import { turnProvenance } from "./safety";
 import { botSummaries, botWarmings, warmBot } from "./context";
 import { botTasks } from "./tasks";
-import { sendToBot, stopBot } from "./turn";
+import { pauseBot, resumeBot, sendToBot, stopBot } from "./turn";
 import { answerChoice, reactToMessage } from "./triggers";
 
 /*
@@ -116,6 +116,22 @@ export function botsApi(sdk: BotSdkContext) {
      */
     stop: async ({ userId, ...rest }: WithUser<typeof botInput>) =>
       stopBot(sdk, userId, parseInput(botInput, rest).botId),
+
+    /**
+     * Pauses the user's Bot (spec #1007): its running Turn stops as with `stop`, its Helpers stop,
+     * and every Trigger waiting in its Conversation queue is skipped. While paused, what comes due is
+     * kept as skipped and wakes nothing, a Message is refused and so is an Approval's yes. Each
+     * Routine keeps its own state. Idempotent; another user's Bot is not found.
+     */
+    pause: async ({ userId, ...rest }: WithUser<typeof botInput>) =>
+      pauseBot(sdk, userId, parseInput(botInput, rest).botId),
+
+    /**
+     * Resumes the user's paused Bot (spec #1007). Nothing skipped meanwhile is replayed; its
+     * Routines run from their next slot. Idempotent; another user's Bot is not found.
+     */
+    resume: async ({ userId, ...rest }: WithUser<typeof botInput>) =>
+      resumeBot(sdk, userId, parseInput(botInput, rest).botId),
 
     /**
      * One of the user's Bots' Tasks view (spec #1007): what it is doing (In progress), what is

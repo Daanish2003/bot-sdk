@@ -648,6 +648,8 @@ const botApiKeys: Record<keyof BotApi, true> = {
   send: true,
   upload: true,
   stop: true,
+  pause: true,
+  resume: true,
   tasks: true,
   warm: true,
   choose: true,

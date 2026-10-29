@@ -35,7 +35,7 @@ export {
   tooManyGeneralHelpersError,
 } from "./helper";
 export { listHelpers } from "./helper-card";
-export { helperTools, stopBotHelpers, stopUserHelpers } from "./helper-tools";
+export { helperTools, stopBotHelpers, stopHelpers, stopUserHelpers } from "./helper-tools";
 export {
   handleScreenRequest,
   screenControl,
