@@ -146,6 +146,10 @@ _Avoid_: Reminder, Routine (that is a prompt the user approved)
 An agent a Bot hands one complete task to, which works in its own fresh context, keeps going after the Turn that started it, and reports back briefly. It belongs to its Bot and is never a Bot itself. A General Helper works with the shell, files and web search; a Computer-use Helper works a Screen's browser and desktop, needs a model that can use a computer, and a Bot has at most one of those at a time. The user's Stop ends the Turn, not its Helpers; its report wakes the Bot as a Trigger like any other.
 _Avoid_: Sub-agent, worker, child agent
 
+**Tasks view**:
+One Bot's work in one place, in three sections: In progress (the running Turn and its live Helpers), Scheduled (the Conversation queue, Routines and Check-ins) and Done (finished Helpers and fired Check-ins). It is a view over those things, not a thing of its own; "task" stays an ordinary word.
+_Avoid_: Task list, to-do, activity feed
+
 **Skill**:
 Written instructions for one kind of task, starting with when to use them, kept as a file in its Bot's own directory on the Computer, which the Bot reads only when it needs them. The Bot or the user writes one, or the Bot drafts one from a Demonstration. A Skill is never permission to act.
 _Avoid_: Plugin, prompt
