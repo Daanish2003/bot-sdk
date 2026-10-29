@@ -24,13 +24,14 @@ import { handleRoutineWebhook, routineFireJobName, webhookTokenHash } from "../.
 import { fireKey } from "../../src/bot/routines/routine";
 import { checkInFireJobName, checkInKey } from "../../src/bot/routines/check-in";
 import { approvedCallJobName, approvedCallKey } from "../../src/bot/safety";
-import { waitingIn } from "../../src/bot/triggers";
+import { awaySummaryKey, waitingIn } from "../../src/bot/triggers";
 import { batchLongestMs } from "../../src/bot/triggers/router";
+import { summarizeAwayJobName } from "../../src/bot/context/summary";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner, claimJob } from "../../src/runner/internal";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { isTurnCall } from "@ai-chat/test-support/bot-turns";
-import { createFakeAdapter, round } from "@botsdk/testing/fake-adapter";
+import { createFakeAdapter, round, text, withUsage } from "@botsdk/testing/fake-adapter";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
@@ -56,9 +57,12 @@ const everyDay = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
  * past Turn, an active scheduled Routine whose fire waits for Monday's slot, a webhook Routine and a
  * pending Check-in with its fire queued. `runDue()` runs every job due at the clock's time.
  */
-async function resettableBots({ rounds = [] }: { rounds?: Parameters<typeof round>[] } = {}) {
+async function resettableBots({
+  rounds = [],
+  script,
+}: { rounds?: Parameters<typeof round>[]; script?: ReturnType<typeof round>[] } = {}) {
   const timer = fakeJobClock(sunday);
-  const fake = createFakeAdapter({ rounds: rounds.map((args) => round(...args)) });
+  const fake = createFakeAdapter({ rounds: script ?? rounds.map((args) => round(...args)) });
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({
     db: getTestDb(),
@@ -447,6 +451,37 @@ describe("bots.reset", () => {
           .where(eq(botTrigger.conversationId, ada.conversationId)),
       ).toEqual([]);
       expect((await turnsOf(ada.botId)).map((turn) => turn.id)).toEqual([ada.turnId]);
+    },
+  );
+
+  it(
+    "writes no away Summary queued after the reset, as by a Turn that was running at it",
+    { timeout },
+    async () => {
+      const big = { promptTokens: 120_000, completionTokens: 10, totalTokens: 120_010 };
+      const { deps, client, fake, ada, timer, runDue } = await resettableBots({
+        script: [
+          withUsage(round(text("Noted.")), big),
+          round(text("Noted.")),
+          round(text("The user lives in Berlin.")),
+        ],
+      });
+      await client.bots.send({ botId: ada.botId, id: uuidv7(), text: "I live in Berlin" });
+      timer.advance(batchLongestMs);
+      await runDue();
+      const before = fake.calls.length;
+      await client.bots.reset({ botId: ada.botId, name: "Ada" });
+
+      // A Turn whose attempt ends after the reset queues its away Summary then.
+      await deps.runner.enqueue(
+        summarizeAwayJobName,
+        { botId: ada.botId },
+        { idempotencyKey: awaySummaryKey(ada.botId) },
+      );
+      timer.advance(60_000);
+      await runDue();
+
+      expect(fake.calls).toHaveLength(before);
     },
   );
 

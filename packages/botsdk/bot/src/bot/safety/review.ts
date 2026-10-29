@@ -381,6 +381,9 @@ export const approvedCallJobName = "bot.approved_call";
 /** The key of review `reviewId`'s approved-call job: one Allow, one job. */
 export const approvedCallKey = (reviewId: string) => `approved-call:${reviewId}`;
 
+/** The marker an approved-call job records just before it starts the call. */
+export const approvedCallStartActivity = "call_start";
+
 /** The id of review `reviewId`'s Approval Trigger: one per review, so a repeat is dropped. */
 export const approvalTriggerId = (reviewId: string) => `approval:${reviewId}`;
 
@@ -600,8 +603,9 @@ export async function closeWaitingReviews(
  * Takes back the yes to each of Bot `owner`'s allowed calls whose job hasn't started (a Bot pause,
  * spec #1007), in `tx`, which holds its Conversation's row lock: the job is cancelled, so the call
  * never runs while the Bot is paused, and the Approval is `pending` again, with its `review` change
- * and its expiry job, so the user can answer it once the Bot is resumed. A job that has started
- * (it ran, or used an attempt) may have run the call, so it is left to finish.
+ * and its expiry job, so the user can answer it once the Bot is resumed. A queued job counts as not
+ * started until it has recorded its start marker, even one waiting out a retry. One running now,
+ * or one past that marker, may have run the call, so it is left to finish.
  */
 export async function reopenUnstartedCalls(
   deps: BotSdkContext,
@@ -618,9 +622,11 @@ export async function reopenUnstartedCalls(
         eq(botReview.botId, owner.botId),
         eq(botReview.state, "allowed"),
         eq(job.status, "queued"),
-        eq(job.attempts, 0),
         notExists(
-          tx.select({ seq: jobEvent.seq }).from(jobEvent).where(eq(jobEvent.jobId, job.id)),
+          tx
+            .select({ seq: jobEvent.seq })
+            .from(jobEvent)
+            .where(and(eq(jobEvent.jobId, job.id), eq(jobEvent.name, approvedCallStartActivity))),
         ),
       ),
     )

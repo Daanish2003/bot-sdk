@@ -33,6 +33,7 @@ import {
   approvalTriggerText,
   approvedCallJobName,
   approvedCallKey,
+  approvedCallStartActivity,
 } from "../safety";
 
 /*
@@ -66,7 +67,7 @@ export const notRunApprovedCallError =
 /** The activity that runs the stored call, whose Checkpoint holds its result. */
 const callActivity = "call";
 /** The marker saved just before the call starts. */
-const startActivity = "call_start";
+const startActivity = approvedCallStartActivity;
 
 /** An allowed review's stored call, with its Bot and the Turn it came from. */
 type StoredCall = {

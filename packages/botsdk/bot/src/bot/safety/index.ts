@@ -6,6 +6,7 @@ export {
   approvalTriggerText,
   approvedCallJobName,
   approvedCallKey,
+  approvedCallStartActivity,
   blockedError,
   closeWaitingReviews,
   decideReview,

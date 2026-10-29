@@ -11,6 +11,7 @@ import {
   botTrigger,
   botTurn,
   job,
+  jobEvent,
 } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { findBot } from "../../src/bot/conversation";
@@ -433,6 +434,64 @@ describe("bots.pause", () => {
         state: "allowed",
       });
       expect(await callJobs()).toEqual([{ status: "cancelled" }, { status: "queued" }]);
+    },
+  );
+
+  it(
+    "cancels an allowed call waiting out a retry before it started, and leaves one past its start marker",
+    { timeout },
+    async () => {
+      const { client, botId, turnId, runDue } = await pausableBot();
+      const db = getTestDb();
+      const allowed = async (startedCall: boolean) => {
+        const reviewId = uuidv7();
+        await db.insert(botReview).values({
+          id: reviewId,
+          botId,
+          turnId,
+          toolCallId: uuidv7(),
+          tool: "shell",
+          input: { command: "git push" },
+          summary: "Pushes to GitHub",
+          verdict: "block",
+          reason: "The user never asked to push",
+          state: "pending",
+          expiresAt: new Date(sunday.getTime() + 7 * 24 * 60 * 60_000),
+          createdAt: sunday,
+        });
+        await client.reviews.allow({ reviewId });
+        // Its first attempt failed and it waits out the backoff, queued again.
+        const [row] = await db
+          .update(job)
+          .set({ attempts: 1, runAfter: new Date(sunday.getTime() + 60 * 60_000) })
+          .where(eq(job.idempotencyKey, approvedCallKey(reviewId)))
+          .returning({ id: job.id });
+        await db
+          .insert(jobEvent)
+          .values([
+            { jobId: row!.id, seq: 1, kind: "activity", name: "quota", result: false },
+            ...(startedCall
+              ? [{ jobId: row!.id, seq: 2, kind: "activity" as const, name: "call_start" }]
+              : []),
+          ]);
+        return reviewId;
+      };
+      const unstarted = await allowed(false);
+      const started = await allowed(true);
+
+      await client.bots.pause({ botId });
+      await runDue();
+
+      const statusOf = async (reviewId: string) => {
+        const [review] = await db.select().from(botReview).where(eq(botReview.id, reviewId));
+        const [call] = await db
+          .select({ status: job.status })
+          .from(job)
+          .where(eq(job.idempotencyKey, approvedCallKey(reviewId)));
+        return [review!.state, call!.status];
+      };
+      expect(await statusOf(unstarted)).toEqual(["pending", "cancelled"]);
+      expect(await statusOf(started)).toEqual(["allowed", "queued"]);
     },
   );
 
