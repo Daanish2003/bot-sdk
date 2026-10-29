@@ -11,7 +11,7 @@ import {
 import { useState } from "react";
 
 import type { MessageKey } from "@botsdk/client/i18n";
-import { newRuleKey, useCustomRules } from "@botsdk/react/bot/rules";
+import { newRuleKey, useCustomRules, useNeverAllowed } from "@botsdk/react/bot/rules";
 import { useI18n } from "@botsdk/react/provider";
 import { useRefusalToast } from "../bot/refusal-toast";
 
@@ -161,6 +161,7 @@ function NewRuleRow({
 export function RulesPage() {
   const { t } = useI18n();
   const { rules, loading, acting, create, update, remove } = useCustomRules();
+  const neverAllowed = useNeverAllowed();
   const [adding, setAdding] = useState(false);
   // A rule a Bot proposed waits for the user's Approval elsewhere: it isn't in force to edit here.
   const active = rules.filter((rule) => rule.state === "active");
@@ -214,6 +215,20 @@ export function RulesPage() {
           </ul>
         )}
       </section>
+
+      {neverAllowed.length > 0 && (
+        <section className="space-y-2" aria-labelledby="never-allowed-title">
+          <h2 id="never-allowed-title" className="text-sm font-semibold">
+            {t("settings.neverAllowedTitle")}
+          </h2>
+          <p className="text-sm text-muted-foreground">{t("settings.neverAllowedIntro")}</p>
+          <ul aria-labelledby="never-allowed-title" className="list-disc space-y-1 pl-6 text-sm">
+            {neverAllowed.map((never) => (
+              <li key={never}>{never}</li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <p className="text-xs text-muted-foreground">{t("settings.rulesFootnote")}</p>
     </main>

@@ -113,6 +113,7 @@ const reviews = os.reviews.router({
 
 const rules = os.rules.router({
   list: os.rules.list.handler(({ context }) => context.sdk.rules.list({ userId: context.user.id })),
+  neverAllowed: os.rules.neverAllowed.handler(({ context }) => context.sdk.rules.neverAllowed()),
   create: os.rules.create.handler(({ context, input }) =>
     context.sdk.rules.create({ ...input, userId: context.user.id }),
   ),

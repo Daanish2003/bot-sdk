@@ -215,6 +215,7 @@ description: Use this when
   }) => `Step ${number} · ${percent}% cached · ${cost}`,
   "bots.cacheSummaryStep": ({ percent, cost }: { percent: number; cost: string }) =>
     `Summary · ${percent}% cached · ${cost}`,
+  "bots.neverAllowed": ({ summary }: { summary: string }) => `Never allowed · ${summary}`,
   "bots.reviewPasses": ({ count }: { count: number }) =>
     `✓ ${count} ${count === 1 ? "call" : "calls"} auto-approved`,
   "bots.secretAsks": ({ bot, name }: { bot: string; name: string }) => `${bot} asks for ${name}`,

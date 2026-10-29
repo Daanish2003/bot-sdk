@@ -274,11 +274,13 @@ const reviews = {
 
 /**
  * The user's Custom Rules (ADR 0031), shared by all their Bots. Another user's rule is not found.
- * `botContract` serves `list`, `create`, `update` and `delete`; `approve` and `deny` are not served yet (spec #989).
+ * `botContract` serves `list`, `neverAllowed`, `create`, `update` and `delete`; `approve` and `deny` are not served yet (spec #989).
  */
 export const rulesContract = {
   /** The user's Custom Rules, active and proposed, the oldest first. */
   list: oc.output(type<CustomRule[]>()),
+  /** The Never-allowed classes (ADR 0032), read-only: the SDK's, then the Host's extra ones. */
+  neverAllowed: oc.output(type<string[]>()),
   /** Writes an active rule. Refused past the 50 active rules. */
   create: oc.input(createRuleInput).output(type<CustomRule>()),
   /** Edits a rule's text or mode. */
@@ -296,6 +298,7 @@ export type RulesContract = typeof rulesContract;
 /** The rules methods the SDK serves: `approve` and `deny` follow with Bots proposing rules. */
 const rules = {
   list: rulesContract.list,
+  neverAllowed: rulesContract.neverAllowed,
   create: rulesContract.create,
   update: rulesContract.update,
   delete: rulesContract.delete,
