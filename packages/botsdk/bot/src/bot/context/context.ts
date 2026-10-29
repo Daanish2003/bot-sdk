@@ -458,24 +458,19 @@ async function newestInput(
     eq(message.conversationId, turn.conversationId),
     eq(message.role, "user"),
     lt(message.createdAt, turn.startedAt),
+    // A Message whose Trigger was skipped, by a Bot pause (spec #1007), never reached a Turn.
+    notExists(
+      db
+        .select({ id: botTrigger.id })
+        .from(botTrigger)
+        .where(and(eq(botTrigger.messageId, message.id), isNotNull(botTrigger.skippedAt))),
+    ),
   );
   const [users, woken, [newestUser], reacted] = await Promise.all([
     db
       .select({ id: message.id, parts: message.parts, createdAt: message.createdAt })
       .from(message)
-      .where(
-        and(
-          beforeTurn,
-          since && gte(message.createdAt, since),
-          // A Message whose Trigger was skipped, by a Bot pause (spec #1007), never reached a Turn.
-          notExists(
-            db
-              .select({ id: botTrigger.id })
-              .from(botTrigger)
-              .where(and(eq(botTrigger.messageId, message.id), isNotNull(botTrigger.skippedAt))),
-          ),
-        ),
-      )
+      .where(and(beforeTurn, since && gte(message.createdAt, since)))
       .orderBy(asc(message.createdAt), asc(message.id)),
     // The Triggers that carry no Message (a Routine's fire, #539), taken and received by the time
     // this Turn started: never one taken later. A Turn's input holds the ones taken and received by

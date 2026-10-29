@@ -72,9 +72,17 @@ async function deliver(
     .from(botTrigger)
     .where(eq(botTrigger.id, `email:${messageId}`));
   if (alreadySeen) return redelivery;
+  // A paused Bot's mail keeps no files (spec #1007), so they aren't stored only to be deleted. The
+  // transaction checks again under the lock.
+  const [pausing] = await sdk.db
+    .select({ pausedAt: bot.pausedAt })
+    .from(bot)
+    .where(eq(bot.id, owner.botId));
 
   // The owner's attachments go to the blob store like a composer's files; the others stay named.
-  const { stored, unkept } = await storeMailFiles(sdk, mail.files ?? []);
+  const { stored, unkept } = pausing?.pausedAt
+    ? { stored: [], unkept: [] }
+    : await storeMailFiles(sdk, mail.files ?? []);
   const body = emailText(
     { ...mail, attachments: mail.files ? unkept : mail.attachments },
     channel.domain,

@@ -465,10 +465,6 @@ async function decide(
       .where(eq(botReview.id, reviewId));
     if (!owner) return null;
     await lockConversation(tx, owner.conversationId);
-    // A paused Bot runs no work (spec #1007): a yes is refused, and the Approval stays as it was.
-    if (change.state === "allowed" && (await pauseOf(tx, owner.conversationId))?.paused) {
-      throw rpcError("CONFLICT", "error.botPausedApproval", "Bot is paused. Resume to approve.");
-    }
     if (change.state === "pending") {
       const moved = await goPending(deps, tx, eq(botReview.id, reviewId));
       if (moved.length === 0) return null;
@@ -495,6 +491,11 @@ async function decide(
       ? inTime || late || (row.state === "pending" && row.expiresAt !== null && row.expiresAt > now)
       : row.state === "waiting";
     if (!open) return null;
+    // A paused Bot runs no work (spec #1007): a yes to an open Approval is refused, and it stays as
+    // it was. A closed one answers as closed.
+    if (change.state === "allowed" && (await pauseOf(tx, owner.conversationId))?.paused) {
+      throw rpcError("CONFLICT", "error.botPausedApproval", "Bot is paused. Resume to approve.");
+    }
     const [changed] = await tx
       .update(botReview)
       .set(late ? { ...change, expiresAt: pendingExpiresAt } : change)

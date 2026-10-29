@@ -9,7 +9,7 @@ import { and, eq } from "drizzle-orm";
 import { message } from "../../storage";
 import type { BotSdkContext } from "../../plugin";
 import { rpcError } from "../../rpc-error";
-import { lockConversation, receive, type ReceivedTrigger } from "./router";
+import { lockConversation, pauseOf, receive, type ReceivedTrigger } from "./router";
 import { controlOf, controlParts, findBot, hintChanged, recordBotChange } from "../conversation";
 
 /** The Trigger id of the answer to the choice on Message `messageId`: one answer, one Trigger. */
@@ -57,6 +57,10 @@ export async function answerChoice(
     if (!row || !choice) throw rpcError("NOT_FOUND", "error.messageNotFound", "Message not found");
     if (choice.answer) {
       throw rpcError("CONFLICT", "error.choiceAnswered", "This question was already answered");
+    }
+    // A paused Bot hears nothing (spec #1007): the answer is refused, so the choice stays open.
+    if ((await pauseOf(tx, found.conversationId))?.paused) {
+      throw rpcError("CONFLICT", "error.botPaused", "Bot is paused. Resume to send.");
     }
     const text = free ?? ("option" in answer ? answer.option : "");
     const valid = free !== undefined ? choice.other && free !== "" : choice.options.includes(text);

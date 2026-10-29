@@ -14,7 +14,7 @@ import {
 } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { findBot } from "../../src/bot/conversation";
-import { textParts } from "../../src/bot/conversation/store";
+import { controlParts, textParts } from "../../src/bot/conversation/store";
 import { handleRoutineWebhook, routineFireJobName, webhookTokenHash } from "../../src/bot/routines";
 import { fireKey } from "../../src/bot/routines/routine";
 import { checkInFireJobName, checkInKey } from "../../src/bot/routines/check-in";
@@ -202,12 +202,13 @@ const callWebhook = (deps: TestDeps, token: string, body = '{"deploy":"ok"}') =>
 
 describe("bots.pause", () => {
   it(
-    "stops the Turn and the Helpers, skips the queue with reason paused, and keeps each Routine's state",
+    "stops the Turn and the Helpers, skips the queue and what the stopped Turn never took with reason paused, and keeps each Routine's state",
     { timeout },
     async () => {
       const { client, botId, conversationId, turnId, routines } = await pausableBot();
       // The runner is idle, so the Turn this send starts stays running with its job queued.
-      await client.bots.send({ botId, id: uuidv7(), text: "Hello" });
+      const hello = uuidv7();
+      await client.bots.send({ botId, id: hello, text: "Hello" });
       const [running] = (await turnsOf(botId)).filter((turn) => turn.status === "running");
       expect(running).toBeDefined();
       const db = getTestDb();
@@ -242,6 +243,9 @@ describe("bots.pause", () => {
       const [skipped] = await db.select().from(botTrigger).where(eq(botTrigger.id, queued));
       expect(skipped).toMatchObject({ turnId: null, skipReason: "paused" });
       expect(skipped?.skippedAt).not.toBeNull();
+      // The Turn the Message started never ran, so its Trigger is dropped too, not handed on.
+      const [taken] = await db.select().from(botTrigger).where(eq(botTrigger.id, hello));
+      expect(taken).toMatchObject({ turnId: null, skipReason: "paused" });
       expect(await stateOf(routines.scheduled)).toBe("active");
       expect(await stateOf(routines.paused)).toBe("paused");
       expect(await stateOf(routines.webhook)).toBe("active");
@@ -249,9 +253,12 @@ describe("bots.pause", () => {
       const tasks = await client.bots.tasks({ botId });
       expect(tasks.inProgress.turn).toBeNull();
       expect(tasks.scheduled.triggers).toEqual([]);
-      expect(tasks.done.skipped.map((trigger) => [trigger.id, trigger.skipReason])).toEqual([
-        [queued, "paused"],
-      ]);
+      expect(tasks.done.skipped.map((trigger) => [trigger.id, trigger.skipReason]).sort()).toEqual(
+        [
+          [hello, "paused"],
+          [queued, "paused"],
+        ].sort(),
+      );
     },
   );
 
@@ -297,7 +304,7 @@ describe("bots.pause", () => {
   );
 
   it(
-    "refuses a user Message and an Approval's yes while paused; the Approval stays pending",
+    "refuses a user Message, a choice's answer and an open Approval's yes while paused, and changes none of them; a closed Approval answers as closed",
     { timeout },
     async () => {
       const { client, botId, conversationId, turnId } = await pausableBot();
@@ -319,6 +326,31 @@ describe("bots.pause", () => {
           expiresAt,
           createdAt: sunday,
         });
+      const closedId = uuidv7();
+      await getTestDb()
+        .insert(botReview)
+        .values({
+          id: closedId,
+          botId,
+          turnId,
+          toolCallId: uuidv7(),
+          tool: "shell",
+          input: { command: "rm -rf build" },
+          summary: "Deletes the build",
+          verdict: "block",
+          reason: "Destructive",
+          state: "expired",
+          createdAt: sunday,
+        });
+      const choice = { kind: "choice" as const, options: ["Red", "Blue"], other: false };
+      const asked = await getTestDb().transaction((tx) =>
+        appendMessage(tx, conversationId, {
+          role: "assistant",
+          parts: controlParts("Which color?", choice),
+          status: "complete",
+          createdAt: sunday,
+        }),
+      );
       await client.bots.pause({ botId });
 
       await expect(
@@ -328,8 +360,16 @@ describe("bots.pause", () => {
         code: "CONFLICT",
         data: { code: "error.botPausedApproval" },
       });
+      await expect(
+        client.bots.choose({ botId, messageId: asked.id, answer: { option: "Red" } }),
+      ).rejects.toMatchObject({ code: "CONFLICT", data: { code: "error.botPaused" } });
+      await expect(client.reviews.allow({ reviewId: closedId })).resolves.toEqual({
+        decided: false,
+        state: "expired",
+      });
 
-      expect((await client.bots.get({ botId })).messages).toEqual([]);
+      const { messages } = await client.bots.get({ botId });
+      expect(messages.map((shown) => [shown.id, shown.control])).toEqual([[asked.id, choice]]);
       expect(await triggersOf(conversationId)).toEqual([]);
       const [review] = await getTestDb().select().from(botReview).where(eq(botReview.id, reviewId));
       expect(review).toMatchObject({ state: "pending", expiresAt });

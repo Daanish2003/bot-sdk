@@ -1,6 +1,6 @@
-import { and, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, notExists, or, sql } from "drizzle-orm";
 
-import { bot } from "../../storage";
+import { bot, botTrigger, botTurn } from "../../storage";
 import type { BotSdkContext } from "../../plugin";
 import { rpcError } from "../../rpc-error";
 import { findBot, hintChanged, recordBotChange } from "../conversation";
@@ -30,7 +30,32 @@ export async function pauseBot(deps: BotSdkContext, userId: string, botId: strin
     // Skipped before the Stop, so the Turn it ends finds the line empty and none follows it.
     await skipWaiting(tx, found.conversationId, "paused", now);
     const running = await runningTurnOf(tx, botId);
-    if (running) await cancelTurn(deps, tx, running, "stop");
+    if (running && (await cancelTurn(deps, tx, running, "stop"))) {
+      // A Turn stopped before it took its input leaves its Triggers new; the pause discards them,
+      // as if they had still waited. A skipped Trigger has no Turn.
+      await tx
+        .update(botTrigger)
+        .set({ turnId: null, skippedAt: now, skipReason: "paused" })
+        .where(
+          and(
+            eq(botTrigger.turnId, running),
+            notExists(
+              tx
+                .select({ id: botTurn.id })
+                .from(botTurn)
+                .where(
+                  and(
+                    eq(botTurn.id, running),
+                    or(
+                      isNotNull(botTurn.input),
+                      sql`jsonb_array_length(${botTurn.transcript}) > 0`,
+                    ),
+                  ),
+                ),
+            ),
+          ),
+        );
+    }
     await stopHelpers(deps, tx, botId);
     await recordBotChange(tx, found, "bot", botId, now);
     return true;
