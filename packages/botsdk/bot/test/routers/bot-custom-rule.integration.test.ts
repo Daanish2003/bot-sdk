@@ -392,6 +392,27 @@ describe("a Bot proposes a Custom Rule", () => {
     expect(await client.rules.list()).toHaveLength(1);
   });
 
+  it(
+    "tells the reviewer of the woken Turn about the answer, without reading it as a review",
+    { timeout },
+    async () => {
+      const { client, botId, reviewer } = await botWith([
+        ...proposing(),
+        round(toolCall({ name: "shell", input: { command: "ls" } })),
+        round(toolCall({ name: "send_to_user", input: { text: "Done.", endTurn: true } })),
+      ]);
+      await send(client, botId, "propose it");
+      const [rule] = await client.rules.list();
+
+      await client.rules.approve({ ruleId: rule!.id });
+
+      await expect.poll(() => reviewer.calls.length, { timeout: 10_000 }).toBe(1);
+      expect(String(messagesOf(reviewer.calls[0])[0]?.content)).toContain(
+        "The user's answer to a Custom Rule the Bot proposed",
+      );
+    },
+  );
+
   it("denying deletes the rule and wakes the Bot", { timeout }, async () => {
     const { client, botId, fake } = await botWith(proposing());
     await send(client, botId, "propose it");

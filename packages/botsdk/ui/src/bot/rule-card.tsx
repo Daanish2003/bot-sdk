@@ -7,13 +7,20 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import type { CustomRule } from "@botsdk/client/bot/rule";
+import type { CustomRule, CustomRuleMode } from "@botsdk/client/bot/rule";
+import type { MessageKey } from "@botsdk/client/i18n";
 import { ScrollTextIcon } from "lucide-react";
 import { useId } from "react";
 
 import { useI18n } from "@botsdk/react/provider";
-import { modeKeys } from "../settings/rules-page";
 import { useRefusalToast } from "./refusal-toast";
+
+export const modeKeys = {
+  without_asking: "settings.ruleModeWithoutAsking",
+  pre_approved: "settings.ruleModePreApproved",
+  ask: "settings.ruleModeAsk",
+  hand_off: "settings.ruleModeHandOff",
+} as const satisfies Record<CustomRuleMode, MessageKey>;
 
 /**
  * A Custom Rule a Bot proposed (spec #989), in the thread, the Waiting popover and the rules page:

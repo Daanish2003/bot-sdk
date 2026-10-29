@@ -191,7 +191,8 @@ export const proposeRuleToolName = "propose_rule";
 export const ruleProposedResult = "Proposed; it applies once the user approves it.";
 
 /** The id of rule `ruleId`'s Approval Trigger: one per rule, so a repeat is dropped. */
-export const ruleApprovalTriggerId = (ruleId: string) => `approval:rule:${ruleId}`;
+/** Not under `approval:`, which is a review id's prefix. */
+export const ruleApprovalTriggerId = (ruleId: string) => `rule-approval:${ruleId}`;
 
 /** What a rule's Approval Trigger wakes the Bot with: which proposed rule the user answered, and how. */
 export function ruleApprovalTriggerText(

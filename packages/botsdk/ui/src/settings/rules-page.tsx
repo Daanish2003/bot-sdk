@@ -10,20 +10,12 @@ import {
 } from "@botsdk/client/bot/rule";
 import { useState } from "react";
 
-import type { MessageKey } from "@botsdk/client/i18n";
 import { newRuleKey, useCustomRules, useNeverAllowed } from "@botsdk/react/bot/rules";
 import { useI18n } from "@botsdk/react/provider";
 import { useRefusalToast } from "../bot/refusal-toast";
-import { RuleCard } from "../bot/rule-card";
+import { modeKeys, RuleCard } from "../bot/rule-card";
 
 type Rules = ReturnType<typeof useCustomRules>;
-
-export const modeKeys = {
-  without_asking: "settings.ruleModeWithoutAsking",
-  pre_approved: "settings.ruleModePreApproved",
-  ask: "settings.ruleModeAsk",
-  hand_off: "settings.ruleModeHandOff",
-} as const satisfies Record<CustomRuleMode, MessageKey>;
 
 /** The four modes as pills: one is chosen. */
 function ModePills({
