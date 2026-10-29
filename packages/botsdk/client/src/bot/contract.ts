@@ -241,8 +241,8 @@ const bots = {
   resume: oc.input(botInput).output(type<void>()),
   /**
    * Resets the user's Bot (spec #1007): it drops its Routines, Check-ins, Helpers and pending
-   * Approvals, and its Conversation gets a reset mark. `name` must be the
-   * Bot's name. Another user's Bot is not found.
+   * Approvals, each enabled feature forgets it (Memory deletes its files), and its Conversation
+   * gets a reset mark. `name` must be the Bot's name. Another user's Bot is not found.
    */
   reset: oc.input(resetBotInput).output(type<void>()),
   /**

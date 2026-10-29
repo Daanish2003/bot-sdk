@@ -1,7 +1,7 @@
 import type { BotMemoryChange, MemoryTier } from "@botsdk/client/memory/changes";
 import { searchTextOf } from "@botsdk/client/message-parts";
 import type { ModelMessage } from "@tanstack/ai";
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, gt, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { bot, botTrigger, botTurn, message } from "@botsdk/bot/storage";
@@ -146,6 +146,19 @@ async function runBotMemoryPass(
     .innerJoin(bot, eq(bot.id, botTurn.botId))
     .where(eq(botTurn.id, turnId));
   if (!turn || (turn.status !== "complete" && turn.status !== "stopped")) return;
+  // A Turn from before the Bot's reset is one it forgot (spec #1007): nothing of it is written.
+  const [reset] = await deps.db
+    .select({ id: message.id })
+    .from(message)
+    .where(
+      and(
+        eq(message.conversationId, turn.conversationId),
+        eq(message.role, "reset"),
+        gt(message.createdAt, turn.startedAt),
+      ),
+    )
+    .limit(1);
+  if (reset) return;
   const computer = () => deps.computer.forUser(turn.userId);
 
   const changes = await deps.db.transaction(async (lock) => {

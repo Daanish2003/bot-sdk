@@ -22,6 +22,27 @@ export function memoryDirectory(botId: string): string {
   return `/home/user/bots/${botId}/memory`;
 }
 
+/**
+ * Deletes Bot `botId`'s memory directory on its user's Computer (Bot reset, spec #1007): its
+ * Profile, Log and Notes, so no Bot sees its Profile again. A user with no Computer has no files,
+ * so none is woken or created. Throws when the command fails.
+ */
+export async function forgetBotMemory(
+  { db, computer: computers }: Pick<FeatureContext<"computer">, "db" | "computer">,
+  botId: string,
+  userId: string,
+): Promise<void> {
+  const [row] = await db
+    .select({ userId: computerTable.userId })
+    .from(computerTable)
+    .where(eq(computerTable.userId, userId));
+  if (!row) return;
+  const result = await computers.forUser(userId).run(`rm -rf -- '${memoryDirectory(botId)}'`);
+  if (!("exitCode" in result) || result.exitCode !== 0) {
+    throw new Error(`Deleting the memory of Bot ${botId} failed: ${result.stderr}`);
+  }
+}
+
 /** A Bot's Profile: core facts about the user, one per line. */
 export const profilePath = (botId: string) => `${memoryDirectory(botId)}/profile.md`;
 

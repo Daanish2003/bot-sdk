@@ -5,7 +5,13 @@ import { z } from "zod";
 import { defineFeature } from "@botsdk/bot/feature";
 import { isComputerFailure } from "@botsdk/bot/computer/internal";
 import { botMemoryPassJob, enqueueBotMemoryPass } from "./bot-pass";
-import { botMemorySnapshot, botsOf, exportBotMemory, memoryDirectory } from "./bot-memory";
+import {
+  botMemorySnapshot,
+  botsOf,
+  exportBotMemory,
+  forgetBotMemory,
+  memoryDirectory,
+} from "./bot-memory";
 import { memoryChangeNotes } from "./change-notes";
 import { memorySettings } from "./db/settings";
 import { memoryEnabledFor } from "./manage";
@@ -96,6 +102,8 @@ export function memory() {
       };
     },
     afterTurn: (tx, turn, context) => enqueueBotMemoryPass(context, tx, turn.id),
+    // A reset Bot's own files go, whether or not Memory is on (spec #1007).
+    resetBot: (botId, userId, context) => forgetBotMemory(context, botId, userId),
     jobs: [botMemoryPassJob],
     userData: {
       delete: {

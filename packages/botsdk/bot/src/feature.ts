@@ -265,6 +265,12 @@ export type FeatureDefinition<
    */
   afterTurn?: (tx: Transaction, turn: FeatureTurn, context: FeatureContext<Needs>) => Promise<void>;
   /**
+   * Forgets Bot `botId` of user `userId` (Bot reset, spec #1007): what the feature keeps of the Bot
+   * itself, such as Memory's files, goes. Called once the reset commits; a throw is logged and the
+   * reset stands.
+   */
+  resetBot?: (botId: string, userId: string, context: FeatureContext<Needs>) => Promise<void>;
+  /**
    * What the Turn changed of the feature, read from its transcript as the Turn ends (stopped and
    * lost ones too, from what they recorded), with no reads or writes: the core stores it on the
    * Turn. A throw is logged and stores none of the feature's changes.
