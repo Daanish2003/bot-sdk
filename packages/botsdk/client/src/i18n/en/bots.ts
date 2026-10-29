@@ -255,6 +255,8 @@ description: Use this when
   "bots.emailChannel": "email",
   "bots.reviewAllow": "Allow",
   "bots.reviewDeny": "Deny",
+  "bots.ruleProposed": "Rule proposed",
+  "bots.ruleAdded": ({ text }: { text: string }) => `Rule added: ${text}`,
   "bots.waiting": ({ count }: { count: number }) => `Waiting ${count}`,
   "bots.waitingApprove": "Approve",
   "bots.waitingNothing": "Nothing is waiting for you",

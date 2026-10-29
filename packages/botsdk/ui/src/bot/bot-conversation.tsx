@@ -16,6 +16,7 @@ import { useBotCheckIns } from "@botsdk/react/bot/check-ins";
 import { useDemonstrationActions } from "@botsdk/react/bot/demonstrations";
 import { allHelpers, useBotHelpers } from "@botsdk/react/bot/helpers";
 import { useBotReviews } from "@botsdk/react/bot/reviews";
+import { useCustomRules } from "@botsdk/react/bot/rules";
 import { useBotRoutines } from "@botsdk/react/bot/routines";
 import { useBotChoices } from "@botsdk/react/bot/choices";
 import { useBotReactions } from "@botsdk/react/bot/reactions";
@@ -102,6 +103,7 @@ function BotConversationView({
   const RoutineApproval =
     controls?.routine_approval ?? defaultRichControlRenderers.routine_approval;
   const ReviewApproval = controls?.review_approval ?? defaultRichControlRenderers.review_approval;
+  const RuleApproval = controls?.rule_approval ?? defaultRichControlRenderers.rule_approval;
   const i18n = useI18n();
   const { t } = i18n;
   const [draft, setDraft] = useState("");
@@ -161,6 +163,7 @@ function BotConversationView({
     save: saveSecret,
     remove: removeSecret,
   } = useBotSecrets(botId);
+  const customRules = useCustomRules();
   const { acting: actingChoices, answer: answerChoice } = useBotChoices(botId);
   const { acting: actingReactions, react } = useBotReactions(botId);
   const { acting: actingDemonstrations, act: actOnDemonstration } = useDemonstrationActions(botId);
@@ -462,6 +465,20 @@ function BotConversationView({
                       onAllow={allowReview}
                       onDeny={denyReview}
                       acting={actingReviews.has(review.id)}
+                    />
+                  )
+                );
+              })()}
+            {control?.kind === "rule_approval" &&
+              (() => {
+                const rule = customRules.rules.find((found) => found.id === control.ruleId);
+                return (
+                  rule && (
+                    <RuleApproval
+                      rule={rule}
+                      onApprove={customRules.approve}
+                      onDeny={customRules.deny}
+                      acting={customRules.acting.has(rule.id)}
                     />
                   )
                 );

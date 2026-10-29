@@ -43,6 +43,7 @@ export const settingsMessages = {
   "settings.neverAllowedTitle": "Never allowed",
   "settings.neverAllowedIntro":
     "Your Bots never do these, whatever your rules or Approvals say. They tell you to do it yourself. You can't change this list.",
+  "settings.rulesProposedTitle": "Proposed by your Bots",
   "settings.addRule": "Add a rule",
   "settings.saveRule": "Save rule",
   "settings.ruleText": "Rule",

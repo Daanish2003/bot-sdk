@@ -28,11 +28,15 @@ export {
   type ReviewVerdict,
 } from "./review";
 export {
+  approveRule,
   createRule,
   customRulesHeader,
   customRulesPrompt,
   deleteRule,
+  denyRule,
   listRules,
+  proposeRule,
+  proposeRuleToolName,
   reviewedRules,
   updateRule,
 } from "./custom-rule";

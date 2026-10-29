@@ -295,13 +295,15 @@ export const rulesContract = {
 
 export type RulesContract = typeof rulesContract;
 
-/** The rules methods the SDK serves: `approve` and `deny` follow with Bots proposing rules. */
+/** The rules methods the SDK serves. */
 const rules = {
   list: rulesContract.list,
   neverAllowed: rulesContract.neverAllowed,
   create: rulesContract.create,
   update: rulesContract.update,
   delete: rulesContract.delete,
+  approve: rulesContract.approve,
+  deny: rulesContract.deny,
 };
 
 /**

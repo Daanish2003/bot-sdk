@@ -14,10 +14,11 @@ import type { MessageKey } from "@botsdk/client/i18n";
 import { newRuleKey, useCustomRules, useNeverAllowed } from "@botsdk/react/bot/rules";
 import { useI18n } from "@botsdk/react/provider";
 import { useRefusalToast } from "../bot/refusal-toast";
+import { RuleCard } from "../bot/rule-card";
 
 type Rules = ReturnType<typeof useCustomRules>;
 
-const modeKeys = {
+export const modeKeys = {
   without_asking: "settings.ruleModeWithoutAsking",
   pre_approved: "settings.ruleModePreApproved",
   ask: "settings.ruleModeAsk",
@@ -160,11 +161,12 @@ function NewRuleRow({
  */
 export function RulesPage() {
   const { t } = useI18n();
-  const { rules, loading, acting, create, update, remove } = useCustomRules();
+  const { rules, loading, acting, create, update, remove, approve, deny } = useCustomRules();
   const neverAllowed = useNeverAllowed();
   const [adding, setAdding] = useState(false);
-  // A rule a Bot proposed waits for the user's Approval elsewhere: it isn't in force to edit here.
+  // A rule a Bot proposed isn't in force to edit: it waits for Approve or Deny, in its own list.
   const active = rules.filter((rule) => rule.state === "active");
+  const proposed = rules.filter((rule) => rule.state === "proposed");
   const full = active.length >= maxActiveCustomRules;
 
   return (
@@ -173,6 +175,26 @@ export function RulesPage() {
         <h1 className="text-xl font-semibold">{t("settings.rulesTitle")}</h1>
         <p className="text-sm text-muted-foreground">{t("settings.rulesIntro")}</p>
       </div>
+
+      {proposed.length > 0 && (
+        <section className="space-y-2" aria-labelledby="proposed-rules-title">
+          <h2 id="proposed-rules-title" className="text-sm font-semibold">
+            {t("settings.rulesProposedTitle")}
+          </h2>
+          <ul aria-labelledby="proposed-rules-title" className="flex flex-col gap-2">
+            {proposed.map((rule) => (
+              <li key={rule.id} className="flex flex-col">
+                <RuleCard
+                  rule={rule}
+                  onApprove={approve}
+                  onDeny={deny}
+                  acting={acting.has(rule.id)}
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="space-y-2">
         <div className="flex items-center justify-between gap-2">

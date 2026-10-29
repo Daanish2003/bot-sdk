@@ -123,6 +123,12 @@ const rules = os.rules.router({
   delete: os.rules.delete.handler(({ context, input }) =>
     context.sdk.rules.delete({ ...input, userId: context.user.id }),
   ),
+  approve: os.rules.approve.handler(({ context, input }) =>
+    context.sdk.rules.approve({ ...input, userId: context.user.id }),
+  ),
+  deny: os.rules.deny.handler(({ context, input }) =>
+    context.sdk.rules.deny({ ...input, userId: context.user.id }),
+  ),
 });
 
 const secrets = os.secrets.router({
