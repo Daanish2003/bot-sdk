@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { and, eq, sql } from "drizzle-orm";
 
 import {
@@ -5,7 +7,10 @@ import {
   type FileBytes,
   messagingBody,
   type MessagingAdapter,
+  MessagingSendError,
   type DeliveryPayload,
+  type OutboundMessage,
+  type SendProgress,
 } from "../../channel/internal";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { PermanentJobError } from "../../runner/internal";
@@ -28,6 +33,53 @@ export function shownButtonsOf(parts: { [key: string]: unknown }): ShownButtons 
     typeof shown.messageId === "string"
     ? (shown as ShownButtons)
     : undefined;
+}
+
+/**
+ * How far a failed send of a Message on a messaging Channel got: kept on its parts (`sentOn`), so
+ * the `channel.deliver` retry resumes after the parts the user already has (ticket #1067).
+ */
+type SentOn = SendProgress & { platform: string; chatId: string; body: string };
+
+/**
+ * A digest of what a send carries. The parts a failed send got out line up with the retry's only
+ * when it is the same (a file whose bytes are gone since is a link in the text instead).
+ */
+function bodyDigest({ text, buttons, files = [] }: Omit<OutboundMessage, "chatId">): string {
+  const shape = files.map(({ name, contentType, content }) => [name, contentType, content.length]);
+  return createHash("sha256")
+    .update(JSON.stringify([text, buttons ?? null, shape]))
+    .digest("base64url");
+}
+
+/**
+ * What a failed send of this same `body` to `chatId` on `platform` got out, by the Message's stored
+ * parts.
+ */
+function sentOnOf(
+  parts: { [key: string]: unknown },
+  target: Pick<SentOn, "platform" | "chatId" | "body">,
+): SendProgress | undefined {
+  const sentOn = parts.sentOn as SentOn | undefined;
+  if (
+    sentOn?.platform !== target.platform ||
+    sentOn.chatId !== target.chatId ||
+    sentOn.body !== target.body
+  ) {
+    return undefined;
+  }
+  const { platform: _platform, chatId: _chatId, body: _body, ...progress } = sentOn;
+  return progress;
+}
+
+/** Sets one key of Message `messageId`'s parts in place, so a concurrent write of the others stays. */
+function setPartsKey(deps: BotSdkContext, messageId: string, key: string, value: unknown) {
+  return deps.db
+    .update(message)
+    .set({
+      parts: sql`jsonb_set(${message.parts}, ${`{${key}}`}::text[], ${JSON.stringify(value)}::jsonb)`,
+    })
+    .where(eq(message.id, messageId));
 }
 
 /** The messaging platforms each Channels object (`sdk.channels`) has an adapter for. */
@@ -90,7 +142,8 @@ export async function messagingTarget(
  * (markup and splitting are the adapter's job): its text, its Rich control as buttons, files or a
  * link into the app at `appUrl` (`messagingBody`). A Message or Bot deleted since, an unlinked
  * user or a removed or inactive Channel account sends nothing. The platform rejecting the credentials
- * marks the Channel account as needing attention and ends the job, which no retry fixes.
+ * marks the Channel account as needing attention and ends the job, which no retry fixes. A send that
+ * fails after some parts keeps what it sent (`sentOn`), and the retry sends only the rest.
  */
 export async function sendMessagingDelivery(
   deps: BotSdkContext,
@@ -124,14 +177,23 @@ export async function sendMessagingDelivery(
   const found = await listenerAccount(deps, target.accountId);
   if (!found?.account)
     throw new PermanentJobError("The Channel account's credentials can't be read");
+  const sending = { platform, chatId: target.chatId, body: bodyDigest(body) };
+  const resume = sentOnOf(row.parts, sending);
   let sent;
   try {
     sent = await adapter.send(
       found.account,
-      { chatId: target.chatId, ...body },
+      { chatId: target.chatId, ...body, ...(resume && { resume }) },
       { fetch: deps.fetch },
     );
   } catch (error) {
+    if (error instanceof MessagingSendError) {
+      const sentOn: SentOn = { ...sending, ...error.progress };
+      // Without it, the retry sends the parts already sent again.
+      await setPartsKey(deps, messageId, "sentOn", sentOn).catch((saving: unknown) =>
+        deps.logger.error(`Keeping what Bot Message ${messageId} sent failed`, saving),
+      );
+    }
     if (!(error instanceof CredentialsRejectedError)) throw error;
     await markNeedsAttention(deps, target.accountId, found.version, error.reason);
     throw new PermanentJobError(error.message);
@@ -140,12 +202,7 @@ export async function sendMessagingDelivery(
   const shown: ShownButtons = { platform, chatId: target.chatId, messageId: sent.buttonsMessageId };
   try {
     // One key set in place, so a concurrent answer's write of the parts isn't undone.
-    await deps.db
-      .update(message)
-      .set({
-        parts: sql`jsonb_set(${message.parts}, '{buttonsOn}', ${JSON.stringify(shown)}::jsonb)`,
-      })
-      .where(eq(message.id, messageId));
+    await setPartsKey(deps, messageId, "buttonsOn", shown);
   } catch (error) {
     // Sent already, so not retried: only a typed answer leaves these buttons open.
     deps.logger.error(`Keeping where Bot Message ${messageId}'s buttons were sent failed`, error);

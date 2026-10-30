@@ -3,13 +3,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Logger } from "../../src/create-chat";
 import type { BotSdkPlugin } from "../../src/plugin";
-import { linkCode, linkedIdentity } from "../../src/storage";
+import { botTrigger, channelAccount, linkCode, linkedIdentity } from "../../src/storage";
 import { deleteUserData, exportUserData } from "../../src/user-data";
 import { saveCredentials } from "../../src/models/internal";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
+import { CredentialsRejectedError } from "@botsdk/bot/channel/internal";
 import { fakeMessagingAdapter } from "@botsdk/testing/fake-channel";
 
 /*
@@ -80,6 +81,10 @@ const identitiesOf = (userId: string) =>
 
 const codesOf = (userId: string) =>
   getTestDb().select().from(linkCode).where(eq(linkCode.userId, userId));
+
+/** The Bot's Channel account row, or `undefined` before it is saved. */
+const accountOf = async (botId: string) =>
+  (await getTestDb().select().from(channelAccount).where(eq(channelAccount.botId, botId)))[0];
 
 const from = (id: string, handle = `@user${id}`) => ({
   sender: { id, handle },
@@ -172,6 +177,78 @@ describe("an unknown sender's link code", () => {
     await fake.deliver("@bot_2", { ...from("1001"), text: `/start ${code}` });
 
     expect(await identitiesOf(ada.user.id)).toHaveLength(1);
+  });
+
+  it(
+    "keeps the link when the token is rejected sending the notice, and marks the account",
+    timeout,
+    async () => {
+      const { deps, fake } = messagingSdk();
+      const ada = await aBot(deps, "1");
+      await listen(deps, fake, "1");
+      const { code } = await ada.client.channels.identities.linkCode();
+      vi.spyOn(fake.adapter, "send").mockRejectedValueOnce(
+        new CredentialsRejectedError("Unauthorized"),
+      );
+
+      await fake.deliver("@bot_1", { ...from("1001", "@ada"), text: code });
+
+      expect(await identitiesOf(ada.user.id)).toHaveLength(1);
+      expect(await accountOf(ada.botId)).toMatchObject({
+        status: "needs_attention",
+        reason: "Unauthorized",
+      });
+      await expect.poll(() => fake.listening.has("@bot_1"), poll).toBe(false);
+    },
+  );
+
+  it(
+    "takes the sender's next message once the token is fixed, not as a stale link attempt",
+    timeout,
+    async () => {
+      const { deps, fake } = messagingSdk();
+      const ada = await aBot(deps, "1");
+      await listen(deps, fake, "1");
+      const { code } = await ada.client.channels.identities.linkCode();
+      vi.spyOn(fake.adapter, "send").mockRejectedValueOnce(
+        new CredentialsRejectedError("Unauthorized"),
+      );
+      await fake.deliver("@bot_1", { ...from("1001", "@ada"), text: code });
+      await expect.poll(() => fake.listening.has("@bot_1"), poll).toBe(false);
+      const listens = fake.counts.listens;
+
+      await ada.client.channels.accounts.save({
+        botId: ada.botId,
+        platform: "fake",
+        credentials: { token: "1:secret-1" },
+      });
+      await expect.poll(async () => (await accountOf(ada.botId))?.status, poll).toBe("active");
+      await expect.poll(() => fake.listening.has("@bot_1"), poll).toBe(true);
+      expect(fake.counts.listens).toBe(listens + 1);
+      await fake.deliver("@bot_1", { ...from("1001", "@ada"), sourceId: "900", text: "hello" });
+
+      const account = await accountOf(ada.botId);
+      const triggers = await getTestDb()
+        .select()
+        .from(botTrigger)
+        .where(eq(botTrigger.id, `fake:${account!.id}:900`));
+      expect(triggers).toHaveLength(1);
+    },
+  );
+
+  it("logs another failure sending the notice, and keeps the link", timeout, async () => {
+    const error = vi.fn();
+    const { deps, fake } = messagingSdk({ error, debug: () => {} });
+    const ada = await aBot(deps, "1");
+    await listen(deps, fake, "1");
+    const { code } = await ada.client.channels.identities.linkCode();
+    vi.spyOn(fake.adapter, "send").mockRejectedValueOnce(new Error("fetch failed: ECONNRESET"));
+
+    await fake.deliver("@bot_1", { ...from("1001", "@ada"), text: code });
+
+    expect(await identitiesOf(ada.user.id)).toHaveLength(1);
+    expect(await accountOf(ada.botId)).toMatchObject({ status: "active" });
+    expect(error).toHaveBeenCalledWith(expect.any(String), expect.any(Error));
   });
 
   it(

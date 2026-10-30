@@ -57,6 +57,7 @@ export async function receiveMessaging(
   account: MessagingAccount & { platform: string },
   update: MessagingUpdate,
   appUrl: string | null,
+  onRejected: (reason: string) => Promise<void>,
 ): Promise<void> {
   const recent = recentOf(sdk, account.id);
   if (recent.has(update.sourceId)) {
@@ -68,7 +69,7 @@ export async function receiveMessaging(
   recent.add(update.sourceId);
   if (recent.size > recentLimit) recent.delete(recent.values().next().value!);
   try {
-    await receiveOnce(sdk, adapter, account, update, appUrl);
+    await receiveOnce(sdk, adapter, account, update, appUrl, onRejected);
   } catch (error) {
     recent.delete(update.sourceId);
     throw error;
@@ -81,6 +82,7 @@ async function receiveOnce(
   account: MessagingAccount & { platform: string },
   update: MessagingUpdate,
   appUrl: string | null,
+  onRejected: (reason: string) => Promise<void>,
 ): Promise<void> {
   // Called on the logger, so a class-based one keeps its `this`. Never the text.
   const drop = (reason: string) =>
@@ -117,8 +119,10 @@ async function receiveOnce(
       { fetch: sdk.fetch },
     );
   } catch (error) {
-    // The sender is linked already; a failed notice is not retried.
-    if (error instanceof CredentialsRejectedError) throw error;
+    // The sender is linked already, so the update is confirmed and the notice is not retried. A
+    // rejected token stops the account's listener; the next message is handed in once the
+    // credentials are saved again.
+    if (error instanceof CredentialsRejectedError) await onRejected(error.reason);
     sdk.logger.error("Sending the Linked notice failed", error);
   }
 }
