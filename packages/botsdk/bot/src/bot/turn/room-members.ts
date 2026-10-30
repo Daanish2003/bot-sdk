@@ -12,7 +12,13 @@ import {
   recordBotChange,
   roomOf,
 } from "../conversation";
-import { lockConversation, runningTurnOf, skipWaiting, waitingIn } from "../triggers";
+import {
+  lockConversationsInOrder,
+  oneToOnesOf,
+  runningTurnOf,
+  skipWaiting,
+  waitingIn,
+} from "../triggers";
 import { discardUnstarted } from "./pause";
 import { cancelTurn } from "./turn";
 
@@ -32,7 +38,7 @@ async function inRoom<T>(
 ): Promise<T> {
   await findRoom(deps.db, userId, conversationId);
   const result = await deps.db.transaction(async (tx) => {
-    await lockConversation(tx, conversationId);
+    await lockRoom(tx, conversationId);
     const room = await roomOf(tx, conversationId);
     if (!room) throw rpcError("NOT_FOUND", "error.roomNotFound", "Room not found");
     return change(tx, room.members, deps.clock());
@@ -40,6 +46,24 @@ async function inRoom<T>(
   deps.runner.wake();
   await hintChanged(deps, conversationId);
   return result;
+}
+
+/**
+ * Takes the row lock of Room `conversationId` and of its members' 1:1 Conversations, in id order
+ * (`lockConversationsInOrder`): a member's Room Turn that a change here cancels writes its 1:1 too.
+ */
+async function lockRoom(tx: Transaction, conversationId: string) {
+  const members = await tx
+    .select({ botId: botRoomMember.botId })
+    .from(botRoomMember)
+    .where(eq(botRoomMember.conversationId, conversationId));
+  await lockConversationsInOrder(tx, [
+    conversationId,
+    ...(await oneToOnesOf(
+      tx,
+      members.map((member) => member.botId),
+    )),
+  ]);
 }
 
 /**
@@ -207,7 +231,7 @@ export async function deleteRoom(
 ): Promise<void> {
   await findRoom(deps.db, userId, conversationId);
   const afterCommit = await deps.db.transaction(async (tx) => {
-    await lockConversation(tx, conversationId);
+    await lockRoom(tx, conversationId);
     const members = await tx
       .select({ botId: botRoomMember.botId })
       .from(botRoomMember)

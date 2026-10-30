@@ -1,4 +1,4 @@
-import { and, eq, isNull, max, min, or, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNull, max, min, or, type SQL } from "drizzle-orm";
 
 import { bot, botTrigger, botTurn, conversation, message } from "../../storage";
 import { uuidv7 } from "../../lib/uuidv7";
@@ -74,6 +74,34 @@ export async function lockConversation(tx: Transaction, conversationId: string):
     .from(conversation)
     .where(eq(conversation.id, conversationId))
     .for("update");
+}
+
+/**
+ * Takes the row locks of Conversations `ids` in id order (spec #1055). A transaction that locks more
+ * than one Conversation takes them this way, first, so two never wait on each other in a circle:
+ * a Room Turn's end writes its Bot's 1:1 Conversation too (`endTurn`), and a pause locks the 1:1 and
+ * every Room of the Bot.
+ */
+export async function lockConversationsInOrder(tx: Transaction, ids: string[]): Promise<void> {
+  for (const id of [...new Set(ids)].sort()) await lockConversation(tx, id);
+}
+
+/** The ids of Bots `botIds`' 1:1 Conversations. */
+export async function oneToOnesOf(tx: Transaction, botIds: string[]): Promise<string[]> {
+  if (botIds.length === 0) return [];
+  const rows = await tx.select({ id: bot.conversationId }).from(bot).where(inArray(bot.id, botIds));
+  return rows.map((row) => row.id);
+}
+
+/**
+ * Takes the row locks a transaction that ends Bot `botId`'s Turn in `conversationId` needs, in id
+ * order: that Conversation's and, for a Room Turn, the Bot's 1:1 Conversation's.
+ */
+export async function lockTurnConversations(
+  tx: Transaction,
+  { botId, conversationId }: BotConversation,
+): Promise<void> {
+  await lockConversationsInOrder(tx, [conversationId, ...(await oneToOnesOf(tx, [botId]))]);
 }
 
 /**

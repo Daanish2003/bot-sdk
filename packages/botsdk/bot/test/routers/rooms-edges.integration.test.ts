@@ -1,7 +1,8 @@
-import { and, asc, eq } from "drizzle-orm";
+import type { TextOptions } from "@tanstack/ai";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { bot, botTrigger, botTurn, message } from "../../src/storage";
+import { bot, botTrigger, botTurn, conversation, message } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner } from "../../src/runner/internal";
@@ -125,6 +126,103 @@ describe("a retried Room send", () => {
         client.rooms.send({ conversationId: room.conversationId, id, text: "Together" }),
       ).rejects.toMatchObject({ data: { code: "error.messageIdTaken" } });
       expect(await oneToOneOf(scout.id)).not.toBe(room.conversationId);
+    },
+    timeout,
+  );
+});
+
+/** `fake`'s adapter, holding each call until `open()`, or until its Turn is stopped. */
+function held(fake: FakeAdapter) {
+  const entered: TextOptions[] = [];
+  let open = () => {};
+  const opened = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  const adapter: typeof fake.adapter = {
+    ...fake.adapter,
+    chatStream: async function* (options) {
+      entered.push(options);
+      const signal = options.request?.signal ?? undefined;
+      await Promise.race([
+        opened,
+        new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve())),
+      ]);
+      if (signal?.aborted) return;
+      yield* fake.adapter.chatStream(options);
+    },
+  };
+  return { adapter, entered, open: () => open() };
+}
+
+/** Holds Conversation `conversationId`'s row lock in a transaction of its own until `release()`. */
+async function holdLock(conversationId: string) {
+  let release = () => {};
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let locked = () => {};
+  const isLocked = new Promise<void>((resolve) => {
+    locked = resolve;
+  });
+  const done = getTestDb().transaction(async (tx) => {
+    await tx
+      .select({ id: conversation.id })
+      .from(conversation)
+      .where(eq(conversation.id, conversationId))
+      .for("update");
+    locked();
+    await released;
+  });
+  await isLocked;
+  return {
+    release: async () => {
+      release();
+      await done;
+    },
+  };
+}
+
+/** How many sessions of this database wait on a lock. */
+const lockWaits = async () => {
+  const { rows } = await getTestDb().execute<{ n: number }>(
+    sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`,
+  );
+  return rows[0]!.n;
+};
+
+/** Whether Conversation `conversationId`'s row lock is free now. */
+const lockIsFree = (conversationId: string) =>
+  getTestDb().transaction(async (tx) => {
+    try {
+      await tx.execute(
+        sql`select ${conversation.id} from ${conversation} where ${conversation.id} = ${conversationId} for update nowait`,
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+describe("Conversation row locks", () => {
+  it(
+    "a Room Turn's end takes its Bot's 1:1 lock before the Room's, as a pause does",
+    async () => {
+      const gate = held(createFakeAdapter({ rounds: [says("Done.")] }));
+      const { client, scout, room } = await threeBotRoom([], gate.adapter);
+      const conversationId = room.conversationId;
+      await client.rooms.send({ conversationId, text: "Go" });
+      await expect.poll(() => gate.entered.length, poll).toBe(1);
+
+      // A pause holds the 1:1's lock and is about to take the Room's (`lockConversations`).
+      const pause = await holdLock(await oneToOneOf(scout.id));
+      gate.open();
+      await expect.poll(lockWaits, poll).toBeGreaterThan(0);
+      // The Turn's end waits for the 1:1 holding nothing in the Room, so the pause goes on.
+      const free = await lockIsFree(conversationId);
+      await pause.release();
+
+      expect(free).toBe(true);
+      await expect.poll(() => statusesOf(scout.id, conversationId), poll).toEqual(["complete"]);
     },
     timeout,
   );

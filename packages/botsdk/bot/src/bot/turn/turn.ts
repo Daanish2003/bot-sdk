@@ -23,6 +23,9 @@ import {
   botTurnJobName,
   isPaused,
   lockConversation,
+  lockConversationsInOrder,
+  lockTurnConversations,
+  oneToOnesOf,
   receive,
   runningTurnOf,
   startTurn,
@@ -288,7 +291,14 @@ export async function postToRoom(
   if (targets.length === 0) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
   const zone = timeZone ?? (await userTimeZone(deps.db, userId));
   const posted = await deps.db.transaction(async (tx) => {
-    await lockConversation(tx, conversationId);
+    // The Room with its targets' 1:1 Conversations, in id order: an interrupted Turn's end writes both.
+    await lockConversationsInOrder(tx, [
+      conversationId,
+      ...(await oneToOnesOf(
+        tx,
+        targets.map((target) => target.botId),
+      )),
+    ]);
     // A repeat of an earlier send (#498) is checked before the Quota, as `sendToBot` checks it.
     if (id) {
       const earlier = await seenMessage(tx, conversationId, id);
@@ -527,7 +537,7 @@ async function runTurnJob(
     // A thrown activity recorded nothing: the job retries it.
     if (played.failure !== undefined) throw played.failure;
     await ctx.step("end_turn", async (tx) => {
-      await lockConversation(tx, turn.conversationId);
+      await lockTurnConversations(tx, turn);
       const endedAt = deps.clock();
       await endTurn(tx, turnId, {
         ...endingOf(played),
@@ -608,7 +618,7 @@ async function endRunningTurn(
   played: PlayedTurn,
 ) {
   const ended = await deps.db.transaction(async (tx) => {
-    await lockConversation(tx, turn.conversationId);
+    await lockTurnConversations(tx, turn);
     const endedAt = deps.clock();
     const rows = await tx
       .update(botTurn)
