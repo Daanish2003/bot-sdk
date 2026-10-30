@@ -63,14 +63,21 @@ export function toMarkdownV2(markdown: string): string {
   return out + convertInline(markdown.slice(last));
 }
 
-/** Cuts the longest prefix of `text` whose conversion fits `room`, preferring a line end. */
-function takePart(text: string, room: number): number {
-  if (toMarkdownV2(text).length <= room) return text.length;
+/**
+ * Cuts the longest prefix of `text` whose `length` (its conversion, by default) fits `room`,
+ * preferring a line end.
+ */
+function takePart(
+  text: string,
+  room: number,
+  length: (text: string) => number = (part) => toMarkdownV2(part).length,
+): number {
+  if (length(text) <= room) return text.length;
   let low = 1;
   let high = text.length;
   while (low < high) {
     const mid = Math.ceil((low + high) / 2);
-    if (toMarkdownV2(text.slice(0, mid)).length <= room) low = mid;
+    if (length(text.slice(0, mid)) <= room) low = mid;
     else high = mid - 1;
   }
   const last = text.charCodeAt(low - 1);
@@ -81,8 +88,23 @@ function takePart(text: string, room: number): number {
   return space > low / 2 ? space + 1 : low;
 }
 
-/** One message to send: its MarkdownV2 text, and the plain text to resend if Telegram can't parse it. */
-export type Part = { markdownV2: string; plain: string };
+/**
+ * One message to send: its MarkdownV2 text, and the plain text to resend if Telegram can't parse
+ * it, cut into messages that each fit the limit (the raw text can be longer than its conversion).
+ */
+export type Part = { markdownV2: string; plain: string[] };
+
+/** `text` cut into pieces of at most the limit, preferring line ends; joined, they are `text`. */
+function plainPieces(text: string): string[] {
+  const pieces: string[] = [];
+  let rest = text;
+  while (rest.length > 0) {
+    const take = takePart(rest, messageLimit, (part) => part.length);
+    pieces.push(rest.slice(0, take));
+    rest = rest.slice(take);
+  }
+  return pieces;
+}
 
 /**
  * The parts of a Markdown text: one when it fits Telegram's limit, otherwise parts numbered
@@ -90,7 +112,7 @@ export type Part = { markdownV2: string; plain: string };
  */
 export function splitParts(markdown: string): Part[] {
   const whole = toMarkdownV2(markdown);
-  if (whole.length <= messageLimit) return [{ markdownV2: whole, plain: markdown }];
+  if (whole.length <= messageLimit) return [{ markdownV2: whole, plain: plainPieces(markdown) }];
   const sources: string[] = [];
   let rest = markdown;
   let reopen = "";
@@ -113,7 +135,7 @@ export function splitParts(markdown: string): Part[] {
   }
   return sources.map((source, index) => ({
     markdownV2: `${toMarkdownV2(source)} \\(${index + 1}/${sources.length}\\)`,
-    plain: `${source} (${index + 1}/${sources.length})`,
+    plain: plainPieces(`${source} (${index + 1}/${sources.length})`),
   }));
 }
 

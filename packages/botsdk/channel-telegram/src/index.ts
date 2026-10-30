@@ -170,33 +170,40 @@ export function telegram({
       const calls = parts.length + files.length;
       const messageIds: string[] = [];
       let buttonsMessageId: string | undefined;
-      const record = (sent: { message_id: number }, index: number) => {
+      const record = (sent: { message_id: number }, buttons: boolean) => {
         messageIds.push(String(sent.message_id));
-        if (replyMarkup && index === calls - 1) buttonsMessageId = String(sent.message_id);
+        if (buttons && replyMarkup) buttonsMessageId = String(sent.message_id);
       };
       for (const [index, part] of parts.entries()) {
-        const reply_markup = index === calls - 1 ? replyMarkup : undefined;
-        const send = (body: Record<string, unknown>) =>
+        const last = index === calls - 1;
+        const send = (body: Record<string, unknown>, buttons: boolean) =>
           callApi<{ message_id: number }>(
             base,
             token,
             "sendMessage",
-            { chat_id: message.chatId, reply_markup, ...body },
+            {
+              chat_id: message.chatId,
+              reply_markup: buttons ? replyMarkup : undefined,
+              ...body,
+            },
             call,
           );
-        const sent = await send({ text: part.markdownV2, parse_mode: "MarkdownV2" }).catch(
-          (error) => {
-            // The converter missed something Telegram refuses: say it plainly instead.
-            if (
-              error instanceof TelegramApiError &&
-              error.description.includes("can't parse entities")
-            ) {
-              return send({ text: part.plain });
-            }
+        try {
+          record(await send({ text: part.markdownV2, parse_mode: "MarkdownV2" }, last), last);
+        } catch (error) {
+          // The converter missed something Telegram refuses: say it plainly instead, in as many
+          // messages as the raw text needs.
+          if (
+            !(error instanceof TelegramApiError) ||
+            !error.description.includes("can't parse entities")
+          ) {
             throw error;
-          },
-        );
-        record(sent, index);
+          }
+          for (const [at, piece] of part.plain.entries()) {
+            const buttons = last && at === part.plain.length - 1;
+            record(await send({ text: piece }, buttons), buttons);
+          }
+        }
       }
       for (const [at, file] of files.entries()) {
         const form = new FormData();
@@ -206,13 +213,11 @@ export function telegram({
           new Blob([file.content as Uint8Array<ArrayBuffer>], { type: file.contentType }),
           file.name,
         );
-        const index = parts.length + at;
-        if (replyMarkup && index === calls - 1) {
-          form.set("reply_markup", JSON.stringify(replyMarkup));
-        }
+        const last = parts.length + at === calls - 1;
+        if (replyMarkup && last) form.set("reply_markup", JSON.stringify(replyMarkup));
         record(
           await callApi<{ message_id: number }>(base, token, "sendDocument", form, call),
-          index,
+          last,
         );
       }
       return { messageIds, buttonsMessageId };

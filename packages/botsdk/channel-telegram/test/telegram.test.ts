@@ -512,6 +512,37 @@ describe("delivery errors and the poll loop", () => {
     expect(second?.body.text).toBe("**hi**.");
   });
 
+  it("splits the plain resend too, so no message passes 4096 characters", async () => {
+    let id = 10;
+    api.replies.set("sendMessage", (body) =>
+      body.parse_mode === "MarkdownV2"
+        ? { status: 400, body: { ok: false, description: "Bad Request: can't parse entities" } }
+        : ok({ message_id: id++ }),
+    );
+    // Its MarkdownV2 (`*a* `) fits one message; the raw text (`**a** `) doesn't.
+    const text = "**a** ".repeat(800).trim();
+    const sent = await adapter().send(
+      account,
+      {
+        chatId: "7",
+        text,
+        buttons: { control: "c1", options: [{ option: "yes", label: "Yes" }] },
+      },
+      call,
+    );
+    const plain = api.of("sendMessage").filter((request) => request.body.parse_mode === undefined);
+    expect(plain.length).toBeGreaterThan(1);
+    for (const request of plain) {
+      expect(String(request.body.text).length).toBeLessThanOrEqual(4096);
+    }
+    expect(plain.map((request) => String(request.body.text)).join("")).toBe(text);
+    expect(plain.slice(0, -1).every((request) => request.body.reply_markup === undefined)).toBe(
+      true,
+    );
+    expect(sent.messageIds).toHaveLength(plain.length);
+    expect(sent.buttonsMessageId).toBe(sent.messageIds.at(-1));
+  });
+
   it("throws MessagingFileTooLargeError when getFile says the file is too big", async () => {
     api.replies.set("getFile", {
       status: 400,
