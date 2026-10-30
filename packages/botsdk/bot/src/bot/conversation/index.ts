@@ -56,6 +56,7 @@ export {
   findRoom,
   isRoomOf,
   listRooms,
+  oneBotRoom,
   roomOf,
   type TurnRoom,
   userTimeZone,

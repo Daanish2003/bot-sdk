@@ -1,10 +1,23 @@
-import { createRoomInput, roomInput, roomSendInput } from "@botsdk/client/bot/contract";
+import {
+  createRoomInput,
+  renameRoomInput,
+  roomInput,
+  roomMemberInput,
+  roomSendInput,
+} from "@botsdk/client/bot/contract";
 
 import { lastSeqOf } from "../chat/change-log";
 import type { BotSdkContext } from "../plugin";
 import { parseInput, type WithUser } from "../rpc-error";
 import { botMessages, createRoom, findRoom, listRooms } from "./conversation";
-import { sendToRoom } from "./turn";
+import {
+  addRoomMember,
+  deleteRoom,
+  removeRoomMember,
+  renameRoom,
+  sendToRoom,
+  setRoomLead,
+} from "./turn";
 
 /**
  * The `rooms` namespace's domain methods (spec #1055), taking the user's id as `bots` does. Each
@@ -41,6 +54,33 @@ export function roomsApi(sdk: BotSdkContext) {
      */
     send: async ({ userId, ...rest }: WithUser<typeof roomSendInput>) =>
       sendToRoom(sdk, { userId, ...parseInput(roomSendInput, rest) }),
+
+    /** Renames the user's Room. */
+    rename: async ({ userId, ...rest }: WithUser<typeof renameRoomInput>) =>
+      renameRoom(sdk, userId, parseInput(renameRoomInput, rest)),
+
+    /**
+     * Adds one of the user's Bots to their Room; it sees the Room's history on its first Turn. A
+     * Bot whose name matches a member's, in any case, is refused.
+     */
+    addMember: async ({ userId, ...rest }: WithUser<typeof roomMemberInput>) =>
+      addRoomMember(sdk, userId, parseInput(roomMemberInput, rest)),
+
+    /**
+     * Removes a member: its waiting Triggers there are skipped and its running Turn there is
+     * cancelled. Refused when two members are left; if the lead went, the earliest remaining
+     * member leads.
+     */
+    removeMember: async ({ userId, ...rest }: WithUser<typeof roomMemberInput>) =>
+      removeRoomMember(sdk, userId, parseInput(roomMemberInput, rest)),
+
+    /** Makes a member the lead. */
+    setLead: async ({ userId, ...rest }: WithUser<typeof roomMemberInput>) =>
+      setRoomLead(sdk, userId, parseInput(roomMemberInput, rest)),
+
+    /** Deletes the user's Room and its Messages; the Bots keep their Memory. */
+    delete: async ({ userId, ...rest }: WithUser<typeof roomInput>) =>
+      deleteRoom(sdk, userId, parseInput(roomInput, rest).conversationId),
   };
 }
 

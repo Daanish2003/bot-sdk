@@ -1,4 +1,5 @@
-import { CrownIcon, UsersIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { CrownIcon, EllipsisIcon, UsersIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -9,6 +10,7 @@ import { serverErrorText } from "@botsdk/react/rpc-error";
 import { BotAvatar } from "./bot-avatar";
 import { RoomComposer } from "./room-composer";
 import { RoomMembers } from "./room-members";
+import { OneBotWarning, RoomSettingsDialog } from "./room-settings";
 
 /**
  * A Room (spec #1055): one column of Messages, each with its author's avatar and name ("deleted
@@ -20,6 +22,7 @@ export function RoomConversation({ conversationId }: { conversationId: string })
   const { t, locale } = i18n;
   const { room, messages, error, send, sending } = useRoom(conversationId);
   const [draft, setDraft] = useState("");
+  const [managing, setManaging] = useState(false);
 
   if (error) {
     return (
@@ -33,7 +36,7 @@ export function RoomConversation({ conversationId }: { conversationId: string })
 
   const submit = () => {
     const text = draft.trim();
-    if (!text || sending) return;
+    if (!text || sending || !room || room.members.length < 2) return;
     setDraft("");
     // A refused send puts its text back in the composer and says why.
     void send(text).catch((refusal) => {
@@ -49,7 +52,17 @@ export function RoomConversation({ conversationId }: { conversationId: string })
         <UsersIcon className="size-4 text-muted-foreground" />
         <h1 className="flex-1 truncate font-semibold">{room.name}</h1>
         <RoomMembers members={room.members} />
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={t("bots.roomMenu")}
+          onClick={() => setManaging(true)}
+        >
+          <EllipsisIcon />
+        </Button>
       </header>
+      {room.members.length < 2 && <OneBotWarning room={room} />}
+      <RoomSettingsDialog room={room} open={managing} onOpenChange={setManaging} />
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
         {messages.length === 0 && (
           <p className="m-auto text-sm text-muted-foreground">{t("bots.noMessages")}</p>
@@ -90,7 +103,13 @@ export function RoomConversation({ conversationId }: { conversationId: string })
           );
         })}
       </div>
-      <RoomComposer members={room.members} draft={draft} setDraft={setDraft} onSend={submit} />
+      <RoomComposer
+        members={room.members}
+        draft={draft}
+        setDraft={setDraft}
+        onSend={submit}
+        disabled={room.members.length < 2}
+      />
     </section>
   );
 }

@@ -150,6 +150,15 @@ export const createRoomInput = z.object({
 /** The input of the methods that act on one of the user's Rooms, besides `userId`. */
 export const roomInput = z.object({ conversationId: z.uuid() });
 
+/** `rooms.rename`'s input, besides `userId`. */
+export const renameRoomInput = z.object({
+  conversationId: z.uuid(),
+  name: z.string().trim().min(1).max(100),
+});
+
+/** The input of the methods that act on one member of a Room, besides `userId`. */
+export const roomMemberInput = z.object({ conversationId: z.uuid(), botId: z.uuid() });
+
 /** `rooms.send`'s input, besides `userId`. */
 export const roomSendInput = z.object({
   conversationId: z.uuid(),
@@ -346,6 +355,16 @@ const rooms = {
   create: oc.input(createRoomInput).output(type<Room>()),
   /** Sends the user's Message to the Room, and returns it: it wakes the lead. */
   send: oc.input(roomSendInput).output(botMessageSchema),
+  /** Renames the Room. */
+  rename: oc.input(renameRoomInput).output(type<void>()),
+  /** Adds one of the user's Bots, which sees the Room's history; a name that clashes is refused. */
+  addMember: oc.input(roomMemberInput).output(type<void>()),
+  /** Removes a member and cancels its work in the Room; refused when two members are left. */
+  removeMember: oc.input(roomMemberInput).output(type<void>()),
+  /** Makes a member the lead. Only the user changes the lead. */
+  setLead: oc.input(roomMemberInput).output(type<void>()),
+  /** Deletes the Room and its Messages; the Bots keep their Memory. */
+  delete: oc.input(roomInput).output(type<void>()),
 };
 
 /** The Routines of the user's Bots (#538). Approving or declining one never wakes the Bot. */

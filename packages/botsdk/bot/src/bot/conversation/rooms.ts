@@ -14,6 +14,10 @@ import { botKind } from "./store";
  * Conversation is still the one its Bot row points at.
  */
 
+/** A Room left with one Bot (its others were deleted) allows only adding a Bot or deleting it. */
+export const oneBotRoom = () =>
+  rpcError("BAD_REQUEST", "error.roomOneBot", "This Room has one Bot left: add a Bot or delete it");
+
 /** The members of the Rooms `conversationIds`, in the order they joined, by Room. */
 async function membersOf(
   db: Database | Transaction,

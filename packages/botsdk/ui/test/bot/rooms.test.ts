@@ -137,6 +137,102 @@ describe("the Rooms section", () => {
   });
 });
 
+describe("managing a Room", () => {
+  const withMembers =
+    (members: ReturnType<typeof member>[]) => (queryClient: QueryClient, client: BotSdkClient) => {
+      const room = { ...launch, members };
+      seed(queryClient, client);
+      queryClient.setQueryData(client.orpc.rooms.list.queryKey(), [room]);
+      queryClient.setQueryData(
+        client.orpc.rooms.get.queryKey({ input: { conversationId: room.conversationId } }),
+        { room, messages: [], lastSeq: 0 },
+      );
+    };
+  const open = () => {
+    fireEvent.click(screen.getByRole("button", { name: "Room menu" }));
+    return screen.getByRole("dialog");
+  };
+
+  it("warns on a Room with one Bot left, and allows only adding a Bot or deleting the Room", () => {
+    render(
+      providerFor(createElement(RoomConversation, { conversationId: "r1" }), {
+        seed: withMembers([member(scout, true)]),
+        messages: {},
+      }),
+    );
+
+    expect(screen.getByRole("alert").textContent).toContain("Only Scout is left in this Room");
+    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+    const dialog = open();
+    expect(
+      (within(dialog).getByRole("textbox", { name: "Room name" }) as HTMLInputElement).disabled,
+    ).toBe(true);
+    expect(
+      (within(dialog).getByRole("button", { name: "Remove Scout" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(
+      (within(dialog).getByRole("button", { name: "Add Writer" }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+    expect(
+      (within(dialog).getByRole("button", { name: "Delete Room…" }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
+  it("shows no warning on a Room with two Bots, and keeps its Bots from being removed", () => {
+    mount(createElement(RoomConversation, { conversationId: "r1" }));
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    const dialog = open();
+    expect(
+      (within(dialog).getByRole("button", { name: "Remove Writer" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it("renames the Room, adds a Bot, makes another the lead and deletes the Room", async () => {
+    const calls: { path: string; body: unknown }[] = [];
+    const navigate = vi.fn();
+    const fetch = async (request: Request) => {
+      const path = new URL(request.url).pathname.split("/rpc/")[1] ?? "";
+      if (!path.startsWith("rooms/") || path === "rooms/get" || path === "rooms/list") {
+        return new Promise<Response>(() => {});
+      }
+      calls.push({ path, body: await request.json() });
+      return new Response(JSON.stringify({ json: null }), {
+        headers: { "content-type": "application/json" },
+      });
+    };
+    render(
+      providerFor(createElement(RoomConversation, { conversationId: "r1" }), {
+        seed,
+        fetch,
+        navigate,
+        messages: {},
+      }),
+    );
+
+    const dialog = open();
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Room name" }), {
+      target: { value: "Ship" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add Ops" }));
+    await waitFor(() => expect(calls).toHaveLength(2));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Make lead" }));
+    await waitFor(() => expect(calls).toHaveLength(3));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete Room…" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete Room" }));
+
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith({ to: "bots" }));
+    expect(calls).toEqual([
+      { path: "rooms/rename", body: { json: { conversationId: "r1", name: "Ship" } } },
+      { path: "rooms/addMember", body: { json: { conversationId: "r1", botId: ops.id } } },
+      { path: "rooms/setLead", body: { json: { conversationId: "r1", botId: writer.id } } },
+      { path: "rooms/delete", body: { json: { conversationId: "r1" } } },
+    ]);
+  });
+});
+
 describe("a Room", () => {
   it("shows each Message with its author's avatar and name, or deleted Bot", () => {
     mount(createElement(RoomConversation, { conversationId: launch.conversationId }));

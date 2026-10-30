@@ -22,18 +22,21 @@ function mentionAt(text: string, caret: number): { start: number; query: string 
 /**
  * A Room's composer (spec #1055). Typing `@` offers the members whose name starts with what follows
  * it, case-insensitive: the arrow keys move through them, Enter or Tab or a click picks one, which
- * puts its full name in, and Escape closes the list. Enter sends otherwise.
+ * puts its full name in, and Escape closes the list. Enter sends otherwise, unless `disabled`.
  */
 export function RoomComposer({
   members,
   draft,
   setDraft,
   onSend,
+  disabled = false,
 }: {
   members: RoomMember[];
   draft: string;
   setDraft: (draft: string) => void;
   onSend: () => void;
+  /** No sending, as in a Room left with one Bot. */
+  disabled?: boolean;
 }) {
   const { t } = useI18n();
   const box = useRef<HTMLTextAreaElement>(null);
@@ -150,7 +153,12 @@ export function RoomComposer({
         rows={1}
         className="max-h-40 min-h-10 resize-none"
       />
-      <Button type="submit" size="icon" aria-label={t("bots.send")} disabled={!draft.trim()}>
+      <Button
+        type="submit"
+        size="icon"
+        aria-label={t("bots.send")}
+        disabled={!draft.trim() || disabled}
+      >
         <SendIcon />
       </Button>
     </form>
