@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { bot, message, pushSubscription } from "../../storage";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import type { PushNotification, WebPushChannel } from "../../channel/internal";
+import { authoredBy, notificationOf } from "./rooms";
 import { searchTextOf } from "@botsdk/client/message-parts";
 
 /** The longest push body: a push's payload is small (about 4 KB), and a notification shows less. */
@@ -32,8 +33,8 @@ function firstLineOf(text: string): string {
 }
 
 /**
- * Pushes Bot Message `messageId` to each of its user's devices: the Bot's name and the Message's
- * first line, opening the Conversation. A device whose push service answers 404 or 410 is gone, so
+ * Pushes Bot Message `messageId` to each of its user's devices: the Bot's name (in a Room, the
+ * Room's and the Bot's) and the Message's first line, opening the Conversation. A device whose push service answers 404 or 410 is gone, so
  * its subscription is deleted and not retried. Any other failure throws once every device was
  * tried, and the runner retries the job: a device pushed again gets the same `tag`, which replaces
  * the notification it already shows. A Message or Bot deleted since pushes nothing.
@@ -47,21 +48,23 @@ export async function sendPushDelivery(
     .select({
       parts: message.parts,
       botId: bot.id,
+      conversationId: message.conversationId,
       userId: bot.userId,
       name: bot.name,
     })
     .from(message)
-    .innerJoin(bot, eq(bot.conversationId, message.conversationId))
+    .innerJoin(bot, authoredBy())
     .where(eq(message.id, messageId));
   if (!row) return;
   const devices = await deps.db
     .select()
     .from(pushSubscription)
     .where(eq(pushSubscription.userId, row.userId));
+  const source = await notificationOf(deps.db, row);
   const notification: PushNotification = {
-    title: row.name,
+    title: source.title,
     body: firstLineOf(searchTextOf(row.parts)),
-    url: `${push.appUrl}/bots/${row.botId}`,
+    url: `${push.appUrl}${source.path}`,
     tag: messageId,
   };
   const results = await Promise.allSettled(

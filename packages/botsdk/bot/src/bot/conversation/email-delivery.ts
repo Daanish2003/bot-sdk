@@ -3,6 +3,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { bot, botTrigger, message } from "../../storage";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { sentFileBlobKey } from "./files";
+import { authoredBy, notificationOf, userTimeZone } from "./rooms";
 import { controlOf, newestTimeZone, subjectOf, toBotMessage } from "./store";
 import { knownZone } from "@botsdk/client/bot/time-zone";
 import { isMessagingRoute } from "@botsdk/client/bot/notifications";
@@ -71,7 +72,10 @@ export async function lastUsedChannel(
 
 /** What `deliverIn` knows of the Message it routes, and asks of its user once. */
 type Routed = {
+  botId: string;
   conversationId: string;
+  /** Whether the Message is in a Room (spec #1055). */
+  room: boolean;
   turnId: string | null;
   userId: string;
   urgent: boolean;
@@ -90,7 +94,7 @@ type Routed = {
 async function routeOf(
   deps: BotSdkContext,
   tx: Transaction,
-  { conversationId, turnId, userId, urgent, hasDevice }: Routed,
+  { botId, conversationId, room, turnId, userId, urgent, hasDevice }: Routed,
 ): Promise<{ channel: DeliveryChannel; answers?: string } | null> {
   if (turnId) {
     const taken = await tx
@@ -101,7 +105,7 @@ async function routeOf(
     const latest = taken[0]?.channel;
     // A messaging Channel that can't be honoured now falls through to the rules below, and with
     // no email Trigger to the notification routes (spec #1044).
-    if (latest && (await honourable(deps, tx, { conversationId }, latest))) {
+    if (latest && (await honourable(deps, tx, { botId }, latest))) {
       return { channel: latest };
     }
     const emailed = taken.find((trigger) => trigger.channel === "email");
@@ -110,7 +114,8 @@ async function routeOf(
   }
   const route = await notificationRouteOf(deps, tx, {
     userId,
-    owner: { conversationId },
+    owner: { botId },
+    ...(room && { room: conversationId }),
     urgent,
     hasDevice,
   });
@@ -127,7 +132,9 @@ export type DeliveryRoute = "in_app" | "email" | "push" | DeliveryChannel;
  * otherwise it goes to the Channel they last wrote from (a messaging one included). A messaging
  * route that can't be honoured (no adapter, no Linked identity, no active Channel account) counts
  * as empty. During Quiet hours, in the Conversation's
- * time zone as for Routines, only an urgent Message leaves the app.
+ * time zone as for Routines, only an urgent Message leaves the app. A Message in Room `room`
+ * (spec #1055) counts that time zone from the Room's newest user Message, or else the newest one the
+ * user sent anywhere: a Room's composer sends none.
  */
 export async function notificationRouteOf(
   deps: BotSdkContext,
@@ -135,11 +142,13 @@ export async function notificationRouteOf(
   {
     userId,
     owner,
+    room,
     urgent,
     hasDevice = () => hasPushSubscription(db, userId),
   }: {
     userId: string;
     owner: Parameters<typeof lastUsedChannel>[2];
+    room?: string;
     urgent: boolean;
     hasDevice?: () => Promise<boolean>;
   },
@@ -160,8 +169,9 @@ export async function notificationRouteOf(
   }
   const route = chosen ?? (await defaultRouteOf());
   if (route === "in_app" || urgent || !settings.quietHours) return route;
-  const conversationId = await conversationIdOf(db, owner);
-  const zone = knownZone(conversationId && (await newestTimeZone(db, conversationId)));
+  const conversationId = room ?? (await conversationIdOf(db, owner));
+  const own = conversationId ? await newestTimeZone(db, conversationId) : undefined;
+  const zone = knownZone(own ?? (room ? await userTimeZone(db, userId) : undefined));
   return inQuietHours(settings.quietHours, deps.clock(), zone) ? "in_app" : route;
 }
 
@@ -229,16 +239,28 @@ export async function deliverIn(
     push,
     messaging = [],
   }: { email?: EmailChannel; push?: WebPushChannel; messaging?: readonly MessagingAdapter[] },
-  args: { conversationId: string; messageId: string; turnId: string | null; urgent: boolean },
+  args: {
+    botId: string;
+    conversationId: string;
+    messageId: string;
+    turnId: string | null;
+    urgent: boolean;
+  },
 ): Promise<void> {
   const [owner] = await tx
     .select({ name: bot.name, userId: bot.userId })
     .from(bot)
-    .where(eq(bot.conversationId, args.conversationId));
+    .where(eq(bot.id, args.botId));
   if (!owner) return;
+  const source = await notificationOf(tx, { ...args, name: owner.name });
   let devices: Promise<boolean> | undefined;
   const hasDevice = () => (devices ??= hasPushSubscription(tx, owner.userId));
-  const route = await routeOf(deps, tx, { ...args, userId: owner.userId, hasDevice });
+  const route = await routeOf(deps, tx, {
+    ...args,
+    room: source.room,
+    userId: owner.userId,
+    hasDevice,
+  });
   if (route?.channel === "push") {
     if (push && (await hasDevice())) {
       const payload: DeliveryPayload = { channel: "push", messageId: args.messageId };
@@ -260,7 +282,7 @@ export async function deliverIn(
     return;
   }
   if (!route || !email) return;
-  let subject = headerText(owner.name);
+  let subject = headerText(source.title);
   if (route.answers) {
     const [answered] = await tx
       .select({ parts: message.parts })
@@ -314,11 +336,12 @@ export async function sendDelivery(
       parts: message.parts,
       createdAt: message.createdAt,
       botId: bot.id,
+      conversationId: message.conversationId,
       userId: bot.userId,
       name: bot.name,
     })
     .from(message)
-    .innerJoin(bot, eq(bot.conversationId, message.conversationId))
+    .innerJoin(bot, authoredBy())
     .where(eq(message.id, messageId));
   if (!row) return;
   const to = await verifiedEmail(row.userId);
@@ -329,7 +352,7 @@ export async function sendDelivery(
     domain: email.domain,
   });
   const body = emailBody(toBotMessage(row), {
-    botUrl: `${email.appUrl}/bots/${row.botId}`,
+    botUrl: `${email.appUrl}${(await notificationOf(deps.db, row)).path}`,
     files: await filesOf(deps, row.parts),
   });
   await email.provider.send({

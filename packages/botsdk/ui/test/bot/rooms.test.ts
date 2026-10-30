@@ -15,6 +15,7 @@ import { BotSidebar } from "../../src/bot/bot-sidebar";
 import { RoomConversation } from "../../src/bot/room-conversation";
 import { providerFor, renderWrapped, untranslated } from "@ai-chat/test-support/fake-dictionary";
 import { changeLog, hint, stubEventSource } from "./fake-change-log";
+import { tasksOf } from "./fake-tasks";
 
 afterEach(() => {
   cleanup();
@@ -361,6 +362,41 @@ describe("a Room's members", () => {
     expect(
       members.map((item) => item.querySelector("[data-status]")?.getAttribute("data-status")),
     ).toEqual(["working", "paused", "queued", undefined]);
+  });
+});
+
+describe("a member's popover", () => {
+  it("opens from the header with the member's status, its Tasks and the menu with pause and reset", () => {
+    const writerMember = { ...member(writer), pausedAt: createdAt, status: "paused" as const };
+    render(
+      providerFor(createElement(RoomConversation, { conversationId: launch.conversationId }), {
+        fetch: () => new Promise<Response>(() => {}),
+        messages: {},
+        seed: (queryClient, client) => {
+          seed(queryClient, client);
+          queryClient.setQueryData(
+            client.orpc.rooms.get.queryKey({ input: { conversationId: launch.conversationId } }),
+            {
+              room: { ...launch, members: [member(scout, true), writerMember] },
+              messages: [],
+              lastSeq: 0,
+            },
+          );
+          queryClient.setQueryData(
+            client.orpc.bots.tasks.queryKey({ input: { botId: writer.id } }),
+            tasksOf(),
+          );
+        },
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Writer's controls" }));
+
+    const popover = screen.getByRole("dialog");
+    expect(within(popover).getByText("Writer")).toBeTruthy();
+    expect(within(popover).getByText("Paused")).toBeTruthy();
+    expect(within(popover).getByRole("button", { name: /Tasks 0/ })).toBeTruthy();
+    expect(within(popover).getByRole("button", { name: "Bot menu" })).toBeTruthy();
   });
 });
 

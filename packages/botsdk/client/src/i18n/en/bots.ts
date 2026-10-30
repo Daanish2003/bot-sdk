@@ -401,4 +401,5 @@ description: Use this when
   "bots.roomMember": ({ name, lead, status }: { name: string; lead: string; status: string }) =>
     [name, lead, status].filter(Boolean).join(", "),
   "bots.mentionMember": "Mention a member",
+  "bots.memberControls": ({ name }: { name: string }) => `${name}'s controls`,
 };

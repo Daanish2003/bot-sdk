@@ -91,7 +91,13 @@ export type ChannelApi = {
    */
   deliverIn: (
     tx: Transaction,
-    sent: { conversationId: string; messageId: string; turnId: string | null; urgent: boolean },
+    sent: {
+      botId: string;
+      conversationId: string;
+      messageId: string;
+      turnId: string | null;
+      urgent: boolean;
+    },
   ) => Promise<void>;
   /**
    * Sends one `channel.deliver` job's email, its pushes to each of the user's devices, or its text

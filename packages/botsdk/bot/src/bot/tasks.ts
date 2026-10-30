@@ -12,15 +12,15 @@ import { waitingIn } from "./triggers";
 export const tasksSkippedLimit = 100;
 
 /**
- * A Bot's Tasks view (spec #1007), read for the Bot whose Conversation is `conversationId`: In
- * progress (the running Turn, the running and waiting Helpers), Scheduled (the Triggers waiting in
- * the Conversation queue, the Routines, the pending Check-ins) and Done (the Helpers that ended, the
+ * A Bot's Tasks view (spec #1007): In progress (the running Turn, the running and waiting
+ * Helpers), Scheduled (the Triggers waiting in the Bot's Conversation queues, its 1:1 and its Rooms'
+ * (spec #1055), the Routines, the pending Check-ins) and Done (the Helpers that ended, the
  * Check-ins that fired and the newest `tasksSkippedLimit` Triggers skipped, within the last
  * `tasksDoneDays` days up to `now`, newest first).
  */
 export async function botTasks(
   db: Database,
-  { botId, conversationId, now }: { botId: string; conversationId: string; now: Date },
+  { botId, now }: { botId: string; now: Date },
 ): Promise<BotTasks> {
   const since = new Date(now.getTime() - tasksDoneDays * 24 * 60 * 60_000);
   // Only the Helpers the view shows: the live ones, and those that ended within the window.
@@ -61,18 +61,12 @@ export async function botTasks(
     db
       .select()
       .from(botTrigger)
-      .where(waitingIn({ botId, conversationId }))
+      .where(waitingIn({ botId }))
       .orderBy(asc(botTrigger.receivedAt), asc(botTrigger.id)),
     db
       .select()
       .from(botTrigger)
-      .where(
-        and(
-          eq(botTrigger.conversationId, conversationId),
-          eq(botTrigger.botId, botId),
-          gte(botTrigger.skippedAt, since),
-        ),
-      )
+      .where(and(eq(botTrigger.botId, botId), gte(botTrigger.skippedAt, since)))
       .orderBy(desc(botTrigger.skippedAt), desc(botTrigger.id))
       .limit(tasksSkippedLimit),
   ]);

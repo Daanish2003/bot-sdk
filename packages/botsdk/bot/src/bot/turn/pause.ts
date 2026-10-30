@@ -2,12 +2,12 @@ import { and, eq, isNotNull, isNull, notExists, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { appendMessage } from "../../chat/message-tree";
-import { bot, botTrigger, botTurn, deleteBlobsBestEffort } from "../../storage";
+import { bot, botRoomMember, botTrigger, botTurn, deleteBlobsBestEffort } from "../../storage";
 import { enabledFeatures } from "../../feature";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { defineCoreJob } from "../../runner/internal";
 import { rpcError } from "../../rpc-error";
-import { findBot, hintChanged, recordBotChange } from "../conversation";
+import { findBot, hintChanged, recordBotChange, roomIdsOf } from "../conversation";
 import { deleteBotHelpers, stopHelpers } from "../helpers";
 import { deleteBotCheckIns, deleteBotRoutines } from "../routines";
 import { declineBotApprovals, reopenUnstartedCalls } from "../safety";
@@ -15,18 +15,20 @@ import { awaySummaryKey, lockConversation, runningTurnOf, skipWaiting } from "..
 import { cancelTurn } from "./turn";
 
 /**
- * Pauses the user's Bot (Bot pause, spec #1007): under its Conversation's row lock, it marks the
- * Bot paused, skips every Trigger waiting in its Conversation queue with reason `paused`, stops its
- * running Turn the way Stop does and stops all its Helpers. An allowed call that hasn't started is
- * cancelled, and its Approval is pending again. Each Routine keeps its own state. From then on the
- * Router keeps each Trigger as skipped (`receive`), so nothing wakes the Bot until it is resumed.
- * Pausing a paused Bot changes nothing. Another user's Bot is not found.
+ * Pauses the user's Bot (Bot pause, spec #1007): under the row lock of its Conversation and of each
+ * Room it is in (spec #1055), it marks the Bot paused, skips every Trigger waiting in its
+ * Conversation queues with reason `paused`, stops its running Turns the way Stop does and stops all
+ * its Helpers. An allowed call that hasn't started is cancelled, and its Approval is pending again.
+ * Each Routine keeps its own state. From then on the Router keeps each Trigger as skipped
+ * (`receive`), so nothing wakes the Bot until it is resumed. Pausing a paused Bot changes nothing.
+ * Another user's Bot is not found.
  */
 export async function pauseBot(deps: BotSdkContext, userId: string, botId: string): Promise<void> {
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
+  const rooms = await roomIdsOf(deps.db, botId);
   const paused = await deps.db.transaction(async (tx) => {
-    await lockConversation(tx, found.conversationId);
+    await lockConversations(tx, found.conversationId, rooms);
     const now = deps.clock();
     const [row] = await tx
       .update(bot)
@@ -34,15 +36,41 @@ export async function pauseBot(deps: BotSdkContext, userId: string, botId: strin
       .where(and(eq(bot.id, botId), isNull(bot.pausedAt)))
       .returning({ id: bot.id });
     if (!row) return false;
-    await haltBot(deps, tx, found, "paused", now);
+    await haltBot(deps, tx, found, rooms, "paused", now);
     // A yes whose call hasn't started is taken back: no work runs while paused.
     await reopenUnstartedCalls(deps, tx, { botId, conversationId: found.conversationId }, now);
-    await recordBotChange(tx, found, "bot", botId, now);
+    await recordChanges(tx, found, rooms, botId, now);
     return true;
   });
   if (!paused) return;
   deps.runner.wake();
   await hintChanged(deps, found.conversationId);
+  for (const conversationId of rooms) await hintChanged(deps, conversationId);
+}
+
+/**
+ * Takes the row lock of the Bot's Conversation and of each of its Rooms, in id order, so two controls
+ * on one Bot never wait on each other in a circle. Call it first in a transaction.
+ */
+async function lockConversations(
+  tx: Transaction,
+  conversationId: string,
+  rooms: string[],
+): Promise<void> {
+  for (const id of [conversationId, ...rooms].toSorted()) await lockConversation(tx, id);
+}
+
+/** Records the Bot's change in its Conversation and in each of its `rooms`, so their members refresh. */
+async function recordChanges(
+  tx: Transaction,
+  found: { conversationId: string },
+  rooms: string[],
+  botId: string,
+  at: Date,
+): Promise<void> {
+  for (const conversationId of [found.conversationId, ...rooms]) {
+    await recordBotChange(tx, { conversationId }, "bot", botId, at);
+  }
 }
 
 /**
@@ -53,18 +81,21 @@ export async function pauseBot(deps: BotSdkContext, userId: string, botId: strin
 export async function resumeBot(deps: BotSdkContext, userId: string, botId: string): Promise<void> {
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
+  const rooms = await roomIdsOf(deps.db, botId);
   const resumed = await deps.db.transaction(async (tx) => {
-    await lockConversation(tx, found.conversationId);
+    await lockConversations(tx, found.conversationId, rooms);
     const [row] = await tx
       .update(bot)
       .set({ pausedAt: null })
       .where(and(eq(bot.id, botId), isNotNull(bot.pausedAt)))
       .returning({ id: bot.id });
     if (!row) return false;
-    await recordBotChange(tx, found, "bot", botId, deps.clock());
+    await recordChanges(tx, found, rooms, botId, deps.clock());
     return true;
   });
-  if (resumed) await hintChanged(deps, found.conversationId);
+  if (!resumed) return;
+  await hintChanged(deps, found.conversationId);
+  for (const conversationId of rooms) await hintChanged(deps, conversationId);
 }
 
 /**
@@ -100,24 +131,27 @@ export async function discardUnstarted(
 }
 
 /**
- * Stops everything Bot `found` is doing (spec #1007), in `tx`, which holds its Conversation's row
- * lock: every Trigger waiting in its Conversation queue is skipped with `reason`, its running Turn
- * stops the way Stop stops it, and all its Helpers stop. Call the runner's `wake()` once `tx` has
- * committed.
+ * Stops everything Bot `found` is doing (spec #1007), in `tx`, which holds the row lock of its
+ * Conversation and of its `rooms` (spec #1055): in each, every Trigger waiting in its queue is
+ * skipped with `reason` and its running Turn stops the way Stop stops it; all its Helpers stop.
+ * Call the runner's `wake()` once `tx` has committed.
  */
 async function haltBot(
   deps: BotSdkContext,
   tx: Transaction,
   found: { id: string; conversationId: string },
+  rooms: string[],
   reason: "paused" | "reset",
   now: Date,
 ): Promise<void> {
-  // Skipped before the Stop, so the Turn it ends finds the line empty and none follows it.
-  const owner = { botId: found.id, conversationId: found.conversationId };
-  await skipWaiting(tx, owner, reason, now);
-  const running = await runningTurnOf(tx, owner);
-  if (running && (await cancelTurn(deps, tx, running, "stop"))) {
-    await discardUnstarted(tx, running, reason, now);
+  for (const conversationId of [found.conversationId, ...rooms]) {
+    // Skipped before the Stop, so the Turn it ends finds the line empty and none follows it.
+    const owner = { botId: found.id, conversationId };
+    await skipWaiting(tx, owner, reason, now);
+    const running = await runningTurnOf(tx, owner);
+    if (running && (await cancelTurn(deps, tx, running, "stop"))) {
+      await discardUnstarted(tx, running, reason, now);
+    }
   }
   await stopHelpers(deps, tx, found.id);
 }
@@ -127,7 +161,8 @@ async function haltBot(
  * its Conversation's row lock, in order: it stops everything as a pause does, with skip reason
  * `reset`; declines its pending Approvals; deletes its Routines and Check-ins with their queued
  * fires; deletes its Helpers and their transcripts; and appends the reset mark, from which its
- * Turns' history and Prompt start begin. It keeps its pause state, Messages and Turns. Once that
+ * Turns' history and Prompt start begin; in each Room it is in (spec #1055) no mark is posted, but its
+ * member row gets a reset point, from which its input there begins. It keeps its pause state, Messages and Turns. Once that
  * commits, the Helpers' screenshots are deleted, best-effort, and each enabled feature forgets the
  * Bot (`resetBot`; Memory deletes its files) in `botResetJob`, queued in the same transaction. A
  * reset can't be undone. A wrong name is refused, checked against the Bot's row locked for update
@@ -140,8 +175,9 @@ export async function resetBot(
 ): Promise<void> {
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
+  const rooms = await roomIdsOf(deps.db, botId);
   const screenshots = await deps.db.transaction(async (tx) => {
-    await lockConversation(tx, found.conversationId);
+    await lockConversations(tx, found.conversationId, rooms);
     const [current] = await tx
       .select({ name: bot.name })
       .from(bot)
@@ -152,7 +188,7 @@ export async function resetBot(
     }
     const now = deps.clock();
     const owner = { botId, conversationId: found.conversationId };
-    await haltBot(deps, tx, found, "reset", now);
+    await haltBot(deps, tx, found, rooms, "reset", now);
     // The Stop may queue an away Summary of what came before; none is written.
     await deps.runner.cancelIn(tx, awaySummaryKey(botId));
     await declineBotApprovals(deps, tx, owner, now);
@@ -165,7 +201,9 @@ export async function resetBot(
       status: "complete",
       createdAt: now,
     });
-    await recordBotChange(tx, found, "bot", botId, now);
+    await recordChanges(tx, found, rooms, botId, now);
+    // A Room gets no mark: the user still sees everything there, and only this Bot's input after.
+    await tx.update(botRoomMember).set({ resetAt: now }).where(eq(botRoomMember.botId, botId));
     // Runs only once the reset stands, and again after a failure or a crash.
     await deps.runner.enqueueIn(tx, botResetJobName, { botId, userId });
     return keys;
@@ -173,6 +211,7 @@ export async function resetBot(
   deps.runner.wake();
   await deleteBlobsBestEffort(deps, screenshots);
   await hintChanged(deps, found.conversationId);
+  for (const conversationId of rooms) await hintChanged(deps, conversationId);
 }
 
 /** The runner job that has each enabled feature forget a reset Bot. */

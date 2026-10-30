@@ -1,5 +1,5 @@
 import type { Room, RoomMember, RoomMemberStatus } from "@botsdk/client/bot/contract";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import { bot, botRoomMember, botTrigger, botTurn, conversation, message } from "../../storage";
 import type { Database } from "../../storage";
@@ -106,6 +106,30 @@ export async function listRooms(
     name: title ?? "",
     members: members.get(row.conversationId) ?? [],
   }));
+}
+
+/** The ids of the Rooms Bot `botId` is a member of, in id order: the order their locks are taken in. */
+export async function roomIdsOf(db: Database | Transaction, botId: string): Promise<string[]> {
+  const rows = await db
+    .select({ id: botRoomMember.conversationId })
+    .from(botRoomMember)
+    .where(eq(botRoomMember.botId, botId))
+    .orderBy(asc(botRoomMember.conversationId));
+  return rows.map((row) => row.id);
+}
+
+/** The name of Room `conversationId`, or `null` when it isn't a Room (a Bot's 1:1 Conversation). */
+export async function roomNameOf(
+  db: Database | Transaction,
+  conversationId: string,
+): Promise<string | null> {
+  const [row] = await db
+    .select({ title: conversation.title })
+    .from(conversation)
+    .innerJoin(botRoomMember, eq(botRoomMember.conversationId, conversation.id))
+    .where(eq(conversation.id, conversationId))
+    .limit(1);
+  return row ? (row.title ?? "") : null;
 }
 
 /** Whether Conversation `conversationId` is one of the user's Rooms. */
@@ -232,4 +256,26 @@ export async function userTimeZone(
     .orderBy(desc(message.createdAt), desc(message.id))
     .limit(1);
   return row?.zone;
+}
+
+/**
+ * The Bot that wrote a Message, as a join condition (spec #1055): its author, or, for a Message from
+ * before authors were recorded, the Bot whose 1:1 Conversation it is in.
+ */
+export const authoredBy = () =>
+  or(eq(bot.id, message.authorBotId), eq(bot.conversationId, message.conversationId));
+
+/**
+ * How a Message of Bot `botId` (named `name`) in Conversation `conversationId` reaches the user
+ * outside the app (spec #1055): the title of its notification and where it opens. In a 1:1 Conversation
+ * that is the Bot's name and its page; in a Room, the Room and the Bot's names, and the Room.
+ */
+export async function notificationOf(
+  db: Database | Transaction,
+  { botId, name, conversationId }: { botId: string; name: string; conversationId: string },
+): Promise<{ title: string; path: string; room: boolean }> {
+  const room = await roomNameOf(db, conversationId);
+  return room === null
+    ? { title: name, path: `/bots/${botId}`, room: false }
+    : { title: `${room} · ${name}`, path: `/bots/rooms/${conversationId}`, room: true };
 }
