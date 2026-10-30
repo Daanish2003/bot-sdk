@@ -259,6 +259,33 @@ describe("Conversation row locks", () => {
   );
 
   it(
+    "a lock set that keeps moving through its last try is read again until it holds still, leaving nothing out",
+    async () => {
+      const { scout, writer, ops, room } = await threeBotRoom();
+      const ids = [
+        room.conversationId,
+        await oneToOneOf(scout.id),
+        await oneToOneOf(writer.id),
+        await oneToOneOf(ops.id),
+      ];
+      // Sizes 1, 2 (moved), 1, 2 (moved), 1, 2 (moved, the last try), 3, 4, 4: each read after the
+      // last try's locks finds one more, until two reads agree.
+      const sizes = [1, 2, 1, 2, 1, 2, 3, 4, 4];
+      const reads: number[] = [];
+      const read = async () => {
+        const size = sizes[reads.length] ?? 4;
+        reads.push(size);
+        return ids.slice(0, size);
+      };
+      const taken = await getTestDb().transaction((tx) => lockConversationSet(tx, read));
+
+      expect([...taken].sort()).toEqual([...ids].sort());
+      expect(reads).toEqual(sizes);
+    },
+    timeout,
+  );
+
+  it(
     "a Room Turn's end takes its Bot's 1:1 lock before the Room's, as a pause does",
     async () => {
       const gate = held(createFakeAdapter({ rounds: [says("Done.")] }));

@@ -97,7 +97,8 @@ const lockSetTries = 3;
  * and returns them. The set is read before its locks, so it is read again after them: when it
  * changed meanwhile (a member added to a Room, a Room joined), the locks are rolled back to a
  * savepoint and taken again from a new read, up to `lockSetTries` times. The last try locks what
- * moved after the rest, out of order, rather than leave it out.
+ * moved after the rest, out of order, and reads again until the set holds still, rather than leave
+ * any out; a deadlock that order risks is Postgres's to break, failing one of the two.
  */
 export async function lockConversationSet(
   tx: Transaction,
@@ -106,14 +107,16 @@ export async function lockConversationSet(
   for (let attempt = 1; ; attempt++) {
     try {
       return await tx.transaction(async (savepoint) => {
-        const ids = await read(savepoint);
-        await lockConversationsInOrder(savepoint, ids);
-        const now = await read(savepoint);
-        const moved = now.filter((id) => !ids.includes(id));
-        if (moved.length === 0) return now;
-        if (attempt < lockSetTries) throw new LockSetMoved();
-        await lockConversationsInOrder(savepoint, moved);
-        return now;
+        const held = await read(savepoint);
+        await lockConversationsInOrder(savepoint, held);
+        for (;;) {
+          const now = await read(savepoint);
+          const moved = now.filter((id) => !held.includes(id));
+          if (moved.length === 0) return now;
+          if (attempt < lockSetTries) throw new LockSetMoved();
+          await lockConversationsInOrder(savepoint, moved);
+          held.push(...moved);
+        }
       });
     } catch (error) {
       if (!(error instanceof LockSetMoved)) throw error;
