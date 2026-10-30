@@ -277,5 +277,9 @@ export async function notificationOf(
   const room = await roomNameOf(db, conversationId);
   return room === null
     ? { title: name, path: `/bots/${botId}`, room: false }
-    : { title: `${room} · ${name}`, path: `/bots/rooms/${conversationId}`, room: true };
+    : {
+        title: room ? `${room} · ${name}` : name,
+        path: `/bots/rooms/${conversationId}`,
+        room: true,
+      };
 }

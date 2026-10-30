@@ -26,9 +26,9 @@ import { cancelTurn } from "./turn";
 export async function pauseBot(deps: BotSdkContext, userId: string, botId: string): Promise<void> {
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-  const rooms = await roomIdsOf(deps.db, botId);
+  let rooms = await roomIdsOf(deps.db, botId);
   const paused = await deps.db.transaction(async (tx) => {
-    await lockConversations(tx, found.conversationId, rooms);
+    rooms = await lockConversations(tx, found.conversationId, rooms, botId);
     const now = deps.clock();
     const [row] = await tx
       .update(bot)
@@ -50,14 +50,20 @@ export async function pauseBot(deps: BotSdkContext, userId: string, botId: strin
 
 /**
  * Takes the row lock of the Bot's Conversation and of each of its Rooms, in id order, so two controls
- * on one Bot never wait on each other in a circle. Call it first in a transaction.
+ * on one Bot never wait on each other in a circle. Call it first in a transaction. `guess` is the Rooms
+ * read before it; it returns the Rooms the Bot is in now.
  */
 async function lockConversations(
   tx: Transaction,
   conversationId: string,
-  rooms: string[],
-): Promise<void> {
-  for (const id of [conversationId, ...rooms].toSorted()) await lockConversation(tx, id);
+  guess: string[],
+  botId: string,
+): Promise<string[]> {
+  for (const id of [conversationId, ...guess].toSorted()) await lockConversation(tx, id);
+  // A Room joined since the guess was read is locked too, so no Turn or Trigger there is missed.
+  const rooms = await roomIdsOf(tx, botId);
+  for (const id of rooms) if (!guess.includes(id)) await lockConversation(tx, id);
+  return rooms;
 }
 
 /** Records the Bot's change in its Conversation and in each of its `rooms`, so their members refresh. */
@@ -81,9 +87,9 @@ async function recordChanges(
 export async function resumeBot(deps: BotSdkContext, userId: string, botId: string): Promise<void> {
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-  const rooms = await roomIdsOf(deps.db, botId);
+  let rooms = await roomIdsOf(deps.db, botId);
   const resumed = await deps.db.transaction(async (tx) => {
-    await lockConversations(tx, found.conversationId, rooms);
+    rooms = await lockConversations(tx, found.conversationId, rooms, botId);
     const [row] = await tx
       .update(bot)
       .set({ pausedAt: null })
@@ -175,9 +181,9 @@ export async function resetBot(
 ): Promise<void> {
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-  const rooms = await roomIdsOf(deps.db, botId);
+  let rooms = await roomIdsOf(deps.db, botId);
   const screenshots = await deps.db.transaction(async (tx) => {
-    await lockConversations(tx, found.conversationId, rooms);
+    rooms = await lockConversations(tx, found.conversationId, rooms, botId);
     const [current] = await tx
       .select({ name: bot.name })
       .from(bot)
