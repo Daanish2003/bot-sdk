@@ -116,6 +116,13 @@ export function NotificationsSection({
   );
 }
 
+/** A key as base64url without padding, however the Host wrote it. */
+const unpadded = (key: string) => key.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+/** Whether `found` was made with the Host's `publicKey`, or its browser doesn't say. */
+const madeWith = (found: CurrentSubscription, publicKey: string) =>
+  found.serverKey === null || unpadded(found.serverKey) === unpadded(publicKey);
+
 /** Nothing to listen to: a browser's push support doesn't change while the page is open. */
 const unchanging = () => () => {};
 
@@ -148,16 +155,17 @@ function PushDeviceRow({ publicKey, device }: { publicKey: string; device: PushD
   });
   // A device subscribed before, maybe by another user of this browser, is saved once for this
   // user, so "on" is true for them. One subscribed with another VAPID key (the Host changed its
-  // key) can't get pushes: it is unsubscribed, so the user can enable push again.
+  // key) can't get pushes: it is unsubscribed, so the user can enable push again. One whose browser
+  // doesn't say its key is kept.
   const handled = useRef<string | null>(null);
   useEffect(() => {
     const found = current.data;
     if (!found || handled.current === found.subscription.endpoint) return;
     handled.current = found.subscription.endpoint;
-    if (found.serverKey === publicKey) saveDevice(found.subscription);
+    if (madeWith(found, publicKey)) saveDevice(found.subscription);
     else dropDevice(found.subscription.endpoint);
   }, [current.data, publicKey, saveDevice, dropDevice]);
-  const on = current.data?.serverKey === publicKey;
+  const on = current.data ? madeWith(current.data, publicKey) : false;
   const failed = (error: unknown) =>
     toast.error(
       t(error instanceof PushDeniedError ? "settings.pushDenied" : "settings.pushFailed"),

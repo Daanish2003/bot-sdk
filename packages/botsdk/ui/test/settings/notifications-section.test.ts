@@ -83,11 +83,15 @@ function fakeDevice(
     subscription = null,
     subscribedWith = hostKey,
     denied = false,
-  }: { subscription?: DeviceSubscription | null; subscribedWith?: string; denied?: boolean } = {},
+  }: {
+    subscription?: DeviceSubscription | null;
+    subscribedWith?: string | null;
+    denied?: boolean;
+  } = {},
 ) {
   const keys: string[] = [];
   let current = subscription;
-  let serverKey = subscribedWith;
+  let serverKey: string | null = subscribedWith;
   const device: PushDevice = {
     support: () => support,
     current: async () => current && { subscription: current, serverKey },
@@ -295,6 +299,25 @@ describe("web push in the Notifications section", () => {
     expect(server.subscribed).toEqual([]);
     expect(server.unsubscribed).toEqual([phone.endpoint]);
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("saves a device whose browser doesn't say its key, or whose key the Host writes padded", async () => {
+    const unsaid = fakeNotificationsServer(nothingSet, { pushKey: key });
+    mount(unsaid, fakeDevice("supported", { subscription: phone, subscribedWith: null }).device);
+    expect((await screen.findByRole("status")).textContent).toBe("Push is on for this device.");
+    await waitFor(() => expect(unsaid.subscribed).toEqual([phone]));
+    expect(unsaid.unsubscribed).toEqual([]);
+    cleanup();
+
+    // The browser reports base64url without padding; the Host may write standard base64.
+    const padded = fakeNotificationsServer(nothingSet, { pushKey: "BHost+Key/A=" });
+    mount(
+      padded,
+      fakeDevice("supported", { subscription: phone, subscribedWith: "BHost-Key_A" }).device,
+    );
+    expect((await screen.findByRole("status")).textContent).toBe("Push is on for this device.");
+    await waitFor(() => expect(padded.subscribed).toEqual([phone]));
+    expect(padded.unsubscribed).toEqual([]);
   });
 
   it("says so when saving a subscribed device fails, and still lets the user turn push off", async () => {

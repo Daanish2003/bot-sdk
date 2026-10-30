@@ -1,5 +1,5 @@
 import type { AnyServerTool } from "@tanstack/ai";
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq, lt, ne } from "drizzle-orm";
 import type { z } from "zod";
 
 import { defineFeature } from "@botsdk/bot/feature";
@@ -105,7 +105,13 @@ export function mcp(options: McpOptions = {}) {
         const [earlier] = await context.db
           .select({ id: botTurn.id })
           .from(botTurn)
-          .where(and(eq(botTurn.botId, turn.botId), ne(botTurn.id, turn.id)))
+          .where(
+            and(
+              eq(botTurn.botId, turn.botId),
+              ne(botTurn.id, turn.id),
+              lt(botTurn.startedAt, turn.startedAt),
+            ),
+          )
           .limit(1);
         if (earlier) return { section };
       }
