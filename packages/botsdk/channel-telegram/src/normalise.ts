@@ -87,14 +87,18 @@ export function normalise(update: TelegramUpdate): MessagingUpdate | null {
   if (query) {
     const chat = query.message?.chat;
     const at = query.data?.indexOf(callbackSeparator) ?? -1;
-    if (!chat || !query.data || at < 0) return null;
+    if (!chat || !query.message || !query.data || at < 0) return null;
     return {
       sourceId: query.id,
       sender: { id: String(query.from.id), handle: handleOf(query.from) },
       chat: { id: String(chat.id), private: chat.type === "private" },
       text: "",
       files: [],
-      press: { control: query.data.slice(0, at), option: query.data.slice(at + 1) },
+      press: {
+        control: query.data.slice(0, at),
+        option: query.data.slice(at + 1),
+        messageId: String(query.message.message_id),
+      },
     };
   }
   if (!message) return null;

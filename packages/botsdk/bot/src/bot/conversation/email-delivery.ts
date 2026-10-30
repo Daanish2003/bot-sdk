@@ -295,7 +295,8 @@ export async function sendDelivery(
     if (!push) throw new Error("The channel plugin has no web push adapter");
     return sendPushDelivery(deps, push, payload);
   }
-  if (payload.channel === "messaging") return sendMessagingDelivery(deps, messaging, payload);
+  if (payload.channel === "messaging")
+    return sendMessagingDelivery(deps, messaging, (email ?? push)?.appUrl ?? null, payload);
   if (!email) throw new Error("The channel plugin has no email adapter");
   const { messageId, subject, inReplyTo } = payload;
   const [row] = await deps.db

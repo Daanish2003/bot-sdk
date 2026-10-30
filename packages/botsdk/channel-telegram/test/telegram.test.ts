@@ -269,7 +269,7 @@ describe("listen", () => {
     expect(received).toHaveLength(1);
     expect(received[0]).toMatchObject({
       sourceId: "cq1",
-      press: { control: "approval-1", option: "approve" },
+      press: { control: "approval-1", option: "approve", messageId: "9" },
     });
     expect(api.of("answerCallbackQuery").map((request) => request.body.callback_query_id)).toEqual([
       "cq1",
