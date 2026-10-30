@@ -62,7 +62,7 @@ const rule = { text: "Open pull requests without asking", mode: "without_asking"
  * its user Linked as platform user `1001`, on an idle runner and a fixed clock, with an email Channel
  * for the app's URL.
  */
-async function telegramBot(rounds: Round[]) {
+async function telegramBot(rounds: Round[], { email = true }: { email?: boolean } = {}) {
   const timer = fakeJobClock(at);
   const brain = createFakeAdapter({ rounds });
   const fake = fakeMessagingAdapter({ id: "telegram" });
@@ -79,8 +79,12 @@ async function telegramBot(rounds: Round[]) {
   deps = createTestSdk({
     channels: [
       fake.adapter,
-      emailChannel({ provider: fakeEmailProvider().provider, domain: "bots.example", appUrl }),
+      ...(email
+        ? [emailChannel({ provider: fakeEmailProvider().provider, domain: "bots.example", appUrl })]
+        : []),
     ],
+    // With no email or push adapter, the Channel plugin's own app URL carries the links.
+    ...(email ? {} : { channelAppUrl: appUrl }),
     jobs,
     adapterFor: () => brain.adapter,
     clock: timer.clock.now,
@@ -697,6 +701,28 @@ describe("an Approval", () => {
 });
 
 describe("other Rich controls", () => {
+  it("link into the app from the plugin's own app URL when the Host has no email or push adapter", async () => {
+    const { post, botId, fake, write } = await telegramBot(
+      [round(says("Hi.")), round(says("Hello."))],
+      {
+        email: false,
+      },
+    );
+    await write("Hello");
+
+    await post("I need your token.", {
+      kind: "secret",
+      name: "GITHUB_TOKEN",
+      why: "Pull requests.",
+    });
+
+    expect(fake.sends.at(-1)!.message.text).toBe(
+      `I need your token.
+
+[Enter it securely in the app](${appUrl}/bots/${botId})`,
+    );
+  });
+
   it("send a Secret request as text and a link, never answerable there", async () => {
     const { post, press, newest, fake, botId, write } = await telegramBot([
       round(says("Hi.")),

@@ -114,6 +114,12 @@ export type ChannelOptions = {
    * their Bots. The SDK knows users only by id, so the Host reads it from its auth.
    */
   verifiedEmail: (userId: string) => Promise<string | null>;
+  /**
+   * The Host app's URL, without a trailing slash: a messaging Channel's links open
+   * `<appUrl>/bots/<botId>`. Unset, the email or web push adapter's own `appUrl` is used; with
+   * neither, a messaging Channel writes no links.
+   */
+  appUrl?: string;
 };
 
 export type ChannelPlugin = BotSdkPlugin<"channel", never, never>;

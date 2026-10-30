@@ -149,6 +149,11 @@ export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly Fe
    */
   channels?: readonly ChannelAdapter[];
   /**
+   * The Host app's URL, without a trailing slash, for the links a messaging Channel writes
+   * (`<channelAppUrl>/bots/<botId>`). Unset, the email or web push adapter's `appUrl` is used.
+   */
+  channelAppUrl?: string;
+  /**
    * The Model that reviews each Bot's risky tool calls before they run (Auto-review), a
    * `"provider:model"` id from the Models' list, resolved per user. Unset, or one the user can't
    * use, the Bot's own Model reviews, in a fresh context.
@@ -316,6 +321,7 @@ export function coreParts(options: BotSdkOptions, modelsPart?: BotSdkPlugin): Bo
       ? [
           channel({
             adapters: options.channels,
+            appUrl: options.channelAppUrl,
             verifiedEmail: options.users?.verifiedEmail ?? (async () => null),
           }),
         ]

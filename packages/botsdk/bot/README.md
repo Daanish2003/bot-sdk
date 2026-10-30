@@ -294,6 +294,8 @@ createBotSdk({
 
 The HTTP layer (`createHttpHandler`) serves the inbound route at `POST <basePath>/channels/email`, with no sign-in; point the provider's webhook there. Without HTTP, hand a mail the provider parsed to `sdk.channels.receive("email", mail)`. The route answers 202 to any mail the provider can read, whether it woke the Bot or was dropped, and 400 to one it can't, so a sender learns nothing.
 
+A Host with a messaging adapter and no email or web push adapter sets `channelAppUrl` (the app's URL) on `createBotSdk`, so a messaging Channel's links open `<channelAppUrl>/bots/<botId>`; it is used before an email or push adapter's own `appUrl`.
+
 A mail is a Trigger only when it is from the user's verified email, is addressed to a Bot's address, carries a DMARC pass, and is not a Bot's own or an automatic reply; the Quota and the Ban apply as for a webhook. The Bot reads the new text only (quoted history is stripped), the subject as a first line unless the mail replies to the Bot's thread, one line naming the attachments (they aren't kept), and anything forwarded in an untrusted fenced block that Auto-review never takes as permission.
 
 A provider is the seam to a mail service (`EmailProvider`: `parseInbound` and `send`). Two ship:

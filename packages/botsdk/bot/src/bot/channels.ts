@@ -35,6 +35,13 @@ import { receiveEmail } from "./turn";
 /** The Channel ids the core gives its own Channels, which no messaging adapter may take. */
 const reservedIds = new Set(["web", "email", "push"]);
 
+/** The app URL messaging links open: the plugin's own, else the email or push adapter's. */
+function appUrlOf({ adapters, appUrl }: ChannelOptions): string | null {
+  const { email, push } = adaptersOf(adapters);
+  const url = appUrl || (email ?? push)?.appUrl;
+  return url?.replace(/\/+$/, "") || null;
+}
+
 /** The email, web push and messaging adapters among `adapters`. */
 function adaptersOf(adapters: ChannelOptions["adapters"]) {
   const messaging: MessagingAdapter[] = [];
@@ -52,10 +59,8 @@ function adaptersOf(adapters: ChannelOptions["adapters"]) {
  * The Channels over `adapters`: what `sdk.channels` is. With no adapter, the Bots talk on the web
  * only: `receive` throws and no reply goes out by email or web push.
  */
-export function createChannels(
-  sdk: BotSdkContext,
-  { adapters, verifiedEmail }: ChannelOptions,
-): ChannelApi {
+export function createChannels(sdk: BotSdkContext, options: ChannelOptions): ChannelApi {
+  const { adapters, verifiedEmail } = options;
   const { email, push, messaging } = adaptersOf(adapters);
   const channels: ChannelApi = {
     receive: async (id, mail) => {
@@ -72,7 +77,13 @@ export function createChannels(
       }
     },
     sendDelivery: async (payload) => {
-      await sendDelivery(sdk, { email, push, messaging }, verifiedEmail, payload);
+      await sendDelivery(
+        sdk,
+        { email, push, messaging },
+        verifiedEmail,
+        payload,
+        appUrlOf(options),
+      );
     },
     pushKey: () => push?.provider.publicKey ?? null,
     accounts: {
@@ -110,8 +121,8 @@ export function createChannels(
  * (spec #1044).
  */
 export function channel(options: ChannelOptions): ChannelPlugin {
-  const { messaging, email, push } = adaptersOf(options.adapters);
-  const appUrl = (email ?? push)?.appUrl ?? null;
+  const { messaging } = adaptersOf(options.adapters);
+  const appUrl = appUrlOf(options);
   const platforms = new Set<string>();
   for (const adapter of messaging) {
     if (reservedIds.has(adapter.id) || platforms.has(adapter.id)) {
