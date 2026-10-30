@@ -9,7 +9,7 @@ import type { BotSdkContext, Transaction } from "../../plugin";
 import { uuidv7 } from "../../lib/uuidv7";
 import { buildPromptStart, type PromptStartParts, userZoneAt } from "./prompt-start";
 import { midTurnNote } from "../agent-loop";
-import { awaySummaryKey, type BotConversation } from "../triggers";
+import { awaySummaryKey, type BotConversation, isOneToOne } from "../triggers";
 import { toBotMessage, recordBotChange, formatterIn, noResetAfter } from "../conversation";
 
 /** How many of the Bot's last Messages to the user a Summary keeps word for word. */
@@ -30,14 +30,21 @@ export const awaySummaryDelayMs = 10 * 60_000;
 /**
  * Queues the away Summary of a Turn's Bot, in the transaction that ends the Turn, when its last
  * Step's input was over `awaySummaryTokens`: `awaySummaryDelayMs` after it ended, keyed
- * `summary-away:<botId>`. One already queued is replaced, so it counts from this Turn.
+ * `summary-away:<botId>`. One already queued is replaced, so it counts from this Turn. Only a Turn
+ * in the Bot's 1:1 queues one: the Summary is of the 1:1, and a Room Turn leaves it as it is.
  */
 export async function queueAwaySummary(
   deps: BotSdkContext,
   tx: Transaction,
-  { botId, lastInput, endedAt }: { botId: string; lastInput: number | undefined; endedAt: Date },
+  {
+    botId,
+    conversationId,
+    lastInput,
+    endedAt,
+  }: BotConversation & { lastInput: number | undefined; endedAt: Date },
 ): Promise<void> {
   if (lastInput === undefined || lastInput <= awaySummaryTokens) return;
+  if (!(await isOneToOne(tx, { botId, conversationId }))) return;
   const runner = deps.runner;
   await runner.cancelIn(tx, awaySummaryKey(botId));
   await runner.enqueueIn(

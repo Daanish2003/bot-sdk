@@ -207,6 +207,33 @@ describe("a Summary while the user is away", () => {
     ]);
   });
 
+  it("is keyed to the 1:1: a big Room Turn neither queues one nor cancels the 1:1's", async () => {
+    const { fake, client, botId, send, runDue, advance } = await botWith({
+      rounds: [
+        reporting(120_000, say("Here's your week.", true)),
+        reporting(120_000, say("Hello, team.", true)),
+        round(text(prose)),
+      ],
+    });
+    await send("plan my week");
+    const queued = await awayJobs(botId);
+    expect(queued).toHaveLength(1);
+    const other = await client.bots.create({ name: "Bo", model });
+    const room = await client.rooms.create({ name: "Launch", botIds: [botId, other.id] });
+
+    await client.rooms.send({ conversationId: room.conversationId, text: "@Ada say hello" });
+    advance(500);
+    await runDue();
+
+    expect(fake.calls).toHaveLength(2);
+    expect(await awayJobs(botId)).toEqual(queued);
+    advance(10 * minute);
+    await runDue();
+    expect(fake.calls).toHaveLength(3);
+    const [summary] = await summariesOf(botId);
+    expect(summary).toMatchObject({ kind: "away" });
+  });
+
   it("is not queued when the last Step's input was 100,000 tokens or fewer", async () => {
     const { botId, send } = await botWith({
       rounds: [

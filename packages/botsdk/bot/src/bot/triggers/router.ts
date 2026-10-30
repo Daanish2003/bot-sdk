@@ -93,6 +93,18 @@ export async function oneToOnesOf(tx: Transaction, botIds: string[]): Promise<st
   return rows.map((row) => row.id);
 }
 
+/** Whether `conversationId` is Bot `botId`'s 1:1 Conversation, not a Room. */
+export async function isOneToOne(
+  db: Transaction,
+  { botId, conversationId }: BotConversation,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: bot.id })
+    .from(bot)
+    .where(and(eq(bot.id, botId), eq(bot.conversationId, conversationId)));
+  return row !== undefined;
+}
+
 /**
  * Takes the row locks a transaction that ends Bot `botId`'s Turn in `conversationId` needs, in id
  * order: that Conversation's and, for a Room Turn, the Bot's 1:1 Conversation's.
@@ -256,7 +268,7 @@ export async function runningTurnOf(
 
 /**
  * Creates a Turn that takes every Trigger waiting in the Bot's Conversation queue, and queues its
- * job. It cancels the Bot's away Summary, so the user's Turn is never delayed by one.
+ * job. In the Bot's 1:1 it cancels the Bot's away Summary, so the user's Turn is never delayed by one.
  */
 export async function startTurn(
   deps: BotSdkContext,
@@ -267,7 +279,7 @@ export async function startTurn(
   const waiting = waitingIn(owner);
   const [first] = await tx.select({ id: botTrigger.id }).from(botTrigger).where(waiting).limit(1);
   if (!first) return undefined;
-  await cancelAwaySummary(deps, tx, botId);
+  if (await isOneToOne(tx, owner)) await cancelAwaySummary(deps, tx, botId);
   // Until its job starts and sets it (`turnStarted`), the Turn starts after every Message its
   // Triggers carry, even one stamped by a process whose clock runs ahead.
   const [newest] = await tx

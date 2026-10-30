@@ -479,7 +479,12 @@ export async function cancelTurn(
     endedAt,
   });
   if (turn)
-    await queueAwaySummary(deps, tx, { botId: turn.botId, lastInput: played.lastInput, endedAt });
+    await queueAwaySummary(deps, tx, {
+      botId: turn.botId,
+      conversationId: turn.conversationId,
+      lastInput: played.lastInput,
+      endedAt,
+    });
   await turnEnded(deps, tx, turnId);
   return true;
 }
@@ -578,7 +583,12 @@ async function runTurnJob(
         usage: played.usage,
         endedAt,
       });
-      await queueAwaySummary(deps, tx, { botId: turn.botId, lastInput: played.lastInput, endedAt });
+      await queueAwaySummary(deps, tx, {
+        botId: turn.botId,
+        conversationId: turn.conversationId,
+        lastInput: played.lastInput,
+        endedAt,
+      });
       await turnEnded(deps, tx, turnId);
     });
   } catch (caught) {
@@ -667,7 +677,12 @@ async function endRunningTurn(
     await recordBotChange(tx, turn, "turn", turn.id, endedAt);
     // A Turn cut off mid-wait (its time limit) leaves no request open.
     await closeWaitingReviews(deps, tx, { turnId: turn.id }, "expired");
-    await queueAwaySummary(deps, tx, { botId: turn.botId, lastInput: played.lastInput, endedAt });
+    await queueAwaySummary(deps, tx, {
+      botId: turn.botId,
+      conversationId: turn.conversationId,
+      lastInput: played.lastInput,
+      endedAt,
+    });
     await turnEnded(deps, tx, turn.id);
     return true;
   });
