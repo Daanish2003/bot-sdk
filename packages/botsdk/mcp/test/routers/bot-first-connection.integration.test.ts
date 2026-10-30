@@ -72,7 +72,7 @@ async function botsWithoutConnection(
     clock: systemClock,
     jobs: () => deps!.parts.jobs,
   });
-  const host = (features: Parameters<typeof createTestSdk>[0]["features"]) =>
+  const host = (features: NonNullable<Parameters<typeof createTestSdk>[0]>["features"]) =>
     createTestSdk({
       computer: fakeComputerProvider().provider,
       features,

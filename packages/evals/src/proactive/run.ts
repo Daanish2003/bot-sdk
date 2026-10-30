@@ -271,23 +271,28 @@ async function main() {
         scope: "read write",
       });
 
-      // The Routine row of each kind, made when a Turn needs it.
+      // The Routine row of each kind, made when a Turn needs it, by an earlier Turn of the Bot's:
+      // so a Routine's run isn't the Bot's first Turn, which the first Connection's note is for.
       const routineIds = new Map<"watch" | "brief", string>();
-      const [seedTurn] = await db
-        .insert(botTurn)
-        .values({
-          id: uuidv7(),
-          botId: made.id,
-          status: "complete",
-          startedAt: new Date(Date.now() - 60_000),
-          endedAt: new Date(Date.now() - 59_000),
-          input: [],
-          transcript: [],
-        })
-        .returning({ id: botTurn.id });
+      let seedTurnId: string | undefined;
       async function routineOf(kind: "watch" | "brief") {
         const known = routineIds.get(kind);
         if (known) return known;
+        if (!seedTurnId) {
+          const [seedTurn] = await db
+            .insert(botTurn)
+            .values({
+              id: uuidv7(),
+              botId: made.id,
+              status: "complete",
+              startedAt: new Date(Date.now() - 60_000),
+              endedAt: new Date(Date.now() - 59_000),
+              input: [],
+              transcript: [],
+            })
+            .returning({ id: botTurn.id });
+          seedTurnId = seedTurn!.id;
+        }
         const id = uuidv7();
         const now = new Date();
         await db.insert(botRoutine).values({
@@ -302,7 +307,7 @@ async function main() {
           timeZone: defaultTimeZone,
           state: "active",
           readOnly: kind === "watch",
-          createdByTurnId: seedTurn!.id,
+          createdByTurnId: seedTurnId,
           approvedAt: now,
           createdAt: now,
           updatedAt: now,
