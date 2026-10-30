@@ -2,7 +2,7 @@ import type { TextOptions } from "@tanstack/ai";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { bot, botTrigger, botTurn, conversation, message } from "../../src/storage";
+import { bot, botReview, botTrigger, botTurn, conversation, message } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner } from "../../src/runner/internal";
@@ -11,6 +11,8 @@ import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, type FakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
+import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
+import { fakeReviewer, type FakeReviewer, verdictRound } from "@botsdk/testing/fake-reviewer";
 
 /*
  * Edges of Rooms found in the branch review of spec #1055: a retried send, a Ban, a per-Bot Stop,
@@ -33,7 +35,11 @@ const says = (text: string) =>
   round(toolCall({ name: "send_to_user", input: { text, endTurn: true } }));
 
 /** A user with an OpenAI key and a Room of Scout (the lead), Writer and Ops, over `adapter`. */
-async function threeBotRoom(rounds: Round[] = [], adapter?: FakeAdapter["adapter"]) {
+async function threeBotRoom(
+  rounds: Round[] = [],
+  adapter?: FakeAdapter["adapter"],
+  reviewer?: FakeReviewer,
+) {
   const fake = createFakeAdapter({ rounds });
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({
@@ -43,7 +49,14 @@ async function threeBotRoom(rounds: Round[] = [], adapter?: FakeAdapter["adapter
     concurrency: 6,
     jobs: () => deps!.parts.jobs,
   });
-  deps = createTestSdk({ jobs, adapterFor: () => adapter ?? fake.adapter, memory: false });
+  deps = createTestSdk({
+    jobs,
+    adapterFor: () => adapter ?? fake.adapter,
+    memory: false,
+    // The shell needs the Computer.
+    computer: fakeComputerProvider().provider,
+    ...(reviewer && { reviewAdapterFor: () => reviewer.adapter }),
+  });
   await jobs.start();
   started.push(jobs);
   const user = await insertUser();
@@ -281,6 +294,59 @@ describe("stopping a Bot's Turns", () => {
       await expect(
         client.bots.stop({ botId: scout.id, conversationId: other.conversationId }),
       ).rejects.toMatchObject({ data: { code: "error.roomNotFound" } });
+    },
+    timeout,
+  );
+});
+
+describe("an Approval answered after its Bot left the Room", () => {
+  it(
+    "wakes the Bot in its 1:1, and nothing of it lands in the Room",
+    async () => {
+      const reviewer = fakeReviewer(() =>
+        verdictRound({ outcome: "block", reason: "Not asked.", summary: "Deploy" }),
+      );
+      const { client, writer, room } = await threeBotRoom(
+        [
+          round(toolCall({ name: "shell", input: { command: "make deploy" } })),
+          says("Okay."),
+          says("Noted."),
+        ],
+        undefined,
+        reviewer,
+      );
+      const conversationId = room.conversationId;
+      const own = await oneToOneOf(writer.id);
+      const reviewOf = async () => {
+        const [row] = await getTestDb()
+          .select()
+          .from(botReview)
+          .where(eq(botReview.botId, writer.id));
+        return row;
+      };
+      await client.rooms.send({ conversationId, text: "@Writer, deploy it." });
+      await expect.poll(async () => (await reviewOf())?.state, poll).toBe("waiting");
+      // The user's next Message interrupts the wait: the Approval stays open, pending (ADR 0030).
+      await client.rooms.send({ conversationId, text: "@Writer, hold on." });
+      await expect
+        .poll(() => statusesOf(writer.id, conversationId), poll)
+        .toEqual(["stopped", "complete"]);
+      expect((await reviewOf())?.state).toBe("pending");
+      await client.rooms.removeMember({ conversationId, botId: writer.id });
+      const roomMessages = async () =>
+        (await getTestDb().select().from(message).where(eq(message.conversationId, conversationId)))
+          .length;
+      const before = await roomMessages();
+
+      await client.reviews.deny({ reviewId: (await reviewOf())!.id });
+
+      await expect.poll(() => statusesOf(writer.id, own), poll).toEqual(["complete"]);
+      const approvals = await getTestDb()
+        .select()
+        .from(botTrigger)
+        .where(and(eq(botTrigger.botId, writer.id), eq(botTrigger.source, "approval")));
+      expect(approvals.map((trigger) => trigger.conversationId)).toEqual([own]);
+      expect(await roomMessages()).toBe(before);
     },
     timeout,
   );

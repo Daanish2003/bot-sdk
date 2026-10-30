@@ -57,14 +57,15 @@ const helperConversation = (helperId: SQLWrapper, botId: SQLWrapper, oneToOne: S
   );
 
 /**
- * SQL: the Conversation where Auto-review `reviewId`'s Approval is asked: its Turn's, or its
- * Helper's (`helperConversation`), or the Bot's 1:1 Conversation `oneToOne`.
+ * SQL: the Conversation where Auto-review `reviewId`'s Approval is asked, by `landsWhereStarted`:
+ * its Turn's, or its Helper's (`helperConversation`), while the Bot is still in it; else the
+ * Bot's 1:1 Conversation `oneToOne`.
  */
 export const reviewConversation = (
   review: { turnId: SQLWrapper; helperId: SQLWrapper; botId: SQLWrapper },
   oneToOne: SQLWrapper,
 ) =>
-  sql<string>`coalesce((select ${botTurn.conversationId} from ${botTurn} where ${botTurn.id} = ${review.turnId}), ${helperConversation(review.helperId, review.botId, oneToOne)})`;
+  sql<string>`case when ${review.turnId} is not null then ${landsWhereStarted(review.turnId, review.botId, oneToOne)} else ${helperConversation(review.helperId, review.botId, oneToOne)} end`;
 
 /**
  * The Bot of Auto-review `reviewId` and the Conversation its Approval is asked in (`reviewConversation`),
