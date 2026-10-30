@@ -575,8 +575,8 @@ describe("mentions in a Room", () => {
         ["Writer", null],
         ["Ops", "paused"],
       ]);
-      // The Turn's start and end are the Room's changes, so its tabs follow the status; its end
-      // hints the Bot's thread too (its Tasks view), which shows only its 1:1's Turn status.
+      // The Turn's start and end are the Room's changes, so its tabs follow the status, and hints
+      // to the Bot's thread too (its Tasks view), which shows only its 1:1's Turn status.
       const turnChanges = async (conversationId: string) => {
         const read = await client.conversations.changes({ conversationId, since: 0 });
         if (read.reload) throw new Error("The change log asked for a reload");
@@ -586,7 +586,7 @@ describe("mentions in a Room", () => {
       };
       expect(await turnChanges(room.conversationId)).toContain("complete");
       const { conversationId: direct } = await client.bots.get({ botId: writer.id });
-      expect(await turnChanges(direct)).toEqual([null]);
+      expect(await turnChanges(direct)).toEqual([null, null]);
     },
     timeout,
   );

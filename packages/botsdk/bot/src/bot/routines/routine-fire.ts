@@ -12,7 +12,7 @@ import {
   routineFireJobName,
   routineSnapshot,
 } from "./routine";
-import { lockConversation, receive } from "../triggers";
+import { lockConversation, lockTurnConversations, receive } from "../triggers";
 import { nextSlot } from "./schedule";
 import { hintChanged, recordBotChange } from "../conversation";
 
@@ -95,7 +95,7 @@ async function fireRoutine(
   const quotaSpent = call ? !(await call.meter.mayRun()).ok : false;
   const banned = await deps.isUserBlocked(owner.userId);
   // The Conversation's row lock first, as in every transaction that hands the Router a Trigger.
-  await lockConversation(tx, owner.conversationId);
+  await lockTurnConversations(tx, owner);
   const [routine] = await tx
     .select()
     .from(botRoutine)

@@ -4,7 +4,13 @@ import { eq, max } from "drizzle-orm";
 import { bot, botTrigger } from "../../storage";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { roomOf } from "../conversation";
-import { receive, recordSkipChange } from "./router";
+import {
+  type BotConversation,
+  lockConversationsInOrder,
+  oneToOnesOf,
+  receive,
+  recordSkipChange,
+} from "./router";
 
 /** The Turn a Bot's Room Message comes from. */
 type SendingTurn = { id: string; botId: string; userId: string; conversationId: string };
@@ -37,8 +43,9 @@ export async function handoffOf(
  * Hands Message `messageId` on to each Bot its `handoff` names, in `tx`, as an `agent` Trigger
  * carrying the Message. It never interrupts: a Bot running a Turn in the Room takes it in its next
  * one. A hop past `hopLimit` is kept as skipped `hop_limit` and never runs. As a Check-in's fire
- * does, it wakes no Bot whose Model the user can't use, or once their Quota is spent. Call the
- * runner's `wake()` once `tx` has committed.
+ * does, it wakes no Bot whose Model the user can't use, or once their Quota is spent. `tx` holds
+ * the locks `lockHandoff` takes. Returns the Bots whose Room Turn it started, whose 1:1 threads the
+ * caller hints (`hintBotThread`) as it calls the runner's `wake()`, once `tx` has committed.
  */
 export async function handOff(
   deps: BotSdkContext,
@@ -46,7 +53,8 @@ export async function handOff(
   turn: SendingTurn,
   messageId: string,
   handoff: Handoff,
-): Promise<void> {
+): Promise<BotConversation[]> {
+  const started: BotConversation[] = [];
   const now = deps.clock();
   for (const botId of handoff.to) {
     const trigger = {
@@ -67,6 +75,20 @@ export async function handOff(
     const [target] = await tx.select({ model: bot.model }).from(bot).where(eq(bot.id, botId));
     const call = target && (await deps.models.resolveModelCall(turn.userId, target.model));
     if (!call || !(await call.meter.mayRun()).ok) continue;
-    await receive(deps, tx, trigger);
+    const received = await receive(deps, tx, trigger);
+    if (received.started) started.push({ botId, conversationId: turn.conversationId });
   }
+  return started;
+}
+
+/**
+ * Takes the Room's row lock with those of the 1:1 Conversations of the Bots `handoff` names, in id
+ * order, before the Message is saved: a Room Turn it starts writes its Bot's 1:1 too (`startTurn`).
+ */
+export async function lockHandoff(
+  tx: Transaction,
+  turn: SendingTurn,
+  handoff: Handoff,
+): Promise<void> {
+  await lockConversationsInOrder(tx, [turn.conversationId, ...(await oneToOnesOf(tx, handoff.to))]);
 }

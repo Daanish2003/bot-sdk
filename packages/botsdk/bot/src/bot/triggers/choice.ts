@@ -9,7 +9,13 @@ import { and, eq, gt } from "drizzle-orm";
 import { botRoomMember, message } from "../../storage";
 import type { BotSdkContext } from "../../plugin";
 import { rpcError } from "../../rpc-error";
-import { isPaused, lockConversation, receive, type ReceivedTrigger } from "./router";
+import {
+  hintBotThread,
+  isPaused,
+  lockTurnConversations,
+  receive,
+  type ReceivedTrigger,
+} from "./router";
 import {
   controlOf,
   controlParts,
@@ -66,8 +72,9 @@ export async function answerChoice(
     : { botId, conversationId: found.conversationId };
   const free = "other" in answer ? answer.other.trim().slice(0, maxChoiceOtherLength) : undefined;
   const now = sdk.clock();
-  await sdk.db.transaction(async (tx) => {
-    await lockConversation(tx, owner.conversationId);
+  const { started } = await sdk.db.transaction(async (tx) => {
+    // With the Bot's 1:1 for a Room's choice, in id order: a Room Turn's start writes both.
+    await lockTurnConversations(tx, owner);
     const [member] = inRoom
       ? await tx
           .select({ resetAt: botRoomMember.resetAt })
@@ -124,7 +131,7 @@ export async function answerChoice(
       })
       .where(eq(message.id, messageId));
     await recordBotChange(tx, owner, "message", messageId, now);
-    await receive(sdk, tx, {
+    return receive(sdk, tx, {
       id: choiceTriggerId(messageId),
       botId: owner.botId,
       conversationId: owner.conversationId,
@@ -136,4 +143,5 @@ export async function answerChoice(
   });
   sdk.runner.wake();
   await hintChanged(sdk, owner.conversationId);
+  if (started) await hintBotThread(sdk, owner);
 }

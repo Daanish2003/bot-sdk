@@ -11,7 +11,14 @@ import { z } from "zod";
 
 import { message } from "../../storage";
 import type { BotSdkContext } from "../../plugin";
-import { handOff, handoffOf, lockConversation } from "../triggers";
+import {
+  type BotConversation,
+  handOff,
+  handoffOf,
+  hintBotThread,
+  lockConversation,
+  lockHandoff,
+} from "../triggers";
 import {
   type CatalogueTurn,
   type FeatureSection,
@@ -425,18 +432,21 @@ function coreToolsOf(
       }
       // The Message commits with its Checkpoint, so it is sent once across a crash, and so are its
       // handoffs to the Room's other Bots (spec #1055).
+      // Set only by a live write: the Room Turns its handoffs started.
+      let started: BotConversation[] = [];
       const result = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
         if (!text.trim()) return { error: emptyTextError };
         const parts = control
           ? controlParts(text, control, undefined, urgent)
           : textParts(text, undefined, urgent);
         const handoff = await handoffOf(tx, turn, text);
+        if (handoff) await lockHandoff(tx, turn, handoff);
         const messageId = await appendBotMessage(deps, tx, turn, {
           parts: handoff ? { ...parts, handoff } : parts,
           createdAt: deps.clock(),
           turnId: turn.id,
         });
-        if (handoff) await handOff(deps, tx, turn, messageId, handoff);
+        if (handoff) started = await handOff(deps, tx, turn, messageId, handoff);
         return { sent: true };
       });
       if ("sent" in result) {
@@ -444,6 +454,7 @@ function coreToolsOf(
         deps.runner.wake();
         if (last) onLastMessage();
         await hintChanged(deps, turn.conversationId);
+        for (const owner of started) await hintBotThread(deps, owner);
       }
       return result;
     },

@@ -7,7 +7,7 @@ import { isUniqueViolation } from "../../lib/unique-violation";
 
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { sentFileBlobKey, textParts, hintChanged } from "../conversation";
-import { isPaused, lockConversation, receive } from "../triggers";
+import { isPaused, lockTurnConversations, receive } from "../triggers";
 
 import { cancelTurn } from "./turn";
 
@@ -49,7 +49,7 @@ export async function handIn(
   const outcome = await sdk.db
     .transaction(async (tx) => {
       // The Conversation's row lock first, as in every transaction that hands the Router a Trigger.
-      await lockConversation(tx, conversationId);
+      await lockTurnConversations(tx, { botId, conversationId });
       if (stillValid && !(await stillValid(tx))) return "refused" as const;
       const [seen] = await tx
         .select({ id: botTrigger.id })

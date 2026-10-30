@@ -28,7 +28,7 @@ import {
   noResetAfter,
   reviewConversation,
 } from "../conversation";
-import { lockConversation, receive } from "../triggers";
+import { hintBotThread, lockTurnConversations, receive } from "../triggers";
 import {
   approvalTriggerId,
   approvalTriggerText,
@@ -95,9 +95,7 @@ export const approvedCallJob = defineCoreJob({
     if (!call) return;
     const result = await runStoredCall(deps, ctx, call);
     const woke = await ctx.step("trigger", (tx) => wakeWith(deps, tx, call, result));
-    if (!woke) return;
-    deps.runner.wake();
-    await hintChanged(deps, call.conversationId);
+    if (woke) await afterWake(deps, call, woke);
   },
   // A job that failed for good still wakes the Bot, so it never waits on the call: with the
   // call's result when its Checkpoint was saved, else with the failure.
@@ -110,11 +108,19 @@ export const approvedCallJob = defineCoreJob({
         ? saved.result.value
         : { error: saved.started ? failedApprovedCallError : notRunApprovedCallError };
     const woke = await deps.db.transaction((tx) => wakeWith(deps, tx, call, result));
-    if (!woke) return;
-    deps.runner.wake();
-    await hintChanged(deps, call.conversationId);
+    if (woke) await afterWake(deps, call, woke);
   },
 });
+
+/**
+ * Once the call's Approval Trigger has committed: the Turn it started runs, and followers re-read,
+ * the Bot's 1:1 thread too for a Room Turn it started.
+ */
+async function afterWake(deps: BotSdkContext, call: StoredCall, woke: { started: boolean }) {
+  deps.runner.wake();
+  await hintChanged(deps, call.conversationId);
+  if (woke.started) await hintBotThread(deps, call);
+}
 
 /** Review `reviewId`'s stored call while it is `allowed`, with its Bot, or `null`. */
 async function storedCall(deps: BotSdkContext, reviewId: string): Promise<StoredCall | null> {
@@ -294,15 +300,17 @@ async function featureCall(
 /**
  * Wakes the Bot with the call's Approval Trigger, under its Conversation's row lock: once, since
  * its id comes from the review. A Bot deleted meanwhile wakes no one, nor does one reset since the
- * call was allowed (spec #1007): it forgot the call. Returns whether it woke.
+ * call was allowed (spec #1007): it forgot the call. Returns `false` when it woke no one, and else
+ * whether the Trigger started a Turn.
  */
 async function wakeWith(
   deps: BotSdkContext,
   tx: Transaction,
   call: StoredCall,
   result: unknown,
-): Promise<boolean> {
-  await lockConversation(tx, call.conversationId);
+): Promise<false | { started: boolean }> {
+  // With the Bot's 1:1 for a Room's call, in id order: a Room Turn's start writes both.
+  await lockTurnConversations(tx, call);
   const [kept] = await tx
     .select({ id: botReview.id })
     .from(botReview)
@@ -320,7 +328,7 @@ async function wakeWith(
     .from(botTrigger)
     .where(and(eq(botTrigger.id, id), eq(botTrigger.botId, call.botId)));
   if (seen) return false;
-  await receive(deps, tx, {
+  const { started = false } = await receive(deps, tx, {
     id,
     botId: call.botId,
     conversationId: call.conversationId,
@@ -332,5 +340,5 @@ async function wakeWith(
     ),
     receivedAt: deps.clock(),
   });
-  return true;
+  return { started };
 }

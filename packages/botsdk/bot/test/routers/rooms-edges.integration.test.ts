@@ -1,4 +1,4 @@
-import type { TextOptions } from "@tanstack/ai";
+import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -15,7 +15,13 @@ import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
-import { createFakeAdapter, type FakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
+import {
+  createFakeAdapter,
+  type FakeAdapter,
+  round,
+  text,
+  toolCall,
+} from "@botsdk/testing/fake-adapter";
 import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 import { fakeReviewer, type FakeReviewer, verdictRound } from "@botsdk/testing/fake-reviewer";
 
@@ -149,8 +155,11 @@ describe("a retried Room send", () => {
   );
 });
 
-/** `fake`'s adapter, holding each call until `open()`, or until its Turn is stopped. */
-function held(fake: FakeAdapter) {
+/**
+ * `fake`'s adapter, holding each call after the first `passes` until `open()`, or until its Turn is
+ * stopped.
+ */
+function held(fake: FakeAdapter, passes = 0) {
   const entered: TextOptions[] = [];
   let open = () => {};
   const opened = new Promise<void>((resolve) => {
@@ -160,6 +169,7 @@ function held(fake: FakeAdapter) {
     ...fake.adapter,
     chatStream: async function* (options) {
       entered.push(options);
+      if (entered.length <= passes) return yield* fake.adapter.chatStream(options);
       const signal = options.request?.signal ?? undefined;
       await Promise.race([
         opened,
@@ -541,12 +551,20 @@ describe("a Bot's page, its 1:1 Conversation", () => {
       });
       await client.rooms.send({ conversationId, text: "Go" });
       await expect.poll(() => gate.entered.length, poll).toBe(1);
+      // The Bot's thread is told of the Room Turn's start, and of its end below.
+      await expect.poll(() => hints.length, poll).toBe(1);
 
       expect((await client.bots.get({ botId: scout.id })).bot.turnStatus).toBeNull();
+      // Its start hints the Bot's thread already, so its Tasks view shows the running Room Turn.
+      const started = await client.conversations.changes({
+        conversationId: await oneToOneOf(scout.id),
+        since: 0,
+      });
+      if (started.reload) throw new Error("expected changes");
+      expect(started.changes.filter((change) => change.kind === "turn")).toHaveLength(1);
       gate.open();
       await expect.poll(() => statusesOf(scout.id, conversationId), poll).toEqual(["complete"]);
-      // Its end is told to the Bot's thread, whose log has its `turn` change.
-      await expect.poll(() => hints.length, poll).toBe(1);
+      await expect.poll(() => hints.length, poll).toBe(2);
 
       // The Room Turn's end still hints the Bot's thread (its Tasks view), with no status to show.
       const logged = await client.conversations.changes({
@@ -563,6 +581,260 @@ describe("a Bot's page, its 1:1 Conversation", () => {
   );
 });
 
+/** Hints to Bot `botId`'s 1:1 thread from now on, as its open Tasks view gets them. */
+async function hintsTo(deps: TestDeps, botId: string) {
+  const hints: string[] = [];
+  await deps.pubsub.subscribe(conversationChannel(await oneToOneOf(botId)), (hint) => {
+    hints.push(hint);
+  });
+  return hints;
+}
+
+/** The Turns whose `turn` changes Bot `botId`'s 1:1 log holds. */
+async function turnChangesOf(client: ReturnType<typeof chatRpc>, botId: string) {
+  const read = await client.conversations.changes({
+    conversationId: await oneToOneOf(botId),
+    since: 0,
+  });
+  if (read.reload) throw new Error("expected changes");
+  return read.changes.filter((change) => change.kind === "turn").map((change) => change.refId);
+}
+
+/**
+ * Expects Bot `botId`'s Turn running in `conversationId` to be in its 1:1 log, and its thread to
+ * have had `count` hints: its Tasks view lists the running Room Turn at once.
+ */
+async function expectRunningInOneToOne(
+  client: ReturnType<typeof chatRpc>,
+  hints: string[],
+  { botId, conversationId, count }: { botId: string; conversationId: string; count: number },
+) {
+  await expect.poll(() => hints.length, poll).toBe(count);
+  const running = (await turnsOf(botId, conversationId)).filter(
+    (turn) => turn.status === "running",
+  );
+  expect(running).toHaveLength(1);
+  expect(await turnChangesOf(client, botId)).toContain(running[0]!.id);
+}
+
+/** Whether a model call is a Helper's: its system prompt says so. */
+const isHelperCall = (options: TextOptions) =>
+  (options.systemPrompts ?? []).some((prompt) =>
+    (typeof prompt === "string" ? prompt : prompt.content).startsWith("You are a Helper"),
+  );
+
+/** A round in which the Bot asks the user to pick red or blue. */
+const asksColour = round(
+  toolCall({
+    name: "send_to_user",
+    input: {
+      text: "Red or blue?",
+      endTurn: true,
+      choice: { options: ["Red", "Blue"], other: false },
+    },
+  }),
+);
+
+describe("a Room Turn's start, in its Bot's 1:1 thread", () => {
+  it(
+    "is hinted to the Bot's thread when a user Message starts it",
+    async () => {
+      const gate = held(createFakeAdapter({ rounds: [says("Done.")] }));
+      const { deps, client, writer, room } = await threeBotRoom([], gate.adapter);
+      const conversationId = room.conversationId;
+      const hints = await hintsTo(deps, writer.id);
+
+      await client.rooms.send({ conversationId, text: "@Writer, go." });
+
+      await expect.poll(() => gate.entered.length, poll).toBe(1);
+      await expectRunningInOneToOne(client, hints, { botId: writer.id, conversationId, count: 1 });
+      gate.open();
+      await expect.poll(() => statusesOf(writer.id, conversationId), poll).toEqual(["complete"]);
+      // Its end is hinted too.
+      await expect.poll(() => hints.length, poll).toBe(2);
+    },
+    timeout,
+  );
+
+  it(
+    "is hinted to the Bot's thread when another Bot's handoff starts it",
+    async () => {
+      const gate = held(
+        createFakeAdapter({ rounds: [says("Found it. @Writer, draft it."), says("Drafted.")] }),
+        1,
+      );
+      const { deps, client, writer, room } = await threeBotRoom([], gate.adapter);
+      const conversationId = room.conversationId;
+      const hints = await hintsTo(deps, writer.id);
+
+      await client.rooms.send({ conversationId, text: "@Scout, find the notes." });
+
+      await expect.poll(() => gate.entered.length, poll).toBe(2);
+      await expectRunningInOneToOne(client, hints, { botId: writer.id, conversationId, count: 1 });
+      gate.open();
+      await expect.poll(() => statusesOf(writer.id, conversationId), poll).toEqual(["complete"]);
+    },
+    timeout,
+  );
+
+  it(
+    "is hinted to the Bot's thread when the user's choice starts it",
+    async () => {
+      const gate = held(createFakeAdapter({ rounds: [asksColour, says("Red it is.")] }), 1);
+      const { deps, client, writer, room } = await threeBotRoom([], gate.adapter);
+      const conversationId = room.conversationId;
+      const hints = await hintsTo(deps, writer.id);
+      await client.rooms.send({ conversationId, text: "@Writer, which colour?" });
+      await expect.poll(() => statusesOf(writer.id, conversationId), poll).toEqual(["complete"]);
+      // The first Turn's start and end.
+      await expect.poll(() => hints.length, poll).toBe(2);
+      const { messages } = await client.rooms.get({ conversationId });
+      const asked = messages.findLast((entry) => entry.control?.kind === "choice")!;
+
+      await client.bots.choose({
+        botId: writer.id,
+        messageId: asked.id,
+        answer: { option: "Red" },
+      });
+
+      await expectRunningInOneToOne(client, hints, { botId: writer.id, conversationId, count: 3 });
+      gate.open();
+      await expect
+        .poll(() => statusesOf(writer.id, conversationId), poll)
+        .toEqual(["complete", "complete"]);
+    },
+    timeout,
+  );
+
+  it(
+    "is hinted to the Bot's thread when a Helper's report starts it",
+    async () => {
+      const turns = held(
+        createFakeAdapter({
+          rounds: [
+            round(toolCall({ name: "start_helper", input: { type: "general", task: "Count." } })),
+            says("On it."),
+            says("The count is 3."),
+          ],
+        }),
+        2,
+      );
+      const helpers = createFakeAdapter({ rounds: [round(text("Counted 3."))], manual: true });
+      const adapter = {
+        ...turns.adapter,
+        chatStream: (options: TextOptions) =>
+          isHelperCall(options)
+            ? helpers.adapter.chatStream(options)
+            : turns.adapter.chatStream(options),
+      } as AnyTextAdapter;
+      const { deps, client, writer, room } = await threeBotRoom([], adapter);
+      const conversationId = room.conversationId;
+      const hints = await hintsTo(deps, writer.id);
+      await client.rooms.send({ conversationId, text: "@Writer, count the files." });
+      await expect.poll(() => helpers.calls.length, poll).toBe(1);
+      await expect.poll(() => statusesOf(writer.id, conversationId), poll).toEqual(["complete"]);
+      await expect.poll(() => hints.length, poll).toBe(2);
+
+      await helpers.releaseAll();
+
+      await expectRunningInOneToOne(client, hints, { botId: writer.id, conversationId, count: 3 });
+      turns.open();
+      await expect
+        .poll(() => statusesOf(writer.id, conversationId), poll)
+        .toEqual(["complete", "complete"]);
+    },
+    timeout,
+  );
+
+  for (const answer of ["allow", "deny"] as const) {
+    it(
+      `is hinted to the Bot's thread when a late Approval answer (${answer}) starts it`,
+      async () => {
+        const reviewer = fakeReviewer(() =>
+          verdictRound({ outcome: "block", reason: "Not asked.", summary: "Deploy" }),
+        );
+        const gate = held(
+          createFakeAdapter({
+            rounds: [
+              round(toolCall({ name: "shell", input: { command: "make deploy" } })),
+              says("Okay."),
+              says("Noted."),
+            ],
+          }),
+          2,
+        );
+        const { deps, client, writer, room } = await threeBotRoom([], gate.adapter, reviewer);
+        const conversationId = room.conversationId;
+        const hints = await hintsTo(deps, writer.id);
+        const reviewOf = async () => {
+          const [row] = await getTestDb()
+            .select()
+            .from(botReview)
+            .where(eq(botReview.botId, writer.id));
+          return row;
+        };
+        await client.rooms.send({ conversationId, text: "@Writer, deploy it." });
+        await expect.poll(async () => (await reviewOf())?.state, poll).toBe("waiting");
+        // The user's next Message interrupts the wait: the Approval goes pending (ADR 0030).
+        await client.rooms.send({ conversationId, text: "@Writer, hold on." });
+        await expect
+          .poll(() => statusesOf(writer.id, conversationId), poll)
+          .toEqual(["stopped", "complete"]);
+        // The first Turn's start, its end (which started the next), and the next one's end.
+        await expect.poll(() => hints.length, poll).toBe(3);
+
+        await client.reviews[answer]({ reviewId: (await reviewOf())!.id });
+
+        await expectRunningInOneToOne(client, hints, {
+          botId: writer.id,
+          conversationId,
+          count: 4,
+        });
+        gate.open();
+        await expect
+          .poll(() => statusesOf(writer.id, conversationId), poll)
+          .toEqual(["stopped", "complete", "complete"]);
+      },
+      timeout,
+    );
+  }
+
+  it(
+    "a choice answered in a Room takes its Bot's 1:1 lock before the Room's",
+    async () => {
+      const gate = held(createFakeAdapter({ rounds: [asksColour, says("Red it is.")] }), 1);
+      const { client, writer, room } = await threeBotRoom([], gate.adapter);
+      const conversationId = room.conversationId;
+      await client.rooms.send({ conversationId, text: "@Writer, which colour?" });
+      await expect.poll(() => statusesOf(writer.id, conversationId), poll).toEqual(["complete"]);
+      const { messages } = await client.rooms.get({ conversationId });
+      const asked = messages.findLast((entry) => entry.control?.kind === "choice")!;
+      // The 1:1 was made before the Room, so its id comes first.
+      const own = await oneToOneOf(writer.id);
+      expect(own < conversationId).toBe(true);
+
+      // A pause holds the 1:1's lock and is about to take the Room's.
+      const pause = await holdLock(own);
+      const chosen = client.bots.choose({
+        botId: writer.id,
+        messageId: asked.id,
+        answer: { option: "Red" },
+      });
+      await expect.poll(lockWaits, poll).toBeGreaterThan(0);
+      // The answer waits for the 1:1 holding nothing in the Room, so the pause goes on.
+      const free = await lockIsFree(conversationId);
+      await pause.release();
+      await chosen;
+
+      expect(free).toBe(true);
+      gate.open();
+      await expect
+        .poll(() => statusesOf(writer.id, conversationId), poll)
+        .toEqual(["complete", "complete"]);
+    },
+    timeout,
+  );
+});
 describe("a Message posted to a Room from a Channel", () => {
   it(
     "is refused under the Room's lock when its stillValid check says no, saving nothing",

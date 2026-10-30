@@ -6,7 +6,7 @@ import type { BotSdkContext, Transaction } from "../../plugin";
 import { defineCoreJob } from "../../runner/internal";
 import { checkInFireJobName, checkInKey, checkInNotice } from "./check-in";
 import { hintChanged, recordBotChange } from "../conversation";
-import { lockConversation, receive } from "../triggers";
+import { lockConversation, lockTurnConversations, receive } from "../triggers";
 
 /**
  * One Check-in's fire (#540), a single delayed job. Its Checkpoint hands the Router the Check-in's
@@ -75,7 +75,7 @@ async function fireCheckIn(
   const call = await deps.models.resolveModelCall(owner.userId, owner.model);
   const quotaSpent = call ? !(await call.meter.mayRun()).ok : false;
   const banned = await deps.isUserBlocked(owner.userId);
-  await lockConversation(tx, owner.conversationId);
+  await lockTurnConversations(tx, owner);
   const [row] = await tx
     .update(botCheckIn)
     .set({ state: "fired", updatedAt: deps.clock() })

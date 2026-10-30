@@ -50,7 +50,7 @@ import {
   toolSearchTools,
 } from "../context";
 import { closeWaitingReviews } from "../safety";
-import { lockConversation, receive } from "../triggers";
+import { hintBotThread, lockConversation, lockTurnConversations, receive } from "../triggers";
 
 import {
   answeredTranscript,
@@ -439,7 +439,7 @@ async function runHelperJob(
   const ended = await ctx.step("end_helper", (tx) =>
     endHelper(deps, tx, helper, endingOf(played), played),
   );
-  if (ended) await afterReport(deps, ended.conversationId);
+  if (ended) await afterReport(deps, ended);
 }
 
 /**
@@ -727,7 +727,8 @@ export function gistOf(task: string): string {
  * Ends a `running` Helper as `ending` says and hands the Router its report as a `helper` / `helper`
  * Trigger, under its Conversation's row lock. Its id is `helper:<id>`: a Helper ends once.
  * A Helper that already ended stays as it is and sends nothing, so a retried finish sends one
- * Trigger. Returns the Conversation that got it, or `null`.
+ * Trigger. Returns the Bot and Conversation that got it, with whether it started a Turn there, or
+ * `null`.
  */
 async function endHelper(
   deps: BotSdkContext,
@@ -735,11 +736,12 @@ async function endHelper(
   helper: Pick<HelperFacts, "id" | "botId" | "type" | "task" | "usage">,
   ending: { status: "complete" | "error"; report: string },
   played: Pick<PlayedHelper, "input" | "transcript" | "usage">,
-): Promise<{ conversationId: string } | null> {
+): Promise<{ botId: string; conversationId: string; started: boolean } | null> {
   // The report goes where the Helper was started, a Room included (spec #1055).
   const owner = await helperOwnerOf(tx, helper.id);
   if (!owner) return null;
-  await lockConversation(tx, owner.conversationId);
+  // With the Bot's 1:1 for a Room's Helper, in id order: a Room Turn's start writes both.
+  await lockTurnConversations(tx, owner);
   const now = deps.clock();
   const rows = await tx
     .update(botHelper)
@@ -755,7 +757,7 @@ async function endHelper(
   await recordBotChange(tx, owner, "helper", helper.id, now);
   // A Helper cut off mid-wait (its time limit, or a lost job) leaves no request open.
   await closeWaitingReviews(deps, tx, { helperId: helper.id }, "expired");
-  await receive(deps, tx, {
+  const { started = false } = await receive(deps, tx, {
     id: helperTriggerId(helper.id),
     botId: helper.botId,
     conversationId: owner.conversationId,
@@ -764,13 +766,20 @@ async function endHelper(
     text: helperReportText(helper.type, helper.task, ending),
     receivedAt: now,
   });
-  return { conversationId: owner.conversationId };
+  return { botId: owner.botId, conversationId: owner.conversationId, started };
 }
 
-/** Once a report's Trigger has committed: the Turn it started runs, and followers re-read. */
-async function afterReport(deps: BotSdkContext, conversationId: string) {
+/**
+ * Once a report's Trigger has committed: the Turn it started runs, and followers re-read, the Bot's
+ * 1:1 thread too for a Room Turn it started.
+ */
+async function afterReport(
+  deps: BotSdkContext,
+  reported: { botId: string; conversationId: string; started: boolean },
+) {
   deps.runner.wake();
-  await hintChanged(deps, conversationId);
+  await hintChanged(deps, reported.conversationId);
+  if (reported.started) await hintBotThread(deps, reported);
 }
 
 /**
@@ -795,7 +804,7 @@ async function endLostHelper(deps: BotSdkContext, helperId: string, waitedSince?
   const ended = await deps.db.transaction((tx) =>
     endHelper(deps, tx, helper, { status: "error", report: helperEndings.crashed }, played),
   );
-  if (ended) await afterReport(deps, ended.conversationId);
+  if (ended) await afterReport(deps, ended);
 }
 
 /** What a Helper whose job has ended did: its recorded calls replay, and nothing more runs. */

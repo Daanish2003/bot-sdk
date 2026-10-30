@@ -18,7 +18,13 @@ import type { BotSdkContext, Transaction } from "../../plugin";
 import type { ModelMeter } from "../../models/internal";
 import type { MessageUsage } from "../../models/shared/usage";
 import { parseReply } from "../../lib/parse-reply";
-import { isPaused, lockConversation, receive } from "../triggers";
+import {
+  hintBotThread,
+  isPaused,
+  lockConversation,
+  lockTurnConversations,
+  receive,
+} from "../triggers";
 import { forwardedEmailLabel, routineNameOf, routinePromptOf, untrustedBlock } from "../routines";
 import {
   appendBotMessage,
@@ -473,11 +479,13 @@ async function decide(
   now: Date,
 ): Promise<boolean> {
   let woke = false;
+  let started = false;
   const decided = await deps.db.transaction(async (tx) => {
     // Its Approval is asked where its Turn or Helper started, a Room included (spec #1055).
     const owner = await reviewOwnerOf(tx, reviewId);
     if (!owner) return null;
-    await lockConversation(tx, owner.conversationId);
+    // With the Bot's 1:1 for a Room's Approval, in id order: a late no starts a Turn there.
+    await lockTurnConversations(tx, owner);
     if (change.state === "pending") {
       const moved = await goPending(deps, tx, eq(botReview.id, reviewId));
       if (moved.length === 0) return null;
@@ -534,7 +542,7 @@ async function decide(
           { idempotencyKey: approvedCallKey(reviewId) },
         );
       } else {
-        await receive(deps, tx, {
+        ({ started = false } = await receive(deps, tx, {
           id: approvalTriggerId(reviewId),
           botId: owner.botId,
           conversationId: owner.conversationId,
@@ -542,13 +550,14 @@ async function decide(
           channel: "web",
           text: approvalTriggerText(changed, { denied: true }),
           receivedAt: now,
-        });
+        }));
       }
     }
     return owner;
   });
   if (woke) deps.runner.wake();
   if (decided) await hintChanged(deps, decided.conversationId);
+  if (decided && started) await hintBotThread(deps, decided);
   return decided !== null;
 }
 

@@ -22,6 +22,7 @@ import {
 
 import {
   botTurnJobName,
+  hintBotThread,
   isPaused,
   lockConversation,
   lockConversationsInOrder,
@@ -341,8 +342,10 @@ export async function postToRoom(
       status: "complete",
       createdAt: now,
     });
+    // The targets whose Room Turn started or ended here: their 1:1 logs changed too.
+    const turned: string[] = [];
     for (const { botId } of targets) {
-      const { waitsFor } = await receive(deps, tx, {
+      const { waitsFor, started } = await receive(deps, tx, {
         id: triggerId ?? row.id,
         botId,
         conversationId,
@@ -351,14 +354,16 @@ export async function postToRoom(
         messageId: row.id,
         receivedAt: now,
       });
-      if (waitsFor) await cancelTurn(deps, tx, waitsFor, "message");
+      const ended = waitsFor ? await cancelTurn(deps, tx, waitsFor, "message") : false;
+      if (started || ended) turned.push(botId);
     }
-    return { outcome: "handed" as const, message: toBotMessage(row) };
+    return { outcome: "handed" as const, message: toBotMessage(row), turned };
   });
   if (posted.outcome !== "handed") return posted;
   deps.runner.wake();
   await hintChanged(deps, conversationId);
-  return posted;
+  for (const botId of posted.turned) await hintBotThread(deps, { botId, conversationId });
+  return { outcome: posted.outcome, message: posted.message };
 }
 
 /**
@@ -549,11 +554,7 @@ async function turnFacts(
  */
 async function hintTurnEnded(deps: BotSdkContext, turn: { botId: string; conversationId: string }) {
   await hintChanged(deps, turn.conversationId);
-  const [own] = await deps.db
-    .select({ id: bot.conversationId })
-    .from(bot)
-    .where(eq(bot.id, turn.botId));
-  if (own && own.id !== turn.conversationId) await hintChanged(deps, own.id);
+  await hintBotThread(deps, turn);
 }
 
 /**
