@@ -1,7 +1,7 @@
 import { type AnyServerTool, convertSchemaToJsonSchema, firstSentence } from "@tanstack/ai";
-import { and, desc, eq, lt, ne, sql } from "drizzle-orm";
+import { and, desc, eq, exists, isNull, lt, ne, or, sql } from "drizzle-orm";
 
-import { bot, botPromptStart, botTurn, message, usage } from "../../storage";
+import { bot, botPromptStart, botSummary, botTurn, message, usage } from "../../storage";
 import type { Database, PromptStartSection, PromptStartTool } from "../../storage";
 import type { Transaction } from "../../plugin";
 import { uuidv7 } from "../../lib/uuidv7";
@@ -136,17 +136,36 @@ export type PromptStartParts = {
 
 /**
  * The Bot's latest Prompt start's id and build time, or `undefined` before its first Turn builds one,
- * or since its latest reset mark (spec #1007): one built before it holds what came before.
+ * or since its latest reset mark (spec #1007): one built before it holds what came before. One that
+ * holds a Summary belongs to the Conversation the Summary is about (spec #1055): the Conversation of
+ * the Turn a mid-Turn Summary was written in, or the Bot's own for an away one. Only a Turn there, in
+ * `conversationId` (the Bot's own when not given), may start from it, so a Room's text never reaches
+ * another Conversation's Turns.
  */
 export async function latestPromptStart(
   db: Database | Transaction,
   botId: string,
+  conversationId?: string,
 ): Promise<{ id: string; builtAt: Date } | undefined> {
+  const own = db.select({ id: bot.conversationId }).from(bot).where(eq(bot.id, botId));
+  const aboutHere = db
+    .select({ id: botSummary.id })
+    .from(botSummary)
+    .where(
+      and(
+        eq(botSummary.id, botPromptStart.summaryId),
+        sql`case when ${botSummary.kind} = 'away' then (${own}) else (select ${botTurn.conversationId} from ${botTurn} where ${botTurn.id} = ${botSummary.turnId}) end = ${conversationId ?? sql`(${own})`}`,
+      ),
+    );
   const [latest] = await db
     .select({ id: botPromptStart.id, builtAt: botPromptStart.builtAt })
     .from(botPromptStart)
     .where(
-      and(eq(botPromptStart.botId, botId), noResetAfter(db, { botId }, botPromptStart.builtAt)),
+      and(
+        eq(botPromptStart.botId, botId),
+        noResetAfter(db, { botId }, botPromptStart.builtAt),
+        or(isNull(botPromptStart.summaryId), exists(aboutHere)),
+      ),
     )
     .orderBy(desc(botPromptStart.builtAt), desc(botPromptStart.id))
     .limit(1);
@@ -157,8 +176,9 @@ export async function latestPromptStart(
 export async function latestPromptStartId(
   db: Database | Transaction,
   botId: string,
+  conversationId?: string,
 ): Promise<string | undefined> {
-  return (await latestPromptStart(db, botId))?.id;
+  return (await latestPromptStart(db, botId, conversationId))?.id;
 }
 
 /**
@@ -168,7 +188,9 @@ export async function latestPromptStartId(
  */
 export async function promptStartFor(tx: Transaction, parts: PromptStartParts): Promise<string> {
   const { turn } = parts;
-  const id = (await latestPromptStartId(tx, turn.botId)) ?? (await buildPromptStart(tx, parts));
+  const id =
+    (await latestPromptStartId(tx, turn.botId, turn.conversationId)) ??
+    (await buildPromptStart(tx, parts));
   await tx.update(botTurn).set({ promptStartId: id }).where(eq(botTurn.id, turn.id));
   return id;
 }

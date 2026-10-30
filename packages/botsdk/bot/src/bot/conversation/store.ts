@@ -191,6 +191,7 @@ export async function appendBotMessage(
   });
   // A no-op with no email adapter in the channels slot.
   await deps.channels.deliverIn(tx, {
+    botId,
     conversationId,
     messageId: row.id,
     turnId,

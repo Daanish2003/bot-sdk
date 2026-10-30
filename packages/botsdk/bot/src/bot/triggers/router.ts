@@ -46,11 +46,18 @@ export type BotConversation = { botId: string; conversationId: string };
 
 /**
  * The Conversation queue (#499) of a Bot in a Conversation: its Triggers there that no Turn has
- * taken yet and that were not skipped (spec #1007). A skipped Trigger is never taken.
+ * taken yet and that were not skipped (spec #1007), in every Conversation when none is given (the
+ * Tasks view). A skipped Trigger is never taken.
  */
-export function waitingIn({ botId, conversationId }: BotConversation): SQL | undefined {
+export function waitingIn({
+  botId,
+  conversationId,
+}: {
+  botId: string;
+  conversationId?: string;
+}): SQL | undefined {
   return and(
-    eq(botTrigger.conversationId, conversationId),
+    conversationId ? eq(botTrigger.conversationId, conversationId) : undefined,
     eq(botTrigger.botId, botId),
     isNull(botTrigger.turnId),
     isNull(botTrigger.skippedAt),

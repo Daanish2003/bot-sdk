@@ -154,7 +154,7 @@ export function botsApi(sdk: BotSdkContext) {
       const { botId } = parseInput(botInput, rest);
       const found = await findBot(sdk.db, userId, botId);
       if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-      return botTasks(sdk.db, { botId, conversationId: found.conversationId, now: sdk.clock() });
+      return botTasks(sdk.db, { botId, now: sdk.clock() });
     },
 
     /**

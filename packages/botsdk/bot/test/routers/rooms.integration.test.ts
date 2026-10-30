@@ -304,7 +304,7 @@ describe("rooms", () => {
   );
 
   it(
-    "gives a Room Turn after a reset of the Bot the Room's Messages again, since its history dropped them",
+    "gives a Room Turn after a reset of the Bot only what came after it in the Room",
     async () => {
       const { fake, client, scout, writer } = await threeBots([says("First."), says("Second.")]);
       const room = await client.rooms.create({ name: "Launch", botIds: [scout.id, writer.id] });
@@ -313,6 +313,8 @@ describe("rooms", () => {
         .poll(async () => (await turnsOf(scout.id)).map((turn) => turn.status), poll)
         .toEqual(["complete"]);
       await client.bots.reset({ botId: scout.id, name: "Scout" });
+      // Only what is stamped after the reset's millisecond counts as after it.
+      await new Promise((resolve) => setTimeout(resolve, 5));
 
       await client.rooms.send({ conversationId: room.conversationId, text: "After it." });
       await expect
@@ -321,7 +323,7 @@ describe("rooms", () => {
 
       const [, second] = fake.calls.filter(isTurnCall);
       const sentText = JSON.stringify(second!.messages);
-      expect(sentText).toContain("[User]: (to you) Before the reset.");
+      expect(sentText).not.toContain("Before the reset.");
       expect(sentText).toContain("After it.");
     },
     timeout,
