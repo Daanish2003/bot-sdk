@@ -76,11 +76,11 @@ export function RoomSettingsDialog({
     orpc.rooms.delete.mutationOptions({
       onSuccess: async () => {
         onOpenChange(false);
+        await navigate({ to: "bots" });
         queryClient.removeQueries({
           queryKey: orpc.rooms.get.queryKey({ input: { conversationId } }),
         });
         void queryClient.invalidateQueries({ queryKey: orpc.rooms.list.queryKey() });
-        await navigate({ to: "bots" });
       },
       onError: (error) => toast.error(serverErrorText(i18n, error)),
     }),
