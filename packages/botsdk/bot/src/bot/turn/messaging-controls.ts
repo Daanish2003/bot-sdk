@@ -111,12 +111,18 @@ async function pressed(
   }
   if (!isApprovalControl(control)) return "it presses a button of a control that has none";
   if (option !== approveOption && option !== denyOption) return "it presses an unknown option";
-  return decide(run, control, option === approveOption, shownIn);
+  try {
+    return await decide(run, control, option === approveOption, shownIn);
+  } catch (error) {
+    // Gone or paused meanwhile: the buttons stop offering it.
+    if (error instanceof ORPCError) await edit(run, shownIn, "No longer open");
+    throw error;
+  }
 }
 
 async function typed(run: Run, update: MessagingUpdate): Promise<string | null | undefined> {
   const text = update.text.trim();
-  // Text with files, or nothing, is an ordinary Message.
+  // Text with files, or nothing, is an ordinary Message, and keeps a wait for Other.
   if (!text || update.files.length > 0) return undefined;
   const key = waitKey(run.account, update);
   const waiting = awaitingOther.get(key);

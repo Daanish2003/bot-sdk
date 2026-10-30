@@ -79,7 +79,7 @@ export async function sendMessagingDelivery(
   const botMessage = toBotMessage(row);
   const body = messagingBody(botMessage, {
     appUrl: appUrl && `${appUrl}/bots/${row.botId}`,
-    files: await filesOf(deps, row.parts),
+    files: await filesOf(deps, row.parts, adapter.limits.upload),
     uploadLimit: adapter.limits.upload,
   });
   if (!body.text.trim() && !body.files?.length) return;
@@ -99,12 +99,14 @@ export async function sendMessagingDelivery(
 async function filesOf(
   deps: BotSdkContext,
   parts: Parameters<typeof controlOf>[0],
+  uploadLimit: number,
 ): Promise<FileBytes[]> {
   const files = controlOf(parts, "files")?.files ?? [];
   return Promise.all(
     files.map(async (file) => ({
       file,
-      bytes: await deps.blobStore.get(sentFileBlobKey(file.id)),
+      // A file past the limit is only linked, so its bytes are never read.
+      bytes: file.size > uploadLimit ? null : await deps.blobStore.get(sentFileBlobKey(file.id)),
     })),
   );
 }
