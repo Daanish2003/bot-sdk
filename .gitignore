@@ -95,3 +95,6 @@ packages/evals/src/images/results/
 
 # Proactive eval (packages/evals/src/proactive): the results it writes
 packages/evals/src/proactive/results/
+
+# Rooms eval (packages/evals/src/rooms): the results it writes
+packages/evals/src/rooms/results/
