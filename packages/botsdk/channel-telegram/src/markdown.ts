@@ -22,7 +22,7 @@ function escapeUrl(url: string): string {
 }
 
 const inline =
-  /\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|(?<!\w)_(.+?)_(?!\w)|\[([^\]]+)\]\(((?:[^()\s]|\([^()\s]*\))+)\)|`([^`\n]+)`/s;
+  /\*\*(.+?)\*\*|__(.+?)__|\*(?!\s)([^\n*]+?)\*|(?<!\w)_(?!\s)([^\n_]+?)_(?!\w)|\[([^\]]+)\]\(((?:[^()\s]|\([^()\s]*\))+)\)|`([^`\n]+)`/s;
 
 /** Converts Markdown without code blocks: bold, italic, inline code and links. */
 function convertInline(text: string): string {
