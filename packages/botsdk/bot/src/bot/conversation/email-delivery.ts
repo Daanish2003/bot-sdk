@@ -93,8 +93,13 @@ async function routeOf(
       .where(and(eq(botTrigger.turnId, turnId), eq(botTrigger.source, "user")))
       .orderBy(desc(botTrigger.receivedAt), desc(botTrigger.id));
     const latest = taken[0]?.channel;
-    if (latest && isMessagingRoute(latest)) {
-      return (await messagingTarget(tx, { conversationId }, latest)) ? { channel: latest } : null;
+    // A messaging Channel that can't be honoured now falls through to the rules below.
+    if (
+      latest &&
+      isMessagingRoute(latest) &&
+      (await messagingTarget(tx, { conversationId }, latest))
+    ) {
+      return { channel: latest };
     }
     const emailed = taken.find((trigger) => trigger.channel === "email");
     if (emailed) return { channel: "email", answers: emailed.messageId ?? undefined };
