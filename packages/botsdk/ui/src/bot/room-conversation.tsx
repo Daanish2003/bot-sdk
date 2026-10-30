@@ -6,11 +6,14 @@ import { toast } from "sonner";
 import { hopLimit } from "@botsdk/client/bot/mentions";
 import { dateFormat } from "@botsdk/react/intl";
 import { useI18n } from "@botsdk/react/provider";
-import { useRoom } from "@botsdk/react/bot/rooms";
+import { useBotReviews } from "@botsdk/react/bot/reviews";
+import { useRoom, useRoomChoices } from "@botsdk/react/bot/rooms";
 import { serverErrorText } from "@botsdk/react/rpc-error";
 import { BotAvatar } from "./bot-avatar";
+import { ChoiceCard } from "./choice-card";
 import { RoomComposer } from "./room-composer";
 import { RoomMembers } from "./room-members";
+import { ReviewRequest } from "./review-request";
 import { OneBotWarning, RoomSettingsDialog } from "./room-settings";
 
 /**
@@ -21,7 +24,8 @@ import { OneBotWarning, RoomSettingsDialog } from "./room-settings";
 export function RoomConversation({ conversationId }: { conversationId: string }) {
   const i18n = useI18n();
   const { t, locale } = i18n;
-  const { room, messages, error, send, sending } = useRoom(conversationId);
+  const { room, messages, error, send, sending, working, stop } = useRoom(conversationId);
+  const choices = useRoomChoices(conversationId);
   const [draft, setDraft] = useState("");
   const [managing, setManaging] = useState(false);
 
@@ -53,7 +57,7 @@ export function RoomConversation({ conversationId }: { conversationId: string })
       <header className="flex items-center gap-3 border-b px-4 py-3">
         <UsersIcon className="size-4 text-muted-foreground" />
         <h1 className="flex-1 truncate font-semibold">{room.name}</h1>
-        <RoomMembers members={room.members} />
+        <RoomMembers conversationId={conversationId} members={room.members} />
         <Button
           variant="ghost"
           size="icon-sm"
@@ -104,6 +108,22 @@ export function RoomConversation({ conversationId }: { conversationId: string })
                     </time>
                   </p>
                   <p className="text-sm whitespace-pre-wrap">{message.text}</p>
+                  {message.authorBotId && message.control?.kind === "choice" && (
+                    <ChoiceCard
+                      card={message.control}
+                      onAnswer={(answer) =>
+                        choices.answer(message.authorBotId!, message.id, answer)
+                      }
+                      acting={choices.acting.has(message.id)}
+                    />
+                  )}
+                  {message.authorBotId && message.control?.kind === "review_approval" && (
+                    <RoomReview
+                      botId={message.authorBotId}
+                      reviewId={message.control.reviewId}
+                      working={working}
+                    />
+                  )}
                   {handoff && !stopped && (
                     <p data-relay className="mt-1 text-xs text-muted-foreground">
                       {t("bots.handoffRelay", {
@@ -136,8 +156,34 @@ export function RoomConversation({ conversationId }: { conversationId: string })
         draft={draft}
         setDraft={setDraft}
         onSend={submit}
+        onStop={
+          working
+            ? () => void stop().catch((refusal) => toast.error(serverErrorText(i18n, refusal)))
+            : undefined
+        }
         disabled={room.members.length < 2}
       />
     </section>
+  );
+}
+
+/**
+ * The Approval a Bot asked in the Room (spec #1055), under its Message: the Bot's review, answered
+ * with the existing allow and deny routes. It shows once the Bot's reviews are read.
+ */
+function RoomReview({
+  botId,
+  reviewId,
+  working,
+}: {
+  botId: string;
+  reviewId: string;
+  working: boolean;
+}) {
+  const { reviews, acting, allow, deny } = useBotReviews(botId, working);
+  const review = reviews.find((found) => found.id === reviewId);
+  if (!review) return null;
+  return (
+    <ReviewRequest review={review} onAllow={allow} onDeny={deny} acting={acting.has(review.id)} />
   );
 }

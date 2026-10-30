@@ -26,6 +26,7 @@ import {
   hintChanged,
   markComputerRebuildSeen,
   noResetAfter,
+  reviewConversation,
 } from "../conversation";
 import { lockConversation, receive } from "../triggers";
 import {
@@ -128,7 +129,7 @@ async function storedCall(deps: BotSdkContext, reviewId: string): Promise<Stored
       userId: bot.userId,
       botId: bot.id,
       model: bot.model,
-      conversationId: bot.conversationId,
+      conversationId: reviewConversation(botReview, bot.conversationId),
     })
     .from(botReview)
     .innerJoin(bot, eq(bot.id, botReview.botId))

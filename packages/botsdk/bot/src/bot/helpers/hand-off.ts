@@ -15,8 +15,10 @@ import {
   appendBotMessage,
   controlOf,
   controlParts,
+  helperOwnerOf,
   holdingControl,
   hintChanged,
+  landsWhereStarted,
   recordBotChange,
 } from "../conversation";
 
@@ -80,10 +82,8 @@ export async function handOff(
   reason: string,
   saved: { transcript: ModelMessage[]; usage: MessageUsage | null },
 ): Promise<{ conversationId: string } | null> {
-  const [owner] = await tx
-    .select({ conversationId: bot.conversationId })
-    .from(bot)
-    .where(eq(bot.id, helper.botId));
+  // It reports where it was started, a Room included (spec #1055).
+  const owner = await helperOwnerOf(tx, helper.id);
   if (!owner) return null;
   await lockConversation(tx, owner.conversationId);
   const now = deps.clock();
@@ -168,7 +168,14 @@ export async function helperDone(
   const runner = deps.runner;
   const resumed = await deps.db.transaction(async (tx) => {
     const [owned] = await tx
-      .select({ conversationId: bot.conversationId })
+      .select({
+        botId: bot.id,
+        conversationId: landsWhereStarted(
+          botHelper.startedByTurnId,
+          botHelper.botId,
+          bot.conversationId,
+        ),
+      })
       .from(botHelper)
       .innerJoin(bot, eq(bot.id, botHelper.botId))
       .where(and(eq(botHelper.id, helperId), eq(bot.userId, userId)));
@@ -248,18 +255,17 @@ export async function closeComputerCard(
   return rows.length > 0;
 }
 
-/** The Messages holding Helper `helperId`'s open Computer card, in its Bot's Conversation. */
-function openCards(db: Database | Transaction, helperId: string) {
+/** The Messages holding Helper `helperId`'s open Computer card, in the Conversation it reports into. */
+async function openCards(db: Database | Transaction, helperId: string) {
+  const owner = await helperOwnerOf(db, helperId);
+  if (!owner) return [];
   const open = holdingControl({ kind: "computer", helperId, state: "open" });
   return db
     .select({ id: message.id, parts: message.parts, conversationId: message.conversationId })
     .from(message)
     .where(
       and(
-        eq(
-          message.conversationId,
-          sql`(select ${bot.conversationId} from ${bot} join ${botHelper} on ${botHelper.botId} = ${bot.id} where ${botHelper.id} = ${helperId})`,
-        ),
+        eq(message.conversationId, owner.conversationId),
         eq(message.role, "assistant"),
         sql`${message.parts} @>${JSON.stringify(open)}::jsonb`,
       ),

@@ -26,6 +26,8 @@ import {
   hintChanged,
   noResetAfter,
   recordBotChange,
+  reviewConversation,
+  reviewOwnerOf,
 } from "../conversation";
 import { approvalExpiryJobName, approvalExpiryKey } from "./approval-expiry";
 import { reviewedRules, ruleApprovalTriggerId } from "./custom-rule";
@@ -472,11 +474,8 @@ async function decide(
 ): Promise<boolean> {
   let woke = false;
   const decided = await deps.db.transaction(async (tx) => {
-    const [owner] = await tx
-      .select({ botId: bot.id, conversationId: bot.conversationId })
-      .from(botReview)
-      .innerJoin(bot, eq(bot.id, botReview.botId))
-      .where(eq(botReview.id, reviewId));
+    // Its Approval is asked where its Turn or Helper started, a Room included (spec #1055).
+    const owner = await reviewOwnerOf(tx, reviewId);
     if (!owner) return null;
     await lockConversation(tx, owner.conversationId);
     if (change.state === "pending") {
@@ -597,10 +596,7 @@ export async function closeWaitingReviews(
   // One Turn's or Helper's, so one Bot's: its Conversation is looked up once.
   const [first] = closed;
   if (!first) return;
-  const [owner] = await tx
-    .select({ conversationId: bot.conversationId })
-    .from(bot)
-    .where(eq(bot.id, first.botId));
+  const owner = await reviewOwnerOf(tx, first.id);
   if (!owner) return;
   for (const row of closed) await recordBotChange(tx, owner, "review", row.id, now);
 }
@@ -620,8 +616,13 @@ export async function reopenUnstartedCalls(
   at: Date,
 ): Promise<void> {
   const unstarted = await tx
-    .select({ id: botReview.id, expiresAt: botReview.expiresAt })
+    .select({
+      id: botReview.id,
+      expiresAt: botReview.expiresAt,
+      conversationId: reviewConversation(botReview, bot.conversationId),
+    })
     .from(botReview)
+    .innerJoin(bot, eq(bot.id, botReview.botId))
     .innerJoin(job, eq(job.idempotencyKey, sql`${approvedCallKey("")} || ${botReview.id}`))
     .where(
       and(
@@ -638,13 +639,13 @@ export async function reopenUnstartedCalls(
     )
     // The job's row is locked, so no runner claims it before this commits.
     .for("update", { of: job });
-  for (const { id, expiresAt } of unstarted) {
+  for (const { id, expiresAt, conversationId } of unstarted) {
     await deps.runner.cancelIn(tx, approvedCallKey(id));
     await tx
       .update(botReview)
       .set({ state: "pending", decidedAt: null })
       .where(eq(botReview.id, id));
-    await recordBotChange(tx, owner, "review", id, at);
+    await recordBotChange(tx, { botId: owner.botId, conversationId }, "review", id, at);
     // A late yes skipped the pending state, so it never had an expiry job.
     if (expiresAt) await scheduleExpiry(deps, tx, id, expiresAt);
   }
@@ -662,13 +663,15 @@ export async function declineBotApprovals(
   owner: { botId: string; conversationId: string },
   at: Date,
 ): Promise<void> {
+  // Each Approval's change goes where it was asked, a Room included (spec #1055).
   const declined = await tx
     .update(botReview)
     .set({ state: "denied", decidedAt: at })
     .where(and(eq(botReview.botId, owner.botId), inArray(botReview.state, ["waiting", "pending"])))
     .returning({ id: botReview.id });
   for (const { id } of declined) {
-    await recordBotChange(tx, owner, "review", id, at);
+    const asked = await reviewOwnerOf(tx, id);
+    await recordBotChange(tx, asked ?? owner, "review", id, at);
     await deps.runner.cancelIn(tx, approvalExpiryKey(id));
   }
   const queued = await tx

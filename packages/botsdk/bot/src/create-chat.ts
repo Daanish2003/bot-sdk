@@ -560,6 +560,7 @@ function buildContext(
       removeMember: true,
       setLead: true,
       delete: true,
+      stop: true,
     }),
     secrets: botsStub<SecretsApi>({ save: true, list: true, delete: true }),
     screens: botsStub<ScreensApi>({ view: true, control: true }),

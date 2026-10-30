@@ -24,7 +24,13 @@ import {
   maxScreens,
 } from "../../computer/internal";
 import { BrowserSession, browserTools } from "./browser-tools";
-import { storeScreenshot, recordBotChange, hintChanged } from "../conversation";
+import {
+  hintChanged,
+  helperOwnerOf,
+  landsWhereStarted,
+  recordBotChange,
+  storeScreenshot,
+} from "../conversation";
 import {
   computerOf,
   type LoopKit,
@@ -343,7 +349,7 @@ type HelperFacts = {
   botId: string;
   userId: string;
   model: string;
-  /** Its Bot's Conversation, where its Approval requests show. */
+  /** The Conversation it reports into, where its Approval requests show (`helperConversation`). */
   conversationId: string;
   type: "general" | "computer_use";
   task: string;
@@ -379,7 +385,11 @@ async function helperFacts(
       usage: botHelper.usage,
       userId: bot.userId,
       model: bot.model,
-      conversationId: bot.conversationId,
+      conversationId: landsWhereStarted(
+        botHelper.startedByTurnId,
+        botHelper.botId,
+        bot.conversationId,
+      ),
     })
     .from(botHelper)
     .innerJoin(bot, eq(bot.id, botHelper.botId))
@@ -726,10 +736,8 @@ async function endHelper(
   ending: { status: "complete" | "error"; report: string },
   played: Pick<PlayedHelper, "input" | "transcript" | "usage">,
 ): Promise<{ conversationId: string } | null> {
-  const [owner] = await tx
-    .select({ conversationId: bot.conversationId })
-    .from(bot)
-    .where(eq(bot.id, helper.botId));
+  // The report goes where the Helper was started, a Room included (spec #1055).
+  const owner = await helperOwnerOf(tx, helper.id);
   if (!owner) return null;
   await lockConversation(tx, owner.conversationId);
   const now = deps.clock();

@@ -1,7 +1,27 @@
 import type { Room, RoomMember, RoomMemberStatus } from "@botsdk/client/bot/contract";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+  type SQLWrapper,
+} from "drizzle-orm";
 
-import { bot, botRoomMember, botTrigger, botTurn, conversation, message } from "../../storage";
+import {
+  bot,
+  botHelper,
+  botReview,
+  botRoomMember,
+  botTrigger,
+  botTurn,
+  conversation,
+  message,
+} from "../../storage";
 import type { Database } from "../../storage";
 import type { Transaction } from "../../plugin";
 import { uuidv7 } from "../../lib/uuidv7";
@@ -17,6 +37,73 @@ import { botKind } from "./store";
 /** A Room left with one Bot (its others were deleted) allows only adding a Bot or deleting it. */
 export const oneBotRoom = () =>
   rpcError("BAD_REQUEST", "error.roomOneBot", "This Room has one Bot left: add a Bot or delete it");
+
+/**
+ * SQL: the Conversation where what Bot `botId` started in Turn `turnId` lands (spec #1055): a
+ * Helper's report and its Approval requests. That is the Turn's Conversation, a Room included, as
+ * long as the Bot is still in it; a Bot that left, or a Turn that is gone, lands in the Bot's 1:1
+ * Conversation `oneToOne`, never in a Room it left.
+ */
+export function landsWhereStarted(turnId: SQLWrapper, botId: SQLWrapper, oneToOne: SQLWrapper) {
+  return sql<string>`coalesce((select ${botTurn.conversationId} from ${botTurn} where ${botTurn.id} = ${turnId} and (${botTurn.conversationId} = ${oneToOne} or exists (select 1 from ${botRoomMember} where ${botRoomMember.conversationId} = ${botTurn.conversationId} and ${botRoomMember.botId} = ${botId}))), ${oneToOne})`;
+}
+
+/** SQL: the Conversation of Helper `helperId` of Bot `botId`, by `landsWhereStarted`; `helperId` is another table's column. */
+const helperConversation = (helperId: SQLWrapper, botId: SQLWrapper, oneToOne: SQLWrapper) =>
+  landsWhereStarted(
+    sql`(select ${botHelper.startedByTurnId} from ${botHelper} where ${botHelper.id} = ${helperId})`,
+    botId,
+    oneToOne,
+  );
+
+/**
+ * SQL: the Conversation where Auto-review `reviewId`'s Approval is asked: its Turn's, or its
+ * Helper's (`helperConversation`), or the Bot's 1:1 Conversation `oneToOne`.
+ */
+export const reviewConversation = (
+  review: { turnId: SQLWrapper; helperId: SQLWrapper; botId: SQLWrapper },
+  oneToOne: SQLWrapper,
+) =>
+  sql<string>`coalesce((select ${botTurn.conversationId} from ${botTurn} where ${botTurn.id} = ${review.turnId}), ${helperConversation(review.helperId, review.botId, oneToOne)})`;
+
+/**
+ * The Bot of Auto-review `reviewId` and the Conversation its Approval is asked in (`reviewConversation`),
+ * where its changes are recorded; or `undefined` when it is gone.
+ */
+export async function reviewOwnerOf(
+  db: Database | Transaction,
+  reviewId: string,
+): Promise<{ botId: string; conversationId: string } | undefined> {
+  const [owner] = await db
+    .select({ botId: bot.id, conversationId: reviewConversation(botReview, bot.conversationId) })
+    .from(botReview)
+    .innerJoin(bot, eq(bot.id, botReview.botId))
+    .where(eq(botReview.id, reviewId));
+  return owner;
+}
+
+/**
+ * The Bot of Helper `helperId` and the Conversation it reports into (`helperConversation`), where its
+ * changes are recorded; or `undefined` when it is gone.
+ */
+export async function helperOwnerOf(
+  db: Database | Transaction,
+  helperId: string,
+): Promise<{ botId: string; conversationId: string } | undefined> {
+  const [owner] = await db
+    .select({
+      botId: bot.id,
+      conversationId: landsWhereStarted(
+        botHelper.startedByTurnId,
+        botHelper.botId,
+        bot.conversationId,
+      ),
+    })
+    .from(botHelper)
+    .innerJoin(bot, eq(bot.id, botHelper.botId))
+    .where(eq(botHelper.id, helperId));
+  return owner;
+}
 
 /** The members of the Rooms `conversationIds`, in the order they joined, by Room. */
 async function membersOf(

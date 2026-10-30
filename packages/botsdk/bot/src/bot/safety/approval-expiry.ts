@@ -1,9 +1,9 @@
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { bot, botReview } from "../../storage";
+import { botReview } from "../../storage";
 import { defineCoreJob } from "../../runner/internal";
-import { hintChanged, recordBotChange } from "../conversation";
+import { hintChanged, recordBotChange, reviewOwnerOf } from "../conversation";
 import { lockConversation } from "../triggers";
 
 /** The runner job that expires one pending Approval (ADR 0030). */
@@ -23,11 +23,7 @@ export const approvalExpiryJob = defineCoreJob({
   run: async ({ reviewId }, ctx) => {
     const deps = ctx.deps;
     const expired = await ctx.step("expire", async (tx) => {
-      const [owner] = await tx
-        .select({ conversationId: bot.conversationId })
-        .from(botReview)
-        .innerJoin(bot, eq(bot.id, botReview.botId))
-        .where(eq(botReview.id, reviewId));
+      const owner = await reviewOwnerOf(tx, reviewId);
       if (!owner) return null;
       await lockConversation(tx, owner.conversationId);
       const now = deps.clock();

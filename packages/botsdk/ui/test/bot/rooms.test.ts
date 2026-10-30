@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type { BotSdkClient } from "@botsdk/client";
+import type { RoomMember } from "@botsdk/client/bot/contract";
 import type { BotMessage } from "@botsdk/client/bot/turn";
 import type { QueryClient } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -639,5 +640,84 @@ describe("handoffs in a Room", () => {
         dateFormat("en", { hour: "numeric", minute: "2-digit" }).format(createdAt),
       ]),
     ).toEqual([]);
+  });
+});
+
+describe("Stop and choices in a Room", () => {
+  /** Mounts the Room with `members` and `messages`, and `fetch` as the network. */
+  const mountRoom = (
+    members: RoomMember[],
+    messages: BotMessage[],
+    fetch: (request: Request) => Promise<Response> = () => new Promise<Response>(() => {}),
+  ) =>
+    render(
+      providerFor(createElement(RoomConversation, { conversationId: launch.conversationId }), {
+        fetch,
+        messages: {},
+        seed: (queryClient, client) => {
+          seed(queryClient, client);
+          queryClient.setQueryData(
+            client.orpc.rooms.get.queryKey({ input: { conversationId: launch.conversationId } }),
+            { room: { ...launch, members }, messages, lastSeq: messages.length },
+          );
+        },
+      }),
+    );
+
+  it("shows one Stop while a member works, and calls rooms.stop with the Room", async () => {
+    const urls: string[] = [];
+    const bodies: unknown[] = [];
+    const fetch = async (request: Request) => {
+      if (!request.url.endsWith("/rooms/stop")) return new Promise<Response>(() => {});
+      urls.push(request.url);
+      bodies.push(await request.json());
+      return new Response(JSON.stringify({ json: null }), {
+        headers: { "content-type": "application/json" },
+      });
+    };
+    mountRoom([member(scout, true), { ...member(writer), status: "working" }], [], fetch);
+
+    fireEvent.click(screen.getByRole("button", { name: /Stop/ }));
+
+    await waitFor(() => expect(bodies).toEqual([{ json: { conversationId: "r1" } }]));
+  });
+
+  it("shows no Stop while every member is idle", () => {
+    mountRoom([member(scout, true), member(writer)], []);
+
+    expect(screen.queryByRole("button", { name: /Stop/ })).toBeNull();
+  });
+
+  it("shows a Bot's choice inline and answers it for the Bot that asked", async () => {
+    const bodies: unknown[] = [];
+    const fetch = async (request: Request) => {
+      if (!request.url.endsWith("/bots/choose")) return new Promise<Response>(() => {});
+      bodies.push(await request.json());
+      return new Response(JSON.stringify({ json: null }), {
+        headers: { "content-type": "application/json" },
+      });
+    };
+    mountRoom(
+      [member(scout, true), member(writer)],
+      [
+        {
+          id: "m1",
+          role: "assistant",
+          text: "Red or blue?",
+          createdAt,
+          authorBotId: writer.id,
+          control: { kind: "choice", options: ["Red", "Blue"], other: false },
+        },
+      ],
+      fetch,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Blue" }));
+
+    await waitFor(() =>
+      expect(bodies).toEqual([
+        { json: { botId: writer.id, messageId: "m1", answer: { option: "Blue" } } },
+      ]),
+    );
   });
 });

@@ -12,7 +12,7 @@ import { listHelpers } from "./helper-card";
 import type { LoopKit } from "../agent-loop";
 import { closeWaitingReviews } from "../safety";
 import { lockConversation } from "../triggers";
-import { hintChanged, recordBotChange, screenshotBlobKey } from "../conversation";
+import { helperOwnerOf, hintChanged, recordBotChange, screenshotBlobKey } from "../conversation";
 
 /** The Bot's tool that reads how one of its Helpers stands (#566). */
 export const checkHelperToolName = "check_helper";
@@ -120,7 +120,9 @@ export async function stopHelpers(
     .returning({ id: botHelper.id, screen: botHelper.screen });
   const runner = deps.runner;
   for (const { id, screen } of rows) {
-    if (owner) await recordBotChange(tx, owner, "helper", id, now);
+    // Recorded where the Helper reports: a Room, when it was started in one (spec #1055).
+    const reports = (await helperOwnerOf(tx, id)) ?? owner;
+    if (reports) await recordBotChange(tx, reports, "helper", id, now);
     await runner.cancelIn(tx, helperJobKey(id));
     // Cancelled first, as a Turn's Stop is: a Stop during an Approval wait counts as no (ADR 0024).
     await closeWaitingReviews(deps, tx, { helperId: id }, "denied");
@@ -154,11 +156,15 @@ export async function deleteBotHelpers(
     .from(botHelperScreenshot)
     .innerJoin(botHelper, eq(botHelper.id, botHelperScreenshot.helperId))
     .where(eq(botHelper.botId, owner.botId));
-  const deleted = await tx
-    .delete(botHelper)
-    .where(eq(botHelper.botId, owner.botId))
-    .returning({ id: botHelper.id });
-  for (const { id } of deleted) await recordBotChange(tx, owner, "helper", id, at);
+  const helpers = await tx
+    .select({ id: botHelper.id })
+    .from(botHelper)
+    .where(eq(botHelper.botId, owner.botId));
+  // Each is recorded where it reported: a Room, when it was started in one (spec #1055).
+  for (const { id } of helpers) {
+    await recordBotChange(tx, (await helperOwnerOf(tx, id)) ?? owner, "helper", id, at);
+  }
+  await tx.delete(botHelper).where(eq(botHelper.botId, owner.botId));
   return shots.map((shot) => screenshotBlobKey(shot.id));
 }
 
@@ -176,6 +182,15 @@ export async function stopBotHelpers(
       .from(bot)
       .where(eq(bot.id, botId));
     if (owner) await hintChanged(deps, owner.conversationId);
+    // And the Rooms the stopped Helpers reported into.
+    const rooms = new Set<string>();
+    for (const id of result.stopped) {
+      const reports = await helperOwnerOf(deps.db, id);
+      if (reports && reports.conversationId !== owner?.conversationId) {
+        rooms.add(reports.conversationId);
+      }
+    }
+    for (const conversationId of rooms) await hintChanged(deps, conversationId);
   }
   return result;
 }

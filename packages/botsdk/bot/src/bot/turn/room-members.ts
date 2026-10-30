@@ -1,7 +1,7 @@
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq, isNull, ne } from "drizzle-orm";
 
 import { deleteConversations } from "../../chat/delete-conversations";
-import { botRoomMember, conversation } from "../../storage";
+import { botRoomMember, botTrigger, conversation } from "../../storage";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { rpcError } from "../../rpc-error";
 import {
@@ -12,7 +12,7 @@ import {
   recordBotChange,
   roomOf,
 } from "../conversation";
-import { lockConversation, runningTurnOf, skipWaiting } from "../triggers";
+import { lockConversation, runningTurnOf, skipWaiting, waitingIn } from "../triggers";
 import { discardUnstarted } from "./pause";
 import { cancelTurn } from "./turn";
 
@@ -160,6 +160,39 @@ export async function setRoomLead(
       .set({ lead: true })
       .where(and(inThisRoom, eq(botRoomMember.botId, botId)));
     await recordBotChange(tx, { conversationId }, "bot", botId, now);
+  });
+}
+
+/**
+ * Stops the user's Room (spec #1055), in one transaction under its row lock: the handoffs waiting
+ * in it are skipped as cancelled, then each member's running Turn there stops as a 1:1 Stop stops
+ * it, taking what else waits for it. Helpers and the Bots' Turns elsewhere go on.
+ */
+export async function stopRoom(
+  deps: BotSdkContext,
+  userId: string,
+  conversationId: string,
+): Promise<void> {
+  await inRoom(deps, userId, conversationId, async (tx, members, now) => {
+    // Skipped before the Stops, so no Turn that ends takes one.
+    await tx
+      .update(botTrigger)
+      .set({ skippedAt: now, skipReason: "cancelled" })
+      .where(
+        and(
+          eq(botTrigger.conversationId, conversationId),
+          eq(botTrigger.source, "agent"),
+          isNull(botTrigger.turnId),
+          isNull(botTrigger.skippedAt),
+        ),
+      );
+    for (const { botId } of members) {
+      const owner = { botId, conversationId };
+      const running = await runningTurnOf(tx, owner);
+      if (!running) continue;
+      await tx.update(botTrigger).set({ turnId: running }).where(waitingIn(owner));
+      await cancelTurn(deps, tx, running, "stop");
+    }
   });
 }
 

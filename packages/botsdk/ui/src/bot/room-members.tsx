@@ -25,7 +25,13 @@ const dotClass: Record<RoomMemberStatus, string> = {
  * A Room's members in its header (spec #1055): an avatar stack in the order they joined, the lead
  * marked with a crown, and a status dot on each that is working, queued or paused.
  */
-export function RoomMembers({ members }: { members: RoomMember[] }) {
+export function RoomMembers({
+  conversationId,
+  members,
+}: {
+  conversationId: string;
+  members: RoomMember[];
+}) {
   const { t } = useI18n();
   const statusText: Record<RoomMemberStatus, string> = {
     working: t("bots.memberWorking"),
@@ -56,6 +62,7 @@ export function RoomMembers({ members }: { members: RoomMember[] }) {
               </PopoverTrigger>
               <PopoverContent className="w-auto">
                 <MemberControls
+                  conversationId={conversationId}
                   member={member}
                   status={member.status ? statusText[member.status] : ""}
                 />
@@ -83,9 +90,17 @@ export function RoomMembers({ members }: { members: RoomMember[] }) {
 
 /**
  * A member's popover (spec #1055): its name and status, its Tasks view and its ⋯ menu with pause and
- * reset, the same controls as on the Bot page. It is mounted only while open, so it reads nothing before.
+ * reset, the same controls as on the Bot page. Its Stop is the Room's. It is mounted only while open, so it reads nothing before.
  */
-function MemberControls({ member, status }: { member: RoomMember; status: string }) {
+function MemberControls({
+  conversationId,
+  member,
+  status,
+}: {
+  conversationId: string;
+  member: RoomMember;
+  status: string;
+}) {
   const i18n = useI18n();
   const { orpc } = useChatAdapter();
   const { botId, name } = member;
@@ -110,7 +125,8 @@ function MemberControls({ member, status }: { member: RoomMember; status: string
       {tasks && (
         <TasksPopover
           tasks={tasks}
-          onStopTurn={() => void orpc.bots.stop.call({ botId }).catch(refuse)}
+          // In a Room the one Stop ends every Turn running there; `bots.stop` ends only the 1:1 Turn.
+          onStopTurn={() => void orpc.rooms.stop.call({ conversationId }).catch(refuse)}
           onStopHelper={(helperId) => void helpers.stop(helperId).catch(refuse)}
           actingHelpers={helpers.acting}
           onCancelCheckIn={checkIns.cancel}
