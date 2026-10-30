@@ -10,6 +10,7 @@ import type { Transaction } from "../../src/plugin";
 import type { HostProvider } from "../../src/models/internal";
 import { appendMessage } from "../../src/chat/message-tree";
 import { receive } from "../../src/bot/triggers";
+import { handIn } from "../../src/bot/turn/hand-in";
 import { turnTimeLimitMs, findBot, newestTimeZone, textParts } from "../../src/bot/conversation";
 
 import { saveCredentials, quotaLookup } from "../../src/models/internal";
@@ -1483,6 +1484,61 @@ describe("a resent Message", () => {
       followSend(client, { botId, id: crypto.randomUUID(), text: "hi" }),
     ).rejects.toMatchObject({ status: 400 });
   });
+});
+
+describe("Triggers and Messages keyed by Bot (#1056)", () => {
+  it("stores one source id's Trigger for each of two Bots, and still drops a repeat for the same Bot", async () => {
+    const { deps, client, user, botId } = await botWith([round(), round()]);
+    const { id: otherId } = await client.bots.create({ name: "Bo", model });
+    const ada = (await findBot(getTestDb(), user.id, botId))!;
+    const bo = (await findBot(getTestDb(), user.id, otherId))!;
+    const handTo = (owner: { id: string; conversationId: string }) =>
+      handIn(deps, {
+        botId: owner.id,
+        conversationId: owner.conversationId,
+        id: "telegram:account:1",
+        channel: "telegram",
+        body: "hi",
+        files: [],
+      });
+
+    expect(await handTo(ada)).toBe("handed");
+    expect(await handTo(bo)).toBe("handed");
+    expect(await handTo(ada)).toBe("seen");
+
+    const stored = await getTestDb()
+      .select({ botId: botTrigger.botId, conversationId: botTrigger.conversationId })
+      .from(botTrigger)
+      .where(eq(botTrigger.id, "telegram:account:1"));
+    expect(stored).toHaveLength(2);
+    expect(stored).toEqual(
+      expect.arrayContaining([
+        { botId: ada.id, conversationId: ada.conversationId },
+        { botId: bo.id, conversationId: bo.conversationId },
+      ]),
+    );
+    await endedTurn(ada.id);
+    await endedTurn(bo.id);
+  }, 30_000);
+
+  it("records the Bot as the author of each Message it sends, and none on the user's", async () => {
+    const { client, user, botId } = await botWith([
+      round(sends({ text: "Hello!", endTurn: true })),
+    ]);
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+
+    await send(client, botId, "hi");
+
+    const rows = await getTestDb()
+      .select({ role: message.role, authorBotId: message.authorBotId })
+      .from(message)
+      .where(eq(message.conversationId, conversationId))
+      .orderBy(asc(message.createdAt), asc(message.id));
+    expect(rows).toEqual([
+      { role: "user", authorBotId: null },
+      { role: "assistant", authorBotId: botId },
+    ]);
+  }, 30_000);
 });
 
 describe("a Turn's Quota and usage", () => {

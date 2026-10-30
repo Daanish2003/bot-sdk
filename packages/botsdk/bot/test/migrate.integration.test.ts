@@ -199,6 +199,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030075650_linked_identity" },
       { feature: "core", migration: "20261030100046_trigger_channel_text" },
       { feature: "core", migration: "20261030111914_route_telegram" },
+      { feature: "core", migration: "20261030145922_rooms_keys" },
     ]);
     // Images and PDFs are already compressed, so the bytes are kept out of line uncompressed.
     expect(
@@ -246,6 +247,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030075650_linked_identity" },
       { feature: "core", migration: "20261030100046_trigger_channel_text" },
       { feature: "core", migration: "20261030111914_route_telegram" },
+      { feature: "core", migration: "20261030145922_rooms_keys" },
     ]);
     expect(
       await rows(url, "update botsdk.bot_review set state = 'pending' returning state, expires_at"),
@@ -293,6 +295,57 @@ describe("chat.migrate()", () => {
     ]);
   });
 
+  it("backfills each Trigger's Bot, each Turn's Conversation and each Bot Message's author from the Bot's Conversation (#1056)", async () => {
+    const url = await scratchDatabase("k1056_keys");
+    const before = shippedMigrations("../botsdk/bot/src").filter(
+      (migration) => migration.name < "20261030145922_rooms_keys",
+    );
+    await rows(url, "create schema botsdk; create extension if not exists pg_trgm");
+    for (const migration of before) await rows(url, migration.sql);
+    await rows(
+      url,
+      `create table botsdk.__migrations (
+         feature text not null, migration text not null,
+         applied_at timestamp with time zone not null default clock_timestamp(),
+         primary key (feature, migration));
+       insert into botsdk.__migrations (feature, migration) values
+         ${before.map((migration) => `('core', '${migration.name}')`).join(", ")}`,
+    );
+    const botId = await insertBot(url);
+    await rows(
+      url,
+      `with b as (select id, conversation_id from botsdk.bot where id = '${botId}'),
+       t as (
+         insert into botsdk.bot_turn (id, bot_id, status, started_at)
+         select gen_random_uuid(), b.id, 'running', now() from b returning id),
+       m as (
+         insert into botsdk.message (id, conversation_id, role, parts, status)
+         select gen_random_uuid(), b.conversation_id, r.role::botsdk.message_role,
+           '{"schemaVersion": 1, "parts": []}', 'complete'
+         from b, (values ('user'), ('assistant'), ('reset')) as r (role) returning id)
+       insert into botsdk.bot_trigger (id, conversation_id, source, channel, turn_id, received_at)
+       select 'routine:1', b.conversation_id, 'routine', 'schedule', t.id, now() from b, t`,
+    );
+
+    await chatFor(url).migrate();
+
+    const [{ conversation_id: conversationId }] = await rows<{ conversation_id: string }>(
+      url,
+      `select conversation_id from botsdk.bot where id = '${botId}'`,
+    );
+    expect(await rows(url, "select bot_id from botsdk.bot_trigger")).toEqual([{ bot_id: botId }]);
+    expect(await rows(url, "select conversation_id from botsdk.bot_turn")).toEqual([
+      { conversation_id: conversationId },
+    ]);
+    expect(await rows(url, "select role, author_bot_id from botsdk.message order by role")).toEqual(
+      [
+        { role: "user", author_bot_id: null },
+        { role: "assistant", author_bot_id: botId },
+        { role: "reset", author_bot_id: null },
+      ],
+    );
+  });
+
   it("leaves a new database without the vector extension", async () => {
     const url = await scratchDatabase("k743_no_vector");
 
@@ -335,6 +388,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030075650_linked_identity" },
       { feature: "core", migration: "20261030100046_trigger_channel_text" },
       { feature: "core", migration: "20261030111914_route_telegram" },
+      { feature: "core", migration: "20261030145922_rooms_keys" },
       { feature: "notes", migration: "0001_note" },
       { feature: "mcp", migration: "20261026182927_mcp_baseline" },
     ]);
@@ -363,6 +417,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030075650_linked_identity" },
       { feature: "core", migration: "20261030100046_trigger_channel_text" },
       { feature: "core", migration: "20261030111914_route_telegram" },
+      { feature: "core", migration: "20261030145922_rooms_keys" },
       { feature: "notes", migration: "0001_note" },
       { feature: "notes", migration: "0002_note_text" },
     ]);
@@ -495,6 +550,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030075650_linked_identity" },
       { feature: "core", migration: "20261030100046_trigger_channel_text" },
       { feature: "core", migration: "20261030111914_route_telegram" },
+      { feature: "core", migration: "20261030145922_rooms_keys" },
       { feature: "notes", migration: "0001_note" },
     ]);
   });
