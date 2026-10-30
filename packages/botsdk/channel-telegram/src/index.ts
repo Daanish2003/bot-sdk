@@ -177,6 +177,8 @@ export function telegram({
       const messageIds = [...(message.resume?.sent.messageIds ?? [])];
       let buttonsMessageId = message.resume?.sent.buttonsMessageId;
       let done = skip;
+      // Messages of the part being sent that went out: the plain resend sends one part as several.
+      let pieces = 0;
       const record = (sent: { message_id: number }, buttons: boolean) => {
         messageIds.push(String(sent.message_id));
         if (buttons && replyMarkup) buttonsMessageId = String(sent.message_id);
@@ -197,23 +199,35 @@ export function telegram({
               },
               call,
             );
-          try {
-            record(await send({ text: part.markdownV2, parse_mode: "MarkdownV2" }, last), last);
-          } catch (error) {
-            // The converter missed something Telegram refuses: say it plainly instead, in as many
-            // messages as the raw text needs.
-            if (
-              !(error instanceof TelegramApiError) ||
-              !error.description.includes("can't parse entities")
-            ) {
-              throw error;
-            }
+          const sendPlain = async (from: number) => {
             for (const [at, piece] of part.plain.entries()) {
+              if (at < from) continue;
               const buttons = last && at === part.plain.length - 1;
               record(await send({ text: piece }, buttons), buttons);
+              pieces = at + 1;
+            }
+          };
+          const resumedPieces = index === skip ? (message.resume?.pieces ?? 0) : 0;
+          if (resumedPieces > 0) {
+            // An earlier send got this part's plain resend partly out: it goes on from there.
+            await sendPlain(resumedPieces);
+          } else {
+            try {
+              record(await send({ text: part.markdownV2, parse_mode: "MarkdownV2" }, last), last);
+            } catch (error) {
+              // The converter missed something Telegram refuses: say it plainly instead, in as many
+              // messages as the raw text needs.
+              if (
+                !(error instanceof TelegramApiError) ||
+                !error.description.includes("can't parse entities")
+              ) {
+                throw error;
+              }
+              await sendPlain(0);
             }
           }
           done += 1;
+          pieces = 0;
         }
         for (const [at, file] of files.entries()) {
           if (parts.length + at < skip) continue;
@@ -233,9 +247,10 @@ export function telegram({
           done += 1;
         }
       } catch (error) {
-        if (error instanceof CredentialsRejectedError) throw error;
+        // With nothing sent there is nothing to resume after: the platform's own error stands.
+        if (error instanceof CredentialsRejectedError || messageIds.length === 0) throw error;
         throw new MessagingSendError(
-          { parts: done, sent: { messageIds, buttonsMessageId } },
+          { parts: done, ...(pieces > 0 && { pieces }), sent: { messageIds, buttonsMessageId } },
           error,
         );
       }

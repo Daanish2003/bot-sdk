@@ -7,7 +7,7 @@ import {
   type MessagingUpdate,
 } from "@botsdk/bot/channel";
 
-import { telegram } from "../src";
+import { telegram, TelegramApiError } from "../src";
 import { toMarkdownV2, toParts } from "../src/markdown";
 import { FakeBotApi } from "./fake-bot-api";
 
@@ -448,6 +448,16 @@ describe("send", () => {
     ]);
     expect(sent).toEqual({ messageIds: ["1", "2", "3"], buttonsMessageId: "3" });
   });
+
+  it("throws the platform's own error when no part was sent", async () => {
+    api.replies.set("sendMessage", {
+      status: 429,
+      body: { ok: false, description: "Too Many Requests", parameters: { retry_after: 3 } },
+    });
+    await expect(adapter().send(account, { chatId: "7", text: "hi" }, call)).rejects.toBeInstanceOf(
+      TelegramApiError,
+    );
+  });
 });
 
 describe("editButtons", () => {
@@ -579,6 +589,40 @@ describe("delivery errors and the poll loop", () => {
     );
     expect(sent.messageIds).toHaveLength(plain.length);
     expect(sent.buttonsMessageId).toBe(sent.messageIds.at(-1));
+  });
+
+  it("resumes a plain resend after the pieces it got out", async () => {
+    let id = 10;
+    let plainCalls = 0;
+    api.replies.set("sendMessage", (body) => {
+      if (body.parse_mode === "MarkdownV2") {
+        return {
+          status: 400,
+          body: { ok: false, description: "Bad Request: can't parse entities" },
+        };
+      }
+      if (++plainCalls === 2) return { status: 500, body: { ok: false, description: "boom" } };
+      return ok({ message_id: id++ });
+    });
+    const text = "**a** ".repeat(800).trim();
+    const message = { chatId: "7", text };
+
+    const error = await adapter()
+      .send(account, message, call)
+      .catch((thrown: unknown) => thrown);
+    expect(error).toBeInstanceOf(MessagingSendError);
+    const { progress } = error as MessagingSendError;
+    expect(progress).toEqual({ parts: 0, pieces: 1, sent: { messageIds: ["10"] } });
+    const before = api.of("sendMessage").length;
+
+    const sent = await adapter().send(account, { ...message, resume: progress }, call);
+    const resumed = api.of("sendMessage").slice(before);
+    expect(resumed.every((request) => request.body.parse_mode === undefined)).toBe(true);
+    const delivered = api
+      .of("sendMessage")
+      .filter((request, at) => request.body.parse_mode === undefined && at !== 2);
+    expect(delivered.map((request) => String(request.body.text)).join("")).toBe(text);
+    expect(sent.messageIds).toEqual(["10", ...resumed.map((_, at) => String(11 + at))]);
   });
 
   it("throws MessagingFileTooLargeError when getFile says the file is too big", async () => {

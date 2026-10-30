@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { and, eq, sql } from "drizzle-orm";
 
 import {
@@ -7,6 +9,7 @@ import {
   type MessagingAdapter,
   MessagingSendError,
   type DeliveryPayload,
+  type OutboundMessage,
   type SendProgress,
 } from "../../channel/internal";
 import type { BotSdkContext, Transaction } from "../../plugin";
@@ -36,18 +39,37 @@ export function shownButtonsOf(parts: { [key: string]: unknown }): ShownButtons 
  * How far a failed send of a Message on a messaging Channel got: kept on its parts (`sentOn`), so
  * the `channel.deliver` retry resumes after the parts the user already has (ticket #1067).
  */
-type SentOn = SendProgress & { platform: string; chatId: string };
+type SentOn = SendProgress & { platform: string; chatId: string; body: string };
 
-/** What a failed send of a Message to `chatId` on `platform` got out, by its stored parts. */
+/**
+ * A digest of what a send carries. The parts a failed send got out line up with the retry's only
+ * when it is the same (a file whose bytes are gone since is a link in the text instead).
+ */
+function bodyDigest({ text, buttons, files = [] }: Omit<OutboundMessage, "chatId">): string {
+  const shape = files.map(({ name, contentType, content }) => [name, contentType, content.length]);
+  return createHash("sha256")
+    .update(JSON.stringify([text, buttons ?? null, shape]))
+    .digest("base64url");
+}
+
+/**
+ * What a failed send of this same `body` to `chatId` on `platform` got out, by the Message's stored
+ * parts.
+ */
 function sentOnOf(
   parts: { [key: string]: unknown },
-  platform: string,
-  chatId: string,
+  target: Pick<SentOn, "platform" | "chatId" | "body">,
 ): SendProgress | undefined {
   const sentOn = parts.sentOn as SentOn | undefined;
-  return sentOn?.platform === platform && sentOn.chatId === chatId
-    ? { parts: sentOn.parts, sent: sentOn.sent }
-    : undefined;
+  if (
+    sentOn?.platform !== target.platform ||
+    sentOn.chatId !== target.chatId ||
+    sentOn.body !== target.body
+  ) {
+    return undefined;
+  }
+  const { platform: _platform, chatId: _chatId, body: _body, ...progress } = sentOn;
+  return progress;
 }
 
 /** Sets one key of Message `messageId`'s parts in place, so a concurrent write of the others stays. */
@@ -155,7 +177,8 @@ export async function sendMessagingDelivery(
   const found = await listenerAccount(deps, target.accountId);
   if (!found?.account)
     throw new PermanentJobError("The Channel account's credentials can't be read");
-  const resume = sentOnOf(row.parts, platform, target.chatId);
+  const sending = { platform, chatId: target.chatId, body: bodyDigest(body) };
+  const resume = sentOnOf(row.parts, sending);
   let sent;
   try {
     sent = await adapter.send(
@@ -165,7 +188,7 @@ export async function sendMessagingDelivery(
     );
   } catch (error) {
     if (error instanceof MessagingSendError) {
-      const sentOn: SentOn = { platform, chatId: target.chatId, ...error.progress };
+      const sentOn: SentOn = { ...sending, ...error.progress };
       // Without it, the retry sends the parts already sent again.
       await setPartsKey(deps, messageId, "sentOn", sentOn).catch((saving: unknown) =>
         deps.logger.error(`Keeping what Bot Message ${messageId} sent failed`, saving),

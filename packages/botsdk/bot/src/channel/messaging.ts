@@ -120,9 +120,10 @@ export type SentMessage = {
 
 /**
  * How far a `send` got: how many of the Message's parts it sent (its text parts in order, then
- * its files), and their message ids.
+ * its files), and their message ids. `pieces`: how many messages of the next part it sent, for an
+ * adapter that sends a part as several (Telegram's plain resend of text it can't parse).
  */
-export type SendProgress = { parts: number; sent: SentMessage };
+export type SendProgress = { parts: number; pieces?: number; sent: SentMessage };
 
 /** What every adapter call gets: the SDK's `fetch` and, when it can be stopped, a signal. */
 export type MessagingCall = { fetch: typeof fetch; signal?: AbortSignal };
