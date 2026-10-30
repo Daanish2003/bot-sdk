@@ -100,7 +100,7 @@ describe("createBotSdk().users.export, with Bots", () => {
 
     expect(document).toMatchObject({
       version: 2,
-      bot: { bots: [] },
+      bot: { bots: [], rooms: [] },
       memory: { memoryEnabled: true, botMemory: [] },
     });
   });

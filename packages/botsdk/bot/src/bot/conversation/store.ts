@@ -13,6 +13,7 @@ import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-o
 import { deleteConversations } from "../../chat/delete-conversations";
 import {
   bot,
+  botRoomMember,
   botSecret,
   customRule,
   notificationSettings,
@@ -492,8 +493,20 @@ export const botUserDelete: UserDeleteHooks<() => Promise<void>> = {
   },
 };
 
-/** What the `bot` plugin adds to a user's export: each Bot with its Conversation's Messages. */
-export type BotExport = { bots: (Bot & { messages: BotMessage[] })[] };
+/** One of the user's Rooms in their export (spec #1055): its members, and its Messages with authors. */
+export type RoomExport = {
+  conversationId: string;
+  name: string;
+  createdAt: Date;
+  members: { botId: string; name: string; lead: boolean }[];
+  messages: BotMessage[];
+};
+
+/**
+ * What the `bot` plugin adds to a user's export: each Bot with its Conversation's Messages, and
+ * each Room with its own.
+ */
+export type BotExport = { bots: (Bot & { messages: BotMessage[] })[]; rooms: RoomExport[] };
 
 /** The `bot` plugin's part of `sdk.users.export`, read in the export's snapshot `tx`. */
 export async function exportBots(tx: Transaction, userId: string): Promise<BotExport> {
@@ -502,7 +515,32 @@ export async function exportBots(tx: Transaction, userId: string): Promise<BotEx
     .from(bot)
     .where(eq(bot.userId, userId))
     .orderBy(asc(bot.createdAt), asc(bot.id));
-  const messages = rows.length
+  const rooms = await tx
+    .selectDistinct({
+      conversationId: conversation.id,
+      title: conversation.title,
+      createdAt: conversation.createdAt,
+    })
+    .from(conversation)
+    .innerJoin(botRoomMember, eq(botRoomMember.conversationId, conversation.id))
+    .where(and(eq(conversation.userId, userId), eq(conversation.kind, botKind)))
+    .orderBy(asc(conversation.createdAt), asc(conversation.id));
+  const roomIds = rooms.map((room) => room.conversationId);
+  const members = roomIds.length
+    ? await tx
+        .select({
+          conversationId: botRoomMember.conversationId,
+          botId: botRoomMember.botId,
+          name: bot.name,
+          lead: botRoomMember.lead,
+        })
+        .from(botRoomMember)
+        .innerJoin(bot, eq(bot.id, botRoomMember.botId))
+        .where(inArray(botRoomMember.conversationId, roomIds))
+        .orderBy(asc(botRoomMember.joinedAt), asc(botRoomMember.botId))
+    : [];
+  const conversationIds = [...rows.map((row) => row.conversationId), ...roomIds];
+  const messages = conversationIds.length
     ? await tx
         .select({
           conversationId: message.conversationId,
@@ -510,14 +548,10 @@ export async function exportBots(tx: Transaction, userId: string): Promise<BotEx
           role: message.role,
           parts: message.parts,
           createdAt: message.createdAt,
+          authorBotId: message.authorBotId,
         })
         .from(message)
-        .where(
-          inArray(
-            message.conversationId,
-            rows.map((row) => row.conversationId),
-          ),
-        )
+        .where(inArray(message.conversationId, conversationIds))
         .orderBy(asc(message.createdAt), asc(message.id))
     : [];
   const byConversation = new Map<string, BotMessage[]>();
@@ -530,6 +564,14 @@ export async function exportBots(tx: Transaction, userId: string): Promise<BotEx
     bots: rows.map(({ conversationId, ...row }) => ({
       ...row,
       messages: byConversation.get(conversationId) ?? [],
+    })),
+    rooms: rooms.map(({ title, ...room }) => ({
+      ...room,
+      name: title ?? "",
+      members: members
+        .filter((member) => member.conversationId === room.conversationId)
+        .map(({ conversationId: _room, ...member }) => member),
+      messages: byConversation.get(room.conversationId) ?? [],
     })),
   };
 }

@@ -6,6 +6,8 @@ import { bot, botReview, botTrigger, botTurn, conversation, message } from "../.
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner } from "../../src/runner/internal";
+import { exportUserData } from "../../src/user-data";
+import type { BotExport } from "../../src/bot/conversation";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
@@ -347,6 +349,58 @@ describe("an Approval answered after its Bot left the Room", () => {
         .where(and(eq(botTrigger.botId, writer.id), eq(botTrigger.source, "approval")));
       expect(approvals.map((trigger) => trigger.conversationId)).toEqual([own]);
       expect(await roomMessages()).toBe(before);
+    },
+    timeout,
+  );
+});
+
+describe("the user's data export", () => {
+  it(
+    "holds their Rooms: each name, its members and its Messages with their authors",
+    async () => {
+      const { deps, user, scout, writer, ops, client, room } = await threeBotRoom([
+        says("Plan drafted."),
+      ]);
+      const conversationId = room.conversationId;
+      await client.rooms.send({ conversationId, text: "Plan the launch" });
+      await expect.poll(() => statusesOf(scout.id, conversationId), poll).toEqual(["complete"]);
+      // Another user's Room is not in it.
+      const other = await insertUser();
+      await saveCredentials(deps, other.id, {
+        service: "openai",
+        fields: { apiKey: "openai-test-key" },
+        hint: "…-key",
+        verified: true,
+      });
+      const stranger = chatRpc({ user: other, deps });
+      const a = await stranger.bots.create({ name: "A", model });
+      const b = await stranger.bots.create({ name: "B", model });
+      await stranger.rooms.create({ name: "Theirs", botIds: [a.id, b.id] });
+
+      const { rooms, bots } = (await exportUserData(deps, user.id)).bot as BotExport;
+
+      expect(rooms).toEqual([
+        {
+          conversationId,
+          name: "Launch",
+          createdAt: expect.any(Date),
+          members: [
+            { botId: scout.id, name: "Scout", lead: true },
+            { botId: writer.id, name: "Writer", lead: false },
+            { botId: ops.id, name: "Ops", lead: false },
+          ],
+          messages: [
+            expect.objectContaining({ role: "user", text: "Plan the launch" }),
+            expect.objectContaining({
+              role: "assistant",
+              text: "Plan drafted.",
+              authorBotId: scout.id,
+            }),
+          ],
+        },
+      ]);
+      // The 1:1 Conversations are still each Bot's own.
+      expect(bots.map((row) => row.messages)).toEqual([[], [], []]);
     },
     timeout,
   );
