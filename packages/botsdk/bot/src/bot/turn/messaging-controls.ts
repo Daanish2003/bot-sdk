@@ -144,12 +144,20 @@ async function typed(run: Run, update: MessagingUpdate): Promise<string | null |
   try {
     return await typedAnswer(run, update, text);
   } catch (error) {
-    // A refused answer (a paused Bot, answered meanwhile) goes on as an ordinary Message, so a
-    // paused Bot records its skipped Trigger as for any other.
-    if (error instanceof ORPCError) return undefined;
+    // An answer refused because the Bot is paused or the choice was answered meanwhile goes on as
+    // an ordinary Message, so a paused Bot records its skipped Trigger as for any other. Any other
+    // refusal is dropped with its reason, as for a press.
+    if (error instanceof ORPCError && passedOn.has(error.data?.code)) return undefined;
     throw error;
   }
 }
+
+/** The refusals of a typed answer that let its text go on as an ordinary Message. */
+const passedOn = new Set<unknown>([
+  "error.botPaused",
+  "error.botPausedApproval",
+  "error.choiceAnswered",
+]);
 
 async function typedAnswer(
   run: Run,
@@ -323,7 +331,14 @@ async function decide(
   if (webhook) {
     const lead = "Get its webhook URL in the app";
     const page = run.appUrl && `${run.appUrl}/bots/${run.account.botId}`;
-    await notice(run, `Approved. ${page ? `[${lead}](${page})` : `${lead}.`}`);
+    try {
+      await notice(run, `Approved. ${page ? `[${lead}](${page})` : `${lead}.`}`);
+    } catch (error) {
+      // The approval is kept: a resent update would only find it answered, so it isn't thrown.
+      sdk.logger.error(
+        `The webhook Routine's approval notice was not sent on ${run.account.platform}: ${String(error)}`,
+      );
+    }
   }
   return null;
 }

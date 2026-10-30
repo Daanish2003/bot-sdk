@@ -63,10 +63,16 @@ export async function receiveMessaging(
     sdk.logger.debug?.(`A ${account.platform} update was dropped: it is a resent update`);
     return;
   }
-  await receiveOnce(sdk, adapter, account, update, appUrl);
-  // Remembered once it was taken: one that threw is read again, and must act then.
+  // Remembered before it is taken, so a copy delivered meanwhile is dropped; forgotten when it
+  // throws, as it is read again and must act then.
   recent.add(update.sourceId);
   if (recent.size > recentLimit) recent.delete(recent.values().next().value!);
+  try {
+    await receiveOnce(sdk, adapter, account, update, appUrl);
+  } catch (error) {
+    recent.delete(update.sourceId);
+    throw error;
+  }
 }
 
 async function receiveOnce(

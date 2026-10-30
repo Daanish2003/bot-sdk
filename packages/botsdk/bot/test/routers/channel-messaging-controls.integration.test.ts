@@ -1,7 +1,8 @@
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { botReview, botRoutine, botTrigger, linkedIdentity } from "../../src/storage";
+import { botReview, botRoutine, botTrigger, customRule, linkedIdentity } from "../../src/storage";
+import { maxActiveCustomRules } from "@botsdk/client/bot/rule";
 import { appendBotMessage, controlParts, findBot } from "../../src/bot/conversation";
 import { sentFileBlobKey } from "../../src/bot/conversation/files";
 import { uuidv7 } from "../../src/lib/uuidv7";
@@ -442,6 +443,24 @@ describe("a choice", () => {
 
     expect(fake.edits).toHaveLength(1);
   });
+
+  it("acts once on two copies of a press delivered at the same time", async () => {
+    const { write, fake, newest, logged } = await telegramBot([
+      round(asks()),
+      round(says("Blue it is.")),
+    ]);
+    await write("Pick one for me");
+    const asked = await newest("choice");
+    const pressed = {
+      sourceId: "press-2",
+      press: { control: asked.id, option: "1", messageId: "56" },
+    };
+
+    await Promise.all([fake.deliver("@bot_1", pressed), fake.deliver("@bot_1", pressed)]);
+
+    expect(fake.edits).toHaveLength(1);
+    expect(logged).toEqual([]);
+  });
 });
 
 describe("an Approval", () => {
@@ -558,6 +577,33 @@ describe("an Approval", () => {
     expect(fake.sends.some((one) => one.message.text.includes("/routines/webhook/"))).toBe(false);
   });
 
+  it("of a webhook Routine is taken once, though the notice after it fails to send", async () => {
+    const { write, fake, newest, logged, settleRuns } = await telegramBot([
+      round(
+        toolCall({
+          name: "create_routine",
+          input: { name: "payouts", prompt: "Check the payout.", webhook: true },
+        }),
+      ),
+      round(says("Waiting for you.")),
+    ]);
+    await write("Watch my payouts webhook");
+    const asked = await newest("routine_approval");
+    const pressed = {
+      sourceId: uuidv7(),
+      press: { control: asked.id, option: "approve", messageId: "7" },
+    };
+    fake.counts.sendFailures = 1;
+
+    await fake.deliver("@bot_1", pressed);
+    await settleRuns();
+    await fake.deliver("@bot_1", pressed);
+    await settleRuns();
+
+    expect(fake.edits.map((edit) => edit.target.chosen)).toEqual(["Approved"]);
+    expect(logged.some((line) => line.includes("webhook"))).toBe(true);
+  });
+
   it("is not answered by another sender or from a group chat", async () => {
     const { write, fake, newest, botId } = await telegramBot(routining());
     await write("Brief me every weekday");
@@ -592,6 +638,30 @@ describe("an Approval", () => {
     await write("I keep approving these");
     await write("no");
     expect(await client.rules.list()).toEqual([]);
+  });
+
+  it("drops a typed yes the domain refuses for another reason, never passing it to the Model", async () => {
+    const { write, client, user, messages } = await telegramBot(proposing());
+    await write("I keep approving these");
+    const now = new Date();
+    await getTestDb()
+      .insert(customRule)
+      .values(
+        Array.from({ length: maxActiveCustomRules }, (_, index) => ({
+          id: uuidv7(),
+          userId: user.id,
+          text: `Rule ${index}`,
+          mode: "without_asking" as const,
+          state: "active" as const,
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+
+    await write("yes");
+
+    expect((await messages()).some((one) => one.role === "user" && one.text === "yes")).toBe(false);
+    expect((await client.rules.list()).filter((one) => one.state === "proposed")).toHaveLength(1);
   });
 
   it("covers a review's Approval, and a closed one says so", async () => {

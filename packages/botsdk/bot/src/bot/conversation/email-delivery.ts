@@ -82,7 +82,8 @@ type Routed = {
  * Where a Bot Message goes besides web (spec #761, "Where a Bot's reply is delivered"): back to the
  * messaging Channel of the latest user Trigger Turn `turnId` took, when the Host has its adapter,
  * the user is still linked there and the Bot has an active Channel account (spec #1044); by email when it took a user Trigger
- * by email, and only on web when it took another user Trigger. With no user Trigger in the Turn (a Routine, a Check-in, a Helper, a webhook) or with no
+ * by email, and only on web when it took another user Trigger. With no user Trigger in the Turn (a Routine, a Check-in, a Helper, a webhook),
+ * with a latest one from a messaging Channel that can't carry the Message now, or with no
  * Turn at all (a Helper's own Message), it follows the user's notification settings (spec #1024).
  * Returns the email Trigger the Message answers, when it answers one.
  */
@@ -98,13 +99,14 @@ async function routeOf(
       .where(and(eq(botTrigger.turnId, turnId), eq(botTrigger.source, "user")))
       .orderBy(desc(botTrigger.receivedAt), desc(botTrigger.id));
     const latest = taken[0]?.channel;
-    // A messaging Channel that can't be honoured now falls through to the rules below.
+    // A messaging Channel that can't be honoured now falls through to the rules below, and with
+    // no email Trigger to the notification routes (spec #1044).
     if (latest && (await honourable(deps, tx, { conversationId }, latest))) {
       return { channel: latest };
     }
     const emailed = taken.find((trigger) => trigger.channel === "email");
     if (emailed) return { channel: "email", answers: emailed.messageId ?? undefined };
-    if (taken.length > 0) return null;
+    if (latest === "web") return null;
   }
   const route = await notificationRouteOf(deps, tx, {
     userId,

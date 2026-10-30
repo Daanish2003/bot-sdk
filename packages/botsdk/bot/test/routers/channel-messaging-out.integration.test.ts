@@ -223,6 +223,25 @@ describe("a reply on a messaging Channel", () => {
     expect(fake.sends).toEqual([]);
     expect(await deliveryJobs()).toEqual([]);
   });
+
+  it("follows the notification routes when its messaging Channel can't carry it any more", async () => {
+    const { fake, client, timer, runDue, settle, deliveryJobs } = await telegramBot(
+      [round(says("Your flight is cancelled.", { urgent: true }))],
+      { email: true },
+    );
+    await settle({ urgent: "email" });
+
+    await fake.deliver("@bot_1", { sourceId: `1001:${uuidv7()}`, text: "Any news?" });
+    // The user unlinks while the Turn the message started waits to run.
+    await client.channels.identities.unlink({ platform: "telegram" });
+    timer.advance(3_000);
+    await runDue();
+
+    expect(fake.sends).toEqual([]);
+    expect(await deliveryJobs()).toEqual([
+      expect.objectContaining({ payload: expect.objectContaining({ channel: "email" }) }),
+    ]);
+  });
 });
 
 describe("the notification routes", () => {
