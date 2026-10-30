@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { bot, botTrigger, channelEmailAddress } from "../../storage";
 
@@ -68,7 +68,8 @@ async function deliver(
   const [alreadySeen] = await sdk.db
     .select({ id: botTrigger.id })
     .from(botTrigger)
-    .where(and(eq(botTrigger.id, `email:${messageId}`), eq(botTrigger.botId, owner.botId)));
+    // By id alone: a Message-ID names one mail, whichever Bot it reached first.
+    .where(eq(botTrigger.id, `email:${messageId}`));
   if (alreadySeen) return redelivery;
 
   // The owner's attachments go to the blob store like a composer's files; the others stay named.

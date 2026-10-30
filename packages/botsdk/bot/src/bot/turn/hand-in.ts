@@ -98,7 +98,7 @@ export async function handIn(
       if (waitsFor) await cancelTurn(sdk, tx, waitsFor, "message");
       return "handed" as const;
     })
-    // The same id handed in another Conversation's transaction meanwhile.
+    // The same id handed for the same Bot in another transaction meanwhile.
     .catch(async (error: unknown) => {
       if (isUniqueViolation(error, "bot_trigger_pkey")) return "seen" as const;
       await deleteBlobsBestEffort(

@@ -329,13 +329,13 @@ describe("chat.migrate()", () => {
 
     await chatFor(url).migrate();
 
-    const [{ conversation_id: conversationId }] = await rows<{ conversation_id: string }>(
+    const [owner] = await rows<{ conversation_id: string }>(
       url,
       `select conversation_id from botsdk.bot where id = '${botId}'`,
     );
     expect(await rows(url, "select bot_id from botsdk.bot_trigger")).toEqual([{ bot_id: botId }]);
     expect(await rows(url, "select conversation_id from botsdk.bot_turn")).toEqual([
-      { conversation_id: conversationId },
+      { conversation_id: owner!.conversation_id },
     ]);
     expect(await rows(url, "select role, author_bot_id from botsdk.message order by role")).toEqual(
       [
