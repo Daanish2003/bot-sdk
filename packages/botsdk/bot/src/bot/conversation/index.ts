@@ -1,6 +1,23 @@
 // The conversation module's entry point (#889): other modules import it only through this file.
 export { botDirectory, resolvePath, sharedDirectory } from "./bot-folder";
+export {
+  activeChannelAccountIds,
+  channelAccountIdsOf,
+  listChannelAccounts,
+  listenerAccount,
+  markNeedsAttention,
+  removeChannelAccount,
+  rotateChannelAccountKeys,
+  saveChannelAccount,
+} from "./channel-accounts";
+export { channelUserDelete, exportChannelData } from "./channel-user-data";
 export { emailAddressOf, rotateEmailAddress } from "./email-address";
+export {
+  issueLinkCode,
+  linkFromCode,
+  listLinkedIdentities,
+  unlinkIdentity,
+} from "./linked-identities";
 export {
   deliverIn,
   deliveryJob,
@@ -32,6 +49,7 @@ export {
   screenshotPart,
   userImageLeftOut,
 } from "./image-refs";
+export { setMessagingPlatforms, shownButtonsOf } from "./messaging-delivery";
 export { noResetAfter } from "./reset-mark";
 export { screenshotBlobKey, screenshotsConversationDelete, storeScreenshot } from "./screenshots";
 export {

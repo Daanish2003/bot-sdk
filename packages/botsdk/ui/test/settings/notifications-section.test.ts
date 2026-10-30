@@ -30,12 +30,27 @@ function fakeNotificationsServer(
     failing,
     pushKey = null,
     subscribeFails = false,
-  }: { failing?: boolean; pushKey?: string | null; subscribeFails?: boolean } = {},
+    linked = [],
+  }: {
+    failing?: boolean;
+    pushKey?: string | null;
+    subscribeFails?: boolean;
+    /** The messaging platforms the user is linked on; `null` is a Host with no messaging Channel. */
+    linked?: string[] | null;
+  } = {},
 ) {
   const saved: NotificationSettings[] = [];
   const subscribed: DeviceSubscription[] = [];
   const unsubscribed: string[] = [];
   const router = {
+    channels: {
+      identities: {
+        list: os.handler(() => {
+          if (linked === null) throw new ORPCError("NOT_FOUND");
+          return linked.map((platform) => ({ platform, handle: "@ada", linkedAt: new Date() }));
+        }),
+      },
+    },
     notifications: {
       get: os.handler(() => {
         if (failing) throw new ORPCError("INTERNAL_SERVER_ERROR");
@@ -191,6 +206,30 @@ describe("the Notifications section", () => {
     await waitFor(() =>
       expect(server.saved).toEqual([{ quietHours: null, urgent: "email", other: null }]),
     );
+  });
+
+  it("offers Telegram only when the user is linked there, and saves it", async () => {
+    const server = fakeNotificationsServer(nothingSet, { linked: ["telegram"] });
+    mount(server);
+
+    await screen.findByRole("radiogroup", { name: "Urgent messages" });
+    await waitFor(() => radio("Other messages", "Telegram"));
+    fireEvent.click(radio("Other messages", "Telegram"));
+    fireEvent.click(screen.getByRole("button", { name: "Save notifications" }));
+
+    await waitFor(() =>
+      expect(server.saved).toEqual([{ quietHours: null, urgent: null, other: "telegram" }]),
+    );
+  });
+
+  it("leaves Telegram out when the user isn't linked, or the Host has no messaging Channel", async () => {
+    for (const linked of [[], null]) {
+      mount(fakeNotificationsServer(nothingSet, { linked }));
+
+      await screen.findByRole("radiogroup", { name: "Urgent messages" });
+      await waitFor(() => expect(screen.queryByRole("radio", { name: "Telegram" })).toBeNull());
+      cleanup();
+    }
   });
 
   it("says so when the settings can't load", async () => {

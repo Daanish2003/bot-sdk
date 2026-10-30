@@ -23,10 +23,10 @@ export const botMessageSchema = z.object({
     .object({ user: reactionSchema.optional(), bot: reactionSchema.optional() })
     .optional(),
   /**
-   * The Channel besides web a Message went through: a user's came in on it ("via email"), and a
-   * Bot's was also delivered on it ("✉ emailed").
+   * The Channel besides web a Message went through: a user's came in on it ("via email", or "via
+   * telegram" for a messaging platform), and a Bot's was also delivered on it ("✉ emailed").
    */
-  channel: z.literal("email").optional(),
+  channel: z.string().optional(),
   /** The Bot marked it urgent (spec #1024). */
   urgent: z.literal(true).optional(),
 });
@@ -48,7 +48,8 @@ export type BotTurnStatus = TurnStatus | "running";
  */
 export type BotTurnTrigger = {
   source: "user" | "routine" | "check_in" | "helper" | "approval";
-  channel: "web" | "schedule" | "webhook" | "helper" | "email";
+  /** `web`, `schedule`, `webhook`, `helper`, `email`, or a messaging platform's id. */
+  channel: string;
   routineName: string | null;
   at: Date;
 };

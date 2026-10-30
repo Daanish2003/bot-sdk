@@ -202,6 +202,14 @@ _Avoid_: Credential (that is for a Provider or Tool), password, env var
 Anything that sends to a Bot or shows what it sends: the user's apps (web, desktop, mobile), Slack, email, webhooks, schedules or phone calls. Every app the user opens shows the same Conversation.
 _Avoid_: App, surface, client, platform
 
+**Channel account**:
+The bot one Bot is on a messaging Channel such as Telegram, Slack or SMS: the user made it on that platform and added it to the Bot. It belongs to that one Bot only, so each Bot is its own contact there.
+_Avoid_: Connection (that is an MCP sign-in), integration, bot token
+
+**Linked identity**:
+The user's own account on a messaging Channel, such as their Telegram account, their Slack member in one workspace or their phone number, proved by sending a link code to one of their Bots. All the user's Bots know it; a message from any other sender is dropped unanswered.
+_Avoid_: Account link, alias, handle
+
 **SendToUser**:
 The one tool a Bot talks to the user with. A Message it sends is text plus at most one Rich control. The text is what every Channel can always show. A Bot can mark a Message urgent, which decides where it is delivered and lets it through Quiet hours. A Bot that sends nothing stays quiet, and its own model text is never shown.
 _Avoid_: Reply, respond, notify

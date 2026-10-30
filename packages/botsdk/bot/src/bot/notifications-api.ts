@@ -1,5 +1,6 @@
 import {
   defaultNotificationSettings,
+  isMessagingRoute,
   type NotificationSettings,
   notificationSettingsSchema,
   pushEndpointInput,
@@ -10,8 +11,8 @@ import { formatterIn } from "@botsdk/client/bot/time-zone";
 import { and, desc, eq, notInArray } from "drizzle-orm";
 
 import type { BotSdkContext, Transaction } from "../plugin";
-import { parseInput, type WithUser } from "../rpc-error";
-import { notificationSettings, pushSubscription } from "../storage";
+import { parseInput, rpcError, type WithUser } from "../rpc-error";
+import { linkedIdentity, notificationSettings, pushSubscription } from "../storage";
 
 /** How many devices a user's pushes reach: the ones subscribed last. */
 export const maxPushDevices = 20;
@@ -62,12 +63,29 @@ export function notificationsApi(sdk: BotSdkContext) {
     /** The user's settings; the defaults when they have set nothing. */
     get: async ({ userId }: { userId: string }) => notificationSettingsOf(sdk.db, userId),
 
-    /** Replaces the user's settings, and returns them. */
+    /**
+     * Replaces the user's settings, and returns them. A messaging Channel as a route is refused
+     * unless the user is linked there (spec #1044).
+     */
     update: async ({
       userId,
       ...rest
     }: WithUser<typeof notificationSettingsSchema>): Promise<NotificationSettings> => {
       const settings = parseInput(notificationSettingsSchema, rest);
+      for (const route of new Set([settings.urgent, settings.other])) {
+        if (!route || !isMessagingRoute(route)) continue;
+        const [linked] = await sdk.db
+          .select({ id: linkedIdentity.id })
+          .from(linkedIdentity)
+          .where(and(eq(linkedIdentity.userId, userId), eq(linkedIdentity.platform, route)));
+        if (!linked) {
+          throw rpcError(
+            "BAD_REQUEST",
+            "error.notificationRouteNotLinked",
+            "Link your account on that Channel first",
+          );
+        }
+      }
       const columns = {
         quietStart: settings.quietHours?.start ?? null,
         quietEnd: settings.quietHours?.end ?? null,

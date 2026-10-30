@@ -2,7 +2,13 @@ import { oc, type } from "@orpc/contract";
 import { z } from "zod";
 
 import type { BotChanges } from "./changes";
+import {
+  channelAccountInput,
+  type ChannelAccountRow,
+  saveChannelAccountInput,
+} from "./channel-account";
 import type { BotCheckIn } from "./check-in";
+import { type LinkCode, type LinkedIdentityRow, unlinkIdentityInput } from "./linked-identity";
 import { maxChoiceOptionLength, maxChoiceOtherLength } from "./choice";
 import type { DemonstrationState, DemonstrationStep } from "./demonstration";
 import type { BotHelper } from "./helper";
@@ -439,15 +445,42 @@ const computer = {
 };
 
 /**
- * The email Channel (spec #761): a Bot's address, to copy or rotate. Served under `channels` only
- * when the Host fills the `channels` slot, so the client adds it with `channelClient()`.
+ * The Channels besides web, served under `channels` only when the Host fills the `channels` slot,
+ * so the client adds them with `channelClient()`: the email Channel (spec #761), a Bot's address
+ * to copy or rotate, and the messaging Channels' Channel accounts (spec #1044), served only when
+ * the slot has a messaging adapter.
  */
 export const channelsContract = {
   email: {
-    /** The Bot's address, made on the first read, and the Channel its next Message goes by. */
-    address: oc.input(botInput).output(type<{ address: string; nextChannel: "web" | "email" }>()),
+    /**
+     * The Bot's address, made on the first read, and the Channel its next Message goes by: `web`,
+     * `email` or a messaging platform's id, such as `telegram` (spec #1044).
+     */
+    address: oc.input(botInput).output(type<{ address: string; nextChannel: string }>()),
     /** Gives the Bot a new address; mail to the old one is dropped from now on. */
     rotate: oc.input(botInput).output(type<{ address: string }>()),
+  },
+  accounts: {
+    /** Each messaging platform the Host offers, with the Bot's Channel account there, if any. */
+    list: oc.input(botInput).output(type<ChannelAccountRow[]>()),
+    /**
+     * Adds or fixes the Bot's Channel account on a platform, once the platform accepts the
+     * credentials; a rejection saves nothing. Returns the platform's row.
+     */
+    save: oc.input(saveChannelAccountInput).output(type<ChannelAccountRow>()),
+    /** Removes the Bot's Channel account on a platform, and its listener stops. */
+    remove: oc.input(channelAccountInput).output(type<void>()),
+  },
+  identities: {
+    /** The user's Linked identities, one per platform. */
+    list: oc.output(type<LinkedIdentityRow[]>()),
+    /** Unlinks the user's Linked identity on a platform at once; messages from it are dropped. */
+    unlink: oc.input(unlinkIdentityInput).output(type<void>()),
+    /**
+     * Issues a link code (6 digits, valid 10 minutes, single use) that replaces the user's live
+     * one, with the deep links of the user's Bots' Channel accounts.
+     */
+    linkCode: oc.output(type<LinkCode>()),
   },
 };
 

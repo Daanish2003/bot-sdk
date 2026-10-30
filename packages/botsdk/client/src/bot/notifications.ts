@@ -1,12 +1,23 @@
 import { z } from "zod";
 
 /**
- * Where a Message from a Turn the user didn't start goes (spec #1024): `in_app` only, or by `email`
- * or web `push` too. Every Message is in the Conversation whatever the choice.
+ * The messaging Channels a route can name (spec #1044): the platform's id, such as `telegram`. A
+ * route needs the user's Linked identity there and an active Channel account on the Bot.
  */
-export const notificationRoutes = ["in_app", "email", "push"] as const;
+export const messagingRoutes = ["telegram"] as const;
+
+/**
+ * Where a Message from a Turn the user didn't start goes (spec #1024): `in_app` only, or by `email`,
+ * web `push` or a linked messaging Channel too. Every Message is in the Conversation whatever the
+ * choice.
+ */
+export const notificationRoutes = ["in_app", "email", "push", ...messagingRoutes] as const;
 
 export type NotificationRoute = (typeof notificationRoutes)[number];
+
+/** Whether `route` names a messaging Channel (a platform id) rather than the app, email or push. */
+export const isMessagingRoute = (route: string): route is (typeof messagingRoutes)[number] =>
+  (messagingRoutes as readonly string[]).includes(route);
 
 /** A time of day, `HH:MM` on the 24-hour clock. */
 export const clockTimeSchema = z

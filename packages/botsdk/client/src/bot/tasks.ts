@@ -13,7 +13,8 @@ export type TriggerSkipReason = "cancelled" | "paused" | "reset";
 export type TaskTrigger = {
   id: string;
   source: "user" | "routine" | "check_in" | "helper" | "approval";
-  channel: "web" | "schedule" | "webhook" | "helper" | "email";
+  /** `web`, `schedule`, `webhook`, `helper`, `email`, or a messaging platform's id. */
+  channel: string;
   label: string | null;
   receivedAt: Date;
   skippedAt: Date | null;

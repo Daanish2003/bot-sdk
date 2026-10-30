@@ -50,8 +50,11 @@ import { models, type ModelsApi, type ModelsOptions, type ModelsPlugin } from ".
 import type { CoreJobServices, Executor, JobDefinition, JobRunner } from "./runner/internal";
 import { createRunner, jobTable, type RunnerApi } from "./runner/internal";
 
-/** Where the RPC calls' errors go, and the SDK's warnings when it has `warn`. */
-export type Logger = Pick<Console, "error"> & Partial<Pick<Console, "warn">>;
+/**
+ * Where the RPC calls' errors go, the SDK's warnings when it has `warn`, and its debug lines (such as
+ * a messaging update dropped) when it has `debug`.
+ */
+export type Logger = Pick<Console, "error"> & Partial<Pick<Console, "warn" | "debug">>;
 
 /** What the `features` slot takes: features built with `defineFeature`. */
 export type FeatureEntry = AnyFeature;
@@ -139,7 +142,11 @@ export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly Fe
   computer?: ComputerProvider;
   /** The Models: Host credentials, user keys, Quota, linked credentials, default Image Model. */
   models: ModelsOptions;
-  /** The Channels besides web, each an adapter (email). With none, Bots talk on the web only. */
+  /**
+   * The Channels besides web, each an adapter: email, web push, and a messaging adapter per
+   * platform (`@botsdk/channel-telegram`), whose Channel accounts listen while the SDK runs. With
+   * none, Bots talk on the web only.
+   */
   channels?: readonly ChannelAdapter[];
   /**
    * The Model that reviews each Bot's risky tool calls before they run (Auto-review), a

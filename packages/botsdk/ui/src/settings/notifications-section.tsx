@@ -3,7 +3,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import type { ChannelsContract } from "@botsdk/client/bot/contract";
 import {
+  isMessagingRoute,
   type NotificationRoute,
   type NotificationSettings,
   notificationRoutes,
@@ -35,6 +37,7 @@ const choiceKeys = {
   in_app: "settings.routeInApp",
   email: "settings.routeEmail",
   push: "settings.routePush",
+  telegram: "settings.routeTelegram",
 } as const;
 
 /** The routing choices as pills: one is chosen. */
@@ -43,18 +46,21 @@ function ChoicePills({
   value,
   onChange,
   pushOffered,
+  linked,
 }: {
   label: string;
   value: Choice;
   onChange: (choice: Choice) => void;
   /** Whether the Host offers web push; a saved push choice still shows without it. */
   pushOffered: boolean;
+  /** The messaging platforms the user is linked on: only those are offered (a saved one shows). */
+  linked: readonly string[];
 }) {
   const { t } = useI18n();
-  const choices: Choice[] = [
-    null,
-    ...notificationRoutes.filter((route) => route !== "push" || pushOffered || route === value),
-  ];
+  const offered = (route: NotificationRoute) =>
+    route === value ||
+    (route === "push" ? pushOffered : isMessagingRoute(route) ? linked.includes(route) : true);
+  const choices: Choice[] = [null, ...notificationRoutes.filter(offered)];
   return (
     <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-1.5">
       {choices.map((choice) => (
@@ -89,10 +95,12 @@ export function NotificationsSection({
 }: {
   pushDevice?: PushDevice;
 }) {
-  const orpc = useOrpc();
+  const orpc = useOrpc<{ channels: ChannelsContract }>();
   const { t } = useI18n();
   const settings = useQuery(orpc.notifications.get.queryOptions());
   const pushKey = useQuery(orpc.notifications.push.key.queryOptions());
+  // A Host with no messaging Channel, or that can't say, offers none.
+  const identities = useQuery({ ...orpc.channels.identities.list.queryOptions(), retry: false });
 
   return (
     <section className="space-y-2">
@@ -109,6 +117,7 @@ export function NotificationsSection({
           key={JSON.stringify(settings.data)}
           saved={settings.data}
           pushOffered={Boolean(pushKey.data)}
+          linked={(identities.data ?? []).map((identity) => identity.platform)}
         />
       )}
       {pushKey.data && <PushDeviceRow publicKey={pushKey.data} device={pushDevice} />}
@@ -242,9 +251,11 @@ function PushDeviceRow({ publicKey, device }: { publicKey: string; device: PushD
 function NotificationsForm({
   saved,
   pushOffered,
+  linked,
 }: {
   saved: NotificationSettings;
   pushOffered: boolean;
+  linked: readonly string[];
 }) {
   const orpc = useOrpc();
   const i18n = useI18n();
@@ -309,6 +320,7 @@ function NotificationsForm({
           value={urgent}
           onChange={setUrgent}
           pushOffered={pushOffered}
+          linked={linked}
         />
       </div>
       <div className="space-y-1">
@@ -318,6 +330,7 @@ function NotificationsForm({
           value={other}
           onChange={setOther}
           pushOffered={pushOffered}
+          linked={linked}
         />
       </div>
       <p className="text-xs text-muted-foreground">{t("settings.routeHelp")}</p>

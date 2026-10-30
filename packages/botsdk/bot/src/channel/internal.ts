@@ -18,11 +18,27 @@ export {
   namedAddress,
   replySubject,
 } from "./email-out";
+export { approveOption, denyOption, messagingBody, otherOption } from "./messaging-out";
 export {
+  CredentialsRejectedError,
+  isMessagingAdapter,
+  type MessagingAccount,
+  type MessagingAdapter,
+  type MessagingButtons,
+  type MessagingCall,
+  type MessagingFile,
+  MessagingFileTooLargeError,
+  type MessagingUpdate,
+  type OutboundMessage,
+  type SentMessage,
+} from "./messaging";
+export {
+  type ChannelAccountsApi,
   type ChannelAdapter,
   type ChannelApi,
   type ChannelOptions,
   type ChannelPlugin,
+  type LinkedIdentitiesApi,
   deliveryPayload,
   type DeliveryPayload,
 } from "./plugin";

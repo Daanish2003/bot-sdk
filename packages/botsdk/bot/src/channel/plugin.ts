@@ -1,15 +1,20 @@
+import type { ChannelAccountRow } from "@botsdk/client/bot/channel-account";
+import type { LinkCode, LinkedIdentityRow } from "@botsdk/client/bot/linked-identity";
 import { z } from "zod";
 
 import type { BotSdkPlugin, Transaction } from "../plugin";
 import type { EmailChannel, InboundMail } from "./email";
+import type { MessagingAdapter } from "./messaging";
 import type { WebPushChannel } from "./push";
 
 /**
  * What a `channel.deliver` job carries: for email, the headers fixed when the Message was saved
- * (a job queued before web push has no `channel`, and is email); for web push, the Message alone.
+ * (a job queued before web push has no `channel`, and is email); for web push, the Message alone;
+ * for a messaging Channel, the platform and the Message.
  */
 export const deliveryPayload = z.union([
   z.object({ channel: z.literal("push"), messageId: z.uuid() }),
+  z.object({ channel: z.literal("messaging"), platform: z.string(), messageId: z.uuid() }),
   z.object({
     channel: z.literal("email").optional(),
     messageId: z.uuid(),
@@ -20,8 +25,50 @@ export const deliveryPayload = z.union([
 
 export type DeliveryPayload = z.infer<typeof deliveryPayload>;
 
-/** A Channel adapter (spec #761): its wire format only. Email (spec #761) and web push (spec #1024). */
-export type ChannelAdapter = EmailChannel | WebPushChannel;
+/**
+ * A Channel adapter (spec #761): its wire format only. Email (spec #761), web push (spec #1024) and
+ * the messaging adapters (spec #1044), one per platform.
+ */
+export type ChannelAdapter = EmailChannel | WebPushChannel | MessagingAdapter;
+
+/** The Bot's Channel account on a platform, as the domain methods take it. */
+type AccountInput = { userId: string; botId: string; platform: string };
+
+/**
+ * The Channel accounts of the user's Bots (spec #1044), one per Bot and messaging platform. Every
+ * method throws NOT_FOUND when the slot has no messaging adapter, or the Bot isn't the user's.
+ */
+export type ChannelAccountsApi = {
+  /** Each messaging platform the Host offers, with the Bot's Channel account there, if any. */
+  list: (input: { userId: string; botId: string }) => Promise<ChannelAccountRow[]>;
+  /**
+   * Adds or fixes the Bot's Channel account on `platform` once the platform accepts
+   * `credentials`, and starts its listener; a rejection throws BAD_REQUEST and saves nothing. A
+   * platform bot on another of the user's Bots moves to this one; one on another user's Bot is
+   * refused with CONFLICT.
+   */
+  save: (
+    input: AccountInput & { credentials: Record<string, string> },
+  ) => Promise<ChannelAccountRow>;
+  /** Removes the Bot's Channel account on `platform` and stops its listener. */
+  remove: (input: AccountInput) => Promise<void>;
+};
+
+/**
+ * The user's Linked identities and link codes (spec #1044). Every method throws NOT_FOUND when the
+ * slot has no messaging adapter.
+ */
+export type LinkedIdentitiesApi = {
+  /** The user's Linked identities, one per platform. */
+  list: (input: { userId: string }) => Promise<LinkedIdentityRow[]>;
+  /** Unlinks the user's Linked identity on `platform` at once. */
+  unlink: (input: { userId: string; platform: string }) => Promise<void>;
+  /**
+   * Issues a link code (6 digits, valid 10 minutes, single use), replacing the user's live one,
+   * with the deep links of their Bots' active Channel accounts.
+   */
+  linkCode: (input: { userId: string }) => Promise<LinkCode>;
+};
 
 /** The core's Channels (`sdk.channels`, spec #871): the channels slot's adapters. */
 export type ChannelApi = {
@@ -38,7 +85,8 @@ export type ChannelApi = {
    * The Bots' hook after they save a Bot Message, in the same transaction: when the reply goes by
    * email too (the Turn took an email, or the Bot speaks first and the user's notification
    * settings say so), marks the Message emailed and enqueues its `channel.deliver` job; when it is
-   * pushed, enqueues its push job. `turnId` is the Turn that
+   * pushed, or the reply goes back to a messaging Channel (the Turn took a Trigger from it, or the
+   * notification settings name it), enqueues its job. `turnId` is the Turn that
    * sent it, or `null` for a Message no Turn sent (a Helper's).
    */
   deliverIn: (
@@ -46,12 +94,16 @@ export type ChannelApi = {
     sent: { conversationId: string; messageId: string; turnId: string | null; urgent: boolean },
   ) => Promise<void>;
   /**
-   * Sends one `channel.deliver` job's email, or its pushes to each of the user's devices; the
-   * runner retries it when it throws.
+   * Sends one `channel.deliver` job's email, its pushes to each of the user's devices, or its text
+   * on a messaging Channel; the runner retries it when it throws.
    */
   sendDelivery: (payload: DeliveryPayload) => Promise<void>;
   /** The web push Channel's VAPID public key, or `null` when the Host gave no web push adapter. */
   pushKey: () => string | null;
+  /** The Channel accounts on the messaging Channels (spec #1044). */
+  accounts: ChannelAccountsApi;
+  /** The user's Linked identities on the messaging Channels (spec #1044). */
+  identities: LinkedIdentitiesApi;
 };
 
 /** How the Host sets up the Channels. */

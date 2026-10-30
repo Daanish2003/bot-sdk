@@ -17,6 +17,8 @@ import {
   customRule,
   notificationSettings,
   pushSubscription,
+  linkCode,
+  linkedIdentity,
   job,
   usage,
   modelSettings,
@@ -165,6 +167,25 @@ async function seedEverything(
       p256dh: "BKey",
       auth: "auth",
       createdAt: new Date(),
+    });
+
+  await getTestDb()
+    .insert(linkedIdentity)
+    .values({
+      id: uuidv7(),
+      userId: user.id,
+      platform: "telegram",
+      platformUserId: `tg-${user.id}`,
+      handle: "@ada",
+      workspaceId: null,
+      linkedAt: new Date(),
+    });
+  await getTestDb()
+    .insert(linkCode)
+    .values({
+      userId: user.id,
+      codeHash: `hash-${user.id}`,
+      expiresAt: new Date(Date.now() + 60_000),
     });
 
   const upload = await uploadBotFile(

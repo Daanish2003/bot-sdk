@@ -24,7 +24,7 @@ const second = "ada.p7w4n1cv@bots.example";
  * A stand-in for the server's `channel` router, holding one Bot's address and the Channel its next
  * Bot-initiated Message goes by, and recording rotations.
  */
-function fakeChannelServer(nextChannel: "web" | "email" = "web") {
+function fakeChannelServer(nextChannel = "web") {
   let address = first;
   const rotated: unknown[] = [];
   const router = {
@@ -105,6 +105,12 @@ describe("EmailPopover", () => {
     openPopover(fakeChannelServer("email"));
 
     expect(await screen.findByText("Next Bot-initiated Message goes by email")).toBeTruthy();
+  });
+
+  it("names a messaging Channel when the next Message goes there", async () => {
+    openPopover(fakeChannelServer("telegram"));
+
+    expect(await screen.findByText("Next Bot-initiated Message goes by Telegram")).toBeTruthy();
   });
 });
 

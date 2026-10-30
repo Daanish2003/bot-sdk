@@ -5,6 +5,7 @@ import {
   KeySettingsPage,
   type LinkedCredentialsHost,
 } from "@botsdk/ui/models";
+import { LinkedIdentitiesSection } from "@botsdk/ui/settings/linked-identities-section";
 import { NotificationsSection } from "@botsdk/ui/settings/notifications-section";
 import { createFileRoute } from "@tanstack/react-router";
 
@@ -45,6 +46,7 @@ function KeysRoute() {
       <ConnectionsSection />
       <ImageModelSelect />
       <NotificationsSection />
+      <LinkedIdentitiesSection />
     </KeySettingsPage>
   );
 }

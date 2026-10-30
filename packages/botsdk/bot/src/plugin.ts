@@ -32,7 +32,7 @@ export type BotSdkContext = {
   runtime: BotSdkRuntime;
   pubsub: PubSub;
   counters: CounterStore;
-  logger: Pick<Console, "error">;
+  logger: Pick<Console, "error"> & Partial<Pick<Console, "debug">>;
   /** Fires the Host's `hooks`. */
   events: HookEmitter;
   /** The SSRF-guarded `fetch`. */

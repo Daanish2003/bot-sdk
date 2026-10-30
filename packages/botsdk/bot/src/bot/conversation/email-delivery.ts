@@ -5,15 +5,17 @@ import type { BotSdkContext, Transaction } from "../../plugin";
 import { sentFileBlobKey } from "./files";
 import { controlOf, newestTimeZone, subjectOf, toBotMessage } from "./store";
 import { knownZone } from "@botsdk/client/bot/time-zone";
-import type { NotificationRoute } from "@botsdk/client/bot/notifications";
+import { isMessagingRoute } from "@botsdk/client/bot/notifications";
 import { inQuietHours, notificationSettingsOf } from "../notifications-api";
 import { defineCoreJob, PermanentJobError } from "../../runner/internal";
 import { emailAddressOf } from "./email-address";
+import { honourable, sendMessagingDelivery } from "./messaging-delivery";
 import { hasPushSubscription, sendPushDelivery } from "./push-delivery";
 import {
   deliveryPayload,
   type DeliveryPayload,
   type EmailChannel,
+  type MessagingAdapter,
   type WebPushChannel,
 } from "../../channel/internal";
 import {
@@ -28,8 +30,8 @@ import {
 /** The runner job that emails one Bot Message (spec #761), or pushes it (spec #1024). */
 export const deliveryJobName = "channel.deliver";
 
-/** A Channel a Bot's Message is delivered on besides web. */
-export type DeliveryChannel = "email" | "push";
+/** A Channel a Bot's Message is delivered on besides web: email, push or a messaging platform's id. */
+export type DeliveryChannel = string;
 
 /** The delivery job's key: one per Message and Channel, so a Message is enqueued once. */
 export const deliveryKey = (messageId: string, channel: DeliveryChannel) =>
@@ -40,9 +42,11 @@ const messageIdOf = (id: string, domain: string) => `<${id}@${domain}>`;
 
 /**
  * The Channel the user last wrote from in Bot `owner`'s Conversation: the channel of its newest
- * user Trigger, or `web` when it has none or that Trigger came from web.
+ * user Trigger (email, or a messaging platform that can carry the Message now), or `web` when it
+ * has none, came from web, or names a messaging Channel that can't (spec #1044).
  */
 export async function lastUsedChannel(
+  deps: BotSdkContext,
   db: BotSdkContext["db"] | Transaction,
   owner: { conversationId: string } | { botId: string },
 ): Promise<"web" | DeliveryChannel> {
@@ -59,7 +63,10 @@ export async function lastUsedChannel(
     .where(and(conversationOf, eq(botTrigger.source, "user")))
     .orderBy(desc(botTrigger.receivedAt), desc(botTrigger.id))
     .limit(1);
-  return last?.channel === "email" ? "email" : "web";
+  const channel = last?.channel;
+  if (channel === "email") return "email";
+  if (channel && (await honourable(deps, db, owner, channel))) return channel;
+  return "web";
 }
 
 /** What `deliverIn` knows of the Message it routes, and asks of its user once. */
@@ -72,9 +79,11 @@ type Routed = {
 };
 
 /**
- * Where a Bot Message goes besides web (spec #761, "Where a Bot's reply is delivered"): by email
- * when Turn `turnId` took a user Trigger by email, and only on web when it took another user
- * Trigger. With no user Trigger in the Turn (a Routine, a Check-in, a Helper, a webhook) or with no
+ * Where a Bot Message goes besides web (spec #761, "Where a Bot's reply is delivered"): back to the
+ * messaging Channel of the latest user Trigger Turn `turnId` took, when the Host has its adapter,
+ * the user is still linked there and the Bot has an active Channel account (spec #1044); by email when it took a user Trigger
+ * by email, and only on web when it took another user Trigger. With no user Trigger in the Turn (a Routine, a Check-in, a Helper, a webhook),
+ * with a latest one from a messaging Channel that can't carry the Message now, or with no
  * Turn at all (a Helper's own Message), it follows the user's notification settings (spec #1024).
  * Returns the email Trigger the Message answers, when it answers one.
  */
@@ -89,9 +98,15 @@ async function routeOf(
       .from(botTrigger)
       .where(and(eq(botTrigger.turnId, turnId), eq(botTrigger.source, "user")))
       .orderBy(desc(botTrigger.receivedAt), desc(botTrigger.id));
+    const latest = taken[0]?.channel;
+    // A messaging Channel that can't be honoured now falls through to the rules below, and with
+    // no email Trigger to the notification routes (spec #1044).
+    if (latest && (await honourable(deps, tx, { conversationId }, latest))) {
+      return { channel: latest };
+    }
     const emailed = taken.find((trigger) => trigger.channel === "email");
     if (emailed) return { channel: "email", answers: emailed.messageId ?? undefined };
-    if (taken.length > 0) return null;
+    if (latest === "web") return null;
   }
   const route = await notificationRouteOf(deps, tx, {
     userId,
@@ -102,11 +117,16 @@ async function routeOf(
   return route === "in_app" ? null : { channel: route };
 }
 
+/** Where a Message goes now: `in_app` only, by `email` or `push`, or a messaging platform's id. */
+export type DeliveryRoute = "in_app" | "email" | "push" | DeliveryChannel;
+
 /**
  * Where a Message of Bot `owner` from a Turn the user didn't start goes now (spec #1024): the user's
  * choice for urgent Messages or for the rest. When that choice is empty, an urgent Message is pushed
  * if the Host has web push and the user a subscribed device (`hasDevice`, read when not given), and
- * otherwise it goes to the Channel they last wrote from. During Quiet hours, in the Conversation's
+ * otherwise it goes to the Channel they last wrote from (a messaging one included). A messaging
+ * route that can't be honoured (no adapter, no Linked identity, no active Channel account) counts
+ * as empty. During Quiet hours, in the Conversation's
  * time zone as for Routines, only an urgent Message leaves the app.
  */
 export async function notificationRouteOf(
@@ -119,19 +139,26 @@ export async function notificationRouteOf(
     hasDevice = () => hasPushSubscription(db, userId),
   }: {
     userId: string;
-    owner: Parameters<typeof lastUsedChannel>[1];
+    owner: Parameters<typeof lastUsedChannel>[2];
     urgent: boolean;
     hasDevice?: () => Promise<boolean>;
   },
-): Promise<NotificationRoute> {
+): Promise<DeliveryRoute> {
   const settings = await notificationSettingsOf(db, userId);
-  const defaultRouteOf = async (): Promise<NotificationRoute> => {
+  const defaultRouteOf = async (): Promise<DeliveryRoute> => {
     if (urgent && deps.channels.pushKey() !== null && (await hasDevice())) {
       return "push";
     }
-    return (await lastUsedChannel(db, owner)) === "email" ? "email" : "in_app";
+    const last = await lastUsedChannel(deps, db, owner);
+    return last === "web" ? "in_app" : last;
   };
-  const route = (urgent ? settings.urgent : settings.other) ?? (await defaultRouteOf());
+  let chosen: DeliveryRoute | null = urgent ? settings.urgent : settings.other;
+  // A messaging Channel the Host has no adapter for, the user isn't linked on, or the Bot has no
+  // active account on, can't be honoured: the defaults decide.
+  if (chosen && isMessagingRoute(chosen) && !(await honourable(deps, db, owner, chosen))) {
+    chosen = null;
+  }
+  const route = chosen ?? (await defaultRouteOf());
   if (route === "in_app" || urgent || !settings.quietHours) return route;
   const conversationId = await conversationIdOf(db, owner);
   const zone = knownZone(conversationId && (await newestTimeZone(db, conversationId)));
@@ -141,7 +168,7 @@ export async function notificationRouteOf(
 /** The Conversation of Bot `owner`, or `undefined` when the Bot is gone. */
 async function conversationIdOf(
   db: BotSdkContext["db"] | Transaction,
-  owner: Parameters<typeof lastUsedChannel>[1],
+  owner: Parameters<typeof lastUsedChannel>[2],
 ): Promise<string | undefined> {
   if ("conversationId" in owner) return owner.conversationId;
   const [row] = await db
@@ -197,7 +224,11 @@ async function latestMailOf(
 export async function deliverIn(
   deps: BotSdkContext,
   tx: Transaction,
-  { email, push }: { email?: EmailChannel; push?: WebPushChannel },
+  {
+    email,
+    push,
+    messaging = [],
+  }: { email?: EmailChannel; push?: WebPushChannel; messaging?: readonly MessagingAdapter[] },
   args: { conversationId: string; messageId: string; turnId: string | null; urgent: boolean },
 ): Promise<void> {
   const [owner] = await tx
@@ -215,6 +246,17 @@ export async function deliverIn(
         idempotencyKey: deliveryKey(args.messageId, "push"),
       });
     }
+    return;
+  }
+  if (route && messaging.some((adapter) => adapter.id === route.channel)) {
+    const payload: DeliveryPayload = {
+      channel: "messaging",
+      platform: route.channel,
+      messageId: args.messageId,
+    };
+    await deps.runner.enqueueIn(tx, deliveryJobName, payload, {
+      idempotencyKey: deliveryKey(args.messageId, route.channel),
+    });
     return;
   }
   if (!route || !email) return;
@@ -248,7 +290,11 @@ export async function deliverIn(
  */
 export async function sendDelivery(
   deps: BotSdkContext,
-  { email, push }: { email?: EmailChannel; push?: WebPushChannel },
+  {
+    email,
+    push,
+    messaging = [],
+  }: { email?: EmailChannel; push?: WebPushChannel; messaging?: readonly MessagingAdapter[] },
   verifiedEmail: (userId: string) => Promise<string | null>,
   payload: DeliveryPayload,
 ): Promise<void> {
@@ -256,6 +302,8 @@ export async function sendDelivery(
     if (!push) throw new Error("The channel plugin has no web push adapter");
     return sendPushDelivery(deps, push, payload);
   }
+  if (payload.channel === "messaging")
+    return sendMessagingDelivery(deps, messaging, (email ?? push)?.appUrl ?? null, payload);
   if (!email) throw new Error("The channel plugin has no email adapter");
   const { messageId, subject, inReplyTo } = payload;
   const [row] = await deps.db
@@ -309,17 +357,17 @@ async function filesOf(
 }
 
 /**
- * The job that emails or pushes one Bot Message. The runner retries a failed send; once it gives up, the
- * failure is logged and nothing else happens (bounces and a failed-delivery marker are out of scope).
+ * The job that emails, pushes or messages one Bot Message. The runner retries a failed send; once it
+ * gives up, the failure is logged and nothing else happens (bounces and a failed-delivery marker are
+ * out of scope).
  */
 export const deliveryJob = defineCoreJob({
   name: deliveryJobName,
   payload: deliveryPayload,
   run: async (payload, { deps }) => deps.channels.sendDelivery(payload),
   onFailed: (payload, error, { deps }) => {
-    deps.logger.error(
-      `Couldn't ${payload.channel === "push" ? "push" : "email"} Bot Message ${payload.messageId}`,
-      error,
-    );
+    const verb =
+      payload.channel === "push" ? "push" : payload.channel === "messaging" ? "send" : "email";
+    deps.logger.error(`Couldn't ${verb} Bot Message ${payload.messageId}`, error);
   },
 });

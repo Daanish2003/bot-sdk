@@ -129,6 +129,7 @@ const coreTables = [
   "bot_trigger",
   "bot_turn",
   "bot_upload",
+  "channel_account",
   "channel_email_address",
   "computer",
   "conversation",
@@ -136,6 +137,8 @@ const coreTables = [
   "custom_rule",
   "job",
   "job_event",
+  "link_code",
+  "linked_identity",
   "message",
   "model_settings",
   "notification_settings",
@@ -168,10 +171,10 @@ describe("chat.migrate()", () => {
       "bot_review_verdict",
       "bot_routine_state",
       "bot_summary_kind",
-      "bot_trigger_channel",
       "bot_trigger_skip_reason",
       "bot_trigger_source",
       "bot_turn_status",
+      "channel_account_status",
       "computer_state",
       "custom_rule_mode",
       "custom_rule_state",
@@ -192,6 +195,10 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261029220925_notification_settings" },
       { feature: "core", migration: "20261029222631_read_only_routines" },
       { feature: "core", migration: "20261029232026_push_subscription" },
+      { feature: "core", migration: "20261030065703_channel_account" },
+      { feature: "core", migration: "20261030075650_linked_identity" },
+      { feature: "core", migration: "20261030100046_trigger_channel_text" },
+      { feature: "core", migration: "20261030111914_route_telegram" },
     ]);
     // Images and PDFs are already compressed, so the bytes are kept out of line uncompressed.
     expect(
@@ -235,6 +242,10 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261029220925_notification_settings" },
       { feature: "core", migration: "20261029222631_read_only_routines" },
       { feature: "core", migration: "20261029232026_push_subscription" },
+      { feature: "core", migration: "20261030065703_channel_account" },
+      { feature: "core", migration: "20261030075650_linked_identity" },
+      { feature: "core", migration: "20261030100046_trigger_channel_text" },
+      { feature: "core", migration: "20261030111914_route_telegram" },
     ]);
     expect(
       await rows(url, "update botsdk.bot_review set state = 'pending' returning state, expires_at"),
@@ -320,6 +331,10 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261029220925_notification_settings" },
       { feature: "core", migration: "20261029222631_read_only_routines" },
       { feature: "core", migration: "20261029232026_push_subscription" },
+      { feature: "core", migration: "20261030065703_channel_account" },
+      { feature: "core", migration: "20261030075650_linked_identity" },
+      { feature: "core", migration: "20261030100046_trigger_channel_text" },
+      { feature: "core", migration: "20261030111914_route_telegram" },
       { feature: "notes", migration: "0001_note" },
       { feature: "mcp", migration: "20261026182927_mcp_baseline" },
     ]);
@@ -344,6 +359,10 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261029220925_notification_settings" },
       { feature: "core", migration: "20261029222631_read_only_routines" },
       { feature: "core", migration: "20261029232026_push_subscription" },
+      { feature: "core", migration: "20261030065703_channel_account" },
+      { feature: "core", migration: "20261030075650_linked_identity" },
+      { feature: "core", migration: "20261030100046_trigger_channel_text" },
+      { feature: "core", migration: "20261030111914_route_telegram" },
       { feature: "notes", migration: "0001_note" },
       { feature: "notes", migration: "0002_note_text" },
     ]);
@@ -472,6 +491,10 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261029220925_notification_settings" },
       { feature: "core", migration: "20261029222631_read_only_routines" },
       { feature: "core", migration: "20261029232026_push_subscription" },
+      { feature: "core", migration: "20261030065703_channel_account" },
+      { feature: "core", migration: "20261030075650_linked_identity" },
+      { feature: "core", migration: "20261030100046_trigger_channel_text" },
+      { feature: "core", migration: "20261030111914_route_telegram" },
       { feature: "notes", migration: "0001_note" },
     ]);
   });

@@ -4,6 +4,7 @@ import { createDb } from "@ai-chat/db";
 import { createHttpHandler, createScreenSocket } from "@botsdk/bot/http";
 import { createBotSdk } from "@botsdk/bot";
 import { redisRuntime, redisStore } from "@botsdk/pubsub-redis";
+import { telegram } from "@botsdk/channel-telegram";
 import { emailChannel } from "@botsdk/bot/channel";
 import { fakeImageAdapter } from "@botsdk/bot/models";
 import { log } from "evlog";
@@ -135,6 +136,8 @@ export const sdk = (shared.botSdk ??= createBotSdk({
       // A Bot's emails link to its page in this app.
       appUrl: ENV.BETTER_AUTH_URL,
     }),
+    // Telegram (spec #1044): the tokens are per Channel account, so it needs no Host env.
+    telegram(),
     // Web push (spec #1024): on only with the Host's VAPID key pair (VAPID_*).
     ...webPushChannelsOf({
       VAPID_PUBLIC_KEY: ENV.VAPID_PUBLIC_KEY,
