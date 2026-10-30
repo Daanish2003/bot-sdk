@@ -278,6 +278,9 @@ importers:
       '@botsdk/channel-email':
         specifier: workspace:*
         version: link:../../packages/botsdk/channel-email
+      '@botsdk/channel-telegram':
+        specifier: workspace:*
+        version: link:../../packages/botsdk/channel-telegram
       '@botsdk/channel-web-push':
         specifier: workspace:*
         version: link:../../packages/botsdk/channel-web-push
