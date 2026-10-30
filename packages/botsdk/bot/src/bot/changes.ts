@@ -136,7 +136,9 @@ async function changeData(
         .from(botTurn)
         .where(
           and(
-            botId ? eq(botTurn.botId, botId) : eq(botTurn.conversationId, owner.conversationId),
+            // A Bot's thread logs its Room Turns' ends too, for its Tasks view, with no status of
+            // the 1:1's to show (spec #1055).
+            eq(botTurn.conversationId, owner.conversationId),
             inArray(botTurn.id, turnIds),
           ),
         )

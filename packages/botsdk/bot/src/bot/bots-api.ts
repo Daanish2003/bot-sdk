@@ -58,7 +58,7 @@ export function botsApi(sdk: BotSdkContext) {
     list: async ({ userId }: { userId: string }) => listBots(sdk.db, userId),
 
     /**
-     * One of the user's Bots with its latest Turn's status and the status of the Turn that took the
+     * One of the user's Bots with its 1:1's latest Turn's status and the status of the Turn that took the
      * user's last Message, its Conversation's id and Messages, its Turns' provenance, its Summaries
      * and its cache warmings, and `lastSeq`, the cursor to follow its thread with
      * `conversations.changes` from; another user's is not found.
@@ -72,7 +72,8 @@ export function botsApi(sdk: BotSdkContext) {
       const lastSeq = await lastSeqOf(sdk.db, conversationId);
       const [messages, turnStatus] = await Promise.all([
         botMessages(sdk.db, conversationId),
-        latestTurnStatus(sdk.db, bot.id),
+        // The 1:1's Turn: the Bot's Room work shows in its Tasks view (spec #1055).
+        latestTurnStatus(sdk.db, bot.id, conversationId),
       ]);
       // Each Turn's Triggers and whether it sent anything, for the dividers of Routine runs.
       const [turns, userStatus, summaries, warmings] = await Promise.all([

@@ -335,8 +335,15 @@ export async function markComputerRebuildSeen(
 /** The longest a Turn may run; past it, it ends `error` with `timed_out`. */
 export const turnTimeLimitMs = 5 * 60_000;
 
-/** The status of each Bot's latest Turn; a Bot with no Turn has no entry. */
-async function latestTurnStatuses(db: Database | Transaction, botIds: string[]) {
+/**
+ * The status of each Bot's latest Turn, only in Conversation `conversationId` when given; a Bot
+ * with no Turn has no entry.
+ */
+async function latestTurnStatuses(
+  db: Database | Transaction,
+  botIds: string[],
+  conversationId?: string,
+) {
   if (botIds.length === 0) return new Map<string, BotTurnStatus>();
   const rows = await db
     .selectDistinctOn([botTurn.botId], {
@@ -344,14 +351,26 @@ async function latestTurnStatuses(db: Database | Transaction, botIds: string[]) 
       status: botTurn.status,
     })
     .from(botTurn)
-    .where(inArray(botTurn.botId, botIds))
+    .where(
+      and(
+        inArray(botTurn.botId, botIds),
+        conversationId ? eq(botTurn.conversationId, conversationId) : undefined,
+      ),
+    )
     .orderBy(botTurn.botId, desc(botTurn.startedAt), desc(botTurn.id));
   return new Map(rows.map((row): [string, BotTurnStatus] => [row.botId, row.status]));
 }
 
-/** The latest Turn's status of one Bot, `null` before its first Turn. */
-export async function latestTurnStatus(db: Database | Transaction, botId: string) {
-  return (await latestTurnStatuses(db, [botId])).get(botId) ?? null;
+/**
+ * The latest Turn's status of one Bot, only in Conversation `conversationId` when given (its
+ * page reads its 1:1's), `null` before its first Turn there.
+ */
+export async function latestTurnStatus(
+  db: Database | Transaction,
+  botId: string,
+  conversationId?: string,
+) {
+  return (await latestTurnStatuses(db, [botId], conversationId)).get(botId) ?? null;
 }
 
 /**

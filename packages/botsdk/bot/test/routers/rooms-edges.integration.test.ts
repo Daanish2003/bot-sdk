@@ -461,3 +461,32 @@ describe("the user's data export", () => {
     timeout,
   );
 });
+
+describe("a Bot's page, its 1:1 Conversation", () => {
+  it(
+    "reads the 1:1's Turn status, so a Room Turn shows no Stop there, and its log carries no Room Turn's status",
+    async () => {
+      const gate = held(createFakeAdapter({ rounds: [says("Done.")] }));
+      const { client, scout, room } = await threeBotRoom([], gate.adapter);
+      const conversationId = room.conversationId;
+      await client.rooms.send({ conversationId, text: "Go" });
+      await expect.poll(() => gate.entered.length, poll).toBe(1);
+
+      expect((await client.bots.get({ botId: scout.id })).bot.turnStatus).toBeNull();
+      gate.open();
+      await expect.poll(() => statusesOf(scout.id, conversationId), poll).toEqual(["complete"]);
+
+      // The Room Turn's end still hints the Bot's thread (its Tasks view), with no status to show.
+      const logged = await client.conversations.changes({
+        conversationId: await oneToOneOf(scout.id),
+        since: 0,
+      });
+      if (logged.reload) throw new Error("expected changes");
+      const turns = logged.changes.filter((change) => change.kind === "turn");
+      expect(turns.length).toBeGreaterThan(0);
+      expect(turns.map((change) => change.data)).toEqual(turns.map(() => null));
+      expect((await client.bots.get({ botId: scout.id })).bot.turnStatus).toBeNull();
+    },
+    timeout,
+  );
+});

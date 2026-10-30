@@ -757,8 +757,8 @@ async function endTurn(
     .where(eq(botTurn.id, turnId))
     .returning({ conversationId: botTurn.conversationId, botId: botTurn.botId });
   if (!ended) return;
-  // A Room Turn's end is the Room's change (spec #1055), and still its Bot's too: the Bot's thread
-  // and Tasks view read its running Turn in any Conversation.
+  // A Room Turn's end is the Room's change (spec #1055), and a hint to its Bot's thread too: its
+  // Tasks view reads its running Turn in any Conversation.
   await recordBotChange(
     tx,
     { conversationId: ended.conversationId },
