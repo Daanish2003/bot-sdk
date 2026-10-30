@@ -1,5 +1,5 @@
 import { BotCacheChip, BotConversation, WaitingPopover } from "@botsdk/ui/bot";
-import { EmailPopover } from "@botsdk/ui/channel";
+import { ChannelsPopover, EmailPopover } from "@botsdk/ui/channel";
 import { KnowledgeChip, KnowledgePopover } from "@botsdk/ui/knowledge";
 import { BotMemoryChip, BotMemoryPopover } from "@botsdk/ui/memory";
 import { BotSkillChip, BotSkillsPopover } from "@botsdk/ui/skills";
@@ -28,6 +28,7 @@ function BotPage() {
             </>
           )}
           <EmailPopover botId={botId} />
+          <ChannelsPopover botId={botId} />
           <WaitingPopover botId={botId} />
         </>
       }
