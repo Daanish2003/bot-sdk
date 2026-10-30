@@ -1,4 +1,8 @@
-import { CredentialsRejectedError, MessagingFileTooLargeError } from "@botsdk/bot/channel";
+import {
+  CredentialsRejectedError,
+  MessagingFileTooLargeError,
+  MessagingSendError,
+} from "@botsdk/bot/channel";
 import type {
   MessagingAccount,
   MessagingAdapter,
@@ -168,56 +172,71 @@ export function telegram({
       }
       const parts = message.text.trim() === "" ? [] : splitParts(message.text);
       const calls = parts.length + files.length;
-      const messageIds: string[] = [];
-      let buttonsMessageId: string | undefined;
+      // A resumed send starts after the parts an earlier one got out, keeping their ids.
+      const skip = message.resume?.parts ?? 0;
+      const messageIds = [...(message.resume?.sent.messageIds ?? [])];
+      let buttonsMessageId = message.resume?.sent.buttonsMessageId;
+      let done = skip;
       const record = (sent: { message_id: number }, buttons: boolean) => {
         messageIds.push(String(sent.message_id));
         if (buttons && replyMarkup) buttonsMessageId = String(sent.message_id);
       };
-      for (const [index, part] of parts.entries()) {
-        const last = index === calls - 1;
-        const send = (body: Record<string, unknown>, buttons: boolean) =>
-          callApi<{ message_id: number }>(
-            base,
-            token,
-            "sendMessage",
-            {
-              chat_id: message.chatId,
-              reply_markup: buttons ? replyMarkup : undefined,
-              ...body,
-            },
-            call,
-          );
-        try {
-          record(await send({ text: part.markdownV2, parse_mode: "MarkdownV2" }, last), last);
-        } catch (error) {
-          // The converter missed something Telegram refuses: say it plainly instead, in as many
-          // messages as the raw text needs.
-          if (
-            !(error instanceof TelegramApiError) ||
-            !error.description.includes("can't parse entities")
-          ) {
-            throw error;
+      try {
+        for (const [index, part] of parts.entries()) {
+          if (index < skip) continue;
+          const last = index === calls - 1;
+          const send = (body: Record<string, unknown>, buttons: boolean) =>
+            callApi<{ message_id: number }>(
+              base,
+              token,
+              "sendMessage",
+              {
+                chat_id: message.chatId,
+                reply_markup: buttons ? replyMarkup : undefined,
+                ...body,
+              },
+              call,
+            );
+          try {
+            record(await send({ text: part.markdownV2, parse_mode: "MarkdownV2" }, last), last);
+          } catch (error) {
+            // The converter missed something Telegram refuses: say it plainly instead, in as many
+            // messages as the raw text needs.
+            if (
+              !(error instanceof TelegramApiError) ||
+              !error.description.includes("can't parse entities")
+            ) {
+              throw error;
+            }
+            for (const [at, piece] of part.plain.entries()) {
+              const buttons = last && at === part.plain.length - 1;
+              record(await send({ text: piece }, buttons), buttons);
+            }
           }
-          for (const [at, piece] of part.plain.entries()) {
-            const buttons = last && at === part.plain.length - 1;
-            record(await send({ text: piece }, buttons), buttons);
-          }
+          done += 1;
         }
-      }
-      for (const [at, file] of files.entries()) {
-        const form = new FormData();
-        form.set("chat_id", message.chatId);
-        form.set(
-          "document",
-          new Blob([file.content as Uint8Array<ArrayBuffer>], { type: file.contentType }),
-          file.name,
-        );
-        const last = parts.length + at === calls - 1;
-        if (replyMarkup && last) form.set("reply_markup", JSON.stringify(replyMarkup));
-        record(
-          await callApi<{ message_id: number }>(base, token, "sendDocument", form, call),
-          last,
+        for (const [at, file] of files.entries()) {
+          if (parts.length + at < skip) continue;
+          const form = new FormData();
+          form.set("chat_id", message.chatId);
+          form.set(
+            "document",
+            new Blob([file.content as Uint8Array<ArrayBuffer>], { type: file.contentType }),
+            file.name,
+          );
+          const last = parts.length + at === calls - 1;
+          if (replyMarkup && last) form.set("reply_markup", JSON.stringify(replyMarkup));
+          record(
+            await callApi<{ message_id: number }>(base, token, "sendDocument", form, call),
+            last,
+          );
+          done += 1;
+        }
+      } catch (error) {
+        if (error instanceof CredentialsRejectedError) throw error;
+        throw new MessagingSendError(
+          { parts: done, sent: { messageIds, buttonsMessageId } },
+          error,
         );
       }
       return { messageIds, buttonsMessageId };

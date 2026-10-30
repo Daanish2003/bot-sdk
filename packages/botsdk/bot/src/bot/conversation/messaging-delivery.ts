@@ -5,7 +5,9 @@ import {
   type FileBytes,
   messagingBody,
   type MessagingAdapter,
+  MessagingSendError,
   type DeliveryPayload,
+  type SendProgress,
 } from "../../channel/internal";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { PermanentJobError } from "../../runner/internal";
@@ -28,6 +30,34 @@ export function shownButtonsOf(parts: { [key: string]: unknown }): ShownButtons 
     typeof shown.messageId === "string"
     ? (shown as ShownButtons)
     : undefined;
+}
+
+/**
+ * How far a failed send of a Message on a messaging Channel got: kept on its parts (`sentOn`), so
+ * the `channel.deliver` retry resumes after the parts the user already has (ticket #1067).
+ */
+type SentOn = SendProgress & { platform: string; chatId: string };
+
+/** What a failed send of a Message to `chatId` on `platform` got out, by its stored parts. */
+function sentOnOf(
+  parts: { [key: string]: unknown },
+  platform: string,
+  chatId: string,
+): SendProgress | undefined {
+  const sentOn = parts.sentOn as SentOn | undefined;
+  return sentOn?.platform === platform && sentOn.chatId === chatId
+    ? { parts: sentOn.parts, sent: sentOn.sent }
+    : undefined;
+}
+
+/** Sets one key of Message `messageId`'s parts in place, so a concurrent write of the others stays. */
+function setPartsKey(deps: BotSdkContext, messageId: string, key: string, value: unknown) {
+  return deps.db
+    .update(message)
+    .set({
+      parts: sql`jsonb_set(${message.parts}, ${`{${key}}`}::text[], ${JSON.stringify(value)}::jsonb)`,
+    })
+    .where(eq(message.id, messageId));
 }
 
 /** The messaging platforms each Channels object (`sdk.channels`) has an adapter for. */
@@ -90,7 +120,8 @@ export async function messagingTarget(
  * (markup and splitting are the adapter's job): its text, its Rich control as buttons, files or a
  * link into the app at `appUrl` (`messagingBody`). A Message or Bot deleted since, an unlinked
  * user or a removed or inactive Channel account sends nothing. The platform rejecting the credentials
- * marks the Channel account as needing attention and ends the job, which no retry fixes.
+ * marks the Channel account as needing attention and ends the job, which no retry fixes. A send that
+ * fails after some parts keeps what it sent (`sentOn`), and the retry sends only the rest.
  */
 export async function sendMessagingDelivery(
   deps: BotSdkContext,
@@ -124,14 +155,22 @@ export async function sendMessagingDelivery(
   const found = await listenerAccount(deps, target.accountId);
   if (!found?.account)
     throw new PermanentJobError("The Channel account's credentials can't be read");
+  const resume = sentOnOf(row.parts, platform, target.chatId);
   let sent;
   try {
     sent = await adapter.send(
       found.account,
-      { chatId: target.chatId, ...body },
+      { chatId: target.chatId, ...body, ...(resume && { resume }) },
       { fetch: deps.fetch },
     );
   } catch (error) {
+    if (error instanceof MessagingSendError) {
+      const sentOn: SentOn = { platform, chatId: target.chatId, ...error.progress };
+      // Without it, the retry sends the parts already sent again.
+      await setPartsKey(deps, messageId, "sentOn", sentOn).catch((saving: unknown) =>
+        deps.logger.error(`Keeping what Bot Message ${messageId} sent failed`, saving),
+      );
+    }
     if (!(error instanceof CredentialsRejectedError)) throw error;
     await markNeedsAttention(deps, target.accountId, found.version, error.reason);
     throw new PermanentJobError(error.message);
@@ -140,12 +179,7 @@ export async function sendMessagingDelivery(
   const shown: ShownButtons = { platform, chatId: target.chatId, messageId: sent.buttonsMessageId };
   try {
     // One key set in place, so a concurrent answer's write of the parts isn't undone.
-    await deps.db
-      .update(message)
-      .set({
-        parts: sql`jsonb_set(${message.parts}, '{buttonsOn}', ${JSON.stringify(shown)}::jsonb)`,
-      })
-      .where(eq(message.id, messageId));
+    await setPartsKey(deps, messageId, "buttonsOn", shown);
   } catch (error) {
     // Sent already, so not retried: only a typed answer leaves these buttons open.
     deps.logger.error(`Keeping where Bot Message ${messageId}'s buttons were sent failed`, error);

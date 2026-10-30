@@ -15,8 +15,10 @@ export {
   type MessagingButtons,
   type MessagingCall,
   type MessagingFile,
+  MessagingSendError,
   type MessagingUpdate,
   type OutboundMessage,
+  type SendProgress,
   type SentMessage,
 } from "./messaging";
 export {

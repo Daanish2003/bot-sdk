@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CredentialsRejectedError,
   MessagingFileTooLargeError,
+  MessagingSendError,
   type MessagingUpdate,
 } from "@botsdk/bot/channel";
 
@@ -409,6 +410,43 @@ describe("send", () => {
         call,
       ),
     ).rejects.toThrow("52428800");
+  });
+
+  it("resumes after the parts an earlier send got out, each part reaching the chat once", async () => {
+    let id = 1;
+    let failed = false;
+    api.replies.set("sendMessage", () => ok({ message_id: id++ }));
+    api.replies.set("sendDocument", () => {
+      if (failed) return ok({ message_id: id++ });
+      failed = true;
+      return { status: 500, body: { ok: false, description: "Internal Server Error" } };
+    });
+    const content = new TextEncoder().encode("hello");
+    const message = {
+      chatId: "7",
+      text: "Here they are.",
+      files: [
+        { name: "a.txt", contentType: "text/plain", content },
+        { name: "b.txt", contentType: "text/plain", content },
+      ],
+      buttons: { control: "c1", options: [{ option: "yes", label: "Yes" }] },
+    };
+
+    const error = await adapter()
+      .send(account, message, call)
+      .catch((thrown: unknown) => thrown);
+    expect(error).toBeInstanceOf(MessagingSendError);
+    const { progress } = error as MessagingSendError;
+    expect(progress).toEqual({ parts: 1, sent: { messageIds: ["1"] } });
+
+    const sent = await adapter().send(account, { ...message, resume: progress }, call);
+    expect(api.of("sendMessage")).toHaveLength(1);
+    expect(api.of("sendDocument").map((request) => request.body.document)).toMatchObject([
+      { name: "a.txt" },
+      { name: "a.txt" },
+      { name: "b.txt" },
+    ]);
+    expect(sent).toEqual({ messageIds: ["1", "2", "3"], buttonsMessageId: "3" });
   });
 });
 

@@ -14,6 +14,24 @@ export class CredentialsRejectedError extends Error {
   }
 }
 
+/**
+ * What a messaging adapter's `send` throws when a part of a Message fails after others were sent
+ * (a long text split into numbered parts, or text and files): what it sent so far. The core keeps
+ * it, and the retry passes it back as the Message's `resume`, so the user gets each part once.
+ */
+export class MessagingSendError extends Error {
+  readonly progress: SendProgress;
+
+  constructor(progress: SendProgress, cause: unknown) {
+    super(
+      `Sending a Message failed after ${progress.parts} of its parts: ${cause instanceof Error ? cause.message : String(cause)}`,
+      { cause },
+    );
+    this.name = "MessagingSendError";
+    this.progress = progress;
+  }
+}
+
 /** What a messaging adapter's `download` throws past its `maxBytes`: the file is left out. */
 export class MessagingFileTooLargeError extends Error {
   constructor(maxBytes: number) {
@@ -86,6 +104,11 @@ export type OutboundMessage = {
   buttons?: MessagingButtons;
   /** Files sent with it, each within the adapter's `limits.upload`. */
   files?: { name: string; contentType: string; content: Uint8Array }[];
+  /**
+   * What an earlier `send` of this Message sent before it failed (`MessagingSendError`): the adapter
+   * sends only the parts after it, and reports them after its message ids.
+   */
+  resume?: SendProgress;
 };
 
 /** What the adapter sent for one Message: the platform's message ids, in order. */
@@ -95,6 +118,12 @@ export type SentMessage = {
   buttonsMessageId?: string;
 };
 
+/**
+ * How far a `send` got: how many of the Message's parts it sent (its text parts in order, then
+ * its files), and their message ids.
+ */
+export type SendProgress = { parts: number; sent: SentMessage };
+
 /** What every adapter call gets: the SDK's `fetch` and, when it can be stopped, a signal. */
 export type MessagingCall = { fetch: typeof fetch; signal?: AbortSignal };
 
@@ -103,7 +132,8 @@ export type MessagingCall = { fetch: typeof fetch; signal?: AbortSignal };
  * as the `channels` slot takes it. It receives updates for one Channel account, sends one Message,
  * edits a sent Message's buttons, downloads one inbound file and checks credentials. The core keeps
  * the accounts, decides who an update is from and what a Message holds. A call the platform refuses
- * for the credentials throws `CredentialsRejectedError`; any other throw is retried.
+ * for the credentials throws `CredentialsRejectedError`; any other throw is retried, and a `send`
+ * that fails after sending some parts throws `MessagingSendError` so the retry resumes after them.
  */
 export type MessagingAdapter<Field extends string = string> = {
   kind: "messaging";
