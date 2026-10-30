@@ -112,7 +112,8 @@ export function channel(options: ChannelOptions): ChannelPlugin {
     }
     platforms.add(adapter.id);
   }
-  let listeners: ReturnType<typeof channelListeners> | undefined;
+  // Each instance the plugin is composed into runs, and stops, its own listeners.
+  const listeners = new WeakMap<BotSdkContext, ReturnType<typeof channelListeners>>();
   return {
     id: "channel",
     router: { channels: channelRouter },
@@ -121,13 +122,12 @@ export function channel(options: ChannelOptions): ChannelPlugin {
       sdk.channels = createChannels(sdk, options);
     },
     start: async (sdk) => {
-      // Made here, not in `init`: the plugin can be composed into more than one instance, and the
-      // one that starts is the one that must stop.
-      listeners ??= channelListeners(sdk, messaging);
-      await listeners.start();
+      let own = listeners.get(sdk);
+      if (!own) listeners.set(sdk, (own = channelListeners(sdk, messaging)));
+      await own.start();
     },
-    stop: async () => {
-      await listeners?.stop();
+    stop: async (sdk) => {
+      await listeners.get(sdk)?.stop();
     },
     rotateKeys: (sdk) => rotateChannelAccountKeys(sdk),
     deleteUser: channelUserDelete,

@@ -357,6 +357,36 @@ describe("the Channel accounts' listeners", () => {
     },
   );
 
+  it(
+    "belong to each instance one channel plugin is composed into, and stop only with it",
+    timeout,
+    async () => {
+      const pubsub = createMemoryPubSub();
+      const first = messagingSdk(fakeMessagingAdapter(), { pubsub });
+      const second = messagingSdk(first.fake, { pubsub });
+      const { client, botId } = await aBot(first.deps);
+      await client.channels.accounts.save({
+        botId,
+        platform: "fake",
+        credentials: { token: "1:a" },
+      });
+      // One `channel()` object, started on two instances.
+      const part = channelPart(first.deps);
+      await part.start!(first.deps);
+      started.push({ part, deps: first.deps });
+      await part.start!(second.deps);
+      started.push({ part, deps: second.deps });
+      expect(first.fake.listening.has("@bot_1")).toBe(true);
+
+      // Stopping the first lets go of its account, and the second's own listeners take it.
+      await started.splice(0, 1)[0]!.part.stop!(first.deps);
+      await expect.poll(() => first.fake.listening.has("@bot_1"), poll).toBe(true);
+
+      await started.splice(0, 1)[0]!.part.stop!(second.deps);
+      expect(first.fake.listening.size).toBe(0);
+    },
+  );
+
   it("stop when the Bot is deleted, and keep running through a Bot reset", timeout, async () => {
     const { deps, fake } = messagingSdk();
     const { user, client, botId } = await aBot(deps);
