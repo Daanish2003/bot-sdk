@@ -548,6 +548,30 @@ describe("delivery errors and the poll loop", () => {
     warn.mockRestore();
   });
 
+  it("counts a poison update's failures even when an earlier update of the batch succeeds", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const polling = adapter();
+    const controller = new AbortController();
+    const good = { update_id: 19, message: { message_id: 0, from, chat: privateChat, text: "ok" } };
+    api.replies.set("getUpdates", (body) => {
+      if (body.offset !== undefined) controller.abort();
+      return ok(body.offset === undefined ? [good, update] : []);
+    });
+    const attempt = () =>
+      polling.listen!(account, {
+        ...call,
+        signal: controller.signal,
+        receive: async (received) => {
+          if (received.text === "x") throw new Error("poison");
+        },
+      });
+    await expect(attempt()).rejects.toThrow("poison");
+    await expect(attempt()).rejects.toThrow("poison");
+    await attempt();
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
   it("waits a 429's retry_after before polling again", async () => {
     const controller = new AbortController();
     let polls = 0;

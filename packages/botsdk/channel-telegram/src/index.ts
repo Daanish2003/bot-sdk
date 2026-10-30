@@ -117,6 +117,8 @@ export function telegram({
           throw error;
         }
         for (const update of updates) {
+          // A halted listener hands nothing more to the core.
+          if (signal.aborted) return;
           const normalised = normalise(update);
           if (update.callback_query) {
             // Stops the spinner on the button right away; the answer carries no text.
@@ -147,7 +149,8 @@ export function telegram({
               );
             }
           }
-          failures.delete(account.id);
+          // Only this update's own count: an earlier update of the batch says nothing about it.
+          if (failures.get(account.id)?.updateId === update.update_id) failures.delete(account.id);
           // Confirmed only now: the next `getUpdates` carries it, so a restart re-reads the rest.
           offset = update.update_id + 1;
         }
