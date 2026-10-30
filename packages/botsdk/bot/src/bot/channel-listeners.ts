@@ -53,7 +53,7 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-type Listener = { version: number; abort: AbortController; done: Promise<void> };
+type Listener = { version: string; abort: AbortController; done: Promise<void> };
 
 /** The advisory lock key of a Channel account. */
 const lockKey = (id: string) => `channel_account:${id}`;
@@ -84,33 +84,59 @@ export function channelListeners(
     return next;
   };
 
+  const onSessionError = (error: Error) => dropSession(error);
+
   /** The one session the instance's locks are held on, opened on first use. */
   async function lockSession(): Promise<pg.PoolClient> {
     if (session) return session;
     const client = await (sdk.db.$client as pg.Pool).connect();
-    client.on("error", (error) => {
-      sdk.logger.error("The Channel listeners' database session failed", error);
-      if (session !== client) return;
-      // The session's locks went with it: stop every listener, and the next sync takes them again.
-      session = null;
-      client.release(error);
-      for (const id of running.keys()) void serial(() => halt(id, false));
-    });
+    client.on("error", onSessionError);
     session = client;
     return client;
   }
 
-  async function tryLock(id: string): Promise<boolean> {
-    const client = await lockSession();
-    const { rows } = await client.query<{ locked: boolean }>(
-      "select pg_try_advisory_lock(hashtextextended($1, 0)) as locked",
-      [lockKey(id)],
-    );
-    return rows[0]?.locked === true;
+  /** Hands the session back to the pool, destroying the connection on `error`. */
+  function releaseSession(error?: Error) {
+    const client = session;
+    if (!client) return;
+    session = null;
+    client.off("error", onSessionError);
+    client.release(error);
   }
 
+  /**
+   * The session failed: its locks went with it (the connection is destroyed), so every listener
+   * stops, and the next sync takes the accounts again.
+   */
+  function dropSession(error: Error) {
+    if (!session) return;
+    sdk.logger.error("The Channel listeners' database session failed", error);
+    releaseSession(error);
+    for (const id of running.keys()) void serial(() => halt(id, false));
+  }
+
+  async function tryLock(id: string): Promise<boolean> {
+    const client = await lockSession();
+    try {
+      const { rows } = await client.query<{ locked: boolean }>(
+        "select pg_try_advisory_lock(hashtextextended($1, 0)) as locked",
+        [lockKey(id)],
+      );
+      return rows[0]?.locked === true;
+    } catch (error) {
+      dropSession(error as Error);
+      throw error;
+    }
+  }
+
+  /** Lets go of account `id`'s lock. Never throws: a failed session drops every lock. */
   async function unlock(id: string) {
-    await session?.query("select pg_advisory_unlock(hashtextextended($1, 0))", [lockKey(id)]);
+    if (!session) return;
+    try {
+      await session.query("select pg_advisory_unlock(hashtextextended($1, 0))", [lockKey(id)]);
+    } catch (error) {
+      dropSession(error as Error);
+    }
   }
 
   /** Stops account `id`'s listener, and lets go of its lock unless the session is gone. */
@@ -123,13 +149,13 @@ export function channelListeners(
     if (release) await unlock(id);
   }
 
-  /** Listens to `account` until `signal` aborts; a rejection marks it and ends, other errors retry. */
+  /** Listens to `account` until its listener aborts; a rejection marks it and ends, other errors retry. */
   async function run(
     adapter: MessagingAdapter,
     account: MessagingAccount & { platform: string },
-    version: number,
-    signal: AbortSignal,
+    listener: Listener,
   ) {
+    const { signal } = listener.abort;
     let failures = 0;
     while (!signal.aborted) {
       const began = Date.now();
@@ -145,12 +171,20 @@ export function channelListeners(
         if (signal.aborted) return;
         if (error instanceof CredentialsRejectedError) {
           // No retry until the user saves new credentials: the account needs attention.
+          let marked = true;
           try {
-            await markNeedsAttention(sdk, account.id, version, error.reason);
+            await markNeedsAttention(sdk, account.id, listener.version, error.reason);
           } catch (caught) {
+            marked = false;
             sdk.logger.error("Marking a Channel account as needing attention failed", caught);
           }
-          void serial(() => reconcile(account.id));
+          void serial(async () => {
+            if (running.get(account.id) !== listener) return;
+            running.delete(account.id);
+            await unlock(account.id);
+            // Unmarked, it waits for the next sync rather than looping on rejected credentials.
+            if (marked) await reconcile(account.id);
+          });
           return;
         }
         sdk.logger.error(`A ${adapter.id} Channel account's listener failed; retrying`, error);
@@ -166,6 +200,10 @@ export function channelListeners(
     if (!started) return;
     const found = await listenerAccount(sdk, id);
     const adapter = found && listening.find((candidate) => candidate.id === found.platform);
+    if (found?.status === "active" && adapter && !found.account) {
+      // No key of the keyring reads the credentials: only saving them again fixes it.
+      await markNeedsAttention(sdk, id, found.version, "The saved credentials can't be read");
+    }
     const account = found?.status === "active" && adapter ? found.account : null;
     const current = running.get(id);
     if (current && (!account || current.version !== found!.version)) await halt(id);
@@ -174,12 +212,7 @@ export function channelListeners(
     const abort = new AbortController();
     const listener: Listener = { version: found!.version, abort, done: Promise.resolve() };
     running.set(id, listener);
-    listener.done = run(
-      adapter,
-      { ...account, platform: adapter.id },
-      found!.version,
-      abort.signal,
-    );
+    listener.done = run(adapter, { ...account, platform: adapter.id }, listener);
   }
 
   /** Reconciles every running listener and every active account. */
@@ -213,12 +246,9 @@ export function channelListeners(
       await unsubscribe?.();
       await serial(async () => {
         const ids = [...running.keys()];
-        try {
-          for (const id of ids) await halt(id);
-        } finally {
-          session?.release();
-          session = null;
-        }
+        // `halt` doesn't throw: a failed unlock drops the session, and every lock with it.
+        for (const id of ids) await halt(id);
+        releaseSession();
         await accountsChanged(sdk, ids);
       });
     },
