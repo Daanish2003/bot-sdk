@@ -86,6 +86,41 @@ export async function lockConversationsInOrder(tx: Transaction, ids: string[]): 
   for (const id of [...new Set(ids)].sort()) await lockConversation(tx, id);
 }
 
+/** Thrown inside `lockConversationSet`'s savepoint to roll its locks back. */
+class LockSetMoved extends Error {}
+
+/** How many times `lockConversationSet` reads its set before it settles for the last one read. */
+const lockSetTries = 3;
+
+/**
+ * Takes the row locks of the Conversations `read` names, in id order (`lockConversationsInOrder`),
+ * and returns them. The set is read before its locks, so it is read again after them: when it
+ * changed meanwhile (a member added to a Room, a Room joined), the locks are rolled back to a
+ * savepoint and taken again from a new read, up to `lockSetTries` times. The last try locks what
+ * moved after the rest, out of order, rather than leave it out.
+ */
+export async function lockConversationSet(
+  tx: Transaction,
+  read: (db: Transaction) => Promise<string[]>,
+): Promise<string[]> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await tx.transaction(async (savepoint) => {
+        const ids = await read(savepoint);
+        await lockConversationsInOrder(savepoint, ids);
+        const now = await read(savepoint);
+        const moved = now.filter((id) => !ids.includes(id));
+        if (moved.length === 0) return now;
+        if (attempt < lockSetTries) throw new LockSetMoved();
+        await lockConversationsInOrder(savepoint, moved);
+        return now;
+      });
+    } catch (error) {
+      if (!(error instanceof LockSetMoved)) throw error;
+    }
+  }
+}
+
 /** The ids of Bots `botIds`' 1:1 Conversations. */
 export async function oneToOnesOf(tx: Transaction, botIds: string[]): Promise<string[]> {
   if (botIds.length === 0) return [];

@@ -13,7 +13,7 @@ import {
   roomOf,
 } from "../conversation";
 import {
-  lockConversationsInOrder,
+  lockConversationSet,
   oneToOnesOf,
   runningTurnOf,
   skipWaiting,
@@ -50,20 +50,23 @@ async function inRoom<T>(
 
 /**
  * Takes the row lock of Room `conversationId` and of its members' 1:1 Conversations, in id order
- * (`lockConversationsInOrder`): a member's Room Turn that a change here cancels writes its 1:1 too.
+ * (`lockConversationSet`): a member's Room Turn that a change here cancels writes its 1:1 too.
  */
 async function lockRoom(tx: Transaction, conversationId: string) {
-  const members = await tx
-    .select({ botId: botRoomMember.botId })
-    .from(botRoomMember)
-    .where(eq(botRoomMember.conversationId, conversationId));
-  await lockConversationsInOrder(tx, [
-    conversationId,
-    ...(await oneToOnesOf(
-      tx,
-      members.map((member) => member.botId),
-    )),
-  ]);
+  // Read again under the locks (`lockConversationSet`): a member added meanwhile is locked too.
+  await lockConversationSet(tx, async (db) => {
+    const members = await db
+      .select({ botId: botRoomMember.botId })
+      .from(botRoomMember)
+      .where(eq(botRoomMember.conversationId, conversationId));
+    return [
+      conversationId,
+      ...(await oneToOnesOf(
+        db,
+        members.map((member) => member.botId),
+      )),
+    ];
+  });
 }
 
 /**

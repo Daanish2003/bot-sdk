@@ -6,6 +6,7 @@ import { bot, botReview, botTrigger, botTurn, conversation, job, message } from 
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner } from "../../src/runner/internal";
+import { lockConversationSet } from "../../src/bot/triggers";
 import { exportUserData } from "../../src/user-data";
 import type { BotExport } from "../../src/bot/conversation";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
@@ -219,6 +220,42 @@ const lockIsFree = (conversationId: string) =>
   });
 
 describe("Conversation row locks", () => {
+  it(
+    "a lock set read before its locks is read again after them, and taken again in order when it moved",
+    async () => {
+      const { scout, writer, room } = await threeBotRoom();
+      const ids = [room.conversationId, await oneToOneOf(scout.id), await oneToOneOf(writer.id)];
+      // The set grows once, as a member added between the read and the locks makes it.
+      const reads: string[][] = [];
+      const read = async () => {
+        const now = reads.length === 0 ? ids.slice(0, 2) : ids;
+        reads.push(now);
+        return now;
+      };
+      let release = () => {};
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let locked: (taken: string[]) => void = () => {};
+      const taken = new Promise<string[]>((resolve) => {
+        locked = resolve;
+      });
+      const done = getTestDb().transaction(async (tx) => {
+        locked(await lockConversationSet(tx, read));
+        await released;
+      });
+
+      expect([...(await taken)].sort()).toEqual([...ids].sort());
+      // Read, read again (moved), then read and read again (the same).
+      expect(reads.map((set) => set.length)).toEqual([2, 3, 3, 3]);
+      expect(await Promise.all(ids.map(lockIsFree))).toEqual([false, false, false]);
+      release();
+      await done;
+      expect(await Promise.all(ids.map(lockIsFree))).toEqual([true, true, true]);
+    },
+    timeout,
+  );
+
   it(
     "a Room Turn's end takes its Bot's 1:1 lock before the Room's, as a pause does",
     async () => {

@@ -11,7 +11,7 @@ import { findBot, hintChanged, recordBotChange, roomIdsOf } from "../conversatio
 import { deleteBotHelpers, stopHelpers } from "../helpers";
 import { deleteBotCheckIns, deleteBotRoutines } from "../routines";
 import { declineBotApprovals, reopenUnstartedCalls } from "../safety";
-import { awaySummaryKey, lockConversation, runningTurnOf, skipWaiting } from "../triggers";
+import { awaySummaryKey, lockConversationSet, runningTurnOf, skipWaiting } from "../triggers";
 import { cancelTurn } from "./turn";
 
 /**
@@ -26,9 +26,9 @@ import { cancelTurn } from "./turn";
 export async function pauseBot(deps: BotSdkContext, userId: string, botId: string): Promise<void> {
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-  let rooms = await roomIdsOf(deps.db, botId);
+  let rooms: string[] = [];
   const paused = await deps.db.transaction(async (tx) => {
-    rooms = await lockConversations(tx, found.conversationId, rooms, botId);
+    rooms = await lockConversations(tx, found.conversationId, botId);
     const now = deps.clock();
     const [row] = await tx
       .update(bot)
@@ -50,20 +50,20 @@ export async function pauseBot(deps: BotSdkContext, userId: string, botId: strin
 
 /**
  * Takes the row lock of the Bot's Conversation and of each of its Rooms, in id order, so two controls
- * on one Bot never wait on each other in a circle. Call it first in a transaction. `guess` is the Rooms
- * read before it; it returns the Rooms the Bot is in now.
+ * on one Bot never wait on each other in a circle. Call it first in a transaction. A Room joined
+ * meanwhile is locked too (`lockConversationSet`), so no Turn or Trigger there is missed; it
+ * returns the Rooms the Bot is in now.
  */
 async function lockConversations(
   tx: Transaction,
   conversationId: string,
-  guess: string[],
   botId: string,
 ): Promise<string[]> {
-  for (const id of [conversationId, ...guess].sort()) await lockConversation(tx, id);
-  // A Room joined since the guess was read is locked too, so no Turn or Trigger there is missed.
-  const rooms = await roomIdsOf(tx, botId);
-  for (const id of rooms) if (!guess.includes(id)) await lockConversation(tx, id);
-  return rooms;
+  const locked = await lockConversationSet(tx, async (db) => [
+    conversationId,
+    ...(await roomIdsOf(db, botId)),
+  ]);
+  return locked.filter((id) => id !== conversationId);
 }
 
 /** Records the Bot's change in its Conversation and in each of its `rooms`, so their members refresh. */
@@ -87,9 +87,9 @@ async function recordChanges(
 export async function resumeBot(deps: BotSdkContext, userId: string, botId: string): Promise<void> {
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-  let rooms = await roomIdsOf(deps.db, botId);
+  let rooms: string[] = [];
   const resumed = await deps.db.transaction(async (tx) => {
-    rooms = await lockConversations(tx, found.conversationId, rooms, botId);
+    rooms = await lockConversations(tx, found.conversationId, botId);
     const [row] = await tx
       .update(bot)
       .set({ pausedAt: null })
@@ -181,9 +181,9 @@ export async function resetBot(
 ): Promise<void> {
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-  let rooms = await roomIdsOf(deps.db, botId);
+  let rooms: string[] = [];
   const screenshots = await deps.db.transaction(async (tx) => {
-    rooms = await lockConversations(tx, found.conversationId, rooms, botId);
+    rooms = await lockConversations(tx, found.conversationId, botId);
     const [current] = await tx
       .select({ name: bot.name })
       .from(bot)

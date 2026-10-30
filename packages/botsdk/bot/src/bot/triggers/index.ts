@@ -11,6 +11,7 @@ export {
   isOneToOne,
   isPaused,
   lockConversation,
+  lockConversationSet,
   lockConversationsInOrder,
   lockTurnConversations,
   oneToOnesOf,
