@@ -140,6 +140,9 @@ async function main() {
     const rounds = Array.from({ length: 400 }, () => (options: TextOptions) => {
       if (isReviewCall(options)) return verdictRound(passVerdict);
       const name = botNameOf(options);
+      const isTurn = (options.tools ?? []).some((tool) => tool.name === "send_to_user");
+      // A Turn whose prompt names no Bot would play nothing, and pass or fail for the wrong reason.
+      if (isTurn && !name) throw new Error('The Room prompt no longer says "You are <name>."');
       return (name && queues.get(name)?.shift()) || round();
     });
     adapters.set(key, createFakeAdapter({ rounds }).adapter);
@@ -148,7 +151,7 @@ async function main() {
 
   /**
    * Waits until the chain has ended: every Trigger in the Room has a Turn that ended or is skipped,
-   * and that held on two reads in a row (a Turn queues its handoffs before it ends).
+   * and that held on three reads in a row (a Turn queues its handoffs before it ends).
    */
   async function settled(conversationId: string, timeoutMs = 10 * 60_000) {
     const deadline = Date.now() + timeoutMs;
@@ -169,7 +172,7 @@ async function main() {
         triggers.some((t) => !t.turnId && !t.skippedAt) ||
         turns.some((t) => t.status === "running");
       quiet = open || triggers.length === 0 ? 0 : quiet + 1;
-      if (quiet >= 2) return;
+      if (quiet >= 3) return;
       await sleep(500);
     }
     throw new Error("The Room's chain did not end");

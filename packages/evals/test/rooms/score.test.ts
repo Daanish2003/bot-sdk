@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { roomsCases, type Scripts } from "../../src/rooms/cases";
-import { type MemberObserved, type Observed, scoreRooms } from "../../src/rooms/score";
+import { type Expect, type MemberObserved, type Observed, scoreRooms } from "../../src/rooms/score";
 
 /** What a Room run would leave if each Bot played its script as one Message per Turn. */
-function observe(members: string[], scripts: Scripts): Observed {
+function observe(members: string[], scripts: Scripts, woken: string[] = []): Observed {
   const observed: MemberObserved[] = members.map((name) => ({
     name,
-    turns: (scripts[name] ?? []).length,
+    turns: Math.max((scripts[name] ?? []).length, woken.includes(name) ? 1 : 0),
     allComplete: true,
     messages: (scripts[name] ?? []).map((step) => String(step.input.text)),
   }));
@@ -24,6 +24,8 @@ function observe(members: string[], scripts: Scripts): Observed {
   };
 }
 
+const wokenOf = (expectation: Expect) => (expectation.kind === "silent" ? expectation.woken : []);
+
 describe("the Rooms eval's cases", () => {
   it("has unique ids", () => {
     expect(new Set(roomsCases.map((c) => c.id)).size).toBe(roomsCases.length);
@@ -31,9 +33,15 @@ describe("the Rooms eval's cases", () => {
 
   it("passes every case with its good scripts and fails it with its broken ones", () => {
     for (const evalCase of roomsCases) {
-      const good = scoreRooms(evalCase.expect, observe(evalCase.members, evalCase.good));
+      const good = scoreRooms(
+        evalCase.expect,
+        observe(evalCase.members, evalCase.good, wokenOf(evalCase.expect)),
+      );
       expect(good.reasons, evalCase.id).toEqual([]);
-      const bad = scoreRooms(evalCase.expect, observe(evalCase.members, evalCase.broken));
+      const bad = scoreRooms(
+        evalCase.expect,
+        observe(evalCase.members, evalCase.broken, wokenOf(evalCase.expect)),
+      );
       expect(bad.passed, evalCase.id).toBe(false);
     }
   });

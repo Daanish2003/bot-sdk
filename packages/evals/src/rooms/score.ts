@@ -5,12 +5,9 @@
 
 import { hopLimit, mentionedMembers } from "@botsdk/client/bot/mentions";
 
-import { normalise } from "../channels/score";
+import { type Call, sentTexts } from "../channels/score";
 
-/** One tool call of a Turn, in order, with its args. */
-export type Call = { name: string; args: unknown };
-
-export const sendToUser = "send_to_user";
+export { type Call, sentTexts };
 
 /** What one member did in the Room over the whole run. */
 export type MemberObserved = {
@@ -42,25 +39,12 @@ export type Expect =
   | { kind: "handoff"; to: string; others: string[] }
   /** `bot` answers itself: it sends a Message, mentions no one, and no other member runs. */
   | { kind: "answer-alone"; bot: string }
-  /** Nothing to add: the woken members send no Message, and hand off to no one. */
-  | { kind: "silent" }
+  /** Nothing to add: the `woken` members each ran a Turn, sent no Message, and handed off to no one. */
+  | { kind: "silent"; woken: string[] }
   /** The chain ends: at most `maxHandoffs` handoffs, no hop past the limit, and the last Message mentions no one. */
   | { kind: "chain-ends"; maxHandoffs: number };
 
 export type Score = { passed: boolean; reasons: string[] };
-
-const asObject = (args: unknown): Record<string, unknown> =>
-  typeof args === "object" && args !== null ? (args as Record<string, unknown>) : {};
-
-/** The text of each SendToUser call of a Turn that carries any, normalised. */
-export function sentTexts(calls: readonly Call[]): string[] {
-  return calls
-    .filter((call) => call.name === sendToUser)
-    .flatMap((call) => {
-      const text = asObject(call.args).text;
-      return typeof text === "string" && text.trim() ? [normalise(text)] : [];
-    });
-}
 
 /** The members `text` @mentions, by name as the Room spells it. */
 export function mentionsIn(text: string, names: readonly string[]): string[] {
@@ -94,6 +78,8 @@ export function scoreRooms(expect: Expect, observed: Observed): Score {
         if (expect.others.includes(h.to)) reasons.push(`${h.from} handed work to ${h.to}`);
       }
       if ((member(expect.to)?.turns ?? 0) === 0) reasons.push(`${expect.to} never ran a Turn`);
+      else if (member(expect.to)?.messages.length === 0)
+        reasons.push(`${expect.to} sent no Message`);
       break;
     }
     case "answer-alone": {
@@ -107,6 +93,9 @@ export function scoreRooms(expect: Expect, observed: Observed): Score {
       break;
     }
     case "silent": {
+      for (const name of expect.woken) {
+        if ((member(name)?.turns ?? 0) === 0) reasons.push(`${name} never ran a Turn`);
+      }
       for (const m of observed.members) {
         for (const text of m.messages)
           reasons.push(`${m.name} sent a Message: ${text.slice(0, 80)}`);

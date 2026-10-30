@@ -113,7 +113,7 @@ export const roomsCases: RoomsCase[] = [
       "The user thanks two Bots and is done: neither answers, and neither hands anything on.",
     members: ["Ledger", "Forge", "Atlas"],
     message: `Team: ${roles} @Ledger @Forge thanks, both of you, that is everything for today.`,
-    expect: { kind: "silent" },
+    expect: { kind: "silent", woken: ["Ledger", "Forge"] },
     good: {},
     broken: {
       Ledger: [send("You're welcome! @Forge, anything to add?")],
