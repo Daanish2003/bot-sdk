@@ -2,6 +2,8 @@ import { and, eq } from "drizzle-orm";
 
 import {
   CredentialsRejectedError,
+  type FileBytes,
+  messagingBody,
   type MessagingAdapter,
   type DeliveryPayload,
 } from "../../channel/internal";
@@ -9,7 +11,8 @@ import type { BotSdkContext, Transaction } from "../../plugin";
 import { PermanentJobError } from "../../runner/internal";
 import { bot, channelAccount, linkedIdentity, message } from "../../storage";
 import { listenerAccount, markNeedsAttention } from "./channel-accounts";
-import { toBotMessage } from "./store";
+import { sentFileBlobKey } from "./files";
+import { controlOf, toBotMessage } from "./store";
 
 /**
  * Where a Message of a Bot goes on messaging `platform` (spec #1044): the chat of the Bot's user's
@@ -45,14 +48,16 @@ export async function messagingTarget(
 }
 
 /**
- * Sends one `channel.deliver` job's Message on its messaging Channel, as text through the adapter's
- * send (markup and splitting are the adapter's job). A Message or Bot deleted since, an unlinked
+ * Sends one `channel.deliver` job's Message on its messaging Channel through the adapter's send
+ * (markup and splitting are the adapter's job): its text, its Rich control as buttons, files or a
+ * link into the app at `appUrl` (`messagingBody`). A Message or Bot deleted since, an unlinked
  * user or a removed or inactive Channel account sends nothing. The platform rejecting the credentials
  * marks the Channel account as needing attention and ends the job, which no retry fixes.
  */
 export async function sendMessagingDelivery(
   deps: BotSdkContext,
   adapters: readonly MessagingAdapter[],
+  appUrl: string | null,
   { platform, messageId }: Extract<DeliveryPayload, { channel: "messaging" }>,
 ): Promise<void> {
   const adapter = adapters.find((candidate) => candidate.id === platform);
@@ -71,16 +76,35 @@ export async function sendMessagingDelivery(
   if (!row) return;
   const target = await messagingTarget(deps.db, { botId: row.botId }, platform);
   if (!target) return;
-  const text = toBotMessage(row).text;
-  if (!text.trim()) return;
+  const botMessage = toBotMessage(row);
+  const body = messagingBody(botMessage, {
+    appUrl: appUrl && `${appUrl}/bots/${row.botId}`,
+    files: await filesOf(deps, row.parts),
+    uploadLimit: adapter.limits.upload,
+  });
+  if (!body.text.trim() && !body.files?.length) return;
   const found = await listenerAccount(deps, target.accountId);
   if (!found?.account)
     throw new PermanentJobError("The Channel account's credentials can't be read");
   try {
-    await adapter.send(found.account, { chatId: target.chatId, text }, { fetch: deps.fetch });
+    await adapter.send(found.account, { chatId: target.chatId, ...body }, { fetch: deps.fetch });
   } catch (error) {
     if (!(error instanceof CredentialsRejectedError)) throw error;
     await markNeedsAttention(deps, target.accountId, found.version, error.reason);
     throw new PermanentJobError(error.message);
   }
+}
+
+/** The files a `files` control holds, with their bytes when the blob store still holds them. */
+async function filesOf(
+  deps: BotSdkContext,
+  parts: Parameters<typeof controlOf>[0],
+): Promise<FileBytes[]> {
+  const files = controlOf(parts, "files")?.files ?? [];
+  return Promise.all(
+    files.map(async (file) => ({
+      file,
+      bytes: await deps.blobStore.get(sentFileBlobKey(file.id)),
+    })),
+  );
 }

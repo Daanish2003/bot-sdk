@@ -15,6 +15,7 @@ import {
 import { bot, botTrigger, linkedIdentity } from "../../storage";
 import { linkFromCode, storeMailFiles } from "../conversation";
 import { handIn } from "./hand-in";
+import { answerFromMessaging } from "./messaging-controls";
 
 /** The system notice sent on a Channel once a sender is linked. It is not a Message. */
 const linkedNotice = "Linked to your account.";
@@ -88,14 +89,16 @@ async function wake(
   owner: { userId: string; conversationId: string; model: string },
   update: MessagingUpdate,
 ): Promise<string | null> {
-  // Rooms are out of scope (spec #1044), and a button press is answered by #1049.
+  // Rooms are out of scope (spec #1044).
   if (!update.chat.private) return "it is not from a private chat";
-  if (update.press) return "it is a button press";
-  // The Quota and the Ban as for email: read outside the transaction, and the update is dropped.
+  if (await sdk.isUserBlocked(owner.userId)) return "the user is Banned";
+  // A press, or text that answers a Rich control, goes the app's way and needs no Model.
+  const answered = await answerFromMessaging(sdk, adapter, account, owner, update);
+  if (answered !== undefined) return answered;
+  // The Quota as for email: read outside the transaction, and the update is dropped.
   const call = await sdk.models.resolveModelCall(owner.userId, owner.model);
   if (!call) return "the Bot's Model isn't available";
   if (!(await call.meter.mayRun()).ok) return "the user's Quota is spent";
-  if (await sdk.isUserBlocked(owner.userId)) return "the user is Banned";
 
   // Namespaced by platform and Channel account, so a resent update makes no second Trigger.
   const id = `${account.platform}:${account.id}:${update.sourceId}`;

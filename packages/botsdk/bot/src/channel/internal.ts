@@ -18,6 +18,7 @@ export {
   namedAddress,
   replySubject,
 } from "./email-out";
+export { approveOption, denyOption, messagingBody, otherOption } from "./messaging-out";
 export {
   CredentialsRejectedError,
   isMessagingAdapter,

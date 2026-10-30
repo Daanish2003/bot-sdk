@@ -64,8 +64,11 @@ export type MessagingUpdate = {
   /** The text or caption, as the sender wrote it; empty for a file alone or a press. */
   text: string;
   files: MessagingFile[];
-  /** A press of a button the Bot sent: the control's reference and the option pressed. */
-  press?: { control: string; option: string };
+  /**
+   * A press of a button the Bot sent: the control's reference, the option pressed and the platform's
+   * id of the message that carries the button, which `editButtons` takes.
+   */
+  press?: { control: string; option: string; messageId: string };
 };
 
 /** A row of buttons under a Message: a control's options, each pressed to answer it. */
