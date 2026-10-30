@@ -268,7 +268,17 @@ describe("a Room", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() => expect(screen.getByText("Thanks.")).toBeTruthy());
-    expect(bodies).toEqual([{ json: { conversationId: "r1", text: "Thanks." } }]);
+    // With its own id, so a resend saves nothing new, and the browser's time zone.
+    expect(bodies).toEqual([
+      {
+        json: {
+          conversationId: "r1",
+          id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+          text: "Thanks.",
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        },
+      },
+    ]);
   });
 
   it("fetches the change log every so often while the user's Message waits for a reply", async () => {

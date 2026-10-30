@@ -162,7 +162,14 @@ export const roomMemberInput = z.object({ conversationId: z.uuid(), botId: z.uui
 /** `rooms.send`'s input, besides `userId`. */
 export const roomSendInput = z.object({
   conversationId: z.uuid(),
+  // The caller's uuidv7 for the Message, as `bots.send` takes it: a resend saves nothing new.
+  id: z
+    .uuidv7()
+    .transform((id) => id.toLowerCase())
+    .optional(),
   text: z.string().trim().min(1),
+  // The client's IANA zone; without one, the zone the user last sent from anywhere.
+  timeZone: z.string().refine(isTimeZone, "Not an IANA time zone").optional(),
 });
 
 /** `bots.send`'s input, besides `userId`. */

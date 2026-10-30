@@ -1,4 +1,4 @@
-import { maxFilesPerMessage } from "@botsdk/client/bot/files";
+import { maxFilesPerMessage, type SentFile } from "@botsdk/client/bot/files";
 import { mentionedMembers } from "@botsdk/client/bot/mentions";
 import type { BotMessage, TurnStatus } from "@botsdk/client/bot/turn";
 import type { ModelMessage } from "@tanstack/ai";
@@ -203,13 +203,64 @@ export async function sendToBot(
  * #1055): one Trigger for each member it @mentions, or one for the lead when it mentions none. Each
  * interrupts the running Turn of its own Bot in the Room only, as a send to the Bot does, so the
  * other Bots keep working. A paused Bot keeps its Trigger as skipped, and the lead is not woken in
- * its place. With no lead (its Bot was deleted), the earliest member leads. The Message keeps the
- * user's newest time zone. Returns the saved user Message.
+ * its place. With no lead (its Bot was deleted), the earliest member leads. The Message keeps
+ * `timeZone`, or else the user's newest one. `id` is the caller's id for the Message, as `bots.send`
+ * takes it: a repeat of an earlier send saves nothing and returns the Message saved first. Returns
+ * the saved user Message.
  */
 export async function sendToRoom(
   deps: BotSdkContext,
-  { userId, conversationId, text }: { userId: string; conversationId: string; text: string },
+  {
+    userId,
+    conversationId,
+    id,
+    text,
+    timeZone,
+  }: { userId: string; conversationId: string; id?: string; text: string; timeZone?: string },
 ): Promise<BotMessage> {
+  const posted = await postToRoom(deps, {
+    userId,
+    conversationId,
+    ...(id && { id, triggerId: id }),
+    text,
+    channel: "web",
+    timeZone,
+  });
+  // A web send always has a Message: its id is the Trigger's.
+  return posted.message!;
+}
+
+/**
+ * Saves a user Message in their Room and routes it as `sendToRoom` says, on `channel`: the web
+ * composer's, or an email reply to a Room Message (`subject`, and the `files` already stored). Each
+ * Trigger has id `triggerId` (the Message's id when not given), so a repeat of it saves nothing:
+ * `seen`, with the Message saved first, or with none when only the Trigger is known. Checks run
+ * before anything is written, and a refusal throws an RPC error.
+ */
+export async function postToRoom(
+  deps: BotSdkContext,
+  {
+    userId,
+    conversationId,
+    id,
+    triggerId,
+    text,
+    channel,
+    subject,
+    files = [],
+    timeZone,
+  }: {
+    userId: string;
+    conversationId: string;
+    id?: string;
+    triggerId?: string;
+    text: string;
+    channel: string;
+    subject?: string;
+    files?: SentFile[];
+    timeZone?: string;
+  },
+): Promise<{ outcome: "handed" | "seen"; message?: BotMessage }> {
   const room = await findRoom(deps.db, userId, conversationId);
   if (room.members.length < 2) throw oneBotRoom();
   const mentioned = mentionedMembers(text, room.members);
@@ -235,38 +286,63 @@ export async function sendToRoom(
     }),
   );
   if (targets.length === 0) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-  const timeZone = await userTimeZone(deps.db, userId);
-  const saved = await deps.db.transaction(async (tx) => {
+  const zone = timeZone ?? (await userTimeZone(deps.db, userId));
+  const posted = await deps.db.transaction(async (tx) => {
     await lockConversation(tx, conversationId);
+    // A repeat of an earlier send (#498) is checked before the Quota, as `sendToBot` checks it.
+    if (id) {
+      const earlier = await seenMessage(tx, conversationId, id);
+      if (earlier) return { outcome: "seen" as const, message: earlier };
+    } else if (triggerId) {
+      const [seen] = await tx
+        .select({ id: botTrigger.id })
+        .from(botTrigger)
+        .where(eq(botTrigger.id, triggerId))
+        .limit(1);
+      if (seen) return { outcome: "seen" as const };
+    }
     for (const { call } of targets) {
       if (call && !(await call.meter.mayRun()).ok) {
         throw rpcError("PAYMENT_REQUIRED", "error.quotaSpent", "You've used this window's Quota");
       }
     }
     const now = deps.clock();
+    const parts = textParts(text, zone);
     const row = await appendMessage(tx, conversationId, {
+      ...(id && { id }),
       role: "user",
-      parts: textParts(text, timeZone),
+      parts: {
+        ...parts,
+        parts: [
+          ...parts.parts,
+          ...(files.length
+            ? [{ type: "control" as const, control: { kind: "files" as const, files } }]
+            : []),
+        ],
+        ...(channel !== "web" && { channel }),
+        ...(subject !== undefined && { subject }),
+      },
       status: "complete",
       createdAt: now,
     });
     for (const { botId } of targets) {
       const { waitsFor } = await receive(deps, tx, {
-        id: row.id,
+        id: triggerId ?? row.id,
         botId,
         conversationId,
         source: "user",
-        channel: "web",
+        channel,
         messageId: row.id,
         receivedAt: now,
       });
       if (waitsFor) await cancelTurn(deps, tx, waitsFor, "message");
     }
-    return toBotMessage(row);
+    return { outcome: "handed" as const, message: toBotMessage(row) };
   });
+  if (posted.outcome === "seen") return posted;
   deps.runner.wake();
   await hintChanged(deps, conversationId);
-  return saved;
+  return posted;
 }
 
 /**

@@ -77,7 +77,7 @@ const sendAttempts = 3;
 const retryDelayMs = (n: number) => 250 * n;
 
 /** The browser's IANA time zone, sent with each Message so the Bot knows the user's "now". */
-function browserTimeZone(): string | undefined {
+export function browserTimeZone(): string | undefined {
   // An empty zone is left out: the server refuses one, and a Message without one reads as UTC.
   return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
 }

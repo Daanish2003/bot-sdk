@@ -1,9 +1,11 @@
 import type { BotChange } from "@botsdk/client/bot/changes";
 import type { ChoiceInput } from "@botsdk/client/bot/choice";
+import { uuidv7 } from "@botsdk/client/uuidv7";
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
 import { type BotSdkOrpc, useChatAdapter } from "../provider";
+import { browserTimeZone } from "./bot-turn";
 import { inOrder, safetyFetchMs } from "./bot-sync";
 import { useItemActions } from "./turn-list";
 
@@ -185,7 +187,8 @@ export function useRoom(conversationId: string) {
     room: thread.data?.room,
     messages: thread.data?.messages ?? [],
     error: thread.error,
-    send: (text: string) => sending.mutateAsync({ conversationId, text }),
+    send: (text: string) =>
+      sending.mutateAsync({ conversationId, id: uuidv7(), text, timeZone: browserTimeZone() }),
     sending: sending.isPending,
     /** A member works or has a Message queued: the composer's Stop ends them all. */
     working: (thread.data?.room.members ?? []).some(
