@@ -59,7 +59,7 @@ async function lockConversations(
   guess: string[],
   botId: string,
 ): Promise<string[]> {
-  for (const id of [conversationId, ...guess].toSorted()) await lockConversation(tx, id);
+  for (const id of [conversationId, ...guess].sort()) await lockConversation(tx, id);
   // A Room joined since the guess was read is locked too, so no Turn or Trigger there is missed.
   const rooms = await roomIdsOf(tx, botId);
   for (const id of rooms) if (!guess.includes(id)) await lockConversation(tx, id);
