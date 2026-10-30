@@ -151,7 +151,7 @@ A single moment a Bot sets for itself to wake and check on something, with a not
 _Avoid_: Reminder, Routine (that is a prompt the user approved)
 
 **Helper**:
-An agent a Bot hands one complete task to, which works in its own fresh context, keeps going after the Turn that started it, and reports back briefly. It belongs to its Bot and is never a Bot itself. A General Helper works with the shell, files and web search; a Computer-use Helper works a Screen's browser and desktop, needs a model that can use a computer, and a Bot has at most one of those at a time. The user's Stop ends the Turn, not its Helpers; its report wakes the Bot as a Trigger like any other.
+An agent a Bot hands one complete task to, which works in its own fresh context, keeps going after the Turn that started it, and reports back briefly. It belongs to its Bot and is never a Bot itself. A General Helper works with the shell, files and web search; a Computer-use Helper works a Screen's browser and desktop, needs a model that can use a computer, and a Bot has at most one of those at a time. A Coding-agent Helper is a coding-agent program the user has set up on the Computer, such as Claude Code, Codex or Gemini CLI: it runs its own model and tools, every action that does more than look passes Auto-review, and it runs on the user's plan sign-in only in a Turn the user's own Message woke, otherwise on their Provider credentials or not at all. The user's Stop ends the Turn, not its Helpers; its report wakes the Bot as a Trigger like any other.
 _Avoid_: Sub-agent, worker, child agent
 
 **Tasks view**:
@@ -179,7 +179,7 @@ The one cloud machine a user's Bots share, with its files, installed tools and b
 _Avoid_: Sandbox, VM, machine, desktop
 
 **Screen**:
-One display on the Computer, with its own Chrome and Chrome profile, for one active Bot. It is open only while that Bot's Computer-use Helper or a Demonstration uses it, never both, at most four at once per Computer; its Chrome sign-ins stay on the Computer and are lost if it is rebuilt.
+One display on the Computer, with its own Chrome and Chrome profile, for one active Bot. It is open only while that Bot's Computer-use Helper, a Demonstration or a coding agent's sign-in uses it, one at a time, at most four at once per Computer; its Chrome sign-ins stay on the Computer and are lost if it is rebuilt.
 _Avoid_: Display, desktop, browser
 
 **Auto-review**:
