@@ -372,6 +372,38 @@ describe("a Bot's Room Message", () => {
   );
 });
 
+describe("a Bot's Room reply to a handoff", () => {
+  it(
+    "goes where the user last wrote in the Room: on the web, it stays in the app",
+    async () => {
+      const setup = await roomed([says("@Writer, over to you."), says("Done.")]);
+      const { client, writer, launch, timer, runDue, push, email } = setup;
+      await client.notifications.push.subscribe({
+        endpoint: "https://push.example/send/laptop",
+        keys: { p256dh: "Blaptop".padEnd(87, "A"), auth: "alaptop".padEnd(22, "A") },
+      });
+      await client.notifications.update({ quietHours: null, urgent: null, other: "push" });
+
+      await client.rooms.send({ conversationId: launch.conversationId, text: "Start the launch" });
+      for (let round = 0; round < 6; round++) {
+        timer.advance(1_000);
+        await runDue();
+      }
+
+      const [handedOn] = await turnsOf(writer.id, launch.conversationId);
+      expect(handedOn?.status).toBe("complete");
+      const [taken] = await getTestDb()
+        .select()
+        .from(botTrigger)
+        .where(eq(botTrigger.turnId, handedOn!.id));
+      expect(taken?.source).toBe("agent");
+      expect(push.sent).toEqual([]);
+      expect(email.sent).toEqual([]);
+    },
+    timeout,
+  );
+});
+
 describe("a Prompt start with a Summary", () => {
   it(
     "belongs to the Conversation its Summary was written in, so a Room's text never reaches another Turn",

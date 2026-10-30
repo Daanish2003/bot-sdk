@@ -89,6 +89,8 @@ type Routed = {
  * by email, and only on web when it took another user Trigger. With no user Trigger in the Turn (a Routine, a Check-in, a Helper, a webhook),
  * with a latest one from a messaging Channel that can't carry the Message now, or with no
  * Turn at all (a Helper's own Message), it follows the user's notification settings (spec #1024).
+ * A Room Turn with no user Trigger (a handoff, spec #1055) first goes where the user last wrote in
+ * the Room: only on web after a web Message, by email answering an emailed one.
  * Returns the email Trigger the Message answers, when it answers one.
  */
 async function routeOf(
@@ -111,6 +113,19 @@ async function routeOf(
     const emailed = taken.find((trigger) => trigger.channel === "email");
     if (emailed) return { channel: "email", answers: emailed.messageId ?? undefined };
     if (latest === "web") return null;
+    // A Room Turn the user didn't start (a handoff) answers where they last wrote in the Room.
+    if (!latest && room) {
+      const [last] = await tx
+        .select({ channel: botTrigger.channel, messageId: botTrigger.messageId })
+        .from(botTrigger)
+        .where(and(eq(botTrigger.conversationId, conversationId), eq(botTrigger.source, "user")))
+        .orderBy(desc(botTrigger.receivedAt), desc(botTrigger.id))
+        .limit(1);
+      if (last?.channel === "web") return null;
+      if (last?.channel === "email") {
+        return { channel: "email", answers: last.messageId ?? undefined };
+      }
+    }
   }
   const route = await notificationRouteOf(deps, tx, {
     userId,
