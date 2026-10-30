@@ -9,6 +9,7 @@ import { inProcessRunner, type JobRunner } from "../../src/runner/internal";
 import { lockConversationSet } from "../../src/bot/triggers";
 import { postToRoom } from "../../src/bot/turn/turn";
 import { exportUserData } from "../../src/user-data";
+import { conversationChannel } from "../../src/chat/conversation-events";
 import type { BotExport } from "../../src/bot/conversation";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { chatRpc } from "@ai-chat/test-support/sdk";
@@ -505,14 +506,28 @@ describe("a Bot's page, its 1:1 Conversation", () => {
     "reads the 1:1's Turn status, so a Room Turn shows no Stop there, and its log carries no Room Turn's status",
     async () => {
       const gate = held(createFakeAdapter({ rounds: [says("Done.")] }));
-      const { client, scout, room } = await threeBotRoom([], gate.adapter);
+      const { deps, client, scout, room } = await threeBotRoom([], gate.adapter);
       const conversationId = room.conversationId;
+      const hints: string[] = [];
+      await deps.pubsub.subscribe(conversationChannel(await oneToOneOf(scout.id)), (hint) => {
+        hints.push(hint);
+      });
       await client.rooms.send({ conversationId, text: "Go" });
       await expect.poll(() => gate.entered.length, poll).toBe(1);
+      // The Bot's thread is told of the Room Turn's start, and of its end below.
+      await expect.poll(() => hints.length, poll).toBe(1);
 
       expect((await client.bots.get({ botId: scout.id })).bot.turnStatus).toBeNull();
+      // Its start hints the Bot's thread already, so its Tasks view shows the running Room Turn.
+      const started = await client.conversations.changes({
+        conversationId: await oneToOneOf(scout.id),
+        since: 0,
+      });
+      if (started.reload) throw new Error("expected changes");
+      expect(started.changes.filter((change) => change.kind === "turn")).toHaveLength(1);
       gate.open();
       await expect.poll(() => statusesOf(scout.id, conversationId), poll).toEqual(["complete"]);
+      await expect.poll(() => hints.length, poll).toBe(2);
 
       // The Room Turn's end still hints the Bot's thread (its Tasks view), with no status to show.
       const logged = await client.conversations.changes({

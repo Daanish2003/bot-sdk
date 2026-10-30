@@ -304,6 +304,8 @@ export async function runningTurnOf(
 /**
  * Creates a Turn that takes every Trigger waiting in the Bot's Conversation queue, and queues its
  * job. In the Bot's 1:1 it cancels the Bot's away Summary, so the user's Turn is never delayed by one.
+ * A Room Turn's start is a hint to the Bot's 1:1 thread too, as its end is (`endTurn`): its Tasks
+ * view lists the running Room Turn. The caller holds that 1:1's lock (`lockTurnConversations`).
  */
 export async function startTurn(
   deps: BotSdkContext,
@@ -314,7 +316,8 @@ export async function startTurn(
   const waiting = waitingIn(owner);
   const [first] = await tx.select({ id: botTrigger.id }).from(botTrigger).where(waiting).limit(1);
   if (!first) return undefined;
-  if (await isOneToOne(tx, owner)) await cancelAwaySummary(deps, tx, botId);
+  const oneToOne = await isOneToOne(tx, owner);
+  if (oneToOne) await cancelAwaySummary(deps, tx, botId);
   // Until its job starts and sets it (`turnStarted`), the Turn starts after every Message its
   // Triggers carry, even one stamped by a process whose clock runs ahead.
   const [newest] = await tx
@@ -335,6 +338,7 @@ export async function startTurn(
   });
   await tx.update(botTrigger).set({ turnId }).where(waiting);
   await recordBotChange(tx, { conversationId }, "turn", turnId, deps.clock());
+  if (!oneToOne) await recordBotChange(tx, { botId }, "turn", turnId, deps.clock());
   return turnId;
 }
 

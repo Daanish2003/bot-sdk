@@ -279,7 +279,7 @@ export async function postToRoom(
     botIds.map(async (botId) => {
       const found = await findBot(deps.db, userId, botId);
       if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-      if (paused.has(botId)) return { botId, call: undefined };
+      if (paused.has(botId)) return { botId, call: undefined, oneToOne: found.conversationId };
       const call = await deps.models.resolveModelCall(userId, found.model);
       if (!call) {
         throw rpcError(
@@ -289,7 +289,7 @@ export async function postToRoom(
           { model: found.model },
         );
       }
-      return { botId, call };
+      return { botId, call, oneToOne: found.conversationId };
     }),
   );
   if (targets.length === 0) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
@@ -358,6 +358,8 @@ export async function postToRoom(
   if (posted.outcome !== "handed") return posted;
   deps.runner.wake();
   await hintChanged(deps, conversationId);
+  // A Room Turn it started is a change of its Bot's thread too (`startTurn`).
+  for (const target of targets) await hintChanged(deps, target.oneToOne);
   return posted;
 }
 
@@ -544,6 +546,19 @@ async function turnFacts(
 }
 
 /**
+ * Tells the Turn's Conversation it ended and, for a Room Turn, its Bot's thread too, whose log has
+ * its `turn` change (`endTurn`).
+ */
+async function hintTurnEnded(deps: BotSdkContext, turn: { botId: string; conversationId: string }) {
+  await hintChanged(deps, turn.conversationId);
+  const [own] = await deps.db
+    .select({ id: bot.conversationId })
+    .from(bot)
+    .where(eq(bot.id, turn.botId));
+  if (own && own.id !== turn.conversationId) await hintChanged(deps, own.id);
+}
+
+/**
  * One attempt of a Turn's job. It replays the Turn's recorded model calls and tool calls, makes the
  * rest for real, then ends the Turn in its last Checkpoint. An attempt that lost its job (a crash,
  * a cancel or a deploy) writes nothing more: the next attempt resumes it.
@@ -602,7 +617,7 @@ async function runTurnJob(
     throw caught;
   }
   deps.runner.wake();
-  await hintChanged(deps, turn.conversationId);
+  await hintTurnEnded(deps, turn);
 }
 
 /**
@@ -692,7 +707,7 @@ async function endRunningTurn(
     return true;
   });
   if (ended) deps.runner.wake();
-  await hintChanged(deps, turn.conversationId);
+  await hintTurnEnded(deps, turn);
 }
 
 /**
