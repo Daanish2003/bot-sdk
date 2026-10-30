@@ -17,6 +17,7 @@
     "eval:channels": "node --import ./src/memory/register-ts.mjs src/channels/run.ts",
     "eval:connectors": "node --import ./src/memory/register-ts.mjs src/connectors/run.ts",
     "eval:files": "node --import ./src/memory/register-ts.mjs src/files/run.ts",
+    "eval:proactive": "node --import ./src/memory/register-ts.mjs src/proactive/run.ts",
     "eval:images": "node --import ./src/memory/register-ts.mjs src/images/run.ts",
     "eval:skills:draft": "node --import ./src/memory/register-ts.mjs src/skills/draft-run.ts",
     "eval:skills:record": "node --import ./src/memory/register-ts.mjs src/skills/record-fixtures.ts"

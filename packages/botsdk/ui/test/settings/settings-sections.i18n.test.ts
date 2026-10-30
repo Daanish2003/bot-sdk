@@ -3,6 +3,7 @@ import { createElement, type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import { ConnectionsSection } from "../../src/mcp/connections-section";
+import { NotificationsSection } from "../../src/settings/notifications-section";
 import { RulesPage } from "../../src/settings/rules-page";
 import { ExportDataButton } from "../../src/settings/export-data-button";
 import {
@@ -48,6 +49,17 @@ describe("the Bot-only settings sections with the dictionary", () => {
       ]);
     });
     expect(html).toContain("Reply to emails from anyone @acme.com");
+  });
+
+  it("shows no untranslated text in Notifications, with quiet hours on", () => {
+    const html = expectTranslated(createElement(NotificationsSection), (queryClient, client) => {
+      queryClient.setQueryData(client.orpc.notifications.get.queryKey(), {
+        quietHours: { start: "22:00", end: "07:00" },
+        urgent: "email",
+        other: null,
+      });
+    });
+    expect(html).toContain("22:00");
   });
 
   it("shows no untranslated text in Export data", () => {

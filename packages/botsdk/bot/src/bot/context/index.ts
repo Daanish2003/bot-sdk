@@ -6,6 +6,7 @@ export {
   type CatalogueTurn,
   type ContextTurn,
   newestRenderer,
+  proactiveRoutinesPrompt,
   recordedReads,
   type TodoItem,
   type TurnTools,

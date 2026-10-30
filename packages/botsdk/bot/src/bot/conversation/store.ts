@@ -15,6 +15,8 @@ import {
   bot,
   botSecret,
   customRule,
+  notificationSettings,
+  pushSubscription,
   botTrigger,
   botTurn,
   conversation,
@@ -45,8 +47,13 @@ export type { BotMessage };
  * A Bot Conversation Message's stored parts: one base `text` part, and the IANA `timeZone` the
  * user sent it from, when they sent one.
  */
-export function textParts(text: string, timeZone?: string): BotMessageParts {
-  return { schemaVersion: 1, parts: [{ type: "text", text }], ...(timeZone && { timeZone }) };
+export function textParts(text: string, timeZone?: string, urgent?: boolean): BotMessageParts {
+  return {
+    ...(urgent && { urgent }),
+    schemaVersion: 1,
+    parts: [{ type: "text", text }],
+    ...(timeZone && { timeZone }),
+  };
 }
 
 /**
@@ -57,11 +64,15 @@ export function controlParts(
   text: string,
   control: RichControl,
   previous?: MessageRow["parts"],
+  urgent?: boolean,
 ): BotMessageParts {
-  // A Message's emojis live beside its parts, so a control changing its state keeps them.
+  // A Message's emojis and urgent mark live beside its parts, so a control changing its state
+  // keeps them.
   const reactions = previous && storedReactionsOf(previous);
+  const marked = urgent || (previous && urgentOf(previous));
   return {
     ...(reactions && { reactions }),
+    ...(marked && { urgent: true as const }),
     schemaVersion: 1,
     parts: [
       { type: "text", text },
@@ -83,6 +94,10 @@ const storedReactionsOf = (parts: MessageRow["parts"]) =>
 /** The Channel besides web a Bot Message came in or also went out on, if any (spec #761). */
 export const channelOf = (parts: MessageRow["parts"]) =>
   botFields.channel.safeParse(parts.channel).data;
+
+/** Whether the Bot marked a Message urgent (spec #1024). */
+export const urgentOf = (parts: MessageRow["parts"]) =>
+  botFields.urgent.safeParse(parts.urgent).data === true;
 
 /** The subject of an emailed user's Message, which the Bot's emailed reply answers (spec #761). */
 export const subjectOf = (parts: MessageRow["parts"]) =>
@@ -168,7 +183,12 @@ export async function appendBotMessage(
     createdAt,
   });
   // A no-op with no email adapter in the channels slot.
-  await deps.channels.deliverIn(tx, { conversationId, messageId: row.id, turnId });
+  await deps.channels.deliverIn(tx, {
+    conversationId,
+    messageId: row.id,
+    turnId,
+    urgent: urgentOf(parts),
+  });
 }
 
 /** A Message row as the client sees it, with its Rich control when it has one. */
@@ -178,6 +198,7 @@ export function toBotMessage(
   const control = controlOf(row.parts);
   const reactions = reactionsOf(row.parts);
   const channel = channelOf(row.parts);
+  const urgent = urgentOf(row.parts);
   return {
     id: row.id,
     role: row.role,
@@ -186,6 +207,7 @@ export function toBotMessage(
     ...(control && { control }),
     ...(reactions && { reactions }),
     ...(channel && { channel }),
+    ...(urgent && { urgent }),
   };
 }
 
@@ -438,9 +460,12 @@ export async function newestTimeZone(
  */
 export const botUserDelete: UserDeleteHooks<() => Promise<void>> = {
   before: async (sdk, { userId, tx }) => {
-    // The user's Secrets and Custom Rules are theirs, not a Bot's, so no cascade reaches them.
+    // The user's Secrets, Custom Rules, notification settings and push subscriptions are theirs,
+    // not a Bot's, so no cascade reaches them.
     await tx.delete(botSecret).where(eq(botSecret.userId, userId));
     await tx.delete(customRule).where(eq(customRule.userId, userId));
+    await tx.delete(notificationSettings).where(eq(notificationSettings.userId, userId));
+    await tx.delete(pushSubscription).where(eq(pushSubscription.userId, userId));
     const { afterCommit } = await deleteConversations(sdk, tx, {
       where: eq(conversation.kind, botKind),
       userId,

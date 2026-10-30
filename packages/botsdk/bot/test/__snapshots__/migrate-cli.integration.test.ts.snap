@@ -423,6 +423,53 @@ ALTER TABLE "botsdk"."bot_trigger" ADD CONSTRAINT "bot_trigger_skipped_check" CH
 insert into botsdk.__migrations (feature, migration) values ('core', '20261029163647_tasks_view');
 commit;
 
+-- core/20261029212409_routine_times
+begin;
+-- A Routine's schedule holds a list of times (#1025): each one-time schedule becomes a one-item list.
+UPDATE "botsdk"."bot_routine" SET "schedule" = jsonb_build_object('days', "schedule"->'days', 'times', jsonb_build_array("schedule"->'at')) WHERE "schedule" ? 'at';
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261029212409_routine_times');
+commit;
+
+-- core/20261029220925_notification_settings
+begin;
+CREATE TYPE "botsdk"."notification_route" AS ENUM('in_app', 'email');--> statement-breakpoint
+CREATE TABLE "botsdk"."notification_settings" (
+	"user_id" text PRIMARY KEY,
+	"quiet_start" text,
+	"quiet_end" text,
+	"urgent_route" "botsdk"."notification_route",
+	"other_route" "botsdk"."notification_route",
+	"updated_at" timestamp NOT NULL,
+	CONSTRAINT "notification_settings_quiet_hours_check" CHECK (("quiet_start" is null) = ("quiet_end" is null) and ("quiet_start" is null or "quiet_start" <> "quiet_end"))
+);
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261029220925_notification_settings');
+commit;
+
+-- core/20261029222631_read_only_routines
+begin;
+ALTER TABLE "botsdk"."bot_routine" ADD COLUMN "read_only" boolean DEFAULT false NOT NULL;
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261029222631_read_only_routines');
+commit;
+
+-- core/20261029232026_push_subscription
+begin;
+ALTER TYPE "botsdk"."notification_route" ADD VALUE 'push';--> statement-breakpoint
+CREATE TABLE "botsdk"."push_subscription" (
+	"endpoint" text PRIMARY KEY,
+	"user_id" text NOT NULL,
+	"p256dh" text NOT NULL,
+	"auth" text NOT NULL,
+	"created_at" timestamp NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX "push_subscription_user_id_idx" ON "botsdk"."push_subscription" ("user_id");
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261029232026_push_subscription');
+commit;
+
 -- notes/0001_note
 begin;
 create table botsdk.test_note (id text primary key, bot_id uuid references botsdk.bot(id) on delete cascade)

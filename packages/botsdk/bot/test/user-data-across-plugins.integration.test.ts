@@ -15,6 +15,8 @@ import {
   botDemonstration,
   botSecret,
   customRule,
+  notificationSettings,
+  pushSubscription,
   job,
   usage,
   modelSettings,
@@ -88,7 +90,7 @@ async function activeJobsNaming(ids: string[]) {
 }
 
 /**
- * A user with a row in every table above: a Bot with a Message, an ended Demonstration, a Secret, a Custom Rule, a file uploaded and not yet sent to the Bot, a
+ * A user with a row in every table above: a Bot with a Message, an ended Demonstration, a Secret, a Custom Rule, notification settings, a push subscription, a file uploaded and not yet sent to the Bot, a
  * Computer, the Memory switch, a Connection, credentials and usage. Returns the blob keys and ids
  * it made.
  */
@@ -145,6 +147,25 @@ async function seedEverything(
     createdAt: new Date(),
     updatedAt: new Date(),
   });
+
+  await getTestDb().insert(notificationSettings).values({
+    userId: user.id,
+    quietStart: "22:00",
+    quietEnd: "07:00",
+    urgentRoute: "email",
+    otherRoute: "in_app",
+    updatedAt: new Date(),
+  });
+
+  await getTestDb()
+    .insert(pushSubscription)
+    .values({
+      endpoint: `https://push.example/send/${user.id}`,
+      userId: user.id,
+      p256dh: "BKey",
+      auth: "auth",
+      createdAt: new Date(),
+    });
 
   const upload = await uploadBotFile(
     deps,

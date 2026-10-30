@@ -1,5 +1,13 @@
 import type { RoutineSchedule } from "@botsdk/client/bot/routine";
-import { type AnyPgColumn, jsonb, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import {
+  type AnyPgColumn,
+  boolean,
+  jsonb,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 import { botsdkSchema } from "../botsdk-schema";
 import { bot } from "./bot";
@@ -37,6 +45,11 @@ export const botRoutine = botsdkSchema.table(
     /** IANA, from the user's newest Message when the Routine was created. */
     timeZone: text("time_zone").notNull(),
     state: botRoutineState("state").notNull(),
+    /**
+     * A read-only Routine (spec #1024): a Turn it wakes may look but not change anything, so its
+     * calls that would are refused.
+     */
+    readOnly: boolean("read_only").notNull().default(false),
     /** The Turn that created the Routine: its approval card sits after that Turn. */
     createdByTurnId: uuid("created_by_turn_id")
       .notNull()

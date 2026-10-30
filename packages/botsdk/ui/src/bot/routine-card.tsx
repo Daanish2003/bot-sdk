@@ -26,6 +26,7 @@ import { runTime } from "./run-divider";
 export function RoutineCard({
   routine,
   webhookToken,
+  readOnlyChanged = false,
   onApprove,
   onDecline,
   ...actions
@@ -33,6 +34,8 @@ export function RoutineCard({
   routine: BotRoutine;
   /** The token approving it gave on this page (ADR 0021). */
   webhookToken: string | undefined;
+  /** Whether the Bot's change this Approval waits for turned read-only on or off (spec #1024). */
+  readOnlyChanged?: boolean;
   onApprove: (routineId: string) => Promise<void>;
   onDecline: (routineId: string) => Promise<void>;
 } & RoutineActionHandlers) {
@@ -95,6 +98,12 @@ export function RoutineCard({
               })
             : t("bots.routineRunsOnWebhook")}
         </CardDescription>
+        {/* So an Approval that turns read-only on, or off, says so (spec #1024). */}
+        {routine.readOnly ? (
+          <CardDescription>{t("bots.routineReadOnlyNote")}</CardDescription>
+        ) : (
+          readOnlyChanged && <CardDescription>{t("bots.routineNoLongerReadOnly")}</CardDescription>
+        )}
       </CardHeader>
       <CardContent className="text-sm whitespace-pre-wrap">{routine.prompt}</CardContent>
       <CardFooter className="gap-2">

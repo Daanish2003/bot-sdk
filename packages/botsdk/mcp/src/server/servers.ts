@@ -16,6 +16,12 @@ export type McpServerConfig = {
   tools?: string[];
   /** Tool names that need no approval: `needsApproval` is false on them. */
   approvalFree?: string[];
+  /**
+   * Tool names that count as read-only in a read-only run (spec #1024), besides the tools the
+   * server marks `readOnlyHint: true`. Every other tool, one with no hint included, is refused
+   * there.
+   */
+  readOnlyTools?: string[];
 };
 
 const keyPattern = /^[A-Za-z0-9_-]+$/;

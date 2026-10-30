@@ -12,8 +12,12 @@ import { maskResult } from "@botsdk/bot/bot/safety";
  * for the user's Secrets, cut by `capResult` and fenced as untrusted. Calls are unmetered.
  */
 
-/** A Connector tool as a Turn listed it: its definition, and whether Auto-review checks its calls. */
-export type ConnectorListing = PromptStartTool & { reviewed: boolean };
+/**
+ * A Connector tool as a Turn listed it: its definition, whether Auto-review checks its calls, and
+ * whether a read-only run may call it. A listing recorded before `readOnly` existed has none: such a
+ * tool is refused in a read-only run.
+ */
+export type ConnectorListing = PromptStartTool & { reviewed: boolean; readOnly?: boolean };
 
 /** What a call to a tool of a Connection that is down, or no longer usable, is answered. */
 export const reconnectError = (connection: string) =>
@@ -119,12 +123,19 @@ export async function connectorTools({
   const listed = await record(async () => {
     const live = await open();
     const reviewed = new Set(live.filter((tool) => tool.needsApproval).map((tool) => tool.name));
-    return definitionsOf(live).map((tool) => ({ ...tool, reviewed: reviewed.has(tool.name) }));
+    const readOnly = new Set(
+      live.filter((tool) => tool.metadata?.readOnly === true).map((tool) => tool.name),
+    );
+    return definitionsOf(live).map((tool) => ({
+      ...tool,
+      reviewed: reviewed.has(tool.name),
+      readOnly: readOnly.has(tool.name),
+    }));
   });
   const tools = listed.flatMap((listing): AnyServerTool[] => {
     const connection = serverOf(servers, listing.name)?.name;
     if (!connection || taken.has(listing.name)) return [];
-    const { reviewed, ...definition } = listing;
+    const { reviewed, readOnly, ...definition } = listing;
     const call = async (
       args: unknown,
       context?: { toolCallId?: string; abortSignal?: AbortSignal },
@@ -163,6 +174,8 @@ export async function connectorTools({
         ...(definition.inputSchema ? { inputSchema: definition.inputSchema } : {}),
         // The core Auto-reviews each call of a tool that needs approval, never asking the user.
         ...(reviewed ? { needsApproval: true } : {}),
+        // Read by the core's read-only gate, which refuses a tool without it.
+        ...(readOnly ? { metadata: { readOnly: true } } : {}),
         execute: call,
       } as AnyServerTool,
     ];

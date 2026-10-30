@@ -3,7 +3,7 @@ import { implement } from "@orpc/server";
 
 import type { Context } from "../../context";
 import { requireAuth } from "../../procedures";
-import { emailAddressOf, rotateEmailAddress, lastUsedChannel } from "../conversation";
+import { emailAddressOf, rotateEmailAddress, notificationRouteOf } from "../conversation";
 
 const os = implement({ channels: channelsContract }).$context<Context>().use(requireAuth);
 
@@ -16,7 +16,14 @@ export const channelRouter = os.channels.router({
         botId: input.botId,
         domain: context.sdk.channels.emailDomain(),
       });
-      return { address, nextChannel: await lastUsedChannel(context.sdk.db, input) };
+      // Where a Message the Bot starts, not urgent, would go now.
+      const route = await notificationRouteOf(context.sdk, context.sdk.db, {
+        userId: context.user.id,
+        owner: input,
+        urgent: false,
+      });
+      const nextChannel = route === "email" ? ("email" as const) : ("web" as const);
+      return { address, nextChannel };
     }),
     rotate: os.channels.email.rotate.handler(async ({ context, input }) => ({
       address: await rotateEmailAddress(context.sdk, {

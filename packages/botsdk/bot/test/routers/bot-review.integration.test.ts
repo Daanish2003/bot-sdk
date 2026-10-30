@@ -249,7 +249,11 @@ describe("Auto-review of the Bot's shell commands", () => {
       round(
         toolCall({
           name: "create_routine",
-          input: { name: "brief", prompt: "Brief me.", schedule: { days: ["mon"], at: "08:00" } },
+          input: {
+            name: "brief",
+            prompt: "Brief me.",
+            schedule: { days: ["mon"], times: ["08:00"] },
+          },
         }),
       ),
       round(sends("Done.", true)),

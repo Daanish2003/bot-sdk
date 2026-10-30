@@ -18,6 +18,7 @@ export {
   demonstrationRunningError,
   stopUserDemonstrations,
   watchUserTool,
+  watchUserToolName,
 } from "./demonstration";
 export {
   demonstrationEventBlobKey,

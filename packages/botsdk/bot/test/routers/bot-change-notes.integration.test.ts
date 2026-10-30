@@ -236,7 +236,7 @@ describe("Change notes", () => {
       botId,
       name: "morning-brief",
       prompt: "Summarise the news.",
-      schedule: { days: ["mon" as const], at: "08:00" },
+      schedule: { days: ["mon" as const], times: ["08:00"] },
       timeZone: "Europe/London",
       state: "pending" as const,
       createdByTurnId: turn!.id,
@@ -271,7 +271,7 @@ describe("Change notes", () => {
       round(
         toolCall({
           name: "create_routine",
-          input: { name: "Not A Slug", prompt: "x", schedule: { days: ["mon"], at: "08:00" } },
+          input: { name: "Not A Slug", prompt: "x", schedule: { days: ["mon"], times: ["08:00"] } },
         }),
       ),
       round(),

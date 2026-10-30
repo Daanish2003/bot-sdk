@@ -42,7 +42,7 @@ async function botWithWaiting() {
     botId,
     name: "morning-brief",
     prompt: "Summarize.",
-    schedule: { days: ["mon"], at: "08:00" },
+    schedule: { days: ["mon"], times: ["08:00"] },
     timeZone: "UTC",
     state: "active",
     createdByTurnId: turnId,

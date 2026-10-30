@@ -40,8 +40,9 @@ const morningBrief = (): BotRoutine => ({
   id: "r1",
   name: "morning-brief",
   prompt: "Summarize today's calendar.",
-  schedule: { days: ["mon", "tue", "wed", "thu", "fri"], at: "08:00" },
+  schedule: { days: ["mon", "tue", "wed", "thu", "fri"], times: ["08:00"] },
   webhook: false,
+  readOnly: false,
   timeZone: "Europe/London",
   state: "pending",
   approvedAt: null,
@@ -215,6 +216,40 @@ describe("a Routine waiting for the user's OK", () => {
     expect(card.textContent).toContain("weekdays 08:00");
     expect(card.textContent).toContain("Europe/London");
     expect(card.textContent).toContain("Summarize today's calendar.");
+  });
+
+  it("says on its approval card whether it is read-only", async () => {
+    const readOnlyNote = "Read-only: its runs can look but not change anything.";
+    mount(fakeBotServer([approvalOf()], [{ ...morningBrief(), readOnly: true }]));
+    const card = await screen.findByRole("group", { name: "Created morning-brief routine" });
+    expect(card.textContent).toContain(readOnlyNote);
+    cleanup();
+
+    mount(fakeBotServer([approvalOf()], [morningBrief()]));
+    const plain = await screen.findByRole("group", { name: "Created morning-brief routine" });
+    expect(plain.textContent).not.toContain(readOnlyNote);
+  });
+
+  it("says on its approval card when the change it waits for turns read-only off", async () => {
+    const noLonger = "No longer read-only: its runs can change things.";
+    const changed: BotMessage = {
+      ...approvalOf(),
+      control: { kind: "routine_approval", routineId: "r1", readOnlyChanged: true },
+    };
+    mount(fakeBotServer([changed], [morningBrief()]));
+    const card = await screen.findByRole("group", { name: "Created morning-brief routine" });
+    expect(card.textContent).toContain(noLonger);
+    cleanup();
+
+    mount(fakeBotServer([changed], [{ ...morningBrief(), readOnly: true }]));
+    const turnedOn = await screen.findByRole("group", { name: "Created morning-brief routine" });
+    expect(turnedOn.textContent).toContain("Read-only: its runs can look but not change anything.");
+    expect(turnedOn.textContent).not.toContain(noLonger);
+    cleanup();
+
+    mount(fakeBotServer([approvalOf()], [morningBrief()]));
+    const unchanged = await screen.findByRole("group", { name: "Created morning-brief routine" });
+    expect(unchanged.textContent).not.toContain(noLonger);
   });
 
   it("shows one card when an edit sent the Routine back for a second Approval", async () => {
@@ -456,7 +491,7 @@ describe("the Tasks popover's Routines in the header", () => {
       ...morningBrief(),
       id: "r2",
       name: "weekly-review",
-      schedule: { days: ["fri"], at: "16:00" },
+      schedule: { days: ["fri"], times: ["16:00", "09:00"] },
       state: "paused",
       approvedAt: createdAt,
     },
@@ -486,7 +521,7 @@ describe("the Tasks popover's Routines in the header", () => {
         .map((item) => item.textContent),
     ).toEqual([
       expect.stringMatching(/^morning-brief.*weekdays 08:00.*active/),
-      expect.stringMatching(/^weekly-review.*fri 16:00.*paused/),
+      expect.stringMatching(/^weekly-review.*fri 09:00, 16:00.*paused/),
       expect.stringMatching(/^inbox-sweep.*weekdays 08:00.*waiting for OK/),
     ]);
     // A pending Routine is approved or declined on its card, not here.

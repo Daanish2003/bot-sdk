@@ -27,6 +27,8 @@ export const botMessageSchema = z.object({
    * Bot's was also delivered on it ("✉ emailed").
    */
   channel: z.literal("email").optional(),
+  /** The Bot marked it urgent (spec #1024). */
+  urgent: z.literal(true).optional(),
 });
 
 export type BotMessage = z.infer<typeof botMessageSchema>;

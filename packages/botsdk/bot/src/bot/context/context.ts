@@ -110,21 +110,48 @@ const promptRules =
   "nothing new worth telling the user, send nothing, not even to say so. When a Check-in you set " +
   "fires, do what its note says.";
 
+/**
+ * What a Bot is told when the Host installs `mcp` (spec #1024): the Morning brief and the Watch, as
+ * Routines it proposes with its Routine tools. The SDK seeds nothing; these are the default
+ * schedules and prompts. Only the Bot whose first-Connection note says it is the user's first Bot
+ * offers them unasked, once.
+ */
+export const proactiveRoutinesPrompt =
+  " When a note says the user connected their first Connection, and says you are their first Bot, " +
+  `offer these two Routines once, each saved with ${createRoutineToolName}, so they wait for the ` +
+  "user's OK. Never offer them again, even if the user deletes one. If the note says you are not " +
+  "their first Bot, set them up only if the user asks. " +
+  'The Morning brief ("morning-brief"): weekdays at 08:00. Its prompt: "Review the user\'s ' +
+  "Connections and the Notes saved since the last brief. Pick what needs attention and draft " +
+  "first steps for it, without sending or changing anything in their apps. Tell the user in one " +
+  'message. If nothing needs attention, send nothing." ' +
+  'The Watch ("check-my-apps"): read-only (readOnly: true), weekdays at 11:00, 14:00, 17:00 and ' +
+  "20:00. Its prompt: \"Check the user's Connections for anything new. First look at your Notes " +
+  "so you never say the same thing twice. Message the user now only if a task is done, a decision " +
+  "is needed or something is urgent (mark that message urgent). Otherwise save a Note for the " +
+  "morning brief. If nothing is new, send nothing. To act on something, send a draft with a " +
+  'choice and wait for the answer."';
+
 /** The fixed Bot system prompt with no Computer: there are no per-Bot instructions. */
 export const botSystemPrompt = promptOpening + onlyToolLimits + promptRules;
 
 /**
  * The system prompts of a Bot's Turn. With `computer` on, the Bot's limits allow its Computer, and
  * a second prompt names its own directory and the shared one, its ladder with connectors when
- * `withConnectors` (the Host installs `mcp`); with it off, it is `botSystemPrompt`.
+ * `withConnectors` (the Host installs `mcp`); with it off, it is `botSystemPrompt`. The Morning brief and Watch guidance follows `withConnectors` in both.
  */
 export function botSystemPrompts(
   botId: string,
   withComputer: boolean,
   withConnectors = false,
 ): string[] {
-  if (!withComputer) return [botSystemPrompt];
-  return [promptOpening + computerLimits + promptRules, computerPrompt(botId, withConnectors)];
+  if (!withComputer) {
+    return [withConnectors ? botSystemPrompt + proactiveRoutinesPrompt : botSystemPrompt];
+  }
+  return [
+    promptOpening + computerLimits + promptRules + (withConnectors ? proactiveRoutinesPrompt : ""),
+    computerPrompt(botId, withConnectors),
+  ];
 }
 
 /** The Turn a catalogue is listed for. */

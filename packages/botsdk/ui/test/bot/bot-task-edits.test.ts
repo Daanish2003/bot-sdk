@@ -28,8 +28,9 @@ const routine = (over: Partial<BotRoutine> = {}): BotRoutine => ({
   id: "r1",
   name: "morning-brief",
   prompt: "Summarize today's calendar.",
-  schedule: { days: ["mon", "tue", "wed", "thu", "fri"], at: "08:00" },
+  schedule: { days: ["mon", "tue", "wed", "thu", "fri"], times: ["08:00"] },
   webhook: false,
+  readOnly: false,
   timeZone: "Europe/London",
   state: "active",
   approvedAt: createdAt,
@@ -146,11 +147,49 @@ describe("the inline Routine edit form", () => {
         {
           routineId: "r1",
           prompt: "Summarize my inbox.",
-          schedule: { days: ["mon", "tue", "wed", "thu"], at: "09:15" },
+          schedule: { days: ["mon", "tue", "wed", "thu"], times: ["09:15"] },
         },
       ]),
     );
     await waitFor(() => expect(screen.queryByRole("form")).toBeNull());
+  });
+
+  it("shows each of several times, adds and removes times, and sends them in order", async () => {
+    const state = mount({
+      routines: [routine({ schedule: { days: ["mon"], times: ["11:00", "14:00", "17:00"] } })],
+    });
+
+    const form = await openRoutineForm();
+    expect(
+      within(form)
+        .getAllByLabelText("Time")
+        .map((input) => (input as HTMLInputElement).value),
+    ).toEqual(["11:00", "14:00", "17:00"]);
+    fireEvent.click(within(form).getByRole("button", { name: "Remove 14:00" }));
+    fireEvent.click(within(form).getByRole("button", { name: "Add time" }));
+    // A new time must be filled in before the form saves.
+    expect(within(form).getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.change(within(form).getAllByLabelText("Time").at(-1)!, {
+      target: { value: "08:30" },
+    });
+    fireEvent.click(within(form).getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(state.routineEdits).toEqual([
+        { routineId: "r1", schedule: { days: ["mon"], times: ["08:30", "11:00", "17:00"] } },
+      ]),
+    );
+  });
+
+  it("will not save the same time twice, and offers no way to remove the last time", async () => {
+    mount({ routines: [routine({ schedule: { days: ["mon"], times: ["08:00", "09:00"] } })] });
+
+    const form = await openRoutineForm();
+    fireEvent.change(within(form).getAllByLabelText("Time")[1]!, { target: { value: "08:00" } });
+    expect(within(form).getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(within(form).getAllByRole("button", { name: "Remove 08:00" })[1]!);
+    expect(within(form).queryByRole("button", { name: /^Remove/ })).toBeNull();
+    expect(within(form).getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(false);
   });
 
   it("sends only the prompt when only it changed", async () => {
@@ -161,6 +200,37 @@ describe("the inline Routine edit form", () => {
     fireEvent.click(within(form).getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(state.routineEdits).toEqual([{ routineId: "r1", prompt: "New." }]));
+  });
+
+  it("shows a read-only Routine as read-only, and the form turns it off", async () => {
+    const state = mount({ routines: [routine({ readOnly: true })] });
+
+    await openScheduled();
+    const routines = await screen.findByRole("list", { name: "Routines" });
+    expect(within(routines).getByText("Read-only")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit morning-brief" }));
+    const form = await screen.findByRole("form", { name: "Edit routine morning-brief" });
+    const toggle = within(form).getByRole("button", { name: "Read-only" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(toggle);
+    fireEvent.click(within(form).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(state.routineEdits).toEqual([{ routineId: "r1", readOnly: false }]));
+  });
+
+  it("makes a Routine read-only, with no Read-only shown before", async () => {
+    const state = mount({ routines: [routine()] });
+
+    const form = await openRoutineForm();
+    expect(
+      within(screen.getByRole("list", { name: "Routines" })).queryByText("Read-only", {
+        selector: "span",
+      }),
+    ).toBeNull();
+    fireEvent.click(within(form).getByRole("button", { name: "Read-only" }));
+    fireEvent.click(within(form).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(state.routineEdits).toEqual([{ routineId: "r1", readOnly: true }]));
   });
 
   it("offers a webhook Routine its prompt only", async () => {
