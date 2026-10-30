@@ -1,7 +1,7 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { channelAccount, job, linkedIdentity } from "../../src/storage";
+import { channelAccount, job, linkedIdentity, message } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { emailChannel } from "../../src/channel";
 import { fakeEmailProvider, fakeMessagingAdapter } from "@botsdk/testing/fake-channel";
@@ -396,6 +396,25 @@ describe("delivery on a messaging Channel", () => {
     expect(await deliveryJobs()).toEqual([
       expect.objectContaining({ status: "succeeded", attempts: 2 }),
     ]);
+  });
+
+  it("resends the whole Message when it changed since a part failed", async () => {
+    const { write, fake, timer, runDue } = await telegramBot([round(says("aaaaabbbbbccccc"))]);
+    fake.parts.maxText = 5;
+    fake.parts.failAt = 1;
+
+    await write("Book me a table");
+    // A link in place of a file whose bytes are gone since, say: the parts no longer line up.
+    await getTestDb()
+      .update(message)
+      .set({
+        parts: sql`replace(${message.parts}::text, 'aaaaabbbbbccccc', 'xxxxxyyyyyzzzzz')::jsonb`,
+      })
+      .where(sql`${message.parts}::text like '%aaaaabbbbbccccc%'`);
+    timer.advance(60_000);
+    await runDue();
+
+    expect(fake.delivered.map((one) => one.part)).toEqual(["aaaaa", "xxxxx", "yyyyy", "zzzzz"]);
   });
 
   it("gives up after the runner's retries and logs it, the Message staying in the app", async () => {

@@ -8,6 +8,7 @@ import {
   type MessagingAdapter,
   type MessagingFile,
   MessagingFileTooLargeError,
+  MessagingSendError,
   type MessagingUpdate,
   type OutboundMail,
   type OutboundMessage,
@@ -140,7 +141,8 @@ type FakeListener = {
  * `listening`, by handle, and `deliver` hands an update to one as the platform would. It records
  * every send, edit and download. A token in `rejected` is refused by `check` and by `listen`;
  * `revoke` also ends a running listener that way. `failures` makes the next listens throw a
- * network error.
+ * network error. It splits a Message into parts as a platform does (`parts`): its text in pieces of
+ * at most `maxText` characters, then one part per file, each its own message in `delivered`.
  */
 export function fakeMessagingAdapter({ id = "fake" }: { id?: string } = {}) {
   const listening = new Map<string, FakeListener>();
@@ -160,6 +162,13 @@ export function fakeMessagingAdapter({ id = "fake" }: { id?: string } = {}) {
   const rejected = new Set<string>();
   /** How many listens started, and how many network failures the next listens (`failures`) and sends (`sendFailures`) throw. */
   const counts = { listens: 0, failures: 0, sendFailures: 0 };
+  /**
+   * How the fake splits a Message, and `failAt`: the part (from 0) at which the next send fails with
+   * a network error, after sending the parts before it.
+   */
+  const parts = { maxText: 4096, failAt: null as number | null };
+  /** Each message that reached a chat, one per part: a piece of text, or a file's name. */
+  const delivered: { chatId: string; messageId: string; part: string }[] = [];
   let nextMessageId = 1;
 
   const botOf = (token: string) => {
@@ -206,11 +215,29 @@ export function fakeMessagingAdapter({ id = "fake" }: { id?: string } = {}) {
         counts.sendFailures -= 1;
         throw new Error("fetch failed: ECONNRESET");
       }
-      const messageId = String(nextMessageId++);
+      const pieces: string[] = [];
+      for (let at = 0; at < message.text.length; at += parts.maxText) {
+        pieces.push(message.text.slice(at, at + parts.maxText));
+      }
+      pieces.push(...(message.files ?? []).map((file) => file.name));
+      const { resume } = message;
       const sent: SentMessage = {
-        messageIds: [messageId],
-        ...(message.buttons && { buttonsMessageId: messageId }),
+        messageIds: [...(resume?.sent.messageIds ?? [])],
+        ...(resume?.sent.buttonsMessageId && { buttonsMessageId: resume.sent.buttonsMessageId }),
       };
+      for (let index = resume?.parts ?? 0; index < pieces.length; index++) {
+        if (parts.failAt === index) {
+          parts.failAt = null;
+          throw new MessagingSendError(
+            { parts: index, sent },
+            new Error("fetch failed: ECONNRESET"),
+          );
+        }
+        const messageId = String(nextMessageId++);
+        delivered.push({ chatId: message.chatId, messageId, part: pieces[index]! });
+        sent.messageIds.push(messageId);
+        if (message.buttons && index === pieces.length - 1) sent.buttonsMessageId = messageId;
+      }
       sends.push({ account, message, sent });
       return sent;
     },
@@ -230,6 +257,8 @@ export function fakeMessagingAdapter({ id = "fake" }: { id?: string } = {}) {
     adapter,
     listening,
     sends,
+    parts,
+    delivered,
     edits,
     downloads,
     files,

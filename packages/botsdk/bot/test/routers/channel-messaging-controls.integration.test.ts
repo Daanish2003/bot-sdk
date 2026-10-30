@@ -188,6 +188,7 @@ async function telegramBot(rounds: Round[]) {
     newest,
     triggers,
     logged,
+    runDue,
     settleRuns,
   };
 }
@@ -370,6 +371,33 @@ describe("a choice", () => {
     expect((await newest("choice")).control).toMatchObject({ answer: { text: "Green" } });
     expect(fake.edits.map((edit) => edit.target)).toEqual([
       { chatId: "1001", messageId: shown, chosen: "Green" },
+    ]);
+  });
+
+  it("reaches the user once per part when a part fails, its buttons still closed by a typed answer", async () => {
+    const { write, fake, newest, timer, runDue } = await telegramBot([
+      round(asks()),
+      round(says("ok")),
+    ]);
+    fake.parts.maxText = 10;
+    fake.parts.failAt = 1;
+
+    await write("Pick one for me");
+    expect(fake.sends).toEqual([]);
+    timer.advance(60_000);
+    await runDue();
+
+    const [{ message, sent }] = fake.sends as [(typeof fake.sends)[number]];
+    expect(fake.delivered.length).toBeGreaterThanOrEqual(3);
+    expect(fake.delivered.map((one) => one.part).join("")).toBe(message.text);
+    expect(sent.messageIds).toEqual(fake.delivered.map((one) => one.messageId));
+    expect(sent.buttonsMessageId).toBe(fake.delivered.at(-1)!.messageId);
+
+    await write("3");
+
+    expect((await newest("choice")).control).toMatchObject({ answer: { text: "Green" } });
+    expect(fake.edits.map((edit) => edit.target)).toEqual([
+      { chatId: "1001", messageId: sent.buttonsMessageId, chosen: "Green" },
     ]);
   });
 
