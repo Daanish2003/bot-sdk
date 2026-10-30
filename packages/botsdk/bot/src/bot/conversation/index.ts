@@ -1,5 +1,15 @@
 // The conversation module's entry point (#889): other modules import it only through this file.
 export { botDirectory, resolvePath, sharedDirectory } from "./bot-folder";
+export {
+  activeChannelAccountIds,
+  channelAccountIdsOf,
+  listChannelAccounts,
+  listenerAccount,
+  markNeedsAttention,
+  removeChannelAccount,
+  rotateChannelAccountKeys,
+  saveChannelAccount,
+} from "./channel-accounts";
 export { emailAddressOf, rotateEmailAddress } from "./email-address";
 export {
   deliverIn,

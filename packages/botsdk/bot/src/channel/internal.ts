@@ -19,6 +19,20 @@ export {
   replySubject,
 } from "./email-out";
 export {
+  CredentialsRejectedError,
+  isMessagingAdapter,
+  type MessagingAccount,
+  type MessagingAdapter,
+  type MessagingButtons,
+  type MessagingCall,
+  type MessagingFile,
+  MessagingFileTooLargeError,
+  type MessagingUpdate,
+  type OutboundMessage,
+  type SentMessage,
+} from "./messaging";
+export {
+  type ChannelAccountsApi,
   type ChannelAdapter,
   type ChannelApi,
   type ChannelOptions,

@@ -470,6 +470,30 @@ CREATE INDEX "push_subscription_user_id_idx" ON "botsdk"."push_subscription" ("u
 insert into botsdk.__migrations (feature, migration) values ('core', '20261029232026_push_subscription');
 commit;
 
+-- core/20261030065703_channel_account
+begin;
+CREATE TYPE "botsdk"."channel_account_status" AS ENUM('active', 'needs_attention');--> statement-breakpoint
+CREATE TABLE "botsdk"."channel_account" (
+	"id" uuid PRIMARY KEY,
+	"bot_id" uuid NOT NULL,
+	"platform" text NOT NULL,
+	"platform_bot_id" text NOT NULL,
+	"handle" text NOT NULL,
+	"encrypted" text NOT NULL,
+	"status" "botsdk"."channel_account_status" NOT NULL,
+	"reason" text,
+	"created_at" timestamp NOT NULL,
+	"updated_at" timestamp NOT NULL,
+	CONSTRAINT "channel_account_bot_platform_unique" UNIQUE("bot_id","platform"),
+	CONSTRAINT "channel_account_platform_bot_unique" UNIQUE("platform","platform_bot_id"),
+	CONSTRAINT "channel_account_reason_check" CHECK (("status" = 'needs_attention') = ("reason" is not null))
+);
+--> statement-breakpoint
+ALTER TABLE "botsdk"."channel_account" ADD CONSTRAINT "channel_account_bot_id_bot_id_fkey" FOREIGN KEY ("bot_id") REFERENCES "botsdk"."bot"("id") ON DELETE CASCADE;
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261030065703_channel_account');
+commit;
+
 -- notes/0001_note
 begin;
 create table botsdk.test_note (id text primary key, bot_id uuid references botsdk.bot(id) on delete cascade)

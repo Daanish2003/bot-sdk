@@ -293,6 +293,23 @@ description: Use this when
     `Next Bot-initiated Message goes by ${channel}`,
   "bots.web": "web",
   "bots.emailChannel": "email",
+  "bots.channels": "Channels",
+  "bots.channelsNeedAttention": "A Channel needs attention",
+  "bots.channelsLoading": "Loading the Channels…",
+  "bots.channelPlatform": ({ platform }: { platform: string }) =>
+    platform === "telegram" ? "Telegram" : platform.charAt(0).toUpperCase() + platform.slice(1),
+  "bots.channelSetupHint": ({ platform }: { platform: string }) =>
+    platform === "telegram"
+      ? "Make a bot with @BotFather in Telegram, then paste the token it gives you."
+      : "Make a bot on the platform, then paste its credentials.",
+  "bots.channelField": ({ field }: { field: string }) =>
+    field === "token" ? "Bot token" : field.charAt(0).toUpperCase() + field.slice(1),
+  "bots.channelAdd": "Add",
+  "bots.channelFix": "Fix",
+  "bots.channelSave": "Save",
+  "bots.channelRemoveShort": "Remove",
+  "bots.channelRemove": ({ platform }: { platform: string }) => `Remove ${platform}`,
+  "bots.channelNeedsAttention": ({ reason }: { reason: string }) => `Needs attention: ${reason}`,
   "bots.reviewAllow": "Allow",
   "bots.reviewDeny": "Deny",
   "bots.ruleProposed": "Rule proposed",

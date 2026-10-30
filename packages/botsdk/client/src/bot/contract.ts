@@ -2,6 +2,11 @@ import { oc, type } from "@orpc/contract";
 import { z } from "zod";
 
 import type { BotChanges } from "./changes";
+import {
+  channelAccountInput,
+  type ChannelAccountRow,
+  saveChannelAccountInput,
+} from "./channel-account";
 import type { BotCheckIn } from "./check-in";
 import { maxChoiceOptionLength, maxChoiceOtherLength } from "./choice";
 import type { DemonstrationState, DemonstrationStep } from "./demonstration";
@@ -439,8 +444,10 @@ const computer = {
 };
 
 /**
- * The email Channel (spec #761): a Bot's address, to copy or rotate. Served under `channels` only
- * when the Host fills the `channels` slot, so the client adds it with `channelClient()`.
+ * The Channels besides web, served under `channels` only when the Host fills the `channels` slot,
+ * so the client adds them with `channelClient()`: the email Channel (spec #761), a Bot's address
+ * to copy or rotate, and the messaging Channels' Channel accounts (spec #1044), served only when
+ * the slot has a messaging adapter.
  */
 export const channelsContract = {
   email: {
@@ -448,6 +455,17 @@ export const channelsContract = {
     address: oc.input(botInput).output(type<{ address: string; nextChannel: "web" | "email" }>()),
     /** Gives the Bot a new address; mail to the old one is dropped from now on. */
     rotate: oc.input(botInput).output(type<{ address: string }>()),
+  },
+  accounts: {
+    /** Each messaging platform the Host offers, with the Bot's Channel account there, if any. */
+    list: oc.input(botInput).output(type<ChannelAccountRow[]>()),
+    /**
+     * Adds or fixes the Bot's Channel account on a platform, once the platform accepts the
+     * credentials; a rejection saves nothing. Returns the platform's row.
+     */
+    save: oc.input(saveChannelAccountInput).output(type<ChannelAccountRow>()),
+    /** Removes the Bot's Channel account on a platform, and its listener stops. */
+    remove: oc.input(channelAccountInput).output(type<void>()),
   },
 };
 

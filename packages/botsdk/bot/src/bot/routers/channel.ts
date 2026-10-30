@@ -7,7 +7,10 @@ import { emailAddressOf, rotateEmailAddress, notificationRouteOf } from "../conv
 
 const os = implement({ channels: channelsContract }).$context<Context>().use(requireAuth);
 
-/** The email Channel's procedures: it implements `channelsContract` (spec #761). */
+/**
+ * The Channels' procedures: it implements `channelsContract`, the email Channel (spec #761) and the
+ * messaging Channels' Channel accounts (spec #1044).
+ */
 export const channelRouter = os.channels.router({
   email: {
     address: os.channels.email.address.handler(async ({ context, input }) => {
@@ -32,5 +35,16 @@ export const channelRouter = os.channels.router({
         domain: context.sdk.channels.emailDomain(),
       }),
     })),
+  },
+  accounts: {
+    list: os.channels.accounts.list.handler(({ context, input }) =>
+      context.sdk.channels.accounts.list({ ...input, userId: context.user.id }),
+    ),
+    save: os.channels.accounts.save.handler(({ context, input }) =>
+      context.sdk.channels.accounts.save({ ...input, userId: context.user.id }),
+    ),
+    remove: os.channels.accounts.remove.handler(({ context, input }) =>
+      context.sdk.channels.accounts.remove({ ...input, userId: context.user.id }),
+    ),
   },
 });

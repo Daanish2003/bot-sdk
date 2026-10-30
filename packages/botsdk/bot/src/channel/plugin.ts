@@ -1,7 +1,9 @@
+import type { ChannelAccountRow } from "@botsdk/client/bot/channel-account";
 import { z } from "zod";
 
 import type { BotSdkPlugin, Transaction } from "../plugin";
 import type { EmailChannel, InboundMail } from "./email";
+import type { MessagingAdapter } from "./messaging";
 import type { WebPushChannel } from "./push";
 
 /**
@@ -20,8 +22,34 @@ export const deliveryPayload = z.union([
 
 export type DeliveryPayload = z.infer<typeof deliveryPayload>;
 
-/** A Channel adapter (spec #761): its wire format only. Email (spec #761) and web push (spec #1024). */
-export type ChannelAdapter = EmailChannel | WebPushChannel;
+/**
+ * A Channel adapter (spec #761): its wire format only. Email (spec #761), web push (spec #1024) and
+ * the messaging adapters (spec #1044), one per platform.
+ */
+export type ChannelAdapter = EmailChannel | WebPushChannel | MessagingAdapter;
+
+/** The Bot's Channel account on a platform, as the domain methods take it. */
+type AccountInput = { userId: string; botId: string; platform: string };
+
+/**
+ * The Channel accounts of the user's Bots (spec #1044), one per Bot and messaging platform. Every
+ * method throws NOT_FOUND when the slot has no messaging adapter, or the Bot isn't the user's.
+ */
+export type ChannelAccountsApi = {
+  /** Each messaging platform the Host offers, with the Bot's Channel account there, if any. */
+  list: (input: { userId: string; botId: string }) => Promise<ChannelAccountRow[]>;
+  /**
+   * Adds or fixes the Bot's Channel account on `platform` once the platform accepts
+   * `credentials`, and starts its listener; a rejection throws BAD_REQUEST and saves nothing. A
+   * platform bot on another of the user's Bots moves to this one; one on another user's Bot is
+   * refused with CONFLICT.
+   */
+  save: (
+    input: AccountInput & { credentials: Record<string, string> },
+  ) => Promise<ChannelAccountRow>;
+  /** Removes the Bot's Channel account on `platform` and stops its listener. */
+  remove: (input: AccountInput) => Promise<void>;
+};
 
 /** The core's Channels (`sdk.channels`, spec #871): the channels slot's adapters. */
 export type ChannelApi = {
@@ -52,6 +80,8 @@ export type ChannelApi = {
   sendDelivery: (payload: DeliveryPayload) => Promise<void>;
   /** The web push Channel's VAPID public key, or `null` when the Host gave no web push adapter. */
   pushKey: () => string | null;
+  /** The Channel accounts on the messaging Channels (spec #1044). */
+  accounts: ChannelAccountsApi;
 };
 
 /** How the Host sets up the Channels. */

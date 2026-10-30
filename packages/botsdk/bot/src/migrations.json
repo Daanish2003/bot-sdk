@@ -26,5 +26,9 @@
   {
     "name": "20261029232026_push_subscription",
     "sql": "ALTER TYPE \"botsdk\".\"notification_route\" ADD VALUE 'push';--> statement-breakpoint\nCREATE TABLE \"botsdk\".\"push_subscription\" (\n\t\"endpoint\" text PRIMARY KEY,\n\t\"user_id\" text NOT NULL,\n\t\"p256dh\" text NOT NULL,\n\t\"auth\" text NOT NULL,\n\t\"created_at\" timestamp NOT NULL\n);\n--> statement-breakpoint\nCREATE INDEX \"push_subscription_user_id_idx\" ON \"botsdk\".\"push_subscription\" (\"user_id\");"
+  },
+  {
+    "name": "20261030065703_channel_account",
+    "sql": "CREATE TYPE \"botsdk\".\"channel_account_status\" AS ENUM('active', 'needs_attention');--> statement-breakpoint\nCREATE TABLE \"botsdk\".\"channel_account\" (\n\t\"id\" uuid PRIMARY KEY,\n\t\"bot_id\" uuid NOT NULL,\n\t\"platform\" text NOT NULL,\n\t\"platform_bot_id\" text NOT NULL,\n\t\"handle\" text NOT NULL,\n\t\"encrypted\" text NOT NULL,\n\t\"status\" \"botsdk\".\"channel_account_status\" NOT NULL,\n\t\"reason\" text,\n\t\"created_at\" timestamp NOT NULL,\n\t\"updated_at\" timestamp NOT NULL,\n\tCONSTRAINT \"channel_account_bot_platform_unique\" UNIQUE(\"bot_id\",\"platform\"),\n\tCONSTRAINT \"channel_account_platform_bot_unique\" UNIQUE(\"platform\",\"platform_bot_id\"),\n\tCONSTRAINT \"channel_account_reason_check\" CHECK ((\"status\" = 'needs_attention') = (\"reason\" is not null))\n);\n--> statement-breakpoint\nALTER TABLE \"botsdk\".\"channel_account\" ADD CONSTRAINT \"channel_account_bot_id_bot_id_fkey\" FOREIGN KEY (\"bot_id\") REFERENCES \"botsdk\".\"bot\"(\"id\") ON DELETE CASCADE;"
   }
 ]

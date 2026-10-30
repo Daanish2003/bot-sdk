@@ -1,8 +1,45 @@
+import { channelAccountInput, saveChannelAccountInput } from "@botsdk/client/bot/channel-account";
+import { botInput } from "@botsdk/client/bot/contract";
+
 import type { BotSdkContext, Route } from "../plugin";
-import type { ChannelApi, ChannelOptions, ChannelPlugin } from "../channel/internal";
+import { parseInput } from "../rpc-error";
+import {
+  type ChannelApi,
+  type ChannelOptions,
+  type ChannelPlugin,
+  type EmailChannel,
+  isMessagingAdapter,
+  type MessagingAdapter,
+  type WebPushChannel,
+} from "../channel/internal";
 import { channelRouter } from "./routers/channel";
-import { deliverIn, sendDelivery } from "./conversation";
+import { accountsChanged, channelListeners } from "./channel-listeners";
+import {
+  channelAccountIdsOf,
+  deliverIn,
+  listChannelAccounts,
+  removeChannelAccount,
+  rotateChannelAccountKeys,
+  saveChannelAccount,
+  sendDelivery,
+} from "./conversation";
 import { receiveEmail } from "./turn";
+
+/** The Channel ids the core gives its own Channels, which no messaging adapter may take. */
+const reservedIds = new Set(["web", "email", "push"]);
+
+/** The email, web push and messaging adapters among `adapters`. */
+function adaptersOf(adapters: ChannelOptions["adapters"]) {
+  const messaging: MessagingAdapter[] = [];
+  let email: EmailChannel | undefined;
+  let push: WebPushChannel | undefined;
+  for (const adapter of adapters) {
+    if (isMessagingAdapter(adapter)) messaging.push(adapter);
+    else if (adapter.id === "email") email ??= adapter;
+    else if (adapter.id === "push") push ??= adapter as WebPushChannel;
+  }
+  return { email, push, messaging };
+}
 
 /**
  * The Channels over `adapters`: what `sdk.channels` is. With no adapter, the Bots talk on the web
@@ -12,8 +49,7 @@ export function createChannels(
   sdk: BotSdkContext,
   { adapters, verifiedEmail }: ChannelOptions,
 ): ChannelApi {
-  const email = emailAdapterOf(adapters);
-  const push = adapters.find((adapter) => adapter.id === "push");
+  const { email, push, messaging } = adaptersOf(adapters);
   return {
     receive: async (id, mail) => {
       if (id !== "email" || !email) throw new Error("The channel plugin has no email adapter");
@@ -30,26 +66,62 @@ export function createChannels(
       await sendDelivery(sdk, { email, push }, verifiedEmail, payload);
     },
     pushKey: () => push?.provider.publicKey ?? null,
+    accounts: {
+      list: ({ userId, ...rest }) =>
+        listChannelAccounts(sdk, messaging, { userId, ...parseInput(botInput, rest) }),
+      save: async ({ userId, ...rest }) => {
+        const input = { userId, ...parseInput(saveChannelAccountInput, rest) };
+        const { row, changed } = await saveChannelAccount(sdk, messaging, input);
+        await accountsChanged(sdk, changed);
+        return row;
+      },
+      remove: async ({ userId, ...rest }) => {
+        const input = { userId, ...parseInput(channelAccountInput, rest) };
+        await accountsChanged(sdk, await removeChannelAccount(sdk, messaging, input));
+      },
+    },
   };
-}
-
-/** The email adapter among `adapters`, if any. */
-function emailAdapterOf(adapters: ChannelOptions["adapters"]) {
-  return adapters.find((adapter) => adapter.id === "email");
 }
 
 /**
  * The Channels besides web (spec #761) that the user talks to their Bots on, each an adapter, as
  * the core's `sdk.channels` with their router. It owns turning an inbound into a Trigger, the
- * sender check and dedupe.
+ * sender check and dedupe, and runs the messaging Channel accounts' listeners while the SDK runs
+ * (spec #1044).
  */
 export function channel(options: ChannelOptions): ChannelPlugin {
+  const { messaging } = adaptersOf(options.adapters);
+  const platforms = new Set<string>();
+  for (const adapter of messaging) {
+    if (reservedIds.has(adapter.id) || platforms.has(adapter.id)) {
+      throw new Error(`The messaging adapter id "${adapter.id}" is taken`);
+    }
+    platforms.add(adapter.id);
+  }
+  let listeners: ReturnType<typeof channelListeners> | undefined;
   return {
     id: "channel",
     router: { channels: channelRouter },
     routes: emailInboundRoutes(options.adapters),
     init: (sdk) => {
       sdk.channels = createChannels(sdk, options);
+      listeners = channelListeners(sdk, messaging);
+    },
+    start: async () => {
+      await listeners?.start();
+    },
+    stop: async () => {
+      await listeners?.stop();
+    },
+    rotateKeys: (sdk) => rotateChannelAccountKeys(sdk),
+    databaseHooks: {
+      conversation: {
+        delete: {
+          // A Bot goes with its Conversation, and its Channel accounts with it.
+          before: (_sdk, { conversationIds, tx }) => channelAccountIdsOf(tx, conversationIds),
+          after: (sdk, { collected }) => accountsChanged(sdk, collected as string[]),
+        },
+      },
     },
   };
 }
@@ -66,7 +138,7 @@ export function noChannels(): ChannelPlugin {
  * an email adapter, every inbound gets 404.
  */
 function emailInboundRoutes(adapters: ChannelOptions["adapters"]): Route[] {
-  const email = emailAdapterOf(adapters);
+  const { email } = adaptersOf(adapters);
   return [
     {
       method: "POST",
