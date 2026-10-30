@@ -69,6 +69,7 @@ export const settingsMessages = {
   "settings.routeInApp": "In-app only",
   "settings.routeEmail": "Email",
   "settings.routePush": "Web push",
+  "settings.routeTelegram": "Telegram",
   "settings.routeHelp": "Every message is in the app, whatever you choose.",
   "settings.saveNotifications": "Save notifications",
   "settings.notificationsSaved": "Notifications saved",

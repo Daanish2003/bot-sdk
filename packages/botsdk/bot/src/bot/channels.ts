@@ -66,10 +66,12 @@ export function createChannels(
       return email.domain;
     },
     deliverIn: async (tx, sent) => {
-      if (email || push) await deliverIn(sdk, tx, { email, push }, sent);
+      if (email || push || messaging.length > 0) {
+        await deliverIn(sdk, tx, { email, push, messaging }, sent);
+      }
     },
     sendDelivery: async (payload) => {
-      await sendDelivery(sdk, { email, push }, verifiedEmail, payload);
+      await sendDelivery(sdk, { email, push, messaging }, verifiedEmail, payload);
     },
     pushKey: () => push?.provider.publicKey ?? null,
     accounts: {

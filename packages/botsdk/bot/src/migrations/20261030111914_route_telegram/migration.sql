@@ -1,0 +1,1 @@
+ALTER TYPE "botsdk"."notification_route" ADD VALUE 'telegram';

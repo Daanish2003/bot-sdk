@@ -198,6 +198,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030065703_channel_account" },
       { feature: "core", migration: "20261030075650_linked_identity" },
       { feature: "core", migration: "20261030100046_trigger_channel_text" },
+      { feature: "core", migration: "20261030111914_route_telegram" },
     ]);
     // Images and PDFs are already compressed, so the bytes are kept out of line uncompressed.
     expect(
@@ -244,6 +245,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030065703_channel_account" },
       { feature: "core", migration: "20261030075650_linked_identity" },
       { feature: "core", migration: "20261030100046_trigger_channel_text" },
+      { feature: "core", migration: "20261030111914_route_telegram" },
     ]);
     expect(
       await rows(url, "update botsdk.bot_review set state = 'pending' returning state, expires_at"),
@@ -332,6 +334,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030065703_channel_account" },
       { feature: "core", migration: "20261030075650_linked_identity" },
       { feature: "core", migration: "20261030100046_trigger_channel_text" },
+      { feature: "core", migration: "20261030111914_route_telegram" },
       { feature: "notes", migration: "0001_note" },
       { feature: "mcp", migration: "20261026182927_mcp_baseline" },
     ]);
@@ -359,6 +362,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030065703_channel_account" },
       { feature: "core", migration: "20261030075650_linked_identity" },
       { feature: "core", migration: "20261030100046_trigger_channel_text" },
+      { feature: "core", migration: "20261030111914_route_telegram" },
       { feature: "notes", migration: "0001_note" },
       { feature: "notes", migration: "0002_note_text" },
     ]);
@@ -490,6 +494,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030065703_channel_account" },
       { feature: "core", migration: "20261030075650_linked_identity" },
       { feature: "core", migration: "20261030100046_trigger_channel_text" },
+      { feature: "core", migration: "20261030111914_route_telegram" },
       { feature: "notes", migration: "0001_note" },
     ]);
   });

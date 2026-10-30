@@ -152,8 +152,8 @@ export function fakeMessagingAdapter({ id = "fake" }: { id?: string } = {}) {
   /** The bytes `download` returns, by file id. */
   const files = new Map<string, Uint8Array>();
   const rejected = new Set<string>();
-  /** How many listens started, and how many network failures the next ones throw. */
-  const counts = { listens: 0, failures: 0 };
+  /** How many listens started, and how many network failures the next listens (`failures`) and sends (`sendFailures`) throw. */
+  const counts = { listens: 0, failures: 0, sendFailures: 0 };
   let nextMessageId = 1;
 
   const botOf = (token: string) => {
@@ -194,6 +194,12 @@ export function fakeMessagingAdapter({ id = "fake" }: { id?: string } = {}) {
       });
     },
     send: async (account, message) => {
+      if (rejected.has(account.credentials.token))
+        throw new CredentialsRejectedError("Unauthorized");
+      if (counts.sendFailures > 0) {
+        counts.sendFailures -= 1;
+        throw new Error("fetch failed: ECONNRESET");
+      }
       sends.push({ account, message });
       const messageId = String(nextMessageId++);
       return {

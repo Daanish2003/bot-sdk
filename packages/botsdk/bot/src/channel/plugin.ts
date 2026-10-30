@@ -9,10 +9,12 @@ import type { WebPushChannel } from "./push";
 
 /**
  * What a `channel.deliver` job carries: for email, the headers fixed when the Message was saved
- * (a job queued before web push has no `channel`, and is email); for web push, the Message alone.
+ * (a job queued before web push has no `channel`, and is email); for web push, the Message alone;
+ * for a messaging Channel, the platform and the Message.
  */
 export const deliveryPayload = z.union([
   z.object({ channel: z.literal("push"), messageId: z.uuid() }),
+  z.object({ channel: z.literal("messaging"), platform: z.string(), messageId: z.uuid() }),
   z.object({
     channel: z.literal("email").optional(),
     messageId: z.uuid(),
@@ -83,7 +85,8 @@ export type ChannelApi = {
    * The Bots' hook after they save a Bot Message, in the same transaction: when the reply goes by
    * email too (the Turn took an email, or the Bot speaks first and the user's notification
    * settings say so), marks the Message emailed and enqueues its `channel.deliver` job; when it is
-   * pushed, enqueues its push job. `turnId` is the Turn that
+   * pushed, or the reply goes back to a messaging Channel (the Turn took a Trigger from it, or the
+   * notification settings name it), enqueues its job. `turnId` is the Turn that
    * sent it, or `null` for a Message no Turn sent (a Helper's).
    */
   deliverIn: (
@@ -91,8 +94,8 @@ export type ChannelApi = {
     sent: { conversationId: string; messageId: string; turnId: string | null; urgent: boolean },
   ) => Promise<void>;
   /**
-   * Sends one `channel.deliver` job's email, or its pushes to each of the user's devices; the
-   * runner retries it when it throws.
+   * Sends one `channel.deliver` job's email, its pushes to each of the user's devices, or its text
+   * on a messaging Channel; the runner retries it when it throws.
    */
   sendDelivery: (payload: DeliveryPayload) => Promise<void>;
   /** The web push Channel's VAPID public key, or `null` when the Host gave no web push adapter. */

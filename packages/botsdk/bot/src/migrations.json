@@ -38,5 +38,9 @@
   {
     "name": "20261030100046_trigger_channel_text",
     "sql": "ALTER TABLE \"botsdk\".\"bot_trigger\" ALTER COLUMN \"channel\" SET DATA TYPE text USING \"channel\"::text;--> statement-breakpoint\nDROP TYPE \"botsdk\".\"bot_trigger_channel\";"
+  },
+  {
+    "name": "20261030111914_route_telegram",
+    "sql": "ALTER TYPE \"botsdk\".\"notification_route\" ADD VALUE 'telegram';"
   }
 ]
