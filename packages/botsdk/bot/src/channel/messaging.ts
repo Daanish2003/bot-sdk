@@ -4,12 +4,13 @@
  * needs attention until the user saves new credentials; nothing retries it.
  */
 export class CredentialsRejectedError extends Error {
-  constructor(
-    /** A short reason the user is shown, such as "Unauthorized". */
-    readonly reason: string,
-  ) {
+  /** A short reason the user is shown, such as "Unauthorized". */
+  readonly reason: string;
+
+  constructor(reason: string) {
     super(`The platform rejected the Channel account's credentials: ${reason}`);
     this.name = "CredentialsRejectedError";
+    this.reason = reason;
   }
 }
 
