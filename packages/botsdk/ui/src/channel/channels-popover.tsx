@@ -3,12 +3,15 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { ChannelAccountRow } from "@botsdk/client/bot/channel-account";
 import type { ChannelsContract } from "@botsdk/client/bot/contract";
+import type { LinkCode } from "@botsdk/client/bot/linked-identity";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessagesSquareIcon, TriangleAlertIcon } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 
 import { useI18n, useOrpc } from "@botsdk/react/provider";
+
+import { LinkCodeView } from "./link-code-view";
 import { serverErrorText } from "@botsdk/react/rpc-error";
 
 /**
@@ -77,6 +80,7 @@ function PlatformRow({
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [values, setValues] = useState<Record<string, string>>({});
+  const [linkCode, setLinkCode] = useState<LinkCode | null>(null);
   const save = useMutation(orpc.channels.accounts.save.mutationOptions());
   const remove = useMutation(orpc.channels.accounts.remove.mutationOptions());
   const refused = (error: unknown) => toast.error(serverErrorText(i18n, error));
@@ -85,6 +89,16 @@ function PlatformRow({
     queryClient.setQueryData(listKey, (shown: ChannelAccountRow[] | undefined) =>
       shown?.map((entry) => (entry.platform === next.platform ? next : entry)),
     );
+
+  // "Now link yourself": a code, when the user has no Linked identity on this platform yet. A
+  // Host that can't say (no identities served) is left alone.
+  const offerLink = async () => {
+    try {
+      const linked = await queryClient.fetchQuery(orpc.channels.identities.list.queryOptions());
+      if (linked.some((identity) => identity.platform === row.platform)) return;
+      setLinkCode(await orpc.channels.identities.linkCode.call());
+    } catch {}
+  };
 
   const onSave = (event: FormEvent) => {
     event.preventDefault();
@@ -97,6 +111,7 @@ function PlatformRow({
           void queryClient.invalidateQueries({ queryKey: orpc.channels.accounts.list.key() });
           setEditing(false);
           setValues({});
+          void offerLink();
         },
         onError: refused,
       },
@@ -138,6 +153,15 @@ function PlatformRow({
         <p role="alert" className="text-xs text-destructive">
           {t("bots.channelNeedsAttention", { reason: attention.reason ?? "" })}
         </p>
+      )}
+      {linkCode && !editing && row.account && (
+        <div className="flex flex-col gap-1 rounded-lg border p-2">
+          <p className="font-medium">{t("bots.channelLinkYourself")}</p>
+          <p className="text-xs text-muted-foreground">
+            {t("bots.channelLinkYourselfHelp", { platform })}
+          </p>
+          <LinkCodeView issued={linkCode} botId={botId} />
+        </div>
       )}
       {editing && (
         <form onSubmit={onSave} className="flex flex-col gap-2">

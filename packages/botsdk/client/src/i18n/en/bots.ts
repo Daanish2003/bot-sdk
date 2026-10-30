@@ -310,6 +310,9 @@ description: Use this when
   "bots.channelRemoveShort": "Remove",
   "bots.channelRemove": ({ platform }: { platform: string }) => `Remove ${platform}`,
   "bots.channelNeedsAttention": ({ reason }: { reason: string }) => `Needs attention: ${reason}`,
+  "bots.channelLinkYourself": "Now link yourself",
+  "bots.channelLinkYourselfHelp": ({ platform }: { platform: string }) =>
+    `Prove which ${platform} account is yours, so this Bot answers only you.`,
   "bots.reviewAllow": "Allow",
   "bots.reviewDeny": "Deny",
   "bots.ruleProposed": "Rule proposed",

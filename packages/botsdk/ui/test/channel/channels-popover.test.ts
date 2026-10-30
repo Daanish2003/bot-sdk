@@ -28,13 +28,34 @@ const rejected: ChannelAccountRow = {
  * A stand-in for the server's `channels.accounts` procedures over one Telegram row, recording saves
  * and removes; a save of the token `bad` is refused as the platform would.
  */
-function fakeAccountsServer(row: ChannelAccountRow) {
+function fakeAccountsServer(row: ChannelAccountRow, linkedOn: string[] = []) {
   let current = row;
   const saved: unknown[] = [];
   const removed: unknown[] = [];
+  let identityLists = 0;
   const input = z.object({ botId: z.string(), platform: z.string() });
+  const issued = {
+    code: "482913",
+    expiresAt: new Date("2026-10-30T09:10:00.000Z"),
+    links: [
+      {
+        platform: "telegram",
+        botId: "b1",
+        botName: "Ada",
+        handle: "@ada_bot",
+        url: "https://t.me/ada_bot?start=482913",
+      },
+    ],
+  };
   const router = {
     channels: {
+      identities: {
+        list: os.handler(() => {
+          identityLists += 1;
+          return linkedOn.map((platform) => ({ platform, handle: "@ada", linkedAt: at }));
+        }),
+        linkCode: os.handler(() => issued),
+      },
       accounts: {
         list: os.input(z.object({ botId: z.string() })).handler(() => [current]),
         save: os
@@ -60,7 +81,7 @@ function fakeAccountsServer(row: ChannelAccountRow) {
   const fetch = async (request: Request) =>
     (await handler.handle(request, { prefix: "/api/chat/rpc" })).response ??
     new Response(null, { status: 404 });
-  return { fetch, saved, removed };
+  return { fetch, saved, removed, identityLists: () => identityLists };
 }
 
 function openPopover(server: ReturnType<typeof fakeAccountsServer>) {
@@ -146,5 +167,36 @@ describe("ChannelsPopover", () => {
     await telegramRow();
 
     expect(screen.queryByRole("img", { name: "A Channel needs attention" })).toBeNull();
+  });
+
+  it("says Now link yourself with the code and deep link after a save, when not linked there", async () => {
+    openPopover(fakeAccountsServer(none));
+    const row = await telegramRow();
+
+    fireEvent.click(within(row).getByRole("button", { name: "Add" }));
+    fireEvent.change(within(row).getByLabelText("Bot token"), { target: { value: "123:abc" } });
+    fireEvent.click(within(row).getByRole("button", { name: "Save" }));
+
+    expect(await within(row).findByText("Now link yourself")).toBeTruthy();
+    expect(within(row).getByText("482913")).toBeTruthy();
+    expect(
+      within(row)
+        .getByRole("link", { name: /Open Ada on Telegram/ })
+        .getAttribute("href"),
+    ).toBe("https://t.me/ada_bot?start=482913");
+  });
+
+  it("doesn't say it when the user is already linked on the platform", async () => {
+    const server = fakeAccountsServer(none, ["telegram"]);
+    openPopover(server);
+    const row = await telegramRow();
+
+    fireEvent.click(within(row).getByRole("button", { name: "Add" }));
+    fireEvent.change(within(row).getByLabelText("Bot token"), { target: { value: "123:abc" } });
+    fireEvent.click(within(row).getByRole("button", { name: "Save" }));
+
+    expect(await within(row).findByText("@ada_bot")).toBeTruthy();
+    await waitFor(() => expect(server.identityLists()).toBeGreaterThan(0));
+    expect(within(row).queryByText("Now link yourself")).toBeNull();
   });
 });

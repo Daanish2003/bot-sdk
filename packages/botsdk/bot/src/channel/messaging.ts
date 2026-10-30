@@ -4,12 +4,13 @@
  * needs attention until the user saves new credentials; nothing retries it.
  */
 export class CredentialsRejectedError extends Error {
-  constructor(
-    /** A short reason the user is shown, such as "Unauthorized". */
-    readonly reason: string,
-  ) {
+  /** A short reason the user is shown, such as "Unauthorized". */
+  readonly reason: string;
+
+  constructor(reason: string) {
     super(`The platform rejected the Channel account's credentials: ${reason}`);
     this.name = "CredentialsRejectedError";
+    this.reason = reason;
   }
 }
 
@@ -57,7 +58,7 @@ export type MessagingUpdate = {
    */
   sourceId: string;
   /** Who sent it: the platform's user id and a display handle, such as `@ada`. */
-  sender: { id: string; handle: string };
+  sender: { id: string; handle: string; workspace?: string };
   /** The chat it came in, and whether it is a private chat with the platform bot. */
   chat: { id: string; private: boolean };
   /** The text or caption, as the sender wrote it; empty for a file alone or a press. */

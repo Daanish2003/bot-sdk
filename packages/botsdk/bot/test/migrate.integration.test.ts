@@ -137,6 +137,8 @@ const coreTables = [
   "custom_rule",
   "job",
   "job_event",
+  "link_code",
+  "linked_identity",
   "message",
   "model_settings",
   "notification_settings",
@@ -195,6 +197,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261029222631_read_only_routines" },
       { feature: "core", migration: "20261029232026_push_subscription" },
       { feature: "core", migration: "20261030065703_channel_account" },
+      { feature: "core", migration: "20261030075650_linked_identity" },
     ]);
     // Images and PDFs are already compressed, so the bytes are kept out of line uncompressed.
     expect(
@@ -239,6 +242,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261029222631_read_only_routines" },
       { feature: "core", migration: "20261029232026_push_subscription" },
       { feature: "core", migration: "20261030065703_channel_account" },
+      { feature: "core", migration: "20261030075650_linked_identity" },
     ]);
     expect(
       await rows(url, "update botsdk.bot_review set state = 'pending' returning state, expires_at"),
@@ -325,6 +329,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261029222631_read_only_routines" },
       { feature: "core", migration: "20261029232026_push_subscription" },
       { feature: "core", migration: "20261030065703_channel_account" },
+      { feature: "core", migration: "20261030075650_linked_identity" },
       { feature: "notes", migration: "0001_note" },
       { feature: "mcp", migration: "20261026182927_mcp_baseline" },
     ]);
@@ -350,6 +355,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261029222631_read_only_routines" },
       { feature: "core", migration: "20261029232026_push_subscription" },
       { feature: "core", migration: "20261030065703_channel_account" },
+      { feature: "core", migration: "20261030075650_linked_identity" },
       { feature: "notes", migration: "0001_note" },
       { feature: "notes", migration: "0002_note_text" },
     ]);
@@ -479,6 +485,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261029222631_read_only_routines" },
       { feature: "core", migration: "20261029232026_push_subscription" },
       { feature: "core", migration: "20261030065703_channel_account" },
+      { feature: "core", migration: "20261030075650_linked_identity" },
       { feature: "notes", migration: "0001_note" },
     ]);
   });

@@ -11,6 +11,8 @@ import {
   botTurn,
   conversation,
   message,
+  linkCode,
+  linkedIdentity,
   notificationSettings,
   pushSubscription,
   userCredentials,
@@ -56,6 +58,24 @@ async function seedOwner(user: TestUser, deps: TestDeps) {
     endpoint: `https://push.example/send/${user.id}`,
     keys: { p256dh: "B".padEnd(87, "A"), auth: "a".padEnd(22, "A") },
   });
+  await getTestDb()
+    .insert(linkedIdentity)
+    .values({
+      id: uuidv7(),
+      userId: user.id,
+      platform: "telegram",
+      platformUserId: `tg-${user.id}`,
+      handle: "@ada",
+      workspaceId: null,
+      linkedAt: new Date(),
+    });
+  await getTestDb()
+    .insert(linkCode)
+    .values({
+      userId: user.id,
+      codeHash: `hash-${user.id}`,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
   return { client, botId };
 }
 
@@ -87,6 +107,10 @@ async function ownedRows(userId: string) {
     pushSubscriptions: await count(
       db.select().from(pushSubscription).where(eq(pushSubscription.userId, userId)),
     ),
+    linkedIdentities: await count(
+      db.select().from(linkedIdentity).where(eq(linkedIdentity.userId, userId)),
+    ),
+    linkCodes: await count(db.select().from(linkCode).where(eq(linkCode.userId, userId))),
   };
 }
 
@@ -99,6 +123,8 @@ const emptyRows = {
   usage: 0,
   notificationSettings: 0,
   pushSubscriptions: 0,
+  linkedIdentities: 0,
+  linkCodes: 0,
 };
 
 /** A test SDK whose Bots' Turns each send "Hello". */

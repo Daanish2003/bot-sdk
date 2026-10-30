@@ -1,4 +1,5 @@
 import type { ChannelAccountRow } from "@botsdk/client/bot/channel-account";
+import type { LinkCode, LinkedIdentityRow } from "@botsdk/client/bot/linked-identity";
 import { z } from "zod";
 
 import type { BotSdkPlugin, Transaction } from "../plugin";
@@ -51,6 +52,22 @@ export type ChannelAccountsApi = {
   remove: (input: AccountInput) => Promise<void>;
 };
 
+/**
+ * The user's Linked identities and link codes (spec #1044). Every method throws NOT_FOUND when the
+ * slot has no messaging adapter.
+ */
+export type LinkedIdentitiesApi = {
+  /** The user's Linked identities, one per platform. */
+  list: (input: { userId: string }) => Promise<LinkedIdentityRow[]>;
+  /** Unlinks the user's Linked identity on `platform` at once. */
+  unlink: (input: { userId: string; platform: string }) => Promise<void>;
+  /**
+   * Issues a link code (6 digits, valid 10 minutes, single use), replacing the user's live one,
+   * with the deep links of their Bots' active Channel accounts.
+   */
+  linkCode: (input: { userId: string }) => Promise<LinkCode>;
+};
+
 /** The core's Channels (`sdk.channels`, spec #871): the channels slot's adapters. */
 export type ChannelApi = {
   /**
@@ -82,6 +99,8 @@ export type ChannelApi = {
   pushKey: () => string | null;
   /** The Channel accounts on the messaging Channels (spec #1044). */
   accounts: ChannelAccountsApi;
+  /** The user's Linked identities on the messaging Channels (spec #1044). */
+  identities: LinkedIdentitiesApi;
 };
 
 /** How the Host sets up the Channels. */

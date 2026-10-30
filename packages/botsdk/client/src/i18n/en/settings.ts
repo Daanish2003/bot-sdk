@@ -88,4 +88,20 @@ export const settingsMessages = {
   "settings.pushFailed": "Couldn't change push on this device",
   "settings.pushSaveFailed":
     "Couldn't save this device for push. Turn push off and on again to retry.",
+  "settings.linkedIdentities": "Linked identities",
+  "settings.linkedIdentitiesHelp":
+    "Messaging accounts you proved are yours. Your Bots answer only these, and ignore everyone else.",
+  "settings.linkedIdentityLine": ({ platform, handle }: { platform: string; handle: string }) =>
+    `${platform}: ${handle}`,
+  "settings.noLinkedIdentities": "No accounts linked yet.",
+  "settings.unlinkIdentity": "Unlink",
+  "settings.unlinkIdentityLabel": ({ platform }: { platform: string }) => `Unlink ${platform}`,
+  "settings.unlinkFailed": "Couldn't unlink that account",
+  "settings.getLinkCode": "Get a link code",
+  "settings.linkCodeHelp":
+    "Send this code to any of your Bots, or open a link below. It works once.",
+  "settings.linkCodeExpires": ({ time }: { time: string }) => `Expires at ${time}`,
+  "settings.linkCodeOpen": ({ bot, platform }: { bot: string; platform: string }) =>
+    `Open ${bot} on ${platform}`,
+  "settings.linkCodeNoBots": "Add a Channel to one of your Bots to get a link.",
 };

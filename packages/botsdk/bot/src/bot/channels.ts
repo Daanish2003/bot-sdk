@@ -1,5 +1,6 @@
 import { channelAccountInput, saveChannelAccountInput } from "@botsdk/client/bot/channel-account";
 import { botInput } from "@botsdk/client/bot/contract";
+import { unlinkIdentityInput } from "@botsdk/client/bot/linked-identity";
 
 import type { BotSdkContext, Route } from "../plugin";
 import { parseInput } from "../rpc-error";
@@ -16,12 +17,17 @@ import { channelRouter } from "./routers/channel";
 import { accountsChanged, channelListeners } from "./channel-listeners";
 import {
   channelAccountIdsOf,
+  channelUserDelete,
   deliverIn,
+  exportChannelData,
+  issueLinkCode,
   listChannelAccounts,
+  listLinkedIdentities,
   removeChannelAccount,
   rotateChannelAccountKeys,
   saveChannelAccount,
   sendDelivery,
+  unlinkIdentity,
 } from "./conversation";
 import { receiveEmail } from "./turn";
 
@@ -80,6 +86,12 @@ export function createChannels(
         await accountsChanged(sdk, await removeChannelAccount(sdk, messaging, input));
       },
     },
+    identities: {
+      list: ({ userId }) => listLinkedIdentities(sdk, messaging, userId),
+      unlink: ({ userId, ...rest }) =>
+        unlinkIdentity(sdk, messaging, { userId, ...parseInput(unlinkIdentityInput, rest) }),
+      linkCode: ({ userId }) => issueLinkCode(sdk, messaging, userId),
+    },
   };
 }
 
@@ -114,6 +126,8 @@ export function channel(options: ChannelOptions): ChannelPlugin {
       await listeners?.stop();
     },
     rotateKeys: (sdk) => rotateChannelAccountKeys(sdk),
+    deleteUser: channelUserDelete,
+    exportUser: (_sdk, userId, tx) => exportChannelData(tx, userId),
     databaseHooks: {
       conversation: {
         delete: {
@@ -128,7 +142,13 @@ export function channel(options: ChannelOptions): ChannelPlugin {
 
 /** No Channel besides web (no channels slot): only the email inbound route, which answers 404. */
 export function noChannels(): ChannelPlugin {
-  return { id: "channel", routes: emailInboundRoutes([]) };
+  return {
+    id: "channel",
+    routes: emailInboundRoutes([]),
+    // Rows a Host left behind when it dropped its adapters still go with the user.
+    deleteUser: channelUserDelete,
+    exportUser: (_sdk, userId, tx) => exportChannelData(tx, userId),
+  };
 }
 
 /**

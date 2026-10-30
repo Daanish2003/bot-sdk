@@ -8,6 +8,7 @@ import {
   saveChannelAccountInput,
 } from "./channel-account";
 import type { BotCheckIn } from "./check-in";
+import { type LinkCode, type LinkedIdentityRow, unlinkIdentityInput } from "./linked-identity";
 import { maxChoiceOptionLength, maxChoiceOtherLength } from "./choice";
 import type { DemonstrationState, DemonstrationStep } from "./demonstration";
 import type { BotHelper } from "./helper";
@@ -466,6 +467,17 @@ export const channelsContract = {
     save: oc.input(saveChannelAccountInput).output(type<ChannelAccountRow>()),
     /** Removes the Bot's Channel account on a platform, and its listener stops. */
     remove: oc.input(channelAccountInput).output(type<void>()),
+  },
+  identities: {
+    /** The user's Linked identities, one per platform. */
+    list: oc.output(type<LinkedIdentityRow[]>()),
+    /** Unlinks the user's Linked identity on a platform at once; messages from it are dropped. */
+    unlink: oc.input(unlinkIdentityInput).output(type<void>()),
+    /**
+     * Issues a link code (6 digits, valid 10 minutes, single use) that replaces the user's live
+     * one, with the deep links of the user's Bots' Channel accounts.
+     */
+    linkCode: oc.output(type<LinkCode>()),
   },
 };
 

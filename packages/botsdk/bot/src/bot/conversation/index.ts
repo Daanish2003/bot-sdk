@@ -10,7 +10,14 @@ export {
   rotateChannelAccountKeys,
   saveChannelAccount,
 } from "./channel-accounts";
+export { channelUserDelete, exportChannelData } from "./channel-user-data";
 export { emailAddressOf, rotateEmailAddress } from "./email-address";
+export {
+  issueLinkCode,
+  linkFromCode,
+  listLinkedIdentities,
+  unlinkIdentity,
+} from "./linked-identities";
 export {
   deliverIn,
   deliveryJob,

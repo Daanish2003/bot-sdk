@@ -36,6 +36,17 @@ export const channelRouter = os.channels.router({
       }),
     })),
   },
+  identities: {
+    list: os.channels.identities.list.handler(({ context }) =>
+      context.sdk.channels.identities.list({ userId: context.user.id }),
+    ),
+    unlink: os.channels.identities.unlink.handler(({ context, input }) =>
+      context.sdk.channels.identities.unlink({ ...input, userId: context.user.id }),
+    ),
+    linkCode: os.channels.identities.linkCode.handler(({ context }) =>
+      context.sdk.channels.identities.linkCode({ userId: context.user.id }),
+    ),
+  },
   accounts: {
     list: os.channels.accounts.list.handler(({ context, input }) =>
       context.sdk.channels.accounts.list({ ...input, userId: context.user.id }),

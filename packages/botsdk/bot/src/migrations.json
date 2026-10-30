@@ -30,5 +30,9 @@
   {
     "name": "20261030065703_channel_account",
     "sql": "CREATE TYPE \"botsdk\".\"channel_account_status\" AS ENUM('active', 'needs_attention');--> statement-breakpoint\nCREATE TABLE \"botsdk\".\"channel_account\" (\n\t\"id\" uuid PRIMARY KEY,\n\t\"bot_id\" uuid NOT NULL,\n\t\"platform\" text NOT NULL,\n\t\"platform_bot_id\" text NOT NULL,\n\t\"handle\" text NOT NULL,\n\t\"encrypted\" text NOT NULL,\n\t\"status\" \"botsdk\".\"channel_account_status\" NOT NULL,\n\t\"reason\" text,\n\t\"created_at\" timestamp NOT NULL,\n\t\"updated_at\" timestamp NOT NULL,\n\tCONSTRAINT \"channel_account_bot_platform_unique\" UNIQUE(\"bot_id\",\"platform\"),\n\tCONSTRAINT \"channel_account_platform_bot_unique\" UNIQUE(\"platform\",\"platform_bot_id\"),\n\tCONSTRAINT \"channel_account_reason_check\" CHECK ((\"status\" = 'needs_attention') = (\"reason\" is not null))\n);\n--> statement-breakpoint\nALTER TABLE \"botsdk\".\"channel_account\" ADD CONSTRAINT \"channel_account_bot_id_bot_id_fkey\" FOREIGN KEY (\"bot_id\") REFERENCES \"botsdk\".\"bot\"(\"id\") ON DELETE CASCADE;"
+  },
+  {
+    "name": "20261030075650_linked_identity",
+    "sql": "CREATE TABLE \"botsdk\".\"link_code\" (\n\t\"user_id\" text PRIMARY KEY,\n\t\"code_hash\" text NOT NULL CONSTRAINT \"link_code_hash_unique\" UNIQUE,\n\t\"expires_at\" timestamp NOT NULL\n);\n--> statement-breakpoint\nCREATE TABLE \"botsdk\".\"linked_identity\" (\n\t\"id\" uuid PRIMARY KEY,\n\t\"user_id\" text NOT NULL,\n\t\"platform\" text NOT NULL,\n\t\"platform_user_id\" text NOT NULL,\n\t\"handle\" text NOT NULL,\n\t\"workspace_id\" text,\n\t\"linked_at\" timestamp NOT NULL,\n\tCONSTRAINT \"linked_identity_user_platform_unique\" UNIQUE(\"user_id\",\"platform\"),\n\tCONSTRAINT \"linked_identity_platform_account_unique\" UNIQUE NULLS NOT DISTINCT(\"platform\",\"workspace_id\",\"platform_user_id\")\n);\n"
   }
 ]

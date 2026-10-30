@@ -163,7 +163,7 @@ export function channelListeners(
         await adapter.listen!(account, {
           fetch: sdk.fetch,
           signal,
-          receive: (update) => receiveMessaging(sdk, account, update),
+          receive: (update) => receiveMessaging(sdk, adapter, account, update),
         });
         if (signal.aborted) return;
         throw new Error("The listener ended by itself");

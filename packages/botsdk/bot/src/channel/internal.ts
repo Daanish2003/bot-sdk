@@ -37,6 +37,7 @@ export {
   type ChannelApi,
   type ChannelOptions,
   type ChannelPlugin,
+  type LinkedIdentitiesApi,
   deliveryPayload,
   type DeliveryPayload,
 } from "./plugin";
