@@ -1,9 +1,11 @@
 import type { BotChange } from "@botsdk/client/bot/changes";
+import type { ChoiceInput } from "@botsdk/client/bot/choice";
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
 import { type BotSdkOrpc, useChatAdapter } from "../provider";
 import { inOrder, safetyFetchMs } from "./bot-sync";
+import { useItemActions } from "./turn-list";
 
 /*
  * A Room (spec #1055): the thread the user shares with several of their Bots, read with
@@ -75,6 +77,10 @@ async function fetchOnce(queryClient: QueryClient, orpc: BotSdkOrpc, conversatio
     for (const change of changes) {
       // A member paused or resumed, or a Turn in the Room started or ended: its members' status.
       if (change.kind === "bot" || change.kind === "turn") reread = true;
+      // An Approval asked or answered: the members' reviews are read afresh.
+      if (change.kind === "review") {
+        void queryClient.invalidateQueries({ queryKey: orpc.reviews.list.key() });
+      }
       if (change.kind !== "message" || !change.data) continue;
       const data = change.data;
       messages = [...messages.filter((shown) => shown.id !== data.id), data];
@@ -169,11 +175,45 @@ export function useRoom(conversationId: string) {
     }),
   );
 
+  const stopping = useMutation(
+    orpc.rooms.stop.mutationOptions({
+      onSettled: () => syncRoom(queryClient, orpc, conversationId),
+    }),
+  );
+
   return {
     room: thread.data?.room,
     messages: thread.data?.messages ?? [],
     error: thread.error,
     send: (text: string) => sending.mutateAsync({ conversationId, text }),
     sending: sending.isPending,
+    /** A member works or has a Message queued: the composer's Stop ends them all. */
+    working: (thread.data?.room.members ?? []).some(
+      (member) => member.status === "working" || member.status === "queued",
+    ),
+    /** Ends every Turn running in the Room and drops its waiting handoffs. */
+    stop: () => stopping.mutateAsync({ conversationId }),
+    stopping: stopping.isPending,
+  };
+}
+
+/**
+ * The user's answers to the choices the Room's Bots asked: `answer` calls `bots.choose` for Message
+ * `messageId`, which wakes only the Bot that wrote it, then reads the Room afresh. `acting` holds the
+ * Messages with a call in flight.
+ */
+export function useRoomChoices(conversationId: string) {
+  const { orpc } = useChatAdapter();
+  const queryClient = useQueryClient();
+  const { acting, act } = useItemActions(async () => {
+    await queryClient.invalidateQueries({
+      queryKey: orpc.rooms.get.queryKey({ input: { conversationId } }),
+    });
+  });
+  return {
+    acting,
+    answer: async (botId: string, messageId: string, answer: ChoiceInput) => {
+      await act(messageId, () => orpc.bots.choose.call({ botId, messageId, answer }));
+    },
   };
 }

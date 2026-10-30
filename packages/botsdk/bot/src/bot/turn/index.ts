@@ -17,5 +17,6 @@ export {
   removeRoomMember,
   renameRoom,
   setRoomLead,
+  stopRoom,
 } from "./room-members";
 export { sendToBot, sendToRoom, stopBot, stopUserTurns } from "./turn";

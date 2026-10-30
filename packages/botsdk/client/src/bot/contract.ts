@@ -365,6 +365,8 @@ const rooms = {
   setLead: oc.input(roomMemberInput).output(type<void>()),
   /** Deletes the Room and its Messages; the Bots keep their Memory. */
   delete: oc.input(roomInput).output(type<void>()),
+  /** Ends every Turn running in the Room and drops its waiting handoffs; Helpers and 1:1 Turns go on. */
+  stop: oc.input(roomInput).output(type<void>()),
 };
 
 /** The Routines of the user's Bots (#538). Approving or declining one never wakes the Bot. */

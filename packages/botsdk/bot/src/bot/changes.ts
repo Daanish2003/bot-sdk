@@ -2,7 +2,7 @@ import type { BotChange, BotChangeKind, BotChanges } from "@botsdk/client/bot/ch
 import { and, eq, inArray } from "drizzle-orm";
 
 import { changesSince } from "../chat/change-log";
-import { bot, botReview, botSecret, botTurn, message } from "../storage";
+import { bot, botHelper, botReview, botSecret, botTurn, message } from "../storage";
 import type { Database } from "../storage";
 import type { BotSdkContext } from "../plugin";
 import { rpcError } from "../rpc-error";
@@ -75,9 +75,24 @@ async function threadChanges(
 /** Whose thread it is: a Bot's 1:1 Conversation, or a Room (spec #1055), which has no `botId`. */
 type ThreadOwner = { userId: string; botId?: string; conversationId: string };
 
+/** The Helpers `helperIds` of a Bot's thread, or, in a Room, of its members (the user's Bots). */
+async function helpersOf(db: Database, owner: ThreadOwner, helperIds: string[]) {
+  const botIds = owner.botId
+    ? [owner.botId]
+    : (
+        await db
+          .selectDistinct({ id: botHelper.botId })
+          .from(botHelper)
+          .innerJoin(bot, eq(bot.id, botHelper.botId))
+          .where(and(eq(bot.userId, owner.userId), inArray(botHelper.id, helperIds)))
+      ).map((row) => row.id);
+  return (await Promise.all(botIds.map((id) => listHelpers(db, id, helperIds)))).flat();
+}
+
 /**
  * What each of `changes` points at, keyed `<kind>:<refId>`, read once per kind. A Room's are its
- * Messages, its Turns and its members' Bots so far; the per-Bot kinds read nothing there yet.
+ * Messages, its Turns, its members' Bots, and the Approvals and Helpers asked there; the other
+ * per-Bot kinds read nothing there yet.
  */
 async function changeData(
   db: Database,
@@ -144,16 +159,20 @@ async function changeData(
     botId &&
       idsOf(changes, "routine").length > 0 &&
       listRoutines(db, botId).then((rows) => put("routine", rows)),
-    botId &&
-      reviewIds.length > 0 &&
+    reviewIds.length > 0 &&
       db
         .select(reviewFields)
         .from(botReview)
-        .where(and(eq(botReview.botId, botId), inArray(botReview.id, reviewIds)))
+        .innerJoin(bot, eq(bot.id, botReview.botId))
+        // A Room's are its members' Bots', the user's: its log holds only what was asked there.
+        .where(
+          and(
+            botId ? eq(botReview.botId, botId) : eq(bot.userId, owner.userId),
+            inArray(botReview.id, reviewIds),
+          ),
+        )
         .then((rows) => put("review", rows)),
-    botId &&
-      helperIds.length > 0 &&
-      listHelpers(db, botId, helperIds).then((rows) => put("helper", rows)),
+    helperIds.length > 0 && helpersOf(db, owner, helperIds).then((rows) => put("helper", rows)),
     botId &&
       idsOf(changes, "check_in").length > 0 &&
       listCheckIns(db, botId).then((rows) => put("check_in", rows)),

@@ -29,12 +29,15 @@ export function RoomComposer({
   draft,
   setDraft,
   onSend,
+  onStop,
   disabled = false,
 }: {
   members: RoomMember[];
   draft: string;
   setDraft: (draft: string) => void;
   onSend: () => void;
+  /** Ends every Turn running in the Room; the Stop button shows while one is given. */
+  onStop?: () => void;
   /** No sending, as in a Room left with one Bot. */
   disabled?: boolean;
 }) {
@@ -153,6 +156,11 @@ export function RoomComposer({
         rows={1}
         className="max-h-40 min-h-10 resize-none"
       />
+      {onStop && (
+        <Button type="button" variant="outline" onClick={onStop}>
+          ■ {t("bots.stop")}
+        </Button>
+      )}
       <Button
         type="submit"
         size="icon"

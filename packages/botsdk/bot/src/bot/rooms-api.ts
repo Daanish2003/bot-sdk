@@ -17,6 +17,7 @@ import {
   renameRoom,
   sendToRoom,
   setRoomLead,
+  stopRoom,
 } from "./turn";
 
 /**
@@ -77,6 +78,13 @@ export function roomsApi(sdk: BotSdkContext) {
     /** Makes a member the lead. */
     setLead: async ({ userId, ...rest }: WithUser<typeof roomMemberInput>) =>
       setRoomLead(sdk, userId, parseInput(roomMemberInput, rest)),
+
+    /**
+     * Stops the user's Room: every Turn running in it ends, and the handoffs waiting in it are
+     * skipped as cancelled. The Bots' Helpers and their 1:1 Turns go on.
+     */
+    stop: async ({ userId, ...rest }: WithUser<typeof roomInput>) =>
+      stopRoom(sdk, userId, parseInput(roomInput, rest).conversationId),
 
     /** Deletes the user's Room and its Messages; the Bots keep their Memory. */
     delete: async ({ userId, ...rest }: WithUser<typeof roomInput>) =>

@@ -233,6 +233,9 @@ const rooms = os.rooms.router({
   delete: os.rooms.delete.handler(({ context, input }) =>
     context.sdk.rooms.delete({ ...input, userId: context.user.id }),
   ),
+  stop: os.rooms.stop.handler(({ context, input }) =>
+    context.sdk.rooms.stop({ ...input, userId: context.user.id }),
+  ),
 });
 
 /** The `bot` plugin's routers, one per namespace, served under `<basePath>/rpc/<namespace>`. */
