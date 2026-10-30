@@ -425,7 +425,6 @@ function coreToolsOf(
       }
       // The Message commits with its Checkpoint, so it is sent once across a crash, and so are its
       // handoffs to the Room's other Bots (spec #1055).
-      let handedOff = false;
       const result = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
         if (!text.trim()) return { error: emptyTextError };
         const parts = control
@@ -437,14 +436,12 @@ function coreToolsOf(
           createdAt: deps.clock(),
           turnId: turn.id,
         });
-        if (handoff) {
-          await handOff(deps, tx, turn, messageId, handoff);
-          handedOff = true;
-        }
+        if (handoff) await handOff(deps, tx, turn, messageId, handoff);
         return { sent: true };
       });
       if ("sent" in result) {
-        if (handedOff) deps.runner.wake();
+        // A handoff may have started another Bot's Turn, also when this Checkpoint was replayed.
+        deps.runner.wake();
         if (last) onLastMessage();
         await hintChanged(deps, turn.conversationId);
       }

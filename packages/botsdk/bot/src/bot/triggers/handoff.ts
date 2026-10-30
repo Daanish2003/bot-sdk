@@ -1,13 +1,13 @@
 import { type Handoff, hopLimit, mentionedMembers } from "@botsdk/client/bot/mentions";
 import { eq, max } from "drizzle-orm";
 
-import { botTrigger } from "../../storage";
+import { bot, botTrigger } from "../../storage";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { roomOf } from "../conversation";
 import { receive, recordSkipChange } from "./router";
 
 /** The Turn a Bot's Room Message comes from. */
-type SendingTurn = { id: string; botId: string; conversationId: string };
+type SendingTurn = { id: string; botId: string; userId: string; conversationId: string };
 
 /**
  * The handoff a Message the Bot sends in Turn `turn` makes (spec #1055): the other members of the
@@ -20,6 +20,8 @@ export async function handoffOf(
   turn: SendingTurn,
   text: string,
 ): Promise<Handoff | undefined> {
+  // A Message with no @ mentions no one, so it skips the Room's read.
+  if (!text.includes("@")) return undefined;
   const room = await roomOf(tx, turn.conversationId);
   if (!room) return undefined;
   const to = mentionedMembers(text, room.members).filter((botId) => botId !== turn.botId);
@@ -34,8 +36,9 @@ export async function handoffOf(
 /**
  * Hands Message `messageId` on to each Bot its `handoff` names, in `tx`, as an `agent` Trigger
  * carrying the Message. It never interrupts: a Bot running a Turn in the Room takes it in its next
- * one. A hop past `hopLimit` is kept as skipped `hop_limit` and never runs. Call the runner's
- * `wake()` once `tx` has committed.
+ * one. A hop past `hopLimit` is kept as skipped `hop_limit` and never runs. As a Check-in's fire
+ * does, it wakes no Bot whose Model the user can't use, or once their Quota is spent. Call the
+ * runner's `wake()` once `tx` has committed.
  */
 export async function handOff(
   deps: BotSdkContext,
@@ -61,6 +64,9 @@ export async function handOff(
       await recordSkipChange(tx, { botId, conversationId: turn.conversationId }, trigger, now);
       continue;
     }
+    const [target] = await tx.select({ model: bot.model }).from(bot).where(eq(bot.id, botId));
+    const call = target && (await deps.models.resolveModelCall(turn.userId, target.model));
+    if (!call || !(await call.meter.mayRun()).ok) continue;
     await receive(deps, tx, trigger);
   }
 }

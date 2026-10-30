@@ -178,6 +178,7 @@ describe("the Tasks popover", () => {
       trigger({ id: "w3", source: "check_in", channel: "schedule", label: "Has Acme replied?" }),
       trigger({ id: "w4", source: "helper", channel: "helper", label: "Count the files." }),
       trigger({ id: "w5" }),
+      trigger({ id: "w6", source: "agent", channel: "room" }),
     ];
     mount(tasks);
 
@@ -192,10 +193,11 @@ describe("the Tasks popover", () => {
       expect.stringContaining("Check-in: Has Acme replied?"),
       expect.stringContaining("Report from Count the files."),
       expect.stringContaining("Your Message"),
+      expect.stringContaining("Handoff from another Bot"),
     ]);
     expect(
       items.map((item) => within(item).queryByRole("button", { name: /^Skip/ }) !== null),
-    ).toEqual([true, true, true, false, false]);
+    ).toEqual([true, true, true, false, false, false]);
   });
 
   it("skips a waiting Trigger and drops it from Scheduled", async () => {

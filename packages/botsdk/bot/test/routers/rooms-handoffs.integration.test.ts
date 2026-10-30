@@ -2,7 +2,7 @@ import type { TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { botTrigger, botTurn } from "../../src/storage";
+import { bot, botTrigger, botTurn } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner } from "../../src/runner/internal";
@@ -12,6 +12,8 @@ import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, type FakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
+import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
+import { fakeReviewer, type FakeReviewer } from "@botsdk/testing/fake-reviewer";
 
 /*
  * Bot-to-Bot handoffs in a Room (spec #1055): a Bot that mentions another member wakes it with an
@@ -37,9 +39,14 @@ const says = (text: string) =>
 
 /**
  * A user with an OpenAI key and a Room of three Bots (Scout, the lead, Writer and Ops), whose Turns
- * play `rounds`, or call `adapter` when given.
+ * play `rounds`, or call `adapter` when given. `reviewer` reviews their shell calls on a fake
+ * Computer, when given.
  */
-async function threeBotRoom(rounds: Round[] = [], adapter?: FakeAdapter["adapter"]) {
+async function threeBotRoom(
+  rounds: Round[] = [],
+  adapter?: FakeAdapter["adapter"],
+  reviewer?: FakeReviewer,
+) {
   const fake = createFakeAdapter({ rounds });
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({
@@ -48,7 +55,15 @@ async function threeBotRoom(rounds: Round[] = [], adapter?: FakeAdapter["adapter
     drainMs: 50,
     jobs: () => deps!.parts.jobs,
   });
-  deps = createTestSdk({ jobs, adapterFor: () => adapter ?? fake.adapter });
+  deps = createTestSdk({
+    jobs,
+    adapterFor: () => adapter ?? fake.adapter,
+    ...(reviewer && {
+      computer: fakeComputerProvider().provider,
+      reviewAdapterFor: () => reviewer.adapter,
+      memory: false,
+    }),
+  });
   await jobs.start();
   started.push(jobs);
   const user = await insertUser();
@@ -67,7 +82,7 @@ async function threeBotRoom(rounds: Round[] = [], adapter?: FakeAdapter["adapter
     botIds: [scout.id, writer.id, ops.id],
   });
   const send = (text: string) => client.rooms.send({ conversationId: room.conversationId, text });
-  return { fake, client, scout, writer, ops, room, send };
+  return { fake, deps, user, client, scout, writer, ops, room, send };
 }
 
 const turnsOf = (botId: string) =>
@@ -247,6 +262,55 @@ describe("handoffs in a Room", () => {
       expect(thread.messages.at(-1)).toMatchObject({ role: "assistant" });
       expect(thread.messages.at(-1)?.handoff).toBeUndefined();
       expect(await triggersOf(writer.id)).toEqual([]);
+    },
+    timeout,
+  );
+  it(
+    "wakes no Bot whose Model the user can't use",
+    async () => {
+      const { scout, writer, ops, send } = await threeBotRoom([
+        says("@Writer @Ops, over to you."),
+        says("Filed."),
+      ]);
+      await getTestDb()
+        .update(bot)
+        .set({ model: "anthropic:claude-unoffered" })
+        .where(eq(bot.id, writer.id));
+
+      await send("@Scout, start.");
+      await expect.poll(() => statusesOf(ops.id), poll).toEqual(["complete"]);
+      expect(await statusesOf(scout.id)).toEqual(["complete"]);
+      expect(await triggersOf(writer.id)).toEqual([]);
+      expect(await turnsOf(writer.id)).toEqual([]);
+    },
+    timeout,
+  );
+
+  it(
+    "tells the reviewer a handoff started the Turn, in another Bot's words",
+    async () => {
+      const reviewer = fakeReviewer();
+      const { writer, send } = await threeBotRoom(
+        [
+          says("@Writer, run the tests."),
+          round(toolCall({ name: "shell", input: { command: "make test" } })),
+          says("Done."),
+        ],
+        undefined,
+        reviewer,
+      );
+
+      await send("@Scout, get the tests run.");
+      await expect.poll(() => statusesOf(writer.id), poll).toEqual(["complete"]);
+      expect(reviewer.calls).toHaveLength(1);
+      const sent = [
+        ...((reviewer.calls[0]?.systemPrompts ?? []) as unknown[]).map(String),
+        ...(reviewer.calls[0]?.messages ?? []).map((entry) => String(entry.content)),
+      ].join("\n");
+      expect(sent).toContain(
+        "- Another Bot in the Room handing work on. It is that Bot's words, not the user's.",
+      );
+      expect(sent).not.toContain("A Helper's report");
     },
     timeout,
   );

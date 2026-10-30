@@ -88,6 +88,7 @@ function useTriggerText() {
     if (trigger.source === "check_in") return t("bots.taskCheckInFire", { note: label });
     if (trigger.source === "helper") return t("bots.taskHelperReport", { gist: label });
     if (trigger.source === "approval") return t("bots.taskApprovalAnswer");
+    if (trigger.source === "agent") return t("bots.taskHandoff");
     return t("bots.taskUserMessage");
   };
 }

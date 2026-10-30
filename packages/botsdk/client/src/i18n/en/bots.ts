@@ -116,6 +116,7 @@ export const botsMessages = {
   "bots.taskCheckInFire": ({ note }: { note: string }) => `Check-in: ${note}`,
   "bots.taskHelperReport": ({ gist }: { gist: string }) => `Report from ${gist}`,
   "bots.taskApprovalAnswer": "Answer to an Approval",
+  "bots.taskHandoff": "Handoff from another Bot",
   "bots.taskSkipped": "skipped",
   "bots.skipTrigger": "Skip",
   "bots.skipTriggerNamed": ({ task }: { task: string }) => `Skip ${task}`,
