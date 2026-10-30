@@ -14,6 +14,7 @@
     "./bot/pause": "./src/bot/pause.ts",
     "./bot/reactions": "./src/bot/reactions.ts",
     "./bot/reviews": "./src/bot/reviews.ts",
+    "./bot/rooms": "./src/bot/rooms.ts",
     "./bot/routines": "./src/bot/routines.ts",
     "./bot/rules": "./src/bot/rules.ts",
     "./bot/secrets": "./src/bot/secrets.ts",

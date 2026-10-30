@@ -51,6 +51,15 @@ export {
 } from "./image-refs";
 export { setMessagingPlatforms, shownButtonsOf } from "./messaging-delivery";
 export { noResetAfter } from "./reset-mark";
+export {
+  createRoom,
+  findRoom,
+  isRoomOf,
+  listRooms,
+  roomOf,
+  type TurnRoom,
+  userTimeZone,
+} from "./rooms";
 export { screenshotBlobKey, screenshotsConversationDelete, storeScreenshot } from "./screenshots";
 export {
   appendBotMessage,

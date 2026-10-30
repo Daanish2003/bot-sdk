@@ -15,6 +15,7 @@ import {
   botHelperType,
 } from "./bot-helper";
 import { botPromptStart } from "./bot-prompt-start";
+import { botRoomMember } from "./bot-room-member";
 import { botReview, botReviewState, botReviewVerdict } from "./bot-review";
 import { botSecret } from "./bot-secret";
 import { botSummary, botSummaryKind } from "./bot-summary";
@@ -32,6 +33,7 @@ export * from "./bot-demonstration";
 export * from "./bot-helper";
 export * from "./bot-prompt-start";
 export * from "./bot-review";
+export * from "./bot-room-member";
 export * from "./bot-routine";
 export * from "./bot-secret";
 export * from "./bot-summary";
@@ -42,7 +44,7 @@ export * from "./custom-rule";
 export * from "./notification-settings";
 export * from "./push-subscription";
 
-/** The `bot` plugin's schema module: its `bot`, `bot_turn`, `bot_prompt_start`, `bot_summary`, `bot_trigger`, `bot_routine`, `bot_check_in`, `bot_helper`, `bot_helper_message`, `bot_helper_screenshot`, `bot_review`, `secret`, `bot_demonstration`, `bot_demonstration_event`, `bot_upload`, `custom_rule`, `notification_settings` and `push_subscription` tables. */
+/** The `bot` plugin's schema module: its `bot`, `bot_turn`, `bot_prompt_start`, `bot_summary`, `bot_trigger`, `bot_routine`, `bot_check_in`, `bot_helper`, `bot_helper_message`, `bot_helper_screenshot`, `bot_review`, `bot_room_member`, `secret`, `bot_demonstration`, `bot_demonstration_event`, `bot_upload`, `custom_rule`, `notification_settings` and `push_subscription` tables. */
 export const botSchema = {
   tables: {
     bot,
@@ -56,6 +58,7 @@ export const botSchema = {
     botHelperMessage,
     botHelperScreenshot,
     botReview,
+    botRoomMember,
     botSecret,
     botDemonstration,
     botDemonstrationEvent,

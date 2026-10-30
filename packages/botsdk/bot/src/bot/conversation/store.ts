@@ -194,7 +194,8 @@ export async function appendBotMessage(
 
 /** A Message row as the client sees it, with its Rich control when it has one. */
 export function toBotMessage(
-  row: Pick<MessageRow, "id" | "role" | "parts" | "createdAt">,
+  row: Pick<MessageRow, "id" | "role" | "parts" | "createdAt"> &
+    Partial<Pick<MessageRow, "authorBotId">>,
 ): BotMessage {
   const control = controlOf(row.parts);
   const reactions = reactionsOf(row.parts);
@@ -209,6 +210,7 @@ export function toBotMessage(
     ...(reactions && { reactions }),
     ...(channel && { channel }),
     ...(urgent && { urgent }),
+    ...(row.authorBotId && { authorBotId: row.authorBotId }),
   };
 }
 
@@ -426,6 +428,7 @@ export async function botMessages(
       role: message.role,
       parts: message.parts,
       createdAt: message.createdAt,
+      authorBotId: message.authorBotId,
     })
     .from(message)
     .where(

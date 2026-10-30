@@ -207,10 +207,24 @@ const computer = os.computer.router({
   ),
 });
 
+const rooms = os.rooms.router({
+  list: os.rooms.list.handler(({ context }) => context.sdk.rooms.list({ userId: context.user.id })),
+  get: os.rooms.get.handler(({ context, input }) =>
+    context.sdk.rooms.get({ ...input, userId: context.user.id }),
+  ),
+  create: os.rooms.create.handler(({ context, input }) =>
+    context.sdk.rooms.create({ ...input, userId: context.user.id }),
+  ),
+  send: os.rooms.send.handler(({ context, input }) =>
+    context.sdk.rooms.send({ ...input, userId: context.user.id }),
+  ),
+});
+
 /** The `bot` plugin's routers, one per namespace, served under `<basePath>/rpc/<namespace>`. */
 export const botPluginRouter = {
   bots,
   conversations,
+  rooms,
   routines,
   checkIns,
   triggers,

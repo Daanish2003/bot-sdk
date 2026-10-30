@@ -32,6 +32,7 @@ import { memoryRuntime, type BotSdkRuntime } from "./runtime";
 import { usersApi, type UserExport, type UsersApi } from "./user-data";
 import { bot, botJobs, type BotApi } from "./bot/plugin";
 import type { ConversationsApi } from "./bot/conversations-api";
+import type { RoomsApi } from "./bot/rooms-api";
 import type { ScreensApi } from "./bot/screens-api";
 import type { SecretsApi } from "./bot/secrets-api";
 import type { CheckInsApi, RoutinesApi } from "./bot/routines-api";
@@ -186,6 +187,11 @@ export type BotSdk = {
    * for what changed since a cursor.
    */
   conversations: ConversationsApi;
+  /**
+   * The core's Rooms (spec #1055): `list`, `get`, `create` and `send` of the user's Rooms, each a
+   * Conversation they share with two or more of their Bots.
+   */
+  rooms: RoomsApi;
   /** The core's Secrets (spec #873): `save`, `list` and `delete`. The value never comes out. */
   secrets: SecretsApi;
   /**
@@ -277,6 +283,7 @@ export type GivenContext = Partial<
     | "computer"
     | "bots"
     | "conversations"
+    | "rooms"
     | "secrets"
     | "screens"
     | "routines"
@@ -414,6 +421,7 @@ export function buildBotSdk(
     models: sdk.models,
     bots: sdk.bots,
     conversations: sdk.conversations,
+    rooms: sdk.rooms,
     secrets: sdk.secrets,
     computer: sdk.screens,
     routines: sdk.routines,
@@ -542,6 +550,7 @@ function buildContext(
     // Set by the Bots' init, which the core always runs.
     bots: botsUnconfigured,
     conversations: conversationsUnconfigured,
+    rooms: botsStub<RoomsApi>({ list: true, get: true, create: true, send: true }),
     secrets: botsStub<SecretsApi>({ save: true, list: true, delete: true }),
     screens: botsStub<ScreensApi>({ view: true, control: true }),
     routines: botsStub<RoutinesApi>({

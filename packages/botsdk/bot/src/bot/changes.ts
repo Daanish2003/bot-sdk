@@ -10,7 +10,7 @@ import { listCheckIns, listRoutines } from "./routines";
 import { listHelpers } from "./helpers";
 import { listRules, reviewFields } from "./safety";
 import { botSummaries } from "./context";
-import { findBot, toBotMessage } from "./conversation";
+import { findBot, isRoomOf, toBotMessage } from "./conversation";
 
 /** The ids of `changes` of `kind`, once each. */
 const idsOf = (changes: { kind: string; refId: string }[], kind: BotChangeKind) => [
@@ -18,28 +18,30 @@ const idsOf = (changes: { kind: string; refId: string }[], kind: BotChangeKind) 
 ];
 
 /**
- * The Bot that Conversation `conversationId` belongs to, when it is one of the user's Bots'.
- * Another user's Conversation, or one that isn't a Bot's, is not found.
+ * The Bot that Conversation `conversationId` belongs to, when it is one of the user's Bots', or no
+ * Bot when it is one of the user's Rooms (spec #1055). Another user's Conversation, or one that is
+ * neither, is not found.
  */
 async function botConversationOf(
   deps: BotSdkContext,
   userId: string,
   conversationId: string,
-): Promise<{ botId: string }> {
+): Promise<{ botId?: string }> {
   const [found] = await deps.db
     .select({ botId: bot.id })
     .from(bot)
     .where(and(eq(bot.conversationId, conversationId), eq(bot.userId, userId)));
-  if (!found) {
+  if (found) return found;
+  if (!(await isRoomOf(deps.db, userId, conversationId))) {
     throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
   }
-  return found;
+  return {};
 }
 
 /**
- * The changes to the thread of the user's Bot Conversation `conversationId` after seq `since`,
- * oldest first, each with what it points at as it is now; or `reload` once the log no longer holds
- * them all. Another user's Conversation, or one that isn't a Bot's, is not found.
+ * The changes to the thread of the user's Bot Conversation or Room `conversationId` after seq
+ * `since`, oldest first, each with what it points at as it is now; or `reload` once the log no
+ * longer holds them all. Another user's Conversation, or one that is neither, is not found.
  */
 export async function conversationChanges(
   deps: BotSdkContext,
@@ -51,10 +53,10 @@ export async function conversationChanges(
   return threadChanges(deps, { userId, botId, conversationId }, since);
 }
 
-/** The changes to a Bot's thread after seq `since`, with their data, for its known owner. */
+/** The changes to a thread after seq `since`, with their data, for its known owner. */
 async function threadChanges(
   deps: BotSdkContext,
-  owner: { userId: string; botId: string; conversationId: string },
+  owner: ThreadOwner,
   since: number,
 ): Promise<BotChanges> {
   const logged = await changesSince(deps.db, owner.conversationId, since);
@@ -70,12 +72,19 @@ async function threadChanges(
   };
 }
 
-/** What each of `changes` points at, keyed `<kind>:<refId>`, read once per kind. */
+/** Whose thread it is: a Bot's 1:1 Conversation, or a Room (spec #1055), which has no `botId`. */
+type ThreadOwner = { userId: string; botId?: string; conversationId: string };
+
+/**
+ * What each of `changes` points at, keyed `<kind>:<refId>`, read once per kind. A Room's are its
+ * Messages, its Turns and its members' Bots so far; the per-Bot kinds read nothing there yet.
+ */
 async function changeData(
   db: Database,
-  owner: { userId: string; botId: string; conversationId: string },
+  owner: ThreadOwner,
   changes: { kind: string; refId: string }[],
 ): Promise<Map<string, unknown>> {
+  const { botId } = owner;
   const data = new Map<string, unknown>();
   const put = (kind: BotChangeKind, rows: { id: string }[]) => {
     for (const row of rows) data.set(`${kind}:${row.id}`, row);
@@ -94,6 +103,7 @@ async function changeData(
           role: message.role,
           parts: message.parts,
           createdAt: message.createdAt,
+          authorBotId: message.authorBotId,
         })
         .from(message)
         .where(
@@ -109,7 +119,12 @@ async function changeData(
           endedAt: botTurn.endedAt,
         })
         .from(botTurn)
-        .where(and(eq(botTurn.botId, owner.botId), inArray(botTurn.id, turnIds)))
+        .where(
+          and(
+            botId ? eq(botTurn.botId, botId) : eq(botTurn.conversationId, owner.conversationId),
+            inArray(botTurn.id, turnIds),
+          ),
+        )
         .then((rows) => put("turn", rows)),
     secretNames.length > 0 &&
       db
@@ -126,26 +141,35 @@ async function changeData(
           rows.filter((row) => ruleIds.includes(row.id)),
         ),
       ),
-    idsOf(changes, "routine").length > 0 &&
-      listRoutines(db, owner.botId).then((rows) => put("routine", rows)),
-    reviewIds.length > 0 &&
+    botId &&
+      idsOf(changes, "routine").length > 0 &&
+      listRoutines(db, botId).then((rows) => put("routine", rows)),
+    botId &&
+      reviewIds.length > 0 &&
       db
         .select(reviewFields)
         .from(botReview)
-        .where(and(eq(botReview.botId, owner.botId), inArray(botReview.id, reviewIds)))
+        .where(and(eq(botReview.botId, botId), inArray(botReview.id, reviewIds)))
         .then((rows) => put("review", rows)),
-    helperIds.length > 0 &&
-      listHelpers(db, owner.botId, helperIds).then((rows) => put("helper", rows)),
-    idsOf(changes, "check_in").length > 0 &&
-      listCheckIns(db, owner.botId).then((rows) => put("check_in", rows)),
-    idsOf(changes, "summary").length > 0 &&
-      botSummaries(db, owner.botId, owner.conversationId).then((rows) => put("summary", rows)),
-    idsOf(changes, "bot").length > 0 &&
-      findBot(db, owner.userId, owner.botId).then((found) => {
-        if (!found) return;
-        const { conversationId: _conversationId, ...row } = found;
-        put("bot", [row]);
-      }),
+    botId &&
+      helperIds.length > 0 &&
+      listHelpers(db, botId, helperIds).then((rows) => put("helper", rows)),
+    botId &&
+      idsOf(changes, "check_in").length > 0 &&
+      listCheckIns(db, botId).then((rows) => put("check_in", rows)),
+    botId &&
+      idsOf(changes, "summary").length > 0 &&
+      botSummaries(db, botId, owner.conversationId).then((rows) => put("summary", rows)),
+    // A 1:1 thread's Bot is its own; a Room's are its members.
+    ...idsOf(changes, "bot")
+      .filter((id) => !botId || id === botId)
+      .map((id) =>
+        findBot(db, owner.userId, id).then((found) => {
+          if (!found) return;
+          const { conversationId: _conversationId, ...row } = found;
+          put("bot", [row]);
+        }),
+      ),
   ]);
   return data;
 }

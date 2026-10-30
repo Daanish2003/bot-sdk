@@ -20,7 +20,9 @@ export type ChatPage =
   /** The rules page, where the user manages the rules for all their Bots. */
   | { to: "rules" }
   /** The Bots app; `id` opens that Bot's Conversation. */
-  | { to: "bots"; id?: string };
+  | { to: "bots"; id?: string }
+  /** A Room (spec #1055): the Conversation `id` the user shares with several of their Bots. */
+  | { to: "rooms"; id: string };
 
 export type ChatLinkProps = {
   page: ChatPage;

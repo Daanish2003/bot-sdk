@@ -70,6 +70,29 @@ export type BotThread = {
   lastSeq: number;
 };
 
+/** A Bot in a Room (spec #1055): the lead takes the user's Messages that mention no one. */
+export type RoomMember = { botId: string; name: string; lead: boolean; pausedAt: Date | null };
+
+/**
+ * A Room (spec #1055): a Conversation the user shares with two or more of their Bots, named by its
+ * title. Its members are in the order they joined, the lead first at creation.
+ */
+export type Room = {
+  conversationId: string;
+  name: string;
+  members: RoomMember[];
+  createdAt: Date;
+  lastMessageAt: Date;
+};
+
+/** One of the user's Rooms and its thread, as `rooms.get` reads it. */
+export type RoomThread = {
+  room: Room;
+  messages: BotMessage[];
+  /** The change log's newest seq when the thread was read: the cursor for `conversations.changes`. */
+  lastSeq: number;
+};
+
 /** A file the user stored to send their Bot. */
 export type BotUpload = { id: string; name: string; size: number; mediaType: string };
 
@@ -104,6 +127,21 @@ export const resetBotInput = z.object({ botId: z.uuid(), name: z.string().max(10
 export const conversationChangesInput = z.object({
   conversationId: z.uuid(),
   since: z.number().int().min(0),
+});
+
+/** `rooms.create`'s input, besides `userId`: the Room's name and its Bots, the first the lead. */
+export const createRoomInput = z.object({
+  name: z.string().trim().min(1).max(100),
+  botIds: z.array(z.uuid()).max(20),
+});
+
+/** The input of the methods that act on one of the user's Rooms, besides `userId`. */
+export const roomInput = z.object({ conversationId: z.uuid() });
+
+/** `rooms.send`'s input, besides `userId`. */
+export const roomSendInput = z.object({
+  conversationId: z.uuid(),
+  text: z.string().trim().min(1),
 });
 
 /** `bots.send`'s input, besides `userId`. */
@@ -281,6 +319,21 @@ const conversations = {
    * one past its newest change, gets `reload`: read the thread afresh with `bots.get`.
    */
   changes: oc.input(conversationChangesInput).output(type<BotChanges>()),
+};
+
+/**
+ * The user's Rooms (spec #1055). Each checks that the Room is the user's; another user's is not
+ * found. Reading and syncing a Room's thread past `get` is `conversations.changes`.
+ */
+const rooms = {
+  /** The user's Rooms, the newest activity first. */
+  list: oc.output(type<Room[]>()),
+  /** One of the user's Rooms and its thread. */
+  get: oc.input(roomInput).output(type<RoomThread>()),
+  /** Creates a Room with two or more of the user's Bots; the first is the lead. */
+  create: oc.input(createRoomInput).output(type<Room>()),
+  /** Sends the user's Message to the Room, and returns it: it wakes the lead. */
+  send: oc.input(roomSendInput).output(botMessageSchema),
 };
 
 /** The Routines of the user's Bots (#538). Approving or declining one never wakes the Bot. */
@@ -488,6 +541,7 @@ export const channelsContract = {
 export const botContract = {
   bots,
   conversations,
+  rooms,
   routines,
   checkIns,
   triggers,

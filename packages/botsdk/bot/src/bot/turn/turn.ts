@@ -46,6 +46,8 @@ import {
   hintChanged,
   recordBotChange,
   findBot,
+  findRoom,
+  userTimeZone,
   textParts,
   toBotMessage,
   turnTimeLimitMs,
@@ -192,6 +194,60 @@ export async function sendToBot(
   // Other tabs fetch the new Message (and the Turn this send interrupted, if any).
   if (sent.started) await hintChanged(deps, found.conversationId);
   return sent.userMessage;
+}
+
+/**
+ * Saves the user's Message in their Room and hands it to the Router as a Trigger for the lead, in
+ * one transaction (spec #1055): it interrupts the lead's running Turn in the Room, as a send to the
+ * Bot does. A paused lead keeps the Trigger as skipped. With no lead (its Bot was deleted), the
+ * earliest member leads. The Message keeps the user's newest time zone. Returns the saved user
+ * Message.
+ */
+export async function sendToRoom(
+  deps: BotSdkContext,
+  { userId, conversationId, text }: { userId: string; conversationId: string; text: string },
+): Promise<BotMessage> {
+  const room = await findRoom(deps.db, userId, conversationId);
+  const lead = room.members.find((member) => member.lead) ?? room.members[0];
+  const found = lead && (await findBot(deps.db, userId, lead.botId));
+  if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
+  const call = await deps.models.resolveModelCall(userId, found.model);
+  if (!call) {
+    throw rpcError(
+      "BAD_REQUEST",
+      "error.modelNotAvailable",
+      `"${found.model}" is not an available Model`,
+      { model: found.model },
+    );
+  }
+  const timeZone = await userTimeZone(deps.db, userId);
+  const saved = await deps.db.transaction(async (tx) => {
+    await lockConversation(tx, conversationId);
+    if (!(await call.meter.mayRun()).ok) {
+      throw rpcError("PAYMENT_REQUIRED", "error.quotaSpent", "You've used this window's Quota");
+    }
+    const now = deps.clock();
+    const row = await appendMessage(tx, conversationId, {
+      role: "user",
+      parts: textParts(text, timeZone),
+      status: "complete",
+      createdAt: now,
+    });
+    const { waitsFor } = await receive(deps, tx, {
+      id: row.id,
+      botId: found.id,
+      conversationId,
+      source: "user",
+      channel: "web",
+      messageId: row.id,
+      receivedAt: now,
+    });
+    if (waitsFor) await cancelTurn(deps, tx, waitsFor, "message");
+    return toBotMessage(row);
+  });
+  deps.runner.wake();
+  await hintChanged(deps, conversationId);
+  return saved;
 }
 
 /**

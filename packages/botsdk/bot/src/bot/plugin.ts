@@ -38,6 +38,7 @@ import { demonstrationJobs, stopUserDemonstrations } from "./demonstrations";
 import { botPluginRouter } from "./routers";
 import { botsApi, type BotsApi } from "./bots-api";
 import { conversationsApi } from "./conversations-api";
+import { roomsApi } from "./rooms-api";
 import { screensApi } from "./screens-api";
 import { notificationsApi } from "./notifications-api";
 import { rulesApi } from "./rules-api";
@@ -123,6 +124,7 @@ export function bot({ reviewModel, neverAllowed = [] }: BotOptions = {}): BotPlu
       };
       sdk.bots = api;
       sdk.conversations = conversationsApi(sdk);
+      sdk.rooms = roomsApi(sdk);
       sdk.secrets = secretsApi(sdk);
       sdk.screens = screensApi(sdk);
       sdk.routines = routinesApi(sdk);

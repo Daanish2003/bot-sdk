@@ -366,4 +366,16 @@ description: Use this when
   "bots.dayFri": "Fri",
   "bots.daySat": "Sat",
   "bots.daySun": "Sun",
+  // Rooms (spec #1055)
+  "bots.rooms": "Rooms",
+  "bots.newRoom": "New Room",
+  "bots.roomName": "Room name",
+  "bots.newRoomHint":
+    "Name it and pick two or more Bots. The first you pick leads: it answers Messages that mention no one.",
+  "bots.createRoom": "Create Room",
+  "bots.lead": "lead",
+  "bots.roomBots": ({ count }: { count: number }) => `${count} Bots`,
+  "bots.noRooms": "No Rooms yet.",
+  "bots.you": "You",
+  "bots.deletedBot": "deleted Bot",
 };

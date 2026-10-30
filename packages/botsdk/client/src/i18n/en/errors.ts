@@ -10,6 +10,9 @@ export const errorMessages = {
   "error.botNotFound": "Bot not found",
   "error.botPaused": "Bot is paused. Resume to send.",
   "error.botPausedApproval": "Bot is paused. Resume to approve.",
+  "error.roomNotFound": "Room not found",
+  "error.roomTooFewBots": "A Room needs at least two of your Bots.",
+  "error.roomNameClash": "Two Bots in a Room can't share a name.",
   "error.botResetName": "Type the Bot's name to reset it.",
   "error.secretTooShort": ({ min }: { min: number }) =>
     `That value is too short to keep out of output: use at least ${min} characters.`,

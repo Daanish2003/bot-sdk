@@ -137,6 +137,7 @@ export async function botSummaries(
       role: message.role,
       parts: message.parts,
       createdAt: message.createdAt,
+      authorBotId: message.authorBotId,
     })
     .from(message)
     .where(
@@ -160,6 +161,7 @@ export async function botSummaries(
         role: kept.role,
         parts: kept.parts,
         createdAt: kept.createdAt,
+        authorBotId: kept.authorBotId,
       },
     })
     .from(botSummary)

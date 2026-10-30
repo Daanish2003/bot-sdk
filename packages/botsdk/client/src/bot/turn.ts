@@ -29,6 +29,11 @@ export const botMessageSchema = z.object({
   channel: z.string().optional(),
   /** The Bot marked it urgent (spec #1024). */
   urgent: z.literal(true).optional(),
+  /**
+   * The Bot that wrote a Bot Message (spec #1055), in a 1:1 Conversation or a Room. Absent on the
+   * user's Messages, and once that Bot is deleted.
+   */
+  authorBotId: z.string().optional(),
 });
 
 export type BotMessage = z.infer<typeof botMessageSchema>;

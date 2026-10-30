@@ -19,7 +19,7 @@ import {
 } from "drizzle-orm";
 import { z } from "zod";
 
-import { botTrigger, botTurn, message, type MessageRow } from "../../storage";
+import { bot, botTrigger, botTurn, message, type MessageRow } from "../../storage";
 import type { Database, PromptStartTool } from "../../storage";
 import { enabledFeatures, hasConnectorFeature } from "../../feature";
 import type { BotSdkContext, Transaction } from "../../plugin";
@@ -45,6 +45,8 @@ import {
   knownZone,
   timeNotice,
   noResetAfter,
+  roomOf,
+  type TurnRoom,
 } from "../conversation";
 
 import type { LoopKit } from "../agent-loop";
@@ -154,6 +156,45 @@ export function botSystemPrompts(
   ];
 }
 
+/** How a Room's Messages from the user open in a Room Turn's input. */
+const roomUserLabel = "User";
+
+/** What a Turn in a Room reads its input by: the Bot's reset point there. */
+type RoomInput = { resetAt: Date | null };
+
+/**
+ * The system prompt's Room section (spec #1055), for Bot `botId` in `room`: the Room's name, its
+ * members and lead, who the Bot is, how to hand off with `@Name`, and to stay quiet with nothing
+ * to add.
+ */
+export function roomPrompt(room: TurnRoom, botId: string): string {
+  const self = room.members.find((member) => member.botId === botId);
+  const lead = room.members.find((member) => member.lead);
+  const other = room.members.find((member) => member.botId !== botId);
+  const members = room.members
+    .map((member) => (member.lead ? `${member.name} (lead)` : member.name))
+    .join(", ");
+  return [
+    "[Room]",
+    `You are in a Room named "${room.name}": a chat the user shares with several of their Bots. ` +
+      `Its members: ${members}. You are ${self?.name ?? "one of them"}.`,
+    ...(lead
+      ? [`A message from the user that mentions no one goes to the lead, ${lead.name}.`]
+      : []),
+    `Everyone in the Room sees what you send with ${sendToUserToolName}. Each message from the ` +
+      `user or another Bot comes to you opening with its author's name in brackets, such as ` +
+      `[${roomUserLabel}]: or [${other?.name ?? "Name"}]:, and the ones addressed to you are marked (to you).`,
+    "To hand work to another member, mention them in your message as @Name with their full name " +
+      `(for example, @${other?.name ?? "Name"}): only a mention wakes them, so mention someone ` +
+      "only when they must act.",
+    "When you have nothing to add, send nothing: not every message needs an answer from you.",
+  ].join("\n");
+}
+
+/** `start` with the Room section `room` after its system blocks, when the Turn is in a Room. */
+const withRoom = (start: LoopPromptStart, room: string | null): LoopPromptStart =>
+  room === null ? start : { ...start, system: [...start.system, { name: "room", text: room }] };
+
 /** The Turn a catalogue is listed for. */
 export type CatalogueTurn = {
   id: string;
@@ -203,6 +244,11 @@ export type ContextReads = {
   customRules: () => Promise<string | null>;
   features: () => Promise<FeatureSection[]>;
   tools: (sections: readonly FeatureSection[]) => Promise<TurnTools>;
+  /**
+   * The Room section of a Turn in a Room (spec #1055), or null. It goes after the Prompt start's
+   * system blocks, never into the Prompt start, which the Bot's Conversations share.
+   */
+  room?: () => Promise<string | null>;
 };
 
 /** What a Turn's loop starts from: its Prompt start, history and newest message. */
@@ -257,6 +303,7 @@ export async function build(
   const customRules = await reads.customRules();
   const features = await reads.features();
   const tools = await reads.tools(features);
+  const room = (await reads.room?.()) ?? null;
   const withComputer = Boolean(deps.computer);
   const parts = (now: Date): PromptStartParts =>
     startParts(turn, now, {
@@ -274,7 +321,10 @@ export async function build(
       const { id } = await kit.liveActivity("prompt_start", undefined, async (tx) => ({
         id: await promptStartFor(tx, parts(deps.clock())),
       }));
-      const promptStart = await loopPromptStart(db, id, () => previousTurnCall(deps.db, turn));
+      const promptStart = withRoom(
+        await loopPromptStart(db, id, () => previousTurnCall(deps.db, turn)),
+        room,
+      );
       const summary = await summaryOf(db, id);
       const earlier = await historyTurns(db, turn, summary, turn.startedAt);
       // A mid-Turn Summary's Prompt start was built from what its Turn read at its start, so what
@@ -301,7 +351,8 @@ export async function build(
         summarize: {
           write: (tx, prose) =>
             writeSummary(tx, { parts: parts(deps.clock()), prose, kind: "mid_turn" }),
-          load: (summarized) => loopPromptStart(db, summarized, async () => undefined),
+          load: async (summarized) =>
+            withRoom(await loopPromptStart(db, summarized, async () => undefined), room),
         },
         newest: await newest(changeNotes),
         retired: promptStart.tools.filter((tool) => !known.has(tool.name)).map(retiredTool),
@@ -319,8 +370,16 @@ export function recordedReads(
   deps: BotSdkContext,
   turn: ContextTurn,
   kit: LoopKit,
-): Pick<ContextReads, "routines" | "customRules" | "features"> {
+): Pick<ContextReads, "routines" | "customRules" | "features" | "room"> {
   return {
+    // Recorded only in a Room, so a 1:1 Turn's history doesn't change; a Room stays one.
+    room: async () => {
+      if (!(await roomOf(deps.db, turn.conversationId))) return null;
+      return kit.liveActivity("room", undefined, async (tx) => {
+        const room = await roomOf(tx, turn.conversationId);
+        return room ? roomPrompt(room, turn.botId) : null;
+      });
+    },
     customRules: () =>
       kit.liveActivity(
         "custom_rules",
@@ -384,7 +443,10 @@ export async function newestRenderer(
           },
           { yields: false },
         );
-  const since = await lastInputAt(db, turn);
+  const room = await roomOf(db, turn.conversationId);
+  const member = room?.members.find((each) => each.botId === turn.botId);
+  const inRoom = room ? { resetAt: member?.resetAt ?? null } : undefined;
+  const since = await lastInputAt(db, turn, inRoom);
   const userFiles = {
     place: (files: SentFile[]) =>
       ctx.step(
@@ -398,7 +460,16 @@ export async function newestRenderer(
     canSee,
   };
   return async (changeNotes) => {
-    const rendered = await newestInput(db, turn, since, todo, changeNotes, cutTrigger, userFiles);
+    const rendered = await newestInput(
+      db,
+      turn,
+      since,
+      todo,
+      changeNotes,
+      cutTrigger,
+      userFiles,
+      inRoom,
+    );
     return ctx.step(turnInputActivity, async (tx) => {
       await tx.update(botTurn).set({ input: rendered }).where(eq(botTurn.id, turn.id));
       return rendered;
@@ -441,6 +512,7 @@ function todoNotice(todo: TodoItem[], stored: string | undefined): string {
 async function lastInputAt(
   db: Database | Transaction,
   turn: ContextTurn,
+  room: RoomInput | undefined,
 ): Promise<Date | undefined> {
   const [row] = await db
     .select({ startedAt: botTurn.startedAt })
@@ -454,8 +526,10 @@ async function lastInputAt(
         // input is from before inputs were stored. One that never ran (stopped while queued, or
         // failed before its first call) has neither, and what it took is still new.
         or(isNotNull(botTurn.input), sql`jsonb_array_length(${botTurn.transcript}) > 0`),
-        // A Turn from before the Bot's reset mark took nothing it still knows (spec #1007).
+        // A Turn from before the Bot's reset mark took nothing it still knows (spec #1007), as
+        // its history drops it; in a Room, nor one from before its reset point there (spec #1055).
         noResetAfter(db, { botId: turn.botId }, botTurn.startedAt),
+        room?.resetAt ? gt(botTurn.startedAt, room.resetAt) : undefined,
       ),
     )
     .orderBy(desc(botTurn.startedAt), desc(botTurn.id))
@@ -484,13 +558,16 @@ async function newestInput(
     /** Whether the Bot's Model sees images. */
     canSee: () => Promise<boolean>;
   },
+  room?: RoomInput,
 ): Promise<ModelMessage[]> {
   const beforeTurn = and(
     eq(message.conversationId, turn.conversationId),
     eq(message.role, "user"),
     lt(message.createdAt, turn.startedAt),
-    // Nothing from before the Bot's reset mark is new to it (spec #1007).
+    // Nothing from before the Bot's reset mark is new to it (spec #1007); in a Room, from before
+    // its reset point there (spec #1055).
     noResetAfter(db, { conversationId: turn.conversationId }, message.createdAt),
+    room?.resetAt ? gt(message.createdAt, room.resetAt) : undefined,
     // A Message whose Trigger was skipped, by a Bot pause (spec #1007), never reached a Turn. Read
     // once per query (an uncorrelated subquery), not once per row: an email's Trigger id isn't its
     // Message's, so the Conversation's skipped Triggers are matched by the Message they carry.
@@ -509,11 +586,32 @@ async function newestInput(
         ),
     ),
   );
-  const [users, woken, [newestUser], reacted] = await Promise.all([
+  // In a Room (spec #1055), the other Bots' Messages are input too, never the Bot's own.
+  const authored = room
+    ? or(
+        beforeTurn,
+        and(
+          eq(message.conversationId, turn.conversationId),
+          eq(message.role, "assistant"),
+          sql`${message.authorBotId} is distinct from ${turn.botId}`,
+          lt(message.createdAt, turn.startedAt),
+          room.resetAt ? gt(message.createdAt, room.resetAt) : undefined,
+        ),
+      )
+    : beforeTurn;
+  const [users, woken, [newestUser], reacted, toYou] = await Promise.all([
     db
-      .select({ id: message.id, parts: message.parts, createdAt: message.createdAt })
+      .select({
+        id: message.id,
+        role: message.role,
+        parts: message.parts,
+        createdAt: message.createdAt,
+        authorBotId: message.authorBotId,
+        author: bot.name,
+      })
       .from(message)
-      .where(and(beforeTurn, since && gte(message.createdAt, since)))
+      .leftJoin(bot, eq(bot.id, message.authorBotId))
+      .where(and(authored, since && gte(message.createdAt, since)))
       .orderBy(asc(message.createdAt), asc(message.id)),
     // The Triggers that carry no Message (a Routine's fire, #539), taken and received by the time
     // this Turn started: never one taken later. A Turn's input holds the ones taken and received by
@@ -551,6 +649,8 @@ async function newestInput(
         and(
           eq(message.conversationId, turn.conversationId),
           eq(message.role, "assistant"),
+          // In a Room, only the Bot's own Messages are its to hear about (spec #1055).
+          room ? eq(message.authorBotId, turn.botId) : undefined,
           // A Message from before the reset mark is one the Bot no longer sees (spec #1007).
           noResetAfter(db, { conversationId: turn.conversationId }, message.createdAt),
           sql`(${message.parts}->'reactions'->'user'->>'at')::timestamptz <= ${turn.startedAt.toISOString()}::timestamptz`,
@@ -559,7 +659,28 @@ async function newestInput(
         ),
       )
       .orderBy(asc(message.createdAt), asc(message.id)),
+    // In a Room, the Messages that woke this Bot, marked "(to you)".
+    room
+      ? db
+          .select({ id: botTrigger.messageId })
+          .from(botTrigger)
+          .where(
+            and(
+              eq(botTrigger.conversationId, turn.conversationId),
+              eq(botTrigger.botId, turn.botId),
+              isNull(botTrigger.skippedAt),
+              isNotNull(botTrigger.messageId),
+            ),
+          )
+          .then((rows) => new Set(rows.map((row) => row.id)))
+      : new Set<string | null>(),
   ]);
+  // In a Room, each Message opens with its author's name (spec #1055).
+  const labelled = (row: (typeof users)[number], text: string) => {
+    if (!room) return text;
+    const name = row.role === "user" ? roomUserLabel : (row.author ?? "deleted Bot");
+    return `[${name}]: ${toYou.has(row.id) ? "(to you) " : ""}${text}`;
+  };
   // The user's files (spec #801), copied onto the Computer once, in one activity: each Message
   // names its files' paths, and a Model that can see gets its images inline too.
   const sent = users.map((row) => controlOf(row.parts, "files")?.files ?? []);
@@ -570,14 +691,15 @@ async function newestInput(
   const inputs: { at: number; content: string; messageId?: string; images?: SentFile[] }[] =
     users.map((row, index) => {
       const files = sent[index]!;
-      const text = searchTextOf(row.parts);
-      if (files.length === 0)
-        return { at: row.createdAt.getTime(), content: text, messageId: row.id };
+      const text = labelled(row, searchTextOf(row.parts));
+      // Only the user's Messages are the Bot's to react to.
+      const messageId = row.role === "user" ? row.id : undefined;
+      if (files.length === 0) return { at: row.createdAt.getTime(), content: text, messageId };
       const line = userFilesLine(files.map((file) => ({ ...file, path: pathOf.get(file.id)! })));
       return {
         at: row.createdAt.getTime(),
         content: text ? `${text}\n\n${line}` : line,
-        messageId: row.id,
+        messageId,
         images: canSee ? files.filter(isInlineImage) : [],
       };
     });

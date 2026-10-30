@@ -50,11 +50,11 @@ export function conversationsApi(sdk: BotSdkContext) {
     },
 
     /**
-     * The changes to the user's Bot Conversation's thread after seq `since` (ADR 0026), oldest
+     * The changes to the thread of the user's Bot Conversation or Room after seq `since` (ADR 0026), oldest
      * first, each with what it points at as it is now (`data`, null once that is gone): a Message
      * appended or changed, a Turn's status, a Secret saved, a Routine, review, Helper or Check-in
      * changed. A cursor the change log no longer holds, or one past its newest change, gets
-     * `reload`: read the thread afresh with `bots.get`. Another user's Conversation is not found.
+     * `reload`: read the thread afresh with `bots.get` (a Room's with `rooms.get`). Another user's Conversation is not found.
      */
     changes: async ({ userId, ...rest }: WithUser<typeof conversationChangesInput>) => {
       const { conversationId, since } = parseInput(conversationChangesInput, rest);
