@@ -452,8 +452,11 @@ const computer = {
  */
 export const channelsContract = {
   email: {
-    /** The Bot's address, made on the first read, and the Channel its next Message goes by. */
-    address: oc.input(botInput).output(type<{ address: string; nextChannel: "web" | "email" }>()),
+    /**
+     * The Bot's address, made on the first read, and the Channel its next Message goes by: `web`,
+     * `email` or a messaging platform's id, such as `telegram` (spec #1044).
+     */
+    address: oc.input(botInput).output(type<{ address: string; nextChannel: string }>()),
     /** Gives the Bot a new address; mail to the old one is dropped from now on. */
     rotate: oc.input(botInput).output(type<{ address: string }>()),
   },

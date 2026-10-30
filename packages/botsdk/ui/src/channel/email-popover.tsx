@@ -73,7 +73,12 @@ export function EmailPopover({ botId }: { botId: string }) {
         {address.data && (
           <p className="text-xs text-muted-foreground" data-next-channel>
             {t("bots.emailNextChannel", {
-              channel: t(address.data.nextChannel === "email" ? "bots.emailChannel" : "bots.web"),
+              channel:
+                address.data.nextChannel === "email"
+                  ? t("bots.emailChannel")
+                  : address.data.nextChannel === "web"
+                    ? t("bots.web")
+                    : t("bots.channelPlatform", { platform: address.data.nextChannel }),
             })}
           </p>
         )}

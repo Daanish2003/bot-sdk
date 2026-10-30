@@ -27,6 +27,7 @@ import {
   rotateChannelAccountKeys,
   saveChannelAccount,
   sendDelivery,
+  setMessagingPlatforms,
   unlinkIdentity,
 } from "./conversation";
 import { receiveEmail } from "./turn";
@@ -56,7 +57,7 @@ export function createChannels(
   { adapters, verifiedEmail }: ChannelOptions,
 ): ChannelApi {
   const { email, push, messaging } = adaptersOf(adapters);
-  return {
+  const channels: ChannelApi = {
     receive: async (id, mail) => {
       if (id !== "email" || !email) throw new Error("The channel plugin has no email adapter");
       await receiveEmail(sdk, { channel: email, verifiedEmail }, mail);
@@ -95,6 +96,11 @@ export function createChannels(
       linkCode: ({ userId }) => issueLinkCode(sdk, messaging, userId),
     },
   };
+  setMessagingPlatforms(
+    channels,
+    messaging.map((adapter) => adapter.id),
+  );
+  return channels;
 }
 
 /**

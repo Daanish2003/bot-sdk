@@ -30,6 +30,28 @@ export function shownButtonsOf(parts: { [key: string]: unknown }): ShownButtons 
     : undefined;
 }
 
+/** The messaging platforms each Channels object (`sdk.channels`) has an adapter for. */
+const platformsByChannels = new WeakMap<object, readonly string[]>();
+
+/** Records that `channels` (an `sdk.channels`) has adapters for `platforms`. */
+export function setMessagingPlatforms(channels: object, platforms: readonly string[]): void {
+  platformsByChannels.set(channels, platforms);
+}
+
+/**
+ * Whether messaging `platform` can carry a Message of Bot `owner` now (spec #1044): the Host's
+ * `channels` slot has its adapter, and `messagingTarget` finds a chat. Web and email are never one.
+ */
+export async function honourable(
+  deps: BotSdkContext,
+  db: BotSdkContext["db"] | Transaction,
+  owner: { conversationId: string } | { botId: string },
+  platform: string,
+): Promise<boolean> {
+  if (!(platformsByChannels.get(deps.channels) ?? []).includes(platform)) return false;
+  return (await messagingTarget(db, owner, platform)) !== null;
+}
+
 /**
  * Where a Message of a Bot goes on messaging `platform` (spec #1044): the chat of the Bot's user's
  * Linked identity there, through the Bot's active Channel account. `null` when the user isn't

@@ -25,7 +25,8 @@ export const channelRouter = os.channels.router({
         owner: input,
         urgent: false,
       });
-      const nextChannel = route === "email" ? ("email" as const) : ("web" as const);
+      // Email, a messaging platform, or web (the app, push included).
+      const nextChannel = route === "in_app" || route === "push" ? "web" : route;
       return { address, nextChannel };
     }),
     rotate: os.channels.email.rotate.handler(async ({ context, input }) => ({

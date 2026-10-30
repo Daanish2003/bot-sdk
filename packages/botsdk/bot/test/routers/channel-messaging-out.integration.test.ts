@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { channelAccount, job, linkedIdentity } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
-import { fakeMessagingAdapter } from "@botsdk/testing/fake-channel";
+import { emailChannel } from "../../src/channel";
+import { fakeEmailProvider, fakeMessagingAdapter } from "@botsdk/testing/fake-channel";
 import { saveCredentials } from "../../src/models/internal";
 import type { BotSdkPlugin } from "../../src/plugin";
 import { inProcessRunner, type JobRunner, claimJob } from "../../src/runner/internal";
@@ -54,10 +55,17 @@ const setsCheckIn = (minutes: number) =>
  * its user Linked as platform user `1001` (unless `linked` is false), on an idle runner and a fixed
  * clock.
  */
-async function telegramBot(rounds: Round[], { linked = true }: { linked?: boolean } = {}) {
+async function telegramBot(
+  rounds: Round[],
+  {
+    linked = true,
+    platform = "telegram",
+    email = false,
+  }: { linked?: boolean; platform?: string; email?: boolean } = {},
+) {
   const timer = fakeJobClock(at);
   const brain = createFakeAdapter({ rounds });
-  const fake = fakeMessagingAdapter({ id: "telegram" });
+  const fake = fakeMessagingAdapter({ id: platform });
   const logged: string[] = [];
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({
@@ -69,7 +77,18 @@ async function telegramBot(rounds: Round[], { linked = true }: { linked?: boolea
   });
   const user = await insertUser();
   deps = createTestSdk({
-    channels: [fake.adapter],
+    channels: [
+      fake.adapter,
+      ...(email
+        ? [
+            emailChannel({
+              provider: fakeEmailProvider().provider,
+              domain: "bots.example",
+              appUrl: "https://app.example",
+            }),
+          ]
+        : []),
+    ],
     jobs,
     adapterFor: () => brain.adapter,
     clock: timer.clock.now,
@@ -86,14 +105,14 @@ async function telegramBot(rounds: Round[], { linked = true }: { linked?: boolea
   const { id: botId } = await client.bots.create({ name: "Ada Lovelace", model });
   await client.channels.accounts.save({
     botId,
-    platform: "telegram",
+    platform,
     credentials: { token: "1:secret" },
   });
   const link = () =>
     getTestDb().insert(linkedIdentity).values({
       id: uuidv7(),
       userId: user.id,
-      platform: "telegram",
+      platform,
       platformUserId: "1001",
       handle: "@ada",
       workspaceId: null,
@@ -154,12 +173,19 @@ async function telegramBot(rounds: Round[], { linked = true }: { linked?: boolea
 }
 
 /** A Bot that sets a Check-in, then says `checkInSays` (with `more`) when it fires. */
-const checkingIn = (checkInSays: string, more: Record<string, unknown> = {}) =>
-  telegramBot([
-    round(setsCheckIn(60)),
-    round(says("I'll check back in an hour.")),
-    round(says(checkInSays, more)),
-  ]);
+const checkingIn = (
+  checkInSays: string,
+  more: Record<string, unknown> = {},
+  options?: Parameters<typeof telegramBot>[1],
+) =>
+  telegramBot(
+    [
+      round(setsCheckIn(60)),
+      round(says("I'll check back in an hour.")),
+      round(says(checkInSays, more)),
+    ],
+    options,
+  );
 
 describe("a reply on a messaging Channel", () => {
   it("goes back to the chat of the Linked identity, as text", async () => {
@@ -170,6 +196,14 @@ describe("a reply on a messaging Channel", () => {
     expect(texts()).toEqual(["Booked **Friday**."]);
     expect(fake.sends[0]!.message.chatId).toBe("1001");
     expect(fake.sends[0]!.account.handle).toBe("@bot_1");
+  });
+
+  it("goes back on any messaging adapter the Host installed, not only Telegram", async () => {
+    const { write, texts } = await telegramBot([round(says("Done."))], { platform: "fake" });
+
+    await write("Book me a table");
+
+    expect(texts()).toEqual(["Done."]);
   });
 
   it("stays on web when the user last wrote from the app", async () => {
@@ -249,6 +283,58 @@ describe("the notification routes", () => {
 
     expect(fake.sends).toEqual([]);
     expect(await deliveryJobs()).toEqual([]);
+  });
+
+  it("by default, send a Message the Bot starts to the messaging Channel the user last wrote from", async () => {
+    const { write, checkIn, texts, client, botId } = await checkingIn(
+      "Any news?",
+      {},
+      {
+        email: true,
+      },
+    );
+
+    await write("Remind me later");
+    expect((await client.channels.email.address({ botId })).nextChannel).toBe("telegram");
+    await checkIn();
+
+    expect(texts()).toEqual(["I'll check back in an hour.", "Any news?"]);
+  });
+
+  it("fall back to the defaults when the Host has no adapter for the route's platform", async () => {
+    const { write, checkIn, settle, texts, user, botId } = await checkingIn(
+      "Your flight is cancelled.",
+      { urgent: true },
+      { platform: "fake" },
+    );
+    // Left from when the Host had a telegram adapter: a Linked identity and an active account.
+    await getTestDb().insert(linkedIdentity).values({
+      id: uuidv7(),
+      userId: user.id,
+      platform: "telegram",
+      platformUserId: "1001",
+      handle: "@ada",
+      workspaceId: null,
+      linkedAt: at,
+    });
+    await getTestDb().insert(channelAccount).values({
+      id: uuidv7(),
+      botId,
+      platform: "telegram",
+      platformBotId: "9",
+      handle: "@old_bot",
+      encrypted: "unreadable",
+      status: "active",
+      createdAt: at,
+      updatedAt: at,
+    });
+    await settle({ urgent: "telegram" });
+
+    await write("Remind me later");
+    await checkIn();
+
+    // The default: the Channel the user last wrote from.
+    expect(texts()).toEqual(["I'll check back in an hour.", "Your flight is cancelled."]);
   });
 
   it("hold back a Message that isn't urgent during Quiet hours", async () => {
