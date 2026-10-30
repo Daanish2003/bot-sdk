@@ -306,6 +306,26 @@ describe("the files of a message from the Linked identity", () => {
     expect(messages[0]!.control).toBeUndefined();
   });
 
+  it("doesn't claim a voice note it left out", async () => {
+    const { fake, client, botId } = await telegramBot();
+
+    await fake.deliver("@bot_1", {
+      text: "Hear this",
+      files: [
+        {
+          id: "v1",
+          name: "voice.ogg",
+          contentType: "audio/ogg",
+          size: fake.adapter.limits.download + 1,
+          kind: "voice",
+        },
+      ],
+    });
+
+    const { messages } = await client.bots.get({ botId });
+    expect(messages[0]!.text).toBe("Hear this\n\nFiles not kept (too large): voice.ogg");
+  });
+
   it("keeps a voice note as an Attachment, saying it isn't transcribed", async () => {
     const { fake, client, botId } = await telegramBot();
     fake.files.set("v1", new TextEncoder().encode("ogg"));

@@ -12,7 +12,7 @@ import {
   MessagingFileTooLargeError,
   type MessagingUpdate,
 } from "../../channel/internal";
-import { bot, linkedIdentity } from "../../storage";
+import { bot, botTrigger, linkedIdentity } from "../../storage";
 import { linkFromCode, storeMailFiles } from "../conversation";
 import { handIn } from "./hand-in";
 
@@ -100,13 +100,25 @@ async function wake(
   // Namespaced by platform and Channel account, so a resent update makes no second Trigger.
   const id = `${account.platform}:${account.id}:${update.sourceId}`;
 
+  // A resent update is dropped before its files are downloaded again.
+  const [seen] = await sdk.db
+    .select({ id: botTrigger.id })
+    .from(botTrigger)
+    .where(eq(botTrigger.id, id));
+  if (seen) return "it is a resent update";
+
   // Downloaded at once, as the update's own call: a platform's file link may not outlive it.
   const { mailFiles, tooBig } = mailFilesOf(sdk, adapter, account, update.files);
   const { stored, unkept } = await storeMailFiles(sdk, mailFiles);
   const left = [...tooBig, ...unkept];
   const body = [
     update.text.trim(),
-    update.files.some((file) => file.kind === "voice" || file.kind === "audio") ? voiceNote : "",
+    // Only when the file was kept: the note says an Attachment holds it.
+    update.files.some(
+      (file) => (file.kind === "voice" || file.kind === "audio") && !left.includes(file.name),
+    )
+      ? voiceNote
+      : "",
     left.length > 0 ? `Files not kept (too large): ${left.map(oneLine).join(", ")}` : "",
   ]
     .filter(Boolean)
