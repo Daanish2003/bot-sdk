@@ -17,8 +17,10 @@ You are an **implementer** for one ticket of [spec #<SPEC>](https://github.com/D
    - `diagnosing-bugs` when something fails and you don't know why;
    - `domain-modeling` when a new term appears.
 4. **Check as you go.** Typecheck the packages you touched, run the affected test files, then `pnpm exec oxlint` and `pnpm exec oxfmt --check` on your changed files. Don't run the whole vitest suite; the orchestrator's verify is the full run. Run every command in the foreground and wait for it to exit.
+   - In `packages/botsdk` sources, write no constructor parameter properties (`constructor(readonly x: string)`), `enum`, `namespace` or `import x = require`. The `botsdk` CLI runs these sources with Node's type stripping, which refuses them; declare the field and assign it in the constructor.
+   - Back up work with a WIP commit, never by copying files.
 5. **Review. This step is required, even for a small diff.** Call the Skill tool with `code-review` on your diff against `origin/feature/<SLUG>` (or `<base SHA>..HEAD` when your prompt names an unpushed base), pointing it at your worktree path, and fix every confirmed finding. If the review returns empty or reviews the wrong range, run it again; a self-review does not count. List it under `checks` in your report (`code-review → <n> findings, <n> fixed`). A report without it is sent back.
-6. **Commit** with Conventional Commits naming the ticket, `(#<N>)`, ending with the attribution line from your instructions.
+6. **Commit** with Conventional Commits naming the ticket, `(#<N>)`, ending with the attribution line from your instructions. After your last commit (and again after step 7), run root `pnpm check-types` with verify.sh's placeholder env and read its exit code. Report that run, not an earlier one; vitest doesn't typecheck.
 7. **Take the tip.** Merge `origin/feature/<SLUG>` into your branch, resolve conflicts keeping both tickets' behaviour, and re-run step 4's checks.
 8. **Report** in this shape, and nothing else:
 
