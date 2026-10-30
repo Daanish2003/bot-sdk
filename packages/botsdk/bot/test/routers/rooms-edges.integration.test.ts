@@ -541,20 +541,12 @@ describe("a Bot's page, its 1:1 Conversation", () => {
       });
       await client.rooms.send({ conversationId, text: "Go" });
       await expect.poll(() => gate.entered.length, poll).toBe(1);
-      // The Bot's thread is told of the Room Turn's start, and of its end below.
-      await expect.poll(() => hints.length, poll).toBe(1);
 
       expect((await client.bots.get({ botId: scout.id })).bot.turnStatus).toBeNull();
-      // Its start hints the Bot's thread already, so its Tasks view shows the running Room Turn.
-      const started = await client.conversations.changes({
-        conversationId: await oneToOneOf(scout.id),
-        since: 0,
-      });
-      if (started.reload) throw new Error("expected changes");
-      expect(started.changes.filter((change) => change.kind === "turn")).toHaveLength(1);
       gate.open();
       await expect.poll(() => statusesOf(scout.id, conversationId), poll).toEqual(["complete"]);
-      await expect.poll(() => hints.length, poll).toBe(2);
+      // Its end is told to the Bot's thread, whose log has its `turn` change.
+      await expect.poll(() => hints.length, poll).toBe(1);
 
       // The Room Turn's end still hints the Bot's thread (its Tasks view), with no status to show.
       const logged = await client.conversations.changes({

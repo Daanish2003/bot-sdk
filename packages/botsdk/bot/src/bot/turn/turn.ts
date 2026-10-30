@@ -279,7 +279,7 @@ export async function postToRoom(
     botIds.map(async (botId) => {
       const found = await findBot(deps.db, userId, botId);
       if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-      if (paused.has(botId)) return { botId, call: undefined, oneToOne: found.conversationId };
+      if (paused.has(botId)) return { botId, call: undefined };
       const call = await deps.models.resolveModelCall(userId, found.model);
       if (!call) {
         throw rpcError(
@@ -289,7 +289,7 @@ export async function postToRoom(
           { model: found.model },
         );
       }
-      return { botId, call, oneToOne: found.conversationId };
+      return { botId, call };
     }),
   );
   if (targets.length === 0) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
@@ -358,8 +358,6 @@ export async function postToRoom(
   if (posted.outcome !== "handed") return posted;
   deps.runner.wake();
   await hintChanged(deps, conversationId);
-  // A Room Turn it started is a change of its Bot's thread too (`startTurn`).
-  for (const target of targets) await hintChanged(deps, target.oneToOne);
   return posted;
 }
 
