@@ -194,6 +194,23 @@ describe("an unknown sender's link code", () => {
     },
   );
 
+  it("leaves a linked sender's message alone, and the code unspent", timeout, async () => {
+    const { deps, fake } = messagingSdk();
+    const ada = await aBot(deps, "1");
+    await listen(deps, fake, "1");
+    await fake.deliver("@bot_1", {
+      ...from("1001", "@ada"),
+      text: (await ada.client.channels.identities.linkCode()).code,
+    });
+    fake.sends.length = 0;
+    const { code } = await ada.client.channels.identities.linkCode();
+
+    await fake.deliver("@bot_1", { ...from("1001", "@ada"), text: code });
+
+    expect(fake.sends).toEqual([]);
+    expect(await codesOf(ada.user.id)).toHaveLength(1);
+  });
+
   it("doesn't take a code sent to another user's Bot", timeout, async () => {
     const { deps, fake } = messagingSdk();
     const ada = await aBot(deps, "1");

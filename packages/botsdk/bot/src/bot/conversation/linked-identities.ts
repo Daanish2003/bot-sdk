@@ -150,6 +150,20 @@ export async function linkFromCode(
   if (!code) return false;
   const [owner] = await sdk.db.select({ userId: bot.userId }).from(bot).where(eq(bot.id, botId));
   if (!owner) return false;
+  // The owner's own Linked identity is not an unknown sender: its message is the Bot's to take.
+  const [own] = await sdk.db
+    .select({
+      platformUserId: linkedIdentity.platformUserId,
+      workspaceId: linkedIdentity.workspaceId,
+    })
+    .from(linkedIdentity)
+    .where(and(eq(linkedIdentity.userId, owner.userId), eq(linkedIdentity.platform, platform)));
+  if (
+    own?.platformUserId === update.sender.id &&
+    own.workspaceId === (update.sender.workspace ?? null)
+  ) {
+    return false;
+  }
   const now = sdk.clock();
   const refused = new Error("refused");
   try {
