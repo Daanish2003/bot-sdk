@@ -1,7 +1,5 @@
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { CrownIcon, SendIcon, UsersIcon } from "lucide-react";
-import { type FormEvent, type KeyboardEvent, useState } from "react";
+import { CrownIcon, UsersIcon } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { dateFormat } from "@botsdk/react/intl";
@@ -9,10 +7,13 @@ import { useI18n } from "@botsdk/react/provider";
 import { useRoom } from "@botsdk/react/bot/rooms";
 import { serverErrorText } from "@botsdk/react/rpc-error";
 import { BotAvatar } from "./bot-avatar";
+import { RoomComposer } from "./room-composer";
+import { RoomMembers } from "./room-members";
 
 /**
  * A Room (spec #1055): one column of Messages, each with its author's avatar and name ("deleted
- * Bot" once that Bot is gone), and a composer that sends to the Room, where the lead answers.
+ * Bot" once that Bot is gone), its members in the header with their status, and a composer that
+ * sends to the Room: to the members it @mentions, or to the lead.
  */
 export function RoomConversation({ conversationId }: { conversationId: string }) {
   const i18n = useI18n();
@@ -30,8 +31,7 @@ export function RoomConversation({ conversationId }: { conversationId: string })
   if (!room) return null;
   const names = new Map(room.members.map((member) => [member.botId, member]));
 
-  const submit = (event?: FormEvent) => {
-    event?.preventDefault();
+  const submit = () => {
     const text = draft.trim();
     if (!text || sending) return;
     setDraft("");
@@ -41,9 +41,6 @@ export function RoomConversation({ conversationId }: { conversationId: string })
       toast.error(serverErrorText(i18n, refusal));
     });
   };
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) submit(event);
-  };
   const time = dateFormat(locale, { hour: "numeric", minute: "2-digit" });
 
   return (
@@ -51,13 +48,7 @@ export function RoomConversation({ conversationId }: { conversationId: string })
       <header className="flex items-center gap-3 border-b px-4 py-3">
         <UsersIcon className="size-4 text-muted-foreground" />
         <h1 className="flex-1 truncate font-semibold">{room.name}</h1>
-        <div className="flex items-center gap-1">
-          {room.members.map((member) => (
-            <span key={member.botId} title={member.name}>
-              <BotAvatar name={member.name} size={24} />
-            </span>
-          ))}
-        </div>
+        <RoomMembers members={room.members} />
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
         {messages.length === 0 && (
@@ -99,20 +90,7 @@ export function RoomConversation({ conversationId }: { conversationId: string })
           );
         })}
       </div>
-      <form onSubmit={submit} className="flex items-end gap-2 border-t p-3">
-        <Textarea
-          aria-label={t("bots.message")}
-          placeholder={t("bots.message")}
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={onKeyDown}
-          rows={1}
-          className="max-h-40 min-h-10 resize-none"
-        />
-        <Button type="submit" size="icon" aria-label={t("bots.send")} disabled={!draft.trim()}>
-          <SendIcon />
-        </Button>
-      </form>
+      <RoomComposer members={room.members} draft={draft} setDraft={setDraft} onSend={submit} />
     </section>
   );
 }

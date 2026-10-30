@@ -1,7 +1,7 @@
-import type { Room, RoomMember } from "@botsdk/client/bot/contract";
-import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import type { Room, RoomMember, RoomMemberStatus } from "@botsdk/client/bot/contract";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 
-import { bot, botRoomMember, conversation, message } from "../../storage";
+import { bot, botRoomMember, botTrigger, botTurn, conversation, message } from "../../storage";
 import type { Database } from "../../storage";
 import type { Transaction } from "../../plugin";
 import { uuidv7 } from "../../lib/uuidv7";
@@ -33,9 +33,38 @@ async function membersOf(
     .innerJoin(bot, eq(bot.id, botRoomMember.botId))
     .where(inArray(botRoomMember.conversationId, conversationIds))
     .orderBy(asc(botRoomMember.joinedAt), asc(botRoomMember.botId));
+  // Who runs a Turn, and who has a Trigger waiting, in each Room: keyed `<conversation>:<bot>`.
+  const [running, waiting] = await Promise.all([
+    db
+      .select({ conversationId: botTurn.conversationId, botId: botTurn.botId })
+      .from(botTurn)
+      .where(and(inArray(botTurn.conversationId, conversationIds), eq(botTurn.status, "running"))),
+    db
+      .selectDistinct({ conversationId: botTrigger.conversationId, botId: botTrigger.botId })
+      .from(botTrigger)
+      .where(
+        and(
+          inArray(botTrigger.conversationId, conversationIds),
+          isNull(botTrigger.turnId),
+          isNull(botTrigger.skippedAt),
+        ),
+      ),
+  ]);
+  const keyOf = (row: { conversationId: string; botId: string }) =>
+    `${row.conversationId}:${row.botId}`;
+  const working = new Set(running.map(keyOf));
+  const queued = new Set(waiting.map(keyOf));
   for (const { conversationId, ...member } of rows) {
     const members = byRoom.get(conversationId) ?? [];
-    members.push(member);
+    const key = keyOf({ conversationId, botId: member.botId });
+    const status: RoomMemberStatus | null = member.pausedAt
+      ? "paused"
+      : working.has(key)
+        ? "working"
+        : queued.has(key)
+          ? "queued"
+          : null;
+    members.push({ ...member, status });
     byRoom.set(conversationId, members);
   }
   return byRoom;

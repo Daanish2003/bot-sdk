@@ -1,4 +1,5 @@
 import { maxFilesPerMessage } from "@botsdk/client/bot/files";
+import { mentionedMembers } from "@botsdk/client/bot/mentions";
 import type { BotMessage, TurnStatus } from "@botsdk/client/bot/turn";
 import type { ModelMessage } from "@tanstack/ai";
 import { and, eq } from "drizzle-orm";
@@ -197,34 +198,48 @@ export async function sendToBot(
 }
 
 /**
- * Saves the user's Message in their Room and hands it to the Router as a Trigger for the lead, in
- * one transaction (spec #1055): it interrupts the lead's running Turn in the Room, as a send to the
- * Bot does. A paused lead keeps the Trigger as skipped. With no lead (its Bot was deleted), the
- * earliest member leads. The Message keeps the user's newest time zone. Returns the saved user
- * Message.
+ * Saves the user's Message in their Room and hands it to the Router, in one transaction (spec
+ * #1055): one Trigger for each member it @mentions, or one for the lead when it mentions none. Each
+ * interrupts the running Turn of its own Bot in the Room only, as a send to the Bot does, so the
+ * other Bots keep working. A paused Bot keeps its Trigger as skipped, and the lead is not woken in
+ * its place. With no lead (its Bot was deleted), the earliest member leads. The Message keeps the
+ * user's newest time zone. Returns the saved user Message.
  */
 export async function sendToRoom(
   deps: BotSdkContext,
   { userId, conversationId, text }: { userId: string; conversationId: string; text: string },
 ): Promise<BotMessage> {
   const room = await findRoom(deps.db, userId, conversationId);
+  const mentioned = mentionedMembers(text, room.members);
   const lead = room.members.find((member) => member.lead) ?? room.members[0];
-  const found = lead && (await findBot(deps.db, userId, lead.botId));
-  if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-  const call = await deps.models.resolveModelCall(userId, found.model);
-  if (!call) {
-    throw rpcError(
-      "BAD_REQUEST",
-      "error.modelNotAvailable",
-      `"${found.model}" is not an available Model`,
-      { model: found.model },
-    );
-  }
+  const botIds = mentioned.length > 0 ? mentioned : lead ? [lead.botId] : [];
+  // A paused Bot's Trigger is only kept as skipped, so its Model isn't asked for.
+  const paused = new Set(room.members.flatMap((member) => (member.pausedAt ? [member.botId] : [])));
+  const targets = await Promise.all(
+    botIds.map(async (botId) => {
+      const found = await findBot(deps.db, userId, botId);
+      if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
+      if (paused.has(botId)) return { botId, call: undefined };
+      const call = await deps.models.resolveModelCall(userId, found.model);
+      if (!call) {
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.modelNotAvailable",
+          `"${found.model}" is not an available Model`,
+          { model: found.model },
+        );
+      }
+      return { botId, call };
+    }),
+  );
+  if (targets.length === 0) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
   const timeZone = await userTimeZone(deps.db, userId);
   const saved = await deps.db.transaction(async (tx) => {
     await lockConversation(tx, conversationId);
-    if (!(await call.meter.mayRun()).ok) {
-      throw rpcError("PAYMENT_REQUIRED", "error.quotaSpent", "You've used this window's Quota");
+    for (const { call } of targets) {
+      if (call && !(await call.meter.mayRun()).ok) {
+        throw rpcError("PAYMENT_REQUIRED", "error.quotaSpent", "You've used this window's Quota");
+      }
     }
     const now = deps.clock();
     const row = await appendMessage(tx, conversationId, {
@@ -233,16 +248,18 @@ export async function sendToRoom(
       status: "complete",
       createdAt: now,
     });
-    const { waitsFor } = await receive(deps, tx, {
-      id: row.id,
-      botId: found.id,
-      conversationId,
-      source: "user",
-      channel: "web",
-      messageId: row.id,
-      receivedAt: now,
-    });
-    if (waitsFor) await cancelTurn(deps, tx, waitsFor, "message");
+    for (const { botId } of targets) {
+      const { waitsFor } = await receive(deps, tx, {
+        id: row.id,
+        botId,
+        conversationId,
+        source: "user",
+        channel: "web",
+        messageId: row.id,
+        receivedAt: now,
+      });
+      if (waitsFor) await cancelTurn(deps, tx, waitsFor, "message");
+    }
     return toBotMessage(row);
   });
   deps.runner.wake();
@@ -602,8 +619,23 @@ async function endTurn(
     .update(botTurn)
     .set(ending)
     .where(eq(botTurn.id, turnId))
-    .returning({ botId: botTurn.botId });
-  if (ended) await recordBotChange(tx, ended, "turn", turnId, ending.endedAt);
+    .returning({ conversationId: botTurn.conversationId, botId: botTurn.botId });
+  if (!ended) return;
+  // A Room Turn's end is the Room's change (spec #1055), and still its Bot's too: the Bot's thread
+  // and Tasks view read its running Turn in any Conversation.
+  await recordBotChange(
+    tx,
+    { conversationId: ended.conversationId },
+    "turn",
+    turnId,
+    ending.endedAt,
+  );
+  const [own] = await tx
+    .select({ id: bot.conversationId })
+    .from(bot)
+    .where(eq(bot.id, ended.botId));
+  if (own && own.id !== ended.conversationId)
+    await recordBotChange(tx, { conversationId: own.id }, "turn", turnId, ending.endedAt);
 }
 
 /**

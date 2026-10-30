@@ -3,7 +3,10 @@ import type { BotSdkClient } from "@botsdk/client";
 import type { QueryClient } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createElement, type ReactElement } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { os } from "@orpc/server";
+import { RPCHandler } from "@orpc/server/fetch";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { safetyFetchMs } from "@botsdk/react/bot/bot-sync";
 import { dateFormat } from "@botsdk/react/intl";
@@ -11,6 +14,7 @@ import type { ChatRouter } from "@botsdk/react/provider";
 import { BotSidebar } from "../../src/bot/bot-sidebar";
 import { RoomConversation } from "../../src/bot/room-conversation";
 import { providerFor, renderWrapped, untranslated } from "@ai-chat/test-support/fake-dictionary";
+import { changeLog, hint, stubEventSource } from "./fake-change-log";
 
 afterEach(() => {
   cleanup();
@@ -35,6 +39,7 @@ const member = (from: { id: string; name: string }, lead = false) => ({
   name: from.name,
   lead,
   pausedAt: null,
+  status: null,
 });
 const launch = {
   conversationId: "r1",
@@ -219,5 +224,175 @@ describe("a Room", () => {
         dateFormat("en", { hour: "numeric", minute: "2-digit" }).format(createdAt),
       ]),
     ).toEqual([]);
+  });
+});
+
+describe("a Room's members", () => {
+  it("shows the members as an avatar stack, the lead marked, with a status dot on each", () => {
+    render(
+      providerFor(createElement(RoomConversation, { conversationId: launch.conversationId }), {
+        fetch: () => new Promise<Response>(() => {}),
+        messages: {},
+        seed: (queryClient, client) => {
+          seed(queryClient, client);
+          queryClient.setQueryData(
+            client.orpc.rooms.get.queryKey({ input: { conversationId: launch.conversationId } }),
+            {
+              room: {
+                ...launch,
+                members: [
+                  { ...member(scout, true), status: "working" },
+                  { ...member(writer), pausedAt: createdAt, status: "paused" },
+                  { ...member(ops), status: "queued" },
+                  member({ id: "b4", name: "Idle" }),
+                ],
+              },
+              messages: [],
+              lastSeq: 0,
+            },
+          );
+        },
+      }),
+    );
+
+    const members = within(screen.getByRole("list", { name: "Members" })).getAllByRole("listitem");
+    expect(members.map((item) => item.getAttribute("aria-label"))).toEqual([
+      "Scout, lead, working",
+      "Writer, paused",
+      "Ops, queued",
+      "Idle",
+    ]);
+    expect(
+      members.map((item) => item.querySelector("[data-status]")?.getAttribute("data-status")),
+    ).toEqual(["working", "paused", "queued", undefined]);
+  });
+});
+
+describe("@ autocomplete in a Room's composer", () => {
+  const typeIn = (box: HTMLElement, value: string) =>
+    fireEvent.change(box, { target: { value, selectionStart: value.length } });
+
+  it("offers the members whose name starts with what follows the @, and picks one with the keys", () => {
+    mount(createElement(RoomConversation, { conversationId: launch.conversationId }));
+    const box = screen.getByRole("textbox", { name: "Message" });
+
+    typeIn(box, "Hi @");
+    const list = screen.getByRole("listbox", { name: "Mention a member" });
+    expect(
+      within(list)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["Scout", "Writer"]);
+    fireEvent.keyDown(box, { key: "ArrowDown" });
+    fireEvent.keyDown(box, { key: "Enter" });
+
+    expect((box as HTMLTextAreaElement).value).toBe("Hi @Writer ");
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("narrows by the typed name, case-insensitive, and picks on a click", () => {
+    mount(createElement(RoomConversation, { conversationId: launch.conversationId }));
+    const box = screen.getByRole("textbox", { name: "Message" });
+
+    typeIn(box, "@sc");
+    const list = screen.getByRole("listbox", { name: "Mention a member" });
+    expect(
+      within(list)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["Scout"]);
+    fireEvent.mouseDown(within(list).getByRole("option", { name: "Scout" }));
+
+    expect((box as HTMLTextAreaElement).value).toBe("@Scout ");
+  });
+
+  it("offers nothing for an @ inside a word, or once Escape closes it", () => {
+    mount(createElement(RoomConversation, { conversationId: launch.conversationId }));
+    const box = screen.getByRole("textbox", { name: "Message" });
+
+    typeIn(box, "bob@s");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    typeIn(box, "bob @");
+    expect(screen.getByRole("listbox")).toBeTruthy();
+    fireEvent.keyDown(box, { key: "Escape" });
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("closes once a member is picked, even when a longer name starts with it, and opens for an @ typed again", () => {
+    render(
+      providerFor(createElement(RoomConversation, { conversationId: launch.conversationId }), {
+        fetch: () => new Promise<Response>(() => {}),
+        messages: {},
+        seed: (queryClient, client) => {
+          seed(queryClient, client);
+          queryClient.setQueryData(
+            client.orpc.rooms.get.queryKey({ input: { conversationId: launch.conversationId } }),
+            {
+              room: {
+                ...launch,
+                members: [...launch.members, member({ id: "b5", name: "Scout Two" })],
+              },
+              messages: [],
+              lastSeq: 0,
+            },
+          );
+        },
+      }),
+    );
+    const box = screen.getByRole("textbox", { name: "Message" });
+
+    typeIn(box, "@");
+    fireEvent.keyDown(box, { key: "Escape" });
+    typeIn(box, "");
+    typeIn(box, "@");
+    expect(screen.getByRole("listbox")).toBeTruthy();
+    fireEvent.mouseDown(screen.getByRole("option", { name: "Scout" }));
+    // "Scout Two" starts with "Scout ", yet the picked mention is done.
+    expect(screen.queryByRole("listbox")).toBeNull();
+    // A cleared draft (sent) opens the list for its next @.
+    typeIn(box, "");
+    typeIn(box, "@");
+    expect(screen.getByRole("listbox")).toBeTruthy();
+  });
+});
+
+describe("a Room's members, kept in step", () => {
+  beforeEach(stubEventSource);
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("reads the Room again when a Turn in it starts or ends, so the status dots follow", async () => {
+    const log = changeLog();
+    const state = { status: null as "working" | null };
+    const router = {
+      conversations: {
+        changes: os
+          .input(z.object({ conversationId: z.string(), since: z.number() }))
+          .handler(({ input }) => log.since(input.since)),
+      },
+      rooms: {
+        get: os.handler(() => ({
+          room: { ...launch, members: [{ ...member(scout, true), status: state.status }] },
+          messages: [],
+          lastSeq: log.last,
+        })),
+      },
+    };
+    const handler = new RPCHandler(router);
+    const fetch = async (request: Request) =>
+      (await handler.handle(request, { prefix: "/api/chat/rpc" })).response ??
+      new Response(null, { status: 404 });
+    render(
+      providerFor(createElement(RoomConversation, { conversationId: launch.conversationId }), {
+        fetch,
+        messages: {},
+      }),
+    );
+    await screen.findByRole("listitem", { name: "Scout, lead" });
+
+    state.status = "working";
+    log.record("turn", "t1", { id: "t1", status: "running", startedAt: createdAt, endedAt: null });
+    await hint();
+
+    await screen.findByRole("listitem", { name: "Scout, lead, working" });
   });
 });

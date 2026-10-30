@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { conversationChannel } from "../../src/chat/conversation-events";
 import { appendMessage } from "../../src/chat/message-tree";
 import { createBot, textParts } from "../../src/bot/conversation/store";
-import { bot, botTurn, message } from "../../src/storage";
+import { bot, botTrigger, botTurn, message } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner } from "../../src/runner/internal";
@@ -14,7 +14,7 @@ import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
-import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
+import { createFakeAdapter, type FakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 
 const model = "openai:gpt-6-luna";
 const silent = { error: () => {} };
@@ -32,8 +32,11 @@ afterEach(async () => {
 const says = (text: string) =>
   round(toolCall({ name: "send_to_user", input: { text, endTurn: true } }));
 
-/** A user with an OpenAI key and three Bots (Scout, Writer, Ops), whose Turns play `rounds`. */
-async function threeBots(rounds: Round[] = []) {
+/**
+ * A user with an OpenAI key and three Bots (Scout, Writer, Ops), whose Turns play `rounds`, or call
+ * `adapter` when given.
+ */
+async function threeBots(rounds: Round[] = [], adapter?: FakeAdapter["adapter"]) {
   const fake = createFakeAdapter({ rounds });
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({
@@ -42,7 +45,7 @@ async function threeBots(rounds: Round[] = []) {
     drainMs: 50,
     jobs: () => deps!.parts.jobs,
   });
-  deps = createTestSdk({ jobs, adapterFor: () => fake.adapter });
+  deps = createTestSdk({ jobs, adapterFor: () => adapter ?? fake.adapter });
   await jobs.start();
   started.push(jobs);
   const user = await insertUser();
@@ -357,6 +360,231 @@ describe("rooms", () => {
         .from(message)
         .where(and(eq(message.conversationId, room.conversationId), eq(message.role, "assistant")));
       expect(rows).toHaveLength(1);
+    },
+    timeout,
+  );
+});
+
+/**
+ * `fake`'s adapter held at the door: each call is noted in `entered` and waits until `open()`, or
+ * until its Turn is stopped, so a test sees which Turns call the Model at the same time.
+ */
+function held(fake: FakeAdapter) {
+  const entered: TextOptions[] = [];
+  let open = () => {};
+  const opened = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  const adapter: typeof fake.adapter = {
+    ...fake.adapter,
+    chatStream: async function* (options) {
+      entered.push(options);
+      const signal = options.request?.signal ?? undefined;
+      await Promise.race([
+        opened,
+        new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve())),
+      ]);
+      if (signal?.aborted) return;
+      yield* fake.adapter.chatStream(options);
+    },
+  };
+  return { adapter, entered, open };
+}
+
+/** Who made each Turn call in `calls`: the Bot its Room section names, or "1:1" outside a Room. */
+const callersOf = (calls: TextOptions[]) =>
+  calls
+    .filter(isTurnCall)
+    .map((call) => {
+      const room = systemOf(call).find((prompt) => prompt.startsWith("[Room]"));
+      return room ? (/\. You are ([^.]+)\./.exec(room)?.[1] ?? "?") : "1:1";
+    })
+    .sort();
+
+const statusesOf = async (botId: string) => (await turnsOf(botId)).map((turn) => turn.status);
+
+describe("mentions in a Room", () => {
+  it(
+    "runs a Turn for each mentioned Bot, and one for the lead when none is mentioned",
+    async () => {
+      const { fake, client, scout, writer, ops } = await threeBots(
+        Array.from({ length: 3 }, () => says("Done.")),
+      );
+      const room = await client.rooms.create({
+        name: "Launch",
+        botIds: [scout.id, writer.id, ops.id],
+      });
+
+      await client.rooms.send({
+        conversationId: room.conversationId,
+        text: "@writer and @Ops, draft and file it.",
+      });
+      await expect.poll(() => statusesOf(writer.id), poll).toEqual(["complete"]);
+      await expect.poll(() => statusesOf(ops.id), poll).toEqual(["complete"]);
+      expect(await turnsOf(scout.id)).toEqual([]);
+
+      await client.rooms.send({ conversationId: room.conversationId, text: "Thanks all." });
+      await expect.poll(() => statusesOf(scout.id), poll).toEqual(["complete"]);
+      expect(fake.calls.filter(isTurnCall)).toHaveLength(3);
+      // Each mentioned Bot's input marks the Message "(to you)"; the others see it plain.
+      const third = fake.calls.filter(isTurnCall).at(-1)!;
+      expect(userTextsOf(third).join("\n")).toContain("[User]: @writer and @Ops");
+    },
+    timeout,
+  );
+
+  it(
+    "resolves names with spaces, and routes an unmatched @ to the lead",
+    async () => {
+      const { client, scout, writer } = await threeBots([says("Here."), says("Lead here.")]);
+      const team = await client.bots.create({ name: "Ops Team", model });
+      const room = await client.rooms.create({
+        name: "Launch",
+        botIds: [scout.id, writer.id, team.id],
+      });
+
+      await client.rooms.send({ conversationId: room.conversationId, text: "@ops team, file it" });
+      await expect.poll(() => statusesOf(team.id), poll).toEqual(["complete"]);
+
+      await client.rooms.send({
+        conversationId: room.conversationId,
+        text: "Mail bob@writer.com, cc @Nobody",
+      });
+      await expect.poll(() => statusesOf(scout.id), poll).toEqual(["complete"]);
+      expect(await turnsOf(writer.id)).toEqual([]);
+    },
+    timeout,
+  );
+
+  it(
+    "skips a mentioned paused Bot's Trigger as paused, and doesn't wake the lead in its place",
+    async () => {
+      const { client, scout, writer } = await threeBots([says("Here.")]);
+      const room = await client.rooms.create({ name: "Launch", botIds: [scout.id, writer.id] });
+      await client.bots.pause({ botId: writer.id });
+
+      const sent = await client.rooms.send({
+        conversationId: room.conversationId,
+        text: "@Writer, draft it.",
+      });
+
+      const [trigger] = await getTestDb()
+        .select()
+        .from(botTrigger)
+        .where(eq(botTrigger.id, sent.id));
+      expect(trigger).toMatchObject({ botId: writer.id, skipReason: "paused" });
+      // Give a wrongly woken lead the time to start.
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect(await turnsOf(scout.id)).toEqual([]);
+      expect(await turnsOf(writer.id)).toEqual([]);
+    },
+    timeout,
+  );
+
+  it(
+    "runs two Bots' Room Turns at the same time",
+    async () => {
+      const fake = createFakeAdapter({ rounds: [says("One."), says("Two.")] });
+      const gate = held(fake);
+      const { client, scout, writer } = await threeBots([], gate.adapter);
+      const room = await client.rooms.create({ name: "Launch", botIds: [scout.id, writer.id] });
+
+      await client.rooms.send({ conversationId: room.conversationId, text: "@Scout @Writer go" });
+
+      await expect.poll(() => callersOf(gate.entered), poll).toEqual(["Scout", "Writer"]);
+      gate.open();
+      await expect.poll(() => statusesOf(scout.id), poll).toEqual(["complete"]);
+      await expect.poll(() => statusesOf(writer.id), poll).toEqual(["complete"]);
+    },
+    timeout,
+  );
+
+  it(
+    "runs a Bot's Room Turn while its 1:1 Turn runs",
+    async () => {
+      const fake = createFakeAdapter({ rounds: [says("One."), says("Two.")] });
+      const gate = held(fake);
+      const { client, scout, writer } = await threeBots([], gate.adapter);
+      const room = await client.rooms.create({ name: "Launch", botIds: [scout.id, writer.id] });
+
+      await client.bots.send({ botId: scout.id, id: uuidv7(), text: "Just us." });
+      await expect.poll(() => callersOf(gate.entered), poll).toEqual(["1:1"]);
+      await client.rooms.send({ conversationId: room.conversationId, text: "@Scout go" });
+
+      await expect.poll(() => callersOf(gate.entered), poll).toEqual(["1:1", "Scout"]);
+      gate.open();
+      await expect.poll(() => statusesOf(scout.id), poll).toEqual(["complete", "complete"]);
+    },
+    timeout,
+  );
+
+  it(
+    "interrupts only the running Turns of the Bots a user Message goes to",
+    async () => {
+      const fake = createFakeAdapter({
+        rounds: Array.from({ length: 4 }, () => says("Ok.")),
+      });
+      const gate = held(fake);
+      const { client, scout, writer } = await threeBots([], gate.adapter);
+      const room = await client.rooms.create({ name: "Launch", botIds: [scout.id, writer.id] });
+      await client.rooms.send({ conversationId: room.conversationId, text: "@Scout @Writer go" });
+      await expect.poll(() => callersOf(gate.entered), poll).toEqual(["Scout", "Writer"]);
+
+      await client.rooms.send({ conversationId: room.conversationId, text: "@Scout, stop that." });
+
+      await expect.poll(() => statusesOf(scout.id), poll).toContain("stopped");
+      expect(await statusesOf(writer.id)).toEqual(["running"]);
+      gate.open();
+      await expect.poll(() => statusesOf(writer.id), poll).toEqual(["complete"]);
+      await expect
+        .poll(async () => (await statusesOf(scout.id)).sort(), poll)
+        .toEqual(["complete", "stopped"]);
+    },
+    timeout,
+  );
+
+  it(
+    "gives each member its status in the Room: working while it runs a Turn there, paused while paused",
+    async () => {
+      const fake = createFakeAdapter({ rounds: [says("Ok.")] });
+      const gate = held(fake);
+      const { client, scout, writer, ops } = await threeBots([], gate.adapter);
+      const room = await client.rooms.create({
+        name: "Launch",
+        botIds: [scout.id, writer.id, ops.id],
+      });
+      await client.bots.pause({ botId: ops.id });
+      await client.rooms.send({ conversationId: room.conversationId, text: "@Writer go" });
+      await expect.poll(() => callersOf(gate.entered), poll).toEqual(["Writer"]);
+
+      const statuses = async () =>
+        (await client.rooms.get({ conversationId: room.conversationId })).room.members.map(
+          (member) => [member.name, member.status],
+        );
+      expect(await statuses()).toEqual([
+        ["Scout", null],
+        ["Writer", "working"],
+        ["Ops", "paused"],
+      ]);
+      gate.open();
+      await expect.poll(() => statusesOf(writer.id), poll).toEqual(["complete"]);
+      expect(await statuses()).toEqual([
+        ["Scout", null],
+        ["Writer", null],
+        ["Ops", "paused"],
+      ]);
+      // The Turn's start and end are the Room's changes, so its tabs follow the status; its end is
+      // the Bot's too, whose thread reads its running Turn anywhere.
+      const turnChanges = async (conversationId: string) => {
+        const read = await client.conversations.changes({ conversationId, since: 0 });
+        if (read.reload) throw new Error("The change log asked for a reload");
+        return read.changes.flatMap((change) =>
+          change.kind === "turn" && change.data ? [change.data.status] : [],
+        );
+      };
+      expect(await turnChanges(room.conversationId)).toContain("complete");
+      const { conversationId: direct } = await client.bots.get({ botId: writer.id });
+      expect(await turnChanges(direct)).toEqual(["complete"]);
     },
     timeout,
   );

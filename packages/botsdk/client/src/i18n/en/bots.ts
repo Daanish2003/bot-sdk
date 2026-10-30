@@ -378,4 +378,11 @@ description: Use this when
   "bots.noRooms": "No Rooms yet.",
   "bots.you": "You",
   "bots.deletedBot": "deleted Bot",
+  "bots.roomMembers": "Members",
+  "bots.memberWorking": "working",
+  "bots.memberQueued": "queued",
+  "bots.memberPaused": "paused",
+  "bots.roomMember": ({ name, lead, status }: { name: string; lead: string; status: string }) =>
+    [name, lead, status].filter(Boolean).join(", "),
+  "bots.mentionMember": "Mention a member",
 };

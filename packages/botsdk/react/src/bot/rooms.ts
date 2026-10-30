@@ -17,7 +17,8 @@ const running = new WeakMap<
 
 /**
  * Fetches Room `conversationId`'s changes after the cached `rooms.get`'s `lastSeq` and applies its
- * Messages; a member's Bot changing (paused or resumed) reads the Room afresh. A cursor the log no longer holds, or a gap in the numbers, reads the Room afresh. One
+ * Messages; a member's Bot changing (paused or resumed), or a Turn in it starting or ending,
+ * reads the Room afresh, for its members' status. A cursor the log no longer holds, or a gap in the numbers, reads the Room afresh. One
  * fetch runs at a time per Room; a call made meanwhile makes it fetch once more. It never rejects.
  */
 export function syncRoom(
@@ -72,7 +73,8 @@ async function fetchOnce(queryClient: QueryClient, orpc: BotSdkOrpc, conversatio
     if (!thread) return thread;
     let messages = thread.messages;
     for (const change of changes) {
-      if (change.kind === "bot") reread = true;
+      // A member paused or resumed, or a Turn in the Room started or ended: its members' status.
+      if (change.kind === "bot" || change.kind === "turn") reread = true;
       if (change.kind !== "message" || !change.data) continue;
       const data = change.data;
       messages = [...messages.filter((shown) => shown.id !== data.id), data];
@@ -135,8 +137,13 @@ export function useRoom(conversationId: string) {
     };
   }, [conversationId, eventsUrl, orpc, queryClient]);
 
-  // The Room has no Turn status of its own: a reply is awaited while the newest Message is the user's.
-  const waiting = thread.data?.messages.at(-1)?.role === "user";
+  // A reply is awaited while a member works or has a Message queued, or the newest Message is the
+  // user's.
+  const waiting =
+    thread.data?.messages.at(-1)?.role === "user" ||
+    (thread.data?.room.members ?? []).some(
+      (member) => member.status === "working" || member.status === "queued",
+    );
   useEffect(() => {
     if (!waiting) return;
     const timer = setInterval(

@@ -70,8 +70,20 @@ export type BotThread = {
   lastSeq: number;
 };
 
+/**
+ * What a Room member is doing there (spec #1055): running a Turn in the Room (`working`), a Message
+ * waits for it (`queued`), or its Bot is paused (`paused`). Null when it is idle.
+ */
+export type RoomMemberStatus = "working" | "queued" | "paused";
+
 /** A Bot in a Room (spec #1055): the lead takes the user's Messages that mention no one. */
-export type RoomMember = { botId: string; name: string; lead: boolean; pausedAt: Date | null };
+export type RoomMember = {
+  botId: string;
+  name: string;
+  lead: boolean;
+  pausedAt: Date | null;
+  status: RoomMemberStatus | null;
+};
 
 /**
  * A Room (spec #1055): a Conversation the user shares with two or more of their Bots, named by its
