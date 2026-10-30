@@ -208,7 +208,8 @@ describe("Stop in a Room", () => {
       await expect.poll(() => hints.length, poll).toBeGreaterThan(0);
 
       await expect.poll(() => statusesOf(scout.id, conversationId), poll).toEqual(["stopped"]);
-      expect(await statusesOf(writer.id, conversationId)).toEqual(["stopped"]);
+      // Each Turn ends as its own attempt aborts, so one may end a moment after the other.
+      await expect.poll(() => statusesOf(writer.id, conversationId), poll).toEqual(["stopped"]);
       expect(await turnsOf(ops.id)).toEqual([]);
       const handoff = (await triggersOf(writer.id)).find((trigger) => trigger.id === "handoff-1");
       expect(handoff).toMatchObject({ turnId: null, skipReason: "cancelled" });

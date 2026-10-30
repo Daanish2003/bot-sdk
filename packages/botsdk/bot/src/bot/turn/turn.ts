@@ -1,3 +1,4 @@
+import { ORPCError } from "@orpc/server";
 import { maxFilesPerMessage, type SentFile } from "@botsdk/client/bot/files";
 import { mentionedMembers } from "@botsdk/client/bot/mentions";
 import type { BotMessage, TurnStatus } from "@botsdk/client/bot/turn";
@@ -324,7 +325,8 @@ export async function postToRoom(
       parts: {
         ...parts,
         parts: [
-          ...parts.parts,
+          // A Message of files alone carries no empty text part, as `handIn` saves it.
+          ...(text ? parts.parts : []),
           ...(files.length
             ? [{ type: "control" as const, control: { kind: "files" as const, files } }]
             : []),
@@ -441,8 +443,7 @@ export async function stopUserTurns(deps: BotSdkContext, userId: string): Promis
 }
 
 /** Whether `caught` is an RPC error with code `NOT_FOUND`. */
-const isNotFound = (caught: unknown) =>
-  typeof caught === "object" && caught !== null && "code" in caught && caught.code === "NOT_FOUND";
+const isNotFound = (caught: unknown) => caught instanceof ORPCError && caught.code === "NOT_FOUND";
 
 /**
  * Cancels Turn `turnId`'s job, unless it is already cancelled, under the Conversation's row lock

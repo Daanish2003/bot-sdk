@@ -8,7 +8,7 @@ import {
 } from "@botsdk/client/bot/rich-control";
 import type { BotMessage, BotTurnStatus } from "@botsdk/client/bot/turn";
 import { searchTextOf } from "@botsdk/client/message-parts";
-import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, notExists, or, sql } from "drizzle-orm";
 
 import { deleteConversations } from "../../chat/delete-conversations";
 import {
@@ -515,15 +515,23 @@ export async function exportBots(tx: Transaction, userId: string): Promise<BotEx
     .from(bot)
     .where(eq(bot.userId, userId))
     .orderBy(asc(bot.createdAt), asc(bot.id));
+  // A Room is a Bot Conversation that is no Bot's 1:1, kept even once all its Bots are deleted.
   const rooms = await tx
-    .selectDistinct({
+    .select({
       conversationId: conversation.id,
       title: conversation.title,
       createdAt: conversation.createdAt,
     })
     .from(conversation)
-    .innerJoin(botRoomMember, eq(botRoomMember.conversationId, conversation.id))
-    .where(and(eq(conversation.userId, userId), eq(conversation.kind, botKind)))
+    .where(
+      and(
+        eq(conversation.userId, userId),
+        eq(conversation.kind, botKind),
+        notExists(
+          tx.select({ id: bot.id }).from(bot).where(eq(bot.conversationId, conversation.id)),
+        ),
+      ),
+    )
     .orderBy(asc(conversation.createdAt), asc(conversation.id));
   const roomIds = rooms.map((room) => room.conversationId);
   const members = roomIds.length

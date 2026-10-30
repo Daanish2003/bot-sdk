@@ -1,8 +1,8 @@
 import type { TextOptions } from "@tanstack/ai";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { bot, botReview, botTrigger, botTurn, conversation, message } from "../../src/storage";
+import { bot, botReview, botTrigger, botTurn, conversation, job, message } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner } from "../../src/runner/internal";
@@ -243,6 +243,25 @@ describe("Conversation row locks", () => {
   );
 });
 
+/**
+ * A running Turn ends once its attempt sees the cancel, at its next heartbeat (every 10 s), so a
+ * wait for it allows one heartbeat and the time to end the Turn.
+ */
+const heartbeat = { timeout: 20_000 };
+
+/** The status of Turn `turnId`'s job: `cancelled` as soon as a Stop commits. */
+const jobOf = async (turnId: string) => {
+  const [row] = await getTestDb()
+    .select({ status: job.status })
+    .from(job)
+    .where(eq(job.idempotencyKey, turnId));
+  return row?.status;
+};
+
+/** The id of Bot `botId`'s only Turn in Conversation `conversationId`. */
+const turnIn = async (botId: string, conversationId: string) =>
+  (await turnsOf(botId, conversationId))[0]!.id;
+
 describe("stopping a Bot's Turns", () => {
   it(
     "a Ban ends the user's Room Turns as well as their 1:1 Turns",
@@ -256,11 +275,13 @@ describe("stopping a Bot's Turns", () => {
 
       await deps.bots.stopTurns({ userId: user.id });
 
-      await expect.poll(() => statusesOf(scout.id, conversationId), poll).toEqual(["stopped"]);
-      await expect.poll(() => statusesOf(writer.id, conversationId), poll).toEqual(["stopped"]);
-      await expect
-        .poll(async () => statusesOf(scout.id, await oneToOneOf(scout.id)), poll)
-        .toEqual(["stopped"]);
+      const own = await oneToOneOf(scout.id);
+      const stopped = async () => [
+        ...(await statusesOf(scout.id, conversationId)),
+        ...(await statusesOf(writer.id, conversationId)),
+        ...(await statusesOf(scout.id, own)),
+      ];
+      await expect.poll(stopped, heartbeat).toEqual(["stopped", "stopped", "stopped"]);
     },
     timeout,
   );
@@ -278,16 +299,22 @@ describe("stopping a Bot's Turns", () => {
       // The Tasks view shows the Turn with its Conversation, for its Stop.
       const tasks = await client.bots.tasks({ botId: writer.id });
       expect(tasks.inProgress.turn).toMatchObject({ conversationId });
+      const [inRoom, alone, writers] = await Promise.all([
+        turnIn(scout.id, conversationId),
+        turnIn(scout.id, own),
+        turnIn(writer.id, conversationId),
+      ]);
 
       await client.bots.stop({ botId: scout.id, conversationId });
 
-      await expect.poll(() => statusesOf(scout.id, conversationId), poll).toEqual(["stopped"]);
-      expect(await statusesOf(scout.id, own)).toEqual(["running"]);
-      expect(await statusesOf(writer.id, conversationId)).toEqual(["running"]);
+      expect([await jobOf(inRoom), await jobOf(alone), await jobOf(writers)]).toEqual([
+        "cancelled",
+        "running",
+        "running",
+      ]);
       // Without one, it stops the 1:1 Turn, as before.
       await client.bots.stop({ botId: scout.id });
-      await expect.poll(() => statusesOf(scout.id, own), poll).toEqual(["stopped"]);
-      expect(await statusesOf(writer.id, conversationId)).toEqual(["running"]);
+      expect([await jobOf(alone), await jobOf(writers)]).toEqual(["cancelled", "running"]);
       // A Conversation the Bot isn't in is not found.
       const other = await client.rooms.create({
         name: "Other",
@@ -296,6 +323,12 @@ describe("stopping a Bot's Turns", () => {
       await expect(
         client.bots.stop({ botId: scout.id, conversationId: other.conversationId }),
       ).rejects.toMatchObject({ data: { code: "error.roomNotFound" } });
+      const ended = async () => [
+        ...(await statusesOf(scout.id, conversationId)),
+        ...(await statusesOf(scout.id, own)),
+      ];
+      await expect.poll(ended, heartbeat).toEqual(["stopped", "stopped"]);
+      expect(await statusesOf(writer.id, conversationId)).toEqual(["running"]);
     },
     timeout,
   );
@@ -401,6 +434,29 @@ describe("the user's data export", () => {
       ]);
       // The 1:1 Conversations are still each Bot's own.
       expect(bots.map((row) => row.messages)).toEqual([[], [], []]);
+    },
+    timeout,
+  );
+
+  it(
+    "keeps a Room whose Bots were all deleted, with its Messages",
+    async () => {
+      const { deps, user, scout, writer, ops, client, room } = await threeBotRoom([
+        says("Plan drafted."),
+      ]);
+      const conversationId = room.conversationId;
+      await client.rooms.send({ conversationId, text: "Plan the launch" });
+      await expect.poll(() => statusesOf(scout.id, conversationId), poll).toEqual(["complete"]);
+      // A Bot is deleted with its 1:1 Conversation, by cascade.
+      const owned = await Promise.all([scout, writer, ops].map((one) => oneToOneOf(one.id)));
+      await getTestDb().delete(conversation).where(inArray(conversation.id, owned));
+
+      const { rooms, bots } = (await exportUserData(deps, user.id)).bot as BotExport;
+
+      expect(bots).toEqual([]);
+      expect(rooms).toMatchObject([
+        { conversationId, name: "Launch", members: [], messages: [{}, {}] },
+      ]);
     },
     timeout,
   );

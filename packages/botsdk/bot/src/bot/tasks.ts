@@ -46,6 +46,8 @@ export async function botTasks(
       })
       .from(botTurn)
       .where(and(eq(botTurn.botId, botId), eq(botTurn.status, "running")))
+      // A Bot may run a Turn in its 1:1 and in Rooms at once: the newest is shown.
+      .orderBy(desc(botTurn.startedAt), desc(botTurn.id))
       .limit(1),
     shown.then(
       async (rows) =>
