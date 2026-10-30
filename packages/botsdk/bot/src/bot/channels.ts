@@ -62,6 +62,7 @@ function adaptersOf(adapters: ChannelOptions["adapters"]) {
 export function createChannels(sdk: BotSdkContext, options: ChannelOptions): ChannelApi {
   const { adapters, verifiedEmail } = options;
   const { email, push, messaging } = adaptersOf(adapters);
+  const appUrl = appUrlOf(options);
   const channels: ChannelApi = {
     receive: async (id, mail) => {
       if (id !== "email" || !email) throw new Error("The channel plugin has no email adapter");
@@ -77,13 +78,7 @@ export function createChannels(sdk: BotSdkContext, options: ChannelOptions): Cha
       }
     },
     sendDelivery: async (payload) => {
-      await sendDelivery(
-        sdk,
-        { email, push, messaging },
-        verifiedEmail,
-        payload,
-        appUrlOf(options),
-      );
+      await sendDelivery(sdk, { email, push, messaging }, verifiedEmail, payload, appUrl);
     },
     pushKey: () => push?.provider.publicKey ?? null,
     accounts: {
