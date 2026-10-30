@@ -432,9 +432,10 @@ function coreToolsOf(
       }
       // The Message commits with its Checkpoint, so it is sent once across a crash, and so are its
       // handoffs to the Room's other Bots (spec #1055).
-      // Set only by a live write: the Room Turns its handoffs started.
+      // Set only by a live write, afresh on each try of it: the Room Turns its handoffs started.
       let started: BotConversation[] = [];
       const result = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
+        started = [];
         if (!text.trim()) return { error: emptyTextError };
         const parts = control
           ? controlParts(text, control, undefined, urgent)
