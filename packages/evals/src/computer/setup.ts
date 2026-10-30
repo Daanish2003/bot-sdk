@@ -71,7 +71,7 @@ export function createComputerSdk(
     wrapFetch?: (real: typeof globalThis.fetch) => typeof globalThis.fetch;
   },
 ) {
-  const { db, provider, channels, channelAppUrl, users, reviewModel, features, models, wrapFetch } =
+  const { db, provider, channels, appUrl, users, reviewModel, features, models, wrapFetch } =
     options;
   const logger: Pick<Console, "error"> = console;
   const events = createHookEmitter(undefined, logger);
@@ -95,7 +95,7 @@ export function createComputerSdk(
       models: models ? models(real) : real,
       computer: provider,
       channels,
-      channelAppUrl,
+      appUrl,
       users,
       reviewModel,
       features,

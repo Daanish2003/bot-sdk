@@ -84,7 +84,7 @@ async function telegramBot(rounds: Round[], { email = true }: { email?: boolean 
         : []),
     ],
     // With no email or push adapter, the Channel plugin's own app URL carries the links.
-    ...(email ? {} : { channelAppUrl: appUrl }),
+    ...(email ? {} : { appUrl }),
     jobs,
     adapterFor: () => brain.adapter,
     clock: timer.clock.now,

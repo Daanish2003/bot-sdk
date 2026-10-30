@@ -28,7 +28,7 @@ type OverOptions = Pick<BotSdkOptions, "logger">;
 /** The factory's options the seam passes on as they are. */
 export type OverSlots = Pick<
   BotSdkOptions,
-  "channels" | "channelAppUrl" | "users" | "reviewModel" | "safety" | "liveViewBase"
+  "channels" | "appUrl" | "users" | "reviewModel" | "safety" | "liveViewBase"
 >;
 
 /**
@@ -63,7 +63,7 @@ export function createBotSdkOver(
     computer: given.computer,
     features: given.features,
     channels: given.channels,
-    channelAppUrl: given.channelAppUrl,
+    appUrl: given.appUrl,
     users: given.users,
     reviewModel: given.reviewModel,
     safety: given.safety,
