@@ -47,6 +47,7 @@ import {
   recordBotChange,
   findBot,
   findRoom,
+  oneBotRoom,
   userTimeZone,
   textParts,
   toBotMessage,
@@ -208,6 +209,7 @@ export async function sendToRoom(
   { userId, conversationId, text }: { userId: string; conversationId: string; text: string },
 ): Promise<BotMessage> {
   const room = await findRoom(deps.db, userId, conversationId);
+  if (room.members.length < 2) throw oneBotRoom();
   const lead = room.members.find((member) => member.lead) ?? room.members[0];
   const found = lead && (await findBot(deps.db, userId, lead.botId));
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");

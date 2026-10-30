@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { CrownIcon, SendIcon, UsersIcon } from "lucide-react";
+import { CrownIcon, EllipsisIcon, SendIcon, UsersIcon } from "lucide-react";
 import { type FormEvent, type KeyboardEvent, useState } from "react";
 import { toast } from "sonner";
 
@@ -9,6 +9,7 @@ import { useI18n } from "@botsdk/react/provider";
 import { useRoom } from "@botsdk/react/bot/rooms";
 import { serverErrorText } from "@botsdk/react/rpc-error";
 import { BotAvatar } from "./bot-avatar";
+import { OneBotWarning, RoomSettingsDialog } from "./room-settings";
 
 /**
  * A Room (spec #1055): one column of Messages, each with its author's avatar and name ("deleted
@@ -19,6 +20,7 @@ export function RoomConversation({ conversationId }: { conversationId: string })
   const { t, locale } = i18n;
   const { room, messages, error, send, sending } = useRoom(conversationId);
   const [draft, setDraft] = useState("");
+  const [managing, setManaging] = useState(false);
 
   if (error) {
     return (
@@ -33,7 +35,7 @@ export function RoomConversation({ conversationId }: { conversationId: string })
   const submit = (event?: FormEvent) => {
     event?.preventDefault();
     const text = draft.trim();
-    if (!text || sending) return;
+    if (!text || sending || !room || room.members.length < 2) return;
     setDraft("");
     // A refused send puts its text back in the composer and says why.
     void send(text).catch((refusal) => {
@@ -58,7 +60,17 @@ export function RoomConversation({ conversationId }: { conversationId: string })
             </span>
           ))}
         </div>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={t("bots.roomMenu")}
+          onClick={() => setManaging(true)}
+        >
+          <EllipsisIcon />
+        </Button>
       </header>
+      {room.members.length < 2 && <OneBotWarning room={room} />}
+      <RoomSettingsDialog room={room} open={managing} onOpenChange={setManaging} />
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
         {messages.length === 0 && (
           <p className="m-auto text-sm text-muted-foreground">{t("bots.noMessages")}</p>
@@ -109,7 +121,12 @@ export function RoomConversation({ conversationId }: { conversationId: string })
           rows={1}
           className="max-h-40 min-h-10 resize-none"
         />
-        <Button type="submit" size="icon" aria-label={t("bots.send")} disabled={!draft.trim()}>
+        <Button
+          type="submit"
+          size="icon"
+          aria-label={t("bots.send")}
+          disabled={!draft.trim() || room.members.length < 2}
+        >
           <SendIcon />
         </Button>
       </form>

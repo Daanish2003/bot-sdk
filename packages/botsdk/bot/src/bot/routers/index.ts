@@ -218,6 +218,21 @@ const rooms = os.rooms.router({
   send: os.rooms.send.handler(({ context, input }) =>
     context.sdk.rooms.send({ ...input, userId: context.user.id }),
   ),
+  rename: os.rooms.rename.handler(({ context, input }) =>
+    context.sdk.rooms.rename({ ...input, userId: context.user.id }),
+  ),
+  addMember: os.rooms.addMember.handler(({ context, input }) =>
+    context.sdk.rooms.addMember({ ...input, userId: context.user.id }),
+  ),
+  removeMember: os.rooms.removeMember.handler(({ context, input }) =>
+    context.sdk.rooms.removeMember({ ...input, userId: context.user.id }),
+  ),
+  setLead: os.rooms.setLead.handler(({ context, input }) =>
+    context.sdk.rooms.setLead({ ...input, userId: context.user.id }),
+  ),
+  delete: os.rooms.delete.handler(({ context, input }) =>
+    context.sdk.rooms.delete({ ...input, userId: context.user.id }),
+  ),
 });
 
 /** The `bot` plugin's routers, one per namespace, served under `<basePath>/rpc/<namespace>`. */

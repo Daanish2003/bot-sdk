@@ -11,4 +11,11 @@ export { receiveEmail } from "./email-inbound";
 export { emailText } from "./email-text";
 export { receiveMessaging } from "./messaging-inbound";
 export { botResetJobName, pauseBot, resetBot, resumeBot } from "./pause";
+export {
+  addRoomMember,
+  deleteRoom,
+  removeRoomMember,
+  renameRoom,
+  setRoomLead,
+} from "./room-members";
 export { sendToBot, sendToRoom, stopBot, stopUserTurns } from "./turn";

@@ -12,6 +12,7 @@ export const errorMessages = {
   "error.botPausedApproval": "Bot is paused. Resume to approve.",
   "error.roomNotFound": "Room not found",
   "error.roomTooFewBots": "A Room needs at least two of your Bots.",
+  "error.roomOneBot": "This Room has one Bot left. Add a Bot or delete the Room.",
   "error.roomNameClash": "Two Bots in a Room can't share a name.",
   "error.botResetName": "Type the Bot's name to reset it.",
   "error.secretTooShort": ({ min }: { min: number }) =>

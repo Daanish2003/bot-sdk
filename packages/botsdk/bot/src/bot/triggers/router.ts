@@ -103,7 +103,7 @@ export async function recordSkipChange(
 export async function skipWaiting(
   tx: Transaction,
   owner: BotConversation,
-  reason: "paused" | "reset",
+  reason: "cancelled" | "paused" | "reset",
   at: Date,
 ): Promise<void> {
   await tx.update(botTrigger).set({ skippedAt: at, skipReason: reason }).where(waitingIn(owner));

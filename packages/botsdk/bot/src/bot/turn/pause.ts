@@ -68,6 +68,38 @@ export async function resumeBot(deps: BotSdkContext, userId: string, botId: stri
 }
 
 /**
+ * A Turn stopped before it took its input leaves its Triggers new; they are discarded, as if they
+ * had still waited, with skip reason `reason`. A skipped Trigger has no Turn. Call it after
+ * `cancelTurn` ended Turn `turnId`.
+ */
+export async function discardUnstarted(
+  tx: Transaction,
+  turnId: string,
+  reason: "cancelled" | "paused" | "reset",
+  now: Date,
+): Promise<void> {
+  await tx
+    .update(botTrigger)
+    .set({ turnId: null, skippedAt: now, skipReason: reason })
+    .where(
+      and(
+        eq(botTrigger.turnId, turnId),
+        notExists(
+          tx
+            .select({ id: botTurn.id })
+            .from(botTurn)
+            .where(
+              and(
+                eq(botTurn.id, turnId),
+                or(isNotNull(botTurn.input), sql`jsonb_array_length(${botTurn.transcript}) > 0`),
+              ),
+            ),
+        ),
+      ),
+    );
+}
+
+/**
  * Stops everything Bot `found` is doing (spec #1007), in `tx`, which holds its Conversation's row
  * lock: every Trigger waiting in its Conversation queue is skipped with `reason`, its running Turn
  * stops the way Stop stops it, and all its Helpers stop. Call the runner's `wake()` once `tx` has
@@ -85,27 +117,7 @@ async function haltBot(
   await skipWaiting(tx, owner, reason, now);
   const running = await runningTurnOf(tx, owner);
   if (running && (await cancelTurn(deps, tx, running, "stop"))) {
-    // A Turn stopped before it took its input leaves its Triggers new; they are discarded, as if
-    // they had still waited. A skipped Trigger has no Turn.
-    await tx
-      .update(botTrigger)
-      .set({ turnId: null, skippedAt: now, skipReason: reason })
-      .where(
-        and(
-          eq(botTrigger.turnId, running),
-          notExists(
-            tx
-              .select({ id: botTurn.id })
-              .from(botTurn)
-              .where(
-                and(
-                  eq(botTurn.id, running),
-                  or(isNotNull(botTurn.input), sql`jsonb_array_length(${botTurn.transcript}) > 0`),
-                ),
-              ),
-          ),
-        ),
-      );
+    await discardUnstarted(tx, running, reason, now);
   }
   await stopHelpers(deps, tx, found.id);
 }
