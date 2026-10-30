@@ -287,6 +287,7 @@ description: Use this when
   "bots.emailCopied": "Address copied",
   "bots.emailRotateConfirm": "Rotate? The old address stops working at once.",
   "bots.viaEmail": "via email",
+  "bots.viaPlatform": ({ platform }: { platform: string }) => `via ${platform}`,
   "bots.emailed": "✉ emailed",
   "bots.urgent": "Urgent",
   "bots.emailNextChannel": ({ channel }: { channel: string }) =>

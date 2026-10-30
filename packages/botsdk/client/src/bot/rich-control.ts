@@ -62,7 +62,8 @@ export const controlPartSchema = z.object({
  * A Bot Message's stored parts, the Bot's own over the core's envelope: its text, then at most one
  * Rich control. Text is what every Channel can show. Beside the parts: the IANA `timeZone` a user's
  * Message was sent from, the Channel besides web it came in or also went out on, an emailed user's
- * Message's subject, which the Bot's emailed reply answers (spec #761), and its emojis.
+ * Message's subject, which the Bot's emailed reply answers (spec #761), and its emojis. The Channel is
+ * `email` or a messaging platform's id (spec #1044).
  */
 export const botMessagePartsSchema = z.object({
   schemaVersion: z.literal(1),
@@ -72,7 +73,7 @@ export const botMessagePartsSchema = z.object({
       error: "A Message has at most one Rich control",
     }),
   timeZone: z.string().optional(),
-  channel: z.literal("email").optional(),
+  channel: z.string().optional(),
   subject: z.string().optional(),
   reactions: storedReactionsSchema.optional(),
   /** The Bot marked this Message urgent (spec #1024). */

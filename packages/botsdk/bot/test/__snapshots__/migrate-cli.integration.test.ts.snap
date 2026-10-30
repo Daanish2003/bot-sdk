@@ -517,6 +517,14 @@ CREATE TABLE "botsdk"."linked_identity" (
 insert into botsdk.__migrations (feature, migration) values ('core', '20261030075650_linked_identity');
 commit;
 
+-- core/20261030100046_trigger_channel_text
+begin;
+ALTER TABLE "botsdk"."bot_trigger" ALTER COLUMN "channel" SET DATA TYPE text USING "channel"::text;--> statement-breakpoint
+DROP TYPE "botsdk"."bot_trigger_channel";
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261030100046_trigger_channel_text');
+commit;
+
 -- notes/0001_note
 begin;
 create table botsdk.test_note (id text primary key, bot_id uuid references botsdk.bot(id) on delete cascade)

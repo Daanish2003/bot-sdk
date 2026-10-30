@@ -464,7 +464,7 @@ function BotConversationView({
                 {t("bots.urgent")}
               </span>
             )}
-            {message.channel === "email" && (
+            {message.channel && (message.role === "user" || message.channel === "email") && (
               <span
                 data-channel-pill
                 className={cn(
@@ -472,7 +472,11 @@ function BotConversationView({
                   message.role === "user" ? "self-end" : "self-start",
                 )}
               >
-                {t(message.role === "user" ? "bots.viaEmail" : "bots.emailed")}
+                {message.role !== "user"
+                  ? t("bots.emailed")
+                  : message.channel === "email"
+                    ? t("bots.viaEmail")
+                    : t("bots.viaPlatform", { platform: message.channel })}
               </span>
             )}
             {afterTurnOf.get(message.id)}

@@ -18,18 +18,6 @@ export const botTriggerSource = botsdkSchema.enum("bot_trigger_source", [
 ]);
 
 /**
- * Where a Trigger came in: the web app, a schedule, an inbound webhook (#539), a Helper's report
- * (#565), or an email to the Bot's address (spec #761).
- */
-export const botTriggerChannel = botsdkSchema.enum("bot_trigger_channel", [
-  "web",
-  "schedule",
-  "webhook",
-  "helper",
-  "email",
-]);
-
-/**
  * Why a Trigger was skipped (spec #1007): the user skipped it from the Tasks view (`cancelled`), it
  * came due or waited while its Bot was paused (`paused`), or its Bot was reset (`reset`).
  */
@@ -53,7 +41,11 @@ export const botTrigger = botsdkSchema.table(
       .notNull()
       .references((): AnyPgColumn => conversation.id, { onDelete: "cascade" }),
     source: botTriggerSource("source").notNull(),
-    channel: botTriggerChannel("channel").notNull(),
+    /**
+     * Where it came in: `web`, `schedule`, `webhook`, `helper`, `email` (spec #761), or the id of a
+     * messaging platform such as `telegram` (spec #1044). Text, as the platforms are the Host's.
+     */
+    channel: text("channel").notNull(),
     /** The Message the Trigger carries, when it carries one. */
     messageId: uuid("message_id").references((): AnyPgColumn => message.id, {
       onDelete: "set null",

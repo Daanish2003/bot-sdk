@@ -1,13 +1,11 @@
 import { eq } from "drizzle-orm";
 
-import { deleteBlobsBestEffort, bot, botTrigger, channelEmailAddress } from "../../storage";
-import { appendMessage } from "../../chat/message-tree";
+import { bot, botTrigger, channelEmailAddress } from "../../storage";
 
 import type { BotSdkContext } from "../../plugin";
-import { sentFileBlobKey, storeMailFiles, textParts, hintChanged } from "../conversation";
-import { lockConversation, pauseOf, receive } from "../triggers";
+import { storeMailFiles } from "../conversation";
 
-import { cancelTurn } from "./turn";
+import { handIn } from "./hand-in";
 import { emailText } from "./email-text";
 import { bareAddress, type EmailChannel, type InboundMail } from "../../channel/internal";
 
@@ -81,87 +79,24 @@ async function deliver(
     { ...mail, attachments: mail.files ? unkept : mail.attachments },
     channel.domain,
   );
-  const id = `email:${messageId}`;
-  const handed = await sdk.db
-    .transaction(async (tx) => {
-      // The Conversation's row lock first, as in every transaction that hands the Router a Trigger.
-      await lockConversation(tx, owner.conversationId);
-      // Rotated since the lookup: the old address has stopped.
+  const handed = await handIn(sdk, {
+    conversationId: owner.conversationId,
+    id: `email:${messageId}`,
+    channel: "email",
+    body,
+    subject: mail.subject,
+    files: stored,
+    // Rotated since the lookup: the old address has stopped.
+    stillValid: async (tx) => {
       const [current] = await tx
         .select({ botId: channelEmailAddress.botId })
         .from(channelEmailAddress)
         .where(eq(channelEmailAddress.address, owner.address));
-      if (current?.botId !== owner.botId) return "rotated" as const;
-      const [seen] = await tx
-        .select({ id: botTrigger.id })
-        .from(botTrigger)
-        .where(eq(botTrigger.id, id));
-      if (seen) return null;
-      const now = sdk.clock();
-      // A paused Bot's mail (spec #1007) saves no Message: it is kept as a skipped Trigger only.
-      if ((await pauseOf(tx, owner.conversationId))?.paused) {
-        await receive(sdk, tx, {
-          id,
-          conversationId: owner.conversationId,
-          source: "user",
-          channel: "email",
-          receivedAt: now,
-        });
-        return "paused" as const;
-      }
-      const row = await appendMessage(tx, owner.conversationId, {
-        role: "user",
-        parts: {
-          schemaVersion: 1,
-          parts: [
-            ...(body ? textParts(body).parts : []),
-            ...(stored.length
-              ? [{ type: "control" as const, control: { kind: "files" as const, files: stored } }]
-              : []),
-          ],
-          channel: "email",
-          subject: mail.subject,
-        },
-        status: "complete",
-        createdAt: now,
-      });
-      const { waitsFor } = await receive(sdk, tx, {
-        id,
-        conversationId: owner.conversationId,
-        source: "user",
-        channel: "email",
-        messageId: row.id,
-        receivedAt: now,
-      });
-      // Like a web Message, it interrupts a running Turn, and the Turn that follows takes it.
-      if (waitsFor) await cancelTurn(sdk, tx, waitsFor, "message");
-      return owner.conversationId;
-    })
-    // The same Message-ID handed in another Conversation's transaction meanwhile.
-    .catch(async (error: unknown) => {
-      if (isTriggerIdClash(error)) return null;
-      await deleteBlobsBestEffort(
-        sdk,
-        stored.map((file) => sentFileBlobKey(file.id)),
-      );
-      throw error;
-    });
-  if (handed === "rotated" || handed === "paused" || !handed) {
-    // No Message holds the files, so their bytes go.
-    await deleteBlobsBestEffort(
-      sdk,
-      stored.map((file) => sentFileBlobKey(file.id)),
-    );
-    if (handed === "paused") {
-      // The Tasks view lists it as skipped.
-      await hintChanged(sdk, owner.conversationId);
-      return null;
-    }
-    return handed ? "no Bot has the address" : redelivery;
-  }
-  sdk.runner.wake();
-  await hintChanged(sdk, handed);
-  return null;
+      return current?.botId === owner.botId;
+    },
+  });
+  if (handed === "refused") return "no Bot has the address";
+  return handed === "seen" ? redelivery : null;
 }
 
 /**
@@ -195,18 +130,4 @@ async function botAt(sdk: BotSdkContext, recipients: string[]) {
     if (row) return row;
   }
   return undefined;
-}
-
-/**
- * Whether Postgres refused the Trigger because its id is taken. The query layer wraps the driver's
- * error, so this follows the `cause` chain.
- */
-function isTriggerIdClash(error: unknown): boolean {
-  let current: unknown = error;
-  for (let depth = 0; depth < 5 && current; depth++) {
-    const { code, constraint } = current as { code?: unknown; constraint?: unknown };
-    if (code === "23505" && constraint === "bot_trigger_pkey") return true;
-    current = (current as { cause?: unknown }).cause;
-  }
-  return false;
 }
