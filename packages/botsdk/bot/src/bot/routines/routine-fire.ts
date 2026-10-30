@@ -79,7 +79,12 @@ async function fireRoutine(
   slot: Date,
 ): Promise<{ conversationId: string; woke: boolean } | null> {
   const [owner] = await tx
-    .select({ conversationId: bot.conversationId, userId: bot.userId, model: bot.model })
+    .select({
+      botId: bot.id,
+      conversationId: bot.conversationId,
+      userId: bot.userId,
+      model: bot.model,
+    })
     .from(botRoutine)
     .innerJoin(bot, eq(bot.id, botRoutine.botId))
     .where(eq(botRoutine.id, routineId));
@@ -111,10 +116,11 @@ async function fireRoutine(
   const [seen] = await tx
     .select({ id: botTrigger.id })
     .from(botTrigger)
-    .where(eq(botTrigger.id, id));
+    .where(and(eq(botTrigger.id, id), eq(botTrigger.botId, owner.botId)));
   if (seen) return fired;
   await receive(deps, tx, {
     id,
+    botId: owner.botId,
     conversationId: owner.conversationId,
     source: "routine",
     channel: "schedule",

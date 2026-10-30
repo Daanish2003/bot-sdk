@@ -9,7 +9,7 @@ import type { BotSdkContext, Transaction } from "../../plugin";
 import { uuidv7 } from "../../lib/uuidv7";
 import { buildPromptStart, type PromptStartParts, userZoneAt } from "./prompt-start";
 import { midTurnNote } from "../agent-loop";
-import { awaySummaryKey } from "../triggers";
+import { awaySummaryKey, type BotConversation } from "../triggers";
 import { toBotMessage, recordBotChange, formatterIn, noResetAfter } from "../conversation";
 
 /** How many of the Bot's last Messages to the user a Summary keeps word for word. */
@@ -248,13 +248,13 @@ export function historyFrom(
 }
 
 /**
- * The Bot's Turns that `historyFrom` keeps after `summary`, in Turn order: those since the
- * Summary, and the one a mid-Turn one was written in, started before `before` when given. Only
+ * The Bot's Turns in the Conversation that `historyFrom` keeps after `summary`, in Turn order
+ * (spec #1055): those since the Summary, and the one a mid-Turn one was written in, started before `before` when given. Only
  * those are read, never the whole history.
  */
 export function historyTurns(
   db: Database | Transaction,
-  botId: string,
+  { botId, conversationId }: BotConversation,
   summary: HistorySummary | undefined,
   before?: Date,
 ) {
@@ -270,6 +270,7 @@ export function historyTurns(
     .where(
       and(
         eq(botTurn.botId, botId),
+        eq(botTurn.conversationId, conversationId),
         before ? lt(botTurn.startedAt, before) : undefined,
         // Nothing from before the Bot's latest reset mark (spec #1007).
         noResetAfter(db, { botId }, botTurn.startedAt),
@@ -290,11 +291,11 @@ export function historyTurns(
  */
 export async function historyAfter(
   db: Database | Transaction,
-  botId: string,
+  owner: BotConversation,
   promptStartId: string,
 ): Promise<ModelMessage[]> {
   const summary = await summaryOf(db, promptStartId);
-  return historyFrom(await historyTurns(db, botId, summary), summary);
+  return historyFrom(await historyTurns(db, owner, summary), summary);
 }
 
 /** `transcript` from its last mid-Turn note on, or nothing when it has none. */

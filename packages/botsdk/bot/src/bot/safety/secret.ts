@@ -65,6 +65,7 @@ export async function saveSecret(
     if (!mayWake) return;
     await receive(sdk, tx, {
       id: savedTriggerId(userId, name, now),
+      botId,
       conversationId: found.conversationId,
       source: "user",
       channel: "web",

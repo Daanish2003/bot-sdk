@@ -6,9 +6,11 @@ export { checkInKey, checkInOfKey, fireKeyPrefix, routineOfFireKey } from "./tri
 export {
   awaySummaryKey,
   botTurnJobName,
+  type BotConversation,
+  isPaused,
   lockConversation,
-  pauseOf,
   receive,
+  runningTurnOf,
   skipWaiting,
   startTurn,
   turnStarted,

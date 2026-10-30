@@ -14,7 +14,7 @@ import { blob } from "./blob";
 import { botsdkSchema } from "./botsdk-schema";
 import { conversationChange } from "./conversation-change";
 import type { PluginSchema } from "./plugin-schema";
-import { conversation, message } from "./schema";
+import { bot, conversation, message } from "./schema";
 
 export * from "./blob";
 export * from "./conversation-change";
@@ -72,6 +72,13 @@ export const messageColumns = {
     onDelete: "cascade",
   }),
   role: messageRole("role").notNull(),
+  /**
+   * The Bot that wrote an `assistant` Message (spec #1055), in a 1:1 Conversation or a Room; null
+   * for the user's Messages and reset marks, and once that Bot is deleted.
+   */
+  authorBotId: uuid("author_bot_id").references((): AnyPgColumn => bot.id, {
+    onDelete: "set null",
+  }),
   parts: jsonb("parts").$type<PartsEnvelope>().notNull(),
   status: messageStatus("status").notNull(),
   error: text("error"),

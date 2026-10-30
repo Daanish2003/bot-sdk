@@ -1,8 +1,16 @@
 import { sql } from "drizzle-orm";
-import { type AnyPgColumn, check, index, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  type AnyPgColumn,
+  check,
+  index,
+  primaryKey,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 import { botsdkSchema } from "../botsdk-schema";
-import { conversation, message } from "../schema";
+import { bot, conversation, message } from "../schema";
 import { botTurn } from "./bot-turn";
 
 /**
@@ -35,8 +43,15 @@ export const botTriggerSkipReason = botsdkSchema.enum("bot_trigger_skip_reason",
 export const botTrigger = botsdkSchema.table(
   "bot_trigger",
   {
-    /** The source's unique ID; for the user's Messages, the Message's id. */
-    id: text("id").primaryKey(),
+    /**
+     * The source's ID; for the user's Messages, the Message's id. Unique per Bot: one user Message
+     * to two Bots is two Triggers (spec #1055).
+     */
+    id: text("id").notNull(),
+    /** The Bot the Trigger wakes. */
+    botId: uuid("bot_id")
+      .notNull()
+      .references((): AnyPgColumn => bot.id, { onDelete: "cascade" }),
     conversationId: uuid("conversation_id")
       .notNull()
       .references((): AnyPgColumn => conversation.id, { onDelete: "cascade" }),
@@ -64,9 +79,10 @@ export const botTrigger = botsdkSchema.table(
     skipReason: botTriggerSkipReason("skip_reason"),
   },
   (table) => [
-    // The Conversation queue: the Triggers no Turn has taken yet and none skipped.
+    primaryKey({ name: "bot_trigger_pkey", columns: [table.id, table.botId] }),
+    // The Conversation queue of each Bot: the Triggers no Turn has taken yet and none skipped.
     index("bot_trigger_waiting_idx")
-      .on(table.conversationId, table.receivedAt)
+      .on(table.conversationId, table.botId, table.receivedAt)
       .where(sql`${table.turnId} is null and ${table.skippedAt} is null`),
     index("bot_trigger_turn_id_idx").on(table.turnId),
     // The skipped Triggers of a Conversation (spec #1007): the Tasks view's Done, and the Messages a

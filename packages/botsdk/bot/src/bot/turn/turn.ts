@@ -20,9 +20,10 @@ import {
 
 import {
   botTurnJobName,
+  isPaused,
   lockConversation,
-  pauseOf,
   receive,
+  runningTurnOf,
   startTurn,
   turnStarted,
   waitingIn,
@@ -144,7 +145,7 @@ export async function sendToBot(
     const earlier = await seenMessage(tx, found.conversationId, id);
     if (earlier) return { userMessage: earlier, started: false, ended: false };
     // A paused Bot takes no Message (spec #1007), and saves none.
-    if ((await pauseOf(tx, found.conversationId))?.paused) {
+    if (await isPaused(tx, botId)) {
       throw rpcError("CONFLICT", "error.botPaused", "Bot is paused. Resume to send.");
     }
     // A Turn on Host credentials is refused once its Quota's window has spent the budget (ADR 0007),
@@ -175,6 +176,7 @@ export async function sendToBot(
     });
     const { waitsFor } = await receive(deps, tx, {
       id: row.id,
+      botId,
       conversationId: found.conversationId,
       source: "user",
       channel: "web",
@@ -232,9 +234,10 @@ export async function stopBot(deps: BotSdkContext, userId: string, botId: string
   const ended = await deps.db.transaction(async (tx) => {
     // The Conversation's row lock first, as in `sendToBot`.
     await lockConversation(tx, found.conversationId);
-    const running = await runningTurnOf(tx, botId);
+    const owner = { botId, conversationId: found.conversationId };
+    const running = await runningTurnOf(tx, owner);
     if (!running) return false;
-    await tx.update(botTrigger).set({ turnId: running }).where(waitingIn(found.conversationId));
+    await tx.update(botTrigger).set({ turnId: running }).where(waitingIn(owner));
     return cancelTurn(deps, tx, running, "stop");
   });
   if (!ended) return;
@@ -246,16 +249,6 @@ export async function stopBot(deps: BotSdkContext, userId: string, botId: string
 export async function stopUserTurns(deps: BotSdkContext, userId: string): Promise<void> {
   const bots = await deps.db.select({ id: bot.id }).from(bot).where(eq(bot.userId, userId));
   for (const { id } of bots) await stopBot(deps, userId, id);
-}
-
-/** The id of the Bot's running Turn, or `undefined` when none runs. */
-export async function runningTurnOf(tx: Transaction, botId: string): Promise<string | undefined> {
-  const [running] = await tx
-    .select({ id: botTurn.id })
-    .from(botTurn)
-    .where(and(eq(botTurn.botId, botId), eq(botTurn.status, "running")))
-    .limit(1);
-  return running?.id;
 }
 
 /**
@@ -310,14 +303,14 @@ async function turnEnded(
   turnId: string,
 ): Promise<string | undefined> {
   const [ended] = await tx
-    .select({ conversationId: bot.conversationId, botId: bot.id, userId: bot.userId })
+    .select({ conversationId: botTurn.conversationId, botId: botTurn.botId, userId: bot.userId })
     .from(botTurn)
     .innerJoin(bot, eq(bot.id, botTurn.botId))
     .where(eq(botTurn.id, turnId));
   if (!ended) return undefined;
   await lockConversation(tx, ended.conversationId);
   await featuresAfterTurn(deps, tx, { id: turnId, ...ended });
-  return startTurn(deps, tx, ended.conversationId);
+  return startTurn(deps, tx, ended);
 }
 
 /** What a Turn played: its transcript and usage, and its last Step's input when known. */
@@ -338,7 +331,7 @@ async function turnFacts(
       startedAt: botTurn.startedAt,
       jobId: botTurn.jobId,
       userId: bot.userId,
-      conversationId: bot.conversationId,
+      conversationId: botTurn.conversationId,
       model: bot.model,
     })
     .from(botTurn)

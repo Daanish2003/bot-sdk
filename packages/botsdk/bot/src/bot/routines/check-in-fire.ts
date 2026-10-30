@@ -60,7 +60,12 @@ async function fireCheckIn(
   checkInId: string,
 ): Promise<{ conversationId: string; woke: boolean } | null> {
   const [owner] = await tx
-    .select({ conversationId: bot.conversationId, userId: bot.userId, model: bot.model })
+    .select({
+      botId: bot.id,
+      conversationId: bot.conversationId,
+      userId: bot.userId,
+      model: bot.model,
+    })
     .from(botCheckIn)
     .innerJoin(bot, eq(bot.id, botCheckIn.botId))
     .where(eq(botCheckIn.id, checkInId));
@@ -84,10 +89,11 @@ async function fireCheckIn(
   const [seen] = await tx
     .select({ id: botTrigger.id })
     .from(botTrigger)
-    .where(eq(botTrigger.id, id));
+    .where(and(eq(botTrigger.id, id), eq(botTrigger.botId, owner.botId)));
   if (seen) return unwoken;
   await receive(deps, tx, {
     id,
+    botId: owner.botId,
     conversationId: owner.conversationId,
     source: "check_in",
     channel: "schedule",

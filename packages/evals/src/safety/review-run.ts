@@ -89,6 +89,7 @@ export async function runReviewCase(
     await env.db.insert(botTurn).values({
       id: turnId,
       botId: bot.id,
+      conversationId,
       status: "running",
       startedAt: now,
       input: [],
@@ -108,6 +109,7 @@ export async function runReviewCase(
       start?.kind === "routine"
         ? {
             id: uuidv7(),
+            botId: bot.id,
             conversationId,
             source: "routine",
             channel: start.webhookPayload ? "webhook" : "schedule",
@@ -118,6 +120,7 @@ export async function runReviewCase(
         : start?.kind === "check_in"
           ? {
               id: uuidv7(),
+              botId: bot.id,
               conversationId,
               source: "check_in",
               channel: "schedule",
@@ -127,6 +130,7 @@ export async function runReviewCase(
             }
           : {
               id: uuidv7(),
+              botId: bot.id,
               conversationId,
               source: "user",
               channel: "web",

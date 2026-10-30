@@ -15,7 +15,9 @@ type MessageInsert = typeof message.$inferInsert;
 export async function appendMessage(
   tx: Transaction,
   conversationId: string,
-  fields: Pick<MessageInsert, "role" | "parts" | "status" | "createdAt"> & { id?: string },
+  fields: Pick<MessageInsert, "role" | "parts" | "status" | "createdAt" | "authorBotId"> & {
+    id?: string;
+  },
 ): Promise<MessageRow> {
   const [owner] = await tx
     .select({ activeLeafId: conversation.activeLeafId })

@@ -141,7 +141,7 @@ async function runBotMemoryPass(
       transcript: botTurn.transcript,
       userId: bot.userId,
       model: bot.model,
-      conversationId: bot.conversationId,
+      conversationId: botTurn.conversationId,
     })
     .from(botTurn)
     .innerJoin(bot, eq(bot.id, botTurn.botId))

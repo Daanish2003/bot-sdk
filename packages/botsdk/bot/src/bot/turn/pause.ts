@@ -11,8 +11,8 @@ import { findBot, hintChanged, recordBotChange } from "../conversation";
 import { deleteBotHelpers, stopHelpers } from "../helpers";
 import { deleteBotCheckIns, deleteBotRoutines } from "../routines";
 import { declineBotApprovals, reopenUnstartedCalls } from "../safety";
-import { awaySummaryKey, lockConversation, skipWaiting } from "../triggers";
-import { cancelTurn, runningTurnOf } from "./turn";
+import { awaySummaryKey, lockConversation, runningTurnOf, skipWaiting } from "../triggers";
+import { cancelTurn } from "./turn";
 
 /**
  * Pauses the user's Bot (Bot pause, spec #1007): under its Conversation's row lock, it marks the
@@ -81,8 +81,9 @@ async function haltBot(
   now: Date,
 ): Promise<void> {
   // Skipped before the Stop, so the Turn it ends finds the line empty and none follows it.
-  await skipWaiting(tx, found.conversationId, reason, now);
-  const running = await runningTurnOf(tx, found.id);
+  const owner = { botId: found.id, conversationId: found.conversationId };
+  await skipWaiting(tx, owner, reason, now);
+  const running = await runningTurnOf(tx, owner);
   if (running && (await cancelTurn(deps, tx, running, "stop"))) {
     // A Turn stopped before it took its input leaves its Triggers new; they are discarded, as if
     // they had still waited. A skipped Trigger has no Turn.

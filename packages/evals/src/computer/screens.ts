@@ -14,7 +14,7 @@ import { botHelper, botTurn } from "@botsdk/bot/storage";
 import type { Database } from "@botsdk/bot/storage";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { screenView } from "@botsdk/bot/bot/helpers";
-import { createBot } from "@botsdk/bot/bot/conversation";
+import { createBot, findBot } from "@botsdk/bot/bot/conversation";
 import type { ComputerHandle } from "@botsdk/bot/computer/internal";
 import type { createComputerSdk } from "./setup";
 import { acceptSocket } from "./ws-server";
@@ -83,6 +83,7 @@ async function waitingHelper(db: Database, userId: string, slot: number) {
   await db.insert(botTurn).values({
     id: turnId,
     botId: created.id,
+    conversationId: (await findBot(db, userId, created.id))!.conversationId,
     status: "complete",
     startedAt: now,
     endedAt: now,

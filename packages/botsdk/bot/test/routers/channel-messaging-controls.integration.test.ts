@@ -151,13 +151,18 @@ async function telegramBot(rounds: Round[], { email = true }: { email?: boolean 
       other: "telegram",
     });
     await deps!.db.transaction((tx) =>
-      appendBotMessage(deps!, tx, conversationId, {
-        parts: control
-          ? controlParts(text, control)
-          : { schemaVersion: 1, parts: [{ type: "text", text }] },
-        createdAt: timer.clock.now(),
-        turnId: null,
-      }),
+      appendBotMessage(
+        deps!,
+        tx,
+        { botId, conversationId },
+        {
+          parts: control
+            ? controlParts(text, control)
+            : { schemaVersion: 1, parts: [{ type: "text", text }] },
+          createdAt: timer.clock.now(),
+          turnId: null,
+        },
+      ),
     );
     await runDue();
   };

@@ -61,12 +61,18 @@ export async function botTasks(
     db
       .select()
       .from(botTrigger)
-      .where(waitingIn(conversationId))
+      .where(waitingIn({ botId, conversationId }))
       .orderBy(asc(botTrigger.receivedAt), asc(botTrigger.id)),
     db
       .select()
       .from(botTrigger)
-      .where(and(eq(botTrigger.conversationId, conversationId), gte(botTrigger.skippedAt, since)))
+      .where(
+        and(
+          eq(botTrigger.conversationId, conversationId),
+          eq(botTrigger.botId, botId),
+          gte(botTrigger.skippedAt, since),
+        ),
+      )
       .orderBy(desc(botTrigger.skippedAt), desc(botTrigger.id))
       .limit(tasksSkippedLimit),
   ]);

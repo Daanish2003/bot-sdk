@@ -280,14 +280,22 @@ export async function proposeRule(
     updatedAt: now,
   });
   for (const owner of owned) await recordBotChange(tx, owner, "rule", id, now);
-  await appendBotMessage(deps, tx, conversationId, {
-    parts: controlParts(`I'd like to add a Custom Rule: [${modeLabels[mode]}] ${text}\n\n${why}`, {
-      kind: "rule_approval",
-      ruleId: id,
-    }),
-    createdAt: now,
-    turnId,
-  });
+  await appendBotMessage(
+    deps,
+    tx,
+    { botId, conversationId },
+    {
+      parts: controlParts(
+        `I'd like to add a Custom Rule: [${modeLabels[mode]}] ${text}\n\n${why}`,
+        {
+          kind: "rule_approval",
+          ruleId: id,
+        },
+      ),
+      createdAt: now,
+      turnId,
+    },
+  );
   return { saved: ruleProposedResult };
 }
 
@@ -310,6 +318,7 @@ async function wakeProposer(
   if (!owner) return false;
   await receive(sdk, tx, {
     id: ruleApprovalTriggerId(rule.id),
+    botId: rule.proposedByBotId,
     conversationId: owner.conversationId,
     source: "approval",
     channel: "web",

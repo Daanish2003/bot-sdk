@@ -284,6 +284,7 @@ async function main() {
             .values({
               id: uuidv7(),
               botId: made.id,
+              conversationId: found!.conversationId,
               status: "complete",
               startedAt: new Date(Date.now() - 60_000),
               endedAt: new Date(Date.now() - 59_000),
@@ -346,6 +347,7 @@ async function main() {
             await lockConversation(tx, found!.conversationId);
             return receive(sdk, tx, {
               id: `${fireKeyPrefix(routineId)}${now.toISOString()}`,
+              botId: found!.id,
               conversationId: found!.conversationId,
               source: "routine",
               channel: "schedule",

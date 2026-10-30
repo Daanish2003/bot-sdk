@@ -276,7 +276,7 @@ export async function build(
       }));
       const promptStart = await loopPromptStart(db, id, () => previousTurnCall(deps.db, turn));
       const summary = await summaryOf(db, id);
-      const earlier = await historyTurns(db, turn.botId, summary, turn.startedAt);
+      const earlier = await historyTurns(db, turn, summary, turn.startedAt);
       // A mid-Turn Summary's Prompt start was built from what its Turn read at its start, so what
       // the Bot saw and did in that Turn counts as seen since it too.
       const seenSince: EarlierTurn[] = earlier.map((row) =>
@@ -434,7 +434,7 @@ function todoNotice(todo: TodoItem[], stored: string | undefined): string {
 }
 
 /**
- * When the Bot's last Turn before `turn` that took its input started: the last one that stored its
+ * When the Bot's last Turn in the Conversation before `turn` that took its input started: the last one that stored its
  * input, or one from before Turns stored it (a transcript and no input), whose Messages are not
  * rendered again. `undefined` for the Bot's first Turn.
  */
@@ -448,6 +448,7 @@ async function lastInputAt(
     .where(
       and(
         eq(botTurn.botId, turn.botId),
+        eq(botTurn.conversationId, turn.conversationId),
         lt(botTurn.startedAt, turn.startedAt),
         // A Turn stores its input before its first model call, so one with a transcript and no
         // input is from before inputs were stored. One that never ran (stopped while queued, or
@@ -501,6 +502,7 @@ async function newestInput(
         .where(
           and(
             eq(botTrigger.conversationId, turn.conversationId),
+            eq(botTrigger.botId, turn.botId),
             isNotNull(botTrigger.skippedAt),
             isNotNull(botTrigger.messageId),
           ),
@@ -523,6 +525,7 @@ async function newestInput(
       .where(
         and(
           eq(botTrigger.conversationId, turn.conversationId),
+          eq(botTrigger.botId, turn.botId),
           // A user Trigger without a Message is a saved Secret: its text wakes the Bot (spec #691).
           or(ne(botTrigger.source, "user"), isNull(botTrigger.messageId)),
           isNotNull(botTrigger.text),

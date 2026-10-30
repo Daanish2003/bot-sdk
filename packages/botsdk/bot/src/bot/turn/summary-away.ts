@@ -78,7 +78,11 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
   const written = await ctx.step("summary", async () => {
     if (!(await meter.mayRun()).ok) return null;
     const start = await loopPromptStart(deps.db, seen.promptStartId, async () => undefined);
-    const history = await historyAfter(deps.db, botId, seen.promptStartId);
+    const history = await historyAfter(
+      deps.db,
+      { botId, conversationId: seen.conversationId },
+      seen.promptStartId,
+    );
     const messages: ModelMessage[] = await resolveImageRefs(
       deps.blobStore,
       pruneScreenshots([
@@ -246,7 +250,7 @@ async function wakesSoon(
     deps.db
       .select({ id: botTrigger.id })
       .from(botTrigger)
-      .where(waitingIn(conversationId))
+      .where(waitingIn({ botId, conversationId }))
       .limit(1),
     deps.db
       .select({ id: botCheckIn.id })

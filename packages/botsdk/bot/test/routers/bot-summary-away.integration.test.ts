@@ -390,11 +390,12 @@ describe("a Summary while the user is away", () => {
     ],
     [
       "a Trigger is queued",
-      ({ conversationId }) =>
+      ({ botId, conversationId }) =>
         getTestDb()
           .insert(botTrigger)
           .values({
             id: `test:${uuidv7()}`,
+            botId,
             conversationId,
             source: "routine",
             channel: "webhook",

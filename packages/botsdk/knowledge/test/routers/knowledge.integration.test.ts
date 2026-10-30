@@ -196,6 +196,7 @@ describe("the knowledge router", { timeout: 30_000 }, () => {
       .values({
         id: uuidv7(),
         botId,
+        conversationId: conversation.id,
         status: "complete",
         startedAt: new Date(),
         knowledgeChanges: [{ botId, path: "clients/report.md" }],
@@ -278,6 +279,7 @@ describe("the knowledge router", { timeout: 30_000 }, () => {
       .values({
         id: uuidv7(),
         botId,
+        conversationId: conversation.id,
         status: "complete",
         startedAt: new Date(),
         knowledgeChanges: [{ botId, path: "report.md" }],

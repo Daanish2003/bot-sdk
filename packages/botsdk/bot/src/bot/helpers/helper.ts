@@ -749,6 +749,7 @@ async function endHelper(
   await closeWaitingReviews(deps, tx, { helperId: helper.id }, "expired");
   await receive(deps, tx, {
     id: helperTriggerId(helper.id),
+    botId: helper.botId,
     conversationId: owner.conversationId,
     source: "helper",
     channel: "helper",

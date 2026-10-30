@@ -317,10 +317,11 @@ async function wakeWith(
   const [seen] = await tx
     .select({ id: botTrigger.id })
     .from(botTrigger)
-    .where(eq(botTrigger.id, id));
+    .where(and(eq(botTrigger.id, id), eq(botTrigger.botId, call.botId)));
   if (seen) return false;
   await receive(deps, tx, {
     id,
+    botId: call.botId,
     conversationId: call.conversationId,
     source: "approval",
     channel: "web",

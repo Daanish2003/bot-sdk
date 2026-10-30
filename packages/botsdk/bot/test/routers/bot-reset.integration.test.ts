@@ -90,6 +90,7 @@ async function resettableBots({
     await db.insert(botTurn).values({
       id: turnId,
       botId,
+      conversationId,
       status: "complete",
       startedAt: new Date(sunday.getTime() - 60_000),
       endedAt: new Date(sunday.getTime() - 30_000),
@@ -224,6 +225,7 @@ describe("bots.reset", () => {
       const queued = `routine:${ada.routines.scheduled}:2026-10-18T08:00:00.000Z`;
       await db.insert(botTrigger).values({
         id: queued,
+        botId: ada.botId,
         conversationId: ada.conversationId,
         source: "routine",
         channel: "schedule",
@@ -273,7 +275,7 @@ describe("bots.reset", () => {
       expect((await turnsOf(ada.botId)).find((turn) => turn.id === running!.id)?.status).toBe(
         "stopped",
       );
-      expect(await db.select().from(botTrigger).where(waitingIn(ada.conversationId))).toEqual([]);
+      expect(await db.select().from(botTrigger).where(waitingIn(ada))).toEqual([]);
       const skipped = await db
         .select({ id: botTrigger.id, turnId: botTrigger.turnId, reason: botTrigger.skipReason })
         .from(botTrigger)
@@ -547,12 +549,14 @@ describe("bots.reset", () => {
       await getTestDb().insert(botTurn).values({
         id: failedTurn,
         botId: ada.botId,
+        conversationId: ada.conversationId,
         status: "error",
         startedAt: timer.clock.now(),
         endedAt: timer.clock.now(),
       });
       await getTestDb().insert(botTrigger).values({
         id: pin.id,
+        botId: ada.botId,
         conversationId: ada.conversationId,
         source: "user",
         channel: "web",

@@ -113,7 +113,7 @@ export async function warmBot(
     const warmed = await warmCall(
       deps,
       tx,
-      { userId, botId, model: found.model, provider },
+      { userId, botId, conversationId: found.conversationId, model: found.model, provider },
       start.id,
     );
     if (typeof warmed === "string") return { warmed: false, skipped: warmed };
@@ -134,9 +134,16 @@ async function warmCall(
   {
     userId,
     botId,
+    conversationId,
     model,
     provider,
-  }: { userId: string; botId: string; model: string; provider: "anthropic" | "openai" },
+  }: {
+    userId: string;
+    botId: string;
+    conversationId: string;
+    model: string;
+    provider: "anthropic" | "openai";
+  },
   startId: string,
 ): Promise<(() => void) | "unsupported" | "unavailable"> {
   const models = deps.models;
@@ -148,7 +155,7 @@ async function warmCall(
 
   const start = await loopPromptStart(tx, startId, async () => undefined);
   // From the latest Summary on, as the next Turn sends it.
-  const history = await historyAfter(tx, botId, startId);
+  const history = await historyAfter(tx, { botId, conversationId }, startId);
   const messages: ModelMessage[] = await resolveImageRefs(
     deps.blobStore,
     pruneScreenshots([{ role: "user", content: start.firstMessage }, ...history]),

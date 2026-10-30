@@ -215,6 +215,7 @@ async function main() {
           await lockConversation(tx, found!.conversationId);
           return receive(sdk, tx, {
             id: uuidv7(),
+            botId: found!.id,
             conversationId: found!.conversationId,
             source: "routine",
             channel: "webhook",

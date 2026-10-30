@@ -123,6 +123,7 @@ async function receiveWebhook(
   const [owner] = await deps.db
     .select({
       routineId: botRoutine.id,
+      botId: bot.id,
       conversationId: bot.conversationId,
       userId: bot.userId,
       model: bot.model,
@@ -152,11 +153,12 @@ async function receiveWebhook(
     const [seen] = await tx
       .select({ id: botTrigger.id })
       .from(botTrigger)
-      .where(eq(botTrigger.id, id));
+      .where(and(eq(botTrigger.id, id), eq(botTrigger.botId, owner.botId)));
     if (seen) return null;
     const now = deps.clock();
     await receive(deps, tx, {
       id,
+      botId: owner.botId,
       conversationId: owner.conversationId,
       source: "routine",
       channel: "webhook",

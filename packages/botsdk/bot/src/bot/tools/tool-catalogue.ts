@@ -426,7 +426,7 @@ function coreToolsOf(
       // The Message commits with its Checkpoint, so it is sent once across a crash.
       const result = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
         if (!text.trim()) return { error: emptyTextError };
-        await appendBotMessage(deps, tx, turn.conversationId, {
+        await appendBotMessage(deps, tx, turn, {
           parts: control
             ? controlParts(text, control, undefined, urgent)
             : textParts(text, undefined, urgent),

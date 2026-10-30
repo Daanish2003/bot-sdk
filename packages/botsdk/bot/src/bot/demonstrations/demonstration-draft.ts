@@ -286,6 +286,7 @@ async function finish(
     const heading = `Demonstration finished: ${demonstration.goal}`;
     await receive(deps, tx, {
       id: demonstrationTriggerId(demonstration.id),
+      botId: demonstration.botId,
       conversationId: demonstration.conversationId,
       source: "helper",
       channel: "helper",

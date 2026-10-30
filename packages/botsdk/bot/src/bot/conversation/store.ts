@@ -165,19 +165,20 @@ export async function setReaction(
 }
 
 /**
- * Saves a Message the Bot sends (a SendToUser Message, or a card it posts) in `tx`, which then
- * holds the Conversation's row lock, and hands it to the `channel` plugin, when the Host has it, to
+ * Saves a Message Bot `botId` sends (a SendToUser Message, or a card it posts) in Conversation
+ * `conversationId`, as its author (spec #1055), in `tx`, which then holds the Conversation's row lock, and hands it to the `channel` plugin, when the Host has it, to
  * deliver on the user's other Channels too (spec #761). `turnId` is the Turn that sent it, or
  * `null` when no Turn did (a Helper).
  */
 export async function appendBotMessage(
   deps: BotSdkContext,
   tx: Transaction,
-  conversationId: string,
+  { botId, conversationId }: { botId: string; conversationId: string },
   { parts, createdAt, turnId }: Pick<MessageRow, "parts" | "createdAt"> & { turnId: string | null },
 ): Promise<void> {
   const row = await appendMessage(tx, conversationId, {
     role: "assistant",
+    authorBotId: botId,
     parts,
     status: "complete",
     createdAt,

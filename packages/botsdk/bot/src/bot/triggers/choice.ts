@@ -9,7 +9,7 @@ import { and, eq } from "drizzle-orm";
 import { message } from "../../storage";
 import type { BotSdkContext } from "../../plugin";
 import { rpcError } from "../../rpc-error";
-import { lockConversation, pauseOf, receive, type ReceivedTrigger } from "./router";
+import { isPaused, lockConversation, receive, type ReceivedTrigger } from "./router";
 import {
   controlOf,
   controlParts,
@@ -68,7 +68,7 @@ export async function answerChoice(
       throw rpcError("CONFLICT", "error.choiceAnswered", "This question was already answered");
     }
     // A paused Bot hears nothing (spec #1007): the answer is refused, so the choice stays open.
-    if ((await pauseOf(tx, found.conversationId))?.paused) {
+    if (await isPaused(tx, botId)) {
       throw rpcError("CONFLICT", "error.botPaused", "Bot is paused. Resume to send.");
     }
     const text = free ?? ("option" in answer ? answer.option : "");
@@ -88,6 +88,7 @@ export async function answerChoice(
     await recordBotChange(tx, found, "message", messageId, now);
     await receive(sdk, tx, {
       id: choiceTriggerId(messageId),
+      botId,
       conversationId: found.conversationId,
       source: "user",
       channel,

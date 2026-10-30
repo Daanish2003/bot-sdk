@@ -226,7 +226,7 @@ async function startDemonstration(
     screen,
     startedAt: now,
   });
-  await appendBotMessage(deps, tx, turn.conversationId, {
+  await appendBotMessage(deps, tx, turn, {
     turnId: turn.id,
     parts: controlParts(goal, {
       kind: "demonstration",

@@ -94,11 +94,16 @@ export async function handOff(
     .returning({ id: botHelper.id });
   if (rows.length === 0) return null;
   await recordBotChange(tx, owner, "helper", helper.id, now);
-  await appendBotMessage(deps, tx, owner.conversationId, {
-    parts: controlParts(reason, { kind: "computer", helperId: helper.id, reason, state: "open" }),
-    createdAt: now,
-    turnId: null,
-  });
+  await appendBotMessage(
+    deps,
+    tx,
+    { botId: helper.botId, conversationId: owner.conversationId },
+    {
+      parts: controlParts(reason, { kind: "computer", helperId: helper.id, reason, state: "open" }),
+      createdAt: now,
+      turnId: null,
+    },
+  );
   return owner;
 }
 

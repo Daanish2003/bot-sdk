@@ -116,6 +116,7 @@ export async function runRoutineCase(
               });
         return receive(env.sdk, tx, {
           id: uuidv7(),
+          botId: found!.id,
           conversationId: found!.conversationId,
           source: start.kind,
           channel: "schedule",

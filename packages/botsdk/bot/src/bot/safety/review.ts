@@ -18,7 +18,7 @@ import type { BotSdkContext, Transaction } from "../../plugin";
 import type { ModelMeter } from "../../models/internal";
 import type { MessageUsage } from "../../models/shared/usage";
 import { parseReply } from "../../lib/parse-reply";
-import { lockConversation, pauseOf, receive } from "../triggers";
+import { isPaused, lockConversation, receive } from "../triggers";
 import { forwardedEmailLabel, routineNameOf, routinePromptOf, untrustedBlock } from "../routines";
 import {
   appendBotMessage,
@@ -268,11 +268,16 @@ export async function reviewToolCall(
     await recordBotChange(tx, source, "review", id, createdAt);
     // A block is asked in the thread: a Message holding the review's id, its state read from the row.
     if (deadline) {
-      await appendBotMessage(deps, tx, source.conversationId, {
-        parts: controlParts(reviewed.summary, { kind: "review_approval", reviewId: id }),
-        createdAt,
-        turnId: "turnId" in source ? source.turnId : null,
-      });
+      await appendBotMessage(
+        deps,
+        tx,
+        { botId: owner.botId, conversationId: source.conversationId },
+        {
+          parts: controlParts(reviewed.summary, { kind: "review_approval", reviewId: id }),
+          createdAt,
+          turnId: "turnId" in source ? source.turnId : null,
+        },
+      );
     }
     wrote = true;
     if (reviewed.bill) {
@@ -468,7 +473,7 @@ async function decide(
   let woke = false;
   const decided = await deps.db.transaction(async (tx) => {
     const [owner] = await tx
-      .select({ conversationId: bot.conversationId })
+      .select({ botId: bot.id, conversationId: bot.conversationId })
       .from(botReview)
       .innerJoin(bot, eq(bot.id, botReview.botId))
       .where(eq(botReview.id, reviewId));
@@ -502,7 +507,7 @@ async function decide(
     if (!open) return null;
     // A paused Bot runs no work (spec #1007): a yes to an open Approval is refused, and it stays as
     // it was. A closed one answers as closed.
-    if (change.state === "allowed" && (await pauseOf(tx, owner.conversationId))?.paused) {
+    if (change.state === "allowed" && (await isPaused(tx, owner.botId))) {
       throw rpcError("CONFLICT", "error.botPausedApproval", "Bot is paused. Resume to approve.");
     }
     const [changed] = await tx
@@ -532,6 +537,7 @@ async function decide(
       } else {
         await receive(deps, tx, {
           id: approvalTriggerId(reviewId),
+          botId: owner.botId,
           conversationId: owner.conversationId,
           source: "approval",
           channel: "web",
