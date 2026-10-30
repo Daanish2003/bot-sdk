@@ -1,6 +1,7 @@
 import {
   createBotInput,
   botInput,
+  botStopInput,
   sendInput,
   uploadInput,
   chooseInput,
@@ -115,8 +116,8 @@ export function botsApi(sdk: BotSdkContext) {
      * Stops the user's Bot's running Turn: a queued one ends `stopped` at once, a running one as
      * its attempt aborts. The Messages already sent stay. Does nothing when no Turn is running.
      */
-    stop: async ({ userId, ...rest }: WithUser<typeof botInput>) =>
-      stopBot(sdk, userId, parseInput(botInput, rest).botId),
+    stop: async ({ userId, ...rest }: WithUser<typeof botStopInput>) =>
+      stopBot(sdk, userId, parseInput(botStopInput, rest)),
 
     /**
      * Pauses the user's Bot (spec #1007): its running Turn stops as with `stop`, its Helpers stop,

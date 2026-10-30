@@ -196,8 +196,8 @@ function BotConversationView({
       toast.error(serverErrorText(i18n, refusal));
       throw refusal;
     });
-  const onStopTurn = () =>
-    void stop().catch((refusal) => toast.error(serverErrorText(i18n, refusal)));
+  const onStopTurn = (conversationId?: string) =>
+    void stop(conversationId).catch((refusal) => toast.error(serverErrorText(i18n, refusal)));
   const actions = { onPause: pause, onResume: resume, onDelete: remove, actingRoutines: acting };
   const checkInActions = { onCancelCheckIn, actingCheckIns };
 
@@ -608,7 +608,7 @@ function BotConversationView({
           className="max-h-40 min-h-10 resize-none"
         />
         {working && (
-          <Button type="button" variant="outline" onClick={onStopTurn}>
+          <Button type="button" variant="outline" onClick={() => onStopTurn()}>
             ■ {t("bots.stop")}
           </Button>
         )}

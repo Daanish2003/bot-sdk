@@ -410,6 +410,81 @@ describe("a member's popover", () => {
     expect(within(popover).getByRole("button", { name: /Tasks 0/ })).toBeTruthy();
     expect(within(popover).getByRole("button", { name: "Bot menu" })).toBeTruthy();
   });
+
+  /** Mounts the Room with Writer's Tasks running a Turn in `turnIn`, recording each write call. */
+  const mountWithCalls = (turnIn: string) => {
+    const calls: { path: string; body: unknown }[] = [];
+    const tasks = tasksOf({ turn: { id: "t1", startedAt: createdAt, conversationId: turnIn } });
+    // What a stop or reset reads again once it is done.
+    const handler = new RPCHandler({
+      bots: { list: os.handler(() => [scout, writer, ops]), tasks: os.handler(() => tasks) },
+    });
+    const fetch = async (request: Request) => {
+      const path = new URL(request.url).pathname.split("/rpc/")[1] ?? "";
+      if (path === "bots/list" || path === "bots/tasks") {
+        return (
+          (await handler.handle(request, { prefix: "/api/chat/rpc" })).response ??
+          new Response(null, { status: 404 })
+        );
+      }
+      if (path !== "bots/stop" && path !== "bots/reset") return new Promise<Response>(() => {});
+      calls.push({ path, body: await request.json() });
+      return new Response(JSON.stringify({ json: null }), {
+        headers: { "content-type": "application/json" },
+      });
+    };
+    render(
+      providerFor(createElement(RoomConversation, { conversationId: launch.conversationId }), {
+        fetch,
+        messages: {},
+        seed: (queryClient, client) => {
+          seed(queryClient, client);
+          queryClient.setQueryData(
+            client.orpc.bots.tasks.queryKey({ input: { botId: writer.id } }),
+            tasks,
+          );
+        },
+      }),
+    );
+    return calls;
+  };
+
+  it("stops the Bot's own Turn where its Tasks show it, not the whole Room", async () => {
+    const calls = mountWithCalls("c-writer");
+
+    fireEvent.click(screen.getByRole("button", { name: "Writer's controls" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /Tasks 1/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop the running Turn" }));
+
+    await waitFor(() =>
+      expect(calls).toEqual([
+        { path: "bots/stop", body: { json: { botId: writer.id, conversationId: "c-writer" } } },
+      ]),
+    );
+  });
+
+  it("keeps the reset dialog open once the popover closes, and resets", async () => {
+    const calls = mountWithCalls(launch.conversationId);
+
+    fireEvent.click(screen.getByRole("button", { name: "Writer's controls" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Bot menu" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Reset Bot…" }));
+
+    // The popover closes, and the reset dialog is the only one left.
+    const dialog = await screen.findByRole("dialog", { name: "Reset Writer?" });
+    await waitFor(() => expect(screen.getAllByRole("dialog")).toEqual([dialog]));
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Type Writer to confirm" }), {
+      target: { value: "Writer" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Reset" }));
+
+    await waitFor(() =>
+      expect(calls).toEqual([
+        { path: "bots/reset", body: { json: { botId: writer.id, name: "Writer" } } },
+      ]),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
 });
 
 describe("@ autocomplete in a Room's composer", () => {

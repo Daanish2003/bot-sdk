@@ -39,7 +39,11 @@ export async function botTasks(
     );
   const [running, [helpers, endings], routines, checkIns, waiting, skipped] = await Promise.all([
     db
-      .select({ id: botTurn.id, startedAt: botTurn.startedAt })
+      .select({
+        id: botTurn.id,
+        startedAt: botTurn.startedAt,
+        conversationId: botTurn.conversationId,
+      })
       .from(botTurn)
       .where(and(eq(botTurn.botId, botId), eq(botTurn.status, "running")))
       .limit(1),

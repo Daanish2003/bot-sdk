@@ -118,7 +118,8 @@ export function TasksPopover({
   ...actions
 }: {
   tasks: BotTasks;
-  onStopTurn: () => void;
+  /** Stops the running Turn, in the Conversation the view shows it in (spec #1055). */
+  onStopTurn: (conversationId: string) => void;
   /** Stops one Helper, or all of them with no id. */
   onStopHelper: (helperId?: string) => void;
   /** The Helpers (or `allHelpers`) with a stop in flight. */
@@ -187,7 +188,7 @@ export function TasksPopover({
                     size="icon-sm"
                     className="ml-auto"
                     aria-label={t("bots.stopTurn")}
-                    onClick={onStopTurn}
+                    onClick={() => onStopTurn(inProgress.turn!.conversationId)}
                   >
                     <XIcon />
                   </Button>

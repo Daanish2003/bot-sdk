@@ -6,7 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { appendMessage } from "../../chat/message-tree";
-import { bot, botTrigger, botTurn, message } from "../../storage";
+import { bot, botRoomMember, botTrigger, botTurn, message } from "../../storage";
 import type { Database } from "../../storage";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { rpcError } from "../../rpc-error";
@@ -387,15 +387,30 @@ async function seenMessage(
  * Stops the Bot's running Turn by cancelling its job (#482, #483), and starts nothing after it
  * (#500): in the same transaction, the Turn it stops takes every Trigger waiting in the
  * Conversation queue, so `turnEnded` finds the line empty. Their Messages stay, and the next Turn
- * reads them as history. Does nothing when no Turn is running.
+ * reads them as history. Does nothing when no Turn is running. The Turn is the one in
+ * `conversationId`, the Bot's 1:1 Conversation when not given, or one of its Rooms (spec #1055),
+ * where the Tasks view shows it; a Conversation the Bot isn't in is not found.
  */
-export async function stopBot(deps: BotSdkContext, userId: string, botId: string): Promise<void> {
+export async function stopBot(
+  deps: BotSdkContext,
+  userId: string,
+  { botId, conversationId }: { botId: string; conversationId?: string },
+): Promise<void> {
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
+  const owner = { botId, conversationId: conversationId ?? found.conversationId };
+  if (owner.conversationId !== found.conversationId) {
+    const [member] = await deps.db
+      .select({ botId: botRoomMember.botId })
+      .from(botRoomMember)
+      .where(
+        and(eq(botRoomMember.conversationId, owner.conversationId), eq(botRoomMember.botId, botId)),
+      );
+    if (!member) throw rpcError("NOT_FOUND", "error.roomNotFound", "Room not found");
+  }
   const ended = await deps.db.transaction(async (tx) => {
-    // The Conversation's row lock first, as in `sendToBot`.
-    await lockConversation(tx, found.conversationId);
-    const owner = { botId, conversationId: found.conversationId };
+    // The Conversation's row lock first, as in `sendToBot`; a Room Turn's end writes the 1:1 too.
+    await lockTurnConversations(tx, owner);
     const running = await runningTurnOf(tx, owner);
     if (!running) return false;
     await tx.update(botTrigger).set({ turnId: running }).where(waitingIn(owner));
@@ -403,14 +418,31 @@ export async function stopBot(deps: BotSdkContext, userId: string, botId: string
   });
   if (!ended) return;
   deps.runner.wake();
-  await hintChanged(deps, found.conversationId);
+  await hintChanged(deps, owner.conversationId);
+  if (owner.conversationId !== found.conversationId) await hintChanged(deps, found.conversationId);
 }
 
-/** Stops the running Turn of each of the user's Bots, as `stopBot` does (#585): a Ban calls it. */
+/**
+ * Stops every running Turn of each of the user's Bots, in their 1:1 Conversations and their Rooms
+ * (spec #1055), as `stopBot` does (#585): a Ban calls it.
+ */
 export async function stopUserTurns(deps: BotSdkContext, userId: string): Promise<void> {
-  const bots = await deps.db.select({ id: bot.id }).from(bot).where(eq(bot.userId, userId));
-  for (const { id } of bots) await stopBot(deps, userId, id);
+  const running = await deps.db
+    .selectDistinct({ botId: botTurn.botId, conversationId: botTurn.conversationId })
+    .from(botTurn)
+    .innerJoin(bot, eq(bot.id, botTurn.botId))
+    .where(and(eq(bot.userId, userId), eq(botTurn.status, "running")));
+  for (const owner of running) {
+    // A Bot deleted or removed from the Room meanwhile has nothing left to stop there.
+    await stopBot(deps, userId, owner).catch((caught: unknown) => {
+      if (!isNotFound(caught)) throw caught;
+    });
+  }
 }
+
+/** Whether `caught` is an RPC error with code `NOT_FOUND`. */
+const isNotFound = (caught: unknown) =>
+  typeof caught === "object" && caught !== null && "code" in caught && caught.code === "NOT_FOUND";
 
 /**
  * Cancels Turn `turnId`'s job, unless it is already cancelled, under the Conversation's row lock

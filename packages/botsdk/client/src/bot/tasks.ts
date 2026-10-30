@@ -35,7 +35,11 @@ export type DoneHelper = BotHelper & { endedAt: Date | null };
  * each kind newest first.
  */
 export type BotTasks = {
-  inProgress: { turn: { id: string; startedAt: Date } | null; helpers: BotHelper[] };
+  /** The running Turn, with its Conversation: the Bot's 1:1 or one of its Rooms (spec #1055). */
+  inProgress: {
+    turn: { id: string; startedAt: Date; conversationId: string } | null;
+    helpers: BotHelper[];
+  };
   scheduled: { triggers: TaskTrigger[]; routines: BotRoutine[]; checkIns: BotCheckIn[] };
   done: { helpers: DoneHelper[]; checkIns: BotCheckIn[]; skipped: TaskTrigger[] };
 };

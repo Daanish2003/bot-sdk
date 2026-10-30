@@ -58,7 +58,14 @@ const trigger = (over: Partial<TaskTrigger>): TaskTrigger => ({
 
 /** A stand-in for the server's `bot` router, whose Tasks view is `tasks` (a test changes it). */
 function mount(tasks: BotTasks, log = changeLog()) {
-  const state = { tasks, stops: 0, tasksCalls: 0, skips: [] as string[], refuse: false };
+  const state = {
+    tasks,
+    stops: 0,
+    stopped: [] as unknown[],
+    tasksCalls: 0,
+    skips: [] as string[],
+    refuse: false,
+  };
   const router = {
     conversations: {
       changes: os
@@ -77,8 +84,9 @@ function mount(tasks: BotTasks, log = changeLog()) {
         state.tasksCalls += 1;
         return state.tasks;
       }),
-      stop: os.handler(() => {
+      stop: os.handler(({ input }) => {
         state.stops += 1;
+        state.stopped.push(input);
       }),
     },
     triggers: {
@@ -128,7 +136,7 @@ describe("the Tasks popover", () => {
   it("counts the running Turn, the live Helpers and the waiting Triggers", async () => {
     const tasks = empty();
     tasks.inProgress = {
-      turn: { id: "t1", startedAt: createdAt },
+      turn: { id: "t1", startedAt: createdAt, conversationId: "c1" },
       helpers: [helper(), helper({ id: "h2", status: "waiting" })],
     };
     tasks.scheduled.triggers = [trigger({ id: "w1" })];
@@ -155,7 +163,8 @@ describe("the Tasks popover", () => {
 
   it("shows three tabs, In progress first, with the running Turn's Stop", async () => {
     const tasks = empty();
-    tasks.inProgress.turn = { id: "t1", startedAt: createdAt };
+    // A Turn in one of the Bot's Rooms (spec #1055): its Stop names that Room.
+    tasks.inProgress.turn = { id: "t1", startedAt: createdAt, conversationId: "r9" };
     const state = mount(tasks);
 
     await openTab("In progress");
@@ -168,6 +177,7 @@ describe("the Tasks popover", () => {
     ]);
     fireEvent.click(await screen.findByRole("button", { name: "Stop the running Turn" }));
     await waitFor(() => expect(state.stops).toBe(1));
+    expect(state.stopped).toEqual([{ botId: ada.id, conversationId: "r9" }]);
   });
 
   it("lists the waiting Triggers under Scheduled, with Skip on Routine and Check-in ones only", async () => {

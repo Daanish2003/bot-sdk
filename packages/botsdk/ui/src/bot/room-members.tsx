@@ -1,6 +1,7 @@
 import type { RoomMember, RoomMemberStatus } from "@botsdk/client/bot/contract";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CrownIcon } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { useBotCheckIns } from "@botsdk/react/bot/check-ins";
@@ -11,7 +12,7 @@ import { useBotTasks, useSkipTrigger } from "@botsdk/react/bot/tasks";
 import { useChatAdapter, useI18n } from "@botsdk/react/provider";
 import { serverErrorText } from "@botsdk/react/rpc-error";
 import { BotAvatar } from "./bot-avatar";
-import { BotMenu, PausedBadge } from "./bot-menu";
+import { BotMenu, PausedBadge, ResetBotDialog } from "./bot-menu";
 import { TasksPopover } from "./tasks-popover";
 
 /** Each status's dot colour. */
@@ -25,81 +26,112 @@ const dotClass: Record<RoomMemberStatus, string> = {
  * A Room's members in its header (spec #1055): an avatar stack in the order they joined, the lead
  * marked with a crown, and a status dot on each that is working, queued or paused.
  */
-export function RoomMembers({
-  conversationId,
-  members,
-}: {
-  conversationId: string;
-  members: RoomMember[];
-}) {
+export function RoomMembers({ members }: { members: RoomMember[] }) {
   const { t } = useI18n();
+  // The member whose popover is open, and the one whose reset dialog is: the dialog outlives the
+  // popover it opened from, which closes first.
+  const [opened, setOpened] = useState<string | null>(null);
+  const [resetting, setResetting] = useState<RoomMember | null>(null);
   const statusText: Record<RoomMemberStatus, string> = {
     working: t("bots.memberWorking"),
     queued: t("bots.memberQueued"),
     paused: t("bots.memberPaused"),
   };
   return (
-    <ul aria-label={t("bots.roomMembers")} className="flex items-center -space-x-2">
-      {members.map((member) => {
-        const label = t("bots.roomMember", {
-          name: member.name,
-          lead: member.lead ? t("bots.lead") : "",
-          status: member.status ? statusText[member.status] : "",
-        });
-        return (
-          <li
-            key={member.botId}
-            aria-label={label}
-            title={label}
-            className="relative rounded-full ring-2 ring-background"
-          >
-            <Popover>
-              <PopoverTrigger
-                aria-label={t("bots.memberControls", { name: member.name })}
-                className="block rounded-full"
+    <>
+      <ul aria-label={t("bots.roomMembers")} className="flex items-center -space-x-2">
+        {members.map((member) => {
+          const label = t("bots.roomMember", {
+            name: member.name,
+            lead: member.lead ? t("bots.lead") : "",
+            status: member.status ? statusText[member.status] : "",
+          });
+          return (
+            <li
+              key={member.botId}
+              aria-label={label}
+              title={label}
+              className="relative rounded-full ring-2 ring-background"
+            >
+              <Popover
+                open={opened === member.botId}
+                onOpenChange={(open) => setOpened(open ? member.botId : null)}
               >
-                <BotAvatar name={member.name} size={28} />
-              </PopoverTrigger>
-              <PopoverContent className="w-auto">
-                <MemberControls
-                  conversationId={conversationId}
-                  member={member}
-                  status={member.status ? statusText[member.status] : ""}
+                <PopoverTrigger
+                  aria-label={t("bots.memberControls", { name: member.name })}
+                  className="block rounded-full"
+                >
+                  <BotAvatar name={member.name} size={28} />
+                </PopoverTrigger>
+                <PopoverContent className="w-auto">
+                  <MemberControls
+                    member={member}
+                    status={member.status ? statusText[member.status] : ""}
+                    onReset={() => {
+                      setOpened(null);
+                      setResetting(member);
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
+              {member.lead && (
+                <CrownIcon
+                  aria-hidden
+                  className="absolute -top-2 left-1/2 size-3 -translate-x-1/2 text-amber-600"
                 />
-              </PopoverContent>
-            </Popover>
-            {member.lead && (
-              <CrownIcon
-                aria-hidden
-                className="absolute -top-2 left-1/2 size-3 -translate-x-1/2 text-amber-600"
-              />
-            )}
-            {member.status && (
-              <span
-                aria-hidden
-                data-status={member.status}
-                className={`absolute right-0 bottom-0 size-2.5 rounded-full ring-2 ring-background ${dotClass[member.status]}`}
-              />
-            )}
-          </li>
-        );
-      })}
-    </ul>
+              )}
+              {member.status && (
+                <span
+                  aria-hidden
+                  data-status={member.status}
+                  className={`absolute right-0 bottom-0 size-2.5 rounded-full ring-2 ring-background ${dotClass[member.status]}`}
+                />
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {resetting && <MemberReset member={resetting} onClose={() => setResetting(null)} />}
+    </>
+  );
+}
+
+/** A member's reset dialog, opened from its popover's ⋯ menu; it closes once the reset is done. */
+function MemberReset({ member, onClose }: { member: RoomMember; onClose: () => void }) {
+  const i18n = useI18n();
+  const pause = useBotPause(member.botId);
+  return (
+    <ResetBotDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      name={member.name}
+      acting={pause.acting}
+      onReset={(typed) =>
+        pause.reset(typed).catch((refusal) => {
+          toast.error(serverErrorText(i18n, refusal));
+          throw refusal;
+        })
+      }
+    />
   );
 }
 
 /**
  * A member's popover (spec #1055): its name and status, its Tasks view and its ⋯ menu with pause and
- * reset, the same controls as on the Bot page. Its Stop is the Room's. It is mounted only while open, so it reads nothing before.
+ * reset, the same controls as on the Bot page. Its Stop stops this Bot's Turn where its Tasks show
+ * it. Reset asks `onReset` to open the reset dialog outside the popover, which closes. It is mounted
+ * only while open, so it reads nothing before.
  */
 function MemberControls({
-  conversationId,
   member,
   status,
+  onReset,
 }: {
-  conversationId: string;
   member: RoomMember;
   status: string;
+  onReset: () => void;
 }) {
   const i18n = useI18n();
   const { orpc } = useChatAdapter();
@@ -125,8 +157,10 @@ function MemberControls({
       {tasks && (
         <TasksPopover
           tasks={tasks}
-          // In a Room the one Stop ends every Turn running there; `bots.stop` ends only the 1:1 Turn.
-          onStopTurn={() => void orpc.rooms.stop.call({ conversationId }).catch(refuse)}
+          // This Bot's Turn, wherever it runs: the composer's Stop is the one that ends the Room's.
+          onStopTurn={(shown) =>
+            void orpc.bots.stop.call({ botId, conversationId: shown }).catch(refuse)
+          }
           onStopHelper={(helperId) => void helpers.stop(helperId).catch(refuse)}
           actingHelpers={helpers.acting}
           onCancelCheckIn={checkIns.cancel}
@@ -149,12 +183,7 @@ function MemberControls({
         acting={pause.acting}
         onPause={() => void pause.pause().catch(refuse)}
         onResume={() => void pause.resume().catch(refuse)}
-        onReset={(typed) =>
-          pause.reset(typed).catch((refusal) => {
-            refuse(refusal);
-            throw refusal;
-          })
-        }
+        onOpenReset={onReset}
       />
     </div>
   );

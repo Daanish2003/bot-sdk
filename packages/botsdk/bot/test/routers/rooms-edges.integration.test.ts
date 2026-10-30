@@ -227,3 +227,61 @@ describe("Conversation row locks", () => {
     timeout,
   );
 });
+
+describe("stopping a Bot's Turns", () => {
+  it(
+    "a Ban ends the user's Room Turns as well as their 1:1 Turns",
+    async () => {
+      const gate = held(createFakeAdapter({ rounds: [] }));
+      const { client, deps, user, scout, writer, room } = await threeBotRoom([], gate.adapter);
+      const conversationId = room.conversationId;
+      await client.bots.send({ botId: scout.id, id: uuidv7(), text: "Alone" });
+      await client.rooms.send({ conversationId, text: "@Scout @Writer go" });
+      await expect.poll(() => gate.entered.length, poll).toBe(3);
+
+      await deps.bots.stopTurns({ userId: user.id });
+
+      await expect.poll(() => statusesOf(scout.id, conversationId), poll).toEqual(["stopped"]);
+      await expect.poll(() => statusesOf(writer.id, conversationId), poll).toEqual(["stopped"]);
+      await expect
+        .poll(async () => statusesOf(scout.id, await oneToOneOf(scout.id)), poll)
+        .toEqual(["stopped"]);
+    },
+    timeout,
+  );
+
+  it(
+    "bots.stop with a Conversation stops the Bot's Turn there, and only there",
+    async () => {
+      const gate = held(createFakeAdapter({ rounds: [] }));
+      const { client, scout, writer, room } = await threeBotRoom([], gate.adapter);
+      const conversationId = room.conversationId;
+      const own = await oneToOneOf(scout.id);
+      await client.bots.send({ botId: scout.id, id: uuidv7(), text: "Alone" });
+      await client.rooms.send({ conversationId, text: "@Scout @Writer go" });
+      await expect.poll(() => gate.entered.length, poll).toBe(3);
+      // The Tasks view shows the Turn with its Conversation, for its Stop.
+      const tasks = await client.bots.tasks({ botId: writer.id });
+      expect(tasks.inProgress.turn).toMatchObject({ conversationId });
+
+      await client.bots.stop({ botId: scout.id, conversationId });
+
+      await expect.poll(() => statusesOf(scout.id, conversationId), poll).toEqual(["stopped"]);
+      expect(await statusesOf(scout.id, own)).toEqual(["running"]);
+      expect(await statusesOf(writer.id, conversationId)).toEqual(["running"]);
+      // Without one, it stops the 1:1 Turn, as before.
+      await client.bots.stop({ botId: scout.id });
+      await expect.poll(() => statusesOf(scout.id, own), poll).toEqual(["stopped"]);
+      expect(await statusesOf(writer.id, conversationId)).toEqual(["running"]);
+      // A Conversation the Bot isn't in is not found.
+      const other = await client.rooms.create({
+        name: "Other",
+        botIds: [writer.id, room.members[2]!.botId],
+      });
+      await expect(
+        client.bots.stop({ botId: scout.id, conversationId: other.conversationId }),
+      ).rejects.toMatchObject({ data: { code: "error.roomNotFound" } });
+    },
+    timeout,
+  );
+});

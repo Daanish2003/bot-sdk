@@ -57,7 +57,7 @@ export function RoomConversation({ conversationId }: { conversationId: string })
       <header className="flex items-center gap-3 border-b px-4 py-3">
         <UsersIcon className="size-4 text-muted-foreground" />
         <h1 className="flex-1 truncate font-semibold">{room.name}</h1>
-        <RoomMembers conversationId={conversationId} members={room.members} />
+        <RoomMembers members={room.members} />
         <Button
           variant="ghost"
           size="icon-sm"

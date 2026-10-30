@@ -132,6 +132,12 @@ export const createBotInput = z.object({
 /** The input of the methods that act on one of the user's Bots, besides `userId`. */
 export const botInput = z.object({ botId: z.uuid() });
 
+/**
+ * `bots.stop`'s input, besides `userId`: the Bot, and the Conversation of the Turn to stop (its 1:1
+ * Conversation when not given, or one of its Rooms, spec #1055), as the Tasks view shows it.
+ */
+export const botStopInput = z.object({ botId: z.uuid(), conversationId: z.uuid().optional() });
+
 /** `bots.reset`'s input, besides `userId`: the Bot, and its name typed to confirm (spec #1007). */
 export const resetBotInput = z.object({ botId: z.uuid(), name: z.string().max(100) });
 
@@ -312,7 +318,7 @@ const bots = {
   /** Stores a file the user will send their Bot. Rate-limited like attachments. */
   upload: oc.input(uploadInput).output(type<BotUpload>()),
   /** Stops the user's Bot's running Turn. */
-  stop: oc.input(botInput).output(type<void>()),
+  stop: oc.input(botStopInput).output(type<void>()),
   /**
    * Pauses the user's Bot (spec #1007): its Turn and Helpers stop, what waits is skipped, and
    * nothing wakes it until it is resumed. Idempotent; another user's Bot is not found.
