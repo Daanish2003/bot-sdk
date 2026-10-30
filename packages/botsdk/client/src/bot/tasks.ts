@@ -2,8 +2,11 @@ import type { BotCheckIn } from "./check-in";
 import type { BotHelper } from "./helper";
 import type { BotRoutine } from "./routine";
 
-/** Why a Trigger was skipped: the user skipped it, or its Bot was paused or reset (spec #1007). */
-export type TriggerSkipReason = "cancelled" | "paused" | "reset";
+/**
+ * Why a Trigger was skipped: the user skipped it, its Bot was paused or reset (spec #1007), or it
+ * was a handoff past the Room's hop limit (spec #1055).
+ */
+export type TriggerSkipReason = "cancelled" | "paused" | "reset" | "hop_limit";
 
 /**
  * One Trigger as the Tasks view lists it (spec #1007). `label` names what it is: a Routine's name, a
@@ -12,8 +15,8 @@ export type TriggerSkipReason = "cancelled" | "paused" | "reset";
  */
 export type TaskTrigger = {
   id: string;
-  source: "user" | "routine" | "check_in" | "helper" | "approval";
-  /** `web`, `schedule`, `webhook`, `helper`, `email`, or a messaging platform's id. */
+  source: "user" | "routine" | "check_in" | "helper" | "approval" | "agent";
+  /** `web`, `schedule`, `webhook`, `helper`, `email`, `room` (a handoff), or a messaging platform's id. */
   channel: string;
   label: string | null;
   receivedAt: Date;

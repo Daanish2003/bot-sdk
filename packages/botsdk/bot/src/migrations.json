@@ -50,5 +50,9 @@
   {
     "name": "20261030154041_room_members",
     "sql": "CREATE TABLE \"botsdk\".\"bot_room_member\" (\n\t\"conversation_id\" uuid,\n\t\"bot_id\" uuid,\n\t\"lead\" boolean DEFAULT false NOT NULL,\n\t\"reset_at\" timestamp,\n\t\"joined_at\" timestamp NOT NULL,\n\tCONSTRAINT \"bot_room_member_pkey\" PRIMARY KEY(\"conversation_id\",\"bot_id\")\n);\n--> statement-breakpoint\nCREATE UNIQUE INDEX \"bot_room_member_lead_idx\" ON \"botsdk\".\"bot_room_member\" (\"conversation_id\") WHERE \"lead\";--> statement-breakpoint\nCREATE INDEX \"bot_room_member_bot_id_idx\" ON \"botsdk\".\"bot_room_member\" (\"bot_id\");--> statement-breakpoint\nALTER TABLE \"botsdk\".\"bot_room_member\" ADD CONSTRAINT \"bot_room_member_conversation_id_conversation_id_fkey\" FOREIGN KEY (\"conversation_id\") REFERENCES \"botsdk\".\"conversation\"(\"id\") ON DELETE CASCADE;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"bot_room_member\" ADD CONSTRAINT \"bot_room_member_bot_id_bot_id_fkey\" FOREIGN KEY (\"bot_id\") REFERENCES \"botsdk\".\"bot\"(\"id\") ON DELETE CASCADE;"
+  },
+  {
+    "name": "20261030171013_trigger_hops",
+    "sql": "ALTER TYPE \"botsdk\".\"bot_trigger_skip_reason\" ADD VALUE 'hop_limit';--> statement-breakpoint\nALTER TYPE \"botsdk\".\"bot_trigger_source\" ADD VALUE 'agent';--> statement-breakpoint\nALTER TABLE \"botsdk\".\"bot_trigger\" ADD COLUMN \"hops\" integer DEFAULT 0 NOT NULL;"
   }
 ]

@@ -1,3 +1,16 @@
+import { z } from "zod";
+
+/** How many Bot-to-Bot handoffs a chain in a Room may take before it waits for the user (spec #1055). */
+export const hopLimit = 3;
+
+/**
+ * The handoff a Bot's Room Message made (spec #1055): the members it mentioned, by id, and its hop
+ * in the chain. A hop past `hopLimit` woke no one: the chain stopped there.
+ */
+export const handoffSchema = z.object({ to: z.array(z.string()), hops: z.number().int() });
+
+export type Handoff = z.infer<typeof handoffSchema>;
+
 /** A letter, digit or underscore: what may not touch a mention on either side. */
 const wordChar = /[\p{L}\p{N}_]/u;
 

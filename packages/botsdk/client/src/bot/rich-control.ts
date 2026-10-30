@@ -4,6 +4,7 @@ import { textPartSchema } from "../message-parts";
 import { demonstrationCardSchema } from "./demonstration";
 import { choiceControlSchema } from "./choice";
 import { filesControlSchema } from "./files";
+import { handoffSchema } from "./mentions";
 import { computerCardSchema } from "./helper";
 import { reviewApprovalSchema } from "./review";
 import { routineApprovalSchema } from "./routine";
@@ -78,6 +79,8 @@ export const botMessagePartsSchema = z.object({
   reactions: storedReactionsSchema.optional(),
   /** The Bot marked this Message urgent (spec #1024). */
   urgent: z.literal(true).optional(),
+  /** The handoff a Bot's Room Message made (spec #1055). */
+  handoff: handoffSchema.optional(),
 });
 
 export type BotMessageParts = z.infer<typeof botMessagePartsSchema>;

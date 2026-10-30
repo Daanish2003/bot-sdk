@@ -122,6 +122,7 @@ export const botsMessages = {
   "bots.skipCancelled": "you skipped it",
   "bots.skipPaused": "the Bot was paused",
   "bots.skipReset": "the Bot was reset",
+  "bots.skipHopLimit": "the handoffs reached their limit",
   "bots.botMenu": "Bot menu",
   "bots.pauseBot": "Pause Bot",
   "bots.resumeBot": "Resume Bot",
@@ -398,6 +399,10 @@ description: Use this when
   "bots.memberWorking": "working",
   "bots.memberQueued": "queued",
   "bots.memberPaused": "paused",
+  "bots.handoffRelay": ({ to, hop, limit }: { to: string; hop: number; limit: number }) =>
+    `→ ${to} · hop ${hop}/${limit}`,
+  "bots.handoffStopped": ({ from, to, limit }: { from: string; to: string; limit: number }) =>
+    `${from} → ${to} stopped after ${limit} hops; waiting for you.`,
   "bots.roomMember": ({ name, lead, status }: { name: string; lead: string; status: string }) =>
     [name, lead, status].filter(Boolean).join(", "),
   "bots.mentionMember": "Mention a member",

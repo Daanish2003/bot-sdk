@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type { BotSdkClient } from "@botsdk/client";
+import type { BotMessage } from "@botsdk/client/bot/turn";
 import type { QueryClient } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createElement, type ReactElement } from "react";
@@ -490,5 +491,117 @@ describe("a Room's members, kept in step", () => {
     await hint();
 
     await screen.findByRole("listitem", { name: "Scout, lead, working" });
+  });
+});
+
+describe("handoffs in a Room", () => {
+  /** Mounts the Room with `messages` among three members. */
+  const mountWith = (messages: BotMessage[]) =>
+    render(
+      providerFor(createElement(RoomConversation, { conversationId: launch.conversationId }), {
+        fetch: () => new Promise<Response>(() => {}),
+        messages: {},
+        seed: (queryClient, client) => {
+          seed(queryClient, client);
+          queryClient.setQueryData(
+            client.orpc.rooms.get.queryKey({ input: { conversationId: launch.conversationId } }),
+            {
+              room: { ...launch, members: [member(scout, true), member(writer), member(ops)] },
+              messages,
+              lastSeq: messages.length,
+            },
+          );
+        },
+      }),
+    );
+
+  it("shows a relay line on a Bot Message that hands work on, with its hop", () => {
+    mountWith([
+      {
+        id: "m1",
+        role: "assistant",
+        text: "@Writer @Ops, over to you.",
+        createdAt,
+        authorBotId: scout.id,
+        handoff: { to: [writer.id, ops.id], hops: 2 },
+      },
+      { id: "m2", role: "assistant", text: "Noted.", createdAt, authorBotId: writer.id },
+    ]);
+
+    const [handedOn, plain] = document.querySelectorAll("[data-room-message]");
+    expect(handedOn?.querySelector("[data-relay]")?.textContent).toBe("→ @Writer, @Ops · hop 2/3");
+    expect(plain?.querySelector("[data-relay]")).toBeNull();
+    expect(screen.queryByRole("separator")).toBeNull();
+  });
+
+  it("shows a divider where the chain stopped at the hop limit, and no relay line there", () => {
+    mountWith([
+      {
+        id: "m1",
+        role: "assistant",
+        text: "@Writer, again.",
+        createdAt,
+        authorBotId: scout.id,
+        handoff: { to: [writer.id], hops: 4 },
+      },
+    ]);
+
+    expect(screen.getByRole("separator").textContent).toBe(
+      "Scout → Writer stopped after 3 hops; waiting for you.",
+    );
+    expect(document.querySelector("[data-relay]")).toBeNull();
+  });
+
+  it("translates every label", () => {
+    const html = renderWrapped(
+      createElement(RoomConversation, { conversationId: launch.conversationId }),
+      {
+        seed: (queryClient, client) => {
+          seed(queryClient, client);
+          queryClient.setQueryData(
+            client.orpc.rooms.get.queryKey({ input: { conversationId: launch.conversationId } }),
+            {
+              room: launch,
+              messages: [
+                {
+                  id: "m1",
+                  role: "assistant",
+                  text: "@Writer, go.",
+                  createdAt,
+                  authorBotId: scout.id,
+                  handoff: { to: [writer.id], hops: 1 },
+                },
+                {
+                  id: "m2",
+                  role: "assistant",
+                  text: "@Scout, back.",
+                  createdAt,
+                  authorBotId: writer.id,
+                  handoff: { to: [scout.id], hops: 4 },
+                },
+              ],
+              lastSeq: 2,
+            },
+          );
+        },
+      },
+    );
+
+    expect(
+      untranslated(html, [
+        "Launch",
+        "Scout",
+        "Writer",
+        "S",
+        "W",
+        "SC",
+        "WR",
+        "@Writer, go.",
+        "@Scout, back.",
+        "@Writer",
+        "@Scout",
+        dateFormat("en", { hour: "numeric", minute: "2-digit" }).format(createdAt),
+      ]),
+    ).toEqual([]);
   });
 });

@@ -1,8 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { CrownIcon, EllipsisIcon, UsersIcon } from "lucide-react";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { toast } from "sonner";
 
+import { hopLimit } from "@botsdk/client/bot/mentions";
 import { dateFormat } from "@botsdk/react/intl";
 import { useI18n } from "@botsdk/react/provider";
 import { useRoom } from "@botsdk/react/bot/rooms";
@@ -33,6 +34,7 @@ export function RoomConversation({ conversationId }: { conversationId: string })
   }
   if (!room) return null;
   const names = new Map(room.members.map((member) => [member.botId, member]));
+  const nameOf = (botId: string) => names.get(botId)?.name ?? t("bots.deletedBot");
 
   const submit = () => {
     const text = draft.trim();
@@ -72,34 +74,60 @@ export function RoomConversation({ conversationId }: { conversationId: string })
           const author = message.authorBotId ? names.get(message.authorBotId) : undefined;
           const user = message.role === "user";
           const name = user ? t("bots.you") : (author?.name ?? t("bots.deletedBot"));
+          const { handoff } = message;
+          // A hop past the limit woke no one: the chain waits for the user (spec #1055).
+          const stopped = handoff !== undefined && handoff.hops > hopLimit;
           return (
-            <div key={message.id} data-room-message data-id={message.id} className="flex gap-3">
-              {user || !author ? (
-                <span
-                  aria-hidden
-                  className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground"
-                >
-                  {user ? "•" : "?"}
-                </span>
-              ) : (
-                <BotAvatar name={author.name} size={32} />
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold">
-                  <span data-author>{name}</span>
-                  {author?.lead && (
-                    <CrownIcon className="ml-1 inline size-3 text-amber-600" aria-hidden />
-                  )}
-                  <time
-                    dateTime={message.createdAt.toISOString()}
-                    className="ml-2 text-xs font-normal text-muted-foreground"
+            <Fragment key={message.id}>
+              <div data-room-message data-id={message.id} className="flex gap-3">
+                {user || !author ? (
+                  <span
+                    aria-hidden
+                    className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground"
                   >
-                    {time.format(message.createdAt)}
-                  </time>
-                </p>
-                <p className="text-sm whitespace-pre-wrap">{message.text}</p>
+                    {user ? "•" : "?"}
+                  </span>
+                ) : (
+                  <BotAvatar name={author.name} size={32} />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold">
+                    <span data-author>{name}</span>
+                    {author?.lead && (
+                      <CrownIcon className="ml-1 inline size-3 text-amber-600" aria-hidden />
+                    )}
+                    <time
+                      dateTime={message.createdAt.toISOString()}
+                      className="ml-2 text-xs font-normal text-muted-foreground"
+                    >
+                      {time.format(message.createdAt)}
+                    </time>
+                  </p>
+                  <p className="text-sm whitespace-pre-wrap">{message.text}</p>
+                  {handoff && !stopped && (
+                    <p data-relay className="mt-1 text-xs text-muted-foreground">
+                      {t("bots.handoffRelay", {
+                        to: handoff.to.map((botId) => `@${nameOf(botId)}`).join(", "),
+                        hop: handoff.hops,
+                        limit: hopLimit,
+                      })}
+                    </p>
+                  )}
+                </div>
               </div>
-            </div>
+              {stopped && (
+                <div
+                  role="separator"
+                  className="border-y py-1 text-center text-xs text-muted-foreground"
+                >
+                  {t("bots.handoffStopped", {
+                    from: name,
+                    to: handoff.to.map(nameOf).join(", "),
+                    limit: hopLimit,
+                  })}
+                </div>
+              )}
+            </Fragment>
           );
         })}
       </div>

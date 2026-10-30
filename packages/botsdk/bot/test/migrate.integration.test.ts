@@ -202,6 +202,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030111914_route_telegram" },
       { feature: "core", migration: "20261030145922_rooms_keys" },
       { feature: "core", migration: "20261030154041_room_members" },
+      { feature: "core", migration: "20261030171013_trigger_hops" },
     ]);
     // Images and PDFs are already compressed, so the bytes are kept out of line uncompressed.
     expect(
@@ -251,6 +252,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030111914_route_telegram" },
       { feature: "core", migration: "20261030145922_rooms_keys" },
       { feature: "core", migration: "20261030154041_room_members" },
+      { feature: "core", migration: "20261030171013_trigger_hops" },
     ]);
     expect(
       await rows(url, "update botsdk.bot_review set state = 'pending' returning state, expires_at"),
@@ -393,6 +395,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030111914_route_telegram" },
       { feature: "core", migration: "20261030145922_rooms_keys" },
       { feature: "core", migration: "20261030154041_room_members" },
+      { feature: "core", migration: "20261030171013_trigger_hops" },
       { feature: "notes", migration: "0001_note" },
       { feature: "mcp", migration: "20261026182927_mcp_baseline" },
     ]);
@@ -423,6 +426,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030111914_route_telegram" },
       { feature: "core", migration: "20261030145922_rooms_keys" },
       { feature: "core", migration: "20261030154041_room_members" },
+      { feature: "core", migration: "20261030171013_trigger_hops" },
       { feature: "notes", migration: "0001_note" },
       { feature: "notes", migration: "0002_note_text" },
     ]);
@@ -557,6 +561,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030111914_route_telegram" },
       { feature: "core", migration: "20261030145922_rooms_keys" },
       { feature: "core", migration: "20261030154041_room_members" },
+      { feature: "core", migration: "20261030171013_trigger_hops" },
       { feature: "notes", migration: "0001_note" },
     ]);
   });

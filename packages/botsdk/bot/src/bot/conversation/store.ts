@@ -66,13 +66,15 @@ export function controlParts(
   previous?: MessageRow["parts"],
   urgent?: boolean,
 ): BotMessageParts {
-  // A Message's emojis and urgent mark live beside its parts, so a control changing its state
-  // keeps them.
+  // A Message's emojis, urgent mark and handoff live beside its parts, so a control changing its
+  // state keeps them.
   const reactions = previous && storedReactionsOf(previous);
   const marked = urgent || (previous && urgentOf(previous));
+  const handoff = previous && handoffOf(previous);
   return {
     ...(reactions && { reactions }),
     ...(marked && { urgent: true as const }),
+    ...(handoff && { handoff }),
     schemaVersion: 1,
     parts: [
       { type: "text", text },
@@ -98,6 +100,10 @@ export const channelOf = (parts: MessageRow["parts"]) =>
 /** Whether the Bot marked a Message urgent (spec #1024). */
 export const urgentOf = (parts: MessageRow["parts"]) =>
   botFields.urgent.safeParse(parts.urgent).data === true;
+
+/** The handoff a Bot's Room Message made, if any (spec #1055). */
+export const handoffOf = (parts: MessageRow["parts"]) =>
+  botFields.handoff.safeParse(parts.handoff).data;
 
 /** The subject of an emailed user's Message, which the Bot's emailed reply answers (spec #761). */
 export const subjectOf = (parts: MessageRow["parts"]) =>
@@ -168,14 +174,14 @@ export async function setReaction(
  * Saves a Message Bot `botId` sends (a SendToUser Message, or a card it posts) in Conversation
  * `conversationId`, as its author (spec #1055), in `tx`, which then holds the Conversation's row lock, and hands it to the `channel` plugin, when the Host has it, to
  * deliver on the user's other Channels too (spec #761). `turnId` is the Turn that sent it, or
- * `null` when no Turn did (a Helper).
+ * `null` when no Turn did (a Helper). Returns the saved Message's id.
  */
 export async function appendBotMessage(
   deps: BotSdkContext,
   tx: Transaction,
   { botId, conversationId }: { botId: string; conversationId: string },
   { parts, createdAt, turnId }: Pick<MessageRow, "parts" | "createdAt"> & { turnId: string | null },
-): Promise<void> {
+): Promise<string> {
   const row = await appendMessage(tx, conversationId, {
     role: "assistant",
     authorBotId: botId,
@@ -190,6 +196,7 @@ export async function appendBotMessage(
     turnId,
     urgent: urgentOf(parts),
   });
+  return row.id;
 }
 
 /** A Message row as the client sees it, with its Rich control when it has one. */
@@ -201,6 +208,7 @@ export function toBotMessage(
   const reactions = reactionsOf(row.parts);
   const channel = channelOf(row.parts);
   const urgent = urgentOf(row.parts);
+  const handoff = handoffOf(row.parts);
   return {
     id: row.id,
     role: row.role,
@@ -211,6 +219,7 @@ export function toBotMessage(
     ...(channel && { channel }),
     ...(urgent && { urgent }),
     ...(row.authorBotId && { authorBotId: row.authorBotId }),
+    ...(handoff && { handoff }),
   };
 }
 

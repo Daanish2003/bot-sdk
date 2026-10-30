@@ -43,6 +43,7 @@ const skipKeys = {
   cancelled: "bots.skipCancelled",
   paused: "bots.skipPaused",
   reset: "bots.skipReset",
+  hop_limit: "bots.skipHopLimit",
 } as const;
 
 /** What skipping a waiting Trigger needs. */

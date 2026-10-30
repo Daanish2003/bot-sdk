@@ -575,6 +575,15 @@ ALTER TABLE "botsdk"."bot_room_member" ADD CONSTRAINT "bot_room_member_bot_id_bo
 insert into botsdk.__migrations (feature, migration) values ('core', '20261030154041_room_members');
 commit;
 
+-- core/20261030171013_trigger_hops
+begin;
+ALTER TYPE "botsdk"."bot_trigger_skip_reason" ADD VALUE 'hop_limit';--> statement-breakpoint
+ALTER TYPE "botsdk"."bot_trigger_source" ADD VALUE 'agent';--> statement-breakpoint
+ALTER TABLE "botsdk"."bot_trigger" ADD COLUMN "hops" integer DEFAULT 0 NOT NULL;
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261030171013_trigger_hops');
+commit;
+
 -- notes/0001_note
 begin;
 create table botsdk.test_note (id text primary key, bot_id uuid references botsdk.bot(id) on delete cascade)
