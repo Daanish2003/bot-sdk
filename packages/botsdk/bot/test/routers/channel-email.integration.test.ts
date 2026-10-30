@@ -1,8 +1,8 @@
 import { maxFileBytes } from "@botsdk/client/bot/files";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { botTrigger, message } from "../../src/storage";
+import { bot, botTrigger, message } from "../../src/storage";
 import { appendBotMessage, findBot, textParts } from "../../src/bot/conversation";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { fakeEmailProvider } from "@botsdk/testing/fake-channel";
@@ -596,6 +596,20 @@ describe("an email reply in a Room's thread", () => {
     expect((await triggersOf(conversationId)).map((trigger) => trigger.id)).toEqual([
       "email:first@mail.example",
       "email:second@mail.example",
+    ]);
+    expect(await triggersOf(room.conversationId)).toEqual([]);
+  }, 30_000);
+
+  it("goes to the Bot's 1:1 when the Room refuses it, as one with one Bot left does", async () => {
+    const { conversationId, writer, ops, room, posted, deliver } = await inRoom();
+    await getTestDb()
+      .delete(bot)
+      .where(inArray(bot.id, [writer.id, ops.id]));
+
+    await deliver({ headers: { "In-Reply-To": `<${posted}@${domain}>` } });
+
+    expect((await triggersOf(conversationId)).map((trigger) => trigger.id)).toEqual([
+      "email:first@mail.example",
     ]);
     expect(await triggersOf(room.conversationId)).toEqual([]);
   }, 30_000);

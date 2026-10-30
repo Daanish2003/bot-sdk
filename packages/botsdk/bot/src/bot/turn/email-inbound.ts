@@ -1,3 +1,4 @@
+import { ORPCError } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 
 import {
@@ -92,12 +93,8 @@ async function deliver(
   );
   const room = await roomOfThread(sdk, channel.domain, owner, mail.headers);
   if (room) {
-    // When no Message holds the files, their bytes go, as `handIn` drops them.
-    const dropFiles = () =>
-      deleteBlobsBestEffort(
-        sdk,
-        stored.map((file) => sentFileBlobKey(file.id)),
-      );
+    // A Room that refuses it (one Bot left, a member's Model unavailable, the Quota) leaves the
+    // mail to the Bot's 1:1, as an unknown thread does.
     const posted = await postToRoom(sdk, {
       userId: owner.userId,
       conversationId: room,
@@ -107,14 +104,15 @@ async function deliver(
       subject: mail.subject,
       files: stored,
     }).catch(async (error: unknown) => {
-      await dropFiles();
-      if (isRoomRefusal(error)) return `refused in its Room: ${error.message}`;
+      if (error instanceof ORPCError) return undefined;
+      await dropFiles(sdk, stored);
       throw error;
     });
-    if (typeof posted === "string") return posted;
-    if (posted.outcome === "handed") return null;
-    await dropFiles();
-    return redelivery;
+    if (posted?.outcome === "handed") return null;
+    if (posted?.outcome === "seen") {
+      await dropFiles(sdk, stored);
+      return redelivery;
+    }
   }
   const handed = await handIn(sdk, {
     botId: owner.botId,
@@ -151,9 +149,12 @@ function isAutomatic(headers: Record<string, string>): boolean {
   });
 }
 
-/** Whether `error` is `postToRoom`'s refusal of the Message (an RPC error), not a failure. */
-const isRoomRefusal = (error: unknown): error is Error =>
-  error instanceof Error && "code" in error && "data" in error;
+/** Deletes the bytes of mail files no Message holds. */
+const dropFiles = (sdk: BotSdkContext, files: { id: string }[]) =>
+  deleteBlobsBestEffort(
+    sdk,
+    files.map((file) => sentFileBlobKey(file.id)),
+  );
 
 /** A Message-ID's id: what is between its angle brackets. */
 const threadIds = (value: string) =>
