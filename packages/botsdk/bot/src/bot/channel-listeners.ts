@@ -151,6 +151,28 @@ export function channelListeners(
     if (release) await unlock(id);
   }
 
+  /**
+   * The token of account `id` was rejected, listening or sending: marks the account as needing
+   * attention and stops `listener`, so saving the account again starts a new one. Never throws.
+   */
+  async function rejected(id: string, listener: Listener, reason: string) {
+    let marked = true;
+    try {
+      await markNeedsAttention(sdk, id, listener.version, reason);
+    } catch (caught) {
+      marked = false;
+      sdk.logger.error("Marking a Channel account as needing attention failed", caught);
+    }
+    void serial(async () => {
+      if (running.get(id) !== listener) return;
+      running.delete(id);
+      listener.abort.abort();
+      await unlock(id);
+      // Unmarked, it waits for the next sync rather than looping on rejected credentials.
+      if (marked) await reconcile(id);
+    });
+  }
+
   /** Listens to `account` until its listener aborts; a rejection marks it and ends, other errors retry. */
   async function run(
     adapter: MessagingAdapter,
@@ -165,7 +187,10 @@ export function channelListeners(
         await adapter.listen!(account, {
           fetch: sdk.fetch,
           signal,
-          receive: (update) => receiveMessaging(sdk, adapter, account, update, appUrl),
+          receive: (update) =>
+            receiveMessaging(sdk, adapter, account, update, appUrl, (reason) =>
+              rejected(account.id, listener, reason),
+            ),
         });
         if (signal.aborted) return;
         throw new Error("The listener ended by itself");
@@ -173,20 +198,7 @@ export function channelListeners(
         if (signal.aborted) return;
         if (error instanceof CredentialsRejectedError) {
           // No retry until the user saves new credentials: the account needs attention.
-          let marked = true;
-          try {
-            await markNeedsAttention(sdk, account.id, listener.version, error.reason);
-          } catch (caught) {
-            marked = false;
-            sdk.logger.error("Marking a Channel account as needing attention failed", caught);
-          }
-          void serial(async () => {
-            if (running.get(account.id) !== listener) return;
-            running.delete(account.id);
-            await unlock(account.id);
-            // Unmarked, it waits for the next sync rather than looping on rejected credentials.
-            if (marked) await reconcile(account.id);
-          });
+          await rejected(account.id, listener, error.reason);
           return;
         }
         sdk.logger.error(`A ${adapter.id} Channel account's listener failed; retrying`, error);
