@@ -17,7 +17,7 @@ The chat thread between a user and one of their Bots, or several in a Room. A Bo
 _Avoid_: Chat, thread, session
 
 **Room**:
-A Conversation the user shares with several of their Bots. A Message goes to the Bots it @mentions, or to the Room's lead Bot when it mentions none; a Bot that mentions another wakes it, and a mention carrying a task is a handoff. Bot-to-Bot wake-ups stop after a few hops until the user speaks again. Every Bot in the Room sees everything said there and keeps its own memory and Skills; a new Message interrupts only the Bots it goes to. A group chat on another Channel is a Room too.
+A Conversation the user shares with two or more of their Bots, which they name, add Bots to and remove them from, and can delete. A Message goes to the Bots it @mentions, or to the Room's lead Bot when it mentions none; the lead is the first Bot added and only the user changes it. A Bot that mentions another wakes it, and a mention carrying a task is a handoff; a Bot's Message that mentions no one wakes no one. Bot-to-Bot wake-ups stop after three hops until the user speaks again. Every Bot in the Room sees everything said there, each Message marked with who wrote it, but only Messages addressed to it wake it; it keeps its own memory and Skills, and its Routines and Check-ins still land in its 1:1 Conversation. A new Message interrupts only the Bots it goes to; Stop ends every Turn running in the Room. A group chat on another Channel is a Room too.
 _Avoid_: Team, channel, group chat, workspace
 
 **Message**:
@@ -131,7 +131,7 @@ What every Trigger passes through on its way to a Bot: it drops duplicates and p
 _Avoid_: Dispatcher, inbox
 
 **Conversation queue**:
-The Triggers a Conversation has received that no Turn has taken yet, in the order they arrived. A Turn waits a moment before it starts so quick Messages land in one batch, takes everything waiting, and when it ends the next Turn takes whatever has arrived since, so a Conversation runs one Turn at a time.
+The Triggers a Conversation has received that no Turn has taken yet, in the order they arrived. A Turn waits a moment before it starts so quick Messages land in one batch, takes everything waiting, and when it ends the next Turn takes whatever has arrived since, so a Conversation runs one Turn at a time. In a Room each Bot has its own queue, so each Bot there runs one Turn at a time, alongside the others and alongside its Turns elsewhere.
 _Avoid_: Inbox, backlog, job queue (that is the runner's)
 
 **Routine**:
@@ -163,7 +163,7 @@ The user holding one Bot still until they resume it: its Turn and Helpers stop, 
 _Avoid_: Suspend, sleep, disable
 
 **Bot reset**:
-The user giving one Bot a fresh start: it forgets its own Memory and drops its Routines, Check-ins, Helpers and pending Approvals, and its Conversation gets a reset mark at the end, so the Bot sees nothing from before it while the user can still scroll back. It keeps its Skills, its other files and everything shared with the user's other Bots. It cannot be undone.
+The user giving one Bot a fresh start: it forgets its own Memory and drops its Routines, Check-ins, Helpers and pending Approvals, and its Conversation gets a reset mark at the end, so the Bot sees nothing from before it while the user can still scroll back. In a Room it leaves no mark for others to see; only that Bot stops seeing what was said there before. It keeps its Skills, its other files and everything shared with the user's other Bots. It cannot be undone.
 _Avoid_: Wipe, delete, clear
 
 **Skill**:
