@@ -297,13 +297,14 @@ export async function sendDelivery(
   }: { email?: EmailChannel; push?: WebPushChannel; messaging?: readonly MessagingAdapter[] },
   verifiedEmail: (userId: string) => Promise<string | null>,
   payload: DeliveryPayload,
+  appUrl: string | null,
 ): Promise<void> {
   if (payload.channel === "push") {
     if (!push) throw new Error("The channel plugin has no web push adapter");
     return sendPushDelivery(deps, push, payload);
   }
   if (payload.channel === "messaging")
-    return sendMessagingDelivery(deps, messaging, (email ?? push)?.appUrl ?? null, payload);
+    return sendMessagingDelivery(deps, messaging, appUrl, payload);
   if (!email) throw new Error("The channel plugin has no email adapter");
   const { messageId, subject, inReplyTo } = payload;
   const [row] = await deps.db
