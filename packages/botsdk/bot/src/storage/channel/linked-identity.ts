@@ -1,4 +1,4 @@
-import { text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { integer, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 
 import { botsdkSchema } from "../botsdk-schema";
 
@@ -33,8 +33,9 @@ export const linkedIdentity = botsdkSchema.table(
 );
 
 /**
- * A user's live link code (spec #1044): a hash of the 6-digit code and when it expires. One per
- * user, so a new code replaces the old one; spent by deleting it. Deleted with the user.
+ * A user's live link code (spec #1044): a hash of the 6-digit code, when it expires, and how many
+ * wrong guesses its user's Bots took while it was live (5 void it). One per user, so a new code
+ * replaces the old one; spent by deleting it. Deleted with the user.
  */
 export const linkCode = botsdkSchema.table("link_code", {
   /** The Host's user id, with no foreign key. */
@@ -42,4 +43,5 @@ export const linkCode = botsdkSchema.table("link_code", {
   /** SHA-256 of the code, hex. Unique, so a code names one user. */
   codeHash: text("code_hash").notNull().unique("link_code_hash_unique"),
   expiresAt: timestamp("expires_at").notNull(),
+  attempts: integer("attempts").notNull().default(0),
 });

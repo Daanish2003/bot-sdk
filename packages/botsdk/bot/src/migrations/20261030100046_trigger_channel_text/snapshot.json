@@ -2761,6 +2761,19 @@
       "table": "link_code"
     },
     {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "attempts",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "link_code"
+    },
+    {
       "type": "uuid",
       "typeSchema": null,
       "notNull": true,

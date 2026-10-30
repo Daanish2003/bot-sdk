@@ -1,7 +1,8 @@
 CREATE TABLE "botsdk"."link_code" (
 	"user_id" text PRIMARY KEY,
 	"code_hash" text NOT NULL CONSTRAINT "link_code_hash_unique" UNIQUE,
-	"expires_at" timestamp NOT NULL
+	"expires_at" timestamp NOT NULL,
+	"attempts" integer DEFAULT 0 NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "botsdk"."linked_identity" (

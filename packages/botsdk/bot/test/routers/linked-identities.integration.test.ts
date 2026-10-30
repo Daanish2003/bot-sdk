@@ -199,6 +199,75 @@ describe("an unknown sender's link code", () => {
     },
   );
 
+  /** `count` 6-digit codes that aren't `code`. */
+  const missesOf = (code: string, count: number) =>
+    Array.from({ length: count }, (_, i) =>
+      String((Number(code) + i + 1) % 1_000_000).padStart(6, "0"),
+    );
+
+  it(
+    "voids the live code after 5 wrong guesses on any of the user's Bots, even if the next is right",
+    timeout,
+    async () => {
+      const { deps, fake } = messagingSdk();
+      const ada = await aBot(deps, "1");
+      const { id: other } = await deps.bots.create({ userId: ada.user.id, name: "Bot 4", model });
+      await connect(ada.client, other, "4");
+      await listen(deps, fake, "1", "4");
+      const { code } = await ada.client.channels.identities.linkCode();
+
+      for (const [index, miss] of missesOf(code, 5).entries()) {
+        await fake.deliver(index % 2 ? "@bot_4" : "@bot_1", { ...from("3003"), text: miss });
+      }
+      await fake.deliver("@bot_1", { ...from("1001"), text: code });
+
+      expect(await identitiesOf(ada.user.id)).toEqual([]);
+      expect(fake.sends).toEqual([]);
+      // A new code from Settings works again.
+      await fake.deliver("@bot_1", {
+        ...from("1001"),
+        text: (await ada.client.channels.identities.linkCode()).code,
+      });
+      expect(await identitiesOf(ada.user.id)).toHaveLength(1);
+    },
+  );
+
+  it("takes the right code after 4 wrong guesses", timeout, async () => {
+    const { deps, fake } = messagingSdk();
+    const ada = await aBot(deps, "1");
+    await listen(deps, fake, "1");
+    const { code } = await ada.client.channels.identities.linkCode();
+
+    for (const miss of missesOf(code, 4)) {
+      await fake.deliver("@bot_1", { ...from("3003"), text: miss });
+    }
+    await fake.deliver("@bot_1", { ...from("1001"), text: code });
+
+    expect(await identitiesOf(ada.user.id)).toHaveLength(1);
+  });
+
+  it("acts once on a resent link code, also after the listener restarts", timeout, async () => {
+    const { deps, fake } = messagingSdk();
+    const ada = await aBot(deps, "1");
+    await listen(deps, fake, "1");
+    const { code, expiresAt } = await ada.client.channels.identities.linkCode();
+    const [{ codeHash }] = (await codesOf(ada.user.id)) as [{ codeHash: string }];
+    const first = { ...from("1001"), sourceId: "77", text: code };
+    await fake.deliver("@bot_1", first);
+    await ada.client.channels.identities.unlink({ platform: "fake" });
+    // The resent update finds the user unlinked, and a live code with the same digits.
+    await getTestDb().insert(linkCode).values({ userId: ada.user.id, codeHash, expiresAt });
+    const { part } = started.splice(0)[0]!;
+    await part.stop!(deps);
+    await listen(deps, fake, "1");
+    const sent = fake.sends.length;
+
+    await fake.deliver("@bot_1", first);
+
+    expect(await identitiesOf(ada.user.id)).toEqual([]);
+    expect(fake.sends).toHaveLength(sent);
+  });
+
   it("logs each silent drop at debug, without the text or the code", timeout, async () => {
     const debug = vi.fn();
     const { deps, fake } = messagingSdk({ error: () => {}, debug });

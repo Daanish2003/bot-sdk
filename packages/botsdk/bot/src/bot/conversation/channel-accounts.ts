@@ -8,6 +8,7 @@ import {
   kidOf,
 } from "../../credentials/encryption";
 import { rotateInPasses } from "../../credentials/rotation";
+import { isUniqueViolation } from "../../lib/unique-violation";
 import { uuidv7 } from "../../lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { rpcError } from "../../rpc-error";
@@ -84,17 +85,6 @@ export async function listChannelAccounts(
       rows.find((row) => row.platform === adapter.id),
     ),
   );
-}
-
-/** Whether Postgres refused the write because the platform bot is on another Bot. */
-function isPlatformBotClash(error: unknown): boolean {
-  let current: unknown = error;
-  for (let depth = 0; depth < 5 && current; depth++) {
-    const { code, constraint } = current as { code?: unknown; constraint?: unknown };
-    if (code === "23505" && constraint === "channel_account_platform_bot_unique") return true;
-    current = (current as { cause?: unknown }).cause;
-  }
-  return false;
 }
 
 const takenError = () =>
@@ -194,7 +184,7 @@ export async function saveChannelAccount(
     try {
       return await write();
     } catch (error) {
-      if (!isPlatformBotClash(error)) throw error;
+      if (!isUniqueViolation(error, "channel_account_platform_bot_unique")) throw error;
       if (attempt === 2) throw takenError();
     }
   }

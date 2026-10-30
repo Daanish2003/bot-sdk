@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 
 import { deleteBlobsBestEffort, botTrigger } from "../../storage";
 import { appendMessage } from "../../chat/message-tree";
+import { isUniqueViolation } from "../../lib/unique-violation";
 
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { sentFileBlobKey, textParts, hintChanged } from "../conversation";
@@ -95,7 +96,7 @@ export async function handIn(
     })
     // The same id handed in another Conversation's transaction meanwhile.
     .catch(async (error: unknown) => {
-      if (isTriggerIdClash(error)) return "seen" as const;
+      if (isUniqueViolation(error, "bot_trigger_pkey")) return "seen" as const;
       await deleteBlobsBestEffort(
         sdk,
         files.map((file) => sentFileBlobKey(file.id)),
@@ -115,18 +116,4 @@ export async function handIn(
   sdk.runner.wake();
   await hintChanged(sdk, conversationId);
   return outcome;
-}
-
-/**
- * Whether Postgres refused the Trigger because its id is taken. The query layer wraps the driver's
- * error, so this follows the `cause` chain.
- */
-function isTriggerIdClash(error: unknown): boolean {
-  let current: unknown = error;
-  for (let depth = 0; depth < 5 && current; depth++) {
-    const { code, constraint } = current as { code?: unknown; constraint?: unknown };
-    if (code === "23505" && constraint === "bot_trigger_pkey") return true;
-    current = (current as { cause?: unknown }).cause;
-  }
-  return false;
 }

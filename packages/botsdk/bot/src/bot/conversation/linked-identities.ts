@@ -1,8 +1,9 @@
 import type { LinkCode, LinkedIdentityRow } from "@botsdk/client/bot/linked-identity";
 import { createHash, randomInt } from "node:crypto";
-import { and, asc, eq, gt, lte } from "drizzle-orm";
+import { and, asc, eq, gt, lt, lte, sql } from "drizzle-orm";
 
 import type { MessagingAdapter, MessagingUpdate } from "../../channel/internal";
+import { isUniqueViolation } from "../../lib/unique-violation";
 import { uuidv7 } from "../../lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { rpcError } from "../../rpc-error";
@@ -16,6 +17,9 @@ import { bot, channelAccount, linkCode, linkedIdentity } from "../../storage";
 /** How long a link code is valid. */
 const codeLifetimeMs = 10 * 60_000;
 
+/** How many wrong guesses void the user's live code: they get a new one from Settings. */
+const maxAttempts = 5;
+
 const hashOf = (code: string) =>
   createHash("sha256").update(`botsdk:link-code:${code}`).digest("hex");
 
@@ -23,16 +27,6 @@ const hashOf = (code: string) =>
 export function codeIn(text: string): string | null {
   const match = /^(?:\/start(?:@\w+)?\s+)?(\d{6})$/.exec(text.trim());
   return match?.[1] ?? null;
-}
-
-/** Whether Postgres refused a write on a unique constraint. */
-function isUniqueViolation(error: unknown): boolean {
-  let current: unknown = error;
-  for (let depth = 0; depth < 5 && current; depth++) {
-    if ((current as { code?: unknown }).code === "23505") return true;
-    current = (current as { cause?: unknown }).cause;
-  }
-  return false;
 }
 
 /** Throws NOT_FOUND when the Host offers no messaging Channel. */
@@ -97,12 +91,12 @@ export async function issueLinkCode(
           .values({ userId, codeHash: hashOf(code), expiresAt })
           .onConflictDoUpdate({
             target: linkCode.userId,
-            set: { codeHash: hashOf(code), expiresAt },
+            set: { codeHash: hashOf(code), expiresAt, attempts: 0 },
           });
       });
       break;
     } catch (error) {
-      if (!isUniqueViolation(error) || attempt === 10) throw error;
+      if (!isUniqueViolation(error, "link_code_hash_unique") || attempt === 10) throw error;
     }
   }
   const accounts = await sdk.db
@@ -135,15 +129,16 @@ export async function issueLinkCode(
 }
 
 /**
- * Takes `update` from a sender who isn't the Bot owner's Linked identity: when it is a valid code
- * of the Bot's owner, sent in a private chat, links the sender for the platform, spends the code and
- * returns `true`. Anything else, including a sender already linked to another user (the code
- * stays unspent), returns `false`, to be dropped silently.
+ * Takes `update` from a sender who isn't the Linked identity of the Bot's user `userId` (the
+ * caller checked): when it is a valid code of that user, sent in a private chat, links the sender for
+ * the platform, spends the code and returns `true`. A wrong 6-digit guess while the user has a live
+ * code counts against it, and the 5th voids it. Anything else, including a sender already linked to
+ * another user (the code stays unspent), returns `false`, to be dropped silently.
  */
 export async function linkFromCode(
   sdk: BotSdkContext,
   platform: string,
-  botId: string,
+  userId: string,
   update: MessagingUpdate,
 ): Promise<boolean> {
   // Called on the logger, so a class-based one keeps its `this`. Never the text or the code.
@@ -153,44 +148,27 @@ export async function linkFromCode(
   };
   const code = update.press || !update.chat.private ? null : codeIn(update.text);
   if (!code) return drop("the sender is unknown and it is not a link code");
-  const [owner] = await sdk.db.select({ userId: bot.userId }).from(bot).where(eq(bot.id, botId));
-  if (!owner) return drop("its Bot is gone");
-  // The owner's own Linked identity is not an unknown sender: its message is the Bot's to take.
-  const [own] = await sdk.db
-    .select({
-      platformUserId: linkedIdentity.platformUserId,
-      workspaceId: linkedIdentity.workspaceId,
-    })
-    .from(linkedIdentity)
-    .where(and(eq(linkedIdentity.userId, owner.userId), eq(linkedIdentity.platform, platform)));
-  if (
-    own?.platformUserId === update.sender.id &&
-    own.workspaceId === (update.sender.workspace ?? null)
-  ) {
-    return false;
-  }
   const now = sdk.clock();
+  const live = and(
+    eq(linkCode.userId, userId),
+    gt(linkCode.expiresAt, now),
+    lt(linkCode.attempts, maxAttempts),
+  );
   const refused = new Error("refused");
   try {
     await sdk.db.transaction(async (tx: Transaction) => {
       const spent = await tx
         .delete(linkCode)
-        .where(
-          and(
-            eq(linkCode.userId, owner.userId),
-            eq(linkCode.codeHash, hashOf(code)),
-            gt(linkCode.expiresAt, now),
-          ),
-        )
+        .where(and(live, eq(linkCode.codeHash, hashOf(code))))
         .returning({ userId: linkCode.userId });
       if (spent.length === 0) throw refused;
       // Linking again replaces the user's identity on the platform.
       await tx
         .delete(linkedIdentity)
-        .where(and(eq(linkedIdentity.userId, owner.userId), eq(linkedIdentity.platform, platform)));
+        .where(and(eq(linkedIdentity.userId, userId), eq(linkedIdentity.platform, platform)));
       await tx.insert(linkedIdentity).values({
         id: uuidv7(),
-        userId: owner.userId,
+        userId,
         platform,
         platformUserId: update.sender.id,
         handle: update.sender.handle,
@@ -200,9 +178,18 @@ export async function linkFromCode(
     });
     return true;
   } catch (error) {
+    if (error === refused) {
+      // A wrong guess counts against the user's live code, if any.
+      await sdk.db
+        .update(linkCode)
+        .set({ attempts: sql`${linkCode.attempts} + 1` })
+        .where(live);
+      return drop("the link code is wrong, expired or spent");
+    }
     // The sender belongs to another user: the transaction rolled back, so the code is unspent.
-    if (error === refused) return drop("the link code is wrong, expired or spent");
-    if (isUniqueViolation(error)) return drop("the sender is linked to another user");
+    if (isUniqueViolation(error, "linked_identity_platform_account_unique")) {
+      return drop("the sender is linked to another user");
+    }
     throw error;
   }
 }

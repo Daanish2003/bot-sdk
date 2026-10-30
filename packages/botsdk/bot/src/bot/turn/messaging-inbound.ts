@@ -23,6 +23,25 @@ const linkedNotice = "Linked to your account.";
 /** The note a voice note or audio file leaves in the Message text. */
 const voiceNote = "(voice note, not transcribed yet)";
 
+/** How many of the newest source ids each Channel account remembers. */
+const recentLimit = 1_000;
+
+/**
+ * The source ids of the updates each SDK instance took lately, by Channel account. A press, a typed
+ * answer or a link code acts before any Trigger is stored, so the Trigger-id dedupe doesn't catch
+ * them when the platform resends them. Only the process that holds an account's listener sees its
+ * updates (spec #1044), and a listener restarts in-process, so memory is enough.
+ */
+const recentBySdk = new WeakMap<BotSdkContext, Map<string, Set<string>>>();
+
+function recentOf(sdk: BotSdkContext, accountId: string): Set<string> {
+  let accounts = recentBySdk.get(sdk);
+  if (!accounts) recentBySdk.set(sdk, (accounts = new Map()));
+  let recent = accounts.get(accountId);
+  if (!recent) accounts.set(accountId, (recent = new Set()));
+  return recent;
+}
+
 /**
  * The core's one entry point for a messaging update (spec #1044): a Channel account's listener, or
  * a later platform's webhook route, hands it each normalised update of that account. It resolves
@@ -32,6 +51,23 @@ const voiceNote = "(voice note, not transcribed yet)";
  * other update is dropped silently.
  */
 export async function receiveMessaging(
+  sdk: BotSdkContext,
+  adapter: MessagingAdapter,
+  account: MessagingAccount & { platform: string },
+  update: MessagingUpdate,
+): Promise<void> {
+  const recent = recentOf(sdk, account.id);
+  if (recent.has(update.sourceId)) {
+    sdk.logger.debug?.(`A ${account.platform} update was dropped: it is a resent update`);
+    return;
+  }
+  await receiveOnce(sdk, adapter, account, update);
+  // Remembered once it was taken: one that threw is read again, and must act then.
+  recent.add(update.sourceId);
+  if (recent.size > recentLimit) recent.delete(recent.values().next().value!);
+}
+
+async function receiveOnce(
   sdk: BotSdkContext,
   adapter: MessagingAdapter,
   account: MessagingAccount & { platform: string },
@@ -64,7 +100,7 @@ export async function receiveMessaging(
     return;
   }
   // Anyone else is dropped silently unless the message is a link code (linkFromCode logs why).
-  if (!(await linkFromCode(sdk, account.platform, account.botId, update))) return;
+  if (!(await linkFromCode(sdk, account.platform, owner.userId, update))) return;
   try {
     await adapter.send(
       account,

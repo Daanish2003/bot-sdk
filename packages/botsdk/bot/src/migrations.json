@@ -33,7 +33,7 @@
   },
   {
     "name": "20261030075650_linked_identity",
-    "sql": "CREATE TABLE \"botsdk\".\"link_code\" (\n\t\"user_id\" text PRIMARY KEY,\n\t\"code_hash\" text NOT NULL CONSTRAINT \"link_code_hash_unique\" UNIQUE,\n\t\"expires_at\" timestamp NOT NULL\n);\n--> statement-breakpoint\nCREATE TABLE \"botsdk\".\"linked_identity\" (\n\t\"id\" uuid PRIMARY KEY,\n\t\"user_id\" text NOT NULL,\n\t\"platform\" text NOT NULL,\n\t\"platform_user_id\" text NOT NULL,\n\t\"handle\" text NOT NULL,\n\t\"workspace_id\" text,\n\t\"linked_at\" timestamp NOT NULL,\n\tCONSTRAINT \"linked_identity_user_platform_unique\" UNIQUE(\"user_id\",\"platform\"),\n\tCONSTRAINT \"linked_identity_platform_account_unique\" UNIQUE NULLS NOT DISTINCT(\"platform\",\"workspace_id\",\"platform_user_id\")\n);\n"
+    "sql": "CREATE TABLE \"botsdk\".\"link_code\" (\n\t\"user_id\" text PRIMARY KEY,\n\t\"code_hash\" text NOT NULL CONSTRAINT \"link_code_hash_unique\" UNIQUE,\n\t\"expires_at\" timestamp NOT NULL,\n\t\"attempts\" integer DEFAULT 0 NOT NULL\n);\n--> statement-breakpoint\nCREATE TABLE \"botsdk\".\"linked_identity\" (\n\t\"id\" uuid PRIMARY KEY,\n\t\"user_id\" text NOT NULL,\n\t\"platform\" text NOT NULL,\n\t\"platform_user_id\" text NOT NULL,\n\t\"handle\" text NOT NULL,\n\t\"workspace_id\" text,\n\t\"linked_at\" timestamp NOT NULL,\n\tCONSTRAINT \"linked_identity_user_platform_unique\" UNIQUE(\"user_id\",\"platform\"),\n\tCONSTRAINT \"linked_identity_platform_account_unique\" UNIQUE NULLS NOT DISTINCT(\"platform\",\"workspace_id\",\"platform_user_id\")\n);\n"
   },
   {
     "name": "20261030100046_trigger_channel_text",
