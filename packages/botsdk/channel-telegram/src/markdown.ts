@@ -81,13 +81,16 @@ function takePart(text: string, room: number): number {
   return space > low / 2 ? space + 1 : low;
 }
 
+/** One message to send: its MarkdownV2 text, and the plain text to resend if Telegram can't parse it. */
+export type Part = { markdownV2: string; plain: string };
+
 /**
- * The MarkdownV2 parts of a Markdown text: one when it fits Telegram's limit, otherwise parts
- * numbered ` (1/3)`. A code block cut by a part is closed there and reopened in the next.
+ * The parts of a Markdown text: one when it fits Telegram's limit, otherwise parts numbered
+ * ` (1/3)`. A code block cut by a part is closed there and reopened in the next.
  */
-export function toParts(markdown: string): string[] {
+export function splitParts(markdown: string): Part[] {
   const whole = toMarkdownV2(markdown);
-  if (whole.length <= messageLimit) return [whole];
+  if (whole.length <= messageLimit) return [{ markdownV2: whole, plain: markdown }];
   const sources: string[] = [];
   let rest = markdown;
   let reopen = "";
@@ -108,7 +111,13 @@ export function toParts(markdown: string): string[] {
     }
     sources.push(part);
   }
-  return sources.map(
-    (source, index) => `${toMarkdownV2(source)} \\(${index + 1}/${sources.length}\\)`,
-  );
+  return sources.map((source, index) => ({
+    markdownV2: `${toMarkdownV2(source)} \\(${index + 1}/${sources.length}\\)`,
+    plain: `${source} (${index + 1}/${sources.length})`,
+  }));
+}
+
+/** The MarkdownV2 text of each part of `markdown`. */
+export function toParts(markdown: string): string[] {
+  return splitParts(markdown).map((part) => part.markdownV2);
 }

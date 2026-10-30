@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   CredentialsRejectedError,
@@ -410,13 +410,6 @@ describe("send", () => {
       ),
     ).rejects.toThrow("52428800");
   });
-
-  it("throws CredentialsRejectedError on a 403", async () => {
-    api.replies.set("sendMessage", { status: 403, body: { ok: false, description: "Forbidden" } });
-    await expect(adapter().send(account, { chatId: "7", text: "hi" }, call)).rejects.toBeInstanceOf(
-      CredentialsRejectedError,
-    );
-  });
 });
 
 describe("editButtons", () => {
@@ -468,5 +461,114 @@ describe("deepLink", () => {
     expect(adapter().deepLink({ platformBotId: "123", handle: "@ada_bot" }, "abc 1")).toBe(
       "https://t.me/ada_bot?start=abc%201",
     );
+  });
+});
+
+describe("delivery errors and the poll loop", () => {
+  const forbidden = {
+    status: 403,
+    body: { ok: false, description: "Forbidden: bot was blocked by the user" },
+  };
+  const update = { update_id: 20, message: { message_id: 1, from, chat: privateChat, text: "x" } };
+
+  it("treats a 403 as a credentials rejection only on account-wide calls", async () => {
+    api.replies.set("getUpdates", forbidden);
+    await expect(
+      adapter().listen!(account, {
+        ...call,
+        signal: new AbortController().signal,
+        receive: async () => {},
+      }),
+    ).rejects.toBeInstanceOf(CredentialsRejectedError);
+    api.replies.set("sendMessage", forbidden);
+    const sending = adapter().send(account, { chatId: "7", text: "hi" }, call);
+    await expect(sending).rejects.toThrow("blocked by the user");
+    await expect(sending).rejects.not.toBeInstanceOf(CredentialsRejectedError);
+    api.replies.set("editMessageReplyMarkup", forbidden);
+    await expect(
+      adapter().editButtons(account, { chatId: "7", messageId: "5", chosen: null }, call),
+    ).rejects.not.toBeInstanceOf(CredentialsRejectedError);
+  });
+
+  it("treats a 401 as a credentials rejection on any call", async () => {
+    api.replies.set("sendMessage", rejected);
+    await expect(adapter().send(account, { chatId: "7", text: "hi" }, call)).rejects.toBeInstanceOf(
+      CredentialsRejectedError,
+    );
+  });
+
+  it("resends a part as plain text when Telegram cannot parse its entities", async () => {
+    let calls = 0;
+    api.replies.set("sendMessage", () =>
+      calls++ === 0
+        ? { status: 400, body: { ok: false, description: "Bad Request: can't parse entities" } }
+        : ok({ message_id: 3 }),
+    );
+    const sent = await adapter().send(account, { chatId: "7", text: "**hi**." }, call);
+    expect(sent.messageIds).toEqual(["3"]);
+    const [first, second] = api.of("sendMessage");
+    expect(first?.body.parse_mode).toBe("MarkdownV2");
+    expect(second?.body.parse_mode).toBeUndefined();
+    expect(second?.body.text).toBe("**hi**.");
+  });
+
+  it("throws MessagingFileTooLargeError when getFile says the file is too big", async () => {
+    api.replies.set("getFile", {
+      status: 400,
+      body: { ok: false, description: "Bad Request: file is too big" },
+    });
+    const file = { id: "f", name: "a", contentType: "x/y", size: null, kind: "document" as const };
+    await expect(
+      adapter().download(account, file, { ...call, maxBytes: 100 }),
+    ).rejects.toBeInstanceOf(MessagingFileTooLargeError);
+  });
+
+  it("skips an update after three consecutive receive failures, warning once", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const polling = adapter();
+    const controller = new AbortController();
+    api.replies.set("getUpdates", (body) => {
+      if (body.offset !== undefined) controller.abort();
+      return ok(body.offset === undefined ? [update] : []);
+    });
+    const attempt = (signal: AbortSignal) =>
+      polling.listen!(account, {
+        ...call,
+        signal,
+        receive: async () => {
+          throw new Error("poison");
+        },
+      });
+    await expect(attempt(controller.signal)).rejects.toThrow("poison");
+    expect(warn).not.toHaveBeenCalled();
+    await expect(attempt(controller.signal)).rejects.toThrow("poison");
+    await attempt(controller.signal);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(api.of("getUpdates").at(-1)?.body.offset).toBe(21);
+    warn.mockRestore();
+  });
+
+  it("waits a 429's retry_after before polling again", async () => {
+    const controller = new AbortController();
+    let polls = 0;
+    const times: number[] = [];
+    api.replies.set("getUpdates", () => {
+      times.push(Date.now());
+      if (polls++ === 0) {
+        return {
+          status: 429,
+          body: { ok: false, description: "Too Many Requests", parameters: { retry_after: 1 } },
+        };
+      }
+      controller.abort();
+      return ok([]);
+    });
+    await adapter().listen!(account, {
+      ...call,
+      signal: controller.signal,
+      receive: async () => {},
+    });
+    expect(times).toHaveLength(2);
+    expect(times[1]! - times[0]!).toBeGreaterThanOrEqual(900);
   });
 });

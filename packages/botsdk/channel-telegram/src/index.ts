@@ -10,7 +10,7 @@ import type {
 import { callApi, defaultApiBase, TelegramApiError } from "./api";
 
 export { TelegramApiError };
-import { toParts } from "./markdown";
+import { splitParts } from "./markdown";
 import { callbackSeparator, normalise, type TelegramUpdate } from "./normalise";
 
 /** Telegram's limits for a bot: `getFile` downloads up to 20 MB, uploads go up to 50 MB. */
@@ -21,6 +21,22 @@ const pollTimeoutSeconds = 30;
 
 /** A button's callback data may be at most 64 bytes. */
 const callbackDataLimit = 64;
+
+/** How many times in a row `receive` may fail on one update before the poll goes past it. */
+const maxReceiveFailures = 3;
+
+const sleep = (seconds: number, signal: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, seconds * 1000);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
 
 type Account = MessagingAccount<"token">;
 
@@ -47,6 +63,10 @@ export function telegram({
   apiBase?: string;
 } = {}): MessagingAdapter<"token"> {
   const base = apiBase.replace(/\/+$/, "");
+
+  // Consecutive `receive` failures per Channel account. It outlives one `listen` call, since a
+  // failure ends the call and the core starts it again.
+  const failures = new Map<string, { updateId: number; count: number }>();
 
   return {
     kind: "messaging",
@@ -89,6 +109,11 @@ export function telegram({
           );
         } catch (error) {
           if (signal.aborted) return;
+          // Telegram's flood control: wait as long as it asks, rather than the core's backoff.
+          if (error instanceof TelegramApiError && error.retryAfter !== undefined) {
+            await sleep(error.retryAfter, signal);
+            continue;
+          }
           throw error;
         }
         for (const update of updates) {
@@ -105,7 +130,24 @@ export function telegram({
               if (error instanceof CredentialsRejectedError) throw error;
             });
           }
-          if (normalised) await receive(normalised);
+          if (normalised) {
+            try {
+              await receive(normalised);
+            } catch (error) {
+              // Left unconfirmed, so it is read again; a poison update must not stall the poll.
+              const before = failures.get(account.id);
+              const count = before?.updateId === update.update_id ? before.count + 1 : 1;
+              if (count < maxReceiveFailures) {
+                failures.set(account.id, { updateId: update.update_id, count });
+                throw error;
+              }
+              console.warn(
+                `Telegram update ${update.update_id} for Channel account ${account.id} failed ${count} times in a row and is skipped`,
+                error,
+              );
+            }
+          }
+          failures.delete(account.id);
           // Confirmed only now: the next `getUpdates` carries it, so a restart re-reads the rest.
           offset = update.update_id + 1;
         }
@@ -121,7 +163,7 @@ export function telegram({
           throw new Error(`"${file.name}" is over ${limits.upload} bytes`);
         }
       }
-      const parts = message.text.trim() === "" ? [] : toParts(message.text);
+      const parts = message.text.trim() === "" ? [] : splitParts(message.text);
       const calls = parts.length + files.length;
       const messageIds: string[] = [];
       let buttonsMessageId: string | undefined;
@@ -129,18 +171,27 @@ export function telegram({
         messageIds.push(String(sent.message_id));
         if (replyMarkup && index === calls - 1) buttonsMessageId = String(sent.message_id);
       };
-      for (const [index, text] of parts.entries()) {
-        const sent = await callApi<{ message_id: number }>(
-          base,
-          token,
-          "sendMessage",
-          {
-            chat_id: message.chatId,
-            text,
-            parse_mode: "MarkdownV2",
-            reply_markup: index === calls - 1 ? replyMarkup : undefined,
+      for (const [index, part] of parts.entries()) {
+        const reply_markup = index === calls - 1 ? replyMarkup : undefined;
+        const send = (body: Record<string, unknown>) =>
+          callApi<{ message_id: number }>(
+            base,
+            token,
+            "sendMessage",
+            { chat_id: message.chatId, reply_markup, ...body },
+            call,
+          );
+        const sent = await send({ text: part.markdownV2, parse_mode: "MarkdownV2" }).catch(
+          (error) => {
+            // The converter missed something Telegram refuses: say it plainly instead.
+            if (
+              error instanceof TelegramApiError &&
+              error.description.includes("can't parse entities")
+            ) {
+              return send({ text: part.plain });
+            }
+            throw error;
           },
-          call,
         );
         record(sent, index);
       }
@@ -191,7 +242,12 @@ export function telegram({
         "getFile",
         { file_id: file.id },
         call,
-      );
+      ).catch((error) => {
+        if (error instanceof TelegramApiError && error.description.includes("file is too big")) {
+          throw new MessagingFileTooLargeError(maxBytes);
+        }
+        throw error;
+      });
       if (!info.file_path) throw new Error("Telegram gave no path for the file");
       if ((info.file_size ?? file.size ?? 0) > maxBytes) {
         throw new MessagingFileTooLargeError(maxBytes);
@@ -199,7 +255,7 @@ export function telegram({
       const response = await call.fetch(`${base}/file/bot${token}/${info.file_path}`, {
         signal: call.signal,
       });
-      if (response.status === 401 || response.status === 403) {
+      if (response.status === 401) {
         throw new CredentialsRejectedError(response.statusText);
       }
       if (!response.ok || !response.body) {

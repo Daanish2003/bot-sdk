@@ -9,14 +9,28 @@ export class TelegramApiError extends Error {
   constructor(
     readonly method: string,
     readonly status: number,
-    description: string,
+    readonly description: string,
+    /** Seconds Telegram asks to wait before the next call (a 429), when it says. */
+    readonly retryAfter?: number,
   ) {
     super(`Telegram ${method} failed (${status}): ${description}`);
     this.name = "TelegramApiError";
   }
 }
 
-type Envelope<Result> = { ok: boolean; result?: Result; description?: string };
+type Envelope<Result> = {
+  ok: boolean;
+  result?: Result;
+  description?: string;
+  parameters?: { retry_after?: number };
+};
+
+/**
+ * Calls whose 403 means the token is bad. A 403 on a call about one chat ("bot was blocked by the
+ * user") is a delivery error, so one blocked chat never stops the Channel account. This is a
+ * deliberate reading of the spec's "401/403 on any call": a 401 is a rejection on any call.
+ */
+const accountWideMethods = new Set(["getMe", "getUpdates", "deleteWebhook"]);
 
 /**
  * Calls one Bot API method with the SDK's `fetch` (JSON, or multipart when `body` is a
@@ -36,11 +50,16 @@ export async function callApi<Result>(
     signal,
   });
   const envelope = (await response.json().catch(() => ({}))) as Envelope<Result>;
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401 || (response.status === 403 && accountWideMethods.has(method))) {
     throw new CredentialsRejectedError(envelope.description ?? response.statusText);
   }
   if (!response.ok || !envelope.ok) {
-    throw new TelegramApiError(method, response.status, envelope.description ?? "no description");
+    throw new TelegramApiError(
+      method,
+      response.status,
+      envelope.description ?? "no description",
+      envelope.parameters?.retry_after,
+    );
   }
   return envelope.result as Result;
 }
