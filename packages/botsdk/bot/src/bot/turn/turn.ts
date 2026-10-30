@@ -239,7 +239,8 @@ export async function sendToRoom(
  * composer's, or an email reply to a Room Message (`subject`, and the `files` already stored). Each
  * Trigger has id `triggerId` (the Message's id when not given), so a repeat of it saves nothing:
  * `seen`, with the Message saved first, or with none when only the Trigger is known. Checks run
- * before anything is written, and a refusal throws an RPC error.
+ * before anything is written, and a refusal throws an RPC error. `stillValid`, checked under the
+ * locks, says whether the Channel still takes it (an email address rotated meanwhile): `refused`.
  */
 export async function postToRoom(
   deps: BotSdkContext,
@@ -253,6 +254,7 @@ export async function postToRoom(
     subject,
     files = [],
     timeZone,
+    stillValid,
   }: {
     userId: string;
     conversationId: string;
@@ -263,8 +265,9 @@ export async function postToRoom(
     subject?: string;
     files?: SentFile[];
     timeZone?: string;
+    stillValid?: (tx: Transaction) => Promise<boolean>;
   },
-): Promise<{ outcome: "handed" | "seen"; message?: BotMessage }> {
+): Promise<{ outcome: "handed" | "seen" | "refused"; message?: BotMessage }> {
   const room = await findRoom(deps.db, userId, conversationId);
   if (room.members.length < 2) throw oneBotRoom();
   const mentioned = mentionedMembers(text, room.members);
@@ -300,6 +303,7 @@ export async function postToRoom(
         targets.map((target) => target.botId),
       )),
     ]);
+    if (stillValid && !(await stillValid(tx))) return { outcome: "refused" as const };
     // A repeat of an earlier send (#498) is checked before the Quota, as `sendToBot` checks it.
     if (id) {
       const earlier = await seenMessage(tx, conversationId, id);
@@ -351,7 +355,7 @@ export async function postToRoom(
     }
     return { outcome: "handed" as const, message: toBotMessage(row) };
   });
-  if (posted.outcome === "seen") return posted;
+  if (posted.outcome !== "handed") return posted;
   deps.runner.wake();
   await hintChanged(deps, conversationId);
   return posted;

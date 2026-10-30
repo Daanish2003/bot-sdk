@@ -7,6 +7,7 @@ import { uuidv7 } from "../../src/lib/uuidv7";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner } from "../../src/runner/internal";
 import { lockConversationSet } from "../../src/bot/triggers";
+import { postToRoom } from "../../src/bot/turn/turn";
 import { exportUserData } from "../../src/user-data";
 import type { BotExport } from "../../src/bot/conversation";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
@@ -523,6 +524,37 @@ describe("a Bot's page, its 1:1 Conversation", () => {
       expect(turns.length).toBeGreaterThan(0);
       expect(turns.map((change) => change.data)).toEqual(turns.map(() => null));
       expect((await client.bots.get({ botId: scout.id })).bot.turnStatus).toBeNull();
+    },
+    timeout,
+  );
+});
+
+describe("a Message posted to a Room from a Channel", () => {
+  it(
+    "is refused under the Room's lock when its stillValid check says no, saving nothing",
+    async () => {
+      const { deps, user, room } = await threeBotRoom();
+      const conversationId = room.conversationId;
+
+      const posted = await postToRoom(deps, {
+        userId: user.id,
+        conversationId,
+        triggerId: "email:rotated@mail.example",
+        text: "Hello",
+        channel: "email",
+        stillValid: async () => false,
+      });
+
+      expect(posted).toEqual({ outcome: "refused" });
+      expect(
+        await getTestDb().select().from(message).where(eq(message.conversationId, conversationId)),
+      ).toEqual([]);
+      expect(
+        await getTestDb()
+          .select()
+          .from(botTrigger)
+          .where(eq(botTrigger.conversationId, conversationId)),
+      ).toEqual([]);
     },
     timeout,
   );

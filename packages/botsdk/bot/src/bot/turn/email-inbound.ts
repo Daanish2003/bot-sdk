@@ -11,7 +11,7 @@ import {
   message,
 } from "../../storage";
 
-import type { BotSdkContext } from "../../plugin";
+import type { BotSdkContext, Transaction } from "../../plugin";
 import { sentFileBlobKey, storeMailFiles } from "../conversation";
 
 import { handIn } from "./hand-in";
@@ -91,6 +91,14 @@ async function deliver(
     { ...mail, attachments: mail.files ? unkept : mail.attachments },
     channel.domain,
   );
+  // Rotated since the lookup: the old address has stopped. Checked under the Conversation's lock.
+  const stillValid = async (tx: Transaction) => {
+    const [current] = await tx
+      .select({ botId: channelEmailAddress.botId })
+      .from(channelEmailAddress)
+      .where(eq(channelEmailAddress.address, owner.address));
+    return current?.botId === owner.botId;
+  };
   const room = await roomOfThread(sdk, channel.domain, owner, mail.headers);
   if (room) {
     // A Room that refuses it (one Bot left, a member's Model unavailable, the Quota) leaves the
@@ -103,15 +111,16 @@ async function deliver(
       channel: "email",
       subject: mail.subject,
       files: stored,
+      stillValid,
     }).catch(async (error: unknown) => {
       if (error instanceof ORPCError) return undefined;
       await dropFiles(sdk, stored);
       throw error;
     });
     if (posted?.outcome === "handed") return null;
-    if (posted?.outcome === "seen") {
+    if (posted?.outcome === "seen" || posted?.outcome === "refused") {
       await dropFiles(sdk, stored);
-      return redelivery;
+      return posted.outcome === "seen" ? redelivery : "no Bot has the address";
     }
   }
   const handed = await handIn(sdk, {
@@ -122,14 +131,7 @@ async function deliver(
     body,
     subject: mail.subject,
     files: stored,
-    // Rotated since the lookup: the old address has stopped.
-    stillValid: async (tx) => {
-      const [current] = await tx
-        .select({ botId: channelEmailAddress.botId })
-        .from(channelEmailAddress)
-        .where(eq(channelEmailAddress.address, owner.address));
-      return current?.botId === owner.botId;
-    },
+    stillValid,
   });
   if (handed === "refused") return "no Bot has the address";
   return handed === "seen" ? redelivery : null;
