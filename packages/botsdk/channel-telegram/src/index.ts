@@ -7,11 +7,11 @@ import type {
   SentMessage,
 } from "@botsdk/bot/channel";
 
-import { callApi, defaultApiBase } from "./api";
+import { callApi, defaultApiBase, TelegramApiError } from "./api";
+
+export { TelegramApiError };
 import { toParts } from "./markdown";
 import { callbackSeparator, normalise, type TelegramUpdate } from "./normalise";
-
-export { TelegramApiError } from "./api";
 
 /** Telegram's limits for a bot: `getFile` downloads up to 20 MB, uploads go up to 50 MB. */
 const limits = { download: 20 * 1024 * 1024, upload: 50 * 1024 * 1024 };
@@ -60,6 +60,9 @@ export function telegram({
         return { platformBotId: String(me.id), handle: `@${me.username ?? ""}` };
       } catch (error) {
         if (error instanceof CredentialsRejectedError) return { rejected: error.reason };
+        // Telegram answers a malformed or unknown token with 404.
+        if (error instanceof TelegramApiError && error.status === 404)
+          return { rejected: "Not Found" };
         throw error;
       }
     },
@@ -90,9 +93,8 @@ export function telegram({
         }
         for (const update of updates) {
           const normalised = normalise(update);
-          if (normalised) await receive(normalised);
           if (update.callback_query) {
-            // Stops the spinner on the button; the answer carries no text.
+            // Stops the spinner on the button right away; the answer carries no text.
             await callApi(
               base,
               token,
@@ -103,6 +105,7 @@ export function telegram({
               if (error instanceof CredentialsRejectedError) throw error;
             });
           }
+          if (normalised) await receive(normalised);
           // Confirmed only now: the next `getUpdates` carries it, so a restart re-reads the rest.
           offset = update.update_id + 1;
         }
@@ -181,6 +184,7 @@ export function telegram({
 
     async download(account: Account, file, { maxBytes, ...call }) {
       const { token } = account.credentials;
+      if ((file.size ?? 0) > maxBytes) throw new MessagingFileTooLargeError(maxBytes);
       const info = await callApi<{ file_path?: string; file_size?: number }>(
         base,
         token,

@@ -46,6 +46,11 @@ describe("check", () => {
     expect(await adapter().check({ token }, call)).toEqual({ rejected: "Unauthorized" });
   });
 
+  it("reports a 404 (a malformed token) as a rejection", async () => {
+    api.replies.set("getMe", { status: 404, body: { ok: false, description: "Not Found" } });
+    expect(await adapter().check({ token }, call)).toEqual({ rejected: "Not Found" });
+  });
+
   it("throws on an error that is not about the credentials", async () => {
     api.replies.set("getMe", { status: 500, body: { ok: false, description: "boom" } });
     await expect(adapter().check({ token }, call)).rejects.toThrow("boom");
@@ -281,6 +286,10 @@ describe("markdown", () => {
     expect(toMarkdownV2("see [docs](https://a.b/c_(d))")).toBe("see [docs](https://a.b/c_(d\\))");
     expect(toMarkdownV2("```ts\nconst a = 1.5;\n```")).toBe("```ts\nconst a = 1.5;\n```");
     expect(toMarkdownV2("snake_case 1-2 #1!")).toBe("snake\\_case 1\\-2 \\#1\\!");
+  });
+
+  it("keeps a * bullet list as text rather than italics", () => {
+    expect(toMarkdownV2("* apples\n* pears")).toBe("\\* apples\n\\* pears");
   });
 
   it("splits a long text into numbered parts that each fit 4096 characters", () => {

@@ -73,6 +73,8 @@ function takePart(text: string, room: number): number {
     if (toMarkdownV2(text.slice(0, mid)).length <= room) low = mid;
     else high = mid - 1;
   }
+  const last = text.charCodeAt(low - 1);
+  if (last >= 0xd800 && last <= 0xdbff) low -= 1;
   const lineEnd = text.lastIndexOf("\n", low - 1);
   if (lineEnd > low / 2) return lineEnd + 1;
   const space = text.lastIndexOf(" ", low - 1);
