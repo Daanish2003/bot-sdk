@@ -614,6 +614,19 @@ importers:
         specifier: 'catalog:'
         version: 6.0.3
 
+  packages/botsdk/channel-telegram:
+    dependencies:
+      '@botsdk/bot':
+        specifier: workspace:*
+        version: link:../bot
+    devDependencies:
+      '@ai-chat/config':
+        specifier: workspace:*
+        version: link:../../config
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+
   packages/botsdk/channel-web-push:
     dependencies:
       '@botsdk/bot':
