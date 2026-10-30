@@ -50,8 +50,11 @@ import { models, type ModelsApi, type ModelsOptions, type ModelsPlugin } from ".
 import type { CoreJobServices, Executor, JobDefinition, JobRunner } from "./runner/internal";
 import { createRunner, jobTable, type RunnerApi } from "./runner/internal";
 
-/** Where the RPC calls' errors go, and the SDK's warnings when it has `warn`. */
-export type Logger = Pick<Console, "error"> & Partial<Pick<Console, "warn">>;
+/**
+ * Where the RPC calls' errors go, the SDK's warnings when it has `warn`, and its debug lines (such as
+ * a messaging update dropped) when it has `debug`.
+ */
+export type Logger = Pick<Console, "error"> & Partial<Pick<Console, "warn" | "debug">>;
 
 /** What the `features` slot takes: features built with `defineFeature`. */
 export type FeatureEntry = AnyFeature;

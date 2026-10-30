@@ -146,10 +146,15 @@ export async function linkFromCode(
   botId: string,
   update: MessagingUpdate,
 ): Promise<boolean> {
+  // Called on the logger, so a class-based one keeps its `this`. Never the text or the code.
+  const drop = (reason: string) => {
+    sdk.logger.debug?.(`A ${platform} update was dropped: ${reason}`);
+    return false;
+  };
   const code = update.press || !update.chat.private ? null : codeIn(update.text);
-  if (!code) return false;
+  if (!code) return drop("the sender is unknown and it is not a link code");
   const [owner] = await sdk.db.select({ userId: bot.userId }).from(bot).where(eq(bot.id, botId));
-  if (!owner) return false;
+  if (!owner) return drop("its Bot is gone");
   // The owner's own Linked identity is not an unknown sender: its message is the Bot's to take.
   const [own] = await sdk.db
     .select({
@@ -196,7 +201,8 @@ export async function linkFromCode(
     return true;
   } catch (error) {
     // The sender belongs to another user: the transaction rolled back, so the code is unspent.
-    if (error === refused || isUniqueViolation(error)) return false;
+    if (error === refused) return drop("the link code is wrong, expired or spent");
+    if (isUniqueViolation(error)) return drop("the sender is linked to another user");
     throw error;
   }
 }

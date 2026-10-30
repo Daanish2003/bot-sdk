@@ -295,6 +295,29 @@ describe("the Channel accounts' listeners", () => {
     },
   );
 
+  it(
+    "listen to an account saved after the SDK started, and stop it with the SDK",
+    timeout,
+    async () => {
+      const { deps, fake } = messagingSdk();
+      const part = channelPart(deps);
+      await part.start!(deps);
+      started.push({ part, deps });
+      // Building the RPC client composes the instance again, as a Host's own code may.
+      const { client, botId } = await aBot(deps);
+
+      await client.channels.accounts.save({
+        botId,
+        platform: "fake",
+        credentials: { token: "1:a" },
+      });
+      await expect.poll(() => fake.listening.has("@bot_1"), poll).toBe(true);
+      await started.splice(0)[0]!.part.stop!(deps);
+
+      expect(fake.listening.size).toBe(0);
+    },
+  );
+
   it("back off and retry on a network error", timeout, async () => {
     const { deps, fake } = messagingSdk();
     const { client, botId } = await aBot(deps);

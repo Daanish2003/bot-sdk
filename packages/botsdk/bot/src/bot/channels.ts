@@ -117,10 +117,12 @@ export function channel(options: ChannelOptions): ChannelPlugin {
     routes: emailInboundRoutes(options.adapters),
     init: (sdk) => {
       sdk.channels = createChannels(sdk, options);
-      listeners = channelListeners(sdk, messaging);
     },
-    start: async () => {
-      await listeners?.start();
+    start: async (sdk) => {
+      // Made here, not in `init`: the plugin can be composed into more than one instance, and the
+      // one that starts is the one that must stop.
+      listeners ??= channelListeners(sdk, messaging);
+      await listeners.start();
     },
     stop: async () => {
       await listeners?.stop();

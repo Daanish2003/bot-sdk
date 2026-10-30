@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { Logger } from "../../src/create-chat";
 import type { BotSdkPlugin } from "../../src/plugin";
 import { linkCode, linkedIdentity } from "../../src/storage";
 import { deleteUserData, exportUserData } from "../../src/user-data";
@@ -29,10 +30,14 @@ afterEach(async () => {
 type Fake = ReturnType<typeof fakeMessagingAdapter>;
 
 /** An instance with the fake messaging adapter, whose clock `clock.now` moves. */
-function messagingSdk() {
+function messagingSdk(logger?: Logger) {
   const fake = fakeMessagingAdapter();
   const clock = { now: Date.now() };
-  const deps = createTestSdk({ channels: [fake.adapter], clock: () => new Date(clock.now) });
+  const deps = createTestSdk({
+    channels: [fake.adapter],
+    clock: () => new Date(clock.now),
+    ...(logger && { logger }),
+  });
   return { deps, fake, clock };
 }
 
@@ -193,6 +198,32 @@ describe("an unknown sender's link code", () => {
       expect(fake.sends).toEqual([]);
     },
   );
+
+  it("logs each silent drop at debug, without the text or the code", timeout, async () => {
+    const debug = vi.fn();
+    const { deps, fake } = messagingSdk({ error: () => {}, debug });
+    const ada = await aBot(deps, "1");
+    const eve = await aBot(deps, "2");
+    await listen(deps, fake, "1", "2");
+    await fake.deliver("@bot_2", {
+      ...from("1001", "@ada"),
+      text: (await eve.client.channels.identities.linkCode()).code,
+    });
+    const { code } = await ada.client.channels.identities.linkCode();
+    const wrong = code === "000000" ? "000001" : "000000";
+    debug.mockClear();
+
+    await fake.deliver("@bot_1", { ...from("3003"), text: "hello there" });
+    await fake.deliver("@bot_1", { ...from("3003"), text: wrong });
+    await fake.deliver("@bot_1", { ...from("1001", "@ada"), text: code });
+
+    const lines = debug.mock.calls.map((call) => String(call[0]));
+    expect(lines).toHaveLength(3);
+    expect(lines.join(" | ")).not.toMatch(/hello there|[0-9]{6}/);
+    expect(lines[0]).toContain("not a link code");
+    expect(lines[1]).toContain("wrong, expired or spent");
+    expect(lines[2]).toContain("linked to another user");
+  });
 
   it("leaves a linked sender's message alone, and the code unspent", timeout, async () => {
     const { deps, fake } = messagingSdk();
