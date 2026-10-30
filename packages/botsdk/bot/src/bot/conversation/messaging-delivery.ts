@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import {
   CredentialsRejectedError,
@@ -13,6 +13,22 @@ import { bot, channelAccount, linkedIdentity, message } from "../../storage";
 import { listenerAccount, markNeedsAttention } from "./channel-accounts";
 import { sentFileBlobKey } from "./files";
 import { controlOf, toBotMessage } from "./store";
+
+/**
+ * Where a Message's buttons were sent on a messaging Channel: kept on its parts (`buttonsOn`), so a
+ * typed answer can close them as a press does (spec #1044).
+ */
+export type ShownButtons = { platform: string; chatId: string; messageId: string };
+
+/** The buttons a Message's stored parts say it was shown with, if any. */
+export function shownButtonsOf(parts: { [key: string]: unknown }): ShownButtons | undefined {
+  const shown = parts.buttonsOn as Partial<ShownButtons> | undefined;
+  return typeof shown?.platform === "string" &&
+    typeof shown.chatId === "string" &&
+    typeof shown.messageId === "string"
+    ? (shown as ShownButtons)
+    : undefined;
+}
 
 /**
  * Where a Message of a Bot goes on messaging `platform` (spec #1044): the chat of the Bot's user's
@@ -86,12 +102,31 @@ export async function sendMessagingDelivery(
   const found = await listenerAccount(deps, target.accountId);
   if (!found?.account)
     throw new PermanentJobError("The Channel account's credentials can't be read");
+  let sent;
   try {
-    await adapter.send(found.account, { chatId: target.chatId, ...body }, { fetch: deps.fetch });
+    sent = await adapter.send(
+      found.account,
+      { chatId: target.chatId, ...body },
+      { fetch: deps.fetch },
+    );
   } catch (error) {
     if (!(error instanceof CredentialsRejectedError)) throw error;
     await markNeedsAttention(deps, target.accountId, found.version, error.reason);
     throw new PermanentJobError(error.message);
+  }
+  if (!sent.buttonsMessageId) return;
+  const shown: ShownButtons = { platform, chatId: target.chatId, messageId: sent.buttonsMessageId };
+  try {
+    // One key set in place, so a concurrent answer's write of the parts isn't undone.
+    await deps.db
+      .update(message)
+      .set({
+        parts: sql`jsonb_set(${message.parts}, '{buttonsOn}', ${JSON.stringify(shown)}::jsonb)`,
+      })
+      .where(eq(message.id, messageId));
+  } catch (error) {
+    // Sent already, so not retried: only a typed answer leaves these buttons open.
+    deps.logger.error(`Keeping where Bot Message ${messageId}'s buttons were sent failed`, error);
   }
 }
 

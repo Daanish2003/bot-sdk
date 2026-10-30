@@ -14,6 +14,7 @@ import {
   type PushNotification,
   type PushProvider,
   type PushSubscriptionKeys,
+  type SentMessage,
 } from "@botsdk/bot/channel/internal";
 
 const verdict = z.enum(["pass", "fail", "none"]);
@@ -143,7 +144,12 @@ type FakeListener = {
  */
 export function fakeMessagingAdapter({ id = "fake" }: { id?: string } = {}) {
   const listening = new Map<string, FakeListener>();
-  const sends: { account: MessagingAccount<"token">; message: OutboundMessage }[] = [];
+  /** Each send, with what the fake reported it sent. */
+  const sends: {
+    account: MessagingAccount<"token">;
+    message: OutboundMessage;
+    sent: SentMessage;
+  }[] = [];
   const edits: {
     account: MessagingAccount<"token">;
     target: { chatId: string; messageId: string; chosen: string | null };
@@ -200,12 +206,13 @@ export function fakeMessagingAdapter({ id = "fake" }: { id?: string } = {}) {
         counts.sendFailures -= 1;
         throw new Error("fetch failed: ECONNRESET");
       }
-      sends.push({ account, message });
       const messageId = String(nextMessageId++);
-      return {
+      const sent: SentMessage = {
         messageIds: [messageId],
         ...(message.buttons && { buttonsMessageId: messageId }),
       };
+      sends.push({ account, message, sent });
+      return sent;
     },
     editButtons: async (account, target) => {
       edits.push({ account, target });

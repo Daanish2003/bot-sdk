@@ -104,7 +104,8 @@ export function createChannels(
  * (spec #1044).
  */
 export function channel(options: ChannelOptions): ChannelPlugin {
-  const { messaging } = adaptersOf(options.adapters);
+  const { messaging, email, push } = adaptersOf(options.adapters);
+  const appUrl = (email ?? push)?.appUrl ?? null;
   const platforms = new Set<string>();
   for (const adapter of messaging) {
     if (reservedIds.has(adapter.id) || platforms.has(adapter.id)) {
@@ -123,7 +124,7 @@ export function channel(options: ChannelOptions): ChannelPlugin {
     },
     start: async (sdk) => {
       let own = listeners.get(sdk);
-      if (!own) listeners.set(sdk, (own = channelListeners(sdk, messaging)));
+      if (!own) listeners.set(sdk, (own = channelListeners(sdk, messaging, appUrl)));
       await own.start();
     },
     stop: async (sdk) => {

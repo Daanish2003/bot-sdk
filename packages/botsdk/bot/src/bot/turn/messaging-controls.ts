@@ -14,7 +14,7 @@ import {
 } from "../../channel/internal";
 import type { BotSdkContext } from "../../plugin";
 import { botReview, botRoutine, customRule, message } from "../../storage";
-import { controlOf, noResetAfter } from "../conversation";
+import { controlOf, noResetAfter, shownButtonsOf } from "../conversation";
 import { approveRoutine, declineRoutine } from "../routines";
 import { approveRule, decideReview, denyRule } from "../safety";
 import { answerChoice } from "../triggers";
@@ -28,6 +28,8 @@ type Run = {
   account: Account;
   owner: Owner;
   chatId: string;
+  /** The Host's app URL, for links into the app; `null` when it has none. */
+  appUrl: string | null;
 };
 
 type ApprovalControl = Extract<
@@ -43,13 +45,28 @@ const lookback = 20;
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** How long a press of Other waits for the text of the answer. */
+const otherWaitMs = 10 * 60_000;
+
 /**
- * The chats waiting for the text of an Other answer: Channel account and chat, to the choice's
- * Message. Only the process that holds an account's listener sees its updates (spec #1044), so
- * this needs no shared store; after a restart the user presses Other again.
+ * The chats waiting for the text of an Other answer, per SDK instance: Channel account and chat, to
+ * the choice's Message and until when. Only the process that holds an account's listener sees its
+ * updates (spec #1044), so this needs no shared store; after a restart the user presses Other again.
  */
-const awaitingOther = new Map<string, string>();
+const awaitingBySdk = new WeakMap<
+  BotSdkContext,
+  Map<string, { messageId: string; until: number }>
+>();
 const waitKey = (account: Account, update: MessagingUpdate) => `${account.id}:${update.chat.id}`;
+
+/** The instance's waits for an Other answer, the expired ones gone. */
+function awaitingOf(sdk: BotSdkContext) {
+  let waits = awaitingBySdk.get(sdk);
+  if (!waits) awaitingBySdk.set(sdk, (waits = new Map()));
+  const now = sdk.clock().getTime();
+  for (const [key, wait] of waits) if (wait.until <= now) waits.delete(key);
+  return waits;
+}
 
 /**
  * Handles the update when it answers a Rich control of the Bot (spec #1044, #1049): a press of a
@@ -65,8 +82,9 @@ export async function answerFromMessaging(
   account: Account,
   owner: Owner,
   update: MessagingUpdate,
+  appUrl: string | null,
 ): Promise<string | null | undefined> {
-  const run = { sdk, adapter, account, owner, chatId: update.chat.id };
+  const run = { sdk, adapter, account, owner, chatId: update.chat.id, appUrl };
   try {
     if (update.press) return await pressed(run, update, update.press);
     return await typed(run, update);
@@ -89,12 +107,11 @@ async function pressed(
     if (!control.answer) {
       if (option === otherOption) {
         if (!control.other) return "it presses Other on a choice that has none";
-        awaitingOther.set(waitKey(run.account, update), messageId);
-        await run.adapter.send(
-          run.account,
-          { chatId: run.chatId, text: otherNotice },
-          { fetch: run.sdk.fetch },
-        );
+        awaitingOf(run.sdk).set(waitKey(run.account, update), {
+          messageId,
+          until: run.sdk.clock().getTime() + otherWaitMs,
+        });
+        await notice(run, otherNotice);
         return null;
       }
       const text = control.options[Number(option)];
@@ -124,14 +141,31 @@ async function typed(run: Run, update: MessagingUpdate): Promise<string | null |
   const text = update.text.trim();
   // Text with files, or nothing, is an ordinary Message, and keeps a wait for Other.
   if (!text || update.files.length > 0) return undefined;
+  try {
+    return await typedAnswer(run, update, text);
+  } catch (error) {
+    // A refused answer (a paused Bot, answered meanwhile) goes on as an ordinary Message, so a
+    // paused Bot records its skipped Trigger as for any other.
+    if (error instanceof ORPCError) return undefined;
+    throw error;
+  }
+}
+
+async function typedAnswer(
+  run: Run,
+  update: MessagingUpdate,
+  text: string,
+): Promise<null | undefined> {
+  const waits = awaitingOf(run.sdk);
   const key = waitKey(run.account, update);
-  const waiting = awaitingOther.get(key);
+  const waiting = waits.get(key);
   if (waiting) {
-    awaitingOther.delete(key);
-    const row = await messageOf(run, waiting);
+    waits.delete(key);
+    const row = await messageOf(run, waiting.messageId);
     const choice = row && controlOf(row.parts, "choice");
-    if (choice && !choice.answer) {
-      await choose(run, waiting, { other: text.slice(0, maxChoiceOtherLength) });
+    if (row && choice && !choice.answer) {
+      await choose(run, row.id, { other: text.slice(0, maxChoiceOtherLength) });
+      await showAnswer(run, shownIn(run, row.parts), row.id);
       return null;
     }
   }
@@ -140,13 +174,26 @@ async function typed(run: Run, update: MessagingUpdate): Promise<string | null |
     const picked = pick(open.choice.control, text);
     if (picked !== undefined) {
       await choose(run, open.choice.id, { option: picked });
+      await showAnswer(run, shownIn(run, open.choice.parts), open.choice.id);
       return null;
     }
   }
   if (open.approval && /^(yes|no)$/i.test(text)) {
-    return decide(run, open.approval, text.toLowerCase() === "yes", null);
+    const { control, parts } = open.approval;
+    return decide(run, control, text.toLowerCase() === "yes", shownIn(run, parts));
   }
   return undefined;
+}
+
+/**
+ * The platform message that shows a Message's buttons in this chat, as its delivery kept it, so a
+ * typed answer closes them as a press does; `null` when they were shown elsewhere or not kept.
+ */
+function shownIn(run: Run, parts: { [key: string]: unknown }): string | null {
+  const shown = shownButtonsOf(parts);
+  return shown?.platform === run.account.platform && shown.chatId === run.chatId
+    ? shown.messageId
+    : null;
 }
 
 /** The option of `choice` that `text` names: its number, or its exact text. */
@@ -197,15 +244,16 @@ async function openControls({ sdk, owner }: Run) {
     )
     .orderBy(desc(message.createdAt), desc(message.id))
     .limit(lookback);
-  let choice: { id: string; control: ChoiceControl } | undefined;
-  let approval: ApprovalControl | undefined;
+  type Open<Control> = { id: string; control: Control; parts: (typeof rows)[number]["parts"] };
+  let choice: Open<ChoiceControl> | undefined;
+  let approval: Open<ApprovalControl> | undefined;
   for (const row of rows) {
     const control = controlOf(row.parts);
     if (!control) continue;
     if (control.kind === "choice") {
-      if (!choice && !control.answer) choice = { id: row.id, control };
+      if (!choice && !control.answer) choice = { id: row.id, control, parts: row.parts };
     } else if (!approval && isApprovalControl(control) && (await pending(sdk, control))) {
-      approval = control;
+      approval = { id: row.id, control, parts: row.parts };
     }
   }
   return { choice, approval };
@@ -253,9 +301,13 @@ async function decide(
 ): Promise<null> {
   const { sdk, owner } = run;
   let outcome = yes ? "Approved" : "Denied";
+  let webhook = false;
   if (!(await pending(sdk, control))) outcome = "Already answered";
   else if (control.kind === "routine_approval") {
-    await (yes ? approveRoutine : declineRoutine)(sdk, owner.userId, control.routineId);
+    if (yes) {
+      // A webhook URL's token is shown once, and never on a Channel: the app issues a new one.
+      webhook = !!(await approveRoutine(sdk, owner.userId, control.routineId)).webhookToken;
+    } else await declineRoutine(sdk, owner.userId, control.routineId);
   } else if (control.kind === "rule_approval") {
     await (yes ? approveRule : denyRule)(sdk, owner.userId, control.ruleId);
   } else {
@@ -268,11 +320,17 @@ async function decide(
     if (!result.decided) outcome = result.state === "expired" ? "Expired" : "Already answered";
   }
   if (shownIn) await edit(run, shownIn, outcome);
+  if (webhook) {
+    const lead = "Get its webhook URL in the app";
+    const page = run.appUrl && `${run.appUrl}/bots/${run.account.botId}`;
+    await notice(run, `Approved. ${page ? `[${lead}](${page})` : `${lead}.`}`);
+  }
   return null;
 }
 
-/** Changes the buttons of the choice's message to show the answer it holds. */
-async function showAnswer(run: Run, shownIn: string, messageId: string): Promise<void> {
+/** Changes the buttons of the choice's message, when known, to show the answer it holds. */
+async function showAnswer(run: Run, shownIn: string | null, messageId: string): Promise<void> {
+  if (!shownIn) return;
   const row = await messageOf(run, messageId);
   const answer = row && controlOf(row.parts, "choice")?.answer;
   if (answer) await edit(run, shownIn, answer.text);
@@ -290,4 +348,9 @@ async function edit(run: Run, messageId: string, chosen: string): Promise<void> 
     // The answer is stored; only the buttons stay as they were.
     run.sdk.logger.error("Editing the buttons of a Channel message failed", error);
   }
+}
+
+/** Sends a system notice in the chat: it is not a Message of the Conversation. */
+async function notice(run: Run, text: string): Promise<void> {
+  await run.adapter.send(run.account, { chatId: run.chatId, text }, { fetch: run.sdk.fetch });
 }

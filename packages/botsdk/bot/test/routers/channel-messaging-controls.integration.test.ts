@@ -165,9 +165,17 @@ async function telegramBot(rounds: Round[]) {
       .from(botTrigger)
       .where(eq(botTrigger.conversationId, conversationId))
       .orderBy(asc(botTrigger.receivedAt), asc(botTrigger.id));
+  /** Stops the listener and starts it again, as a restart in-process does. */
+  const restart = async () => {
+    await part.stop!(deps!);
+    await part.start!(deps!);
+    await expect.poll(() => fake.listening.has("@bot_1"), poll).toBe(true);
+  };
   return {
     fake,
     deps,
+    timer,
+    restart,
     client,
     user,
     botId,
@@ -351,6 +359,89 @@ describe("a choice", () => {
     expect((await newest("choice")).control).not.toHaveProperty("answer");
     expect(fake.edits).toEqual([]);
   });
+  it("closes its buttons on a typed answer, as a press does", async () => {
+    const { write, fake, newest } = await telegramBot([round(asks()), round(says("ok"))]);
+    await write("Pick one for me");
+    const shown = fake.sends.find((one) => one.message.buttons)!.sent.buttonsMessageId!;
+
+    await write("3");
+
+    expect((await newest("choice")).control).toMatchObject({ answer: { text: "Green" } });
+    expect(fake.edits.map((edit) => edit.target)).toEqual([
+      { chatId: "1001", messageId: shown, chosen: "Green" },
+    ]);
+  });
+
+  it("takes a typed answer it refuses (a paused Bot) as an ordinary Message, skipped", async () => {
+    const { write, newest, client, botId, triggers } = await telegramBot([round(asks())]);
+    await write("Pick one for me");
+    await client.bots.pause({ botId });
+
+    await write("2");
+
+    expect((await newest("choice")).control).not.toHaveProperty("answer");
+    expect(
+      (await triggers())
+        .filter((trigger) => trigger.skipReason)
+        .map((trigger) => [trigger.channel, trigger.skipReason]),
+    ).toEqual([["telegram", "paused"]]);
+  });
+
+  it("forgets a wait for the Other text after 10 minutes", async () => {
+    const { write, press, timer, newest } = await telegramBot([
+      round(asks(true)),
+      round(says("Red, then.")),
+    ]);
+    await write("Pick one for me");
+    const asked = await newest("choice");
+    await press(asked.id, "other");
+
+    timer.advance(10 * 60_000 + 1);
+    await write("1");
+
+    expect((await newest("choice")).control).toMatchObject({
+      answer: { text: "Red", other: false },
+    });
+  });
+
+  it("acts once on a resent typed answer, also after the listener restarts", async () => {
+    const { write, fake, messages, restart, settleRuns } = await telegramBot([
+      round(asks()),
+      round(asks()),
+    ]);
+    await write("Pick one for me");
+    const typed = { sourceId: "1001:typed", text: "1" };
+    await fake.deliver("@bot_1", typed);
+    await settleRuns();
+    await restart();
+
+    await fake.deliver("@bot_1", typed);
+    await settleRuns();
+
+    const choices = (await messages()).filter((one) => one.control?.kind === "choice");
+    expect(choices).toHaveLength(2);
+    expect(choices[0]!.control).toMatchObject({ answer: { text: "Red" } });
+    expect(choices[1]!.control).not.toHaveProperty("answer");
+  });
+
+  it("acts once on a resent press", async () => {
+    const { write, fake, newest, settleRuns } = await telegramBot([
+      round(asks()),
+      round(says("Blue it is.")),
+    ]);
+    await write("Pick one for me");
+    const asked = await newest("choice");
+    const pressed = {
+      sourceId: "press-1",
+      press: { control: asked.id, option: "1", messageId: "55" },
+    };
+    await fake.deliver("@bot_1", pressed);
+    await settleRuns();
+
+    await fake.deliver("@bot_1", pressed);
+
+    expect(fake.edits).toHaveLength(1);
+  });
 });
 
 describe("an Approval", () => {
@@ -430,6 +521,41 @@ describe("an Approval", () => {
     await write("yes");
 
     expect((await messages()).some((one) => one.role === "user" && one.text === "yes")).toBe(true);
+  });
+
+  it("closes its buttons on a typed yes, as a press does", async () => {
+    const { write, fake } = await telegramBot(routining());
+    await write("Brief me every weekday");
+    const shown = fake.sends.find((one) => one.message.buttons)!.sent.buttonsMessageId!;
+
+    await write("yes");
+
+    expect(fake.edits.map((edit) => edit.target)).toEqual([
+      { chatId: "1001", messageId: shown, chosen: "Approved" },
+    ]);
+  });
+
+  it("of a webhook Routine says it was approved and links to the app for the URL, never the token", async () => {
+    const { write, press, fake, newest, botId } = await telegramBot([
+      round(
+        toolCall({
+          name: "create_routine",
+          input: { name: "payouts", prompt: "Check the payout.", webhook: true },
+        }),
+      ),
+      round(says("Waiting for you.")),
+    ]);
+    await write("Watch my payouts webhook");
+    const asked = await newest("routine_approval");
+
+    await press(asked.id, "approve", "7");
+
+    const [routine] = await routinesOf(botId);
+    expect(routine).toMatchObject({ state: "active" });
+    expect(fake.sends.at(-1)!.message.text).toBe(
+      `Approved. [Get its webhook URL in the app](${appUrl}/bots/${botId})`,
+    );
+    expect(fake.sends.some((one) => one.message.text.includes("/routines/webhook/"))).toBe(false);
   });
 
   it("is not answered by another sender or from a group chat", async () => {

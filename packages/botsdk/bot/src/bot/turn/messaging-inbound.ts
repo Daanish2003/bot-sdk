@@ -48,20 +48,22 @@ function recentOf(sdk: BotSdkContext, accountId: string): Set<string> {
  * once the update is stored or dropped, and only then does the listener confirm it to the
  * platform. A sender who sends a valid link code is linked (#1046) and told so by a system notice.
  * A message from the Bot's user's Linked identity, in a private chat, wakes the Bot (#1047); any
- * other update is dropped silently.
+ * other update is dropped silently. A resent update (its `sourceId` seen lately) acts no more.
+ * `appUrl` is the Host's app, for the links its notices carry.
  */
 export async function receiveMessaging(
   sdk: BotSdkContext,
   adapter: MessagingAdapter,
   account: MessagingAccount & { platform: string },
   update: MessagingUpdate,
+  appUrl: string | null,
 ): Promise<void> {
   const recent = recentOf(sdk, account.id);
   if (recent.has(update.sourceId)) {
     sdk.logger.debug?.(`A ${account.platform} update was dropped: it is a resent update`);
     return;
   }
-  await receiveOnce(sdk, adapter, account, update);
+  await receiveOnce(sdk, adapter, account, update, appUrl);
   // Remembered once it was taken: one that threw is read again, and must act then.
   recent.add(update.sourceId);
   if (recent.size > recentLimit) recent.delete(recent.values().next().value!);
@@ -72,6 +74,7 @@ async function receiveOnce(
   adapter: MessagingAdapter,
   account: MessagingAccount & { platform: string },
   update: MessagingUpdate,
+  appUrl: string | null,
 ): Promise<void> {
   // Called on the logger, so a class-based one keeps its `this`. Never the text.
   const drop = (reason: string) =>
@@ -95,7 +98,7 @@ async function receiveOnce(
     identity?.platformUserId === update.sender.id &&
     identity.workspaceId === (update.sender.workspace ?? null)
   ) {
-    const dropped = await wake(sdk, adapter, account, owner, update);
+    const dropped = await wake(sdk, adapter, account, owner, update, appUrl);
     if (dropped) drop(dropped);
     return;
   }
@@ -124,12 +127,13 @@ async function wake(
   account: MessagingAccount & { platform: string },
   owner: { userId: string; conversationId: string; model: string },
   update: MessagingUpdate,
+  appUrl: string | null,
 ): Promise<string | null> {
   // Rooms are out of scope (spec #1044).
   if (!update.chat.private) return "it is not from a private chat";
   if (await sdk.isUserBlocked(owner.userId)) return "the user is Banned";
   // A press, or text that answers a Rich control, goes the app's way and needs no Model.
-  const answered = await answerFromMessaging(sdk, adapter, account, owner, update);
+  const answered = await answerFromMessaging(sdk, adapter, account, owner, update, appUrl);
   if (answered !== undefined) return answered;
   // The Quota as for email: read outside the transaction, and the update is dropped.
   const call = await sdk.models.resolveModelCall(owner.userId, owner.model);

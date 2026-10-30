@@ -251,7 +251,7 @@ describe("an unknown sender's link code", () => {
     const ada = await aBot(deps, "1");
     await listen(deps, fake, "1");
     const { code, expiresAt } = await ada.client.channels.identities.linkCode();
-    const [{ codeHash }] = (await codesOf(ada.user.id)) as [{ codeHash: string }];
+    const { codeHash } = (await codesOf(ada.user.id))[0]!;
     const first = { ...from("1001"), sourceId: "77", text: code };
     await fake.deliver("@bot_1", first);
     await ada.client.channels.identities.unlink({ platform: "fake" });

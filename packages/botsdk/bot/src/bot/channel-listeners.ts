@@ -59,13 +59,15 @@ type Listener = { version: string; abort: AbortController; done: Promise<void> }
 const lockKey = (id: string) => `channel_account:${id}`;
 
 /**
- * The listeners of the Channel accounts on `adapters`, started by the `channel` plugin's `start`
+ * The listeners of the Channel accounts on `adapters`, whose notices link into the app at `appUrl`
+ * (`null` when the Host has none), started by the `channel` plugin's `start`
  * and stopped by its `stop`. Every change to which listeners run goes through one queue, so a
  * save, a sync and a stop never interleave.
  */
 export function channelListeners(
   sdk: BotSdkContext,
   adapters: readonly MessagingAdapter[],
+  appUrl: string | null,
   timing: ListenerTiming = defaultTiming,
 ) {
   const listening = adapters.filter((adapter) => adapter.listen);
@@ -163,7 +165,7 @@ export function channelListeners(
         await adapter.listen!(account, {
           fetch: sdk.fetch,
           signal,
-          receive: (update) => receiveMessaging(sdk, adapter, account, update),
+          receive: (update) => receiveMessaging(sdk, adapter, account, update, appUrl),
         });
         if (signal.aborted) return;
         throw new Error("The listener ended by itself");
