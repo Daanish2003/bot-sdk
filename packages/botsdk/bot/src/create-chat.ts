@@ -550,7 +550,17 @@ function buildContext(
     // Set by the Bots' init, which the core always runs.
     bots: botsUnconfigured,
     conversations: conversationsUnconfigured,
-    rooms: botsStub<RoomsApi>({ list: true, get: true, create: true, send: true }),
+    rooms: botsStub<RoomsApi>({
+      list: true,
+      get: true,
+      create: true,
+      send: true,
+      rename: true,
+      addMember: true,
+      removeMember: true,
+      setLead: true,
+      delete: true,
+    }),
     secrets: botsStub<SecretsApi>({ save: true, list: true, delete: true }),
     screens: botsStub<ScreensApi>({ view: true, control: true }),
     routines: botsStub<RoutinesApi>({
