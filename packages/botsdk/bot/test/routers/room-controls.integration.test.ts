@@ -404,6 +404,60 @@ describe("a Bot's Room reply to a handoff", () => {
   );
 });
 
+describe("a Bot's Room reply to a handoff, after the user wrote by email", () => {
+  it(
+    "is emailed, as the Room's thread goes on by email",
+    async () => {
+      const setup = await roomed([says("@Writer, over to you."), says("Done.")]);
+      const { client, deps, scout, launch, timer, runDue, push, email } = setup;
+      await client.notifications.push.subscribe({
+        endpoint: "https://push.example/send/laptop",
+        keys: { p256dh: "Blaptop".padEnd(87, "A"), auth: "alaptop".padEnd(22, "A") },
+      });
+      await client.notifications.update({ quietHours: null, urgent: null, other: "push" });
+      const posted = await deps.db.transaction((tx) =>
+        appendBotMessage(
+          deps,
+          tx,
+          { botId: scout.id, conversationId: launch.conversationId },
+          { parts: textParts("Draft ready."), createdAt: timer.clock.now(), turnId: null },
+        ),
+      );
+      const { address } = await client.channels.email.address({ botId: scout.id });
+      const mail = await email.provider.parseInbound(
+        email.request({
+          from: "Ada <ada@example.com>",
+          to: [address],
+          messageId: "<first@mail.example>",
+          subject: "Launch",
+          text: "Start the launch",
+          headers: { "In-Reply-To": `<${posted}@${domain}>` },
+          authentication: { spf: "pass", dkim: "pass", dmarc: "pass" },
+        }),
+      );
+      if ("rejected" in mail) throw new Error(mail.rejected);
+
+      await deps.channels.receive("email", mail);
+      for (let round = 0; round < 6; round++) {
+        timer.advance(1_000);
+        await runDue();
+      }
+
+      // Only the Message the user replied to, which no Turn of theirs started, was pushed.
+      expect(push.sent.map((one) => one.notification.body)).toEqual(["Draft ready."]);
+      // Each in the thread: Scout answers the user's mail, Writer the latest one, Scout's.
+      expect(email.sent).toMatchObject([
+        { from: expect.stringContaining("Scout"), inReplyTo: "<first@mail.example>" },
+        {
+          from: expect.stringContaining("Writer"),
+          inReplyTo: `<${email.sent[0]?.messageId.slice(1, -1)}>`,
+        },
+      ]);
+    },
+    timeout,
+  );
+});
+
 describe("a Prompt start with a Summary", () => {
   it(
     "belongs to the Conversation its Summary was written in, so a Room's text never reaches another Turn",

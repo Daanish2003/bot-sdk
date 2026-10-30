@@ -3,7 +3,8 @@ import { and, asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { botTrigger, message } from "../../src/storage";
-import { findBot } from "../../src/bot/conversation";
+import { appendBotMessage, findBot, textParts } from "../../src/bot/conversation";
+import { uuidv7 } from "../../src/lib/uuidv7";
 import { fakeEmailProvider } from "@botsdk/testing/fake-channel";
 import { emailChannel, type InboundMail } from "../../src/channel";
 import { saveCredentials } from "../../src/models/internal";
@@ -527,5 +528,75 @@ describe("channel.email", () => {
     await expect(stranger.channels.email.rotate({ botId })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
+  }, 30_000);
+});
+
+describe("an email reply in a Room's thread", () => {
+  /** `emailBot` with Writer and Ops, and the Room "Launch" of the three, Ada its lead. */
+  async function inRoom() {
+    const setup = await emailBot({ name: "Ada" });
+    const { client, deps, botId, timer } = setup;
+    const writer = await client.bots.create({ name: "Writer", model });
+    const ops = await client.bots.create({ name: "Ops", model });
+    const room = await client.rooms.create({ name: "Launch", botIds: [botId, writer.id, ops.id] });
+    // Ada's Message in the Room, as it was emailed: Message-ID `<id@domain>`.
+    const posted = await deps.db.transaction((tx) =>
+      appendBotMessage(
+        deps,
+        tx,
+        { botId, conversationId: room.conversationId },
+        { parts: textParts("Draft ready."), createdAt: timer.clock.now(), turnId: null },
+      ),
+    );
+    return { ...setup, writer, ops, room, posted };
+  }
+
+  it("goes into the Room as the user's Message, routed by its mentions or to the lead", async () => {
+    const { botId, conversationId, writer, room, posted, deliver } = await inRoom();
+
+    await deliver({
+      text: "@Writer polish it",
+      headers: { "In-Reply-To": `<${posted}@${domain}>`, References: `<${posted}@${domain}>` },
+    });
+    // A later reply in the thread names only the user's own earlier mail.
+    await deliver({
+      messageId: "<second@mail.example>",
+      text: "Thanks",
+      headers: { references: "<first@mail.example>" },
+    });
+
+    expect(await triggersOf(conversationId)).toEqual([]);
+    expect(
+      (await triggersOf(room.conversationId)).map((trigger) => [
+        trigger.id,
+        trigger.botId,
+        trigger.channel,
+      ]),
+    ).toEqual([
+      ["email:first@mail.example", writer.id, "email"],
+      ["email:second@mail.example", botId, "email"],
+    ]);
+    const sent = await userMessagesOf(room.conversationId);
+    expect(sent.map((row) => [row.parts.channel, row.parts.subject])).toEqual([
+      ["email", "Plans"],
+      ["email", "Plans"],
+    ]);
+  }, 30_000);
+
+  it("goes to the Bot's 1:1 once it left the Room, or when the thread is unknown", async () => {
+    const { client, conversationId, room, posted, deliver, botId } = await inRoom();
+    await client.rooms.removeMember({ conversationId: room.conversationId, botId });
+
+    await deliver({ headers: { "In-Reply-To": `<${posted}@${domain}>` } });
+    await deliver({
+      messageId: "<second@mail.example>",
+      headers: { "In-Reply-To": `<${uuidv7()}@${domain}>` },
+    });
+
+    expect((await triggersOf(conversationId)).map((trigger) => trigger.id)).toEqual([
+      "email:first@mail.example",
+      "email:second@mail.example",
+    ]);
+    expect(await triggersOf(room.conversationId)).toEqual([]);
   }, 30_000);
 });

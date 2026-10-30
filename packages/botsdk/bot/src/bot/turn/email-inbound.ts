@@ -1,12 +1,21 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
-import { bot, botTrigger, channelEmailAddress } from "../../storage";
+import {
+  bot,
+  botRoomMember,
+  botTrigger,
+  channelEmailAddress,
+  conversation,
+  deleteBlobsBestEffort,
+  message,
+} from "../../storage";
 
 import type { BotSdkContext } from "../../plugin";
-import { storeMailFiles } from "../conversation";
+import { sentFileBlobKey, storeMailFiles } from "../conversation";
 
 import { handIn } from "./hand-in";
 import { emailText } from "./email-text";
+import { postToRoom } from "./turn";
 import { bareAddress, type EmailChannel, type InboundMail } from "../../channel/internal";
 
 /**
@@ -14,7 +23,8 @@ import { bareAddress, type EmailChannel, type InboundMail } from "../../channel/
  * Bot whose address it was sent to only when its From is the Bot's user's verified email
  * (case-insensitive) and the provider's DMARC verdict is a pass. It becomes Trigger
  * `email:<Message-ID>`, carrying a new user Message on channel `email`, so a redelivery makes
- * none. Anything else is dropped silently and logged.
+ * none. A reply in a Room's thread (spec #1055) goes into that Room instead, routed as a Message
+ * the user sent there (`roomOfThread`). Anything else is dropped silently and logged.
  */
 export async function receiveEmail(
   sdk: BotSdkContext,
@@ -80,6 +90,32 @@ async function deliver(
     { ...mail, attachments: mail.files ? unkept : mail.attachments },
     channel.domain,
   );
+  const room = await roomOfThread(sdk, channel.domain, owner, mail.headers);
+  if (room) {
+    // When no Message holds the files, their bytes go, as `handIn` drops them.
+    const dropFiles = () =>
+      deleteBlobsBestEffort(
+        sdk,
+        stored.map((file) => sentFileBlobKey(file.id)),
+      );
+    const posted = await postToRoom(sdk, {
+      userId: owner.userId,
+      conversationId: room,
+      triggerId: `email:${messageId}`,
+      text: body,
+      channel: "email",
+      subject: mail.subject,
+      files: stored,
+    }).catch(async (error: unknown) => {
+      await dropFiles();
+      if (isRoomRefusal(error)) return `refused in its Room: ${error.message}`;
+      throw error;
+    });
+    if (typeof posted === "string") return posted;
+    if (posted.outcome === "handed") return null;
+    await dropFiles();
+    return redelivery;
+  }
   const handed = await handIn(sdk, {
     botId: owner.botId,
     conversationId: owner.conversationId,
@@ -113,6 +149,65 @@ function isAutomatic(headers: Record<string, string>): boolean {
     if (header === "precedence") return ["bulk", "junk", "list", "auto_reply"].includes(said);
     return header === "x-autoreply" || header === "x-autorespond";
   });
+}
+
+/** Whether `error` is `postToRoom`'s refusal of the Message (an RPC error), not a failure. */
+const isRoomRefusal = (error: unknown): error is Error =>
+  error instanceof Error && "code" in error && "data" in error;
+
+/** A Message-ID's id: what is between its angle brackets. */
+const threadIds = (value: string) =>
+  (value.match(/<[^<>]*>/g) ?? []).map((id) => id.slice(1, -1).trim()).filter(Boolean);
+
+const uuidShape = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The Room whose thread a mail to Bot `owner` replies in (spec #1055), or `undefined` for its 1:1.
+ * Its In-Reply-To, then its References newest first, name the mail it answers: a Bot's Message
+ * (`<id@domain>`) or the user's earlier mail (an `email:<Message-ID>` Trigger). The first one
+ * found decides: a Room of the user that the Bot is still a member of, or else the 1:1.
+ */
+async function roomOfThread(
+  sdk: BotSdkContext,
+  domain: string,
+  owner: { botId: string; userId: string; conversationId: string },
+  headers: Record<string, string>,
+): Promise<string | undefined> {
+  const header = (name: string) =>
+    Object.entries(headers).find(([key]) => key.toLowerCase() === name)?.[1] ?? "";
+  const ids = [...threadIds(header("in-reply-to")), ...threadIds(header("references")).reverse()];
+  const suffix = `@${domain.toLowerCase()}`;
+  for (const id of ids) {
+    const local = id.toLowerCase().endsWith(suffix) ? id.slice(0, -suffix.length) : undefined;
+    const [found] =
+      local !== undefined
+        ? uuidShape.test(local)
+          ? await sdk.db
+              .select({ conversationId: message.conversationId })
+              .from(message)
+              .where(eq(message.id, local.toLowerCase()))
+          : []
+        : await sdk.db
+            .select({ conversationId: botTrigger.conversationId })
+            .from(botTrigger)
+            .where(eq(botTrigger.id, `email:${id}`))
+            .limit(1);
+    if (!found) continue;
+    if (found.conversationId === owner.conversationId) return undefined;
+    const [member] = await sdk.db
+      .select({ botId: botRoomMember.botId })
+      .from(botRoomMember)
+      .innerJoin(conversation, eq(conversation.id, botRoomMember.conversationId))
+      .where(
+        and(
+          eq(botRoomMember.conversationId, found.conversationId),
+          eq(botRoomMember.botId, owner.botId),
+          eq(conversation.userId, owner.userId),
+        ),
+      );
+    return member ? found.conversationId : undefined;
+  }
+  return undefined;
 }
 
 /** The Bot whose address is one of `recipients`, if any. */
