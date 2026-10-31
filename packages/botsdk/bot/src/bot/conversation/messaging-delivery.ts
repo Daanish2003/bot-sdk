@@ -17,6 +17,7 @@ import { PermanentJobError } from "../../runner/internal";
 import { bot, channelAccount, linkedIdentity, message } from "../../storage";
 import { listenerAccount, markNeedsAttention } from "./channel-accounts";
 import { sentFileBlobKey } from "./files";
+import { authoredBy, notificationOf } from "./rooms";
 import { controlOf, toBotMessage } from "./store";
 
 /**
@@ -160,16 +161,18 @@ export async function sendMessagingDelivery(
       parts: message.parts,
       createdAt: message.createdAt,
       botId: bot.id,
+      conversationId: message.conversationId,
+      name: bot.name,
     })
     .from(message)
-    .innerJoin(bot, eq(bot.conversationId, message.conversationId))
+    .innerJoin(bot, authoredBy())
     .where(eq(message.id, messageId));
   if (!row) return;
   const target = await messagingTarget(deps.db, { botId: row.botId }, platform);
   if (!target) return;
   const botMessage = toBotMessage(row);
   const body = messagingBody(botMessage, {
-    appUrl: appUrl && `${appUrl}/bots/${row.botId}`,
+    appUrl: appUrl && `${appUrl}${(await notificationOf(deps.db, row)).path}`,
     files: await filesOf(deps, row.parts, adapter.limits.upload),
     uploadLimit: adapter.limits.upload,
   });

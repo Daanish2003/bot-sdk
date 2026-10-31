@@ -38,7 +38,14 @@ async function botWithTurn() {
   const seedTurn = (status: (typeof botTurnStatus.enumValues)[number], startedAt = daysAgo(10)) =>
     getTestDb()
       .insert(botTurn)
-      .values({ id: turnId, botId, status, startedAt, endedAt: status === "running" ? null : now });
+      .values({
+        id: turnId,
+        botId,
+        conversationId,
+        status,
+        startedAt,
+        endedAt: status === "running" ? null : now,
+      });
   return { client, user, botId, conversationId, turnId, seedTurn };
 }
 
@@ -116,6 +123,7 @@ describe("bots.tasks", () => {
       over: Partial<typeof botTrigger.$inferInsert> = {},
     ) => ({
       id,
+      botId,
       conversationId,
       source,
       channel: source === "routine" ? ("schedule" as const) : ("web" as const),
@@ -170,6 +178,7 @@ describe("bots.tasks", () => {
       const { client, botId, conversationId } = await botWithTurn();
       const skipped = (id: string, source: "check_in" | "helper", text: string) => ({
         id,
+        botId,
         conversationId,
         source,
         channel: source === "helper" ? ("helper" as const) : ("schedule" as const),
@@ -210,6 +219,7 @@ describe("bots.tasks", () => {
       .values(
         Array.from({ length: 101 }, (_, index) => ({
           id: `routine:${uuidv7()}:${index}`,
+          botId,
           conversationId,
           source: "routine" as const,
           channel: "schedule" as const,

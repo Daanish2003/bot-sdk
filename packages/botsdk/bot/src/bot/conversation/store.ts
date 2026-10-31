@@ -8,11 +8,12 @@ import {
 } from "@botsdk/client/bot/rich-control";
 import type { BotMessage, BotTurnStatus } from "@botsdk/client/bot/turn";
 import { searchTextOf } from "@botsdk/client/message-parts";
-import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, notExists, or, sql } from "drizzle-orm";
 
 import { deleteConversations } from "../../chat/delete-conversations";
 import {
   bot,
+  botRoomMember,
   botSecret,
   customRule,
   notificationSettings,
@@ -66,13 +67,15 @@ export function controlParts(
   previous?: MessageRow["parts"],
   urgent?: boolean,
 ): BotMessageParts {
-  // A Message's emojis and urgent mark live beside its parts, so a control changing its state
-  // keeps them.
+  // A Message's emojis, urgent mark and handoff live beside its parts, so a control changing its
+  // state keeps them.
   const reactions = previous && storedReactionsOf(previous);
   const marked = urgent || (previous && urgentOf(previous));
+  const handoff = previous && handoffOf(previous);
   return {
     ...(reactions && { reactions }),
     ...(marked && { urgent: true as const }),
+    ...(handoff && { handoff }),
     schemaVersion: 1,
     parts: [
       { type: "text", text },
@@ -98,6 +101,10 @@ export const channelOf = (parts: MessageRow["parts"]) =>
 /** Whether the Bot marked a Message urgent (spec #1024). */
 export const urgentOf = (parts: MessageRow["parts"]) =>
   botFields.urgent.safeParse(parts.urgent).data === true;
+
+/** The handoff a Bot's Room Message made, if any (spec #1055). */
+export const handoffOf = (parts: MessageRow["parts"]) =>
+  botFields.handoff.safeParse(parts.handoff).data;
 
 /** The subject of an emailed user's Message, which the Bot's emailed reply answers (spec #761). */
 export const subjectOf = (parts: MessageRow["parts"]) =>
@@ -165,40 +172,45 @@ export async function setReaction(
 }
 
 /**
- * Saves a Message the Bot sends (a SendToUser Message, or a card it posts) in `tx`, which then
- * holds the Conversation's row lock, and hands it to the `channel` plugin, when the Host has it, to
+ * Saves a Message Bot `botId` sends (a SendToUser Message, or a card it posts) in Conversation
+ * `conversationId`, as its author (spec #1055), in `tx`, which then holds the Conversation's row lock, and hands it to the `channel` plugin, when the Host has it, to
  * deliver on the user's other Channels too (spec #761). `turnId` is the Turn that sent it, or
- * `null` when no Turn did (a Helper).
+ * `null` when no Turn did (a Helper). Returns the saved Message's id.
  */
 export async function appendBotMessage(
   deps: BotSdkContext,
   tx: Transaction,
-  conversationId: string,
+  { botId, conversationId }: { botId: string; conversationId: string },
   { parts, createdAt, turnId }: Pick<MessageRow, "parts" | "createdAt"> & { turnId: string | null },
-): Promise<void> {
+): Promise<string> {
   const row = await appendMessage(tx, conversationId, {
     role: "assistant",
+    authorBotId: botId,
     parts,
     status: "complete",
     createdAt,
   });
   // A no-op with no email adapter in the channels slot.
   await deps.channels.deliverIn(tx, {
+    botId,
     conversationId,
     messageId: row.id,
     turnId,
     urgent: urgentOf(parts),
   });
+  return row.id;
 }
 
 /** A Message row as the client sees it, with its Rich control when it has one. */
 export function toBotMessage(
-  row: Pick<MessageRow, "id" | "role" | "parts" | "createdAt">,
+  row: Pick<MessageRow, "id" | "role" | "parts" | "createdAt"> &
+    Partial<Pick<MessageRow, "authorBotId">>,
 ): BotMessage {
   const control = controlOf(row.parts);
   const reactions = reactionsOf(row.parts);
   const channel = channelOf(row.parts);
   const urgent = urgentOf(row.parts);
+  const handoff = handoffOf(row.parts);
   return {
     id: row.id,
     role: row.role,
@@ -208,6 +220,8 @@ export function toBotMessage(
     ...(reactions && { reactions }),
     ...(channel && { channel }),
     ...(urgent && { urgent }),
+    ...(row.authorBotId && { authorBotId: row.authorBotId }),
+    ...(handoff && { handoff }),
   };
 }
 
@@ -321,8 +335,15 @@ export async function markComputerRebuildSeen(
 /** The longest a Turn may run; past it, it ends `error` with `timed_out`. */
 export const turnTimeLimitMs = 5 * 60_000;
 
-/** The status of each Bot's latest Turn; a Bot with no Turn has no entry. */
-async function latestTurnStatuses(db: Database | Transaction, botIds: string[]) {
+/**
+ * The status of each Bot's latest Turn, only in Conversation `conversationId` when given; a Bot
+ * with no Turn has no entry.
+ */
+async function latestTurnStatuses(
+  db: Database | Transaction,
+  botIds: string[],
+  conversationId?: string,
+) {
   if (botIds.length === 0) return new Map<string, BotTurnStatus>();
   const rows = await db
     .selectDistinctOn([botTurn.botId], {
@@ -330,14 +351,26 @@ async function latestTurnStatuses(db: Database | Transaction, botIds: string[]) 
       status: botTurn.status,
     })
     .from(botTurn)
-    .where(inArray(botTurn.botId, botIds))
+    .where(
+      and(
+        inArray(botTurn.botId, botIds),
+        conversationId ? eq(botTurn.conversationId, conversationId) : undefined,
+      ),
+    )
     .orderBy(botTurn.botId, desc(botTurn.startedAt), desc(botTurn.id));
   return new Map(rows.map((row): [string, BotTurnStatus] => [row.botId, row.status]));
 }
 
-/** The latest Turn's status of one Bot, `null` before its first Turn. */
-export async function latestTurnStatus(db: Database | Transaction, botId: string) {
-  return (await latestTurnStatuses(db, [botId])).get(botId) ?? null;
+/**
+ * The latest Turn's status of one Bot, only in Conversation `conversationId` when given (its
+ * page reads its 1:1's), `null` before its first Turn there.
+ */
+export async function latestTurnStatus(
+  db: Database | Transaction,
+  botId: string,
+  conversationId?: string,
+) {
+  return (await latestTurnStatuses(db, [botId], conversationId)).get(botId) ?? null;
 }
 
 /**
@@ -425,6 +458,7 @@ export async function botMessages(
       role: message.role,
       parts: message.parts,
       createdAt: message.createdAt,
+      authorBotId: message.authorBotId,
     })
     .from(message)
     .where(
@@ -478,8 +512,20 @@ export const botUserDelete: UserDeleteHooks<() => Promise<void>> = {
   },
 };
 
-/** What the `bot` plugin adds to a user's export: each Bot with its Conversation's Messages. */
-export type BotExport = { bots: (Bot & { messages: BotMessage[] })[] };
+/** One of the user's Rooms in their export (spec #1055): its members, and its Messages with authors. */
+export type RoomExport = {
+  conversationId: string;
+  name: string;
+  createdAt: Date;
+  members: { botId: string; name: string; lead: boolean }[];
+  messages: BotMessage[];
+};
+
+/**
+ * What the `bot` plugin adds to a user's export: each Bot with its Conversation's Messages, and
+ * each Room with its own.
+ */
+export type BotExport = { bots: (Bot & { messages: BotMessage[] })[]; rooms: RoomExport[] };
 
 /** The `bot` plugin's part of `sdk.users.export`, read in the export's snapshot `tx`. */
 export async function exportBots(tx: Transaction, userId: string): Promise<BotExport> {
@@ -488,7 +534,40 @@ export async function exportBots(tx: Transaction, userId: string): Promise<BotEx
     .from(bot)
     .where(eq(bot.userId, userId))
     .orderBy(asc(bot.createdAt), asc(bot.id));
-  const messages = rows.length
+  // A Room is a Bot Conversation that is no Bot's 1:1, kept even once all its Bots are deleted.
+  const rooms = await tx
+    .select({
+      conversationId: conversation.id,
+      title: conversation.title,
+      createdAt: conversation.createdAt,
+    })
+    .from(conversation)
+    .where(
+      and(
+        eq(conversation.userId, userId),
+        eq(conversation.kind, botKind),
+        notExists(
+          tx.select({ id: bot.id }).from(bot).where(eq(bot.conversationId, conversation.id)),
+        ),
+      ),
+    )
+    .orderBy(asc(conversation.createdAt), asc(conversation.id));
+  const roomIds = rooms.map((room) => room.conversationId);
+  const members = roomIds.length
+    ? await tx
+        .select({
+          conversationId: botRoomMember.conversationId,
+          botId: botRoomMember.botId,
+          name: bot.name,
+          lead: botRoomMember.lead,
+        })
+        .from(botRoomMember)
+        .innerJoin(bot, eq(bot.id, botRoomMember.botId))
+        .where(inArray(botRoomMember.conversationId, roomIds))
+        .orderBy(asc(botRoomMember.joinedAt), asc(botRoomMember.botId))
+    : [];
+  const conversationIds = [...rows.map((row) => row.conversationId), ...roomIds];
+  const messages = conversationIds.length
     ? await tx
         .select({
           conversationId: message.conversationId,
@@ -496,14 +575,10 @@ export async function exportBots(tx: Transaction, userId: string): Promise<BotEx
           role: message.role,
           parts: message.parts,
           createdAt: message.createdAt,
+          authorBotId: message.authorBotId,
         })
         .from(message)
-        .where(
-          inArray(
-            message.conversationId,
-            rows.map((row) => row.conversationId),
-          ),
-        )
+        .where(inArray(message.conversationId, conversationIds))
         .orderBy(asc(message.createdAt), asc(message.id))
     : [];
   const byConversation = new Map<string, BotMessage[]>();
@@ -516,6 +591,14 @@ export async function exportBots(tx: Transaction, userId: string): Promise<BotEx
     bots: rows.map(({ conversationId, ...row }) => ({
       ...row,
       messages: byConversation.get(conversationId) ?? [],
+    })),
+    rooms: rooms.map(({ title, ...room }) => ({
+      ...room,
+      name: title ?? "",
+      members: members
+        .filter((member) => member.conversationId === room.conversationId)
+        .map(({ conversationId: _room, ...member }) => member),
+      messages: byConversation.get(room.conversationId) ?? [],
     })),
   };
 }

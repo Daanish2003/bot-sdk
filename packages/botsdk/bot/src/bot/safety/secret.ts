@@ -19,7 +19,7 @@ import {
   usableSecretValue,
 } from "./secret-values";
 import { hintChanged, recordBotChange, findBot } from "../conversation";
-import { lockConversation, receive } from "../triggers";
+import { lockConversation, lockTurnConversations, receive } from "../triggers";
 
 export { savedSecretText } from "./secret-values";
 
@@ -53,7 +53,7 @@ export async function saveSecret(
   const now = sdk.clock();
   await sdk.db.transaction(async (tx) => {
     // The Conversation's row lock first, as in every write that changes the Bot thread.
-    await lockConversation(tx, found.conversationId);
+    await lockTurnConversations(tx, { botId, conversationId: found.conversationId });
     await tx
       .insert(botSecret)
       .values({ userId, name, encrypted, createdAt: now })
@@ -65,6 +65,7 @@ export async function saveSecret(
     if (!mayWake) return;
     await receive(sdk, tx, {
       id: savedTriggerId(userId, name, now),
+      botId,
       conversationId: found.conversationId,
       source: "user",
       channel: "web",

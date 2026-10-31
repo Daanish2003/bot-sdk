@@ -33,9 +33,14 @@ async function botWithWaiting() {
   const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
   const db = getTestDb();
   const turnId = uuidv7();
-  await db
-    .insert(botTurn)
-    .values({ id: turnId, botId, status: "complete", startedAt: now, endedAt: now });
+  await db.insert(botTurn).values({
+    id: turnId,
+    botId,
+    conversationId,
+    status: "complete",
+    startedAt: now,
+    endedAt: now,
+  });
   const routineId = uuidv7();
   await db.insert(botRoutine).values({
     id: routineId,
@@ -67,7 +72,9 @@ async function botWithWaiting() {
     channel: "web" | "schedule" | "webhook" | "helper",
     over: Partial<typeof botTrigger.$inferInsert> = {},
   ) =>
-    db.insert(botTrigger).values({ id, conversationId, source, channel, receivedAt: now, ...over });
+    db
+      .insert(botTrigger)
+      .values({ id, botId, conversationId, source, channel, receivedAt: now, ...over });
   const rowOf = async (id: string) =>
     (await db.select().from(botTrigger).where(eq(botTrigger.id, id)))[0]!;
   return {
@@ -109,9 +116,12 @@ describe("triggers.skip", () => {
           skipReason: "cancelled",
         });
       }
-      const waiting = await getTestDb().select().from(botTrigger).where(waitingIn(conversationId));
-      expect(waiting).toEqual([]);
       const botId = (await client.bots.list())[0]!.id;
+      const waiting = await getTestDb()
+        .select()
+        .from(botTrigger)
+        .where(waitingIn({ botId, conversationId }));
+      expect(waiting).toEqual([]);
       const tasks = await client.bots.tasks({ botId });
       expect(tasks.scheduled.triggers).toEqual([]);
       // The skipped Check-in fire shows once, not also as fired.

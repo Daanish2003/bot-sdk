@@ -196,8 +196,8 @@ function BotConversationView({
       toast.error(serverErrorText(i18n, refusal));
       throw refusal;
     });
-  const onStopTurn = () =>
-    void stop().catch((refusal) => toast.error(serverErrorText(i18n, refusal)));
+  const onStopTurn = (conversationId?: string) =>
+    void stop(conversationId).catch((refusal) => toast.error(serverErrorText(i18n, refusal)));
   const actions = { onPause: pause, onResume: resume, onDelete: remove, actingRoutines: acting };
   const checkInActions = { onCancelCheckIn, actingCheckIns };
 
@@ -253,10 +253,14 @@ function BotConversationView({
   const runsBefore = new Map<string, ReactNode[]>();
   for (const turn of turns) {
     // A Helper's report wakes a Turn too, but it shows on the Helper's card, not as a divider, as
-    // a late Approval's answer shows on its card.
+    // a late Approval's answer shows on its card. A handoff wakes a Room Turn, which shows in the
+    // Room (spec #1055).
     const fired = turn.triggers.find(
       (trigger) =>
-        trigger.source !== "user" && trigger.source !== "helper" && trigger.source !== "approval",
+        trigger.source !== "user" &&
+        trigger.source !== "helper" &&
+        trigger.source !== "approval" &&
+        trigger.source !== "agent",
     );
     if (!fired) continue;
     const from = turn.startedAt.getTime();
@@ -604,7 +608,7 @@ function BotConversationView({
           className="max-h-40 min-h-10 resize-none"
         />
         {working && (
-          <Button type="button" variant="outline" onClick={onStopTurn}>
+          <Button type="button" variant="outline" onClick={() => onStopTurn()}>
             ■ {t("bots.stop")}
           </Button>
         )}

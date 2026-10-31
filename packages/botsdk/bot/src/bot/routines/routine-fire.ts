@@ -12,7 +12,7 @@ import {
   routineFireJobName,
   routineSnapshot,
 } from "./routine";
-import { lockConversation, receive } from "../triggers";
+import { lockConversation, lockTurnConversations, receive } from "../triggers";
 import { nextSlot } from "./schedule";
 import { hintChanged, recordBotChange } from "../conversation";
 
@@ -79,7 +79,12 @@ async function fireRoutine(
   slot: Date,
 ): Promise<{ conversationId: string; woke: boolean } | null> {
   const [owner] = await tx
-    .select({ conversationId: bot.conversationId, userId: bot.userId, model: bot.model })
+    .select({
+      botId: bot.id,
+      conversationId: bot.conversationId,
+      userId: bot.userId,
+      model: bot.model,
+    })
     .from(botRoutine)
     .innerJoin(bot, eq(bot.id, botRoutine.botId))
     .where(eq(botRoutine.id, routineId));
@@ -90,7 +95,7 @@ async function fireRoutine(
   const quotaSpent = call ? !(await call.meter.mayRun()).ok : false;
   const banned = await deps.isUserBlocked(owner.userId);
   // The Conversation's row lock first, as in every transaction that hands the Router a Trigger.
-  await lockConversation(tx, owner.conversationId);
+  await lockTurnConversations(tx, owner);
   const [routine] = await tx
     .select()
     .from(botRoutine)
@@ -111,10 +116,11 @@ async function fireRoutine(
   const [seen] = await tx
     .select({ id: botTrigger.id })
     .from(botTrigger)
-    .where(eq(botTrigger.id, id));
+    .where(and(eq(botTrigger.id, id), eq(botTrigger.botId, owner.botId)));
   if (seen) return fired;
   await receive(deps, tx, {
     id,
+    botId: owner.botId,
     conversationId: owner.conversationId,
     source: "routine",
     channel: "schedule",

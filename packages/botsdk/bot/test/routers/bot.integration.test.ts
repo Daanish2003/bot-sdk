@@ -175,9 +175,10 @@ describe("a Bot's status from the server", () => {
   }
   /** A Turn row. */
   async function turn(botId: string, status: "running" | "complete" | "error", at: string) {
+    const conversationId = (await conversationOf(botId))!.id;
     await getTestDb()
       .insert(botTurn)
-      .values({ id: uuidv7(), botId, status, startedAt: new Date(at) });
+      .values({ id: uuidv7(), botId, conversationId, status, startedAt: new Date(at) });
   }
 
   it("lists Bots by newest activity with the last Bot Message and the latest Turn's status", async () => {

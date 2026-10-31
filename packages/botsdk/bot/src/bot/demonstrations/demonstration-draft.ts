@@ -14,7 +14,7 @@ import {
   demonstrationRetentionJobName,
   rewriteCard,
 } from "./demonstration";
-import { lockConversation, receive } from "../triggers";
+import { hintBotThread, lockTurnConversations, receive } from "../triggers";
 import { hintChanged } from "../conversation";
 
 /*
@@ -272,20 +272,22 @@ async function finish(
 ) {
   const saved = "name" in outcome;
   const ended = await deps.db.transaction(async (tx) => {
-    await lockConversation(tx, demonstration.conversationId);
+    // With the Bot's 1:1 for a Room's Demonstration, in id order: a Room Turn's start writes both.
+    await lockTurnConversations(tx, demonstration);
     const rows = await tx
       .update(botDemonstration)
       .set(saved ? { state: "saved", skillName: outcome.name } : { state: "failed" })
       .where(and(eq(botDemonstration.id, demonstration.id), eq(botDemonstration.state, "drafting")))
       .returning({ id: botDemonstration.id });
-    if (rows.length === 0) return false;
+    if (rows.length === 0) return undefined;
     await rewriteCard(tx, demonstration.conversationId, demonstration.id, deps.clock(), (card) => ({
       ...card,
       state: saved ? "saved" : "failed",
     }));
     const heading = `Demonstration finished: ${demonstration.goal}`;
-    await receive(deps, tx, {
+    return receive(deps, tx, {
       id: demonstrationTriggerId(demonstration.id),
+      botId: demonstration.botId,
       conversationId: demonstration.conversationId,
       source: "helper",
       channel: "helper",
@@ -297,11 +299,11 @@ async function finish(
           "write it from what they describe instead.",
       receivedAt: deps.clock(),
     });
-    return true;
   });
   if (!ended) return;
   deps.runner.wake();
   await hintChanged(deps, demonstration.conversationId);
+  if (ended.started) await hintBotThread(deps, demonstration);
 }
 
 /** The id of the Trigger a Demonstration's drafting pass wakes the Bot with. */

@@ -13,7 +13,7 @@ import type { BlobStore } from "../../src/storage";
 
 import { deleteUserData } from "../../src/user-data";
 import { uuidv7 } from "../../src/lib/uuidv7";
-import { createBot } from "../../src/bot/conversation";
+import { createBot, findBot } from "../../src/bot/conversation";
 import {
   ComputerOperationError,
   ComputerUnavailableError,
@@ -368,14 +368,17 @@ describe("bot's busy check", () => {
       new Date(),
     );
     await setup.sdk.computer!.forUser(user.id).run("true");
+    const { conversationId } = (await findBot(getTestDb(), user.id, created.id))!;
     const insertTurn = (status: "running" | "complete", startedAt: Date) =>
-      getTestDb().insert(botTurn).values({ id: uuidv7(), botId: created.id, status, startedAt });
+      getTestDb()
+        .insert(botTurn)
+        .values({ id: uuidv7(), botId: created.id, conversationId, status, startedAt });
     /** A General Helper of the Bot, started by a Turn that has ended. */
     const insertHelper = async (status: "running" | "waiting" | "complete", startedAt: Date) => {
       const turnId = uuidv7();
       await getTestDb()
         .insert(botTurn)
-        .values({ id: turnId, botId: created.id, status: "complete", startedAt });
+        .values({ id: turnId, botId: created.id, conversationId, status: "complete", startedAt });
       await getTestDb().insert(botHelper).values({
         id: uuidv7(),
         botId: created.id,
@@ -459,6 +462,7 @@ describe("bot's busy check", () => {
       .values({
         id: uuidv7(),
         botId: otherBot.id,
+        conversationId: (await findBot(getTestDb(), other.id, otherBot.id))!.conversationId,
         status: "running",
         startedAt: after(lastActive, -1_000),
       });

@@ -103,6 +103,7 @@ function instanceOver(sdk: SdkOver): BotSdk {
     computer,
     bots: _bots,
     conversations: _conversations,
+    rooms: _rooms,
     secrets: _secrets,
     screens: _screens,
     routines: _routines,

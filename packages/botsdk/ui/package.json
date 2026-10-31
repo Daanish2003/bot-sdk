@@ -24,6 +24,8 @@
     "./bot/review-passes-line": "./src/bot/review-passes-line.tsx",
     "./bot/review-request": "./src/bot/review-request.tsx",
     "./bot/rich-control": "./src/bot/rich-control.tsx",
+    "./bot/room-conversation": "./src/bot/room-conversation.tsx",
+    "./bot/rooms-nav": "./src/bot/rooms-nav.tsx",
     "./bot/routine-card": "./src/bot/routine-card.tsx",
     "./bot/run-divider": "./src/bot/run-divider.tsx",
     "./bot/secret-card": "./src/bot/secret-card.tsx",

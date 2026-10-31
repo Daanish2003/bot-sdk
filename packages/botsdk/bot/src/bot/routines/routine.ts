@@ -248,20 +248,25 @@ export const routineSavedResult = "Saved; it runs once the user approves it.";
 async function askApproval(
   deps: BotSdkContext,
   tx: Transaction,
-  { conversationId, turnId }: { conversationId: string; turnId: string },
+  { botId, conversationId, turnId }: { botId: string; conversationId: string; turnId: string },
   routine: { id: string; name: string },
   now: Date,
   { readOnlyChanged = false }: { readOnlyChanged?: boolean } = {},
 ): Promise<void> {
-  await appendBotMessage(deps, tx, conversationId, {
-    parts: controlParts(`Routine "${routine.name}" waits for your approval.`, {
-      kind: "routine_approval",
-      routineId: routine.id,
-      ...(readOnlyChanged && { readOnlyChanged }),
-    }),
-    createdAt: now,
-    turnId,
-  });
+  await appendBotMessage(
+    deps,
+    tx,
+    { botId, conversationId },
+    {
+      parts: controlParts(`Routine "${routine.name}" waits for your approval.`, {
+        kind: "routine_approval",
+        routineId: routine.id,
+        ...(readOnlyChanged && { readOnlyChanged }),
+      }),
+      createdAt: now,
+      turnId,
+    },
+  );
 }
 
 /**
@@ -323,7 +328,7 @@ export async function saveRoutine(
     };
   }
   await recordBotChange(tx, { conversationId }, "routine", id, now);
-  await askApproval(deps, tx, { conversationId, turnId }, { id, name }, now);
+  await askApproval(deps, tx, { botId, conversationId, turnId }, { id, name }, now);
   return { saved: routineSavedResult };
 }
 
@@ -394,7 +399,9 @@ export async function updateRoutine(
   await recordBotChange(tx, { conversationId }, "routine", routine.id, now);
   if (!approved) return { saved: routineSavedResult };
   await stopRoutine(deps, tx, routine.id);
-  await askApproval(deps, tx, { conversationId, turnId }, routine, now, { readOnlyChanged });
+  await askApproval(deps, tx, { botId, conversationId, turnId }, routine, now, {
+    readOnlyChanged,
+  });
   return { saved: routineChangedResult };
 }
 

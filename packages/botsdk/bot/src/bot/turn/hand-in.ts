@@ -1,5 +1,5 @@
 import type { SentFile } from "@botsdk/client/bot/files";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { deleteBlobsBestEffort, botTrigger } from "../../storage";
 import { appendMessage } from "../../chat/message-tree";
@@ -7,13 +7,13 @@ import { isUniqueViolation } from "../../lib/unique-violation";
 
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { sentFileBlobKey, textParts, hintChanged } from "../conversation";
-import { lockConversation, pauseOf, receive } from "../triggers";
+import { isPaused, lockTurnConversations, receive } from "../triggers";
 
 import { cancelTurn } from "./turn";
 
 /**
- * Hands the Router a user's Message that came in on a Channel besides web (email, a messaging
- * platform) as Trigger `id`, in one transaction under the Conversation's row lock. It saves the
+ * Hands the Router a user's Message for Bot `botId` that came in on a Channel besides web (email, a
+ * messaging platform) as Trigger `id`, in one transaction under the Conversation's row lock. It saves the
  * Message (`body` and the already stored `files`, recording `channel` and the email `subject`),
  * wakes the Bot like a web Message and interrupts a running Turn. A paused Bot (spec #1007) saves no
  * Message: the Trigger is kept as skipped only. Resolves with what became of it, and deletes the
@@ -27,6 +27,7 @@ import { cancelTurn } from "./turn";
 export async function handIn(
   sdk: BotSdkContext,
   {
+    botId,
     conversationId,
     id,
     channel,
@@ -35,6 +36,7 @@ export async function handIn(
     files,
     stillValid,
   }: {
+    botId: string;
     conversationId: string;
     id: string;
     channel: string;
@@ -47,18 +49,19 @@ export async function handIn(
   const outcome = await sdk.db
     .transaction(async (tx) => {
       // The Conversation's row lock first, as in every transaction that hands the Router a Trigger.
-      await lockConversation(tx, conversationId);
+      await lockTurnConversations(tx, { botId, conversationId });
       if (stillValid && !(await stillValid(tx))) return "refused" as const;
       const [seen] = await tx
         .select({ id: botTrigger.id })
         .from(botTrigger)
-        .where(eq(botTrigger.id, id));
+        .where(and(eq(botTrigger.id, id), eq(botTrigger.botId, botId)));
       if (seen) return "seen" as const;
       const now = sdk.clock();
       // A paused Bot's message (spec #1007) saves no Message: it is kept as a skipped Trigger only.
-      if ((await pauseOf(tx, conversationId))?.paused) {
+      if (await isPaused(tx, botId)) {
         await receive(sdk, tx, {
           id,
+          botId,
           conversationId,
           source: "user",
           channel,
@@ -84,6 +87,7 @@ export async function handIn(
       });
       const { waitsFor } = await receive(sdk, tx, {
         id,
+        botId,
         conversationId,
         source: "user",
         channel,
@@ -94,7 +98,7 @@ export async function handIn(
       if (waitsFor) await cancelTurn(sdk, tx, waitsFor, "message");
       return "handed" as const;
     })
-    // The same id handed in another Conversation's transaction meanwhile.
+    // The same id handed for the same Bot in another transaction meanwhile.
     .catch(async (error: unknown) => {
       if (isUniqueViolation(error, "bot_trigger_pkey")) return "seen" as const;
       await deleteBlobsBestEffort(

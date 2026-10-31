@@ -276,6 +276,7 @@ export async function runCacheCase(env: ContextEnv, repeat: number): Promise<Con
           await lockConversation(tx, found!.conversationId);
           return receive(env.sdk, tx, {
             id: uuidv7(),
+            botId: found!.id,
             conversationId: found!.conversationId,
             source: "routine",
             channel: "schedule",

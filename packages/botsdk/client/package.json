@@ -16,6 +16,7 @@
     "./bot/files": "./src/bot/files.ts",
     "./bot/helper": "./src/bot/helper.ts",
     "./bot/linked-identity": "./src/bot/linked-identity.ts",
+    "./bot/mentions": "./src/bot/mentions.ts",
     "./bot/notifications": "./src/bot/notifications.ts",
     "./bot/reaction": "./src/bot/reaction.ts",
     "./bot/review": "./src/bot/review.ts",

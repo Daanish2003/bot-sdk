@@ -77,7 +77,7 @@ const sendAttempts = 3;
 const retryDelayMs = (n: number) => 250 * n;
 
 /** The browser's IANA time zone, sent with each Message so the Bot knows the user's "now". */
-function browserTimeZone(): string | undefined {
+export function browserTimeZone(): string | undefined {
   // An empty zone is left out: the server refuses one, and a Message without one reads as UTC.
   return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
 }
@@ -232,10 +232,13 @@ export function useBotTurn(
     failedMessageId: status === "error" ? answered : undefined,
     send: (text: string, files: SentFile[] = []) =>
       runSend(queryClient, orpc, botId, text, files, onRefusedSend),
-    /** Stops the Turn running anywhere; the views then read it as ended. */
-    stop: async () => {
+    /**
+     * Stops the Bot's running Turn in `conversationId` (a Room, as its Tasks view shows it), or in
+     * its 1:1 Conversation; the views then read it as ended.
+     */
+    stop: async (conversationId?: string) => {
       try {
-        await orpc.bots.stop.call({ botId });
+        await orpc.bots.stop.call({ botId, ...(conversationId && { conversationId }) });
       } finally {
         void syncBot(queryClient, orpc, botId);
         void queryClient.invalidateQueries({ queryKey: orpc.bots.list.queryKey() });

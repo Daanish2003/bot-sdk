@@ -89,6 +89,7 @@ export async function seedHistory(
       await tx.insert(botTurn).values({
         id: uuidv7(),
         botId,
+        conversationId,
         status: "complete",
         startedAt: new Date(userAt.getTime() + 1),
         endedAt: new Date(userAt.getTime() + 2),

@@ -21,18 +21,15 @@ export async function skipTrigger(
   let changed: string | undefined;
   await deps.db.transaction(async (tx) => {
     const [owner] = await tx
-      .select({ conversationId: bot.conversationId, botId: bot.id })
+      .select({ conversationId: botTrigger.conversationId, botId: botTrigger.botId })
       .from(botTrigger)
-      .innerJoin(bot, eq(bot.conversationId, botTrigger.conversationId))
+      .innerJoin(bot, eq(bot.id, botTrigger.botId))
       .where(and(eq(botTrigger.id, triggerId), eq(bot.userId, userId)));
     if (!owner) throw notFound();
     // The Conversation's lock first, as a Turn's take does, so a Turn cannot take it meanwhile.
     await lockConversation(tx, owner.conversationId);
-    const [trigger] = await tx
-      .select()
-      .from(botTrigger)
-      .where(eq(botTrigger.id, triggerId))
-      .for("update");
+    const theTrigger = and(eq(botTrigger.id, triggerId), eq(botTrigger.botId, owner.botId));
+    const [trigger] = await tx.select().from(botTrigger).where(theTrigger).for("update");
     if (!trigger) throw notFound();
     if (trigger.source !== "routine" && trigger.source !== "check_in") {
       throw rpcError(
@@ -46,10 +43,7 @@ export async function skipTrigger(
     }
     if (trigger.skippedAt) return;
     const now = deps.clock();
-    await tx
-      .update(botTrigger)
-      .set({ skippedAt: now, skipReason: "cancelled" })
-      .where(eq(botTrigger.id, triggerId));
+    await tx.update(botTrigger).set({ skippedAt: now, skipReason: "cancelled" }).where(theTrigger);
     // The Tasks view refreshes on its Routine and Check-in changes.
     await recordSkipChange(tx, owner, trigger, now);
     changed = owner.conversationId;

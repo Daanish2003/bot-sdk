@@ -63,6 +63,7 @@ describe("composing the `botsdk` schema", () => {
       "conversation_user_id_last_message_at_idx",
     ]);
     expect(messageConfig.columns.map((c) => c.name).sort()).toEqual([
+      "author_bot_id",
       "conversation_id",
       "created_at",
       "error",

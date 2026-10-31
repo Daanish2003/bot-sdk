@@ -1,11 +1,13 @@
-import { maxFilesPerMessage } from "@botsdk/client/bot/files";
+import { ORPCError } from "@orpc/server";
+import { maxFilesPerMessage, type SentFile } from "@botsdk/client/bot/files";
+import { mentionedMembers } from "@botsdk/client/bot/mentions";
 import type { BotMessage, TurnStatus } from "@botsdk/client/bot/turn";
 import type { ModelMessage } from "@tanstack/ai";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { appendMessage } from "../../chat/message-tree";
-import { bot, botTrigger, botTurn, message } from "../../storage";
+import { bot, botRoomMember, botTrigger, botTurn, message } from "../../storage";
 import type { Database } from "../../storage";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { rpcError } from "../../rpc-error";
@@ -20,9 +22,14 @@ import {
 
 import {
   botTurnJobName,
+  hintBotThread,
+  isPaused,
   lockConversation,
-  pauseOf,
+  lockConversationsInOrder,
+  lockTurnConversations,
+  oneToOnesOf,
   receive,
+  runningTurnOf,
   startTurn,
   turnStarted,
   waitingIn,
@@ -45,6 +52,9 @@ import {
   hintChanged,
   recordBotChange,
   findBot,
+  findRoom,
+  oneBotRoom,
+  userTimeZone,
   textParts,
   toBotMessage,
   turnTimeLimitMs,
@@ -144,7 +154,7 @@ export async function sendToBot(
     const earlier = await seenMessage(tx, found.conversationId, id);
     if (earlier) return { userMessage: earlier, started: false, ended: false };
     // A paused Bot takes no Message (spec #1007), and saves none.
-    if ((await pauseOf(tx, found.conversationId))?.paused) {
+    if (await isPaused(tx, botId)) {
       throw rpcError("CONFLICT", "error.botPaused", "Bot is paused. Resume to send.");
     }
     // A Turn on Host credentials is refused once its Quota's window has spent the budget (ADR 0007),
@@ -175,6 +185,7 @@ export async function sendToBot(
     });
     const { waitsFor } = await receive(deps, tx, {
       id: row.id,
+      botId,
       conversationId: found.conversationId,
       source: "user",
       channel: "web",
@@ -190,6 +201,169 @@ export async function sendToBot(
   // Other tabs fetch the new Message (and the Turn this send interrupted, if any).
   if (sent.started) await hintChanged(deps, found.conversationId);
   return sent.userMessage;
+}
+
+/**
+ * Saves the user's Message in their Room and hands it to the Router, in one transaction (spec
+ * #1055): one Trigger for each member it @mentions, or one for the lead when it mentions none. Each
+ * interrupts the running Turn of its own Bot in the Room only, as a send to the Bot does, so the
+ * other Bots keep working. A paused Bot keeps its Trigger as skipped, and the lead is not woken in
+ * its place. With no lead (its Bot was deleted), the earliest member leads. The Message keeps
+ * `timeZone`, or else the user's newest one. `id` is the caller's id for the Message, as `bots.send`
+ * takes it: a repeat of an earlier send saves nothing and returns the Message saved first. Returns
+ * the saved user Message.
+ */
+export async function sendToRoom(
+  deps: BotSdkContext,
+  {
+    userId,
+    conversationId,
+    id,
+    text,
+    timeZone,
+  }: { userId: string; conversationId: string; id?: string; text: string; timeZone?: string },
+): Promise<BotMessage> {
+  const posted = await postToRoom(deps, {
+    userId,
+    conversationId,
+    ...(id && { id, triggerId: id }),
+    text,
+    channel: "web",
+    timeZone,
+  });
+  // A web send always has a Message: its id is the Trigger's.
+  return posted.message!;
+}
+
+/**
+ * Saves a user Message in their Room and routes it as `sendToRoom` says, on `channel`: the web
+ * composer's, or an email reply to a Room Message (`subject`, and the `files` already stored). Each
+ * Trigger has id `triggerId` (the Message's id when not given), so a repeat of it saves nothing:
+ * `seen`, with the Message saved first, or with none when only the Trigger is known. Checks run
+ * before anything is written, and a refusal throws an RPC error. `stillValid`, checked under the
+ * locks, says whether the Channel still takes it (an email address rotated meanwhile): `refused`.
+ */
+export async function postToRoom(
+  deps: BotSdkContext,
+  {
+    userId,
+    conversationId,
+    id,
+    triggerId,
+    text,
+    channel,
+    subject,
+    files = [],
+    timeZone,
+    stillValid,
+  }: {
+    userId: string;
+    conversationId: string;
+    id?: string;
+    triggerId?: string;
+    text: string;
+    channel: string;
+    subject?: string;
+    files?: SentFile[];
+    timeZone?: string;
+    stillValid?: (tx: Transaction) => Promise<boolean>;
+  },
+): Promise<{ outcome: "handed" | "seen" | "refused"; message?: BotMessage }> {
+  const room = await findRoom(deps.db, userId, conversationId);
+  if (room.members.length < 2) throw oneBotRoom();
+  const mentioned = mentionedMembers(text, room.members);
+  const lead = room.members.find((member) => member.lead) ?? room.members[0];
+  const botIds = mentioned.length > 0 ? mentioned : lead ? [lead.botId] : [];
+  // A paused Bot's Trigger is only kept as skipped, so its Model isn't asked for.
+  const paused = new Set(room.members.flatMap((member) => (member.pausedAt ? [member.botId] : [])));
+  const targets = await Promise.all(
+    botIds.map(async (botId) => {
+      const found = await findBot(deps.db, userId, botId);
+      if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
+      if (paused.has(botId)) return { botId, call: undefined };
+      const call = await deps.models.resolveModelCall(userId, found.model);
+      if (!call) {
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.modelNotAvailable",
+          `"${found.model}" is not an available Model`,
+          { model: found.model },
+        );
+      }
+      return { botId, call };
+    }),
+  );
+  if (targets.length === 0) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
+  const zone = timeZone ?? (await userTimeZone(deps.db, userId));
+  const posted = await deps.db.transaction(async (tx) => {
+    // The Room with its targets' 1:1 Conversations, in id order: an interrupted Turn's end writes both.
+    await lockConversationsInOrder(tx, [
+      conversationId,
+      ...(await oneToOnesOf(
+        tx,
+        targets.map((target) => target.botId),
+      )),
+    ]);
+    if (stillValid && !(await stillValid(tx))) return { outcome: "refused" as const };
+    // A repeat of an earlier send (#498) is checked before the Quota, as `sendToBot` checks it.
+    if (id) {
+      const earlier = await seenMessage(tx, conversationId, id);
+      if (earlier) return { outcome: "seen" as const, message: earlier };
+    } else if (triggerId) {
+      const [seen] = await tx
+        .select({ id: botTrigger.id })
+        .from(botTrigger)
+        .where(eq(botTrigger.id, triggerId))
+        .limit(1);
+      if (seen) return { outcome: "seen" as const };
+    }
+    for (const { call } of targets) {
+      if (call && !(await call.meter.mayRun()).ok) {
+        throw rpcError("PAYMENT_REQUIRED", "error.quotaSpent", "You've used this window's Quota");
+      }
+    }
+    const now = deps.clock();
+    const parts = textParts(text, zone);
+    const row = await appendMessage(tx, conversationId, {
+      ...(id && { id }),
+      role: "user",
+      parts: {
+        ...parts,
+        parts: [
+          // A Message of files alone carries no empty text part, as `handIn` saves it.
+          ...(text ? parts.parts : []),
+          ...(files.length
+            ? [{ type: "control" as const, control: { kind: "files" as const, files } }]
+            : []),
+        ],
+        ...(channel !== "web" && { channel }),
+        ...(subject !== undefined && { subject }),
+      },
+      status: "complete",
+      createdAt: now,
+    });
+    // The targets whose Room Turn started or ended here: their 1:1 logs changed too.
+    const turned: string[] = [];
+    for (const { botId } of targets) {
+      const { waitsFor, started } = await receive(deps, tx, {
+        id: triggerId ?? row.id,
+        botId,
+        conversationId,
+        source: "user",
+        channel,
+        messageId: row.id,
+        receivedAt: now,
+      });
+      const ended = waitsFor ? await cancelTurn(deps, tx, waitsFor, "message") : false;
+      if (started || ended) turned.push(botId);
+    }
+    return { outcome: "handed" as const, message: toBotMessage(row), turned };
+  });
+  if (posted.outcome !== "handed") return posted;
+  deps.runner.wake();
+  await hintChanged(deps, conversationId);
+  for (const botId of posted.turned) await hintBotThread(deps, { botId, conversationId });
+  return { outcome: posted.outcome, message: posted.message };
 }
 
 /**
@@ -224,39 +398,61 @@ async function seenMessage(
  * Stops the Bot's running Turn by cancelling its job (#482, #483), and starts nothing after it
  * (#500): in the same transaction, the Turn it stops takes every Trigger waiting in the
  * Conversation queue, so `turnEnded` finds the line empty. Their Messages stay, and the next Turn
- * reads them as history. Does nothing when no Turn is running.
+ * reads them as history. Does nothing when no Turn is running. The Turn is the one in
+ * `conversationId`, the Bot's 1:1 Conversation when not given, or one of its Rooms (spec #1055),
+ * where the Tasks view shows it; a Conversation the Bot isn't in is not found.
  */
-export async function stopBot(deps: BotSdkContext, userId: string, botId: string): Promise<void> {
+export async function stopBot(
+  deps: BotSdkContext,
+  userId: string,
+  { botId, conversationId }: { botId: string; conversationId?: string },
+): Promise<void> {
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
+  const owner = { botId, conversationId: conversationId ?? found.conversationId };
+  if (owner.conversationId !== found.conversationId) {
+    const [member] = await deps.db
+      .select({ botId: botRoomMember.botId })
+      .from(botRoomMember)
+      .where(
+        and(eq(botRoomMember.conversationId, owner.conversationId), eq(botRoomMember.botId, botId)),
+      );
+    if (!member) throw rpcError("NOT_FOUND", "error.roomNotFound", "Room not found");
+  }
   const ended = await deps.db.transaction(async (tx) => {
-    // The Conversation's row lock first, as in `sendToBot`.
-    await lockConversation(tx, found.conversationId);
-    const running = await runningTurnOf(tx, botId);
+    // The Conversation's row lock first, as in `sendToBot`; a Room Turn's end writes the 1:1 too.
+    await lockTurnConversations(tx, owner);
+    const running = await runningTurnOf(tx, owner);
     if (!running) return false;
-    await tx.update(botTrigger).set({ turnId: running }).where(waitingIn(found.conversationId));
+    await tx.update(botTrigger).set({ turnId: running }).where(waitingIn(owner));
     return cancelTurn(deps, tx, running, "stop");
   });
   if (!ended) return;
   deps.runner.wake();
-  await hintChanged(deps, found.conversationId);
+  await hintChanged(deps, owner.conversationId);
+  if (owner.conversationId !== found.conversationId) await hintChanged(deps, found.conversationId);
 }
 
-/** Stops the running Turn of each of the user's Bots, as `stopBot` does (#585): a Ban calls it. */
+/**
+ * Stops every running Turn of each of the user's Bots, in their 1:1 Conversations and their Rooms
+ * (spec #1055), as `stopBot` does (#585): a Ban calls it.
+ */
 export async function stopUserTurns(deps: BotSdkContext, userId: string): Promise<void> {
-  const bots = await deps.db.select({ id: bot.id }).from(bot).where(eq(bot.userId, userId));
-  for (const { id } of bots) await stopBot(deps, userId, id);
+  const running = await deps.db
+    .selectDistinct({ botId: botTurn.botId, conversationId: botTurn.conversationId })
+    .from(botTurn)
+    .innerJoin(bot, eq(bot.id, botTurn.botId))
+    .where(and(eq(bot.userId, userId), eq(botTurn.status, "running")));
+  for (const owner of running) {
+    // A Bot deleted or removed from the Room meanwhile has nothing left to stop there.
+    await stopBot(deps, userId, owner).catch((caught: unknown) => {
+      if (!isNotFound(caught)) throw caught;
+    });
+  }
 }
 
-/** The id of the Bot's running Turn, or `undefined` when none runs. */
-export async function runningTurnOf(tx: Transaction, botId: string): Promise<string | undefined> {
-  const [running] = await tx
-    .select({ id: botTurn.id })
-    .from(botTurn)
-    .where(and(eq(botTurn.botId, botId), eq(botTurn.status, "running")))
-    .limit(1);
-  return running?.id;
-}
+/** Whether `caught` is an RPC error with code `NOT_FOUND`. */
+const isNotFound = (caught: unknown) => caught instanceof ORPCError && caught.code === "NOT_FOUND";
 
 /**
  * Cancels Turn `turnId`'s job, unless it is already cancelled, under the Conversation's row lock
@@ -293,7 +489,12 @@ export async function cancelTurn(
     endedAt,
   });
   if (turn)
-    await queueAwaySummary(deps, tx, { botId: turn.botId, lastInput: played.lastInput, endedAt });
+    await queueAwaySummary(deps, tx, {
+      botId: turn.botId,
+      conversationId: turn.conversationId,
+      lastInput: played.lastInput,
+      endedAt,
+    });
   await turnEnded(deps, tx, turnId);
   return true;
 }
@@ -310,14 +511,14 @@ async function turnEnded(
   turnId: string,
 ): Promise<string | undefined> {
   const [ended] = await tx
-    .select({ conversationId: bot.conversationId, botId: bot.id, userId: bot.userId })
+    .select({ conversationId: botTurn.conversationId, botId: botTurn.botId, userId: bot.userId })
     .from(botTurn)
     .innerJoin(bot, eq(bot.id, botTurn.botId))
     .where(eq(botTurn.id, turnId));
   if (!ended) return undefined;
   await lockConversation(tx, ended.conversationId);
   await featuresAfterTurn(deps, tx, { id: turnId, ...ended });
-  return startTurn(deps, tx, ended.conversationId);
+  return startTurn(deps, tx, ended);
 }
 
 /** What a Turn played: its transcript and usage, and its last Step's input when known. */
@@ -338,13 +539,22 @@ async function turnFacts(
       startedAt: botTurn.startedAt,
       jobId: botTurn.jobId,
       userId: bot.userId,
-      conversationId: bot.conversationId,
+      conversationId: botTurn.conversationId,
       model: bot.model,
     })
     .from(botTurn)
     .innerJoin(bot, eq(bot.id, botTurn.botId))
     .where(eq(botTurn.id, turnId));
   return row;
+}
+
+/**
+ * Tells the Turn's Conversation it ended and, for a Room Turn, its Bot's thread too, whose log has
+ * its `turn` change (`endTurn`).
+ */
+async function hintTurnEnded(deps: BotSdkContext, turn: { botId: string; conversationId: string }) {
+  await hintChanged(deps, turn.conversationId);
+  await hintBotThread(deps, turn);
 }
 
 /**
@@ -383,7 +593,7 @@ async function runTurnJob(
     // A thrown activity recorded nothing: the job retries it.
     if (played.failure !== undefined) throw played.failure;
     await ctx.step("end_turn", async (tx) => {
-      await lockConversation(tx, turn.conversationId);
+      await lockTurnConversations(tx, turn);
       const endedAt = deps.clock();
       await endTurn(tx, turnId, {
         ...endingOf(played),
@@ -392,7 +602,12 @@ async function runTurnJob(
         usage: played.usage,
         endedAt,
       });
-      await queueAwaySummary(deps, tx, { botId: turn.botId, lastInput: played.lastInput, endedAt });
+      await queueAwaySummary(deps, tx, {
+        botId: turn.botId,
+        conversationId: turn.conversationId,
+        lastInput: played.lastInput,
+        endedAt,
+      });
       await turnEnded(deps, tx, turnId);
     });
   } catch (caught) {
@@ -401,7 +616,7 @@ async function runTurnJob(
     throw caught;
   }
   deps.runner.wake();
-  await hintChanged(deps, turn.conversationId);
+  await hintTurnEnded(deps, turn);
 }
 
 /**
@@ -464,7 +679,7 @@ async function endRunningTurn(
   played: PlayedTurn,
 ) {
   const ended = await deps.db.transaction(async (tx) => {
-    await lockConversation(tx, turn.conversationId);
+    await lockTurnConversations(tx, turn);
     const endedAt = deps.clock();
     const rows = await tx
       .update(botTurn)
@@ -481,12 +696,17 @@ async function endRunningTurn(
     await recordBotChange(tx, turn, "turn", turn.id, endedAt);
     // A Turn cut off mid-wait (its time limit) leaves no request open.
     await closeWaitingReviews(deps, tx, { turnId: turn.id }, "expired");
-    await queueAwaySummary(deps, tx, { botId: turn.botId, lastInput: played.lastInput, endedAt });
+    await queueAwaySummary(deps, tx, {
+      botId: turn.botId,
+      conversationId: turn.conversationId,
+      lastInput: played.lastInput,
+      endedAt,
+    });
     await turnEnded(deps, tx, turn.id);
     return true;
   });
   if (ended) deps.runner.wake();
-  await hintChanged(deps, turn.conversationId);
+  await hintTurnEnded(deps, turn);
 }
 
 /**
@@ -553,8 +773,23 @@ async function endTurn(
     .update(botTurn)
     .set(ending)
     .where(eq(botTurn.id, turnId))
-    .returning({ botId: botTurn.botId });
-  if (ended) await recordBotChange(tx, ended, "turn", turnId, ending.endedAt);
+    .returning({ conversationId: botTurn.conversationId, botId: botTurn.botId });
+  if (!ended) return;
+  // A Room Turn's end is the Room's change (spec #1055), and a hint to its Bot's thread too: its
+  // Tasks view reads its running Turn in any Conversation.
+  await recordBotChange(
+    tx,
+    { conversationId: ended.conversationId },
+    "turn",
+    turnId,
+    ending.endedAt,
+  );
+  const [own] = await tx
+    .select({ id: bot.conversationId })
+    .from(bot)
+    .where(eq(bot.id, ended.botId));
+  if (own && own.id !== ended.conversationId)
+    await recordBotChange(tx, { conversationId: own.id }, "turn", turnId, ending.endedAt);
 }
 
 /**

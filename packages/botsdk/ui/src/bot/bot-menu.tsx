@@ -21,7 +21,8 @@ import { useI18n } from "@botsdk/react/provider";
 
 /**
  * The "⋯" Bot menu in a Bot's header (spec #1007): its whole-Bot actions, Pause or Resume, and Reset,
- * which opens the reset dialog.
+ * which opens the reset dialog. Given `onOpenReset`, Reset calls it instead, and its owner shows the
+ * dialog: a menu in a popover that closes would take its dialog with it (spec #1055).
  */
 export function BotMenu({
   name,
@@ -29,16 +30,21 @@ export function BotMenu({
   acting,
   onPause,
   onResume,
-  onReset,
+  ...reset
 }: {
   name: string;
   paused: boolean;
   acting: boolean;
   onPause: () => void;
   onResume: () => void;
-  /** Resets the Bot with the name the user typed; resolves once it is done. */
-  onReset: (name: string) => Promise<void>;
-}) {
+} & (
+  | {
+      /** Resets the Bot with the name the user typed; resolves once it is done. */
+      onReset: (name: string) => Promise<void>;
+      onOpenReset?: never;
+    }
+  | { onOpenReset: () => void; onReset?: never }
+)) {
   const { t } = useI18n();
   const [resetting, setResetting] = useState(false);
   return (
@@ -53,18 +59,23 @@ export function BotMenu({
           <DropdownMenuItem disabled={acting} onClick={paused ? onResume : onPause}>
             {paused ? <PlayIcon /> : <PauseIcon />} {t(paused ? "bots.resumeBot" : "bots.pauseBot")}
           </DropdownMenuItem>
-          <DropdownMenuItem disabled={acting} onClick={() => setResetting(true)}>
+          <DropdownMenuItem
+            disabled={acting}
+            onClick={() => (reset.onOpenReset ? reset.onOpenReset() : setResetting(true))}
+          >
             <RotateCcwIcon /> {t("bots.resetBot")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <ResetBotDialog
-        open={resetting}
-        onOpenChange={setResetting}
-        name={name}
-        acting={acting}
-        onReset={onReset}
-      />
+      {reset.onReset && (
+        <ResetBotDialog
+          open={resetting}
+          onOpenChange={setResetting}
+          name={name}
+          acting={acting}
+          onReset={reset.onReset}
+        />
+      )}
     </>
   );
 }

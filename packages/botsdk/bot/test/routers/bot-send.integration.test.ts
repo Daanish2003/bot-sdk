@@ -4,12 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createHookEmitter } from "../../src/chat/hooks";
 import { createMemoryPubSub, type PubSub } from "../../src/chat/pubsub";
-import { botTrigger, botTurn, conversation, job, message, usage } from "../../src/storage";
+import { bot, botTrigger, botTurn, conversation, job, message, usage } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import type { Transaction } from "../../src/plugin";
 import type { HostProvider } from "../../src/models/internal";
 import { appendMessage } from "../../src/chat/message-tree";
 import { receive } from "../../src/bot/triggers";
+import { handIn } from "../../src/bot/turn/hand-in";
 import { turnTimeLimitMs, findBot, newestTimeZone, textParts } from "../../src/bot/conversation";
 
 import { saveCredentials, quotaLookup } from "../../src/models/internal";
@@ -173,12 +174,22 @@ async function hostBotWith(rounds: Round[], overrides: Pick<TestDepsOverrides, "
 const usageOf = (userId: string) =>
   getTestDb().select().from(usage).where(eq(usage.userId, userId));
 
-/** A `running` Turn row of `botId`. */
+/** A `running` Turn row of `botId`, in its Conversation. */
 async function insertRunningTurn(botId: string) {
   const id = uuidv7();
+  const [owner] = await getTestDb()
+    .select({ conversationId: bot.conversationId })
+    .from(bot)
+    .where(eq(bot.id, botId));
   await getTestDb()
     .insert(botTurn)
-    .values({ id, botId, status: "running", startedAt: new Date(Date.now() - 2 * 60_000) });
+    .values({
+      id,
+      botId,
+      conversationId: owner!.conversationId,
+      status: "running",
+      startedAt: new Date(Date.now() - 2 * 60_000),
+    });
   return id;
 }
 
@@ -281,7 +292,11 @@ const inputOf = (call: TextOptions | undefined) =>
  * Saves a user Message and hands its Trigger to the Router directly, as a later wake source would:
  * it waits in the Conversation queue instead of interrupting the running Turn. Returns its id.
  */
-async function queueTrigger(deps: TestDeps, conversationId: string, text: string) {
+async function queueTrigger(
+  deps: TestDeps,
+  { botId, conversationId }: { botId: string; conversationId: string },
+  text: string,
+) {
   return getTestDb().transaction(async (tx) => {
     const row = await appendMessage(tx, conversationId, {
       role: "user",
@@ -291,6 +306,7 @@ async function queueTrigger(deps: TestDeps, conversationId: string, text: string
     });
     await receive(deps, tx, {
       id: row.id,
+      botId,
       conversationId,
       source: "user",
       channel: "web",
@@ -829,8 +845,8 @@ describe("one Turn at a time", () => {
     const firstStream = await followSend(client, { botId, id: uuidv7(), text: "one" });
     await firstStream.next();
     await expect.poll(() => fake.calls.length).toBe(1);
-    const two = await queueTrigger(deps, conversationId, "two");
-    const three = await queueTrigger(deps, conversationId, "three");
+    const two = await queueTrigger(deps, { botId, conversationId }, "two");
+    const three = await queueTrigger(deps, { botId, conversationId }, "three");
     const [firstTurn] = await turnsOf(botId);
     expect(await triggersOf(conversationId)).toMatchObject([
       { turnId: firstTurn!.id },
@@ -863,7 +879,7 @@ describe("one Turn at a time", () => {
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
     await sendSaved(client, botId, "one");
     await expect.poll(() => fake.calls.length).toBe(1);
-    await queueTrigger(deps, conversationId, "two");
+    await queueTrigger(deps, { botId, conversationId }, "two");
 
     await fake.releaseAll();
 
@@ -882,6 +898,7 @@ describe("one Turn at a time", () => {
       getTestDb().transaction((tx) =>
         receive(deps, tx, {
           id,
+          botId,
           conversationId,
           source: "routine",
           channel: "schedule",
@@ -919,7 +936,7 @@ describe("one Turn at a time", () => {
     const firstStream = await followSend(client, { botId, id: uuidv7(), text: "one" });
     await firstStream.next();
     await expect.poll(() => fake.calls.length).toBe(1);
-    const skipped = await queueTrigger(deps, conversationId, "two");
+    const skipped = await queueTrigger(deps, { botId, conversationId }, "two");
     await getTestDb()
       .update(botTrigger)
       .set({ skippedAt: deps.clock(), skipReason: "paused" })
@@ -1467,6 +1484,61 @@ describe("a resent Message", () => {
       followSend(client, { botId, id: crypto.randomUUID(), text: "hi" }),
     ).rejects.toMatchObject({ status: 400 });
   });
+});
+
+describe("Triggers and Messages keyed by Bot (#1056)", () => {
+  it("stores one source id's Trigger for each of two Bots, and still drops a repeat for the same Bot", async () => {
+    const { deps, client, user, botId } = await botWith([round(), round()]);
+    const { id: otherId } = await client.bots.create({ name: "Bo", model });
+    const ada = (await findBot(getTestDb(), user.id, botId))!;
+    const bo = (await findBot(getTestDb(), user.id, otherId))!;
+    const handTo = (owner: { id: string; conversationId: string }) =>
+      handIn(deps, {
+        botId: owner.id,
+        conversationId: owner.conversationId,
+        id: "telegram:account:1",
+        channel: "telegram",
+        body: "hi",
+        files: [],
+      });
+
+    expect(await handTo(ada)).toBe("handed");
+    expect(await handTo(bo)).toBe("handed");
+    expect(await handTo(ada)).toBe("seen");
+
+    const stored = await getTestDb()
+      .select({ botId: botTrigger.botId, conversationId: botTrigger.conversationId })
+      .from(botTrigger)
+      .where(eq(botTrigger.id, "telegram:account:1"));
+    expect(stored).toHaveLength(2);
+    expect(stored).toEqual(
+      expect.arrayContaining([
+        { botId: ada.id, conversationId: ada.conversationId },
+        { botId: bo.id, conversationId: bo.conversationId },
+      ]),
+    );
+    await endedTurn(ada.id);
+    await endedTurn(bo.id);
+  }, 30_000);
+
+  it("records the Bot as the author of each Message it sends, and none on the user's", async () => {
+    const { client, user, botId } = await botWith([
+      round(sends({ text: "Hello!", endTurn: true })),
+    ]);
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+
+    await send(client, botId, "hi");
+
+    const rows = await getTestDb()
+      .select({ role: message.role, authorBotId: message.authorBotId })
+      .from(message)
+      .where(eq(message.conversationId, conversationId))
+      .orderBy(asc(message.createdAt), asc(message.id));
+    expect(rows).toEqual([
+      { role: "user", authorBotId: null },
+      { role: "assistant", authorBotId: botId },
+    ]);
+  }, 30_000);
 });
 
 describe("a Turn's Quota and usage", () => {
@@ -2179,7 +2251,7 @@ describe("a Turn that resumes after a crash", () => {
 
     const lost = [attempt()];
     await expect.poll(() => fake.calls.length).toBe(1);
-    await queueTrigger(deps, conversationId, "two");
+    await queueTrigger(deps, { botId, conversationId }, "two");
     for (const calls of [1, 2, 3]) {
       await expect.poll(() => fake.calls.length).toBe(calls);
       await crash();

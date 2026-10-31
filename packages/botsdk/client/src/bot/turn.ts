@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { BotMemoryChange } from "../memory/changes";
 import type { BotKnowledgeChange } from "../knowledge/changes";
 import type { BotSkillChange } from "../skills/changes";
+import { handoffSchema } from "./mentions";
 import { reactionSchema } from "./reaction";
 import { richControlSchema } from "./rich-control";
 
@@ -29,6 +30,16 @@ export const botMessageSchema = z.object({
   channel: z.string().optional(),
   /** The Bot marked it urgent (spec #1024). */
   urgent: z.literal(true).optional(),
+  /**
+   * The Bot that wrote a Bot Message (spec #1055), in a 1:1 Conversation or a Room. Absent on the
+   * user's Messages, and once that Bot is deleted.
+   */
+  authorBotId: z.string().optional(),
+  /**
+   * The members a Bot's Room Message mentioned, handing work on, and its hop in the chain (spec
+   * #1055). A hop past `hopLimit` stopped the chain there.
+   */
+  handoff: handoffSchema.optional(),
 });
 
 export type BotMessage = z.infer<typeof botMessageSchema>;
@@ -47,8 +58,8 @@ export type BotTurnStatus = TurnStatus | "running";
  * when it was received.
  */
 export type BotTurnTrigger = {
-  source: "user" | "routine" | "check_in" | "helper" | "approval";
-  /** `web`, `schedule`, `webhook`, `helper`, `email`, or a messaging platform's id. */
+  source: "user" | "routine" | "check_in" | "helper" | "approval" | "agent";
+  /** `web`, `schedule`, `webhook`, `helper`, `email`, `room` (a handoff), or a messaging platform's id. */
   channel: string;
   routineName: string | null;
   at: Date;

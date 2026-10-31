@@ -461,6 +461,24 @@ describe("a Routine's runs", () => {
     expect(rows[2]).toMatch(/^run:morning-brief · .+ · ran, nothing to say$/);
     expect(rows[3]).toBe("Anything new?");
   });
+
+  it("draws no divider for a Turn another Bot's handoff woke in a Room (spec #1055)", async () => {
+    const handedOff: BotTurnProvenance = {
+      ...run(false),
+      triggers: [
+        { source: "agent", channel: "room", routineName: null, at: at("2026-10-19T07:00:00.000Z") },
+      ],
+    };
+    const server = fakeBotServer(
+      [...before, sentAt("m3", "user", "Anything new?", "2026-10-19T08:00:00.000Z")],
+      [],
+      [userTurn, handedOff],
+    );
+    const { container } = mount(server);
+
+    await screen.findByText("Anything new?");
+    expect(timeline(container)).toEqual(["Morning!", "Morning to you.", "Anything new?"]);
+  });
 });
 
 describe("an approved Routine", () => {

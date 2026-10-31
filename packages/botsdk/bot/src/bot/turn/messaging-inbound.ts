@@ -88,7 +88,12 @@ async function receiveOnce(
   const drop = (reason: string) =>
     sdk.logger.debug?.(`A ${account.platform} update was dropped: ${reason}`);
   const [owner] = await sdk.db
-    .select({ userId: bot.userId, conversationId: bot.conversationId, model: bot.model })
+    .select({
+      botId: bot.id,
+      userId: bot.userId,
+      conversationId: bot.conversationId,
+      model: bot.model,
+    })
     .from(bot)
     .where(eq(bot.id, account.botId));
   if (!owner) return drop("its Bot is gone");
@@ -135,7 +140,7 @@ async function wake(
   sdk: BotSdkContext,
   adapter: MessagingAdapter,
   account: MessagingAccount & { platform: string },
-  owner: { userId: string; conversationId: string; model: string },
+  owner: { botId: string; userId: string; conversationId: string; model: string },
   update: MessagingUpdate,
   appUrl: string | null,
 ): Promise<string | null> {
@@ -157,7 +162,7 @@ async function wake(
   const [seen] = await sdk.db
     .select({ id: botTrigger.id })
     .from(botTrigger)
-    .where(eq(botTrigger.id, id));
+    .where(and(eq(botTrigger.id, id), eq(botTrigger.botId, owner.botId)));
   if (seen) return "it is a resent update";
 
   // Downloaded at once, as the update's own call: a platform's file link may not outlive it.
@@ -179,6 +184,7 @@ async function wake(
   if (!body && stored.length === 0) return "it holds nothing";
 
   const handed = await handIn(sdk, {
+    botId: owner.botId,
     conversationId: owner.conversationId,
     id,
     channel: account.platform,

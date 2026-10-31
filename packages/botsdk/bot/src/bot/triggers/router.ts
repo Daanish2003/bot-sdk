@@ -1,9 +1,9 @@
-import { and, eq, isNull, max, min, or, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNull, max, min, or, type SQL } from "drizzle-orm";
 
 import { bot, botTrigger, botTurn, conversation, message } from "../../storage";
 import { uuidv7 } from "../../lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../plugin";
-import { recordBotChange } from "../conversation";
+import { hintChanged, recordBotChange } from "../conversation";
 import { checkInOfKey, routineOfFireKey } from "./trigger-ids";
 
 /** The runner job that runs one Turn (`botTurnJob` in `turn.ts`). */
@@ -39,12 +39,26 @@ export type ReceivedTrigger = Omit<
 >;
 
 /**
- * The Conversation queue (#499): the Conversation's Triggers that no Turn has taken yet and that
- * were not skipped (spec #1007). A skipped Trigger is never taken.
+ * A Bot in one Conversation (spec #1055): the key of its Conversation queue and of its Turns there.
+ * A Bot's 1:1 Conversation has only it.
  */
-export function waitingIn(conversationId: string): SQL | undefined {
+export type BotConversation = { botId: string; conversationId: string };
+
+/**
+ * The Conversation queue (#499) of a Bot in a Conversation: its Triggers there that no Turn has
+ * taken yet and that were not skipped (spec #1007), in every Conversation when none is given (the
+ * Tasks view). A skipped Trigger is never taken.
+ */
+export function waitingIn({
+  botId,
+  conversationId,
+}: {
+  botId: string;
+  conversationId?: string;
+}): SQL | undefined {
   return and(
-    eq(botTrigger.conversationId, conversationId),
+    conversationId ? eq(botTrigger.conversationId, conversationId) : undefined,
+    eq(botTrigger.botId, botId),
     isNull(botTrigger.turnId),
     isNull(botTrigger.skippedAt),
   );
@@ -63,18 +77,104 @@ export async function lockConversation(tx: Transaction, conversationId: string):
 }
 
 /**
- * Whether the Bot of Conversation `conversationId` is paused (Bot pause, spec #1007), with its id.
- * Read it under the Conversation's row lock, which a pause and a resume take.
+ * Takes the row locks of Conversations `ids` in id order (spec #1055). A transaction that locks more
+ * than one Conversation takes them this way, first, so two never wait on each other in a circle:
+ * a Room Turn's end writes its Bot's 1:1 Conversation too (`endTurn`), and a pause locks the 1:1 and
+ * every Room of the Bot.
  */
-export async function pauseOf(
+export async function lockConversationsInOrder(tx: Transaction, ids: string[]): Promise<void> {
+  for (const id of [...new Set(ids)].sort()) await lockConversation(tx, id);
+}
+
+/** Thrown inside `lockConversationSet`'s savepoint to roll its locks back. */
+class LockSetMoved extends Error {}
+
+/** How many times `lockConversationSet` reads its set before it settles for the last one read. */
+const lockSetTries = 3;
+
+/**
+ * Takes the row locks of the Conversations `read` names, in id order (`lockConversationsInOrder`),
+ * and returns them. The set is read before its locks, so it is read again after them: when it
+ * changed meanwhile (a member added to a Room, a Room joined), the locks are rolled back to a
+ * savepoint and taken again from a new read, up to `lockSetTries` times. The last try locks what
+ * moved after the rest, out of order, and reads again until the set holds still, rather than leave
+ * any out; a deadlock that order risks is Postgres's to break, failing one of the two.
+ */
+export async function lockConversationSet(
   tx: Transaction,
-  conversationId: string,
-): Promise<{ botId: string; paused: boolean } | undefined> {
-  const [row] = await tx
-    .select({ botId: bot.id, pausedAt: bot.pausedAt })
+  read: (db: Transaction) => Promise<string[]>,
+): Promise<string[]> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await tx.transaction(async (savepoint) => {
+        const held = await read(savepoint);
+        await lockConversationsInOrder(savepoint, held);
+        for (;;) {
+          const now = await read(savepoint);
+          const moved = now.filter((id) => !held.includes(id));
+          if (moved.length === 0) return now;
+          if (attempt < lockSetTries) throw new LockSetMoved();
+          await lockConversationsInOrder(savepoint, moved);
+          held.push(...moved);
+        }
+      });
+    } catch (error) {
+      if (!(error instanceof LockSetMoved)) throw error;
+    }
+  }
+}
+
+/** The ids of Bots `botIds`' 1:1 Conversations. */
+export async function oneToOnesOf(tx: Transaction, botIds: string[]): Promise<string[]> {
+  if (botIds.length === 0) return [];
+  const rows = await tx.select({ id: bot.conversationId }).from(bot).where(inArray(bot.id, botIds));
+  return rows.map((row) => row.id);
+}
+
+/** Whether `conversationId` is Bot `botId`'s 1:1 Conversation, not a Room. */
+export async function isOneToOne(
+  db: Transaction,
+  { botId, conversationId }: BotConversation,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: bot.id })
     .from(bot)
-    .where(eq(bot.conversationId, conversationId));
-  return row && { botId: row.botId, paused: row.pausedAt !== null };
+    .where(and(eq(bot.id, botId), eq(bot.conversationId, conversationId)));
+  return row !== undefined;
+}
+
+/**
+ * Takes the row locks a transaction that starts or ends Bot `botId`'s Turn in `conversationId`
+ * needs, in id order: that Conversation's and, for a Room Turn, the Bot's 1:1 Conversation's, whose
+ * log has the Turn's `turn` changes too (`startTurn`, `endTurn`).
+ */
+export async function lockTurnConversations(
+  tx: Transaction,
+  { botId, conversationId }: BotConversation,
+): Promise<void> {
+  await lockConversationsInOrder(tx, [conversationId, ...(await oneToOnesOf(tx, [botId]))]);
+}
+
+/**
+ * Whether Bot `botId` is paused (Bot pause, spec #1007). Read it under the Conversation's row lock,
+ * which a pause and a resume take.
+ */
+export async function isPaused(tx: Transaction, botId: string): Promise<boolean> {
+  const [row] = await tx.select({ pausedAt: bot.pausedAt }).from(bot).where(eq(bot.id, botId));
+  return row !== undefined && row.pausedAt !== null;
+}
+
+/**
+ * Hints Bot `botId`'s 1:1 thread that its Turn in Room `conversationId` started or ended, once that
+ * has committed: its Tasks view lists the Bot's running Turn in any Conversation (spec #1055). A
+ * Turn in the 1:1 itself is hinted there by its caller, so this does nothing for one.
+ */
+export async function hintBotThread(
+  deps: BotSdkContext,
+  { botId, conversationId }: BotConversation,
+): Promise<void> {
+  const [own] = await deps.db.select({ id: bot.conversationId }).from(bot).where(eq(bot.id, botId));
+  if (own && own.id !== conversationId) await hintChanged(deps, own.id);
 }
 
 /**
@@ -95,19 +195,17 @@ export async function recordSkipChange(
 }
 
 /**
- * Skips every Trigger waiting in the Conversation queue with `reason` (spec #1007), in `tx`, which
- * holds the Conversation's row lock: no Turn takes them, and the Tasks view lists them as skipped.
+ * Skips every Trigger waiting in the Bot's Conversation queue with `reason` (spec #1007), in `tx`,
+ * which holds the Conversation's row lock: no Turn takes them, and the Tasks view lists them as
+ * skipped.
  */
 export async function skipWaiting(
   tx: Transaction,
-  conversationId: string,
-  reason: "paused" | "reset",
+  owner: BotConversation,
+  reason: "cancelled" | "paused" | "reset",
   at: Date,
 ): Promise<void> {
-  await tx
-    .update(botTrigger)
-    .set({ skippedAt: at, skipReason: reason })
-    .where(waitingIn(conversationId));
+  await tx.update(botTrigger).set({ skippedAt: at, skipReason: reason }).where(waitingIn(owner));
 }
 
 /**
@@ -116,53 +214,46 @@ export async function skipWaiting(
  * that Turn and pushes back its job (#501). Returns `takenBy`, the Turn that took it, or, when the
  * Trigger waits for the Turn that follows the running one, `waitsFor`, that running Turn. While its
  * Bot is paused (spec #1007), the Trigger is kept as skipped with reason `paused` and starts no
- * Turn, so it returns neither. Call the runner's `wake()` once `tx` has committed.
+ * Turn, so it returns neither. `started` says a new Turn took it: a Room Turn's start is a change
+ * of its Bot's 1:1 thread too, which the caller hints (`hintBotThread`). It takes the locks
+ * `lockTurnConversations` names; a caller that locks first takes them so, in one id order. Call
+ * the runner's `wake()` once `tx` has committed.
  */
 export async function receive(
   deps: BotSdkContext,
   tx: Transaction,
   trigger: ReceivedTrigger,
-): Promise<{ takenBy?: string; waitsFor?: string }> {
-  await lockConversation(tx, trigger.conversationId);
-  const owner = await pauseOf(tx, trigger.conversationId);
-  if (owner?.paused) {
+): Promise<{ takenBy?: string; waitsFor?: string; started?: boolean }> {
+  const owner = { botId: trigger.botId, conversationId: trigger.conversationId };
+  await lockTurnConversations(tx, owner);
+  if (await isPaused(tx, owner.botId)) {
     const now = deps.clock();
     await tx.insert(botTrigger).values({ ...trigger, skippedAt: now, skipReason: "paused" });
-    await recordSkipChange(
-      tx,
-      { conversationId: trigger.conversationId, botId: owner.botId },
-      trigger,
-      now,
-    );
+    await recordSkipChange(tx, owner, trigger, now);
     return {};
   }
   await tx.insert(botTrigger).values(trigger);
-  const [running] = await tx
-    .select({ id: botTurn.id })
-    .from(botTurn)
-    .innerJoin(bot, eq(bot.id, botTurn.botId))
-    .where(and(eq(bot.conversationId, trigger.conversationId), eq(botTurn.status, "running")))
-    .limit(1);
-  if (!running) return { takenBy: await startTurn(deps, tx, trigger.conversationId) };
+  const running = await runningTurnOf(tx, owner);
+  if (!running) {
+    const takenBy = await startTurn(deps, tx, owner);
+    return { takenBy, started: takenBy !== undefined };
+  }
+  const received = and(eq(botTrigger.id, trigger.id), eq(botTrigger.botId, owner.botId));
   // While the running Turn's job hasn't started (`replaceIfNotStarted`), it is replaced in this
   // transaction by one that also takes the Trigger, and the Turn is relinked to it.
-  const runAfter = await batchClosesAt(
-    deps,
-    tx,
-    or(eq(botTrigger.turnId, running.id), eq(botTrigger.id, trigger.id)),
-  );
+  const runAfter = await batchClosesAt(deps, tx, or(eq(botTrigger.turnId, running), received));
   const jobId = await deps.runner.replaceIfNotStarted(
     tx,
-    running.id,
+    running,
     botTurnJobName,
-    { turnId: running.id },
+    { turnId: running },
     { runAfter: new Date(runAfter) },
   );
-  if (!jobId) return { waitsFor: running.id };
+  if (!jobId) return { waitsFor: running };
   wakeWhenDue(deps, runAfter);
-  await tx.update(botTrigger).set({ turnId: running.id }).where(eq(botTrigger.id, trigger.id));
-  await tx.update(botTurn).set({ jobId }).where(eq(botTurn.id, running.id));
-  return { takenBy: running.id };
+  await tx.update(botTrigger).set({ turnId: running }).where(received);
+  await tx.update(botTurn).set({ jobId }).where(eq(botTurn.id, running));
+  return { takenBy: running };
 }
 
 /**
@@ -214,24 +305,42 @@ async function enqueueTurnJob(
   return jobId;
 }
 
+/** The id of the Bot's running Turn in the Conversation, or `undefined` when none runs there. */
+export async function runningTurnOf(
+  tx: Transaction,
+  { botId, conversationId }: BotConversation,
+): Promise<string | undefined> {
+  const [running] = await tx
+    .select({ id: botTurn.id })
+    .from(botTurn)
+    .where(
+      and(
+        eq(botTurn.botId, botId),
+        eq(botTurn.conversationId, conversationId),
+        eq(botTurn.status, "running"),
+      ),
+    )
+    .limit(1);
+  return running?.id;
+}
+
 /**
- * Creates a Turn that takes every Trigger waiting in the Conversation queue, and queues its job. It
- * cancels the Bot's away Summary, so the user's Turn is never delayed by one.
+ * Creates a Turn that takes every Trigger waiting in the Bot's Conversation queue, and queues its
+ * job. In the Bot's 1:1 it cancels the Bot's away Summary, so the user's Turn is never delayed by one.
+ * A Room Turn's start is in its Bot's 1:1 log too, as its end is (`endTurn`): its Tasks view lists
+ * the running Room Turn. `tx` holds both locks (`lockTurnConversations`).
  */
 export async function startTurn(
   deps: BotSdkContext,
   tx: Transaction,
-  conversationId: string,
+  owner: BotConversation,
 ): Promise<string | undefined> {
-  const waiting = waitingIn(conversationId);
+  const { botId, conversationId } = owner;
+  const waiting = waitingIn(owner);
   const [first] = await tx.select({ id: botTrigger.id }).from(botTrigger).where(waiting).limit(1);
   if (!first) return undefined;
-  const [owner] = await tx
-    .select({ id: bot.id })
-    .from(bot)
-    .where(eq(bot.conversationId, conversationId));
-  if (!owner) throw new Error(`Conversation ${conversationId} has no Bot`);
-  await cancelAwaySummary(deps, tx, owner.id);
+  const oneToOne = await isOneToOne(tx, owner);
+  if (oneToOne) await cancelAwaySummary(deps, tx, botId);
   // Until its job starts and sets it (`turnStarted`), the Turn starts after every Message its
   // Triggers carry, even one stamped by a process whose clock runs ahead.
   const [newest] = await tx
@@ -244,13 +353,15 @@ export async function startTurn(
   const jobId = await enqueueTurnJob(deps, tx, turnId, waiting);
   await tx.insert(botTurn).values({
     id: turnId,
-    botId: owner.id,
+    botId,
+    conversationId,
     status: "running",
     startedAt: new Date(startedAt),
     jobId,
   });
   await tx.update(botTrigger).set({ turnId }).where(waiting);
   await recordBotChange(tx, { conversationId }, "turn", turnId, deps.clock());
+  if (!oneToOne) await recordBotChange(tx, { botId }, "turn", turnId, deps.clock());
   return turnId;
 }
 
@@ -261,9 +372,8 @@ export async function startTurn(
  */
 export async function turnStarted(deps: BotSdkContext, tx: Transaction, turnId: string) {
   const [turn] = await tx
-    .select({ conversationId: bot.conversationId })
+    .select({ botId: botTurn.botId, conversationId: botTurn.conversationId })
     .from(botTurn)
-    .innerJoin(bot, eq(bot.id, botTurn.botId))
     .where(eq(botTurn.id, turnId));
   if (!turn) return;
   await lockConversation(tx, turn.conversationId);
@@ -274,7 +384,7 @@ export async function turnStarted(deps: BotSdkContext, tx: Transaction, turnId: 
       .innerJoin(message, eq(message.id, botTrigger.messageId))
       .where(triggers);
   const [taken] = await messagesOf(eq(botTrigger.turnId, turnId));
-  const [waiting] = await messagesOf(waitingIn(turn.conversationId));
+  const [waiting] = await messagesOf(waitingIn(turn));
   // The Turn's input is the user Messages saved before it starts. It starts after every Message its
   // Triggers carry, even one stamped by a process whose clock runs ahead, and before any that came
   // once the job was claimed: those wait for the next Turn.
@@ -287,5 +397,5 @@ export async function turnStarted(deps: BotSdkContext, tx: Transaction, turnId: 
     .update(botTurn)
     .set({ startedAt: new Date(startedAt) })
     .where(eq(botTurn.id, turnId));
-  await recordBotChange(tx, turn, "turn", turnId, new Date(now));
+  await recordBotChange(tx, { conversationId: turn.conversationId }, "turn", turnId, new Date(now));
 }

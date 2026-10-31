@@ -93,6 +93,7 @@ export async function runLadderCase(
         await lockConversation(tx, found!.conversationId);
         return receive(env.sdk, tx, {
           id: uuidv7(),
+          botId: found!.id,
           conversationId: found!.conversationId,
           source: "helper",
           channel: "helper",

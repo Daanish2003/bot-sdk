@@ -9,7 +9,7 @@ import type { BotSdkContext, Transaction } from "../../plugin";
 import { uuidv7 } from "../../lib/uuidv7";
 import { buildPromptStart, type PromptStartParts, userZoneAt } from "./prompt-start";
 import { midTurnNote } from "../agent-loop";
-import { awaySummaryKey } from "../triggers";
+import { awaySummaryKey, type BotConversation, isOneToOne } from "../triggers";
 import { toBotMessage, recordBotChange, formatterIn, noResetAfter } from "../conversation";
 
 /** How many of the Bot's last Messages to the user a Summary keeps word for word. */
@@ -30,14 +30,21 @@ export const awaySummaryDelayMs = 10 * 60_000;
 /**
  * Queues the away Summary of a Turn's Bot, in the transaction that ends the Turn, when its last
  * Step's input was over `awaySummaryTokens`: `awaySummaryDelayMs` after it ended, keyed
- * `summary-away:<botId>`. One already queued is replaced, so it counts from this Turn.
+ * `summary-away:<botId>`. One already queued is replaced, so it counts from this Turn. Only a Turn
+ * in the Bot's 1:1 queues one: the Summary is of the 1:1, and a Room Turn leaves it as it is.
  */
 export async function queueAwaySummary(
   deps: BotSdkContext,
   tx: Transaction,
-  { botId, lastInput, endedAt }: { botId: string; lastInput: number | undefined; endedAt: Date },
+  {
+    botId,
+    conversationId,
+    lastInput,
+    endedAt,
+  }: BotConversation & { lastInput: number | undefined; endedAt: Date },
 ): Promise<void> {
   if (lastInput === undefined || lastInput <= awaySummaryTokens) return;
+  if (!(await isOneToOne(tx, { botId, conversationId }))) return;
   const runner = deps.runner;
   await runner.cancelIn(tx, awaySummaryKey(botId));
   await runner.enqueueIn(
@@ -137,6 +144,7 @@ export async function botSummaries(
       role: message.role,
       parts: message.parts,
       createdAt: message.createdAt,
+      authorBotId: message.authorBotId,
     })
     .from(message)
     .where(
@@ -160,6 +168,7 @@ export async function botSummaries(
         role: kept.role,
         parts: kept.parts,
         createdAt: kept.createdAt,
+        authorBotId: kept.authorBotId,
       },
     })
     .from(botSummary)
@@ -248,13 +257,13 @@ export function historyFrom(
 }
 
 /**
- * The Bot's Turns that `historyFrom` keeps after `summary`, in Turn order: those since the
- * Summary, and the one a mid-Turn one was written in, started before `before` when given. Only
+ * The Bot's Turns in the Conversation that `historyFrom` keeps after `summary`, in Turn order
+ * (spec #1055): those since the Summary, and the one a mid-Turn one was written in, started before `before` when given. Only
  * those are read, never the whole history.
  */
 export function historyTurns(
   db: Database | Transaction,
-  botId: string,
+  { botId, conversationId }: BotConversation,
   summary: HistorySummary | undefined,
   before?: Date,
 ) {
@@ -270,6 +279,7 @@ export function historyTurns(
     .where(
       and(
         eq(botTurn.botId, botId),
+        eq(botTurn.conversationId, conversationId),
         before ? lt(botTurn.startedAt, before) : undefined,
         // Nothing from before the Bot's latest reset mark (spec #1007).
         noResetAfter(db, { botId }, botTurn.startedAt),
@@ -290,11 +300,11 @@ export function historyTurns(
  */
 export async function historyAfter(
   db: Database | Transaction,
-  botId: string,
+  owner: BotConversation,
   promptStartId: string,
 ): Promise<ModelMessage[]> {
   const summary = await summaryOf(db, promptStartId);
-  return historyFrom(await historyTurns(db, botId, summary), summary);
+  return historyFrom(await historyTurns(db, owner, summary), summary);
 }
 
 /** `transcript` from its last mid-Turn note on, or nothing when it has none. */

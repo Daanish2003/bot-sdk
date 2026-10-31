@@ -28,7 +28,7 @@ import {
   featureSectionsNow,
   featureTurnOf,
 } from "../context";
-import { lockConversation, waitingIn } from "../triggers";
+import { type BotConversation, lockConversation, waitingIn } from "../triggers";
 import { nextSlot, routinesPrompt } from "../routines";
 import { customRulesPrompt } from "../safety";
 
@@ -78,7 +78,11 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
   const written = await ctx.step("summary", async () => {
     if (!(await meter.mayRun()).ok) return null;
     const start = await loopPromptStart(deps.db, seen.promptStartId, async () => undefined);
-    const history = await historyAfter(deps.db, botId, seen.promptStartId);
+    const history = await historyAfter(
+      deps.db,
+      { botId, conversationId: seen.conversationId },
+      seen.promptStartId,
+    );
     const messages: ModelMessage[] = await resolveImageRefs(
       deps.blobStore,
       pruneScreenshots([
@@ -198,7 +202,7 @@ async function toSummarize(deps: BotSdkContext, botId: string): Promise<Seen | n
     .from(bot)
     .where(eq(bot.id, botId));
   if (!owner) return null;
-  const newest = await newestTurn(deps.db, botId);
+  const newest = await newestTurn(deps.db, { botId, conversationId: owner.conversationId });
   if (!newest || newest.status === "running") return null;
   const promptStartId = await latestPromptStartId(deps.db, botId);
   if (!promptStartId) return null;
@@ -210,8 +214,11 @@ async function toSummarize(deps: BotSdkContext, botId: string): Promise<Seen | n
   return { ...owner, turnId: newest.id, promptStartId };
 }
 
-/** The Bot's newest Turn. */
-async function newestTurn(db: BotSdkContext["db"] | Transaction, botId: string) {
+/** The Bot's newest Turn in its 1:1 Conversation: its Room Turns are not summarized here. */
+async function newestTurn(
+  db: BotSdkContext["db"] | Transaction,
+  { botId, conversationId }: BotConversation,
+) {
   const [row] = await db
     .select({
       id: botTurn.id,
@@ -220,7 +227,7 @@ async function newestTurn(db: BotSdkContext["db"] | Transaction, botId: string) 
       endedAt: botTurn.endedAt,
     })
     .from(botTurn)
-    .where(eq(botTurn.botId, botId))
+    .where(and(eq(botTurn.botId, botId), eq(botTurn.conversationId, conversationId)))
     .orderBy(desc(botTurn.startedAt), desc(botTurn.id))
     .limit(1);
   return row;
@@ -246,7 +253,7 @@ async function wakesSoon(
     deps.db
       .select({ id: botTrigger.id })
       .from(botTrigger)
-      .where(waitingIn(conversationId))
+      .where(waitingIn({ botId, conversationId }))
       .limit(1),
     deps.db
       .select({ id: botCheckIn.id })
@@ -272,7 +279,7 @@ async function wakesSoon(
 
 /** Whether a Turn started after the newest Turn the job saw, or its Prompt start was replaced. */
 async function turnedSince(tx: Transaction, botId: string, seen: Seen): Promise<boolean> {
-  const newest = await newestTurn(tx, botId);
+  const newest = await newestTurn(tx, { botId, conversationId: seen.conversationId });
   if (newest?.id !== seen.turnId) return true;
   return (await latestPromptStartId(tx, botId)) !== seen.promptStartId;
 }

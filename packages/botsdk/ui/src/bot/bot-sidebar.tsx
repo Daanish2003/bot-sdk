@@ -8,8 +8,12 @@ import { useChatAdapter, useI18n } from "@botsdk/react/provider";
 import { useSendingBotIds } from "@botsdk/react/bot/bot-turn";
 import { BotAvatar } from "./bot-avatar";
 import { NewBotDialog } from "./new-bot-dialog";
+import { RoomsNav } from "./rooms-nav";
 
-/** The Bots app's sidebar: the user's Bots, "+ New Bot", and the host's account menu at its foot. */
+/**
+ * The Bots app's sidebar: the user's Bots, "+ New Bot", their Rooms under them with "+ New Room",
+ * and the host's account menu at its foot.
+ */
 export function BotSidebar({ accountMenu }: { accountMenu?: ReactNode }) {
   const { orpc, Link } = useChatAdapter();
   const { t, locale } = useI18n();
@@ -33,48 +37,51 @@ export function BotSidebar({ accountMenu }: { accountMenu?: ReactNode }) {
           {t("bots.newBot")}
         </Button>
       </div>
-      <ul className="min-h-0 flex-1 overflow-y-auto">
-        {bots.data?.map((bot) => (
-          <li key={bot.id}>
-            <Link
-              page={{ to: "bots", id: bot.id }}
-              className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted"
-              activeClassName="bg-muted"
-            >
-              <BotAvatar name={bot.name} />
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span className="flex items-baseline justify-between gap-2">
-                  <span className="truncate text-sm font-medium">{bot.name}</span>
-                  {bot.lastMessage && (
-                    <time
-                      dateTime={bot.lastMessage.at.toISOString()}
-                      className="shrink-0 text-xs text-muted-foreground"
-                    >
-                      {dateFormat(locale, { hour: "numeric", minute: "2-digit" }).format(
-                        bot.lastMessage.at,
-                      )}
-                    </time>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <ul>
+          {bots.data?.map((bot) => (
+            <li key={bot.id}>
+              <Link
+                page={{ to: "bots", id: bot.id }}
+                className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted"
+                activeClassName="bg-muted"
+              >
+                <BotAvatar name={bot.name} />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="flex items-baseline justify-between gap-2">
+                    <span className="truncate text-sm font-medium">{bot.name}</span>
+                    {bot.lastMessage && (
+                      <time
+                        dateTime={bot.lastMessage.at.toISOString()}
+                        className="shrink-0 text-xs text-muted-foreground"
+                      >
+                        {dateFormat(locale, { hour: "numeric", minute: "2-digit" }).format(
+                          bot.lastMessage.at,
+                        )}
+                      </time>
+                    )}
+                  </span>
+                  {working(bot) ? (
+                    <span className="truncate text-xs text-muted-foreground">
+                      {t("bots.working")}
+                    </span>
+                  ) : (
+                    bot.lastMessage && (
+                      <span className="truncate text-xs text-muted-foreground">
+                        {bot.lastMessage.text}
+                      </span>
+                    )
                   )}
                 </span>
-                {working(bot) ? (
-                  <span className="truncate text-xs text-muted-foreground">
-                    {t("bots.working")}
-                  </span>
-                ) : (
-                  bot.lastMessage && (
-                    <span className="truncate text-xs text-muted-foreground">
-                      {bot.lastMessage.text}
-                    </span>
-                  )
-                )}
-              </span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-      {bots.data?.length === 0 && (
-        <p className="px-4 pb-4 text-xs text-muted-foreground">{t("bots.noBots")}</p>
-      )}
+              </Link>
+            </li>
+          ))}
+        </ul>
+        {bots.data?.length === 0 && (
+          <p className="px-4 pb-4 text-xs text-muted-foreground">{t("bots.noBots")}</p>
+        )}
+        <RoomsNav bots={bots.data ?? []} />
+      </div>
       {accountMenu && <div className="border-t p-3">{accountMenu}</div>}
       <NewBotDialog open={creating} onOpenChange={setCreating} />
     </aside>

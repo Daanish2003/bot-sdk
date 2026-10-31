@@ -70,6 +70,41 @@ export type BotThread = {
   lastSeq: number;
 };
 
+/**
+ * What a Room member is doing there (spec #1055): running a Turn in the Room (`working`), a Message
+ * waits for it (`queued`), or its Bot is paused (`paused`). Null when it is idle.
+ */
+export type RoomMemberStatus = "working" | "queued" | "paused";
+
+/** A Bot in a Room (spec #1055): the lead takes the user's Messages that mention no one. */
+export type RoomMember = {
+  botId: string;
+  name: string;
+  lead: boolean;
+  pausedAt: Date | null;
+  status: RoomMemberStatus | null;
+};
+
+/**
+ * A Room (spec #1055): a Conversation the user shares with two or more of their Bots, named by its
+ * title. Its members are in the order they joined, the lead first at creation.
+ */
+export type Room = {
+  conversationId: string;
+  name: string;
+  members: RoomMember[];
+  createdAt: Date;
+  lastMessageAt: Date;
+};
+
+/** One of the user's Rooms and its thread, as `rooms.get` reads it. */
+export type RoomThread = {
+  room: Room;
+  messages: BotMessage[];
+  /** The change log's newest seq when the thread was read: the cursor for `conversations.changes`. */
+  lastSeq: number;
+};
+
 /** A file the user stored to send their Bot. */
 export type BotUpload = { id: string; name: string; size: number; mediaType: string };
 
@@ -97,6 +132,12 @@ export const createBotInput = z.object({
 /** The input of the methods that act on one of the user's Bots, besides `userId`. */
 export const botInput = z.object({ botId: z.uuid() });
 
+/**
+ * `bots.stop`'s input, besides `userId`: the Bot, and the Conversation of the Turn to stop (its 1:1
+ * Conversation when not given, or one of its Rooms, spec #1055), as the Tasks view shows it.
+ */
+export const botStopInput = z.object({ botId: z.uuid(), conversationId: z.uuid().optional() });
+
 /** `bots.reset`'s input, besides `userId`: the Bot, and its name typed to confirm (spec #1007). */
 export const resetBotInput = z.object({ botId: z.uuid(), name: z.string().max(100) });
 
@@ -104,6 +145,37 @@ export const resetBotInput = z.object({ botId: z.uuid(), name: z.string().max(10
 export const conversationChangesInput = z.object({
   conversationId: z.uuid(),
   since: z.number().int().min(0),
+});
+
+/** `rooms.create`'s input, besides `userId`: the Room's name and its Bots, the first the lead. */
+export const createRoomInput = z.object({
+  name: z.string().trim().min(1).max(100),
+  botIds: z.array(z.uuid()).max(20),
+});
+
+/** The input of the methods that act on one of the user's Rooms, besides `userId`. */
+export const roomInput = z.object({ conversationId: z.uuid() });
+
+/** `rooms.rename`'s input, besides `userId`. */
+export const renameRoomInput = z.object({
+  conversationId: z.uuid(),
+  name: z.string().trim().min(1).max(100),
+});
+
+/** The input of the methods that act on one member of a Room, besides `userId`. */
+export const roomMemberInput = z.object({ conversationId: z.uuid(), botId: z.uuid() });
+
+/** `rooms.send`'s input, besides `userId`. */
+export const roomSendInput = z.object({
+  conversationId: z.uuid(),
+  // The caller's uuidv7 for the Message, as `bots.send` takes it: a resend saves nothing new.
+  id: z
+    .uuidv7()
+    .transform((id) => id.toLowerCase())
+    .optional(),
+  text: z.string().trim().min(1),
+  // The client's IANA zone; without one, the zone the user last sent from anywhere.
+  timeZone: z.string().refine(isTimeZone, "Not an IANA time zone").optional(),
 });
 
 /** `bots.send`'s input, besides `userId`. */
@@ -246,7 +318,7 @@ const bots = {
   /** Stores a file the user will send their Bot. Rate-limited like attachments. */
   upload: oc.input(uploadInput).output(type<BotUpload>()),
   /** Stops the user's Bot's running Turn. */
-  stop: oc.input(botInput).output(type<void>()),
+  stop: oc.input(botStopInput).output(type<void>()),
   /**
    * Pauses the user's Bot (spec #1007): its Turn and Helpers stop, what waits is skipped, and
    * nothing wakes it until it is resumed. Idempotent; another user's Bot is not found.
@@ -281,6 +353,33 @@ const conversations = {
    * one past its newest change, gets `reload`: read the thread afresh with `bots.get`.
    */
   changes: oc.input(conversationChangesInput).output(type<BotChanges>()),
+};
+
+/**
+ * The user's Rooms (spec #1055). Each checks that the Room is the user's; another user's is not
+ * found. Reading and syncing a Room's thread past `get` is `conversations.changes`.
+ */
+const rooms = {
+  /** The user's Rooms, the newest activity first. */
+  list: oc.output(type<Room[]>()),
+  /** One of the user's Rooms and its thread. */
+  get: oc.input(roomInput).output(type<RoomThread>()),
+  /** Creates a Room with two or more of the user's Bots; the first is the lead. */
+  create: oc.input(createRoomInput).output(type<Room>()),
+  /** Sends the user's Message to the Room, and returns it: it wakes the lead. */
+  send: oc.input(roomSendInput).output(botMessageSchema),
+  /** Renames the Room. */
+  rename: oc.input(renameRoomInput).output(type<void>()),
+  /** Adds one of the user's Bots, which sees the Room's history; a name that clashes is refused. */
+  addMember: oc.input(roomMemberInput).output(type<void>()),
+  /** Removes a member and cancels its work in the Room; refused when two members are left. */
+  removeMember: oc.input(roomMemberInput).output(type<void>()),
+  /** Makes a member the lead. Only the user changes the lead. */
+  setLead: oc.input(roomMemberInput).output(type<void>()),
+  /** Deletes the Room and its Messages; the Bots keep their Memory. */
+  delete: oc.input(roomInput).output(type<void>()),
+  /** Ends every Turn running in the Room and drops its waiting handoffs; Helpers and 1:1 Turns go on. */
+  stop: oc.input(roomInput).output(type<void>()),
 };
 
 /** The Routines of the user's Bots (#538). Approving or declining one never wakes the Bot. */
@@ -488,6 +587,7 @@ export const channelsContract = {
 export const botContract = {
   bots,
   conversations,
+  rooms,
   routines,
   checkIns,
   triggers,

@@ -17,6 +17,7 @@ import { botsdkSchema } from "../botsdk-schema";
 import { job } from "../runner/job";
 import type { MessageUsage } from "../../models/shared/usage";
 import { bot } from "./bot";
+import { conversation } from "../schema";
 import { botPromptStart } from "./bot-prompt-start";
 
 /** How a Turn stands: `running` until it ends `complete`, `error` or `stopped`. */
@@ -41,6 +42,10 @@ export const botTurn = botsdkSchema.table(
     botId: uuid("bot_id")
       .notNull()
       .references((): AnyPgColumn => bot.id, { onDelete: "cascade" }),
+    /** The Conversation the Turn runs in: the Bot's 1:1 Conversation, or a Room (spec #1055). */
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references((): AnyPgColumn => conversation.id, { onDelete: "cascade" }),
     status: botTurnStatus("status").notNull(),
     /** Why an `error` Turn failed. */
     error: text("error"),
@@ -86,10 +91,10 @@ export const botTurn = botsdkSchema.table(
   },
   (table) => [
     index("bot_turn_bot_id_started_at_idx").on(table.botId, table.startedAt.desc()),
-    // One running Turn per Bot (#499): it backs up the Conversation's row lock, so a missed lock is
-    // an error instead of a second running Turn. A Bot has exactly one Conversation.
-    uniqueIndex("bot_turn_running_bot_id_idx")
-      .on(table.botId)
+    // One running Turn per Bot and Conversation (#499, spec #1055): it backs up the Conversation's
+    // row lock, so a missed lock is an error instead of a second running Turn.
+    uniqueIndex("bot_turn_running_bot_id_conversation_id_idx")
+      .on(table.botId, table.conversationId)
       .where(sql`${table.status} = 'running'`),
   ],
 );

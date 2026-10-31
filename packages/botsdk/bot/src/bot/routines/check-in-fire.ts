@@ -6,7 +6,7 @@ import type { BotSdkContext, Transaction } from "../../plugin";
 import { defineCoreJob } from "../../runner/internal";
 import { checkInFireJobName, checkInKey, checkInNotice } from "./check-in";
 import { hintChanged, recordBotChange } from "../conversation";
-import { lockConversation, receive } from "../triggers";
+import { lockConversation, lockTurnConversations, receive } from "../triggers";
 
 /**
  * One Check-in's fire (#540), a single delayed job. Its Checkpoint hands the Router the Check-in's
@@ -60,7 +60,12 @@ async function fireCheckIn(
   checkInId: string,
 ): Promise<{ conversationId: string; woke: boolean } | null> {
   const [owner] = await tx
-    .select({ conversationId: bot.conversationId, userId: bot.userId, model: bot.model })
+    .select({
+      botId: bot.id,
+      conversationId: bot.conversationId,
+      userId: bot.userId,
+      model: bot.model,
+    })
     .from(botCheckIn)
     .innerJoin(bot, eq(bot.id, botCheckIn.botId))
     .where(eq(botCheckIn.id, checkInId));
@@ -70,7 +75,7 @@ async function fireCheckIn(
   const call = await deps.models.resolveModelCall(owner.userId, owner.model);
   const quotaSpent = call ? !(await call.meter.mayRun()).ok : false;
   const banned = await deps.isUserBlocked(owner.userId);
-  await lockConversation(tx, owner.conversationId);
+  await lockTurnConversations(tx, owner);
   const [row] = await tx
     .update(botCheckIn)
     .set({ state: "fired", updatedAt: deps.clock() })
@@ -84,10 +89,11 @@ async function fireCheckIn(
   const [seen] = await tx
     .select({ id: botTrigger.id })
     .from(botTrigger)
-    .where(eq(botTrigger.id, id));
+    .where(and(eq(botTrigger.id, id), eq(botTrigger.botId, owner.botId)));
   if (seen) return unwoken;
   await receive(deps, tx, {
     id,
+    botId: owner.botId,
     conversationId: owner.conversationId,
     source: "check_in",
     channel: "schedule",

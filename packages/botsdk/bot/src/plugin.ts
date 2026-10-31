@@ -10,6 +10,7 @@ import type { BotSdkRuntime } from "./runtime";
 import type { EnabledFeature } from "./feature";
 import type { BotApi } from "./bot/plugin";
 import type { ConversationsApi } from "./bot/conversations-api";
+import type { RoomsApi } from "./bot/rooms-api";
 import type { ScreensApi } from "./bot/screens-api";
 import type { SecretsApi } from "./bot/secrets-api";
 import type { CheckInsApi, RoutinesApi } from "./bot/routines-api";
@@ -64,6 +65,8 @@ export type BotSdkContext = {
   bots: BotApi;
   /** The core's Conversations (spec #873): their change hints and change log. */
   conversations: ConversationsApi;
+  /** The core's Rooms (spec #1055): Conversations the user shares with several of their Bots. */
+  rooms: RoomsApi;
   /** The core's Secrets (spec #873): the user's Secrets, shared by all their Bots. */
   secrets: SecretsApi;
   /** The Computer's Screen methods (spec #873): the live view of a Helper's Screen. */

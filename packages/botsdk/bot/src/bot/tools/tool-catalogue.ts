@@ -11,7 +11,14 @@ import { z } from "zod";
 
 import { message } from "../../storage";
 import type { BotSdkContext } from "../../plugin";
-import { lockConversation } from "../triggers";
+import {
+  type BotConversation,
+  handOff,
+  handoffOf,
+  hintBotThread,
+  lockConversation,
+  lockHandoff,
+} from "../triggers";
 import {
   type CatalogueTurn,
   type FeatureSection,
@@ -423,21 +430,32 @@ function coreToolsOf(
         if ("error" in copied) return copied;
         control = { kind: "files", files: copied.files };
       }
-      // The Message commits with its Checkpoint, so it is sent once across a crash.
+      // The Message commits with its Checkpoint, so it is sent once across a crash, and so are its
+      // handoffs to the Room's other Bots (spec #1055).
+      // Set only by a live write, afresh on each try of it: the Room Turns its handoffs started.
+      let started: BotConversation[] = [];
       const result = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
+        started = [];
         if (!text.trim()) return { error: emptyTextError };
-        await appendBotMessage(deps, tx, turn.conversationId, {
-          parts: control
-            ? controlParts(text, control, undefined, urgent)
-            : textParts(text, undefined, urgent),
+        const parts = control
+          ? controlParts(text, control, undefined, urgent)
+          : textParts(text, undefined, urgent);
+        const handoff = await handoffOf(tx, turn, text);
+        if (handoff) await lockHandoff(tx, turn, handoff);
+        const messageId = await appendBotMessage(deps, tx, turn, {
+          parts: handoff ? { ...parts, handoff } : parts,
           createdAt: deps.clock(),
           turnId: turn.id,
         });
+        if (handoff) started = await handOff(deps, tx, turn, messageId, handoff);
         return { sent: true };
       });
       if ("sent" in result) {
+        // A handoff may have started another Bot's Turn, also when this Checkpoint was replayed.
+        deps.runner.wake();
         if (last) onLastMessage();
         await hintChanged(deps, turn.conversationId);
+        for (const owner of started) await hintBotThread(deps, owner);
       }
       return result;
     },

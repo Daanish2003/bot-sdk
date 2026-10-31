@@ -11,7 +11,7 @@ import {
   webhookPayloadLabel,
   webhookTokenHash,
 } from "./routine";
-import { lockConversation, receive } from "../triggers";
+import { lockTurnConversations, receive } from "../triggers";
 import { hintChanged } from "../conversation";
 
 /** The largest webhook body a Routine takes (ADR 0021); a bigger one gets 413. */
@@ -123,6 +123,7 @@ async function receiveWebhook(
   const [owner] = await deps.db
     .select({
       routineId: botRoutine.id,
+      botId: bot.id,
       conversationId: bot.conversationId,
       userId: bot.userId,
       model: bot.model,
@@ -139,7 +140,7 @@ async function receiveWebhook(
 
   return deps.db.transaction(async (tx) => {
     // The Conversation's row lock first, as in every transaction that hands the Router a Trigger.
-    await lockConversation(tx, owner.conversationId);
+    await lockTurnConversations(tx, owner);
     const [routine] = await tx
       .select()
       .from(botRoutine)
@@ -152,11 +153,12 @@ async function receiveWebhook(
     const [seen] = await tx
       .select({ id: botTrigger.id })
       .from(botTrigger)
-      .where(eq(botTrigger.id, id));
+      .where(and(eq(botTrigger.id, id), eq(botTrigger.botId, owner.botId)));
     if (seen) return null;
     const now = deps.clock();
     await receive(deps, tx, {
       id,
+      botId: owner.botId,
       conversationId: owner.conversationId,
       source: "routine",
       channel: "webhook",

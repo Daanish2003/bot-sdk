@@ -43,6 +43,7 @@ const skipKeys = {
   cancelled: "bots.skipCancelled",
   paused: "bots.skipPaused",
   reset: "bots.skipReset",
+  hop_limit: "bots.skipHopLimit",
 } as const;
 
 /** What skipping a waiting Trigger needs. */
@@ -87,6 +88,7 @@ function useTriggerText() {
     if (trigger.source === "check_in") return t("bots.taskCheckInFire", { note: label });
     if (trigger.source === "helper") return t("bots.taskHelperReport", { gist: label });
     if (trigger.source === "approval") return t("bots.taskApprovalAnswer");
+    if (trigger.source === "agent") return t("bots.taskHandoff");
     return t("bots.taskUserMessage");
   };
 }
@@ -116,7 +118,8 @@ export function TasksPopover({
   ...actions
 }: {
   tasks: BotTasks;
-  onStopTurn: () => void;
+  /** Stops the running Turn, in the Conversation the view shows it in (spec #1055). */
+  onStopTurn: (conversationId: string) => void;
   /** Stops one Helper, or all of them with no id. */
   onStopHelper: (helperId?: string) => void;
   /** The Helpers (or `allHelpers`) with a stop in flight. */
@@ -185,7 +188,7 @@ export function TasksPopover({
                     size="icon-sm"
                     className="ml-auto"
                     aria-label={t("bots.stopTurn")}
-                    onClick={onStopTurn}
+                    onClick={() => onStopTurn(inProgress.turn!.conversationId)}
                   >
                     <XIcon />
                   </Button>

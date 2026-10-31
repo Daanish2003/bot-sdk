@@ -84,6 +84,7 @@ async function pausableBot({ rounds = [] }: { rounds?: Parameters<typeof round>[
   await db.insert(botTurn).values({
     id: turnId,
     botId,
+    conversationId,
     status: "complete",
     startedAt: new Date(sunday.getTime() - 60_000),
     endedAt: new Date(sunday.getTime() - 30_000),
@@ -228,6 +229,7 @@ describe("bots.pause", () => {
       const queued = `routine:${routines.scheduled}:2026-10-18T08:00:00.000Z`;
       await db.insert(botTrigger).values({
         id: queued,
+        botId,
         conversationId,
         source: "routine",
         channel: "schedule",
@@ -242,7 +244,9 @@ describe("bots.pause", () => {
       );
       const [helper] = await db.select().from(botHelper).where(eq(botHelper.id, helperId));
       expect(helper?.status).toBe("stopped");
-      expect(await db.select().from(botTrigger).where(waitingIn(conversationId))).toEqual([]);
+      expect(
+        await db.select().from(botTrigger).where(waitingIn({ botId, conversationId })),
+      ).toEqual([]);
       const [skipped] = await db.select().from(botTrigger).where(eq(botTrigger.id, queued));
       expect(skipped).toMatchObject({ turnId: null, skipReason: "paused" });
       expect(skipped?.skippedAt).not.toBeNull();
@@ -513,6 +517,7 @@ describe("bots.pause", () => {
         });
         await tx.insert(botTrigger).values({
           id: skippedId,
+          botId,
           conversationId,
           source: "user",
           channel: "web",
@@ -528,6 +533,7 @@ describe("bots.pause", () => {
         });
         await tx.insert(botTrigger).values({
           id: "email:hotel@mail.example",
+          botId,
           conversationId,
           source: "user",
           channel: "email",
@@ -545,9 +551,9 @@ describe("bots.pause", () => {
 
       expect((await client.bots.get({ botId })).bot.pausedAt).toBeNull();
       expect(await turnsOf(botId)).toEqual(turnsWhilePaused);
-      expect(await getTestDb().select().from(botTrigger).where(waitingIn(conversationId))).toEqual(
-        [],
-      );
+      expect(
+        await getTestDb().select().from(botTrigger).where(waitingIn({ botId, conversationId })),
+      ).toEqual([]);
 
       advanceTo(tuesdaySlot);
       await runDue();

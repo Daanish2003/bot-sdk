@@ -422,7 +422,7 @@ describe("exportUser across plugins", () => {
     );
 
     expect(exported.extra).toEqual({ savedPrompts: [] });
-    expect(exported.bot as BotExport).toEqual({ bots: [] });
+    expect(exported.bot as BotExport).toEqual({ bots: [], rooms: [] });
     expect(exported).not.toHaveProperty("memory");
     expect(exported).not.toHaveProperty("savedPrompts");
   });
@@ -458,7 +458,7 @@ describe("sdk.users on a Host's instance", () => {
     const exported = await sdk.users.export({ userId: owner.id });
     expect(exported).toMatchObject({
       version: 2,
-      bot: { bots: [] },
+      bot: { bots: [], rooms: [] },
       models: { imageModel: null },
       extra: { owner: owner.id },
     });
