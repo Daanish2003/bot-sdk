@@ -2,6 +2,25 @@
 
 Shared by the orchestrator and every implementer. Each bullet cost a past run a retry. Add new ones at the end of a run, in the section they belong to (SKILL.md step 5), and delete any that a run proves wrong.
 
+## The Linux machine (Omarchy, since 2026-11-01)
+
+The notes below were mostly written on Windows. Where they disagree, this section wins (#1117). Ignore CRLF, `taskkill`, Git Bash, Docker Desktop, WSL and "Filename too long".
+
+- **Ports:** Postgres is on `127.0.0.1:5433`, not 5435, and Redis is on 6380. E2B Embed runs directly on this machine and owns 5432, 6379, 9000 and 3000. Never touch its containers. `verify.sh` still says 5435, so the #1117 run used a copy in its scratchpad with the port changed.
+- **Vitest workers:** run with `--maxWorkers=2`. The whole suite through `pnpm test` at default workers cascaded.
+- **Cascades under load:** one hook timeout (`truncateAllTables`) closes the worker's pool, and everything after it fails on `select schemaname, tablename from pg_tables`. It hit 917, 76 and 1,136 tests in three verifies while agents were running, and none with the machine quiet. Group failures by first error before reading names, re-run the failing files alone, and run the verify that gates a push when no agent is testing.
+- **The e2e slot as a lock:** rather than naming one holder, a scratchpad `e2e.sh` wrapped Playwright in `flock`, so tickets queued for the fixed ports. Nothing collided across about 15 tickets that ran e2e.
+- **Tests failing on main here:** take a baseline first and ignore its failures in later verifies. On `main`, 1 of 2,978 failed (`bot-screen` "stopping a Computer-use Helper…"), and it passed in later runs.
+- **Reading `.env` is denied:** `cat .env` and even `ls .env` are refused, so don't put `.env` in a command. Evals that need it go in a scratchpad script the owner starts with `! bash <script>`. Make the script detach and log to a file, so the owner's line returns at once.
+- **Check a route before offering it:** the owner picked the ChatGPT plan for evals from a question that assumed the plan was linked, but a Docker wipe had removed it. Query `account where provider_id='chatgpt'` first. Linking also failed on a stray character in `CHATGPT_HOST_ID`, which shows in the authorize URL's `ext_agent_host_id`.
+- **Eval time:** all four of `eval:turn`, `rooms`, `channels` and `knowledge` took 13 minutes on the plan at concurrency 3, with no plan-limit errors. Earlier guesses were far too long.
+- **Stopping the run:** `TaskStop` on every agent, then SendMessage to resume, kept their work and context. After a session restart, a review the owner's stop had ended could not be resumed (SendMessage refused it) and needed the owner's word to start again.
+- **Implementers leave a criterion for later:** #1122 reported done with "seen in a browser" not done, and #1128's safety tests had never gone red. Both were sent back and finished quickly. Read each `acceptance` line, not only `status`.
+- **The branch review found what ticket reviews missed:** the worst was the Turn line missing from every ordinary Turn, across #1124 and #1126, hidden because the test's `afterTurn` always returned an element. Test a Host hook returning null, and no hook at all.
+- **`pnpm remove` can strip a worktree's `node_modules`:** after removing `marked` from `packages/ui`, one worktree lost `jsdom`, and a forced install took 19 minutes.
+- **Run vitest from a worktree's root, never `.claude/worktrees`:** one agent did and collected test files from every worktree there.
+- **A spec's external doc:** the demo script named in #1117 lives in a Claude Doc, not the repo, so an agent reported it missing. Ask the owner for such a link when a spec names something not in the repo.
+
 ## Worktrees and git
 
 - **Worktree paths:** ticket worktrees go in `.claude/worktrees/<N>` inside the repo (gitignored), and the integration worktree in `.claude/worktrees/integration-<spec>` (old runs leave undeletable folders behind, so a fixed name collides). The owner wants nothing in `hobby/` but `ai-chat` (2026-10-22): never create worktrees or scratch files beside the repo. Always pass agents **absolute** paths; a relative path once created a stray `hobby/hobby/`.
