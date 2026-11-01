@@ -377,7 +377,12 @@ describe("what a Message looks like on Telegram", () => {
     ["two italics in a row never read as underline", "*a*_b_", "_ab_"],
     ["bold in a link", "[**a** b](https://a.b)", "[*a* b](https://a.b/)"],
     ["a quote in a quote is one quote", "> a\n>\n> > b", ">a\n>\n>b"],
-    ["a code block leaves its quote", "> x\n>\n> ```\n> y\n> ```", ">x\n>\n```\ny\n```"],
+    ["a code block leaves its quote", "> x\n>\n> ```\n> y\n> ```", ">x\n\n```\ny\n```"],
+    [
+      "a quote goes on after its code block",
+      "> ```\n> y\n> ```\n>\n> b\n>\n> c",
+      "```\ny\n```\n\n>b\n>\n>c",
+    ],
     ["a table leaves its quote", "> | a |\n> |---|\n> | b |", "```\na\nb\n```"],
     ["bold closes at a line end", "**a\nb**", "*a*\n*b*"],
     ["bold closes at a line end in a quote", "> **a\nb**", ">*a*\n>*b*"],
@@ -394,6 +399,29 @@ describe("what a Message looks like on Telegram", () => {
     ["a remote image", "a ![p](https://e.vil/x.png) b", "a  b"],
   ])("never lets through %s", async (_, markdown, expected) => {
     expect(await sent(markdown)).toEqual([expected]);
+  });
+
+  it("shows whether a task is done", async () => {
+    expect(await sent("- [ ] todo\n- [x] done")).toEqual(["• ☐ todo\n• ☑ done"]);
+  });
+
+  it("leaves out a table with nothing in it", async () => {
+    expect(await sent("| |\n|-|\n\ntext")).toEqual(["text"]);
+  });
+
+  it("writes out an address too long to link, rather than never fitting a message", async () => {
+    const ascii = `https://x.com/${"u".repeat(4070)}`;
+    expect(await sent(ascii)).toEqual([ascii.replace(".", "\\.")]);
+
+    const parts = await sent(`hello\n\n[😀](https://x.com/${"中".repeat(500)})`);
+    expect(parts.length).toBeGreaterThan(1);
+    expect(parts.join("")).not.toContain("](");
+    expect(parts.map(reads).join("")).toContain(`😀 (https://x.com/${"%E4%B8%AD".repeat(10)}`);
+  });
+
+  it("still links a long address that fits", async () => {
+    const address = `https://x.com/${"u".repeat(1900)}`;
+    expect(await sent(`[a](${address})`)).toEqual([`[a](${address})`]);
   });
 
   it("writes a mailto link's address out, as Telegram links an address by itself", async () => {
@@ -447,6 +475,11 @@ describe("what a Message looks like on Telegram", () => {
       const parts = await sent(Array.from({ length: 1500 }, () => "> line").join("\n"));
       numbered(parts);
       for (const part of parts) expect(part.split("\n").every((l) => l.startsWith(">"))).toBe(true);
+    });
+
+    it("starts no part with the blank line where the last one filled up", async () => {
+      const parts = await sent(`${"a".repeat(4080)}\n\n${"b".repeat(100)}`);
+      expect(parts).toEqual([`${"a".repeat(4080)} \\(1/2\\)`, `${"b".repeat(100)} \\(2/2\\)`]);
     });
 
     it("never cuts an escape, a pair of surrogates or a link", async () => {

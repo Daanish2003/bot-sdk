@@ -1,4 +1,4 @@
-import { bareAddress, parseMessage, tableText } from "@botsdk/client/message-format";
+import { bareAddress, inlineText, parseMessage, tableText } from "@botsdk/client/message-format";
 import type { Block, Inline } from "@botsdk/client/message-format";
 
 /** Telegram's limit for one message's text, after entities are parsed. */
@@ -6,6 +6,9 @@ export const messageLimit = 4096;
 
 /** Room kept in each part for the ` (1/3)` marker, in the converted text. */
 const markerRoom = 16;
+
+/** The longest address kept as a link. The text can be cut across parts, and a link's address can't. */
+const linkAddressLimit = 2048;
 
 const special = /[_*[\]()~`>#+\-=|{}.!\\]/g;
 
@@ -44,15 +47,6 @@ const isLine = (item: Item): item is Line => "runs" in item;
 
 const isBlank = (item: Item) => isLine(item) && item.runs.length === 0;
 
-function nodeText(nodes: readonly Inline[]): string {
-  return nodes
-    .map((node) => {
-      if (node.type === "break") return " ";
-      return "children" in node ? nodeText(node.children) : node.text;
-    })
-    .join("");
-}
-
 /** `nodes` as the lines they make, each break starting a new one. */
 function runLines(nodes: readonly Inline[], format: Format = {}): Run[][] {
   const lines: Run[][] = [[]];
@@ -85,12 +79,12 @@ function runLines(nodes: readonly Inline[], format: Format = {}): Run[][] {
           walk(node.children, { ...current, strike: true });
           break;
         case "link":
-          if (node.href.startsWith("mailto:")) {
-            // Written out, as a Telegram link is only for a web address; it links the address itself.
+          if (node.href.startsWith("mailto:") || node.href.length > linkAddressLimit) {
+            // Written out: a Telegram link is only for a web address (it links an email address
+            // itself), and one that long might not fit a message.
             walk(node.children, current);
-            const address = node.href.slice("mailto:".length);
-            if (bareAddress(nodeText(node.children)) !== address) {
-              add({ ...current, text: ` (${address})` });
+            if (bareAddress(inlineText(node.children, false)) !== bareAddress(node.href)) {
+              add({ ...current, text: ` (${node.href.replace(/^mailto:/, "")})` });
             }
           } else walk(node.children, { ...current, href: node.href });
           break;
@@ -135,18 +129,21 @@ function blockItems(block: Block, quoted: boolean): Item[] {
     case "list":
       return listItems(block, quoted);
     case "table":
-      return [{ language: "", text: tableText(block) }];
+      return tableText(block).trim() ? [{ language: "", text: tableText(block) }] : [];
     case "rule":
       return [];
   }
 }
 
-/** `list` as lines, with a blank one between its blocks. */
+/** `list` as lines, with a blank one between its blocks, in the quote if both sides are. */
 function blocksItems(list: readonly Block[], quoted: boolean): Item[] {
-  return list
-    .map((block) => blockItems(block, quoted))
-    .filter((items) => items.length > 0)
-    .flatMap((items, at) => (at > 0 ? [{ quoted, runs: [] }, ...items] : items));
+  const groups = list.map((block) => blockItems(block, quoted)).filter((items) => items.length > 0);
+  return groups.flatMap((items, at) => {
+    const before = groups[at - 1]?.at(-1);
+    if (!before) return items;
+    const inQuote = quoted && isLine(before) && isLine(items[0] as Item);
+    return [{ quoted: inQuote, runs: [] }, ...items];
+  });
 }
 
 function renderRuns(runs: readonly Run[]): string {
@@ -222,20 +219,22 @@ function sliceItem(item: Item, from: number, to = Number.POSITIVE_INFINITY): Ite
 }
 
 /**
- * Cuts the longest prefix of `text` whose `length` fits `room`, preferring a line end. Only `text`
- * is ever cut, before any escaping, so an escape or a mark is never split.
+ * How much of `text` to cut: the longest prefix whose `length` (given its end) fits `room`,
+ * preferring a line end, and always something. Only `text` is ever cut, before any escaping, so an
+ * escape or a mark is never split.
  */
-function takePart(text: string, room: number, length: (text: string) => number): number {
-  if (length(text) <= room) return text.length;
+function takePart(text: string, room: number, length: (end: number) => number): number {
+  if (length(text.length) <= room) return text.length;
   let low = 1;
-  let high = text.length;
+  // Every character takes at least one.
+  let high = Math.min(text.length, room);
   while (low < high) {
     const mid = Math.ceil((low + high) / 2);
-    if (length(text.slice(0, mid)) <= room) low = mid;
+    if (length(mid) <= room) low = mid;
     else high = mid - 1;
   }
   const last = text.charCodeAt(low - 1);
-  if (last >= 0xd800 && last <= 0xdbff) low -= 1;
+  if (low > 1 && last >= 0xd800 && last <= 0xdbff) low -= 1;
   const lineEnd = text.lastIndexOf("\n", low - 1);
   if (lineEnd > low / 2) return lineEnd + 1;
   const space = text.lastIndexOf(" ", low - 1);
@@ -255,14 +254,14 @@ function fitItems(items: readonly Item[], room: number): Item[][] {
   };
   for (const whole of items) {
     let item = whole;
-    if (isBlank(item) && part.length === 0) continue;
     if (part.length > 0 && size + 1 + renderItem(item).length > room) finish();
+    if (isBlank(item) && part.length === 0) continue;
     while (renderItem(item).length > room) {
       const rest = item;
       const take = takePart(
         itemText(rest),
         room,
-        (prefix) => renderItem(sliceItem(rest, 0, prefix.length)).length,
+        (end) => renderItem(sliceItem(rest, 0, end)).length,
       );
       const head = sliceItem(rest, 0, take);
       parts.push([isLine(head) ? head : { ...head, text: head.text.replace(/\n$/, "") }]);
@@ -286,7 +285,7 @@ function plainPieces(text: string): string[] {
   const pieces: string[] = [];
   let rest = text;
   while (rest.length > 0) {
-    const take = takePart(rest, messageLimit, (part) => part.length);
+    const take = takePart(rest, messageLimit, (end) => end);
     pieces.push(rest.slice(0, take));
     rest = rest.slice(take);
   }

@@ -172,6 +172,17 @@ function tableCell(cell: Tokens.TableCell): Inline[] {
   return inlines(cell.tokens);
 }
 
+/** A list item's blocks. A task says whether it's done in its first text. */
+function listItem(item: Tokens.ListItem): Block[] {
+  const content = blocks(item.tokens);
+  if (!item.task) return content;
+  const children: Inline[] = [{ type: "text", text: item.checked ? "☑ " : "☐ " }];
+  const [first, ...rest] = content;
+  if (first?.type !== "paragraph") return [{ type: "paragraph", children }, ...content];
+  for (const node of first.children) pushInline(children, node);
+  return [{ ...first, children }, ...rest];
+}
+
 function blocks(tokens: readonly Token[]): Block[] {
   return tokens.flatMap((token): Block[] => {
     switch (token.type) {
@@ -204,7 +215,7 @@ function blocks(tokens: readonly Token[]): Block[] {
             type: "list",
             ordered,
             start: typeof start === "number" ? start : 1,
-            items: items.map((item) => blocks(item.tokens)),
+            items: items.map(listItem),
           },
         ];
       }
@@ -316,7 +327,7 @@ export function bareAddress(address: string): string {
 }
 
 /** `nodes` as text. `withAddresses` follows a link's text with its address, unless they're the same. */
-function inlineText(nodes: readonly Inline[], withAddresses: boolean): string {
+export function inlineText(nodes: readonly Inline[], withAddresses: boolean): string {
   return nodes
     .map((node) => {
       switch (node.type) {
