@@ -7,6 +7,7 @@ import {
   type RichControlKind,
 } from "@botsdk/client/bot/rich-control";
 import type { BotMessage, BotTurnStatus } from "@botsdk/client/bot/turn";
+import { oneLine } from "@botsdk/client/message-format";
 import { searchTextOf } from "@botsdk/client/message-parts";
 import { and, asc, desc, eq, gte, inArray, isNull, lt, notExists, or, sql } from "drizzle-orm";
 
@@ -429,7 +430,7 @@ export async function listBots(db: Database, userId: string): Promise<ListedBot[
     return {
       ...row,
       turnStatus: statuses.get(row.id) ?? null,
-      lastMessage: last ? { text: searchTextOf(last.parts), at: last.createdAt } : null,
+      lastMessage: last ? { text: oneLine(searchTextOf(last.parts)), at: last.createdAt } : null,
     };
   });
 }

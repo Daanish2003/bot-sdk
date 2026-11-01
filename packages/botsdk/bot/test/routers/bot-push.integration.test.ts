@@ -269,6 +269,53 @@ describe("a pushed Message", () => {
     },
   );
 
+  it.each([
+    [
+      "Markdown",
+      "## **Your** _train_ leaves [at 9](https://a.example).\nPlatform 4.",
+      "Your train leaves at 9.",
+    ],
+    [
+      "a Message opening with code",
+      "```ts\nconst a = 1;\n```\n\nThat's the fix.",
+      "That's the fix.",
+    ],
+    ["a Message of only code", "```\nconst a = 1;\n```", "Code"],
+    ["a Message of only a table", "| a |\n|---|\n| 1 |", "Table"],
+    [
+      "raw HTML and images",
+      "<script>alert(1)</script>\n\nHi ![x](https://evil.example/a.png)",
+      "Hi",
+    ],
+    ["a link to anywhere unsafe", "[Open me](javascript:alert(1))", "Open me"],
+  ])(
+    "is one clean line for %s, and the stored text stays the source",
+    timeout,
+    async (_name, text, body) => {
+      const { client, write, checkIn, settle, pushed, assistantMessages } = await checkingIn(text);
+      await client.notifications.push.subscribe(device("phone"));
+      await settle({ other: "push" });
+
+      await write("Remind me later");
+      await checkIn();
+
+      expect(pushed.map((one) => one.notification.body)).toEqual([body]);
+      const [, sent] = await assistantMessages();
+      expect(sent!.text).toBe(text);
+    },
+  );
+
+  it("is cut to the length a push holds", timeout, async () => {
+    const { client, write, checkIn, settle, pushed } = await checkingIn(`**${"a".repeat(300)}**`);
+    await client.notifications.push.subscribe(device("phone"));
+    await settle({ other: "push" });
+
+    await write("Remind me later");
+    await checkIn();
+
+    expect(pushed.map((one) => one.notification.body)).toEqual([`${"a".repeat(199)}…`]);
+  });
+
   it(
     "is an urgent one, when urgent Messages have no choice and a device is subscribed",
     timeout,
