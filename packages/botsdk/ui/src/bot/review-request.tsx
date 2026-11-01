@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import { dateFormat } from "@botsdk/react/intl";
 import { useI18n } from "@botsdk/react/provider";
+import { ApprovalCard, SettledLine } from "./approval-card";
 import { useRefusalToast } from "./refusal-toast";
 
 /** The call as the card shows it raw: a shell call's command, else its arguments. */
@@ -77,76 +78,73 @@ export function ReviewRequest({
               "text-red-600",
             ];
     return (
-      <div
+      <SettledLine
         data-review={review.id}
         data-state={review.state}
         title={review.reason}
-        className="flex items-center gap-2 self-center text-xs text-muted-foreground"
+        icon={<Icon className={`size-3 ${tone}`} />}
       >
-        <span className="h-px w-8 bg-border" />
-        <span className="inline-flex items-center gap-1">
-          <Icon className={`size-3 ${tone}`} />
-          {text}
-        </span>
-        <span className="h-px w-8 bg-border" />
-      </div>
+        {text}
+      </SettledLine>
     );
   }
 
   const seconds = Math.ceil(leftMs / 1000);
   const fraction = Math.min(1, leftMs / approvalWaitMs);
   return (
-    <div
+    <ApprovalCard
       data-review={review.id}
       data-state={review.state}
-      className="flex max-w-md flex-col gap-2 self-start overflow-hidden rounded-xl border border-amber-400 bg-amber-50 p-3 dark:bg-amber-950/30"
+      attention
+      icon={<ShieldAlertIcon className="size-4 text-amber-600" />}
+      title={review.summary}
+      actions={
+        <>
+          <Button size="sm" disabled={acting} onClick={() => run(onAllow(review.id))}>
+            {allowLabel ?? t("bots.reviewAllow")}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={acting}
+            onClick={() => run(onDeny(review.id))}
+          >
+            {t("bots.reviewDeny")}
+          </Button>
+          <span className="ml-auto text-xs text-muted-foreground">
+            {pending
+              ? t("bots.reviewPending", {
+                  expires: review.expiresAt
+                    ? dateFormat(locale, expiryFormat).format(review.expiresAt)
+                    : "",
+                })
+              : t("bots.reviewCountdown", { seconds })}
+          </span>
+        </>
+      }
+      foot={
+        !pending && (
+          <div
+            role="progressbar"
+            aria-label={t("bots.reviewCountdown", { seconds })}
+            aria-valuemin={0}
+            aria-valuemax={approvalWaitMs / 1000}
+            aria-valuenow={seconds}
+            className="h-1 bg-amber-200"
+          >
+            <div
+              className="h-full bg-amber-500 transition-[width] duration-200"
+              style={{ width: `${fraction * 100}%` }}
+            />
+          </div>
+        )
+      }
     >
-      <div className="flex items-center gap-2 text-sm font-medium">
-        <ShieldAlertIcon className="size-4 text-amber-600" />
-        {review.summary}
-      </div>
-      <div className="text-sm">{review.reason}</div>
+      <div>{review.reason}</div>
       {/* The whole command, wrapped and scrollable, so the user reads its end before Allow. */}
-      <pre className="max-h-40 overflow-y-auto rounded bg-background/70 px-2 py-1 text-xs break-all whitespace-pre-wrap">
+      <pre className="rounded bg-background/70 px-2 py-1 text-xs break-all whitespace-pre-wrap">
         <code>{rawCall(review)}</code>
       </pre>
-      <div className="flex items-center gap-2">
-        <Button size="sm" disabled={acting} onClick={() => run(onAllow(review.id))}>
-          {allowLabel ?? t("bots.reviewAllow")}
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={acting}
-          onClick={() => run(onDeny(review.id))}
-        >
-          {t("bots.reviewDeny")}
-        </Button>
-        <span className="ml-auto text-xs text-muted-foreground">
-          {pending
-            ? t("bots.reviewPending", {
-                expires: review.expiresAt
-                  ? dateFormat(locale, expiryFormat).format(review.expiresAt)
-                  : "",
-              })
-            : t("bots.reviewCountdown", { seconds })}
-        </span>
-      </div>
-      {!pending && (
-        <div
-          role="progressbar"
-          aria-label={t("bots.reviewCountdown", { seconds })}
-          aria-valuemin={0}
-          aria-valuemax={approvalWaitMs / 1000}
-          aria-valuenow={seconds}
-          className="-mx-3 -mb-3 h-1 bg-amber-200"
-        >
-          <div
-            className="h-full bg-amber-500 transition-[width] duration-200"
-            style={{ width: `${fraction * 100}%` }}
-          />
-        </div>
-      )}
-    </div>
+    </ApprovalCard>
   );
 }

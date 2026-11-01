@@ -156,7 +156,7 @@ describe("the Waiting N popover", { timeout: 30_000 }, () => {
     const raw = card.querySelector("pre")!;
     expect(raw.textContent).toBe(command);
     expect(raw.className).toContain("whitespace-pre-wrap");
-    expect(raw.className).toContain("overflow-y-auto");
+    expect(raw.closest("[data-approval-body]")!.className).toContain("overflow-y-auto");
     expect(screen.getByText("Rules for all your Bots →")).toBeTruthy();
   });
 

@@ -2,6 +2,8 @@ import { Markdown } from "@/components/ui/prompt-kit/markdown";
 import { cn } from "@/lib/utils";
 import type { ComponentProps, ReactNode } from "react";
 
+import { MessageCodeBlock, MessagePre, MessageTable, wholeMessageJson } from "./message-code-block";
+
 type MarkdownComponents = NonNullable<ComponentProps<typeof Markdown>["components"]>;
 
 const linkSchemes = new Set(["http:", "https:", "mailto:"]);
@@ -42,6 +44,8 @@ const safeComponents: MarkdownComponents = {
       </a>
     );
   },
+  pre: MessagePre,
+  table: MessageTable,
   // A remote image tells its server the reader's IP, so an image is only ever its alt text.
   img: function SafeImage({ alt }) {
     return alt ? <span className="text-muted-foreground">{alt}</span> : null;
@@ -84,6 +88,7 @@ export function Message({
   children?: ReactNode;
 }) {
   const own = role === "user";
+  const json = own ? null : wholeMessageJson(text);
   return (
     <div
       className={cn(
@@ -103,7 +108,13 @@ export function Message({
             pending && "opacity-70",
           )}
         >
-          {own ? text : <MessageMarkdown>{text}</MessageMarkdown>}
+          {own ? (
+            text
+          ) : json ? (
+            <MessageCodeBlock code={json} language="json" />
+          ) : (
+            <MessageMarkdown>{text}</MessageMarkdown>
+          )}
         </div>
       )}
       {children}
