@@ -24,7 +24,7 @@ export function BotMemoryChip({ changes }: { changes: BotMemoryChange[] | null }
       <button
         type="button"
         aria-expanded={open}
-        className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5"
+        className="inline-flex items-center gap-1 rounded px-1 hover:text-foreground"
         onClick={() => setOpen(!open)}
       >
         <BrainIcon className="size-3" />

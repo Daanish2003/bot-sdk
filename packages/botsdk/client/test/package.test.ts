@@ -11,7 +11,13 @@ const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.
 };
 
 /** Browser-safe packages the client may depend on: no server code, no database, no SDK server. */
-const browserSafe = new Set(["@orpc/client", "@orpc/contract", "@orpc/tanstack-query", "zod"]);
+const browserSafe = new Set([
+  "@orpc/client",
+  "@orpc/contract",
+  "@orpc/tanstack-query",
+  "marked",
+  "zod",
+]);
 
 describe("@botsdk/client", () => {
   it("imports every entry of its export map by name", async () => {

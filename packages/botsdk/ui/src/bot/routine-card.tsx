@@ -1,19 +1,11 @@
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { type BotRoutine, scheduleText } from "@botsdk/client/bot/routine";
 import { ClockIcon, WebhookIcon } from "lucide-react";
-import { useId } from "react";
 import { toast } from "sonner";
 
 import { useChatAdapter, useI18n } from "@botsdk/react/provider";
 import { serverErrorText } from "@botsdk/react/rpc-error";
+import { ApprovalCard, SettledLine } from "./approval-card";
 import { useRefusalToast } from "./refusal-toast";
 import { runTime } from "./run-divider";
 
@@ -41,38 +33,32 @@ export function RoutineCard({
 } & RoutineActionHandlers) {
   const i18n = useI18n();
   const { t } = i18n;
-  const titleId = useId();
   const run = useRefusalToast();
   const busy = actions.actingRoutines.has(routine.id);
 
   if (routine.state !== "pending") {
     const divider = (
-      <div
+      <SettledLine
         data-routine={routine.name}
         data-state={routine.state}
-        className="flex items-center gap-2 self-center text-xs text-muted-foreground"
+        icon={<RoutineIcon routine={routine} className="size-3" />}
+        actions={<RoutineActions routine={routine} {...actions} />}
       >
-        <span className="h-px w-8 bg-border" />
-        <span className="inline-flex items-center gap-1">
-          <RoutineIcon routine={routine} className="size-3" />
-          {routine.state === "paused"
-            ? t("bots.routinePaused", { name: routine.name })
-            : routine.nextRunAt
-              ? t("bots.routineApprovedNext", {
-                  name: routine.name,
-                  time: runTime(i18n.locale, routine.nextRunAt),
-                })
-              : t("bots.routineApproved", { name: routine.name })}
-        </span>
-        <RoutineActions routine={routine} {...actions} />
-        <span className="h-px w-8 bg-border" />
-      </div>
+        {routine.state === "paused"
+          ? t("bots.routinePaused", { name: routine.name })
+          : routine.nextRunAt
+            ? t("bots.routineApprovedNext", {
+                name: routine.name,
+                time: runTime(i18n.locale, routine.nextRunAt),
+              })
+            : t("bots.routineApproved", { name: routine.name })}
+      </SettledLine>
     );
     if (!routine.webhook || !webhookToken) return divider;
     return (
       <>
         {divider}
-        <div className="w-full max-w-md self-center">
+        <div className="w-full">
           <WebhookUrl routineId={routine.id} token={webhookToken} />
         </div>
       </>
@@ -80,46 +66,46 @@ export function RoutineCard({
   }
 
   return (
-    <Card
-      role="group"
-      aria-labelledby={titleId}
+    <ApprovalCard
       data-routine={routine.name}
       data-state={routine.state}
-      size="sm"
-      className="max-w-md self-start"
+      title={t("bots.routineCreated", { name: routine.name })}
+      status={
+        <>
+          <div>
+            {routine.schedule
+              ? t("bots.routineRuns", {
+                  schedule: scheduleText(routine.schedule),
+                  timeZone: routine.timeZone,
+                })
+              : t("bots.routineRunsOnWebhook")}
+          </div>
+          {/* So an Approval that turns read-only on, or off, says so (spec #1024). */}
+          {routine.readOnly ? (
+            <div>{t("bots.routineReadOnlyNote")}</div>
+          ) : (
+            readOnlyChanged && <div>{t("bots.routineNoLongerReadOnly")}</div>
+          )}
+        </>
+      }
+      actions={
+        <>
+          <Button size="sm" disabled={busy} onClick={() => run(onApprove(routine.id))}>
+            {t("bots.approve")}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={() => run(onDecline(routine.id))}
+          >
+            {t("bots.decline")}
+          </Button>
+        </>
+      }
     >
-      <CardHeader>
-        <CardTitle id={titleId}>{t("bots.routineCreated", { name: routine.name })}</CardTitle>
-        <CardDescription>
-          {routine.schedule
-            ? t("bots.routineRuns", {
-                schedule: scheduleText(routine.schedule),
-                timeZone: routine.timeZone,
-              })
-            : t("bots.routineRunsOnWebhook")}
-        </CardDescription>
-        {/* So an Approval that turns read-only on, or off, says so (spec #1024). */}
-        {routine.readOnly ? (
-          <CardDescription>{t("bots.routineReadOnlyNote")}</CardDescription>
-        ) : (
-          readOnlyChanged && <CardDescription>{t("bots.routineNoLongerReadOnly")}</CardDescription>
-        )}
-      </CardHeader>
-      <CardContent className="text-sm whitespace-pre-wrap">{routine.prompt}</CardContent>
-      <CardFooter className="gap-2">
-        <Button size="sm" disabled={busy} onClick={() => run(onApprove(routine.id))}>
-          {t("bots.approve")}
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy}
-          onClick={() => run(onDecline(routine.id))}
-        >
-          {t("bots.decline")}
-        </Button>
-      </CardFooter>
-    </Card>
+      <p className="whitespace-pre-wrap">{routine.prompt}</p>
+    </ApprovalCard>
   );
 }
 

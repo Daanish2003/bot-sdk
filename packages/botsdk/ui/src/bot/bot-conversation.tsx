@@ -25,8 +25,10 @@ import { useBotReactions } from "@botsdk/react/bot/reactions";
 import { useBotUploads } from "@botsdk/react/bot/uploads";
 import { useBotSecrets } from "@botsdk/react/bot/secrets";
 import { useCacheWarming } from "@botsdk/react/bot/warm";
+import { BackToBots } from "./back-to-bots";
 import { BotAvatar } from "./bot-avatar";
 import { BotMenu, PausedBadge, PausedBanner, ResetDivider } from "./bot-menu";
+import { BotTurnLine } from "./bot-turn-line";
 import { AttachButton, DraftFileChips } from "./draft-files";
 import { ReactionBar, ReactionChips } from "./reactions";
 import { CheckInLine } from "./check-in-line";
@@ -62,7 +64,7 @@ export function BotConversation({
   headerEnd?: ReactNode;
   /**
    * What the Host shows under the last Bot Message a Turn sent, such as the `memory` plugin's
-   * "Memory updated" chip. It may return nothing.
+   * "Memory updated" chip. It shows on the left of the Turn's one muted line, whose right holds the cache figures (#1124). It may return nothing.
    */
   afterTurn?: (turn: BotTurnProvenance) => ReactNode;
   /** The Host's renderers for the Rich control kinds it draws itself. */
@@ -347,7 +349,7 @@ function BotConversationView({
           {nevers.map((review) => (
             <NeverAllowedLine key={review.id} review={review} />
           ))}
-          {shown}
+          {(turn.steps.length > 0 || shown) && <BotTurnLine steps={turn.steps} saved={shown} />}
         </Fragment>,
       ]);
   }
@@ -375,11 +377,12 @@ function BotConversationView({
         uploads.add(event.dataTransfer.files);
       }}
     >
-      <header className="flex flex-wrap items-center gap-3 border-b px-4 py-3">
+      <header className="flex items-center gap-2 border-b px-4 py-3 md:flex-wrap md:gap-3">
+        <BackToBots />
         <BotAvatar name={bot.name} size={28} />
-        <h1 className="font-semibold">{bot.name}</h1>
+        <h1 className="min-w-0 truncate font-semibold">{bot.name}</h1>
         {paused && <PausedBadge />}
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+        <div className="ml-auto flex items-center justify-end gap-2 max-md:relative md:flex-wrap">
           {tasks && (
             <TasksPopover
               tasks={tasks}
@@ -564,7 +567,7 @@ function BotConversationView({
               <p className="self-end text-xs text-muted-foreground">{t("bots.seen")}</p>
             )}
             {message.id === failedMessageId && (
-              <p className="self-end text-xs text-muted-foreground">{t("bots.couldntReply")}</p>
+              <p className="self-end text-xs text-red-500">{t("bots.couldntReply")}</p>
             )}
             {checkInsAfter.get(message.id)?.map(checkInLine)}
             {helpersAfter.get(message.id)?.map(helperCard)}

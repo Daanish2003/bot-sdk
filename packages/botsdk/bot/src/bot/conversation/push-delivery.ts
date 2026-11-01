@@ -4,6 +4,7 @@ import { bot, message, pushSubscription } from "../../storage";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import type { PushNotification, WebPushChannel } from "../../channel/internal";
 import { authoredBy, notificationOf } from "./rooms";
+import { oneLine } from "@botsdk/client/message-format";
 import { searchTextOf } from "@botsdk/client/message-parts";
 
 /** The longest push body: a push's payload is small (about 4 KB), and a notification shows less. */
@@ -22,19 +23,15 @@ export async function hasPushSubscription(
   return row !== undefined;
 }
 
-/** The first non-empty line of `text`, cut to `maxBodyLength`. */
-function firstLineOf(text: string): string {
-  const line =
-    text
-      .split("\n")
-      .map((one) => one.trim())
-      .find(Boolean) ?? "";
+/** `text` as one clean line, cut to `maxBodyLength`. */
+function bodyOf(text: string): string {
+  const line = oneLine(text);
   return line.length > maxBodyLength ? `${line.slice(0, maxBodyLength - 1)}…` : line;
 }
 
 /**
  * Pushes Bot Message `messageId` to each of its user's devices: the Bot's name (in a Room, the
- * Room's and the Bot's) and the Message's first line, opening the Conversation. A device whose push service answers 404 or 410 is gone, so
+ * Room's and the Bot's) and the Message as one clean line, opening the Conversation. A device whose push service answers 404 or 410 is gone, so
  * its subscription is deleted and not retried. Any other failure throws once every device was
  * tried, and the runner retries the job: a device pushed again gets the same `tag`, which replaces
  * the notification it already shows. A Message or Bot deleted since pushes nothing.
@@ -63,7 +60,7 @@ export async function sendPushDelivery(
   const source = await notificationOf(deps.db, row);
   const notification: PushNotification = {
     title: source.title,
-    body: firstLineOf(searchTextOf(row.parts)),
+    body: bodyOf(searchTextOf(row.parts)),
     url: `${push.appUrl}${source.path}`,
     tag: messageId,
   };

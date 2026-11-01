@@ -112,6 +112,7 @@ describe("the Never-allowed divider", () => {
 
     const line = divider.closest("[data-never-allowed]");
     expect(line?.getAttribute("title")).toBe("moving money between accounts");
+    expect(line?.className).toContain("text-red-500");
     expect(document.querySelector('[data-id="m2"]')?.compareDocumentPosition(line!)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );

@@ -13,7 +13,7 @@ export function NeverAllowedLine({ review }: { review: BotReview }) {
     <div
       data-never-allowed={review.id}
       title={review.reason}
-      className="flex items-center gap-2 self-center text-xs text-muted-foreground"
+      className="flex items-center gap-2 self-center text-xs text-red-500"
     >
       <span className="h-px w-8 bg-border" />
       <span className="inline-flex items-center gap-1">

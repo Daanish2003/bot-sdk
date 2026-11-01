@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { useI18n, useOrpc } from "@botsdk/react/provider";
 import { serverErrorText } from "@botsdk/react/rpc-error";
+import { headerPopoverTrigger } from "../bot/header-popover";
 
 /**
  * The Bot header's **Email** button (spec #761, prototype variant A): a popover with the Bot's own
@@ -56,7 +57,9 @@ export function EmailPopover({ botId }: { botId: string }) {
         if (!next) setConfirming(false);
       }}
     >
-      <PopoverTrigger render={<Button variant="outline" size="sm" />}>
+      <PopoverTrigger
+        render={<Button variant="outline" size="sm" {...headerPopoverTrigger("email")} />}
+      >
         <MailIcon /> {t("bots.email")}
       </PopoverTrigger>
       <PopoverContent align="end" className="flex w-96 flex-col gap-2">
