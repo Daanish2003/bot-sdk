@@ -56,7 +56,7 @@ export function BotTurnLine({
       {open && (
         <div id={panelId} className="flex flex-col gap-3 rounded-lg border p-2">
           {activity}
-          <CacheSteps steps={steps} />
+          {steps.length > 0 && <CacheSteps steps={steps} />}
         </div>
       )}
     </div>

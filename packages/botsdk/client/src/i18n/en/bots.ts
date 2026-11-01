@@ -263,8 +263,6 @@ description: Use this when
   "bots.cacheSummaryStep": ({ percent, cost }: { percent: number; cost: string }) =>
     `Summary · ${percent}% cached · ${cost}`,
   "bots.neverAllowed": ({ summary }: { summary: string }) => `Never allowed · ${summary}`,
-  "bots.reviewPasses": ({ count }: { count: number }) =>
-    `✓ ${count} ${count === 1 ? "call" : "calls"} auto-approved`,
   "bots.activity": "Activity",
   "bots.activityCommand": "Command",
   "bots.activityOutput": "Output",

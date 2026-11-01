@@ -1043,7 +1043,13 @@ export function reviewOutputOf(result: unknown): string | null {
   const parts = [stdout, stderr, error].filter(
     (part): part is string => typeof part === "string" && part !== "",
   );
-  return parts.length > 0 ? parts.join("\n").slice(0, reviewOutputLimit) : null;
+  if (parts.length === 0) return null;
+  // Postgres text refuses NUL; a cut must not leave half of a surrogate pair.
+  return parts
+    .join("\n")
+    .replaceAll("\0", "")
+    .slice(0, reviewOutputLimit)
+    .replace(/[\ud800-\udbff]$/, "");
 }
 
 /** Saves what call `toolCallId` printed on its review, which belongs to the Turn or Helper `source`. */

@@ -812,8 +812,11 @@ export async function runLoop(
           onLiveComputer,
         );
         // The masked output stays on the call's review, for the activity rows (spec #1117).
+        // Cosmetic: a failed write must not fail the step, which would run the command again.
         if (options.review && context?.toolCallId) {
-          await recordReviewOutput(deps.db, options.review, context.toolCallId, ran);
+          await recordReviewOutput(deps.db, options.review, context.toolCallId, ran).catch(
+            () => {},
+          );
         }
         return ran;
       });
