@@ -1,17 +1,49 @@
 import { cn } from "@ai-chat/ui/lib/utils";
 import React, { useEffect, useState } from "react";
 import { createBundledHighlighter, createSingletonShorthands } from "shiki/dist/core.mjs";
+import type { DynamicImportLanguageRegistration } from "shiki/types";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
-import { bundledLanguages } from "shiki/langs";
-import { bundledThemes } from "shiki/themes";
 
 // Fix when vendoring: the JavaScript regex engine instead of Oniguruma, whose wasm import
 // the SSR (Nitro) build can't bundle. `shiki/dist/core.mjs` skips the `unwasm` export condition,
 // which would load the Oniguruma wasm anyway.
+const typescript = () => import("shiki/langs/typescript.mjs");
+const javascript = () => import("shiki/langs/javascript.mjs");
+const shell = () => import("shiki/langs/shellscript.mjs");
+const python = () => import("shiki/langs/python.mjs");
+const yaml = () => import("shiki/langs/yaml.mjs");
+// About 10 languages and one theme, so the rest of shiki's bundle never ships. A null prototype:
+// shiki would load `Object` for a fence named `constructor`, which breaks its shared highlighter.
+const languages: Record<string, DynamicImportLanguageRegistration> = Object.assign(
+  Object.create(null),
+  {
+    typescript,
+    ts: typescript,
+    tsx: () => import("shiki/langs/tsx.mjs"),
+    jsx: () => import("shiki/langs/jsx.mjs"),
+    javascript,
+    js: javascript,
+    json: () => import("shiki/langs/json.mjs"),
+    shellscript: shell,
+    bash: shell,
+    sh: shell,
+    shell,
+    zsh: shell,
+    python,
+    py: python,
+    html: () => import("shiki/langs/html.mjs"),
+    css: () => import("shiki/langs/css.mjs"),
+    sql: () => import("shiki/langs/sql.mjs"),
+    yaml,
+    yml: yaml,
+  },
+);
+const theme = "github-dark-default";
+
 const { codeToHtml } = createSingletonShorthands(
   createBundledHighlighter({
-    langs: bundledLanguages,
-    themes: bundledThemes,
+    langs: languages,
+    themes: { [theme]: () => import("shiki/themes/github-dark-default.mjs") },
     engine: () => createJavaScriptRegexEngine(),
   }),
 );
@@ -39,17 +71,10 @@ function CodeBlock({ children, className, ...props }: CodeBlockProps) {
 export type CodeBlockCodeProps = {
   code: string;
   language?: string;
-  theme?: string;
   className?: string;
 } & React.HTMLProps<HTMLDivElement>;
 
-function CodeBlockCode({
-  code,
-  language = "tsx",
-  theme = "github-dark-default",
-  className,
-  ...props
-}: CodeBlockCodeProps) {
+function CodeBlockCode({ code, language = "tsx", className, ...props }: CodeBlockCodeProps) {
   const [highlightedHtml, setHighlightedHtml] = useState<string | null>(null);
 
   useEffect(() => {
@@ -64,7 +89,7 @@ function CodeBlockCode({
       setHighlightedHtml(html);
     }
     highlight();
-  }, [code, language, theme]);
+  }, [code, language]);
 
   const classNames = cn("w-full overflow-x-auto text-[13px] [&>pre]:px-4 [&>pre]:py-4", className);
 

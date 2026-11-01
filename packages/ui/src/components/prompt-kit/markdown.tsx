@@ -1,6 +1,5 @@
 import { cn } from "@ai-chat/ui/lib/utils";
-import { marked } from "marked";
-import { memo, useId, useMemo } from "react";
+import { isValidElement, memo, type ReactNode, useId, useMemo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
@@ -13,44 +12,37 @@ export type MarkdownProps = {
   components?: Partial<Components>;
 };
 
-function parseMarkdownIntoBlocks(markdown: string): string[] {
-  const tokens = marked.lexer(markdown);
-  return tokens.map((token) => token.raw);
-}
-
 function extractLanguage(className?: string): string {
   if (!className) return "plaintext";
   const match = className.match(/language-(\w+)/);
-  return match?.[1] ?? "plaintext";
+  return match?.[1]?.toLowerCase() ?? "plaintext";
 }
 
 const INITIAL_COMPONENTS: Partial<Components> = {
-  code: function CodeComponent({ className, children, ...props }) {
-    const isInline =
-      !props.node?.position?.start.line ||
-      props.node?.position?.start.line === props.node?.position?.end.line;
-
-    if (isInline) {
-      return (
-        <span
-          className={cn("bg-primary-foreground rounded-sm px-1 font-mono text-sm", className)}
-          {...props}
-        >
-          {children}
-        </span>
-      );
-    }
-
-    const language = extractLanguage(className);
-
+  // A fence is a `code` directly inside a `pre`, which `pre` below draws. Any other is inline.
+  code: function CodeComponent({ node: _node, className, children, ...props }) {
     return (
-      <CodeBlock className={className}>
-        <CodeBlockCode code={children as string} language={language} />
-      </CodeBlock>
+      <code
+        className={cn("bg-primary-foreground rounded-sm px-1 font-mono text-sm", className)}
+        {...props}
+      >
+        {children}
+      </code>
     );
   },
   pre: function PreComponent({ children }) {
-    return <>{children}</>;
+    if (!isValidElement<{ className?: string; children?: ReactNode }>(children))
+      return <pre>{children}</pre>;
+    const { className, children: code } = children.props;
+
+    return (
+      <CodeBlock className={className}>
+        <CodeBlockCode
+          code={String(code ?? "").replace(/\n$/, "")}
+          language={extractLanguage(className)}
+        />
+      </CodeBlock>
+    );
   },
   // A remote image would fetch from a third-party host (and leak the reader's IP). Only data: sources render;
   // anything else shows its alt text.
@@ -60,46 +52,26 @@ const INITIAL_COMPONENTS: Partial<Components> = {
   },
 };
 
-const MemoizedMarkdownBlock = memo(
-  function MarkdownBlock({
-    content,
-    components = INITIAL_COMPONENTS,
-  }: {
-    content: string;
-    components?: Partial<Components>;
-  }) {
-    return (
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={components}>
-        {content}
-      </ReactMarkdown>
-    );
-  },
-  function propsAreEqual(prevProps, nextProps) {
-    return prevProps.content === nextProps.content && prevProps.components === nextProps.components;
-  },
-);
-
-MemoizedMarkdownBlock.displayName = "MemoizedMarkdownBlock";
-
 function MarkdownComponent({ children, id, className, components: overrides }: MarkdownProps) {
   const generatedId = useId();
-  const blockId = id ?? generatedId;
-  const blocks = useMemo(() => parseMarkdownIntoBlocks(children), [children]);
   // Overrides (a link renderer, say) keep the code block renderers. Pass a stable object.
   const components = useMemo(
     () => (overrides ? { ...INITIAL_COMPONENTS, ...overrides } : INITIAL_COMPONENTS),
     [overrides],
   );
 
+  // Parsed whole, so a footnote or reference link finds its definition in any block.
   return (
     <div className={className}>
-      {blocks.map((block, index) => (
-        <MemoizedMarkdownBlock
-          key={`${blockId}-block-${index}`}
-          content={block}
-          components={components}
-        />
-      ))}
+      <ReactMarkdown
+        // Strikethrough only on `~~`: a Bot's `5~10~20` is a range.
+        remarkPlugins={[[remarkGfm, { singleTilde: false }], remarkBreaks]}
+        // Each Markdown's footnotes link inside it, however many are on the page.
+        remarkRehypeOptions={{ clobberPrefix: `${id ?? generatedId}-` }}
+        components={components}
+      >
+        {children}
+      </ReactMarkdown>
     </div>
   );
 }

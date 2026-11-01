@@ -24,6 +24,8 @@ The core depends on `@tanstack/ai` and no model Provider. The Host installs the 
 
 - `button`, `card`, `dialog`, `input`, `label`, `popover`, `select`, `textarea`, `attachment`
 
+`@botsdk/ui` also imports `@/components/ui/prompt-kit/markdown`, which draws a Bot's Messages. The CLI's `@prompt-kit/markdown` may land elsewhere, so check its path and move its `markdown.tsx` and `code-block.tsx` there. The SDK supplies the rules for links and images itself, so they hold on that copy. Highlighted code and footnotes across blocks need this repo's `packages/ui/src/components/prompt-kit/` instead.
+
 ## Tailwind v4
 
 `@botsdk/ui` uses Tailwind v4 classes. In your global stylesheet, import Tailwind and then the SDK's `theme.css`:
@@ -33,6 +35,8 @@ The core depends on `@tanstack/ai` and no model Provider. The Host installs the 
 @import "tw-animate-css";
 @import "@botsdk/ui/theme.css";
 ```
+
+A Bot's Messages use the `prose` classes, so your stylesheet also needs `@plugin "@tailwindcss/typography";`.
 
 `theme.css` starts with `@source` lines (`@source "./<folder>";` for each folder of screens), which tell Tailwind to scan those folders. Your shadcn theme variables (`--background`, `--primary`, and so on) must also be defined in your stylesheet.
 
