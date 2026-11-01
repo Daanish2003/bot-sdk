@@ -19,6 +19,7 @@ export function ApprovalCard({
   actions,
   foot,
   className,
+  bodyClassName,
   ...rest
 }: {
   title: ReactNode;
@@ -28,10 +29,12 @@ export function ApprovalCard({
   attention?: boolean;
   /** What the card is about. Scrolls inside the card when long. */
   children?: ReactNode;
-  /** The card's buttons; they never scroll away. */
-  actions: ReactNode;
+  /** The card's buttons; they never scroll away. Omit for a card with none. */
+  actions?: ReactNode;
   /** Full-width content under the actions, such as a countdown bar. */
   foot?: ReactNode;
+  /** For a body that must not scroll, such as a live view: `max-h-none`. */
+  bodyClassName?: string;
 } & Omit<ComponentProps<"div">, "title" | "children" | "ref">) {
   const titleId = useId();
   return (
@@ -55,15 +58,22 @@ export function ApprovalCard({
       {(status || children) && (
         <div
           data-approval-body=""
-          className="flex max-h-60 min-h-0 flex-col gap-2 overflow-y-auto px-3 py-0.5"
+          className={cn(
+            "flex max-h-60 min-h-0 flex-col gap-2 overflow-y-auto px-3 py-0.5",
+            bodyClassName,
+          )}
         >
           {status && <div className="text-xs text-muted-foreground">{status}</div>}
           {children}
         </div>
       )}
-      <div data-approval-actions="" className="flex shrink-0 items-center gap-2 px-3 pb-3">
-        {actions}
-      </div>
+      {actions ? (
+        <div data-approval-actions="" className="flex shrink-0 items-center gap-2 px-3 pb-3">
+          {actions}
+        </div>
+      ) : (
+        <div className="pb-1.5" />
+      )}
       {foot && <div className="-mt-2">{foot}</div>}
     </div>
   );

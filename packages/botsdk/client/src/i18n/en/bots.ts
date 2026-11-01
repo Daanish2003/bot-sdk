@@ -63,6 +63,7 @@ export const botsMessages = {
   "bots.helperStepLatest": ({ step, latest }: { step: number; latest: string }) =>
     `step ${step} · ${latest}`,
   "bots.helperTask": "Task:",
+  "bots.helperToggle": "Task and report",
   "bots.helperReport": "Report:",
   "bots.handOffDone": "Done",
   "bots.copyLink": "Copy link",
@@ -279,6 +280,7 @@ description: Use this when
   "bots.reactions": "Reactions",
   "bots.reactToMessage": "React to this message",
   "bots.reactWith": ({ emoji }: { emoji: string }) => `React with ${emoji}`,
+  "bots.choiceTitle": "Choose one",
   "bots.choiceOther": "Other",
   "bots.choiceOtherPlaceholder": "Type your answer",
   "bots.choiceSend": "Send",
