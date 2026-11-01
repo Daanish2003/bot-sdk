@@ -52,16 +52,27 @@ export function BotMenu({
   const { t } = useI18n();
   const [resetting, setResetting] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
-  const [popovers, setPopovers] = useState<{ label: string; open: () => void }[]>([]);
+  const [popovers, setPopovers] = useState<{ name: string; label: string; open: () => void }[]>([]);
   const findPopovers = () => {
     const found = trigger.current
       ?.closest("header")
       ?.querySelectorAll<HTMLElement>("[data-header-popover]");
     setPopovers(
       [...(found ?? [])].map((each) => ({
+        name: each.dataset.headerPopover ?? "",
         label: each.textContent?.trim() ?? "",
-        // After the menu has closed and given back its focus, so the popover keeps its own.
-        open: () => setTimeout(() => each.click()),
+        // After the menu has closed and given back its focus, so the popover keeps its own. The
+        // trigger is invisible and can't take focus back, so when the popover closes, "⋯" does.
+        open: () =>
+          setTimeout(() => {
+            const watch = new MutationObserver(() => {
+              if (each.getAttribute("aria-expanded") === "true") return;
+              watch.disconnect();
+              trigger.current?.focus();
+            });
+            watch.observe(each, { attributes: true, attributeFilter: ["aria-expanded"] });
+            each.click();
+          }),
       })),
     );
   };
@@ -77,7 +88,7 @@ export function BotMenu({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           {popovers.map((popover) => (
-            <DropdownMenuItem key={popover.label} className="md:hidden" onClick={popover.open}>
+            <DropdownMenuItem key={popover.name} className="md:hidden" onClick={popover.open}>
               {popover.label}
             </DropdownMenuItem>
           ))}

@@ -375,7 +375,7 @@ function BotConversationView({
         uploads.add(event.dataTransfer.files);
       }}
     >
-      <header className="flex items-center gap-3 border-b px-4 py-3 md:flex-wrap">
+      <header className="flex items-center gap-2 border-b px-4 py-3 md:flex-wrap md:gap-3">
         <BackToBots />
         <BotAvatar name={bot.name} size={28} />
         <h1 className="min-w-0 truncate font-semibold">{bot.name}</h1>

@@ -195,6 +195,7 @@ test.describe("narrow phone", () => {
       tasks.locator("xpath=ancestor::*[@data-slot='popover-content']"),
     );
     await page.keyboard.press("Escape");
+    await expect(menuButton).toBeFocused();
 
     // Each item opens what its desktop button opens, inside the screen.
     for (const [item, inside] of [
