@@ -215,21 +215,24 @@ pnpm dlx @e2b/cli@2.22.0 template create ai-chat-computer-v3 --memory-mb 1536 -p
 
 Notes from building it on local E2B Embed:
 
-- The root disk follows the tier's `disk_mb` (see "Root disk size" below). On the default 512 MiB tier, with `nodejs` and `npm` added, the disk had no space left and a sleep's sync failed with "No space left on device".
+- The root disk follows the team's `disk_mb` (see "Root disk size" below). On the default 512 MiB, with `nodejs` and `npm` added, the disk had no space left and a sleep's sync failed with "No space left on device".
 - The build resumes a snapshot for each Dockerfile step, which can fail with `mmap memfd: cannot allocate memory` when WSL's page cache has filled the memory. Free it (`wsl -d Ubuntu-24.04 -u root -- bash -c 'sync; echo 3 > /proc/sys/vm/drop_caches; echo 1 > /proc/sys/vm/compact_memory'`) and build again; finished steps are cached.
 - Run only one sandbox at a time while testing: with the 2 GiB of hugepages Embed has here, a second sandbox placed while one is paused or running can fail with "Failed to place sandbox".
 
 ### Root disk size
 
-On local E2B Embed a sandbox's root disk follows the team tier's `disk_mb` in Embed's Postgres (`public.tiers`, `base_v1`). The tier ships with `disk_mb = 512`, which gives a root disk of about 787 MB with 245 MB free (`total_disk_size_mb = 990` in `env_builds`). That is why `ai-chat-computer-v1` stays minimal: with `nodejs` and `npm` added, the disk had no space left and a sleep's sync failed with "No space left on device".
+On local E2B Embed a sandbox's root disk follows the team's `disk_mb` limit in Embed's Postgres: its `project_limits` row if it has one, otherwise `public.default_limits`. The local team has no such row, and `default_limits` ships with `disk_mb = 512`, which gives a root disk of about 787 MB with 245 MB free (`total_disk_size_mb = 990` in `env_builds`). That is why `ai-chat-computer-v1` stays minimal: with `nodejs` and `npm` added, the disk had no space left and a sleep's sync failed with "No space left on device".
 
-Measured on 2026-10-19 (orchestrator `v0.16.202610051633`, the newest Embed release):
+Measured on 2026-11-01 (orchestrator `v0.16.202610201713`, API `v0.14.202610271447`, `@e2b/cli` 2.22.0):
 
-- `template create --min-free-disk-mb 2048 --no-cache` is a no-op here. The API stores `free_disk_size_mb = 2048`, but the build phase that would act on it (`ensurefreedisk`, "resize-disk") runs only when the orchestrator's `build-ensure-free-disk-space` feature flag is on. Its default is off, Embed has no LaunchDarkly, and the flag has no environment override. A sandbox from that build still showed 787M.
-- The lever that works is the tier's `disk_mb`: the base build phase grows the root filesystem to it (`enlargeDiskAfterProvisioning` in `e2b-dev/infra`). With `UPDATE tiers SET disk_mb = 2560 WHERE id = 'base_v1'` (run in the `postgres` container of `~/e2b`), a `--no-cache` rebuild of `ai-chat-computer-v2` gave `df -h /` = 2.8G size, 269M used, 2.3G available. No Embed restart was needed.
-- To revert, set `disk_mb` back to 512 and rebuild under a new template name. The disk size is part of the built template, so changing it needs a rebuild and a new name (per the rule above), and every Computer is rebuilt on its next wake. `ai-chat-computer-v2` is the template built with `disk_mb = 2560`.
-- `ai-chat-computer-v3` needs that bigger disk too: its packages leave about 1.3 GiB free on the 2.8 GiB root, against about 245 MB on the default tier.
-- The cap is the tier's `max_disk_size_mb` (25600). Changing tier values is an Embed change, not an SDK one.
+- `--min-free-disk-mb 2048` is a no-op here. The API stores `free_disk_size_mb = 2048`, but the build phase that would act on it (`ensurefreedisk`, "resize-disk") runs only when the orchestrator's `build-ensure-free-disk-space` feature flag is on. Its default is off, Embed has no LaunchDarkly, and the flag has no environment override. A build of `ai-chat-computer-v3` with it still ran out of disk.
+- The lever that works is `default_limits.disk_mb`: the base build phase grows the root filesystem to it (`enlargeDiskAfterProvisioning`). Run `UPDATE default_limits SET disk_mb = 2560` in the `postgres` container of `~/e2b`. `tiers.disk_mb` no longer has any effect on this: with it at 2560 and `default_limits` at 512, the API still reported 512.
+- The API caches a team's limits in Embed's Redis (`auth:team:*`) for 5 minutes, so wait that long after the update, or delete those keys, before building. A build that starts sooner makes its base layer at the old size.
+- Disk size is part of the base layer's cache key, so a new `disk_mb` needs no flag to rebuild that layer. Don't count on `--no-cache`: with CLI 2.22.0 a build given it still logged every layer up to the first failing step as `CACHED`.
+- With 2560, `ai-chat-computer-v3` built with `total_disk_size_mb = 3166`, and a sandbox from it showed `df -h /` = 2.8G size, 1.2G used, 1.4G available. No Embed restart was needed. On the default 512 its `apt-get install` fails with "You don't have enough free space".
+- To revert, set `disk_mb` back to 512 and rebuild under a new template name. The disk size is part of the built template, so changing it needs a rebuild and a new name (per the rule above), and every Computer is rebuilt on its next wake.
+- `docker compose down -v` in `~/e2b` drops this setting along with the templates and the API key.
+- The cap is `default_limits.max_disk_size_mb` (25600). Changing these values is an Embed change, not an SDK one.
 
 Trade-offs of a bigger disk:
 
