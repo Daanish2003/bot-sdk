@@ -7,6 +7,7 @@ import { useI18n } from "@botsdk/react/provider";
 import { serverErrorText } from "@botsdk/react/rpc-error";
 import { NewSkillEditor, SkillEditor } from "./skill-editor";
 import { useBotSkills, useSkillsStatus } from "@botsdk/skills/react";
+import { headerPopoverTrigger } from "../bot/header-popover";
 
 /**
  * The Bot header's **Skills N** button (spec #713, prototype variant A): a popover with a row per
@@ -30,7 +31,9 @@ export function BotSkillsPopover({ botId }: { botId: string }) {
   const skills = list.data;
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger render={<Button variant="outline" size="sm" />}>
+      <PopoverTrigger
+        render={<Button variant="outline" size="sm" {...headerPopoverTrigger("skills")} />}
+      >
         <BookOpenIcon />{" "}
         {skills ? t("bots.skillsCount", { count: skills.length }) : t("bots.skills")}
       </PopoverTrigger>

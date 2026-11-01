@@ -13,6 +13,7 @@ import { useI18n, useOrpc } from "@botsdk/react/provider";
 
 import { LinkCodeView } from "./link-code-view";
 import { serverErrorText } from "@botsdk/react/rpc-error";
+import { headerPopoverTrigger } from "../bot/header-popover";
 
 /**
  * The Bot header's **Channels** button (spec #1044, Bot settings prototype variant A), beside
@@ -32,7 +33,9 @@ export function ChannelsPopover({ botId }: { botId: string }) {
 
   return (
     <Popover>
-      <PopoverTrigger render={<Button variant="outline" size="sm" />}>
+      <PopoverTrigger
+        render={<Button variant="outline" size="sm" {...headerPopoverTrigger("channels")} />}
+      >
         <MessagesSquareIcon /> {t("bots.channels")}
         {needsAttention && (
           <TriangleAlertIcon

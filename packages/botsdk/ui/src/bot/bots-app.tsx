@@ -24,7 +24,7 @@ export function BotsApp({
     <div className="group/app flex min-h-0 flex-1 bg-background">
       <BotSidebar accountMenu={accountMenu} />
       <main className="flex min-w-0 flex-1 flex-col overflow-y-auto max-md:group-has-[[data-bots-home]]/app:hidden">
-        <nav className="sticky top-0 z-10 border-b bg-background px-2 py-1 md:hidden">
+        <nav className="sticky top-0 z-10 border-b bg-background px-2 py-1 md:hidden group-has-[[data-has-back]]/app:hidden">
           <Link
             page={{ to: "bots" }}
             aria-label={t("bots.backToList")}
