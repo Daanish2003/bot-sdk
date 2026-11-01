@@ -46,10 +46,15 @@ type SentOn = SendProgress & { platform: string; chatId: string; body: string };
  * A digest of what a send carries. The parts a failed send got out line up with the retry's only
  * when it is the same (a file whose bytes are gone since is a link in the text instead).
  */
-function bodyDigest({ text, buttons, files = [] }: Omit<OutboundMessage, "chatId">): string {
+function bodyDigest({
+  text,
+  control,
+  buttons,
+  files = [],
+}: Omit<OutboundMessage, "chatId">): string {
   const shape = files.map(({ name, contentType, content }) => [name, contentType, content.length]);
   return createHash("sha256")
-    .update(JSON.stringify([text, buttons ?? null, shape]))
+    .update(JSON.stringify([text, control ?? null, buttons ?? null, shape]))
     .digest("base64url");
 }
 
@@ -176,7 +181,7 @@ export async function sendMessagingDelivery(
     files: await filesOf(deps, row.parts, adapter.limits.upload),
     uploadLimit: adapter.limits.upload,
   });
-  if (!body.text.trim() && !body.files?.length) return;
+  if (!body.text.trim() && !body.control && !body.files?.length) return;
   const found = await listenerAccount(deps, target.accountId);
   if (!found?.account)
     throw new PermanentJobError("The Channel account's credentials can't be read");

@@ -1,3 +1,4 @@
+import { blocksText } from "@botsdk/client/message-format";
 import { z } from "zod";
 
 import {
@@ -135,13 +136,18 @@ type FakeListener = {
   reject: (reason: string) => void;
 };
 
+/** A Message's text and its Rich control's lines, as one string, as `delivered` shows them. */
+export function writtenOf({ text, control }: Pick<OutboundMessage, "text" | "control">): string {
+  return control ? [text, blocksText(control)].filter(Boolean).join("\n\n") : text;
+}
+
 /**
  * A fake messaging adapter (spec #1044), for tests: a platform whose bot tokens are `<id>:<secret>`
  * (`platformBotId` is the part before the colon, the handle `@bot_<id>`). Its listeners are kept in
  * `listening`, by handle, and `deliver` hands an update to one as the platform would. It records
  * every send, edit and download. A token in `rejected` is refused by `check` and by `listen`;
  * `revoke` also ends a running listener that way. `failures` makes the next listens throw a
- * network error. It splits a Message into parts as a platform does (`parts`): its text in pieces of
+ * network error. It splits a Message into parts as a platform does (`parts`): what it writes in pieces of
  * at most `maxText` characters, then one part per file, each its own message in `delivered`.
  */
 export function fakeMessagingAdapter({ id = "fake" }: { id?: string } = {}) {
@@ -216,8 +222,9 @@ export function fakeMessagingAdapter({ id = "fake" }: { id?: string } = {}) {
         throw new Error("fetch failed: ECONNRESET");
       }
       const pieces: string[] = [];
-      for (let at = 0; at < message.text.length; at += parts.maxText) {
-        pieces.push(message.text.slice(at, at + parts.maxText));
+      const written = writtenOf(message);
+      for (let at = 0; at < written.length; at += parts.maxText) {
+        pieces.push(written.slice(at, at + parts.maxText));
       }
       pieces.push(...(message.files ?? []).map((file) => file.name));
       const { resume } = message;

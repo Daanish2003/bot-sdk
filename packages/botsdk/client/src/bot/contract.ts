@@ -55,7 +55,7 @@ export type Bot = {
 /** A Bot with the status of its latest Turn (`null` before its first). */
 export type BotWithStatus = Bot & { turnStatus: BotTurnStatus | null };
 
-/** A Bot in the list: its last sent Message's text and time (`null` before it has sent one). */
+/** A Bot in the list: its last sent Message as one clean line, and its time (`null` before it has sent one). */
 export type ListedBot = BotWithStatus & { lastMessage: { text: string; at: Date } | null };
 
 /** One of the user's Bots and its thread, as `bots.get` reads it. */

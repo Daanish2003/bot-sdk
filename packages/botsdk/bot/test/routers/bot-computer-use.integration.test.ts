@@ -2,8 +2,9 @@ import type { AnyTextAdapter, ModelMessage, TextOptions } from "@tanstack/ai";
 import { and, asc, eq, inArray, like } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { blob, botHelper, botReview, jobEvent } from "../../src/storage";
+import { blob, botHelper, botReview, botSecret, jobEvent } from "../../src/storage";
 import { deleteUserData } from "../../src/user-data";
+import { encryptCredentials } from "../../src/credentials/encryption";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import {
   noVisionError,
@@ -20,7 +21,7 @@ import {
   type JobRunner,
   systemClock,
 } from "../../src/runner/internal";
-import type { ReviewVerdict } from "../../src/bot/safety";
+import { secretEncryption, type ReviewVerdict } from "../../src/bot/safety";
 import type { CommandResult } from "../../src/computer/internal";
 import { saveCredentials } from "../../src/models/internal";
 import type { HostProvider } from "../../src/models/internal";
@@ -464,6 +465,43 @@ describe("Auto-review of the computer tool", () => {
     for (const row of rows) expect(row).toMatchObject({ helperId: helper.id, turnId: null });
     expect(reviewer.calls).toHaveLength(2);
     expect(screenCommands(computerFake)).toContain("DISPLAY=:1 xdotool mousemove 10 20 click 1");
+  }, 60_000);
+
+  it("keeps an action's output on its review, and a failed one's error, masked of Secrets", async () => {
+    const secret = "ghp_s3cr3t-Value+/=42";
+    const { client, botId, deps, user } = await userWith(
+      "openai:gpt-6-luna",
+      [handsOff, round()],
+      [
+        round(computerCall({ action: "left_click", coordinate: [10, 20] })),
+        round(computerCall({ action: "double_click", coordinate: [30, 40] })),
+        round(text("Done.")),
+      ],
+      {
+        onCommand: ({ command }) =>
+          command.includes("mousemove 30 40")
+            ? { exitCode: 1, stdout: "", stderr: `xdotool: bad ${secret}` }
+            : { exitCode: 0, stdout: "", stderr: "" },
+      },
+    );
+    await getTestDb()
+      .insert(botSecret)
+      .values({
+        userId: user.id,
+        name: "GITHUB_TOKEN",
+        encrypted: encryptCredentials(
+          { value: secret },
+          secretEncryption(deps, user.id, "GITHUB_TOKEN"),
+        ),
+        createdAt: new Date(),
+      });
+
+    await ran(client, botId);
+
+    const [clicked, failed] = await reviewsOf(botId);
+    expect(clicked?.output).toBe("left_click");
+    expect(failed?.output).toContain("***");
+    expect(JSON.stringify(failed)).not.toContain(secret);
   }, 60_000);
 
   it("waits for an Approval on a blocked action, and runs it only once the user allows it", async () => {

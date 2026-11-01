@@ -1,3 +1,4 @@
+import type { Block } from "@botsdk/client/message-format";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -8,8 +9,8 @@ import {
 } from "@botsdk/bot/channel";
 
 import { telegram, TelegramApiError } from "../src";
-import { toMarkdownV2, toParts } from "../src/markdown";
 import { FakeBotApi } from "./fake-bot-api";
+import { markdownV2Problem } from "./markdown-v2-check";
 
 const token = "123:abc";
 let api: FakeBotApi;
@@ -279,36 +280,442 @@ describe("listen", () => {
   });
 });
 
-describe("markdown", () => {
-  it("converts bold, italic, code, code blocks and links, escaping the rest", () => {
-    expect(toMarkdownV2("**bold** and *it* and `a.b` (x)")).toBe(
-      "*bold* and _it_ and `a.b` \\(x\\)",
+describe("what a Message looks like on Telegram", () => {
+  const parseError = {
+    status: 400,
+    body: { ok: false, description: "Bad Request: can't parse entities: bad" },
+  };
+
+  /** Sends `text` to a Bot API that refuses what Telegram would. Each message's text, as sent. */
+  async function sent(text: string, id = { next: 1 }): Promise<string[]> {
+    const before = api.of("sendMessage").length;
+    api.replies.set("sendMessage", (body) => {
+      const problem = markdownV2Problem(String(body.text));
+      return problem ? parseError : ok({ message_id: id.next++ });
+    });
+    await adapter().send(account, { chatId: "7", text }, call);
+    const requests = api.of("sendMessage").slice(before);
+    for (const { body } of requests) {
+      const problem = markdownV2Problem(String(body.text));
+      if (problem) throw new Error(`Telegram refuses it: ${problem}\n${String(body.text)}`);
+      expect(String(body.text).length).toBeLessThanOrEqual(4096);
+    }
+    return requests.map(({ body }) => String(body.text));
+  }
+
+  describe("a Rich control's lines, sent as structure after the Message's text", () => {
+    const line = (text: string): Block => ({
+      type: "paragraph",
+      children: [{ type: "text", text }],
+    });
+    const options: Block = {
+      type: "list",
+      ordered: true,
+      start: 1,
+      items: [[line("Yes")], [line("No")]],
+    };
+    const sendsWith = async (text: string, control: Block[]) => {
+      api.replies.set("sendMessage", ok({ message_id: 1 }));
+      await adapter().send(account, { chatId: "7", text, control }, call);
+      return api.of("sendMessage").map((request) => String(request.body.text));
+    };
+
+    it("doesn't merge a list the text ends on with the options", async () => {
+      const [text] = await sendsWith("1. Foo", [options]);
+      expect(text).toBe("1\\. Foo\n\n1\\. Yes\n2\\. No");
+    });
+
+    it("isn't swallowed by a fence the text left open", async () => {
+      const [text] = await sendsWith("```\ncode", [line("Reply yes or no.")]);
+      expect(text).toBe("```\ncode\n```\n\nReply yes or no\\.");
+    });
+
+    it("leaves a Message that is all JSON one JSON block", async () => {
+      const [text] = await sendsWith('{"a": "*b*"}', [line("Reply yes or no.")]);
+      expect(text).toContain('```json\n{"a": "*b*"}\n```');
+      expect(text).toMatch(/Reply yes or no\\\.$/);
+    });
+
+    it("sends a link as a link, and no text at all is fine", async () => {
+      const [text] = await sendsWith("", [
+        {
+          type: "paragraph",
+          children: [
+            {
+              type: "link",
+              href: "https://app.example/b",
+              children: [{ type: "text", text: "Open" }],
+            },
+          ],
+        },
+      ]);
+      expect(text).toBe("[Open](https://app.example/b)");
+    });
+  });
+
+  it.each([
+    ["a stray mark", "2*3"],
+    ["an unescaped dot", "a."],
+    ["code in bold", "*a `b`*"],
+    ["crossed entities", "*a _b* c_"],
+    ["two italics touching", "_a__b_"],
+    ["a block left open", "```\na"],
+    ["a quote in bold", "*a\n>b*"],
+    ["bold over a quote's line end", ">*a\n>b*"],
+    ["a code block in a quote", ">```\na\n```"],
+    ["a link in a link", "[a[b](u)](v)"],
+  ])("has a fake Bot API that refuses %s, as Telegram would", (_, text) => {
+    expect(markdownV2Problem(text)).not.toBeNull();
+  });
+
+  /** What's left of a part once its marker and its markup are taken off: what the user reads. */
+  const reads = (part: string) =>
+    part
+      .replace(/ \\\(\d+\/\d+\\\)$/, "")
+      .replace(/^```.*\n|\n```$/gm, "")
+      .replace(/^>/gm, "")
+      .replace(/(?<!\\)[*_~]/g, "")
+      .replace(/\\(.)/g, "$1");
+
+  it.each([
+    ["bold, italic, code", "**bold** and *it* and `a.b` (x)", "*bold* and _it_ and `a.b` \\(x\\)"],
+    ["strikethrough", "~~gone~~ now", "~gone~ now"],
+    ["a quote", "> said\n> more", ">said\n>more"],
+    ["a heading as bold", "# Title", "*Title*"],
+    ["a list", "- one\n- two", "• one\n• two"],
+    ["a numbered list", "3. three\n4. four", "3\\. three\n4\\. four"],
+    ["a nested list", "- a\n  - b", "• a\n  • b"],
+    ["paragraphs", "one\n\ntwo", "one\n\ntwo"],
+    ["a line break", "one\ntwo", "one\ntwo"],
+    ["a code block", "```ts\nconst a = 1.5;\n```", "```ts\nconst a = 1.5;\n```"],
+    ["code's own escapes", "```\na`b\\c\n```", "```\na\\`b\\\\c\n```"],
+    ["inline code's own escapes", "`a\\b.c`", "`a\\\\b.c`"],
+    ["a link", "see [docs](https://a.b/c_(d))", "see [docs](https://a.b/c_(d\\))"],
+    ["a bare address", "at https://a.b/c.", "at [https://a\\.b/c](https://a.b/c)\\."],
+    ["other specials", "snake_case 1-2 #1!", "snake\\_case 1\\-2 \\#1\\!"],
+    ["a rule, gone", "a\n\n---\n\nb", "a\n\nb"],
+  ])("converts %s", async (_, markdown, expected) => {
+    expect(await sent(markdown)).toEqual([expected]);
+  });
+
+  it("makes a table one monospaced code block, its columns aligned", async () => {
+    expect(await sent("| Name | Qty |\n|---|--:|\n| a*b | 10 |\n| [c](https://c.d) | 2 |")).toEqual(
+      ["```\nName              Qty\na*b                10\nc (https://c.d/)    2\n```"],
     );
-    expect(toMarkdownV2("see [docs](https://a.b/c_(d))")).toBe("see [docs](https://a.b/c_(d\\))");
-    expect(toMarkdownV2("```ts\nconst a = 1.5;\n```")).toBe("```ts\nconst a = 1.5;\n```");
-    expect(toMarkdownV2("snake_case 1-2 #1!")).toBe("snake\\_case 1\\-2 \\#1\\!");
   });
 
-  it("keeps a * bullet list as text rather than italics", () => {
-    expect(toMarkdownV2("* apples\n* pears")).toBe("\\* apples\n\\* pears");
+  it("makes a Message that is all JSON a code block, its asterisks kept", async () => {
+    expect(await sent('{"a":"*b* _c_"}')).toEqual(['```json\n{"a":"*b* _c_"}\n```']);
   });
 
-  it("splits a long text into numbered parts that each fit 4096 characters", () => {
-    const text = Array.from({ length: 600 }, (_, i) => `line ${i}.`).join("\n");
-    const parts = toParts(text);
+  it.each([
+    ["2*3*4", "2\\*3\\*4"],
+    ["2**3**4", "2\\*\\*3\\*\\*4"],
+    ["2 * 3 * 4", "2 \\* 3 \\* 4"],
+    ["a \\* b", "a \\* b"],
+    ["\\*not italic\\*", "\\*not italic\\*"],
+    ["5~10~20", "5\\~10\\~20"],
+  ])("keeps %s as written", async (markdown, expected) => {
+    expect(await sent(markdown)).toEqual([expected]);
+  });
+
+  it.each([
+    ["code in bold leaves the bold", "**a `b` c**", "*a *`b`* c*"],
+    ["code in a heading leaves the bold", "# a `b`", "*a *`b`"],
+    ["code in a link is the link's text", "[`code`](https://a.b)", "[code](https://a.b/)"],
+    ["bold and italic together", "***a***", "*_a_*"],
+    ["italic in italic is one italic", "*a _b_ c*", "_a b c_"],
+    ["two italics in a row never read as underline", "*a*_b_", "_ab_"],
+    ["bold in a link", "[**a** b](https://a.b)", "[*a* b](https://a.b/)"],
+    ["a quote in a quote is one quote", "> a\n>\n> > b", ">a\n>\n>b"],
+    ["a code block leaves its quote", "> x\n>\n> ```\n> y\n> ```", ">x\n\n```\ny\n```"],
+    [
+      "a quote goes on after its code block",
+      "> ```\n> y\n> ```\n>\n> b\n>\n> c",
+      "```\ny\n```\n\n>b\n>\n>c",
+    ],
+    ["a table leaves its quote", "> | a |\n> |---|\n> | b |", "```\na\nb\n```"],
+    ["bold closes at a line end", "**a\nb**", "*a*\n*b*"],
+    ["bold closes at a line end in a quote", "> **a\nb**", ">*a*\n>*b*"],
+  ])("follows the nesting rules: %s", async (_, markdown, expected) => {
+    expect(await sent(markdown)).toEqual([expected]);
+  });
+
+  it.each([
+    ["<script>", "<script>alert(1)</script>\n\nhi", "hi"],
+    ["inline HTML", "a <b onclick='x()'>b</b>", "a b"],
+    ["a javascript: link", "[x](javascript:alert(1))", "x"],
+    ["a tg: link", "[x](tg://user?id=1)", "x"],
+    ["a relative link", "[x](/a)", "x"],
+    ["a remote image", "a ![p](https://e.vil/x.png) b", "a  b"],
+  ])("never lets through %s", async (_, markdown, expected) => {
+    expect(await sent(markdown)).toEqual([expected]);
+  });
+
+  it("shows whether a task is done", async () => {
+    expect(await sent("- [ ] todo\n- [x] done")).toEqual(["• ☐ todo\n• ☑ done"]);
+  });
+
+  it("leaves out a table with nothing in it", async () => {
+    expect(await sent("| |\n|-|\n\ntext")).toEqual(["text"]);
+  });
+
+  it("writes out an address too long to link, rather than never fitting a message", async () => {
+    const ascii = `https://x.com/${"u".repeat(4070)}`;
+    expect(await sent(ascii)).toEqual([ascii.replace(".", "\\.")]);
+
+    const parts = await sent(`hello\n\n[😀](https://x.com/${"中".repeat(500)})`);
     expect(parts.length).toBeGreaterThan(1);
-    for (const [index, part] of parts.entries()) {
-      expect(part.length).toBeLessThanOrEqual(4096);
-      expect(part.endsWith(`\\(${index + 1}/${parts.length}\\)`)).toBe(true);
+    expect(parts.join("")).not.toContain("](");
+    expect(parts.map(reads).join("")).toContain(`😀 (https://x.com/${"%E4%B8%AD".repeat(10)}`);
+  });
+
+  it("still links a long address that fits", async () => {
+    const address = `https://x.com/${"u".repeat(1900)}`;
+    expect(await sent(`[a](${address})`)).toEqual([`[a](${address})`]);
+  });
+
+  it("writes a mailto link's address out, as Telegram links an address by itself", async () => {
+    expect(await sent("[write](mailto:a@b.co)")).toEqual(["write \\(a@b\\.co\\)"]);
+    expect(await sent("[a@b.co](mailto:a@b.co)")).toEqual(["a@b\\.co"]);
+  });
+
+  it("sends nothing for a Message with nothing left to show", async () => {
+    expect(await sent("![p](https://e.vil/x.png)")).toEqual([]);
+    expect(await sent("<script>x</script>")).toEqual([]);
+    expect(await sent("```\n\n```")).toEqual([]);
+    expect(await sent("&nbsp;")).toEqual([]);
+  });
+
+  describe("across split parts", () => {
+    const numbered = (parts: string[]) => {
+      expect(parts.length).toBeGreaterThan(1);
+      for (const [index, part] of parts.entries()) {
+        expect(part.endsWith(` \\(${index + 1}/${parts.length}\\)`)).toBe(true);
+      }
+    };
+
+    it("numbers the parts of a long text", async () => {
+      const text = Array.from({ length: 600 }, (_, i) => `line ${i}.`).join("\n");
+      const parts = await sent(text);
+      numbered(parts);
+      expect(parts.map(reads).join("\n")).toBe(text);
+    });
+
+    it("closes bold a part cuts and opens it again in the next", async () => {
+      // Within one run `marked` reads whole; its escapes take it past one message.
+      const parts = await sent(`**${"a.b ".repeat(1000).trim()}**`);
+      numbered(parts);
+      for (const part of parts) expect(part).toMatch(/^\*a\\\.b.*a\\\.b ?\* \\\(\d+\/\d+\\\)$/);
+    });
+
+    it("closes a code block a part cuts and opens it again, with its language", async () => {
+      const parts = await sent("```py\n" + "x = 1\n".repeat(1500) + "```");
+      numbered(parts);
+      for (const part of parts) expect(part).toMatch(/^```py\nx = 1\n[^]*\n``` \\\(\d+\/\d+\\\)$/);
+    });
+
+    it("cuts a table into code blocks", async () => {
+      const rows = Array.from({ length: 800 }, (_, i) => `| ${i} | row |`).join("\n");
+      const parts = await sent(`| a | b |\n|---|---|\n${rows}`);
+      numbered(parts);
+      for (const part of parts) expect(part).toMatch(/^```\n[^]*\n``` \\\(\d+\/\d+\\\)$/);
+    });
+
+    it("keeps a quote a quote in every part", async () => {
+      const parts = await sent(Array.from({ length: 1500 }, () => "> line").join("\n"));
+      numbered(parts);
+      for (const part of parts) expect(part.split("\n").every((l) => l.startsWith(">"))).toBe(true);
+    });
+
+    it("starts no part with the blank line where the last one filled up", async () => {
+      const parts = await sent(`${"a".repeat(4080)}\n\n${"b".repeat(100)}`);
+      expect(parts).toEqual([`${"a".repeat(4080)} \\(1/2\\)`, `${"b".repeat(100)} \\(2/2\\)`]);
+    });
+
+    it("never cuts an escape, a pair of surrogates or a link", async () => {
+      expect((await sent(".".repeat(5000))).map(reads).join("")).toBe(".".repeat(5000));
+      expect((await sent("😀".repeat(3000))).map(reads).join("")).toBe("😀".repeat(3000));
+      const parts = await sent(`[${"a.b ".repeat(1000).trim()}](https://a.b/)`);
+      numbered(parts);
+      for (const part of parts) expect(part).toContain("](https://a.b/)");
+    });
+  });
+
+  describe("a rejected send", () => {
+    const refuseMarkdown = () => {
+      let id = 10;
+      api.replies.set("sendMessage", (body) =>
+        body.parse_mode === "MarkdownV2" ? parseError : ok({ message_id: id++ }),
+      );
+    };
+    const plainSent = () =>
+      api
+        .of("sendMessage")
+        .filter((request) => request.body.parse_mode === undefined)
+        .map((request) => String(request.body.text));
+
+    it("falls back to clean text, with no Markdown in it", async () => {
+      refuseMarkdown();
+      const text = [
+        "# Title",
+        "**bold** *it* ~~gone~~ `code` 2*3*4",
+        "> quoted",
+        "- one\n- two",
+        "[docs](https://a.b/c) <b>x</b> ![p](https://e.vil/x.png) [y](javascript:z)",
+        "| a | b |\n|---|---|\n| 1 | 2 |",
+        "```\ncode **block**\n```",
+      ].join("\n\n");
+      const sent = await adapter().send(account, { chatId: "7", text }, call);
+      expect(sent.messageIds).toEqual(["10"]);
+      expect(plainSent()).toEqual([
+        [
+          "Title",
+          "bold it gone code 2*3*4",
+          "  quoted",
+          "• one\n• two",
+          "docs (https://a.b/c) x  y",
+          "a  b\n1  2",
+          "code **block**",
+        ].join("\n\n"),
+      ]);
+    });
+
+    it("writes out what a part holds, marker included, when one part of many is refused", async () => {
+      let id = 10;
+      api.replies.set("sendMessage", (body) =>
+        body.parse_mode === "MarkdownV2" && String(body.text).endsWith("\\(2/2\\)")
+          ? parseError
+          : ok({ message_id: id++ }),
+      );
+      await adapter().send(
+        account,
+        { chatId: "7", text: `**${"a.b ".repeat(1000).trim()}**` },
+        call,
+      );
+      const [plain] = plainSent();
+      expect(plain).toMatch(/^a\.b.* \(2\/2\)$/);
+      expect(plain).not.toContain("*");
+    });
+
+    it("splits the plain resend too, so no message passes 4096 characters", async () => {
+      refuseMarkdown();
+      // Its MarkdownV2 (`>a`) fits one message; the clean text (`  a`) doesn't.
+      const text = Array.from({ length: 1300 }, () => "> a").join("\n");
+      const sent = await adapter().send(
+        account,
+        {
+          chatId: "7",
+          text,
+          buttons: { control: "c1", options: [{ option: "yes", label: "Yes" }] },
+        },
+        call,
+      );
+      const pieces = plainSent();
+      expect(pieces.length).toBeGreaterThan(1);
+      for (const piece of pieces) expect(piece.length).toBeLessThanOrEqual(4096);
+      expect(pieces.join("")).toBe(Array.from({ length: 1300 }, () => "  a").join("\n"));
+      const plain = api.of("sendMessage").filter((r) => r.body.parse_mode === undefined);
+      expect(plain.slice(0, -1).every((r) => r.body.reply_markup === undefined)).toBe(true);
+      expect(sent.messageIds).toHaveLength(pieces.length);
+      expect(sent.buttonsMessageId).toBe(sent.messageIds.at(-1));
+    });
+
+    it("resumes a plain resend after the pieces it got out", async () => {
+      let id = 10;
+      let plainCalls = 0;
+      api.replies.set("sendMessage", (body) => {
+        if (body.parse_mode === "MarkdownV2") return parseError;
+        if (++plainCalls === 2) return { status: 500, body: { ok: false, description: "boom" } };
+        return ok({ message_id: id++ });
+      });
+      const message = {
+        chatId: "7",
+        text: Array.from({ length: 1300 }, () => "> a").join("\n"),
+      };
+      const error = await adapter()
+        .send(account, message, call)
+        .catch((thrown: unknown) => thrown);
+      expect(error).toBeInstanceOf(MessagingSendError);
+      const { progress } = error as MessagingSendError;
+      expect(progress).toEqual({ parts: 0, pieces: 1, sent: { messageIds: ["10"] } });
+      const before = api.of("sendMessage").length;
+
+      const sent = await adapter().send(account, { ...message, resume: progress }, call);
+      const resumed = api.of("sendMessage").slice(before);
+      expect(resumed.every((request) => request.body.parse_mode === undefined)).toBe(true);
+      const delivered = api
+        .of("sendMessage")
+        .filter((request, at) => request.body.parse_mode === undefined && at !== 2);
+      expect(delivered.map((request) => String(request.body.text)).join("")).toBe(
+        Array.from({ length: 1300 }, () => "  a").join("\n"),
+      );
+      expect(sent.messageIds).toEqual(["10", ...resumed.map((_, at) => String(11 + at))]);
+    });
+
+    it("doesn't resend on a refusal that isn't about the markup", async () => {
+      api.replies.set("sendMessage", {
+        status: 400,
+        body: { ok: false, description: "Bad Request: chat not found" },
+      });
+      await expect(adapter().send(account, { chatId: "7", text: "hi" }, call)).rejects.toThrow(
+        "chat not found",
+      );
+      expect(api.of("sendMessage")).toHaveLength(1);
+    });
+  });
+
+  it("turns link previews off on every message: MarkdownV2, each part, and the plain resend", async () => {
+    let first = true;
+    api.replies.set("sendMessage", (body) => {
+      if (first && body.parse_mode === "MarkdownV2") {
+        first = false;
+        return parseError;
+      }
+      return ok({ message_id: 1 });
+    });
+    await adapter().send(
+      account,
+      { chatId: "7", text: `[a](https://e.vil) ${"word ".repeat(1000)}` },
+      call,
+    );
+    const requests = api.of("sendMessage");
+    expect(requests.some((request) => request.body.parse_mode === undefined)).toBe(true);
+    expect(requests.filter((request) => request.body.parse_mode).length).toBeGreaterThan(1);
+    for (const { body } of requests) {
+      expect(body.link_preview_options).toEqual({ is_disabled: true });
     }
   });
 
-  it("closes a code block a part cuts and reopens it in the next", () => {
-    const parts = toParts("```py\n" + "x = 1\n".repeat(1500) + "```");
-    expect(parts.length).toBeGreaterThan(1);
-    for (const part of parts) {
-      expect(part.replace(/ \\\(\d+\/\d+\\\)$/, "").match(/```/g)?.length).toBe(2);
-    }
+  it("gives a retry the same parts, so what a failed send got out lines up", async () => {
+    const text = `# Title\n\n**${"word ".repeat(1500).trim()}**\n\n> ${"said ".repeat(1500).trim()}`;
+    let id = 1;
+    let calls = 0;
+    api.replies.set("sendMessage", () =>
+      ++calls === 2
+        ? { status: 500, body: { ok: false, description: "boom" } }
+        : ok({ message_id: id++ }),
+    );
+    const message = { chatId: "7", text };
+    const error = await adapter()
+      .send(account, message, call)
+      .catch((thrown: unknown) => thrown);
+    expect((error as MessagingSendError).progress).toEqual({
+      parts: 1,
+      sent: { messageIds: ["1"] },
+    });
+    await adapter().send(
+      account,
+      { ...message, resume: (error as MessagingSendError).progress },
+      call,
+    );
+    const [firstPart, failed, retried, ...rest] = api
+      .of("sendMessage")
+      .map(({ body }) => String(body.text));
+    expect(retried).toBe(failed);
+    expect(rest.length).toBeGreaterThan(0);
+    const whole = await sent(text);
+    expect([firstPart, retried, ...rest]).toEqual(whole);
   });
 });
 
@@ -543,86 +950,6 @@ describe("delivery errors and the poll loop", () => {
     await expect(adapter().send(account, { chatId: "7", text: "hi" }, call)).rejects.toBeInstanceOf(
       CredentialsRejectedError,
     );
-  });
-
-  it("resends a part as plain text when Telegram cannot parse its entities", async () => {
-    let calls = 0;
-    api.replies.set("sendMessage", () =>
-      calls++ === 0
-        ? { status: 400, body: { ok: false, description: "Bad Request: can't parse entities" } }
-        : ok({ message_id: 3 }),
-    );
-    const sent = await adapter().send(account, { chatId: "7", text: "**hi**." }, call);
-    expect(sent.messageIds).toEqual(["3"]);
-    const [first, second] = api.of("sendMessage");
-    expect(first?.body.parse_mode).toBe("MarkdownV2");
-    expect(second?.body.parse_mode).toBeUndefined();
-    expect(second?.body.text).toBe("**hi**.");
-  });
-
-  it("splits the plain resend too, so no message passes 4096 characters", async () => {
-    let id = 10;
-    api.replies.set("sendMessage", (body) =>
-      body.parse_mode === "MarkdownV2"
-        ? { status: 400, body: { ok: false, description: "Bad Request: can't parse entities" } }
-        : ok({ message_id: id++ }),
-    );
-    // Its MarkdownV2 (`*a* `) fits one message; the raw text (`**a** `) doesn't.
-    const text = "**a** ".repeat(800).trim();
-    const sent = await adapter().send(
-      account,
-      {
-        chatId: "7",
-        text,
-        buttons: { control: "c1", options: [{ option: "yes", label: "Yes" }] },
-      },
-      call,
-    );
-    const plain = api.of("sendMessage").filter((request) => request.body.parse_mode === undefined);
-    expect(plain.length).toBeGreaterThan(1);
-    for (const request of plain) {
-      expect(String(request.body.text).length).toBeLessThanOrEqual(4096);
-    }
-    expect(plain.map((request) => String(request.body.text)).join("")).toBe(text);
-    expect(plain.slice(0, -1).every((request) => request.body.reply_markup === undefined)).toBe(
-      true,
-    );
-    expect(sent.messageIds).toHaveLength(plain.length);
-    expect(sent.buttonsMessageId).toBe(sent.messageIds.at(-1));
-  });
-
-  it("resumes a plain resend after the pieces it got out", async () => {
-    let id = 10;
-    let plainCalls = 0;
-    api.replies.set("sendMessage", (body) => {
-      if (body.parse_mode === "MarkdownV2") {
-        return {
-          status: 400,
-          body: { ok: false, description: "Bad Request: can't parse entities" },
-        };
-      }
-      if (++plainCalls === 2) return { status: 500, body: { ok: false, description: "boom" } };
-      return ok({ message_id: id++ });
-    });
-    const text = "**a** ".repeat(800).trim();
-    const message = { chatId: "7", text };
-
-    const error = await adapter()
-      .send(account, message, call)
-      .catch((thrown: unknown) => thrown);
-    expect(error).toBeInstanceOf(MessagingSendError);
-    const { progress } = error as MessagingSendError;
-    expect(progress).toEqual({ parts: 0, pieces: 1, sent: { messageIds: ["10"] } });
-    const before = api.of("sendMessage").length;
-
-    const sent = await adapter().send(account, { ...message, resume: progress }, call);
-    const resumed = api.of("sendMessage").slice(before);
-    expect(resumed.every((request) => request.body.parse_mode === undefined)).toBe(true);
-    const delivered = api
-      .of("sendMessage")
-      .filter((request, at) => request.body.parse_mode === undefined && at !== 2);
-    expect(delivered.map((request) => String(request.body.text)).join("")).toBe(text);
-    expect(sent.messageIds).toEqual(["10", ...resumed.map((_, at) => String(11 + at))]);
   });
 
   it("throws MessagingFileTooLargeError when getFile says the file is too big", async () => {

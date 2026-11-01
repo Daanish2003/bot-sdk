@@ -28,6 +28,7 @@ export {
   type ReviewKit,
   type ReviewSource,
   reviewTimeoutMs,
+  recordReviewOutput,
   reviewToolCall,
   type ReviewVerdict,
 } from "./review";

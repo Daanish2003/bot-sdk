@@ -23,6 +23,7 @@ import {
   type RoutineEdit,
   RoutineEditForm,
 } from "./task-edit-forms";
+import { headerPopoverTrigger } from "./header-popover";
 
 const tabs = ["inProgress", "scheduled", "done"] as const;
 type Tab = (typeof tabs)[number];
@@ -150,7 +151,9 @@ export function TasksPopover({
   };
   return (
     <Popover>
-      <PopoverTrigger render={<Button variant="outline" size="sm" className="relative" />}>
+      <PopoverTrigger
+        render={<Button variant="outline" size="sm" {...headerPopoverTrigger("tasks")} />}
+      >
         <ListTodoIcon /> {t("bots.tasksCount", { count: taskCount(tasks) })}
         {needsYou && (
           <span

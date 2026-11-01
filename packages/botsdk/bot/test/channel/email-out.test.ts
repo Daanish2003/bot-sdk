@@ -132,3 +132,115 @@ describe("namedAddress", () => {
     );
   });
 });
+
+describe("emailBody with Markdown (spec #1117)", () => {
+  const source = [
+    "# Plan",
+    "",
+    "Some **bold**, _soft_ and `code` with [a link](https://example.com/a?x=1&y=2).",
+    "",
+    "- one",
+    "- two",
+    "",
+    "1. first",
+    "2. second",
+    "",
+    "> quoted",
+    "",
+    "| Name | Qty |",
+    "| :--- | ---: |",
+    "| Apples | 3 |",
+    "| Figs | 12 |",
+    "",
+    "```ts",
+    "const a = 1 < 2;",
+    "```",
+  ].join("\n");
+
+  it("renders headings, lists, tables, code, quotes and links in the HTML part", () => {
+    const { html } = emailBody({ text: source }, { botUrl });
+
+    expect(html).toContain("<h1>Plan</h1>");
+    expect(html).toContain("<strong>bold</strong>");
+    expect(html).toContain("<em>soft</em>");
+    expect(html).toMatch(/<code[^>]*>code<\/code>/);
+    expect(html).toContain('<a href="https://example.com/a?x=1&amp;y=2">a link</a>');
+    expect(html).toContain("<ul><li>one</li><li>two</li></ul>");
+    expect(html).toContain("<ol><li>first</li><li>second</li></ol>");
+    expect(html).toContain("<blockquote");
+    expect(html).toMatch(
+      /<table[\s\S]*<th[^>]*>Name<\/th>[\s\S]*<td[^>]*>Apples<\/td>[\s\S]*<\/table>/,
+    );
+    expect(html).toContain("const a = 1 &lt; 2;");
+    expect(html).toMatch(/<pre[\s\S]*<code[\s\S]*<\/pre>/);
+  });
+
+  it("sends clean text with no Markdown characters, a table as aligned text", () => {
+    const { text } = emailBody({ text: source }, { botUrl });
+
+    expect(text).not.toMatch(/[*_`#|]|\]\(/);
+    expect(text).toContain("Plan");
+    expect(text).toContain("a link (https://example.com/a?x=1&y=2)");
+    expect(text).toContain("Name    Qty\nApples    3\nFigs     12");
+  });
+
+  it("keeps a single line break as a line break in both parts", () => {
+    const body = emailBody({ text: "one\ntwo" }, { botUrl });
+
+    expect(body.text).toBe("one\ntwo");
+    expect(body.html).toContain("one<br>two");
+  });
+
+  it("keeps a word in angle brackets, escaped in the HTML part", () => {
+    const body = emailBody({ text: "Use Array<string> here" }, { botUrl });
+    expect(body.text).toBe("Use Array<string> here");
+    expect(body.html).toContain("Use Array&lt;string&gt; here");
+  });
+
+  it("never lets a script, a javascript: link or a remote image through", () => {
+    const hostile = [
+      "<script>alert(1)</script>",
+      "",
+      "[click](javascript:alert(1)) [data](data:text/html,x)",
+      "",
+      "![pixel](https://evil.example/p.png)",
+      "",
+      '<img src="https://evil.example/q.png" onerror="x()">',
+      "",
+      "<b onclick=x()>raw</b>",
+    ].join("\n");
+
+    const { text, html } = emailBody({ text: hostile }, { botUrl });
+
+    for (const part of [text, html]) {
+      expect(part).not.toMatch(/<script|javascript:|evil\.example|<img|onerror|onclick|data:text/i);
+    }
+    expect(html).not.toContain("<b");
+    expect(html).toContain("click");
+  });
+
+  it("keeps a loose list item's paragraphs and blocks apart", () => {
+    const { html } = emailBody({ text: "- first\n\n  second\n\n  ```\n  x\n  ```" }, { botUrl });
+
+    expect(html).toContain("<li><p>first</p>\n<p>second</p>\n<pre");
+  });
+
+  it("escapes text that looks like HTML", () => {
+    const { html } = emailBody({ text: 'use `<div>` & "x"' }, { botUrl });
+
+    expect(html).toContain("&lt;div&gt;");
+    expect(html).not.toContain("<div>");
+  });
+
+  it("renders a Rich control's lines after the Markdown", () => {
+    const { text, html } = emailBody(
+      { text: "**Pick**", control: { kind: "choice", options: ["A", "B"] } as RichControl },
+      { botUrl },
+    );
+
+    expect(text).toBe(`Pick\n\n1. A\n2. B\n\nAnswer in the app: ${botUrl}`);
+    expect(html).toContain("<strong>Pick</strong>");
+    expect(html).toContain("<ol><li>A</li><li>B</li></ol>");
+    expect(html).toContain(`<a href="${botUrl}">Answer in the app</a>`);
+  });
+});

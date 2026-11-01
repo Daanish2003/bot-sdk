@@ -4,14 +4,14 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { BotCacheChip } from "../../src/bot/bot-cache-chip";
+import { BotTurnLine } from "../../src/bot/bot-turn-line";
 import { BotConversation } from "../../src/bot/bot-conversation";
 import { providerFor } from "@ai-chat/test-support/fake-dictionary";
 
 afterEach(cleanup);
 
 const show = (steps: BotTurnStep[]) =>
-  render(providerFor(createElement(BotCacheChip, { steps }), { messages: {} }));
+  render(providerFor(createElement(BotTurnLine, { steps }), { messages: {} }));
 
 const section = (name: string, tokens: number, hash: string, was?: string) => ({
   name,
@@ -37,7 +37,7 @@ const warm: BotTurnStep = {
   changed: null,
 };
 
-describe("BotCacheChip", () => {
+describe("BotTurnLine", () => {
   it("shows the hit rate, Steps and cost, and expands to the bar and the hashes", () => {
     const { container } = show([warm, { ...warm, id: "s2", costMicros: 1000 }]);
 
@@ -53,7 +53,7 @@ describe("BotCacheChip", () => {
     expect(screen.queryByText(/a bug/i)).toBeNull();
   });
 
-  it("turns red on a section that changed when it should not have, with old and new hash", () => {
+  it("turns amber on a section that changed when it should not have, with old and new hash", () => {
     const missed: BotTurnStep = {
       ...warm,
       cacheReadTokens: 400,
@@ -69,19 +69,20 @@ describe("BotCacheChip", () => {
     show([missed]);
 
     const chip = screen.getByRole("button", { name: "⚠ Cache miss: rules · 1 Step · $0.0025" });
-    expect(chip.className).toContain("text-red-600");
+    expect(chip.className).toContain("text-amber-500");
+    expect(chip.className).not.toContain("red");
     fireEvent.click(chip);
 
     expect(screen.getByText("rules · Cache miss (a bug)")).toBeTruthy();
     expect(screen.getByText("#oooooo → #bbbbbb")).toBeTruthy();
-    expect(screen.getByText(/^A bug: rules changed/)).toBeTruthy();
+    expect(screen.getByText(/^A bug: rules changed/).className).toContain("text-amber-500");
   });
 
   it("calls a change after a new Prompt start expected, and keeps the chip calm", () => {
     show([{ ...warm, changed: { section: "first_message", kind: "expected" } }]);
 
     const chip = screen.getByRole("button", { name: /^Cache 80%/ });
-    expect(chip.className).not.toContain("text-red-600");
+    expect(chip.className).not.toContain("text-amber-500");
     fireEvent.click(chip);
 
     expect(screen.getByText(/^Expected: first_message changed/)).toBeTruthy();
@@ -103,6 +104,56 @@ describe("BotCacheChip", () => {
 
     expect(screen.getByText("Summary · 80% cached · $0.0015")).toBeTruthy();
     expect(screen.getByText("Step 2 · 80% cached · $0.0010")).toBeTruthy();
+  });
+
+  it("keeps the saved items on the left and the figures on the right, wrapping on a phone", () => {
+    const { container } = render(
+      providerFor(
+        createElement(BotTurnLine, {
+          steps: [warm],
+          saved: createElement("span", null, "Memory updated"),
+        }),
+        { messages: {} },
+      ),
+    );
+
+    const line = container.querySelector("[data-turn-line]")!;
+    expect(line.className).toContain("flex-wrap");
+    expect(line.className).toContain("justify-between");
+    expect(line.getAttribute("role")).toBe("group");
+    expect(line.getAttribute("aria-label")).toBe("Turn details");
+    const [left, right] = Array.from(line.children);
+    expect(left!.textContent).toBe("Memory updated");
+    expect(right!.textContent).toBe("Cache 80% · 1 Step · $0.0025");
+  });
+
+  it("opens one panel below the line, named by the button that controls it", () => {
+    const { container } = show([warm]);
+    const chip = screen.getByRole("button", { name: /^Cache 80%/ });
+    expect(chip.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(chip);
+
+    expect(chip.getAttribute("aria-expanded")).toBe("true");
+    const panel = document.getElementById(chip.getAttribute("aria-controls")!)!;
+    expect(panel.contains(screen.getByText("Step 1 · 80% cached · $0.0025"))).toBe(true);
+    // Below the line, not inside it.
+    expect(container.querySelector("[data-turn-line]")!.contains(panel)).toBe(false);
+    fireEvent.click(chip);
+    expect(document.getElementById(panel.id)).toBeNull();
+  });
+
+  it("shows only the saved items for a Turn with no Steps", () => {
+    render(
+      providerFor(
+        createElement(BotTurnLine, {
+          steps: [],
+          saved: createElement("span", null, "Memory updated"),
+        }),
+        { messages: {} },
+      ),
+    );
+    expect(screen.getByText("Memory updated")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Cache/ })).toBeNull();
   });
 
   it("shows nothing for a Turn with no Steps", () => {
@@ -132,14 +183,14 @@ const turnAt = (id: string, minute: number, sent: boolean): BotTurnProvenance =>
   steps: [{ ...warm, id: `${id}-s1` }],
 });
 
-describe("the cache chip in a Bot's thread", () => {
+describe("the Turn line in a Bot's thread", () => {
   it("shows under a Turn that sent no Message, after the last Message before its end", () => {
     render(
       providerFor(
         createElement(BotConversation, {
           botId: "b2",
           afterTurn: (turn: BotTurnProvenance) =>
-            createElement(BotCacheChip, { steps: turn.steps }),
+            createElement("button", { type: "button" }, `Saved in ${turn.id}`),
         }),
         {
           messages: {},
@@ -174,6 +225,14 @@ describe("the cache chip in a Bot's thread", () => {
 
     const chips = screen.getAllByRole("button", { name: /Cache 80%/ });
     expect(chips).toHaveLength(2);
+    // One line per Turn: the Host's saved items on its left, the figures on its right.
+    const lines = document.querySelectorAll("[data-turn-line]");
+    expect(lines).toHaveLength(2);
+    const saved = screen.getByRole("button", { name: "Saved in t1" });
+    expect(lines[0]!.contains(saved)).toBe(true);
+    expect(
+      saved.compareDocumentPosition(chips[0]!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(
       document
         .querySelector('[data-id="m2"]')!
@@ -184,5 +243,37 @@ describe("the cache chip in a Bot's thread", () => {
         .querySelector('[data-id="m3"]')!
         .parentElement!.nextElementSibling?.contains(chips[1]!),
     ).toBe(true);
+  });
+
+  it.each([
+    ["has no afterTurn", undefined],
+    ["has an afterTurn that returns nothing", () => null],
+  ])("shows an ordinary Turn's line when the Host %s", (_name, afterTurn) => {
+    render(
+      providerFor(createElement(BotConversation, { botId: "b2", afterTurn }), {
+        messages: {},
+        fetch: vi.fn(async () => new Promise<Response>(() => {})),
+        seed: (queryClient, client) =>
+          queryClient.setQueryData(client.orpc.bots.get.queryKey({ input: { botId: "b2" } }), {
+            bot: {
+              id: "b2",
+              name: "Ada",
+              model: "openai:gpt-6-luna",
+              createdAt,
+              pausedAt: null,
+              turnStatus: null,
+              userTurnStatus: null,
+            },
+            conversationId: "c1",
+            messages: [said("m1", "user", "Hi", 0), said("m2", "assistant", "Hello!", 0.5)],
+            turns: [turnAt("t1", 0, true)],
+            summaries: [],
+            warmings: [],
+            lastSeq: 0,
+          }),
+      }),
+    );
+
+    expect(screen.getByRole("button", { name: /Cache 80%/ })).toBeTruthy();
   });
 });

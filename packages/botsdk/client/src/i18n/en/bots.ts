@@ -6,6 +6,7 @@ export const botsMessages = {
   "bots.namePlaceholder": "Name, e.g. Inbox Manager",
   "bots.create": "Create",
   "bots.noBots": "No Bots yet. Create one to start talking.",
+  "bots.backToList": "Back to Bots",
   "bots.pickABot": "Pick a Bot, or create a new one.",
   "bots.noMessages": "No messages yet",
   "bots.message": "Message",
@@ -24,6 +25,10 @@ export const botsMessages = {
   "bots.webhookUrlHidden": "URL shown once. Rotate for a new one.",
   "bots.copy": "Copy",
   "bots.copied": "URL copied",
+  "bots.copyCode": "Copy code",
+  "bots.codeCopied": "Copied",
+  "bots.showAllLines": ({ count }: { count: number }) => `Show all ${count} lines`,
+  "bots.showFewerLines": "Show fewer lines",
   "bots.rotate": "Rotate",
   "bots.routineApproved": ({ name }: { name: string }) => `${name} approved`,
   "bots.routineApprovedNext": ({ name, time }: { name: string; time: string }) =>
@@ -58,6 +63,7 @@ export const botsMessages = {
   "bots.helperStepLatest": ({ step, latest }: { step: number; latest: string }) =>
     `step ${step} · ${latest}`,
   "bots.helperTask": "Task:",
+  "bots.helperToggle": "Task and report",
   "bots.helperReport": "Report:",
   "bots.handOffDone": "Done",
   "bots.copyLink": "Copy link",
@@ -241,6 +247,7 @@ description: Use this when
 
 ## How to check
 `,
+  "bots.turnLine": "Turn details",
   "bots.cacheChip": ({ percent, steps, cost }: { percent: number; steps: number; cost: string }) =>
     `Cache ${percent}% · ${steps} ${steps === 1 ? "Step" : "Steps"} · ${cost}`,
   "bots.cacheMiss": ({ section, steps, cost }: { section: string; steps: number; cost: string }) =>
@@ -257,8 +264,9 @@ description: Use this when
   "bots.cacheSummaryStep": ({ percent, cost }: { percent: number; cost: string }) =>
     `Summary · ${percent}% cached · ${cost}`,
   "bots.neverAllowed": ({ summary }: { summary: string }) => `Never allowed · ${summary}`,
-  "bots.reviewPasses": ({ count }: { count: number }) =>
-    `✓ ${count} ${count === 1 ? "call" : "calls"} auto-approved`,
+  "bots.activity": "Activity",
+  "bots.activityCommand": "Command",
+  "bots.activityOutput": "Output",
   "bots.secretAsks": ({ bot, name }: { bot: string; name: string }) => `${bot} asks for ${name}`,
   "bots.secretValue": "Secret value",
   "bots.secretSave": "Save secret",
@@ -272,6 +280,7 @@ description: Use this when
   "bots.reactions": "Reactions",
   "bots.reactToMessage": "React to this message",
   "bots.reactWith": ({ emoji }: { emoji: string }) => `React with ${emoji}`,
+  "bots.choiceTitle": "Choose one",
   "bots.choiceOther": "Other",
   "bots.choiceOtherPlaceholder": "Type your answer",
   "bots.choiceSend": "Send",

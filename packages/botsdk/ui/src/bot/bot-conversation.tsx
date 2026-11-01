@@ -25,14 +25,17 @@ import { useBotReactions } from "@botsdk/react/bot/reactions";
 import { useBotUploads } from "@botsdk/react/bot/uploads";
 import { useBotSecrets } from "@botsdk/react/bot/secrets";
 import { useCacheWarming } from "@botsdk/react/bot/warm";
+import { BackToBots } from "./back-to-bots";
 import { BotAvatar } from "./bot-avatar";
 import { BotMenu, PausedBadge, PausedBanner, ResetDivider } from "./bot-menu";
+import { BotActivity } from "./bot-activity";
+import { BotTurnLine } from "./bot-turn-line";
 import { AttachButton, DraftFileChips } from "./draft-files";
 import { ReactionBar, ReactionChips } from "./reactions";
 import { CheckInLine } from "./check-in-line";
 import { HelperCard } from "./helper-card";
+import { Message } from "./message";
 import { NeverAllowedLine } from "./never-allowed-line";
-import { ReviewPassesLine } from "./review-passes-line";
 import { defaultRichControlRenderers, type RichControlRenderers } from "./rich-control";
 import { SecretsPopover } from "./secrets-popover";
 import { RunDivider } from "./run-divider";
@@ -61,7 +64,7 @@ export function BotConversation({
   headerEnd?: ReactNode;
   /**
    * What the Host shows under the last Bot Message a Turn sent, such as the `memory` plugin's
-   * "Memory updated" chip. It may return nothing.
+   * "Memory updated" chip. It shows on the left of the Turn's one muted line, whose right holds the cache figures (#1124). It may return nothing.
    */
   afterTurn?: (turn: BotTurnProvenance) => ReactNode;
   /** The Host's renderers for the Rich control kinds it draws itself. */
@@ -338,15 +341,20 @@ function BotConversationView({
     const nevers = neversOf.get(turn.id) ?? [];
     const shown = afterTurn?.(turn);
     const key = anchor?.id ?? "";
-    if (passes.length > 0 || nevers.length > 0 || shown)
+    if (turn.steps.length > 0 || passes.length > 0 || nevers.length > 0 || shown)
       afterTurnOf.set(key, [
         ...(afterTurnOf.get(key) ?? []),
         <Fragment key={turn.id}>
-          {passes.length > 0 && <ReviewPassesLine passes={passes} />}
           {nevers.map((review) => (
             <NeverAllowedLine key={review.id} review={review} />
           ))}
-          {shown}
+          {(turn.steps.length > 0 || shown || passes.length > 0) && (
+            <BotTurnLine
+              steps={turn.steps}
+              saved={shown}
+              activity={passes.length > 0 ? <BotActivity passes={passes} /> : undefined}
+            />
+          )}
         </Fragment>,
       ]);
   }
@@ -374,11 +382,12 @@ function BotConversationView({
         uploads.add(event.dataTransfer.files);
       }}
     >
-      <header className="flex items-center gap-3 border-b px-4 py-3">
+      <header className="flex items-center gap-2 border-b px-4 py-3 md:flex-wrap md:gap-3">
+        <BackToBots />
         <BotAvatar name={bot.name} size={28} />
-        <h1 className="font-semibold">{bot.name}</h1>
+        <h1 className="min-w-0 truncate font-semibold">{bot.name}</h1>
         {paused && <PausedBadge />}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center justify-end gap-2 max-md:relative md:flex-wrap">
           {tasks && (
             <TasksPopover
               tasks={tasks}
@@ -412,7 +421,7 @@ function BotConversationView({
       <div
         data-bot-thread
         {...follow}
-        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4 *:shrink-0"
+        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-[max(1rem,calc((100%-48rem)/2))] py-4 *:shrink-0"
       >
         {messages.length === 0 && (
           <p className="m-auto text-sm text-muted-foreground">{t("bots.noMessages")}</p>
@@ -432,26 +441,14 @@ function BotConversationView({
                 acting={actingDemonstrations.has(control.demonstrationId)}
               />
             ) : isApproval(control?.kind) ? null : (
-              <div
-                className={cn(
-                  "group relative flex max-w-[70%] flex-col gap-1",
-                  message.role === "user" ? "self-end" : "self-start",
-                )}
+              <Message
+                id={message.id}
+                role={message.role}
+                text={message.text}
+                pending={message.pending}
+                hoverTime={message.createdAt}
+                hideText={!message.text && control?.kind === "files"}
               >
-                {(message.text || control?.kind !== "files") && (
-                  <div
-                    data-bot-message
-                    data-id={message.id}
-                    data-role={message.role}
-                    className={cn(
-                      "rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap",
-                      message.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted",
-                      message.pending && "opacity-70",
-                    )}
-                  >
-                    {message.text}
-                  </div>
-                )}
                 <ReactionChips
                   reactions={message.reactions}
                   own={message.role === "user" ? "user" : "bot"}
@@ -467,7 +464,7 @@ function BotConversationView({
                     }
                   />
                 )}
-              </div>
+              </Message>
             )}
             {message.urgent && (
               <span
@@ -496,7 +493,7 @@ function BotConversationView({
             {control?.kind === "files" && (
               <FilesCard
                 card={control}
-                className={message.role === "user" ? "self-end" : undefined}
+                className={message.role === "user" ? "w-fit max-w-[75%] self-end" : undefined}
               />
             )}
             {control?.kind === "choice" && (
@@ -576,7 +573,7 @@ function BotConversationView({
               <p className="self-end text-xs text-muted-foreground">{t("bots.seen")}</p>
             )}
             {message.id === failedMessageId && (
-              <p className="self-end text-xs text-muted-foreground">{t("bots.couldntReply")}</p>
+              <p className="self-end text-xs text-red-500">{t("bots.couldntReply")}</p>
             )}
             {checkInsAfter.get(message.id)?.map(checkInLine)}
             {helpersAfter.get(message.id)?.map(helperCard)}
@@ -592,7 +589,7 @@ function BotConversationView({
           <div
             role="status"
             aria-label={t("bots.typing")}
-            className="self-start rounded-2xl bg-muted px-3 py-2 text-sm tracking-widest text-muted-foreground"
+            className="self-start py-2 text-sm tracking-widest text-muted-foreground"
           >
             •••
           </div>
@@ -600,7 +597,10 @@ function BotConversationView({
       </div>
       <DraftFileChips uploads={uploads} />
       {paused && <PausedBanner acting={botPause.acting} onResume={onResumeBot} />}
-      <form onSubmit={submit} className="flex items-end gap-2 border-t p-3">
+      <form
+        onSubmit={submit}
+        className="flex items-end gap-2 border-t px-[max(0.75rem,calc((100%-48rem)/2))] py-3"
+      >
         <AttachButton uploads={uploads} disabled={paused} />
         <Textarea
           aria-label={t("bots.message")}

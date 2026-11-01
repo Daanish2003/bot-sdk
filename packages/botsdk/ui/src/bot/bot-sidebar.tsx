@@ -29,7 +29,7 @@ export function BotSidebar({ accountMenu }: { accountMenu?: ReactNode }) {
   return (
     <aside
       aria-label={t("bots.app")}
-      className="flex w-80 shrink-0 flex-col border-r bg-muted/40 max-md:w-64"
+      className="flex w-80 shrink-0 flex-col border-r bg-muted/40 max-md:hidden max-md:w-full max-md:group-has-[[data-bots-home]]/app:flex"
     >
       <div className="flex items-center justify-end gap-2 p-4">
         <Button size="sm" className="rounded-full" onClick={() => setCreating(true)}>

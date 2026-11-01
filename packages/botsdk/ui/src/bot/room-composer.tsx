@@ -108,13 +108,16 @@ export function RoomComposer({
   };
 
   return (
-    <form onSubmit={submit} className="relative flex items-end gap-2 border-t p-3">
+    <form
+      onSubmit={submit}
+      className="relative flex items-end gap-2 border-t px-[max(0.75rem,calc((100%-48rem)/2))] py-3"
+    >
       {open && (
         <ul
           id={listId}
           role="listbox"
           aria-label={t("bots.mentionMember")}
-          className="absolute bottom-full left-3 mb-1 min-w-48 rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+          className="absolute bottom-full left-[max(0.75rem,calc((100%-48rem)/2))] mb-1 min-w-48 rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
         >
           {options.map((member, index) => (
             <li

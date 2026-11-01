@@ -584,6 +584,13 @@ ALTER TABLE "botsdk"."bot_trigger" ADD COLUMN "hops" integer DEFAULT 0 NOT NULL;
 insert into botsdk.__migrations (feature, migration) values ('core', '20261030171013_trigger_hops');
 commit;
 
+-- core/20261101163206_skinny_lady_ursula
+begin;
+ALTER TABLE "botsdk"."bot_review" ADD COLUMN "output" text;
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261101163206_skinny_lady_ursula');
+commit;
+
 -- notes/0001_note
 begin;
 create table botsdk.test_note (id text primary key, bot_id uuid references botsdk.bot(id) on delete cascade)

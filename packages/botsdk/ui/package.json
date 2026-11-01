@@ -18,6 +18,7 @@
     "./bot/files-card": "./src/bot/files-card.tsx",
     "./bot/helper-card": "./src/bot/helper-card.tsx",
     "./bot": "./src/bot/index.ts",
+    "./bot/message": "./src/bot/message.tsx",
     "./bot/new-bot-dialog": "./src/bot/new-bot-dialog.tsx",
     "./bot/reactions": "./src/bot/reactions.tsx",
     "./bot/refusal-toast": "./src/bot/refusal-toast.ts",

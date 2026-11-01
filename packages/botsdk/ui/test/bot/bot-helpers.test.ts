@@ -163,14 +163,51 @@ describe("a Helper in the Conversation", () => {
         [helper("m1", { status, report: live ? null : "There are 3 files." })],
       );
 
-      await screen.findByText(label);
+      const chip = await screen.findByText(label);
       expect(card(container).dataset.status).toBe(status);
+      // Red is only for Never allowed, Urgent and Couldn't reply.
+      expect(chip.className).not.toContain("red");
       expect(card(container).querySelector(".animate-spin")).toBeNull();
       expect(card(container).textContent?.includes("step 2")).toBe(live);
       fireEvent.click(within(card(container)).getByRole("button", { expanded: false }));
       expect(card(container).textContent?.includes("Report: There are 3 files.")).toBe(!live);
     },
   );
+
+  it("doesn't make a failed Helper look like one that needs the user", async () => {
+    const { container } = mount(
+      [said("m1", "assistant", "On it.")],
+      [
+        helper("m1", { status: "waiting", report: null }),
+        helper("m1", { id: "h2", status: "error" }),
+      ],
+    );
+
+    const [needsYou, failed] = [
+      await screen.findByText("Needs you"),
+      await screen.findByText("Failed"),
+    ];
+    expect(container.contains(failed)).toBe(true);
+    expect(failed.className).not.toBe(needsYou.className);
+  });
+
+  it("renders the report as Markdown under the safety rules", async () => {
+    const report =
+      "## Result\n\n- **3** files\n\n[go](javascript:alert(1)) ![pixel](https://attacker.example/a.png)";
+    const { container } = mount(
+      [said("m1", "assistant", "On it.")],
+      [helper("m1", { status: "complete", report })],
+    );
+    await screen.findByText("Done");
+    fireEvent.click(within(card(container)).getByRole("button", { expanded: false }));
+
+    expect(card(container).querySelector("h2")?.textContent).toBe("Result");
+    expect(card(container).querySelector("strong")?.textContent).toBe("3");
+    expect(card(container).querySelector("a")).toBeNull();
+    expect(card(container).querySelector("img")).toBeNull();
+    expect(card(container).textContent).toContain("pixel");
+    expect(card(container).textContent).not.toContain("**");
+  });
 
   it("updates the same card in place when the Helper ends, with no finished line", async () => {
     const helpers = [helper("m1")];

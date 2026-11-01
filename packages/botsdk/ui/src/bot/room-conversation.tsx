@@ -9,8 +9,10 @@ import { useI18n } from "@botsdk/react/provider";
 import { useBotReviews } from "@botsdk/react/bot/reviews";
 import { useRoom, useRoomChoices } from "@botsdk/react/bot/rooms";
 import { serverErrorText } from "@botsdk/react/rpc-error";
+import { BackToBots } from "./back-to-bots";
 import { BotAvatar } from "./bot-avatar";
 import { ChoiceCard } from "./choice-card";
+import { Message } from "./message";
 import { RoomComposer } from "./room-composer";
 import { RoomMembers } from "./room-members";
 import { ReviewRequest } from "./review-request";
@@ -60,6 +62,7 @@ export function RoomConversation({ conversationId }: { conversationId: string })
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       <header className="flex items-center gap-3 border-b px-4 py-3">
+        <BackToBots />
         <UsersIcon className="size-4 text-muted-foreground" />
         <h1 className="flex-1 truncate font-semibold">{room.name}</h1>
         <RoomMembers members={room.members} />
@@ -75,8 +78,9 @@ export function RoomConversation({ conversationId }: { conversationId: string })
       {room.members.length < 2 && <OneBotWarning room={room} />}
       <RoomSettingsDialog room={room} open={managing} onOpenChange={setManaging} />
       <div
+        data-room-thread
         {...follow}
-        className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 *:shrink-0"
+        className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-[max(1rem,calc((100%-48rem)/2))] py-4 *:shrink-0"
       >
         {messages.length === 0 && (
           <p className="m-auto text-sm text-muted-foreground">{t("bots.noMessages")}</p>
@@ -91,31 +95,40 @@ export function RoomConversation({ conversationId }: { conversationId: string })
           const stopped = handoff !== undefined && handoff.hops > hopLimit;
           return (
             <Fragment key={message.id}>
-              <div data-room-message data-id={message.id} className="flex gap-3">
-                {user || !author ? (
-                  <span
-                    aria-hidden
-                    className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground"
-                  >
-                    {user ? "•" : "?"}
-                  </span>
-                ) : (
-                  <BotAvatar name={author.name} size={32} />
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold">
-                    <span data-author>{name}</span>
-                    {author?.lead && (
-                      <CrownIcon className="ml-1 inline size-3 text-amber-600" aria-hidden />
-                    )}
-                    <time
-                      dateTime={message.createdAt.toISOString()}
-                      className="ml-2 text-xs font-normal text-muted-foreground"
-                    >
-                      {time.format(message.createdAt)}
-                    </time>
-                  </p>
-                  <p className="text-sm whitespace-pre-wrap">{message.text}</p>
+              <div data-room-message data-id={message.id} className="flex flex-col">
+                <Message
+                  id={message.id}
+                  role={message.role}
+                  text={message.text}
+                  hideText={!message.text}
+                  hoverTime={user ? message.createdAt : undefined}
+                  header={
+                    <div className="flex items-center gap-2">
+                      {author ? (
+                        <BotAvatar name={author.name} size={24} />
+                      ) : (
+                        <span
+                          aria-hidden
+                          className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground"
+                        >
+                          ?
+                        </span>
+                      )}
+                      <p className="text-sm font-semibold">
+                        <span data-author>{name}</span>
+                        {author?.lead && (
+                          <CrownIcon className="ml-1 inline size-3 text-amber-600" aria-hidden />
+                        )}
+                        <time
+                          dateTime={message.createdAt.toISOString()}
+                          className="ml-2 text-xs font-normal text-muted-foreground"
+                        >
+                          {time.format(message.createdAt)}
+                        </time>
+                      </p>
+                    </div>
+                  }
+                >
                   {message.authorBotId && message.control?.kind === "choice" && (
                     <ChoiceCard
                       card={message.control}
@@ -141,7 +154,7 @@ export function RoomConversation({ conversationId }: { conversationId: string })
                       })}
                     </p>
                   )}
-                </div>
+                </Message>
               </div>
               {stopped && (
                 <div

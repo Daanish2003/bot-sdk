@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { botReply, fileReply, sendMarker } from "./support/fake-ollama";
+import { botReply, fileReply, markdownMarker, sendMarker } from "./support/fake-ollama";
 import { appWebHost } from "./host";
 import { signInAsSeededUserWithModel } from "./helpers";
 
@@ -32,6 +32,56 @@ test("a Bot replies in a bubble, then stays quiet and shows Seen ✓", async ({ 
   await expect(bubbles.last()).toHaveAttribute("data-role", "user");
 });
 
+test("a Bot's Markdown reads as a document, and the user's own text stays as typed", async ({
+  page,
+}) => {
+  await signInAsSeededUserWithModel(page);
+  await page.goto("/bots");
+  await page.getByRole("button", { name: "New Bot" }).click();
+  await page.getByRole("textbox", { name: "Name" }).fill("Writer");
+  await page.getByRole("button", { name: "Create" }).click();
+  await expect(page).toHaveURL(/\/bots\/[\w-]+$/);
+
+  const composer = page.getByRole("textbox", { name: "Message" });
+  const typed = `${sendMarker} ${markdownMarker} **as typed**`;
+  await composer.fill(typed);
+  await composer.press("Enter");
+
+  const reply = page.locator("[data-bot-message][data-role=assistant]").last();
+  await expect(reply.getByRole("heading", { name: "Release notes" })).toBeVisible();
+  await expect(reply).not.toContainText("**");
+  await expect(reply).not.toContainText("##");
+  await expect(reply.getByRole("row")).toHaveCount(2);
+
+  // The styles reach the page, so unstyled tags don't pass for formatting.
+  const bold = await reply.locator("strong").evaluate((el) => getComputedStyle(el).fontWeight);
+  expect(Number(bold)).toBeGreaterThanOrEqual(600);
+  await expect(reply.locator("ul")).toHaveCSS("list-style-type", "disc");
+  const size = (selector: string) =>
+    reply.locator(selector).evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  expect(await size("h2")).toBeGreaterThan(await size("p >> nth=0"));
+
+  await expect(reply.locator("pre.shiki")).toContainText("const answer: number = 42;");
+  await expect(reply.locator("pre.shiki span").first()).toBeVisible();
+
+  const link = reply.getByRole("link", { name: "the docs" });
+  await expect(link).toHaveAttribute("target", "_blank");
+  await expect(link).toHaveAttribute("title", "https://example.com/docs");
+
+  // Raw HTML shows as harmless text.
+  await expect(reply).toContainText("<b>raw tag</b>");
+  await expect(reply.locator("b")).toHaveCount(0);
+
+  await expect(page.locator("[data-bot-message][data-role=user]").last()).toHaveText(typed);
+
+  // The Bot's Message fills a centered column.
+  const box = (await reply.boundingBox())!;
+  const thread = (await page.locator("[data-bot-thread]").boundingBox())!;
+  expect(box.width).toBeLessThanOrEqual(768);
+  expect(box.width).toBeGreaterThan(Math.min(600, thread.width - 64));
+  expect(Math.abs(box.x - thread.x - (thread.width - box.width) / 2)).toBeLessThanOrEqual(8);
+});
+
 test("a user sends a Bot a file, and the Bot's reply uses it", async ({ page }) => {
   await signInAsSeededUserWithModel(page);
   await page.goto("/bots");
@@ -58,6 +108,12 @@ test("a user sends a Bot a file, and the Bot's reply uses it", async ({ page }) 
   const bubbles = page.locator("[data-bot-message]");
   await expect(bubbles.last()).toContainText(fileReply("notes.txt"), { timeout: 30_000 });
   await expect(bubbles.last()).toHaveAttribute("data-role", "assistant");
+  // A user's attachments sit on the right of the column, sized to the files.
+  const card = (await page.locator("[data-files-card]").boundingBox())!;
+  const thread = (await page.locator("[data-bot-thread]").boundingBox())!;
+  const columnEnd = thread.x + (thread.width + Math.min(thread.width, 768)) / 2;
+  expect(card.x + card.width).toBeGreaterThan(columnEnd - 40);
+  expect(card.width).toBeLessThan(576 + 1);
 });
 
 test("a long thread follows new Messages, stays put when scrolled up, and never squashes a card", async ({

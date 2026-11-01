@@ -1,18 +1,10 @@
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import type { CustomRule, CustomRuleMode } from "@botsdk/client/bot/rule";
 import type { MessageKey } from "@botsdk/client/i18n";
 import { ScrollTextIcon } from "lucide-react";
-import { useId } from "react";
 
 import { useI18n } from "@botsdk/react/provider";
+import { ApprovalCard, SettledLine } from "./approval-card";
 import { useRefusalToast } from "./refusal-toast";
 
 export const modeKeys = {
@@ -39,48 +31,44 @@ export function RuleCard({
   acting: boolean;
 }) {
   const { t } = useI18n();
-  const titleId = useId();
   const run = useRefusalToast();
 
   if (rule.state !== "proposed") {
     return (
-      <div
+      <SettledLine
         data-rule-approval={rule.id}
         data-state={rule.state}
-        className="flex items-center gap-2 self-center text-xs text-muted-foreground"
+        icon={<ScrollTextIcon className="size-3" />}
       >
-        <span className="h-px w-8 bg-border" />
-        <span className="inline-flex items-center gap-1">
-          <ScrollTextIcon className="size-3" />
-          {t("bots.ruleAdded", { text: rule.text })}
-        </span>
-        <span className="h-px w-8 bg-border" />
-      </div>
+        {t("bots.ruleAdded", { text: rule.text })}
+      </SettledLine>
     );
   }
 
   return (
-    <Card
-      role="group"
-      aria-labelledby={titleId}
+    <ApprovalCard
       data-rule-approval={rule.id}
       data-state={rule.state}
-      size="sm"
-      className="max-w-md self-start"
+      attention
+      title={t("bots.ruleProposed")}
+      status={t(modeKeys[rule.mode])}
+      actions={
+        <>
+          <Button size="sm" disabled={acting} onClick={() => run(onApprove(rule.id))}>
+            {t("bots.approve")}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={acting}
+            onClick={() => run(onDeny(rule.id))}
+          >
+            {t("bots.reviewDeny")}
+          </Button>
+        </>
+      }
     >
-      <CardHeader>
-        <CardTitle id={titleId}>{t("bots.ruleProposed")}</CardTitle>
-        <CardDescription>{t(modeKeys[rule.mode])}</CardDescription>
-      </CardHeader>
-      <CardContent className="text-sm whitespace-pre-wrap">{rule.text}</CardContent>
-      <CardFooter className="gap-2">
-        <Button size="sm" disabled={acting} onClick={() => run(onApprove(rule.id))}>
-          {t("bots.approve")}
-        </Button>
-        <Button size="sm" variant="outline" disabled={acting} onClick={() => run(onDeny(rule.id))}>
-          {t("bots.reviewDeny")}
-        </Button>
-      </CardFooter>
-    </Card>
+      <p className="whitespace-pre-wrap">{rule.text}</p>
+    </ApprovalCard>
   );
 }

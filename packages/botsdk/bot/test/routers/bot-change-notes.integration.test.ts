@@ -320,6 +320,21 @@ describe("Change notes", () => {
     expect(JSON.stringify(results)).toMatch(/endTurn.*Call send_to_user again/);
   });
 
+  it("tell the Bot in send_to_user's text description to write Markdown (spec #1117)", async () => {
+    const { client, botId } = await botWith([round()]);
+
+    await send(client, botId, "turn one");
+    const [start] = await getTestDb()
+      .select()
+      .from(botPromptStart)
+      .where(eq(botPromptStart.botId, botId));
+    const sendToUser = start!.tools.find((tool) => tool.name === "send_to_user");
+    expect(JSON.stringify(sendToUser?.inputSchema)).toContain(
+      "The message the user reads, in Markdown. Format only when it helps. " +
+        "Put code and data in fenced blocks. Mention a Bot as plain @Name.",
+    );
+  });
+
   it("tell the Bot to load a changed tool's definition, which has its new arguments, such as shell's secrets", async () => {
     const { fake, client, botId } = await botWith([
       round(),

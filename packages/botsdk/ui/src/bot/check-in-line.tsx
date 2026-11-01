@@ -3,6 +3,7 @@ import type { BotCheckIn } from "@botsdk/client/bot/check-in";
 import { ClockIcon } from "lucide-react";
 
 import { useI18n } from "@botsdk/react/provider";
+import { SettledLine } from "./approval-card";
 import { useRefusalToast } from "./refusal-toast";
 import { runTime } from "./run-divider";
 
@@ -54,23 +55,22 @@ export function CheckInLine({
 }: { checkIn: BotCheckIn } & CheckInActionHandlers) {
   const i18n = useI18n();
   return (
-    <div
+    <SettledLine
       data-check-in={checkIn.id}
       data-state={checkIn.state}
-      className="flex items-center gap-2 self-center text-xs text-muted-foreground"
+      icon={<ClockIcon className="size-3" />}
+      actions={
+        <>
+          {checkIn.state === "failed" ? (
+            <span className="text-amber-500">{i18n.t("bots.checkInFailed")}</span>
+          ) : null}
+          <CancelCheckIn checkIn={checkIn} {...actions} />
+        </>
+      }
     >
-      <span className="h-px w-8 bg-border" />
-      <span className="inline-flex items-center gap-1">
-        <ClockIcon className="size-3" />
-        <span className={checkIn.state === "cancelled" ? "line-through" : undefined}>
-          {checkInText(i18n, checkIn)}
-        </span>
+      <span className={checkIn.state === "cancelled" ? "line-through" : undefined}>
+        {checkInText(i18n, checkIn)}
       </span>
-      {checkIn.state === "failed" ? (
-        <span className="text-destructive">{i18n.t("bots.checkInFailed")}</span>
-      ) : null}
-      <CancelCheckIn checkIn={checkIn} {...actions} />
-      <span className="h-px w-8 bg-border" />
-    </div>
+    </SettledLine>
   );
 }

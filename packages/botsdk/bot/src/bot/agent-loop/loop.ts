@@ -62,6 +62,7 @@ import {
   type ReviewAsk,
   type ReviewOutcome,
   type ReviewSource,
+  recordReviewOutput,
   reviewToolCall,
   type DecryptedSecrets,
   loadSecretValues,
@@ -656,6 +657,19 @@ export async function runLoop(
         ((path, content) => computer.writeFile(path, content, { signal: abortController.signal })),
     )) as T;
   };
+  /**
+   * Keeps what tool call `toolCallId` returned on its review, for the activity rows (spec #1117).
+   * `masked` gives the result, masked of the user's Secrets. Cosmetic: a failure must not fail the
+   * activity it runs in, which would run the call again.
+   */
+  const keepOutput = async (toolCallId: string | undefined, masked: () => Promise<unknown>) => {
+    if (!options.review || !toolCallId) return;
+    try {
+      await recordReviewOutput(deps, options.review, toolCallId, await masked());
+    } catch (error) {
+      deps.logger.error(`Keeping the output of tool call ${toolCallId} failed`, error);
+    }
+  };
   const liveActivity: LoopKit["liveActivity"] = (name, toolCallId, write) =>
     toolCall(toolCallId, async () => {
       const result = await ctx.step(name, async (tx) => {
@@ -676,7 +690,16 @@ export async function runLoop(
       if (blocked) return blocked;
       const result = await ctx.step(name, async () => {
         beforeLiveTool();
-        return capLong(await run(), toolCallId);
+        const ran = await run();
+        if (reviewed) {
+          await keepOutput(toolCallId, async () =>
+            maskResult(
+              ran,
+              secretMasker((await loadSecretValues(deps, owner.userId, decrypted)).values()),
+            ),
+          );
+        }
+        return capLong(ran, toolCallId);
       });
       // Not past a limit or a Stop: what `run` did is written, whenever it ran.
       if (!write) return result;
@@ -803,13 +826,15 @@ export async function runLoop(
       const result = await ctx.step(shellToolName, async () => {
         beforeLiveTool();
         if (!startedHere) return { error: interruptedShellError };
-        return runShell(
+        const ran = await runShell(
           deps,
           { userId: owner.userId, botId: owner.botId, toolCallId: context?.toolCallId },
           input,
           decrypted,
           onLiveComputer,
         );
+        await keepOutput(context?.toolCallId, async () => ran);
+        return ran;
       });
       return recordTold(result);
     }),
@@ -844,6 +869,7 @@ export async function runLoop(
             await onLiveComputer((computer, live) => operate(computer, live, mask)),
             mask,
           );
+          if (reviewed) await keepOutput(toolCallId, async () => result);
           // Cut inside the activity, so the Checkpoint holds only the cut form. A rebuilt note
           // is the result's last field, so it stays in the cut text's end.
           return cap ? await capLong(result, toolCallId) : result;

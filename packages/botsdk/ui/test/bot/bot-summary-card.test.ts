@@ -55,4 +55,31 @@ describe("SummaryCard", () => {
     expect(screen.getByText(away.text)).toBeTruthy();
     expect(screen.queryByText("Kept word for word:")).toBeNull();
   });
+
+  it("renders Markdown in the Summary and in its kept Messages", () => {
+    show({
+      ...away,
+      text: "## Plan\n\n- **Lisbon** in May",
+      kept: [kept("m1", "Booked **flights**", 12)],
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Summarized/ }));
+
+    const card = document.querySelector<HTMLElement>("[data-summary]")!;
+    expect(card.querySelector("h2")?.textContent).toBe("Plan");
+    expect(card.querySelectorAll("strong")).toHaveLength(2);
+    expect(card.textContent).not.toContain("**");
+  });
+
+  it("keeps the safety rules in the Summary and in its kept Messages", () => {
+    const risky =
+      "[go](javascript:alert(1)) ![pixel](https://attacker.example/a.png) <script>x()</script>";
+    show({ ...away, text: risky, kept: [kept("m1", risky, 12)] });
+    fireEvent.click(screen.getByRole("button", { name: /Summarized/ }));
+
+    const card = document.querySelector<HTMLElement>("[data-summary]")!;
+    expect(card.querySelector("a")).toBeNull();
+    expect(card.querySelector("img")).toBeNull();
+    expect(card.querySelector("script")).toBeNull();
+    expect(card.textContent).toContain("pixel");
+  });
 });

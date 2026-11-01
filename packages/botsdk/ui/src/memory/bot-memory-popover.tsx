@@ -17,6 +17,7 @@ import {
 } from "@botsdk/memory/react";
 import { useI18n } from "@botsdk/react/provider";
 import { serverErrorText } from "@botsdk/react/rpc-error";
+import { headerPopoverTrigger } from "../bot/header-popover";
 
 type Tier = "profile" | "log" | "notes";
 
@@ -98,7 +99,9 @@ export function BotMemoryPopover({ botId }: { botId: string }) {
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger render={<Button variant="outline" size="sm" />}>
+      <PopoverTrigger
+        render={<Button variant="outline" size="sm" {...headerPopoverTrigger("memory")} />}
+      >
         <BrainIcon /> {t("bots.memory")}
       </PopoverTrigger>
       <PopoverContent align="end" className="flex max-h-[70vh] w-96 flex-col gap-4 overflow-auto">

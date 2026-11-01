@@ -58,6 +58,45 @@ const runToolName = "run_tool";
 /** The Auto-review system prompt's first words (`reviewerSystemPrompt`); a call with it gets a verdict. */
 const reviewerPromptStart = "You review one tool call";
 export const botReply = "Hello from your Bot.";
+/** A send-marked prompt with this marker gets `markdownReply`. */
+export const markdownMarker = "[markdown]";
+/** A reply using each thing a Bot's Message formats, and raw HTML that must stay text. */
+export const markdownReply = [
+  "## Release notes",
+  "The **build** is green, see [the docs](https://example.com/docs).\nA second line.",
+  "- first item\n- second item",
+  "| Step | Time |\n| --- | --- |\n| Build | 2m |",
+  "```ts\nconst answer: number = 42;\n```",
+  "<b>raw tag</b>",
+].join("\n\n");
+/** A send-marked prompt with this marker gets `wideTableReply`. */
+export const wideTableMarker = "[wide-table]";
+/** A table of six columns of long words, which a phone can't fit without scrolling. */
+export const wideTableReply = [
+  "| Authentication | Configuration | Infrastructure | Observability | Internationalization | Documentation |",
+  "| --- | --- | --- | --- | --- | --- |",
+  "| Authenticated | Reconfigured | Provisioning | Instrumentation | Localization | Handbook |",
+].join("\n");
+/** A send-marked prompt with this marker gets `longCodeReply`. */
+export const longCodeMarker = "[long-code]";
+/** Words, then a code block long enough to start collapsed. */
+export const longCodeReply = [
+  "The listing:",
+  "```text",
+  ...Array.from({ length: 60 }, (_, at) => `line ${at + 1}`),
+  "```",
+].join("\n");
+/** A send-marked prompt with this marker gets `unsafeReply`. */
+export const unsafeMarker = "[unsafe]";
+/** A reply the safety rules must defuse: a script, a script link, a remote image; and some formatting. */
+export const unsafeReply = [
+  "## Safe heading",
+  "- first item\n- second item",
+  "<script>window.pwned = 1</script>",
+  "[click me](javascript:window.pwned=1)",
+  "![tracker](https://attacker.example/pixel.png)",
+  "2*3*4",
+].join("\n\n");
 /**
  * The reply of a Bot sent a file (spec #801): a send-marked prompt that carries the user's files
  * line, "[Files from the user: <name> (…", gets this with the first file's name, without its folder.
@@ -251,7 +290,16 @@ export function startFakeOllama(port: number): Promise<Server> {
       }
       if (stream && !answering && offers(sendToUserToolName) && prompt.includes(sendMarker)) {
         const file = /\[Files from the user: (\S+) \(/.exec(prompt)?.[1]?.split("/").pop();
-        calls(sendToUserToolName, { text: file ? fileReply(file) : botReply, endTurn: true });
+        const reply = prompt.includes(unsafeMarker)
+          ? unsafeReply
+          : prompt.includes(markdownMarker)
+            ? markdownReply
+            : prompt.includes(wideTableMarker)
+              ? wideTableReply
+              : prompt.includes(longCodeMarker)
+                ? longCodeReply
+                : botReply;
+        calls(sendToUserToolName, { text: file ? fileReply(file) : reply, endTurn: true });
         return;
       }
       if (stream && !answering && offers(runToolName) && prompt.includes(mcpMarker)) {

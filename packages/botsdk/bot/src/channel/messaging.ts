@@ -1,3 +1,5 @@
+import type { Block } from "@botsdk/client/message-format";
+
 /**
  * What a messaging adapter's call throws when the platform rejects the Channel account's
  * credentials (a revoked or wrong token: Telegram's 401 or 403). The listener stops, and the account
@@ -101,6 +103,11 @@ export type OutboundMessage = {
   chatId: string;
   /** Markdown; converting it to the platform's markup and splitting it are the adapter's job. */
   text: string;
+  /**
+   * What the Message's Rich control adds after `text` (its options, a link into the app), already
+   * parsed. It is never joined to `text`, whose Markdown could run on into it.
+   */
+  control?: Block[];
   buttons?: MessagingButtons;
   /** Files sent with it, each within the adapter's `limits.upload`. */
   files?: { name: string; contentType: string; content: Uint8Array }[];

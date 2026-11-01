@@ -1,4 +1,5 @@
-import { type Handoff, hopLimit, mentionedMembers } from "@botsdk/client/bot/mentions";
+import { type Handoff, hopLimit } from "@botsdk/client/bot/mentions";
+import { mentionedInMessage } from "@botsdk/client/message-format";
 import { eq, max } from "drizzle-orm";
 
 import { bot, botTrigger } from "../../storage";
@@ -30,7 +31,7 @@ export async function handoffOf(
   if (!text.includes("@")) return undefined;
   const room = await roomOf(tx, turn.conversationId);
   if (!room) return undefined;
-  const to = mentionedMembers(text, room.members).filter((botId) => botId !== turn.botId);
+  const to = mentionedInMessage(text, room.members).filter((botId) => botId !== turn.botId);
   if (to.length === 0) return undefined;
   const [taken] = await tx
     .select({ hops: max(botTrigger.hops) })
