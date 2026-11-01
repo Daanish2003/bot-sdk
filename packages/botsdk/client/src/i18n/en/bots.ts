@@ -242,6 +242,7 @@ description: Use this when
 
 ## How to check
 `,
+  "bots.turnLine": "Turn details",
   "bots.cacheChip": ({ percent, steps, cost }: { percent: number; steps: number; cost: string }) =>
     `Cache ${percent}% · ${steps} ${steps === 1 ? "Step" : "Steps"} · ${cost}`,
   "bots.cacheMiss": ({ section, steps, cost }: { section: string; steps: number; cost: string }) =>

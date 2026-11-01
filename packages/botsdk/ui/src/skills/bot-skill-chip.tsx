@@ -27,7 +27,7 @@ export function BotSkillChip({
             key={change.name}
             type="button"
             aria-expanded={open === change.name}
-            className="rounded-full border px-2 py-0.5"
+            className="rounded px-1 hover:text-foreground"
             onClick={() => setOpen(open === change.name ? null : change.name)}
           >
             {t(change.kind === "saved" ? "bots.skillSaved" : "bots.skillUpdated", {
