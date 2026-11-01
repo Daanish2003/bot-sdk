@@ -2,9 +2,9 @@
 import type { BotMessage } from "@botsdk/client/bot/turn";
 import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { BotConversation } from "../../src/bot/bot-conversation";
@@ -258,7 +258,7 @@ describe("highlighting", () => {
   it.each([
     ["ts", "const a = 1;"],
     ["sh", "echo hi"],
-    ["json", '{"a":1}'],
+    ["json", '{\n  "a": 1\n}'],
   ])("highlights a %s fence", async (language, code) => {
     const message = await shown(`\`\`\`${language}\n${code}\n\`\`\``);
 
@@ -274,5 +274,126 @@ describe("highlighting", () => {
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(message.querySelector("pre.shiki")).toBeNull();
     expect(message.querySelector("pre code")?.textContent).toContain("fn main() {}");
+  });
+});
+
+describe("JSON in a Bot's Message", () => {
+  it("shows a Message that is a JSON object from start to finish as an indented block", async () => {
+    const message = await shown('{"a":"*kept*","b":[1,2]}');
+
+    expect(message.querySelector("pre")?.textContent).toBe(
+      '{\n  "a": "*kept*",\n  "b": [\n    1,\n    2\n  ]\n}',
+    );
+    expect(message.querySelector("em")).toBeNull();
+  });
+
+  it("shows a JSON array, however it is padded, as an indented block", async () => {
+    const message = await shown('\n  [{"a":"2*3*4"}]  \n');
+
+    expect(message.querySelector("pre")?.textContent).toBe('[\n  {\n    "a": "2*3*4"\n  }\n]');
+  });
+
+  it("pretty-prints a fenced json block", async () => {
+    const message = await shown('Here:\n\n```json\n{"a":1,"b":{"c":2}}\n```');
+
+    expect(message.querySelector("pre")?.textContent).toBe(
+      '{\n  "a": 1,\n  "b": {\n    "c": 2\n  }\n}',
+    );
+  });
+
+  it("shows an invalid fenced json block as it came", async () => {
+    const message = await shown('```json\n{"a": 1,, }\n```');
+
+    expect(message.querySelector("pre")?.textContent).toBe('{"a": 1,, }');
+  });
+
+  it("shows JSON as it came when indenting would change its values", async () => {
+    const big = '{"id":12345678901234567890,"v":1.0}';
+
+    expect((await shown(big)).querySelector("pre")?.textContent).toBe(big);
+    cleanup();
+    const fenced = await shown("```json\n" + big + "\n```");
+    expect(fenced.querySelector("pre")?.textContent).toBe(big);
+  });
+
+  it("leaves JSON inside a sentence alone", async () => {
+    const message = await shown('The result was {"a":1} and then it stopped.');
+
+    expect(message.querySelector("pre")).toBeNull();
+    expect(message.querySelector("p")?.textContent).toBe(
+      'The result was {"a":1} and then it stopped.',
+    );
+  });
+
+  it("leaves a JSON scalar, and text that starts like JSON, to Markdown", async () => {
+    expect((await shown("123")).querySelector("pre")).toBeNull();
+    cleanup();
+    const link = await shown("[docs](https://example.com)");
+    expect(link.querySelector("pre")).toBeNull();
+    expect(link.querySelector("a")).not.toBeNull();
+  });
+
+  it("doesn't turn the user's JSON into a block", async () => {
+    const message = await shown('{"a":1}', "user");
+
+    expect(message.querySelector("pre")).toBeNull();
+    expect(message.textContent).toBe('{"a":1}');
+  });
+});
+
+describe("code blocks", () => {
+  const lines = (count: number) =>
+    Array.from({ length: count }, (_, index) => `line ${index + 1}`).join("\n");
+
+  it("copies the block's code from a named button", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const message = await shown("```ts\nconst a = 1;\n```");
+
+    const copy = message.querySelector<HTMLButtonElement>("button[aria-label='Copy code']")!;
+    fireEvent.click(copy);
+
+    expect(writeText).toHaveBeenCalledWith("const a = 1;");
+    await waitFor(() => expect(copy.textContent).toBe("Copied"));
+  });
+
+  it("copies the pretty-printed JSON of a whole-Message block", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const message = await shown('{"a":1}');
+
+    fireEvent.click(message.querySelector("button[aria-label='Copy code']")!);
+
+    expect(writeText).toHaveBeenCalledWith('{\n  "a": 1\n}');
+  });
+
+  it("starts a long block collapsed, and shows all its lines on request", async () => {
+    const message = await shown(`\`\`\`\n${lines(40)}\n\`\`\``);
+
+    const toggle = message.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.textContent).toBe("Show all 40 lines");
+    expect(message.querySelector("[data-collapsed]")).not.toBeNull();
+
+    fireEvent.click(toggle);
+
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle.textContent).toBe("Show fewer lines");
+    expect(message.querySelector("[data-collapsed]")).toBeNull();
+  });
+
+  it("doesn't collapse a short block", async () => {
+    const message = await shown(`\`\`\`\n${lines(5)}\n\`\`\``);
+
+    expect(message.querySelector("button[aria-expanded]")).toBeNull();
+    expect(message.querySelector("[data-collapsed]")).toBeNull();
+  });
+
+  it("scrolls wide code and tables inside their block", async () => {
+    const message = await shown("```\nwide\n```\n\n| A | B |\n| --- | --- |\n| 1 | 2 |");
+
+    expect(message.querySelector("pre")!.parentElement!.className).toContain("overflow-x-auto");
+    expect(message.querySelector("table")!.parentElement!.className).toContain("overflow-x-auto");
+    expect(message.parentElement!.className).toContain("min-w-0");
   });
 });
