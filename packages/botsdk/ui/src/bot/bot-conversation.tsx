@@ -31,6 +31,7 @@ import { AttachButton, DraftFileChips } from "./draft-files";
 import { ReactionBar, ReactionChips } from "./reactions";
 import { CheckInLine } from "./check-in-line";
 import { HelperCard } from "./helper-card";
+import { Message } from "./message";
 import { NeverAllowedLine } from "./never-allowed-line";
 import { ReviewPassesLine } from "./review-passes-line";
 import { defaultRichControlRenderers, type RichControlRenderers } from "./rich-control";
@@ -412,7 +413,7 @@ function BotConversationView({
       <div
         data-bot-thread
         {...follow}
-        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4 *:shrink-0"
+        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-[max(1rem,calc((100%-48rem)/2))] py-4 *:shrink-0"
       >
         {messages.length === 0 && (
           <p className="m-auto text-sm text-muted-foreground">{t("bots.noMessages")}</p>
@@ -432,26 +433,13 @@ function BotConversationView({
                 acting={actingDemonstrations.has(control.demonstrationId)}
               />
             ) : isApproval(control?.kind) ? null : (
-              <div
-                className={cn(
-                  "group relative flex max-w-[70%] flex-col gap-1",
-                  message.role === "user" ? "self-end" : "self-start",
-                )}
+              <Message
+                id={message.id}
+                role={message.role}
+                text={message.text}
+                pending={message.pending}
+                hideText={!message.text && control?.kind === "files"}
               >
-                {(message.text || control?.kind !== "files") && (
-                  <div
-                    data-bot-message
-                    data-id={message.id}
-                    data-role={message.role}
-                    className={cn(
-                      "rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap",
-                      message.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted",
-                      message.pending && "opacity-70",
-                    )}
-                  >
-                    {message.text}
-                  </div>
-                )}
                 <ReactionChips
                   reactions={message.reactions}
                   own={message.role === "user" ? "user" : "bot"}
@@ -467,7 +455,7 @@ function BotConversationView({
                     }
                   />
                 )}
-              </div>
+              </Message>
             )}
             {message.urgent && (
               <span
@@ -592,7 +580,7 @@ function BotConversationView({
           <div
             role="status"
             aria-label={t("bots.typing")}
-            className="self-start rounded-2xl bg-muted px-3 py-2 text-sm tracking-widest text-muted-foreground"
+            className="self-start py-2 text-sm tracking-widest text-muted-foreground"
           >
             •••
           </div>
@@ -600,7 +588,10 @@ function BotConversationView({
       </div>
       <DraftFileChips uploads={uploads} />
       {paused && <PausedBanner acting={botPause.acting} onResume={onResumeBot} />}
-      <form onSubmit={submit} className="flex items-end gap-2 border-t p-3">
+      <form
+        onSubmit={submit}
+        className="flex items-end gap-2 border-t px-[max(0.75rem,calc((100%-48rem)/2))] py-3"
+      >
         <AttachButton uploads={uploads} disabled={paused} />
         <Textarea
           aria-label={t("bots.message")}

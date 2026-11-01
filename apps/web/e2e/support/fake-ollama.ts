@@ -58,6 +58,17 @@ const runToolName = "run_tool";
 /** The Auto-review system prompt's first words (`reviewerSystemPrompt`); a call with it gets a verdict. */
 const reviewerPromptStart = "You review one tool call";
 export const botReply = "Hello from your Bot.";
+/** A send-marked prompt with this marker gets `markdownReply`. */
+export const markdownMarker = "[markdown]";
+/** A reply using each thing a Bot's Message formats, and raw HTML that must stay text. */
+export const markdownReply = [
+  "## Release notes",
+  "The **build** is green, see [the docs](https://example.com/docs).\nA second line.",
+  "- first item\n- second item",
+  "| Step | Time |\n| --- | --- |\n| Build | 2m |",
+  "```ts\nconst answer: number = 42;\n```",
+  "<b>raw tag</b>",
+].join("\n\n");
 /**
  * The reply of a Bot sent a file (spec #801): a send-marked prompt that carries the user's files
  * line, "[Files from the user: <name> (…", gets this with the first file's name, without its folder.
@@ -251,7 +262,8 @@ export function startFakeOllama(port: number): Promise<Server> {
       }
       if (stream && !answering && offers(sendToUserToolName) && prompt.includes(sendMarker)) {
         const file = /\[Files from the user: (\S+) \(/.exec(prompt)?.[1]?.split("/").pop();
-        calls(sendToUserToolName, { text: file ? fileReply(file) : botReply, endTurn: true });
+        const reply = prompt.includes(markdownMarker) ? markdownReply : botReply;
+        calls(sendToUserToolName, { text: file ? fileReply(file) : reply, endTurn: true });
         return;
       }
       if (stream && !answering && offers(runToolName) && prompt.includes(mcpMarker)) {
