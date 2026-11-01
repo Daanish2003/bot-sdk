@@ -122,6 +122,16 @@ const callerOf = (call: TextOptions) => {
 };
 
 describe("handoffs in a Room", () => {
+  it("keeps a Bot's Room Turns out of its 1:1 thread's Turns", async () => {
+    const { client, scout, send } = await threeBotRoom([says("Found it.")]);
+
+    await send("@Scout, find the release notes.");
+    await expect.poll(() => statusesOf(scout.id), poll).toEqual(["complete"]);
+
+    const { turns } = await client.bots.get({ botId: scout.id });
+    expect(turns).toEqual([]);
+  }, 30_000);
+
   it(
     "wakes a Bot another mentions with an agent Trigger one hop on, and the Message shows the handoff",
     async () => {

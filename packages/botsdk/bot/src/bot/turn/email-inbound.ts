@@ -124,6 +124,7 @@ async function deliver(
     }
   }
   const handed = await handIn(sdk, {
+    userId: owner.userId,
     botId: owner.botId,
     conversationId: owner.conversationId,
     id: `email:${messageId}`,

@@ -14,18 +14,22 @@ import type { Database } from "../../storage";
 import { routineNameOf, slotOf } from "../routines";
 
 /**
- * The Bot's Turns, oldest first, each with the Triggers it took and whether it sent anything (#539):
- * the web app draws a divider above a Routine's run from them, and one of its own for a quiet run.
- * `messages` are the Conversation's, oldest first: a Turn sent one when the Bot's Message was saved
- * while it ran. The Triggers come joined to the Bot's Turns in SQL, and both are matched up in one
- * pass, so the read grows with the Bot's history no faster than its Messages do.
+ * The Bot's Turns in Conversation `conversationId`, its 1:1, oldest first, each with the Triggers it
+ * took and whether it sent anything (#539): the web app draws a divider above a Routine's run from
+ * them, and one of its own for a quiet run. Its Room Turns stay out, as they show in the Room and in
+ * its Tasks view (spec #1055). `messages` are the Conversation's, oldest first: a Turn sent one when
+ * the Bot's Message was saved while it ran. The Triggers come joined to the Bot's Turns in SQL, and
+ * both are matched up in one pass, so the read grows with the Bot's history no faster than its
+ * Messages do.
  */
 export async function turnProvenance(
   db: Database,
   userId: string,
   botId: string,
+  conversationId: string,
   messages: BotMessage[],
 ): Promise<BotTurnProvenance[]> {
+  const ofThisThread = and(eq(botTurn.botId, botId), eq(botTurn.conversationId, conversationId));
   const [turns, triggers] = await Promise.all([
     db
       .select({
@@ -38,7 +42,7 @@ export async function turnProvenance(
         knowledgeChanges: botTurn.knowledgeChanges,
       })
       .from(botTurn)
-      .where(eq(botTurn.botId, botId))
+      .where(ofThisThread)
       .orderBy(asc(botTurn.startedAt), asc(botTurn.id)),
     db
       .select({
@@ -60,7 +64,7 @@ export async function turnProvenance(
           eq(botTrigger.id, sql`'demonstration:' || ${botDemonstration.id}::text`),
         ),
       )
-      .where(eq(botTurn.botId, botId))
+      .where(ofThisThread)
       .orderBy(asc(botTrigger.receivedAt), asc(botTrigger.id)),
   ]);
   const stepsOf = await turnSteps(db, userId, botId);

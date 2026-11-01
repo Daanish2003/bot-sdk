@@ -310,7 +310,7 @@ describe("quiet hours", () => {
   );
 
   it(
-    "read the zone of the Conversation's newest user Message, as Routines do: an email carries none",
+    "read the zone of the Conversation's newest user Message, as Routines do: an email keeps the user's last zone",
     timeout,
     async () => {
       const { write, mail, checkIn, settle, sent } = await notifiedBot([
@@ -325,8 +325,8 @@ describe("quiet hours", () => {
       await mail("first@mail.example");
       await checkIn();
 
-      // The email since carries no zone, so the Check-in's 10:00 is in UTC, outside quiet hours.
-      expect(sent.map((one) => one.text.split("\n")[0])).toEqual(["Booked.", "Any news?"]);
+      // The email since keeps Los Angeles, so the Check-in's 10:00 UTC is at night there: it is held.
+      expect(sent.map((one) => one.text.split("\n")[0])).toEqual(["Booked."]);
     },
   );
 

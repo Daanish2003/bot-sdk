@@ -63,6 +63,10 @@ export const serverEnv = {
     { modelId: fakeImageModel, size: "1024x1024", quality: "medium", pricePerImageUsd: 0.01 },
   ]),
   HOST_DEFAULT_IMAGE_MODEL: `fake:${fakeImageModel}`,
+  // No Computer, whatever the local `.env` says: its migrate step and the server must agree on it.
+  E2B_API_KEY: "",
+  E2B_API_URL: "",
+  E2B_SANDBOX_URL: "",
   // Set only by a run with Redis (`redis.spec.ts`); otherwise the server runs on memory.
   ...(process.env.REDIS_URL ? { REDIS_URL: process.env.REDIS_URL } : {}),
 };

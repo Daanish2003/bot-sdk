@@ -15,6 +15,7 @@ import { RoomComposer } from "./room-composer";
 import { RoomMembers } from "./room-members";
 import { ReviewRequest } from "./review-request";
 import { OneBotWarning, RoomSettingsDialog } from "./room-settings";
+import { useThreadFollow } from "./thread-follow";
 
 /**
  * A Room (spec #1055): one column of Messages, each with its author's avatar and name ("deleted
@@ -28,6 +29,10 @@ export function RoomConversation({ conversationId }: { conversationId: string })
   const choices = useRoomChoices(conversationId);
   const [draft, setDraft] = useState("");
   const [managing, setManaging] = useState(false);
+  const follow = useThreadFollow(
+    conversationId,
+    messages.filter((message) => message.role === "user").at(-1)?.id,
+  );
 
   if (error) {
     return (
@@ -69,7 +74,10 @@ export function RoomConversation({ conversationId }: { conversationId: string })
       </header>
       {room.members.length < 2 && <OneBotWarning room={room} />}
       <RoomSettingsDialog room={room} open={managing} onOpenChange={setManaging} />
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+      <div
+        {...follow}
+        className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 *:shrink-0"
+      >
         {messages.length === 0 && (
           <p className="m-auto text-sm text-muted-foreground">{t("bots.noMessages")}</p>
         )}

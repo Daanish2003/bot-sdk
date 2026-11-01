@@ -213,6 +213,21 @@ describe("an email to a Bot's address", () => {
     expect(JSON.stringify(fake.calls[0]!.messages)).toContain("Book me a table for Friday");
   }, 30_000);
 
+  it("keeps the user's time zone, so the Turn's clock doesn't fall back to UTC", async () => {
+    const { fake, client, botId, deliver, timer, runDue } = await emailBot();
+    await client.bots.send({ botId, id: uuidv7(), text: "Hello", timeZone: "Asia/Calcutta" });
+    timer.advance(500);
+    await runDue();
+
+    await deliver();
+    timer.advance(500);
+    await runDue();
+
+    expect(fake.calls).toHaveLength(2);
+    expect(JSON.stringify(fake.calls[1]!.messages)).toContain("(Asia/Calcutta)");
+    expect(JSON.stringify(fake.calls[1]!.messages)).not.toContain("(UTC)");
+  }, 30_000);
+
   it("from a Banned owner answers 202 and makes no Message or Trigger, until the Ban ends", async () => {
     let banned = true;
     const { conversationId, deliver } = await emailBot({ isBlocked: async () => banned });

@@ -184,6 +184,7 @@ async function wake(
   if (!body && stored.length === 0) return "it holds nothing";
 
   const handed = await handIn(sdk, {
+    userId: owner.userId,
     botId: owner.botId,
     conversationId: owner.conversationId,
     id,
