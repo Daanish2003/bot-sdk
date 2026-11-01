@@ -38,6 +38,7 @@ import { SecretsPopover } from "./secrets-popover";
 import { RunDivider } from "./run-divider";
 import { SummaryCard } from "./summary-card";
 import { TasksPopover } from "./tasks-popover";
+import { useThreadFollow } from "./thread-follow";
 import { WarmLine } from "./warm-line";
 
 /**
@@ -185,6 +186,10 @@ function BotConversationView({
       toast.error(serverErrorText(i18n, refusal)),
     );
   const { tasks } = useBotTasks(botId, working);
+  const follow = useThreadFollow(
+    botId,
+    messages.filter((message) => message.role === "user").at(-1)?.id,
+  );
   const { actingTriggers, skip: onSkipTrigger } = useSkipTrigger(botId);
   const botPause = useBotPause(botId);
   const onPauseBot = () =>
@@ -404,7 +409,11 @@ function BotConversationView({
           />
         </div>
       </header>
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4">
+      <div
+        data-bot-thread
+        {...follow}
+        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4 *:shrink-0"
+      >
         {messages.length === 0 && (
           <p className="m-auto text-sm text-muted-foreground">{t("bots.noMessages")}</p>
         )}

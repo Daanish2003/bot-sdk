@@ -1494,6 +1494,7 @@ describe("Triggers and Messages keyed by Bot (#1056)", () => {
     const bo = (await findBot(getTestDb(), user.id, otherId))!;
     const handTo = (owner: { id: string; conversationId: string }) =>
       handIn(deps, {
+        userId: user.id,
         botId: owner.id,
         conversationId: owner.conversationId,
         id: "telegram:account:1",

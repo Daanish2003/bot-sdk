@@ -32,13 +32,16 @@ test("a reset link sets a new password, signs out the other device, and a used l
   await page.getByRole("button", { name: "Already have an account? Sign In" }).click();
   await page.getByRole("link", { name: "Forgot password?" }).click();
   await expect(page).toHaveURL(/\/forgot-password$/);
+  // The URL changes before the lazy page renders, and /login has an "Email" field too.
+  await expect(page.getByRole("heading", { name: "Forgot password" })).toBeVisible();
   await page.getByLabel("Email").fill("nobody-here@example.com");
-  await page.getByRole("button", { name: "Send reset link" }).click();
+  const sendLink = page.getByRole("button", { name: "Send reset link" });
+  await submitAuthForm(page, sendLink, "/request-password-reset");
   await expect(page.getByText("If an account exists for that address")).toBeVisible();
 
   await page.goto("/forgot-password");
   await page.getByLabel("Email").fill(seeded.email);
-  await page.getByRole("button", { name: "Send reset link" }).click();
+  await submitAuthForm(page, sendLink, "/request-password-reset");
   await expect(page.getByText("If an account exists for that address")).toBeVisible();
 
   const [reset] = await waitForMail(page, seeded.email);

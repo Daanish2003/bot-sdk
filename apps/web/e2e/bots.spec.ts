@@ -60,6 +60,50 @@ test("a user sends a Bot a file, and the Bot's reply uses it", async ({ page }) 
   await expect(bubbles.last()).toHaveAttribute("data-role", "assistant");
 });
 
+test("a long thread follows new Messages, stays put when scrolled up, and never squashes a card", async ({
+  page,
+}) => {
+  await signInAsSeededUserWithModel(page);
+  await page.goto("/bots");
+  await page.getByRole("button", { name: "New Bot" }).click();
+  await page.getByRole("textbox", { name: "Name" }).fill("Longwinded");
+  await page.getByRole("button", { name: "Create" }).click();
+  await expect(page.getByRole("heading", { name: "Longwinded" })).toBeVisible();
+
+  const thread = page.locator("[data-bot-thread]");
+  const distanceFromEnd = () =>
+    thread.evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop);
+  const composer = page.getByRole("textbox", { name: "Message" });
+  const send = async (text: string) => {
+    await composer.fill(text);
+    await composer.press("Enter");
+  };
+
+  await send(`${sendMarker} ${"A very long line\n".repeat(80)}`);
+  await expect(page.locator("[data-bot-message]").last()).toHaveText(botReply);
+  await expect.poll(distanceFromEnd).toBeLessThan(2);
+
+  // Opens at the newest Message.
+  await page.reload();
+  await expect(page.locator("[data-bot-message]").last()).toHaveText(botReply);
+  await expect.poll(distanceFromEnd).toBeLessThan(2);
+
+  // Nothing in the thread gives up height to fit: each child keeps its own.
+  const shrinking = await thread.evaluate(
+    (element) =>
+      [...element.children].filter((child) => getComputedStyle(child).flexShrink !== "0").length,
+  );
+  expect(shrinking).toBe(0);
+
+  // Scrolled up to read, a Bot's Message doesn't move the page, and the user's own send does.
+  await thread.evaluate((element) => {
+    element.scrollTop = 0;
+    element.dispatchEvent(new Event("scroll"));
+  });
+  await send("ok");
+  await expect.poll(distanceFromEnd).toBeLessThan(2);
+});
+
 test("/ lands on /bots", async ({ page }) => {
   await appWebHost.signIn(page);
   await page.goto("/");

@@ -77,7 +77,7 @@ export function botsApi(sdk: BotSdkContext) {
       ]);
       // Each Turn's Triggers and whether it sent anything, for the dividers of Routine runs.
       const [turns, userStatus, summaries, warmings] = await Promise.all([
-        turnProvenance(sdk.db, userId, bot.id, messages),
+        turnProvenance(sdk.db, userId, bot.id, conversationId, messages),
         userTurnStatus(sdk.db, messages),
         botSummaries(sdk.db, bot.id, conversationId),
         botWarmings(sdk, userId, bot.id),

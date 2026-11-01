@@ -95,8 +95,12 @@ function RootDocument() {
           </WebChatProvider>
         </div>
         <Toaster richColors />
-        <TanStackRouterDevtools position="bottom-left" />
-        <ReactQueryDevtools position="bottom" buttonPosition="bottom-right" />
+        {/* At the sidebar's top left: elsewhere they cover the account menu or the composer's Send. */}
+        <TanStackRouterDevtools
+          position="top-left"
+          toggleButtonProps={{ style: { left: "3.5rem" } }}
+        />
+        <ReactQueryDevtools position="bottom" buttonPosition="top-left" />
         <Scripts />
       </body>
     </html>

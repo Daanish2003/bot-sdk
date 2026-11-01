@@ -6,7 +6,7 @@ import { appendMessage } from "../../chat/message-tree";
 import { isUniqueViolation } from "../../lib/unique-violation";
 
 import type { BotSdkContext, Transaction } from "../../plugin";
-import { sentFileBlobKey, textParts, hintChanged } from "../conversation";
+import { sentFileBlobKey, textParts, hintChanged, userTimeZone } from "../conversation";
 import { isPaused, lockTurnConversations, receive } from "../triggers";
 
 import { cancelTurn } from "./turn";
@@ -14,8 +14,9 @@ import { cancelTurn } from "./turn";
 /**
  * Hands the Router a user's Message for Bot `botId` that came in on a Channel besides web (email, a
  * messaging platform) as Trigger `id`, in one transaction under the Conversation's row lock. It saves the
- * Message (`body` and the already stored `files`, recording `channel` and the email `subject`),
- * wakes the Bot like a web Message and interrupts a running Turn. A paused Bot (spec #1007) saves no
+ * Message (`body` and the already stored `files`, recording `channel`, the email `subject` and the
+ * zone the user last sent from, as a Channel knows none), wakes the Bot like a web Message and
+ * interrupts a running Turn. A paused Bot (spec #1007) saves no
  * Message: the Trigger is kept as skipped only. Resolves with what became of it, and deletes the
  * stored files' bytes when no Message holds them.
  *
@@ -27,6 +28,7 @@ import { cancelTurn } from "./turn";
 export async function handIn(
   sdk: BotSdkContext,
   {
+    userId,
     botId,
     conversationId,
     id,
@@ -36,6 +38,7 @@ export async function handIn(
     files,
     stillValid,
   }: {
+    userId: string;
     botId: string;
     conversationId: string;
     id: string;
@@ -69,6 +72,7 @@ export async function handIn(
         });
         return "paused" as const;
       }
+      const timeZone = await userTimeZone(tx, userId);
       const row = await appendMessage(tx, conversationId, {
         role: "user",
         parts: {
@@ -81,6 +85,7 @@ export async function handIn(
           ],
           channel,
           ...(subject !== undefined && { subject }),
+          ...(timeZone && { timeZone }),
         },
         status: "complete",
         createdAt: now,
