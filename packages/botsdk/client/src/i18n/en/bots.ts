@@ -6,6 +6,7 @@ export const botsMessages = {
   "bots.namePlaceholder": "Name, e.g. Inbox Manager",
   "bots.create": "Create",
   "bots.noBots": "No Bots yet. Create one to start talking.",
+  "bots.backToList": "Back to Bots",
   "bots.pickABot": "Pick a Bot, or create a new one.",
   "bots.noMessages": "No messages yet",
   "bots.message": "Message",

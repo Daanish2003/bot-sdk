@@ -144,7 +144,7 @@ function ProviderRowItem({
 
   return (
     <li className="space-y-3 px-4 py-3">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <span
           className={cn("size-2 shrink-0 rounded-full", dot.className)}
           role="img"

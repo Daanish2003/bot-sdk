@@ -374,11 +374,11 @@ function BotConversationView({
         uploads.add(event.dataTransfer.files);
       }}
     >
-      <header className="flex items-center gap-3 border-b px-4 py-3">
+      <header className="flex flex-wrap items-center gap-3 border-b px-4 py-3">
         <BotAvatar name={bot.name} size={28} />
         <h1 className="font-semibold">{bot.name}</h1>
         {paused && <PausedBadge />}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           {tasks && (
             <TasksPopover
               tasks={tasks}
