@@ -1,19 +1,28 @@
 import { useI18n } from "@botsdk/react/provider";
 import { CodeBlock, CodeBlockCode } from "@/components/ui/prompt-kit/code-block";
 import { cn } from "@/lib/utils";
-import { type ComponentProps, isValidElement, type ReactNode, useState } from "react";
+import { type ComponentProps, isValidElement, type ReactNode, useEffect, useState } from "react";
 
 /** Blocks longer than this many lines start collapsed. */
 const collapseAbove = 15;
 
-/** `text` indented, when it is a JSON object or array, else null. */
-function prettyJson(text: string): string | null {
+/**
+ * `text` as a JSON object or array, indented, or null when it is not one. When indenting would
+ * change a value (a number too big for a double, `1.0`, an escape), `text` comes back as it was.
+ */
+function indentJson(text: string): string | null {
+  let value: unknown;
   try {
-    const value: unknown = JSON.parse(text);
-    return typeof value === "object" && value !== null ? JSON.stringify(value, null, 2) : null;
+    value = JSON.parse(text);
   } catch {
     return null;
   }
+  if (typeof value !== "object" || value === null) return null;
+  // Without its whitespace, `text` must read the same as the value written back out.
+  const compact = text.replace(/"(?:[^"\\]|\\.)*"|\s+/g, (token) =>
+    token.startsWith('"') ? token : "",
+  );
+  return compact === JSON.stringify(value) ? JSON.stringify(value, null, 2) : text;
 }
 
 /**
@@ -22,7 +31,7 @@ function prettyJson(text: string): string | null {
  */
 export function wholeMessageJson(text: string): string | null {
   const trimmed = text.trim();
-  return trimmed.startsWith("{") || trimmed.startsWith("[") ? prettyJson(trimmed) : null;
+  return trimmed.startsWith("{") || trimmed.startsWith("[") ? indentJson(trimmed) : null;
 }
 
 /**
@@ -33,6 +42,12 @@ export function MessageCodeBlock({ code, language }: { code: string; language: s
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  // Cleared on unmount, so the label never changes after the block is gone.
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(timer);
+  }, [copied]);
   const lineCount = code.split("\n").length;
   const collapsed = lineCount > collapseAbove && !expanded;
 
@@ -40,10 +55,7 @@ export function MessageCodeBlock({ code, language }: { code: string; language: s
     // Without clipboard access (an insecure page) the button simply does nothing.
     void navigator.clipboard
       ?.writeText(code)
-      .then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      })
+      .then(() => setCopied(true))
       .catch(() => {});
   };
 
@@ -93,7 +105,7 @@ export function MessagePre({ children }: ComponentProps<"pre">) {
   const code = String(content ?? "").replace(/\n$/, "");
   return (
     <MessageCodeBlock
-      code={language === "json" ? (prettyJson(code) ?? code) : code}
+      code={language === "json" ? (indentJson(code) ?? code) : code}
       language={language}
     />
   );
@@ -104,8 +116,9 @@ export function MessageTable({
   node: _node,
   ...props
 }: ComponentProps<"table"> & { node?: unknown }) {
+  // Focusable, so a keyboard user can scroll a wide table.
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto" tabIndex={0}>
       <table {...props} />
     </div>
   );

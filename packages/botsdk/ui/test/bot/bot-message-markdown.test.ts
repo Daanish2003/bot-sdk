@@ -307,6 +307,15 @@ describe("JSON in a Bot's Message", () => {
     expect(message.querySelector("pre")?.textContent).toBe('{"a": 1,, }');
   });
 
+  it("shows JSON as it came when indenting would change its values", async () => {
+    const big = '{"id":12345678901234567890,"v":1.0}';
+
+    expect((await shown(big)).querySelector("pre")?.textContent).toBe(big);
+    cleanup();
+    const fenced = await shown("```json\n" + big + "\n```");
+    expect(fenced.querySelector("pre")?.textContent).toBe(big);
+  });
+
   it("leaves JSON inside a sentence alone", async () => {
     const message = await shown('The result was {"a":1} and then it stopped.');
 
