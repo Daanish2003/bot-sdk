@@ -31,12 +31,18 @@ export type Block =
   | { type: "table"; align: TableAlign[]; header: Inline[][]; rows: Inline[][][] }
   | { type: "rule" };
 
-/** A word character: what stands on both sides of an `*` that is arithmetic and not emphasis. */
-const wordChar = /[\p{L}\p{N}]/u;
+/**
+ * What stands on both sides of an `*` that is arithmetic and not emphasis. ASCII only: languages
+ * written without spaces put marks between letters all the time, and mean them.
+ */
+const wordChar = /[a-z0-9]/i;
 
 /** The HTML whose content is code, not text to read: it goes with its tags. */
 const hiddenTagOpen = /^<(script|style)\b/i;
 const hiddenTagClose = /^<\/(script|style)\b/i;
+const lineBreakTag = /^<br\b/i;
+/** A hidden element and what's in it, then any other tag or comment, closed or left open. */
+const htmlInBlock = /<(script|style)\b[\s\S]*?(?:<\/\1\s*>|$)|<[/!?]?[a-z!-][^>]*(?:>|$)/gi;
 
 const namedEntities: Record<string, string> = {
   amp: "&",
@@ -88,13 +94,30 @@ function pushInline(nodes: Inline[], node: Inline): void {
   else nodes.push(node);
 }
 
+/** Text with line breaks in it, as a renderer expects it: text and breaks. */
+function linesOf(text: string): Inline[] {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .flatMap((line, at): Inline[] => [
+      ...(at > 0 ? [{ type: "break" } as const] : []),
+      { type: "text", text: decodeEntities(line) },
+    ]);
+}
+
 function inlines(tokens: readonly Token[] = []): Inline[] {
   const nodes: Inline[] = [];
   let hidden = false;
   tokens.forEach((token, at) => {
     if (token.type === "html") {
-      if (hiddenTagOpen.test(token.raw)) hidden = true;
-      else if (hiddenTagClose.test(token.raw)) hidden = false;
+      if (hiddenTagClose.test(token.raw)) hidden = false;
+      else if (hidden) return;
+      else if (lineBreakTag.test(token.raw)) nodes.push({ type: "break" });
+      // Hidden only up to its closing tag: with none, it's a word a Bot wrote about the tag.
+      else if (hiddenTagOpen.test(token.raw)) {
+        hidden = tokens.slice(at + 1).some((later) => hiddenTagClose.test(later.raw));
+      }
       return;
     }
     if (hidden) return;
@@ -112,11 +135,18 @@ function inlines(tokens: readonly Token[] = []): Inline[] {
       case "strong":
       case "em":
       case "del": {
+        const children = inlines((token as Tokens.Strong).tokens);
         if (isInsideWord(tokens, at)) {
-          pushInline(nodes, { type: "text", text: decodeEntities(token.raw) });
+          const mark = token.raw.match(/^[*~_]+/)?.[0] ?? "";
+          for (const node of [
+            { type: "text", text: mark } as const,
+            ...children,
+            { type: "text", text: mark } as const,
+          ]) {
+            pushInline(nodes, node);
+          }
           break;
         }
-        const children = inlines((token as Tokens.Strong).tokens);
         if (children.length === 0) break;
         const type =
           token.type === "em" ? "emphasis" : token.type === "del" ? "strikethrough" : "strong";
@@ -190,8 +220,12 @@ function blocks(tokens: readonly Token[]): Block[] {
       }
       case "hr":
         return [{ type: "rule" }];
+      case "html": {
+        const children = linesOf(token.raw.replace(htmlInBlock, ""));
+        return children.length > 0 ? [{ type: "paragraph", children }] : [];
+      }
       default:
-        // Raw HTML, a link definition, a gap between blocks: nothing to show.
+        // A link definition, a gap between blocks: nothing to show.
         return [];
     }
   });
@@ -209,24 +243,75 @@ function isJson(source: string): boolean {
   }
 }
 
-/** `source` shown exactly as written: harmless, as a code block's text is only ever text. */
-function literal(source: string, language: string | null): Block[] {
-  return [{ type: "code", language, text: source.trim() }];
+function jsonBlock(source: string): Block[] {
+  return [{ type: "code", language: "json", text: source.trim() }];
+}
+
+/**
+ * The longest run of inline text `marked` reads in one go. Its time grows with the square of a
+ * run's length on some input (a run of nothing but `*a ` takes a minute at 90 KB), so a longer run
+ * is read in pieces, cut at whitespace. A mark spanning a cut stays as written.
+ */
+const inlineRunLimit = 4096;
+
+function piecesOf(run: string): string[] {
+  const pieces: string[] = [];
+  let rest = run;
+  while (rest.length > inlineRunLimit) {
+    const space = rest.slice(0, inlineRunLimit).search(/\s\S*$/);
+    const cut = space > 0 ? space + 1 : inlineRunLimit;
+    pieces.push(rest.slice(0, cut));
+    rest = rest.slice(cut);
+  }
+  pieces.push(rest);
+  return pieces;
+}
+
+/**
+ * `source`'s tokens. Inline text is read in document order until `inlineBudget` characters have
+ * been read, and what's left has no tokens.
+ */
+function tokenize(source: string, inlineBudget: number): Token[] {
+  // A single line break stays a line break (spec #1117).
+  const lexer = new Lexer({ gfm: true, breaks: true });
+  const tokens = lexer.blockTokens(source.replace(/\r\n?/g, "\n"));
+  let read = 0;
+  for (const { src, tokens: into } of lexer.inlineQueue) {
+    for (const piece of piecesOf(src)) {
+      if (read >= inlineBudget) return tokens;
+      read += piece.length;
+      lexer.inlineTokens(piece, into);
+    }
+  }
+  return tokens;
+}
+
+function parse(source: string, inlineBudget: number): Block[] {
+  if (isJson(source)) return jsonBlock(source);
+  try {
+    return blocks(tokenize(source, inlineBudget));
+  } catch {
+    // `marked` ran out of stack, as it does on a few thousand nested quotes. Without a parse, what
+    // never comes through is taken out by hand and the rest is text.
+    const text = source
+      .replace(htmlInBlock, "")
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+      .replace(/^[>\s]+/gm, "");
+    return [{ type: "paragraph", children: linesOf(text) }];
+  }
 }
 
 /**
  * A Message's Markdown source as the structure a Channel's renderer writes from. A Message that is
- * JSON from start to finish is one `json` code block, and so is the very rare source `marked`
- * can't read (it runs out of stack on a few thousand nested quotes), which is shown as written.
+ * JSON from start to finish is one `json` code block.
  */
 export function parseMessage(source: string): Block[] {
-  if (isJson(source)) return literal(source, "json");
-  try {
-    // A single line break stays a line break (spec #1117).
-    return blocks(Lexer.lex(source, { gfm: true, breaks: true }));
-  } catch {
-    return literal(source, null);
-  }
+  return parse(source, Number.POSITIVE_INFINITY);
+}
+
+/** An address without what a URL adds to it or a writer leaves off, for comparing two. */
+function bareAddress(address: string): string {
+  return address.replace(/^(?:https?:\/\/|mailto:)/i, "").replace(/\/$/, "");
 }
 
 /** `nodes` as text. `withAddresses` follows a link's text with its address, unless they're the same. */
@@ -242,7 +327,7 @@ function inlineText(nodes: readonly Inline[], withAddresses: boolean): string {
         case "link": {
           const text = inlineText(node.children, withAddresses);
           const address = node.href.replace(/^mailto:/, "");
-          return withAddresses && text !== address && text !== node.href
+          return withAddresses && bareAddress(text) !== bareAddress(node.href)
             ? `${text} (${address})`
             : text;
         }
@@ -359,11 +444,10 @@ function firstLabel(list: readonly Block[]): string | null {
 }
 
 /**
- * How much of a Message's source a one-line preview reads. A preview needs only the start, and it
- * runs for every Bot in the list, while `marked` takes quadratic time on some input: a Message of
- * nothing but `*a ` costs seconds at tens of KB.
+ * How much inline text a one-line preview reads. It needs only the start of a Message, and it runs
+ * for every Bot in the list. Code blocks don't count, so the line after a long one is still found.
  */
-const oneLineSourceLimit = 4096;
+const oneLineInlineBudget = 4096;
 
 /**
  * A Message as one line of clean text, for a preview: its first line of ordinary text, or "Code" or
@@ -371,8 +455,6 @@ const oneLineSourceLimit = 4096;
  * length: that's up to where it's shown.
  */
 export function oneLine(source: string): string {
-  const parsed = isJson(source)
-    ? literal(source, "json")
-    : parseMessage(source.slice(0, oneLineSourceLimit));
+  const parsed = parse(source, oneLineInlineBudget);
   return firstOrdinaryLine(parsed) ?? firstLabel(parsed) ?? "";
 }

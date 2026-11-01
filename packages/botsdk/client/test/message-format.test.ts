@@ -44,7 +44,7 @@ describe("oneLine", () => {
     expect(oneLine("")).toBe("");
     expect(oneLine("---")).toBe("");
     expect(oneLine("![a cat](https://evil.example/cat.png)")).toBe("");
-    expect(oneLine("<div>hello</div>")).toBe("");
+    expect(oneLine("<div></div>")).toBe("");
   });
 
   it("previews a JSON Message as code, whatever its length, so asterisks aren't lost", () => {
@@ -56,14 +56,20 @@ describe("oneLine", () => {
     expect(oneLine('The value is {"a": 1}.')).toBe('The value is {"a": 1}.');
   });
 
+  it("finds the line after a long code block, and a reference link's address after long text", () => {
+    const code = `\`\`\`ts\n${"const a = 1;\n".repeat(1000)}\`\`\``;
+    expect(oneLine(`${code}\n\nThat's the fix.`)).toBe("That's the fix.");
+    expect(oneLine(`[click][1]\n\n${code}\n\n[1]: https://a.example`)).toBe("click");
+  });
+
   it("stays quick on the source that costs the parser most", () => {
     const started = performance.now();
     expect(oneLine("*a ".repeat(100_000))).toContain("a");
-    expect(performance.now() - started).toBeLessThan(5_000);
+    expect(performance.now() - started).toBeLessThan(2_000);
   });
 
   it("never throws, even on source that runs the parser out of stack", () => {
-    expect(oneLine(`${">".repeat(4000)} x`)).toBe("Code");
+    expect(oneLine(`${">".repeat(100_000)} x`)).toBe("x");
   });
 });
 
@@ -82,6 +88,42 @@ describe("what never comes through", () => {
     for (const text of [plainText(source), oneLine(source)]) {
       expect(text).not.toMatch(/<|alert|onerror|evil\.example|alt|x\{\}/i);
     }
+  });
+
+  it("takes nothing unsafe through marks inside a word", () => {
+    for (const source of [
+      "a*b<script>alert(1)</script>c*d",
+      "a*b![alt](https://evil.example/a.png)c*d",
+    ]) {
+      expect(plainText(source)).toBe("a*bc*d");
+    }
+    expect(plainText("a*b[click](javascript:alert(1))c*d")).toBe("a*bclickc*d");
+  });
+
+  it("takes nothing unsafe through source that runs the parser out of stack", () => {
+    const source = `${">".repeat(100_000)} <script>alert(1)</script> ![alt](https://evil.example/a.png) x`;
+    expect(plainText(source)).toBe("x");
+  });
+
+  it("takes nothing unsafe through a run too long to read at once", () => {
+    const source = `${"word ".repeat(2000)}<script>alert(1)</script> ![alt](https://evil.example/a.png) [x](javascript:y)`;
+    expect(plainText(source)).not.toMatch(/<|alert|evil|javascript/);
+  });
+
+  it("keeps the words of block HTML, without its tags or hidden elements", () => {
+    expect(oneLine("<div>Your train leaves at 9</div>")).toBe("Your train leaves at 9");
+    expect(plainText("<details>\nhello\n<script>alert(1)</script>\nthere\n</details>")).toBe(
+      "hello\nthere",
+    );
+    expect(plainText("<script>alert(1)\nmore")).toBe("");
+  });
+
+  it("keeps a line that only names a tag", () => {
+    expect(plainText("The <script> tag runs code.")).toBe("The  tag runs code.");
+  });
+
+  it("reads an HTML line break as a line break", () => {
+    expect(plainText("hello<br>world<br/>again")).toBe("hello\nworld\nagain");
   });
 
   it("keeps the words around raw HTML", () => {
@@ -156,6 +198,20 @@ describe("text as written", () => {
     expect(plainText("**3.1**% *a* b**c**")).toBe("3.1% a bc");
   });
 
+  it("reads marks between letters of a language written without spaces as formatting", () => {
+    expect(plainText("这是**重要**的")).toBe("这是重要的");
+  });
+
+  it("reads a long run in time that grows with its length", () => {
+    const started = performance.now();
+    expect(plainText("*a ".repeat(30_000))).toContain("a");
+    expect(performance.now() - started).toBeLessThan(20_000);
+  });
+
+  it("keeps formatting in a long run", () => {
+    expect(plainText(`${"word ".repeat(2000)}**end**`)).toBe(`${"word ".repeat(2000)}end`);
+  });
+
   it("takes an escaped character as itself", () => {
     expect(plainText("\\*not bold\\* 2\\*3")).toBe("*not bold* 2*3");
   });
@@ -174,9 +230,10 @@ describe("text as written", () => {
     expect(plainText(source)).toBe(source);
   });
 
-  it("shows source the parser can't read as written", () => {
-    const source = `${">".repeat(4000)} x`;
-    expect(parseMessage(source)).toEqual([{ type: "code", language: null, text: source }]);
+  it("shows source the parser can't read as text", () => {
+    expect(parseMessage(`${">".repeat(100_000)} x`)).toEqual([
+      { type: "paragraph", children: [{ type: "text", text: "x" }] },
+    ]);
   });
 });
 
@@ -286,6 +343,9 @@ describe("plainText", () => {
     expect(plainText("[docs](https://a.example/) https://b.example/ a@c.example")).toBe(
       "docs (https://a.example/) https://b.example/ a@c.example",
     );
+    expect(
+      plainText("https://a.example www.b.example [https://c.example](https://c.example)"),
+    ).toBe("https://a.example www.b.example https://c.example");
   });
 
   it("aligns a table's columns, on the right where it says so", () => {
