@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { emailBody } from "../../src/channel/internal";
 import { forwardedEmailLabel as forwardedLabel } from "../../src/bot/routines";
 import { emailText as textOn } from "../../src/bot/turn";
 
@@ -9,6 +10,22 @@ const base = { subject: "Plans", headers: {}, attachments: [] };
 const emailText = (mail: Parameters<typeof textOn>[0]) => textOn(mail, "bots.example");
 
 describe("emailText", () => {
+  it("reads the user's reply from a rendered Markdown mail, however it is quoted", () => {
+    const sent = emailBody(
+      { text: "## Options\n\n- **Friday** 7pm\n- Saturday 8pm\n\n| a | b |\n|---|---|\n| 1 | 2 |" },
+      { botUrl: "https://app.example/bots/b1" },
+    ).text;
+    const quoted = sent
+      .split("\n")
+      .map((line) => `> ${line}`)
+      .join("\n");
+    const text = emailText({
+      ...base,
+      text: `Friday, please.\n\nOn Mon, Oct 20, 2026 at 9:00 AM Ada Bot <ada.bot.ab12cd34@bots.example> wrote:\n${quoted}\n`,
+    });
+    expect(text).toBe("Plans\nFriday, please.");
+  });
+
   it("keeps a Gmail reply's new text only, with the subject as a first line", () => {
     const text = emailText({
       ...base,

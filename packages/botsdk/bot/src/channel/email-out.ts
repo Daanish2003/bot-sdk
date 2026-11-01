@@ -1,8 +1,10 @@
 import type { SentFile } from "@botsdk/client/bot/files";
+import { parseMessage, plainText } from "@botsdk/client/message-format";
 import { isApproval } from "@botsdk/client/bot/rich-control";
 import type { BotMessage } from "@botsdk/client/bot/turn";
 
 import type { OutboundMail } from "./email";
+import { blocksHtml, escapeHtml } from "./email-html";
 
 /** The most bytes of files one email attaches; over it, the files are a link instead. */
 export const maxAttachedBytes = 10 * 1024 * 1024;
@@ -20,7 +22,7 @@ export function emailBody(
   message: Pick<BotMessage, "text" | "control">,
   { botUrl, files = [] }: { botUrl: string; files?: FileBytes[] },
 ): Pick<OutboundMail, "text" | "html" | "attachments"> {
-  const paragraphs: Paragraph[] = [{ text: message.text }];
+  const paragraphs: Paragraph[] = [{ markdown: message.text }];
   let attachments: OutboundMail["attachments"];
   const control = message.control;
   const link = (lead: string): Paragraph => ({ text: lead, href: botUrl });
@@ -63,15 +65,19 @@ export function emailBody(
       );
   }
   return {
-    text: paragraphs.map(plainText).join("\n\n"),
-    html: paragraphs.map(htmlOf).join("\n"),
+    text: paragraphs.map(paragraphText).filter(Boolean).join("\n\n"),
+    html: paragraphs.map(htmlOf).filter(Boolean).join("\n"),
     ...(attachments && { attachments }),
   };
 }
 
-type Paragraph = { text: string; href?: string } | { list: string[]; ordered?: boolean };
+type Paragraph =
+  | { markdown: string }
+  | { text: string; href?: string }
+  | { list: string[]; ordered?: boolean };
 
-function plainText(paragraph: Paragraph): string {
+function paragraphText(paragraph: Paragraph): string {
+  if ("markdown" in paragraph) return plainText(paragraph.markdown);
   if ("list" in paragraph) {
     return paragraph.list
       .map((item, index) => `${paragraph.ordered === false ? "-" : `${index + 1}.`} ${item}`)
@@ -81,6 +87,7 @@ function plainText(paragraph: Paragraph): string {
 }
 
 function htmlOf(paragraph: Paragraph): string {
+  if ("markdown" in paragraph) return blocksHtml(parseMessage(paragraph.markdown));
   if ("list" in paragraph) {
     const tag = paragraph.ordered === false ? "ul" : "ol";
     return `<${tag}>${paragraph.list.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</${tag}>`;
@@ -88,16 +95,7 @@ function htmlOf(paragraph: Paragraph): string {
   if (paragraph.href) {
     return `<p><a href="${escapeHtml(paragraph.href)}">${escapeHtml(paragraph.text)}</a></p>`;
   }
-  return `<p>${escapeHtml(paragraph.text).replace(/\r?\n/g, "<br>")}</p>`;
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+  return `<p>${escapeHtml(paragraph.text)}</p>`;
 }
 
 /** A subject that answers `subject`: one "Re: " however many it had, or "Re: <fallback>" when empty. */
