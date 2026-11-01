@@ -69,6 +69,7 @@ export function RoutineCard({
     <ApprovalCard
       data-routine={routine.name}
       data-state={routine.state}
+      attention
       title={t("bots.routineCreated", { name: routine.name })}
       status={
         <>

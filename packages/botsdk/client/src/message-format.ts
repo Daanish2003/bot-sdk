@@ -42,6 +42,23 @@ const wordChar = /[a-z0-9]/i;
 const hiddenTagOpen = /^<(script|style)\b/i;
 const hiddenTagClose = /^<\/(script|style)\b/i;
 const lineBreakTag = /^<br\b/i;
+/**
+ * The elements of HTML, old ones too, and the roots of SVG and MathML. What only looks like a tag is
+ * a word, as in `Array<string>` or `grep <path>`, and stays as text.
+ */
+const htmlElements = new Set(
+  (
+    "a abbr acronym address applet area article aside audio b base basefont bdi bdo bgsound big blink " +
+    "blockquote body br button canvas caption center cite code col colgroup data datalist dd del " +
+    "details dfn dialog dir div dl dt em embed fieldset figcaption figure font footer form frame " +
+    "frameset h1 h2 h3 h4 h5 h6 head header hgroup hr html i iframe img input ins isindex kbd " +
+    "keygen label legend li link listing main map mark marquee math menu menuitem meta meter multicol " +
+    "nav nextid nobr noembed noframes noscript object ol optgroup option output p param picture " +
+    "plaintext portal pre progress q rb rp rt rtc ruby s samp script search section select slot small " +
+    "source spacer span strike strong style sub summary sup svg table tbody td template textarea tfoot " +
+    "th thead time title tr track tt u ul var video wbr xmp"
+  ).split(" "),
+);
 /** A hidden element and what's in it, then any other tag or comment, closed or left open. */
 const htmlInBlock =
   /<(script|style)\b[\s\S]*?(?:<\/\1\s*>|$)|<!--[\s\S]*?(?:-->|$)|<[/!?]?[a-z](?:"[^"]*"|'[^']*'|[^>"'])*(?:>|$)/gi;
@@ -54,6 +71,20 @@ const namedEntities = new Map([
   ["apos", "'"],
   ["nbsp", " "],
 ]);
+
+/**
+ * Whether `raw`, one tag as `marked` or `htmlInBlock` found it, is a word in angle brackets and not
+ * a tag: its name is no element, and it holds no other tag in its attributes to carry through.
+ */
+function isWordInBrackets(raw: string): boolean {
+  const name = /^<\/?([a-z][\w-]*)/i.exec(raw)?.[1];
+  return name !== undefined && !htmlElements.has(name.toLowerCase()) && !raw.includes("<", 1);
+}
+
+/** `html` without its hidden elements, tags and comments. */
+function withoutHtml(html: string): string {
+  return html.replace(htmlInBlock, (found) => (isWordInBrackets(found) ? found : ""));
+}
 
 /** The text an entity stands for. `marked` keeps entities as written and leaves this to a renderer. */
 function decodeEntities(text: string): string {
@@ -119,7 +150,7 @@ function inlines(tokens: readonly Token[] = []): Inline[] {
       // Hidden only up to its closing tag: with none, it's a word a Bot wrote about the tag.
       else if (hiddenTagOpen.test(token.raw)) {
         hidden = tokens.slice(at + 1).some((later) => hiddenTagClose.test(later.raw));
-      }
+      } else if (isWordInBrackets(token.raw)) pushInline(nodes, { type: "text", text: token.raw });
       return;
     }
     if (hidden) return;
@@ -234,7 +265,7 @@ function blocks(tokens: readonly Token[]): Block[] {
       case "hr":
         return [{ type: "rule" }];
       case "html": {
-        const children = linesOf(token.raw.replace(htmlInBlock, ""));
+        const children = linesOf(withoutHtml(token.raw));
         return children.length > 0 ? [{ type: "paragraph", children }] : [];
       }
       default:
@@ -306,8 +337,7 @@ function parse(source: string, inlineBudget: number): Block[] {
   } catch {
     // `marked` ran out of stack, as it does on a few thousand nested quotes. Without a parse, what
     // never comes through is taken out by hand and the rest is text.
-    const text = source
-      .replace(htmlInBlock, "")
+    const text = withoutHtml(source)
       .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
       .replace(/^[>\s]+/gm, "");
     return [{ type: "paragraph", children: linesOf(text) }];
@@ -404,7 +434,8 @@ function blockText(block: Block): string {
   }
 }
 
-function blocksText(list: readonly Block[]): string {
+/** `list` as clean text, as `plainText` writes a Message's blocks. */
+export function blocksText(list: readonly Block[]): string {
   return list.map(blockText).filter(Boolean).join("\n\n");
 }
 

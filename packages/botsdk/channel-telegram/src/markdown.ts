@@ -294,11 +294,12 @@ function plainPieces(text: string): string[] {
 
 /**
  * The parts of a Markdown text: one when it fits Telegram's limit, otherwise parts numbered
- * ` (1/3)`, none when nothing in it can be shown. The same text always makes the same parts, which
- * a retry's resume counts on.
+ * ` (1/3)`, none when nothing in it can be shown. `control` follows the text as what it is, so
+ * nothing in the text can run on into it. The same input always makes the same parts, which a
+ * retry's resume counts on.
  */
-export function splitParts(markdown: string): Part[] {
-  const items = blocksItems(parseMessage(markdown), false);
+export function splitParts(markdown: string, control: readonly Block[] = []): Part[] {
+  const items = blocksItems([...parseMessage(markdown), ...control], false);
   if (!items.some((item) => itemText(item).trim())) return [];
   const whole = renderItems(items);
   if (whole.length <= messageLimit) {

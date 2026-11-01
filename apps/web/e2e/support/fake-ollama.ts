@@ -69,6 +69,23 @@ export const markdownReply = [
   "```ts\nconst answer: number = 42;\n```",
   "<b>raw tag</b>",
 ].join("\n\n");
+/** A send-marked prompt with this marker gets `wideTableReply`. */
+export const wideTableMarker = "[wide-table]";
+/** A table of six columns of long words, which a phone can't fit without scrolling. */
+export const wideTableReply = [
+  "| Authentication | Configuration | Infrastructure | Observability | Internationalization | Documentation |",
+  "| --- | --- | --- | --- | --- | --- |",
+  "| Authenticated | Reconfigured | Provisioning | Instrumentation | Localization | Handbook |",
+].join("\n");
+/** A send-marked prompt with this marker gets `longCodeReply`. */
+export const longCodeMarker = "[long-code]";
+/** Words, then a code block long enough to start collapsed. */
+export const longCodeReply = [
+  "The listing:",
+  "```text",
+  ...Array.from({ length: 60 }, (_, at) => `line ${at + 1}`),
+  "```",
+].join("\n");
 /** A send-marked prompt with this marker gets `unsafeReply`. */
 export const unsafeMarker = "[unsafe]";
 /** A reply the safety rules must defuse: a script, a script link, a remote image; and some formatting. */
@@ -277,7 +294,11 @@ export function startFakeOllama(port: number): Promise<Server> {
           ? unsafeReply
           : prompt.includes(markdownMarker)
             ? markdownReply
-            : botReply;
+            : prompt.includes(wideTableMarker)
+              ? wideTableReply
+              : prompt.includes(longCodeMarker)
+                ? longCodeReply
+                : botReply;
         calls(sendToUserToolName, { text: file ? fileReply(file) : reply, endTurn: true });
         return;
       }

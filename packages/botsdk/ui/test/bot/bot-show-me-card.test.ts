@@ -124,6 +124,8 @@ describe("the Show me card", () => {
     expect(container.querySelector('[data-bot-message][data-id="m3"]')).toBeNull();
     expect(card.textContent).toContain(`Show me: ${goal}`);
     expect(within(card).getByRole("img", { name: "Recording" })).toBeTruthy();
+    // Only the border is red: the owner's one exception to the colour rule.
+    expect(within(card).getByRole("img", { name: "Recording" }).className).not.toContain("red");
     expect(card.querySelector("[data-timer]")?.textContent).toMatch(/^\d+:\d\d$/);
     expect(card.textContent).toContain("Ada sees what you do. Pause before typing a password.");
     await waitFor(() =>

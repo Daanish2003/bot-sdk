@@ -134,6 +134,8 @@ describe("a Check-in the Bot set", () => {
     const line = container.querySelector<HTMLElement>("[data-check-in]")!;
     expect(line.dataset.state).toBe("failed");
     expect(line.textContent).toMatch(/Has Acme replied?.*failed/i);
+    // Red is only for Never allowed, Urgent and Couldn't reply.
+    expect(line.innerHTML).not.toMatch(/(?:bg|text|border)-(?:red|destructive)/);
     expect(within(line).queryByRole("button", { name: "Cancel" })).toBeNull();
   });
 

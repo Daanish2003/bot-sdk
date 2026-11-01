@@ -191,6 +191,12 @@ describe("emailBody with Markdown (spec #1117)", () => {
     expect(body.html).toContain("one<br>two");
   });
 
+  it("keeps a word in angle brackets, escaped in the HTML part", () => {
+    const body = emailBody({ text: "Use Array<string> here" }, { botUrl });
+    expect(body.text).toBe("Use Array<string> here");
+    expect(body.html).toContain("Use Array&lt;string&gt; here");
+  });
+
   it("never lets a script, a javascript: link or a remote image through", () => {
     const hostile = [
       "<script>alert(1)</script>",

@@ -12,7 +12,7 @@ const chipStyles: Record<HelperStatus, string> = {
   running: "bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-100",
   waiting: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100",
   complete: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-100",
-  error: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100",
+  error: "text-amber-500 ring-1 ring-amber-500 ring-inset",
   stopped: "bg-muted text-muted-foreground",
 };
 

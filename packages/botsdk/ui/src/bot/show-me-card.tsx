@@ -148,10 +148,7 @@ function RecDot({ paused }: { paused: boolean }) {
     <span
       role="img"
       aria-label={t(paused ? "bots.showMePaused" : "bots.showMeRecording")}
-      className={cn(
-        "size-2 shrink-0 rounded-full",
-        paused ? "bg-amber-500" : "animate-pulse bg-red-500",
-      )}
+      className={cn("size-2 shrink-0 rounded-full bg-amber-500", !paused && "animate-pulse")}
     />
   );
 }

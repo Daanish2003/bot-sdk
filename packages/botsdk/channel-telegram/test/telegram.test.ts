@@ -1,3 +1,4 @@
+import type { Block } from "@botsdk/client/message-format";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -301,6 +302,56 @@ describe("what a Message looks like on Telegram", () => {
     }
     return requests.map(({ body }) => String(body.text));
   }
+
+  describe("a Rich control's lines, sent as structure after the Message's text", () => {
+    const line = (text: string): Block => ({
+      type: "paragraph",
+      children: [{ type: "text", text }],
+    });
+    const options: Block = {
+      type: "list",
+      ordered: true,
+      start: 1,
+      items: [[line("Yes")], [line("No")]],
+    };
+    const sendsWith = async (text: string, control: Block[]) => {
+      api.replies.set("sendMessage", ok({ message_id: 1 }));
+      await adapter().send(account, { chatId: "7", text, control }, call);
+      return api.of("sendMessage").map((request) => String(request.body.text));
+    };
+
+    it("doesn't merge a list the text ends on with the options", async () => {
+      const [text] = await sendsWith("1. Foo", [options]);
+      expect(text).toBe("1\\. Foo\n\n1\\. Yes\n2\\. No");
+    });
+
+    it("isn't swallowed by a fence the text left open", async () => {
+      const [text] = await sendsWith("```\ncode", [line("Reply yes or no.")]);
+      expect(text).toBe("```\ncode\n```\n\nReply yes or no\\.");
+    });
+
+    it("leaves a Message that is all JSON one JSON block", async () => {
+      const [text] = await sendsWith('{"a": "*b*"}', [line("Reply yes or no.")]);
+      expect(text).toContain('```json\n{"a": "*b*"}\n```');
+      expect(text).toMatch(/Reply yes or no\\\.$/);
+    });
+
+    it("sends a link as a link, and no text at all is fine", async () => {
+      const [text] = await sendsWith("", [
+        {
+          type: "paragraph",
+          children: [
+            {
+              type: "link",
+              href: "https://app.example/b",
+              children: [{ type: "text", text: "Open" }],
+            },
+          ],
+        },
+      ]);
+      expect(text).toBe("[Open](https://app.example/b)");
+    });
+  });
 
   it.each([
     ["a stray mark", "2*3"],

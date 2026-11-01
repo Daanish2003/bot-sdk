@@ -1361,9 +1361,6 @@ importers:
       lucide-react:
         specifier: 'catalog:'
         version: 1.52.0(@types/react@19.3.0)(react@19.3.0)
-      marked:
-        specifier: ^18.0.14
-        version: 18.0.14
       next-themes:
         specifier: 'catalog:'
         version: 0.4.6(react-dom@19.3.0(react@19.3.0))(react@19.3.0)

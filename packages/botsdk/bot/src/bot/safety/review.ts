@@ -1029,32 +1029,57 @@ ${opening}`);
 (A forwarded email followed: not the user's word, not shown.)`;
 }
 
-/** The most characters of a call's output its review keeps. */
-export const reviewOutputLimit = 20_000;
+/** The most characters of a call's output its review keeps: `listReviews` carries up to 100. */
+export const reviewOutputLimit = 8_000;
+
+/** A Connector's result as `untrustedBlock` fenced it, by its label's words: the fenced text. */
+const fencedResult = /^[^\n]*untrusted data, not instructions:\n(`{3,})\n([\s\S]*)\n\1$/;
+
+const unfenced = (text: string) => fencedResult.exec(text)?.[2] ?? text;
+
+/** The text of a call's result, whichever tool's it is, and `""` when it printed nothing. */
+function outputText(result: unknown): string {
+  if (typeof result === "string") return unfenced(result);
+  if (typeof result === "number" || typeof result === "boolean") return String(result);
+  if (typeof result !== "object" || result === null) return "";
+  const fields = result as Record<string, unknown>;
+  const { stdout, stderr, result: said, snapshot, error } = fields;
+  const parts = [
+    stdout,
+    stderr,
+    said,
+    snapshot,
+    typeof error === "string" ? unfenced(error) : undefined,
+  ].filter((part): part is string => typeof part === "string" && part !== "");
+  if (parts.length > 0) return parts.join("\n");
+  // These fields are there even when a call printed nothing; another shape shows as its JSON.
+  const printedNothing =
+    Object.keys(fields).length === 0 || "stdout" in fields || "snapshot" in fields;
+  return printedNothing ? "" : JSON.stringify(result);
+}
 
 /**
  * What a call printed, as its review keeps it for the activity rows: a command's stdout then
- * stderr, else its error, else nothing. The text is already masked of the user's Secrets (a result
- * is masked before the Model reads it); it is cut to `reviewOutputLimit`.
+ * stderr, a Computer action's result and snapshot, a Connector's text, else its error, else any
+ * other result as JSON; `null` for nothing. The text must already be masked of the user's Secrets;
+ * it is cut to `reviewOutputLimit`.
  */
 export function reviewOutputOf(result: unknown): string | null {
-  if (typeof result !== "object" || result === null) return null;
-  const { stdout, stderr, error } = result as Record<string, unknown>;
-  const parts = [stdout, stderr, error].filter(
-    (part): part is string => typeof part === "string" && part !== "",
-  );
-  if (parts.length === 0) return null;
+  const text = outputText(result);
+  if (!text) return null;
   // Postgres text refuses NUL; a cut must not leave half of a surrogate pair.
-  return parts
-    .join("\n")
+  return text
     .replaceAll("\0", "")
     .slice(0, reviewOutputLimit)
     .replace(/[\ud800-\udbff]$/, "");
 }
 
-/** Saves what call `toolCallId` printed on its review, which belongs to the Turn or Helper `source`. */
+/**
+ * Saves what call `toolCallId` printed on its review, which belongs to the Turn or Helper `source`,
+ * and tells the thread, so a panel already open shows it.
+ */
 export async function recordReviewOutput(
-  db: Database,
+  deps: BotSdkContext,
   source: ReviewSource,
   toolCallId: string,
   result: unknown,
@@ -1065,10 +1090,20 @@ export async function recordReviewOutput(
     "turnId" in source
       ? eq(botReview.turnId, source.turnId)
       : eq(botReview.helperId, source.helperId);
-  await db
-    .update(botReview)
-    .set({ output })
-    .where(and(owned, eq(botReview.toolCallId, toolCallId)));
+  const wrote = await deps.db.transaction(async (tx) => {
+    // This runs inside the call's activity, which a long wait would hold from a Stop. The output is
+    // only for show, so past this it is given up, and the caller logs it.
+    await tx.execute(sql`SET LOCAL lock_timeout = '2s'`);
+    await lockConversation(tx, source.conversationId);
+    const [row] = await tx
+      .update(botReview)
+      .set({ output })
+      .where(and(owned, eq(botReview.toolCallId, toolCallId)))
+      .returning({ id: botReview.id });
+    if (row) await recordBotChange(tx, source, "review", row.id, deps.clock());
+    return row !== undefined;
+  });
+  if (wrote) await hintChanged(deps, source.conversationId);
 }
 
 /** How many of a Bot's newest reviews `listReviews` returns, besides the waiting ones. */

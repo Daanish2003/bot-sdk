@@ -143,10 +143,22 @@ describe("the Approval-type cards", () => {
     },
   );
 
-  it.each(["routine", "rule", "secret"])("gives a %s card no amber border", (kind) => {
+  it.each(["routine", "rule"])("gives a %s waiting on the user an amber border", (kind) => {
     const { container } = mount(open[kind]!());
 
+    expect(cardOf(container)!.className).toContain("border-amber");
+  });
+
+  it("gives a Secret card, which is no Approval, no amber border", () => {
+    const { container } = mount(open.secret!());
+
     expect(cardOf(container)!.className).not.toContain("amber");
+  });
+
+  it.each(["denied", "expired"] as const)("draws a %s Approval's divider without red", (state) => {
+    const { container } = mount(reviewCard(state));
+
+    expect(container.innerHTML).not.toMatch(/(?:bg|text|border)-(?:red|destructive)/);
   });
 
   it("keeps the buttons in view on a very long card: only the body scrolls", () => {

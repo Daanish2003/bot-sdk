@@ -341,7 +341,7 @@ function BotConversationView({
     const nevers = neversOf.get(turn.id) ?? [];
     const shown = afterTurn?.(turn);
     const key = anchor?.id ?? "";
-    if (passes.length > 0 || nevers.length > 0 || shown)
+    if (turn.steps.length > 0 || passes.length > 0 || nevers.length > 0 || shown)
       afterTurnOf.set(key, [
         ...(afterTurnOf.get(key) ?? []),
         <Fragment key={turn.id}>
@@ -493,7 +493,7 @@ function BotConversationView({
             {control?.kind === "files" && (
               <FilesCard
                 card={control}
-                className={message.role === "user" ? "self-end" : undefined}
+                className={message.role === "user" ? "w-fit max-w-[75%] self-end" : undefined}
               />
             )}
             {control?.kind === "choice" && (
