@@ -205,6 +205,27 @@ describe("a Bot's status from the server", () => {
     ]);
   });
 
+  it("previews a Bot's last sent Message as one clean line, keeping the Markdown stored", async () => {
+    const { client } = await signedIn();
+    const source = "```ts\nconst a = 1;\n```\n\n**That's** the [fix](https://a.example).\nMore.";
+    const fixed = await client.bots.create({ name: "Ada", model });
+    await say(fixed.id, "assistant", source, "2099-10-17T10:00:00Z");
+    const coded = await client.bots.create({ name: "Grace", model });
+    await say(coded.id, "assistant", "```\nconst a = 1;\n```", "2099-10-17T09:00:00Z");
+    const tabled = await client.bots.create({ name: "Joan", model });
+    await say(tabled.id, "assistant", "| a |\n|---|\n| 1 |", "2099-10-17T08:00:00Z");
+
+    const listed = await client.bots.list();
+
+    expect(listed.map((row) => row.lastMessage?.text)).toEqual([
+      "That's the fix.",
+      "Code",
+      "Table",
+    ]);
+    const { messages } = await client.bots.get({ botId: fixed.id });
+    expect(messages.map((entry) => entry.text)).toEqual([source]);
+  });
+
   it("gives bot.get the latest Turn's status", async () => {
     const { client } = await signedIn();
     const created = await client.bots.create({ name: "Ada", model });
