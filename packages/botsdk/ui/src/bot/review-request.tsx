@@ -98,7 +98,6 @@ export function ReviewRequest({
       attention
       icon={<ShieldAlertIcon className="size-4 text-amber-600" />}
       title={review.summary}
-      status={review.reason}
       actions={
         <>
           <Button size="sm" disabled={acting} onClick={() => run(onAllow(review.id))}>
@@ -141,6 +140,7 @@ export function ReviewRequest({
         )
       }
     >
+      <div>{review.reason}</div>
       {/* The whole command, wrapped and scrollable, so the user reads its end before Allow. */}
       <pre className="rounded bg-background/70 px-2 py-1 text-xs break-all whitespace-pre-wrap">
         <code>{rawCall(review)}</code>

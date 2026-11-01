@@ -5,7 +5,7 @@ import { useId } from "react";
 /**
  * The one design of the cards that wait on the user's decision, or on a typed answer (spec #1117):
  * Approval, Routine, Rule and Secret. A plain outlined box at the column's width, with a title, its
- * status, and the actions. `attention` is for an Approval waiting on the user: an amber border. The
+ * status and the actions. `attention` is for an Approval waiting on the user: an amber border. The
  * body scrolls in its own box when long (`max-h-60`), so the actions, which sit outside it, stay in
  * view in a long thread. Pass `data-*` attributes to mark the card; to make it a form, wrap it in a `<form className="contents">`.
  * A Host's own card (`controls`) replaces the whole card, so this draws no state of its own.
@@ -36,35 +36,35 @@ export function ApprovalCard({
   const titleId = useId();
   return (
     <div
+      {...rest}
       role="group"
       aria-labelledby={titleId}
       data-approval-card=""
-      {...rest}
       className={cn(
         "flex w-full flex-col gap-2 overflow-hidden rounded-xl border pt-3 text-sm",
         attention ? "border-amber-400 bg-amber-50 dark:bg-amber-950/30" : "border-border bg-card",
         className,
       )}
     >
-      <div className="flex flex-col gap-0.5 px-3">
+      <div className="px-3">
         <div id={titleId} data-approval-title="" className="flex items-center gap-2 font-medium">
           {icon}
           {title}
         </div>
-        {status && <div className="text-xs text-muted-foreground">{status}</div>}
       </div>
-      {children && (
+      {(status || children) && (
         <div
           data-approval-body=""
-          className="flex max-h-60 min-h-0 flex-col gap-2 overflow-y-auto px-3"
+          className="flex max-h-60 min-h-0 flex-col gap-2 overflow-y-auto px-3 py-0.5"
         >
+          {status && <div className="text-xs text-muted-foreground">{status}</div>}
           {children}
         </div>
       )}
       <div data-approval-actions="" className="flex shrink-0 items-center gap-2 px-3 pb-3">
         {actions}
       </div>
-      {foot}
+      {foot && <div className="-mt-2">{foot}</div>}
     </div>
   );
 }
@@ -87,14 +87,14 @@ export function SettledLine({
 } & Omit<ComponentProps<"div">, "children"> & { children: ReactNode }) {
   return (
     <div
-      data-approval-settled=""
       {...rest}
+      data-approval-settled=""
       className="flex w-full items-center gap-2 text-xs text-muted-foreground"
     >
       <span className="h-px flex-1 bg-border" />
-      <span className={cn("inline-flex items-center gap-1", tone)}>
+      <span className={cn("inline-flex min-w-0 items-center gap-1", tone)}>
         {icon}
-        <span className="text-muted-foreground">{children}</span>
+        <span className="min-w-0 break-words text-muted-foreground">{children}</span>
       </span>
       {actions}
       <span className="h-px flex-1 bg-border" />
