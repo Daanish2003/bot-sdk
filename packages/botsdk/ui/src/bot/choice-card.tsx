@@ -1,9 +1,11 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { ChoiceControl, ChoiceInput } from "@botsdk/client/bot/choice";
+import { CheckIcon, ListChecksIcon } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
 import { useI18n } from "@botsdk/react/provider";
+import { ApprovalCard, SettledLine } from "./approval-card";
 import { useRefusalToast } from "./refusal-toast";
 
 /**
@@ -28,9 +30,9 @@ export function ChoiceCard({
 
   if (card.answer) {
     return (
-      <p data-choice data-state="answered" className="self-start text-xs text-muted-foreground">
+      <SettledLine data-choice data-state="answered" icon={<CheckIcon className="size-3" />}>
         {t("bots.choiceAnswered", { answer: card.answer.text })}
-      </p>
+      </SettledLine>
     );
   }
 
@@ -40,27 +42,29 @@ export function ChoiceCard({
     if (text && !acting) run(onAnswer({ other: text }));
   };
   return (
-    <div
-      role="group"
+    <ApprovalCard
       data-choice
       data-state="asking"
-      className="flex max-w-[70%] flex-col gap-2 self-start"
+      icon={<ListChecksIcon className="size-4 shrink-0" />}
+      title={t("bots.choiceTitle")}
+      actions={
+        <div className="flex flex-wrap gap-2">
+          {card.options.map((option) => (
+            <Button
+              key={option}
+              type="button"
+              size="sm"
+              variant="outline"
+              data-option={option}
+              disabled={acting}
+              onClick={() => run(onAnswer({ option }))}
+            >
+              {option}
+            </Button>
+          ))}
+        </div>
+      }
     >
-      <div className="flex flex-wrap gap-2">
-        {card.options.map((option) => (
-          <Button
-            key={option}
-            type="button"
-            size="sm"
-            variant="outline"
-            data-option={option}
-            disabled={acting}
-            onClick={() => run(onAnswer({ option }))}
-          >
-            {option}
-          </Button>
-        ))}
-      </div>
       {card.other && (
         <form onSubmit={submitOther} className="flex gap-2">
           <Input
@@ -74,6 +78,6 @@ export function ChoiceCard({
           </Button>
         </form>
       )}
-    </div>
+    </ApprovalCard>
   );
 }

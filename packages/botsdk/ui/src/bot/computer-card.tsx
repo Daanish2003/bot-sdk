@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { useI18n } from "@botsdk/react/provider";
 import { serverErrorText } from "@botsdk/react/rpc-error";
 import { type ScreenMode, useFreshLink, useLiveView } from "@botsdk/react/bot/helpers";
+import { ApprovalCard, SettledLine } from "./approval-card";
 
 type CardProps = {
   card: Card;
@@ -30,18 +31,13 @@ export function ComputerCard(props: CardProps) {
   if (card.state === "open") return <OpenComputerCard {...props} />;
   const gist = helper?.gist ?? card.reason;
   return (
-    <div
+    <SettledLine
       data-computer-card
       data-state={card.state}
-      className="flex w-[70%] items-center gap-2 self-start rounded-xl border bg-card px-3 py-2 text-xs text-muted-foreground"
+      icon={<MonitorIcon className="size-3" />}
     >
-      <MonitorIcon className="size-4 shrink-0" />
-      <span className="truncate">
-        {t(card.state === "done" ? "bots.computerCardDone" : "bots.computerCardCancelled", {
-          gist,
-        })}
-      </span>
-    </div>
+      {t(card.state === "done" ? "bots.computerCardDone" : "bots.computerCardCancelled", { gist })}
+    </SettledLine>
   );
 }
 
@@ -57,18 +53,37 @@ function OpenComputerCard({ card, helper, onDone, acting }: CardProps) {
       .then(() => toast.success(t("bots.linkCopied")))
       .catch((error) => toast.error(serverErrorText(i18n, error)));
   return (
-    <div
+    <ApprovalCard
       data-computer-card
       data-state={card.state}
-      className="flex w-[70%] flex-col gap-2 self-start rounded-xl border bg-card p-3 text-sm"
+      icon={<MonitorIcon className="size-4 shrink-0" />}
+      title={card.reason}
+      bodyClassName="max-h-none"
+      actions={
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" disabled={acting} onClick={() => onDone(card.helperId)}>
+            <CheckIcon /> {t("bots.handOffDone")}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setTakeover("control")}>
+            {t("bots.takeControl")}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => void copyLink()}>
+            {t("bots.copyLink")}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-expanded={details}
+            onClick={() => setDetails(!details)}
+          >
+            {t("bots.viewDetails")}
+          </Button>
+        </div>
+      }
     >
-      <div className="flex items-center gap-2">
-        <MonitorIcon className="size-4 shrink-0" />
-        <span className="font-medium">{card.reason}</span>
-      </div>
       <div
         data-preview
-        className="relative aspect-[16/10] w-full overflow-hidden rounded-md border bg-muted"
+        className="relative aspect-[16/10] w-full shrink-0 overflow-hidden rounded-md border bg-muted"
       >
         {/* Unmounted under the takeover, so it is one session at a time, with a fresh link after. */}
         {takeover ? (
@@ -83,25 +98,6 @@ function OpenComputerCard({ card, helper, onDone, acting }: CardProps) {
           className="absolute inset-0 cursor-zoom-in"
           onClick={() => setTakeover("view")}
         />
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <Button size="sm" disabled={acting} onClick={() => onDone(card.helperId)}>
-          <CheckIcon /> {t("bots.handOffDone")}
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => setTakeover("control")}>
-          {t("bots.takeControl")}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => void copyLink()}>
-          {t("bots.copyLink")}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          aria-expanded={details}
-          onClick={() => setDetails(!details)}
-        >
-          {t("bots.viewDetails")}
-        </Button>
       </div>
       {details && helper && (
         <p className="text-xs whitespace-pre-wrap">
@@ -118,7 +114,7 @@ function OpenComputerCard({ card, helper, onDone, acting }: CardProps) {
           acting={acting}
         />
       )}
-    </div>
+    </ApprovalCard>
   );
 }
 

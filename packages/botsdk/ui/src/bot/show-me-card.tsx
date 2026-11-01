@@ -6,11 +6,13 @@ import {
   type DemonstrationStep,
   isLiveDemonstration,
 } from "@botsdk/client/bot/demonstration";
+import { VideoIcon } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useI18n } from "@botsdk/react/provider";
 import { useDemonstrationSteps, useDemonstrationView } from "@botsdk/react/bot/demonstrations";
+import { ApprovalCard, SettledLine } from "./approval-card";
 import { LiveView } from "./computer-card";
 
 type Props = {
@@ -30,7 +32,7 @@ const endedStatus = {
 
 /**
  * A Demonstration's Show me card (spec #713, variant A of #711), which `watch_user` posts: while it
- * records or is paused, a red-bordered card with the goal, the recording dot and timer, a small
+ * records or is paused, a card with the goal, the recording dot and timer, a small
  * live view of the Screen, the privacy line, Pause or Resume, Cancel and Done, and Full screen,
  * which opens the Screen big under a red bar. Once it ends it closes to a one-line divider:
  * "Show me · N steps · <status>".
@@ -41,15 +43,9 @@ export function ShowMeCard(props: Props) {
   if (isLiveDemonstration(card.state)) return <LiveShowMeCard {...props} />;
   const status = t(endedStatus[card.state as keyof typeof endedStatus]);
   return (
-    <div
-      data-show-me
-      data-state={card.state}
-      className="flex items-center gap-2 self-center text-xs text-muted-foreground"
-    >
-      <span className="h-px w-12 bg-border" />
+    <SettledLine data-show-me data-state={card.state} icon={<VideoIcon className="size-3" />}>
       {t("bots.showMeDivider", { steps: card.steps, status })}
-      <span className="h-px w-12 bg-border" />
-    </div>
+    </SettledLine>
   );
 }
 
@@ -83,21 +79,32 @@ function LiveShowMeCard({ card, botName, onAct, acting }: Props) {
     </div>
   );
   return (
-    <div
+    <ApprovalCard
       data-show-me
       data-state={card.state}
-      className="flex w-[70%] flex-col gap-2 self-start rounded-xl border-2 border-red-500 bg-card p-3 text-sm"
+      bodyClassName="max-h-none"
+      title={
+        <>
+          <RecDot paused={paused} />
+          <span>{t("bots.showMeTitle", { goal: card.goal })}</span>
+          <span data-timer className="ml-auto font-mono text-xs font-normal text-muted-foreground">
+            {elapsed}
+          </span>
+        </>
+      }
+      status={paused ? t("bots.showMePausedNote") : t("bots.showMeWatching", { name: botName })}
+      actions={
+        <>
+          <Button size="sm" variant="link" className="px-0" onClick={() => setFull(true)}>
+            {t("bots.showMeFullScreen")}
+          </Button>
+          <div className="ml-auto">{controls}</div>
+        </>
+      }
     >
-      <div className="flex items-center gap-2 font-medium">
-        <RecDot paused={paused} />
-        <span>{t("bots.showMeTitle", { goal: card.goal })}</span>
-        <span data-timer className="ml-auto font-mono text-xs text-muted-foreground">
-          {elapsed}
-        </span>
-      </div>
       <div
         data-preview
-        className="relative aspect-[16/10] w-full overflow-hidden rounded-md border bg-muted"
+        className="relative aspect-[16/10] w-full shrink-0 overflow-hidden rounded-md border bg-muted"
       >
         {/* Unmounted under full screen, so it is one session at a time, with a fresh link after. */}
         {full ? (
@@ -113,15 +120,6 @@ function LiveShowMeCard({ card, botName, onAct, acting }: Props) {
         />
       </div>
       {steps.length > 0 && <StepList steps={steps.slice(-3)} />}
-      <p className="text-xs text-muted-foreground">
-        {paused ? t("bots.showMePausedNote") : t("bots.showMeWatching", { name: botName })}
-      </p>
-      <div className="flex items-center gap-2">
-        <Button size="sm" variant="link" className="px-0" onClick={() => setFull(true)}>
-          {t("bots.showMeFullScreen")}
-        </Button>
-        <div className="ml-auto">{controls}</div>
-      </div>
       {full && (
         <FullScreen
           card={card}
@@ -132,7 +130,7 @@ function LiveShowMeCard({ card, botName, onAct, acting }: Props) {
           onShrink={() => setFull(false)}
         />
       )}
-    </div>
+    </ApprovalCard>
   );
 }
 

@@ -19,6 +19,7 @@ export function ApprovalCard({
   actions,
   foot,
   className,
+  bodyClassName,
   ...rest
 }: {
   title: ReactNode;
@@ -32,6 +33,8 @@ export function ApprovalCard({
   actions: ReactNode;
   /** Full-width content under the actions, such as a countdown bar. */
   foot?: ReactNode;
+  /** For a body that must not scroll, such as a live view: `max-h-none`. */
+  bodyClassName?: string;
 } & Omit<ComponentProps<"div">, "title" | "children" | "ref">) {
   const titleId = useId();
   return (
@@ -55,7 +58,10 @@ export function ApprovalCard({
       {(status || children) && (
         <div
           data-approval-body=""
-          className="flex max-h-60 min-h-0 flex-col gap-2 overflow-y-auto px-3 py-0.5"
+          className={cn(
+            "flex max-h-60 min-h-0 flex-col gap-2 overflow-y-auto px-3 py-0.5",
+            bodyClassName,
+          )}
         >
           {status && <div className="text-xs text-muted-foreground">{status}</div>}
           {children}

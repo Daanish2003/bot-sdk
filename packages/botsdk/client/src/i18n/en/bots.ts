@@ -278,6 +278,7 @@ description: Use this when
   "bots.reactions": "Reactions",
   "bots.reactToMessage": "React to this message",
   "bots.reactWith": ({ emoji }: { emoji: string }) => `React with ${emoji}`,
+  "bots.choiceTitle": "Choose one",
   "bots.choiceOther": "Other",
   "bots.choiceOtherPlaceholder": "Type your answer",
   "bots.choiceSend": "Send",
