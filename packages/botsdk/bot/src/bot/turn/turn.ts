@@ -1,6 +1,6 @@
 import { ORPCError } from "@orpc/server";
 import { maxFilesPerMessage, type SentFile } from "@botsdk/client/bot/files";
-import { mentionedMembers } from "@botsdk/client/bot/mentions";
+import { mentionedInMessage } from "@botsdk/client/message-format";
 import type { BotMessage, TurnStatus } from "@botsdk/client/bot/turn";
 import type { ModelMessage } from "@tanstack/ai";
 import { and, eq } from "drizzle-orm";
@@ -271,7 +271,8 @@ export async function postToRoom(
 ): Promise<{ outcome: "handed" | "seen" | "refused"; message?: BotMessage }> {
   const room = await findRoom(deps.db, userId, conversationId);
   if (room.members.length < 2) throw oneBotRoom();
-  const mentioned = mentionedMembers(text, room.members);
+  // A Message with no @ mentions no one, so it skips the Markdown parse.
+  const mentioned = text.includes("@") ? mentionedInMessage(text, room.members) : [];
   const lead = room.members.find((member) => member.lead) ?? room.members[0];
   const botIds = mentioned.length > 0 ? mentioned : lead ? [lead.botId] : [];
   // A paused Bot's Trigger is only kept as skipped, so its Model isn't asked for.

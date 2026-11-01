@@ -237,6 +237,25 @@ describe("handoffs in a Room", () => {
   );
 
   it(
+    "hands on to a Bot named in italics, and not to one named in code",
+    async () => {
+      const { scout, writer, ops, send } = await threeBotRoom([
+        says("Run `@Writer` in a shell, then _@Ops_ checks it."),
+        says("All done."),
+      ]);
+
+      await send("@Scout, go.");
+      await expect.poll(() => statusesOf(ops.id), poll).toEqual(["complete"]);
+      expect(await triggersOf(writer.id)).toEqual([]);
+      expect((await triggersOf(ops.id)).map((trigger) => [trigger.source, trigger.hops])).toEqual([
+        ["agent", 1],
+      ]);
+      expect(await statusesOf(scout.id)).toEqual(["complete"]);
+    },
+    timeout,
+  );
+
+  it(
     "keeps an agent Trigger waiting for the target's running Turn instead of interrupting it",
     async () => {
       const fake = createFakeAdapter({
