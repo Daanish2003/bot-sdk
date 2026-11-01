@@ -176,7 +176,7 @@ describe("the Approval request card", () => {
     const shown = card.querySelector("pre")!;
     expect(shown.textContent).toBe(command);
     expect(shown.className).toContain("whitespace-pre-wrap");
-    expect(shown.className).toContain("overflow-y-auto");
+    expect(shown.closest("[data-approval-body]")!.className).toContain("overflow-y-auto");
     expect(shown.className).not.toContain("truncate");
   });
 
