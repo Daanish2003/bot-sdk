@@ -1,5 +1,6 @@
 import { Lexer } from "marked";
 import type { Token, Tokens } from "marked";
+import { mentionedMembers } from "./bot/mentions";
 
 /**
  * A Message's Markdown source, read once for every Channel that isn't the web (spec #1117): the
@@ -458,4 +459,56 @@ const oneLineInlineBudget = 4096;
 export function oneLine(source: string): string {
   const parsed = parse(source, oneLineInlineBudget);
   return firstOrdinaryLine(parsed) ?? firstLabel(parsed) ?? "";
+}
+
+/** `nodes` as the prose a reader sees: no code, a link as its text, formatting marks gone. */
+function proseInline(nodes: readonly Inline[]): string {
+  return nodes
+    .map((node) => {
+      switch (node.type) {
+        case "text":
+          return node.text;
+        case "code":
+          return " ";
+        case "break":
+          return "\n";
+        default:
+          return proseInline(node.children);
+      }
+    })
+    .join("");
+}
+
+function proseBlocks(list: readonly Block[]): string {
+  return list.map(proseBlock).filter(Boolean).join("\n\n");
+}
+
+function proseBlock(block: Block): string {
+  switch (block.type) {
+    case "paragraph":
+    case "heading":
+      return proseInline(block.children);
+    case "quote":
+      return proseBlocks(block.children);
+    case "list":
+      return block.items.map(proseBlocks).join("\n");
+    case "table":
+      return [block.header, ...block.rows].map((row) => row.map(proseInline).join("\n")).join("\n");
+    case "code":
+    case "rule":
+      return "";
+  }
+}
+
+/**
+ * The Bots a Room Message mentions (spec #1117), by id: `mentionedMembers` over the Message's
+ * prose, not its Markdown source. Code, in a block or in a line, mentions no one, and a name
+ * wrapped in formatting (`_@Name_`) does. An escaped `\@Name` reads as the text `@Name`, as it does
+ * on screen, so it mentions that Bot too.
+ */
+export function mentionedInMessage(
+  source: string,
+  members: readonly { botId: string; name: string }[],
+): string[] {
+  return mentionedMembers(proseBlocks(parseMessage(source)), members);
 }
