@@ -311,7 +311,7 @@ export function parseMessage(source: string): Block[] {
 }
 
 /** An address without what a URL adds to it or a writer leaves off, for comparing two. */
-function bareAddress(address: string): string {
+export function bareAddress(address: string): string {
   return address.replace(/^(?:https?:\/\/|mailto:)/i, "").replace(/\/$/, "");
 }
 
@@ -347,7 +347,7 @@ function indent(text: string, by: string): string {
 }
 
 /** A table as columns of aligned text, with no characters drawing its grid. */
-function tableText({ align, header, rows }: Extract<Block, { type: "table" }>): string {
+export function tableText({ align, header, rows }: Extract<Block, { type: "table" }>): string {
   const lines = [header, ...rows].map((row) =>
     row.map((cell) => inlineText(cell, true).replace(/\s+/g, " ").trim()),
   );
