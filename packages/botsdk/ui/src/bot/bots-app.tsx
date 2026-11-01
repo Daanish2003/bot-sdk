@@ -24,10 +24,11 @@ export function BotsApp({
     <div className="group/app flex min-h-0 flex-1 bg-background">
       <BotSidebar accountMenu={accountMenu} />
       <main className="flex min-w-0 flex-1 flex-col overflow-y-auto max-md:group-has-[[data-bots-home]]/app:hidden">
-        <nav className="border-b px-2 py-1 md:hidden">
+        <nav className="sticky top-0 z-10 border-b bg-background px-2 py-1 md:hidden">
           <Link
             page={{ to: "bots" }}
             aria-label={t("bots.backToList")}
+            title={t("bots.backToList")}
             className="inline-flex size-9 items-center justify-center rounded-md hover:bg-muted"
           >
             <ArrowLeftIcon className="size-5" />
