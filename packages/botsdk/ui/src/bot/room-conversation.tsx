@@ -12,6 +12,7 @@ import { serverErrorText } from "@botsdk/react/rpc-error";
 import { BackToBots } from "./back-to-bots";
 import { BotAvatar } from "./bot-avatar";
 import { ChoiceCard } from "./choice-card";
+import { Message } from "./message";
 import { RoomComposer } from "./room-composer";
 import { RoomMembers } from "./room-members";
 import { ReviewRequest } from "./review-request";
@@ -94,31 +95,40 @@ export function RoomConversation({ conversationId }: { conversationId: string })
           const stopped = handoff !== undefined && handoff.hops > hopLimit;
           return (
             <Fragment key={message.id}>
-              <div data-room-message data-id={message.id} className="flex gap-3">
-                {user || !author ? (
-                  <span
-                    aria-hidden
-                    className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground"
-                  >
-                    {user ? "•" : "?"}
-                  </span>
-                ) : (
-                  <BotAvatar name={author.name} size={32} />
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold">
-                    <span data-author>{name}</span>
-                    {author?.lead && (
-                      <CrownIcon className="ml-1 inline size-3 text-amber-600" aria-hidden />
-                    )}
-                    <time
-                      dateTime={message.createdAt.toISOString()}
-                      className="ml-2 text-xs font-normal text-muted-foreground"
-                    >
-                      {time.format(message.createdAt)}
-                    </time>
-                  </p>
-                  <p className="text-sm whitespace-pre-wrap">{message.text}</p>
+              <div data-room-message data-id={message.id} className="flex flex-col">
+                <Message
+                  id={message.id}
+                  role={message.role}
+                  text={message.text}
+                  hideText={!message.text}
+                  hoverTime={user ? message.createdAt : undefined}
+                  header={
+                    <div className="flex items-center gap-2">
+                      {author ? (
+                        <BotAvatar name={author.name} size={24} />
+                      ) : (
+                        <span
+                          aria-hidden
+                          className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground"
+                        >
+                          ?
+                        </span>
+                      )}
+                      <p className="text-sm font-semibold">
+                        <span data-author>{name}</span>
+                        {author?.lead && (
+                          <CrownIcon className="ml-1 inline size-3 text-amber-600" aria-hidden />
+                        )}
+                        <time
+                          dateTime={message.createdAt.toISOString()}
+                          className="ml-2 text-xs font-normal text-muted-foreground"
+                        >
+                          {time.format(message.createdAt)}
+                        </time>
+                      </p>
+                    </div>
+                  }
+                >
                   {message.authorBotId && message.control?.kind === "choice" && (
                     <ChoiceCard
                       card={message.control}
@@ -144,7 +154,7 @@ export function RoomConversation({ conversationId }: { conversationId: string })
                       })}
                     </p>
                   )}
-                </div>
+                </Message>
               </div>
               {stopped && (
                 <div
