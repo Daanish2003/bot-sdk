@@ -5,6 +5,8 @@ import viteReact from "@vitejs/plugin-react";
 import { nitro } from "nitro/vite";
 import { defineConfig } from "vite";
 
+import { noStoreErrors } from "./vite-no-store-errors";
+
 export default defineConfig({
   server: {
     port: 3001,
@@ -24,6 +26,7 @@ export default defineConfig({
     rolldownOptions: { external: ["playwright-core"] },
   },
   plugins: [
+    noStoreErrors(),
     varlockVitePlugin({ ssrInjectMode: "auto-load" }),
     tailwindcss(),
     tanstackStart(),
