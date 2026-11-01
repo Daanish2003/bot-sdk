@@ -397,3 +397,16 @@ describe("code blocks", () => {
     expect(message.parentElement!.className).toContain("min-w-0");
   });
 });
+
+describe("a Message's time", () => {
+  it("is in the Message, revealed on hover and on keyboard focus", async () => {
+    const message = await shown("hello");
+    const root = message.parentElement!;
+    const time = root.querySelector("time");
+
+    expect(time?.getAttribute("datetime")).toBe(createdAt.toISOString());
+    expect(time?.className).toContain("group-hover:opacity-100");
+    expect(time?.className).toContain("group-focus-within:opacity-100");
+    expect(root.getAttribute("tabindex")).toBe("0");
+  });
+});

@@ -1,5 +1,7 @@
 import { Markdown } from "@/components/ui/prompt-kit/markdown";
 import { cn } from "@/lib/utils";
+import { dateFormat } from "@botsdk/react/intl";
+import { useI18n } from "@botsdk/react/provider";
 import type { ComponentProps, ReactNode } from "react";
 
 import { MessageCodeBlock, MessagePre, MessageTable, wholeMessageJson } from "./message-code-block";
@@ -67,10 +69,28 @@ export function MessageMarkdown({ children, className }: { children: string; cla
   );
 }
 
+/** A Message's time, shown on hover and on keyboard focus of its Message. */
+function HoverTime({ at, own }: { at: Date; own: boolean }) {
+  const { locale } = useI18n();
+  return (
+    <time
+      data-hover-time
+      dateTime={at.toISOString()}
+      className={cn(
+        "text-xs text-muted-foreground opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100",
+        own && "self-end",
+      )}
+    >
+      {dateFormat(locale, { hour: "numeric", minute: "2-digit" }).format(at)}
+    </time>
+  );
+}
+
 /**
  * One Message in a thread. The user's is a bubble on the right, shown exactly as typed. A Bot's
  * runs the column's full width as a clean document. `children` sit under the text. While `pending`
- * (being sent) it is dimmed.
+ * (being sent) it is dimmed. `header` sits above a Bot's text (a Room's avatar, name and time).
+ * `hoverTime` shows the Message's time on hover and on keyboard focus.
  */
 export function Message({
   id,
@@ -78,6 +98,8 @@ export function Message({
   text,
   pending,
   hideText,
+  header,
+  hoverTime,
   children,
 }: {
   id: string;
@@ -85,17 +107,22 @@ export function Message({
   text: string;
   pending?: boolean;
   hideText?: boolean;
+  header?: ReactNode;
+  hoverTime?: Date;
   children?: ReactNode;
 }) {
   const own = role === "user";
   const json = own ? null : wholeMessageJson(text);
   return (
     <div
+      // Focusable so the time shows for the keyboard too.
+      tabIndex={hoverTime ? 0 : undefined}
       className={cn(
         "group relative flex min-w-0 flex-col gap-1",
         own ? "max-w-[75%] self-end" : "self-stretch",
       )}
     >
+      {!own && header}
       {!hideText && (
         <div
           data-bot-message
@@ -118,6 +145,7 @@ export function Message({
         </div>
       )}
       {children}
+      {hoverTime && <HoverTime at={hoverTime} own={own} />}
     </div>
   );
 }

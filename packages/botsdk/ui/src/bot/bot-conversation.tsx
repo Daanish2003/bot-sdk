@@ -441,6 +441,7 @@ function BotConversationView({
                 role={message.role}
                 text={message.text}
                 pending={message.pending}
+                hoverTime={message.createdAt}
                 hideText={!message.text && control?.kind === "files"}
               >
                 <ReactionChips

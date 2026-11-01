@@ -160,7 +160,7 @@ describe("Messages that went by email", () => {
     await screen.findByText("from my inbox");
     expect(screen.getAllByText("via email")).toHaveLength(1);
     const pill = screen.getByText("via email");
-    expect(pill.previousElementSibling?.textContent).toBe("from my inbox");
+    expect(pill.previousElementSibling?.textContent).toContain("from my inbox");
     // The Bot's emailed Message gets "✉ emailed"; its web-only one gets no pill.
     expect(screen.getAllByText("✉ emailed")).toHaveLength(1);
     expect(screen.getByText("✉ emailed").previousElementSibling?.textContent).toContain(

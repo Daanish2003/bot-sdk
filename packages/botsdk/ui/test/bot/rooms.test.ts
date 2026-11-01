@@ -237,14 +237,24 @@ describe("managing a Room", () => {
 });
 
 describe("a Room", () => {
-  it("shows each Message with its author's avatar and name, or deleted Bot", () => {
+  it("shows a Bot's Message with its avatar, name and time, or deleted Bot, and the user's as a right-aligned bubble", () => {
     mount(createElement(RoomConversation, { conversationId: launch.conversationId }));
 
     expect(screen.getByRole("heading", { name: "Launch" })).toBeTruthy();
     const authors = [...document.querySelectorAll("[data-room-message]")].map(
-      (node) => node.querySelector("[data-author]")?.textContent,
+      (node) => node.querySelector("[data-author]")?.textContent ?? null,
     );
-    expect(authors).toEqual(["You", "Scout", "deleted Bot"]);
+    expect(authors).toEqual([null, "Scout", "deleted Bot"]);
+    const [own, scoutsMessage] = document.querySelectorAll("[data-room-message]");
+    expect(own?.querySelector("[data-bot-message]")?.getAttribute("data-role")).toBe("user");
+    expect(own?.querySelector("[data-bot-message]")?.className).toContain("rounded-2xl");
+    expect(own?.querySelector("[data-bot-message]")?.parentElement?.className).toContain(
+      "self-end",
+    );
+    expect(scoutsMessage?.querySelector("[data-slot=bot-avatar]")).not.toBeNull();
+    expect(scoutsMessage?.querySelector("time")?.textContent).toBe(
+      dateFormat("en", { hour: "numeric", minute: "2-digit" }).format(createdAt),
+    );
     expect(screen.getByText("On it.")).toBeTruthy();
   });
 
