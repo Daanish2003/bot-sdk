@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, test } from "@playwright/test";
 
 import { botReply, sendMarker } from "./support/fake-ollama";
 
@@ -34,7 +34,9 @@ async function expectFollowsGrowth(thread: Locator) {
   // Scrolled up to read, the same growth leaves the reader where they are.
   await scrollTo(thread, 0);
   await growLastChild(thread, 900);
-  await page(thread).waitForTimeout(300);
+  await thread.evaluate(
+    () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+  );
   expect(await thread.evaluate((element) => element.scrollTop)).toBe(0);
 
   // Nothing in the thread gives up height to fit: each child keeps its own.
@@ -44,8 +46,6 @@ async function expectFollowsGrowth(thread: Locator) {
   );
   expect(shrinking).toBe(0);
 }
-
-const page = (locator: Locator): Page => locator.page();
 
 test("a Bot's thread follows content that grows by itself, and leaves a reader scrolled up", async ({
   page,

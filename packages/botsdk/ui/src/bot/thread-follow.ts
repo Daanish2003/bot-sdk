@@ -51,11 +51,8 @@ export function useThreadFollow(threadId: string, ownMessageId: string | undefin
       for (const child of element.children) sizes.observe(child, { box: "border-box" });
     };
     watch();
-    const children = new MutationObserver(() => {
-      watch();
-      follow();
-    });
-    children.observe(element, { childList: true, subtree: true, characterData: true });
+    const children = new MutationObserver(watch);
+    children.observe(element, { childList: true });
     watched.current = {
       element,
       stop: () => {
@@ -64,7 +61,13 @@ export function useThreadFollow(threadId: string, ownMessageId: string | undefin
       },
     };
   });
-  useLayoutEffect(() => () => watched.current?.stop(), []);
+  useLayoutEffect(
+    () => () => {
+      watched.current?.stop();
+      watched.current = null;
+    },
+    [],
+  );
 
   return {
     ref: scroller,
