@@ -52,6 +52,7 @@ const review = (state: BotReview["state"], command = "git push origin main"): Bo
   state,
   deadline: new Date(Date.now() + 15_000),
   expiresAt: null,
+  output: null,
   decidedAt: null,
   createdAt: at,
 });

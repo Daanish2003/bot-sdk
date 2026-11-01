@@ -62,6 +62,7 @@ import {
   type ReviewAsk,
   type ReviewOutcome,
   type ReviewSource,
+  recordReviewOutput,
   reviewToolCall,
   type DecryptedSecrets,
   loadSecretValues,
@@ -803,13 +804,18 @@ export async function runLoop(
       const result = await ctx.step(shellToolName, async () => {
         beforeLiveTool();
         if (!startedHere) return { error: interruptedShellError };
-        return runShell(
+        const ran = await runShell(
           deps,
           { userId: owner.userId, botId: owner.botId, toolCallId: context?.toolCallId },
           input,
           decrypted,
           onLiveComputer,
         );
+        // The masked output stays on the call's review, for the activity rows (spec #1117).
+        if (options.review && context?.toolCallId) {
+          await recordReviewOutput(deps.db, options.review, context.toolCallId, ran);
+        }
+        return ran;
       });
       return recordTold(result);
     }),

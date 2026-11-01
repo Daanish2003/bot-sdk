@@ -52,6 +52,11 @@ export const botReview = botsdkSchema.table(
     verdict: botReviewVerdict("verdict").notNull(),
     /** Why it passed or was blocked, from the reviewer: a block shows it to the user. */
     reason: text("reason").notNull(),
+    /**
+     * What the call printed, masked of the user's Secrets and cut to `reviewOutputLimit`, for the
+     * activity rows (spec #1117); null until it runs, and for a call with nothing to show.
+     */
+    output: text("output"),
     /** A block's Approval; null for a pass, and for a block that asked for none. */
     state: botReviewState("state"),
     /** When a waiting Approval expires. */

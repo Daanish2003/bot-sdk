@@ -57,6 +57,7 @@ const blockOf = (state: BotReview["state"], askedAt = at(2)): BotReview => ({
   state,
   deadline: new Date(askedAt.getTime() + 15_000),
   expiresAt: null,
+  output: null,
   decidedAt: state === "waiting" ? null : askedAt,
   createdAt: askedAt,
 });

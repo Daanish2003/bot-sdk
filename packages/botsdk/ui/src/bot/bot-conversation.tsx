@@ -28,6 +28,7 @@ import { useCacheWarming } from "@botsdk/react/bot/warm";
 import { BackToBots } from "./back-to-bots";
 import { BotAvatar } from "./bot-avatar";
 import { BotMenu, PausedBadge, PausedBanner, ResetDivider } from "./bot-menu";
+import { BotActivity } from "./bot-activity";
 import { BotTurnLine } from "./bot-turn-line";
 import { AttachButton, DraftFileChips } from "./draft-files";
 import { ReactionBar, ReactionChips } from "./reactions";
@@ -35,7 +36,6 @@ import { CheckInLine } from "./check-in-line";
 import { HelperCard } from "./helper-card";
 import { Message } from "./message";
 import { NeverAllowedLine } from "./never-allowed-line";
-import { ReviewPassesLine } from "./review-passes-line";
 import { defaultRichControlRenderers, type RichControlRenderers } from "./rich-control";
 import { SecretsPopover } from "./secrets-popover";
 import { RunDivider } from "./run-divider";
@@ -345,11 +345,16 @@ function BotConversationView({
       afterTurnOf.set(key, [
         ...(afterTurnOf.get(key) ?? []),
         <Fragment key={turn.id}>
-          {passes.length > 0 && <ReviewPassesLine passes={passes} />}
           {nevers.map((review) => (
             <NeverAllowedLine key={review.id} review={review} />
           ))}
-          {(turn.steps.length > 0 || shown) && <BotTurnLine steps={turn.steps} saved={shown} />}
+          {(turn.steps.length > 0 || shown || passes.length > 0) && (
+            <BotTurnLine
+              steps={turn.steps}
+              saved={shown}
+              activity={passes.length > 0 ? <BotActivity passes={passes} /> : undefined}
+            />
+          )}
         </Fragment>,
       ]);
   }
