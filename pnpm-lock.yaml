@@ -622,6 +622,9 @@ importers:
       '@botsdk/bot':
         specifier: workspace:*
         version: link:../bot
+      '@botsdk/client':
+        specifier: workspace:*
+        version: link:../client
     devDependencies:
       '@ai-chat/config':
         specifier: workspace:*
