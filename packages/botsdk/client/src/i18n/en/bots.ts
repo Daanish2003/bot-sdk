@@ -63,6 +63,7 @@ export const botsMessages = {
   "bots.helperStepLatest": ({ step, latest }: { step: number; latest: string }) =>
     `step ${step} · ${latest}`,
   "bots.helperTask": "Task:",
+  "bots.helperToggle": "Task and report",
   "bots.helperReport": "Report:",
   "bots.handOffDone": "Done",
   "bots.copyLink": "Copy link",

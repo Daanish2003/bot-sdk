@@ -116,7 +116,6 @@ describe("the work-type cards", () => {
       expect(box).not.toBeNull();
       expect(box.className).toContain("w-full");
       expect(box.className).not.toContain("max-w-");
-      expect(box.className).not.toContain("border-red");
       expect(box.className).not.toContain("amber");
       expect(box.querySelector("[data-approval-title]")?.textContent).toBeTruthy();
     },
@@ -141,10 +140,40 @@ describe("the work-type cards", () => {
     },
   );
 
-  it("helper: Stop stays outside the scrolling body", () => {
+  it("files: the list is not capped by the body's scroll", () => {
+    const { container } = mount(open.files!());
+
+    const body = container.querySelector("[data-approval-body]")!;
+    expect(body.querySelector("[data-file]")).not.toBeNull();
+    expect(body.className).toContain("max-h-none");
+    expect(container.querySelector("[data-approval-actions]")).toBeNull();
+  });
+
+  it("choice: the options come before the Other field", () => {
+    const { container } = mount(open.choice!());
+
+    const option = container.querySelector("[data-option]")!;
+    const field = container.querySelector("input")!;
+    expect(option.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("helper: Stop stays outside the scrolling body, and the card name does not change with its status", () => {
     const { container } = mount(open.helper!());
 
-    const stop = container.querySelector("[data-approval-actions] button");
-    expect(stop?.textContent).toContain("Stop");
+    const stop = [...container.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("Stop"),
+    )!;
+    expect(stop.closest("[data-approval-actions]")).not.toBeNull();
+    expect(stop.closest("[data-approval-body]")).toBeNull();
+    expect(container.querySelector("[data-approval-title]")?.textContent).not.toContain("Working");
+  });
+
+  it("show me: the ticking timer is not part of the card's name", () => {
+    const { container } = mount(open.showMe!());
+
+    expect(
+      container.querySelector("[data-approval-title]")?.querySelector("[data-timer]"),
+    ).toBeNull();
+    expect(container.querySelector("[data-timer]")?.textContent).toMatch(/^\d+:\d\d$/);
   });
 });

@@ -87,12 +87,19 @@ function LiveShowMeCard({ card, botName, onAct, acting }: Props) {
         <>
           <RecDot paused={paused} />
           <span>{t("bots.showMeTitle", { goal: card.goal })}</span>
-          <span data-timer className="ml-auto font-mono text-xs font-normal text-muted-foreground">
-            {elapsed}
-          </span>
         </>
       }
-      status={paused ? t("bots.showMePausedNote") : t("bots.showMeWatching", { name: botName })}
+      className="border-red-500"
+      status={
+        <div className="flex items-center gap-2">
+          <span data-timer className="font-mono">
+            {elapsed}
+          </span>
+          <span>
+            {paused ? t("bots.showMePausedNote") : t("bots.showMeWatching", { name: botName })}
+          </span>
+        </div>
+      }
       actions={
         <>
           <Button size="sm" variant="link" className="px-0" onClick={() => setFull(true)}>

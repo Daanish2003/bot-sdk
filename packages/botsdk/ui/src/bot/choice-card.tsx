@@ -47,24 +47,24 @@ export function ChoiceCard({
       data-state="asking"
       icon={<ListChecksIcon className="size-4 shrink-0" />}
       title={t("bots.choiceTitle")}
-      actions={
-        <div className="flex flex-wrap gap-2">
-          {card.options.map((option) => (
-            <Button
-              key={option}
-              type="button"
-              size="sm"
-              variant="outline"
-              data-option={option}
-              disabled={acting}
-              onClick={() => run(onAnswer({ option }))}
-            >
-              {option}
-            </Button>
-          ))}
-        </div>
-      }
+      bodyClassName="max-h-none"
     >
+      <div className="flex flex-wrap gap-2">
+        {card.options.map((option) => (
+          <Button
+            key={option}
+            type="button"
+            size="sm"
+            variant="outline"
+            data-option={option}
+            disabled={acting}
+            onClick={() => run(onAnswer({ option }))}
+          >
+            {option}
+          </Button>
+        ))}
+      </div>
+
       {card.other && (
         <form onSubmit={submitOther} className="flex gap-2">
           <Input

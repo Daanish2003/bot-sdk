@@ -28,7 +28,7 @@ export function FilesCard({ card, className }: { card: FilesControl; className?:
       data-files-card
       icon={<FileIcon className="size-4 shrink-0" />}
       title={t("bots.filesLabel")}
-      actions={null}
+      bodyClassName="max-h-none"
       className={className}
     >
       <ul className="flex flex-col gap-1">

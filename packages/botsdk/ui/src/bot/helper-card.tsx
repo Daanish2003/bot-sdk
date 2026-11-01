@@ -66,41 +66,44 @@ export function HelperCard({
     <ApprovalCard
       data-helper={helper.id}
       data-status={helper.status}
+      icon={<Icon className="size-4 shrink-0" />}
       title={
-        <button
-          type="button"
-          aria-expanded={open}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-          onClick={() => setOpen(!open)}
-        >
-          <Icon className="size-4 shrink-0" />
-          <span className="truncate font-medium">{helper.gist}</span>
+        <>
+          <span className="truncate">{helper.gist}</span>
           <span className="shrink-0 text-xs font-normal text-muted-foreground">
             {t(helper.type === "general" ? "bots.generalHelper" : "bots.computerUseHelper")}
           </span>
-          <span className="ml-auto flex shrink-0 items-center gap-1">
-            <StatusChip status={helper.status} />
-            <ChevronDownIcon
-              className={cn("size-3.5 transition-transform", open && "rotate-180")}
-            />
-          </span>
-        </button>
+        </>
       }
       status={
-        live && (
-          <p className="truncate font-mono text-[11px]">
-            {helper.latest
-              ? t("bots.helperStepLatest", { step: helper.steps, latest: helper.latest })
-              : t("bots.helperStep", { step: helper.steps })}
-          </p>
-        )
+        <div className="flex items-center gap-2">
+          <StatusChip status={helper.status} />
+          {live && (
+            <span className="min-w-0 truncate font-mono text-[11px]">
+              {helper.latest
+                ? t("bots.helperStepLatest", { step: helper.steps, latest: helper.latest })
+                : t("bots.helperStep", { step: helper.steps })}
+            </span>
+          )}
+        </div>
       }
       actions={
-        live && (
-          <Button variant="outline" size="sm" disabled={stopping} onClick={() => onStop(helper.id)}>
-            {t("bots.stop")}
+        <>
+          <Button variant="ghost" size="sm" aria-expanded={open} onClick={() => setOpen(!open)}>
+            {t("bots.helperToggle")}
+            <ChevronDownIcon className={cn("transition-transform", open && "rotate-180")} />
           </Button>
-        )
+          {live && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={stopping}
+              onClick={() => onStop(helper.id)}
+            >
+              {t("bots.stop")}
+            </Button>
+          )}
+        </>
       }
     >
       {open && (

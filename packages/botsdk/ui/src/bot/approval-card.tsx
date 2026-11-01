@@ -29,8 +29,8 @@ export function ApprovalCard({
   attention?: boolean;
   /** What the card is about. Scrolls inside the card when long. */
   children?: ReactNode;
-  /** The card's buttons; they never scroll away. */
-  actions: ReactNode;
+  /** The card's buttons; they never scroll away. Omit for a card with none. */
+  actions?: ReactNode;
   /** Full-width content under the actions, such as a countdown bar. */
   foot?: ReactNode;
   /** For a body that must not scroll, such as a live view: `max-h-none`. */
@@ -67,9 +67,13 @@ export function ApprovalCard({
           {children}
         </div>
       )}
-      <div data-approval-actions="" className="flex shrink-0 items-center gap-2 px-3 pb-3">
-        {actions}
-      </div>
+      {actions ? (
+        <div data-approval-actions="" className="flex shrink-0 items-center gap-2 px-3 pb-3">
+          {actions}
+        </div>
+      ) : (
+        <div className="pb-1.5" />
+      )}
       {foot && <div className="-mt-2">{foot}</div>}
     </div>
   );
