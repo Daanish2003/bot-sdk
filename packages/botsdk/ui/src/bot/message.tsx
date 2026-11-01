@@ -60,7 +60,7 @@ export function MessageMarkdown({ children, className }: { children: string; cla
     <Markdown
       components={safeComponents}
       className={cn(
-        "prose prose-sm max-w-none min-w-0 wrap-anywhere dark:prose-invert prose-code:font-normal prose-code:before:content-none prose-code:after:content-none",
+        "prose prose-sm max-w-none min-w-0 wrap-anywhere dark:prose-invert [&_table]:wrap-normal prose-code:font-normal prose-code:before:content-none prose-code:after:content-none",
         className,
       )}
     >

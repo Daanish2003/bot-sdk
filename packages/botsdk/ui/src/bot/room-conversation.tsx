@@ -80,7 +80,7 @@ export function RoomConversation({ conversationId }: { conversationId: string })
       <div
         data-room-thread
         {...follow}
-        className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 *:shrink-0"
+        className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-[max(1rem,calc((100%-48rem)/2))] py-4 *:shrink-0"
       >
         {messages.length === 0 && (
           <p className="m-auto text-sm text-muted-foreground">{t("bots.noMessages")}</p>

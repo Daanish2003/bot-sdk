@@ -108,6 +108,12 @@ test("a user sends a Bot a file, and the Bot's reply uses it", async ({ page }) 
   const bubbles = page.locator("[data-bot-message]");
   await expect(bubbles.last()).toContainText(fileReply("notes.txt"), { timeout: 30_000 });
   await expect(bubbles.last()).toHaveAttribute("data-role", "assistant");
+  // A user's attachments sit on the right of the column, sized to the files.
+  const card = (await page.locator("[data-files-card]").boundingBox())!;
+  const thread = (await page.locator("[data-bot-thread]").boundingBox())!;
+  const columnEnd = thread.x + (thread.width + Math.min(thread.width, 768)) / 2;
+  expect(card.x + card.width).toBeGreaterThan(columnEnd - 40);
+  expect(card.width).toBeLessThan(576 + 1);
 });
 
 test("a long thread follows new Messages, stays put when scrolled up, and never squashes a card", async ({

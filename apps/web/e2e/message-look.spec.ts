@@ -84,7 +84,16 @@ test("a Room's Bot Message is defused, with avatar, name and time, and the user'
   await expect(entry.locator("[data-slot=bot-avatar]")).toBeVisible();
   await expect(entry.locator("time").first()).toBeVisible();
 
-  const box = await own.boundingBox();
-  const bounds = await thread.boundingBox();
-  expect(box!.x + box!.width).toBeGreaterThan(bounds!.x + bounds!.width - 40);
+  // The same centered column as a Bot's thread, with the composer on it.
+  const bounds = (await thread.boundingBox())!;
+  const replyBox = (await reply.boundingBox())!;
+  expect(replyBox.width).toBeLessThanOrEqual(768);
+  expect(Math.abs(replyBox.x - bounds.x - (bounds.width - replyBox.width) / 2)).toBeLessThanOrEqual(
+    8,
+  );
+  const box = (await own.boundingBox())!;
+  expect(box.x + box.width).toBeGreaterThan(replyBox.x + replyBox.width - 8);
+  expect(box.x + box.width).toBeLessThanOrEqual(replyBox.x + replyBox.width + 1);
+  const composerBox = (await composer.boundingBox())!;
+  expect(composerBox.x).toBeGreaterThanOrEqual(replyBox.x - 48);
 });

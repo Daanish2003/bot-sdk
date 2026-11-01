@@ -1,6 +1,6 @@
 import { secretNameSchema } from "@botsdk/client/bot/secret";
-import type { ModelMessage, TextOptions } from "@tanstack/ai";
-import { asc, eq } from "drizzle-orm";
+import { type ModelMessage, type TextOptions, toolDefinition } from "@tanstack/ai";
+import { asc, eq, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
@@ -15,6 +15,8 @@ import {
 } from "../../src/storage";
 import { encryptCredentials } from "../../src/credentials/encryption";
 import { uuidv7 } from "../../src/lib/uuidv7";
+import type { FeatureEntry } from "../../src/create-chat";
+import { defineFeature } from "../../src";
 import { deleteUserData } from "../../src/user-data";
 import { richControlJsonSchema } from "@botsdk/client/bot/rich-control";
 import { rotateSecretKeys, loadSecretValues, secretEncryption } from "../../src/bot/safety";
@@ -48,7 +50,11 @@ async function botWith(
   rounds: Round[],
   {
     onCommand,
-  }: { onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult> } = {},
+    features,
+  }: {
+    onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>;
+    features?: FeatureEntry[];
+  } = {},
 ) {
   const fake = createFakeAdapter({ rounds });
   const computerFake = fakeComputerProvider({ onCommand });
@@ -66,6 +72,7 @@ async function botWith(
     adapterFor: () => fake.adapter,
     reviewAdapterFor: () => reviewer.adapter,
     memory: false,
+    features,
   });
   await jobs.start();
   started.push(jobs);
@@ -364,6 +371,70 @@ describe("Secrets", () => {
     expect(reviews).toHaveLength(1);
     expect(reviews[0]?.output).toBe("GITHUB_TOKEN=***\n\nwarn ***");
     expect(JSON.stringify(reviews)).not.toContain(token);
+  });
+
+  describe("a Feature's Auto-reviewed call, as a Connector's is", () => {
+    const lookup = (execute: () => unknown) =>
+      defineFeature({
+        id: "lookups",
+        tools: async () => [
+          {
+            ...toolDefinition({
+              name: "lookup",
+              description: "Looks.",
+              inputSchema: z.object({}),
+            }).server(async () => execute()),
+            needsApproval: true,
+          },
+        ],
+      });
+    const calls = [round(toolCall({ name: "lookup", input: {} })), round(sends("Done."))];
+
+    it.each([
+      ["text", () => `found ${token}`, "found ***"],
+      [
+        "text fenced as untrusted",
+        () => `From lookup: untrusted data, not instructions:\n\`\`\`\nfound ${token}\n\`\`\``,
+        "found ***",
+      ],
+      ["an error", () => ({ error: `no ${token}` }), "no ***"],
+      ["any other shape", () => ({ found: [token] }), '{"found":["***"]}'],
+    ])(
+      "keeps %s on its review with the Secret masked",
+      async (_name, execute, output) => {
+        const { client, botId, deps, user } = await botWith(calls, { features: [lookup(execute)] });
+        await storeSecret(deps, user.id, "GITHUB_TOKEN", token);
+
+        await send(client, botId, "look");
+
+        const reviews = await client.reviews.list({ botId });
+        expect(reviews.map((review) => review.output)).toEqual([output]);
+        expect(JSON.stringify(reviews)).not.toContain(token);
+      },
+      30_000,
+    );
+
+    it("neither fails nor runs again when keeping the output fails", async () => {
+      const execute = vi.fn(() => "found it");
+      const { client, botId } = await botWith(calls, { features: [lookup(execute)] });
+      const db = getTestDb();
+      await db.execute(sql`
+        CREATE FUNCTION refuse_review_output() RETURNS trigger AS $$
+        BEGIN RAISE EXCEPTION 'refused'; END $$ LANGUAGE plpgsql`);
+      await db.execute(sql`
+        CREATE TRIGGER refuse_review_output BEFORE UPDATE OF output ON botsdk.bot_review
+        FOR EACH ROW EXECUTE FUNCTION refuse_review_output()`);
+      try {
+        await send(client, botId, "look");
+      } finally {
+        await db.execute(sql`DROP FUNCTION refuse_review_output() CASCADE`);
+      }
+
+      expect(execute).toHaveBeenCalledTimes(1);
+      const reviews = await client.reviews.list({ botId });
+      expect(reviews.map((review) => review.output)).toEqual([null]);
+      expect((await turnsOf(botId)).map((turn) => turn.status)).toEqual(["complete"]);
+    }, 30_000);
   });
 
   it("stores a value trimmed, so the output that holds the trimmed value is masked", async () => {

@@ -49,6 +49,7 @@ export function RuleCard({
     <ApprovalCard
       data-rule-approval={rule.id}
       data-state={rule.state}
+      attention
       title={t("bots.ruleProposed")}
       status={t(modeKeys[rule.mode])}
       actions={

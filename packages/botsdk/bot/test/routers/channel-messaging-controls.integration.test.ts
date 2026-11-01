@@ -7,7 +7,7 @@ import { appendBotMessage, controlParts, findBot } from "../../src/bot/conversat
 import { sentFileBlobKey } from "../../src/bot/conversation/files";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { emailChannel } from "../../src/channel";
-import { fakeEmailProvider, fakeMessagingAdapter } from "@botsdk/testing/fake-channel";
+import { fakeEmailProvider, fakeMessagingAdapter, writtenOf } from "@botsdk/testing/fake-channel";
 import { saveCredentials } from "../../src/models/internal";
 import type { BotSdkPlugin } from "../../src/plugin";
 import { inProcessRunner, type JobRunner, claimJob } from "../../src/runner/internal";
@@ -210,9 +210,12 @@ describe("a choice", () => {
 
     const asked = await newest("choice");
     expect(fake.sends).toHaveLength(1);
+    expect(writtenOf(fake.sends[0]!.message)).toBe(
+      "Which color?\n\n1. Red\n2. Blue\n3. Green\n4. Other: reply with your own answer",
+    );
     expect(fake.sends[0]!.message).toMatchObject({
       chatId: "1001",
-      text: "Which color?\n\n1. Red\n2. Blue\n3. Green\n4. Other: reply with your own answer",
+      text: "Which color?",
       buttons: {
         control: asked.id,
         options: [
@@ -398,7 +401,7 @@ describe("a choice", () => {
 
     const [{ message, sent }] = fake.sends as [(typeof fake.sends)[number]];
     expect(fake.delivered.length).toBeGreaterThanOrEqual(3);
-    expect(fake.delivered.map((one) => one.part).join("")).toBe(message.text);
+    expect(fake.delivered.map((one) => one.part).join("")).toBe(writtenOf(message));
     expect(sent.messageIds).toEqual(fake.delivered.map((one) => one.messageId));
     expect(sent.buttonsMessageId).toBe(fake.delivered.at(-1)!.messageId);
 
@@ -749,10 +752,10 @@ describe("other Rich controls", () => {
       why: "Pull requests.",
     });
 
-    expect(fake.sends.at(-1)!.message.text).toBe(
+    expect(writtenOf(fake.sends.at(-1)!.message)).toBe(
       `I need your token.
 
-[Enter it securely in the app](${appUrl}/bots/${botId})`,
+Enter it securely in the app (${appUrl}/bots/${botId})`,
     );
   });
 
@@ -770,8 +773,8 @@ describe("other Rich controls", () => {
     });
 
     const message = fake.sends.at(-1)!.message;
-    expect(message.text).toBe(
-      `I need your token.\n\n[Enter it securely in the app](${appUrl}/bots/${botId})`,
+    expect(writtenOf(message)).toBe(
+      `I need your token.\n\nEnter it securely in the app (${appUrl}/bots/${botId})`,
     );
     expect(message.buttons).toBeUndefined();
     // A press of anything at it, or a typed value, is nothing but an ordinary Message.
@@ -791,8 +794,8 @@ describe("other Rich controls", () => {
       state: "open",
     });
 
-    expect(fake.sends.at(-1)!.message.text).toBe(
-      `I need you to take over.\n\n[Take over the Computer in the app](${appUrl}/bots/${botId})`,
+    expect(writtenOf(fake.sends.at(-1)!.message)).toBe(
+      `I need you to take over.\n\nTake over the Computer in the app (${appUrl}/bots/${botId})`,
     );
   });
 
@@ -826,8 +829,8 @@ describe("other Rich controls", () => {
 
     const message = fake.sends.at(-1)!.message;
     expect(message.files).toBeUndefined();
-    expect(message.text).toBe(
-      `Here you go.\n\n- report.csv\n\n[Download in the app](${appUrl}/bots/${botId})`,
+    expect(writtenOf(message)).toBe(
+      `Here you go.\n\n• report.csv\n\nDownload in the app (${appUrl}/bots/${botId})`,
     );
   });
 });

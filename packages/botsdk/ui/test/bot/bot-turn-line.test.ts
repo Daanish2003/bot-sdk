@@ -244,4 +244,36 @@ describe("the Turn line in a Bot's thread", () => {
         .parentElement!.nextElementSibling?.contains(chips[1]!),
     ).toBe(true);
   });
+
+  it.each([
+    ["has no afterTurn", undefined],
+    ["has an afterTurn that returns nothing", () => null],
+  ])("shows an ordinary Turn's line when the Host %s", (_name, afterTurn) => {
+    render(
+      providerFor(createElement(BotConversation, { botId: "b2", afterTurn }), {
+        messages: {},
+        fetch: vi.fn(async () => new Promise<Response>(() => {})),
+        seed: (queryClient, client) =>
+          queryClient.setQueryData(client.orpc.bots.get.queryKey({ input: { botId: "b2" } }), {
+            bot: {
+              id: "b2",
+              name: "Ada",
+              model: "openai:gpt-6-luna",
+              createdAt,
+              pausedAt: null,
+              turnStatus: null,
+              userTurnStatus: null,
+            },
+            conversationId: "c1",
+            messages: [said("m1", "user", "Hi", 0), said("m2", "assistant", "Hello!", 0.5)],
+            turns: [turnAt("t1", 0, true)],
+            summaries: [],
+            warmings: [],
+            lastSeq: 0,
+          }),
+      }),
+    );
+
+    expect(screen.getByRole("button", { name: /Cache 80%/ })).toBeTruthy();
+  });
 });

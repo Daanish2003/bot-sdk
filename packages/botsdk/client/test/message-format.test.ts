@@ -122,6 +122,40 @@ describe("what never comes through", () => {
     expect(plainText('<!-- a > b -->\n\n<div title="a>b">words</div>')).toBe("words");
   });
 
+  describe("a word in angle brackets that isn't an HTML element", () => {
+    it.each([
+      ["a type in a line", "Use Array<string> here", "Use Array<string> here"],
+      ["a placeholder", "grep <path> <text>", "grep <path> <text>"],
+      ["a closing form", "from <foo> to </foo> now", "from <foo> to </foo> now"],
+      ["a tag alone on its line", "<string>\n\nnext", "<string>\n\nnext"],
+      ["attributes it may have", "a <x and c> b", "a <x and c> b"],
+    ])("keeps %s as text", (_name, source, text) => {
+      expect(plainText(source)).toBe(text);
+    });
+
+    it("stays in a one-line preview", () => {
+      expect(oneLine("Returns Promise<void> on success")).toBe("Returns Promise<void> on success");
+    });
+
+    it.each([
+      ["a script", 'a <x y="<script>alert(1)</script>"> b'],
+      ["an image", 'a <x y="<img src=x onerror=alert(1)>"> b'],
+    ])("takes nothing unsafe through %s inside its attributes", (_name, source) => {
+      expect(plainText(source)).not.toMatch(/<(script|img)|alert/);
+      expect(plainText(`${source}\n\nnext`)).not.toMatch(/<(script|img)|alert/);
+    });
+  });
+
+  it.each([
+    ["an element", "a <marquee>b</marquee> c", "a b c"],
+    ["an unknown case of one", "a <SVG onload=alert(1)>b c", "a b c"],
+    ["one in a sentence with other words", "a <b and c> d", "a  d"],
+    ["a comment", "a <!-- string --> b", "a  b"],
+    ["a block of them", "<svg>\n<a href=x></a>\n</svg>", ""],
+  ])("keeps dropping %s", (_name, source, text) => {
+    expect(plainText(source)).toBe(text);
+  });
+
   it("keeps a line that only names a tag", () => {
     expect(plainText("The <script> tag runs code.")).toBe("The  tag runs code.");
   });

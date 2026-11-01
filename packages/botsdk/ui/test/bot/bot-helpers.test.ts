@@ -163,14 +163,33 @@ describe("a Helper in the Conversation", () => {
         [helper("m1", { status, report: live ? null : "There are 3 files." })],
       );
 
-      await screen.findByText(label);
+      const chip = await screen.findByText(label);
       expect(card(container).dataset.status).toBe(status);
+      // Red is only for Never allowed, Urgent and Couldn't reply.
+      expect(chip.className).not.toContain("red");
       expect(card(container).querySelector(".animate-spin")).toBeNull();
       expect(card(container).textContent?.includes("step 2")).toBe(live);
       fireEvent.click(within(card(container)).getByRole("button", { expanded: false }));
       expect(card(container).textContent?.includes("Report: There are 3 files.")).toBe(!live);
     },
   );
+
+  it("doesn't make a failed Helper look like one that needs the user", async () => {
+    const { container } = mount(
+      [said("m1", "assistant", "On it.")],
+      [
+        helper("m1", { status: "waiting", report: null }),
+        helper("m1", { id: "h2", status: "error" }),
+      ],
+    );
+
+    const [needsYou, failed] = [
+      await screen.findByText("Needs you"),
+      await screen.findByText("Failed"),
+    ];
+    expect(container.contains(failed)).toBe(true);
+    expect(failed.className).not.toBe(needsYou.className);
+  });
 
   it("renders the report as Markdown under the safety rules", async () => {
     const report =

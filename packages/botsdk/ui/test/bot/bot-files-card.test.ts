@@ -93,6 +93,23 @@ describe("the files card", () => {
     expect(document.querySelector("[data-zoomed]")!.getAttribute("src")).toBe(inline);
   });
 
+  it("sits a user's attachments on the right, sized to the files, and a Bot's across the column", async () => {
+    const { container } = mount([{ ...sent, role: "user" }]);
+
+    await waitFor(() => expect(container.querySelector("[data-files-card]")).not.toBeNull());
+    const own = container.querySelector<HTMLElement>("[data-files-card]")!;
+    expect(own.className).toContain("self-end");
+    // At the column's full width, `self-end` has no room to move it.
+    expect(own.className).not.toContain("w-full");
+    cleanup();
+
+    const { container: bots } = mount([sent]);
+    await waitFor(() => expect(bots.querySelector("[data-files-card]")).not.toBeNull());
+    const theirs = bots.querySelector<HTMLElement>("[data-files-card]")!;
+    expect(theirs.className).toContain("w-full");
+    expect(theirs.className).not.toContain("self-end");
+  });
+
   it("shows a download link with the name and size of each file under its Message", async () => {
     const { container } = mount([sent]);
 

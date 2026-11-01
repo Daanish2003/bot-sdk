@@ -1,15 +1,19 @@
-import { useLayoutEffect, useRef } from "react";
+import { type MouseEvent, useLayoutEffect, useRef } from "react";
 
 /** How far from the end, in pixels, still counts as reading the end of the thread. */
 const nearEndPx = 150;
+
+const fromEnd = (element: HTMLElement) =>
+  element.scrollHeight - element.clientHeight - element.scrollTop;
 
 /**
  * Keeps a thread's scroller on its newest Message. It opens at the end and follows what arrives
  * while the reader is near the end. A reader who scrolled up stays put, until they send
  * (`ownMessageId` changes) or open another thread (`threadId` changes). It also follows content
  * that grows by itself, such as highlighting finishing, which renders nothing in the thread; a
- * reader scrolled up isn't moved by that, nor by expanding a block. Spread the result on the
- * scroller.
+ * reader scrolled up isn't moved by that. Neither is a reader who opens something in the thread (a
+ * block's lines, the Turn line's panel, a Helper's report: any control with `aria-expanded`); if
+ * that leaves them far from the end, they stop following. Spread the result on the scroller.
  */
 export function useThreadFollow(threadId: string, ownMessageId: string | undefined) {
   const scroller = useRef<HTMLDivElement>(null);
@@ -17,6 +21,8 @@ export function useThreadFollow(threadId: string, ownMessageId: string | undefin
   // Where the scroller was last seen. Growth moves the end away without the reader scrolling, so a
   // scroll event that goes forward never ends the following; only one that goes back does.
   const lastTop = useRef(0);
+  // Growth the reader asked for by opening something, which lasts until the frames after the click.
+  const expanding = useRef(false);
   const toEnd = (element: HTMLDivElement) => {
     element.scrollTop = element.scrollHeight;
     lastTop.current = element.scrollTop;
@@ -30,7 +36,7 @@ export function useThreadFollow(threadId: string, ownMessageId: string | undefin
       following.current = true;
     }
     const element = scroller.current;
-    if (element && following.current) toEnd(element);
+    if (element && following.current && !expanding.current) toEnd(element);
   });
 
   // Growth that renders nothing here: watch the children's size, and re-watch when they change.
@@ -43,7 +49,9 @@ export function useThreadFollow(threadId: string, ownMessageId: string | undefin
     watched.current = null;
     if (!element || typeof ResizeObserver === "undefined") return;
     const follow = () => {
-      if (following.current) toEnd(element);
+      if (expanding.current) {
+        following.current = fromEnd(element) <= nearEndPx;
+      } else if (following.current) toEnd(element);
     };
     const sizes = new ResizeObserver(follow);
     const watch = () => {
@@ -76,8 +84,17 @@ export function useThreadFollow(threadId: string, ownMessageId: string | undefin
       if (!element) return;
       const wentBack = element.scrollTop < lastTop.current;
       lastTop.current = element.scrollTop;
-      const fromEnd = element.scrollHeight - element.clientHeight - element.scrollTop;
-      if (wentBack || !following.current) following.current = fromEnd <= nearEndPx;
+      if (wentBack || !following.current) following.current = fromEnd(element) <= nearEndPx;
+    },
+    onClickCapture: (event: MouseEvent) => {
+      if (!(event.target as Element).closest("[aria-expanded]")) return;
+      expanding.current = true;
+      // Size changes are reported in this frame or the next, after the click's render.
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          expanding.current = false;
+        }),
+      );
     },
   };
 }

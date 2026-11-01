@@ -170,7 +170,7 @@ export function telegram({
           throw new Error(`"${file.name}" is over ${limits.upload} bytes`);
         }
       }
-      const parts = splitParts(message.text);
+      const parts = splitParts(message.text, message.control);
       const calls = parts.length + files.length;
       // A resumed send starts after the parts an earlier one got out, keeping their ids.
       const skip = message.resume?.parts ?? 0;

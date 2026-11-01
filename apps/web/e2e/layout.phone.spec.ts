@@ -1,6 +1,6 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 
-import { botReply, sendMarker } from "./support/fake-ollama";
+import { botReply, sendMarker, wideTableMarker } from "./support/fake-ollama";
 
 import {
   botMessages,
@@ -216,4 +216,35 @@ test.describe("narrow phone", () => {
     await page.getByRole("menuitem", { name: /^Reset/ }).click();
     await expect(page.getByRole("dialog")).toBeVisible();
   });
+});
+
+test("a wide table scrolls inside its block, with its words whole, and the page doesn't scroll sideways", async ({
+  page,
+}) => {
+  await signInAsSeededUserWithModel(page);
+  await createBot(page, "Tabler");
+  await sendToBot(page, `${sendMarker} ${wideTableMarker}`);
+
+  const table = botMessages(page).last().locator("table");
+  await expect(table).toBeVisible();
+  const box = table.locator("xpath=..");
+  const { scrollWidth, clientWidth } = await box.evaluate((element) => ({
+    scrollWidth: element.scrollWidth,
+    clientWidth: element.clientWidth,
+  }));
+  expect(scrollWidth).toBeGreaterThan(clientWidth);
+  // A cell's longest word is on one line: the column didn't squeeze it.
+  const header = table.getByRole("columnheader", { name: "Internationalization" });
+  const lineHeight = await header.evaluate(
+    (element) =>
+      element.getClientRects().length && Number.parseFloat(getComputedStyle(element).lineHeight),
+  );
+  const padding = await header.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
+  });
+  expect((await header.boundingBox())!.height).toBeLessThanOrEqual(
+    Number(lineHeight) + padding + 1,
+  );
+  await expectScreenFillsPhone(page);
 });

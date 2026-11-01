@@ -1,5 +1,6 @@
 import { isApproval } from "@botsdk/client/bot/rich-control";
 import type { BotMessage } from "@botsdk/client/bot/turn";
+import type { Block } from "@botsdk/client/message-format";
 
 import type { FileBytes } from "./email-out";
 import type { MessagingButtons, OutboundMessage } from "./messaging";
@@ -11,9 +12,18 @@ export const otherOption = "other";
 export const approveOption = "approve";
 export const denyOption = "deny";
 
+const line = (text: string): Block => ({ type: "paragraph", children: [{ type: "text", text }] });
+
+const list = (ordered: boolean, items: string[]): Block => ({
+  type: "list",
+  ordered,
+  start: 1,
+  items: items.map((item) => [line(item)]),
+});
+
 /**
  * One Bot Message as a messaging Channel's outbound Message (spec #1044, "How a Message shows on
- * Telegram"): its text, then its Rich control reduced the way email reduces it. A choice is a numbered
+ * Telegram"): its text, then its Rich control (`control`) reduced the way email reduces it. A choice is a numbered
  * list with one button per option (a typed number answers too) and Other when offered, an Approval
  * has Approve and Deny, a Secret request is only a link into the app, and the Computer and
  * Show me cards are one line and a link. Buttons carry the Message's `id` as their control. `files`
@@ -27,19 +37,26 @@ export function messagingBody(
     files = [],
     uploadLimit,
   }: { appUrl: string | null; files?: FileBytes[]; uploadLimit: number },
-): Pick<OutboundMessage, "text" | "buttons" | "files"> {
-  const paragraphs = [message.text];
+): Pick<OutboundMessage, "text" | "control" | "buttons" | "files"> {
+  const lines: Block[] = [];
   let buttons: MessagingButtons | undefined;
   let sent: OutboundMessage["files"];
   const control = message.control;
-  const link = (lead: string) => (appUrl ? `[${lead}](${appUrl})` : lead);
+  const link = (lead: string): Block =>
+    appUrl
+      ? {
+          type: "paragraph",
+          children: [{ type: "link", href: appUrl, children: [{ type: "text", text: lead }] }],
+        }
+      : line(lead);
   switch (control?.kind) {
     case "choice":
       if (control.answer) break;
-      paragraphs.push(
-        [...control.options, ...(control.other ? ["Other: reply with your own answer"] : [])]
-          .map((item, index) => `${index + 1}. ${item}`)
-          .join("\n"),
+      lines.push(
+        list(true, [
+          ...control.options,
+          ...(control.other ? ["Other: reply with your own answer"] : []),
+        ]),
       );
       buttons = {
         control: message.id,
@@ -57,18 +74,18 @@ export function messagingBody(
         } else left.push(file.name);
       }
       if (left.length > 0) {
-        paragraphs.push(left.map((name) => `- ${name}`).join("\n"), link("Download in the app"));
+        lines.push(list(false, left), link("Download in the app"));
       }
       break;
     }
     case "secret":
-      paragraphs.push(link("Enter it securely in the app"));
+      lines.push(link("Enter it securely in the app"));
       break;
     case "computer":
-      paragraphs.push(link("Take over the Computer in the app"));
+      lines.push(link("Take over the Computer in the app"));
       break;
     case "demonstration":
-      paragraphs.push(link("Show me in the app"));
+      lines.push(link("Show me in the app"));
       break;
     case undefined:
       break;
@@ -81,11 +98,12 @@ export function messagingBody(
             { option: denyOption, label: "Deny" },
           ],
         };
-        paragraphs.push("Reply yes or no, or answer in the app.");
-      } else paragraphs.push(link("Open it in the app"));
+        lines.push(line("Reply yes or no, or answer in the app."));
+      } else lines.push(link("Open it in the app"));
   }
   return {
-    text: paragraphs.filter((paragraph) => paragraph.trim() !== "").join("\n\n"),
+    text: message.text,
+    ...(lines.length > 0 && { control: lines }),
     ...(buttons && { buttons }),
     ...(sent && { files: sent }),
   };

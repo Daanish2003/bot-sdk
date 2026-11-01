@@ -1,8 +1,21 @@
 import type { AnyTextAdapter, ModelMessage, TextOptions } from "@tanstack/ai";
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { bot, botHelper, botReview, botTrigger, botTurn, job, usage } from "../../src/storage";
+import {
+  bot,
+  botHelper,
+  botReview,
+  botTrigger,
+  botTurn,
+  conversationChange,
+  job,
+  usage,
+} from "../../src/storage";
+import { conversationChannel } from "../../src/chat/conversation-events";
+import { findBot } from "../../src/bot/conversation";
+import { lockConversation } from "../../src/bot/triggers";
+import { reviewOutputOf } from "../../src/bot/safety/review";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { approvalExpiryJobName } from "../../src/bot/safety";
 import { deleteUserData } from "../../src/user-data";
@@ -11,6 +24,7 @@ import { interruptedApprovedCallError } from "../../src/bot/turn/approved-call";
 import {
   approvedCallJobName,
   listedReviews,
+  recordReviewOutput,
   reviewFailedReason,
   reviewTimeoutMs,
   type ReviewVerdict,
@@ -1658,4 +1672,83 @@ describe("bot.review.list", () => {
       ...passes.slice(-listedReviews).map((review) => review.id),
     ]);
   });
+});
+
+describe("a call's output, kept once it has run", () => {
+  const shellCall = () => toolCall({ name: "shell", input: { command: "ls" } });
+
+  async function reviewed() {
+    const setup = await botWith([round(shellCall()), round()]);
+    for await (const _event of await followSend(setup.client, {
+      botId: setup.botId,
+      id: uuidv7(),
+      text: "go",
+    }));
+    const [row] = await reviewsOf(setup.botId);
+    const { conversationId } = (await findBot(getTestDb(), setup.user.id, setup.botId))!;
+    return { ...setup, row: row!, source: { turnId: row!.turnId!, conversationId } };
+  }
+
+  it("records a Bot change and hints it after the commit, so an open panel reads it", async () => {
+    const { deps, row, source, client, botId } = await reviewed();
+    const changes = () =>
+      getTestDb()
+        .select()
+        .from(conversationChange)
+        .where(and(eq(conversationChange.kind, "review"), eq(conversationChange.refId, row.id)));
+    const before = (await changes()).length;
+    const seenAtHint: (string | null)[] = [];
+    await deps.pubsub.subscribe(conversationChannel(source.conversationId), async () => {
+      seenAtHint.push((await reviewsOf(botId))[0]!.output);
+    });
+
+    await recordReviewOutput(deps, source, row.toolCallId, { stdout: "later" });
+
+    await expect.poll(() => seenAtHint, { timeout: 10_000 }).toEqual(["later"]);
+    expect((await changes()).length).toBe(before + 1);
+    expect((await client.reviews.list({ botId }))[0]?.output).toBe("later");
+  }, 30_000);
+
+  it("hints nothing when no review holds the call", async () => {
+    const { deps, source } = await reviewed();
+    const events: string[] = [];
+    await deps.pubsub.subscribe(conversationChannel(source.conversationId), (message) => {
+      events.push(message);
+    });
+
+    await recordReviewOutput(deps, source, "no-such-call", { stdout: "later" });
+
+    expect(events).toEqual([]);
+  }, 30_000);
+
+  it("is cut to 8,000 characters, so a list of 100 stays small", () => {
+    expect(reviewOutputOf({ stdout: "x".repeat(9000) })).toHaveLength(8000);
+  });
+
+  it.each([
+    ["a command that printed nothing", { stdout: "", stderr: "", exitCode: 0 }],
+    ["a blank page", { snapshot: "" }],
+    ["an empty result", {}],
+    ["no result", null],
+  ])("has nothing to keep from %s", (_name, result) => {
+    expect(reviewOutputOf(result)).toBeNull();
+  });
+
+  it("keeps a plain value, and a tool's own fenced text whole", () => {
+    expect(reviewOutputOf(42)).toBe("42");
+    expect(reviewOutputOf(false)).toBe("false");
+    const markdown = "Here is the diff:\n```\n+a\n```";
+    expect(reviewOutputOf(markdown)).toBe(markdown);
+  });
+
+  it("gives up rather than wait long on the Conversation's lock", async () => {
+    const { deps, row, source } = await reviewed();
+
+    await getTestDb().transaction(async (tx) => {
+      await lockConversation(tx, source.conversationId);
+      await expect(
+        recordReviewOutput(deps, source, row.toolCallId, { stdout: "later" }),
+      ).rejects.toThrow();
+    });
+  }, 30_000);
 });

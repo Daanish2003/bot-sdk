@@ -1,6 +1,6 @@
 import { expect, type Locator, test } from "@playwright/test";
 
-import { botReply, sendMarker } from "./support/fake-ollama";
+import { botReply, longCodeMarker, sendMarker } from "./support/fake-ollama";
 
 import { createBot, sendToBot, signInAsSeededUserWithModel } from "./helpers";
 
@@ -76,4 +76,32 @@ test("a Room's thread follows content that grows by itself, and leaves a reader 
   const thread = page.locator("[data-room-thread]");
   await expect(thread).toContainText("A long line");
   await expectFollowsGrowth(thread);
+});
+
+test("opening a block or the Turn line's panel doesn't move a reader near the end", async ({
+  page,
+}) => {
+  await signInAsSeededUserWithModel(page);
+  await createBot(page, "Opener");
+  await sendToBot(page, `${sendMarker} ${longCodeMarker}`);
+  const thread = page.locator("[data-bot-thread]");
+  const showAll = thread.getByRole("button", { name: /Show all \d+ lines/ });
+  await expect(showAll).toBeVisible();
+  const turnLine = thread.locator("[data-turn-line] button[aria-expanded]");
+  await expect(turnLine).toBeVisible();
+
+  const expectStaysPut = async (control: Locator) => {
+    await control.scrollIntoViewIfNeeded();
+    await expect.poll(() => distanceFromEnd(thread)).toBeLessThan(150);
+    const top = await thread.evaluate((element) => element.scrollTop);
+    await control.click();
+    await thread.evaluate(
+      () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+    );
+    expect(await thread.evaluate((element) => element.scrollTop)).toBe(top);
+  };
+  await expectStaysPut(turnLine);
+  await turnLine.click();
+  await expectStaysPut(showAll);
+  await expect(thread).toContainText("line 60");
 });
