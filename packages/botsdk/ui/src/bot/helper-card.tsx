@@ -98,9 +98,9 @@ export function HelperCard({
             {helper.task}
           </p>
           {helper.report && (
-            <div>
-              <span className="text-muted-foreground">{t("bots.helperReport")} </span>
-              <MessageMarkdown>{helper.report}</MessageMarkdown>
+            <div className="flex items-baseline gap-1">
+              <span className="shrink-0 text-muted-foreground">{t("bots.helperReport")} </span>
+              <MessageMarkdown className="flex-1">{helper.report}</MessageMarkdown>
             </div>
           )}
           {isLiveHelper(helper.status) && (
