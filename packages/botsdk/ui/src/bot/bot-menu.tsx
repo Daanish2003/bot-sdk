@@ -19,6 +19,7 @@ import { EllipsisIcon, PauseIcon, PlayIcon, RotateCcwIcon } from "lucide-react";
 import { type FormEvent, useRef, useState } from "react";
 
 import { useI18n } from "@botsdk/react/provider";
+import { SettledLine } from "./approval-card";
 
 /**
  * The "⋯" Bot menu in a Bot's header (spec #1007): its whole-Bot actions, Pause or Resume, and Reset,
@@ -208,18 +209,14 @@ export function ResetBotDialog({
 export function ResetDivider() {
   const { t } = useI18n();
   return (
-    <div
+    <SettledLine
       data-reset-mark
       role="separator"
       aria-label={t("bots.resetDivider")}
-      className="flex items-center gap-2 self-stretch text-xs text-muted-foreground"
+      icon={<RotateCcwIcon className="size-3" />}
     >
-      <span className="h-px flex-1 bg-border" />
-      <span className="inline-flex items-center gap-1">
-        <RotateCcwIcon className="size-3" /> {t("bots.resetDivider")}
-      </span>
-      <span className="h-px flex-1 bg-border" />
-    </div>
+      {t("bots.resetDivider")}
+    </SettledLine>
   );
 }
 

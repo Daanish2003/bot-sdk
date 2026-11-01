@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { useI18n } from "@botsdk/react/provider";
 import { ApprovalCard } from "./approval-card";
+import { MessageMarkdown } from "./message";
 
 const chipStyles: Record<HelperStatus, string> = {
   running: "bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-100",
@@ -113,10 +114,10 @@ export function HelperCard({
             {helper.task}
           </p>
           {helper.report && (
-            <p className="whitespace-pre-wrap">
-              <span className="text-muted-foreground">{t("bots.helperReport")} </span>
-              {helper.report}
-            </p>
+            <div className="flex items-baseline gap-1">
+              <span className="shrink-0 text-muted-foreground">{t("bots.helperReport")} </span>
+              <MessageMarkdown className="flex-1">{helper.report}</MessageMarkdown>
+            </div>
           )}
         </div>
       )}
