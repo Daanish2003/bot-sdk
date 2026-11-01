@@ -15,6 +15,7 @@
     "typescript": "catalog:"
   },
   "peerDependencies": {
-    "@botsdk/bot": "workspace:*"
+    "@botsdk/bot": "workspace:*",
+    "@botsdk/client": "workspace:*"
   }
 }

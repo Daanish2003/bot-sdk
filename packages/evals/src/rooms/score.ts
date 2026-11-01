@@ -1,9 +1,10 @@
 // Scores the Rooms eval (spec #1055, ticket #1063) from what a Room's Turns left behind: each
 // member's Messages, the Triggers that woke Bots, and how the chain ended. Everything here is
 // deterministic; no judge. A Message hands work to a member when it @mentions them (the SDK's own
-// `mentionedMembers`). Text is normalised first (curly quotes and dashes made plain).
+// `mentionedInMessage`, which ignores code). Text is normalised first (curly quotes and dashes made plain).
 
-import { hopLimit, mentionedMembers } from "@botsdk/client/bot/mentions";
+import { hopLimit } from "@botsdk/client/bot/mentions";
+import { mentionedInMessage } from "@botsdk/client/message-format";
 
 import { type Call, sentTexts } from "../channels/score";
 
@@ -48,7 +49,7 @@ export type Score = { passed: boolean; reasons: string[] };
 
 /** The members `text` @mentions, by name as the Room spells it. */
 export function mentionsIn(text: string, names: readonly string[]): string[] {
-  return mentionedMembers(
+  return mentionedInMessage(
     text,
     names.map((name) => ({ botId: name, name })),
   );

@@ -170,7 +170,7 @@ export function telegram({
           throw new Error(`"${file.name}" is over ${limits.upload} bytes`);
         }
       }
-      const parts = message.text.trim() === "" ? [] : splitParts(message.text);
+      const parts = splitParts(message.text);
       const calls = parts.length + files.length;
       // A resumed send starts after the parts an earlier one got out, keeping their ids.
       const skip = message.resume?.parts ?? 0;
@@ -195,6 +195,8 @@ export function telegram({
               {
                 chat_id: message.chatId,
                 reply_markup: buttons ? replyMarkup : undefined,
+                // A preview makes Telegram fetch the first address in the text, unasked.
+                link_preview_options: { is_disabled: true },
                 ...body,
               },
               call,
@@ -215,8 +217,8 @@ export function telegram({
             try {
               record(await send({ text: part.markdownV2, parse_mode: "MarkdownV2" }, last), last);
             } catch (error) {
-              // The converter missed something Telegram refuses: say it plainly instead, in as many
-              // messages as the raw text needs.
+              // The converter missed something Telegram refuses: say it in clean text instead, in as
+              // many messages as that needs.
               if (
                 !(error instanceof TelegramApiError) ||
                 !error.description.includes("can't parse entities")

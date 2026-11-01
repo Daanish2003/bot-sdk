@@ -361,4 +361,9 @@ describe("plainText", () => {
       ["Name     Cost", "Ada         3", "Grace H   100"].join("\n"),
     );
   });
+
+  it("keeps whether a task is done, as a list item's first text", () => {
+    expect(plainText("- [ ] todo\n- [x] done")).toBe("• ☐ todo\n• ☑ done");
+    expect(oneLine("- [x] done")).toBe("☑ done");
+  });
 });
