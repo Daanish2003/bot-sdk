@@ -1,7 +1,7 @@
 // Scores the Rooms eval (spec #1055, ticket #1063) from what a Room's Turns left behind: each
 // member's Messages, the Triggers that woke Bots, and how the chain ended. Everything here is
 // deterministic; no judge. A Message hands work to a member when it @mentions them (the SDK's own
-// `mentionedMembers`). Text is normalised first (curly quotes and dashes made plain).
+// `mentionedInMessage`, which ignores code). Text is normalised first (curly quotes and dashes made plain).
 
 import { hopLimit } from "@botsdk/client/bot/mentions";
 import { mentionedInMessage } from "@botsdk/client/message-format";
