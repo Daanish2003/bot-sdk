@@ -98,7 +98,7 @@ export function KnowledgeChip({
             key={change.path}
             type="button"
             aria-expanded={open === change.path}
-            className="rounded-full border px-2 py-0.5"
+            className="rounded px-1 hover:text-foreground"
             onClick={() => setOpen(open === change.path ? null : change.path)}
           >
             {t("bots.knowledgeSaved", {

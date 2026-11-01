@@ -213,7 +213,9 @@ describe("statuses from server state, with no send in flight", () => {
       fakeBotServer({ b2: { messages: [said("m1", "user", "hi")], turnStatus: "error" } }),
     );
 
-    expect(await screen.findAllByText("Couldn't reply")).toHaveLength(1);
+    const failed = await screen.findAllByText("Couldn't reply");
+    expect(failed).toHaveLength(1);
+    expect(failed[0]!.className).toContain("text-red-500");
     expect(screen.queryByText("Seen ✓")).toBeNull();
   });
 });

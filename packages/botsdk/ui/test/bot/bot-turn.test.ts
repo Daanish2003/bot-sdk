@@ -483,7 +483,7 @@ describe("a refused send", () => {
 });
 
 describe("a Turn that didn't reply", () => {
-  it("shows a muted Couldn't reply under the user's Message after an error Turn, with no retry", async () => {
+  it("shows a red Couldn't reply under the user's Message after an error Turn, with no retry", async () => {
     const server = fakeBotServer();
     const { container } = mount(server);
 
@@ -492,7 +492,7 @@ describe("a Turn that didn't reply", () => {
     await server.endTurn("error");
 
     const failed = screen.getByText("Couldn't reply");
-    expect(failed.className).toContain("text-muted-foreground");
+    expect(failed.className).toContain("text-red-500");
     const { id } = server.sends[0] as { id: string };
     const sent = container.querySelector(`[data-bot-message][data-id="${id}"]`)!;
     expect(sent.compareDocumentPosition(failed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
