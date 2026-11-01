@@ -88,7 +88,11 @@ const sendToUserDefinition = toolDefinition({
     "in the order you call it. Set endTurn to true on your last message of this turn, so the " +
     "turn ends there; set it to false when you will send more.",
   inputSchema: z.object({
-    text: z.string().meta({ description: "The message the user reads, as plain text." }),
+    text: z.string().meta({
+      description:
+        "The message the user reads, in Markdown. Format only when it helps. " +
+        "Put code and data in fenced blocks. Mention a Bot as plain @Name.",
+    }),
     endTurn: z.boolean().meta({
       description: "true on your last message of this turn, false when you will send more.",
     }),
