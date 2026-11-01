@@ -42,21 +42,22 @@ const hiddenTagOpen = /^<(script|style)\b/i;
 const hiddenTagClose = /^<\/(script|style)\b/i;
 const lineBreakTag = /^<br\b/i;
 /** A hidden element and what's in it, then any other tag or comment, closed or left open. */
-const htmlInBlock = /<(script|style)\b[\s\S]*?(?:<\/\1\s*>|$)|<[/!?]?[a-z!-][^>]*(?:>|$)/gi;
+const htmlInBlock =
+  /<(script|style)\b[\s\S]*?(?:<\/\1\s*>|$)|<!--[\s\S]*?(?:-->|$)|<[/!?]?[a-z](?:"[^"]*"|'[^']*'|[^>"'])*(?:>|$)/gi;
 
-const namedEntities: Record<string, string> = {
-  amp: "&",
-  lt: "<",
-  gt: ">",
-  quot: '"',
-  apos: "'",
-  nbsp: " ",
-};
+const namedEntities = new Map([
+  ["amp", "&"],
+  ["lt", "<"],
+  ["gt", ">"],
+  ["quot", '"'],
+  ["apos", "'"],
+  ["nbsp", " "],
+]);
 
 /** The text an entity stands for. `marked` keeps entities as written and leaves this to a renderer. */
 function decodeEntities(text: string): string {
   return text.replace(/&(?:#(\d{1,7})|#x([\da-f]{1,6})|([a-z]+));/gi, (entity, dec, hex, name) => {
-    if (name) return namedEntities[name.toLowerCase()] ?? entity;
+    if (name) return namedEntities.get(name.toLowerCase()) ?? entity;
     const code = dec ? Number(dec) : Number.parseInt(hex, 16);
     return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : entity;
   });

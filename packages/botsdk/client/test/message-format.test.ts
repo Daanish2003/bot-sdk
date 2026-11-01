@@ -118,6 +118,10 @@ describe("what never comes through", () => {
     expect(plainText("<script>alert(1)\nmore")).toBe("");
   });
 
+  it("drops all of a block tag or comment with a `>` inside it", () => {
+    expect(plainText('<!-- a > b -->\n\n<div title="a>b">words</div>')).toBe("words");
+  });
+
   it("keeps a line that only names a tag", () => {
     expect(plainText("The <script> tag runs code.")).toBe("The  tag runs code.");
   });
@@ -220,6 +224,10 @@ describe("text as written", () => {
     expect(plainText("Tom &amp; Jerry &lt;3 &#39;x&#x27; &bogus; & more")).toBe(
       "Tom & Jerry <3 'x' &bogus; & more",
     );
+  });
+
+  it("leaves an unknown entity alone, whatever its name", () => {
+    expect(plainText("&constructor; &toString;")).toBe("&constructor; &toString;");
   });
 
   it("keeps a JSON Message whole", () => {
