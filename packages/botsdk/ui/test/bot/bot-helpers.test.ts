@@ -172,6 +172,24 @@ describe("a Helper in the Conversation", () => {
     },
   );
 
+  it("renders the report as Markdown under the safety rules", async () => {
+    const report =
+      "## Result\n\n- **3** files\n\n[go](javascript:alert(1)) ![pixel](https://attacker.example/a.png)";
+    const { container } = mount(
+      [said("m1", "assistant", "On it.")],
+      [helper("m1", { status: "complete", report })],
+    );
+    await screen.findByText("Done");
+    fireEvent.click(within(card(container)).getByRole("button", { expanded: false }));
+
+    expect(card(container).querySelector("h2")?.textContent).toBe("Result");
+    expect(card(container).querySelector("strong")?.textContent).toBe("3");
+    expect(card(container).querySelector("a")).toBeNull();
+    expect(card(container).querySelector("img")).toBeNull();
+    expect(card(container).textContent).toContain("pixel");
+    expect(card(container).textContent).not.toContain("**");
+  });
+
   it("updates the same card in place when the Helper ends, with no finished line", async () => {
     const helpers = [helper("m1")];
     const log = changeLog();

@@ -4,6 +4,8 @@ import { useState } from "react";
 
 import { dateFormat } from "@botsdk/react/intl";
 import { useI18n } from "@botsdk/react/provider";
+import { MessageMarkdown } from "./message";
+import { SettledLine } from "./approval-card";
 
 const clock: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
 /** A kept Message may be days older than its Summary, so it shows its day too. */
@@ -26,22 +28,20 @@ export function SummaryCard({ summary }: { summary: BotSummary }) {
   const Chevron = open ? ChevronDownIcon : ChevronRightIcon;
   return (
     <div data-summary={summary.id} className="flex flex-col gap-2 self-stretch text-xs">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 self-center text-muted-foreground hover:text-foreground"
-      >
-        <span className="h-px w-8 bg-border" />
-        <span className="inline-flex items-center gap-1">
+      <SettledLine icon={null}>
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+          className="inline-flex items-center gap-1 hover:text-foreground"
+        >
           <Chevron className="size-3" />
           {label}
-        </span>
-        <span className="h-px w-8 bg-border" />
-      </button>
+        </button>
+      </SettledLine>
       {open && (
         <div className="mx-auto flex w-full max-w-[80%] flex-col gap-2 rounded-lg border p-3">
-          <p className="whitespace-pre-wrap">{summary.text}</p>
+          <MessageMarkdown>{summary.text}</MessageMarkdown>
           {summary.kept.length > 0 && (
             <>
               <p className="text-muted-foreground">{t("bots.summaryKept")}</p>
@@ -50,7 +50,7 @@ export function SummaryCard({ summary }: { summary: BotSummary }) {
                   <time className="shrink-0 text-muted-foreground tabular-nums">
                     {sentAt(message.createdAt)}
                   </time>
-                  <span className="whitespace-pre-wrap">{message.text}</span>
+                  <MessageMarkdown className="min-w-0 flex-1">{message.text}</MessageMarkdown>
                 </blockquote>
               ))}
             </>

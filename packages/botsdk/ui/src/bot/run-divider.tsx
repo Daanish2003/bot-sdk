@@ -2,6 +2,7 @@ import { ClockIcon, WebhookIcon } from "lucide-react";
 
 import { dateFormat } from "@botsdk/react/intl";
 import { useI18n } from "@botsdk/react/provider";
+import { SettledLine } from "./approval-card";
 
 /** A run's time as its dividers show it, in the browser's zone: `Mon 08:00`. */
 export function runTime(locale: string, at: Date): string {
@@ -27,17 +28,12 @@ export function RunDivider({
   const { t, locale } = useI18n();
   const time = runTime(locale, at);
   return (
-    <div
+    <SettledLine
       data-run={name}
       data-quiet={quiet || undefined}
-      className="flex items-center gap-2 self-center text-xs text-muted-foreground"
+      icon={webhook ? <WebhookIcon className="size-3" /> : <ClockIcon className="size-3" />}
     >
-      <span className="h-px w-8 bg-border" />
-      <span className="inline-flex items-center gap-1">
-        {webhook ? <WebhookIcon className="size-3" /> : <ClockIcon className="size-3" />}
-        {quiet ? t("bots.routineRanQuiet", { name, time }) : t("bots.routineRan", { name, time })}
-      </span>
-      <span className="h-px w-8 bg-border" />
-    </div>
+      {quiet ? t("bots.routineRanQuiet", { name, time }) : t("bots.routineRan", { name, time })}
+    </SettledLine>
   );
 }

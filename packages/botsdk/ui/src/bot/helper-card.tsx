@@ -5,6 +5,7 @@ import { ChevronDownIcon, Loader2Icon, MonitorIcon, TerminalIcon } from "lucide-
 import { useState } from "react";
 
 import { useI18n } from "@botsdk/react/provider";
+import { MessageMarkdown } from "./message";
 
 const chipStyles: Record<HelperStatus, string> = {
   running: "bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-100",
@@ -97,10 +98,10 @@ export function HelperCard({
             {helper.task}
           </p>
           {helper.report && (
-            <p className="whitespace-pre-wrap">
+            <div>
               <span className="text-muted-foreground">{t("bots.helperReport")} </span>
-              {helper.report}
-            </p>
+              <MessageMarkdown>{helper.report}</MessageMarkdown>
+            </div>
           )}
           {isLiveHelper(helper.status) && (
             <Button
