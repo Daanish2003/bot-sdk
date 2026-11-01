@@ -1,6 +1,7 @@
 import { cn } from "@ai-chat/ui/lib/utils";
 import React, { useEffect, useState } from "react";
 import { createBundledHighlighter, createSingletonShorthands } from "shiki/dist/core.mjs";
+import type { DynamicImportLanguageRegistration } from "shiki/types";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 
 // Fix when vendoring: the JavaScript regex engine instead of Oniguruma, whose wasm import
@@ -11,26 +12,32 @@ const javascript = () => import("shiki/langs/javascript.mjs");
 const shell = () => import("shiki/langs/shellscript.mjs");
 const python = () => import("shiki/langs/python.mjs");
 const yaml = () => import("shiki/langs/yaml.mjs");
-// About 10 languages and one theme, so the rest of shiki's bundle never ships.
-const languages = {
-  typescript,
-  ts: typescript,
-  tsx: () => import("shiki/langs/tsx.mjs"),
-  javascript,
-  js: javascript,
-  json: () => import("shiki/langs/json.mjs"),
-  shellscript: shell,
-  bash: shell,
-  sh: shell,
-  shell,
-  python,
-  py: python,
-  html: () => import("shiki/langs/html.mjs"),
-  css: () => import("shiki/langs/css.mjs"),
-  sql: () => import("shiki/langs/sql.mjs"),
-  yaml,
-  yml: yaml,
-};
+// About 10 languages and one theme, so the rest of shiki's bundle never ships. A null prototype:
+// shiki would load `Object` for a fence named `constructor`, which breaks its shared highlighter.
+const languages: Record<string, DynamicImportLanguageRegistration> = Object.assign(
+  Object.create(null),
+  {
+    typescript,
+    ts: typescript,
+    tsx: () => import("shiki/langs/tsx.mjs"),
+    jsx: () => import("shiki/langs/jsx.mjs"),
+    javascript,
+    js: javascript,
+    json: () => import("shiki/langs/json.mjs"),
+    shellscript: shell,
+    bash: shell,
+    sh: shell,
+    shell,
+    zsh: shell,
+    python,
+    py: python,
+    html: () => import("shiki/langs/html.mjs"),
+    css: () => import("shiki/langs/css.mjs"),
+    sql: () => import("shiki/langs/sql.mjs"),
+    yaml,
+    yml: yaml,
+  },
+);
 const theme = "github-dark-default";
 
 const { codeToHtml } = createSingletonShorthands(

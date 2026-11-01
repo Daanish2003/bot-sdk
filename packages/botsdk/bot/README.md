@@ -23,7 +23,8 @@ The core depends on `@tanstack/ai` and no model Provider. The Host installs the 
 `@botsdk/ui` imports these from the Host's `@/components/ui/*` (and `@/lib/utils` for `cn`). Add them with the shadcn CLI, which also installs each component's own dependencies:
 
 - `button`, `card`, `dialog`, `input`, `label`, `popover`, `select`, `textarea`, `attachment`
-- `prompt-kit/markdown`, which draws a Bot's Messages, from the `@prompt-kit` registry at `@/components/ui/prompt-kit/markdown`. The SDK supplies the rules for links and images itself, so they hold whichever copy you have.
+
+`@botsdk/ui` also imports `@/components/ui/prompt-kit/markdown`, which draws a Bot's Messages. The CLI's `@prompt-kit/markdown` may land elsewhere, so check its path and move its `markdown.tsx` and `code-block.tsx` there. The SDK supplies the rules for links and images itself, so they hold on that copy. Highlighted code and footnotes across blocks need this repo's `packages/ui/src/components/prompt-kit/` instead.
 
 ## Tailwind v4
 

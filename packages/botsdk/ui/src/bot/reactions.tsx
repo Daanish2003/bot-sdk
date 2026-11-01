@@ -52,7 +52,7 @@ export function ReactionBar({
       data-reaction-bar
       role="toolbar"
       aria-label={t("bots.reactToMessage")}
-      className="absolute -top-3 left-2 flex gap-0.5 rounded-full border bg-background px-1 opacity-0 shadow-sm group-focus-within:opacity-100 group-hover:opacity-100"
+      className="pointer-events-none absolute -top-3 right-2 flex gap-0.5 rounded-full border bg-background px-1 opacity-0 shadow-sm group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
     >
       {reactionEmojis.map((emoji) => (
         <button

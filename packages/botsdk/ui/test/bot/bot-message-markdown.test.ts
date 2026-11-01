@@ -70,6 +70,14 @@ describe("a Bot's Message", () => {
     expect(message.querySelector("p br")).not.toBeNull();
   });
 
+  it("keeps single tildes as written, and strikes through double ones", async () => {
+    const message = await shown("The range 5~10~20, ~~gone~~");
+
+    expect(message.textContent).toContain("5~10~20");
+    expect(message.querySelectorAll("del")).toHaveLength(1);
+    expect(message.querySelector("del")?.textContent).toBe("gone");
+  });
+
   it("runs the column's full width, with no bubble", async () => {
     const message = await shown("Hello");
 
@@ -211,6 +219,42 @@ describe("Markdown across a Message", () => {
 });
 
 describe("highlighting", () => {
+  it("keeps highlighting after a fence named like an Object property", async () => {
+    const { container } = mount([
+      {
+        id: "m1",
+        role: "assistant",
+        text: "```constructor\nx\n```\n\n```toString\ny\n```",
+        createdAt,
+      },
+    ]);
+    await waitFor(() => expect(container.querySelector("[data-bot-message] pre")).not.toBeNull());
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    cleanup();
+
+    const message = await shown("```ts\nconst after = 1;\n```");
+
+    await waitFor(() => expect(message.querySelector("pre.shiki")).not.toBeNull(), {
+      timeout: 5000,
+    });
+  });
+
+  it("reads a fence's language whatever its case", async () => {
+    const message = await shown("```TS\nconst a = 1;\n```");
+
+    await waitFor(() => expect(message.querySelector("pre.shiki")).not.toBeNull(), {
+      timeout: 5000,
+    });
+  });
+
+  it("shows an empty fence as an empty block", async () => {
+    const message = await shown("```ts\n```");
+
+    await waitFor(() => expect(message.querySelector("pre")).not.toBeNull());
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(message.textContent).not.toContain("undefined");
+  });
+
   it.each([
     ["ts", "const a = 1;"],
     ["sh", "echo hi"],

@@ -15,7 +15,7 @@ export type MarkdownProps = {
 function extractLanguage(className?: string): string {
   if (!className) return "plaintext";
   const match = className.match(/language-(\w+)/);
-  return match?.[1] ?? "plaintext";
+  return match?.[1]?.toLowerCase() ?? "plaintext";
 }
 
 const INITIAL_COMPONENTS: Partial<Components> = {
@@ -38,7 +38,7 @@ const INITIAL_COMPONENTS: Partial<Components> = {
     return (
       <CodeBlock className={className}>
         <CodeBlockCode
-          code={String(code).replace(/\n$/, "")}
+          code={String(code ?? "").replace(/\n$/, "")}
           language={extractLanguage(className)}
         />
       </CodeBlock>
@@ -59,18 +59,15 @@ function MarkdownComponent({ children, id, className, components: overrides }: M
     () => (overrides ? { ...INITIAL_COMPONENTS, ...overrides } : INITIAL_COMPONENTS),
     [overrides],
   );
-  // Each Markdown's footnotes link inside it, however many are on the page.
-  const remarkRehypeOptions = useMemo(
-    () => ({ clobberPrefix: `${id ?? generatedId}-` }),
-    [id, generatedId],
-  );
 
   // Parsed whole, so a footnote or reference link finds its definition in any block.
   return (
     <div className={className}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkBreaks]}
-        remarkRehypeOptions={remarkRehypeOptions}
+        // Strikethrough only on `~~`: a Bot's `5~10~20` is a range.
+        remarkPlugins={[[remarkGfm, { singleTilde: false }], remarkBreaks]}
+        // Each Markdown's footnotes link inside it, however many are on the page.
+        remarkRehypeOptions={{ clobberPrefix: `${id ?? generatedId}-` }}
         components={components}
       >
         {children}
