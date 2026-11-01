@@ -77,6 +77,7 @@ export function RoomConversation({ conversationId }: { conversationId: string })
       {room.members.length < 2 && <OneBotWarning room={room} />}
       <RoomSettingsDialog room={room} open={managing} onOpenChange={setManaging} />
       <div
+        data-room-thread
         {...follow}
         className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 *:shrink-0"
       >
