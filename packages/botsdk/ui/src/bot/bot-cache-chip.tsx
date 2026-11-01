@@ -1,5 +1,4 @@
 import type { BotTurnStep } from "@botsdk/client/bot/turn";
-import { useState } from "react";
 
 import { useI18n } from "@botsdk/react/provider";
 
@@ -8,7 +7,7 @@ type CacheState = "read" | "written" | "missed" | "notCached";
 const stateClass = {
   read: "bg-emerald-500",
   written: "bg-sky-500",
-  missed: "bg-red-500",
+  missed: "bg-amber-500",
   notCached: "bg-muted-foreground/30",
 } as const satisfies Record<CacheState, string>;
 
@@ -22,7 +21,7 @@ const stateKey = {
 export const costOf = (micros: number) =>
   `$${(micros / 1_000_000).toFixed(micros < 10_000 ? 4 : 2)}`;
 
-const percentOf = (steps: BotTurnStep[]) => {
+export const percentOf = (steps: BotTurnStep[]) => {
   const input = steps.reduce((sum, step) => sum + step.inputTokens, 0);
   const read = steps.reduce((sum, step) => sum + step.cacheReadTokens, 0);
   return input === 0 ? 0 : Math.min(100, Math.round((read / input) * 100));
@@ -87,7 +86,7 @@ function StepDetail({ step, number }: { step: BotTurnStep; number: number }) {
         {step.sections.map((section, index) => (
           <li
             key={index}
-            className={`flex gap-2 ${states[index] === "missed" ? "text-red-600" : ""}`}
+            className={`flex gap-2 ${states[index] === "missed" ? "text-amber-500" : ""}`}
           >
             <span className="flex-1">
               {section.name} · {t(stateKey[states[index]!])}
@@ -100,7 +99,7 @@ function StepDetail({ step, number }: { step: BotTurnStep; number: number }) {
         ))}
       </ul>
       {step.changed && (
-        <p className={step.changed.kind === "bug" ? "text-red-600" : undefined}>
+        <p className={step.changed.kind === "bug" ? "text-amber-500" : undefined}>
           {t(step.changed.kind === "bug" ? "bots.cacheBug" : "bots.cacheExpected", {
             section: step.changed.section,
           })}
@@ -111,41 +110,19 @@ function StepDetail({ step, number }: { step: BotTurnStep; number: number }) {
 }
 
 /**
- * The cache chip under a Turn (#675, prototype variant A with B's bars): how much of its input came
- * from the cache, its Steps and cost, red when a section changed that should not have. It expands to
- * each Step's prompt as a bar of sections sized by tokens, with every section's hash. A mid-Turn
- * summary call counts in its cost and hit rate, as a line of its own, but not as a Step. Shows
- * nothing for a Turn with no Steps.
+ * What a Turn line's panel holds for the cache (#1124): each Step's prompt as a bar of sections
+ * sized by tokens, with every section's hash. A mid-Turn summary call counts in its cost and hit
+ * rate, as a line of its own, but not as a Step.
  */
-export function BotCacheChip({ steps }: { steps: BotTurnStep[] }) {
-  const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  if (steps.length === 0) return null;
-  const bug = steps.find((step) => step.changed?.kind === "bug");
-  const cost = costOf(steps.reduce((sum, step) => sum + step.costMicros, 0));
-  const count = steps.filter((step) => step.kind !== "summary").length;
+export function CacheSteps({ steps }: { steps: BotTurnStep[] }) {
   /** The number of the Step being listed: a summary call takes none. */
   let number = 0;
   return (
-    <div className="self-start text-xs text-muted-foreground">
-      <button
-        type="button"
-        aria-expanded={open}
-        className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 ${bug ? "border-red-400 text-red-600" : ""}`}
-        onClick={() => setOpen(!open)}
-      >
-        {bug
-          ? t("bots.cacheMiss", { section: bug.changed!.section, steps: count, cost })
-          : t("bots.cacheChip", { percent: percentOf(steps), steps: count, cost })}
-      </button>
-      {open && (
-        <ol className="mt-1 flex flex-col gap-3 rounded-lg border p-2">
-          {steps.map((step) => {
-            if (step.kind !== "summary") number += 1;
-            return <StepDetail key={step.id} step={step} number={number} />;
-          })}
-        </ol>
-      )}
-    </div>
+    <ol className="flex flex-col gap-3">
+      {steps.map((step) => {
+        if (step.kind !== "summary") number += 1;
+        return <StepDetail key={step.id} step={step} number={number} />;
+      })}
+    </ol>
   );
 }

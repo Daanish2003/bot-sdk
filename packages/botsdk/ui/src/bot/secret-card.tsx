@@ -1,18 +1,11 @@
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { SecretRequest } from "@botsdk/client/bot/secret";
 import { KeyRoundIcon } from "lucide-react";
-import { type FormEvent, useId, useState } from "react";
+import { type FormEvent, useState } from "react";
 
 import { useI18n } from "@botsdk/react/provider";
+import { ApprovalCard, SettledLine } from "./approval-card";
 import { useRefusalToast } from "./refusal-toast";
 
 /**
@@ -35,24 +28,18 @@ export function SecretCard({
   saving: boolean;
 }) {
   const { t } = useI18n();
-  const titleId = useId();
   const [value, setValue] = useState("");
   const run = useRefusalToast();
 
   if (saved) {
     return (
-      <div
+      <SettledLine
         data-secret={request.name}
         data-state="saved"
-        className="flex items-center gap-2 self-center text-xs text-muted-foreground"
+        icon={<KeyRoundIcon className="size-3" />}
       >
-        <span className="h-px w-8 bg-border" />
-        <span className="inline-flex items-center gap-1">
-          <KeyRoundIcon className="size-3" />
-          {t("bots.secretSaved", { name: request.name })}
-        </span>
-        <span className="h-px w-8 bg-border" />
-      </div>
+        {t("bots.secretSaved", { name: request.name })}
+      </SettledLine>
     );
   }
 
@@ -63,39 +50,29 @@ export function SecretCard({
     run(onSave(request.name, value).then(() => setValue("")));
   };
   return (
-    <Card
-      role="group"
-      aria-labelledby={titleId}
-      data-secret={request.name}
-      data-state="asking"
-      size="sm"
-      className="max-w-md self-start"
-    >
-      <form onSubmit={submit} className="contents">
-        <CardHeader>
-          <CardTitle id={titleId}>
-            {t("bots.secretAsks", { bot: botName, name: request.name })}
-          </CardTitle>
-          <CardDescription>{request.why}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Input
-            type="password"
-            autoComplete="off"
-            aria-label={t("bots.secretValue")}
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
-          />
-        </CardContent>
-        <CardFooter className="flex-col items-start gap-2">
+    <form onSubmit={submit} className="contents">
+      <ApprovalCard
+        data-secret={request.name}
+        data-state="asking"
+        title={t("bots.secretAsks", { bot: botName, name: request.name })}
+        status={request.why}
+        actions={
           <Button type="submit" size="sm" disabled={saving || !value}>
             {t("bots.secretSave")}
           </Button>
-          <p className="text-xs text-muted-foreground">
-            {t("bots.secretNeverValue", { bot: botName })}
-          </p>
-        </CardFooter>
-      </form>
-    </Card>
+        }
+      >
+        <Input
+          type="password"
+          autoComplete="off"
+          aria-label={t("bots.secretValue")}
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+        />
+        <p className="text-xs text-muted-foreground">
+          {t("bots.secretNeverValue", { bot: botName })}
+        </p>
+      </ApprovalCard>
+    </form>
   );
 }

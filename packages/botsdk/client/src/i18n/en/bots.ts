@@ -25,6 +25,10 @@ export const botsMessages = {
   "bots.webhookUrlHidden": "URL shown once. Rotate for a new one.",
   "bots.copy": "Copy",
   "bots.copied": "URL copied",
+  "bots.copyCode": "Copy code",
+  "bots.codeCopied": "Copied",
+  "bots.showAllLines": ({ count }: { count: number }) => `Show all ${count} lines`,
+  "bots.showFewerLines": "Show fewer lines",
   "bots.rotate": "Rotate",
   "bots.routineApproved": ({ name }: { name: string }) => `${name} approved`,
   "bots.routineApprovedNext": ({ name, time }: { name: string; time: string }) =>
@@ -242,6 +246,7 @@ description: Use this when
 
 ## How to check
 `,
+  "bots.turnLine": "Turn details",
   "bots.cacheChip": ({ percent, steps, cost }: { percent: number; steps: number; cost: string }) =>
     `Cache ${percent}% · ${steps} ${steps === 1 ? "Step" : "Steps"} · ${cost}`,
   "bots.cacheMiss": ({ section, steps, cost }: { section: string; steps: number; cost: string }) =>

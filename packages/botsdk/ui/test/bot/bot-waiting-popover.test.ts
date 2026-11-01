@@ -156,7 +156,7 @@ describe("the Waiting N popover", { timeout: 30_000 }, () => {
     const raw = card.querySelector("pre")!;
     expect(raw.textContent).toBe(command);
     expect(raw.className).toContain("whitespace-pre-wrap");
-    expect(raw.className).toContain("overflow-y-auto");
+    expect(raw.closest("[data-approval-body]")!.className).toContain("overflow-y-auto");
     expect(screen.getByText("Rules for all your Bots →")).toBeTruthy();
   });
 
@@ -165,6 +165,19 @@ describe("the Waiting N popover", { timeout: 30_000 }, () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Waiting 0" }));
     expect(await screen.findByText("Nothing is waiting for you")).toBeTruthy();
+  });
+
+  it("is hidden on a phone when nothing waits, and shown when something does", async () => {
+    mount(fakeBotServer([review("r1", "pending")]));
+    expect((await screen.findByRole("button", { name: "Waiting 1" })).className).not.toContain(
+      "max-md:hidden",
+    );
+    cleanup();
+
+    mount(fakeBotServer([review("r3", "allowed")]));
+    expect((await screen.findByRole("button", { name: "Waiting 0" })).className).toContain(
+      "max-md:hidden",
+    );
   });
 
   it("answers through the reviews router, and an answered item leaves the list", async () => {

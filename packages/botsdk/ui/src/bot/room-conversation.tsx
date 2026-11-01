@@ -9,6 +9,7 @@ import { useI18n } from "@botsdk/react/provider";
 import { useBotReviews } from "@botsdk/react/bot/reviews";
 import { useRoom, useRoomChoices } from "@botsdk/react/bot/rooms";
 import { serverErrorText } from "@botsdk/react/rpc-error";
+import { BackToBots } from "./back-to-bots";
 import { BotAvatar } from "./bot-avatar";
 import { ChoiceCard } from "./choice-card";
 import { RoomComposer } from "./room-composer";
@@ -60,6 +61,7 @@ export function RoomConversation({ conversationId }: { conversationId: string })
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       <header className="flex items-center gap-3 border-b px-4 py-3">
+        <BackToBots />
         <UsersIcon className="size-4 text-muted-foreground" />
         <h1 className="flex-1 truncate font-semibold">{room.name}</h1>
         <RoomMembers members={room.members} />

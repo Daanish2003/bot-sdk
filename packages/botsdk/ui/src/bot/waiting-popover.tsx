@@ -26,7 +26,11 @@ export function WaitingPopover({ botId }: { botId: string }) {
   const count = pending.length + proposed.length;
   return (
     <Popover>
-      <PopoverTrigger render={<Button variant="outline" size="sm" />}>
+      <PopoverTrigger
+        render={
+          <Button variant="outline" size="sm" className={count === 0 ? "max-md:hidden" : ""} />
+        }
+      >
         <ShieldAlertIcon /> {t("bots.waiting", { count })}
       </PopoverTrigger>
       <PopoverContent className="max-h-[70vh] w-96 overflow-y-auto">

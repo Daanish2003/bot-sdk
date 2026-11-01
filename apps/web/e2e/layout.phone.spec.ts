@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 
 import { botReply, sendMarker } from "./support/fake-ollama";
 
@@ -47,6 +47,29 @@ async function expectScreenFillsPhone(page: Page) {
     expect(rect.x).toBeGreaterThanOrEqual(0);
     expect(rect.x + rect.width).toBeLessThanOrEqual(width);
   }
+  // One way back, and in a Bot's or Room's header, the one row it shares with the title (#1129).
+  await expect(page.getByRole("link", { name: "Back to Bots" })).toHaveCount(1);
+  const header = page.locator("main header");
+  if (await header.count()) {
+    await expect(header.getByRole("link", { name: "Back to Bots" })).toBeVisible();
+    const centre = async (each: Locator) => {
+      const rect = (await each.boundingBox())!;
+      return rect.y + rect.height / 2;
+    };
+    const arrow = await centre(header.getByRole("link", { name: "Back to Bots" }));
+    for (const button of await header.getByRole("button").all()) {
+      expect(Math.abs((await centre(button)) - arrow)).toBeLessThanOrEqual(4);
+    }
+  }
+}
+
+async function expectWithinScreen(page: Page, locator: Locator) {
+  const rect = (await locator.boundingBox())!;
+  const { width, height } = page.viewportSize()!;
+  expect(rect.x).toBeGreaterThanOrEqual(0);
+  expect(rect.y).toBeGreaterThanOrEqual(0);
+  expect(rect.x + rect.width).toBeLessThanOrEqual(width);
+  expect(rect.y + rect.height).toBeLessThanOrEqual(height);
 }
 
 async function backToList(page: Page) {
@@ -128,4 +151,69 @@ test("one screen at a time: the list at /bots, a Bot, a Room and Settings fill t
   await page.goto(url);
   await expectScreenFillsPhone(page);
   await backToList(page);
+});
+
+// 360 px wide, the narrowest common phone: a 24rem popover is wider than the screen.
+test.describe("narrow phone", () => {
+  test.use({ viewport: { width: 360, height: 740 } });
+  test("a Bot's header holds the back arrow, avatar and name, and the rest is in the menu", async ({
+    page,
+  }) => {
+    await signInAsSeededUserWithModel(page);
+    await createBot(page, "Phone Header Bot");
+    await sendToBot(page, `${sendMarker} Is the header tidy?`);
+    await expect(botMessages(page).last()).toHaveText(botReply);
+
+    const header = page.locator("main header");
+    await expect(header.getByRole("heading", { name: "Phone Header Bot" })).toBeVisible();
+    // Nothing is waiting, so Waiting is not there; the rest of the buttons are in the menu.
+    await expect(header.getByRole("button", { name: /^Waiting/ })).toBeHidden();
+    await expect(header.getByRole("button", { name: /^(Tasks|Email|Channels)/ })).toHaveCount(0);
+    await expectScreenFillsPhone(page);
+
+    // By keyboard: the menu is named, opens on Enter, and its items are reached by the arrows.
+    const menuButton = header.getByRole("button", { name: "Bot menu" });
+    await menuButton.focus();
+    await page.keyboard.press("Enter");
+    const menu = page.getByRole("menu", { name: "Bot menu" });
+    await expect(menu).toBeVisible();
+    await expectWithinScreen(page, menu);
+    for (const name of [/^Tasks/, /^Email/, /^Channels/, /^Pause/, /^Reset/]) {
+      await expect(menu.getByRole("menuitem", { name })).toBeVisible();
+    }
+    await expect(menu.getByRole("menuitem", { name: /^Tasks/ })).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(menu.getByRole("menuitem", { name: /^Email/ })).toBeFocused();
+    await page.keyboard.press("ArrowUp");
+    await expect(menu.getByRole("menuitem", { name: /^Tasks/ })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(menu).toBeHidden();
+    const tasks = page.getByRole("tablist", { name: "Tasks" });
+    await expect(tasks).toBeVisible();
+    await expectWithinScreen(
+      page,
+      tasks.locator("xpath=ancestor::*[@data-slot='popover-content']"),
+    );
+    await page.keyboard.press("Escape");
+    await expect(menuButton).toBeFocused();
+
+    // Each item opens what its desktop button opens, inside the screen.
+    for (const [item, inside] of [
+      [/^Email/, page.getByText(/^Email this Bot at its private address/)],
+      [/^Channels/, page.getByRole("list", { name: "Channels" })],
+    ] as const) {
+      await menuButton.click();
+      await page.getByRole("menuitem", { name: item }).click();
+      await expect(inside.first()).toBeVisible();
+      await expectWithinScreen(
+        page,
+        page.locator("[data-slot='popover-content']").filter({ has: inside }),
+      );
+      await page.keyboard.press("Escape");
+    }
+
+    await menuButton.click();
+    await page.getByRole("menuitem", { name: /^Reset/ }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+  });
 });
