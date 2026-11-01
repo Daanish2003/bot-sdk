@@ -69,6 +69,17 @@ export const markdownReply = [
   "```ts\nconst answer: number = 42;\n```",
   "<b>raw tag</b>",
 ].join("\n\n");
+/** A send-marked prompt with this marker gets `unsafeReply`. */
+export const unsafeMarker = "[unsafe]";
+/** A reply the safety rules must defuse: a script, a script link, a remote image; and some formatting. */
+export const unsafeReply = [
+  "## Safe heading",
+  "- first item\n- second item",
+  "<script>window.pwned = 1</script>",
+  "[click me](javascript:window.pwned=1)",
+  "![tracker](https://attacker.example/pixel.png)",
+  "2*3*4",
+].join("\n\n");
 /**
  * The reply of a Bot sent a file (spec #801): a send-marked prompt that carries the user's files
  * line, "[Files from the user: <name> (…", gets this with the first file's name, without its folder.
@@ -262,7 +273,11 @@ export function startFakeOllama(port: number): Promise<Server> {
       }
       if (stream && !answering && offers(sendToUserToolName) && prompt.includes(sendMarker)) {
         const file = /\[Files from the user: (\S+) \(/.exec(prompt)?.[1]?.split("/").pop();
-        const reply = prompt.includes(markdownMarker) ? markdownReply : botReply;
+        const reply = prompt.includes(unsafeMarker)
+          ? unsafeReply
+          : prompt.includes(markdownMarker)
+            ? markdownReply
+            : botReply;
         calls(sendToUserToolName, { text: file ? fileReply(file) : reply, endTurn: true });
         return;
       }
