@@ -100,6 +100,7 @@ export function RoomConversation({ conversationId }: { conversationId: string })
                   id={message.id}
                   role={message.role}
                   text={message.text}
+                  hideText={!message.text}
                   hoverTime={user ? message.createdAt : undefined}
                   header={
                     <div className="flex items-center gap-2">
