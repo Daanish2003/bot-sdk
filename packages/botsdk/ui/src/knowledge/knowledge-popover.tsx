@@ -18,6 +18,7 @@ import {
 } from "@botsdk/knowledge/react";
 import { useI18n } from "@botsdk/react/provider";
 import { serverErrorText } from "@botsdk/react/rpc-error";
+import { headerPopoverTrigger } from "../bot/header-popover";
 
 const kib = 1024;
 const mib = kib * kib;
@@ -174,7 +175,9 @@ export function KnowledgePopover() {
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger render={<Button variant="outline" size="sm" />}>
+      <PopoverTrigger
+        render={<Button variant="outline" size="sm" {...headerPopoverTrigger("knowledge")} />}
+      >
         <LibraryIcon />{" "}
         {data ? t("bots.knowledgeCount", { count: data.files.length }) : t("bots.knowledge")}
       </PopoverTrigger>

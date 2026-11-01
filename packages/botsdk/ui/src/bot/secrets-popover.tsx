@@ -6,6 +6,7 @@ import { KeyRoundIcon } from "lucide-react";
 import { dateFormat } from "@botsdk/react/intl";
 import { useI18n } from "@botsdk/react/provider";
 import { useRefusalToast } from "./refusal-toast";
+import { headerPopoverTrigger } from "./header-popover";
 
 /**
  * The Bot header's "Secrets N" button (spec #691). It opens a popover listing the user's Secrets
@@ -24,7 +25,9 @@ export function SecretsPopover({
   const run = useRefusalToast();
   return (
     <Popover>
-      <PopoverTrigger render={<Button variant="outline" size="sm" />}>
+      <PopoverTrigger
+        render={<Button variant="outline" size="sm" {...headerPopoverTrigger("secrets")} />}
+      >
         <KeyRoundIcon /> {t("bots.secretsCount", { count: secrets.length })}
       </PopoverTrigger>
       <PopoverContent className="w-96">

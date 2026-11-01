@@ -11,11 +11,12 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { EllipsisIcon, PauseIcon, PlayIcon, RotateCcwIcon } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 
 import { useI18n } from "@botsdk/react/provider";
 
@@ -23,6 +24,9 @@ import { useI18n } from "@botsdk/react/provider";
  * The "⋯" Bot menu in a Bot's header (spec #1007): its whole-Bot actions, Pause or Resume, and Reset,
  * which opens the reset dialog. Given `onOpenReset`, Reset calls it instead, and its owner shows the
  * dialog: a menu in a popover that closes would take its dialog with it (spec #1055).
+ *
+ * On a phone it also lists the header's other popovers (Tasks, Email, ...), found by their
+ * `headerPopoverTrigger` marks when it opens, and clicking one opens that popover (spec #1117).
  */
 export function BotMenu({
   name,
@@ -47,15 +51,37 @@ export function BotMenu({
 )) {
   const { t } = useI18n();
   const [resetting, setResetting] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [popovers, setPopovers] = useState<{ label: string; open: () => void }[]>([]);
+  const findPopovers = () => {
+    const found = trigger.current
+      ?.closest("header")
+      ?.querySelectorAll<HTMLElement>("[data-header-popover]");
+    setPopovers(
+      [...(found ?? [])].map((each) => ({
+        label: each.textContent?.trim() ?? "",
+        // After the menu has closed and given back its focus, so the popover keeps its own.
+        open: () => setTimeout(() => each.click()),
+      })),
+    );
+  };
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu onOpenChange={(open) => open && findPopovers()}>
         <DropdownMenuTrigger
-          render={<Button variant="ghost" size="icon-sm" aria-label={t("bots.botMenu")} />}
+          render={
+            <Button ref={trigger} variant="ghost" size="icon-sm" aria-label={t("bots.botMenu")} />
+          }
         >
           <EllipsisIcon />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          {popovers.map((popover) => (
+            <DropdownMenuItem key={popover.label} className="md:hidden" onClick={popover.open}>
+              {popover.label}
+            </DropdownMenuItem>
+          ))}
+          {popovers.length > 0 && <DropdownMenuSeparator className="md:hidden" />}
           <DropdownMenuItem disabled={acting} onClick={paused ? onResume : onPause}>
             {paused ? <PlayIcon /> : <PauseIcon />} {t(paused ? "bots.resumeBot" : "bots.pauseBot")}
           </DropdownMenuItem>
