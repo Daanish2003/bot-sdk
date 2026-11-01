@@ -261,6 +261,46 @@ It prints `E2B_API_KEY`, `E2B_API_URL=http://localhost:3000` and `E2B_SANDBOX_UR
 - `C:\Users\<you>\.wslconfig` needs `[general]` `instanceIdleTimeout=-1`. Without it WSL stops Ubuntu 15 seconds after the last `wsl.exe` session closes, and Embed dies with it.
 - Keep Windows update KB5127648 uninstalled until microsoft/WSL#41917 is fixed: it turns off nested KVM on AMD.
 
+### Local E2B Embed (Linux)
+
+Embed also runs directly on a Linux host with KVM, through [its Compose install](https://github.com/e2b-dev/runtime/blob/main/embed/compose/README.md). Its first `up` changes the host as root: files in `/etc`, the `nbd` module, 4 GiB of RAM reserved as hugepages, and one `iptables` rule. `docker compose down -v && docker compose --profile purge run --rm host-teardown` undoes that.
+
+```sh
+mkdir ~/e2b && cd ~/e2b
+curl -fsSL --remote-name-all "https://raw.githubusercontent.com/e2b-dev/runtime/main/embed/compose/{compose.yaml,.env}"
+```
+
+Sort out three things before the first `up` (found on 2026-11-01 on Omarchy, which is Arch-based, with kernel 7.2, Docker 29 and Compose 5.6):
+
+- **Ports.** Embed hardcodes 5432, 6379 and 9000, the defaults of this repo's `docker-compose.yml`. Move this repo's services: set `POSTGRES_PORT=5433`, `REDIS_PORT=6380` and `RUSTFS_PORT=9002` in the root `.env`, use those ports in `apps/web/.env`, and set `TEST_DATABASE_URL=postgresql://postgres:password@localhost:5433/ai-chat_test` when running the tests.
+- **The dashboard.** Embed's dashboard takes 3001, `apps/web`'s port. Move it with a `compose.override.yaml` beside Embed's files, which Compose loads by itself:
+
+  ```yaml
+  services:
+    dashboard:
+      environment:
+        PORT: "3005"
+      healthcheck:
+        test:
+          [
+            "CMD",
+            "node",
+            "-e",
+            "fetch('http://127.0.0.1:3005/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))",
+          ]
+  ```
+
+- **The firewall.** With `ufw` on and its forward policy at `DROP`, sandboxes have no network: `base-template` fails on `apt-get` with "Network is unreachable", and the kernel log shows `[UFW BLOCK]` for `SRC=10.11.0.1`. Allow the sandbox range:
+
+  ```sh
+  sudo ufw allow proto tcp from 10.11.0.0/16 to any port 5010,5016:5018 comment 'e2b sandbox proxies'
+  sudo ufw route allow from 10.11.0.0/16 comment 'e2b sandbox egress'
+  ```
+
+  A sandbox then reached the internet, and timed out on the router, the host's LAN address and the Docker bridge: Embed's own firewall denies private ranges.
+
+Then `docker compose up -d --wait`, followed by "Root disk size" above and "The template". The three variables come from `docker compose exec -T ready cat /run/e2b/sdk.env`.
+
 ### Pause on timeout
 
 A sandbox is created with a 1 hour timeout and `lifecycle: { onTimeout: "pause" }`, the backstop for a sleep that never runs. Self-hosted E2B (the `e2b-dev/runtime` Embed, orchestrator `v0.16.202610051633`) honours it: a sandbox created with a 5 second timeout was paused when it ran out, and a later connect resumed it with its files. So no fallback is needed there. On an E2B that lacks it, the timeout would kill the sandbox, `resume` would report it `"gone"`, and the next wake would rebuild it from the last synced archive.
