@@ -213,6 +213,12 @@ describe("emailBody with Markdown (spec #1117)", () => {
     expect(html).toContain("click");
   });
 
+  it("keeps a loose list item's paragraphs and blocks apart", () => {
+    const { html } = emailBody({ text: "- first\n\n  second\n\n  ```\n  x\n  ```" }, { botUrl });
+
+    expect(html).toContain("<li><p>first</p>\n<p>second</p>\n<pre");
+  });
+
   it("escapes text that looks like HTML", () => {
     const { html } = emailBody({ text: 'use `<div>` & "x"' }, { botUrl });
 

@@ -56,9 +56,8 @@ function blockHtml(block: Block): string {
 
 /** A list item's blocks: a lone paragraph is its text without a paragraph's margins. */
 function itemHtml(item: readonly Block[]): string {
-  return item
-    .map((block) => (block.type === "paragraph" ? inlinesHtml(block.children) : blockHtml(block)))
-    .join("");
+  if (item.length === 1 && item[0]?.type === "paragraph") return inlinesHtml(item[0].children);
+  return blocksHtml(item);
 }
 
 function inlinesHtml(nodes: readonly Inline[]): string {

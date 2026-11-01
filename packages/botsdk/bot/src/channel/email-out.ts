@@ -66,7 +66,7 @@ export function emailBody(
   }
   return {
     text: paragraphs.map(paragraphText).filter(Boolean).join("\n\n"),
-    html: paragraphs.map(htmlOf).filter(Boolean).join("\n"),
+    html: paragraphs.map(htmlOf).filter(Boolean).join("\n") || "<p></p>",
     ...(attachments && { attachments }),
   };
 }
