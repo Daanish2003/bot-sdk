@@ -1029,6 +1029,48 @@ ${opening}`);
 (A forwarded email followed: not the user's word, not shown.)`;
 }
 
+/** The most characters of a call's output its review keeps. */
+export const reviewOutputLimit = 20_000;
+
+/**
+ * What a call printed, as its review keeps it for the activity rows: a command's stdout then
+ * stderr, else its error, else nothing. The text is already masked of the user's Secrets (a result
+ * is masked before the Model reads it); it is cut to `reviewOutputLimit`.
+ */
+export function reviewOutputOf(result: unknown): string | null {
+  if (typeof result !== "object" || result === null) return null;
+  const { stdout, stderr, error } = result as Record<string, unknown>;
+  const parts = [stdout, stderr, error].filter(
+    (part): part is string => typeof part === "string" && part !== "",
+  );
+  if (parts.length === 0) return null;
+  // Postgres text refuses NUL; a cut must not leave half of a surrogate pair.
+  return parts
+    .join("\n")
+    .replaceAll("\0", "")
+    .slice(0, reviewOutputLimit)
+    .replace(/[\ud800-\udbff]$/, "");
+}
+
+/** Saves what call `toolCallId` printed on its review, which belongs to the Turn or Helper `source`. */
+export async function recordReviewOutput(
+  db: Database,
+  source: ReviewSource,
+  toolCallId: string,
+  result: unknown,
+) {
+  const output = reviewOutputOf(result);
+  if (output === null) return;
+  const owned =
+    "turnId" in source
+      ? eq(botReview.turnId, source.turnId)
+      : eq(botReview.helperId, source.helperId);
+  await db
+    .update(botReview)
+    .set({ output })
+    .where(and(owned, eq(botReview.toolCallId, toolCallId)));
+}
+
 /** How many of a Bot's newest reviews `listReviews` returns, besides the waiting ones. */
 export const listedReviews = 100;
 
@@ -1042,6 +1084,7 @@ export const reviewFields = {
   summary: botReview.summary,
   verdict: botReview.verdict,
   reason: botReview.reason,
+  output: botReview.output,
   state: botReview.state,
   deadline: botReview.deadline,
   expiresAt: botReview.expiresAt,

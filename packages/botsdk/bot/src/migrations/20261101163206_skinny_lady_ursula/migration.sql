@@ -1,0 +1,1 @@
+ALTER TABLE "botsdk"."bot_review" ADD COLUMN "output" text;

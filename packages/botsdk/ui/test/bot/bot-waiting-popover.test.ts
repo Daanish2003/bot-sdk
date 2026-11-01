@@ -39,6 +39,7 @@ const review = (id: string, state: BotReview["state"], input = { command: "git p
     state,
     deadline: createdAt,
     expiresAt: new Date("2026-11-05T09:00:00.000Z"),
+    output: null,
     decidedAt: null,
     createdAt,
   }) satisfies BotReview;

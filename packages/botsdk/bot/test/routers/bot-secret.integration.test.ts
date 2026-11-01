@@ -345,6 +345,27 @@ describe("Secrets", () => {
     expect(toolResultOf(fake.calls.at(-1)).stdout).toBe("GITHUB_TOKEN=***\n");
   });
 
+  it("keeps a command's output on its review with the Secret masked, never the value", async () => {
+    const { client, botId, deps, user } = await botWith(
+      [round(shell("env")), round(sends("Done."))],
+      {
+        onCommand: () => ({
+          exitCode: 0,
+          stdout: `GITHUB_TOKEN=${token}\n`,
+          stderr: `warn ${token}`,
+        }),
+      },
+    );
+    await storeSecret(deps, user.id, "GITHUB_TOKEN", token);
+
+    await send(client, botId, "show env");
+
+    const reviews = await client.reviews.list({ botId });
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0]?.output).toBe("GITHUB_TOKEN=***\n\nwarn ***");
+    expect(JSON.stringify(reviews)).not.toContain(token);
+  });
+
   it("stores a value trimmed, so the output that holds the trimmed value is masked", async () => {
     const { client, botId, deps, user, fake } = await botWith(
       [round(sends("Thanks.")), round(shell("env")), round(sends("Done."))],

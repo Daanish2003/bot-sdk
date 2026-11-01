@@ -30,6 +30,8 @@ export type BotReview = {
   summary: string;
   verdict: ReviewVerdictOutcome;
   reason: string;
+  /** What the call printed, masked of Secrets and cut, or null (spec #1117). */
+  output: string | null;
   state: ReviewApprovalState | null;
   deadline: Date | null;
   /** When the Approval expires if it is still pending (ADR 0030); null when it has none. */

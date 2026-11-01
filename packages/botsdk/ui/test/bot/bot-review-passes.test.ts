@@ -56,6 +56,7 @@ const reviewOf = (
   deadline: null,
   expiresAt: null,
   decidedAt: null,
+  output: null,
   createdAt: at(1),
 });
 
@@ -122,8 +123,8 @@ describe("the Never-allowed divider", () => {
   });
 });
 
-describe("the Auto-review passes line", () => {
-  it("shows each Turn's passes under its last Bot Message and expands to their summaries and reasons", async () => {
+describe("the activity rows", () => {
+  it("opens under the Turn line with each pass's summary, command and output, under its last Bot Message", async () => {
     const messages = [
       said("m1", "user", "list and build", 0),
       said("m2", "assistant", "Done.", 2),
@@ -135,43 +136,71 @@ describe("the Auto-review passes line", () => {
         messages,
         [turnOf("t1", 0, 3), turnOf("t2", 5, 7)],
         [
-          reviewOf("r1", "t1", "pass", "List the files", "The user asked to list them."),
+          {
+            ...reviewOf("r1", "t1", "pass", "List the files", "The user asked to list them."),
+            output: "a.txt\nb.txt",
+          },
           reviewOf("r2", "t1", "pass", "Build the app", "The user asked to build it."),
           reviewOf("r3", "t1", "block", "Delete the repo", "Nobody asked for it."),
         ],
       ),
     );
 
-    const line = await screen.findByRole("button", { name: "✓ 2 calls auto-approved" });
-    // Under the Turn's last Bot Message, and none for the Turn with no review.
+    const line = await screen.findByRole("button", { name: "Activity" });
     const done = document.querySelector('[data-id="m2"]');
     expect(done?.compareDocumentPosition(line)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(document.querySelector('[data-id="m3"]')?.compareDocumentPosition(line)).toBe(
       Node.DOCUMENT_POSITION_PRECEDING,
     );
-    expect(screen.getAllByRole("button", { name: /auto-approved/ })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Activity" })).toHaveLength(1);
     expect(screen.queryByText("List the files")).toBeNull();
 
     fireEvent.click(line);
 
     expect(line.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByText("List the files")).toBeTruthy();
-    expect(screen.getByText("The user asked to list them.")).toBeTruthy();
-    expect(screen.getByText("Build the app")).toBeTruthy();
-    expect(screen.getByText("The user asked to build it.")).toBeTruthy();
+    const rows = screen.getByRole("list", { name: "Activity" }).querySelectorAll("li");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.textContent).toContain("List the files");
+    expect(rows[0]?.textContent).toContain("The user asked to list them.");
+    expect(rows[0]?.textContent).toContain("ls");
+    expect(rows[0]?.textContent).toContain("a.txt");
+    // A call with no output shows its command only.
+    expect(rows[1]?.textContent).toContain("Build the app");
+    expect(rows[1]?.textContent).not.toContain("Output");
     // A block isn't a pass.
     expect(screen.queryByText("Delete the repo")).toBeNull();
   });
 
-  it("says call for one pass", async () => {
+  it("collapses a long output behind a button that works by keyboard", async () => {
+    const long = Array.from({ length: 40 }, (_, i) => `line ${i}`).join("\n");
     mount(
       fakeBotServer(
         [said("m1", "user", "list", 0), said("m2", "assistant", "Done.", 2)],
         [turnOf("t1", 0, 3)],
-        [reviewOf("r1", "t1", "pass", "List the files", "The user asked.")],
+        [{ ...reviewOf("r1", "t1", "pass", "List the files", "The user asked."), output: long }],
+      ),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Activity" }));
+
+    const more = screen.getByRole("button", { name: "Show all 40 lines" });
+    expect(more.tagName).toBe("BUTTON");
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("keeps a Never-allowed call red and visible with the panel closed", async () => {
+    mount(
+      fakeBotServer(
+        [said("m1", "user", "go", 0), said("m2", "assistant", "No.", 2)],
+        [turnOf("t1", 0, 3)],
+        [
+          reviewOf("r1", "t1", "never", "Transfer $5,000", "moving money"),
+          reviewOf("r2", "t1", "pass", "List the files", "ok"),
+        ],
       ),
     );
 
-    expect(await screen.findByRole("button", { name: "✓ 1 call auto-approved" })).toBeTruthy();
+    const never = await screen.findByText("Never allowed · Transfer $5,000");
+    expect(never.closest("[data-never-allowed]")?.className).toContain("text-red-500");
+    expect(screen.queryByText("List the files")).toBeNull();
   });
 });
