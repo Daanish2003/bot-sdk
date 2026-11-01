@@ -32,7 +32,7 @@ export function BotTurnLine({ steps, saved }: { steps: BotTurnStep[]; saved?: Re
           <button
             type="button"
             aria-expanded={open}
-            aria-controls={panelId}
+            aria-controls={open ? panelId : undefined}
             className={`ml-auto rounded px-1 hover:text-foreground ${bug ? "text-amber-500" : ""}`}
             onClick={() => setOpen(!open)}
           >

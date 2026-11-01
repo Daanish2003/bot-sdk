@@ -32,17 +32,19 @@ function BotPage() {
           <WaitingPopover botId={botId} />
         </>
       }
-      afterTurn={(turn) => (
-        <>
-          {computerFeaturesOn && (
-            <>
-              <BotMemoryChip changes={turn.memoryChanges} />
-              <BotSkillChip botId={botId} changes={turn.skillChanges} />
-              <KnowledgeChip botId={botId} changes={turn.knowledgeChanges} />
-            </>
-          )}
-        </>
-      )}
+      afterTurn={(turn) =>
+        // Nothing saved is nothing to show: the Turn line then holds only the cache figures.
+        computerFeaturesOn &&
+        (turn.memoryChanges?.length ||
+          turn.skillChanges?.length ||
+          turn.knowledgeChanges?.length) ? (
+          <>
+            <BotMemoryChip changes={turn.memoryChanges} />
+            <BotSkillChip botId={botId} changes={turn.skillChanges} />
+            <KnowledgeChip botId={botId} changes={turn.knowledgeChanges} />
+          </>
+        ) : null
+      }
     />
   );
 }
