@@ -43,6 +43,9 @@ export default function AccountMenu({
           <DropdownMenuSeparator />
           <DropdownMenuItem render={<Link to="/settings/keys" />}>Keys</DropdownMenuItem>
           <DropdownMenuItem render={<Link to="/settings/rules" />}>Rules</DropdownMenuItem>
+          <DropdownMenuItem render={<Link to="/representatives" />}>
+            Representatives
+          </DropdownMenuItem>
           <DropdownMenuItem render={<Link to="/settings/account" />}>Account</DropdownMenuItem>
           {isAdmin && <DropdownMenuItem render={<Link to="/admin" />}>Admin</DropdownMenuItem>}
           <DropdownMenuItem

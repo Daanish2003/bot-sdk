@@ -25,6 +25,10 @@ export const errorMessages = {
   "error.channelAccountTaken": "That bot is already connected to someone else's Bot.",
   "error.customRuleLimit": ({ max }: { max: number }) =>
     `You can have at most ${max} active rules. Delete one to add another.`,
+  "error.representativeNotFound": "Representative not found",
+  "error.representativeJobTextBlank":
+    "Write the job text before approving: a Release needs to say what the Representative does.",
+  "error.representativeNoRelease": "Approve a Release before switching this Representative on.",
   "error.routineNotFound": "Routine not found",
   "error.routineNotWebhook": "Only an approved webhook Routine has a URL to rotate",
   "error.routineWebhookSchedule": "A webhook Routine has no schedule to edit",

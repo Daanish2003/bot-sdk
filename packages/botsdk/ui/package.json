@@ -56,6 +56,9 @@
     "./models/settings/image-model-groups": "./src/models/settings/image-model-groups.ts",
     "./models/settings/image-model-select": "./src/models/settings/image-model-select.tsx",
     "./models/shell/model-picker": "./src/models/shell/model-picker.tsx",
+    "./representative": "./src/representative/index.ts",
+    "./representative/representative-page": "./src/representative/representative-page.tsx",
+    "./representative/representatives-page": "./src/representative/representatives-page.tsx",
     "./settings/export-data-button": "./src/settings/export-data-button.tsx",
     "./settings/linked-identities-section": "./src/settings/linked-identities-section.tsx",
     "./settings/notifications-section": "./src/settings/notifications-section.tsx",
@@ -94,6 +97,7 @@
     "@botsdk/knowledge": "workspace:*",
     "@botsdk/mcp": "workspace:*",
     "@botsdk/memory": "workspace:*",
+    "@botsdk/representative": "workspace:*",
     "@botsdk/skills": "workspace:*",
     "@tanstack/react-query": "^5.102.8",
     "react": "catalog:",
@@ -107,6 +111,9 @@
       "optional": true
     },
     "@botsdk/memory": {
+      "optional": true
+    },
+    "@botsdk/representative": {
       "optional": true
     },
     "@botsdk/skills": {

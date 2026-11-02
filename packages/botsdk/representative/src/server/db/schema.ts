@@ -1,0 +1,57 @@
+import {
+  type AnyPgColumn,
+  boolean,
+  index,
+  integer,
+  jsonb,
+  text,
+  timestamp,
+  unique,
+  uuid,
+} from "drizzle-orm/pg-core";
+
+import { bot, botsdkSchema } from "@botsdk/bot/storage";
+import type { Draft, ReleaseContent } from "../../shared/contract";
+
+/**
+ * A Representative (spec #1167): an agent that speaks for one user's business. It holds the
+ * owner's working draft and points at its live Release; on/off is its own, outside every Release.
+ */
+export const representative = botsdkSchema.table(
+  "representative",
+  {
+    /** uuidv7, generated in app code. */
+    id: uuid("id").primaryKey(),
+    /** The Host's user id, with no foreign key, as everywhere in the `botsdk` schema. */
+    userId: text("user_id").notNull(),
+    /** The Bot it reports to; null reports to the owner, which is where a deleted Bot's row leaves it. */
+    botId: uuid("bot_id").references((): AnyPgColumn => bot.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    enabled: boolean("enabled").notNull().default(false),
+    /** The Release new Turns use. No foreign key: the two tables point at each other. Null until the first approval. */
+    liveReleaseId: uuid("live_release_id"),
+    draft: jsonb("draft").$type<Draft>().notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [index("representative_user_idx").on(table.userId, table.createdAt)],
+);
+
+/**
+ * A Release: one unchangeable version of a Representative, numbered from 1. Nothing updates a row
+ * once it is inserted; rollback only repoints `representative.live_release_id`.
+ */
+export const representativeRelease = botsdkSchema.table(
+  "representative_release",
+  {
+    id: uuid("id").primaryKey(),
+    representativeId: uuid("representative_id")
+      .notNull()
+      .references((): AnyPgColumn => representative.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    /** What the Release pins: job text, switches, Skills, tools, Model, document snapshot and tests. */
+    content: jsonb("content").$type<ReleaseContent>().notNull(),
+    approvedAt: timestamp("approved_at").defaultNow().notNull(),
+  },
+  (table) => [unique("representative_release_number").on(table.representativeId, table.number)],
+);

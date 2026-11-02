@@ -64,6 +64,7 @@
     "@botsdk/mcp": "workspace:*",
     "@botsdk/memory": "workspace:*",
     "@botsdk/react": "workspace:*",
+    "@botsdk/representative": "workspace:*",
     "@botsdk/skills": "workspace:*",
     "@botsdk/testing": "workspace:*"
   }
