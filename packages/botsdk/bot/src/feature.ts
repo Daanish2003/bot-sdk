@@ -576,7 +576,7 @@ export function featurePlugin({ feature, context }: EnabledFeature): BotSdkPlugi
   const exportPart = userData?.export;
   return {
     id: feature.id,
-    routes: featureRoutes(feature, () => context),
+    routes: feature.routes,
     init: () => {
       const api = feature.api?.(context) ?? {};
       checkImplements(feature, api);
