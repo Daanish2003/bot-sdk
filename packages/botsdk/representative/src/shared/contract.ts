@@ -76,6 +76,7 @@ export const updateDraftInput = z.object({
   draft: draftSchema.partial(),
 });
 export const setEnabledInput = z.object({ id: z.uuid(), enabled: z.boolean() });
+export const setBotInput = z.object({ id: z.uuid(), botId: z.uuid() });
 
 export const representativeContract = {
   /** The owner's Representatives, oldest first. */
@@ -90,6 +91,8 @@ export const representativeContract = {
   approve: oc.input(idInput).output(type<ReleaseView>()),
   /** Switches the Representative on or off, with no new Release. */
   setEnabled: oc.input(setEnabledInput).output(type<RepresentativeView>()),
+  /** Chooses which of the owner's Bots it reports to; its open Assignments move to that Bot. */
+  setBot: oc.input(setBotInput).output(type<RepresentativeView>()),
 };
 
 export type RepresentativeContract = typeof representativeContract;

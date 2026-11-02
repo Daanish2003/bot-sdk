@@ -1762,6 +1762,116 @@ export async function cancelAssignment(
   return { cancelled: { id }, woken };
 }
 
+/** The id of the Trigger that tells a Bot an Assignment it had read moved to another Bot. */
+const movedTriggerId = (id: string) => `assignment_moved:${id}:${uuidv7()}`;
+
+/**
+ * Moves Assignment `id`, which a feature made for its owner, to `target`, one of that owner's Bots,
+ * in `tx`. The status and the log stay, with a row added. A Trigger of its old Bot that no Turn has
+ * taken yet is skipped, the old Bot is told if a Turn had read it, and the new Bot wakes on it.
+ * Another owner's, or another feature's, is `not_found`; one that has ended is `ended`. `woken` is
+ * the Conversations to hint once `tx` has committed.
+ */
+export async function moveAssignment(
+  deps: BotSdkContext,
+  tx: Transaction,
+  mover: { feature: string; userId: string },
+  id: string,
+  target: { id: string; name: string; conversationId: string },
+): Promise<{ moved: { id: string }; woken: string[] } | { reason: "not_found" | "ended" }> {
+  const rowOf = async (db: Database | Transaction) => {
+    const [row] = await db
+      .select({
+        title: botAssignment.title,
+        instructions: botAssignment.instructions,
+        status: botAssignment.status,
+        assignedBotId: botAssignment.assignedBotId,
+        assignedConversationId: bot.conversationId,
+        assignedModel: bot.model,
+        assignerFeature: botAssignment.assignerFeature,
+        assignerTrusted: botAssignment.assignerTrusted,
+      })
+      .from(botAssignment)
+      .innerJoin(bot, eq(bot.id, botAssignment.assignedBotId))
+      .where(
+        and(
+          eq(botAssignment.id, id),
+          eq(botAssignment.assignerFeature, mover.feature),
+          eq(bot.userId, mover.userId),
+        ),
+      );
+    return row;
+  };
+  const before = await rowOf(tx);
+  if (!before) return { reason: "not_found" };
+  // Ask before taking any lock.
+  const tellsOld = await canWork(deps, { userId: mover.userId, model: before.assignedModel });
+  const woken = await lockConversationSet(tx, async (db) => {
+    const row = await rowOf(db);
+    return [target.conversationId, ...(row ? [row.assignedConversationId] : [])];
+  });
+  const row = await rowOf(tx);
+  if (!row) return { reason: "not_found" };
+  if (isEndedAssignment(row.status)) return { reason: "ended" };
+  if (row.assignedBotId === target.id) return { moved: { id }, woken: [] };
+  const now = deps.clock();
+  const updated = await tx
+    .update(botAssignment)
+    .set({ assignedBotId: target.id, updatedAt: now })
+    .where(and(eq(botAssignment.id, id), notInArray(botAssignment.status, endedStatuses)))
+    .returning({ id: botAssignment.id });
+  if (updated.length === 0) return { reason: "ended" };
+  await logStatus(tx, {
+    assignmentId: id,
+    status: row.status,
+    actor: "feature",
+    note: `Moved to the Bot ${JSON.stringify(target.name)}`,
+    at: now,
+  });
+  const old = { conversationId: row.assignedConversationId, botId: row.assignedBotId };
+  const ofIt = and(
+    eq(botTrigger.botId, old.botId),
+    eq(botTrigger.source, "assignment"),
+    like(botTrigger.id, `${assignmentTriggerId(id)}%`),
+  );
+  const skipped = await tx
+    .update(botTrigger)
+    .set({ skippedAt: now, skipReason: "cancelled" })
+    .where(and(ofIt, isNull(botTrigger.turnId), isNull(botTrigger.skippedAt)))
+    .returning({ id: botTrigger.id, source: botTrigger.source });
+  for (const trigger of skipped) await recordSkipChange(tx, old, trigger, now);
+  const [read] = await tx
+    .select({ id: botTrigger.id })
+    .from(botTrigger)
+    .where(and(ofIt, isNotNull(botTrigger.turnId)))
+    .limit(1);
+  await recordBotChange(tx, { conversationId: old.conversationId }, "assignment", id, now);
+  await recordBotChange(tx, { conversationId: target.conversationId }, "assignment", id, now);
+  if (read && tellsOld) {
+    await receive(deps, tx, {
+      id: movedTriggerId(id),
+      botId: old.botId,
+      conversationId: old.conversationId,
+      source: "assignment",
+      channel: handOverChannel(row),
+      text:
+        `Assignment ${id} was moved to another Bot by ${featureNamed(mover.feature)}: ` +
+        `${quotedTitle(row.title)}\nStop work on it: ${finishAssignmentToolName} on it is refused.`,
+      receivedAt: now,
+    });
+  }
+  await receive(
+    deps,
+    tx,
+    assignmentTrigger(
+      { id, ...row, assignerName: null },
+      { botId: target.id, conversationId: target.conversationId },
+      now,
+    ),
+  );
+  return { moved: { id }, woken };
+}
+
 /**
  * Adds a note to the log of Assignment `id`, in `tx`, as the Bot it's handed to, any known Secret's
  * value masked; the row keeps the status it has. Only that Bot may, and not once the Assignment has ended. `woken` is the Conversation

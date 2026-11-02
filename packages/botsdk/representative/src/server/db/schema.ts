@@ -10,7 +10,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-import { bot, botsdkSchema } from "@botsdk/bot/storage";
+import { bot, botAssignment, botsdkSchema } from "@botsdk/bot/storage";
 import type { Draft, ReleaseContent } from "../../shared/contract";
 
 /**
@@ -54,4 +54,21 @@ export const representativeRelease = botsdkSchema.table(
     approvedAt: timestamp("approved_at").defaultNow().notNull(),
   },
   (table) => [unique("representative_release_number").on(table.representativeId, table.number)],
+);
+
+/**
+ * An Assignment a Representative handed to its Bot (`hand_to_bot`), so that choosing another Bot
+ * can move the open ones. It goes with the Assignment, and with the Representative.
+ */
+export const representativeHandOff = botsdkSchema.table(
+  "representative_hand_off",
+  {
+    assignmentId: uuid("assignment_id")
+      .primaryKey()
+      .references((): AnyPgColumn => botAssignment.id, { onDelete: "cascade" }),
+    representativeId: uuid("representative_id")
+      .notNull()
+      .references((): AnyPgColumn => representative.id, { onDelete: "cascade" }),
+  },
+  (table) => [index("representative_hand_off_representative_idx").on(table.representativeId)],
 );

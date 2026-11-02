@@ -10,7 +10,7 @@ import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { defineJob, type JobContext, PermanentJobError } from "@botsdk/bot/runner/internal";
 import type { ReleaseContent, RepresentativeTool } from "../shared/contract";
-import { representative, representativeRelease } from "./db/schema";
+import { representative, representativeHandOff, representativeRelease } from "./db/schema";
 
 /*
  * A Representative Turn (ticket #1191): one job per Customer message. It reads the live Release once
@@ -138,13 +138,14 @@ function turnTools({ job, kit, userId, name, representativeId }: Turn) {
         const botId = await reportingBot(job, representativeId);
         if (!botId) return { error: noBotRefusal };
         try {
-          await job.assignments.create({
+          const { id } = await job.assignments.create({
             userId,
             botId,
             title,
             instructions: `From Representative "${name}".\n\n${instructions}`,
             job: handOffEndedJob,
           });
+          await job.db.insert(representativeHandOff).values({ assignmentId: id, representativeId });
           return { handedOff: true };
         } catch (error) {
           // The Bot can't take it or the work is malformed: the Model hears, and the Turn goes on.

@@ -3,6 +3,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -12,6 +13,7 @@ import {
   useApproveRelease,
   useRefreshRepresentatives,
   useRepresentativeDetail,
+  useSetRepresentativeBot,
   useSetRepresentativeEnabled,
   useUpdateDraft,
 } from "@botsdk/representative/react";
@@ -121,6 +123,47 @@ function DraftEditor({ representative }: { representative: RepresentativeView })
   );
 }
 
+/** The Bot chooser, limited to the owner's Bots; with none chosen, the Representative reports to the owner. */
+function BotChooser({ representative }: { representative: RepresentativeView }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const { orpc } = useChatAdapter();
+  const bots = useQuery(orpc.bots.list.queryOptions());
+  const refresh = useRefreshRepresentatives();
+  const setBot = useSetRepresentativeBot({
+    onSuccess: async () => {
+      await refresh();
+      toast.success(t("representative.botChosen"));
+    },
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  return (
+    <div className="space-y-1">
+      <Label htmlFor="representative-reports-to">{t("representative.reportsTo")}</Label>
+      <select
+        id="representative-reports-to"
+        value={representative.botId ?? ""}
+        disabled={setBot.isPending}
+        onChange={(event) => {
+          if (event.target.value)
+            setBot.mutate({ id: representative.id, botId: event.target.value });
+        }}
+        className="block h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
+      >
+        {representative.botId === null && (
+          <option value="">{t("representative.reportsToYou")}</option>
+        )}
+        {bots.data?.map((bot) => (
+          <option key={bot.id} value={bot.id}>
+            {bot.name}
+          </option>
+        ))}
+      </select>
+      <p className="text-xs text-muted-foreground">{t("representative.reportsToHelp")}</p>
+    </div>
+  );
+}
+
 /**
  * One Representative: who it reports to, on/off, its draft with Save draft and Approve, and its
  * Releases. The Host mounts it at `/representatives/<id>`.
@@ -151,6 +194,7 @@ export function RepresentativePage({ id }: { id: string }) {
             : t("representative.live", { number: representative.liveReleaseNumber })}
         </p>
       </div>
+      <BotChooser representative={representative} />
       <div className="flex items-center gap-2">
         <Checkbox
           id="representative-enabled"

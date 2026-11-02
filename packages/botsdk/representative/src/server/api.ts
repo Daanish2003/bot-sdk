@@ -1,11 +1,18 @@
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { parseInput, type WithUser } from "@botsdk/bot/rpc-error";
-import { createInput, idInput, setEnabledInput, updateDraftInput } from "../shared/contract";
+import {
+  createInput,
+  idInput,
+  setBotInput,
+  setEnabledInput,
+  updateDraftInput,
+} from "../shared/contract";
 import {
   approveDraft,
   createRepresentative,
   getRepresentative,
   listRepresentatives,
+  setBot,
   setEnabled,
   updateDraft,
 } from "./representatives";
@@ -17,7 +24,7 @@ import {
  */
 
 /** The `representative` namespace over the feature's context. */
-export function representativeApi(context: FeatureContext) {
+export function representativeApi(context: FeatureContext<"assignments">) {
   return {
     list: async ({ userId }: { userId: string }) => listRepresentatives(context, userId),
 
@@ -38,6 +45,11 @@ export function representativeApi(context: FeatureContext) {
     setEnabled: async ({ userId, ...rest }: WithUser<typeof setEnabledInput>) => {
       const { id, enabled } = parseInput(setEnabledInput, rest);
       return setEnabled(context, userId, id, enabled);
+    },
+
+    setBot: async ({ userId, ...rest }: WithUser<typeof setBotInput>) => {
+      const { id, botId } = parseInput(setBotInput, rest);
+      return setBot(context, userId, id, botId);
     },
   };
 }

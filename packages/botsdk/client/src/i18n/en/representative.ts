@@ -8,6 +8,9 @@ export const representativeMessages = {
   "representative.create": "Create",
   "representative.reportsTo": "Reports to",
   "representative.reportsToYou": "You",
+  "representative.reportsToHelp":
+    "Its hand-offs go to this Bot. Choosing another Bot moves its open hand-offs there. With none, it reports to you.",
+  "representative.botChosen": "Reporting Bot changed",
   "representative.none": "No Representatives yet.",
   "representative.back": "All Representatives",
   "representative.live": ({ number }: { number: number }) => `Live: Release ${number}`,

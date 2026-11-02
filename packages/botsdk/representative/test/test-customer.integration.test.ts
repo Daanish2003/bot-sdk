@@ -605,6 +605,7 @@ describe("who can reach a Turn", () => {
       "create",
       "get",
       "list",
+      "setBot",
       "setEnabled",
       "updateDraft",
     ]);
