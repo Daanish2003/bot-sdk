@@ -21,11 +21,33 @@ export const maxSkillTextLength = 20_000;
 export const maxTestConversations = 20;
 export const maxExpectations = 20;
 export const maxOverrideReasonLength = 1_000;
+export const maxSwitches = 100;
+
+/** Whether `text` can be stored: Postgres takes no NUL in text or jsonb. */
+export const noNul = (text: string) => !text.includes("\u0000");
+const noNulMessage = "NUL characters are not allowed";
+const storable = <Schema extends z.ZodString>(schema: Schema) => schema.refine(noNul, noNulMessage);
+
+/** `value` with every object's keys in order, so equal drafts print equal whatever order Postgres kept. */
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([key, each]) => [key, canonical(each)]),
+    );
+  }
+  return value;
+}
+
+/** `value` as JSON that is the same for equal values, whatever order their keys came in. */
+export const canonicalJson = (value: unknown) => JSON.stringify(canonical(value));
 
 /** A Skill copied into a draft: a read-only procedure that grants no permission. */
 export const skillCopySchema = z.object({
-  name: z.string().trim().min(1).max(100),
-  text: z.string().max(maxSkillTextLength),
+  name: storable(z.string().trim().min(1).max(100)),
+  text: storable(z.string().max(maxSkillTextLength)),
 });
 
 /**
@@ -36,16 +58,16 @@ export const expectationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("replied") }),
   z.object({ kind: z.literal("handed_off") }),
   z.object({ kind: z.literal("not_handed_off") }),
-  z.object({ kind: z.literal("said"), text: z.string().trim().min(1).max(500) }),
-  z.object({ kind: z.literal("not_said"), text: z.string().trim().min(1).max(500) }),
+  z.object({ kind: z.literal("said"), text: storable(z.string().trim().min(1).max(500)) }),
+  z.object({ kind: z.literal("not_said"), text: storable(z.string().trim().min(1).max(500)) }),
 ]);
 export type Expectation = z.output<typeof expectationSchema>;
 
 /** A scripted test conversation: what a stand-in Customer says, and what must hold afterwards. */
 export const testConversationSchema = z.object({
-  name: z.string().trim().min(1).max(100),
+  name: storable(z.string().trim().min(1).max(100)),
   /** The stand-in Customer's message. */
-  message: z.string().trim().min(1).max(4_000),
+  message: storable(z.string().trim().min(1).max(4_000)),
   expect: z.array(expectationSchema).min(1).max(maxExpectations),
 });
 export type TestConversation = z.output<typeof testConversationSchema>;
@@ -53,16 +75,18 @@ export type TestConversation = z.output<typeof testConversationSchema>;
 /** What the owner writes: the part of a Release that is theirs to edit. */
 export const draftSchema = z.object({
   /** What the Representative is told to do. */
-  jobText: z.string().max(maxJobTextLength),
+  jobText: storable(z.string().max(maxJobTextLength)),
   /** The owner's switches, which code checks; the SDK defines none yet. */
-  switches: z.record(z.string().min(1).max(64), z.boolean()),
+  switches: z
+    .record(storable(z.string().min(1).max(64)), z.boolean())
+    .refine((switches) => Object.keys(switches).length <= maxSwitches, "Too many switches"),
   skills: z.array(skillCopySchema).max(maxSkills),
   /** Only names from `representativeTools`, each once. */
   tools: z
     .array(z.enum(representativeTools))
     .refine((tools) => new Set(tools).size === tools.length, "A tool is listed once"),
   /** The Model, `"provider:model"`, or null for the Host's default. */
-  model: z.string().trim().min(1).max(200).nullable(),
+  model: storable(z.string().trim().min(1).max(200)).nullable(),
   /** Scripted test conversations, run on the draft and pinned in the Release. */
   tests: z.array(testConversationSchema).max(maxTestConversations),
 });
@@ -122,8 +146,18 @@ export type TestResultView = {
  */
 export type TestStatus = "none" | "notRun" | "running" | "failed" | "passed";
 
-/** A Bot's draft waiting for the owner: the core's card in that Bot's Conversation, and until when. */
-export type PendingApproval = { id: string; botId: string; expiresAt: string };
+/**
+ * A Bot's draft waiting for the owner: the core's card in that Bot's Conversation, when it was
+ * posted, until when, and the call that posted it (its Turn's id and tool call's), so a replay of
+ * that call knows its own.
+ */
+export type PendingApproval = {
+  id: string;
+  botId: string;
+  expiresAt: string;
+  postedAt?: string;
+  call?: string;
+};
 
 export type RepresentativeView = RepresentativeSummary & {
   draft: Draft;
@@ -142,7 +176,10 @@ export type RepresentativeView = RepresentativeSummary & {
  */
 export type DraftChange = {
   field: "jobText" | "switch" | "skill" | "tool" | "model" | "test";
-  /** The switch, Skill, tool or test the change is about; null for the job text and Model. */
+  /**
+   * The switch, Skill, tool or test the change is about; null for the job text and Model, and for
+   * Skills or tests put in another order, whose sides are then their names in order.
+   */
   name: string | null;
   before: string | null;
   after: string | null;
@@ -158,11 +195,11 @@ export const idInput = z.object({ id: z.uuid() });
 export const approveInput = z.object({
   id: z.uuid(),
   /** Approve anyway: why, when the tests failed or haven't finished. Logged with the Release. */
-  overrideReason: z.string().max(maxOverrideReasonLength).optional(),
+  overrideReason: storable(z.string().max(maxOverrideReasonLength)).optional(),
 });
 export const rollbackInput = z.object({ id: z.uuid(), releaseId: z.uuid() });
 export const createInput = z.object({
-  name: z.string().trim().min(1).max(100),
+  name: storable(z.string().trim().min(1).max(100)),
   botId: z.uuid().optional(),
 });
 export const updateDraftInput = z.object({

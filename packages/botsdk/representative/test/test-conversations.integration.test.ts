@@ -3,8 +3,8 @@ import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { saveCredentials } from "@botsdk/bot/models/internal";
-import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
-import { botAssignment, usage } from "@botsdk/bot/storage";
+import { inProcessRunner, type JobRunner, PermanentJobError } from "@botsdk/bot/runner/internal";
+import { botAssignment, job, usage } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
@@ -12,7 +12,8 @@ import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 import { representative } from "../src";
-import { representativeRelease } from "../src/server/db/schema";
+import { representativeRelease, representativeTestResult } from "../src/server/db/schema";
+import { transcriptOf } from "../src/server/test-checks";
 import type { Draft } from "../src/shared/contract";
 
 /*
@@ -50,7 +51,12 @@ const quiet = () => round();
  * test Customer says to the Model's rounds for that conversation, so concurrent conversations
  * never take each other's rounds. `held` holds every Model call until it resolves.
  */
-async function instance(script: Record<string, Round[]>, held?: Promise<void>) {
+async function instance(
+  script: Record<string, Round[]>,
+  held?: Promise<void>,
+  /** Runs at the end of each Model call, before its tools. */
+  afterCall?: () => Promise<void>,
+) {
   const fakes = new Map(
     Object.entries(script).map(([message, rounds]) => [message, createFakeAdapter({ rounds })]),
   );
@@ -64,6 +70,7 @@ async function instance(script: Record<string, Round[]>, held?: Promise<void>) {
       await held;
       if (!message) throw new Error("No script for this Customer message");
       yield* fakes.get(message)!.adapter.chatStream(options);
+      await afterCall?.();
     },
   };
   const botFake = createFakeAdapter({ rounds: Array.from({ length: 20 }, () => quiet()) });
@@ -306,6 +313,93 @@ describe("running them", () => {
     expect(done.testStatus).toBe("failed");
   });
 
+  it("stops calling the Model once the draft has changed under a running conversation", async () => {
+    let change = async () => {};
+    const { rpc, entered } = await instance(
+      { [opens.message]: [replies("One."), replies("Two."), replies("Three."), quiet()] },
+      undefined,
+      () => change(),
+    );
+    const id = await draftWith(rpc, [opens]);
+    change = async () => {
+      change = async () => {};
+      await rpc.representative.updateDraft({ id, draft: { jobText: "Something else." } });
+    };
+
+    await rpc.representative.runTests({ id });
+    await expect.poll(() => entered.length, poll).toBeGreaterThan(0);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    expect(entered).toHaveLength(1);
+    // Its row is gone, so it can't count if the draft comes back.
+    expect(await getTestDb().select().from(representativeTestResult)).toEqual([]);
+    expect((await rpc.representative.get({ id })).testStatus).toBe("notRun");
+  });
+
+  it("stops calling the Model once a new run has replaced a running conversation", async () => {
+    let change = async () => {};
+    const { rpc, entered } = await instance(
+      { [opens.message]: [replies("One."), replies("Two."), replies("Three."), quiet()] },
+      undefined,
+      () => change(),
+    );
+    const id = await draftWith(rpc, [opens]);
+    change = async () => {
+      change = async () => {};
+      await getTestDb().delete(representativeTestResult);
+    };
+
+    await rpc.representative.runTests({ id });
+    await expect.poll(() => entered.length, poll).toBeGreaterThan(0);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    expect(entered).toHaveLength(1);
+  });
+
+  it("ends in an error when its job ends without a result", async () => {
+    const { rpc, deps } = await instance({
+      [opens.message]: [replies("We open at nine."), quiet()],
+    });
+    const id = await draftWith(rpc, [opens], { model: null });
+    const { models } = deps.parts.features[0]!.context;
+    vi.spyOn(models, "listAvailableModels").mockRejectedValueOnce(
+      new PermanentJobError("The database is on fire"),
+    );
+
+    await rpc.representative.runTests({ id });
+    const done = await finished(rpc, id);
+
+    expect(done.tests[0]).toMatchObject({
+      status: "error",
+      error: expect.stringContaining("on fire"),
+    });
+    expect(done.testStatus).toBe("failed");
+  });
+
+  it("doesn't read as failed while a failed attempt waits to be retried", async () => {
+    const { rpc, deps } = await instance({
+      [opens.message]: [replies("We open at nine."), quiet()],
+    });
+    const id = await draftWith(rpc, [opens]);
+    const { representativeLoop } = deps.parts.features[0]!.context;
+    vi.spyOn(representativeLoop, "run").mockRejectedValueOnce(new Error("A blip"));
+
+    await rpc.representative.runTests({ id });
+    await expect
+      .poll(async () => {
+        const [row] = await getTestDb()
+          .select({ attempts: job.attempts, status: job.status })
+          .from(job)
+          .where(eq(job.name, "representative.test"));
+        return row?.attempts === 1 && row.status === "queued";
+      }, poll)
+      .toBe(true);
+
+    const view = await rpc.representative.get({ id });
+    expect(view.tests[0]).toMatchObject({ status: "running", error: null });
+    expect(view.testStatus).toBe("running");
+  });
+
   it("is the owner's alone", async () => {
     const { deps, rpc } = await instance({});
     const id = await draftWith(rpc, [opens]);
@@ -447,5 +541,51 @@ describe("approving after tests", () => {
 
     expect(again.tests).toHaveLength(1);
     expect(again.testStatus).toBe("passed");
+  });
+});
+
+describe("the transcript the owner reads", () => {
+  const replyCall = (id: string, text: string) => ({
+    role: "assistant" as const,
+    content: null,
+    toolCalls: [
+      {
+        id,
+        type: "function" as const,
+        function: { name: "reply", arguments: JSON.stringify({ text }) },
+      },
+    ],
+  });
+
+  it("shows a reply as sent only when the tool answered that it was", () => {
+    expect(
+      transcriptOf("Hi", [
+        replyCall("sent", "Hello."),
+        { role: "tool", toolCallId: "sent", content: JSON.stringify({ sent: true }) },
+      ]),
+    ).toEqual([
+      { role: "customer", text: "Hi" },
+      { role: "representative", text: "Hello." },
+    ]);
+  });
+
+  it("shows a reply the tool refused as a tool call, with its answer", () => {
+    expect(
+      transcriptOf("Hi", [
+        replyCall("refused", "Hello."),
+        { role: "tool", toolCallId: "refused", content: JSON.stringify({ error: "No." }) },
+      ]),
+    ).toEqual([
+      { role: "customer", text: "Hi" },
+      { role: "tool", text: `reply ${JSON.stringify({ text: "Hello." })}` },
+      { role: "tool", text: JSON.stringify({ error: "No." }) },
+    ]);
+  });
+
+  it("shows a reply never answered as a tool call", () => {
+    expect(transcriptOf("Hi", [replyCall("lost", "Hello.")])).toEqual([
+      { role: "customer", text: "Hi" },
+      { role: "tool", text: `reply ${JSON.stringify({ text: "Hello." })}` },
+    ]);
   });
 });

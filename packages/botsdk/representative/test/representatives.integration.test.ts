@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createBotSdk, postgres } from "@botsdk/bot";
 import { featureApi } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { saveCredentials } from "@botsdk/bot/models/internal";
 import { bot } from "@botsdk/bot/storage";
 import { deleteUserData, exportUserData } from "@botsdk/bot/user-data";
 import { createTestSdk } from "@ai-chat/test-support/deps";
@@ -17,6 +18,7 @@ import {
   representativeRelease,
   representativeTestResult,
 } from "../src/server/db/schema";
+import { approveDraft, modelUsable } from "../src/server/representatives";
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -118,6 +120,48 @@ describe("creating and editing a Representative", () => {
     expect((await rpc.representative.get({ id })).draft.tools).toEqual(["reply", "hand_to_bot"]);
   });
 
+  it.each([
+    ["a NUL in the job text", { jobText: "a\u0000b" }],
+    ["a NUL in a Skill", { skills: [{ name: "A", text: "a\u0000b" }] }],
+    ["a NUL in a Skill's name", { skills: [{ name: "a\u0000b", text: "a" }] }],
+    ["a NUL in the Model", { model: "a\u0000b" }],
+    ["a NUL in a switch's name", { switches: { "a\u0000b": true } }],
+    [
+      "a NUL in a test's message",
+      {
+        tests: [{ name: "A", message: "a\u0000b", expect: [{ kind: "replied" as const }] }],
+      },
+    ],
+    [
+      "a NUL in an expectation",
+      {
+        tests: [{ name: "A", message: "a", expect: [{ kind: "said" as const, text: "a\u0000b" }] }],
+      },
+    ],
+    [
+      "too many switches",
+      { switches: Object.fromEntries(Array.from({ length: 101 }, (_, i) => [`s${i}`, true])) },
+    ],
+  ])("refuses %s as a bad request", async (_what, draft) => {
+    const { rpc } = await owner();
+    const { id } = await rpc.representative.create({ name: "Front desk" });
+
+    await expect(rpc.representative.updateDraft({ id, draft })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+  });
+
+  it("refuses a NUL in a name or an override reason as a bad request", async () => {
+    const { rpc } = await owner();
+    await expect(rpc.representative.create({ name: "a\u0000b" })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    const { id } = await rpc.representative.create({ name: "Front desk" });
+    await expect(
+      rpc.representative.approve({ id, overrideReason: "a\u0000b" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
   it("can't be read or changed by another owner", async () => {
     const { deps, rpc } = await owner();
     const { id } = await rpc.representative.create({ name: "Front desk" });
@@ -171,7 +215,13 @@ describe("the Bot a Representative reports to", () => {
 
 describe("approving a draft into a Release", () => {
   it("makes a numbered Release that pins the draft and points the live Release at it", async () => {
-    const { rpc } = await owner();
+    const { deps, user, rpc } = await owner();
+    await saveCredentials(deps, user.id, {
+      service: "openai",
+      fields: { apiKey: "openai-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
     const { id } = await rpc.representative.create({ name: "Front desk" });
     await rpc.representative.updateDraft({
       id,
@@ -270,6 +320,82 @@ describe("approving a draft into a Release", () => {
     expect(first).toEqual(pinned);
     expect(first!.content.jobText).toBe("Answer pricing questions");
     expect(second!.content.jobText).toBe("Something else");
+  });
+});
+
+describe("the draft's Model", () => {
+  it("refuses to approve a Model the owner can't use, and makes no Release", async () => {
+    const { rpc } = await owner();
+    const { id } = await rpc.representative.create({ name: "Front desk" });
+    await rpc.representative.updateDraft({
+      id,
+      draft: { jobText: "Answer.", model: "openai:gpt-typo" },
+    });
+
+    await expect(rpc.representative.approve({ id })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      data: { code: "error.representativeModelUnavailable" },
+    });
+    // Approving anyway overrides a failed test, not a Model that can't run.
+    await expect(
+      rpc.representative.approve({ id, overrideReason: "It's fine" }),
+    ).rejects.toMatchObject({ data: { code: "error.representativeModelUnavailable" } });
+    expect(await releaseRows(id)).toEqual([]);
+  });
+
+  describe("whether the owner can use it", () => {
+    const models = (listed: Array<{ id: string; provider: string }>, credentials: boolean) =>
+      ({
+        listAvailableModels: async () => ({ models: listed }),
+        resolveModelCall: async () => (credentials ? {} : null),
+      }) as never;
+    const llama = { id: "ollama:llama3", provider: "ollama" };
+
+    it("takes a live-listed Model when the Provider's list came back empty, with credentials", async () => {
+      expect(await modelUsable(models([], true), "user", llama.id)).toBe(true);
+      expect(await modelUsable(models([], false), "user", llama.id)).toBe(false);
+    });
+
+    it("refuses a live-listed Model its Provider's list leaves out", async () => {
+      expect(await modelUsable(models([llama], true), "user", "ollama:typo")).toBe(false);
+    });
+
+    it("gives a curated Model no such benefit of the doubt", async () => {
+      expect(await modelUsable(models([], true), "user", "openai:gpt-typo")).toBe(false);
+    });
+  });
+
+  it("asks about the Model before it takes the row's lock", async () => {
+    const { deps, user, rpc } = await owner();
+    const { context } = deps.parts.features[0]!;
+    const { id } = await rpc.representative.create({ name: "Front desk" });
+    const usable = "openai:gpt-6-luna";
+    await rpc.representative.updateDraft({ id, draft: { jobText: "Answer.", model: usable } });
+    const listAvailableModels = async () => {
+      // Refused at once if the approval already holds the row: a slow list would hold it too.
+      await getTestDb()
+        .select({ id: representativeTable.id })
+        .from(representativeTable)
+        .where(eq(representativeTable.id, id))
+        .for("update", { noWait: true });
+      return { models: [{ id: usable, provider: "openai" }] };
+    };
+
+    const release = await approveDraft(
+      { ...context, models: { listAvailableModels } } as never,
+      user.id,
+      id,
+    );
+
+    expect(release.number).toBe(1);
+  });
+
+  it("approves a draft naming none, for the Host's default", async () => {
+    const { rpc } = await owner();
+    const { id } = await rpc.representative.create({ name: "Front desk" });
+    await rpc.representative.updateDraft({ id, draft: { jobText: "Answer." } });
+
+    expect((await rpc.representative.approve({ id })).content.model).toBeNull();
   });
 });
 

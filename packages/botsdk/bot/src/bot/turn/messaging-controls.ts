@@ -1,5 +1,5 @@
 import { type ChoiceControl, maxChoiceOtherLength } from "@botsdk/client/bot/choice";
-import type { RichControl } from "@botsdk/client/bot/rich-control";
+import { isChannelAnswerable, type RichControl } from "@botsdk/client/bot/rich-control";
 import { ORPCError } from "@orpc/server";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
@@ -284,9 +284,7 @@ async function openControls({ sdk, owner }: Run) {
 }
 
 const isApprovalControl = (control: RichControl): control is ApprovalControl =>
-  control.kind === "routine_approval" ||
-  control.kind === "review_approval" ||
-  control.kind === "rule_approval";
+  isChannelAnswerable(control.kind);
 
 /** Whether the Approval still waits for the user. */
 async function pending(sdk: BotSdkContext, control: ApprovalControl): Promise<boolean> {

@@ -1,6 +1,6 @@
 import type { SentFile } from "@botsdk/client/bot/files";
 import { parseMessage, plainText } from "@botsdk/client/message-format";
-import { isApproval } from "@botsdk/client/bot/rich-control";
+import { isChannelAnswerable } from "@botsdk/client/bot/rich-control";
 import type { BotMessage } from "@botsdk/client/bot/turn";
 
 import type { OutboundMail } from "./email";
@@ -64,7 +64,11 @@ export function emailBody(
       break;
     default:
       paragraphs.push(
-        link(isApproval(control?.kind) ? "Approve or decline in the app" : "Open it in the app"),
+        link(
+          isChannelAnswerable(control?.kind)
+            ? "Approve or decline in the app"
+            : "Open it in the app",
+        ),
       );
   }
   return {

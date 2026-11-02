@@ -1,4 +1,4 @@
-import { isApproval } from "@botsdk/client/bot/rich-control";
+import { isChannelAnswerable } from "@botsdk/client/bot/rich-control";
 import type { BotMessage } from "@botsdk/client/bot/turn";
 import type { Block } from "@botsdk/client/message-format";
 
@@ -88,13 +88,12 @@ export function messagingBody(
       lines.push(link("Show me in the app"));
       break;
     case "release_approval":
-      // Answered only on the Representative's page, where the diff is: no buttons, and no yes or no.
       lines.push(link("Review it in the app"));
       break;
     case undefined:
       break;
     default:
-      if (isApproval(control?.kind)) {
+      if (isChannelAnswerable(control?.kind)) {
         buttons = {
           control: message.id,
           options: [

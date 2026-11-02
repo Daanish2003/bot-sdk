@@ -5,11 +5,17 @@ import { z } from "zod";
 import type { FeatureContext, FeatureTurn } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
-import { type Draft, draftSchema, type PendingApproval } from "../shared/contract";
+import { type Draft, draftSchema, noNul, type PendingApproval } from "../shared/contract";
 import { representative, representativeRelease } from "./db/schema";
-import { emptyDraft, mergedDraft, queueTests, waitingApproval } from "./representatives";
+import {
+  emptyDraft,
+  mergedDraft,
+  modelUsable,
+  queueTests,
+  waitingApproval,
+} from "./representatives";
 import { draftHash } from "./test-checks";
-import { normalizedDraft } from "./tests";
+import { normalizedDraft, testStateOf } from "./tests";
 
 /*
  * A Bot drafting a Representative (ticket #1195), through deferred tools. A draft takes the path an
@@ -19,8 +25,8 @@ import { normalizedDraft } from "./tests";
  */
 
 type DraftContext = Pick<
-  FeatureContext<"releaseApprovals" | "threads">,
-  "db" | "clock" | "jobs" | "releaseApprovals" | "threads"
+  FeatureContext<"models" | "releaseApprovals" | "threads">,
+  "db" | "clock" | "jobs" | "models" | "releaseApprovals" | "threads"
 >;
 
 export const draftToolName = "draft_representative";
@@ -43,9 +49,15 @@ const draftToolDefinition = toolDefinition({
     "Representative nothing, whose `tools` come only from the fixed list.",
   inputSchema: z.object({
     representativeId: z.uuid().optional(),
-    name: z.string().trim().min(1).max(100).optional(),
+    name: z.string().trim().min(1).max(100).refine(noNul).optional(),
     /** What the card tells the user. */
-    why: z.string().trim().min(1).max(1_000).describe("Why you're proposing it, for the user."),
+    why: z
+      .string()
+      .trim()
+      .min(1)
+      .max(1_000)
+      .refine(noNul)
+      .describe("Why you're proposing it, for the user."),
     ...draftInput.shape,
   }),
   // It changes something, so a read-only run refuses it.
@@ -94,14 +106,18 @@ async function draftFromBot(
   context: DraftContext,
   turn: FeatureTurn,
   { representativeId, name, why, ...changes }: z.output<typeof draftToolDefinition.inputSchema>,
+  toolCallId: string | undefined,
 ) {
-  const { db, clock, jobs, releaseApprovals, threads } = context;
+  const { db, clock, jobs, models, releaseApprovals, threads } = context;
   const { userId, botId } = turn;
+  if (changes.model && !(await modelUsable(models, userId, changes.model))) {
+    return { error: `"${changes.model}" is not a Model the user can use.` };
+  }
   const saved = await db.transaction(async (tx) => {
     await lockBotDrafts(tx, botId);
     const now = clock();
     const own = await tx
-      .select({ pendingApproval: representative.pendingApproval })
+      .select({ id: representative.id, pendingApproval: representative.pendingApproval })
       .from(representative)
       .where(
         and(
@@ -109,7 +125,12 @@ async function draftFromBot(
           sql`${representative.pendingApproval}->>'botId' = ${botId}`,
         ),
       );
-    if (own.some((row) => waitingApproval(row.pendingApproval, now))) return { error: waitError };
+    const waiting = own.find((row) => waitingApproval(row.pendingApproval, now));
+    // This call's own card: it committed, and a crash lost the record of it, so this is a replay.
+    // A Provider may use a tool call's id again in another Turn, so the Turn's counts too.
+    const call = toolCallId && `${turn.id}:${toolCallId}`;
+    if (waiting && call && waiting.pendingApproval!.call === call) return { id: waiting.id };
+    if (waiting) return { error: waitError };
 
     const blank = (draft: Draft) => draft.jobText.trim() === "";
     const blankError = "A draft needs `jobText`.";
@@ -117,6 +138,7 @@ async function draftFromBot(
     let id = representativeId;
     let shownName = name;
     let draft: Draft;
+    let unchanged = false;
     if (id) {
       if (name !== undefined) return { error: "A Representative's name is the user's to change." };
       // Only one that reports to this Bot: any other is not found, the same as one that doesn't exist.
@@ -139,7 +161,8 @@ async function draftFromBot(
       draft = mergedDraft(before, changes);
       if (blank(draft)) return { error: blankError };
       // A card that expired can be asked again; otherwise there is nothing new to ask about.
-      if (!row.pendingApproval && draftHash(draft) === draftHash(before)) {
+      unchanged = draftHash(draft) === draftHash(before);
+      if (!row.pendingApproval && unchanged) {
         return { error: "That changes nothing in the draft." };
       }
     } else {
@@ -163,17 +186,23 @@ async function draftFromBot(
       id: card.id,
       botId,
       expiresAt: card.expiresAt.toISOString(),
+      postedAt: now.toISOString(),
+      ...(call && { call }),
     };
     await tx
       .update(representative)
       .set({ draft, pendingApproval, botDraftHash: draftHash(draft), updatedAt: now })
       .where(eq(representative.id, id));
-    await queueTests(tx, jobs, { id, draft });
+    // Asking again about the draft as it was needs no new run: its results still count.
+    const known = unchanged && (await testStateOf(tx, { id, draft })).testStatus !== "notRun";
+    if (!known) await queueTests(tx, jobs, { id, draft });
     return { id, conversationId: card.conversationId };
   });
   if ("error" in saved) return saved;
-  jobs.wake();
-  await threads.hintChanged(saved.conversationId);
+  if (saved.conversationId) {
+    jobs.wake();
+    await threads.hintChanged(saved.conversationId);
+  }
   return {
     saved:
       "Drafted. Its tests are running. It goes live only if the user approves it on its page, and you will be woken with the answer.",
@@ -215,7 +244,9 @@ async function listForBot(
 /** The tools a Bot gets while the feature is on. A Representative's Turn is given none of them. */
 export function botDraftTools(turn: FeatureTurn, context: DraftContext) {
   return [
-    draftToolDefinition.server((input) => draftFromBot(context, turn, input)),
+    draftToolDefinition.server((input, call) =>
+      draftFromBot(context, turn, input, call?.toolCallId),
+    ),
     listToolDefinition.server((input) => listForBot(context, turn, input)),
   ];
 }

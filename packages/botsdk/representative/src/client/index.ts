@@ -28,5 +28,6 @@ export {
   type TestResultView,
   type TestStatus,
   type TranscriptEntry,
+  canonicalJson,
   representativeTools,
 } from "../shared/contract";

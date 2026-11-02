@@ -53,6 +53,13 @@ export const isApproval = (kind: RichControlKind | undefined) =>
   kind === "release_approval";
 
 /**
+ * Whether a control of `kind` is an Approval a Channel can answer with a yes or no. A release
+ * Approval is answered only on its Representative's page, where the diff is.
+ */
+export const isChannelAnswerable = (kind: RichControlKind | undefined) =>
+  isApproval(kind) && kind !== "release_approval";
+
+/**
  * The catalog as JSON Schema, for a Host's own app to render it. It can't carry the Zod checks
  * that aren't shapes, such as a Secret's reserved names: `richControlSchema` is the full check.
  */

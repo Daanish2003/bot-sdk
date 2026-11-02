@@ -22,21 +22,15 @@ import {
   useUpdateDraft,
 } from "@botsdk/representative/react";
 import {
+  canonicalJson,
   type Draft,
   type RepresentativeTool,
   type RepresentativeView,
   representativeTools,
 } from "@botsdk/representative/client";
 
+import { ModelPicker } from "../models/shell/model-picker";
 import { TestConversationsEditor, TestResults } from "./representative-tests";
-
-/** `value` as JSON with its keys in order: Postgres keeps an object's keys in an order of its own. */
-const stable = (value: unknown): string =>
-  JSON.stringify(value, (_key, each: unknown) =>
-    each && typeof each === "object" && !Array.isArray(each)
-      ? Object.fromEntries(Object.entries(each).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
-      : each,
-  );
 
 const toolKeys = {
   reply: "representative.toolReply",
@@ -70,11 +64,15 @@ function DraftEditor({ representative }: { representative: RepresentativeView })
     },
     onError: (error) => toast.error(serverErrorText(i18n, error)),
   });
+  const { orpc } = useChatAdapter();
+  const models = useQuery(orpc.models.list.queryOptions());
+  const usableModels = models.data?.models ?? [];
+  const modelListed = usableModels.some((model) => model.id === draft.model);
   const [reason, setReason] = useState("");
   const busy = save.isPending || approve.isPending || run.isPending;
   const body = { id: representative.id, draft };
   // Saving changes the draft, which voids its results, so a form with edits has no passing tests.
-  const dirty = stable(draft) !== stable(representative.draft);
+  const dirty = canonicalJson(draft) !== canonicalJson(representative.draft);
   // Tests that failed, or haven't run for this draft, hold Approve back until a reason is given.
   const blocked =
     draft.tests.length > 0 &&
@@ -116,18 +114,21 @@ function DraftEditor({ representative }: { representative: RepresentativeView })
         ))}
       </fieldset>
       <div className="space-y-1">
-        <Label htmlFor="representative-model">{t("representative.model")}</Label>
-        <Input
-          id="representative-model"
-          value={draft.model ?? ""}
-          placeholder={t("representative.modelPlaceholder")}
-          onChange={(event) =>
-            setDraft({
-              ...draft,
-              model: event.target.value.trim() === "" ? null : event.target.value,
-            })
-          }
-        />
+        <p className="text-sm font-medium">{t("representative.model")}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <ModelPicker
+            value={draft.model ?? undefined}
+            models={usableModels}
+            onSelect={(model) => setDraft({ ...draft, model })}
+            invalid={models.isSuccess && draft.model !== null && !modelListed}
+          />
+          {draft.model !== null && (
+            <Button variant="ghost" size="sm" onClick={() => setDraft({ ...draft, model: null })}>
+              {t("representative.modelUseDefault")}
+            </Button>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground">{t("representative.modelHelp")}</p>
       </div>
       <TestConversationsEditor
         tests={draft.tests}

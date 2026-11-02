@@ -34,6 +34,8 @@ export const errorMessages = {
   "error.representativeTestsUnfinished":
     "The tests haven't finished for this draft. Run them, or approve anyway and say why.",
   "error.representativeOverrideReason": "Say why you are approving anyway.",
+  "error.representativeModelUnavailable":
+    "This draft names a Model you can't use. Choose another before approving.",
   "error.representativeNoApproval": "No Approval is waiting on this draft any more.",
   "error.releaseNotFound": "Release not found",
   "error.routineNotFound": "Routine not found",

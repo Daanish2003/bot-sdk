@@ -1,13 +1,25 @@
 import { approvalExpiryMs } from "@botsdk/client/bot/review";
 import type { ReleaseApproval } from "@botsdk/client/bot/release-approval";
 import { searchTextOf } from "@botsdk/client/message-parts";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, like } from "drizzle-orm";
 
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { rpcError } from "../../rpc-error";
-import { bot, message } from "../../storage";
-import { appendBotMessage, controlOf, controlParts, recordBotChange } from "../conversation";
-import { lockConversation, receive } from "../triggers";
+import { bot, botTrigger, message } from "../../storage";
+import {
+  appendBotMessage,
+  controlOf,
+  controlParts,
+  noResetAfter,
+  recordBotChange,
+} from "../conversation";
+import {
+  type BotConversation,
+  lockConversation,
+  receive,
+  runningTurnOf,
+  startTurn,
+} from "../triggers";
 
 /*
  * The `releaseApprovals` core service (ticket #1195, ADR 0029): how a Bot's draft of a Representative
@@ -53,7 +65,7 @@ export type ReleaseApprovalsService = {
       edited?: boolean;
     },
   ) => Promise<{ conversationId: string } | null>;
-  /** Closes a waiting card and wakes no one, for a Bot reset. The result is as for `answer`. */
+  /** Closes a waiting card and wakes no one. The result is as for `answer`. */
   drop: (
     tx: Transaction,
     input: { userId: string; id: string },
@@ -61,7 +73,36 @@ export type ReleaseApprovalsService = {
 };
 
 /** The id of a card's Trigger: one per card, so a repeat is dropped. */
-const releaseApprovalTriggerId = (id: string) => `release-approval:${id}`;
+export const releaseApprovalTriggerId = (id: string) => `release-approval:${id}`;
+
+/**
+ * Delivers the answers the owner gave while Bot `owner` was paused, in the transaction that resumes
+ * it, which holds its Conversation's lock: the Router kept each as skipped, and its tool promised
+ * the Bot it would be woken. One from before the Bot's last reset stays skipped: it has forgotten
+ * the draft. Whether it started anything: if so, the caller wakes the runner once `tx` commits.
+ */
+export async function deliverAnswersAfterPause(
+  deps: BotSdkContext,
+  tx: Transaction,
+  owner: BotConversation,
+): Promise<boolean> {
+  const delivered = await tx
+    .update(botTrigger)
+    .set({ skippedAt: null, skipReason: null, receivedAt: deps.clock() })
+    .where(
+      and(
+        eq(botTrigger.botId, owner.botId),
+        like(botTrigger.id, `${releaseApprovalTriggerId("")}%`),
+        eq(botTrigger.skipReason, "paused"),
+        isNull(botTrigger.turnId),
+        noResetAfter(tx, { botId: owner.botId }, botTrigger.receivedAt),
+      ),
+    )
+    .returning({ id: botTrigger.id });
+  if (delivered.length === 0) return false;
+  if (!(await runningTurnOf(tx, owner))) await startTurn(deps, tx, owner);
+  return true;
+}
 
 /** What the Trigger wakes the Bot with. */
 function answerText(

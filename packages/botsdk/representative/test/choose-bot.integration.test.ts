@@ -201,6 +201,144 @@ describe("choosing the Bot a Representative reports to", () => {
 
     expect(await assignmentsOf(second)).toEqual([]);
     expect(await assignmentsOf(first)).toHaveLength(1);
+    // The page shows the old Bot, so choosing the new one again is a change it can make.
+    expect((await rpc.representative.get({ id })).botId).toBe(first);
+
+    await getTestDb().update(bot).set({ model: botModel }).where(eq(bot.id, second));
+    expect((await rpc.representative.setBot({ id, botId: second })).botId).toBe(second);
+    expect(await assignmentsOf(first)).toEqual([]);
+    expect(await assignmentsOf(second)).toHaveLength(1);
+  });
+
+  it("moves a hand-off made while the Bot was being chosen", async () => {
+    const { deps, rpc } = await instance([handsOff(), quiet()]);
+    const { id: first } = await rpc.bots.create({ name: "First", model: botModel });
+    const { id: second } = await rpc.bots.create({ name: "Second", model: botModel });
+    const id = await liveRepresentative(rpc, first);
+    await testCustomerTurn(deps, { representativeId: id, message: "Hi" });
+    // The hand-off's row lands after the chooser's first look, which found nothing to move.
+    const handOff = await getTestDb().delete(representativeHandOff).returning();
+    const [assignment] = await assignmentsOf(first);
+    const context = deps.parts.features[0]!.context;
+    const transaction = context.db.transaction.bind(context.db);
+    vi.spyOn(context.db, "transaction").mockImplementationOnce(async (run) => {
+      await getTestDb().insert(representativeHandOff).values(handOff);
+      return transaction(run);
+    });
+
+    await rpc.representative.setBot({ id, botId: second });
+
+    expect(await assignmentsOf(first)).toEqual([]);
+    expect((await assignmentsOf(second))[0]?.id).toBe(assignment!.id);
+  });
+
+  it("moves a late hand-off to the Bot chosen last, and doesn't fail a choice that stands", async () => {
+    const { deps, rpc } = await instance([handsOff(), quiet()]);
+    const { id: first } = await rpc.bots.create({ name: "First", model: botModel });
+    const { id: second } = await rpc.bots.create({ name: "Second", model: botModel });
+    const { id: third } = await rpc.bots.create({ name: "Third", model: botModel });
+    const id = await liveRepresentative(rpc, first);
+    await testCustomerTurn(deps, { representativeId: id, message: "Hi" });
+    const handOff = await getTestDb().delete(representativeHandOff).returning();
+    const [assignment] = await assignmentsOf(first);
+    const context = deps.parts.features[0]!.context;
+    const transaction = context.db.transaction.bind(context.db);
+    // The first look finds nothing; a later choice of Third commits right after this one's.
+    vi.spyOn(context.db, "transaction").mockImplementationOnce(async (run) => {
+      const result = await transaction(run);
+      await getTestDb().insert(representativeHandOff).values(handOff);
+      await getTestDb()
+        .update(representativeTable)
+        .set({ botId: third })
+        .where(eq(representativeTable.id, id));
+      return result;
+    });
+
+    await rpc.representative.setBot({ id, botId: second });
+
+    expect((await assignmentsOf(third))[0]?.id).toBe(assignment!.id);
+    expect(await assignmentsOf(second)).toEqual([]);
+  });
+
+  it("can't read another owner's hand-offs through a Bot of one's own", async () => {
+    const { deps, rpc } = await instance([handsOff(), quiet()]);
+    const { id: first } = await rpc.bots.create({ name: "First", model: botModel });
+    const id = await liveRepresentative(rpc, first);
+    await testCustomerTurn(deps, { representativeId: id, message: "Hi" });
+    const other = await insertUser();
+    await saveCredentials(deps, other.id, {
+      service: "openai",
+      fields: { apiKey: "openai-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+    const stranger = chatRpc({ user: other, deps });
+    const { id: theirs } = await stranger.bots.create({ name: "Theirs", model: botModel });
+
+    await expect(stranger.representative.setBot({ id, botId: theirs })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    expect(await assignmentsOf(first)).toHaveLength(1);
+  });
+});
+
+describe("a hand-off while the owner chooses another Bot", () => {
+  /** Chooses `botId` right after the hand-off's Assignment is made, with `then` to follow. */
+  function choosesDuringCreate(
+    deps: TestDeps,
+    id: string,
+    botId: string,
+    then: (assignmentId: string) => Promise<void> = async () => {},
+  ) {
+    const { assignments } = deps.parts.features[0]!.context;
+    const create = assignments.create.bind(assignments);
+    vi.spyOn(assignments, "create").mockImplementationOnce(async (input) => {
+      const made = await create(input);
+      await getTestDb()
+        .update(representativeTable)
+        .set({ botId })
+        .where(eq(representativeTable.id, id));
+      await then(made.id);
+      return made;
+    });
+  }
+
+  const toolResults = (fake: { calls: Array<{ messages: unknown }> }) =>
+    (fake.calls[1]!.messages as Array<{ role: string; content: unknown }>)
+      .filter((entry) => entry.role === "tool")
+      .map((entry) => JSON.parse(String(entry.content)) as unknown);
+
+  it("tells the Model it handed off when the chosen Bot can't take it, and the old Bot keeps it", async () => {
+    const { fake, deps, rpc } = await instance([handsOff(), quiet()]);
+    const { id: first } = await rpc.bots.create({ name: "First", model: botModel });
+    const { id: second } = await rpc.bots.create({ name: "Second", model: botModel });
+    const id = await liveRepresentative(rpc, first);
+    await getTestDb()
+      .update(bot)
+      .set({ model: "anthropic:claude-haiku-4-5" })
+      .where(eq(bot.id, second));
+    choosesDuringCreate(deps, id, second);
+
+    await testCustomerTurn(deps, { representativeId: id, message: "Hi" });
+
+    expect(toolResults(fake)).toEqual([{ handedOff: true }]);
+    expect(await assignmentsOf(first)).toHaveLength(1);
+    expect(await getTestDb().select().from(representativeHandOff)).toHaveLength(1);
+  });
+
+  it("tells the Model it handed off when the work ended before the move", async () => {
+    const { fake, deps, user, rpc } = await instance([handsOff(), quiet()]);
+    const { id: first } = await rpc.bots.create({ name: "First", model: botModel });
+    const { id: second } = await rpc.bots.create({ name: "Second", model: botModel });
+    const id = await liveRepresentative(rpc, first);
+    const { assignments } = deps.parts.features[0]!.context;
+    choosesDuringCreate(deps, id, second, (assignmentId) =>
+      assignments.cancel({ userId: user.id, id: assignmentId }),
+    );
+
+    await testCustomerTurn(deps, { representativeId: id, message: "Hi" });
+
+    expect(toolResults(fake)).toEqual([{ handedOff: true }]);
   });
 });
 

@@ -221,3 +221,37 @@ test("a Bot's draft reaches the owner as a link, and is answered on the Represen
   await page.getByRole("link", { name: "Ada" }).first().click();
   await expect(page.locator("[data-release-approval]")).toHaveAttribute("data-state", "declined");
 });
+
+test("an owner picks the draft's Model from the Models they can use, or leaves the default", async ({
+  page,
+}) => {
+  await signInAsSeededUserWithModel(page);
+  await createBot(page, "Ada");
+  await page.goto("/representatives");
+  await page.getByLabel("Name").fill("Front desk");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await page.getByLabel("Job text").fill("Answer questions.");
+
+  const picker = page.getByRole("button", { name: "Model", exact: true });
+  await expect(picker).toHaveText("Pick a Model");
+  await expect(page.getByRole("button", { name: "Use the default" })).toBeHidden();
+
+  await picker.click();
+  await page
+    .locator('[data-slot="popover-content"]')
+    .getByRole("group")
+    .first()
+    .getByRole("button")
+    .first()
+    .click();
+  await expect(picker).not.toHaveText("Pick a Model");
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect(page.getByText("Draft saved")).toBeVisible();
+  await page.reload();
+  await expect(picker).not.toHaveText("Pick a Model");
+
+  await page.getByRole("button", { name: "Use the default" }).click();
+  await expect(picker).toHaveText("Pick a Model");
+  await page.getByRole("button", { name: "Approve as a new Release" }).click();
+  await expect(page.getByText("Live: Release 1")).toBeVisible();
+});

@@ -208,24 +208,20 @@ describe("the diff between a draft and the live Release", () => {
     ]);
   });
 
-  it("shows a repeated Skill name or a draft with no tests without hiding a change", () => {
-    const base = { jobText: "x", switches: {}, tools: [], model: null };
+  it("shows a repeated Skill name without hiding a change", () => {
+    const base = { jobText: "x", switches: {}, tools: [], model: null, tests: [] };
     const live = {
       ...base,
       documentSnapshot: null,
-      tests: [{ name: "Greets" }],
       skills: [
         { name: "A", text: "1" },
         { name: "A", text: "2" },
       ],
     };
 
-    const changes = draftChanges(
-      { ...base, skills: [{ name: "A", text: "1" }] } as never,
-      live as never,
-    );
+    const changes = draftChanges({ ...base, skills: [{ name: "A", text: "1" }] }, live);
 
-    // The draft names no tests, so it compares none; the second "A" is gone.
+    // The second "A" is gone.
     expect(changes).toEqual([
       { field: "skill", name: "A (2)", before: JSON.stringify("2"), after: null },
     ]);
@@ -240,6 +236,89 @@ describe("the diff between a draft and the live Release", () => {
 
     expect(diff.liveReleaseNumber).toBeNull();
     expect(diff.changes.map((change) => change.field)).toEqual(["jobText", "tool", "tool"]);
+    // Before a first Release, the live side has none: not the text "null".
+    expect(diff.changes[0]).toMatchObject({ before: null, after: JSON.stringify("Answer") });
+  });
+
+  it("shows a Model chosen where the live Release named none, and the reverse, as none", () => {
+    const base = { jobText: "x", switches: {}, skills: [], tools: [], tests: [] };
+    const live = { ...base, model: null, documentSnapshot: null };
+    const draft = { ...base, model };
+
+    expect(draftChanges(draft, live)).toEqual([
+      { field: "model", name: null, before: null, after: JSON.stringify(model) },
+    ]);
+    expect(draftChanges({ ...base, model: null }, { ...draft, documentSnapshot: null })).toEqual([
+      { field: "model", name: null, before: JSON.stringify(model), after: null },
+    ]);
+  });
+
+  it("keeps a repeated name's key from colliding with a real name", () => {
+    const base = { jobText: "x", switches: {}, tools: [], model: null, tests: [] };
+    const skills = [
+      { name: "A", text: "1" },
+      { name: "A", text: "2" },
+      { name: "A (2)", text: "3" },
+    ];
+    const edited = [skills[0]!, { name: "A", text: "changed" }, skills[2]!];
+
+    const changes = draftChanges(
+      { ...base, skills: edited },
+      { ...base, skills, documentSnapshot: null },
+    );
+
+    expect(changes).toEqual([
+      {
+        field: "skill",
+        name: "A (2)",
+        before: JSON.stringify("2"),
+        after: JSON.stringify("changed"),
+      },
+    ]);
+  });
+
+  it("shows Skills and test conversations put in another order", () => {
+    const base = { jobText: "x", switches: {}, tools: [], model: null };
+    const first = { name: "First", text: "1" };
+    const second = { name: "Second", text: "2" };
+    const test = (name: string) => ({
+      name,
+      message: "Hi",
+      expect: [{ kind: "replied" as const }],
+    });
+
+    const changes = draftChanges(
+      { ...base, skills: [second, first], tests: [test("B"), test("A")] },
+      { ...base, skills: [first, second], tests: [test("A"), test("B")], documentSnapshot: null },
+    );
+
+    expect(changes).toEqual([
+      {
+        field: "skill",
+        name: null,
+        before: JSON.stringify(["First", "Second"]),
+        after: JSON.stringify(["Second", "First"]),
+      },
+      {
+        field: "test",
+        name: null,
+        before: JSON.stringify(["A", "B"]),
+        after: JSON.stringify(["B", "A"]),
+      },
+    ]);
+  });
+
+  it("shows no order change when a Skill is only added or removed", () => {
+    const base = { jobText: "x", switches: {}, tools: [], model: null, tests: [] };
+    const first = { name: "First", text: "1" };
+    const second = { name: "Second", text: "2" };
+
+    const changes = draftChanges(
+      { ...base, skills: [second] },
+      { ...base, skills: [first, second], documentSnapshot: null },
+    );
+
+    expect(changes.map((change) => change.name)).toEqual(["First"]);
   });
 
   it("can't be read for another owner's Representative", async () => {

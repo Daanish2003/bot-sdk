@@ -38,6 +38,7 @@ import {
 } from "../conversation";
 import { approvalExpiryJobName, approvalExpiryKey } from "./approval-expiry";
 import { reviewedRules, ruleApprovalTriggerId } from "./custom-rule";
+import { releaseApprovalTriggerId } from "./release-approvals-service";
 import { isSavedSecretText } from "./secret-values";
 
 /*
@@ -957,6 +958,12 @@ async function reviewerInput(
       return (
         "- The user's answer to a Custom Rule the Bot proposed. The rule counts only while it is " +
         "in the list above, and it authorizes no call by itself."
+      );
+    }
+    if (trigger.id.startsWith(releaseApprovalTriggerId(""))) {
+      return (
+        "- The user's answer to a Representative draft the Bot proposed, given on the " +
+        "Representative's page. It is about that draft alone, and it authorizes no call by itself."
       );
     }
     if (trigger.source === "approval") {

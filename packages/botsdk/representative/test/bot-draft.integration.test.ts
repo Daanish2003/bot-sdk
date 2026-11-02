@@ -1,4 +1,5 @@
 import type { TextOptions } from "@tanstack/ai";
+import type { z } from "zod";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
@@ -7,11 +8,15 @@ import { inProcessRunner, type JobRunner, systemClock } from "@botsdk/bot/runner
 import { followSend } from "@ai-chat/test-support/follow-send";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
+import { fakeReviewer } from "@botsdk/testing/fake-reviewer";
+import { botTurn, message } from "@botsdk/bot/storage";
+import { getTestDb } from "@ai-chat/test-support/test-database";
+import { eq } from "drizzle-orm";
 import { representative } from "../src";
+import { botDraftTools } from "../src/server/bot-draft";
 import type { TestConversation } from "../src/shared/contract";
 
 /*
@@ -55,7 +60,12 @@ async function instance(
   {
     features = [representative()],
     customerRounds = [],
-  }: { features?: ReturnType<typeof representative>[]; customerRounds?: Round[] } = {},
+    reviewer,
+  }: {
+    features?: ReturnType<typeof representative>[];
+    customerRounds?: Round[];
+    reviewer?: ReturnType<typeof fakeReviewer>;
+  } = {},
 ) {
   // The rounds the Bot still has to play: `script` adds more, and past them it stays silent.
   const queue = [...rounds];
@@ -83,6 +93,7 @@ async function instance(
     clock: now,
     memory: false,
     computer: fakeComputerProvider().provider,
+    ...(reviewer && { reviewAdapterFor: () => reviewer.adapter }),
   });
   await jobs.start();
   runners.push(jobs);
@@ -104,6 +115,7 @@ async function instance(
     botFake,
     customerFake,
     deps,
+    user,
     rpc,
     botId,
     send,
@@ -405,11 +417,15 @@ describe("the draft tool", () => {
     expect(await made.rpc.representative.list()).toEqual([]);
   });
 
-  it("waits for an Approval another Bot left on the draft, after the owner chooses a new Bot", async () => {
+  it("drops the old Bot's Approval when the owner chooses a new Bot, so the new one can draft", async () => {
     const made = await drafted();
     const { id } = await onlyRepresentative(made);
     const { id: bea } = await made.rpc.bots.create({ name: "Bea", model: botModel });
-    await made.rpc.representative.setBot({ id, botId: bea });
+
+    const view = await made.rpc.representative.setBot({ id, botId: bea });
+
+    expect(view.approval).toBeNull();
+    expect((await cardsOf(made)).at(-1)!.control).toMatchObject({ answer: "dropped" });
 
     made.script([drafts({ representativeId: id, jobText: "Bea's words." }), quiet()]);
     for await (const _event of await followSend(made.rpc, {
@@ -419,9 +435,87 @@ describe("the draft tool", () => {
     })) {
       // Read to the end of the Turn.
     }
+    expect((await made.rpc.representative.get({ id })).draft.jobText).toBe("Bea's words.");
+    expect((await made.rpc.representative.get({ id })).approval?.botId).toBe(bea);
 
-    expect(toolResults(made.botFake)).toContain("waiting");
-    expect((await made.rpc.representative.get({ id })).draft.jobText).toBe("Answer questions.");
+    // The old Bot is free to draft another, and an approval wakes only the new one.
+    made.script([drafts({ name: "Another", jobText: "Ada's next." }), quiet()]);
+    await made.send("Draft another");
+    expect(await made.rpc.representative.list()).toHaveLength(2);
+    await made.rpc.representative.approve({ id });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(wakes(made).join()).not.toContain("Ada");
+  });
+
+  it("keeps the Approval when the owner chooses the Bot it already reports to", async () => {
+    const made = await drafted();
+    const { id } = await onlyRepresentative(made);
+
+    const view = await made.rpc.representative.setBot({ id, botId: made.botId });
+
+    expect(view.approval?.botId).toBe(made.botId);
+  });
+
+  it("refuses a Model the owner can't use, and saves nothing", async () => {
+    const made = await instance([
+      drafts({ name: "Front desk", jobText: "Answer.", model: "openai:gpt-typo" }),
+      quiet(),
+    ]);
+
+    await made.send("Draft it");
+
+    expect(toolResults(made.botFake)).toContain("gpt-typo");
+    expect(await made.rpc.representative.list()).toEqual([]);
+  });
+
+  it("gives the same answer when a replay runs a call that already drafted", async () => {
+    const made = await drafted();
+    const view = await onlyRepresentative(made);
+    const asked = (made.botFake.calls.at(-1)?.messages ?? []).find(
+      (message) => message.role === "assistant" && message.toolCalls?.length,
+    );
+    const toolCallId = asked!.toolCalls![0]!.id;
+    const { context } = made.deps.parts.features[0]!;
+    const [taken] = await getTestDb()
+      .select({ id: botTurn.id })
+      .from(botTurn)
+      .where(eq(botTurn.botId, made.botId));
+    const turn = { id: taken!.id, botId: made.botId, userId: made.user.id };
+    const [tool] = botDraftTools(turn as never, context as never);
+    const input = { name: "Front desk", jobText: "Answer questions.", why: "Customers ask." };
+
+    expect(await tool!.execute!(input, { toolCallId } as never)).toMatchObject({
+      representativeId: view.id,
+    });
+    expect(await made.rpc.representative.list()).toHaveLength(1);
+    expect(await cardsOf(made)).toHaveLength(1);
+
+    // Another call of the Bot's, not a replay, still waits.
+    expect(await tool!.execute!(input, { toolCallId: "another" } as never)).toMatchObject({
+      error: expect.stringContaining("waiting"),
+    });
+    // So does a later Turn's call, though its Provider used the same id again.
+    const [later] = botDraftTools({ ...turn, id: uuidv7() } as never, context as never);
+    expect(await later!.execute!(input, { toolCallId } as never)).toMatchObject({
+      error: expect.stringContaining("waiting"),
+    });
+  });
+
+  it("refuses a NUL in what it writes, in its input schema", async () => {
+    const made = await instance([]);
+    const { context } = made.deps.parts.features[0]!;
+    const turn = { id: uuidv7(), botId: made.botId, userId: made.user.id };
+    const [tool] = botDraftTools(turn as never, context as never);
+    const schema = tool!.inputSchema as z.ZodType;
+
+    expect(schema.safeParse({ why: "a", name: "b", jobText: "c" }).success).toBe(true);
+    for (const bad of [
+      { why: "a\u0000", name: "b", jobText: "c" },
+      { why: "a", name: "b\u0000", jobText: "c" },
+      { why: "a", name: "b", jobText: "c\u0000" },
+    ]) {
+      expect(schema.safeParse(bad).success).toBe(false);
+    }
   });
 
   it("runs the draft's test conversations, and the owner reads the same results", async () => {
@@ -528,6 +622,110 @@ describe("the release Approval", () => {
     expect(wakes(made)).toEqual([]);
   });
 
+  it("stops offering a no once its card has gone: Decline refuses once", async () => {
+    const made = await drafted();
+    const { id } = await onlyRepresentative(made);
+    const [card] = await cardsOf(made);
+    await getTestDb().delete(message).where(eq(message.id, card!.id));
+
+    await expect(made.rpc.representative.declineApproval({ id })).rejects.toMatchObject({
+      data: { code: "error.representativeNoApproval" },
+    });
+
+    expect((await made.rpc.representative.get({ id })).approval).toBeNull();
+  });
+
+  it("tells the reviewer of the woken Turn it was an answer to a draft, not a blocked call", async () => {
+    const reviewer = fakeReviewer();
+    const made = await drafted(
+      [
+        round(toolCall({ name: "shell", input: { command: "ls" } })),
+        round(toolCall({ name: "send_to_user", input: { text: "Done.", endTurn: true } })),
+      ],
+      { reviewer },
+    );
+    const { id } = await onlyRepresentative(made);
+
+    await made.rpc.representative.declineApproval({ id });
+
+    await expect.poll(() => reviewer.calls.length, poll).toBeGreaterThan(0);
+    const told = JSON.stringify(reviewer.calls[0]);
+    expect(told).toContain("The user's answer to a Representative draft the Bot proposed");
+    expect(told).not.toContain("to run once");
+  });
+
+  it.each([
+    ["approved", "approve"],
+    ["declined", "declineApproval"],
+  ] as const)(
+    "wakes a Bot with a %s answer given while it was paused, on resume",
+    async (said, how) => {
+      const made = await drafted();
+      const { id } = await onlyRepresentative(made);
+      await made.rpc.bots.pause({ botId: made.botId });
+
+      await made.rpc.representative[how]({ id });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(wakes(made)).toEqual([]);
+
+      await made.rpc.bots.resume({ botId: made.botId });
+
+      await expect.poll(() => wakes(made), poll).toHaveLength(1);
+      expect(wakes(made)[0]).toContain(`The user ${said}`);
+
+      // Once only: another pause and resume has nothing to say.
+      const calls = made.botFake.calls.length;
+      await made.rpc.bots.pause({ botId: made.botId });
+      await made.rpc.bots.resume({ botId: made.botId });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(made.botFake.calls).toHaveLength(calls);
+    },
+  );
+
+  it("doesn't wake a Bot reset since, with an answer given while it was paused", async () => {
+    const made = await drafted();
+    const { id } = await onlyRepresentative(made);
+    await made.rpc.bots.pause({ botId: made.botId });
+    await made.rpc.representative.approve({ id });
+    await made.rpc.bots.reset({ botId: made.botId, name: "Ada" });
+
+    await made.rpc.bots.resume({ botId: made.botId });
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(wakes(made)).toEqual([]);
+  });
+
+  it("re-asks about an unchanged draft without running its tests again", async () => {
+    const made = await instance(
+      [
+        drafts({ name: "Front desk", jobText: "Answer.", model: customerModel, tests: [opens] }),
+        quiet(),
+      ],
+      {
+        customerRounds: [
+          round(toolCall({ name: "reply", input: { text: "We open at nine." } })),
+          quiet(),
+        ],
+      },
+    );
+    await made.send("Draft it");
+    const { id } = await onlyRepresentative(made);
+    await expect
+      .poll(async () => (await made.rpc.representative.get({ id })).testStatus, poll)
+      .toBe("passed");
+    const calls = made.customerFake.calls.length;
+    made.later(8 * dayMs);
+
+    made.script([drafts({ representativeId: id }), quiet()]);
+    await made.send("Ask me again");
+
+    const view = await made.rpc.representative.get({ id });
+    expect(view.approval).not.toBeNull();
+    expect(view.testStatus).toBe("passed");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(made.customerFake.calls).toHaveLength(calls);
+  });
+
   it("expires after 7 days, and the draft can still be approved from the page", async () => {
     const made = await drafted();
     const { id } = await onlyRepresentative(made);
@@ -586,5 +784,25 @@ describe("the release Approval", () => {
     await made.rpc.representative.approve({ id });
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(wakes(made)).toHaveLength(1);
+  });
+
+  it("leaves a card posted after the reset alone when the reset's job gets to it late", async () => {
+    const made = await drafted();
+    const { id } = await onlyRepresentative(made);
+    await made.rpc.bots.reset({ botId: made.botId, name: "Ada" });
+    await expect
+      .poll(async () => (await made.rpc.representative.get({ id })).approval, poll)
+      .toBeNull();
+    made.script([drafts({ representativeId: id, jobText: "After the reset." }), quiet()]);
+    await made.send("Change it");
+    const before = (await made.rpc.representative.get({ id })).approval;
+    expect(before).not.toBeNull();
+
+    // An earlier feature's step backed off, and this hook runs only now.
+    const { feature, context } = made.deps.parts.features[0]!;
+    await feature.resetBot!(made.botId, made.user.id, context);
+
+    expect((await made.rpc.representative.get({ id })).approval).toEqual(before);
+    expect((await cardsOf(made)).at(-1)!.control).not.toHaveProperty("answer");
   });
 });

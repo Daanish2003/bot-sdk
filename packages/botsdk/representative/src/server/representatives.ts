@@ -1,11 +1,11 @@
-import { and, asc, desc, eq, max, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, max, ne, notInArray, sql } from "drizzle-orm";
 
 import { endedAssignmentStatuses } from "@botsdk/client/bot/assignment";
+import { isLiveListProvider, parseModelId } from "@botsdk/client/models/models";
 import type { FeatureContext } from "@botsdk/bot/feature";
-import { ORPCError } from "@orpc/contract";
 import { rpcError } from "@botsdk/bot/rpc-error";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
-import { bot, botAssignment } from "@botsdk/bot/storage";
+import { bot, botAssignment, message } from "@botsdk/bot/storage";
 import type { Transaction } from "@botsdk/bot/plugin";
 import {
   type Draft,
@@ -13,7 +13,6 @@ import {
   type DraftDiff,
   type PendingApproval,
   type ReleaseContent,
-  type ReleaseSummary,
   type ReleaseView,
   type RepresentativeSummary,
   type RepresentativeView,
@@ -27,6 +26,7 @@ import {
 } from "./db/schema";
 import { draftHash } from "./test-checks";
 import { normalizedDraft, representativeTestJob, testStateOf } from "./tests";
+import { isAssignmentEnded } from "./turn";
 
 type Context = Pick<FeatureContext, "db" | "clock">;
 type JobsContext = Pick<FeatureContext, "db" | "clock" | "jobs">;
@@ -35,7 +35,11 @@ type AnswerContext = Pick<
   FeatureContext<"releaseApprovals" | "threads">,
   "db" | "clock" | "jobs" | "releaseApprovals" | "threads"
 >;
-type MoveContext = Pick<FeatureContext<"assignments">, "db" | "clock" | "assignments">;
+type MoveContext = Pick<
+  FeatureContext<"assignments" | "releaseApprovals" | "threads">,
+  "db" | "clock" | "logger" | "assignments" | "releaseApprovals" | "threads"
+>;
+type ApproveContext = AnswerContext & Pick<FeatureContext<"models">, "models">;
 type Row = typeof representative.$inferSelect;
 
 /** What a new Representative's draft holds: no job text yet, no switches or Skills, every tool. */
@@ -54,6 +58,41 @@ const notFound = () =>
 /** `approval` while it still waits for the owner at `now`, else null. */
 export function waitingApproval(approval: PendingApproval | null, now: Date) {
   return approval && new Date(approval.expiresAt) > now ? approval : null;
+}
+
+/**
+ * Whether the owner can use `model`: the Models they can pick are the ones that can run. A
+ * live-listed Provider whose list came back empty says nothing about the Model, as its list may just
+ * have failed: credentials for it are as much as can be known.
+ */
+export async function modelUsable(
+  models: ApproveContext["models"],
+  userId: string,
+  model: string,
+): Promise<boolean> {
+  const { models: usable } = await models.listAvailableModels(userId);
+  if (usable.some((each) => each.id === model)) return true;
+  const provider = parseModelId(model)?.provider;
+  if (!provider || !isLiveListProvider(provider)) return false;
+  if (usable.some((each) => each.provider === provider)) return false;
+  return (await models.resolveModelCall(userId, model)) !== null;
+}
+
+const modelUnavailable = (model: string) =>
+  rpcError(
+    "BAD_REQUEST",
+    "error.representativeModelUnavailable",
+    `"${model}" is not a Model you can use`,
+  );
+
+/** Refuses a Bot that isn't one of the owner's, the same as one that doesn't exist. */
+async function requireOwnedBot(db: Context["db"], userId: string, botId: string) {
+  const [owned] = await db
+    .select({ id: bot.id })
+    .from(bot)
+    .where(and(eq(bot.id, botId), eq(bot.userId, userId)))
+    .limit(1);
+  if (!owned) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
 }
 
 /** The owner's row, or a not-found that is the same for a row that doesn't exist and another owner's. */
@@ -80,30 +119,26 @@ async function view(
       number: representativeRelease.number,
       approvedAt: representativeRelease.approvedAt,
       overrideReason: representativeRelease.overrideReason,
-      content: representativeRelease.content,
     })
     .from(representativeRelease)
     .where(eq(representativeRelease.representativeId, row.id))
     .orderBy(desc(representativeRelease.number));
-  const live = releases.find((release) => release.id === row.liveReleaseId) ?? null;
+  const [content] = row.liveReleaseId
+    ? await db
+        .select({ content: representativeRelease.content })
+        .from(representativeRelease)
+        .where(eq(representativeRelease.id, row.liveReleaseId))
+    : [];
+  const live = releases.find((release) => release.id === row.liveReleaseId);
+  const waiting = waitingApproval(row.pendingApproval, now);
   return {
     ...summaryOf(row, live?.number ?? null),
     draft: row.draft,
-    approval: approvalView(row.pendingApproval, now),
-    liveRelease: live,
-    releases: releases.map(({ id, number, approvedAt, overrideReason }): ReleaseSummary => ({
-      id,
-      number,
-      approvedAt,
-      overrideReason,
-    })),
+    approval: waiting && { botId: waiting.botId, expiresAt: waiting.expiresAt },
+    liveRelease: live && content ? { ...live, ...content } : null,
+    releases,
     ...(await testStateOf(db, row)),
   };
-}
-
-function approvalView(approval: PendingApproval | null, now: Date) {
-  const waiting = waitingApproval(approval, now);
-  return waiting && { botId: waiting.botId, expiresAt: waiting.expiresAt };
 }
 
 function summaryOf(row: Row, liveReleaseNumber: number | null): RepresentativeSummary {
@@ -145,14 +180,7 @@ export async function createRepresentative(
   userId: string,
   input: { name: string; botId?: string },
 ): Promise<RepresentativeView> {
-  if (input.botId) {
-    const [owned] = await db
-      .select({ id: bot.id })
-      .from(bot)
-      .where(and(eq(bot.id, input.botId), eq(bot.userId, userId)))
-      .limit(1);
-    if (!owned) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-  }
+  if (input.botId) await requireOwnedBot(db, userId, input.botId);
   const [row] = await db
     .insert(representative)
     .values({
@@ -216,32 +244,13 @@ export async function setEnabled(
   });
 }
 
-/**
- * Chooses the Bot a Representative reports to, one of the owner's, and moves its open hand-offs to
- * it, one by one through the Assignments service. Choosing again moves any that were left, so a
- * refusal part-way (the Bot's Model can't run) is retried by choosing the Bot again.
- */
-export async function setBot(
-  { db, clock, assignments }: MoveContext,
+/** Moves the Representative's open hand-offs that aren't on `botId` to it, one by one, and stops at a refusal. */
+async function moveHandOffs(
+  { db, assignments }: Pick<MoveContext, "db" | "assignments">,
   userId: string,
   id: string,
   botId: string,
-): Promise<RepresentativeView> {
-  const [owned] = await db
-    .select({ id: bot.id })
-    .from(bot)
-    .where(and(eq(bot.id, botId), eq(bot.userId, userId)))
-    .limit(1);
-  if (!owned) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-  const updated = await db.transaction(async (tx) => {
-    await ownedRow(tx, userId, id, true);
-    const [row] = await tx
-      .update(representative)
-      .set({ botId, updatedAt: new Date() })
-      .where(eq(representative.id, id))
-      .returning();
-    return row!;
-  });
+) {
   const open = await db
     .select({ id: botAssignment.id })
     .from(representativeHandOff)
@@ -249,19 +258,59 @@ export async function setBot(
     .where(
       and(
         eq(representativeHandOff.representativeId, id),
+        ne(botAssignment.assignedBotId, botId),
         notInArray(botAssignment.status, endedAssignmentStatuses),
       ),
     )
     .orderBy(asc(botAssignment.createdAt), asc(botAssignment.id));
   for (const assignment of open) {
-    try {
-      await assignments.move({ userId, id: assignment.id, botId });
-    } catch (error) {
+    await assignments.move({ userId, id: assignment.id, botId }).catch((error: unknown) => {
       // One that ended since the read has nothing to move.
-      const ended = error instanceof ORPCError && error.data?.code === "error.assignmentEnded";
-      if (!ended) throw error;
-    }
+      if (!isAssignmentEnded(error)) throw error;
+    });
   }
+}
+
+/**
+ * Chooses the Bot a Representative reports to, one of the owner's. Its open hand-offs move first, so
+ * a refusal (the Bot's Model can't run) leaves it on the old Bot, and choosing again moves any left.
+ * A hand-off made meanwhile moves after the choice stands: its Turn either saw the new Bot, or has
+ * written its hand-off by the second look. An Approval the old Bot's draft waits on is dropped: the
+ * old Bot no longer answers for this Representative, and the new one must be able to draft.
+ */
+export async function setBot(
+  context: MoveContext,
+  userId: string,
+  id: string,
+  botId: string,
+): Promise<RepresentativeView> {
+  const { db, clock, logger, releaseApprovals, threads } = context;
+  await requireOwnedBot(db, userId, botId);
+  await ownedRow(db, userId, id);
+  await moveHandOffs(context, userId, id, botId);
+  const { updated, dropped } = await db.transaction(async (tx) => {
+    const row = await ownedRow(tx, userId, id, true);
+    const dropping = row.pendingApproval !== null && row.pendingApproval.botId !== botId;
+    const dropped = dropping
+      ? await releaseApprovals.drop(tx, { userId, id: row.pendingApproval!.id })
+      : null;
+    const [updated] = await tx
+      .update(representative)
+      .set({
+        botId,
+        updatedAt: new Date(),
+        ...(dropping && { pendingApproval: null }),
+      })
+      .where(eq(representative.id, id))
+      .returning();
+    return { updated: updated!, dropped };
+  });
+  if (dropped) await threads.hintChanged(dropped.conversationId);
+  // The choice stands by now, so a refusal here is no refusal of it. Whichever choice came last wins.
+  const { botId: chosen } = await ownedRow(db, userId, id);
+  await moveHandOffs(context, userId, id, chosen ?? botId).catch((error: unknown) => {
+    logger.error(`Representative ${id}: a hand-off made during the choice stays put`, error);
+  });
   return view(db, updated, clock());
 }
 
@@ -312,16 +361,26 @@ export async function runTests(
  * Pins the draft as the next numbered Release and points the Representative's live Release at it.
  * The Representative's row is locked, so two approvals never take one number. A draft whose tests
  * have failed, or haven't finished for the draft as it is now, needs `overrideReason`, which is
- * kept with the Release. A Bot's Approval waiting on the draft is answered, which wakes that Bot.
+ * kept with the Release. A Model the owner can't use is refused whatever the reason, as it would
+ * end every Turn. A Bot's Approval waiting on the draft is answered, which wakes that Bot.
  */
 export async function approveDraft(
-  { db, jobs, releaseApprovals, threads }: AnswerContext,
+  { db, jobs, models, releaseApprovals, threads }: ApproveContext,
   userId: string,
   id: string,
   overrideReason?: string,
 ): Promise<ReleaseView> {
+  // Asked before the row's lock is taken, as a live-listed Provider's list may mean a slow fetch.
+  const { draft: asked } = await ownedRow(db, userId, id);
+  if (asked.model !== null && !(await modelUsable(models, userId, asked.model))) {
+    throw modelUnavailable(asked.model);
+  }
   const { result, answered } = await db.transaction(async (tx) => {
     const row = await ownedRow(tx, userId, id, true);
+    // Saved since the question above: it wasn't asked about this one.
+    if (row.draft.model !== asked.model && row.draft.model !== null) {
+      throw modelUnavailable(row.draft.model);
+    }
     if (row.draft.jobText.trim() === "") {
       throw rpcError(
         "BAD_REQUEST",
@@ -399,7 +458,11 @@ export async function approveDraft(
   return result;
 }
 
-/** The owner's no to the Approval waiting on the draft: it wakes the Bot, and the draft stays. */
+/**
+ * The owner's no to the Approval waiting on the draft: it wakes the Bot, and the draft stays. A card
+ * that turns out not to wait after all (it went with its Conversation) is forgotten as it is refused,
+ * so the page stops offering a no it can't take.
+ */
 export async function declineApproval(
   { db, clock, jobs, releaseApprovals, threads }: AnswerContext,
   userId: string,
@@ -412,13 +475,7 @@ export async function declineApproval(
     const answered =
       waiting &&
       (await releaseApprovals.answer(tx, { userId, id: waiting.id, answer: "declined" }));
-    if (!answered) {
-      throw rpcError(
-        "CONFLICT",
-        "error.representativeNoApproval",
-        "There is no Approval waiting on this draft",
-      );
-    }
+    if (!answered && !row.pendingApproval) return { answered, result: null };
     const [updated] = await tx
       .update(representative)
       .set({ pendingApproval: null, updatedAt: now })
@@ -426,6 +483,13 @@ export async function declineApproval(
       .returning();
     return { answered, result: await view(tx, updated!, now) };
   });
+  if (!answered || !result) {
+    throw rpcError(
+      "CONFLICT",
+      "error.representativeNoApproval",
+      "There is no Approval waiting on this draft",
+    );
+  }
   jobs.wake();
   await threads.hintChanged(answered.conversationId);
   return result;
@@ -433,7 +497,8 @@ export async function declineApproval(
 
 /**
  * A Bot reset drops the Approvals its drafts wait on, and keeps the drafts, the Representatives and
- * their Releases. Safe to run again.
+ * their Releases. Safe to run again. It runs after the reset's commit, maybe much later, so a card
+ * the Bot posted since the reset is left waiting.
  */
 export async function dropApprovalsOfBot(
   { db, releaseApprovals, threads }: Pick<AnswerContext, "db" | "releaseApprovals" | "threads">,
@@ -451,8 +516,15 @@ export async function dropApprovalsOfBot(
         ),
       )
       .for("update");
+    const [mark] = await tx
+      .select({ at: max(message.createdAt) })
+      .from(message)
+      .innerJoin(bot, eq(bot.conversationId, message.conversationId))
+      .where(and(eq(bot.id, botId), eq(message.role, "reset")));
     const conversations = new Set<string>();
     for (const row of rows) {
+      const { postedAt } = row.pendingApproval!;
+      if (mark?.at && postedAt && new Date(postedAt) > mark.at) continue;
       const closed = await releaseApprovals.drop(tx, { userId, id: row.pendingApproval!.id });
       if (closed) conversations.add(closed.conversationId);
       await tx
@@ -465,7 +537,9 @@ export async function dropApprovalsOfBot(
   for (const conversationId of dropped) await threads.hintChanged(conversationId);
 }
 
-const asText = (value: unknown) => (value === undefined ? null : JSON.stringify(value));
+/** A side of a change as text; null is a side that has none. */
+const asText = (value: unknown) =>
+  value === undefined || value === null ? null : JSON.stringify(value);
 
 /** The draft's differences from `live`, field by field. Equal parts leave nothing. */
 export function draftChanges(draft: Draft, live: ReleaseContent | null): DraftChange[] {
@@ -480,19 +554,36 @@ export function draftChanges(draft: Draft, live: ReleaseContent | null): DraftCh
       changes.push({ field, name, before: asText(before), after: asText(after) });
     }
   };
-  add("jobText", null, live?.jobText ?? null, draft.jobText);
-  add("model", null, live?.model ?? null, draft.model);
+  add("jobText", null, live?.jobText, draft.jobText);
+  add("model", null, live?.model, draft.model);
   const switches = [...Object.keys(live?.switches ?? {}), ...Object.keys(draft.switches)];
   for (const name of [...new Set(switches)].sort()) {
     add("switch", name, live?.switches[name], draft.switches[name]);
   }
-  const [liveSkills, draftSkills] = [
-    keyed(live?.skills ?? [], (skill) => skill.name),
-    keyed(draft.skills, (skill) => skill.name),
-  ];
-  for (const name of new Set([...liveSkills.keys(), ...draftSkills.keys()])) {
-    add("skill", name, liveSkills.get(name)?.text, draftSkills.get(name)?.text);
-  }
+  /** Each item changed, added or removed by name, then those on both sides put in another order. */
+  const addNamed = <T>(
+    field: DraftChange["field"],
+    liveItems: Map<string, T>,
+    draftItems: Map<string, T>,
+    side: (item: T | undefined) => unknown,
+  ) => {
+    for (const name of new Set([...liveItems.keys(), ...draftItems.keys()])) {
+      add(field, name, side(liveItems.get(name)), side(draftItems.get(name)));
+    }
+    return () =>
+      add(
+        field,
+        null,
+        [...liveItems.keys()].filter((name) => draftItems.has(name)),
+        [...draftItems.keys()].filter((name) => liveItems.has(name)),
+      );
+  };
+  const skillOrder = addNamed(
+    "skill",
+    keyed(live?.skills ?? []),
+    keyed(draft.skills),
+    (skill) => skill?.text,
+  );
   for (const tool of representativeTools) {
     add(
       "tool",
@@ -501,36 +592,21 @@ export function draftChanges(draft: Draft, live: ReleaseContent | null): DraftCh
       draft.tools.includes(tool) ? true : undefined,
     );
   }
-  // Test conversations are named. A draft without the field isn't comparing them, so it shows no change.
-  const draftTestList = (draft as { tests?: unknown[] }).tests;
-  if (Array.isArray(draftTestList)) {
-    const [liveTests, draftTests] = [
-      keyed(live?.tests ?? [], testName),
-      keyed(draftTestList, testName),
-    ];
-    for (const name of new Set([...liveTests.keys(), ...draftTests.keys()])) {
-      add("test", name, liveTests.get(name), draftTests.get(name));
-    }
-  }
+  const testOrder = addNamed("test", keyed(live?.tests ?? []), keyed(draft.tests), (test) => test);
+  skillOrder();
+  testOrder();
   return changes;
 }
 
-/** Items by name; a repeated name gets " (2)", " (3)"…, so none hides another. */
-function keyed<T>(items: T[], nameOf: (item: T, index: number) => string) {
+/** Items by name; a repeated name gets " (2)", " (3)"…, past any taken, so none hides another. */
+function keyed<T extends { name: string }>(items: T[]) {
   const map = new Map<string, T>();
-  const seen = new Map<string, number>();
-  items.forEach((item, index) => {
-    const name = nameOf(item, index);
-    const count = (seen.get(name) ?? 0) + 1;
-    seen.set(name, count);
-    map.set(count === 1 ? name : `${name} (${count})`, item);
-  });
+  for (const item of items) {
+    let key = item.name;
+    for (let count = 2; map.has(key); count++) key = `${item.name} (${count})`;
+    map.set(key, item);
+  }
   return map;
-}
-
-function testName(test: unknown, index: number) {
-  const name = (test as { name?: unknown } | null)?.name;
-  return typeof name === "string" ? name : `#${index + 1}`;
 }
 
 /** What the draft changes against the live Release (everything, before the first Release). */

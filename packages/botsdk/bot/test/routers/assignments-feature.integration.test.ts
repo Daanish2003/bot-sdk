@@ -10,7 +10,14 @@ import {
   defineJob,
   type FeatureContext,
 } from "../../src";
-import { botAssignment, botAssignmentLog, botReview, botTrigger, botTurn } from "../../src/storage";
+import {
+  bot,
+  botAssignment,
+  botAssignmentLog,
+  botReview,
+  botTrigger,
+  botTurn,
+} from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { exportUserData } from "../../src/user-data";
 import { saveCredentials } from "../../src/models/internal";
@@ -482,6 +489,83 @@ describe("a feature assigning work", () => {
       expect(heard).toContain(`Assignment ${id} from `);
       expect(heard).toContain(`Assignment ${id} was moved to another Bot`);
       expect(repairs.endings).toEqual([]);
+    },
+    timeout,
+  );
+
+  it.each(["paused", "can't run"] as const)(
+    "tells a Bot that was %s of a move it missed, once, on its next Turn",
+    async (state) => {
+      const repairs = assigner();
+      const { fake, user, botId, client } = await botWith(
+        [quiet, quiet, quiet, quiet, quiet, quiet],
+        [repairs.feature],
+      );
+      const { id: second } = await client.bots.create({ name: "Second", model });
+      const { id } = await repairs
+        .assignments()
+        .create({ userId: user.id, botId, ...work, job: repairs.onEnded });
+      await expect.poll(() => turnsOf(botId), poll).toEqual(["complete"]);
+      if (state === "paused") await client.bots.pause({ botId });
+      else {
+        await getTestDb()
+          .update(bot)
+          .set({ model: "anthropic:claude-haiku-4-5" })
+          .where(eq(bot.id, botId));
+      }
+
+      await repairs.assignments().move({ userId: user.id, id, botId: second });
+      await expect.poll(() => turnsOf(second), poll).toEqual(["complete"]);
+
+      if (state === "paused") await client.bots.resume({ botId });
+      else {
+        // No control is needed: the Bot's next Turn, on anything, catches up.
+        await getTestDb().update(bot).set({ model }).where(eq(bot.id, botId));
+        await client.bots.send({ botId, id: uuidv7(), text: "Carry on." });
+      }
+      await expect.poll(() => turnsOf(botId), poll).toEqual(["complete", "complete"]);
+      const heard = fake.calls.map((call) => inputText(call)).join("\n---\n");
+      expect(heard).toContain(`Assignment ${id} was moved to another Bot`);
+      expect(await channelsOf(botId, "assignment_moved:%", true)).toEqual(["assignment_untrusted"]);
+
+      // Once: another pause and resume has nothing more to say about it.
+      await client.bots.pause({ botId });
+      await client.bots.resume({ botId });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(await turnsOf(botId)).toEqual(["complete", "complete"]);
+    },
+    timeout,
+  );
+
+  it(
+    "doesn't tell a Bot of a move when it never read the work, or was reset since",
+    async () => {
+      const repairs = assigner();
+      const { user, botId, client } = await botWith(
+        [quiet, quiet, quiet, quiet, quiet],
+        [repairs.feature],
+      );
+      const { id: second } = await client.bots.create({ name: "Second", model });
+      const { id: third } = await client.bots.create({ name: "Third", model });
+      await client.bots.pause({ botId });
+      const { id: unread } = await repairs
+        .assignments()
+        .create({ userId: user.id, botId, ...work, job: repairs.onEnded });
+      await repairs.assignments().move({ userId: user.id, id: unread, botId: third });
+      await client.bots.resume({ botId });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(await turnsOf(botId)).toEqual([]);
+
+      const { id } = await repairs
+        .assignments()
+        .create({ userId: user.id, botId, ...work, job: repairs.onEnded });
+      await expect.poll(() => turnsOf(botId), poll).toEqual(["complete"]);
+      await client.bots.pause({ botId });
+      await repairs.assignments().move({ userId: user.id, id, botId: second });
+      await client.bots.reset({ botId, name: "Clerk" });
+      await client.bots.resume({ botId });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(await channelsOf(botId, "assignment_moved:%", true)).toEqual([]);
     },
     timeout,
   );

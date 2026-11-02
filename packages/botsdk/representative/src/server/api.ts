@@ -31,7 +31,7 @@ import {
 
 /** The `representative` namespace over the feature's context. */
 export function representativeApi(
-  context: FeatureContext<"assignments" | "releaseApprovals" | "threads">,
+  context: FeatureContext<"assignments" | "models" | "releaseApprovals" | "threads">,
 ) {
   return {
     list: async ({ userId }: { userId: string }) => listRepresentatives(context, userId),
