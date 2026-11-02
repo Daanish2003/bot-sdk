@@ -1,3 +1,4 @@
+import type { AssignmentResult, AssignmentStatus } from "@botsdk/client/bot/assignment";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -73,22 +74,14 @@ export type AssignmentsService = {
     id: string;
     botId: string;
     title: string;
-    status: typeof botAssignment.$inferSelect.status;
-    result: typeof botAssignment.$inferSelect.result;
+    status: AssignmentStatus;
+    result: AssignmentResult | null;
     createdAt: Date;
     endedAt: Date | null;
   }>;
   /** Cancels one of the feature's own Assignments, which queues its job; an ended one is CONFLICT. */
   cancel: (input: { userId: string; id: string }) => Promise<void>;
 };
-
-/** The rows the feature can see, of this owner: every read and write here goes through it. */
-const ownedBy = (feature: AnyFeature, userId: string, id: string) =>
-  and(
-    eq(botAssignment.id, id),
-    eq(botAssignment.assignerFeature, feature.id),
-    eq(bot.userId, userId),
-  );
 
 const notFound = () => rpcError("NOT_FOUND", "error.assignmentNotFound", "Assignment not found");
 
@@ -144,7 +137,13 @@ export function assignmentsService(deps: BotSdkContext, feature: AnyFeature): As
         })
         .from(botAssignment)
         .innerJoin(bot, eq(bot.id, botAssignment.assignedBotId))
-        .where(ownedBy(feature, userId, id));
+        .where(
+          and(
+            eq(botAssignment.id, id),
+            eq(botAssignment.assignerFeature, feature.id),
+            eq(bot.userId, userId),
+          ),
+        );
       if (!row) throw notFound();
       return row;
     },

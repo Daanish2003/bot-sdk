@@ -306,7 +306,11 @@ describe("a feature assigning work", () => {
         .poll(() => repairs.endings, poll)
         .toEqual([{ assignmentId: id, userId: user.id, botId, status: "cancelled", result: null }]);
       const [listed] = await client.assignments.list({ botId });
-      expect(listed?.log.at(-1)).toMatchObject({ status: "cancelled", actor: "user" });
+      expect(listed?.log.at(-1)).toMatchObject({
+        status: "cancelled",
+        actor: "user",
+        actorName: null,
+      });
       expect(listed?.log[0]).toMatchObject({
         status: "open",
         actor: "feature",
@@ -694,6 +698,32 @@ describe("Auto-review of a Turn a feature's Assignment started", () => {
 
 describe("for_customer holding a Secret", () => {
   const token = "ghp_a-very-secret-token";
+
+  it(
+    "refuses it in the outcome of a feature's Assignment, which goes to the feature",
+    async () => {
+      const repairs = assigner();
+      const { fake, user, botId, client } = await botWith(
+        [
+          quiet,
+          finish({ status: "done", outcome: `Used ${token} to book it.` }),
+          finish({ status: "done", outcome: "Booked." }),
+          quiet,
+        ],
+        [repairs.feature],
+      );
+      await client.secrets.save({ botId, name: "GITHUB_TOKEN", value: token });
+      await expect.poll(() => turnsOf(botId), poll).toEqual(["complete"]);
+
+      await repairs.assignments().create({ userId: user.id, botId, ...work, job: repairs.onEnded });
+
+      await expect.poll(() => repairs.endings.length, poll).toBe(1);
+      const refusal = String(toolResultsIn(fake.calls[fake.calls.length - 2]).at(-1));
+      expect(refusal).toMatch(/outcome holds the value of a Secret/);
+      expect(repairs.endings[0]?.result?.outcome).toBe("Booked.");
+    },
+    timeout,
+  );
 
   it.each([
     ["as it is", `Your code is ${token}.`],

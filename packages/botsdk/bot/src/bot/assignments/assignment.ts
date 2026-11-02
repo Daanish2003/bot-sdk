@@ -38,6 +38,7 @@ import {
   lockTurnConversations,
   receive,
   recordSkipChange,
+  assignmentChannel,
   untrustedAssignmentChannel,
 } from "../triggers";
 import type { AssignmentEnded } from "./assignments-service";
@@ -80,9 +81,6 @@ export const assignmentInstructionsInput = z
 
 /** How the Trigger that tells a Bot an Assignment was cancelled starts. */
 const assignmentCancelPrefix = "assignment_cancel:";
-
-/** The channel of an Assignment's Triggers. */
-const assignmentChannel = "assignment";
 
 /** How the first line of an Assignment's Trigger text ends, naming it. */
 const quotedTitle = (title: string) => JSON.stringify(title);
@@ -342,14 +340,21 @@ export async function finishAssignment(
     .innerJoin(bot, eq(bot.id, botAssignment.assignedBotId))
     .where(and(eq(botAssignment.id, id), eq(botAssignment.assignedBotId, turn.botId)));
   if (!row) return { error: `No Assignment with id "${id}" is assigned to you.` };
-  if (result.forCustomer) {
+  // A Customer may read `for_customer`, and the outcome of a feature's Assignment goes to the feature.
+  const screened = [
+    ...(result.forCustomer ? [["for_customer", result.forCustomer]] : []),
+    ...(row.assignerJob ? [["outcome", result.outcome]] : []),
+  ] as const;
+  if (screened.length > 0) {
     const values = await loadSecretValues({ db: tx, keyring: deps.keyring }, turn.userId);
-    if (maskSecrets(result.forCustomer, values.values()) !== result.forCustomer) {
-      return {
-        error:
-          "for_customer holds the value of a Secret, and a Customer may read it: nothing was " +
-          `finished. Write it without that value, and call ${finishAssignmentToolName} again.`,
-      };
+    for (const [field, text] of screened) {
+      if (maskSecrets(text, values.values()) !== text) {
+        return {
+          error:
+            `${field} holds the value of a Secret, and someone outside may read it: nothing was ` +
+            `finished. Write it without that value, and call ${finishAssignmentToolName} again.`,
+        };
+      }
     }
   }
   const [assigner] = row.assignerBotId
@@ -648,8 +653,11 @@ export async function wakeOnAssignments(
       await lockTurnConversations(tx, owner);
       if (await isPaused(tx, owner.botId)) return;
       const receivedAt = deps.clock();
-      // Read again under the lock: a feature may have cancelled one since.
-      for (const row of await assignmentsOf(tx, owner.botId, ["open", "working"])) {
+      // Only those still open under the lock: a feature may have cancelled one since.
+      const still = new Set(
+        (await assignmentsOf(tx, owner.botId, ["open", "working"])).map((row) => row.id),
+      );
+      for (const row of open.filter((row) => still.has(row.id))) {
         await receive(deps, tx, {
           // A Trigger's id is its Bot's once, and this Assignment has had one already.
           id: `${assignmentTriggerId(row.id)}:${uuidv7()}`,
@@ -738,7 +746,9 @@ async function logsOf(
       id: botAssignmentLog.id,
       status: botAssignmentLog.status,
       actor: botAssignmentLog.actor,
-      actorName: sql<string | null>`coalesce(${bot.name}, ${botAssignment.assignerFeature})`,
+      actorName: sql<
+        string | null
+      >`coalesce(${bot.name}, case when ${botAssignmentLog.actor} = 'feature' then ${botAssignment.assignerFeature} end)`,
       note: botAssignmentLog.note,
       turnId: botAssignmentLog.turnId,
       at: botAssignmentLog.at,

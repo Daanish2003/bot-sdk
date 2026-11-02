@@ -8,6 +8,7 @@ export {
   checkInOfKey,
   fireKeyPrefix,
   routineOfFireKey,
+  assignmentChannel,
   untrustedAssignmentChannel,
 } from "./trigger-ids";
 export {
