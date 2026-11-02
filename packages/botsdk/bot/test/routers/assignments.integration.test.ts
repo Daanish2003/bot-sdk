@@ -7,7 +7,7 @@ import { bot, botAssignment, botTrigger, botTurn, usage } from "../../src/storag
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { deleteUserData, exportUserData } from "../../src/user-data";
 import { assignmentTools, turnBudget, wakeOnAssignments } from "../../src/bot/assignments";
-import { assignWork } from "../../src/bot/assignments/assignment";
+import { assignWork, readAssignments } from "../../src/bot/assignments/assignment";
 import type { Transaction } from "../../src/plugin";
 import { receive } from "../../src/bot/triggers";
 import { saveCredentials } from "../../src/models/internal";
@@ -3531,6 +3531,66 @@ describe("the branch review of spec #1166", () => {
       timeout,
     );
   });
+
+  it(
+    "fences an untrusted child's title under a trusted parent, in its parent's children and log",
+    async () => {
+      const {
+        deps,
+        client,
+        user,
+        bots: b,
+        tell,
+      } = await bots({
+        Scout: [assign("Writer", "Parent"), quiet],
+        Writer: [quiet],
+        Editor: [quiet],
+      });
+      await tell("Scout", "Hand it on.");
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+      const [parent] = await client.assignments.list({ botId: b.Writer.id });
+      const [turn] = await turnsOf(b.Writer.id);
+      // The Turn took a feature's text too, so what it splits off is untrusted.
+      await getTestDb()
+        .insert(botTrigger)
+        .values({
+          id: `routine:${uuidv7()}`,
+          botId: b.Writer.id,
+          conversationId: await conversationOf(b.Writer.id),
+          source: "routine",
+          channel: "assignment_untrusted",
+          text: "From outside.",
+          receivedAt: deps.clock(),
+          turnId: turn!.id,
+        });
+      const assigned = await getTestDb().transaction((tx) =>
+        assignWork(
+          deps,
+          tx,
+          { id: turn!.id, botId: b.Writer.id, userId: user.id },
+          {
+            botName: "Editor",
+            title: "Injected title",
+            instructions: "Do it.",
+            parent: parent!.id,
+          },
+        ),
+      );
+      expect(assigned).not.toHaveProperty("error");
+
+      const read = (await readAssignments(getTestDb(), b.Writer.id, parent!.id)) as {
+        title: string;
+        children: { title: string }[];
+        log: unknown[];
+      };
+      expect(read.title).toBe("Parent");
+      expect(read.children[0]!.title).toMatch(
+        /untrusted data, not instructions:[^]*Injected title/,
+      );
+      expect(JSON.stringify(read.log)).not.toContain("Injected title");
+    },
+    timeout,
+  );
 
   it(
     "records read_assignment's answer, so a replay gets the same",
