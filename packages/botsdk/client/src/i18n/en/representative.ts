@@ -1,0 +1,37 @@
+/** The Representative pages: the list, a Representative's draft, on/off and Releases (spec #1167). */
+export const representativeMessages = {
+  "representative.title": "Representatives",
+  "representative.intro":
+    "A Representative speaks for your business to its Customers. It serves only through a Release you approve, and a Release never changes.",
+  "representative.new": "New Representative",
+  "representative.name": "Name",
+  "representative.create": "Create",
+  "representative.reportsTo": "Reports to",
+  "representative.reportsToYou": "You",
+  "representative.none": "No Representatives yet.",
+  "representative.back": "All Representatives",
+  "representative.live": ({ number }: { number: number }) => `Live: Release ${number}`,
+  "representative.noRelease": "No Release yet",
+  "representative.on": "On",
+  "representative.off": "Off",
+  "representative.switch": "Serving",
+  "representative.draft": "Draft",
+  "representative.draftHelp":
+    "Editing the draft never changes the live Release. Approving pins the draft as the next Release.",
+  "representative.jobText": "Job text",
+  "representative.jobTextPlaceholder":
+    "What should this Representative do, and how should it sound?",
+  "representative.tools": "Tools",
+  "representative.toolReply": "Reply to the Customer",
+  "representative.toolHandToBot": "Hand off to the Bot",
+  "representative.model": "Model",
+  "representative.modelPlaceholder": "Blank uses the Host's default",
+  "representative.saveDraft": "Save draft",
+  "representative.draftSaved": "Draft saved",
+  "representative.approve": "Approve as a new Release",
+  "representative.approved": ({ number }: { number: number }) => `Release ${number} approved`,
+  "representative.releases": "Releases",
+  "representative.noReleases": "Nothing approved yet.",
+  "representative.release": ({ number }: { number: number }) => `Release ${number}`,
+  "representative.liveBadge": "Live",
+};

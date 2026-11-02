@@ -13,7 +13,7 @@ const serverDir = join(
 // The server code: the core's and each feature package's (#911).
 const serverDirs = [
   serverDir,
-  ...["memory", "skills", "knowledge", "mcp"].map((feature) =>
+  ...["memory", "skills", "knowledge", "mcp", "representative"].map((feature) =>
     join(
       dirname(createRequire(import.meta.url).resolve(`@botsdk/${feature}/package.json`)),
       "src",

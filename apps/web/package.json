@@ -32,6 +32,7 @@
     "@botsdk/memory": "workspace:*",
     "@botsdk/pubsub-redis": "workspace:*",
     "@botsdk/react": "workspace:*",
+    "@botsdk/representative": "workspace:*",
     "@botsdk/skills": "workspace:*",
     "@botsdk/ui": "workspace:*",
     "@orpc/client": "catalog:",

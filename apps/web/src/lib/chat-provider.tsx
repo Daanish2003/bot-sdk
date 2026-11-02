@@ -12,6 +12,10 @@ function routeOf(page: ChatPage) {
       return { to: "/settings/keys" };
     case "rules":
       return { to: "/settings/rules" };
+    case "representatives":
+      return page.id
+        ? { to: "/representatives/$id", params: { id: page.id } }
+        : { to: "/representatives" };
     case "bots":
       return page.id ? { to: "/bots/$botId", params: { botId: page.id } } : { to: "/bots" };
     case "rooms":

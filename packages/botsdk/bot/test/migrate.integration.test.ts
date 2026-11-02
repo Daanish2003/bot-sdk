@@ -8,6 +8,7 @@ import type { Migration } from "../src/migrate";
 import { mcp } from "@botsdk/mcp";
 import { featureMigrations } from "../src/feature";
 import { memory } from "@botsdk/memory";
+import { representative } from "@botsdk/representative";
 import {
   migrationParts,
   migrationsOf,
@@ -667,7 +668,7 @@ describe("chat.start()", () => {
   });
 
   it("lists each SDK feature with tables under the id and migrations the feature has", () => {
-    expect(sdkFeatureMigrations()).toEqual(featureMigrations([memory(), mcp()]));
+    expect(sdkFeatureMigrations()).toEqual(featureMigrations([memory(), mcp(), representative()]));
   });
 
   it("throws, naming the feature, while an enabled feature's migrations aren't all applied", async () => {

@@ -1,0 +1,23 @@
+import type { FeatureClient } from "@botsdk/client";
+
+import { representativeContract, type RepresentativeContract } from "../shared/contract";
+
+export type { RepresentativeContract };
+
+export type RepresentativeFeatureClient = FeatureClient<"representative", RepresentativeContract>;
+
+/** The `representative` feature's client part: its contract, served under `representative`. It adds no URLs. */
+export function representativeClient(): RepresentativeFeatureClient {
+  return { id: "representative", contract: representativeContract };
+}
+
+export {
+  type Draft,
+  type ReleaseContent,
+  type ReleaseSummary,
+  type ReleaseView,
+  type RepresentativeSummary,
+  type RepresentativeTool,
+  type RepresentativeView,
+  representativeTools,
+} from "../shared/contract";
