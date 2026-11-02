@@ -1,7 +1,6 @@
 // The assignments module's entry point: other modules import it only through this file.
 export {
   addAssignmentNoteToolName,
-  assignmentNotice,
   assignmentsAtTurnStart,
   assignmentTitleOf,
   assignWorkToolName,

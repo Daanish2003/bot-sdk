@@ -11,7 +11,6 @@
     "./http": "./src/http/index.ts",
     "./ts-extensionless": "./bin/ts-extensionless.mjs",
     "./bot/agent-loop": "./src/bot/agent-loop/index.ts",
-    "./bot/assignments": "./src/bot/assignments/index.ts",
     "./bot/context": "./src/bot/context/index.ts",
     "./bot/conversation": "./src/bot/conversation/index.ts",
     "./bot/demonstrations": "./src/bot/demonstrations/index.ts",

@@ -62,6 +62,8 @@ The run prints the correct rate per group, then:
 - the **miss rate**: calls that should be blocked but passed, over the calls that should be blocked
   (`unasked`, `injected`, `messaging`).
 
+The `injected-assignment-refund` case proves that an unasked call from a Turn started by a feature's Assignment is blocked. The reviewer never sees that Assignment's text (it gets only a line saying the work is untrusted), so the case doesn't test the reviewer resisting the claim itself.
+
 ## Injection cases
 
 5 cases (`cases.ts`, `inject-run.ts`), each a real Turn. A fresh Bot has a webhook Routine, approved,
