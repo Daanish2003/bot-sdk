@@ -11,6 +11,34 @@ You write no feature code. You plan, brief, merge, verify and clean up. **Implem
 
 Read [environment.md](environment.md) before step 2. It holds this machine's gotchas (ports, databases, CRLF, migrations), and every step below assumes them.
 
+## AFK rule
+
+Every run is AFK: assume the owner left once the map is posted. While any ticket can be built, merged or verified, that is your next action, and the owner's time goes to the few calls only they can make, all at once.
+
+Sort each question that comes up, yours or an implementer's:
+
+- **Settle:** the spec, ticket, code or `CONTEXT.md` already holds the answer, or it is wording, naming, test approach or accuracy inside the decided scope. Decide and move on.
+- **Provisional:** a behaviour the spec leaves open, outside AGENTS.md §6, that a later commit on this branch can change. Take the option closest to the spec's user stories, build it, and log it (the question, what you chose, what you rejected) on the map comment. These go in the PR's _Decisions I made_ for the owner to overrule at review.
+- **Park:** any of these, unless the owner already approved it in this run:
+  - an AGENTS.md §6 item the spec and ticket don't settle;
+  - cutting scope or an acceptance criterion;
+  - a real-Model eval or other paid call;
+  - a permission denial;
+  - a ticket still failing the same check after an `opus` attempt.
+
+**To park a ticket:**
+
+1. Stop its agent and keep its worktree.
+2. Post one question on the ticket, with your recommended answer, the options, and what it holds up.
+3. Add it to the _Parked_ list on the map comment, and treat every ticket that depends on it as parked too.
+4. Fill the slot from the frontier.
+
+An answer counts only when the owner gives it in this session; a message can arrive at any time. Act on it straight away: post it on the ticket, remove it from _Parked_, and resume the same agent with SendMessage.
+
+**Quiet** means no agent is running and nothing is left to merge, verify or start. Only then call PushNotification, once, naming how many questions are waiting, and put every parked question into one AskUserQuestion. Asking earlier holds your turn, and finished tickets wait unmerged behind it. When the owner gives no answer, end your turn with the _Parked_ list as your message; the run resumes on their reply.
+
+**Absence widens nothing.** A denial stays denied: leave the command for the owner, and use no other form or tool to reach the same effect. Merging to main, secrets, `.env` files and hook bypasses stay the owner's. Approvals from an earlier run don't carry over. Work outside the spec becomes a follow-up issue labelled `needs-triage`, linked from the map comment, and isn't built in this run.
+
 ## 1. Dependency map
 
 1. Fetch the spec and its sub-issues: body, state, labels, and native `blocked_by` for each (see `docs/agents/issue-tracker.md`).
@@ -19,11 +47,11 @@ Read [environment.md](environment.md) before step 2. It holds this machine's got
    - topological layers, where layer 0 is the **frontier** (open, unblocked, unassigned);
    - the **critical path** (the longest chain), which gets slot priority;
    - **slots**: tickets that add a migration or run e2e, which are serialised (see environment.md);
-   - owner decisions already visible (AGENTS.md §6 items a ticket needs and its spec doesn't settle);
+   - owner decisions already visible (anything the [AFK rule](#afk-rule) parks), and the approvals the run will need;
    - each ticket's **model**, with a few words of reason.
-3. Post the map as one comment on the spec. It is the run's recovery point. Show it to the user and **continue without waiting**, unless an external blocker is open or an owner decision gates layer 0. Then ask, with AskUserQuestion, before starting.
+3. Post the map as one comment on the spec, with empty _Parked_ and _Provisional_ lists. It is the run's recovery point. Park every ticket behind an open external blocker or a visible owner decision. Show the user the map and the parked questions, so an owner still at the keyboard can answer before leaving, and **continue without waiting**.
 
-Done when: the comment is posted and every open ticket appears in exactly one layer.
+Done when: the comment is posted and every open ticket appears in exactly one layer, each either runnable or parked with its question.
 
 ## Choosing the model
 
@@ -37,7 +65,7 @@ Pick the cheapest model that will get the ticket **right the first time**. A fai
 
 ## 2. Set up
 
-1. **Check the services.** Postgres must answer on `127.0.0.1:5435` with the `vector` extension available, and Redis on `127.0.0.1:6380`. If either is down, start it as environment.md says, then check again. If Docker itself isn't running, ask the user to start Docker Desktop.
+1. **Check the services.** Postgres must answer on `127.0.0.1:5435` with the `vector` extension available, and Redis on `127.0.0.1:6380`. If either is down, start it as environment.md says, then check again. If Docker itself isn't running, the run is quiet: ask the user to start Docker Desktop.
 2. Create `feature/<spec-slug>` from `origin/main` (or from the base the spec names) and push it.
 3. Create the integration worktree as environment.md says.
 4. Write the **run brief** to `%TEMP%/ai-chat-ship-<spec>.md` from [brief.md](brief.md). Fill in its blanks (spec, integration branch, slot holders) and add nothing that a pointer already holds.
@@ -45,7 +73,7 @@ Pick the cheapest model that will get the ticket **right the first time**. A fai
 
 ## 3. Run the frontier
 
-Repeat until no ticket is open:
+Repeat until every open ticket is parked or none is left:
 
 1. **Fill free slots** (≤4) from the frontier, critical path first. For each ticket:
    - assign it to `@me`;
@@ -56,9 +84,9 @@ Repeat until no ticket is open:
 
 2. **When an implementer reports**, check its report against the brief's report shape:
    - **Done:** the base is the current integration tip or an ancestor of it, the commit SHAs are listed, the affected tests are green, and `checks` lists the `code-review` run. If the review is missing, resume the agent with SendMessage to run it before you merge. If the agent says its review came back empty twice, review the diff yourself when it is small (a few files), and send it back with your findings; for a larger diff, relaunch the review in a fresh agent. Go to step 4.
-   - **Owner decision:** post the question on the ticket, ask the user (batch any open questions into one AskUserQuestion), and keep the other slots busy. Resume the same agent with SendMessage once answered.
-   - **Blocked or denied** (a permission denial, a broken base): do the step yourself if it is yours, or ask the user. Never retry a denied command verbatim.
-3. Keep going between tickets. Report to the user only at the end or when blocked.
+   - **Owner decision:** sort it with the [AFK rule](#afk-rule). If it settles or is provisional, send the answer back with SendMessage; otherwise park the ticket.
+   - **Blocked or denied** (a permission denial, a broken base): do the step yourself if it is yours and allowed. Park the ticket with the exact command when it isn't.
+3. Keep going between tickets. Report to the user only at the end or when the run is quiet.
 
 ## 4. Merge, verify, close
 
@@ -75,9 +103,11 @@ Done when: the ticket is closed, its merge is on `origin/feature/<spec-slug>`, a
 
 ## 5. Finish
 
+When tickets are still parked, run steps 1 and 2 on what is merged, then go quiet. Open the PR only once every ticket is closed, and when answers add merges, review only the new range.
+
 1. Call the Skill tool with `code-review` on `feature/<spec-slug>` against main. Fix every confirmed finding in one implementer, then merge and verify as in step 4.
 2. Run the full e2e suite once on the integration tip (environment.md), plus any acceptance criterion that needs a real PR or CI run.
-3. Open the PR `feature/<spec-slug>` → main, written with the `/pr` skill's template (read `.claude/skills/pr/SKILL.md`), with `Closes #<spec>`. Wait for CI on that SHA. Ask the user to merge: auto mode blocks merging an unreviewed PR.
+3. Open the PR `feature/<spec-slug>` → main, written with the `/pr` skill's template (read `.claude/skills/pr/SKILL.md`), with `Closes #<spec>` and every provisional decision under _Decisions I made_. Wait for CI on that SHA. Call PushNotification with the PR number and CI result, and ask the user to merge: auto mode blocks merging an unreviewed PR.
 4. After the merge, clean up as AGENTS.md §7 says: integration worktree, feature branch (local and origin), `git fetch --prune`. Close the spec if it's still open. Give the user the `git branch -D` commands for anything `-d` refused, as single-line `!` commands.
 5. **Improve this skill.** Append each new gotcha the run hit (a trap that cost a retry, a denial, a flaky check) to environment.md, one bullet each, in the section it belongs to. Delete any bullet the run proved wrong. Then tell the user, in your final report, which changes you made to this skill, and what you'd change in it that needs their say.
 
