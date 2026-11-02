@@ -1293,3 +1293,75 @@ describe("a note in the log", () => {
     timeout,
   );
 });
+
+describe("a cancel a Bot missed", () => {
+  const cancelNote = "was cancelled by the user";
+
+  /** Scout hands Writer the work, and Writer reads it in one Turn, so the Assignment is working. */
+  async function working() {
+    const made = await bots({ Scout: [assign("Writer"), quiet, quiet], Writer: [quiet, quiet] });
+    await made.tell("Scout", "Hand it on.");
+    await expect.poll(() => statusesOf(made.bots.Writer.id), poll).toEqual(["complete"]);
+    const [row] = await made.client.assignments.list({ botId: made.bots.Writer.id });
+    return { ...made, id: row!.id };
+  }
+
+  it(
+    "tells a paused assigner when it resumes, once",
+    async () => {
+      const { fakes, client, bots: b, id } = await working();
+      await client.bots.pause({ botId: b.Scout.id });
+
+      await client.assignments.cancel({ botId: b.Writer.id, assignmentId: id });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(await statusesOf(b.Scout.id)).toEqual(["complete"]);
+
+      await client.bots.resume({ botId: b.Scout.id });
+      await expect.poll(() => statusesOf(b.Scout.id), poll).toEqual(["complete", "complete"]);
+      expect(JSON.stringify(fakes.Scout.calls.at(-1)!.messages)).toContain(cancelNote);
+
+      await client.bots.pause({ botId: b.Scout.id });
+      await client.bots.resume({ botId: b.Scout.id });
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect(await statusesOf(b.Scout.id)).toEqual(["complete", "complete"]);
+    },
+    timeout,
+  );
+
+  it(
+    "tells an assigner whose Model couldn't run in its next Turn",
+    async () => {
+      const { fakes, client, bots: b, tell, id } = await working();
+      const setModel = (to: string) =>
+        getTestDb().update(bot).set({ model: to }).where(eq(bot.id, b.Scout.id));
+      await setModel("anthropic:claude-sonnet-5-5");
+
+      await client.assignments.cancel({ botId: b.Writer.id, assignmentId: id });
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete", "complete"]);
+      expect(await statusesOf(b.Scout.id)).toEqual(["complete"]);
+
+      await setModel(model);
+      await tell("Scout", "Any news?");
+      await expect.poll(() => statusesOf(b.Scout.id), poll).toEqual(["complete", "complete"]);
+      expect(JSON.stringify(fakes.Scout.calls.at(-1)!.messages)).toContain(cancelNote);
+    },
+    timeout,
+  );
+
+  it(
+    "tells a paused assigned Bot that had read it when it resumes",
+    async () => {
+      const { fakes, client, bots: b, id } = await working();
+      await client.bots.pause({ botId: b.Writer.id });
+
+      await client.assignments.cancel({ botId: b.Writer.id, assignmentId: id });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(await statusesOf(b.Writer.id)).toEqual(["complete"]);
+
+      await client.bots.resume({ botId: b.Writer.id });
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete", "complete"]);
+      expect(JSON.stringify(fakes.Writer.calls.at(-1)!.messages)).toContain(cancelNote);
+    },
+    timeout,
+  );
+});

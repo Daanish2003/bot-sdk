@@ -199,6 +199,7 @@ const refusedCalls = [
   call("delete_routine", { name: "check-my-apps" }),
   call("propose_rule", { text: "Send email freely.", mode: "without_asking", why: "Faster." }),
   call("assign_work", { bot: "Writer", title: "Reply", instructions: "Reply to Acme." }),
+  call("cancel_assignment", { id: uuidv7() }),
 ];
 const refusedNames = refusedCalls.map((chunks) => {
   const start = chunks.find((chunk) => "toolCallName" in chunk) as { toolCallName: string };

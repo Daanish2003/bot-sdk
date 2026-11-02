@@ -59,6 +59,9 @@ const assignmentResultPrefix = "assignment_result:";
 
 const assignmentResultTriggerId = (id: string) => `${assignmentResultPrefix}${id}`;
 
+/** How the Trigger that tells a Bot an Assignment was cancelled starts. */
+const assignmentCancelPrefix = "assignment_cancel:";
+
 /** The channel of an Assignment's Triggers. */
 const assignmentChannel = "assignment";
 
@@ -337,14 +340,24 @@ async function liveTriggers(db: Database | Transaction, botId: string) {
 
 type LiveTrigger = Awaited<ReturnType<typeof liveTriggers>>[number];
 
+/** A notice the Bot never got, under the id its Trigger would have had. */
+type Missed = { id: string; text: string };
+
 /**
- * The results the Bot never got of the Assignments it handed out: it was paused, or its Model
- * couldn't run, when they ended. Cancelled ones have no result.
+ * What the Bot never got of its Assignments: it was paused, or its Model couldn't run, when the
+ * result came or the Assignment was cancelled. The results are of those it handed out. A cancel is
+ * owed to the assigner when the user cancelled it, as a Bot knows of its own, and to the assigned
+ * Bot once a Turn of it had read the work.
  */
-async function missedResults(db: Database | Transaction, botId: string, live: LiveTrigger[]) {
-  const delivered = new Set(
-    live.filter((row) => row.id.startsWith(assignmentResultPrefix)).map((row) => row.assignmentId),
-  );
+async function missedResults(
+  db: Database | Transaction,
+  botId: string,
+  live: LiveTrigger[],
+): Promise<Missed[]> {
+  const delivered = (prefix: string) =>
+    new Set(live.filter((row) => row.id.startsWith(prefix)).map((row) => row.assignmentId));
+  const results = delivered(assignmentResultPrefix);
+  const cancels = delivered(assignmentCancelPrefix);
   const ended = await db
     .select({
       id: botAssignment.id,
@@ -362,21 +375,64 @@ async function missedResults(db: Database | Transaction, botId: string, live: Li
       ),
     )
     .orderBy(asc(botAssignment.endedAt), asc(botAssignment.id));
-  return ended.filter((row) => !delivered.has(row.id));
+  const cancelled = await db
+    .select({
+      id: botAssignment.id,
+      title: botAssignment.title,
+      assignerBotId: botAssignment.assignerBotId,
+      byUser: sql<boolean>`exists (select 1 from ${botAssignmentLog} where ${botAssignmentLog.assignmentId} = ${botAssignment.id} and ${botAssignmentLog.status} = 'cancelled' and ${botAssignmentLog.actor} = 'user')`,
+      read: sql<boolean>`exists (select 1 from ${botTrigger} where ${botTrigger.botId} = ${botAssignment.assignedBotId} and ${botTrigger.source} = 'assignment' and ${botTrigger.id} like ${assignmentTriggerPrefix} || ${botAssignment.id} || '%' and ${botTrigger.turnId} is not null)`,
+      assignedBotId: botAssignment.assignedBotId,
+    })
+    .from(botAssignment)
+    // The join makes the columns above table-qualified, as the subqueries need.
+    .innerJoin(bot, eq(bot.id, botAssignment.assignedBotId))
+    .where(
+      and(
+        eq(botAssignment.status, "cancelled"),
+        or(eq(botAssignment.assignerBotId, botId), eq(botAssignment.assignedBotId, botId)),
+      ),
+    )
+    .orderBy(asc(botAssignment.endedAt), asc(botAssignment.id));
+  const owed = cancelled.filter(
+    (row) => !cancels.has(row.id) && (row.assignedBotId === botId ? row.read : row.byUser),
+  );
+  const assignerIds = owed.flatMap((row) => (row.assignerBotId ? [row.assignerBotId] : []));
+  const assigners = assignerIds.length
+    ? await db.select({ id: bot.id, name: bot.name }).from(bot).where(inArray(bot.id, assignerIds))
+    : [];
+  return [
+    ...ended
+      .filter((row) => !results.has(row.id))
+      .map((row) => ({
+        id: assignmentResultTriggerId(row.id),
+        text: resultNotice(row, row.by, row.status as "done" | "failed", row.result!),
+      })),
+    ...owed.map((row) => ({
+      id: cancelTriggerId(row.id),
+      text: cancelNotice(
+        row,
+        row.byUser
+          ? "the user"
+          : (assigners.find((assigner) => assigner.id === row.assignerBotId)?.name ??
+              "another Bot"),
+      ),
+    })),
+  ];
 }
 
-/** The Trigger that hands a missed result over; its skipped one, if any, holds the plain id. */
+/** The Trigger that hands a missed notice over; its skipped one, if any, holds the plain id. */
 const missedResultTrigger = (
   owner: { botId: string; conversationId: string },
-  row: Awaited<ReturnType<typeof missedResults>>[number],
+  row: Missed,
   receivedAt: Date,
 ) => ({
-  id: `${assignmentResultTriggerId(row.id)}:${uuidv7()}`,
+  id: `${row.id}:${uuidv7()}`,
   botId: owner.botId,
   conversationId: owner.conversationId,
   source: "assignment" as const,
   channel: assignmentChannel,
-  text: resultNotice(row, row.by, row.status as "done" | "failed", row.result!),
+  text: row.text,
   receivedAt,
 });
 
@@ -579,7 +635,7 @@ export const readAssignmentToolName = "read_assignment";
 export const cancelAssignmentToolName = "cancel_assignment";
 
 /** The Trigger that tells a Bot waiting on, or working on, Assignment `id` that it was cancelled. */
-const cancelTriggerId = (id: string) => `assignment_cancel:${id}`;
+const cancelTriggerId = (id: string) => `${assignmentCancelPrefix}${id}`;
 
 /** What a Bot reads when its Assignment was cancelled. */
 function cancelNotice(row: { id: string; title: string }, by: string): string {
