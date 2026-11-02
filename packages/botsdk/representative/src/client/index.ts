@@ -13,6 +13,8 @@ export function representativeClient(): RepresentativeFeatureClient {
 
 export {
   type Draft,
+  type DraftChange,
+  type DraftDiff,
   type ReleaseContent,
   type ReleaseSummary,
   type ReleaseView,

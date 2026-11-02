@@ -66,7 +66,26 @@ export type RepresentativeView = RepresentativeSummary & {
   releases: ReleaseSummary[];
 };
 
+/**
+ * One difference between the draft and the live Release. `before` and `after` are the two sides as
+ * text, and null where that side has none (a Skill or switch only one side holds, a first Release).
+ */
+export type DraftChange = {
+  field: "jobText" | "switch" | "skill" | "tool" | "model" | "test";
+  /** The switch, Skill, tool or test the change is about; null for the job text and Model. */
+  name: string | null;
+  before: string | null;
+  after: string | null;
+};
+
+export type DraftDiff = {
+  /** The Release compared against; null before the first approval, when everything is new. */
+  liveReleaseNumber: number | null;
+  changes: DraftChange[];
+};
+
 export const idInput = z.object({ id: z.uuid() });
+export const rollbackInput = z.object({ id: z.uuid(), releaseId: z.uuid() });
 export const createInput = z.object({
   name: z.string().trim().min(1).max(100),
   botId: z.uuid().optional(),
@@ -88,6 +107,10 @@ export const representativeContract = {
   updateDraft: oc.input(updateDraftInput).output(type<RepresentativeView>()),
   /** Pins the draft as the next numbered Release and makes it live. */
   approve: oc.input(idInput).output(type<ReleaseView>()),
+  /** What the draft changes against the live Release, so the owner reviews only that. */
+  diff: oc.input(idInput).output(type<DraftDiff>()),
+  /** Repoints the live Release to an earlier one of this Representative, with no test and no new Release. */
+  rollback: oc.input(rollbackInput).output(type<RepresentativeView>()),
   /** Switches the Representative on or off, with no new Release. */
   setEnabled: oc.input(setEnabledInput).output(type<RepresentativeView>()),
 };

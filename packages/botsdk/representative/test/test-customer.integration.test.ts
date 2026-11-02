@@ -603,8 +603,10 @@ describe("who can reach a Turn", () => {
     expect(Object.keys(representativeContract).sort()).toEqual([
       "approve",
       "create",
+      "diff",
       "get",
       "list",
+      "rollback",
       "setEnabled",
       "updateDraft",
     ]);
