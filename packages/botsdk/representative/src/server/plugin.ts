@@ -5,6 +5,7 @@ import { representativeApi } from "./api";
 import { representative, representativeRelease } from "./db/schema";
 import representativeMigrations from "./migrations.json" with { type: "json" };
 import { deleteRepresentatives, exportRepresentatives } from "./representatives";
+import { representativeTestJob } from "./tests";
 import { handOffEndedJob, representativeTurnJob } from "./turn";
 
 export type RepresentativeOptions = {
@@ -31,7 +32,7 @@ export function representativeFeature(options: RepresentativeOptions = {}) {
     },
     contract: representativeContract,
     api: (context) => representativeApi(context),
-    jobs: [representativeTurnJob(options.concurrency), handOffEndedJob],
+    jobs: [representativeTurnJob(options.concurrency), handOffEndedJob, representativeTestJob],
     userData: {
       delete: { before: (tx, userId) => deleteRepresentatives(tx, userId) },
       export: async (tx, userId) => ({

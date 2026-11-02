@@ -23,7 +23,14 @@ export function useRepresentatives() {
 
 /** One Representative with its draft and Releases (`representative.get`). */
 export function useRepresentativeDetail(id: string) {
-  return useQuery(useRepresentative().get.queryOptions({ input: { id } }));
+  return useQuery({
+    ...useRepresentative().get.queryOptions({ input: { id } }),
+    // While its tests run, the page watches for their results.
+    refetchInterval: (query) =>
+      query.state.data?.tests.some((test) => test.status === "queued" || test.status === "running")
+        ? 1_000
+        : false,
+  });
 }
 
 /** Creates a Representative (`representative.create`). */
@@ -41,6 +48,11 @@ export function useUpdateDraft(options?: ProcedureMutationOptions<Representative
 /** Approves the draft into a Release (`representative.approve`). */
 export function useApproveRelease(options?: ProcedureMutationOptions<Representative["approve"]>) {
   return useMutation(useRepresentative().approve.mutationOptions(options));
+}
+
+/** Runs the draft's test conversations (`representative.runTests`). */
+export function useRunTests(options?: ProcedureMutationOptions<Representative["runTests"]>) {
+  return useMutation(useRepresentative().runTests.mutationOptions(options));
 }
 
 /** Switches a Representative on or off (`representative.setEnabled`). */

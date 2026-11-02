@@ -605,6 +605,8 @@ describe("who can reach a Turn", () => {
       "create",
       "get",
       "list",
+      // Plays a draft's test conversations (#1192), each a test job: no Turn, no Customer.
+      "runTests",
       "setEnabled",
       "updateDraft",
     ]);

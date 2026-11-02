@@ -13,9 +13,12 @@ import {
   type RepresentativeView,
   representativeTools,
 } from "../shared/contract";
-import { representative, representativeRelease } from "./db/schema";
+import { representative, representativeRelease, representativeTestResult } from "./db/schema";
+import { draftHash } from "./test-checks";
+import { normalizedDraft, representativeTestJob, testStateOf } from "./tests";
 
 type Context = Pick<FeatureContext, "db">;
+type JobsContext = Pick<FeatureContext, "db" | "jobs">;
 type Row = typeof representative.$inferSelect;
 
 /** What a new Representative's draft holds: no job text yet, no switches or Skills, every tool. */
@@ -25,6 +28,7 @@ export const emptyDraft = (): Draft => ({
   skills: [],
   tools: [...representativeTools],
   model: null,
+  tests: [],
 });
 
 const notFound = () =>
@@ -39,15 +43,17 @@ async function ownedRow(db: Context["db"] | Transaction, userId: string, id: str
     .limit(1);
   const [row] = await (lock ? query.for("update") : query);
   if (!row) throw notFound();
-  return row;
+  return { ...row, draft: normalizedDraft(row.draft) };
 }
 
-async function view(db: Context["db"] | Transaction, row: Row): Promise<RepresentativeView> {
+async function view(db: Context["db"] | Transaction, source: Row): Promise<RepresentativeView> {
+  const row = { ...source, draft: normalizedDraft(source.draft) };
   const releases = await db
     .select({
       id: representativeRelease.id,
       number: representativeRelease.number,
       approvedAt: representativeRelease.approvedAt,
+      overrideReason: representativeRelease.overrideReason,
       content: representativeRelease.content,
     })
     .from(representativeRelease)
@@ -58,11 +64,13 @@ async function view(db: Context["db"] | Transaction, row: Row): Promise<Represen
     ...summaryOf(row, live?.number ?? null),
     draft: row.draft,
     liveRelease: live,
-    releases: releases.map(({ id, number, approvedAt }): ReleaseSummary => ({
+    releases: releases.map(({ id, number, approvedAt, overrideReason }): ReleaseSummary => ({
       id,
       number,
       approvedAt,
+      overrideReason,
     })),
+    ...(await testStateOf(db, row)),
   };
 }
 
@@ -173,13 +181,50 @@ export async function setEnabled(
 }
 
 /**
+ * Runs the draft's test conversations, each on a job, and returns at once. Earlier results go: only
+ * the draft as it is now has any. The jobs are queued in the transaction that records the results.
+ */
+export async function runTests(
+  { db, jobs }: JobsContext,
+  userId: string,
+  id: string,
+): Promise<RepresentativeView> {
+  const started = await db.transaction(async (tx) => {
+    const row = await ownedRow(tx, userId, id, true);
+    await tx
+      .delete(representativeTestResult)
+      .where(eq(representativeTestResult.representativeId, id));
+    const hash = draftHash(row.draft);
+    for (const position of row.draft.tests.keys()) {
+      const resultId = uuidv7();
+      await tx.insert(representativeTestResult).values({
+        id: resultId,
+        representativeId: id,
+        draftHash: hash,
+        position,
+        status: "queued",
+        transcript: [],
+        checks: [],
+      });
+      await jobs.enqueueIn(tx, representativeTestJob, { resultId });
+    }
+    return view(tx, row);
+  });
+  jobs.wake();
+  return started;
+}
+
+/**
  * Pins the draft as the next numbered Release and points the Representative's live Release at it.
- * The Representative's row is locked, so two approvals never take one number.
+ * The Representative's row is locked, so two approvals never take one number. A draft whose tests
+ * have failed, or haven't finished for the draft as it is now, needs `overrideReason`, which is
+ * kept with the Release.
  */
 export async function approveDraft(
   { db }: Context,
   userId: string,
   id: string,
+  overrideReason?: string,
 ): Promise<ReleaseView> {
   return db.transaction(async (tx) => {
     const row = await ownedRow(tx, userId, id, true);
@@ -189,6 +234,31 @@ export async function approveDraft(
         "error.representativeJobTextBlank",
         "A Release needs job text: write what the Representative should do",
       );
+    }
+    const { testStatus } = await testStateOf(tx, row);
+    let reason: string | null = null;
+    if (testStatus !== "none" && testStatus !== "passed") {
+      if (overrideReason === undefined) {
+        throw testStatus === "failed"
+          ? rpcError(
+              "BAD_REQUEST",
+              "error.representativeTestsFailed",
+              "A test has failed: fix the draft, or approve anyway with a reason",
+            )
+          : rpcError(
+              "BAD_REQUEST",
+              "error.representativeTestsUnfinished",
+              "The tests haven't finished for this draft: run them, or approve anyway with a reason",
+            );
+      }
+      reason = overrideReason.trim();
+      if (reason === "") {
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.representativeOverrideReason",
+          "Approving anyway needs a reason",
+        );
+      }
     }
     const [last] = await tx
       .select({ latest: max(representativeRelease.number) })
@@ -200,7 +270,8 @@ export async function approveDraft(
         id: uuidv7(),
         representativeId: id,
         number: (last?.latest ?? 0) + 1,
-        content: structuredClone({ ...row.draft, documentSnapshot: null, tests: [] }),
+        content: structuredClone({ ...row.draft, documentSnapshot: null }),
+        overrideReason: reason,
       })
       .returning();
     await tx
@@ -211,6 +282,7 @@ export async function approveDraft(
       id: release!.id,
       number: release!.number,
       approvedAt: release!.approvedAt,
+      overrideReason: release!.overrideReason,
       content: release!.content,
     };
   });
@@ -238,11 +310,12 @@ export async function exportRepresentatives(tx: Transaction, userId: string) {
       liveReleaseId: row.liveReleaseId,
       draft: row.draft,
       createdAt: row.createdAt,
-      releases: releases.map(({ id, number, content, approvedAt }) => ({
+      releases: releases.map(({ id, number, content, approvedAt, overrideReason }) => ({
         id,
         number,
         content,
         approvedAt,
+        overrideReason,
       })),
     });
   }

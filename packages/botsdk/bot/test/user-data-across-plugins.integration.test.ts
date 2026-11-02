@@ -222,7 +222,14 @@ async function seedEverything(
       userId: user.id,
       botId,
       name: "Front desk",
-      draft: { jobText: "Answer", switches: {}, skills: [], tools: ["reply"], model: null },
+      draft: {
+        jobText: "Answer",
+        switches: {},
+        skills: [],
+        tools: ["reply"],
+        model: null,
+        tests: [],
+      },
     });
   await getTestDb()
     .insert(representativeRelease)

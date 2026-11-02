@@ -1,11 +1,18 @@
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { parseInput, type WithUser } from "@botsdk/bot/rpc-error";
-import { createInput, idInput, setEnabledInput, updateDraftInput } from "../shared/contract";
+import {
+  approveInput,
+  createInput,
+  idInput,
+  setEnabledInput,
+  updateDraftInput,
+} from "../shared/contract";
 import {
   approveDraft,
   createRepresentative,
   getRepresentative,
   listRepresentatives,
+  runTests,
   setEnabled,
   updateDraft,
 } from "./representatives";
@@ -32,8 +39,13 @@ export function representativeApi(context: FeatureContext) {
       return updateDraft(context, userId, id, draft);
     },
 
-    approve: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
-      approveDraft(context, userId, parseInput(idInput, rest).id),
+    runTests: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      runTests(context, userId, parseInput(idInput, rest).id),
+
+    approve: async ({ userId, ...rest }: WithUser<typeof approveInput>) => {
+      const { id, overrideReason } = parseInput(approveInput, rest);
+      return approveDraft(context, userId, id, overrideReason);
+    },
 
     setEnabled: async ({ userId, ...rest }: WithUser<typeof setEnabledInput>) => {
       const { id, enabled } = parseInput(setEnabledInput, rest);

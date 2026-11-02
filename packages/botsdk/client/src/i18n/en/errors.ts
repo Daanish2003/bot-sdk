@@ -29,6 +29,11 @@ export const errorMessages = {
   "error.representativeJobTextBlank":
     "Write the job text before approving: a Release needs to say what the Representative does.",
   "error.representativeNoRelease": "Approve a Release before switching this Representative on.",
+  "error.representativeTestsFailed":
+    "A test conversation failed. Fix the draft, or approve anyway and say why.",
+  "error.representativeTestsUnfinished":
+    "The tests haven't finished for this draft. Run them, or approve anyway and say why.",
+  "error.representativeOverrideReason": "Say why you are approving anyway.",
   "error.routineNotFound": "Routine not found",
   "error.routineNotWebhook": "Only an approved webhook Routine has a URL to rotate",
   "error.routineWebhookSchedule": "A webhook Routine has no schedule to edit",

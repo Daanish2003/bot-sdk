@@ -11,7 +11,13 @@ import {
 } from "drizzle-orm/pg-core";
 
 import { bot, botsdkSchema } from "@botsdk/bot/storage";
-import type { Draft, ReleaseContent } from "../../shared/contract";
+import type {
+  Draft,
+  ReleaseContent,
+  TestCheck,
+  TestResultStatus,
+  TranscriptEntry,
+} from "../../shared/contract";
 
 /**
  * A Representative (spec #1167): an agent that speaks for one user's business. It holds the
@@ -52,6 +58,33 @@ export const representativeRelease = botsdkSchema.table(
     /** What the Release pins: job text, switches, Skills, tools, Model, document snapshot and tests. */
     content: jsonb("content").$type<ReleaseContent>().notNull(),
     approvedAt: timestamp("approved_at").defaultNow().notNull(),
+    /** Why the owner approved with tests failed or unfinished (ticket #1192); null when they allowed it. */
+    overrideReason: text("override_reason"),
   },
   (table) => [unique("representative_release_number").on(table.representativeId, table.number)],
+);
+
+/**
+ * The result of one of a draft's test conversations (ticket #1192). `draftHash` says which draft it
+ * ran on, so it counts only while the draft is still that one. A new run deletes the rows before it.
+ */
+export const representativeTestResult = botsdkSchema.table(
+  "representative_test_result",
+  {
+    id: uuid("id").primaryKey(),
+    representativeId: uuid("representative_id")
+      .notNull()
+      .references((): AnyPgColumn => representative.id, { onDelete: "cascade" }),
+    draftHash: text("draft_hash").notNull(),
+    /** The conversation's place in the draft's `tests`. */
+    position: integer("position").notNull(),
+    status: text("status").$type<TestResultStatus>().notNull(),
+    transcript: jsonb("transcript").$type<TranscriptEntry[]>().notNull(),
+    checks: jsonb("checks").$type<TestCheck[]>().notNull(),
+    error: text("error"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    unique("representative_test_result_position").on(table.representativeId, table.position),
+  ],
 );

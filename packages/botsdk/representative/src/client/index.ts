@@ -13,11 +13,18 @@ export function representativeClient(): RepresentativeFeatureClient {
 
 export {
   type Draft,
+  type Expectation,
   type ReleaseContent,
   type ReleaseSummary,
   type ReleaseView,
   type RepresentativeSummary,
   type RepresentativeTool,
   type RepresentativeView,
+  type TestCheck,
+  type TestConversation,
+  type TestResultStatus,
+  type TestResultView,
+  type TestStatus,
+  type TranscriptEntry,
   representativeTools,
 } from "../shared/contract";

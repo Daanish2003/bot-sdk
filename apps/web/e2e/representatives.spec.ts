@@ -68,3 +68,39 @@ test("an owner can't open another owner's Representative", async ({ page, browse
     await context.close();
   }
 });
+
+test("failed tests block approval until the owner approves anyway with a reason", async ({
+  page,
+}) => {
+  await signInAsSeededUser(page);
+  await page.goto("/representatives");
+  await page.getByLabel("Name").fill("Tested");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(page).toHaveURL(/\/representatives\/[\w-]+$/);
+
+  await page.getByLabel("Job text").fill("Answer questions about opening hours.");
+  await page.getByRole("button", { name: "Add test conversation" }).click();
+  await page.getByLabel("Conversation name").fill("Opening hours");
+  await page.getByLabel("Customer says").fill("When do you open?");
+  await page.getByLabel("Expectation", { exact: true }).selectOption({ label: "Says" });
+  await page.getByLabel("Text", { exact: true }).fill("nine");
+
+  // The e2e Host's fake Model never says "nine", so the test fails.
+  await page.getByRole("button", { name: "Run tests" }).click();
+  await expect(page.locator('[data-test-result="failed"]')).toBeVisible();
+  await expect(page.locator('[data-test-result="failed"]')).toHaveAttribute("open", "");
+  await expect(page.getByText("A test failed. Approving needs a reason.")).toBeVisible();
+
+  // Approve is refused, and Approve anyway needs a reason.
+  await expect(page.getByRole("button", { name: "Approve as a new Release" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Approve anyway" })).toBeDisabled();
+  await page.getByLabel("Reason for approving anyway").fill("The fake Model cannot say it.");
+  await page.getByRole("button", { name: "Approve anyway" }).click();
+  await expect(page.getByText("Live: Release 1")).toBeVisible();
+
+  // Editing the draft voids the results: they are no longer shown for it.
+  await page.getByLabel("Job text").fill("Answer anything.");
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect(page.getByText("The tests haven't run on this draft.")).toBeVisible();
+  await expect(page.locator("[data-test-result]")).toHaveCount(0);
+});

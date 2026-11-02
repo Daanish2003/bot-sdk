@@ -94,6 +94,7 @@ describe("creating and editing a Representative", () => {
       skills: [],
       tools: ["reply"],
       model: "openai:gpt-6-luna",
+      tests: [],
     });
   });
 

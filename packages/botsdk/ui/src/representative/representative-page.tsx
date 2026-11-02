@@ -12,6 +12,7 @@ import {
   useApproveRelease,
   useRefreshRepresentatives,
   useRepresentativeDetail,
+  useRunTests,
   useSetRepresentativeEnabled,
   useUpdateDraft,
 } from "@botsdk/representative/react";
@@ -21,6 +22,8 @@ import {
   type RepresentativeView,
   representativeTools,
 } from "@botsdk/representative/client";
+
+import { TestConversationsEditor, TestResults } from "./representative-tests";
 
 const toolKeys = {
   reply: "representative.toolReply",
@@ -47,8 +50,20 @@ function DraftEditor({ representative }: { representative: RepresentativeView })
     },
     onError: (error) => toast.error(serverErrorText(i18n, error)),
   });
-  const busy = save.isPending || approve.isPending;
+  const run = useRunTests({
+    onSuccess: async () => {
+      await refresh();
+      toast.success(t("representative.runTestsStarted"));
+    },
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  const [reason, setReason] = useState("");
+  const busy = save.isPending || approve.isPending || run.isPending;
   const body = { id: representative.id, draft };
+  // Tests that failed, or haven't run for this draft, hold Approve back until a reason is given.
+  const blocked = representative.testStatus !== "none" && representative.testStatus !== "passed";
+  // Saving changes the draft, which voids its results: the saved status is only true of the saved draft.
+  const dirty = JSON.stringify(draft) !== JSON.stringify(representative.draft);
   return (
     <section className="space-y-4">
       <div className="space-y-1">
@@ -99,12 +114,29 @@ function DraftEditor({ representative }: { representative: RepresentativeView })
           }
         />
       </div>
+      <TestConversationsEditor
+        tests={draft.tests}
+        onChange={(tests) => setDraft({ ...draft, tests })}
+      />
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" disabled={busy} onClick={() => save.mutate(body)}>
           {t("representative.saveDraft")}
         </Button>
         <Button
-          disabled={busy}
+          variant="outline"
+          disabled={busy || draft.tests.length === 0}
+          // The tests run on the saved draft: the form's edits are saved first.
+          onClick={() =>
+            save
+              .mutateAsync(body)
+              .then(() => run.mutateAsync({ id: representative.id }))
+              .catch(() => {})
+          }
+        >
+          {t("representative.runTests")}
+        </Button>
+        <Button
+          disabled={busy || (blocked && !dirty)}
           // The server approves what it holds: the form's edits are saved first.
           onClick={() =>
             save
@@ -117,6 +149,32 @@ function DraftEditor({ representative }: { representative: RepresentativeView })
           {t("representative.approve")}
         </Button>
       </div>
+      <TestResults representative={representative} />
+      {blocked && (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">{t("representative.overrideHelp")}</p>
+          <Label htmlFor="representative-override">{t("representative.overrideReason")}</Label>
+          <Input
+            id="representative-override"
+            value={reason}
+            maxLength={1_000}
+            onChange={(event) => setReason(event.target.value)}
+          />
+          <Button
+            variant="outline"
+            disabled={busy || reason.trim() === ""}
+            onClick={() =>
+              // The reason belongs to the draft it is given for: its edits are saved first.
+              save
+                .mutateAsync(body)
+                .then(() => approve.mutateAsync({ id: representative.id, overrideReason: reason }))
+                .catch(() => {})
+            }
+          >
+            {t("representative.approveAnyway")}
+          </Button>
+        </div>
+      )}
     </section>
   );
 }
