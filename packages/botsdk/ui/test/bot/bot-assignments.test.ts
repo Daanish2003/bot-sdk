@@ -35,6 +35,8 @@ const draft = (fields: Partial<BotAssignment> = {}): BotAssignment => ({
   assignerBotId: "b1",
   assignerName: "Scout",
   assignerTrusted: true,
+  parent: null,
+  children: [],
   overdueAt: null,
   createdAt,
   endedAt: null,
@@ -252,6 +254,28 @@ describe("following and cancelling an Assignment", () => {
     fireEvent.click(within(log).getAllByRole("button", { name: "Turn" })[0]!);
     expect(turn.scrollIntoView).toHaveBeenCalled();
     turn.remove();
+  });
+
+  it("shows the Assignment it was split off from, and those split off from it with their status", async () => {
+    mount(
+      [],
+      [
+        draft({
+          status: "blocked",
+          parent: { id: "p1", title: "Plan the launch", botName: "Scout" },
+          children: [{ id: "c1", title: "Check the facts", botName: "Editor", status: "working" }],
+        }),
+      ],
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Assignment from Scout: Draft the post/ }),
+    );
+
+    expect(await screen.findByText("Part of Scout's Assignment: Plan the launch")).toBeTruthy();
+    const children = within(screen.getByRole("list", { name: "Split off" }));
+    expect(children.getByText("Check the facts, Editor")).toBeTruthy();
+    expect(children.getByText("Working")).toBeTruthy();
   });
 
   it("cancels from its collapsed item", async () => {

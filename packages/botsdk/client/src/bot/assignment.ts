@@ -31,6 +31,13 @@ export type AssignmentLogEntry = {
   at: Date;
 };
 
+/** Another Assignment that an Assignment is linked to, and the Bot it's handed to. */
+export type AssignmentLink = {
+  id: string;
+  title: string;
+  botName: string;
+};
+
 /** An Assignment handed to a Bot, as its owner reads it. */
 export type BotAssignment = {
   id: string;
@@ -44,6 +51,10 @@ export type BotAssignment = {
   assignerName: string | null;
   /** Whether the assigner's text is a Bot's. A feature's is untrusted, never the user's word. */
   assignerTrusted: boolean;
+  /** The Assignment it was split off from. */
+  parent: AssignmentLink | null;
+  /** The Assignments split off from it, oldest first. */
+  children: (AssignmentLink & { status: AssignmentStatus })[];
   overdueAt: Date | null;
   createdAt: Date;
   endedAt: Date | null;

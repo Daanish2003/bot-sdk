@@ -71,6 +71,10 @@ export const botsMessages = {
   "bots.assignmentTurn": "Turn",
   "bots.assignmentForCustomer": ({ text }: { text: string }) => `For a Customer: ${text}`,
   "bots.assignmentWhen": ({ when }: { when: string }) => `When: ${when}`,
+  "bots.assignmentPartOf": ({ title, bot }: { title: string; bot: string }) =>
+    `Part of ${bot}'s Assignment: ${title}`,
+  "bots.assignmentChildren": "Split off",
+  "bots.assignmentChild": ({ title, bot }: { title: string; bot: string }) => `${title}, ${bot}`,
   "bots.generalHelper": "General Helper",
   "bots.computerUseHelper": "Computer-use Helper",
   "bots.helperWorking": "Working",

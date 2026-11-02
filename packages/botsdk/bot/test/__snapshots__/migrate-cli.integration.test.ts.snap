@@ -633,7 +633,17 @@ ALTER TABLE "botsdk"."bot_assignment_log" ADD CONSTRAINT "bot_assignment_log_ass
 insert into botsdk.__migrations (feature, migration) values ('core', '20261102112338_assignments');
 commit;
 
--- core/20261102152742_huge_guardsmen
+-- core/20261102153200_assignment_children
+begin;
+ALTER TABLE "botsdk"."bot_assignment" ADD COLUMN "parent_assignment_id" uuid;--> statement-breakpoint
+ALTER TABLE "botsdk"."bot_assignment" ADD COLUMN "depth" integer DEFAULT 1 NOT NULL;--> statement-breakpoint
+CREATE INDEX "bot_assignment_parent_assignment_id_idx" ON "botsdk"."bot_assignment" ("parent_assignment_id");--> statement-breakpoint
+ALTER TABLE "botsdk"."bot_assignment" ADD CONSTRAINT "bot_assignment_parent_assignment_id_bot_assignment_id_fkey" FOREIGN KEY ("parent_assignment_id") REFERENCES "botsdk"."bot_assignment"("id") ON DELETE SET NULL;
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261102153200_assignment_children');
+commit;
+
+-- core/20261102161247_conscious_sauron
 begin;
 ALTER TYPE "botsdk"."bot_assignment_actor" ADD VALUE 'feature';--> statement-breakpoint
 ALTER TABLE "botsdk"."bot_assignment" ADD COLUMN "assigner_feature" text;--> statement-breakpoint
@@ -642,7 +652,7 @@ ALTER TABLE "botsdk"."bot_assignment" ADD COLUMN "assigner_trusted" boolean DEFA
 ALTER TABLE "botsdk"."bot_assignment" ADD CONSTRAINT "bot_assignment_assigner_feature_check" CHECK (("assigner_feature" is null) = ("assigner_job" is null));--> statement-breakpoint
 ALTER TABLE "botsdk"."bot_assignment" ADD CONSTRAINT "bot_assignment_assigner_trusted_check" CHECK ("assigner_trusted" = ("assigner_feature" is null));
 ;
-insert into botsdk.__migrations (feature, migration) values ('core', '20261102152742_huge_guardsmen');
+insert into botsdk.__migrations (feature, migration) values ('core', '20261102161247_conscious_sauron');
 commit;
 
 -- notes/0001_note

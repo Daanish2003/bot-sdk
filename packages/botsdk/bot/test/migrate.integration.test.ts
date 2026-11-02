@@ -209,7 +209,8 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030171013_trigger_hops" },
       { feature: "core", migration: "20261101163206_skinny_lady_ursula" },
       { feature: "core", migration: "20261102112338_assignments" },
-      { feature: "core", migration: "20261102152742_huge_guardsmen" },
+      { feature: "core", migration: "20261102153200_assignment_children" },
+      { feature: "core", migration: "20261102161247_conscious_sauron" },
     ]);
     // Images and PDFs are already compressed, so the bytes are kept out of line uncompressed.
     expect(
@@ -262,7 +263,8 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030171013_trigger_hops" },
       { feature: "core", migration: "20261101163206_skinny_lady_ursula" },
       { feature: "core", migration: "20261102112338_assignments" },
-      { feature: "core", migration: "20261102152742_huge_guardsmen" },
+      { feature: "core", migration: "20261102153200_assignment_children" },
+      { feature: "core", migration: "20261102161247_conscious_sauron" },
     ]);
     expect(
       await rows(url, "update botsdk.bot_review set state = 'pending' returning state, expires_at"),
@@ -408,7 +410,8 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030171013_trigger_hops" },
       { feature: "core", migration: "20261101163206_skinny_lady_ursula" },
       { feature: "core", migration: "20261102112338_assignments" },
-      { feature: "core", migration: "20261102152742_huge_guardsmen" },
+      { feature: "core", migration: "20261102153200_assignment_children" },
+      { feature: "core", migration: "20261102161247_conscious_sauron" },
       { feature: "notes", migration: "0001_note" },
       { feature: "mcp", migration: "20261026182927_mcp_baseline" },
     ]);
@@ -442,7 +445,8 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030171013_trigger_hops" },
       { feature: "core", migration: "20261101163206_skinny_lady_ursula" },
       { feature: "core", migration: "20261102112338_assignments" },
-      { feature: "core", migration: "20261102152742_huge_guardsmen" },
+      { feature: "core", migration: "20261102153200_assignment_children" },
+      { feature: "core", migration: "20261102161247_conscious_sauron" },
       { feature: "notes", migration: "0001_note" },
       { feature: "notes", migration: "0002_note_text" },
     ]);
@@ -580,7 +584,8 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030171013_trigger_hops" },
       { feature: "core", migration: "20261101163206_skinny_lady_ursula" },
       { feature: "core", migration: "20261102112338_assignments" },
-      { feature: "core", migration: "20261102152742_huge_guardsmen" },
+      { feature: "core", migration: "20261102153200_assignment_children" },
+      { feature: "core", migration: "20261102161247_conscious_sauron" },
       { feature: "notes", migration: "0001_note" },
     ]);
   });

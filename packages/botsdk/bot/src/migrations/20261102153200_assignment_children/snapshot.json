@@ -1,11 +1,11 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "feba0291-a871-449d-91e8-82286946b1d6",
+  "id": "01c80183-ea80-4714-885d-c2172c33936c",
   "prevIds": ["84131419-73c6-482e-9345-4fe9330fce5c"],
   "ddl": [
     {
-      "values": ["bot", "user", "system", "feature"],
+      "values": ["bot", "user", "system"],
       "name": "bot_assignment_actor",
       "entityType": "enums",
       "schema": "botsdk"
@@ -763,40 +763,27 @@
       "table": "bot_assignment"
     },
     {
-      "type": "text",
+      "type": "uuid",
       "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "assigner_feature",
+      "name": "parent_assignment_id",
       "entityType": "columns",
       "schema": "botsdk",
       "table": "bot_assignment"
     },
     {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "assigner_job",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "bot_assignment"
-    },
-    {
-      "type": "boolean",
+      "type": "integer",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "true",
+      "default": "1",
       "generated": null,
       "identity": null,
-      "name": "assigner_trusted",
+      "name": "depth",
       "entityType": "columns",
       "schema": "botsdk",
       "table": "bot_assignment"
@@ -4166,6 +4153,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "parent_assignment_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "bot_assignment_parent_assignment_id_idx",
+      "entityType": "indexes",
+      "schema": "botsdk",
+      "table": "bot_assignment"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "assignment_id",
           "isExpression": false,
           "asc": true,
@@ -5028,6 +5036,19 @@
     },
     {
       "nameExplicit": false,
+      "columns": ["parent_assignment_id"],
+      "schemaTo": "botsdk",
+      "tableTo": "bot_assignment",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "bot_assignment_parent_assignment_id_bot_assignment_id_fkey",
+      "entityType": "fks",
+      "schema": "botsdk",
+      "table": "bot_assignment"
+    },
+    {
+      "nameExplicit": false,
       "columns": ["assignment_id"],
       "schemaTo": "botsdk",
       "tableTo": "bot_assignment",
@@ -5827,20 +5848,6 @@
     {
       "value": "(\"status\" in ('done', 'failed')) = (\"result\" is not null)",
       "name": "bot_assignment_result_check",
-      "entityType": "checks",
-      "schema": "botsdk",
-      "table": "bot_assignment"
-    },
-    {
-      "value": "(\"assigner_feature\" is null) = (\"assigner_job\" is null)",
-      "name": "bot_assignment_assigner_feature_check",
-      "entityType": "checks",
-      "schema": "botsdk",
-      "table": "bot_assignment"
-    },
-    {
-      "value": "\"assigner_trusted\" = (\"assigner_feature\" is null)",
-      "name": "bot_assignment_assigner_trusted_check",
       "entityType": "checks",
       "schema": "botsdk",
       "table": "bot_assignment"

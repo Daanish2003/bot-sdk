@@ -1,4 +1,4 @@
-import { toolDefinition, type TextOptions } from "@tanstack/ai";
+import { toolDefinition, type AnyTextAdapter, type TextOptions } from "@tanstack/ai";
 import { and, asc, eq, isNotNull, isNull, like } from "drizzle-orm";
 import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
@@ -86,6 +86,7 @@ async function botWith(
   features: FeatureEntry[],
   reviewer?: ReturnType<typeof fakeReviewer>,
   manual = false,
+  adapter?: AnyTextAdapter,
 ) {
   const fake = createFakeAdapter({ rounds, manual });
   let deps: TestDeps | undefined;
@@ -98,7 +99,7 @@ async function botWith(
   deps = createTestSdk({
     jobs,
     features,
-    adapterFor: () => fake.adapter,
+    adapterFor: () => adapter ?? fake.adapter,
     memory: false,
     ...(reviewer && {
       computer: fakeComputerProvider().provider,
@@ -458,6 +459,134 @@ describe("a feature assigning work", () => {
       }),
     ]);
   });
+});
+
+describe("a feature's Assignment its Bot splits", () => {
+  /** The Bot a call is from, as its Prompt start names it. */
+  const callerOf = (call: TextOptions) =>
+    /Your name: (\w+)/.exec(JSON.stringify(call.messages))?.[1] as "Clerk" | "Helper";
+
+  /** Clerk and Helper, each playing its own rounds, and the `repairs` feature. */
+  async function clerkAndHelper(rounds: { Clerk: Round[]; Helper: Round[] }) {
+    const repairs = assigner();
+    const fakes = {
+      Clerk: createFakeAdapter({ rounds: rounds.Clerk }),
+      Helper: createFakeAdapter({ rounds: rounds.Helper }),
+    };
+    const { deps, user, client, botId } = await botWith([], [repairs.feature], undefined, false, {
+      ...fakes.Clerk.adapter,
+      chatStream: (options: TextOptions) => fakes[callerOf(options)].adapter.chatStream(options),
+    });
+    const helper = await client.bots.create({ name: "Helper", model });
+    return { repairs, fakes, deps, user, client, clerkId: botId, helperId: helper.id };
+  }
+
+  const split = round(
+    runs("assign_work", { bot: "Helper", title: "Order the part", instructions: "Order it." }),
+  );
+
+  it.each(["the feature", "the owner"] as const)(
+    "cancels its open children when %s cancels it, and queues only its own job",
+    async (who) => {
+      const { repairs, user, client, clerkId, helperId } = await clerkAndHelper({
+        Clerk: [split, quiet],
+        Helper: [quiet, quiet],
+      });
+      const { id } = await repairs
+        .assignments()
+        .create({ userId: user.id, botId: clerkId, ...work, job: repairs.onEnded });
+      await expect
+        .poll(async () => (await client.assignments.list({ botId: helperId }))[0]?.status, poll)
+        .toBe("working");
+      expect((await client.assignments.list({ botId: clerkId }))[0]?.status).toBe("blocked");
+
+      if (who === "the feature") await repairs.assignments().cancel({ userId: user.id, id });
+      else await client.assignments.cancel({ botId: clerkId, assignmentId: id });
+
+      await expect
+        .poll(() => repairs.endings, poll)
+        .toEqual([
+          { assignmentId: id, userId: user.id, botId: clerkId, status: "cancelled", result: null },
+        ]);
+      const [child] = await client.assignments.list({ botId: helperId });
+      expect(child?.status).toBe("cancelled");
+      expect(child?.log.at(-1)).toMatchObject({ status: "cancelled", actor: "system" });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(repairs.endings).toHaveLength(1);
+    },
+    timeout,
+  );
+
+  it(
+    "queues the job when the Bot finishes it after its child ended, not when the child did",
+    async () => {
+      const top = { id: "" };
+      const { repairs, user, client, clerkId, helperId } = await clerkAndHelper({
+        Clerk: [
+          split,
+          quiet,
+          () =>
+            round(runs("finish_assignment", { id: top.id, status: "done", outcome: "Booked." })),
+          quiet,
+        ],
+        Helper: [
+          (call) =>
+            round(
+              runs("finish_assignment", {
+                id: assignmentIdIn(call),
+                status: "done",
+                outcome: "Ordered.",
+              }),
+            ),
+          quiet,
+        ],
+      });
+      ({ id: top.id } = await repairs
+        .assignments()
+        .create({ userId: user.id, botId: clerkId, ...work, job: repairs.onEnded }));
+
+      await expect
+        .poll(() => repairs.endings, poll)
+        .toEqual([
+          {
+            assignmentId: top.id,
+            userId: user.id,
+            botId: clerkId,
+            status: "done",
+            result: { outcome: "Booked." },
+          },
+        ]);
+      expect((await client.assignments.list({ botId: helperId }))[0]?.status).toBe("done");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(repairs.endings).toHaveLength(1);
+    },
+    timeout,
+  );
+
+  it(
+    "queues the job when the Bot finishes it with a child still open, which is cancelled",
+    async () => {
+      const top = { id: "" };
+      const { repairs, user, client, clerkId, helperId } = await clerkAndHelper({
+        Clerk: [
+          split,
+          () =>
+            round(runs("finish_assignment", { id: top.id, status: "done", outcome: "Booked." })),
+          quiet,
+        ],
+        Helper: [quiet, quiet],
+      });
+      ({ id: top.id } = await repairs
+        .assignments()
+        .create({ userId: user.id, botId: clerkId, ...work, job: repairs.onEnded }));
+
+      await expect
+        .poll(() => repairs.endings.map((ending) => ending.assignmentId), poll)
+        .toEqual([top.id]);
+      expect((await client.assignments.list({ botId: helperId }))[0]?.status).toBe("cancelled");
+    },
+    timeout,
+  );
 });
 
 describe("what a feature's text is to the Bot", () => {

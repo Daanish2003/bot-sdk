@@ -24,7 +24,10 @@ const assignWorkDefinition = toolDefinition({
   description:
     "Hand a piece of work to another of the user's Bots, with no Room needed. It wakes that Bot, " +
     "which works on it for as many Turns as it takes and finishes it, and you are woken with the " +
-    "result. A wrong name is answered with the names of the user's other Bots.",
+    "result. A wrong name is answered with the names of the user's other Bots. Called while you " +
+    "work on an Assignment, it splits part of that one off as a child: yours shows blocked until " +
+    "its children end, a child that fails doesn't fail yours, and finishing yours cancels those " +
+    "still open. A chain of Assignments stops at 3 deep.",
   inputSchema: z.object({
     bot: z.string().trim().min(1, "bot must not be empty").meta({
       description: "The name of the Bot to hand it to, one of the user's other Bots.",
@@ -35,6 +38,14 @@ const assignWorkDefinition = toolDefinition({
     instructions: assignmentInstructionsInput.meta({
       description: "The work, with everything that Bot needs: it can't see this Conversation.",
     }),
+    parent: z
+      .uuid()
+      .optional()
+      .meta({
+        description:
+          "The id of the Assignment handed to you that this is part of. Only needed when this Turn " +
+          "didn't start from it, or started from several.",
+      }),
   }),
 });
 
@@ -42,7 +53,8 @@ const finishAssignmentDefinition = toolDefinition({
   name: finishAssignmentToolName,
   description:
     "End an Assignment handed to you, as done or failed. Your Turn ending never ends one: only " +
-    "this does, and only once. Whoever assigned it gets this result.",
+    "this does, and only once. Whoever assigned it gets this result. Any child Assignments of " +
+    "it still open are cancelled.",
   inputSchema: z.object({
     id: z.uuid().meta({ description: "The Assignment's id, as the notice that woke you gave it." }),
     status: z.enum(["done", "failed"]).meta({
@@ -100,8 +112,8 @@ const addAssignmentNoteDefinition = toolDefinition({
 const cancelAssignmentDefinition = toolDefinition({
   name: cancelAssignmentToolName,
   description:
-    "Cancel an Assignment you started that hasn't ended, so the work on it stops. Only the Bot " +
-    "that started it may.",
+    "Cancel an Assignment you started that hasn't ended, so the work on it stops. Any child " +
+    "Assignments of it still open are cancelled too. Only the Bot that started it may.",
   inputSchema: z.object({ id: assignmentId }),
 });
 
@@ -111,20 +123,27 @@ export function assignmentTools(
   turn: { id: string; botId: string; userId: string },
   liveActivity: LoopKit["liveActivity"],
 ) {
-  const assign = assignWorkDefinition.server(async ({ bot, title, instructions }, context) => {
-    // Set only by a live write, afresh on each try of it.
-    let woken: string | undefined;
-    const answer = await liveActivity(assignWorkToolName, context?.toolCallId, async (tx) => {
-      woken = undefined;
-      const assigned = await assignWork(deps, tx, turn, { botName: bot, title, instructions });
-      if ("error" in assigned) return assigned;
-      woken = assigned.woken;
-      return { assigned: assigned.assigned };
-    });
-    deps.runner.wake();
-    if (woken) await hintChanged(deps, woken);
-    return answer;
-  });
+  const assign = assignWorkDefinition.server(
+    async ({ bot, title, instructions, parent }, context) => {
+      // Set only by a live write, afresh on each try of it.
+      let woken: string[] = [];
+      const answer = await liveActivity(assignWorkToolName, context?.toolCallId, async (tx) => {
+        woken = [];
+        const assigned = await assignWork(deps, tx, turn, {
+          botName: bot,
+          title,
+          instructions,
+          parent,
+        });
+        if ("error" in assigned) return assigned;
+        woken = assigned.woken;
+        return { assigned: assigned.assigned };
+      });
+      deps.runner.wake();
+      for (const conversationId of woken) await hintChanged(deps, conversationId);
+      return answer;
+    },
+  );
 
   const finish = finishAssignmentDefinition.server(
     async ({ id, status, outcome, for_customer, when }, context) => {
