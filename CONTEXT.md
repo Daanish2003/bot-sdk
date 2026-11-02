@@ -155,8 +155,28 @@ An agent a Bot hands one complete task to, which works in its own fresh context,
 _Avoid_: Sub-agent, worker, child agent
 
 **Representative**:
-An agent that speaks for one user's business to its Customers and reports to one of that user's Bots. A Bot drafts it or the user creates it, and it serves Customers only once the user approves a release of it. It has no Computer and no Conversation with the user, and it is never a Bot or a Helper.
+An agent that speaks for one user's business to its Customers and reports to one of that user's Bots, or to the user once that Bot is deleted. A Bot drafts it or the user creates it, and it serves Customers only once the user approves a Release of it. It has no Computer and no Conversation with the user, and it is never a Bot or a Helper.
 _Avoid_: Deployed agent, front desk, CSR, Agent
+
+**Release**:
+One unchangeable version of a Representative that the user approved: what it's told to do, its tools, its documents and its tests. The user can go back to any earlier Release in one step. Published facts stay outside it and change live.
+_Avoid_: Version, deployment, publish
+
+**Published fact**:
+One typed piece of business information a Representative can state, such as a price or opening hours, quoted exactly and never reworded. It changes live, and a change a Bot proposes needs the user's Approval.
+_Avoid_: Knowledge, FAQ
+
+**Customer thread**:
+The one running exchange between a Customer and a Representative across Channels, held either by the Representative or by the user who took it over. It closes when idle, and a later message starts a new one.
+_Avoid_: Conversation, ticket, case
+
+**Outbound gate**:
+The one set of checks every message to a Customer passes, which decides whether it's sent, held or dropped.
+_Avoid_: Filter, guardrail, moderation
+
+**Page**:
+A direct alert that reaches the user outside the app when something needs them, such as an emergency or a stalled Assignment, and repeats until acknowledged.
+_Avoid_: Notification, ticket, alert
 
 **Customer**:
 A person who deals with a user's business through a Representative. A Customer isn't a user and never signs in to the app, and belongs to that one user's business.
