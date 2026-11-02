@@ -5,6 +5,15 @@ import { representativeApi } from "./api";
 import { representative, representativeRelease } from "./db/schema";
 import representativeMigrations from "./migrations.json" with { type: "json" };
 import { deleteRepresentatives, exportRepresentatives } from "./representatives";
+import { handOffEndedJob, representativeTurnJob } from "./turn";
+
+export type RepresentativeOptions = {
+  /**
+   * At most this many Representative Turns run at once in one process; 50 by default. Size it to at
+   * least arrivals per second × Turn length in seconds.
+   */
+  concurrency?: number;
+};
 
 /**
  * The `representative` feature (spec #1167): restricted agents that speak for the owner's
@@ -12,15 +21,17 @@ import { deleteRepresentatives, exportRepresentatives } from "./representatives"
  * Auto-review and Custom Rules, which belong to Bots, don't reach it. A Host turns it on with
  * `representative()` in `features`.
  */
-export function representativeFeature() {
+export function representativeFeature(options: RepresentativeOptions = {}) {
   return defineFeature({
     id: "representative",
+    needs: ["assignments", "models", "representativeLoop"],
     schema: {
       tables: { representative, representativeRelease },
       migrations: representativeMigrations,
     },
     contract: representativeContract,
     api: (context) => representativeApi(context),
+    jobs: [representativeTurnJob(options.concurrency), handOffEndedJob],
     userData: {
       delete: { before: (tx, userId) => deleteRepresentatives(tx, userId) },
       export: async (tx, userId) => ({
