@@ -240,11 +240,12 @@ export function draftChanges(draft: Draft, live: ReleaseContent | null): DraftCh
   for (const name of [...new Set(switches)].sort()) {
     add("switch", name, live?.switches[name], draft.switches[name]);
   }
-  const skills = (content: Draft | null) =>
-    new Map((content?.skills ?? []).map((skill) => [skill.name, skill.text]));
-  const [liveSkills, draftSkills] = [skills(live), skills(draft)];
+  const [liveSkills, draftSkills] = [
+    keyed(live?.skills ?? [], (skill) => skill.name),
+    keyed(draft.skills, (skill) => skill.name),
+  ];
   for (const name of new Set([...liveSkills.keys(), ...draftSkills.keys()])) {
-    add("skill", name, liveSkills.get(name), draftSkills.get(name));
+    add("skill", name, liveSkills.get(name)?.text, draftSkills.get(name)?.text);
   }
   for (const tool of representativeTools) {
     add(
@@ -254,14 +255,31 @@ export function draftChanges(draft: Draft, live: ReleaseContent | null): DraftCh
       draft.tools.includes(tool) ? true : undefined,
     );
   }
-  // Test conversations are named; one the draft doesn't hold, or holds changed, shows as a change.
-  const tests = (content: { tests?: unknown[] } | null) =>
-    new Map((content?.tests ?? []).map((test, index) => [testName(test, index), test]));
-  const [liveTests, draftTests] = [tests(live), tests(draft as { tests?: unknown[] })];
-  for (const name of new Set([...liveTests.keys(), ...draftTests.keys()])) {
-    add("test", name, liveTests.get(name), draftTests.get(name));
+  // Test conversations are named. A draft without the field isn't comparing them, so it shows no change.
+  const draftTestList = (draft as { tests?: unknown[] }).tests;
+  if (Array.isArray(draftTestList)) {
+    const [liveTests, draftTests] = [
+      keyed(live?.tests ?? [], testName),
+      keyed(draftTestList, testName),
+    ];
+    for (const name of new Set([...liveTests.keys(), ...draftTests.keys()])) {
+      add("test", name, liveTests.get(name), draftTests.get(name));
+    }
   }
   return changes;
+}
+
+/** Items by name; a repeated name gets " (2)", " (3)"…, so none hides another. */
+function keyed<T>(items: T[], nameOf: (item: T, index: number) => string) {
+  const map = new Map<string, T>();
+  const seen = new Map<string, number>();
+  items.forEach((item, index) => {
+    const name = nameOf(item, index);
+    const count = (seen.get(name) ?? 0) + 1;
+    seen.set(name, count);
+    map.set(count === 1 ? name : `${name} (${count})`, item);
+  });
+  return map;
 }
 
 function testName(test: unknown, index: number) {

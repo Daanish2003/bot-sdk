@@ -39,6 +39,7 @@ export const representativeMessages = {
     `Release ${number} is live again`,
   "representative.diff": "Changes from the live Release",
   "representative.diffHelp": "What approving this draft would change.",
+  "representative.diffFailed": "The changes couldn't be loaded. Reload before approving.",
   "representative.diffNone": "The draft matches the live Release.",
   "representative.diffNew": "No live Release yet, so everything here is new.",
   "representative.diffField.jobText": "Job text",

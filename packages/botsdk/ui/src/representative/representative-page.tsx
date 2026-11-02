@@ -126,7 +126,9 @@ function DraftEditor({ representative }: { representative: RepresentativeView })
 /** What the draft changes against the live Release, so the owner reviews only that. */
 function DraftDiff({ id }: { id: string }) {
   const { t } = useI18n();
-  const diff = useDraftDiff(id).data;
+  const { data: diff, isError } = useDraftDiff(id);
+  // A failed diff says so: no diff must never read as no changes.
+  if (isError) return <p className="text-sm text-destructive">{t("representative.diffFailed")}</p>;
   if (!diff) return null;
   // A value is JSON text; null is a side that has none.
   const show = (value: string | null) => (value === null ? t("representative.diffAbsent") : value);
@@ -144,9 +146,9 @@ function DraftDiff({ id }: { id: string }) {
         <p className="text-sm text-muted-foreground">{t("representative.diffNone")}</p>
       ) : (
         <ul className="divide-y overflow-hidden rounded-xl border">
-          {diff.changes.map((change) => (
+          {diff.changes.map((change, index) => (
             <li
-              key={`${change.field}:${change.name ?? ""}`}
+              key={`${index}:${change.field}:${change.name ?? ""}`}
               data-change={change.field}
               className="space-y-1 px-4 py-3 text-sm"
             >

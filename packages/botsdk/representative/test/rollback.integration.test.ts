@@ -206,6 +206,26 @@ describe("the diff between a draft and the live Release", () => {
     ]);
   });
 
+  it("shows a repeated Skill name or a draft with no tests without hiding a change", () => {
+    const base = { jobText: "x", switches: {}, tools: [], model: null };
+    const live = {
+      ...base,
+      documentSnapshot: null,
+      tests: [{ name: "Greets" }],
+      skills: [
+        { name: "A", text: "1" },
+        { name: "A", text: "2" },
+      ],
+    };
+
+    const changes = draftChanges({ ...base, skills: [{ name: "A", text: "1" }] }, live);
+
+    // The draft names no tests, so it compares none; the second "A" is gone.
+    expect(changes).toEqual([
+      { field: "skill", name: "A (2)", before: JSON.stringify("2"), after: null },
+    ]);
+  });
+
   it("shows everything as new before the first Release", async () => {
     const { rpc } = await instance();
     const { id } = await rpc.representative.create({ name: "Front desk" });
