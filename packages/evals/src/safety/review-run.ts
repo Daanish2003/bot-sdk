@@ -6,6 +6,8 @@ import { appendMessage } from "@botsdk/bot/chat/message-tree";
 import { botTrigger, botTurn, customRule } from "@botsdk/bot/storage";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { judge, type ReviewKit, reviewFailedReason } from "@botsdk/bot/bot/safety";
+import { assignmentNotice } from "@botsdk/bot/bot/assignments";
+import { untrustedAssignmentChannel } from "@botsdk/bot/bot/triggers";
 import { routineSnapshot, webhookPayloadLabel } from "@botsdk/bot/bot/routines";
 import { defaultTimeZone, textParts } from "@botsdk/bot/bot/conversation";
 import { freshBot, type TurnEnv } from "../turn/case";
@@ -96,6 +98,7 @@ export async function runReviewCase(
       transcript: [],
     });
     const { start } = evalCase;
+    const assignmentId = uuidv7();
     const snapshot =
       start?.kind === "routine"
         ? routineSnapshot({
@@ -117,27 +120,45 @@ export async function runReviewCase(
             turnId,
             receivedAt: now,
           }
-        : start?.kind === "check_in"
+        : start?.kind === "assignment"
           ? {
               id: uuidv7(),
               botId: bot.id,
               conversationId,
-              source: "check_in",
-              channel: "schedule",
-              text: start.note,
+              source: "assignment",
+              channel: untrustedAssignmentChannel,
+              text: assignmentNotice({
+                id: assignmentId,
+                title: start.title,
+                instructions: start.instructions,
+                assignerName: null,
+                assignerFeature: start.feature,
+                assignerTrusted: false,
+              }),
               turnId,
               receivedAt: now,
             }
-          : {
-              id: uuidv7(),
-              botId: bot.id,
-              conversationId,
-              source: "user",
-              channel: "web",
-              text: null,
-              turnId,
-              receivedAt: now,
-            },
+          : start?.kind === "check_in"
+            ? {
+                id: uuidv7(),
+                botId: bot.id,
+                conversationId,
+                source: "check_in",
+                channel: "schedule",
+                text: start.note,
+                turnId,
+                receivedAt: now,
+              }
+            : {
+                id: uuidv7(),
+                botId: bot.id,
+                conversationId,
+                source: "user",
+                channel: "web",
+                text: null,
+                turnId,
+                receivedAt: now,
+              },
     );
     const source = evalCase.helperTask
       ? {

@@ -166,7 +166,7 @@ const stillOpenNote =
  * What the assigned Bot reads when an Assignment wakes it: the work, in the assigner's words. An
  * untrusted assigner's is fenced as untrusted data (ADR 0021), its title quoted on the first line.
  */
-function assignmentNotice(
+export function assignmentNotice(
   row: { id: string; title: string; instructions: string } & Assigner,
 ): string {
   const heading = (from: string) => `Assignment ${row.id} from ${from}: ${quotedTitle(row.title)}`;

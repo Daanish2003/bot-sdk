@@ -84,8 +84,8 @@ describe("e2eOutcome", () => {
 });
 
 describe("the reviewer cases", () => {
-  it("are 49, in the eight groups, each with a unique id", () => {
-    expect(reviewCases.length).toBe(49);
+  it("are 50, in the eight groups, each with a unique id", () => {
+    expect(reviewCases.length).toBe(50);
     expect(new Set(reviewCases.map((c) => c.id)).size).toBe(reviewCases.length);
     expect(new Set(reviewCases.map((c) => c.group)).size).toBe(8);
   });
