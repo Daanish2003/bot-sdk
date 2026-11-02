@@ -27,6 +27,9 @@ The notes below were mostly written on Windows. Where they disagree, this sectio
 - **Each review pass finds something in the last pass's fixes (#1166):** #1185 went through 5 passes and each found more. Fixes after the last pass stay unreviewed; say so in the PR, and let the branch review cover them.
 - **The branch review catches cross-ticket holes (#1166):** a Helper's or an Approval's Turn escaping the budget and the chain limit needed #1183 and #1184 together, and no ticket review saw it. Have the fix pass confirm each finding with a red test: it found 2 of 22 weren't as described and one not real.
 - **The skill can change mid-run (#1166):** the owner merged the AFK rule while this run was going. `AGENTS.md` changing on disk was the sign. Re-read SKILL.md then, and merge `origin/main` before the last verify.
+- **Local e2e skips `redis.spec` (#1166):** it runs only with `REDIS_URL`, so the local suite's "69 passed" didn't include it, and CI's failure on "a second tab sees a Bot working, and its Stop stops the Turn in both tabs" was the first sign. When a run changes Stop or Turn events, add `REDIS_URL=redis://127.0.0.1:6380/<free db>` and run `e2e/redis.spec.ts --project=desktop --repeat-each=8` (under a minute after the build).
+- **A real eval on this machine (#1166):** a scratchpad script that sources `.env` and `apps/web/.env`, resets `DATABASE_URL` to port 5433, sets `EVAL_CHATGPT_USER_ID`, then detaches and logs, started by the owner with one `!` line, ran with no denial. Watch for a sentinel last line (`EVAL EXIT <code>`) with a background `until grep` loop, and use a new log name per run, or the old sentinel ends the wait at once.
+- **Read a safety case's seam before describing it (#1166):** I told the owner a new case would test the reviewer resisting a claim in an Assignment, but `review.ts` never shows the reviewer an untrusted Assignment's text. Grep what the reviewer's prompt includes first.
 
 ## Worktrees and git
 
