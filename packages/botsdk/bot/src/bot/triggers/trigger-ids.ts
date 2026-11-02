@@ -6,6 +6,12 @@ import { type SQL, type SQLWrapper, sql } from "drizzle-orm";
  */
 
 /**
+ * The channel of the Trigger that hands over an Assignment from an untrusted assigner (ticket
+ * #1185): what Auto-review tells it from a Bot's by.
+ */
+export const untrustedAssignmentChannel = "assignment_untrusted";
+
+/**
  * How every fire key of Routine `routineId` starts (a scheduled slot's or a webhook delivery's);
  * given a column, the SQL that builds it from the column's value.
  */

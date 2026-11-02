@@ -21,9 +21,12 @@ export type BotAssignment = {
   instructions: string;
   status: AssignmentStatus;
   result: AssignmentResult | null;
-  /** The Bot that handed it over; `null` once that Bot is gone. */
+  /** The Bot that handed it over; `null` once that Bot is gone, or when a feature did. */
   assignerBotId: string | null;
+  /** That Bot's name, or the id of the feature that handed it over. */
   assignerName: string | null;
+  /** Whether the assigner's text is a Bot's. A feature's is untrusted, never the user's word. */
+  assignerTrusted: boolean;
   overdueAt: Date | null;
   createdAt: Date;
   endedAt: Date | null;

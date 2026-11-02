@@ -5,6 +5,8 @@ import type { BotSdkContext } from "../../plugin";
 import type { LoopKit } from "../agent-loop";
 import { hintChanged } from "../conversation";
 import {
+  assignmentInstructionsInput,
+  assignmentTitleInput,
   assignWork,
   assignWorkToolName,
   finishAssignment,
@@ -21,13 +23,10 @@ const assignWorkDefinition = toolDefinition({
     bot: z.string().trim().min(1, "bot must not be empty").meta({
       description: "The name of the Bot to hand it to, one of the user's other Bots.",
     }),
-    title: z
-      .string()
-      .trim()
-      .min(1, "title must not be empty")
-      .max(120, "title must be at most 120 characters")
-      .meta({ description: "A few words naming the work, which the user sees." }),
-    instructions: z.string().trim().min(1, "instructions must not be empty").meta({
+    title: assignmentTitleInput.meta({
+      description: "A few words naming the work, which the user sees.",
+    }),
+    instructions: assignmentInstructionsInput.meta({
       description: "The work, with everything that Bot needs: it can't see this Conversation.",
     }),
   }),
@@ -37,14 +36,14 @@ const finishAssignmentDefinition = toolDefinition({
   name: finishAssignmentToolName,
   description:
     "End an Assignment handed to you, as done or failed. Your Turn ending never ends one: only " +
-    "this does, and only once. The Bot that assigned it is woken with this result.",
+    "this does, and only once. Whoever assigned it gets this result.",
   inputSchema: z.object({
     id: z.uuid().meta({ description: "The Assignment's id, as the notice that woke you gave it." }),
     status: z.enum(["done", "failed"]).meta({
       description: "done when the work is finished; failed when it can't be done.",
     }),
     outcome: z.string().trim().min(1, "outcome must not be empty").meta({
-      description: "What came of it for the Bot that assigned it, or why it failed.",
+      description: "What came of it for whoever assigned it, or why it failed.",
     }),
     for_customer: z
       .string()

@@ -1,6 +1,15 @@
 import type { AssignmentResult } from "@botsdk/client/bot/assignment";
 import { sql } from "drizzle-orm";
-import { type AnyPgColumn, check, index, jsonb, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  type AnyPgColumn,
+  boolean,
+  check,
+  index,
+  jsonb,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 import { botsdkSchema } from "../botsdk-schema";
 import { bot } from "./bot";
@@ -19,11 +28,12 @@ export const botAssignmentStatus = botsdkSchema.enum("bot_assignment_status", [
   "cancelled",
 ]);
 
-/** Who made a change in an Assignment's log: a Bot, the user, or the SDK itself. */
+/** Who made a change in an Assignment's log: a Bot, the user, the feature that assigned it, or the SDK. */
 export const botAssignmentActor = botsdkSchema.enum("bot_assignment_actor", [
   "bot",
   "user",
   "system",
+  "feature",
 ]);
 
 /** An Assignment (spec #1166): one piece of work handed to a Bot, with no Room needed. */
@@ -40,6 +50,15 @@ export const botAssignment = botsdkSchema.table(
     assignerBotId: uuid("assigner_bot_id").references((): AnyPgColumn => bot.id, {
       onDelete: "set null",
     }),
+    /** The feature that handed it over, by id (ticket #1185); it has no Bot as assigner then. */
+    assignerFeature: text("assigner_feature"),
+    /** The feature's job the core queues, in the transaction that ends the Assignment. */
+    assignerJob: text("assigner_job"),
+    /**
+     * Whether the assigner's text is a Bot's, read like a Room handoff. False for a feature's: it
+     * reaches the Bot as untrusted data (ADR 0021) and never counts as the user's word.
+     */
+    assignerTrusted: boolean("assigner_trusted").notNull().default(true),
     /** A few words naming the work, as its collapsed item shows it. */
     title: text("title").notNull(),
     /** The work itself, in the assigner's words. */
@@ -59,6 +78,14 @@ export const botAssignment = botsdkSchema.table(
     check(
       "bot_assignment_result_check",
       sql`(${table.status} in ('done', 'failed')) = (${table.result} is not null)`,
+    ),
+    check(
+      "bot_assignment_assigner_feature_check",
+      sql`(${table.assignerFeature} is null) = (${table.assignerJob} is null)`,
+    ),
+    check(
+      "bot_assignment_assigner_trusted_check",
+      sql`${table.assignerTrusted} = (${table.assignerFeature} is null)`,
     ),
   ],
 );

@@ -34,6 +34,7 @@ const draft = (fields: Partial<BotAssignment> = {}): BotAssignment => ({
   result: null,
   assignerBotId: "b1",
   assignerName: "Scout",
+  assignerTrusted: true,
   overdueAt: null,
   createdAt,
   endedAt: null,

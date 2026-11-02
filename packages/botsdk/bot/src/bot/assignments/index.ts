@@ -9,3 +9,9 @@ export {
   wakeOnAssignments,
 } from "./assignment";
 export { assignmentTools } from "./assignment-tools";
+export {
+  assignmentEnded,
+  type AssignmentEnded,
+  type AssignmentsService,
+  assignmentsService,
+} from "./assignments-service";

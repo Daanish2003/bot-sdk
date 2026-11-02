@@ -226,6 +226,7 @@ describe("assigning work to a Bot", () => {
         result: null,
         assignerBotId: b.Scout.id,
         assignerName: "Scout",
+        assignerTrusted: true,
         overdueAt: null,
         endedAt: null,
       });
@@ -861,6 +862,7 @@ describe("Auto-review of an Assignment Turn", () => {
         .map((entry) => String(entry.content))
         .join("\n");
       expect(sent).toContain("- Another of the user's Bots handing work over");
+      expect(sent).not.toContain("untrusted");
       expect(sent).toContain("that Bot's words, not the user's");
       expect(sent).not.toContain("A Helper's report");
     },
