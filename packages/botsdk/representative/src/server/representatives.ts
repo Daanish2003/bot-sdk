@@ -1,9 +1,11 @@
-import { and, asc, desc, eq, max } from "drizzle-orm";
+import { and, asc, desc, eq, max, notInArray } from "drizzle-orm";
 
+import { endedAssignmentStatuses } from "@botsdk/client/bot/assignment";
 import type { FeatureContext } from "@botsdk/bot/feature";
+import { ORPCError } from "@orpc/contract";
 import { rpcError } from "@botsdk/bot/rpc-error";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
-import { bot } from "@botsdk/bot/storage";
+import { bot, botAssignment } from "@botsdk/bot/storage";
 import type { Transaction } from "@botsdk/bot/plugin";
 import {
   type Draft,
@@ -16,12 +18,18 @@ import {
   type RepresentativeView,
   representativeTools,
 } from "../shared/contract";
-import { representative, representativeRelease, representativeTestResult } from "./db/schema";
+import {
+  representative,
+  representativeHandOff,
+  representativeRelease,
+  representativeTestResult,
+} from "./db/schema";
 import { draftHash } from "./test-checks";
 import { normalizedDraft, representativeTestJob, testStateOf } from "./tests";
 
 type Context = Pick<FeatureContext, "db">;
 type JobsContext = Pick<FeatureContext, "db" | "jobs">;
+type MoveContext = FeatureContext<"assignments">;
 type Row = typeof representative.$inferSelect;
 
 /** What a new Representative's draft holds: no job text yet, no switches or Skills, every tool. */
@@ -181,6 +189,55 @@ export async function setEnabled(
       .returning();
     return view(tx, updated!);
   });
+}
+
+/**
+ * Chooses the Bot a Representative reports to, one of the owner's, and moves its open hand-offs to
+ * it, one by one through the Assignments service. Choosing again moves any that were left, so a
+ * refusal part-way (the Bot's Model can't run) is retried by choosing the Bot again.
+ */
+export async function setBot(
+  { db, assignments }: MoveContext,
+  userId: string,
+  id: string,
+  botId: string,
+): Promise<RepresentativeView> {
+  const [owned] = await db
+    .select({ id: bot.id })
+    .from(bot)
+    .where(and(eq(bot.id, botId), eq(bot.userId, userId)))
+    .limit(1);
+  if (!owned) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
+  const updated = await db.transaction(async (tx) => {
+    await ownedRow(tx, userId, id, true);
+    const [row] = await tx
+      .update(representative)
+      .set({ botId, updatedAt: new Date() })
+      .where(eq(representative.id, id))
+      .returning();
+    return row!;
+  });
+  const open = await db
+    .select({ id: botAssignment.id })
+    .from(representativeHandOff)
+    .innerJoin(botAssignment, eq(botAssignment.id, representativeHandOff.assignmentId))
+    .where(
+      and(
+        eq(representativeHandOff.representativeId, id),
+        notInArray(botAssignment.status, endedAssignmentStatuses),
+      ),
+    )
+    .orderBy(asc(botAssignment.createdAt), asc(botAssignment.id));
+  for (const assignment of open) {
+    try {
+      await assignments.move({ userId, id: assignment.id, botId });
+    } catch (error) {
+      // One that ended since the read has nothing to move.
+      const ended = error instanceof ORPCError && error.data?.code === "error.assignmentEnded";
+      if (!ended) throw error;
+    }
+  }
+  return view(db, updated);
 }
 
 /**

@@ -69,6 +69,37 @@ test("an owner can't open another owner's Representative", async ({ page, browse
   }
 });
 
+test("an owner chooses which Bot a Representative reports to", async ({ page }) => {
+  await signInAsSeededUser(page);
+  await createBot(page, "Ada");
+  await createBot(page, "Grace");
+
+  // With no Bot, it reports to the owner.
+  await page.goto("/representatives");
+  await page.getByLabel("Name").fill("Back office");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(page).toHaveURL(/\/representatives\/[\w-]+$/);
+  const chooser = page.getByLabel("Reports to");
+  await expect(chooser).toHaveValue("");
+  await expect(chooser.locator("option:checked")).toHaveText("You");
+
+  // Only the owner's Bots are offered, and the choice holds after a reload.
+  await expect(chooser.locator("option")).toHaveCount(3);
+  await expect(chooser).toContainText("Ada");
+  await expect(chooser).toContainText("Grace");
+  await chooser.selectOption({ label: "Grace" });
+  await expect(page.getByText("Reporting Bot changed").first()).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel("Reports to").locator("option:checked")).toHaveText("Grace");
+
+  await page.getByLabel("Reports to").selectOption({ label: "Ada" });
+  await expect(page.getByText("Reporting Bot changed").first()).toBeVisible();
+  await page.goto("/representatives");
+  await expect(page.getByRole("listitem").filter({ hasText: "Back office" })).toContainText(
+    "Reports to: Ada",
+  );
+});
+
 test("an owner reviews the diff against the live Release and rolls back to an earlier one", async ({
   page,
 }) => {

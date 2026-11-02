@@ -72,6 +72,13 @@ export function useSetRepresentativeEnabled(
   return useMutation(useRepresentative().setEnabled.mutationOptions(options));
 }
 
+/** Chooses the Bot a Representative reports to (`representative.setBot`). */
+export function useSetRepresentativeBot(
+  options?: ProcedureMutationOptions<Representative["setBot"]>,
+) {
+  return useMutation(useRepresentative().setBot.mutationOptions(options));
+}
+
 /** Refetches everything the `representative` feature read, after a change. */
 export function useRefreshRepresentatives() {
   const representative = useRepresentative();

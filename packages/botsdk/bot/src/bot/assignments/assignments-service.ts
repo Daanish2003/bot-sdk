@@ -14,6 +14,7 @@ import {
   assignmentTitleInput,
   cancelAssignment,
   canWork,
+  moveAssignment,
   openAssignment,
 } from "./assignment";
 
@@ -49,6 +50,8 @@ const createInput = z.object({
 
 const assignmentInput = z.object({ id: z.uuid() });
 
+const moveInput = z.object({ id: z.uuid(), botId: z.uuid() });
+
 /** What a feature's `needs: ["assignments"]` gives it. */
 export type AssignmentsService = {
   /**
@@ -76,6 +79,13 @@ export type AssignmentsService = {
   }>;
   /** Cancels one of the feature's own Assignments, which queues its job; an ended one is CONFLICT. */
   cancel: (input: { userId: string; id: string }) => Promise<void>;
+  /**
+   * Moves one of the feature's own Assignments that hasn't ended to another of the owner's Bots,
+   * keeping its status and log: a log row is added, the old Bot's unread hand-over is skipped, and
+   * the new Bot wakes on it. An ended one is CONFLICT; another owner's Assignment or Bot, or one
+   * another feature made, is NOT_FOUND; a Bot whose Model can't run is CONFLICT.
+   */
+  move: (input: { userId: string; id: string; botId: string }) => Promise<void>;
 };
 
 const notFound = () => rpcError("NOT_FOUND", "error.assignmentNotFound", "Assignment not found");
@@ -155,6 +165,33 @@ export function assignmentsService(deps: BotSdkContext, feature: AnyFeature): As
       }
       deps.runner.wake();
       for (const conversationId of cancelled.woken) await hintChanged(deps, conversationId);
+    },
+
+    move: async ({ userId, ...rest }) => {
+      const { id, botId } = parseInput(moveInput, rest);
+      const [target] = await deps.db
+        .select({
+          id: bot.id,
+          name: bot.name,
+          model: bot.model,
+          conversationId: bot.conversationId,
+        })
+        .from(bot)
+        .where(and(eq(bot.id, botId), eq(bot.userId, userId)));
+      if (!target) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
+      if (!(await canWork(deps, { userId, model: target.model }))) {
+        throw rpcError("CONFLICT", "error.assignmentBotCantWork", "The Bot can't work right now");
+      }
+      const moved = await deps.db.transaction((tx) =>
+        moveAssignment(deps, tx, { feature: feature.id, userId }, id, target),
+      );
+      if ("reason" in moved) {
+        throw moved.reason === "ended"
+          ? rpcError("CONFLICT", "error.assignmentEnded", "This Assignment already ended")
+          : notFound();
+      }
+      deps.runner.wake();
+      for (const conversationId of moved.woken) await hintChanged(deps, conversationId);
     },
   };
 }
