@@ -221,6 +221,9 @@ export const botScopeInput = z.object({ botId: z.uuid() });
 /** The input of the methods that act on one of the user's Routines. */
 export const routineInput = z.object({ routineId: z.uuid() });
 
+/** `assignments.cancel`'s input, besides `userId`. */
+export const assignmentInput = z.object({ botId: z.uuid(), assignmentId: z.uuid() });
+
 /** `triggers.skip`'s input, besides `userId`. */
 export const triggerInput = z.object({ triggerId: z.string().min(1).max(512) });
 
@@ -416,8 +419,10 @@ const routines = {
 
 /** The Assignments handed to the user's Bots (spec #1166). Only a Bot creates one. */
 const assignments = {
-  /** The Assignments handed to one of the user's Bots, oldest first. */
+  /** The Assignments handed to one of the user's Bots, oldest first, each with its log. */
   list: oc.input(botScopeInput).output(type<BotAssignment[]>()),
+  /** Cancels one Assignment that hasn't ended, whoever made it. */
+  cancel: oc.input(assignmentInput).output(type<void>()),
 };
 
 /** The Check-ins of the user's Bots (#540). */

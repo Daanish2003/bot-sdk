@@ -1,4 +1,4 @@
-import type { BotAssignment } from "./assignment";
+import { type BotAssignment, assignmentTriggerPrefix } from "./assignment";
 import type { BotCheckIn } from "./check-in";
 import type { BotHelper } from "./helper";
 import type { BotRoutine } from "./routine";
@@ -54,7 +54,21 @@ export type BotTasks = {
 /** How long Done reaches back. */
 export const tasksDoneDays = 7;
 
-/** The "Tasks N" count: the running Turn, the live Helpers and the waiting Triggers. */
+/**
+ * The "Tasks N" count: the running Turn, the live Helpers and the waiting Triggers, plus the
+ * Assignments in progress that none of those already show (spec #1166). One waiting in the queue is
+ * its Trigger, and a running Turn is the work on the Assignments the Bot has, so neither counts twice.
+ */
 export function taskCount({ inProgress, scheduled }: BotTasks): number {
-  return (inProgress.turn ? 1 : 0) + inProgress.helpers.length + scheduled.triggers.length;
+  const assignments = inProgress.turn
+    ? 0
+    : inProgress.assignments.filter(
+        (assignment) =>
+          !scheduled.triggers.some((trigger) =>
+            trigger.id.startsWith(`${assignmentTriggerPrefix}${assignment.id}`),
+          ),
+      ).length;
+  return (
+    (inProgress.turn ? 1 : 0) + inProgress.helpers.length + scheduled.triggers.length + assignments
+  );
 }

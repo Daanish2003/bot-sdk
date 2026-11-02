@@ -159,7 +159,11 @@ function BotConversationView({
     cancel: onCancelCheckIn,
     edit: editCheckIn,
   } = useBotCheckIns(botId, working);
-  const assignments = useBotAssignments(botId, working);
+  const {
+    assignments,
+    acting: actingAssignments,
+    cancel: onCancelAssignment,
+  } = useBotAssignments(botId, working);
   const {
     helpers,
     acting: actingHelpers,
@@ -255,7 +259,12 @@ function BotConversationView({
     shownIds,
   );
   const assignmentItem = (assignment: (typeof assignments)[number]) => (
-    <AssignmentItem key={assignment.id} assignment={assignment} />
+    <AssignmentItem
+      key={assignment.id}
+      assignment={assignment}
+      onCancelAssignment={onCancelAssignment}
+      actingAssignments={actingAssignments}
+    />
   );
   const checkInLine = (checkIn: (typeof checkIns)[number]) => (
     <CheckInLine key={checkIn.id} checkIn={checkIn} {...checkInActions} />
@@ -364,6 +373,7 @@ function BotConversationView({
           ))}
           {(turn.steps.length > 0 || shown || passes.length > 0) && (
             <BotTurnLine
+              turnId={turn.id}
               steps={turn.steps}
               saved={shown}
               activity={passes.length > 0 ? <BotActivity passes={passes} /> : undefined}
@@ -409,6 +419,8 @@ function BotConversationView({
               onStopHelper={onStopHelper}
               actingHelpers={actingHelpers}
               {...checkInActions}
+              onCancelAssignment={onCancelAssignment}
+              actingAssignments={actingAssignments}
               onSkipTrigger={onSkipTrigger}
               actingTriggers={actingTriggers}
               webhookTokens={webhookTokens}

@@ -1,23 +1,20 @@
-import { and, eq, notInArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import type { AnyFeature } from "../../feature";
-import type { BotSdkContext, Transaction } from "../../plugin";
+import type { BotSdkContext } from "../../plugin";
 import { parseInput, rpcError } from "../../rpc-error";
 import type { JobDefinition } from "../../runner/internal";
 import { bot, botAssignment } from "../../storage";
-import { hintChanged, recordBotChange } from "../conversation";
+import { hintChanged } from "../conversation";
 import { webhookBodyLimit } from "../routines";
 import { lockConversation } from "../triggers";
 import {
   assignmentInstructionsInput,
   assignmentTitleInput,
+  cancelAssignment,
   canWork,
-  endedStatuses,
-  logStatus,
   openAssignment,
-  queueAssignerJob,
-  withdrawFromBot,
 } from "./assignment";
 
 /*
@@ -154,55 +151,16 @@ export function assignmentsService(deps: BotSdkContext, feature: AnyFeature): As
 
     cancel: async ({ userId, ...rest }) => {
       const { id } = parseInput(assignmentInput, rest);
-      const conversationId = await deps.db.transaction((tx) =>
-        cancelOwn(deps, tx, feature, userId, id),
+      const cancelled = await deps.db.transaction((tx) =>
+        cancelAssignment(deps, tx, { by: "feature", feature: feature.id, userId }, id),
       );
+      if ("error" in cancelled) {
+        throw cancelled.reason === "ended"
+          ? rpcError("CONFLICT", "error.assignmentEnded", "This Assignment already ended")
+          : notFound();
+      }
       deps.runner.wake();
-      await hintChanged(deps, conversationId);
+      for (const conversationId of cancelled.woken) await hintChanged(deps, conversationId);
     },
   };
-}
-
-/** Ends the feature's Assignment as `cancelled`, in `tx`, and withdraws it from its Bot. */
-async function cancelOwn(
-  deps: BotSdkContext,
-  tx: Transaction,
-  feature: AnyFeature,
-  userId: string,
-  id: string,
-): Promise<string> {
-  const [row] = await tx
-    .select({
-      title: botAssignment.title,
-      botId: botAssignment.assignedBotId,
-      job: botAssignment.assignerJob,
-      model: bot.model,
-      conversationId: bot.conversationId,
-    })
-    .from(botAssignment)
-    .innerJoin(bot, eq(bot.id, botAssignment.assignedBotId))
-    .where(ownedBy(feature, userId, id));
-  if (!row) throw notFound();
-  const tells = await canWork(deps, { userId, model: row.model });
-  await lockConversation(tx, row.conversationId);
-  const now = deps.clock();
-  const updated = await tx
-    .update(botAssignment)
-    .set({ status: "cancelled", updatedAt: now, endedAt: now })
-    .where(and(eq(botAssignment.id, id), notInArray(botAssignment.status, endedStatuses)))
-    .returning({ id: botAssignment.id });
-  if (updated.length === 0) {
-    throw rpcError("CONFLICT", "error.assignmentEnded", "This Assignment already ended");
-  }
-  await logStatus(tx, { assignmentId: id, status: "cancelled", actor: "feature", at: now });
-  await withdrawFromBot(deps, tx, { ...row, id, feature: feature.id }, tells, now);
-  await recordBotChange(tx, { conversationId: row.conversationId }, "assignment", id, now);
-  await queueAssignerJob(deps, tx, row.job, {
-    assignmentId: id,
-    userId,
-    botId: row.botId,
-    status: "cancelled",
-    result: null,
-  });
-  return row.conversationId;
 }
