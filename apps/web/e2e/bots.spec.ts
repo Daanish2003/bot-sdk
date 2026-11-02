@@ -210,7 +210,10 @@ test("a Bot assigns work to another, which shows collapsed in its Conversation a
   await page.keyboard.press("Escape");
 
   // The owner can cancel it, and the log says so.
-  await page.getByRole("button", { name: `Cancel ${assignmentTitle}` }).click();
+  await page
+    .getByRole("main")
+    .getByRole("button", { name: `Cancel ${assignmentTitle}` })
+    .click();
   await expect(page.locator("[data-assignment][data-status=cancelled]")).toBeVisible();
   await expect(page.getByRole("list", { name: "Log" }).getByRole("listitem").last()).toContainText(
     "by you",

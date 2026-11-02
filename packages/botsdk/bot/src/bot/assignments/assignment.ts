@@ -1,8 +1,9 @@
-import type {
-  AssignmentLogEntry,
-  AssignmentResult,
-  AssignmentStatus,
-  BotAssignment,
+import {
+  assignmentTriggerPrefix,
+  type AssignmentLogEntry,
+  type AssignmentResult,
+  type AssignmentStatus,
+  type BotAssignment,
 } from "@botsdk/client/bot/assignment";
 import {
   aliasedTable,
@@ -50,9 +51,7 @@ export const finishAssignmentToolName = "finish_assignment";
 
 const endedStatuses: AssignmentStatus[] = ["done", "failed", "cancelled"];
 
-/** How the Trigger that hands Assignment `id` to its Bot starts; a wake afresh adds to it. */
-const assignmentTriggerPrefix = "assignment:";
-
+/** The id of the Trigger that hands Assignment `id` to its Bot; a wake afresh adds to it. */
 const assignmentTriggerId = (id: string) => `${assignmentTriggerPrefix}${id}`;
 
 /** The Trigger that wakes the assigning Bot with Assignment `id`'s result. */
@@ -233,7 +232,6 @@ export async function finishAssignment(
   const [row] = await tx
     .select({
       title: botAssignment.title,
-      status: botAssignment.status,
       assignerBotId: botAssignment.assignerBotId,
       assignedName: bot.name,
       assignedConversationId: bot.conversationId,
@@ -259,9 +257,14 @@ export async function finishAssignment(
     .where(and(eq(botAssignment.id, id), notInArray(botAssignment.status, endedStatuses)))
     .returning({ id: botAssignment.id });
   if (updated.length === 0) {
+    // Read again: a cancel may have committed since `row` was read.
+    const [now] = await tx
+      .select({ status: botAssignment.status })
+      .from(botAssignment)
+      .where(eq(botAssignment.id, id));
     return {
       error:
-        row.status === "cancelled"
+        now?.status === "cancelled"
           ? `Assignment ${id} was cancelled, so it can't be finished. Stop work on it.`
           : `Assignment ${id} already ended.`,
     };
@@ -727,7 +730,7 @@ export async function addAssignmentNote(
   { id, note }: { id: string; note: string },
 ): Promise<{ noted: { id: string }; woken: string } | { error: string }> {
   const [row] = await tx
-    .select({ conversationId: bot.conversationId, status: botAssignment.status })
+    .select({ conversationId: bot.conversationId })
     .from(botAssignment)
     .innerJoin(bot, eq(bot.id, botAssignment.assignedBotId))
     .where(and(eq(botAssignment.id, id), eq(botAssignment.assignedBotId, turn.botId)));
@@ -740,9 +743,14 @@ export async function addAssignmentNote(
     .where(and(eq(botAssignment.id, id), notInArray(botAssignment.status, endedStatuses)))
     .returning({ status: botAssignment.status });
   if (!updated) {
+    // Read again: a cancel may have committed since `row` was read.
+    const [now] = await tx
+      .select({ status: botAssignment.status })
+      .from(botAssignment)
+      .where(eq(botAssignment.id, id));
     return {
       error:
-        row.status === "cancelled"
+        now?.status === "cancelled"
           ? `Assignment ${id} was cancelled, so it takes no more notes.`
           : `Assignment ${id} already ended.`,
     };

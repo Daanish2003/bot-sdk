@@ -1,4 +1,4 @@
-import type { BotAssignment } from "./assignment";
+import { type BotAssignment, assignmentTriggerPrefix } from "./assignment";
 import type { BotCheckIn } from "./check-in";
 import type { BotHelper } from "./helper";
 import type { BotRoutine } from "./routine";
@@ -65,7 +65,7 @@ export function taskCount({ inProgress, scheduled }: BotTasks): number {
     : inProgress.assignments.filter(
         (assignment) =>
           !scheduled.triggers.some((trigger) =>
-            trigger.id.startsWith(`assignment:${assignment.id}`),
+            trigger.id.startsWith(`${assignmentTriggerPrefix}${assignment.id}`),
           ),
       ).length;
   return (

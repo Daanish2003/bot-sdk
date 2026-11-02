@@ -29,7 +29,7 @@ export const readOnlyError = "This check is read-only. Draft it and ask the user
 /**
  * The core tools a read-only run refuses: shell, the Helper tools, `generate_image`, `watch_user`,
  * the Routine tools that change a Routine, proposing a Custom Rule, and assigning or cancelling work. SendToUser,
- * web search, the Check-in tools, `finish_assignment` (one Turn can take a read-only Routine's fire
+ * web search, the Check-in tools, `finish_assignment` and `add_assignment_note` (one Turn can take a read-only Routine's fire
  * and an Assignment, which would otherwise be stuck) and the Computer's file tools still work.
  */
 const refusedCoreTools: ReadonlySet<string> = new Set([

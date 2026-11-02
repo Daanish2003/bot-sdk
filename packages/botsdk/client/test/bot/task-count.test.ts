@@ -25,7 +25,7 @@ const tasks = ({
       assignments,
     },
     scheduled: { triggers, routines: [], checkIns: [] },
-  }) as BotTasks;
+  }) as unknown as BotTasks;
 
 describe("the Tasks count with Assignments", () => {
   it("counts a working Assignment that nothing else shows, so the header is not 0", () => {
