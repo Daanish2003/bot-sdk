@@ -98,7 +98,6 @@ export async function runReviewCase(
       transcript: [],
     });
     const { start } = evalCase;
-    const assignmentId = uuidv7();
     const snapshot =
       start?.kind === "routine"
         ? routineSnapshot({
@@ -128,7 +127,7 @@ export async function runReviewCase(
               source: "assignment",
               channel: untrustedAssignmentChannel,
               text: assignmentNotice({
-                id: assignmentId,
+                id: uuidv7(),
                 title: start.title,
                 instructions: start.instructions,
                 assignerName: null,
