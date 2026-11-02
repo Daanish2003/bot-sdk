@@ -1364,4 +1364,45 @@ describe("a cancel a Bot missed", () => {
     },
     timeout,
   );
+
+  it(
+    "tells a paused assigned Bot of its assigner's cancel when it resumes, and the assigner of nothing",
+    async () => {
+      let id = "";
+      const {
+        fakes,
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Scout: [assign("Writer"), quiet, onAssignment("cancel_assignment", () => id), quiet],
+        Writer: [
+          (call) => {
+            id = assignmentIdIn(call);
+            return quiet;
+          },
+          quiet,
+        ],
+      });
+      await tell("Scout", "Hand it on.");
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+      await client.bots.pause({ botId: b.Writer.id });
+
+      await tell("Scout", "Never mind that.");
+      await expect.poll(() => statusesOf(b.Scout.id), poll).toEqual(["complete", "complete"]);
+      expect(await statusesOf(b.Writer.id)).toEqual(["complete"]);
+
+      await client.bots.resume({ botId: b.Writer.id });
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete", "complete"]);
+      expect(JSON.stringify(fakes.Writer.calls.at(-1)!.messages)).toContain(
+        "was cancelled by Scout",
+      );
+      // Scout cancelled it itself, so it is owed no notice.
+      await client.bots.pause({ botId: b.Scout.id });
+      await client.bots.resume({ botId: b.Scout.id });
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect(await statusesOf(b.Scout.id)).toEqual(["complete", "complete"]);
+    },
+    timeout,
+  );
 });
