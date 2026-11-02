@@ -68,6 +68,23 @@ export type FeatureContext<Needs extends CoreService = never> = {
   };
 } & Pick<Services, Needs>;
 
+/** A route a feature serves with no signed-in user (`publicRoutes`). Its path matches as a `Route`'s does. */
+export type PublicRoute<Needs extends CoreService = never> = {
+  method: Route["method"];
+  path: Route["path"];
+  handle: (
+    request: Request,
+    args: {
+      /** The feature's own context: not the core's. */
+      context: FeatureContext<Needs>;
+      /** The `:name` segments of the route's path. */
+      params: Record<string, string>;
+      /** `basePath` without a trailing slash. */
+      basePath: string;
+    },
+  ) => Promise<Response>;
+};
+
 /** The Turn a feature's `tools` and `afterTurn` are called for. */
 export type FeatureTurn = { id: string; userId: string; botId: string; conversationId: string };
 
@@ -302,6 +319,12 @@ export type FeatureDefinition<
   };
   /** Non-RPC routes, under `basePath`, until spec 3 replaces them. They get the whole core context. */
   routes?: Route[];
+  /**
+   * Routes served with no signed-in user, under `basePath`, before `getUser` runs. Unlike `routes`,
+   * a handler gets only the feature's own context, never the core's. A method and path another
+   * route has throws.
+   */
+  publicRoutes?: PublicRoute<Needs>[];
   /** Re-encrypts what the feature stores under the keyring's first secret (`sdk.rotateKeys`). */
   rotateKeys?: (
     context: FeatureContext<Needs>,
@@ -459,6 +482,27 @@ export type EnabledFeature = {
   context: FeatureContext<CoreService>;
 };
 
+/**
+ * A feature's routes as the HTTP layer serves them: its `routes`, and its `publicRoutes` as public
+ * routes whose handler gets the feature's context. `context` is read when a request arrives, since
+ * the routes are merged before the contexts exist.
+ */
+export function featureRoutes(
+  feature: AnyFeature,
+  context: () => FeatureContext<CoreService>,
+): Route[] {
+  return [
+    ...(feature.routes ?? []),
+    ...(feature.publicRoutes ?? []).map((route): Route => ({
+      method: route.method,
+      path: route.path,
+      public: true,
+      handle: (request, { params, basePath }) =>
+        route.handle(request, { context: context(), params, basePath }),
+    })),
+  ];
+}
+
 /** The instance's enabled features, in the order the Host listed them. */
 export function enabledFeatures(sdk: Pick<BotSdkContext, "parts">): readonly EnabledFeature[] {
   return sdk.parts.features;
@@ -532,7 +576,7 @@ export function featurePlugin({ feature, context }: EnabledFeature): BotSdkPlugi
   const exportPart = userData?.export;
   return {
     id: feature.id,
-    routes: feature.routes,
+    routes: featureRoutes(feature, () => context),
     init: () => {
       const api = feature.api?.(context) ?? {};
       checkImplements(feature, api);

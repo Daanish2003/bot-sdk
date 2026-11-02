@@ -9,6 +9,7 @@ import {
   enableFeature,
   featureMigrations,
   featurePlugin,
+  featureRoutes,
   featureRouter,
   type AnyFeature,
   type FeatureApis,
@@ -382,7 +383,7 @@ export function buildBotSdk(
     ...features.map((feature): BotSdkPlugin => ({
       id: feature.id,
       router: featureRouter(feature),
-      routes: feature.routes,
+      routes: featureRoutes(feature, () => enabled.find((one) => one.feature === feature)!.context),
     })),
   ];
   const router = mergeRouters(declared);

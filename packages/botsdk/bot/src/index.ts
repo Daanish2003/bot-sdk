@@ -14,6 +14,7 @@ export {
   type CoreService,
   type Feature,
   type FeatureContext,
+  type PublicRoute,
   type FeatureDefinition,
   type FeaturePrompt,
   type FeaturePromptTurn,
