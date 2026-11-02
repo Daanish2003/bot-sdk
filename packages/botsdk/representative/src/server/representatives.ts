@@ -7,6 +7,9 @@ import { bot } from "@botsdk/bot/storage";
 import type { Transaction } from "@botsdk/bot/plugin";
 import {
   type Draft,
+  type DraftChange,
+  type DraftDiff,
+  type ReleaseContent,
   type ReleaseSummary,
   type ReleaseView,
   type RepresentativeSummary,
@@ -285,6 +288,123 @@ export async function approveDraft(
       overrideReason: release!.overrideReason,
       content: release!.content,
     };
+  });
+}
+
+const asText = (value: unknown) => (value === undefined ? null : JSON.stringify(value));
+
+/** The draft's differences from `live`, field by field. Equal parts leave nothing. */
+export function draftChanges(draft: Draft, live: ReleaseContent | null): DraftChange[] {
+  const changes: DraftChange[] = [];
+  const add = (
+    field: DraftChange["field"],
+    name: string | null,
+    before: unknown,
+    after: unknown,
+  ) => {
+    if (asText(before) !== asText(after)) {
+      changes.push({ field, name, before: asText(before), after: asText(after) });
+    }
+  };
+  add("jobText", null, live?.jobText ?? null, draft.jobText);
+  add("model", null, live?.model ?? null, draft.model);
+  const switches = [...Object.keys(live?.switches ?? {}), ...Object.keys(draft.switches)];
+  for (const name of [...new Set(switches)].sort()) {
+    add("switch", name, live?.switches[name], draft.switches[name]);
+  }
+  const [liveSkills, draftSkills] = [
+    keyed(live?.skills ?? [], (skill) => skill.name),
+    keyed(draft.skills, (skill) => skill.name),
+  ];
+  for (const name of new Set([...liveSkills.keys(), ...draftSkills.keys()])) {
+    add("skill", name, liveSkills.get(name)?.text, draftSkills.get(name)?.text);
+  }
+  for (const tool of representativeTools) {
+    add(
+      "tool",
+      tool,
+      live?.tools.includes(tool) ? true : undefined,
+      draft.tools.includes(tool) ? true : undefined,
+    );
+  }
+  // Test conversations are named. A draft without the field isn't comparing them, so it shows no change.
+  const draftTestList = (draft as { tests?: unknown[] }).tests;
+  if (Array.isArray(draftTestList)) {
+    const [liveTests, draftTests] = [
+      keyed(live?.tests ?? [], testName),
+      keyed(draftTestList, testName),
+    ];
+    for (const name of new Set([...liveTests.keys(), ...draftTests.keys()])) {
+      add("test", name, liveTests.get(name), draftTests.get(name));
+    }
+  }
+  return changes;
+}
+
+/** Items by name; a repeated name gets " (2)", " (3)"…, so none hides another. */
+function keyed<T>(items: T[], nameOf: (item: T, index: number) => string) {
+  const map = new Map<string, T>();
+  const seen = new Map<string, number>();
+  items.forEach((item, index) => {
+    const name = nameOf(item, index);
+    const count = (seen.get(name) ?? 0) + 1;
+    seen.set(name, count);
+    map.set(count === 1 ? name : `${name} (${count})`, item);
+  });
+  return map;
+}
+
+function testName(test: unknown, index: number) {
+  const name = (test as { name?: unknown } | null)?.name;
+  return typeof name === "string" ? name : `#${index + 1}`;
+}
+
+/** What the draft changes against the live Release (everything, before the first Release). */
+export async function diffDraft({ db }: Context, userId: string, id: string): Promise<DraftDiff> {
+  const row = await ownedRow(db, userId, id);
+  const [live] = row.liveReleaseId
+    ? await db
+        .select({ number: representativeRelease.number, content: representativeRelease.content })
+        .from(representativeRelease)
+        .where(eq(representativeRelease.id, row.liveReleaseId))
+    : [];
+  return {
+    liveReleaseNumber: live?.number ?? null,
+    changes: draftChanges(row.draft, live?.content ?? null),
+  };
+}
+
+/**
+ * Repoints the live Release to an earlier Release of this Representative: no test, no new Release,
+ * and the draft stays. A Turn that has started holds its own Release, so only later Turns see it.
+ */
+export async function rollbackRelease(
+  { db }: Context,
+  userId: string,
+  id: string,
+  releaseId: string,
+): Promise<RepresentativeView> {
+  return db.transaction(async (tx) => {
+    await ownedRow(tx, userId, id, true);
+    // Another Representative's Release is not found, the same as one that doesn't exist.
+    const [target] = await tx
+      .select({ id: representativeRelease.id })
+      .from(representativeRelease)
+      .where(
+        and(
+          eq(representativeRelease.id, releaseId),
+          eq(representativeRelease.representativeId, id),
+        ),
+      );
+    if (!target) {
+      throw rpcError("NOT_FOUND", "error.releaseNotFound", "Release not found");
+    }
+    const [updated] = await tx
+      .update(representative)
+      .set({ liveReleaseId: releaseId, updatedAt: new Date() })
+      .where(eq(representative.id, id))
+      .returning();
+    return view(tx, updated!);
   });
 }
 

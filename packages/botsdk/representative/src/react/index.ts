@@ -55,6 +55,16 @@ export function useRunTests(options?: ProcedureMutationOptions<Representative["r
   return useMutation(useRepresentative().runTests.mutationOptions(options));
 }
 
+/** Goes back to an earlier Release (`representative.rollback`). */
+export function useRollbackRelease(options?: ProcedureMutationOptions<Representative["rollback"]>) {
+  return useMutation(useRepresentative().rollback.mutationOptions(options));
+}
+
+/** What the draft changes against the live Release (`representative.diff`). */
+export function useDraftDiff(id: string) {
+  return useQuery(useRepresentative().diff.queryOptions({ input: { id } }));
+}
+
 /** Switches a Representative on or off (`representative.setEnabled`). */
 export function useSetRepresentativeEnabled(
   options?: ProcedureMutationOptions<Representative["setEnabled"]>,

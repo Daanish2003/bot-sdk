@@ -4,14 +4,17 @@ import {
   approveInput,
   createInput,
   idInput,
+  rollbackInput,
   setEnabledInput,
   updateDraftInput,
 } from "../shared/contract";
 import {
   approveDraft,
   createRepresentative,
+  diffDraft,
   getRepresentative,
   listRepresentatives,
+  rollbackRelease,
   runTests,
   setEnabled,
   updateDraft,
@@ -45,6 +48,14 @@ export function representativeApi(context: FeatureContext) {
     approve: async ({ userId, ...rest }: WithUser<typeof approveInput>) => {
       const { id, overrideReason } = parseInput(approveInput, rest);
       return approveDraft(context, userId, id, overrideReason);
+    },
+
+    diff: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      diffDraft(context, userId, parseInput(idInput, rest).id),
+
+    rollback: async ({ userId, ...rest }: WithUser<typeof rollbackInput>) => {
+      const { id, releaseId } = parseInput(rollbackInput, rest);
+      return rollbackRelease(context, userId, id, releaseId);
     },
 
     setEnabled: async ({ userId, ...rest }: WithUser<typeof setEnabledInput>) => {

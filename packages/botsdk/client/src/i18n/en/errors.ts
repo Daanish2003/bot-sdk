@@ -34,6 +34,7 @@ export const errorMessages = {
   "error.representativeTestsUnfinished":
     "The tests haven't finished for this draft. Run them, or approve anyway and say why.",
   "error.representativeOverrideReason": "Say why you are approving anyway.",
+  "error.releaseNotFound": "Release not found",
   "error.routineNotFound": "Routine not found",
   "error.routineNotWebhook": "Only an approved webhook Routine has a URL to rotate",
   "error.routineWebhookSchedule": "A webhook Routine has no schedule to edit",

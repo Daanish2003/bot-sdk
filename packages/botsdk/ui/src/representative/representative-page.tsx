@@ -10,8 +10,10 @@ import { useChatAdapter, useI18n } from "@botsdk/react/provider";
 import { serverErrorText } from "@botsdk/react/rpc-error";
 import {
   useApproveRelease,
+  useDraftDiff,
   useRefreshRepresentatives,
   useRepresentativeDetail,
+  useRollbackRelease,
   useRunTests,
   useSetRepresentativeEnabled,
   useUpdateDraft,
@@ -189,6 +191,53 @@ function DraftEditor({ representative }: { representative: RepresentativeView })
   );
 }
 
+/** What the draft changes against the live Release, so the owner reviews only that. */
+function DraftDiff({ id }: { id: string }) {
+  const { t } = useI18n();
+  const { data: diff, isError } = useDraftDiff(id);
+  // A failed diff says so: no diff must never read as no changes.
+  if (isError) return <p className="text-sm text-destructive">{t("representative.diffFailed")}</p>;
+  if (!diff) return null;
+  // A value is JSON text; null is a side that has none.
+  const show = (value: string | null) => (value === null ? t("representative.diffAbsent") : value);
+  return (
+    <section className="space-y-2" aria-label={t("representative.diff")}>
+      <div className="space-y-1">
+        <h2 className="text-sm font-medium">{t("representative.diff")}</h2>
+        <p className="text-xs text-muted-foreground">
+          {diff.liveReleaseNumber === null
+            ? t("representative.diffNew")
+            : t("representative.diffHelp")}
+        </p>
+      </div>
+      {diff.changes.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{t("representative.diffNone")}</p>
+      ) : (
+        <ul className="divide-y overflow-hidden rounded-xl border">
+          {diff.changes.map((change, index) => (
+            <li
+              key={`${index}:${change.field}:${change.name ?? ""}`}
+              data-change={change.field}
+              className="space-y-1 px-4 py-3 text-sm"
+            >
+              <p className="font-medium">
+                {t(`representative.diffField.${change.field}`)}
+                {change.name !== null && `: ${change.name}`}
+              </p>
+              <p className="break-words text-xs text-muted-foreground">
+                {t("representative.diffBefore")}: {show(change.before)}
+              </p>
+              <p className="break-words text-xs">
+                {t("representative.diffAfter")}: {show(change.after)}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 /**
  * One Representative: who it reports to, on/off, its draft with Save draft and Approve, and its
  * Releases. The Host mounts it at `/representatives/<id>`.
@@ -201,6 +250,13 @@ export function RepresentativePage({ id }: { id: string }) {
   const refresh = useRefreshRepresentatives();
   const setEnabled = useSetRepresentativeEnabled({
     onSuccess: refresh,
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  const rollBack = useRollbackRelease({
+    onSuccess: async (view) => {
+      await refresh();
+      toast.success(t("representative.rolledBack", { number: view.liveReleaseNumber ?? 0 }));
+    },
     onError: (error) => toast.error(serverErrorText(i18n, error)),
   });
   const representative = detail.data;
@@ -232,6 +288,7 @@ export function RepresentativePage({ id }: { id: string }) {
       </div>
       {/* Keyed by the draft's fields, so a draft changed elsewhere reloads the form. */}
       <DraftEditor key={JSON.stringify(representative.draft)} representative={representative} />
+      <DraftDiff id={id} />
       <section className="space-y-2">
         <h2 className="text-sm font-medium">{t("representative.releases")}</h2>
         {representative.releases.length === 0 ? (
@@ -250,8 +307,18 @@ export function RepresentativePage({ id }: { id: string }) {
                 <span className="text-xs text-muted-foreground">
                   {new Date(release.approvedAt).toLocaleString(locale)}
                 </span>
-                {release.id === representative.liveRelease?.id && (
+                {release.id === representative.liveRelease?.id ? (
                   <span className="text-xs">{t("representative.liveBadge")}</span>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={rollBack.isPending}
+                    aria-label={`${t("representative.rollBack")} ${release.number}`}
+                    onClick={() => rollBack.mutate({ id, releaseId: release.id })}
+                  >
+                    {t("representative.rollBack")}
+                  </Button>
                 )}
               </li>
             ))}

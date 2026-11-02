@@ -603,8 +603,10 @@ describe("who can reach a Turn", () => {
     expect(Object.keys(representativeContract).sort()).toEqual([
       "approve",
       "create",
+      "diff",
       "get",
       "list",
+      "rollback",
       // Plays a draft's test conversations (#1192), each a test job: no Turn, no Customer.
       "runTests",
       "setEnabled",
