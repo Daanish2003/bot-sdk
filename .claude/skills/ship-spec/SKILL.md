@@ -18,9 +18,9 @@ Every run is AFK: assume the owner left once the map is posted. While any ticket
 Sort each question that comes up, yours or an implementer's:
 
 - **Settle:** the spec, ticket, code or `CONTEXT.md` already holds the answer, or it is wording, naming, test approach or accuracy inside the decided scope. Decide and move on.
-- **Provisional:** a behaviour the spec leaves open, outside AGENTS.md §6, that a later commit on this branch can change. Take the option closest to the spec's user stories, build it, and log it (the question, what you chose, what you rejected) on the map comment. These go in the PR's _Decisions I made_ for the owner to overrule at review.
+- **Provisional:** a behaviour the spec leaves open, outside AGENTS.md §6, that a later commit on this branch can change. Also a schema or migration choice the spec leaves open, unless it removes or rewrites existing data or decides auth or permissions. Take the option you'd recommend, closest to the spec's user stories, build it, and log it (the question, what you chose, what you rejected) on the map comment. These go in the PR's _Decisions I made_ for the owner to overrule at review, with schema and migration choices marked as §6 so the owner approves them explicitly.
 - **Park:** any of these, unless the owner already approved it in this run:
-  - an AGENTS.md §6 item the spec and ticket don't settle;
+  - any other AGENTS.md §6 item the spec and ticket don't settle;
   - cutting scope or an acceptance criterion;
   - a real-Model eval or other paid call;
   - a permission denial;
