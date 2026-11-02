@@ -1,8 +1,10 @@
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { parseInput, type WithUser } from "@botsdk/bot/rpc-error";
 import {
+  approveInput,
   createInput,
   idInput,
+  rollbackInput,
   setBotInput,
   setEnabledInput,
   updateDraftInput,
@@ -10,8 +12,11 @@ import {
 import {
   approveDraft,
   createRepresentative,
+  diffDraft,
   getRepresentative,
   listRepresentatives,
+  rollbackRelease,
+  runTests,
   setBot,
   setEnabled,
   updateDraft,
@@ -39,8 +44,21 @@ export function representativeApi(context: FeatureContext<"assignments">) {
       return updateDraft(context, userId, id, draft);
     },
 
-    approve: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
-      approveDraft(context, userId, parseInput(idInput, rest).id),
+    runTests: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      runTests(context, userId, parseInput(idInput, rest).id),
+
+    approve: async ({ userId, ...rest }: WithUser<typeof approveInput>) => {
+      const { id, overrideReason } = parseInput(approveInput, rest);
+      return approveDraft(context, userId, id, overrideReason);
+    },
+
+    diff: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      diffDraft(context, userId, parseInput(idInput, rest).id),
+
+    rollback: async ({ userId, ...rest }: WithUser<typeof rollbackInput>) => {
+      const { id, releaseId } = parseInput(rollbackInput, rest);
+      return rollbackRelease(context, userId, id, releaseId);
+    },
 
     setEnabled: async ({ userId, ...rest }: WithUser<typeof setEnabledInput>) => {
       const { id, enabled } = parseInput(setEnabledInput, rest);

@@ -99,3 +99,82 @@ test("an owner chooses which Bot a Representative reports to", async ({ page }) 
     "Reports to: Ada",
   );
 });
+
+test("an owner reviews the diff against the live Release and rolls back to an earlier one", async ({
+  page,
+}) => {
+  await signInAsSeededUser(page);
+  await page.goto("/representatives");
+  await page.getByLabel("Name").fill("Front desk");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(page).toHaveURL(/\/representatives\/[\w-]+$/);
+
+  await page.getByLabel("Job text").fill("Answer questions about opening hours.");
+  await page.getByRole("button", { name: "Approve as a new Release" }).click();
+  await expect(page.getByText("Live: Release 1")).toBeVisible();
+  await page.getByLabel("Job text").fill("Answer anything.");
+  await page.getByRole("button", { name: "Approve as a new Release" }).click();
+  await expect(page.getByText("Live: Release 2")).toBeVisible();
+
+  // The diff shows only what the draft changes against the live Release.
+  const diff = page.getByRole("region", { name: "Changes from the live Release" });
+  await expect(diff.getByText("The draft matches the live Release.")).toBeVisible();
+  await page.getByLabel("Job text").fill("Answer anything, politely.");
+  await page.getByRole("checkbox", { name: "Hand off to the Bot" }).click();
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect(diff.locator('[data-change="jobText"]')).toContainText("Answer anything, politely.");
+  await expect(diff.locator('[data-change="tool"]')).toContainText("hand_to_bot");
+  await expect(diff.locator('[data-change="model"]')).toHaveCount(0);
+
+  // Rolling back changes the live Release and nothing else: the draft is as it was.
+  await expect(page.locator('[data-release="2"]')).toContainText("Live");
+  await page.getByRole("button", { name: "Roll back to this Release 1" }).click();
+  await expect(page.getByText("Live: Release 1")).toBeVisible();
+  await expect(page.locator('[data-release="1"]')).toContainText("Live");
+  await expect(page.locator('[data-release="2"]')).not.toContainText("Live");
+  await expect(page.getByLabel("Job text")).toHaveValue("Answer anything, politely.");
+  await expect(page.locator("[data-release]")).toHaveCount(2);
+  await expect(diff.locator('[data-change="jobText"]')).toContainText(
+    "Answer questions about opening hours.",
+  );
+
+  // It holds after a reload.
+  await page.reload();
+  await expect(page.getByText("Live: Release 1")).toBeVisible();
+});
+
+test("failed tests block approval until the owner approves anyway with a reason", async ({
+  page,
+}) => {
+  await signInAsSeededUser(page);
+  await page.goto("/representatives");
+  await page.getByLabel("Name").fill("Tested");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(page).toHaveURL(/\/representatives\/[\w-]+$/);
+
+  await page.getByLabel("Job text").fill("Answer questions about opening hours.");
+  await page.getByRole("button", { name: "Add test conversation" }).click();
+  await page.getByLabel("Conversation name").fill("Opening hours");
+  await page.getByLabel("Customer says").fill("When do you open?");
+  await page.getByLabel("Expectation", { exact: true }).selectOption({ label: "Says" });
+  await page.getByLabel("Text", { exact: true }).fill("nine");
+
+  // The e2e Host's fake Model never says "nine", so the test fails.
+  await page.getByRole("button", { name: "Run tests" }).click();
+  await expect(page.locator('[data-test-result="failed"]')).toBeVisible();
+  await expect(page.locator('[data-test-result="failed"]')).toHaveAttribute("open", "");
+  await expect(page.getByText("A test failed. Approving needs a reason.")).toBeVisible();
+
+  // Approve is refused, and Approve anyway needs a reason.
+  await expect(page.getByRole("button", { name: "Approve as a new Release" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Approve anyway" })).toBeDisabled();
+  await page.getByLabel("Reason for approving anyway").fill("The fake Model cannot say it.");
+  await page.getByRole("button", { name: "Approve anyway" }).click();
+  await expect(page.getByText("Live: Release 1")).toBeVisible();
+
+  // Editing the draft voids the results: they are no longer shown for it.
+  await page.getByLabel("Job text").fill("Answer anything.");
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect(page.getByText("The tests haven't run on this draft.")).toBeVisible();
+  await expect(page.locator("[data-test-result]")).toHaveCount(0);
+});

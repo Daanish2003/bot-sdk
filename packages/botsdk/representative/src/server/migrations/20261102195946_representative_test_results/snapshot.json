@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "1051c095-cadc-4c62-9781-dfd0ac720196",
+  "id": "b20db0b4-a0d5-4298-8c0c-0f6995049c16",
   "prevIds": ["cd7bc803-15cc-43aa-9572-e81e5ba01fb9"],
   "ddl": [
     {
@@ -12,13 +12,13 @@
     },
     {
       "isRlsEnabled": false,
-      "name": "representative_hand_off",
+      "name": "representative_release",
       "entityType": "tables",
       "schema": "botsdk"
     },
     {
       "isRlsEnabled": false,
-      "name": "representative_release",
+      "name": "representative_test_result",
       "entityType": "tables",
       "schema": "botsdk"
     },
@@ -147,32 +147,6 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "assignment_id",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_hand_off"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "representative_id",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_hand_off"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
       "name": "id",
       "entityType": "columns",
       "schema": "botsdk",
@@ -231,6 +205,136 @@
       "table": "representative_release"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "override_reason",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_release"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_test_result"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "representative_id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_test_result"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "draft_hash",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_test_result"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "position",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_test_result"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "status",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_test_result"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "transcript",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_test_result"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "checks",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_test_result"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "error",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_test_result"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_test_result"
+    },
+    {
       "nameExplicit": true,
       "columns": [
         {
@@ -259,27 +363,6 @@
       "table": "representative"
     },
     {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "representative_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "representative_hand_off_representative_idx",
-      "entityType": "indexes",
-      "schema": "botsdk",
-      "table": "representative_hand_off"
-    },
-    {
       "nameExplicit": false,
       "columns": ["bot_id"],
       "schemaTo": "botsdk",
@@ -291,32 +374,6 @@
       "entityType": "fks",
       "schema": "botsdk",
       "table": "representative"
-    },
-    {
-      "nameExplicit": false,
-      "columns": ["assignment_id"],
-      "schemaTo": "botsdk",
-      "tableTo": "bot_assignment",
-      "columnsTo": ["id"],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "representative_hand_off_assignment_id_bot_assignment_id_fkey",
-      "entityType": "fks",
-      "schema": "botsdk",
-      "table": "representative_hand_off"
-    },
-    {
-      "nameExplicit": false,
-      "columns": ["representative_id"],
-      "schemaTo": "botsdk",
-      "tableTo": "representative",
-      "columnsTo": ["id"],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "representative_hand_off_jlibJorNz5g3_fkey",
-      "entityType": "fks",
-      "schema": "botsdk",
-      "table": "representative_hand_off"
     },
     {
       "nameExplicit": false,
@@ -332,19 +389,24 @@
       "table": "representative_release"
     },
     {
+      "nameExplicit": false,
+      "columns": ["representative_id"],
+      "schemaTo": "botsdk",
+      "tableTo": "representative",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "representative_test_result_enxpE5vSFupS_fkey",
+      "entityType": "fks",
+      "schema": "botsdk",
+      "table": "representative_test_result"
+    },
+    {
       "columns": ["id"],
       "nameExplicit": false,
       "name": "representative_pkey",
       "schema": "botsdk",
       "table": "representative",
-      "entityType": "pks"
-    },
-    {
-      "columns": ["assignment_id"],
-      "nameExplicit": false,
-      "name": "representative_hand_off_pkey",
-      "schema": "botsdk",
-      "table": "representative_hand_off",
       "entityType": "pks"
     },
     {
@@ -356,6 +418,14 @@
       "entityType": "pks"
     },
     {
+      "columns": ["id"],
+      "nameExplicit": false,
+      "name": "representative_test_result_pkey",
+      "schema": "botsdk",
+      "table": "representative_test_result",
+      "entityType": "pks"
+    },
+    {
       "nameExplicit": true,
       "columns": ["representative_id", "number"],
       "nullsNotDistinct": false,
@@ -363,6 +433,15 @@
       "entityType": "uniques",
       "schema": "botsdk",
       "table": "representative_release"
+    },
+    {
+      "nameExplicit": true,
+      "columns": ["representative_id", "position"],
+      "nullsNotDistinct": false,
+      "name": "representative_test_result_position",
+      "entityType": "uniques",
+      "schema": "botsdk",
+      "table": "representative_test_result"
     }
   ],
   "renames": []
