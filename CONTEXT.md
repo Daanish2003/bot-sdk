@@ -191,7 +191,7 @@ One Bot's work in one place, in three sections: In progress (the running Turn, i
 _Avoid_: Task list, to-do, activity feed
 
 **Bot pause**:
-The user holding one Bot still until they resume it: its Turn and Helpers stop, nothing wakes it, and what comes due meanwhile (a Routine run, a Check-in, a webhook call) is skipped, not run late. It is not a Routine's own pause, which holds only that Routine, nor a Ban, which the Host puts on a user.
+The user holding one Bot still until they resume it: its Turn and Helpers stop, nothing wakes it, and what comes due meanwhile (a Routine run, a Check-in, a webhook call) is skipped, not run late. Assignments are the exception: they aren't due at a set time, so open ones and results that arrived meanwhile wake the Bot on resume. It is not a Routine's own pause, which holds only that Routine, nor a Ban, which the Host puts on a user.
 _Avoid_: Suspend, sleep, disable
 
 **Bot reset**:
