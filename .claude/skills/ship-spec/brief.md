@@ -40,8 +40,8 @@ You are an **implementer** for one ticket of [spec #<SPEC>](https://github.com/D
 
 The owner is away, and only the orchestrator talks to them.
 
-- **Open behaviour outside AGENTS.md §6:** when the spec leaves a behaviour open and a later commit can change it, take the option closest to the spec's user stories, keep building, and list it under `provisional`.
-- **Owner decisions** (AGENTS.md §6) that the spec and ticket don't already settle: a new dependency, a schema or migration change, auth, billing, a public API, deleting data. Also cutting scope or an acceptance criterion, and a real-Model eval or other paid call. Stop before making the change and report `owner-decision`.
+- **Open behaviour or schema choice:** when the spec leaves a behaviour outside AGENTS.md §6 open and a later commit can change it, or leaves a schema or migration choice open, take the option you'd recommend, closest to the spec's user stories, keep building, and list it under `provisional`. A migration that removes or rewrites existing data, or decides auth or permissions, is an owner decision.
+- **Owner decisions** (AGENTS.md §6) that the spec and ticket don't already settle: a new dependency, auth, billing, a public API, deleting data. Also cutting scope or an acceptance criterion, and a real-Model eval or other paid call. Stop before making the change and report `owner-decision`.
 - **A permission denial:** report `blocked` with the exact command. Don't retry it in another form.
 - **Running out of room before done:** write a handoff to `%TEMP%/ai-chat-handoff-<N>.md` with:
   - what's done, as commit SHAs;

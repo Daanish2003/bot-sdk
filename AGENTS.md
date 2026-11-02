@@ -75,7 +75,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 Some decisions belong to a human. Propose them (an issue comment, a `proposed` ADR, the PR's _Decisions I made_) and stop for a yes, unless the approved spec or ticket already makes the decision:
 
-- database schema and migrations
+- database schema and migrations (a `/ship-spec` run decides these provisionally, under its AFK rule)
 - auth and permissions
 - billing and payments
 - public APIs and webhooks
