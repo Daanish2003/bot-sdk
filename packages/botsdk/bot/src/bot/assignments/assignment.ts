@@ -29,7 +29,7 @@ import { uuidv7 } from "../../lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { hintChanged, noResetAfter, recordBotChange } from "../conversation";
 import { untrustedBlock } from "../routines";
-import { loadSecretValues, maskSecrets } from "../safety";
+import { loadSecretValues, secretMasker } from "../safety";
 import {
   isOneToOne,
   isPaused,
@@ -317,7 +317,8 @@ export async function assignWork(
  * the assigning Bot with it, in that Bot's 1:1 Conversation. As a handoff does, it wakes no Bot whose
  * Model the user can't use: its next Turn takes the result instead. An Assignment a feature made
  * queues the feature's job instead. Only the Bot it's assigned to may finish it, once, and
- * `for_customer` holding a known Secret's value is refused. `woken` is the Conversations to hint
+ * `for_customer` holding a known Secret's value is refused; the outcome of a feature's Assignment,
+ * which goes to the feature, has any such value masked. `woken` is the Conversations to hint
  * once `tx` has committed.
  */
 export async function finishAssignment(
@@ -340,22 +341,19 @@ export async function finishAssignment(
     .innerJoin(bot, eq(bot.id, botAssignment.assignedBotId))
     .where(and(eq(botAssignment.id, id), eq(botAssignment.assignedBotId, turn.botId)));
   if (!row) return { error: `No Assignment with id "${id}" is assigned to you.` };
-  // A Customer may read `for_customer`, and the outcome of a feature's Assignment goes to the feature.
-  const screened = [
-    ...(result.forCustomer ? [["for_customer", result.forCustomer]] : []),
-    ...(row.assignerJob ? [["outcome", result.outcome]] : []),
-  ] as const;
-  if (screened.length > 0) {
+  let ended = result;
+  if (result.forCustomer || row.assignerJob) {
     const values = await loadSecretValues({ db: tx, keyring: deps.keyring }, turn.userId);
-    for (const [field, text] of screened) {
-      if (maskSecrets(text, values.values()) !== text) {
-        return {
-          error:
-            `${field} holds the value of a Secret, and someone outside may read it: nothing was ` +
-            `finished. Write it without that value, and call ${finishAssignmentToolName} again.`,
-        };
-      }
+    const mask = secretMasker(values.values());
+    if (result.forCustomer && mask(result.forCustomer) !== result.forCustomer) {
+      return {
+        error:
+          "for_customer holds the value of a Secret, and a Customer may read it: nothing was " +
+          `finished. Write it without that value, and call ${finishAssignmentToolName} again.`,
+      };
     }
+    // Masked, not refused: the outcome is required, and a short Secret could match any rewording.
+    if (row.assignerJob) ended = { ...result, outcome: mask(result.outcome) };
   }
   const [assigner] = row.assignerBotId
     ? await tx
@@ -370,7 +368,7 @@ export async function finishAssignment(
   const now = deps.clock();
   const updated = await tx
     .update(botAssignment)
-    .set({ status, result, updatedAt: now, endedAt: now })
+    .set({ status, result: ended, updatedAt: now, endedAt: now })
     .where(and(eq(botAssignment.id, id), notInArray(botAssignment.status, endedStatuses)))
     .returning({ id: botAssignment.id });
   if (updated.length === 0) {
@@ -400,7 +398,7 @@ export async function finishAssignment(
     userId: turn.userId,
     botId: turn.botId,
     status,
-    result,
+    result: ended,
   });
   if (assigner && wakes) {
     await receive(deps, tx, {
@@ -653,11 +651,17 @@ export async function wakeOnAssignments(
       await lockTurnConversations(tx, owner);
       if (await isPaused(tx, owner.botId)) return;
       const receivedAt = deps.clock();
-      // Only those still open under the lock: a feature may have cancelled one since.
-      const still = new Set(
-        (await assignmentsOf(tx, owner.botId, ["open", "working"])).map((row) => row.id),
-      );
-      for (const row of open.filter((row) => still.has(row.id))) {
+      // Read under the lock: since the check above, a feature may have made or cancelled one, and
+      // a Turn may have taken a missed notice.
+      const live = await liveTriggers(tx, owner.botId);
+      for (const row of await assignmentsOf(tx, owner.botId, ["open", "working"])) {
+        const waits = live.some(
+          (trigger) =>
+            trigger.assignmentId === row.id &&
+            trigger.turnId === null &&
+            trigger.id.startsWith(assignmentTriggerPrefix),
+        );
+        if (waits) continue;
         await receive(deps, tx, {
           // A Trigger's id is its Bot's once, and this Assignment has had one already.
           id: `${assignmentTriggerId(row.id)}:${uuidv7()}`,
@@ -669,7 +673,7 @@ export async function wakeOnAssignments(
           receivedAt,
         });
       }
-      for (const row of missed) {
+      for (const row of await missedResults(tx, owner.botId, live)) {
         await receive(deps, tx, missedResultTrigger(owner, row, receivedAt));
       }
     });

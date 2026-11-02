@@ -696,31 +696,29 @@ describe("Auto-review of a Turn a feature's Assignment started", () => {
   );
 });
 
-describe("for_customer holding a Secret", () => {
+describe("a result holding a Secret", () => {
   const token = "ghp_a-very-secret-token";
 
   it(
-    "refuses it in the outcome of a feature's Assignment, which goes to the feature",
+    "masks it in the outcome of a feature's Assignment, which goes to the feature",
     async () => {
       const repairs = assigner();
-      const { fake, user, botId, client } = await botWith(
-        [
-          quiet,
-          finish({ status: "done", outcome: `Used ${token} to book it.` }),
-          finish({ status: "done", outcome: "Booked." }),
-          quiet,
-        ],
+      const { user, botId, client } = await botWith(
+        [quiet, finish({ status: "done", outcome: `Used ${token} to book it.` }), quiet],
         [repairs.feature],
       );
       await client.secrets.save({ botId, name: "GITHUB_TOKEN", value: token });
       await expect.poll(() => turnsOf(botId), poll).toEqual(["complete"]);
 
-      await repairs.assignments().create({ userId: user.id, botId, ...work, job: repairs.onEnded });
+      const { id } = await repairs
+        .assignments()
+        .create({ userId: user.id, botId, ...work, job: repairs.onEnded });
 
       await expect.poll(() => repairs.endings.length, poll).toBe(1);
-      const refusal = String(toolResultsIn(fake.calls[fake.calls.length - 2]).at(-1));
-      expect(refusal).toMatch(/outcome holds the value of a Secret/);
-      expect(repairs.endings[0]?.result?.outcome).toBe("Booked.");
+      expect(repairs.endings[0]?.result?.outcome).toBe("Used *** to book it.");
+      expect(await repairs.assignments().read({ userId: user.id, id })).toMatchObject({
+        result: { outcome: "Used *** to book it." },
+      });
     },
     timeout,
   );
@@ -750,7 +748,9 @@ describe("for_customer holding a Secret", () => {
         .create({ userId: user.id, botId, ...work, job: repairs.onEnded });
 
       await expect.poll(() => repairs.endings.length, poll).toBe(1);
-      const refusal = String(toolResultsIn(fake.calls[fake.calls.length - 2]).at(-1));
+      await expect.poll(() => turnsOf(botId), poll).toEqual(["complete", "complete"]);
+      // The Secret's wake, the refused call, then the call that read the refusal.
+      const refusal = String(toolResultsIn(fake.calls[2]).at(-1));
       expect(refusal).toMatch(/for_customer holds the value of a Secret/);
       expect(refusal).not.toContain(token);
       expect(repairs.endings[0]).toMatchObject({
