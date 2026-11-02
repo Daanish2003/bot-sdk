@@ -254,6 +254,21 @@ describe("running them", () => {
     expect(never?.checks.map((check) => check.passed)).toEqual([false, true]);
   });
 
+  it("doesn't count a reply the tool refused as sent", async () => {
+    const { rpc } = await instance({
+      [opens.message]: [replies(""), quiet()],
+    });
+    const id = await draftWith(rpc, [{ ...opens, expect: [{ kind: "replied" }] }]);
+
+    await rpc.representative.runTests({ id });
+    const done = await finished(rpc, id);
+
+    expect(done.tests[0]).toMatchObject({
+      status: "failed",
+      checks: [{ passed: false, detail: "It sent the Customer nothing." }],
+    });
+  });
+
   it("fails a hand-off expectation when the Release lists no hand-off tool", async () => {
     const { rpc } = await instance({ [refund.message]: [handsOff(), quiet()] });
     const id = await draftWith(rpc, [refund], { tools: ["reply"] });

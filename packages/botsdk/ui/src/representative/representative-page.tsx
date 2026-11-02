@@ -25,6 +25,14 @@ import {
 
 import { TestConversationsEditor, TestResults } from "./representative-tests";
 
+/** `value` as JSON with its keys in order: Postgres keeps an object's keys in an order of its own. */
+const stable = (value: unknown): string =>
+  JSON.stringify(value, (_key, each: unknown) =>
+    each && typeof each === "object" && !Array.isArray(each)
+      ? Object.fromEntries(Object.entries(each).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : each,
+  );
+
 const toolKeys = {
   reply: "representative.toolReply",
   hand_to_bot: "representative.toolHandToBot",
@@ -60,10 +68,12 @@ function DraftEditor({ representative }: { representative: RepresentativeView })
   const [reason, setReason] = useState("");
   const busy = save.isPending || approve.isPending || run.isPending;
   const body = { id: representative.id, draft };
+  // Saving changes the draft, which voids its results, so a form with edits has no passing tests.
+  const dirty = stable(draft) !== stable(representative.draft);
   // Tests that failed, or haven't run for this draft, hold Approve back until a reason is given.
-  const blocked = representative.testStatus !== "none" && representative.testStatus !== "passed";
-  // Saving changes the draft, which voids its results: the saved status is only true of the saved draft.
-  const dirty = JSON.stringify(draft) !== JSON.stringify(representative.draft);
+  const blocked =
+    draft.tests.length > 0 &&
+    (dirty || (representative.testStatus !== "none" && representative.testStatus !== "passed"));
   return (
     <section className="space-y-4">
       <div className="space-y-1">
@@ -136,7 +146,7 @@ function DraftEditor({ representative }: { representative: RepresentativeView })
           {t("representative.runTests")}
         </Button>
         <Button
-          disabled={busy || (blocked && !dirty)}
+          disabled={busy || blocked}
           // The server approves what it holds: the form's edits are saved first.
           onClick={() =>
             save

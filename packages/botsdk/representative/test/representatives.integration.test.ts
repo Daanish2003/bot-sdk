@@ -15,6 +15,7 @@ import { representative, type RepresentativeApi } from "../src";
 import {
   representative as representativeTable,
   representativeRelease,
+  representativeTestResult,
 } from "../src/server/db/schema";
 
 vi.setConfig({ testTimeout: 30_000 });
@@ -302,6 +303,17 @@ describe("a user's delete and export", () => {
     await rpc.representative.updateDraft({ id: mine.id, draft: { jobText: "Answer" } });
     await rpc.representative.approve({ id: mine.id });
     await rpc.representative.updateDraft({ id: mine.id, draft: { jobText: "Answer more" } });
+    await getTestDb()
+      .insert(representativeTestResult)
+      .values({
+        id: uuidv7(),
+        representativeId: mine.id,
+        draftHash: "hash",
+        position: 0,
+        status: "passed",
+        transcript: [{ role: "customer", text: "Hi" }],
+        checks: [],
+      });
     const theirs = await othersRpc.representative.create({ name: "Theirs" });
     await othersRpc.representative.updateDraft({ id: theirs.id, draft: { jobText: "Hello" } });
     await othersRpc.representative.approve({ id: theirs.id });
@@ -312,7 +324,14 @@ describe("a user's delete and export", () => {
       };
     };
     expect(exported.representative.representatives).toMatchObject([
-      { name: "Front desk", draft: { jobText: "Answer more" }, releases: [{ number: 1 }] },
+      {
+        name: "Front desk",
+        draft: { jobText: "Answer more" },
+        releases: [{ number: 1 }],
+        testResults: [
+          { position: 0, status: "passed", transcript: [{ role: "customer", text: "Hi" }] },
+        ],
+      },
     ]);
 
     await deleteUserData(deps, user.id);
@@ -324,6 +343,7 @@ describe("a user's delete and export", () => {
         .where(eq(representativeTable.userId, user.id)),
     ).toEqual([]);
     expect(await releaseRows(mine.id)).toEqual([]);
+    expect(await getTestDb().select().from(representativeTestResult)).toEqual([]);
     expect(await releaseRows(theirs.id)).toHaveLength(1);
     expect(await othersRpc.representative.list()).toHaveLength(1);
   });

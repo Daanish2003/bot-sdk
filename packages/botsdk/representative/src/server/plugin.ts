@@ -2,7 +2,7 @@ import { defineFeature } from "@botsdk/bot/feature";
 
 import { representativeContract } from "../shared/contract";
 import { representativeApi } from "./api";
-import { representative, representativeRelease } from "./db/schema";
+import { representative, representativeRelease, representativeTestResult } from "./db/schema";
 import representativeMigrations from "./migrations.json" with { type: "json" };
 import { deleteRepresentatives, exportRepresentatives } from "./representatives";
 import { representativeTestJob } from "./tests";
@@ -27,7 +27,7 @@ export function representativeFeature(options: RepresentativeOptions = {}) {
     id: "representative",
     needs: ["assignments", "models", "representativeLoop"],
     schema: {
-      tables: { representative, representativeRelease },
+      tables: { representative, representativeRelease, representativeTestResult },
       migrations: representativeMigrations,
     },
     contract: representativeContract,

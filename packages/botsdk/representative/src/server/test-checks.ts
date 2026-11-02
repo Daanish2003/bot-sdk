@@ -43,32 +43,39 @@ function argumentsOf(call: { function: { arguments: string } }): Record<string, 
   }
 }
 
-/** What reached the Customer, in order: the text of each `reply` call. */
+/** What `call`'s tool answered, as an object; null when it answered nothing or no object. */
+function answerTo(messages: ModelMessage[], callId: string): Record<string, unknown> | null {
+  const answer = messages.find(
+    (message) => message.role === "tool" && message.toolCallId === callId,
+  );
+  if (!answer) return null;
+  try {
+    const parsed: unknown = JSON.parse(textOf(answer.content));
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** What reached the Customer, in order: the text of each `reply` call the tool answered as sent. */
 function sentTexts(messages: ModelMessage[]) {
   return messages.flatMap((message) =>
     (message.toolCalls ?? [])
-      .filter((call) => call.function.name === "reply")
+      .filter(
+        (call) => call.function.name === "reply" && answerTo(messages, call.id)?.sent === true,
+      )
       .map((call) => String(argumentsOf(call).text ?? "")),
   );
 }
 
 /** Whether a `hand_to_bot` call was answered as handed off: a refusal does not count. */
 function handedOff(messages: ModelMessage[]) {
-  const calls = new Set(
-    messages.flatMap((message) =>
-      (message.toolCalls ?? [])
-        .filter((call) => call.function.name === "hand_to_bot")
-        .map((call) => call.id),
+  return messages.some((message) =>
+    (message.toolCalls ?? []).some(
+      (call) =>
+        call.function.name === "hand_to_bot" && answerTo(messages, call.id)?.handedOff === true,
     ),
   );
-  return messages.some((message) => {
-    if (message.role !== "tool" || !calls.has(message.toolCallId ?? "")) return false;
-    try {
-      return (JSON.parse(textOf(message.content)) as { handedOff?: unknown }).handedOff === true;
-    } catch {
-      return false;
-    }
-  });
 }
 
 export function checkExpectations(

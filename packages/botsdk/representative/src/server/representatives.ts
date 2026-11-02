@@ -302,6 +302,11 @@ export async function exportRepresentatives(tx: Transaction, userId: string) {
       .from(representativeRelease)
       .where(eq(representativeRelease.representativeId, row.id))
       .orderBy(asc(representativeRelease.number));
+    const testResults = await tx
+      .select()
+      .from(representativeTestResult)
+      .where(eq(representativeTestResult.representativeId, row.id))
+      .orderBy(asc(representativeTestResult.position));
     exported.push({
       id: row.id,
       name: row.name,
@@ -310,6 +315,16 @@ export async function exportRepresentatives(tx: Transaction, userId: string) {
       liveReleaseId: row.liveReleaseId,
       draft: row.draft,
       createdAt: row.createdAt,
+      testResults: testResults.map(
+        ({ position, status, transcript, checks, error, createdAt }) => ({
+          position,
+          status,
+          transcript,
+          checks,
+          error,
+          createdAt,
+        }),
+      ),
       releases: releases.map(({ id, number, content, approvedAt, overrideReason }) => ({
         id,
         number,
