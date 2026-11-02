@@ -57,6 +57,9 @@ export function emailBody(
     case "demonstration":
       paragraphs.push(link("Show me in the app"));
       break;
+    case "release_approval":
+      paragraphs.push(link("Review it in the app"));
+      break;
     case undefined:
       break;
     default:

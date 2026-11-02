@@ -90,6 +90,16 @@ describe("emailBody", () => {
     expect(lastLineOf({ kind: "routine_approval", routineId: "r1" } as RichControl)).toBe(
       `Approve or decline in the app: ${botUrl}`,
     );
+    // A release Approval is answered only on its page.
+    expect(
+      lastLineOf({
+        kind: "release_approval",
+        representativeId: "rep-1",
+        representativeName: "Front desk",
+        path: "/representatives/rep-1",
+        expiresAt: "2026-11-10T09:00:00.000Z",
+      } as RichControl),
+    ).toBe(`Review it in the app: ${botUrl}`);
     expect(lastLineOf({ kind: "review_approval", reviewId: "v1" } as RichControl)).toBe(
       `Approve or decline in the app: ${botUrl}`,
     );

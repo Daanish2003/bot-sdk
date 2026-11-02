@@ -122,8 +122,13 @@ export type TestResultView = {
  */
 export type TestStatus = "none" | "notRun" | "running" | "failed" | "passed";
 
+/** A Bot's draft waiting for the owner: the core's card in that Bot's Conversation, and until when. */
+export type PendingApproval = { id: string; botId: string; expiresAt: string };
+
 export type RepresentativeView = RepresentativeSummary & {
   draft: Draft;
+  /** The Approval waiting on this draft; null once answered, dropped or past its 7 days. */
+  approval: Pick<PendingApproval, "botId" | "expiresAt"> | null;
   liveRelease: ReleaseView | null;
   releases: ReleaseSummary[];
   testStatus: TestStatus;
@@ -183,6 +188,8 @@ export const representativeContract = {
    * failed or haven't finished, unless `overrideReason` says why not.
    */
   approve: oc.input(approveInput).output(type<ReleaseView>()),
+  /** The owner's no to a Bot's draft: the Bot is told, and the draft stays. */
+  declineApproval: oc.input(idInput).output(type<RepresentativeView>()),
   /** What the draft changes against the live Release, so the owner reviews only that. */
   diff: oc.input(idInput).output(type<DraftDiff>()),
   /** Repoints the live Release to an earlier one of this Representative, with no test and no new Release. */

@@ -33,6 +33,14 @@ export const assignmentTitle = "Draft the launch post";
 export const assignmentInstructions = "Write 100 words about the launch.";
 
 /**
+ * A Bot prompt with this marker makes the fake Model draft `draftedRepresentativeName` with
+ * `draft_representative` (ticket #1195), through `run_tool`, as a deferred tool is called.
+ */
+export const draftRepresentativeMarker = "[draft-representative]";
+export const draftedRepresentativeName = "Front desk";
+export const draftedRepresentativeWhy = "Customers keep asking about opening hours.";
+
+/**
  * A prompt with this marker makes the fake Model call `generate_image` (spec #278), when the request
  * offers it. The Host's Image Model is `fakeImageModel`, answered by the fake image adapter.
  */
@@ -322,6 +330,22 @@ export function startFakeOllama(port: number): Promise<Server> {
             bot: assignedBotName,
             title: assignmentTitle,
             instructions: assignmentInstructions,
+          },
+        });
+        return;
+      }
+      if (
+        stream &&
+        !answering &&
+        offers(runToolName) &&
+        prompt.includes(draftRepresentativeMarker)
+      ) {
+        calls(runToolName, {
+          name: "draft_representative",
+          args: {
+            name: draftedRepresentativeName,
+            jobText: "Answer questions about opening hours.",
+            why: draftedRepresentativeWhy,
           },
         });
         return;

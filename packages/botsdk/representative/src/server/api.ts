@@ -12,6 +12,7 @@ import {
 import {
   approveDraft,
   createRepresentative,
+  declineApproval,
   diffDraft,
   getRepresentative,
   listRepresentatives,
@@ -29,7 +30,9 @@ import {
  */
 
 /** The `representative` namespace over the feature's context. */
-export function representativeApi(context: FeatureContext<"assignments">) {
+export function representativeApi(
+  context: FeatureContext<"assignments" | "releaseApprovals" | "threads">,
+) {
   return {
     list: async ({ userId }: { userId: string }) => listRepresentatives(context, userId),
 
@@ -51,6 +54,9 @@ export function representativeApi(context: FeatureContext<"assignments">) {
       const { id, overrideReason } = parseInput(approveInput, rest);
       return approveDraft(context, userId, id, overrideReason);
     },
+
+    declineApproval: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      declineApproval(context, userId, parseInput(idInput, rest).id),
 
     diff: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
       diffDraft(context, userId, parseInput(idInput, rest).id),

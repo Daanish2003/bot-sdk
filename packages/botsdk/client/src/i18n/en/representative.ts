@@ -94,4 +94,9 @@ export const representativeMessages = {
   "representative.diffBefore": "Live",
   "representative.diffAfter": "Draft",
   "representative.diffAbsent": "none",
+  "representative.approvalWaiting":
+    "A Bot drafted this and is waiting for your answer. Read the changes and test results, then approve it or decline it.",
+  "representative.approvalUntil": ({ date }: { date: string }) => `Waiting until ${date}.`,
+  "representative.declineApproval": "Decline the draft",
+  "representative.declined": "Declined. The Bot has been told, and the draft stays.",
 };

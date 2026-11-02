@@ -2,6 +2,7 @@ import { defineFeature } from "@botsdk/bot/feature";
 
 import { representativeContract } from "../shared/contract";
 import { representativeApi } from "./api";
+import { botDraftTools } from "./bot-draft";
 import {
   representative,
   representativeHandOff,
@@ -9,7 +10,11 @@ import {
   representativeTestResult,
 } from "./db/schema";
 import representativeMigrations from "./migrations.json" with { type: "json" };
-import { deleteRepresentatives, exportRepresentatives } from "./representatives";
+import {
+  deleteRepresentatives,
+  dropApprovalsOfBot,
+  exportRepresentatives,
+} from "./representatives";
 import { representativeTestJob } from "./tests";
 import { handOffEndedJob, representativeTurnJob } from "./turn";
 
@@ -30,7 +35,7 @@ export type RepresentativeOptions = {
 export function representativeFeature(options: RepresentativeOptions = {}) {
   return defineFeature({
     id: "representative",
-    needs: ["assignments", "models", "representativeLoop"],
+    needs: ["assignments", "models", "releaseApprovals", "representativeLoop", "threads"],
     schema: {
       tables: {
         representative,
@@ -42,6 +47,8 @@ export function representativeFeature(options: RepresentativeOptions = {}) {
     },
     contract: representativeContract,
     api: (context) => representativeApi(context),
+    tools: (turn, context) => botDraftTools(turn, context),
+    resetBot: (botId, userId, context) => dropApprovalsOfBot(context, botId, userId),
     jobs: [representativeTurnJob(options.concurrency), handOffEndedJob, representativeTestJob],
     userData: {
       delete: { before: (tx, userId) => deleteRepresentatives(tx, userId) },

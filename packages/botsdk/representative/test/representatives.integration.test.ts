@@ -360,10 +360,10 @@ describe("a Host that doesn't enable the feature", () => {
     expect("representative" in sdk).toBe(false);
   });
 
-  it("gives the feature no Turn hooks: Auto-review and Custom Rules, which act on a Bot's Turns, never reach it", () => {
+  it("gives the feature no Turn hooks beyond a Bot's draft tools and its reset: Auto-review and Custom Rules, which act on a Bot's Turns, never reach a Representative", () => {
     const feature = representative();
 
-    for (const hook of ["tools", "prompt", "afterTurn", "turnChanges", "resetBot"] as const) {
+    for (const hook of ["prompt", "afterTurn", "turnChanges"] as const) {
       expect(feature[hook], hook).toBeUndefined();
     }
   });

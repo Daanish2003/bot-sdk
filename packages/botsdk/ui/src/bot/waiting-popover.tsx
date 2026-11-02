@@ -1,10 +1,12 @@
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useQuery } from "@tanstack/react-query";
 import { ShieldAlertIcon } from "lucide-react";
 
 import { useBotReviews } from "@botsdk/react/bot/reviews";
 import { useCustomRules } from "@botsdk/react/bot/rules";
 import { useChatAdapter, useI18n } from "@botsdk/react/provider";
+import { ReleaseApprovalCard } from "./release-approval-card";
 import { ReviewRequest } from "./review-request";
 import { RuleCard } from "./rule-card";
 
@@ -16,14 +18,23 @@ import { RuleCard } from "./rule-card";
  */
 export function WaitingPopover({ botId }: { botId: string }) {
   const { t } = useI18n();
-  const { Link } = useChatAdapter();
+  const { Link, orpc } = useChatAdapter();
   const { reviews, acting, allow, deny } = useBotReviews(botId, false);
   const pending = reviews.filter((review) => review.state === "pending");
   const rules = useCustomRules();
   const proposed = rules.rules.filter(
     (rule) => rule.state === "proposed" && rule.proposedByBotId === botId,
   );
-  const count = pending.length + proposed.length;
+  // A release Approval is only a card in the thread, so the thread's own read says which wait.
+  const thread = useQuery(orpc.bots.get.queryOptions({ input: { botId } }));
+  const drafted = (thread.data?.messages ?? []).flatMap((message) =>
+    message.control?.kind === "release_approval" &&
+    !message.control.answer &&
+    new Date(message.control.expiresAt) > new Date()
+      ? [{ id: message.id, card: message.control, text: message.text }]
+      : [],
+  );
+  const count = pending.length + proposed.length + drafted.length;
   return (
     <Popover>
       <PopoverTrigger
@@ -57,6 +68,11 @@ export function WaitingPopover({ botId }: { botId: string }) {
                   onDeny={rules.deny}
                   acting={rules.acting.has(rule.id)}
                 />
+              </li>
+            ))}
+            {drafted.map(({ id, card, text }) => (
+              <li key={id} className="flex flex-col">
+                <ReleaseApprovalCard card={card} text={text} />
               </li>
             ))}
           </ul>

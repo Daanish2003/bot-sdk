@@ -1,6 +1,11 @@
 import { expect, test } from "@playwright/test";
 
-import { createBot, signInAsSeededUser } from "./helpers";
+import { createBot, sendToBot, signInAsSeededUser, signInAsSeededUserWithModel } from "./helpers";
+import {
+  draftedRepresentativeName,
+  draftedRepresentativeWhy,
+  draftRepresentativeMarker,
+} from "./support/fake-ollama";
 
 test("an owner creates a Representative, approves a Release, edits the draft and switches it on", async ({
   page,
@@ -184,4 +189,35 @@ test("failed tests block approval until the owner approves anyway with a reason"
   await page.getByRole("button", { name: "Save draft" }).click();
   await expect(page.getByText("The tests haven't run on this draft.")).toBeVisible();
   await expect(page.locator("[data-test-result]")).toHaveCount(0);
+});
+
+test("a Bot's draft reaches the owner as a link, and is answered on the Representative's page", async ({
+  page,
+}) => {
+  await signInAsSeededUserWithModel(page);
+  await createBot(page, "Ada");
+
+  await sendToBot(page, `${draftRepresentativeMarker} Draft a front desk`);
+  const card = page.locator("[data-release-approval]");
+  await expect(card).toHaveAttribute("data-state", "waiting");
+  await expect(card).toContainText(draftedRepresentativeWhy);
+  await expect(card.getByRole("button")).toHaveCount(0);
+
+  await card.getByRole("link").click();
+  await expect(page).toHaveURL(/\/representatives\/[\w-]+$/);
+  await expect(page.getByRole("heading", { name: draftedRepresentativeName })).toBeVisible();
+  await expect(page.getByLabel("Job text")).toHaveValue("Answer questions about opening hours.");
+  await expect(page.getByText("No Release yet")).toBeVisible();
+
+  await page.getByRole("button", { name: "Decline the draft" }).click();
+  await expect(page.getByText("Declined. The Bot has been told").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Decline the draft" })).toBeHidden();
+
+  // The draft stays, and can still be approved.
+  await page.getByRole("button", { name: "Approve as a new Release" }).click();
+  await expect(page.getByText("Live: Release 1")).toBeVisible();
+
+  await page.goto("/bots");
+  await page.getByRole("link", { name: "Ada" }).first().click();
+  await expect(page.locator("[data-release-approval]")).toHaveAttribute("data-state", "declined");
 });

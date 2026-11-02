@@ -11,6 +11,7 @@ import { useChatAdapter, useI18n } from "@botsdk/react/provider";
 import { serverErrorText } from "@botsdk/react/rpc-error";
 import {
   useApproveRelease,
+  useDeclineApproval,
   useDraftDiff,
   useRefreshRepresentatives,
   useRepresentativeDetail,
@@ -285,6 +286,46 @@ function BotChooser({ representative }: { representative: RepresentativeView }) 
   );
 }
 
+/** A Bot's draft waiting for the owner: the Approve button above says yes, this says no. */
+function WaitingApproval({ representative }: { representative: RepresentativeView }) {
+  const i18n = useI18n();
+  const { t, locale } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const decline = useDeclineApproval({
+    onSuccess: async () => {
+      await refresh();
+      toast.success(t("representative.declined"));
+    },
+    onError: async (error) => {
+      await refresh();
+      toast.error(serverErrorText(i18n, error));
+    },
+  });
+  const { approval } = representative;
+  if (!approval) return null;
+  return (
+    <section
+      data-representative-approval=""
+      className="space-y-2 rounded-xl border border-amber-400 bg-amber-50 p-4 text-sm dark:bg-amber-950/30"
+    >
+      <p>{t("representative.approvalWaiting")}</p>
+      <p className="text-xs text-muted-foreground">
+        {t("representative.approvalUntil", {
+          date: new Date(approval.expiresAt).toLocaleString(locale),
+        })}
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={decline.isPending}
+        onClick={() => decline.mutate({ id: representative.id })}
+      >
+        {t("representative.declineApproval")}
+      </Button>
+    </section>
+  );
+}
+
 /**
  * One Representative: who it reports to, on/off, its draft with Save draft and Approve, and its
  * Releases. The Host mounts it at `/representatives/<id>`.
@@ -334,6 +375,7 @@ export function RepresentativePage({ id }: { id: string }) {
         />
         <Label htmlFor="representative-enabled">{t("representative.switch")}</Label>
       </div>
+      <WaitingApproval representative={representative} />
       {/* Keyed by the draft's fields, so a draft changed elsewhere reloads the form. */}
       <DraftEditor key={JSON.stringify(representative.draft)} representative={representative} />
       <DraftDiff id={id} />

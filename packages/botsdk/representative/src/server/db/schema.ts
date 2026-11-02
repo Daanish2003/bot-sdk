@@ -13,6 +13,7 @@ import {
 import { bot, botAssignment, botsdkSchema } from "@botsdk/bot/storage";
 import type {
   Draft,
+  PendingApproval,
   ReleaseContent,
   TestCheck,
   TestResultStatus,
@@ -37,6 +38,10 @@ export const representative = botsdkSchema.table(
     /** The Release new Turns use. No foreign key: the two tables point at each other. Null until the first approval. */
     liveReleaseId: uuid("live_release_id"),
     draft: jsonb("draft").$type<Draft>().notNull(),
+    /** The card of the Approval a Bot's draft is waiting on (ticket #1195); null when none was asked. */
+    pendingApproval: jsonb("pending_approval").$type<PendingApproval>(),
+    /** The hash of the draft a Bot last wrote: anything else in `draft` is the owner's own edit. */
+    botDraftHash: text("bot_draft_hash"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },

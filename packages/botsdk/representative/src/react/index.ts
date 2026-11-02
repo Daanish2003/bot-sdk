@@ -50,6 +50,13 @@ export function useApproveRelease(options?: ProcedureMutationOptions<Representat
   return useMutation(useRepresentative().approve.mutationOptions(options));
 }
 
+/** Says no to a Bot's draft (`representative.declineApproval`). */
+export function useDeclineApproval(
+  options?: ProcedureMutationOptions<Representative["declineApproval"]>,
+) {
+  return useMutation(useRepresentative().declineApproval.mutationOptions(options));
+}
+
 /** Runs the draft's test conversations (`representative.runTests`). */
 export function useRunTests(options?: ProcedureMutationOptions<Representative["runTests"]>) {
   return useMutation(useRepresentative().runTests.mutationOptions(options));

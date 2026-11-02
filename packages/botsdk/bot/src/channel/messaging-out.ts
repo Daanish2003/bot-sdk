@@ -25,7 +25,7 @@ const list = (ordered: boolean, items: string[]): Block => ({
  * One Bot Message as a messaging Channel's outbound Message (spec #1044, "How a Message shows on
  * Telegram"): its text, then its Rich control (`control`) reduced the way email reduces it. A choice is a numbered
  * list with one button per option (a typed number answers too) and Other when offered, an Approval
- * has Approve and Deny, a Secret request is only a link into the app, and the Computer and
+ * has Approve and Deny (but a release Approval, answered only on its page, is a link), a Secret request is only a link into the app, and the Computer and
  * Show me cards are one line and a link. Buttons carry the Message's `id` as their control. `files`
  * are sent when their bytes are known and within `uploadLimit`; the rest are listed with a link.
  * `appUrl` is the Bot's page, or `null` when the Host has none (no link is written).
@@ -86,6 +86,10 @@ export function messagingBody(
       break;
     case "demonstration":
       lines.push(link("Show me in the app"));
+      break;
+    case "release_approval":
+      // Answered only on the Representative's page, where the diff is: no buttons, and no yes or no.
+      lines.push(link("Review it in the app"));
       break;
     case undefined:
       break;

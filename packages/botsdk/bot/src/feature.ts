@@ -22,6 +22,7 @@ import type { BotSdkContext, BotSdkPlugin, Route, Transaction } from "./plugin";
 import { requireAuth } from "./procedures";
 import type { RepresentativeLoopService } from "./bot/agent-loop";
 import type { AssignmentsService } from "./bot/assignments";
+import type { ReleaseApprovalsService } from "./bot/safety";
 import type { ComputerApi } from "./computer/internal";
 import type { ModelsApi } from "./models/internal";
 import type { EnqueueOptions, JobDefinition } from "./runner/internal";
@@ -33,7 +34,13 @@ import type { EnqueueOptions, JobDefinition } from "./runner/internal";
  */
 
 /** The core services a feature may declare in `needs`. */
-export type CoreService = "assignments" | "computer" | "models" | "representativeLoop" | "threads";
+export type CoreService =
+  | "assignments"
+  | "computer"
+  | "models"
+  | "releaseApprovals"
+  | "representativeLoop"
+  | "threads";
 
 /** What a feature tells a Conversation's open tabs. */
 export type ThreadsService = { hintChanged: (conversationId: string) => Promise<void> };
@@ -42,6 +49,7 @@ type Services = {
   assignments: AssignmentsService;
   computer: ComputerApi;
   models: ModelsApi;
+  releaseApprovals: ReleaseApprovalsService;
   representativeLoop: RepresentativeLoopService;
   threads: ThreadsService;
 };
@@ -444,6 +452,7 @@ const serviceNames: Record<CoreService, string> = {
   assignments: "the Assignments",
   computer: "the Computer",
   models: "the Models",
+  releaseApprovals: "the release Approvals",
   representativeLoop: "the Representative loop",
   threads: "the Conversation threads",
 };
@@ -530,6 +539,7 @@ export function enableFeature(
   threads: ThreadsService,
   assignmentsOf: (feature: AnyFeature) => AssignmentsService,
   representativeLoop: RepresentativeLoopService,
+  releaseApprovals: ReleaseApprovalsService,
 ): EnabledFeature {
   const needs = feature.needs ?? [];
   return {
@@ -539,6 +549,7 @@ export function enableFeature(
       // Each feature's own: it acts only on what it assigned.
       ...(needs.includes("assignments") && { assignments: assignmentsOf(feature) }),
       ...(needs.includes("representativeLoop") && { representativeLoop }),
+      ...(needs.includes("releaseApprovals") && { releaseApprovals }),
     },
   };
 }

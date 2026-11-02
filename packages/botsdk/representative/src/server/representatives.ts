@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, max, notInArray } from "drizzle-orm";
+import { and, asc, desc, eq, max, notInArray, sql } from "drizzle-orm";
 
 import { endedAssignmentStatuses } from "@botsdk/client/bot/assignment";
 import type { FeatureContext } from "@botsdk/bot/feature";
@@ -11,6 +11,7 @@ import {
   type Draft,
   type DraftChange,
   type DraftDiff,
+  type PendingApproval,
   type ReleaseContent,
   type ReleaseSummary,
   type ReleaseView,
@@ -27,9 +28,14 @@ import {
 import { draftHash } from "./test-checks";
 import { normalizedDraft, representativeTestJob, testStateOf } from "./tests";
 
-type Context = Pick<FeatureContext, "db">;
-type JobsContext = Pick<FeatureContext, "db" | "jobs">;
-type MoveContext = FeatureContext<"assignments">;
+type Context = Pick<FeatureContext, "db" | "clock">;
+type JobsContext = Pick<FeatureContext, "db" | "clock" | "jobs">;
+/** What answers a Bot's Approval. */
+type AnswerContext = Pick<
+  FeatureContext<"releaseApprovals" | "threads">,
+  "db" | "clock" | "jobs" | "releaseApprovals" | "threads"
+>;
+type MoveContext = Pick<FeatureContext<"assignments">, "db" | "clock" | "assignments">;
 type Row = typeof representative.$inferSelect;
 
 /** What a new Representative's draft holds: no job text yet, no switches or Skills, every tool. */
@@ -45,6 +51,11 @@ export const emptyDraft = (): Draft => ({
 const notFound = () =>
   rpcError("NOT_FOUND", "error.representativeNotFound", "Representative not found");
 
+/** `approval` while it still waits for the owner at `now`, else null. */
+export function waitingApproval(approval: PendingApproval | null, now: Date) {
+  return approval && new Date(approval.expiresAt) > now ? approval : null;
+}
+
 /** The owner's row, or a not-found that is the same for a row that doesn't exist and another owner's. */
 async function ownedRow(db: Context["db"] | Transaction, userId: string, id: string, lock = false) {
   const query = db
@@ -57,7 +68,11 @@ async function ownedRow(db: Context["db"] | Transaction, userId: string, id: str
   return { ...row, draft: normalizedDraft(row.draft) };
 }
 
-async function view(db: Context["db"] | Transaction, source: Row): Promise<RepresentativeView> {
+async function view(
+  db: Context["db"] | Transaction,
+  source: Row,
+  now: Date,
+): Promise<RepresentativeView> {
   const row = { ...source, draft: normalizedDraft(source.draft) };
   const releases = await db
     .select({
@@ -74,6 +89,7 @@ async function view(db: Context["db"] | Transaction, source: Row): Promise<Repre
   return {
     ...summaryOf(row, live?.number ?? null),
     draft: row.draft,
+    approval: approvalView(row.pendingApproval, now),
     liveRelease: live,
     releases: releases.map(({ id, number, approvedAt, overrideReason }): ReleaseSummary => ({
       id,
@@ -83,6 +99,11 @@ async function view(db: Context["db"] | Transaction, source: Row): Promise<Repre
     })),
     ...(await testStateOf(db, row)),
   };
+}
+
+function approvalView(approval: PendingApproval | null, now: Date) {
+  const waiting = waitingApproval(approval, now);
+  return waiting && { botId: waiting.botId, expiresAt: waiting.expiresAt };
 }
 
 function summaryOf(row: Row, liveReleaseNumber: number | null): RepresentativeSummary {
@@ -112,15 +133,15 @@ export async function listRepresentatives(
 }
 
 export async function getRepresentative(
-  { db }: Context,
+  { db, clock }: Context,
   userId: string,
   id: string,
 ): Promise<RepresentativeView> {
-  return view(db, await ownedRow(db, userId, id));
+  return view(db, await ownedRow(db, userId, id), clock());
 }
 
 export async function createRepresentative(
-  { db }: Context,
+  { db, clock }: Context,
   userId: string,
   input: { name: string; botId?: string },
 ): Promise<RepresentativeView> {
@@ -142,32 +163,36 @@ export async function createRepresentative(
       draft: emptyDraft(),
     })
     .returning();
-  return view(db, row!);
+  return view(db, row!, clock());
+}
+
+/** `draft` with `changes`: fields left out stay, and one set to `undefined` doesn't clear its field. */
+export function mergedDraft(draft: Draft, changes: Partial<Draft>): Draft {
+  return {
+    ...draft,
+    ...Object.fromEntries(Object.entries(changes).filter(([, value]) => value !== undefined)),
+  };
 }
 
 export async function updateDraft(
-  { db }: Context,
+  { db, clock }: Context,
   userId: string,
   id: string,
   changes: Partial<Draft>,
 ): Promise<RepresentativeView> {
-  // Fields left out stay; one set to `undefined` doesn't clear its field.
-  const defined = Object.fromEntries(
-    Object.entries(changes).filter(([, value]) => value !== undefined),
-  );
   return db.transaction(async (tx) => {
     const row = await ownedRow(tx, userId, id, true);
     const [updated] = await tx
       .update(representative)
-      .set({ draft: { ...row.draft, ...defined }, updatedAt: new Date() })
+      .set({ draft: mergedDraft(row.draft, changes), updatedAt: new Date() })
       .where(eq(representative.id, id))
       .returning();
-    return view(tx, updated!);
+    return view(tx, updated!, clock());
   });
 }
 
 export async function setEnabled(
-  { db }: Context,
+  { db, clock }: Context,
   userId: string,
   id: string,
   enabled: boolean,
@@ -187,7 +212,7 @@ export async function setEnabled(
       .set({ enabled, updatedAt: new Date() })
       .where(eq(representative.id, id))
       .returning();
-    return view(tx, updated!);
+    return view(tx, updated!, clock());
   });
 }
 
@@ -197,7 +222,7 @@ export async function setEnabled(
  * refusal part-way (the Bot's Model can't run) is retried by choosing the Bot again.
  */
 export async function setBot(
-  { db, assignments }: MoveContext,
+  { db, clock, assignments }: MoveContext,
   userId: string,
   id: string,
   botId: string,
@@ -237,38 +262,47 @@ export async function setBot(
       if (!ended) throw error;
     }
   }
-  return view(db, updated);
+  return view(db, updated, clock());
 }
 
 /**
- * Runs the draft's test conversations, each on a job, and returns at once. Earlier results go: only
- * the draft as it is now has any. The jobs are queued in the transaction that records the results.
+ * Queues the draft's test conversations, each on a job. Earlier results go: only the draft as it is
+ * now has any. The jobs are queued in the transaction that records the results.
  */
+export async function queueTests(
+  tx: Transaction,
+  jobs: JobsContext["jobs"],
+  { id, draft }: { id: string; draft: Draft },
+): Promise<void> {
+  await tx
+    .delete(representativeTestResult)
+    .where(eq(representativeTestResult.representativeId, id));
+  const hash = draftHash(draft);
+  for (const position of draft.tests.keys()) {
+    const resultId = uuidv7();
+    await tx.insert(representativeTestResult).values({
+      id: resultId,
+      representativeId: id,
+      draftHash: hash,
+      position,
+      status: "queued",
+      transcript: [],
+      checks: [],
+    });
+    await jobs.enqueueIn(tx, representativeTestJob, { resultId });
+  }
+}
+
+/** Runs the draft's test conversations and returns at once. */
 export async function runTests(
-  { db, jobs }: JobsContext,
+  { db, jobs, clock }: JobsContext,
   userId: string,
   id: string,
 ): Promise<RepresentativeView> {
   const started = await db.transaction(async (tx) => {
     const row = await ownedRow(tx, userId, id, true);
-    await tx
-      .delete(representativeTestResult)
-      .where(eq(representativeTestResult.representativeId, id));
-    const hash = draftHash(row.draft);
-    for (const position of row.draft.tests.keys()) {
-      const resultId = uuidv7();
-      await tx.insert(representativeTestResult).values({
-        id: resultId,
-        representativeId: id,
-        draftHash: hash,
-        position,
-        status: "queued",
-        transcript: [],
-        checks: [],
-      });
-      await jobs.enqueueIn(tx, representativeTestJob, { resultId });
-    }
-    return view(tx, row);
+    await queueTests(tx, jobs, { id, draft: row.draft });
+    return view(tx, row, clock());
   });
   jobs.wake();
   return started;
@@ -278,15 +312,15 @@ export async function runTests(
  * Pins the draft as the next numbered Release and points the Representative's live Release at it.
  * The Representative's row is locked, so two approvals never take one number. A draft whose tests
  * have failed, or haven't finished for the draft as it is now, needs `overrideReason`, which is
- * kept with the Release.
+ * kept with the Release. A Bot's Approval waiting on the draft is answered, which wakes that Bot.
  */
 export async function approveDraft(
-  { db }: Context,
+  { db, jobs, releaseApprovals, threads }: AnswerContext,
   userId: string,
   id: string,
   overrideReason?: string,
 ): Promise<ReleaseView> {
-  return db.transaction(async (tx) => {
+  const { result, answered } = await db.transaction(async (tx) => {
     const row = await ownedRow(tx, userId, id, true);
     if (row.draft.jobText.trim() === "") {
       throw rpcError(
@@ -336,16 +370,99 @@ export async function approveDraft(
       .returning();
     await tx
       .update(representative)
-      .set({ liveReleaseId: release!.id, updatedAt: new Date() })
+      .set({ liveReleaseId: release!.id, pendingApproval: null, updatedAt: new Date() })
       .where(eq(representative.id, id));
+    const answered =
+      row.pendingApproval &&
+      (await releaseApprovals.answer(tx, {
+        userId,
+        id: row.pendingApproval.id,
+        answer: "approved",
+        releaseNumber: release!.number,
+        edited: row.botDraftHash !== draftHash(row.draft),
+      }));
     return {
-      id: release!.id,
-      number: release!.number,
-      approvedAt: release!.approvedAt,
-      overrideReason: release!.overrideReason,
-      content: release!.content,
+      answered,
+      result: {
+        id: release!.id,
+        number: release!.number,
+        approvedAt: release!.approvedAt,
+        overrideReason: release!.overrideReason,
+        content: release!.content,
+      },
     };
   });
+  if (answered) {
+    jobs.wake();
+    await threads.hintChanged(answered.conversationId);
+  }
+  return result;
+}
+
+/** The owner's no to the Approval waiting on the draft: it wakes the Bot, and the draft stays. */
+export async function declineApproval(
+  { db, clock, jobs, releaseApprovals, threads }: AnswerContext,
+  userId: string,
+  id: string,
+): Promise<RepresentativeView> {
+  const { result, answered } = await db.transaction(async (tx) => {
+    const row = await ownedRow(tx, userId, id, true);
+    const now = clock();
+    const waiting = waitingApproval(row.pendingApproval, now);
+    const answered =
+      waiting &&
+      (await releaseApprovals.answer(tx, { userId, id: waiting.id, answer: "declined" }));
+    if (!answered) {
+      throw rpcError(
+        "CONFLICT",
+        "error.representativeNoApproval",
+        "There is no Approval waiting on this draft",
+      );
+    }
+    const [updated] = await tx
+      .update(representative)
+      .set({ pendingApproval: null, updatedAt: now })
+      .where(eq(representative.id, id))
+      .returning();
+    return { answered, result: await view(tx, updated!, now) };
+  });
+  jobs.wake();
+  await threads.hintChanged(answered.conversationId);
+  return result;
+}
+
+/**
+ * A Bot reset drops the Approvals its drafts wait on, and keeps the drafts, the Representatives and
+ * their Releases. Safe to run again.
+ */
+export async function dropApprovalsOfBot(
+  { db, releaseApprovals, threads }: Pick<AnswerContext, "db" | "releaseApprovals" | "threads">,
+  botId: string,
+  userId: string,
+): Promise<void> {
+  const dropped = await db.transaction(async (tx) => {
+    const rows = await tx
+      .select({ id: representative.id, pendingApproval: representative.pendingApproval })
+      .from(representative)
+      .where(
+        and(
+          eq(representative.userId, userId),
+          sql`${representative.pendingApproval}->>'botId' = ${botId}`,
+        ),
+      )
+      .for("update");
+    const conversations = new Set<string>();
+    for (const row of rows) {
+      const closed = await releaseApprovals.drop(tx, { userId, id: row.pendingApproval!.id });
+      if (closed) conversations.add(closed.conversationId);
+      await tx
+        .update(representative)
+        .set({ pendingApproval: null })
+        .where(eq(representative.id, row.id));
+    }
+    return conversations;
+  });
+  for (const conversationId of dropped) await threads.hintChanged(conversationId);
 }
 
 const asText = (value: unknown) => (value === undefined ? null : JSON.stringify(value));
@@ -436,7 +553,7 @@ export async function diffDraft({ db }: Context, userId: string, id: string): Pr
  * and the draft stays. A Turn that has started holds its own Release, so only later Turns see it.
  */
 export async function rollbackRelease(
-  { db }: Context,
+  { db, clock }: Context,
   userId: string,
   id: string,
   releaseId: string,
@@ -461,7 +578,7 @@ export async function rollbackRelease(
       .set({ liveReleaseId: releaseId, updatedAt: new Date() })
       .where(eq(representative.id, id))
       .returning();
-    return view(tx, updated!);
+    return view(tx, updated!, clock());
   });
 }
 
@@ -491,6 +608,7 @@ export async function exportRepresentatives(tx: Transaction, userId: string) {
       enabled: row.enabled,
       liveReleaseId: row.liveReleaseId,
       draft: row.draft,
+      pendingApproval: row.pendingApproval,
       createdAt: row.createdAt,
       testResults: testResults.map(
         ({ position, status, transcript, checks, error, createdAt }) => ({

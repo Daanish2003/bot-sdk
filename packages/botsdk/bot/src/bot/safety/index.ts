@@ -46,6 +46,7 @@ export {
   reviewedRules,
   updateRule,
 } from "./custom-rule";
+export { type ReleaseApprovalsService, releaseApprovalsService } from "./release-approvals-service";
 export { deleteSecret, listSecrets, rotateSecretKeys, saveSecret } from "./secret";
 export {
   type DecryptedSecrets,
