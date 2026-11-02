@@ -518,6 +518,33 @@ describe("a feature's Assignment its Bot splits", () => {
   );
 
   it(
+    "tells a child's Bot that missed the cascade what ended it, not that its assigner did",
+    async () => {
+      const { repairs, fakes, user, client, clerkId, helperId } = await clerkAndHelper({
+        Clerk: [split, quiet],
+        Helper: [quiet, quiet],
+      });
+      const { id } = await repairs
+        .assignments()
+        .create({ userId: user.id, botId: clerkId, ...work, job: repairs.onEnded });
+      await expect
+        .poll(async () => (await client.assignments.list({ botId: helperId }))[0]?.status, poll)
+        .toBe("working");
+      await expect.poll(() => turnsOf(helperId), poll).toEqual(["complete"]);
+      await client.bots.pause({ botId: helperId });
+
+      await repairs.assignments().cancel({ userId: user.id, id });
+      await client.bots.resume({ botId: helperId });
+      await expect.poll(() => turnsOf(helperId), poll).toEqual(["complete", "complete"]);
+
+      const told = inputText(fakes.Helper.calls[1]);
+      expect(told).toContain("was cancelled by the end of the Assignment it was part of");
+      expect(told).not.toContain("was cancelled by Clerk");
+    },
+    timeout,
+  );
+
+  it(
     "queues the job when the Bot finishes it after its child ended, not when the child did",
     async () => {
       const top = { id: "" };

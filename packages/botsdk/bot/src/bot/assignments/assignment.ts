@@ -771,6 +771,7 @@ async function missedResults(
       assignerFeature: botAssignment.assignerFeature,
       assignerTrusted: botAssignment.assignerTrusted,
       byUser: sql<boolean>`exists (select 1 from ${botAssignmentLog} where ${botAssignmentLog.assignmentId} = ${botAssignment.id} and ${botAssignmentLog.status} = 'cancelled' and ${botAssignmentLog.actor} = 'user')`,
+      byCascade: sql<boolean>`exists (select 1 from ${botAssignmentLog} where ${botAssignmentLog.assignmentId} = ${botAssignment.id} and ${botAssignmentLog.status} = 'cancelled' and ${botAssignmentLog.actor} = 'system')`,
       read: sql<boolean>`exists (select 1 from ${botTrigger} where ${botTrigger.botId} = ${botAssignment.assignedBotId} and ${botTrigger.source} = 'assignment' and ${botTrigger.id} like ${assignmentTriggerPrefix} || ${botAssignment.id} || '%' and ${botTrigger.turnId} is not null)`,
       assignedBotId: botAssignment.assignedBotId,
     })
@@ -806,10 +807,12 @@ async function missedResults(
         row,
         row.byUser
           ? "the user"
-          : row.assignerFeature
-            ? featureNamed(row.assignerFeature)
-            : (assigners.find((assigner) => assigner.id === row.assignerBotId)?.name ??
-              "another Bot"),
+          : row.byCascade
+            ? "the end of the Assignment it was part of"
+            : row.assignerFeature
+              ? featureNamed(row.assignerFeature)
+              : (assigners.find((assigner) => assigner.id === row.assignerBotId)?.name ??
+                "another Bot"),
       ),
     })),
   ];
