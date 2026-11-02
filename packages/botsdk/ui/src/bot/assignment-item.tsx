@@ -115,6 +115,14 @@ export function AssignmentItem({
       </div>
       {open && (
         <div className="flex flex-col gap-1 pt-1 pl-6">
+          {assignment.parent && (
+            <p data-assignment-parent={assignment.parent.id} className="text-muted-foreground">
+              {t("bots.assignmentPartOf", {
+                title: assignment.parent.title,
+                bot: assignment.parent.botName,
+              })}
+            </p>
+          )}
           <p className="whitespace-pre-wrap">{assignment.instructions}</p>
           {result && (
             <>
@@ -130,6 +138,23 @@ export function AssignmentItem({
                 </p>
               )}
             </>
+          )}
+          {assignment.children.length > 0 && (
+            <ul aria-label={t("bots.assignmentChildren")} className="flex flex-col gap-1 pt-1">
+              {assignment.children.map((child) => (
+                <li key={child.id} data-assignment-child={child.id} className="flex gap-2">
+                  <span className="min-w-0 break-words">
+                    {t("bots.assignmentChild", {
+                      title: child.title,
+                      bot: child.botName,
+                    })}
+                  </span>
+                  <span className="ml-auto shrink-0 text-muted-foreground">
+                    {t(statusKeys[child.status])}
+                  </span>
+                </li>
+              ))}
+            </ul>
           )}
           <ol aria-label={t("bots.assignmentLog")} className="flex flex-col gap-1 pt-1">
             {assignment.log.map((entry) => (

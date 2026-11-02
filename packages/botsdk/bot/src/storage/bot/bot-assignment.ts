@@ -1,6 +1,15 @@
 import type { AssignmentResult } from "@botsdk/client/bot/assignment";
 import { sql } from "drizzle-orm";
-import { type AnyPgColumn, check, index, jsonb, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  type AnyPgColumn,
+  check,
+  index,
+  integer,
+  jsonb,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 import { botsdkSchema } from "../botsdk-schema";
 import { bot } from "./bot";
@@ -8,7 +17,7 @@ import { bot } from "./bot";
 /**
  * How an Assignment stands (spec #1166): `open` until a Turn of its Bot takes it, then `working`.
  * Only its Bot's `finish_assignment` call makes it `done` or `failed`; a Turn ending never does.
- * `blocked` and `cancelled` exist for later tickets.
+ * `blocked` means waiting on a child Assignment.
  */
 export const botAssignmentStatus = botsdkSchema.enum("bot_assignment_status", [
   "open",
@@ -40,6 +49,19 @@ export const botAssignment = botsdkSchema.table(
     assignerBotId: uuid("assigner_bot_id").references((): AnyPgColumn => bot.id, {
       onDelete: "set null",
     }),
+    /** The Assignment this one was split off from, held by the Bot that assigned this one. */
+    parentAssignmentId: uuid("parent_assignment_id").references(
+      (): AnyPgColumn => botAssignment.id,
+      {
+        onDelete: "set null",
+      },
+    ),
+    /**
+     * How long the chain of Assignments is up to here, this one included, at most
+     * `assignmentChainLimit`. Kept, as a chain also runs through a result that wakes a Bot, with no
+     * parent to follow.
+     */
+    depth: integer("depth").notNull().default(1),
     /** A few words naming the work, as its collapsed item shows it. */
     title: text("title").notNull(),
     /** The work itself, in the assigner's words. */
@@ -56,6 +78,7 @@ export const botAssignment = botsdkSchema.table(
   (table) => [
     index("bot_assignment_assigned_bot_id_idx").on(table.assignedBotId),
     index("bot_assignment_assigner_bot_id_idx").on(table.assignerBotId),
+    index("bot_assignment_parent_assignment_id_idx").on(table.parentAssignmentId),
     check(
       "bot_assignment_result_check",
       sql`(${table.status} in ('done', 'failed')) = (${table.result} is not null)`,

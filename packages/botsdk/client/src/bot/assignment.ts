@@ -31,6 +31,13 @@ export type AssignmentLogEntry = {
   at: Date;
 };
 
+/** Another Assignment that an Assignment is linked to, and the Bot it's handed to. */
+export type AssignmentLink = {
+  id: string;
+  title: string;
+  botName: string;
+};
+
 /** An Assignment handed to a Bot, as its owner reads it. */
 export type BotAssignment = {
   id: string;
@@ -41,6 +48,10 @@ export type BotAssignment = {
   /** The Bot that handed it over; `null` once that Bot is gone. */
   assignerBotId: string | null;
   assignerName: string | null;
+  /** The Assignment it was split off from. */
+  parent: AssignmentLink | null;
+  /** The Assignments split off from it, oldest first. */
+  children: (AssignmentLink & { status: AssignmentStatus })[];
   overdueAt: Date | null;
   createdAt: Date;
   endedAt: Date | null;

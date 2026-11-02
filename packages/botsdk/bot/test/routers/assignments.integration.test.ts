@@ -7,6 +7,7 @@ import { bot, botAssignment, botTrigger, botTurn } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { deleteUserData, exportUserData } from "../../src/user-data";
 import { assignmentTools } from "../../src/bot/assignments";
+import { receive } from "../../src/bot/triggers";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner } from "../../src/runner/internal";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "@ai-chat/test-support/deps";
@@ -1402,6 +1403,675 @@ describe("a cancel a Bot missed", () => {
       await client.bots.resume({ botId: b.Scout.id });
       await new Promise((resolve) => setTimeout(resolve, 1_000));
       expect(await statusesOf(b.Scout.id)).toEqual(["complete", "complete"]);
+    },
+    timeout,
+  );
+});
+
+describe("splitting an Assignment into child Assignments", () => {
+  it(
+    "opens a child the owner sees linked to its parent, which is blocked until the child ends and its Bot wakes with the result",
+    async () => {
+      const {
+        fakes,
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Scout: [assign("Writer"), quiet, quiet],
+        Writer: [assign("Editor", "Check the facts"), quiet, quiet],
+        Editor: [finish({ status: "done", outcome: "Facts check out." }), quiet],
+      });
+
+      await tell("Scout", "Hand it on.");
+
+      await expect.poll(() => statusesOf(b.Editor.id), poll).toEqual(["complete"]);
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete", "complete"]);
+      const [parent] = await client.assignments.list({ botId: b.Writer.id });
+      const [child] = await client.assignments.list({ botId: b.Editor.id });
+
+      // The owner sees the link from both ends.
+      expect(child!.parent).toEqual({ id: parent!.id, title: "Draft the post", botName: "Writer" });
+      expect(parent!.parent).toBeNull();
+      expect(parent!.children).toEqual([
+        { id: child!.id, title: "Check the facts", status: "done", botName: "Editor" },
+      ]);
+
+      // The parent showed blocked while the child ran, and came back when it ended.
+      expect(parent!.status).toBe("working");
+      expect(parent!.log.map((entry) => [entry.status, entry.actor])).toEqual([
+        ["open", "bot"],
+        ["working", "system"],
+        ["blocked", "system"],
+        ["working", "system"],
+      ]);
+
+      // Its Bot woke with the child's result, told which of its Assignments it was part of.
+      const woke = JSON.stringify(fakes.Writer.calls.at(-1)!.messages.slice(1));
+      expect(woke).toContain("Facts check out.");
+      expect(woke).toContain(`part of your Assignment ${parent!.id}`);
+    },
+    timeout,
+  );
+
+  /** What each of a Bot's tool calls answered, as its next call was sent it. */
+  const answersIn = (fake: FakeAdapter) =>
+    JSON.stringify(fake.calls.map((call) => toolResultsIn(call).at(-1)));
+
+  /** A `finish_assignment` call on the Assignment the newest Trigger names, not the first. */
+  const finishNewest = (call: TextOptions) => {
+    const ids = [
+      ...JSON.stringify(call.messages.slice(1)).matchAll(/Assignment ([0-9a-f]{8}-[0-9a-f-]{27})/g),
+    ];
+    return round(
+      runs("finish_assignment", { id: ids.at(-1)![1]!, status: "done", outcome: "Drafted." }),
+    );
+  };
+
+  const titled = (botName: string, title: string, parent?: string) =>
+    round(runs("assign_work", { bot: botName, title, instructions: "Do it.", parent }));
+
+  const statusOf = async (
+    client: Awaited<ReturnType<typeof bots>>["client"],
+    botId: string,
+    index = 0,
+  ) => (await client.assignments.list({ botId }))[index]?.status;
+
+  it(
+    "refuses a chain deeper than 3 with a reason the Bot can read",
+    async () => {
+      const {
+        fakes,
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Ann: [titled("Bea", "one"), quiet, quiet],
+        Bea: [titled("Cid", "two"), quiet, quiet],
+        Cid: [titled("Dee", "three"), quiet, quiet],
+        Dee: [titled("Eve", "four"), quiet, quiet],
+        Eve: [quiet],
+      });
+
+      await tell("Ann", "Start it.");
+
+      await expect.poll(() => answersIn(fakes.Dee), poll).toMatch(/stops at 3 deep/);
+      await expect.poll(() => statusesOf(b.Dee.id), poll).toEqual(["complete"]);
+      // Eve never heard of it.
+      expect(fakes.Eve.calls).toHaveLength(0);
+      expect(await client.assignments.list({ botId: b.Eve.id })).toEqual([]);
+      // The third is still working, not blocked: nothing split off from it.
+      const [third] = await client.assignments.list({ botId: b.Dee.id });
+      expect(third).toMatchObject({ title: "three", status: "working", children: [] });
+    },
+    timeout,
+  );
+
+  it(
+    "bounds a Bot-to-Bot cycle by the same limit, though no Bot names a parent",
+    async () => {
+      const {
+        fakes,
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Ann: [titled("Bea", "one"), quiet, titled("Bea", "three"), quiet, quiet],
+        Bea: [titled("Ann", "two"), quiet, titled("Ann", "four"), quiet, quiet],
+      });
+
+      await tell("Ann", "Start it.");
+
+      await expect.poll(() => answersIn(fakes.Bea), poll).toMatch(/stops at 3 deep/);
+      const [one, three] = await client.assignments.list({ botId: b.Bea.id });
+      const [two, four] = await client.assignments.list({ botId: b.Ann.id });
+      expect(four).toBeUndefined();
+      expect(two!.parent!.id).toBe(one!.id);
+      expect(three!.parent!.id).toBe(two!.id);
+    },
+    timeout,
+  );
+
+  it(
+    "bounds two Bots trading results, and starts a new chain when the user asks",
+    async () => {
+      const {
+        fakes,
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Ann: [
+          titled("Bea", "one"),
+          quiet,
+          titled("Bea", "two"),
+          quiet,
+          titled("Bea", "three"),
+          quiet,
+          titled("Bea", "four"),
+          quiet,
+          titled("Bea", "fresh"),
+          quiet,
+          quiet,
+        ],
+        Bea: [finishNewest, quiet, finishNewest, quiet, finishNewest, quiet, quiet],
+      });
+
+      await tell("Ann", "Start it.");
+
+      await expect.poll(() => answersIn(fakes.Ann), poll).toMatch(/stops at 3 deep/);
+      const handed = await client.assignments.list({ botId: b.Bea.id });
+      expect(handed.map((row) => row.title)).toEqual(["one", "two", "three"]);
+      // A result that wakes a Bot carries on a chain, but isn't the parent of what comes next.
+      expect(handed.map((row) => row.parent)).toEqual([null, null, null]);
+
+      await expect.poll(() => statusesOf(b.Ann.id), poll).toEqual(Array(4).fill("complete"));
+      await tell("Ann", "One more, please.");
+
+      await expect
+        .poll(async () => (await client.assignments.list({ botId: b.Bea.id })).at(-1)!.title, poll)
+        .toBe("fresh");
+    },
+    timeout,
+  );
+
+  it(
+    "keeps the parent blocked until its last open child ends, however many it splits off",
+    async () => {
+      const dee: Round[] = [quiet];
+      const {
+        fakes,
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Ann: [titled("Bea", "parent"), quiet, quiet],
+        Bea: [
+          round(
+            runs("assign_work", { bot: "Cid", title: "first", instructions: "One." }),
+            runs("assign_work", { bot: "Dee", title: "second", instructions: "Two." }),
+          ),
+          quiet,
+          quiet,
+          quiet,
+        ],
+        Cid: [finishNewest, quiet],
+        Dee: dee,
+      });
+
+      await tell("Ann", "Hand it on.");
+
+      await expect.poll(() => statusesOf(b.Cid.id), poll).toEqual(["complete"]);
+      await expect.poll(() => statusesOf(b.Dee.id), poll).toEqual(["complete"]);
+      await expect
+        .poll(async () => (await client.assignments.list({ botId: b.Bea.id }))[0]!.children, poll)
+        .toMatchObject([
+          { title: "first", status: "done" },
+          { title: "second", status: "working" },
+        ]);
+      expect(await statusOf(client, b.Bea.id)).toBe("blocked");
+
+      // The parent's thread hears of each child, though its own status didn't change for all.
+      const changes = async () => {
+        const read = await client.conversations.changes({
+          conversationId: await conversationOf(b.Bea.id),
+          since: 0,
+        });
+        return read.reload ? [] : read.changes.filter((row) => row.kind === "assignment");
+      };
+      // Made: open, working, blocked, then the second child, then the first one's end.
+      expect(await changes()).toHaveLength(5);
+
+      dee.push(finishNewest, quiet);
+      await tell("Dee", "Finish it.");
+
+      await expect.poll(() => statusOf(client, b.Bea.id), poll).toBe("working");
+      const [after] = await client.assignments.list({ botId: b.Bea.id });
+      expect(after!.log.filter((entry) => entry.status === "blocked")).toHaveLength(1);
+      expect(after!.log.at(-1)).toMatchObject({ status: "working", actor: "system" });
+      expect(fakes.Ann.calls).toHaveLength(2);
+      expect(await changes()).toHaveLength(6);
+    },
+    timeout,
+  );
+
+  it(
+    "leaves the parent's Bot to decide when a child fails",
+    async () => {
+      const {
+        fakes,
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Ann: [titled("Bea", "parent"), quiet, quiet],
+        Bea: [titled("Cid", "Check the facts"), quiet, quiet, quiet],
+        Cid: [finish({ status: "failed", outcome: "No sources." }), quiet],
+      });
+
+      await tell("Ann", "Hand it on.");
+
+      await expect.poll(() => statusesOf(b.Bea.id), poll).toEqual(["complete", "complete"]);
+      const [parent] = await client.assignments.list({ botId: b.Bea.id });
+      expect(parent).toMatchObject({ status: "working", result: null });
+      expect(parent!.children).toMatchObject([{ status: "failed" }]);
+      expect(JSON.stringify(fakes.Bea.calls.at(-1)!.messages.slice(1))).toContain("No sources.");
+      // Ann, which started the parent, hears nothing: it hasn't ended.
+      expect(await statusesOf(b.Ann.id)).toEqual(["complete"]);
+    },
+    timeout,
+  );
+
+  it(
+    "unblocks the parent and wakes its Bot when the owner cancels a child, and when its Bot does",
+    async () => {
+      const bea: Round[] = [
+        round(
+          runs("assign_work", { bot: "Cid", title: "first", instructions: "One." }),
+          runs("assign_work", { bot: "Dee", title: "second", instructions: "Two." }),
+        ),
+        quiet,
+      ];
+      const {
+        fakes,
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Ann: [titled("Bea", "parent"), quiet],
+        Bea: bea,
+        Cid: [quiet],
+        Dee: [quiet, quiet],
+      });
+      await tell("Ann", "Hand it on.");
+      await expect.poll(() => statusesOf(b.Cid.id), poll).toEqual(["complete"]);
+      await expect.poll(() => statusesOf(b.Dee.id), poll).toEqual(["complete"]);
+      const [first] = await client.assignments.list({ botId: b.Cid.id });
+      const [second] = await client.assignments.list({ botId: b.Dee.id });
+
+      bea.push(quiet);
+      await client.assignments.cancel({ botId: b.Cid.id, assignmentId: first!.id });
+      await expect.poll(() => statusesOf(b.Bea.id), poll).toEqual(["complete", "complete"]);
+      expect(JSON.stringify(fakes.Bea.calls.at(-1)!.messages.slice(1))).toContain(
+        "was cancelled by the user",
+      );
+      // The other child is still open.
+      expect(await statusOf(client, b.Bea.id)).toBe("blocked");
+
+      bea.push(round(runs("cancel_assignment", { id: second!.id })), quiet);
+      await tell("Bea", "Drop the other one too.");
+
+      await expect.poll(() => statusOf(client, b.Bea.id), poll).toBe("working");
+      expect(await statusOf(client, b.Dee.id)).toBe("cancelled");
+    },
+    timeout,
+  );
+
+  it(
+    "takes a parent named in a Turn that didn't start from it, and refuses one the Bot can't split",
+    async () => {
+      const bea: Round[] = [quiet];
+      const {
+        fakes,
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Ann: [titled("Bea", "parent"), quiet, quiet],
+        Bea: bea,
+        Cid: [quiet, quiet],
+      });
+      await tell("Ann", "Hand it on.");
+      await expect.poll(() => statusesOf(b.Bea.id), poll).toEqual(["complete"]);
+      const [parent] = await client.assignments.list({ botId: b.Bea.id });
+
+      bea.push(titled("Cid", "child", parent!.id), quiet);
+      await tell("Bea", "Get help with that.");
+
+      await expect
+        .poll(async () => (await client.assignments.list({ botId: b.Cid.id }))[0]?.parent?.id, poll)
+        .toBe(parent!.id);
+      expect(await statusOf(client, b.Bea.id)).toBe("blocked");
+
+      bea.push(quiet);
+      await client.assignments.cancel({ botId: b.Bea.id, assignmentId: parent!.id });
+      await expect.poll(() => statusOf(client, b.Bea.id), poll).toBe("cancelled");
+      await expect.poll(() => statusesOf(b.Bea.id), poll).toEqual(Array(3).fill("complete"));
+      bea.push(titled("Cid", "too late", parent!.id), quiet);
+      await tell("Bea", "One more.");
+      await expect.poll(() => answersIn(fakes.Bea), poll).toMatch(/already ended/);
+      await expect.poll(() => statusesOf(b.Bea.id), poll).toEqual(Array(4).fill("complete"));
+
+      bea.push(titled("Cid", "not handed", uuidv7()), quiet);
+      await tell("Bea", "And another.");
+      await expect.poll(() => answersIn(fakes.Bea), poll).toMatch(/is assigned to you/);
+      expect(await client.assignments.list({ botId: b.Cid.id })).toHaveLength(1);
+    },
+    timeout,
+  );
+
+  it(
+    "asks which parent when a Turn took several Assignments, rather than guess",
+    async () => {
+      const {
+        fakes,
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Ann: [titled("Cid", "from Ann"), quiet],
+        Bea: [titled("Cid", "from Bea"), quiet],
+        Cid: [titled("Dee", "which?"), quiet],
+        Dee: [quiet],
+      });
+      await client.bots.pause({ botId: b.Cid.id });
+      await tell("Ann", "Hand it on.");
+      await tell("Bea", "Hand it on.");
+      await expect.poll(() => statusesOf(b.Ann.id), poll).toEqual(["complete"]);
+      await expect.poll(() => statusesOf(b.Bea.id), poll).toEqual(["complete"]);
+
+      await client.bots.resume({ botId: b.Cid.id });
+
+      await expect.poll(() => answersIn(fakes.Cid), poll).toMatch(/say in parent which one/);
+      expect(await client.assignments.list({ botId: b.Dee.id })).toEqual([]);
+    },
+    timeout,
+  );
+
+  it(
+    "never makes another Bot's Assignment the parent, when a Bot told of its child's cancel assigns work",
+    async () => {
+      const cid: Round[] = [quiet];
+      const {
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Ann: [titled("Bea", "parent"), quiet, quiet],
+        Bea: [
+          round(
+            runs("assign_work", { bot: "Cid", title: "first", instructions: "One." }),
+            runs("assign_work", { bot: "Dee", title: "second", instructions: "Two." }),
+          ),
+          quiet,
+          quiet,
+        ],
+        Cid: cid,
+        Dee: [quiet, quiet],
+      });
+      await tell("Ann", "Hand it on.");
+      await expect.poll(() => statusesOf(b.Cid.id), poll).toEqual(["complete"]);
+      await expect.poll(() => statusesOf(b.Dee.id), poll).toEqual(["complete"]);
+      const [first] = await client.assignments.list({ botId: b.Cid.id });
+      cid.push(titled("Dee", "elsewhere"), quiet);
+
+      await client.assignments.cancel({ botId: b.Cid.id, assignmentId: first!.id });
+
+      await expect
+        .poll(async () => (await client.assignments.list({ botId: b.Dee.id })).at(-1)!.title, poll)
+        .toBe("elsewhere");
+      const elsewhere = (await client.assignments.list({ botId: b.Dee.id })).at(-1)!;
+      expect(elsewhere.parent).toBeNull();
+      const [parent] = await client.assignments.list({ botId: b.Bea.id });
+      expect(parent!.children.map((child) => child.title)).toEqual(["first", "second"]);
+    },
+    timeout,
+  );
+
+  it(
+    "goes by the chain a Turn is on, so naming a shallow parent doesn't get past the limit",
+    async () => {
+      const dee: Round[] = [quiet];
+      const {
+        fakes,
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Ann: [titled("Bea", "one"), quiet],
+        Bea: [titled("Cid", "two"), quiet],
+        Cid: [titled("Dee", "three"), quiet],
+        Dee: dee,
+        Eve: [titled("Dee", "shallow"), quiet],
+      });
+      await tell("Eve", "Hand it on.");
+      await expect.poll(() => statusesOf(b.Dee.id), poll).toEqual(["complete"]);
+      const [shallow] = await client.assignments.list({ botId: b.Dee.id });
+      dee.push(titled("Eve", "dodge", shallow!.id), quiet);
+
+      await tell("Ann", "Start it.");
+
+      await expect.poll(() => answersIn(fakes.Dee), poll).toMatch(/stops at 3 deep/);
+      expect(await client.assignments.list({ botId: b.Eve.id })).toEqual([]);
+    },
+    timeout,
+  );
+
+  it(
+    "treats a Check-in's Turn as work on the Bot's open Assignment, and a user's Message as new work",
+    async () => {
+      const bea: Round[] = [quiet];
+      const {
+        deps,
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Ann: [titled("Bea", "parent"), quiet],
+        Bea: bea,
+        Cid: [quiet, quiet],
+      });
+      await tell("Ann", "Hand it on.");
+      await expect.poll(() => statusesOf(b.Bea.id), poll).toEqual(["complete"]);
+      const [parent] = await client.assignments.list({ botId: b.Bea.id });
+      bea.push(titled("Cid", "from the Check-in"), quiet);
+
+      const conversationId = await conversationOf(b.Bea.id);
+      await getTestDb().transaction((tx) =>
+        receive(deps, tx, {
+          id: `check_in:${uuidv7()}`,
+          botId: b.Bea.id,
+          conversationId,
+          source: "check_in",
+          channel: "schedule",
+          text: "Come back to the draft.",
+          receivedAt: deps.clock(),
+        }),
+      );
+      deps.runner.wake();
+
+      await expect.poll(() => statusOf(client, b.Bea.id), poll).toBe("blocked");
+      const [child] = await client.assignments.list({ botId: b.Cid.id });
+      expect(child!.parent!.id).toBe(parent!.id);
+
+      await expect.poll(() => statusesOf(b.Bea.id), poll).toEqual(["complete", "complete"]);
+      bea.push(titled("Cid", "from the user"), quiet);
+      await tell("Bea", "Ask Cid something else.");
+
+      await expect
+        .poll(async () => (await client.assignments.list({ botId: b.Cid.id })).at(-1)!.title, poll)
+        .toBe("from the user");
+      expect((await client.assignments.list({ botId: b.Cid.id })).at(-1)!.parent).toBeNull();
+    },
+    timeout,
+  );
+
+  /** Ann hands Bea work; Bea splits one child off to Cid, which ends, and one to Dee, which splits one off to Eve. */
+  async function split() {
+    const rounds = {
+      Ann: [titled("Bea", "parent"), quiet] as Round[],
+      Bea: [
+        round(
+          runs("assign_work", { bot: "Cid", title: "ended", instructions: "One." }),
+          runs("assign_work", { bot: "Dee", title: "running", instructions: "Two." }),
+        ),
+        quiet,
+        quiet,
+      ] as Round[],
+      Cid: [finish({ status: "done", outcome: "Kept." }), quiet],
+      Dee: [titled("Eve", "deepest"), quiet, quiet],
+      Eve: [quiet, quiet],
+    };
+    const made = await bots(rounds);
+    await made.tell("Ann", "Hand it on.");
+    await expect.poll(() => statusesOf(made.bots.Bea.id), poll).toEqual(["complete", "complete"]);
+    await expect.poll(() => statusesOf(made.bots.Eve.id), poll).toEqual(["complete"]);
+    await expect.poll(() => statusesOf(made.bots.Dee.id), poll).toEqual(["complete"]);
+    const [parent] = await made.client.assignments.list({ botId: made.bots.Bea.id });
+    expect(parent!.status).toBe("blocked");
+    return { ...made, rounds, parent: parent! };
+  }
+
+  /** Dee's and Eve's were cancelled with a log row each, and Cid's keeps its result. */
+  async function expectCascaded(
+    { client, bots: b, fakes }: Awaited<ReturnType<typeof split>>,
+    by: string,
+  ) {
+    await expect.poll(() => statusesOf(b.Eve.id), poll).toEqual(["complete", "complete"]);
+    await expect.poll(() => statusesOf(b.Dee.id), poll).toEqual(["complete", "complete"]);
+    for (const botId of [b.Dee.id, b.Eve.id]) {
+      const [row] = await client.assignments.list({ botId });
+      expect(row).toMatchObject({ status: "cancelled", result: null });
+      expect(row!.log.filter((entry) => entry.status === "cancelled")).toEqual([
+        expect.objectContaining({ actor: "system", note: expect.stringMatching(/part of/) }),
+      ]);
+    }
+    expect(JSON.stringify(fakes.Eve.calls.at(-1)!.messages.slice(1))).toContain(
+      `was cancelled by ${by}`,
+    );
+    const [ended] = await client.assignments.list({ botId: b.Cid.id });
+    expect(ended).toMatchObject({ status: "done", result: { outcome: "Kept." } });
+    expect(ended!.log.map((entry) => entry.status)).toEqual(["open", "working", "done"]);
+  }
+
+  it(
+    "cancels its open children when the owner cancels a parent, each with a log row",
+    async () => {
+      const made = await split();
+      // Bea hears of its own cancel, and Ann, which waits on it.
+      made.rounds.Ann.push(quiet);
+      made.rounds.Bea.push(quiet);
+
+      await made.client.assignments.cancel({
+        botId: made.bots.Bea.id,
+        assignmentId: made.parent.id,
+      });
+
+      await expectCascaded(made, "the user");
+      expect(await statusOf(made.client, made.bots.Bea.id)).toBe("cancelled");
+    },
+    timeout,
+  );
+
+  it(
+    "cancels its open children when the Bot that started a parent cancels it",
+    async () => {
+      const made = await split();
+      made.rounds.Ann.push(round(runs("cancel_assignment", { id: made.parent.id })), quiet);
+      made.rounds.Bea.push(quiet);
+
+      await made.tell("Ann", "Drop it.");
+
+      await expectCascaded(made, "Ann");
+      expect(await statusOf(made.client, made.bots.Bea.id)).toBe("cancelled");
+    },
+    timeout,
+  );
+
+  it(
+    "lets a parent with open children be finished by its Bot, which cancels those children",
+    async () => {
+      const made = await split();
+      made.rounds.Ann.push(quiet);
+      made.rounds.Bea.push(
+        round(
+          runs("finish_assignment", { id: made.parent.id, status: "done", outcome: "Enough." }),
+        ),
+        quiet,
+      );
+
+      await made.tell("Bea", "That's enough, finish it.");
+
+      await expectCascaded(made, "Bea");
+      const [finished] = await made.client.assignments.list({ botId: made.bots.Bea.id });
+      expect(finished).toMatchObject({ status: "done", result: { outcome: "Enough." } });
+      // Ann hears the result.
+      await expect.poll(() => statusesOf(made.bots.Ann.id), poll).toHaveLength(2);
+    },
+    timeout,
+  );
+
+  it(
+    "gives a Bot its blocked Assignment again after a reset, without waking it for one",
+    async () => {
+      const made = await split();
+      await made.client.bots.reset({ botId: made.bots.Bea.id, name: "Bea" });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(await statusesOf(made.bots.Bea.id)).toEqual(["complete", "complete"]);
+
+      made.rounds.Bea.push(quiet);
+      await made.tell("Bea", "Where were we?");
+
+      await expect.poll(() => statusesOf(made.bots.Bea.id), poll).toHaveLength(3);
+      await expect.poll(() => made.fakes.Bea.calls.length, poll).toBe(4);
+      expect(JSON.stringify(made.fakes.Bea.calls.at(-1)!.messages.slice(1))).toContain(
+        `Assignment ${made.parent.id} from Ann`,
+      );
+      expect(await statusOf(made.client, made.bots.Bea.id)).toBe("blocked");
+    },
+    timeout,
+  );
+
+  it(
+    "tells a paused child's Bot of the cascade when it resumes",
+    async () => {
+      const made = await split();
+      made.rounds.Ann.push(quiet);
+      made.rounds.Bea.push(quiet);
+      await made.client.bots.pause({ botId: made.bots.Eve.id });
+
+      await made.client.assignments.cancel({
+        botId: made.bots.Bea.id,
+        assignmentId: made.parent.id,
+      });
+      await expect.poll(() => statusOf(made.client, made.bots.Eve.id), poll).toBe("cancelled");
+      expect(await statusesOf(made.bots.Eve.id)).toEqual(["complete"]);
+
+      await made.client.bots.resume({ botId: made.bots.Eve.id });
+
+      await expect.poll(() => statusesOf(made.bots.Eve.id), poll).toEqual(["complete", "complete"]);
+      expect(JSON.stringify(made.fakes.Eve.calls.at(-1)!.messages.slice(1))).toContain(
+        "was cancelled",
+      );
+    },
+    timeout,
+  );
+
+  it(
+    "shows a Bot the link when it reads, and exports it with the user's data",
+    async () => {
+      const made = await split();
+      made.rounds.Bea.push(round(runs("read_assignment", { id: made.parent.id })), quiet);
+
+      await made.tell("Bea", "How does it stand?");
+
+      await expect.poll(() => answersIn(made.fakes.Bea), poll).toMatch(/assignedTo.*Dee/);
+      expect(answersIn(made.fakes.Bea)).toMatch(/ended.*running/);
+      // Only what each Bot is part of: the Bot that started the parent didn't start its children.
+      made.rounds.Ann.push(round(runs("read_assignment", { id: made.parent.id })), quiet);
+      await made.tell("Ann", "How does it stand?");
+      await expect.poll(() => answersIn(made.fakes.Ann), poll).toMatch(/instructions/);
+      expect(answersIn(made.fakes.Ann)).not.toMatch(/children/);
+      const [running] = await made.client.assignments.list({ botId: made.bots.Dee.id });
+      made.rounds.Dee.splice(2, 1, round(runs("read_assignment", { id: running!.id })), quiet);
+      await made.tell("Dee", "How does it stand?");
+      await expect.poll(() => answersIn(made.fakes.Dee), poll).toMatch(/instructions/);
+      expect(JSON.stringify(toolResultsIn(made.fakes.Dee.calls.at(-1)).at(-1))).not.toMatch(
+        /parent/,
+      );
+
+      const data = await exportUserData(made.deps, made.user.id);
+      expect(JSON.stringify(data.bot)).toContain(`"parentAssignmentId":"${made.parent.id}"`);
     },
     timeout,
   );

@@ -183,7 +183,7 @@ A person who deals with a user's business through a Representative. A Customer i
 _Avoid_: Contact, end user, client
 
 **Assignment**:
-One piece of work handed to a Bot by a Representative or another Bot, with a status and a budget, and a log the user can read.
+One piece of work handed to a Bot by a Representative or another Bot, with a status and a budget, and a log the user can read. It can be split into child Assignments, which block it while open; a chain stops at 3 deep.
 _Avoid_: Tracked task, task, ticket, work order
 
 **Tasks view**:
