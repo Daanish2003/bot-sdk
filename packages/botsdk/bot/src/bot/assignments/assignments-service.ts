@@ -30,7 +30,7 @@ export const assignmentEnded = z.object({
   userId: z.string(),
   botId: z.uuid(),
   status: z.enum(["done", "failed", "cancelled"]),
-  /** What the Bot finished it with; null when it was cancelled. */
+  /** What the Bot finished it with, any Secret's value masked; null when it was cancelled. */
   result: z
     .object({
       outcome: z.string(),

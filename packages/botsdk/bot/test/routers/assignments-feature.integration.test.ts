@@ -565,6 +565,37 @@ describe("what a feature's text is to the Bot", () => {
   );
 
   it(
+    "wakes on what is still open once it holds the lock, each Assignment once",
+    async () => {
+      const repairs = assigner();
+      const { fake, deps, user, botId, client } = await botWith([quiet], [repairs.feature]);
+      await client.bots.pause({ botId });
+      const { id: cancelled } = await repairs
+        .assignments()
+        .create({ userId: user.id, botId, ...work, job: repairs.onEnded });
+
+      // Between the resume's first read and its lock: one is cancelled, and one is made.
+      let made = "";
+      const real = deps.models.resolveModelCall;
+      deps.models.resolveModelCall = async (...args) => {
+        deps.models.resolveModelCall = real;
+        await repairs.assignments().cancel({ userId: user.id, id: cancelled });
+        ({ id: made } = await repairs
+          .assignments()
+          .create({ userId: user.id, botId, ...work, job: repairs.onEnded }));
+        return real(...args);
+      };
+      await client.bots.resume({ botId });
+      await expect.poll(() => turnsOf(botId), poll).toEqual(["complete"]);
+
+      const told = inputText(fake.calls[0]);
+      expect(told.split(`Assignment ${made} from`)).toHaveLength(2);
+      expect(told).not.toContain(`Assignment ${cancelled} from`);
+    },
+    timeout,
+  );
+
+  it(
     "stays untrusted when a resume wakes the Bot on it afresh",
     async () => {
       const repairs = assigner();

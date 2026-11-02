@@ -49,7 +49,8 @@ const finishAssignmentDefinition = toolDefinition({
       description: "done when the work is finished; failed when it can't be done.",
     }),
     outcome: z.string().trim().min(1, "outcome must not be empty").meta({
-      description: "What came of it for whoever assigned it, or why it failed.",
+      description:
+        "What came of it for whoever assigned it, or why it failed. A Secret's value in it is masked.",
     }),
     for_customer: z
       .string()
