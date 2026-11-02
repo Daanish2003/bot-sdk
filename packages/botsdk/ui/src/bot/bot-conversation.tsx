@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { useI18n } from "@botsdk/react/provider";
 import { serverErrorData, serverErrorText } from "@botsdk/react/rpc-error";
 import { useBotTurn } from "@botsdk/react/bot/bot-turn";
+import { useBotAssignments } from "@botsdk/react/bot/assignments";
 import { useBotCheckIns } from "@botsdk/react/bot/check-ins";
 import { useDemonstrationActions } from "@botsdk/react/bot/demonstrations";
 import { allHelpers, useBotHelpers } from "@botsdk/react/bot/helpers";
@@ -32,6 +33,7 @@ import { BotActivity } from "./bot-activity";
 import { BotTurnLine } from "./bot-turn-line";
 import { AttachButton, DraftFileChips } from "./draft-files";
 import { ReactionBar, ReactionChips } from "./reactions";
+import { AssignmentItem } from "./assignment-item";
 import { CheckInLine } from "./check-in-line";
 import { HelperCard } from "./helper-card";
 import { Message } from "./message";
@@ -157,6 +159,7 @@ function BotConversationView({
     cancel: onCancelCheckIn,
     edit: editCheckIn,
   } = useBotCheckIns(botId, working);
+  const assignments = useBotAssignments(botId, working);
   const {
     helpers,
     acting: actingHelpers,
@@ -244,6 +247,16 @@ function BotConversationView({
       newestApproval.set(sent.control.routineId, sent.id);
   const checkInsAfter = groupAfter(checkIns, shownIds);
   const helpersAfter = groupAfter(helpers, shownIds);
+  // An Assignment with no Message before it comes first; one whose Message isn't shown yet follows
+  // the rest, as a Check-in does.
+  const assignmentsFirst = assignments.filter((row) => row.afterMessageId === null);
+  const assignmentsAfter = groupAfter(
+    assignments.filter((row) => row.afterMessageId !== null),
+    shownIds,
+  );
+  const assignmentItem = (assignment: (typeof assignments)[number]) => (
+    <AssignmentItem key={assignment.id} assignment={assignment} />
+  );
   const checkInLine = (checkIn: (typeof checkIns)[number]) => (
     <CheckInLine key={checkIn.id} checkIn={checkIn} {...checkInActions} />
   );
@@ -261,14 +274,15 @@ function BotConversationView({
   const runsBefore = new Map<string, ReactNode[]>();
   for (const turn of turns) {
     // A Helper's report wakes a Turn too, but it shows on the Helper's card, not as a divider, as
-    // a late Approval's answer shows on its card. A handoff wakes a Room Turn, which shows in the
-    // Room (spec #1055).
+    // a late Approval's answer shows on its card, and an Assignment on its item (spec #1166). A
+    // handoff wakes a Room Turn, which shows in the Room (spec #1055).
     const fired = turn.triggers.find(
       (trigger) =>
         trigger.source !== "user" &&
         trigger.source !== "helper" &&
         trigger.source !== "approval" &&
-        trigger.source !== "agent",
+        trigger.source !== "agent" &&
+        trigger.source !== "assignment",
     );
     if (!fired) continue;
     const from = turn.startedAt.getTime();
@@ -423,9 +437,10 @@ function BotConversationView({
         {...follow}
         className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-[max(1rem,calc((100%-48rem)/2))] py-4 *:shrink-0"
       >
-        {messages.length === 0 && (
+        {messages.length === 0 && assignments.length === 0 && (
           <p className="m-auto text-sm text-muted-foreground">{t("bots.noMessages")}</p>
         )}
+        {assignmentsFirst.map(assignmentItem)}
         {messages.map(({ control, ...message }) => (
           <Fragment key={message.id}>
             {summariesBefore.get(message.id)}
@@ -575,6 +590,7 @@ function BotConversationView({
             {message.id === failedMessageId && (
               <p className="self-end text-xs text-red-500">{t("bots.couldntReply")}</p>
             )}
+            {assignmentsAfter.get(message.id)?.map(assignmentItem)}
             {checkInsAfter.get(message.id)?.map(checkInLine)}
             {helpersAfter.get(message.id)?.map(helperCard)}
           </Fragment>
@@ -583,6 +599,7 @@ function BotConversationView({
         {warmingsBefore.get("")}
         {runsBefore.get("")}
         {afterTurnOf.get("")}
+        {assignmentsAfter.get("")?.map(assignmentItem)}
         {checkInsAfter.get("")?.map(checkInLine)}
         {helpersAfter.get("")?.map(helperCard)}
         {working && (

@@ -240,9 +240,9 @@ describe("bots.tasks", () => {
     const { client, botId } = await botWithTurn();
 
     await expect(client.bots.tasks({ botId })).resolves.toEqual({
-      inProgress: { turn: null, helpers: [] },
+      inProgress: { turn: null, helpers: [], assignments: [] },
       scheduled: { triggers: [], routines: [], checkIns: [] },
-      done: { helpers: [], checkIns: [], skipped: [] },
+      done: { helpers: [], assignments: [], checkIns: [], skipped: [] },
     });
   });
 

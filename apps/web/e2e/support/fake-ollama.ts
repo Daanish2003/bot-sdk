@@ -24,6 +24,15 @@ export const mcpToolName = "tracker_create_issue";
 export const mcpToolArguments = { title: "E2E launch" };
 
 /**
+ * A Bot prompt with this marker makes the fake Model hand `assignmentTitle` to the Bot named
+ * `assignedBotName` with `assign_work` (spec #1166), through `run_tool`, as a deferred tool is called.
+ */
+export const assignMarker = "[assign]";
+export const assignedBotName = "Writer";
+export const assignmentTitle = "Draft the launch post";
+export const assignmentInstructions = "Write 100 words about the launch.";
+
+/**
  * A prompt with this marker makes the fake Model call `generate_image` (spec #278), when the request
  * offers it. The Host's Image Model is `fakeImageModel`, answered by the fake image adapter.
  */
@@ -304,6 +313,17 @@ export function startFakeOllama(port: number): Promise<Server> {
       }
       if (stream && !answering && offers(runToolName) && prompt.includes(mcpMarker)) {
         calls(runToolName, { name: mcpToolName, args: mcpToolArguments });
+        return;
+      }
+      if (stream && !answering && offers(runToolName) && prompt.includes(assignMarker)) {
+        calls(runToolName, {
+          name: "assign_work",
+          args: {
+            bot: assignedBotName,
+            title: assignmentTitle,
+            instructions: assignmentInstructions,
+          },
+        });
         return;
       }
       if (answering && asked === runToolName && offers(sendToUserToolName)) {

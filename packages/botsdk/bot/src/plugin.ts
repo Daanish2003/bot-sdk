@@ -13,6 +13,7 @@ import type { ConversationsApi } from "./bot/conversations-api";
 import type { RoomsApi } from "./bot/rooms-api";
 import type { ScreensApi } from "./bot/screens-api";
 import type { SecretsApi } from "./bot/secrets-api";
+import type { AssignmentsApi } from "./bot/assignments-api";
 import type { CheckInsApi, RoutinesApi } from "./bot/routines-api";
 import type { TriggersApi } from "./bot/triggers-api";
 import type { DemonstrationsApi } from "./bot/demonstrations-api";
@@ -74,6 +75,8 @@ export type BotSdkContext = {
   /** The core's Routines, Check-ins, Helpers, Demonstrations and Auto-reviews (spec #873). */
   routines: RoutinesApi;
   checkIns: CheckInsApi;
+  /** The core's Assignments (spec #1166): the user's read of the work handed to their Bots. */
+  assignments: AssignmentsApi;
   triggers: TriggersApi;
   helpers: HelpersApi;
   demonstrations: DemonstrationsApi;

@@ -34,6 +34,7 @@ import {
   turnStarted,
   waitingIn,
 } from "../triggers";
+import { assignmentsAtTurnStart } from "../assignments";
 import {
   build,
   type ContextTurn,
@@ -578,6 +579,7 @@ async function runTurnJob(
     let started = false;
     todo = await ctx.step(startTurnActivity, async (tx) => {
       await turnStarted(deps, tx, turnId);
+      await assignmentsAtTurnStart(deps, tx, turnId);
       started = true;
       return todoList(tx, turn.botId);
     });

@@ -108,6 +108,7 @@ function instanceOver(sdk: SdkOver): BotSdk {
     screens: _screens,
     routines: _routines,
     checkIns: _checkIns,
+    assignments: _assignments,
     triggers: _triggers,
     helpers: _helpers,
     demonstrations: _demonstrations,

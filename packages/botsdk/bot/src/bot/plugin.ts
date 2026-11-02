@@ -36,6 +36,8 @@ import { stopUserTurns, turnJobs } from "./turn";
 import { demonstrationJobs, stopUserDemonstrations } from "./demonstrations";
 
 import { botPluginRouter } from "./routers";
+import { assignmentsApi } from "./assignments-api";
+import { exportAssignments } from "./assignments";
 import { botsApi, type BotsApi } from "./bots-api";
 import { conversationsApi } from "./conversations-api";
 import { roomsApi } from "./rooms-api";
@@ -129,6 +131,7 @@ export function bot({ reviewModel, neverAllowed = [] }: BotOptions = {}): BotPlu
       sdk.screens = screensApi(sdk);
       sdk.routines = routinesApi(sdk);
       sdk.checkIns = checkInsApi(sdk);
+      sdk.assignments = assignmentsApi(sdk);
       sdk.triggers = triggersApi(sdk);
       sdk.helpers = helpersApi(sdk);
       sdk.demonstrations = demonstrationsApi(sdk);
@@ -187,7 +190,10 @@ export function bot({ reviewModel, neverAllowed = [] }: BotOptions = {}): BotPlu
       },
       after: botUserDelete.after,
     },
-    exportUser: (_sdk, userId, tx) => exportBots(tx, userId),
+    exportUser: async (_sdk, userId, tx) => ({
+      ...(await exportBots(tx, userId)),
+      assignments: await exportAssignments(tx, userId),
+    }),
     // The user's Secrets are encrypted under the keyring too (ADR 0010).
     rotateKeys: rotateSecretKeys,
     // A Bot's Helpers' screenshots go with its Conversation (#608).

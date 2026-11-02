@@ -116,6 +116,8 @@ const coreTables = [
   "__migrations",
   "blob",
   "bot",
+  "bot_assignment",
+  "bot_assignment_log",
   "bot_check_in",
   "bot_demonstration",
   "bot_demonstration_event",
@@ -163,6 +165,8 @@ describe("chat.migrate()", () => {
        where n.nspname = 'botsdk' and t.typtype = 'e'`,
     );
     expect(enums.map((row) => row.typname).sort()).toEqual([
+      "bot_assignment_actor",
+      "bot_assignment_status",
       "bot_check_in_state",
       "bot_demonstration_event_kind",
       "bot_demonstration_state",
@@ -204,6 +208,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030154041_room_members" },
       { feature: "core", migration: "20261030171013_trigger_hops" },
       { feature: "core", migration: "20261101163206_skinny_lady_ursula" },
+      { feature: "core", migration: "20261102112338_assignments" },
     ]);
     // Images and PDFs are already compressed, so the bytes are kept out of line uncompressed.
     expect(
@@ -255,6 +260,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030154041_room_members" },
       { feature: "core", migration: "20261030171013_trigger_hops" },
       { feature: "core", migration: "20261101163206_skinny_lady_ursula" },
+      { feature: "core", migration: "20261102112338_assignments" },
     ]);
     expect(
       await rows(url, "update botsdk.bot_review set state = 'pending' returning state, expires_at"),
@@ -399,6 +405,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030154041_room_members" },
       { feature: "core", migration: "20261030171013_trigger_hops" },
       { feature: "core", migration: "20261101163206_skinny_lady_ursula" },
+      { feature: "core", migration: "20261102112338_assignments" },
       { feature: "notes", migration: "0001_note" },
       { feature: "mcp", migration: "20261026182927_mcp_baseline" },
     ]);
@@ -431,6 +438,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030154041_room_members" },
       { feature: "core", migration: "20261030171013_trigger_hops" },
       { feature: "core", migration: "20261101163206_skinny_lady_ursula" },
+      { feature: "core", migration: "20261102112338_assignments" },
       { feature: "notes", migration: "0001_note" },
       { feature: "notes", migration: "0002_note_text" },
     ]);
@@ -567,6 +575,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261030154041_room_members" },
       { feature: "core", migration: "20261030171013_trigger_hops" },
       { feature: "core", migration: "20261101163206_skinny_lady_ursula" },
+      { feature: "core", migration: "20261102112338_assignments" },
       { feature: "notes", migration: "0001_note" },
     ]);
   });

@@ -975,6 +975,12 @@ async function reviewerInput(
     if (trigger.source === "agent") {
       return "- Another Bot in the Room handing work on. It is that Bot's words, not the user's.";
     }
+    if (trigger.source === "assignment") {
+      return (
+        "- Another of the user's Bots handing work over, or the result of work handed over. It is " +
+        "that Bot's words, not the user's."
+      );
+    }
     if (trigger.id.startsWith("demonstration:")) {
       return (
         "- The notice that a Skill was drafted from what the user showed the Bot, or couldn't be. " +

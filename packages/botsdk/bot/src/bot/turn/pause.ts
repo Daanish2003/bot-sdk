@@ -8,6 +8,7 @@ import type { BotSdkContext, Transaction } from "../../plugin";
 import { defineCoreJob } from "../../runner/internal";
 import { rpcError } from "../../rpc-error";
 import { findBot, hintChanged, recordBotChange, roomIdsOf } from "../conversation";
+import { wakeOnAssignments } from "../assignments";
 import { deleteBotHelpers, stopHelpers } from "../helpers";
 import { deleteBotCheckIns, deleteBotRoutines } from "../routines";
 import { declineBotApprovals, reopenUnstartedCalls } from "../safety";
@@ -80,8 +81,9 @@ async function recordChanges(
 }
 
 /**
- * Resumes the user's paused Bot (spec #1007): only the pause is cleared. Nothing skipped meanwhile
- * is replayed, and its Routines run again from their next slot. Resuming a Bot that isn't paused
+ * Resumes the user's paused Bot (spec #1007): the pause is cleared. Nothing skipped meanwhile is
+ * replayed, and its Routines run again from their next slot; its open Assignments wake it afresh
+ * (spec #1166), as work others are waiting on has no slot to come back at. Resuming a Bot that isn't paused
  * changes nothing. Another user's Bot is not found.
  */
 export async function resumeBot(deps: BotSdkContext, userId: string, botId: string): Promise<void> {
@@ -102,6 +104,12 @@ export async function resumeBot(deps: BotSdkContext, userId: string, botId: stri
   if (!resumed) return;
   await hintChanged(deps, found.conversationId);
   for (const conversationId of rooms) await hintChanged(deps, conversationId);
+  await wakeOnAssignments(deps, {
+    botId,
+    conversationId: found.conversationId,
+    userId,
+    model: found.model,
+  });
 }
 
 /**
@@ -167,7 +175,7 @@ async function haltBot(
  * its Conversation's row lock, in order: it stops everything as a pause does, with skip reason
  * `reset`; declines its pending Approvals; deletes its Routines and Check-ins with their queued
  * fires; deletes its Helpers and their transcripts; and appends the reset mark, from which its
- * Turns' history and Prompt start begin; in each Room it is in (spec #1055) no mark is posted, but its
+ * Turns' history and Prompt start begin; its open Assignments survive (spec #1166); in each Room it is in (spec #1055) no mark is posted, but its
  * member row gets a reset point, from which its input there begins. It keeps its pause state, Messages and Turns. Once that
  * commits, the Helpers' screenshots are deleted, best-effort, and each enabled feature forgets the
  * Bot (`resetBot`; Memory deletes its files) in `botResetJob`, queued in the same transaction. A
@@ -226,8 +234,9 @@ export const botResetJobName = "bot.reset";
 /**
  * What a Bot reset leaves to after its commit, enqueued in its transaction (`resetBot`): each
  * enabled feature's `resetBot`, once per feature (a recorded step), so a failure is retried with the
- * runner's backoff without repeating the features that are done. A job that fails for good is
- * logged; the reset stands.
+ * runner's backoff without repeating the features that are done; then, with the Bot's Memory gone,
+ * its open Assignments wake it afresh (spec #1166). A job that fails for good is logged; the reset
+ * stands, and the Bot's next Turn takes those Assignments.
  */
 export const botResetJob = defineCoreJob({
   name: botResetJobName,
@@ -241,6 +250,17 @@ export const botResetJob = defineCoreJob({
         return null;
       });
     }
+    const found = await findBot(ctx.deps.db, userId, botId);
+    if (!found) return;
+    await ctx.step("wake_assignments", async () => {
+      await wakeOnAssignments(ctx.deps, {
+        botId,
+        conversationId: found.conversationId,
+        userId,
+        model: found.model,
+      });
+      return null;
+    });
   },
   onFailed: ({ botId }, error, { deps }) => {
     deps.logger.error(`Features failed to forget Bot ${botId} on its reset`, error);

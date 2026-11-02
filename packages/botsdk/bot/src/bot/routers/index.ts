@@ -105,6 +105,12 @@ const checkIns = os.checkIns.router({
   ),
 });
 
+const assignments = os.assignments.router({
+  list: os.assignments.list.handler(({ context, input }) =>
+    context.sdk.assignments.list({ ...input, userId: context.user.id }),
+  ),
+});
+
 const triggers = os.triggers.router({
   skip: os.triggers.skip.handler(({ context, input }) =>
     context.sdk.triggers.skip({ ...input, userId: context.user.id }),
@@ -245,6 +251,7 @@ export const botPluginRouter = {
   rooms,
   routines,
   checkIns,
+  assignments,
   triggers,
   helpers,
   reviews,

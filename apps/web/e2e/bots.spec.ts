@@ -1,6 +1,15 @@
 import { expect, test } from "@playwright/test";
 
-import { botReply, fileReply, markdownMarker, sendMarker } from "./support/fake-ollama";
+import {
+  assignedBotName,
+  assignmentInstructions,
+  assignmentTitle,
+  assignMarker,
+  botReply,
+  fileReply,
+  markdownMarker,
+  sendMarker,
+} from "./support/fake-ollama";
 import { appWebHost } from "./host";
 import { signInAsSeededUserWithModel } from "./helpers";
 
@@ -158,6 +167,43 @@ test("a long thread follows new Messages, stays put when scrolled up, and never 
   });
   await send("ok");
   await expect.poll(distanceFromEnd).toBeLessThan(2);
+});
+
+test("a Bot assigns work to another, which shows collapsed in its Conversation and in its Tasks", async ({
+  page,
+}) => {
+  await signInAsSeededUserWithModel(page);
+  const newBot = async (name: string) => {
+    await page.goto("/bots");
+    await page.getByRole("button", { name: "New Bot" }).click();
+    await page.getByRole("textbox", { name: "Name" }).fill(name);
+    await page.getByRole("button", { name: "Create" }).click();
+    await expect(page).toHaveURL(/\/bots\/[\w-]+$/);
+    await expect(page.getByRole("heading", { name })).toBeVisible();
+    return page.url();
+  };
+  const writer = await newBot(assignedBotName);
+  await newBot("Scout");
+
+  const composer = page.getByRole("textbox", { name: "Message" });
+  await composer.fill(`${assignMarker} Get the post written.`);
+  await composer.press("Enter");
+  await expect(page.locator("[data-bot-message][data-role=assistant]").last()).toBeVisible();
+
+  await page.goto(writer);
+  const item = page.getByRole("button", { name: new RegExp(assignmentTitle) });
+  await expect(item).toBeVisible();
+  await expect(item).toContainText("Scout");
+  await expect(page.getByText(assignmentInstructions)).toBeHidden();
+  await item.click();
+  await expect(page.getByText(assignmentInstructions)).toBeVisible();
+
+  await page.getByRole("button", { name: /^Tasks/ }).click();
+  await expect(
+    page
+      .getByRole("tabpanel", { name: "In progress" })
+      .getByRole("button", { name: new RegExp(assignmentTitle) }),
+  ).toBeVisible();
 });
 
 test("/ lands on /bots", async ({ page }) => {

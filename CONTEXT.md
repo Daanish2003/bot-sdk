@@ -187,7 +187,7 @@ One piece of work handed to a Bot by a Representative or another Bot, with a sta
 _Avoid_: Tracked task, task, ticket, work order
 
 **Tasks view**:
-One Bot's work in one place, in three sections: In progress (the running Turn and its live Helpers), Scheduled (the Conversation queue, Routines and Check-ins) and Done (finished Helpers and fired Check-ins). It is a view over those things, not a thing of its own; "task" stays an ordinary word.
+One Bot's work in one place, in three sections: In progress (the running Turn, its live Helpers and the Assignments handed to it that have not ended), Scheduled (the Conversation queue, Routines and Check-ins) and Done (finished Helpers and Assignments, and fired Check-ins). It is a view over those things, not a thing of its own; "task" stays an ordinary word.
 _Avoid_: Task list, to-do, activity feed
 
 **Bot pause**:
@@ -195,7 +195,7 @@ The user holding one Bot still until they resume it: its Turn and Helpers stop, 
 _Avoid_: Suspend, sleep, disable
 
 **Bot reset**:
-The user giving one Bot a fresh start: it forgets its own Memory and drops its Routines, Check-ins, Helpers and pending Approvals, and its Conversation gets a reset mark at the end, so the Bot sees nothing from before it while the user can still scroll back. In a Room it leaves no mark for others to see; only that Bot stops seeing what was said there before. It keeps its Skills, its other files and everything shared with the user's other Bots. It cannot be undone.
+The user giving one Bot a fresh start: it forgets its own Memory and drops its Routines, Check-ins, Helpers and pending Approvals, and its Conversation gets a reset mark at the end, so the Bot sees nothing from before it while the user can still scroll back. In a Room it leaves no mark for others to see; only that Bot stops seeing what was said there before. It keeps its Skills, its other files, the Assignments still open on it, which wake it afresh, and everything shared with the user's other Bots. It cannot be undone.
 _Avoid_: Wipe, delete, clear
 
 **Skill**:

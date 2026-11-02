@@ -7,6 +7,7 @@
     "./package.json": "./package.json",
     "./bot/bot-sync": "./src/bot/bot-sync.ts",
     "./bot/bot-turn": "./src/bot/bot-turn.ts",
+    "./bot/assignments": "./src/bot/assignments.ts",
     "./bot/check-ins": "./src/bot/check-ins.ts",
     "./bot/choices": "./src/bot/choices.ts",
     "./bot/demonstrations": "./src/bot/demonstrations.ts",

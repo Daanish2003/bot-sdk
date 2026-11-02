@@ -11,6 +11,7 @@
     "./bot/bot-conversation": "./src/bot/bot-conversation.tsx",
     "./bot/bot-sidebar": "./src/bot/bot-sidebar.tsx",
     "./bot/bots-app": "./src/bot/bots-app.tsx",
+    "./bot/assignment-item": "./src/bot/assignment-item.tsx",
     "./bot/check-in-line": "./src/bot/check-in-line.tsx",
     "./bot/choice-card": "./src/bot/choice-card.tsx",
     "./bot/computer-card": "./src/bot/computer-card.tsx",

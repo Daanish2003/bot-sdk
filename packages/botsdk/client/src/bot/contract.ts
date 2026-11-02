@@ -1,6 +1,7 @@
 import { oc, type } from "@orpc/contract";
 import { z } from "zod";
 
+import type { BotAssignment } from "./assignment";
 import type { BotChanges } from "./changes";
 import {
   channelAccountInput,
@@ -413,6 +414,12 @@ const routines = {
   rotate: oc.input(routineInput).output(type<{ webhookToken: string }>()),
 };
 
+/** The Assignments handed to the user's Bots (spec #1166). Only a Bot creates one. */
+const assignments = {
+  /** The Assignments handed to one of the user's Bots, oldest first. */
+  list: oc.input(botScopeInput).output(type<BotAssignment[]>()),
+};
+
 /** The Check-ins of the user's Bots (#540). */
 const checkIns = {
   /** One of the user's Bots' Check-ins, soonest first, each with the Message its line follows. */
@@ -590,6 +597,7 @@ export const botContract = {
   rooms,
   routines,
   checkIns,
+  assignments,
   triggers,
   helpers,
   reviews,

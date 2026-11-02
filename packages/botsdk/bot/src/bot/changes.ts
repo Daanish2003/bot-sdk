@@ -6,6 +6,7 @@ import { bot, botHelper, botReview, botSecret, botTurn, message } from "../stora
 import type { Database } from "../storage";
 import type { BotSdkContext } from "../plugin";
 import { rpcError } from "../rpc-error";
+import { listAssignments } from "./assignments";
 import { listCheckIns, listRoutines } from "./routines";
 import { listHelpers } from "./helpers";
 import { listRules, reviewFields } from "./safety";
@@ -178,6 +179,9 @@ async function changeData(
     botId &&
       idsOf(changes, "check_in").length > 0 &&
       listCheckIns(db, botId).then((rows) => put("check_in", rows)),
+    botId &&
+      idsOf(changes, "assignment").length > 0 &&
+      listAssignments(db, botId).then((rows) => put("assignment", rows)),
     botId &&
       idsOf(changes, "summary").length > 0 &&
       botSummaries(db, botId, owner.conversationId).then((rows) => put("summary", rows)),

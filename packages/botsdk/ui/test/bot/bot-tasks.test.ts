@@ -26,9 +26,9 @@ const createdAt = new Date("2026-10-29T09:00:00.000Z");
 const ada = { id: "b2", name: "Ada", model: "openai:gpt-6-luna", createdAt };
 
 const empty = (): BotTasks => ({
-  inProgress: { turn: null, helpers: [] },
+  inProgress: { turn: null, helpers: [], assignments: [] },
   scheduled: { triggers: [], routines: [], checkIns: [] },
-  done: { helpers: [], checkIns: [], skipped: [] },
+  done: { helpers: [], assignments: [], checkIns: [], skipped: [] },
 });
 
 const helper = (over: Partial<BotHelper> = {}): BotHelper => ({
@@ -138,6 +138,7 @@ describe("the Tasks popover", () => {
     tasks.inProgress = {
       turn: { id: "t1", startedAt: createdAt, conversationId: "c1" },
       helpers: [helper(), helper({ id: "h2", status: "waiting" })],
+      assignments: [],
     };
     tasks.scheduled.triggers = [trigger({ id: "w1" })];
     // Routines and Check-ins that merely repeat are not live work.
@@ -306,7 +307,7 @@ describe("the Tasks popover", () => {
     const state = mount(empty(), log);
     await screen.findByRole("button", { name: /^Tasks 0$/ });
 
-    state.tasks = { ...empty(), inProgress: { turn: null, helpers: [helper()] } };
+    state.tasks = { ...empty(), inProgress: { turn: null, helpers: [helper()], assignments: [] } };
     log.record("helper", "h1", helper() as Extract<BotChange, { kind: "helper" }>["data"]);
     await hint();
     await screen.findByRole("button", { name: /^Tasks 1$/ });
