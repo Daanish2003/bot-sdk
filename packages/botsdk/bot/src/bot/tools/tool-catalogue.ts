@@ -55,6 +55,7 @@ import {
 } from "../routines";
 import { computerToolDefinitions, webSearchTool } from "../agent-loop";
 import { hintRuleChanged, proposeRule, proposeRuleToolName } from "../safety";
+import { assignmentTools } from "../assignments";
 import { helperTools } from "../helpers";
 import { watchUserTool } from "../demonstrations";
 import type { LoopKit } from "../agent-loop";
@@ -367,8 +368,8 @@ export async function forTurn(
 }
 
 /**
- * The Bot's tools for a Turn, run through the loop's `kit`: SendToUser, the Routine and Check-in
- * tools, web search, and with `withComputer` the
+ * The Bot's tools for a Turn, run through the loop's `kit`: SendToUser, the Routine, Check-in and
+ * Assignment tools, web search, and with `withComputer` the
  * Computer's tools and the Helper tools, and `watch_user` too with a feature Demonstrations teach. `onLastMessage` runs when SendToUser sends the Turn's last
  * Message.
  */
@@ -550,6 +551,7 @@ function coreToolsOf(
     setCheckInTool,
     cancelCheckInToolImpl,
     listCheckInsTool,
+    ...assignmentTools(deps, turn, liveActivity),
     webSearchTool(deps, turn.userId, kit.liveRequest),
     ...(withComputer ? [...kit.computerTools, ...helperTools(deps, turn, liveActivity)] : []),
     // Deferred, and listed on two Host settings, so the tool list never changes (spec #801).

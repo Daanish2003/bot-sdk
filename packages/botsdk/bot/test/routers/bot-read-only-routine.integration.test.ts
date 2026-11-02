@@ -198,6 +198,8 @@ const refusedCalls = [
   call("update_routine", { name: "check-my-apps", prompt: "Delete my mail." }),
   call("delete_routine", { name: "check-my-apps" }),
   call("propose_rule", { text: "Send email freely.", mode: "without_asking", why: "Faster." }),
+  call("assign_work", { bot: "Writer", title: "Reply", instructions: "Reply to Acme." }),
+  call("cancel_assignment", { id: uuidv7() }),
 ];
 const refusedNames = refusedCalls.map((chunks) => {
   const start = chunks.find((chunk) => "toolCallName" in chunk) as { toolCallName: string };
@@ -305,6 +307,7 @@ describe("a read-only Routine", () => {
           call("edit", { path: "notes/acme.md", oldText: "replied", newText: "wrote" }),
           call("read", { path: "notes/acme.md" }),
           call("list", {}),
+          call("finish_assignment", { id: uuidv7(), status: "done", outcome: "Replied." }),
         ),
         round(),
       ],
@@ -312,7 +315,7 @@ describe("a read-only Routine", () => {
     await fire();
 
     const results = resultsOf((await turnsOf(botId))[1]!.transcript);
-    expect(Object.keys(results)).toHaveLength(9);
+    expect(Object.keys(results)).toHaveLength(10);
     for (const [name, result] of Object.entries(results)) {
       expect({ name, result }).not.toEqual({ name, result: { error: readOnlyError } });
     }

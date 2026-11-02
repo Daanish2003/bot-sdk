@@ -3,7 +3,14 @@ export { answerChoice } from "./choice";
 export { reactToMessage } from "./reaction";
 export { handOff, handoffOf, lockHandoff } from "./handoff";
 export { skipTrigger } from "./skip";
-export { checkInKey, checkInOfKey, fireKeyPrefix, routineOfFireKey } from "./trigger-ids";
+export {
+  checkInKey,
+  checkInOfKey,
+  fireKeyPrefix,
+  routineOfFireKey,
+  assignmentChannel,
+  untrustedAssignmentChannel,
+} from "./trigger-ids";
 export {
   awaySummaryKey,
   botTurnJobName,
@@ -17,6 +24,7 @@ export {
   lockTurnConversations,
   oneToOnesOf,
   receive,
+  recordSkipChange,
   runningTurnOf,
   skipWaiting,
   startTurn,

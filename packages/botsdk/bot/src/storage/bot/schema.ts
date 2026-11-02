@@ -1,5 +1,11 @@
 import type { PluginSchema } from "../plugin-schema";
 import { bot } from "./bot";
+import {
+  botAssignment,
+  botAssignmentActor,
+  botAssignmentLog,
+  botAssignmentStatus,
+} from "./bot-assignment";
 import { botCheckIn, botCheckInState } from "./bot-check-in";
 import {
   botDemonstration,
@@ -28,6 +34,7 @@ import { notificationRoute, notificationSettings } from "./notification-settings
 import { pushSubscription } from "./push-subscription";
 
 export * from "./bot";
+export * from "./bot-assignment";
 export * from "./bot-check-in";
 export * from "./bot-demonstration";
 export * from "./bot-helper";
@@ -44,7 +51,7 @@ export * from "./custom-rule";
 export * from "./notification-settings";
 export * from "./push-subscription";
 
-/** The `bot` plugin's schema module: its `bot`, `bot_turn`, `bot_prompt_start`, `bot_summary`, `bot_trigger`, `bot_routine`, `bot_check_in`, `bot_helper`, `bot_helper_message`, `bot_helper_screenshot`, `bot_review`, `bot_room_member`, `secret`, `bot_demonstration`, `bot_demonstration_event`, `bot_upload`, `custom_rule`, `notification_settings` and `push_subscription` tables. */
+/** The `bot` plugin's schema module: its `bot`, `bot_turn`, `bot_prompt_start`, `bot_summary`, `bot_trigger`, `bot_routine`, `bot_check_in`, `bot_helper`, `bot_helper_message`, `bot_helper_screenshot`, `bot_review`, `bot_room_member`, `bot_assignment`, `bot_assignment_log`, `secret`, `bot_demonstration`, `bot_demonstration_event`, `bot_upload`, `custom_rule`, `notification_settings` and `push_subscription` tables. */
 export const botSchema = {
   tables: {
     bot,
@@ -59,6 +66,8 @@ export const botSchema = {
     botHelperScreenshot,
     botReview,
     botRoomMember,
+    botAssignment,
+    botAssignmentLog,
     botSecret,
     botDemonstration,
     botDemonstrationEvent,
@@ -73,6 +82,8 @@ export const botSchema = {
     botTriggerSkipReason,
     botRoutineState,
     botCheckInState,
+    botAssignmentStatus,
+    botAssignmentActor,
     botHelperType,
     botHelperStatus,
     botSummaryKind,

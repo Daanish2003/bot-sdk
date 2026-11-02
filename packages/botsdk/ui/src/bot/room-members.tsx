@@ -4,6 +4,7 @@ import { CrownIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { useBotAssignments } from "@botsdk/react/bot/assignments";
 import { useBotCheckIns } from "@botsdk/react/bot/check-ins";
 import { useBotHelpers } from "@botsdk/react/bot/helpers";
 import { useBotPause } from "@botsdk/react/bot/pause";
@@ -141,6 +142,7 @@ function MemberControls({
   const { tasks } = useBotTasks(botId, working);
   const routines = useBotRoutines(botId, working);
   const checkIns = useBotCheckIns(botId, working);
+  const assignments = useBotAssignments(botId, working);
   const helpers = useBotHelpers(botId, working);
   const skip = useSkipTrigger(botId);
   const pause = useBotPause(botId);
@@ -165,6 +167,9 @@ function MemberControls({
           actingHelpers={helpers.acting}
           onCancelCheckIn={checkIns.cancel}
           actingCheckIns={checkIns.acting}
+          onCancelAssignment={assignments.cancel}
+          onRaiseAssignmentLimit={assignments.raiseLimit}
+          actingAssignments={assignments.acting}
           onSkipTrigger={skip.skip}
           actingTriggers={skip.actingTriggers}
           webhookTokens={routines.webhookTokens}

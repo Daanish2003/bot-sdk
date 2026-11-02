@@ -58,8 +58,8 @@ export type BotTurnStatus = TurnStatus | "running";
  * when it was received.
  */
 export type BotTurnTrigger = {
-  source: "user" | "routine" | "check_in" | "helper" | "approval" | "agent";
-  /** `web`, `schedule`, `webhook`, `helper`, `email`, `room` (a handoff), or a messaging platform's id. */
+  source: "user" | "routine" | "check_in" | "helper" | "approval" | "agent" | "assignment";
+  /** `web`, `schedule`, `webhook`, `helper`, `email`, `room` (a handoff), `assignment`, `assignment_untrusted` (a feature's Assignment), or a messaging platform's id. */
   channel: string;
   routineName: string | null;
   at: Date;

@@ -133,11 +133,16 @@ describe("the context of a Turn", () => {
       web_search: Search the web for current information.
 
       [Deferred tools: call describe_tool with the name first, then run_tool]
+      add_assignment_note: Add a note to the log of an Assignment handed to you, such as how far you are.
+      assign_work: Hand a piece of work to another of the user's Bots, with no Room needed.
+      cancel_assignment: Cancel an Assignment you started that hasn't ended, so the work on it stops.
       cancel_check_in: Cancel one of your pending Check-ins, by the id list_check_ins or set_check_in gave.
       create_routine: Save a Routine: a prompt that repeats on a schedule (days of the week at one or more times in the user's time zone) or whenever an outside service calls its webhook URL, never a one-time reminder.
       delete_routine: Delete one of your Routines, named as in your list.
+      finish_assignment: End an Assignment handed to you, as done or failed.
       list_check_ins: List your pending Check-ins, soonest first, so you do not set the same one twice.
       propose_rule: Propose a Custom Rule to the user: a standing instruction for all their Bots, such as after they approved the same kind of call several times.
+      read_assignment: Read the status and log of an Assignment you are part of, whether you were handed it or started it.
       set_check_in: Set a Check-in: a one-time reminder or wake-up at a moment you choose, with a note to your future self.
       update_routine: Change the prompt, the schedule or the read-only setting of one of your Routines, named as in your list."
     `);

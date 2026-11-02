@@ -16,8 +16,8 @@ import { botTurn } from "./bot-turn";
 
 /**
  * Who sent a Trigger: the user, one of the Bot's Routines, a Check-in it set (#539), a Helper
- * (#565), an Approval answered after its wait (ADR 0030), or another Bot in a Room handing work on
- * (`agent`, spec #1055).
+ * (#565), an Approval answered after its wait (ADR 0030), another Bot in a Room handing work on
+ * (`agent`, spec #1055), or an Assignment handed over or ended (`assignment`, spec #1166).
  */
 export const botTriggerSource = botsdkSchema.enum("bot_trigger_source", [
   "user",
@@ -26,6 +26,7 @@ export const botTriggerSource = botsdkSchema.enum("bot_trigger_source", [
   "helper",
   "approval",
   "agent",
+  "assignment",
 ]);
 
 /**
@@ -63,7 +64,7 @@ export const botTrigger = botsdkSchema.table(
     source: botTriggerSource("source").notNull(),
     /**
      * Where it came in: `web`, `schedule`, `webhook`, `helper`, `email` (spec #761), `room` (a
-     * handoff, spec #1055), or the id of a
+     * handoff, spec #1055), `assignment` (spec #1166), or the id of a
      * messaging platform such as `telegram` (spec #1044). Text, as the platforms are the Host's.
      */
     channel: text("channel").notNull(),
@@ -96,6 +97,8 @@ export const botTrigger = botsdkSchema.table(
       .on(table.conversationId, table.botId, table.receivedAt)
       .where(sql`${table.turnId} is null and ${table.skippedAt} is null`),
     index("bot_trigger_turn_id_idx").on(table.turnId),
+    // A Bot's Triggers of one source: every 1:1 Turn start reads its Assignment ones (spec #1166).
+    index("bot_trigger_bot_id_source_idx").on(table.botId, table.source),
     // The skipped Triggers of a Conversation (spec #1007): the Tasks view's Done, and the Messages a
     // Turn leaves out.
     index("bot_trigger_skipped_idx")

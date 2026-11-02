@@ -19,6 +19,7 @@ export {
   type FeaturePromptTurn,
   type FeatureTurn,
 } from "./feature";
+export { assignmentEnded, type AssignmentEnded, type AssignmentsService } from "./bot/assignments";
 export { dropFeatureTables, type MigrateConfigModule } from "./migrate-cli";
 export {
   defineJob,

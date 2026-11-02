@@ -2,7 +2,8 @@ import { eq } from "drizzle-orm";
 
 import { decryptCredentials } from "../../credentials/encryption";
 import { botSecret } from "../../storage";
-import type { BotSdkContext } from "../../plugin";
+import type { BotSdkContext, Transaction } from "../../plugin";
+import type { Database } from "../../storage";
 
 /** What a masked value is replaced with in a result the Model reads. */
 export const maskedValue = "***";
@@ -43,7 +44,7 @@ export type DecryptedSecrets = Map<string, string | undefined>;
  * decrypted again.
  */
 export async function loadSecretValues(
-  sdk: Pick<BotSdkContext, "db" | "keyring">,
+  sdk: { db: Database | Transaction } & Pick<BotSdkContext, "keyring">,
   userId: string,
   decrypted: DecryptedSecrets = new Map(),
 ): Promise<Map<string, string>> {

@@ -5,6 +5,15 @@ import { type SQL, type SQLWrapper, sql } from "drizzle-orm";
  * jobs' keys. They live here, below the routines module, so the Router can tell whose a Trigger is.
  */
 
+/** The channel of an Assignment's Triggers when its assigner is a Bot. */
+export const assignmentChannel = "assignment";
+
+/**
+ * The channel of the Triggers of an Assignment from an untrusted assigner (ticket #1185). Auto-review
+ * reads any channel but `assignmentChannel` as this one.
+ */
+export const untrustedAssignmentChannel = "assignment_untrusted";
+
 /**
  * How every fire key of Routine `routineId` starts (a scheduled slot's or a webhook delivery's);
  * given a column, the SQL that builds it from the column's value.

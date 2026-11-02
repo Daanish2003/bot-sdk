@@ -7,6 +7,7 @@ import { useState } from "react";
 
 import { allHelpers } from "@botsdk/react/bot/helpers";
 import { useI18n } from "@botsdk/react/provider";
+import { AssignmentItem, type AssignmentActionHandlers } from "./assignment-item";
 import { CancelCheckIn, type CheckInActionHandlers, checkInText } from "./check-in-line";
 import { helperIcon, StatusChip } from "./helper-card";
 import {
@@ -90,6 +91,7 @@ function useTriggerText() {
     if (trigger.source === "helper") return t("bots.taskHelperReport", { gist: label });
     if (trigger.source === "approval") return t("bots.taskApprovalAnswer");
     if (trigger.source === "agent") return t("bots.taskHandoff");
+    if (trigger.source === "assignment") return t("bots.taskAssignment", { title: label });
     return t("bots.taskUserMessage");
   };
 }
@@ -133,6 +135,7 @@ export function TasksPopover({
   /** The user's edit of a pending Check-in's time and note. */
   onEditCheckIn: (edit: CheckInEdit) => Promise<void>;
 } & SkipTriggerHandlers &
+  AssignmentActionHandlers &
   CheckInActionHandlers &
   RoutineActionHandlers) {
   const i18n = useI18n();
@@ -144,10 +147,12 @@ export function TasksPopover({
   const { inProgress, scheduled, done } = tasks;
   const needsYou = inProgress.helpers.some((helper) => helper.status === "waiting");
   const empty = {
-    inProgress: !inProgress.turn && inProgress.helpers.length === 0,
+    inProgress: !inProgress.turn && inProgress.helpers.length + inProgress.assignments.length === 0,
     scheduled:
       scheduled.triggers.length + scheduled.routines.length + scheduled.checkIns.length === 0,
-    done: done.helpers.length + done.checkIns.length + done.skipped.length === 0,
+    done:
+      done.helpers.length + done.assignments.length + done.checkIns.length + done.skipped.length ===
+      0,
   };
   return (
     <Popover>
@@ -220,6 +225,20 @@ export function TasksPopover({
                       </li>
                     );
                   })}
+                </ul>
+              )}
+              {inProgress.assignments.length > 0 && (
+                <ul aria-label={t("bots.assignments")} className="flex flex-col gap-2">
+                  {inProgress.assignments.map((assignment) => (
+                    <li key={assignment.id}>
+                      <AssignmentItem
+                        assignment={assignment}
+                        onCancelAssignment={actions.onCancelAssignment}
+                        onRaiseAssignmentLimit={actions.onRaiseAssignmentLimit}
+                        actingAssignments={actions.actingAssignments}
+                      />
+                    </li>
+                  ))}
                 </ul>
               )}
               {inProgress.helpers.length > 1 && (
@@ -369,6 +388,16 @@ export function TasksPopover({
                   </li>
                 );
               })}
+              {done.assignments.map((assignment) => (
+                <li key={assignment.id}>
+                  <AssignmentItem
+                    assignment={assignment}
+                    onCancelAssignment={actions.onCancelAssignment}
+                    onRaiseAssignmentLimit={actions.onRaiseAssignmentLimit}
+                    actingAssignments={actions.actingAssignments}
+                  />
+                </li>
+              ))}
               {done.checkIns.map((checkIn) => (
                 <li key={checkIn.id} className="flex items-center gap-2">
                   <ClockIcon className="size-4 shrink-0" />

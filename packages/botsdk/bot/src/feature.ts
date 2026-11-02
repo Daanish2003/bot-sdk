@@ -20,6 +20,7 @@ import type { Context } from "./context";
 import type { FeatureMigrations, Migration } from "./migrate";
 import type { BotSdkContext, BotSdkPlugin, Route, Transaction } from "./plugin";
 import { requireAuth } from "./procedures";
+import type { AssignmentsService } from "./bot/assignments";
 import type { ComputerApi } from "./computer/internal";
 import type { ModelsApi } from "./models/internal";
 import type { EnqueueOptions, JobDefinition } from "./runner/internal";
@@ -31,12 +32,17 @@ import type { EnqueueOptions, JobDefinition } from "./runner/internal";
  */
 
 /** The core services a feature may declare in `needs`. */
-export type CoreService = "computer" | "models" | "threads";
+export type CoreService = "assignments" | "computer" | "models" | "threads";
 
 /** What a feature tells a Conversation's open tabs. */
 export type ThreadsService = { hintChanged: (conversationId: string) => Promise<void> };
 
-type Services = { computer: ComputerApi; models: ModelsApi; threads: ThreadsService };
+type Services = {
+  assignments: AssignmentsService;
+  computer: ComputerApi;
+  models: ModelsApi;
+  threads: ThreadsService;
+};
 
 /** What the core gives every feature, plus the services it declared in `needs`, non-optional. */
 export type FeatureContext<Needs extends CoreService = never> = {
@@ -387,6 +393,7 @@ const instanceKeys: Record<keyof BotSdk, true> = {
   computer: true,
   routines: true,
   checkIns: true,
+  assignments: true,
   triggers: true,
   helpers: true,
   demonstrations: true,
@@ -409,6 +416,7 @@ const coreTableNames = new Set(
 );
 
 const serviceNames: Record<CoreService, string> = {
+  assignments: "the Assignments",
   computer: "the Computer",
   models: "the Models",
   threads: "the Conversation threads",
@@ -473,8 +481,17 @@ export function enableFeature(
   sdk: BotSdkContext,
   feature: AnyFeature,
   threads: ThreadsService,
+  assignmentsOf: (feature: AnyFeature) => AssignmentsService,
 ): EnabledFeature {
-  return { feature, context: contextOf(sdk, feature.needs ?? [], threads) };
+  const needs = feature.needs ?? [];
+  return {
+    feature,
+    context: {
+      ...contextOf(sdk, needs, threads),
+      // Each feature's own: it acts only on what it assigned.
+      ...(needs.includes("assignments") && { assignments: assignmentsOf(feature) }),
+    },
+  };
 }
 
 /** The context the core gives a feature (or the Host's jobs) that needs `needs`. */

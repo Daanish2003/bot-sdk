@@ -1,6 +1,7 @@
 import { oc, type } from "@orpc/contract";
 import { z } from "zod";
 
+import type { BotAssignment } from "./assignment";
 import type { BotChanges } from "./changes";
 import {
   channelAccountInput,
@@ -220,6 +221,19 @@ export const botScopeInput = z.object({ botId: z.uuid() });
 /** The input of the methods that act on one of the user's Routines. */
 export const routineInput = z.object({ routineId: z.uuid() });
 
+/** `assignments.cancel`'s input, besides `userId`. */
+export const assignmentInput = z.object({ botId: z.uuid(), assignmentId: z.uuid() });
+
+/** `assignments.raiseLimit`'s input, besides `userId`: at least one limit, higher than it is. */
+export const raiseAssignmentLimitInput = assignmentInput
+  .extend({
+    callLimit: z.int().positive().max(1_000_000).optional(),
+    moneyLimitUsd: z.number().positive().max(1_000_000).optional(),
+  })
+  .refine((input) => input.callLimit !== undefined || input.moneyLimitUsd !== undefined, {
+    message: "Give a limit to raise",
+  });
+
 /** `triggers.skip`'s input, besides `userId`. */
 export const triggerInput = z.object({ triggerId: z.string().min(1).max(512) });
 
@@ -413,6 +427,16 @@ const routines = {
   rotate: oc.input(routineInput).output(type<{ webhookToken: string }>()),
 };
 
+/** The Assignments handed to the user's Bots (spec #1166). Only a Bot creates one. */
+const assignments = {
+  /** The Assignments handed to one of the user's Bots, oldest first, each with its log. */
+  list: oc.input(botScopeInput).output(type<BotAssignment[]>()),
+  /** Cancels one Assignment that hasn't ended, whoever made it. */
+  cancel: oc.input(assignmentInput).output(type<void>()),
+  /** Raises the budget one draws from, which resumes the work once it has room. */
+  raiseLimit: oc.input(raiseAssignmentLimitInput).output(type<void>()),
+};
+
 /** The Check-ins of the user's Bots (#540). */
 const checkIns = {
   /** One of the user's Bots' Check-ins, soonest first, each with the Message its line follows. */
@@ -590,6 +614,7 @@ export const botContract = {
   rooms,
   routines,
   checkIns,
+  assignments,
   triggers,
   helpers,
   reviews,

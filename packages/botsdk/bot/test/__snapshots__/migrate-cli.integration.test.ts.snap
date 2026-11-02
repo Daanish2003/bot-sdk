@@ -591,6 +591,90 @@ ALTER TABLE "botsdk"."bot_review" ADD COLUMN "output" text;
 insert into botsdk.__migrations (feature, migration) values ('core', '20261101163206_skinny_lady_ursula');
 commit;
 
+-- core/20261102112338_assignments
+begin;
+CREATE TYPE "botsdk"."bot_assignment_actor" AS ENUM('bot', 'user', 'system');--> statement-breakpoint
+CREATE TYPE "botsdk"."bot_assignment_status" AS ENUM('open', 'working', 'blocked', 'done', 'failed', 'cancelled');--> statement-breakpoint
+ALTER TYPE "botsdk"."bot_trigger_source" ADD VALUE 'assignment';--> statement-breakpoint
+CREATE TABLE "botsdk"."bot_assignment" (
+	"id" uuid PRIMARY KEY,
+	"assigned_bot_id" uuid NOT NULL,
+	"assigner_bot_id" uuid,
+	"title" text NOT NULL,
+	"instructions" text NOT NULL,
+	"status" "botsdk"."bot_assignment_status" NOT NULL,
+	"result" jsonb,
+	"overdue_at" timestamp,
+	"created_at" timestamp NOT NULL,
+	"updated_at" timestamp NOT NULL,
+	"ended_at" timestamp,
+	CONSTRAINT "bot_assignment_result_check" CHECK (("status" in ('done', 'failed')) = ("result" is not null))
+);
+--> statement-breakpoint
+CREATE TABLE "botsdk"."bot_assignment_log" (
+	"id" uuid PRIMARY KEY,
+	"assignment_id" uuid NOT NULL,
+	"status" "botsdk"."bot_assignment_status" NOT NULL,
+	"actor" "botsdk"."bot_assignment_actor" NOT NULL,
+	"actor_bot_id" uuid,
+	"note" text,
+	"turn_id" uuid,
+	"at" timestamp NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX "bot_assignment_assigned_bot_id_idx" ON "botsdk"."bot_assignment" ("assigned_bot_id");--> statement-breakpoint
+CREATE INDEX "bot_assignment_assigner_bot_id_idx" ON "botsdk"."bot_assignment" ("assigner_bot_id");--> statement-breakpoint
+CREATE INDEX "bot_assignment_log_assignment_id_idx" ON "botsdk"."bot_assignment_log" ("assignment_id");--> statement-breakpoint
+CREATE INDEX "bot_trigger_bot_id_source_idx" ON "botsdk"."bot_trigger" ("bot_id","source");--> statement-breakpoint
+ALTER TABLE "botsdk"."bot_assignment" ADD CONSTRAINT "bot_assignment_assigned_bot_id_bot_id_fkey" FOREIGN KEY ("assigned_bot_id") REFERENCES "botsdk"."bot"("id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "botsdk"."bot_assignment" ADD CONSTRAINT "bot_assignment_assigner_bot_id_bot_id_fkey" FOREIGN KEY ("assigner_bot_id") REFERENCES "botsdk"."bot"("id") ON DELETE SET NULL;--> statement-breakpoint
+ALTER TABLE "botsdk"."bot_assignment_log" ADD CONSTRAINT "bot_assignment_log_assignment_id_bot_assignment_id_fkey" FOREIGN KEY ("assignment_id") REFERENCES "botsdk"."bot_assignment"("id") ON DELETE CASCADE;
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261102112338_assignments');
+commit;
+
+-- core/20261102153200_assignment_children
+begin;
+ALTER TABLE "botsdk"."bot_assignment" ADD COLUMN "parent_assignment_id" uuid;--> statement-breakpoint
+ALTER TABLE "botsdk"."bot_assignment" ADD COLUMN "depth" integer DEFAULT 1 NOT NULL;--> statement-breakpoint
+CREATE INDEX "bot_assignment_parent_assignment_id_idx" ON "botsdk"."bot_assignment" ("parent_assignment_id");--> statement-breakpoint
+ALTER TABLE "botsdk"."bot_assignment" ADD CONSTRAINT "bot_assignment_parent_assignment_id_bot_assignment_id_fkey" FOREIGN KEY ("parent_assignment_id") REFERENCES "botsdk"."bot_assignment"("id") ON DELETE SET NULL;
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261102153200_assignment_children');
+commit;
+
+-- core/20261102161247_conscious_sauron
+begin;
+ALTER TYPE "botsdk"."bot_assignment_actor" ADD VALUE 'feature';--> statement-breakpoint
+ALTER TABLE "botsdk"."bot_assignment" ADD COLUMN "assigner_feature" text;--> statement-breakpoint
+ALTER TABLE "botsdk"."bot_assignment" ADD COLUMN "assigner_job" text;--> statement-breakpoint
+ALTER TABLE "botsdk"."bot_assignment" ADD COLUMN "assigner_trusted" boolean DEFAULT true NOT NULL;--> statement-breakpoint
+ALTER TABLE "botsdk"."bot_assignment" ADD CONSTRAINT "bot_assignment_assigner_feature_check" CHECK (("assigner_feature" is null) = ("assigner_job" is null));--> statement-breakpoint
+ALTER TABLE "botsdk"."bot_assignment" ADD CONSTRAINT "bot_assignment_assigner_trusted_check" CHECK ("assigner_trusted" = ("assigner_feature" is null));
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261102161247_conscious_sauron');
+commit;
+
+-- core/20261102163444_assignment_budget
+begin;
+ALTER TABLE "botsdk"."bot_assignment" ADD COLUMN "call_limit" integer DEFAULT 30 NOT NULL;--> statement-breakpoint
+ALTER TABLE "botsdk"."bot_assignment" ADD COLUMN "money_limit_micros" bigint DEFAULT 1000000 NOT NULL;--> statement-breakpoint
+ALTER TABLE "botsdk"."bot_assignment" ADD COLUMN "calls_spent" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "botsdk"."bot_assignment" ADD COLUMN "micros_spent" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "botsdk"."bot_assignment" ADD COLUMN "over_budget_at" timestamp;--> statement-breakpoint
+ALTER TABLE "botsdk"."bot_assignment_log" ADD COLUMN "calls" integer;--> statement-breakpoint
+ALTER TABLE "botsdk"."bot_assignment_log" ADD COLUMN "cost_micros" bigint;
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261102163444_assignment_budget');
+commit;
+
+-- core/20261102174501_demonic_marrow
+begin;
+ALTER TABLE "botsdk"."bot_assignment" DROP CONSTRAINT "bot_assignment_assigner_trusted_check", ADD CONSTRAINT "bot_assignment_assigner_trusted_check" CHECK ("assigner_feature" is null or not "assigner_trusted");
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261102174501_demonic_marrow');
+commit;
+
 -- notes/0001_note
 begin;
 create table botsdk.test_note (id text primary key, bot_id uuid references botsdk.bot(id) on delete cascade)

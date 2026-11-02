@@ -14,6 +14,7 @@ import {
 import type { PromptHash } from "../../chat/hooks";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import type { Database } from "../../storage";
+import type { LoopBudget } from "../assignments";
 import {
   withCacheControl,
   addUsage,
@@ -234,6 +235,8 @@ export type LoopOptions = {
   inbox?: (tx: Transaction) => Promise<string[]>;
   /** Runs after each `inbox` activity, once its Checkpoint has committed (and on its replay). */
   afterInbox?: () => Promise<void>;
+  /** The budget of the Assignments a Turn is working on (#1184). With none, nothing is checked. */
+  budget?: LoopBudget;
   /**
    * Where the loop's reviewed calls come from (a Turn's or a Helper's): each `shell` call, and each
    * `computerCall` given its input to review, gets Auto-review before it runs. With none, nothing
@@ -249,6 +252,8 @@ export type LoopResult = {
   timedOut: boolean;
   stepLimit: boolean;
   stopped: boolean;
+  /** An Assignment's budget ended the loop before a model call (#1184). */
+  overBudget: boolean;
   error: string | undefined;
   finished: boolean;
   transcript: ModelMessage[];
@@ -332,6 +337,7 @@ export async function runLoop(
       )
     : undefined;
   let stepLimit = false;
+  let overBudget = false;
   /** The loop's Steps so far, recorded or live: one per model call. */
   let steps = 0;
   /** What each recorded model call billed. */
@@ -383,14 +389,12 @@ export async function runLoop(
         : models.freeModelMeter(owner.userId, owner.model);
       return {
         adapter: models.adapterForCall(owner.model, call),
-        record: (tx, usage, reportedCost, promptHashes, kind = options.usageKind) =>
-          meter.recordIn(tx, {
-            kind,
-            usage,
-            reportedCost,
-            sourceId: options.sourceId,
-            promptHashes,
-          }),
+        record: async (tx, usage, reportedCost, promptHashes, kind = options.usageKind) => {
+          const call = { kind, usage, reportedCost, sourceId: options.sourceId, promptHashes };
+          const onUsage = await meter.recordIn(tx, call);
+          await options.budget?.spend(tx, meter.costOf(call));
+          return onUsage;
+        },
       };
     })());
 
@@ -561,6 +565,22 @@ export async function runLoop(
       yield* recorded.chunks;
     },
   } as unknown as AnyTextAdapter;
+
+  /**
+   * Before a model call: what the budget's check says the Model is told, recorded, so a replay gets
+   * the same. Over budget with nothing else to do, the loop ends here, and the call never starts.
+   */
+  const checkBudget = async (): Promise<ModelMessage[]> => {
+    const { budget } = options;
+    if (!budget) return [];
+    const { stop, note } = await ctx.step("assignment_budget", (tx) => budget.check(tx));
+    await budget.afterCheck();
+    if (stop) {
+      overBudget = true;
+      abortController.abort();
+    }
+    return note ? [{ role: "user", content: note }] : [];
+  };
 
   /** How the setup lets the loop summarize mid-Turn, if it does. */
   let summarize: Extract<LoopSetup, { promptStart: LoopPromptStart }>["summarize"];
@@ -961,13 +981,17 @@ export async function runLoop(
               const { inbox } = options;
               const added: ModelMessage[] = [];
               try {
+                added.push(...(await checkBudget()));
+                if (overBudget) return;
                 if (inbox) {
                   const arrived = await ctx.step("inbox", inbox);
                   await options.afterInbox?.();
                   added.push(...arrived.map((content) => ({ role: "user" as const, content })));
                 }
                 const all = [...(config.providerMessages ?? config.messages), ...added];
-                if (await summarizeIfFull(all)) added.push({ role: "user", content: midTurnNote });
+                if (await summarizeIfFull(all)) {
+                  added.push({ role: "user", content: midTurnNote }, ...(await checkBudget()));
+                }
               } catch (caught) {
                 // The summary call's Model failure ends the loop `error`, as a Step's does.
                 if (caught instanceof ModelCallError) throw caught.cause;
@@ -1027,6 +1051,7 @@ export async function runLoop(
     stepLimit,
     // An abort wins over an error: the adapter often reports the cancelled request as one.
     stopped: abortController.signal.aborted,
+    overBudget,
     error,
     finished,
     transcript: answeredCalls(

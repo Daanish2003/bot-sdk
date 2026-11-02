@@ -1,9 +1,11 @@
+import { isEndedAssignment } from "@botsdk/client/bot/assignment";
 import { isLiveHelper } from "@botsdk/client/bot/helper";
 import { type BotTasks, type TaskTrigger, tasksDoneDays } from "@botsdk/client/bot/tasks";
 import { and, asc, desc, eq, gte, inArray, isNull, or } from "drizzle-orm";
 
 import { botHelper, botTrigger, botTurn } from "../storage";
 import type { Database } from "../storage";
+import { assignmentTitleOf, listAssignments } from "./assignments";
 import { helperGistOf, helperOfTriggerId, listHelpers } from "./helpers";
 import { checkInNoteOf, checkInOfKey, listCheckIns, listRoutines, routineNameOf } from "./routines";
 import { waitingIn } from "./triggers";
@@ -13,8 +15,8 @@ export const tasksSkippedLimit = 100;
 
 /**
  * A Bot's Tasks view (spec #1007): In progress (the running Turn, the running and waiting
- * Helpers), Scheduled (the Triggers waiting in the Bot's Conversation queues, its 1:1 and its Rooms'
- * (spec #1055), the Routines, the pending Check-ins) and Done (the Helpers that ended, the
+ * Helpers, the Assignments handed to it that haven't ended), Scheduled (the Triggers waiting in the Bot's Conversation queues, its 1:1 and its Rooms'
+ * (spec #1055), the Routines, the pending Check-ins) and Done (the Helpers and Assignments that ended, the
  * Check-ins that fired and the newest `tasksSkippedLimit` Triggers skipped, within the last
  * `tasksDoneDays` days up to `now`, newest first).
  */
@@ -37,45 +39,47 @@ export async function botTasks(
         ),
       ),
     );
-  const [running, [helpers, endings], routines, checkIns, waiting, skipped] = await Promise.all([
-    db
-      .select({
-        id: botTurn.id,
-        startedAt: botTurn.startedAt,
-        conversationId: botTurn.conversationId,
-      })
-      .from(botTurn)
-      .where(and(eq(botTurn.botId, botId), eq(botTurn.status, "running")))
-      // A Bot may run a Turn in its 1:1 and in Rooms at once: the newest is shown.
-      .orderBy(desc(botTurn.startedAt), desc(botTurn.id))
-      .limit(1),
-    shown.then(
-      async (rows) =>
-        [
-          rows.length
-            ? await listHelpers(
-                db,
-                botId,
-                rows.map((row) => row.id),
-              )
-            : [],
-          rows,
-        ] as const,
-    ),
-    listRoutines(db, botId),
-    listCheckIns(db, botId),
-    db
-      .select()
-      .from(botTrigger)
-      .where(waitingIn({ botId }))
-      .orderBy(asc(botTrigger.receivedAt), asc(botTrigger.id)),
-    db
-      .select()
-      .from(botTrigger)
-      .where(and(eq(botTrigger.botId, botId), gte(botTrigger.skippedAt, since)))
-      .orderBy(desc(botTrigger.skippedAt), desc(botTrigger.id))
-      .limit(tasksSkippedLimit),
-  ]);
+  const [running, [helpers, endings], routines, checkIns, assignments, waiting, skipped] =
+    await Promise.all([
+      db
+        .select({
+          id: botTurn.id,
+          startedAt: botTurn.startedAt,
+          conversationId: botTurn.conversationId,
+        })
+        .from(botTurn)
+        .where(and(eq(botTurn.botId, botId), eq(botTurn.status, "running")))
+        // A Bot may run a Turn in its 1:1 and in Rooms at once: the newest is shown.
+        .orderBy(desc(botTurn.startedAt), desc(botTurn.id))
+        .limit(1),
+      shown.then(
+        async (rows) =>
+          [
+            rows.length
+              ? await listHelpers(
+                  db,
+                  botId,
+                  rows.map((row) => row.id),
+                )
+              : [],
+            rows,
+          ] as const,
+      ),
+      listRoutines(db, botId),
+      listCheckIns(db, botId),
+      listAssignments(db, botId, since),
+      db
+        .select()
+        .from(botTrigger)
+        .where(waitingIn({ botId }))
+        .orderBy(asc(botTrigger.receivedAt), asc(botTrigger.id)),
+      db
+        .select()
+        .from(botTrigger)
+        .where(and(eq(botTrigger.botId, botId), gte(botTrigger.skippedAt, since)))
+        .orderBy(desc(botTrigger.skippedAt), desc(botTrigger.id))
+        .limit(tasksSkippedLimit),
+    ]);
 
   const endedAt = new Map(endings.map((ending) => [ending.id, ending.endedAt]));
   // The Trigger's own snapshot first, as a reset deletes the Check-in or Helper it came from.
@@ -95,6 +99,7 @@ export async function botTasks(
         helperGistOf(row.text) ?? helpers.find((helper) => helper.id === helperId)?.gist ?? null
       );
     }
+    if (row.source === "assignment") return assignmentTitleOf(row.text);
     return null;
   };
   const triggerOf = (row: typeof botTrigger.$inferSelect): TaskTrigger => ({
@@ -117,6 +122,7 @@ export async function botTasks(
     inProgress: {
       turn: running[0] ?? null,
       helpers: helpers.filter((helper) => isLiveHelper(helper.status)),
+      assignments: assignments.filter((assignment) => !isEndedAssignment(assignment.status)),
     },
     scheduled: {
       triggers: waiting.map(triggerOf),
@@ -140,6 +146,9 @@ export async function botTasks(
             checkIn.state === "fired" && checkIn.at >= since && !skippedCheckIns.has(checkIn.id),
         )
         .sort((a, b) => b.at.getTime() - a.at.getTime()),
+      assignments: assignments
+        .filter((assignment) => assignment.endedAt && assignment.endedAt >= since)
+        .sort((a, b) => b.endedAt!.getTime() - a.endedAt!.getTime()),
       skipped: skipped.map(triggerOf),
     },
   };

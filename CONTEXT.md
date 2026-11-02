@@ -154,16 +154,48 @@ _Avoid_: Reminder, Routine (that is a prompt the user approved)
 An agent a Bot hands one complete task to, which works in its own fresh context, keeps going after the Turn that started it, and reports back briefly. It belongs to its Bot and is never a Bot itself. A General Helper works with the shell, files and web search; a Computer-use Helper works a Screen's browser and desktop, needs a model that can use a computer, and a Bot has at most one of those at a time. The user's Stop ends the Turn, not its Helpers; its report wakes the Bot as a Trigger like any other.
 _Avoid_: Sub-agent, worker, child agent
 
+**Representative**:
+An agent that speaks for one user's business to its Customers and reports to one of that user's Bots, or to the user once that Bot is deleted. A Bot drafts it or the user creates it, and it serves Customers only once the user approves a Release of it. It has no Computer and no Conversation with the user, and it is never a Bot or a Helper.
+_Avoid_: Deployed agent, front desk, CSR, Agent
+
+**Release**:
+One unchangeable version of a Representative that the user approved: what it's told to do, its tools, its documents and its tests. The user can go back to any earlier Release in one step. Published facts stay outside it and change live.
+_Avoid_: Version, deployment, publish
+
+**Published fact**:
+One typed piece of business information a Representative can state, such as a price or opening hours, quoted exactly and never reworded. It changes live, and a change a Bot proposes needs the user's Approval.
+_Avoid_: Knowledge, FAQ
+
+**Customer thread**:
+The one running exchange between a Customer and a Representative across Channels, held either by the Representative or by the user who took it over. It closes when idle, and a later message starts a new one.
+_Avoid_: Conversation, ticket, case
+
+**Outbound gate**:
+The one set of checks every message to a Customer passes, which decides whether it's sent, held or dropped.
+_Avoid_: Filter, guardrail, moderation
+
+**Page**:
+A direct alert that reaches the user outside the app when something needs them, such as an emergency or a stalled Assignment, and repeats until acknowledged.
+_Avoid_: Notification, ticket, alert
+
+**Customer**:
+A person who deals with a user's business through a Representative. A Customer isn't a user and never signs in to the app, and belongs to that one user's business.
+_Avoid_: Contact, end user, client
+
+**Assignment**:
+One piece of work handed to a Bot by a Representative or another Bot, with a status and a budget, and a log the user can read. It can be split into child Assignments, which block it while open; a chain stops at 3 deep.
+_Avoid_: Tracked task, task, ticket, work order
+
 **Tasks view**:
-One Bot's work in one place, in three sections: In progress (the running Turn and its live Helpers), Scheduled (the Conversation queue, Routines and Check-ins) and Done (finished Helpers and fired Check-ins). It is a view over those things, not a thing of its own; "task" stays an ordinary word.
+One Bot's work in one place, in three sections: In progress (the running Turn, its live Helpers and the Assignments handed to it that have not ended), Scheduled (the Conversation queue, Routines and Check-ins) and Done (finished Helpers and Assignments, and fired Check-ins). It is a view over those things, not a thing of its own; "task" stays an ordinary word.
 _Avoid_: Task list, to-do, activity feed
 
 **Bot pause**:
-The user holding one Bot still until they resume it: its Turn and Helpers stop, nothing wakes it, and what comes due meanwhile (a Routine run, a Check-in, a webhook call) is skipped, not run late. It is not a Routine's own pause, which holds only that Routine, nor a Ban, which the Host puts on a user.
+The user holding one Bot still until they resume it: its Turn and Helpers stop, nothing wakes it, and what comes due meanwhile (a Routine run, a Check-in, a webhook call) is skipped, not run late. Assignments are the exception: they aren't due at a set time, so open ones and results that arrived meanwhile wake the Bot on resume. It is not a Routine's own pause, which holds only that Routine, nor a Ban, which the Host puts on a user.
 _Avoid_: Suspend, sleep, disable
 
 **Bot reset**:
-The user giving one Bot a fresh start: it forgets its own Memory and drops its Routines, Check-ins, Helpers and pending Approvals, and its Conversation gets a reset mark at the end, so the Bot sees nothing from before it while the user can still scroll back. In a Room it leaves no mark for others to see; only that Bot stops seeing what was said there before. It keeps its Skills, its other files and everything shared with the user's other Bots. It cannot be undone.
+The user giving one Bot a fresh start: it forgets its own Memory and drops its Routines, Check-ins, Helpers and pending Approvals, and its Conversation gets a reset mark at the end, so the Bot sees nothing from before it while the user can still scroll back. In a Room it leaves no mark for others to see; only that Bot stops seeing what was said there before. It keeps its Skills, its other files, the Assignments still open on it, which wake it afresh, and everything shared with the user's other Bots. It cannot be undone.
 _Avoid_: Wipe, delete, clear
 
 **Skill**:

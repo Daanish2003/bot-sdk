@@ -120,8 +120,13 @@ async function fetchOnce(queryClient: QueryClient, orpc: BotSdkOrpc, botId: stri
       }
     } else {
       void queryClient.invalidateQueries({ queryKey: lists[change.kind] });
-      // The Tasks view lists Routines, Helpers and Check-ins too.
-      if (change.kind === "routine" || change.kind === "helper" || change.kind === "check_in") {
+      // The Tasks view lists Routines, Helpers, Check-ins and Assignments too.
+      if (
+        change.kind === "routine" ||
+        change.kind === "helper" ||
+        change.kind === "check_in" ||
+        change.kind === "assignment"
+      ) {
         void queryClient.invalidateQueries({ queryKey: lists.tasks });
       }
     }
@@ -149,6 +154,7 @@ function listKeys(orpc: BotSdkOrpc, botId: string) {
     review: orpc.reviews.list.queryKey(input),
     helper: orpc.helpers.list.queryKey(input),
     check_in: orpc.checkIns.list.queryKey(input),
+    assignment: orpc.assignments.list.queryKey(input),
     tasks: orpc.bots.tasks.queryKey(input),
   };
 }

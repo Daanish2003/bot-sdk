@@ -52,6 +52,44 @@ export const botsMessages = {
     `Check-in set for ${time}: "${note}"`,
   "bots.checkInFailed": "failed",
   "bots.cancel": "Cancel",
+  "bots.assignments": "Assignments",
+  "bots.assignmentFrom": ({ title, from }: { title: string; from: string }) =>
+    `Assignment from ${from}: ${title}`,
+  "bots.assignmentAnotherBot": "another Bot",
+  "bots.assignmentOpen": "Open",
+  "bots.assignmentWorking": "Working",
+  "bots.assignmentBlocked": "Blocked",
+  "bots.assignmentDone": "Done",
+  "bots.assignmentFailed": "Failed",
+  "bots.assignmentCancelled": "Cancelled",
+  "bots.cancelAssignment": ({ title }: { title: string }) => `Cancel ${title}`,
+  "bots.assignmentLog": "Log",
+  "bots.assignmentBy": ({ actor }: { actor: string }) => `by ${actor}`,
+  "bots.assignmentActorUser": "you",
+  "bots.assignmentActorSystem": "the SDK",
+  "bots.assignmentActorGone": "a Bot that's gone",
+  "bots.assignmentTurn": "Turn",
+  "bots.assignmentBudget": ({
+    calls,
+    callLimit,
+    spent,
+    moneyLimit,
+  }: {
+    calls: number;
+    callLimit: number;
+    spent: string;
+    moneyLimit: string;
+  }) => `${calls} of ${callLimit} model calls, ${spent} of ${moneyLimit}`,
+  "bots.assignmentSpend": ({ calls, spent }: { calls: number; spent: string }) =>
+    `${calls} model ${calls === 1 ? "call" : "calls"}, ${spent}`,
+  "bots.assignmentRaise": "Raise limit",
+  "bots.assignmentRaiseOf": ({ title }: { title: string }) => `Raise the limit of ${title}`,
+  "bots.assignmentForCustomer": ({ text }: { text: string }) => `For a Customer: ${text}`,
+  "bots.assignmentWhen": ({ when }: { when: string }) => `When: ${when}`,
+  "bots.assignmentPartOf": ({ title, bot }: { title: string; bot: string }) =>
+    `Part of ${bot}'s Assignment: ${title}`,
+  "bots.assignmentChildren": "Split off",
+  "bots.assignmentChild": ({ title, bot }: { title: string; bot: string }) => `${title}, ${bot}`,
   "bots.generalHelper": "General Helper",
   "bots.computerUseHelper": "Computer-use Helper",
   "bots.helperWorking": "Working",
@@ -123,6 +161,7 @@ export const botsMessages = {
   "bots.taskHelperReport": ({ gist }: { gist: string }) => `Report from ${gist}`,
   "bots.taskApprovalAnswer": "Answer to an Approval",
   "bots.taskHandoff": "Handoff from another Bot",
+  "bots.taskAssignment": ({ title }: { title: string }) => `Assignment: ${title}`,
   "bots.taskSkipped": "skipped",
   "bots.skipTrigger": "Skip",
   "bots.skipTriggerNamed": ({ task }: { task: string }) => `Skip ${task}`,

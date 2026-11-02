@@ -20,6 +20,13 @@ The notes below were mostly written on Windows. Where they disagree, this sectio
 - **`pnpm remove` can strip a worktree's `node_modules`:** after removing `marked` from `packages/ui`, one worktree lost `jsdom`, and a forced install took 19 minutes.
 - **Run vitest from a worktree's root, never `.claude/worktrees`:** one agent did and collected test files from every worktree there.
 - **A spec's external doc:** the demo script named in #1117 lives in a Claude Doc, not the repo, so an agent reported it missing. Ask the owner for such a link when a spec names something not in the repo.
+- **More load flakes (#1166):** each failed once in a full verify, passed alone, and passed in later verifies: bot-send "starts the next Turn when the running one ends error" (1 s `expect.poll` for the first Model call, 3/3 alone), bot-screen "never closes the Screen once another Helper…" (3/3 alone). rooms-manage "cancels the removed Bot's running Turn…" failed in a verify and in one whole-file run while an agent was testing, then 15/15 on that tip and 12/12 on the tip before it. It may be a real race in stopping a Room's Turn. Stress a suspect file on two tips side by side in worktrees of their own.
+- **A message queued to an agent can arrive after its report (#1166):** the #1185 agent reported on the first merge I asked for, then picked up the second and reported again. The notice says so; wait for the second report before merging.
+- **`git branch -d` depends on how the worktree was made (#1166):** a branch from `origin/feature/…` tracks it, so `-d` works once pushed. One from a SHA has no upstream, and `-d` refuses until the PR merges.
+- **A mutation that never applied looks like a weak test (#1166):** #1182's agent dropped a test that "stayed green" with the refusal removed, but its replace string hadn't matched the formatted file. Sent back, the same test went red. When a report says a mutation stayed green, ask whether the file changed.
+- **Each review pass finds something in the last pass's fixes (#1166):** #1185 went through 5 passes and each found more. Fixes after the last pass stay unreviewed; say so in the PR, and let the branch review cover them.
+- **The branch review catches cross-ticket holes (#1166):** a Helper's or an Approval's Turn escaping the budget and the chain limit needed #1183 and #1184 together, and no ticket review saw it. Have the fix pass confirm each finding with a red test: it found 2 of 22 weren't as described and one not real.
+- **The skill can change mid-run (#1166):** the owner merged the AFK rule while this run was going. `AGENTS.md` changing on disk was the sign. Re-read SKILL.md then, and merge `origin/main` before the last verify.
 
 ## Worktrees and git
 
