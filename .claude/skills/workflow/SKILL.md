@@ -8,6 +8,8 @@ Tell the user which skill fits their situation, using the map below. Recommend o
 
 ## Idea → merged PR (the main path)
 
+Can't yet picture how the idea would work? Start with **`/scout-architecture`** (a user-level skill): it researches prior art and patterns, draws the candidate architectures, and ends with a report that names the next step.
+
 1. **`/mattpocock-skills:grill-with-docs`**: interview until the idea is unambiguous; updates `CONTEXT.md` and records decisions in `docs/adr/`. Start here for anything bigger than a one-line fix.
    Too big for one session, or the route is still foggy (a new product area, a migration, a vendor choice)? **`/mattpocock-skills:wayfinder`** instead: it charts the open decisions as a map of issues and resolves one per session.
 2. Is there a question only running code can answer (a state model, a UI)? **`prototype`** it first, in a separate session; bring back the verdict.
