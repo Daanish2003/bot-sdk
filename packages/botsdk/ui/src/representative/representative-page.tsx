@@ -135,7 +135,11 @@ function BotChooser({ representative }: { representative: RepresentativeView }) 
       await refresh();
       toast.success(t("representative.botChosen"));
     },
-    onError: (error) => toast.error(serverErrorText(i18n, error)),
+    // The Bot may have changed before the refusal: show what the server holds.
+    onError: async (error) => {
+      await refresh();
+      toast.error(serverErrorText(i18n, error));
+    },
   });
   return (
     <div className="space-y-1">

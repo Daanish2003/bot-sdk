@@ -146,6 +146,9 @@ function turnTools({ job, kit, userId, name, representativeId }: Turn) {
             job: handOffEndedJob,
           });
           await job.db.insert(representativeHandOff).values({ assignmentId: id, representativeId });
+          // The owner may have chosen another Bot while this was made: setBot only moves what it can see.
+          const now = await reportingBot(job, representativeId);
+          if (now && now !== botId) await job.assignments.move({ userId, id, botId: now });
           return { handedOff: true };
         } catch (error) {
           // The Bot can't take it or the work is malformed: the Model hears, and the Turn goes on.
