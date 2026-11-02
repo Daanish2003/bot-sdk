@@ -1,5 +1,7 @@
 import {
+  assignmentMoney,
   assignmentTriggerPrefix,
+  type AssignmentBudget,
   type AssignmentLink,
   type AssignmentLogEntry,
   type AssignmentResult,
@@ -59,7 +61,7 @@ export const assignWorkToolName = "assign_work";
 /** The Bot tool that ends an Assignment handed to it. */
 export const finishAssignmentToolName = "finish_assignment";
 
-const endedStatuses: AssignmentStatus[] = ["done", "failed", "cancelled"];
+export const endedStatuses: AssignmentStatus[] = ["done", "failed", "cancelled"];
 
 /** The most Assignments a chain may hold, so that Bots can't hand work around forever. */
 const assignmentChainLimit = 3;
@@ -188,7 +190,7 @@ export async function canWork(
 }
 
 /** Appends one row to an Assignment's log, in `tx`. It is never changed or removed afterwards. */
-async function logStatus(
+export async function logStatus(
   tx: Transaction,
   row: Omit<typeof botAssignmentLog.$inferInsert, "id">,
 ): Promise<void> {
@@ -267,39 +269,28 @@ export async function openAssignment(
 /** The Turn a Bot's Assignment tool is called in. */
 type AssignmentCaller = { id: string; botId: string; userId: string };
 
+/** Whether a Turn with Triggers from `sources` is a Check-in's no user asked for. */
+export const onBotsOpenAssignments = (sources: Set<string>) =>
+  sources.has("check_in") && !sources.has("user");
+
 /**
- * Where a new Assignment from this Turn goes in a chain, read under its Conversations' locks. The
- * Turn is on the Assignments its Triggers name: one handed to the Bot, the parent of a child whose
- * result it took, or, for a Check-in's Turn no user asked for, any open one handed to the Bot. Its
- * parent is the one the Bot named, which must be handed to it and not ended, or else the one the Turn
- * is on. So a sequence of children stays one level deep under its parent, which its budget bounds,
- * and a Bot-to-Bot cycle is a chain whatever the Bots name. An Assignment that ended with no open
- * parent gives no parent, but the chain carries on through it, so two Bots trading results reach the
- * same limit. A user's Message with none of these starts a new chain.
+ * What Turn `turn` is working on. It is on the Assignments its Triggers name: one handed to the Bot,
+ * the parent of a child whose result it took, or, for a Check-in's Turn no user asked for, any open
+ * one handed to the Bot, each with its depth. `reached` is how deep those it isn't on went, `ended`
+ * those handed to the Bot that have ended, whose budget the rest of the Turn still draws from, and
+ * `sources` what its Triggers came from.
  */
-async function placeInChain(
-  tx: Transaction,
-  turn: AssignmentCaller,
-  named: string | undefined,
-): Promise<{ parentId: string | null; depth: number } | { error: string }> {
-  const [namedRow] = named
-    ? await tx
-        .select({ status: botAssignment.status, depth: botAssignment.depth })
-        .from(botAssignment)
-        .where(and(eq(botAssignment.id, named), eq(botAssignment.assignedBotId, turn.botId)))
-    : [];
-  if (named) {
-    if (!namedRow) return { error: `No Assignment with id "${named}" is assigned to you.` };
-    if (endedStatuses.includes(namedRow.status)) {
-      return { error: `Assignment ${named} already ended, so nothing can be split off from it.` };
-    }
-  }
+export async function assignmentsOfTurn(
+  tx: Database | Transaction,
+  turn: { id: string; botId: string },
+): Promise<{ on: Map<string, number>; reached: number; ended: string[]; sources: Set<string> }> {
   const triggers = await tx
     .select({ id: botTrigger.id, source: botTrigger.source })
     .from(botTrigger)
     .where(eq(botTrigger.turnId, turn.id));
-  const sources = new Set(triggers.map((row) => row.source));
+  const sources = new Set<string>(triggers.map((row) => row.source));
   const on = new Map<string, number>();
+  const ended: string[] = [];
   let reached = 0;
   const notices = triggers.filter((row) => row.source === "assignment");
   if (notices.length > 0) {
@@ -335,10 +326,11 @@ async function placeInChain(
         on.set(row.parentId, row.parentDepth!);
       } else {
         reached = Math.max(reached, row.depth);
+        if (row.assignedBotId === turn.botId) ended.push(row.id);
       }
     }
   }
-  if (sources.has("check_in") && !sources.has("user")) {
+  if (onBotsOpenAssignments(sources)) {
     const handed = await tx
       .select({ id: botAssignment.id, depth: botAssignment.depth })
       .from(botAssignment)
@@ -350,6 +342,35 @@ async function placeInChain(
       );
     for (const row of handed) on.set(row.id, row.depth);
   }
+  return { on, reached, ended, sources };
+}
+
+/**
+ * Where a new Assignment from this Turn goes in a chain, read under its Conversations' locks. Its
+ * parent is the one the Bot named, which must be handed to it and not ended, or else the one the Turn
+ * is on. So a sequence of children stays one level deep under its parent, which its budget bounds,
+ * and a Bot-to-Bot cycle is a chain whatever the Bots name. An Assignment that ended with no open
+ * parent gives no parent, but the chain carries on through it, so two Bots trading results reach the
+ * same limit. A user's Message with none of these starts a new chain.
+ */
+async function placeInChain(
+  tx: Transaction,
+  turn: AssignmentCaller,
+  named: string | undefined,
+): Promise<{ parentId: string | null; depth: number } | { error: string }> {
+  const [namedRow] = named
+    ? await tx
+        .select({ status: botAssignment.status, depth: botAssignment.depth })
+        .from(botAssignment)
+        .where(and(eq(botAssignment.id, named), eq(botAssignment.assignedBotId, turn.botId)))
+    : [];
+  if (named) {
+    if (!namedRow) return { error: `No Assignment with id "${named}" is assigned to you.` };
+    if (endedStatuses.includes(namedRow.status)) {
+      return { error: `Assignment ${named} already ended, so nothing can be split off from it.` };
+    }
+  }
+  const { on, reached } = await assignmentsOfTurn(tx, turn);
   const deepest = Math.max(reached, ...on.values());
   if (named) return { parentId: named, depth: Math.max(namedRow!.depth, deepest) + 1 };
   if (on.size > 1) {
@@ -361,8 +382,8 @@ async function placeInChain(
 }
 
 /**
- * A child of Assignment `id` ended: moves it back to `working` if it is `blocked` and none of its
- * children is open, in `tx`, which holds `conversationId`, its Bot's 1:1 Conversation. Either way
+ * A child of Assignment `id` ended: moves it back to `working` if it is `blocked`, none of its
+ * children is open and it isn't waiting on the owner over its budget, in `tx`, which holds `conversationId`, its Bot's 1:1 Conversation. Either way
  * its thread hears of it, as it shows its children.
  */
 async function unblock(
@@ -386,7 +407,13 @@ async function unblock(
     : await tx
         .update(botAssignment)
         .set({ status: "working", updatedAt: now })
-        .where(and(eq(botAssignment.id, id), eq(botAssignment.status, "blocked")))
+        .where(
+          and(
+            eq(botAssignment.id, id),
+            eq(botAssignment.status, "blocked"),
+            isNull(botAssignment.overBudgetAt),
+          ),
+        )
         .returning({ id: botAssignment.id });
   if (moved.length > 0) {
     await logStatus(tx, { assignmentId: id, status: "working", actor: "system", turnId, at: now });
@@ -408,7 +435,10 @@ type OpenDescendant = {
 };
 
 /** The Assignments split off from Assignment `id`, directly or not, that haven't ended. */
-async function openDescendants(db: Database | Transaction, id: string): Promise<OpenDescendant[]> {
+export async function openDescendants(
+  db: Database | Transaction,
+  id: string,
+): Promise<OpenDescendant[]> {
   const found: OpenDescendant[] = [];
   // An Assignment that ended cancelled its own, so the search stops at those that ended.
   let level = [id];
@@ -681,7 +711,7 @@ export async function finishAssignment(
 }
 
 /** The Assignments in `statuses` handed to Bot `botId`, oldest first, as their notices read them. */
-async function assignmentsOf(
+export async function assignmentsOf(
   db: Database | Transaction,
   botId: string,
   statuses: AssignmentStatus[],
@@ -898,6 +928,22 @@ export async function assignmentsAtTurnStart(
   }
 }
 
+/** A Trigger that wakes a Bot afresh on an Assignment, which has had a Trigger already. */
+export const assignmentTrigger = (
+  row: { id: string; title: string; instructions: string } & Assigner,
+  owner: { botId: string; conversationId: string },
+  receivedAt: Date,
+) => ({
+  // A Trigger's id is its Bot's once.
+  id: `${assignmentTriggerId(row.id)}:${uuidv7()}`,
+  botId: owner.botId,
+  conversationId: owner.conversationId,
+  source: "assignment" as const,
+  channel: handOverChannel(row),
+  text: assignmentNotice(row),
+  receivedAt,
+});
+
 /**
  * Wakes the Bot afresh on each `open` or `working` Assignment handed to it and each result it
  * missed: a resume or a reset skipped what waited, and otherwise nothing would tell it of work
@@ -927,16 +973,7 @@ export async function wakeOnAssignments(
       const seen = new Set(open.map((row) => row.id));
       for (const row of await assignmentsOf(tx, owner.botId, ["open", "working"])) {
         if (!seen.has(row.id)) continue;
-        await receive(deps, tx, {
-          // A Trigger's id is its Bot's once, and this Assignment has had one already.
-          id: `${assignmentTriggerId(row.id)}:${uuidv7()}`,
-          botId: owner.botId,
-          conversationId: owner.conversationId,
-          source: "assignment",
-          channel: handOverChannel(row),
-          text: assignmentNotice(row),
-          receivedAt,
-        });
+        await receive(deps, tx, assignmentTrigger(row, owner, receivedAt));
       }
       for (const row of await missedResults(tx, owner.botId, live)) {
         await receive(deps, tx, missedResultTrigger(owner, row, receivedAt));
@@ -1005,6 +1042,7 @@ export async function listAssignments(
   const ids = rows.map((row) => row.id);
   const logs = await logsOf(db, ids);
   const children = await childrenOf(db, ids);
+  const budgets = await budgetsOf(db, ids);
   return rows.map(({ parentId, parentTitle, parentBotName, ...row }) => {
     const link: AssignmentLink | null =
       parentId && parentTitle && parentBotName
@@ -1014,9 +1052,78 @@ export async function listAssignments(
       ...row,
       parent: link,
       children: children.get(row.id) ?? [],
+      budget: budgets.get(row.id)!.budget,
       log: logs.get(row.id) ?? [],
     };
   });
+}
+
+/**
+ * The budget each Assignment in `ids` draws from: its top Assignment's, reached through its parents
+ * (`assignmentChainLimit` bounds them), or its own once a parent is gone with its Bot.
+ */
+export async function budgetsOf(
+  db: Database | Transaction,
+  ids: string[],
+): Promise<Map<string, { rootId: string; status: AssignmentStatus; budget: AssignmentBudget }>> {
+  const read = new Map<
+    string,
+    Pick<
+      typeof botAssignment.$inferSelect,
+      | "id"
+      | "status"
+      | "parentAssignmentId"
+      | "callsSpent"
+      | "callLimit"
+      | "microsSpent"
+      | "moneyLimitMicros"
+      | "overBudgetAt"
+    >
+  >();
+  let level = ids;
+  while (level.length > 0) {
+    const rows = await db
+      .select({
+        id: botAssignment.id,
+        status: botAssignment.status,
+        parentAssignmentId: botAssignment.parentAssignmentId,
+        callsSpent: botAssignment.callsSpent,
+        callLimit: botAssignment.callLimit,
+        microsSpent: botAssignment.microsSpent,
+        moneyLimitMicros: botAssignment.moneyLimitMicros,
+        overBudgetAt: botAssignment.overBudgetAt,
+      })
+      .from(botAssignment)
+      .where(inArray(botAssignment.id, level));
+    for (const row of rows) read.set(row.id, row);
+    level = [
+      ...new Set(
+        rows.flatMap((row) =>
+          row.parentAssignmentId && !read.has(row.parentAssignmentId)
+            ? [row.parentAssignmentId]
+            : [],
+        ),
+      ),
+    ];
+  }
+  const budgets = new Map();
+  for (const id of ids) {
+    const own = read.get(id)!;
+    let root = own;
+    while (root.parentAssignmentId) root = read.get(root.parentAssignmentId)!;
+    budgets.set(id, {
+      rootId: root.id,
+      status: own.status,
+      budget: {
+        calls: root.callsSpent,
+        callLimit: root.callLimit,
+        costMicros: root.microsSpent,
+        moneyLimitMicros: root.moneyLimitMicros,
+        overBudget: own.overBudgetAt !== null,
+      },
+    });
+  }
+  return budgets;
 }
 
 /** The children of each Assignment in `ids`, oldest first. */
@@ -1044,7 +1151,10 @@ async function childrenOf(
   return children;
 }
 
-/** The log of each Assignment in `ids`, oldest first, as the owner reads it. */
+/**
+ * The log of each Assignment in `ids`, oldest first, as the owner reads it. The rows of spend a Turn
+ * wrote one after another read as one, so a long Turn doesn't flood it.
+ */
 async function logsOf(
   db: Database | Transaction,
   ids: string[],
@@ -1062,6 +1172,8 @@ async function logsOf(
       >`coalesce(${bot.name}, case when ${botAssignmentLog.actor} = 'feature' then ${botAssignment.assignerFeature} end)`,
       note: botAssignmentLog.note,
       turnId: botAssignmentLog.turnId,
+      calls: botAssignmentLog.calls,
+      costMicros: botAssignmentLog.costMicros,
       at: botAssignmentLog.at,
     })
     .from(botAssignmentLog)
@@ -1070,7 +1182,16 @@ async function logsOf(
     .where(inArray(botAssignmentLog.assignmentId, ids))
     .orderBy(asc(botAssignmentLog.at), asc(botAssignmentLog.id));
   for (const { assignmentId, ...entry } of rows) {
-    logs.set(assignmentId, [...(logs.get(assignmentId) ?? []), entry]);
+    const log = logs.get(assignmentId) ?? [];
+    const last = log.at(-1);
+    if (last && last.calls !== null && entry.calls !== null && last.turnId === entry.turnId) {
+      last.calls += entry.calls;
+      last.costMicros = (last.costMicros ?? 0) + (entry.costMicros ?? 0);
+      last.at = entry.at;
+    } else {
+      log.push(entry);
+    }
+    logs.set(assignmentId, log);
   }
   return logs;
 }
@@ -1100,7 +1221,7 @@ function cancelNotice(
 }
 
 /** Of `rows`, the Bots whose Model the user can use now. Ask before taking any lock. */
-async function botsThatCanWork(
+export async function botsThatCanWork(
   deps: BotSdkContext,
   userId: string,
   rows: { assignedBotId: string; assignedModel: string }[],
@@ -1466,6 +1587,7 @@ export async function readAssignments(
   if (!row) return { error: `You're not part of an Assignment with id "${id}".` };
   const log = (await logsOf(db, [row.id])).get(row.id) ?? [];
   const children = (await childrenOf(db, [row.id])).get(row.id) ?? [];
+  const budget = (await budgetsOf(db, [row.id])).get(row.id)!.budget;
   return {
     ...summary(row),
     instructions: row.assignerTrusted
@@ -1475,6 +1597,13 @@ export async function readAssignments(
           row.instructions,
         ),
     result: row.result,
+    budget: {
+      modelCalls: budget.calls,
+      modelCallLimit: budget.callLimit,
+      spent: assignmentMoney(budget.costMicros),
+      moneyLimit: assignmentMoney(budget.moneyLimitMicros),
+      overBudget: budget.overBudget,
+    },
     ...(row.assignerBotId === botId &&
       row.parentAssignmentId && { parent: row.parentAssignmentId }),
     ...(row.assignedBotId === botId &&
@@ -1488,7 +1617,8 @@ export async function readAssignments(
       }),
     log: log.map((entry) => ({
       at: entry.at.toISOString(),
-      status: entry.status,
+      // A row of spend changes no status: a call that had started can log after the end.
+      ...(entry.calls === null && { status: entry.status }),
       by:
         entry.actor === "user"
           ? "the user"
@@ -1498,6 +1628,10 @@ export async function readAssignments(
               ? featureNamed(entry.actorName)
               : (entry.actorName ?? "a Bot that's gone"),
       ...(entry.note && { note: entry.note }),
+      ...(entry.calls !== null && {
+        modelCalls: entry.calls,
+        spent: assignmentMoney(entry.costMicros ?? 0),
+      }),
     })),
   };
 }
@@ -1519,6 +1653,11 @@ export async function exportAssignments(tx: Transaction, userId: string) {
       status: botAssignment.status,
       result: botAssignment.result,
       overdueAt: botAssignment.overdueAt,
+      callLimit: botAssignment.callLimit,
+      moneyLimitMicros: botAssignment.moneyLimitMicros,
+      callsSpent: botAssignment.callsSpent,
+      microsSpent: botAssignment.microsSpent,
+      overBudgetAt: botAssignment.overBudgetAt,
       createdAt: botAssignment.createdAt,
       updatedAt: botAssignment.updatedAt,
       endedAt: botAssignment.endedAt,
@@ -1536,6 +1675,8 @@ export async function exportAssignments(tx: Transaction, userId: string) {
           actorBotId: botAssignmentLog.actorBotId,
           note: botAssignmentLog.note,
           turnId: botAssignmentLog.turnId,
+          calls: botAssignmentLog.calls,
+          costMicros: botAssignmentLog.costMicros,
           at: botAssignmentLog.at,
         })
         .from(botAssignmentLog)

@@ -28,6 +28,10 @@ export type AssignmentLogEntry = {
   note: string | null;
   /** The Turn it happened in, when one did. */
   turnId: string | null;
+  /** On a row of spend: the model calls of that Turn in a row, the status as it was. */
+  calls: number | null;
+  /** On a row of spend: what those calls cost, in millionths of a US dollar. */
+  costMicros: number | null;
   at: Date;
 };
 
@@ -37,6 +41,31 @@ export type AssignmentLink = {
   title: string;
   botName: string;
 };
+
+/**
+ * The budget an Assignment draws from (#1184), its top Assignment's when it has a parent: what has
+ * been spent and the limits. Money counts only where a price is known, so the user's own key spends
+ * none and only the call limit holds it.
+ */
+export type AssignmentBudget = {
+  calls: number;
+  callLimit: number;
+  costMicros: number;
+  moneyLimitMicros: number;
+  /** This Assignment is `blocked` for the owner to raise the limit or cancel it. */
+  overBudget: boolean;
+};
+
+/** What an Assignment may spend unless the owner raises it: 30 model calls and $1. */
+export const defaultAssignmentCallLimit = 30;
+export const defaultAssignmentMoneyLimitMicros = 1_000_000;
+
+/** Whether a budget's spend has reached either limit. */
+export const isOverBudget = (budget: AssignmentBudget) =>
+  budget.calls >= budget.callLimit || budget.costMicros >= budget.moneyLimitMicros;
+
+/** Micros of a US dollar as money, to the cent. */
+export const assignmentMoney = (micros: number) => `$${(micros / 1_000_000).toFixed(2)}`;
 
 /** An Assignment handed to a Bot, as its owner reads it. */
 export type BotAssignment = {
@@ -55,6 +84,7 @@ export type BotAssignment = {
   parent: AssignmentLink | null;
   /** The Assignments split off from it, oldest first. */
   children: (AssignmentLink & { status: AssignmentStatus })[];
+  budget: AssignmentBudget;
   overdueAt: Date | null;
   createdAt: Date;
   endedAt: Date | null;

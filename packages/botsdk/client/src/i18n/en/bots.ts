@@ -69,6 +69,21 @@ export const botsMessages = {
   "bots.assignmentActorSystem": "the SDK",
   "bots.assignmentActorGone": "a Bot that's gone",
   "bots.assignmentTurn": "Turn",
+  "bots.assignmentBudget": ({
+    calls,
+    callLimit,
+    spent,
+    moneyLimit,
+  }: {
+    calls: number;
+    callLimit: number;
+    spent: string;
+    moneyLimit: string;
+  }) => `${calls} of ${callLimit} model calls, ${spent} of ${moneyLimit}`,
+  "bots.assignmentSpend": ({ calls, spent }: { calls: number; spent: string }) =>
+    `${calls} model ${calls === 1 ? "call" : "calls"}, ${spent}`,
+  "bots.assignmentRaise": "Raise limit",
+  "bots.assignmentRaiseOf": ({ title }: { title: string }) => `Raise the limit of ${title}`,
   "bots.assignmentForCustomer": ({ text }: { text: string }) => `For a Customer: ${text}`,
   "bots.assignmentWhen": ({ when }: { when: string }) => `When: ${when}`,
   "bots.assignmentPartOf": ({ title, bot }: { title: string; bot: string }) =>

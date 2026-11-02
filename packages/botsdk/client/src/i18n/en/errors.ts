@@ -33,6 +33,8 @@ export const errorMessages = {
   "error.checkInTooSoon": "Pick a time at least a minute from now.",
   "error.assignmentNotFound": "Assignment not found",
   "error.assignmentEnded": "This Assignment already ended.",
+  "error.assignmentLimitTooLow": "A new limit must be higher than the one it has.",
+  "error.assignmentCantResume": "Its Bot can't run right now, so the limit wasn't raised.",
   "error.triggerNotFound": "Task not found",
   "error.triggerNotSkippable": "Only a Routine run or a Check-in can be skipped",
   "error.triggerTaken": "The Bot already started this one.",

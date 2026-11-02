@@ -34,7 +34,7 @@ import {
   turnStarted,
   waitingIn,
 } from "../triggers";
-import { assignmentsAtTurnStart } from "../assignments";
+import { assignmentsAtTurnStart, turnBudget } from "../assignments";
 import {
   build,
   type ContextTurn,
@@ -822,6 +822,8 @@ async function playTurn(
   const newest = await newestRenderer(deps, turn, ctx, { db, todo, attempt, canSee });
   // The features' tools' clients (the Connector tools') stay open for the Turn's loop, and close when it ends.
   const connections = new AbortController();
+  // The Assignments' budget (#1184); a Turn that can't be on one runs with none.
+  const budget = await turnBudget(deps, turn, ctx, db);
   try {
     return await runLoop(deps, ctx, {
       owner: turn,
@@ -835,6 +837,7 @@ async function playTurn(
       plainTextReminder: undeliveredTextReminder,
       attempt,
       seesImages: canSee,
+      budget,
       // Each shell call of the Turn gets Auto-review before it runs (spec #691).
       review: { turnId: turn.id, conversationId: turn.conversationId },
       db,
@@ -871,12 +874,15 @@ function endingOf({
   timedOut,
   stepLimit,
   stopped,
+  overBudget,
   error,
   finished,
-}: Pick<LoopResult, "timedOut" | "stepLimit" | "stopped" | "error" | "finished">): {
+}: Pick<LoopResult, "timedOut" | "stepLimit" | "stopped" | "overBudget" | "error" | "finished">): {
   status: TurnStatus;
   error: string | null;
 } {
+  // The Assignment asked the owner: nothing went wrong with the Turn.
+  if (overBudget) return { status: "complete", error: null };
   if (timedOut) return { status: "error", error: "timed_out" };
   if (stopped) return { status: "stopped", error: null };
   if (error !== undefined) return { status: "error", error };

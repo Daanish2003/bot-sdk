@@ -38,6 +38,8 @@ export type TxMeter<Usage> = Meter<Usage> & {
    * throws when the write fails. Returns the `onUsage` firing, to call once `tx` has committed.
    */
   recordIn(tx: Transaction, usage: Usage): Promise<() => void>;
+  /** What a row for the call would cost, in millionths of a US dollar: 0 when it records none. */
+  costOf(usage: Usage): number;
 };
 
 /**
@@ -88,6 +90,7 @@ export const freeMeter: TxMeter<unknown> = {
   mayRun: async () => ({ ok: true }),
   record: async () => {},
   recordIn: async () => () => {},
+  costOf: () => 0,
 };
 
 type MeterDeps = Pick<ModelsDeps, "db" | "hooks" | "getQuota" | "logger">;
@@ -151,6 +154,7 @@ function meterOf<Usage>(
       await tx.insert(usageRows).values(event);
       return () => deps.hooks.fire("onUsage", event);
     },
+    costOf: (usage) => rowOf(usage)?.costMicros ?? 0,
   };
 }
 

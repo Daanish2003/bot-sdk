@@ -37,6 +37,13 @@ const draft = (fields: Partial<BotAssignment> = {}): BotAssignment => ({
   assignerTrusted: true,
   parent: null,
   children: [],
+  budget: {
+    calls: 3,
+    callLimit: 30,
+    costMicros: 120_000,
+    moneyLimitMicros: 1_000_000,
+    overBudget: false,
+  },
   overdueAt: null,
   createdAt,
   endedAt: null,
@@ -51,6 +58,7 @@ function mount(
   assignments: BotAssignment[],
   turns: BotTurnProvenance[] = [],
   cancelled: string[] = [],
+  raised: unknown[] = [],
 ) {
   const router = {
     bots: {
@@ -59,6 +67,9 @@ function mount(
     },
     assignments: {
       list: os.input(z.object({ botId: z.string() })).handler(() => assignments),
+      raiseLimit: os.input(z.unknown()).handler(({ input }) => {
+        raised.push(input);
+      }),
       cancel: os
         .input(z.object({ botId: z.string(), assignmentId: z.string() }))
         .handler(({ input }) => {
@@ -204,6 +215,8 @@ describe("following and cancelling an Assignment", () => {
               actorName: "Scout",
               note: null,
               turnId: null,
+              calls: null,
+              costMicros: null,
               at: createdAt,
             },
             {
@@ -213,6 +226,8 @@ describe("following and cancelling an Assignment", () => {
               actorName: null,
               note: null,
               turnId: "t1",
+              calls: null,
+              costMicros: null,
               at,
             },
             {
@@ -222,6 +237,8 @@ describe("following and cancelling an Assignment", () => {
               actorName: "Ada",
               note: "Halfway there.",
               turnId: "t1",
+              calls: null,
+              costMicros: null,
               at,
             },
             {
@@ -231,6 +248,8 @@ describe("following and cancelling an Assignment", () => {
               actorName: null,
               note: null,
               turnId: null,
+              calls: null,
+              costMicros: null,
               at,
             },
           ],
@@ -276,6 +295,53 @@ describe("following and cancelling an Assignment", () => {
     const children = within(screen.getByRole("list", { name: "Split off" }));
     expect(children.getByText("Check the facts, Editor")).toBeTruthy();
     expect(children.getByText("Working")).toBeTruthy();
+  });
+
+  it("shows the budget and each Turn's spend in the log", async () => {
+    mount(
+      [],
+      [
+        draft({
+          log: [
+            {
+              id: "l1",
+              status: "working",
+              actor: "system",
+              actorName: null,
+              note: null,
+              turnId: "t1",
+              calls: 3,
+              costMicros: 120_000,
+              at: createdAt,
+            },
+          ],
+        }),
+      ],
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /^(?!Cancel).*Draft the post/ }));
+    const item = within(document.querySelector("[data-assignment='a1']") as HTMLElement);
+    expect(item.getByText("3 of 30 model calls, $0.12 of $1.00")).toBeDefined();
+    expect(item.getByText("3 model calls, $0.12")).toBeDefined();
+  });
+
+  it("offers a raise only when it's over budget, adding a default budget to the limits", async () => {
+    const over = { ...draft().budget, calls: 30, overBudget: true };
+    const raised: unknown[] = [];
+    mount([], [draft({ status: "blocked", budget: over })], [], [], raised);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Raise the limit of Draft the post" }),
+    );
+    await vi.waitFor(() =>
+      expect(raised).toEqual([
+        { botId: ada.id, assignmentId: "a1", callLimit: 60, moneyLimitUsd: 2 },
+      ]),
+    );
+  });
+
+  it("offers no raise for one with budget left, or one blocked on a child", async () => {
+    mount([], [draft({ status: "blocked" })]);
+    await screen.findByRole("button", { name: "Cancel Draft the post" });
+    expect(screen.queryByRole("button", { name: /Raise the limit/ })).toBeNull();
   });
 
   it("cancels from its collapsed item", async () => {

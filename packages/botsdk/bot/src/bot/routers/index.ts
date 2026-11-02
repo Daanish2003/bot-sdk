@@ -112,6 +112,9 @@ const assignments = os.assignments.router({
   cancel: os.assignments.cancel.handler(({ context, input }) =>
     context.sdk.assignments.cancel({ ...input, userId: context.user.id }),
   ),
+  raiseLimit: os.assignments.raiseLimit.handler(({ context, input }) =>
+    context.sdk.assignments.raiseLimit({ ...input, userId: context.user.id }),
+  ),
 });
 
 const triggers = os.triggers.router({

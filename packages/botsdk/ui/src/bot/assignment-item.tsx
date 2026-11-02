@@ -1,5 +1,8 @@
 import { Button } from "@/components/ui/button";
 import {
+  assignmentMoney,
+  defaultAssignmentCallLimit,
+  defaultAssignmentMoneyLimitMicros,
   type AssignmentLogEntry,
   type AssignmentStatus,
   type BotAssignment,
@@ -22,11 +25,15 @@ const statusKeys = {
 } as const satisfies Record<AssignmentStatus, string>;
 
 /**
- * What the user can do to an Assignment: cancel it until it ends. `actingAssignments` holds the
- * Assignments with a cancel in flight.
+ * What the user can do to an Assignment: cancel it until it ends, and raise its limit while it's
+ * over budget. `actingAssignments` holds the Assignments with either in flight.
  */
 export type AssignmentActionHandlers = {
   onCancelAssignment: (assignmentId: string) => Promise<void>;
+  onRaiseAssignmentLimit: (
+    assignmentId: string,
+    limits: { callLimit: number; moneyLimitUsd: number },
+  ) => Promise<void>;
   actingAssignments: ReadonlySet<string>;
 };
 
@@ -46,7 +53,8 @@ function LogRow({ entry }: { entry: AssignmentLogEntry }) {
     <li data-log-entry={entry.id} className="flex flex-col">
       <span className="flex flex-wrap items-baseline gap-x-2">
         <span className="text-muted-foreground">{runTime(locale, entry.at)}</span>
-        <span>{t(statusKeys[entry.status])}</span>
+        {/* A row of spend changes no status: a call that had started can log after the end. */}
+        {entry.calls === null && <span>{t(statusKeys[entry.status])}</span>}
         <span className="text-muted-foreground">{t("bots.assignmentBy", { actor })}</span>
         {entry.turnId && (
           <button
@@ -63,6 +71,14 @@ function LogRow({ entry }: { entry: AssignmentLogEntry }) {
         )}
       </span>
       {entry.note && <span className="pl-2 whitespace-pre-wrap">{entry.note}</span>}
+      {entry.calls !== null && (
+        <span className="pl-2 text-muted-foreground">
+          {t("bots.assignmentSpend", {
+            calls: entry.calls,
+            spent: assignmentMoney(entry.costMicros ?? 0),
+          })}
+        </span>
+      )}
     </li>
   );
 }
@@ -75,12 +91,13 @@ function LogRow({ entry }: { entry: AssignmentLogEntry }) {
 export function AssignmentItem({
   assignment,
   onCancelAssignment,
+  onRaiseAssignmentLimit,
   actingAssignments,
 }: { assignment: BotAssignment } & AssignmentActionHandlers) {
   const { t } = useI18n();
   const run = useRefusalToast();
   const [open, setOpen] = useState(false);
-  const { result } = assignment;
+  const { result, budget } = assignment;
   const Chevron = open ? ChevronDownIcon : ChevronRightIcon;
   return (
     <div data-assignment={assignment.id} data-status={assignment.status} className="w-full text-xs">
@@ -101,6 +118,26 @@ export function AssignmentItem({
           </span>
           <span className="ml-auto shrink-0">{t(statusKeys[assignment.status])}</span>
         </Button>
+        {budget.overBudget && !isEndedAssignment(assignment.status) && (
+          <Button
+            size="xs"
+            variant="ghost"
+            aria-label={t("bots.assignmentRaiseOf", { title: assignment.title })}
+            disabled={actingAssignments.has(assignment.id)}
+            onClick={() =>
+              run(
+                // One raise adds the default budget again.
+                onRaiseAssignmentLimit(assignment.id, {
+                  callLimit: budget.callLimit + defaultAssignmentCallLimit,
+                  moneyLimitUsd:
+                    (budget.moneyLimitMicros + defaultAssignmentMoneyLimitMicros) / 1_000_000,
+                }),
+              )
+            }
+          >
+            {t("bots.assignmentRaise")}
+          </Button>
+        )}
         {!isEndedAssignment(assignment.status) && (
           <Button
             size="xs"
@@ -124,6 +161,14 @@ export function AssignmentItem({
             </p>
           )}
           <p className="whitespace-pre-wrap">{assignment.instructions}</p>
+          <p className="text-muted-foreground">
+            {t("bots.assignmentBudget", {
+              calls: budget.calls,
+              callLimit: budget.callLimit,
+              spent: assignmentMoney(budget.costMicros),
+              moneyLimit: assignmentMoney(budget.moneyLimitMicros),
+            })}
+          </p>
           {result && (
             <>
               <p className="whitespace-pre-wrap text-muted-foreground">{result.outcome}</p>

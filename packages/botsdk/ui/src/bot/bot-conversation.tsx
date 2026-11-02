@@ -163,6 +163,7 @@ function BotConversationView({
     assignments,
     acting: actingAssignments,
     cancel: onCancelAssignment,
+    raiseLimit: onRaiseAssignmentLimit,
   } = useBotAssignments(botId, working);
   const {
     helpers,
@@ -263,6 +264,7 @@ function BotConversationView({
       key={assignment.id}
       assignment={assignment}
       onCancelAssignment={onCancelAssignment}
+      onRaiseAssignmentLimit={onRaiseAssignmentLimit}
       actingAssignments={actingAssignments}
     />
   );
@@ -420,6 +422,7 @@ function BotConversationView({
               actingHelpers={actingHelpers}
               {...checkInActions}
               onCancelAssignment={onCancelAssignment}
+              onRaiseAssignmentLimit={onRaiseAssignmentLimit}
               actingAssignments={actingAssignments}
               onSkipTrigger={onSkipTrigger}
               actingTriggers={actingTriggers}

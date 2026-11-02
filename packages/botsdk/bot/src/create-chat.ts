@@ -584,7 +584,7 @@ function buildContext(
       receiveWebhook: true,
     }),
     checkIns: botsStub<CheckInsApi>({ list: true, cancel: true, edit: true }),
-    assignments: botsStub<AssignmentsApi>({ list: true, cancel: true }),
+    assignments: botsStub<AssignmentsApi>({ list: true, cancel: true, raiseLimit: true }),
     triggers: botsStub<TriggersApi>({ skip: true }),
     helpers: botsStub<HelpersApi>({ list: true, done: true, stop: true }),
     demonstrations: botsStub<DemonstrationsApi>({

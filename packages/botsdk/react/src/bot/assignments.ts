@@ -6,8 +6,8 @@ import { useItemActions, useRefreshAfterTurns } from "./turn-list";
 
 /**
  * The Assignments handed to a Bot (spec #1166), oldest first, each with its log, and the user's
- * cancel of one that hasn't ended. `working` is a Turn running anywhere (`useBotTurn`): they are
- * asked for again while it runs and once it ends. `acting` holds the Assignments with a cancel in
+ * cancel of one that hasn't ended and raise of one's limit. `working` is a Turn running anywhere (`useBotTurn`): they are
+ * asked for again while it runs and once it ends. `acting` holds the Assignments with one of those in
  * flight.
  */
 export function useBotAssignments(botId: string, working: boolean) {
@@ -24,6 +24,14 @@ export function useBotAssignments(botId: string, working: boolean) {
     acting,
     cancel: async (assignmentId: string) => {
       await act(assignmentId, () => orpc.assignments.cancel.call({ botId, assignmentId }));
+    },
+    raiseLimit: async (
+      assignmentId: string,
+      limits: { callLimit: number; moneyLimitUsd: number },
+    ) => {
+      await act(assignmentId, () =>
+        orpc.assignments.raiseLimit.call({ botId, assignmentId, ...limits }),
+      );
     },
   };
 }

@@ -234,6 +234,7 @@ export function TasksPopover({
                       <AssignmentItem
                         assignment={assignment}
                         onCancelAssignment={actions.onCancelAssignment}
+                        onRaiseAssignmentLimit={actions.onRaiseAssignmentLimit}
                         actingAssignments={actions.actingAssignments}
                       />
                     </li>
@@ -392,6 +393,7 @@ export function TasksPopover({
                   <AssignmentItem
                     assignment={assignment}
                     onCancelAssignment={actions.onCancelAssignment}
+                    onRaiseAssignmentLimit={actions.onRaiseAssignmentLimit}
                     actingAssignments={actions.actingAssignments}
                   />
                 </li>

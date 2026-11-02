@@ -1,7 +1,12 @@
-import type { AssignmentResult } from "@botsdk/client/bot/assignment";
+import {
+  type AssignmentResult,
+  defaultAssignmentCallLimit,
+  defaultAssignmentMoneyLimitMicros,
+} from "@botsdk/client/bot/assignment";
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
+  bigint,
   boolean,
   check,
   index,
@@ -18,7 +23,7 @@ import { bot } from "./bot";
 /**
  * How an Assignment stands (spec #1166): `open` until a Turn of its Bot takes it, then `working`.
  * Only its Bot's `finish_assignment` call makes it `done` or `failed`; a Turn ending never does.
- * `blocked` means waiting on a child Assignment.
+ * `blocked` means waiting on a child Assignment or on the owner.
  */
 export const botAssignmentStatus = botsdkSchema.enum("bot_assignment_status", [
   "open",
@@ -82,6 +87,20 @@ export const botAssignment = botsdkSchema.table(
     result: jsonb("result").$type<AssignmentResult>(),
     /** Reserved: nothing sets it yet. Being overdue is a flag, never a status. */
     overdueAt: timestamp("overdue_at"),
+    /**
+     * The budget (#1184): how many model calls, and how much money where a price is known, may be
+     * spent on it and what has been. Only an Assignment with no parent uses these: its descendants
+     * draw from it, so a child's stay at their defaults.
+     */
+    callLimit: integer("call_limit").notNull().default(defaultAssignmentCallLimit),
+    /** In millionths of a US dollar. */
+    moneyLimitMicros: bigint("money_limit_micros", { mode: "number" })
+      .notNull()
+      .default(defaultAssignmentMoneyLimitMicros),
+    callsSpent: integer("calls_spent").notNull().default(0),
+    microsSpent: bigint("micros_spent", { mode: "number" }).notNull().default(0),
+    /** When it moved to `blocked` over budget, until the owner raises the limit. */
+    overBudgetAt: timestamp("over_budget_at"),
     createdAt: timestamp("created_at").notNull(),
     updatedAt: timestamp("updated_at").notNull(),
     endedAt: timestamp("ended_at"),
@@ -125,6 +144,10 @@ export const botAssignmentLog = botsdkSchema.table(
     note: text("note"),
     /** The Turn it happened in, when one did. */
     turnId: uuid("turn_id"),
+    /** On a spend row (#1184): the model calls it records, which leave the status as it was. */
+    calls: integer("calls"),
+    /** On a spend row: what those calls cost, in millionths of a US dollar. */
+    costMicros: bigint("cost_micros", { mode: "number" }),
     at: timestamp("at").notNull(),
   },
   (table) => [index("bot_assignment_log_assignment_id_idx").on(table.assignmentId)],

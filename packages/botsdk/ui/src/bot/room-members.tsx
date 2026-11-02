@@ -168,6 +168,7 @@ function MemberControls({
           onCancelCheckIn={checkIns.cancel}
           actingCheckIns={checkIns.acting}
           onCancelAssignment={assignments.cancel}
+          onRaiseAssignmentLimit={assignments.raiseLimit}
           actingAssignments={assignments.acting}
           onSkipTrigger={skip.skip}
           actingTriggers={skip.actingTriggers}

@@ -3,20 +3,32 @@ import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { conversationChannel } from "../../src/chat/conversation-events";
-import { bot, botAssignment, botTrigger, botTurn } from "../../src/storage";
+import { bot, botAssignment, botTrigger, botTurn, usage } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { deleteUserData, exportUserData } from "../../src/user-data";
-import { assignmentTools } from "../../src/bot/assignments";
+import { assignmentTools, turnBudget } from "../../src/bot/assignments";
+import type { Transaction } from "../../src/plugin";
 import { receive } from "../../src/bot/triggers";
 import { saveCredentials } from "../../src/models/internal";
-import { inProcessRunner, type JobRunner } from "../../src/runner/internal";
+import {
+  inProcessRunner,
+  type JobRunner,
+  loadHistory,
+  type WorkflowContext,
+} from "../../src/runner/internal";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "@ai-chat/test-support/deps";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { botContract } from "@botsdk/client/bot/contract";
 import { taskCount } from "@botsdk/client/bot/tasks";
-import { createFakeAdapter, type FakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
+import {
+  createFakeAdapter,
+  type FakeAdapter,
+  round,
+  toolCall,
+  withUsage,
+} from "@botsdk/testing/fake-adapter";
 import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 import { fakeReviewer, type FakeReviewer } from "@botsdk/testing/fake-reviewer";
 
@@ -175,6 +187,10 @@ const turnsOf = (botId: string) =>
     .from(botTurn)
     .where(eq(botTurn.botId, botId))
     .orderBy(asc(botTurn.startedAt));
+
+/** A log without its rows of spend: the changes to the Assignment. */
+const changesIn = <Row extends { calls: number | null }>(log: Row[]) =>
+  log.filter((row) => row.calls === null);
 
 const statusesOf = async (botId: string) => (await turnsOf(botId)).map((turn) => turn.status);
 
@@ -701,15 +717,17 @@ describe("what the owner sees", () => {
       expect(after.inProgress.assignments).toEqual([]);
 
       const exported = (await exportUserData(deps, user.id)).bot as {
-        assignments: { log: Record<string, unknown>[] }[];
+        assignments: {
+          log: ({ calls: number | null; turnId: string | null } & Record<string, unknown>)[];
+        }[];
       };
       const [assignment] = exported.assignments;
-      expect(assignment!.log).toMatchObject([
+      expect(changesIn(assignment!.log)).toMatchObject([
         { status: "open", actor: "bot", actorBotId: b.Scout.id },
         { status: "working", actor: "system", actorBotId: null },
         { status: "done", actor: "bot", actorBotId: b.Writer.id },
       ]);
-      for (const row of assignment!.log) expect(row.turnId).toEqual(expect.any(String));
+      for (const row of changesIn(assignment!.log)) expect(row.turnId).toEqual(expect.any(String));
     },
     timeout,
   );
@@ -979,14 +997,19 @@ describe("following an Assignment's log", () => {
       // The owner reads who did what, in which Turn, and the note.
       const [row] = await client.assignments.list({ botId: b.Writer.id });
       expect(
-        row!.log.map((entry) => [entry.status, entry.actor, entry.actorName, entry.note]),
+        changesIn(row!.log).map((entry) => [
+          entry.status,
+          entry.actor,
+          entry.actorName,
+          entry.note,
+        ]),
       ).toEqual([
         ["open", "bot", "Scout", null],
         ["working", "system", null, null],
         ["working", "bot", "Writer", "Halfway there."],
       ]);
       const [writerTurn] = await turnsOf(b.Writer.id);
-      expect(row!.log[2]!.turnId).toBe(writerTurn!.id);
+      expect(changesIn(row!.log)[2]!.turnId).toBe(writerTurn!.id);
 
       // The assigned Bot reads its own, and can't cancel what it didn't start.
       const writerSaw = JSON.stringify(toolResultsIn(fakes.Writer.calls[2]));
@@ -1013,7 +1036,7 @@ describe("following an Assignment's log", () => {
       expect(refused[3]).toMatch(/was started by you/);
       const [after] = await client.assignments.list({ botId: b.Writer.id });
       expect(after!.status).toBe("working");
-      expect(after!.log).toHaveLength(3);
+      expect(changesIn(after!.log)).toHaveLength(3);
     },
     timeout,
   );
@@ -1021,7 +1044,7 @@ describe("following an Assignment's log", () => {
   it(
     "offers no way to create, edit or remove a log row, or to create an Assignment, to the owner",
     async () => {
-      expect(Object.keys(botContract.assignments).sort()).toEqual(["cancel", "list"]);
+      expect(Object.keys(botContract.assignments).sort()).toEqual(["cancel", "list", "raiseLimit"]);
     },
     timeout,
   );
@@ -1441,7 +1464,7 @@ describe("splitting an Assignment into child Assignments", () => {
 
       // The parent showed blocked while the child ran, and came back when it ended.
       expect(parent!.status).toBe("working");
-      expect(parent!.log.map((entry) => [entry.status, entry.actor])).toEqual([
+      expect(changesIn(parent!.log).map((entry) => [entry.status, entry.actor])).toEqual([
         ["open", "bot"],
         ["working", "system"],
         ["blocked", "system"],
@@ -1629,8 +1652,8 @@ describe("splitting an Assignment into child Assignments", () => {
 
       await expect.poll(() => statusOf(client, b.Bea.id), poll).toBe("working");
       const [after] = await client.assignments.list({ botId: b.Bea.id });
-      expect(after!.log.filter((entry) => entry.status === "blocked")).toHaveLength(1);
-      expect(after!.log.at(-1)).toMatchObject({ status: "working", actor: "system" });
+      expect(changesIn(after!.log).filter((entry) => entry.status === "blocked")).toHaveLength(1);
+      expect(changesIn(after!.log).at(-1)).toMatchObject({ status: "working", actor: "system" });
       expect(fakes.Ann.calls).toHaveLength(2);
       expect(await changes()).toHaveLength(6);
     },
@@ -1943,7 +1966,7 @@ describe("splitting an Assignment into child Assignments", () => {
     );
     const [ended] = await client.assignments.list({ botId: b.Cid.id });
     expect(ended).toMatchObject({ status: "done", result: { outcome: "Kept." } });
-    expect(ended!.log.map((entry) => entry.status)).toEqual(["open", "working", "done"]);
+    expect(changesIn(ended!.log).map((entry) => entry.status)).toEqual(["open", "working", "done"]);
   }
 
   it(
@@ -2074,6 +2097,729 @@ describe("splitting an Assignment into child Assignments", () => {
 
       const data = await exportUserData(made.deps, made.user.id);
       expect(JSON.stringify(data.bot)).toContain(`"parentAssignmentId":"${made.parent.id}"`);
+    },
+    timeout,
+  );
+});
+
+describe("an Assignment's budget (#1184)", () => {
+  /** A Step that does nothing but go on to another. */
+  const busy = (count: number) =>
+    Array.from({ length: count }, () => round(runs("read_assignment", {})));
+
+  /** What the Model is told a call used, so it costs $0.30 on `hostModel`. */
+  const costly = (played: Round) =>
+    withUsage(played as Parameters<typeof withUsage>[0], {
+      promptTokens: 100_000,
+      completionTokens: 0,
+      totalTokens: 100_000,
+    });
+
+  const assignmentOf = async (
+    client: Awaited<ReturnType<typeof bots>>["client"],
+    botId: string,
+    index = 0,
+  ) => (await client.assignments.list({ botId }))[index]!;
+
+  /** Wakes a Bot afresh on its open Assignments, with nothing else in the Turn. */
+  const rewake = async (client: Awaited<ReturnType<typeof bots>>["client"], botId: string) => {
+    await client.bots.pause({ botId });
+    await client.bots.resume({ botId });
+  };
+
+  /**
+   * Scout hands Writer the work while Writer is paused, the limits are set, and Writer is resumed,
+   * so its first Turn already works to them.
+   */
+  async function limited<N extends string>(
+    rounds: Record<N | "Scout" | "Writer", Round[]>,
+    limits: { callLimit?: number; moneyLimitMicros?: number },
+    options: Parameters<typeof bots>[1] = {},
+  ) {
+    const made = await bots(rounds as Record<string, Round[]>, options);
+    const writer = made.bots.Writer!;
+    await made.client.bots.pause({ botId: writer.id });
+    await made.tell("Scout", "Hand it on.");
+    await expect.poll(() => statusesOf(made.bots.Scout!.id), poll).toEqual(["complete"]);
+    const { id } = await assignmentOf(made.client, writer.id);
+    await getTestDb().update(botAssignment).set(limits).where(eq(botAssignment.id, id));
+    return { ...made, id, resume: () => made.client.bots.resume({ botId: writer.id }) };
+  }
+
+  it(
+    "stops at 30 model calls on the user's own key, where cost is $0, and asks the owner",
+    async () => {
+      const {
+        fakes,
+        client,
+        bots: b,
+      } = await bots({ Scout: [assign("Writer"), quiet], Writer: busy(45) });
+      await client.bots.send({ botId: b.Scout.id, id: uuidv7(), text: "Hand it on." });
+      // A Turn stops at 10 Steps, so three Turns reach the limit.
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["error"]);
+      expect((await assignmentOf(client, b.Writer.id)).budget).toEqual({
+        calls: 10,
+        callLimit: 30,
+        costMicros: 0,
+        moneyLimitMicros: 1_000_000,
+        overBudget: false,
+      });
+      await rewake(client, b.Writer.id);
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["error", "error"]);
+      await rewake(client, b.Writer.id);
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["error", "error", "error"]);
+      expect(fakes.Writer.calls).toHaveLength(30);
+      await rewake(client, b.Writer.id);
+      await expect
+        .poll(() => statusesOf(b.Writer.id), poll)
+        .toEqual(["error", "error", "error", "complete"]);
+
+      // The next call never started.
+      expect(fakes.Writer.calls).toHaveLength(30);
+      const row = await assignmentOf(client, b.Writer.id);
+      expect(row.status).toBe("blocked");
+      expect(row.budget).toMatchObject({ calls: 30, costMicros: 0, overBudget: true });
+
+      // The log shows the spend, a Turn to a row, and the block.
+      expect(row.log.flatMap((entry) => (entry.calls ? [entry.calls] : []))).toEqual([10, 10, 10]);
+      const last = row.log.at(-1)!;
+      expect(last).toMatchObject({ status: "blocked", actor: "system" });
+      expect(last.note).toContain("30 of 30 model calls");
+
+      // The owner is asked, in the Bot's Conversation.
+      const { messages } = await client.bots.get({ botId: b.Writer.id });
+      expect(messages.at(-1)!.text).toContain("Draft the post");
+      expect(messages.at(-1)!.text).toContain("Raise its limit or cancel it");
+    },
+    timeout,
+  );
+
+  it(
+    "stops at $1 on Host credentials, letting the call already started finish, and counts against the Quota as usage",
+    async () => {
+      const {
+        fakes,
+        client,
+        bots: b,
+        deps,
+        user,
+      } = await bots(
+        {
+          Scout: [assign("Writer"), quiet],
+          Writer: busy(9).map((played) => costly(played)),
+        },
+        { hostProviders },
+      );
+      await client.bots.pause({ botId: b.Writer.id });
+      await getTestDb().update(bot).set({ model: hostModel }).where(eq(bot.id, b.Writer.id));
+      await client.bots.send({ botId: b.Scout.id, id: uuidv7(), text: "Hand it on." });
+      await expect.poll(() => statusesOf(b.Scout.id), poll).toEqual(["complete"]);
+      await client.bots.resume({ botId: b.Writer.id });
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+
+      // Three calls leave $0.90; the fourth starts under $1 and finishes over it.
+      expect(fakes.Writer.calls).toHaveLength(4);
+      const row = await assignmentOf(client, b.Writer.id);
+      expect(row.status).toBe("blocked");
+      expect(row.budget).toMatchObject({ calls: 4, costMicros: 1_200_000, overBudget: true });
+      expect(row.log.at(-1)!.note).toContain("$1.20 of $1.00");
+      expect(row.log.find((entry) => entry.calls)).toMatchObject({
+        calls: 4,
+        costMicros: 1_200_000,
+      });
+
+      // Normal usage: the same money in the owner's own rows.
+      const rows = await deps.db.select().from(usage).where(eq(usage.userId, user.id));
+      expect(
+        rows.filter((entry) => entry.kind === "turn" && entry.model === hostModel),
+      ).toHaveLength(4);
+      expect(
+        rows
+          .filter((entry) => entry.model === hostModel)
+          .reduce((sum, entry) => sum + entry.costMicros, 0),
+      ).toBe(1_200_000);
+    },
+    timeout,
+  );
+
+  it(
+    "has a child draw from its parent's budget, so splitting can't escape the limit",
+    async () => {
+      const {
+        fakes,
+        client,
+        bots: b,
+        id,
+        resume,
+      } = await limited(
+        {
+          Scout: [assign("Writer"), quiet],
+          Writer: [assign("Editor", "Check the facts"), quiet],
+          Editor: busy(9),
+        } as Record<"Scout" | "Writer" | "Editor", Round[]>,
+        { callLimit: 6 },
+      );
+      await resume();
+
+      // Writer's two calls and Editor's four make six.
+      await expect.poll(() => statusesOf(b.Editor!.id), poll).toEqual(["complete"]);
+      expect(fakes.Editor!.calls).toHaveLength(4);
+      const child = await assignmentOf(client, b.Editor!.id);
+      expect(child.status).toBe("blocked");
+      expect(child.budget).toMatchObject({ calls: 6, callLimit: 6, overBudget: true });
+      const parent = await assignmentOf(client, b.Writer!.id);
+      expect(parent.id).toBe(id);
+      expect(parent.budget).toMatchObject({ calls: 6, callLimit: 6 });
+      // A child's spend shows in its own log.
+      expect(child.log.find((entry) => entry.calls)?.calls).toBe(4);
+    },
+    timeout,
+  );
+
+  /** A `finish_assignment` call on the Assignment the newest Trigger names. */
+  const finishNewest = (call: TextOptions) => {
+    const ids = [
+      ...JSON.stringify(call.messages.slice(1)).matchAll(/Assignment ([0-9a-f]{8}-[0-9a-f-]{27})/g),
+    ];
+    return round(
+      runs("finish_assignment", { id: ids.at(-1)![1]!, status: "done", outcome: "Done." }),
+    );
+  };
+
+  it(
+    "stops a loop of children one after another under one parent, which the chain limit never reaches",
+    async () => {
+      const rounds = (count: number, step: Round) =>
+        Array.from({ length: count }, () => [step, quiet]).flat();
+      const {
+        fakes,
+        client,
+        bots: b,
+        resume,
+      } = await limited(
+        {
+          Scout: [assign("Writer"), quiet],
+          Writer: rounds(8, assign("Editor", "One more part")),
+          Editor: rounds(8, finishNewest),
+        } as Record<"Scout" | "Writer" | "Editor", Round[]>,
+        { callLimit: 9 },
+      );
+      await resume();
+
+      await expect
+        .poll(async () => (await assignmentOf(client, b.Writer!.id)).budget.overBudget, poll)
+        .toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(fakes.Writer!.calls.length + fakes.Editor!.calls.length).toBe(9);
+      expect(await client.assignments.list({ botId: b.Editor!.id })).toHaveLength(3);
+    },
+    timeout,
+  );
+
+  it(
+    "keeps a parent over budget blocked when its last open child ends",
+    async () => {
+      const {
+        fakes,
+        client,
+        bots: b,
+        resume,
+      } = await limited(
+        {
+          Scout: [assign("Writer"), quiet],
+          Writer: [
+            round(
+              runs("assign_work", { bot: "Editor", title: "One", instructions: "Do it." }),
+              runs("assign_work", { bot: "Checker", title: "Two", instructions: "Do it." }),
+            ),
+            quiet,
+            ...busy(5),
+          ],
+          Editor: busy(3),
+          Checker: busy(3),
+        } as Record<"Scout" | "Writer" | "Editor" | "Checker", Round[]>,
+        { callLimit: 2 },
+      );
+      await resume();
+
+      // Both children start over budget, and neither makes a call.
+      await expect
+        .poll(async () => (await assignmentOf(client, b.Checker!.id)).budget.overBudget, poll)
+        .toBe(true);
+      await expect
+        .poll(async () => (await assignmentOf(client, b.Editor!.id)).budget.overBudget, poll)
+        .toBe(true);
+      expect(fakes.Editor!.calls).toHaveLength(0);
+
+      // Cancelling one wakes the parent's Bot, whose Turn finds the parent over budget.
+      const one = await assignmentOf(client, b.Editor!.id);
+      await client.assignments.cancel({ botId: b.Editor!.id, assignmentId: one.id });
+      await expect.poll(() => statusesOf(b.Writer!.id), poll).toEqual(["complete", "complete"]);
+      const blockedParent = await assignmentOf(client, b.Writer!.id);
+      expect(blockedParent).toMatchObject({ status: "blocked" });
+      expect(fakes.Writer!.calls).toHaveLength(2);
+
+      // The last child ending doesn't clear it.
+      const two = await assignmentOf(client, b.Checker!.id);
+      await client.assignments.cancel({ botId: b.Checker!.id, assignmentId: two.id });
+      await expect
+        .poll(() => statusesOf(b.Writer!.id), poll)
+        .toEqual(["complete", "complete", "complete"]);
+      expect((await assignmentOf(client, b.Writer!.id)).status).toBe("blocked");
+      expect(fakes.Writer!.calls).toHaveLength(2);
+    },
+    timeout,
+  );
+
+  /** Scout hands Writer two Assignments while it's paused, so one Turn takes both. */
+  async function twoInOneTurn(writer: Round[]) {
+    const made = await bots({
+      Scout: [
+        round(
+          runs("assign_work", { bot: "Writer", title: "First", instructions: "Do it." }),
+          runs("assign_work", { bot: "Writer", title: "Second", instructions: "Do it." }),
+        ),
+        quiet,
+      ],
+      Writer: writer,
+    });
+    await made.client.bots.pause({ botId: made.bots.Writer.id });
+    await made.tell("Scout", "Hand them on.");
+    await expect.poll(() => statusesOf(made.bots.Scout.id), poll).toEqual(["complete"]);
+    const [first, second] = await made.client.assignments.list({ botId: made.bots.Writer.id });
+    return { ...made, first: first!, second: second! };
+  }
+
+  it(
+    "counts a Turn that took two Assignments against each",
+    async () => {
+      const { client, bots: b } = await twoInOneTurn([quiet]);
+      await client.bots.resume({ botId: b.Writer.id });
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+      const [first, second] = await client.assignments.list({ botId: b.Writer.id });
+      expect(first!.budget.calls).toBe(1);
+      expect(second!.budget.calls).toBe(1);
+    },
+    timeout,
+  );
+
+  it(
+    "stops a shared Turn when one Assignment goes over, and wakes the Bot afresh on the other",
+    async () => {
+      const { fakes, client, bots: b, first, second } = await twoInOneTurn([quiet, quiet]);
+      await getTestDb()
+        .update(botAssignment)
+        .set({ callLimit: 0 })
+        .where(eq(botAssignment.id, first.id));
+      await client.bots.resume({ botId: b.Writer.id });
+
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete", "complete"]);
+      const [over, other] = await client.assignments.list({ botId: b.Writer.id });
+      expect(over).toMatchObject({ id: first.id, status: "blocked" });
+      expect(other).toMatchObject({ id: second.id, status: "working" });
+      // Only the second Turn called the Model, and it's on the other alone.
+      expect(fakes.Writer.calls).toHaveLength(1);
+      expect(other!.budget.calls).toBe(1);
+      expect(over!.budget.calls).toBe(0);
+    },
+    timeout,
+  );
+
+  /** Fires a Check-in's Trigger at the Bot, as a due Check-in does. */
+  const checkIn = async (deps: TestDeps, botId: string) => {
+    const [row] = await getTestDb()
+      .select({ conversationId: bot.conversationId })
+      .from(bot)
+      .where(eq(bot.id, botId));
+    await getTestDb().transaction((tx) =>
+      receive(deps, tx, {
+        id: `check_in:${uuidv7()}`,
+        botId,
+        conversationId: row!.conversationId,
+        source: "check_in",
+        channel: "schedule",
+        text: "Come back to it.",
+        receivedAt: deps.clock(),
+      }),
+    );
+    deps.runner.wake();
+  };
+
+  it(
+    "stops a Check-in's Turn at the limit, and the next, so setting Check-ins can't work past it",
+    async () => {
+      const made = await limited(
+        { Scout: [assign("Writer"), quiet], Writer: [quiet, ...busy(5)] },
+        { callLimit: 1 },
+      );
+      const writer = made.bots.Writer!;
+      await made.resume();
+      await expect.poll(() => statusesOf(writer.id), poll).toEqual(["complete"]);
+
+      await checkIn(made.deps, writer.id);
+      await expect.poll(() => statusesOf(writer.id), poll).toEqual(["complete", "complete"]);
+      expect((await assignmentOf(made.client, writer.id)).status).toBe("blocked");
+      expect(made.fakes.Writer!.calls).toHaveLength(1);
+
+      await checkIn(made.deps, writer.id);
+      await expect
+        .poll(() => statusesOf(writer.id), poll)
+        .toEqual(["complete", "complete", "complete"]);
+      expect(made.fakes.Writer!.calls).toHaveLength(1);
+    },
+    timeout,
+  );
+
+  it(
+    "keeps what a Check-in's Turn recorded when a Stop attaches the user's waiting Message to it",
+    async () => {
+      const step = round(runs("read_assignment", {}));
+      const {
+        fakes,
+        client,
+        bots: b,
+        deps,
+        tell,
+      } = await bots(
+        { Scout: [assign("Writer"), quiet], Writer: [quiet, step, step] },
+        { manual: ["Writer"] },
+      );
+      await tell("Scout", "Hand it on.");
+      await expect.poll(() => fakes.Writer.calls.length, poll).toBe(1);
+      await fakes.Writer.release(quiet.length);
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+
+      await checkIn(deps, b.Writer.id);
+      await expect.poll(() => fakes.Writer.calls.length, poll).toBe(2);
+      await fakes.Writer.release(step.length);
+      await expect.poll(() => fakes.Writer.calls.length, poll).toBe(3);
+
+      await tell("Writer", "Are you there?").catch(() => {});
+      await client.bots.stop({ botId: b.Writer.id });
+      await expect
+        .poll(async () => (await turnsOf(b.Writer.id))[1]?.status, poll)
+        .not.toBe("running");
+      expect((await turnsOf(b.Writer.id))[1]!.usage).not.toBeNull();
+
+      // Its job recorded budget Checkpoints, so a replay after the attempt died must still ask for
+      // them, with the Message attached: it is the only seam, as a live attempt never replays here.
+      const turn = (await turnsOf(b.Writer.id))[1]!;
+      const taken = await getTestDb()
+        .select({ source: botTrigger.source })
+        .from(botTrigger)
+        .where(eq(botTrigger.turnId, turn.id));
+      expect(taken.map((row) => row.source)).toContain("user");
+      const replay = { patched: async () => true } as unknown as WorkflowContext<Transaction>;
+      expect(await turnBudget(deps, turn, replay, getTestDb())).toBeDefined();
+    },
+    timeout,
+  );
+
+  it(
+    "leaves a Check-in's Turn alone on a Bot with no Assignment",
+    async () => {
+      const { fakes, bots: b, deps } = await bots({ Solo: [quiet], Other: [] });
+      await checkIn(deps, b.Solo.id);
+      await expect.poll(() => statusesOf(b.Solo.id), poll).toEqual(["complete"]);
+      expect(fakes.Solo.calls).toHaveLength(1);
+    },
+    timeout,
+  );
+
+  it(
+    "stops a Bot's Steps after it finished a child that spent the last of the parent's budget",
+    async () => {
+      const {
+        fakes,
+        client,
+        bots: b,
+        resume,
+      } = await limited(
+        {
+          Scout: [assign("Writer"), quiet],
+          Writer: [assign("Editor", "Check the facts"), quiet, quiet],
+          Editor: [finish({ status: "done", outcome: "Done." }), ...busy(5)],
+        } as Record<"Scout" | "Writer" | "Editor", Round[]>,
+        { callLimit: 3 },
+      );
+      await resume();
+      await expect.poll(() => statusesOf(b.Editor!.id), poll).toEqual(["complete"]);
+      expect(fakes.Editor!.calls).toHaveLength(1);
+      await expect
+        .poll(async () => (await assignmentOf(client, b.Writer!.id)).budget.overBudget, poll)
+        .toBe(true);
+    },
+    timeout,
+  );
+
+  it(
+    "charges a Step after a child ended to the parent's budget, on the parent's log",
+    async () => {
+      const {
+        client,
+        bots: b,
+        resume,
+      } = await limited(
+        {
+          Scout: [assign("Writer"), quiet],
+          Writer: [assign("Editor", "Check the facts"), quiet, quiet],
+          Editor: [finish({ status: "done", outcome: "Done." }), quiet],
+        } as Record<"Scout" | "Writer" | "Editor", Round[]>,
+        { callLimit: 20 },
+      );
+      await resume();
+      await expect.poll(() => statusesOf(b.Editor!.id), poll).toEqual(["complete"]);
+      await expect.poll(() => statusesOf(b.Writer!.id), poll).toEqual(["complete", "complete"]);
+      const child = await assignmentOf(client, b.Editor!.id);
+      // Its finish cost one call; the Step after isn't on its log. Writer's three make five.
+      expect(child.log.filter((entry) => entry.calls).map((entry) => entry.calls)).toEqual([1]);
+      expect(child.budget.calls).toBe(5);
+    },
+    timeout,
+  );
+
+  it(
+    "raises a limit past a sibling whose Bot can't run while that sibling still waits on a child",
+    async () => {
+      const made = await limited(
+        { Scout: [assign("Writer"), quiet], Writer: [quiet, ...busy(3)] },
+        { callLimit: 1 },
+      );
+      await made.resume();
+      const writer = made.bots.Writer!;
+      await expect.poll(() => statusesOf(writer.id), poll).toEqual(["complete"]);
+      await rewake(made.client, writer.id);
+      await expect.poll(() => statusesOf(writer.id), poll).toEqual(["complete", "complete"]);
+      const [child] = await getTestDb()
+        .insert(botAssignment)
+        .values({
+          id: uuidv7(),
+          assignedBotId: made.bots.Scout!.id,
+          assignerBotId: writer.id,
+          parentAssignmentId: made.id,
+          title: "Waiting",
+          instructions: "Do it.",
+          status: "working",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .returning({ id: botAssignment.id });
+      await getTestDb().update(bot).set({ model: hostModel }).where(eq(bot.id, writer.id));
+      await made.client.assignments.raiseLimit({
+        botId: writer.id,
+        assignmentId: made.id,
+        callLimit: 5,
+      });
+      expect(await assignmentOf(made.client, writer.id)).toMatchObject({
+        status: "blocked",
+        budget: { callLimit: 5, overBudget: false },
+      });
+      expect(child).toBeDefined();
+    },
+    timeout,
+  );
+
+  /** Writer has used up a limit of one call, and is blocked. */
+  async function overBudget() {
+    const made = await limited(
+      { Scout: [assign("Writer"), quiet], Writer: [quiet, quiet, quiet] },
+      { callLimit: 1 },
+    );
+    await made.resume();
+    const writer = made.bots.Writer!;
+    await expect.poll(() => statusesOf(writer.id), poll).toEqual(["complete"]);
+    await rewake(made.client, writer.id);
+    await expect.poll(() => statusesOf(writer.id), poll).toEqual(["complete", "complete"]);
+    expect((await assignmentOf(made.client, writer.id)).status).toBe("blocked");
+    return { ...made, writer };
+  }
+
+  it(
+    "resumes the work when the owner raises the limit",
+    async () => {
+      const { fakes, client, writer, id } = await overBudget();
+      expect(fakes.Writer!.calls).toHaveLength(1);
+
+      await client.assignments.raiseLimit({ botId: writer.id, assignmentId: id, callLimit: 2 });
+
+      await expect
+        .poll(() => statusesOf(writer.id), poll)
+        .toEqual(["complete", "complete", "complete"]);
+      expect(fakes.Writer!.calls).toHaveLength(2);
+      const row = await assignmentOf(client, writer.id);
+      expect(row.status).toBe("working");
+      expect(row.budget).toMatchObject({ calls: 2, callLimit: 2, overBudget: false });
+      expect(row.log.at(-1)!.actor).toBe("system");
+      const raised = row.log.find((entry) => entry.actor === "user")!;
+      expect(raised).toMatchObject({ status: "working" });
+      expect(raised.note).toContain("2 model calls");
+    },
+    timeout,
+  );
+
+  it(
+    "keeps it blocked when the raise leaves the other limit spent",
+    async () => {
+      const { client, writer, id } = await overBudget();
+      await client.assignments.raiseLimit({
+        botId: writer.id,
+        assignmentId: id,
+        moneyLimitUsd: 5,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(await statusesOf(writer.id)).toHaveLength(2);
+      expect(await assignmentOf(client, writer.id)).toMatchObject({
+        status: "blocked",
+        budget: { moneyLimitMicros: 5_000_000, overBudget: true },
+      });
+    },
+    timeout,
+  );
+
+  it(
+    "refuses a raise that lowers a limit, one of another user's Assignment, and one that ended",
+    async () => {
+      const { client, writer, id, deps } = await overBudget();
+      await expect(
+        client.assignments.raiseLimit({ botId: writer.id, assignmentId: id, callLimit: 1 }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      await expect(
+        client.assignments.raiseLimit({ botId: writer.id, assignmentId: id }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+      const stranger = chatRpc({ user: await insertUser(), deps });
+      await expect(
+        stranger.assignments.raiseLimit({ botId: writer.id, assignmentId: id, callLimit: 9 }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+      await client.assignments.cancel({ botId: writer.id, assignmentId: id });
+      await expect(
+        client.assignments.raiseLimit({ botId: writer.id, assignmentId: id, callLimit: 9 }),
+      ).rejects.toMatchObject({ code: "CONFLICT", data: { code: "error.assignmentEnded" } });
+    },
+    timeout,
+  );
+
+  it(
+    "lets the owner cancel one over budget, and a resume or reset doesn't wake it",
+    async () => {
+      const { fakes, client, writer, id } = await overBudget();
+      await rewake(client, writer.id);
+      await client.bots.reset({ botId: writer.id, name: "Writer" });
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect(fakes.Writer!.calls).toHaveLength(1);
+      expect(await assignmentOf(client, writer.id)).toMatchObject({
+        status: "blocked",
+        budget: { overBudget: true },
+      });
+
+      await client.assignments.cancel({ botId: writer.id, assignmentId: id });
+      expect((await assignmentOf(client, writer.id)).status).toBe("cancelled");
+    },
+    timeout,
+  );
+
+  it(
+    "tells a Bot reading an Assignment what has been spent",
+    async () => {
+      const {
+        fakes,
+        bots: b,
+        tell,
+      } = await bots({
+        Scout: [assign("Writer"), quiet],
+        Writer: [
+          (call: TextOptions) => round(runs("read_assignment", { id: assignmentIdIn(call) })),
+          quiet,
+        ],
+      });
+      await tell("Scout", "Hand it on.");
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+      const answer = JSON.stringify(toolResultsIn(fakes.Writer.calls.at(-1)));
+      expect(answer).toContain("modelCallLimit");
+      expect(answer).toContain("modelCalls");
+    },
+    timeout,
+  );
+
+  it(
+    "refuses a raise when the Bot can't run to resume, and keeps the limit",
+    async () => {
+      const { client, writer, id } = await overBudget();
+      await getTestDb().update(bot).set({ model: hostModel }).where(eq(bot.id, writer.id));
+      await expect(
+        client.assignments.raiseLimit({ botId: writer.id, assignmentId: id, callLimit: 9 }),
+      ).rejects.toMatchObject({ code: "CONFLICT", data: { code: "error.assignmentCantResume" } });
+      expect((await assignmentOf(client, writer.id)).budget.callLimit).toBe(1);
+    },
+    timeout,
+  );
+
+  it(
+    "takes a user's Message in a Turn beside an Assignment that goes over: the Turn carries on, told so",
+    async () => {
+      const made = await limited(
+        { Scout: [assign("Writer"), quiet], Writer: [says("Hello."), quiet] },
+        { callLimit: 0 },
+      );
+      const writer = made.bots.Writer!;
+      await made.resume();
+      await made.client.bots.send({ botId: writer.id, id: uuidv7(), text: "Hi?" });
+      await expect.poll(async () => (await statusesOf(writer.id)).at(-1), poll).toBe("complete");
+      // One Turn took both, and its Model was told the Assignment is out of its hands.
+      expect(await turnsOf(writer.id)).toHaveLength(1);
+      expect(JSON.stringify(made.fakes.Writer!.calls[0]!.messages)).toContain("out of budget");
+      const { messages } = await made.client.bots.get({ botId: writer.id });
+      expect(messages.map((message) => message.text)).toContain("Hello.");
+      expect((await assignmentOf(made.client, writer.id)).status).toBe("blocked");
+    },
+    timeout,
+  );
+
+  it(
+    "leaves a Turn with no Assignment exactly as it was: no limit, no spend, and its Step limit its own",
+    async () => {
+      const {
+        fakes,
+        client,
+        bots: b,
+        tell,
+        deps,
+        user,
+      } = await bots({
+        Solo: busy(15),
+        Other: [],
+      });
+      await tell("Solo", "Keep going.");
+      await expect.poll(() => statusesOf(b.Solo.id), poll).toEqual(["error"]);
+      const [turn] = await turnsOf(b.Solo.id);
+      expect(turn!.error).toBe("step_limit");
+      expect(fakes.Solo.calls).toHaveLength(10);
+      expect(await client.assignments.list({ botId: b.Solo.id })).toEqual([]);
+      const rows = await deps.db.select().from(usage).where(eq(usage.userId, user.id));
+      expect(rows.filter((row) => row.sourceId === turn!.id)).toHaveLength(10);
+      // Its job recorded no budget Checkpoint.
+      const history = await loadHistory(getTestDb(), turn!.jobId!);
+      expect(history.map((entry) => entry.name)).not.toContain("assignment_budget");
+    },
+    timeout,
+  );
+
+  it(
+    "keeps the budget and spend in the export",
+    async () => {
+      const { deps, user, writer } = await overBudget();
+      const exported = (await exportUserData(deps, user.id)).bot as {
+        assignments: {
+          assignedBotId: string;
+          callLimit: number;
+          callsSpent: number;
+          log: { calls: number | null }[];
+        }[];
+      };
+      const row = exported.assignments.find((entry) => entry.assignedBotId === writer.id)!;
+      expect(row).toMatchObject({ callLimit: 1, callsSpent: 1 });
+      expect(row.log.some((entry) => entry.calls === 1)).toBe(true);
     },
     timeout,
   );

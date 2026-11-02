@@ -27,7 +27,7 @@ const assignWorkDefinition = toolDefinition({
     "result. A wrong name is answered with the names of the user's other Bots. Called while you " +
     "work on an Assignment, it splits part of that one off as a child: yours shows blocked until " +
     "its children end, a child that fails doesn't fail yours, and finishing yours cancels those " +
-    "still open. A chain of Assignments stops at 3 deep.",
+    "still open. A child draws from your Assignment's budget. A chain of Assignments stops at 3 deep.",
   inputSchema: z.object({
     bot: z.string().trim().min(1, "bot must not be empty").meta({
       description: "The name of the Bot to hand it to, one of the user's other Bots.",
