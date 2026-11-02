@@ -154,6 +154,18 @@ _Avoid_: Reminder, Routine (that is a prompt the user approved)
 An agent a Bot hands one complete task to, which works in its own fresh context, keeps going after the Turn that started it, and reports back briefly. It belongs to its Bot and is never a Bot itself. A General Helper works with the shell, files and web search; a Computer-use Helper works a Screen's browser and desktop, needs a model that can use a computer, and a Bot has at most one of those at a time. The user's Stop ends the Turn, not its Helpers; its report wakes the Bot as a Trigger like any other.
 _Avoid_: Sub-agent, worker, child agent
 
+**Representative**:
+An agent that speaks for one user's business to its Customers and reports to one of that user's Bots. A Bot drafts it or the user creates it, and it serves Customers only once the user approves a release of it. It has no Computer and no Conversation with the user, and it is never a Bot or a Helper.
+_Avoid_: Deployed agent, front desk, CSR, Agent
+
+**Customer**:
+A person who deals with a user's business through a Representative. A Customer isn't a user and never signs in to the app, and belongs to that one user's business.
+_Avoid_: Contact, end user, client
+
+**Assignment**:
+One piece of work handed to a Bot by a Representative or another Bot, with a status and a budget, and a log the user can read.
+_Avoid_: Tracked task, task, ticket, work order
+
 **Tasks view**:
 One Bot's work in one place, in three sections: In progress (the running Turn and its live Helpers), Scheduled (the Conversation queue, Routines and Check-ins) and Done (finished Helpers and fired Check-ins). It is a view over those things, not a thing of its own; "task" stays an ordinary word.
 _Avoid_: Task list, to-do, activity feed
