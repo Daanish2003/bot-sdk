@@ -107,7 +107,11 @@ function DraftEditor({ representative }: { representative: RepresentativeView })
           disabled={busy}
           // The server approves what it holds: the form's edits are saved first.
           onClick={() =>
-            save.mutateAsync(body).then(() => approve.mutate({ id: representative.id }))
+            save
+              .mutateAsync(body)
+              .then(() => approve.mutateAsync({ id: representative.id }))
+              // Each step shows its own refusal.
+              .catch(() => {})
           }
         >
           {t("representative.approve")}
@@ -151,7 +155,9 @@ export function RepresentativePage({ id }: { id: string }) {
         <Checkbox
           id="representative-enabled"
           checked={representative.enabled}
-          disabled={setEnabled.isPending}
+          disabled={
+            setEnabled.isPending || (!representative.enabled && representative.liveRelease === null)
+          }
           onCheckedChange={(enabled) => setEnabled.mutate({ id, enabled })}
         />
         <Label htmlFor="representative-enabled">{t("representative.switch")}</Label>

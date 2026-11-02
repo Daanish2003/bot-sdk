@@ -272,15 +272,20 @@ describe("approving a draft into a Release", () => {
 });
 
 describe("switching on and off", () => {
-  it("changes without a new Release, before and after the first", async () => {
+  it("switches on only once a Release is live, and changes without a new Release", async () => {
     const { rpc } = await owner();
     const { id } = await rpc.representative.create({ name: "Front desk" });
 
-    expect((await rpc.representative.setEnabled({ id, enabled: true })).enabled).toBe(true);
-    expect(await releaseRows(id)).toEqual([]);
+    await expect(rpc.representative.setEnabled({ id, enabled: true })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      data: { code: "error.representativeNoRelease" },
+    });
+    expect((await rpc.representative.get({ id })).enabled).toBe(false);
 
     await rpc.representative.updateDraft({ id, draft: { jobText: "Answer" } });
     const release = await rpc.representative.approve({ id });
+    expect((await rpc.representative.setEnabled({ id, enabled: true })).enabled).toBe(true);
+    expect(await releaseRows(id)).toHaveLength(1);
     const off = await rpc.representative.setEnabled({ id, enabled: false });
 
     expect(off).toMatchObject({ enabled: false, liveRelease: { id: release.id } });

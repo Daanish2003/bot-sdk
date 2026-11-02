@@ -153,13 +153,23 @@ export async function setEnabled(
   id: string,
   enabled: boolean,
 ): Promise<RepresentativeView> {
-  await ownedRow(db, userId, id);
-  const [updated] = await db
-    .update(representative)
-    .set({ enabled, updatedAt: new Date() })
-    .where(eq(representative.id, id))
-    .returning();
-  return view(db, updated!);
+  return db.transaction(async (tx) => {
+    const row = await ownedRow(tx, userId, id, true);
+    // A Representative serves only through an approved Release, so it can be switched on only once one is live.
+    if (enabled && row.liveReleaseId === null) {
+      throw rpcError(
+        "BAD_REQUEST",
+        "error.representativeNoRelease",
+        "Approve a Release before switching the Representative on",
+      );
+    }
+    const [updated] = await tx
+      .update(representative)
+      .set({ enabled, updatedAt: new Date() })
+      .where(eq(representative.id, id))
+      .returning();
+    return view(tx, updated!);
+  });
 }
 
 /**

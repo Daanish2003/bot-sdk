@@ -37,7 +37,7 @@ export const draftSchema = z.object({
     .array(z.enum(representativeTools))
     .refine((tools) => new Set(tools).size === tools.length, "A tool is listed once"),
   /** The Model, `"provider:model"`, or null for the Host's default. */
-  model: z.string().min(1).max(200).nullable(),
+  model: z.string().trim().min(1).max(200).nullable(),
 });
 export type Draft = z.output<typeof draftSchema>;
 
