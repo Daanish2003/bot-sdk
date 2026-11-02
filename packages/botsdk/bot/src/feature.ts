@@ -20,6 +20,7 @@ import type { Context } from "./context";
 import type { FeatureMigrations, Migration } from "./migrate";
 import type { BotSdkContext, BotSdkPlugin, Route, Transaction } from "./plugin";
 import { requireAuth } from "./procedures";
+import type { RepresentativeLoopService } from "./bot/agent-loop";
 import type { AssignmentsService } from "./bot/assignments";
 import type { ComputerApi } from "./computer/internal";
 import type { ModelsApi } from "./models/internal";
@@ -32,7 +33,7 @@ import type { EnqueueOptions, JobDefinition } from "./runner/internal";
  */
 
 /** The core services a feature may declare in `needs`. */
-export type CoreService = "assignments" | "computer" | "models" | "threads";
+export type CoreService = "assignments" | "computer" | "models" | "representativeLoop" | "threads";
 
 /** What a feature tells a Conversation's open tabs. */
 export type ThreadsService = { hintChanged: (conversationId: string) => Promise<void> };
@@ -41,6 +42,7 @@ type Services = {
   assignments: AssignmentsService;
   computer: ComputerApi;
   models: ModelsApi;
+  representativeLoop: RepresentativeLoopService;
   threads: ThreadsService;
 };
 
@@ -442,6 +444,7 @@ const serviceNames: Record<CoreService, string> = {
   assignments: "the Assignments",
   computer: "the Computer",
   models: "the Models",
+  representativeLoop: "the Representative loop",
   threads: "the Conversation threads",
 };
 
@@ -526,6 +529,7 @@ export function enableFeature(
   feature: AnyFeature,
   threads: ThreadsService,
   assignmentsOf: (feature: AnyFeature) => AssignmentsService,
+  representativeLoop: RepresentativeLoopService,
 ): EnabledFeature {
   const needs = feature.needs ?? [];
   return {
@@ -534,6 +538,7 @@ export function enableFeature(
       ...contextOf(sdk, needs, threads),
       // Each feature's own: it acts only on what it assigned.
       ...(needs.includes("assignments") && { assignments: assignmentsOf(feature) }),
+      ...(needs.includes("representativeLoop") && { representativeLoop }),
     },
   };
 }

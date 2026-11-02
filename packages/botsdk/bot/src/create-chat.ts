@@ -37,6 +37,7 @@ import type { RoomsApi } from "./bot/rooms-api";
 import type { ScreensApi } from "./bot/screens-api";
 import type { SecretsApi } from "./bot/secrets-api";
 import type { AssignmentsApi } from "./bot/assignments-api";
+import { representativeLoopService } from "./bot/agent-loop";
 import { assignmentsService } from "./bot/assignments";
 import type { CheckInsApi, RoutinesApi } from "./bot/routines-api";
 import type { TriggersApi } from "./bot/triggers-api";
@@ -363,6 +364,7 @@ export function buildBotSdk(
     "models",
     "threads",
     "assignments",
+    "representativeLoop",
     ...(options.computer ? ["computer"] : []),
   ]);
   const ids = new Set<string>();
@@ -405,8 +407,9 @@ export function buildBotSdk(
     hintChanged: (conversationId) => hintChanged(sdk, conversationId),
   };
   // Each feature in the Host's order, with the core services it needs.
+  const representativeLoop = representativeLoopService(sdk);
   const enabled = features.map((feature) =>
-    enableFeature(sdk, feature, threads, (own) => assignmentsService(sdk, own)),
+    enableFeature(sdk, feature, threads, (own) => assignmentsService(sdk, own), representativeLoop),
   );
   const plugins = [...core, ...enabled.map(featurePlugin)];
   // Every job the runner runs: the core's, each feature's with its context, then the Host's.

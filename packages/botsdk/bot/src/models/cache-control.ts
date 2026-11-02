@@ -4,7 +4,7 @@ import { normalizeSystemPrompts, type ModelMessage, type TextOptions } from "@ta
 const oneHour = { type: "ephemeral", ttl: "1h" } as const;
 
 /**
- * `options` with the cache controls that keep a Bot's prompt cached on `provider` (#673):
+ * `options` with the cache controls that keep an agent's prompt cached on `provider` (#673):
  *
  * - Anthropic: a 1-hour breakpoint on the last system block and on the first message, and the
  *   automatic one on the request (`modelOptions.cache_control`), through the adapter's metadata.
@@ -12,7 +12,8 @@ const oneHour = { type: "ephemeral", ttl: "1h" } as const;
  *   sent; the plan ignores it (probe #664).
  * - Any other Provider: `options` as they are.
  *
- * `key` is `bot:<botId>`, or `helper:<helperId>` for a Helper.
+ * `key` is `bot:<botId>`, `helper:<helperId>` for a Helper, or `representative:<hash>` for one
+ * Customer of a Representative.
  */
 export function withCacheControl(provider: string, key: string, options: TextOptions): TextOptions {
   if (provider === "openai") {

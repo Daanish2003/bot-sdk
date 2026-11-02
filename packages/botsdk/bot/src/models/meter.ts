@@ -56,11 +56,12 @@ export type ModelUsage = {
     | "summary"
     | "warm"
     | "review"
-    | "skill_draft";
+    | "skill_draft"
+    | "representative";
   usage: MessageUsage;
   /** The Provider's reported cost in USD, when it reported one for the whole call. */
   reportedCost?: number;
-  /** The Bot Turn or Helper (or, for warming, the Bot) the call was made for. */
+  /** The Bot Turn, Helper or Representative Turn (or, for warming, the Bot) it was made for. */
   sourceId?: string;
   /** The hash of each section of the prompt the call sent, in order. */
   promptHashes?: PromptHash[];
