@@ -299,13 +299,13 @@ export function RepresentativePage({ id }: { id: string }) {
               <li
                 key={release.id}
                 data-release={release.number}
-                className="flex items-center gap-3 px-4 py-3 text-sm"
+                className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm"
               >
                 <span className="flex-1 font-medium">
                   {t("representative.release", { number: release.number })}
                 </span>
                 {release.overrideReason !== null && (
-                  <span data-override-reason className="min-w-0 break-words text-xs">
+                  <span data-override-reason className="order-last w-full break-words text-xs">
                     {t("representative.overrideLogged", { reason: release.overrideReason })}
                   </span>
                 )}
