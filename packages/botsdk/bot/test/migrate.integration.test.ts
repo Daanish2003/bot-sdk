@@ -212,6 +212,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261102153200_assignment_children" },
       { feature: "core", migration: "20261102161247_conscious_sauron" },
       { feature: "core", migration: "20261102163444_assignment_budget" },
+      { feature: "core", migration: "20261102174501_demonic_marrow" },
     ]);
     // Images and PDFs are already compressed, so the bytes are kept out of line uncompressed.
     expect(
@@ -267,6 +268,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261102153200_assignment_children" },
       { feature: "core", migration: "20261102161247_conscious_sauron" },
       { feature: "core", migration: "20261102163444_assignment_budget" },
+      { feature: "core", migration: "20261102174501_demonic_marrow" },
     ]);
     expect(
       await rows(url, "update botsdk.bot_review set state = 'pending' returning state, expires_at"),
@@ -415,6 +417,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261102153200_assignment_children" },
       { feature: "core", migration: "20261102161247_conscious_sauron" },
       { feature: "core", migration: "20261102163444_assignment_budget" },
+      { feature: "core", migration: "20261102174501_demonic_marrow" },
       { feature: "notes", migration: "0001_note" },
       { feature: "mcp", migration: "20261026182927_mcp_baseline" },
     ]);
@@ -451,6 +454,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261102153200_assignment_children" },
       { feature: "core", migration: "20261102161247_conscious_sauron" },
       { feature: "core", migration: "20261102163444_assignment_budget" },
+      { feature: "core", migration: "20261102174501_demonic_marrow" },
       { feature: "notes", migration: "0001_note" },
       { feature: "notes", migration: "0002_note_text" },
     ]);
@@ -591,6 +595,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261102153200_assignment_children" },
       { feature: "core", migration: "20261102161247_conscious_sauron" },
       { feature: "core", migration: "20261102163444_assignment_budget" },
+      { feature: "core", migration: "20261102174501_demonic_marrow" },
       { feature: "notes", migration: "0001_note" },
     ]);
   });

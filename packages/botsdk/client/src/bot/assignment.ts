@@ -4,9 +4,12 @@ export type AssignmentStatus = "open" | "working" | "blocked" | "done" | "failed
 /** How the id of the Trigger that hands an Assignment to its Bot starts, followed by the Assignment's id. */
 export const assignmentTriggerPrefix = "assignment:";
 
+/** The statuses an Assignment ends with. */
+export const endedAssignmentStatuses: AssignmentStatus[] = ["done", "failed", "cancelled"];
+
 /** Whether an Assignment with `status` has ended. */
 export const isEndedAssignment = (status: AssignmentStatus) =>
-  status === "done" || status === "failed" || status === "cancelled";
+  endedAssignmentStatuses.includes(status);
 
 /** What an Assignment's Bot finished it with. */
 export type AssignmentResult = {

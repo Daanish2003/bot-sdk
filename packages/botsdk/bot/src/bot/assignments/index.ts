@@ -10,6 +10,7 @@ export {
   finishAssignmentToolName,
   listAssignments,
   readAssignmentToolName,
+  setAsideAtStop,
   wakeOnAssignments,
 } from "./assignment";
 export { assignmentTools } from "./assignment-tools";

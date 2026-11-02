@@ -7,7 +7,9 @@ import { hintChanged } from "../conversation";
 import {
   addAssignmentNote,
   addAssignmentNoteToolName,
+  assignmentForCustomerInput,
   assignmentInstructionsInput,
+  assignmentOutcomeInput,
   assignmentTitleInput,
   assignWork,
   assignWorkToolName,
@@ -25,7 +27,8 @@ const assignWorkDefinition = toolDefinition({
     "Hand a piece of work to another of the user's Bots, with no Room needed. It wakes that Bot, " +
     "which works on it for as many Turns as it takes and finishes it, and you are woken with the " +
     "result. A wrong name is answered with the names of the user's other Bots. Called while you " +
-    "work on an Assignment, it splits part of that one off as a child: yours shows blocked until " +
+    "work on an Assignment, unless your Turn also took the user's Message, it splits part of that " +
+    "one off as a child: yours shows blocked until " +
     "its children end, a child that fails doesn't fail yours, and finishing yours cancels those " +
     "still open. A child draws from your Assignment's budget. A chain of Assignments stops at 3 deep.",
   inputSchema: z.object({
@@ -44,7 +47,8 @@ const assignWorkDefinition = toolDefinition({
       .meta({
         description:
           "The id of the Assignment handed to you that this is part of. Only needed when this Turn " +
-          "didn't start from it, or started from several.",
+          "didn't start from it, started from several, or also took the user's Message, which " +
+          "makes this new work otherwise.",
       }),
   }),
 });
@@ -60,20 +64,15 @@ const finishAssignmentDefinition = toolDefinition({
     status: z.enum(["done", "failed"]).meta({
       description: "done when the work is finished; failed when it can't be done.",
     }),
-    outcome: z.string().trim().min(1, "outcome must not be empty").meta({
+    outcome: assignmentOutcomeInput.meta({
       description:
         "What came of it for whoever assigned it, or why it failed. A Secret's value in it is masked.",
     }),
-    for_customer: z
-      .string()
-      .trim()
-      .min(1)
-      .optional()
-      .meta({
-        description:
-          "Optional text about the result that may be shown to a Customer. Write it for them, and " +
-          "leave out anything private.",
-      }),
+    for_customer: assignmentForCustomerInput.optional().meta({
+      description:
+        "Optional text about the result that may be shown to a Customer. Write it for them, and " +
+        "leave out anything private.",
+    }),
     when: z.iso
       .datetime({ offset: true, message: "when must be an ISO 8601 time with an offset" })
       .optional()
@@ -174,8 +173,10 @@ export function assignmentTools(
     },
   );
 
-  const read = readAssignmentDefinition.server(async ({ id }) =>
-    readAssignments(deps.db, turn.botId, id),
+  const read = readAssignmentDefinition.server(async ({ id }, context) =>
+    liveActivity(readAssignmentToolName, context?.toolCallId, (tx) =>
+      readAssignments(tx, turn.botId, id),
+    ),
   );
 
   const note = addAssignmentNoteDefinition.server(async ({ id, note }, context) => {

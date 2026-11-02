@@ -1,4 +1,3 @@
-import type { BotAssignment } from "./assignment";
 import type { BotCheckIn } from "./check-in";
 import type { Bot } from "./contract";
 import type { BotHelper } from "./helper";
@@ -26,7 +25,8 @@ type BotChangeData = {
   review: BotReview;
   helper: BotHelper;
   check_in: BotCheckIn;
-  assignment: BotAssignment;
+  /** Carries no data: `assignments.list` is read afresh, for its children and budget too. */
+  assignment: never;
   summary: BotSummary;
   /** The Bot itself, paused or resumed (spec #1007). */
   bot: Bot;

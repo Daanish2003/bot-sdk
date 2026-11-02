@@ -9,7 +9,7 @@ import {
   isEndedAssignment,
 } from "@botsdk/client/bot/assignment";
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useI18n } from "@botsdk/react/provider";
 import { useRefusalToast } from "./refusal-toast";
@@ -43,6 +43,12 @@ export const turnLineId = (turnId: string) => `turn-${turnId}`;
 /** One row of the log: when, the status, who made it, its note and a link to its Turn. */
 function LogRow({ entry }: { entry: AssignmentLogEntry }) {
   const { t, locale } = useI18n();
+  const lineId = entry.turnId && turnLineId(entry.turnId);
+  // After each render, so no dead button shows: the Turn's line may not be on the page.
+  const [hasLine, setHasLine] = useState(false);
+  useEffect(() => {
+    setHasLine(lineId ? document.getElementById(lineId) !== null : false);
+  });
   const actor =
     entry.actor === "user"
       ? t("bots.assignmentActorUser")
@@ -56,12 +62,12 @@ function LogRow({ entry }: { entry: AssignmentLogEntry }) {
         {/* A row of spend changes no status: a call that had started can log after the end. */}
         {entry.calls === null && <span>{t(statusKeys[entry.status])}</span>}
         <span className="text-muted-foreground">{t("bots.assignmentBy", { actor })}</span>
-        {entry.turnId && (
+        {hasLine && (
           <button
             type="button"
             className="underline-offset-2 hover:underline"
             onClick={() =>
-              document.getElementById(turnLineId(entry.turnId!))?.scrollIntoView?.({
+              document.getElementById(lineId!)?.scrollIntoView?.({
                 block: "center",
               })
             }

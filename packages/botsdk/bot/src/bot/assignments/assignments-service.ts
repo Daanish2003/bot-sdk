@@ -8,7 +8,6 @@ import { parseInput, rpcError } from "../../rpc-error";
 import type { JobDefinition } from "../../runner/internal";
 import { bot, botAssignment } from "../../storage";
 import { hintChanged } from "../conversation";
-import { webhookBodyLimit } from "../routines";
 import { lockConversation } from "../triggers";
 import {
   assignmentInstructionsInput,
@@ -45,11 +44,7 @@ export type AssignmentEnded = z.infer<typeof assignmentEnded>;
 const createInput = z.object({
   botId: z.uuid(),
   title: assignmentTitleInput,
-  // A feature's text is capped as a webhook's is (ADR 0021): it is untrusted, and the Bot reads it.
-  instructions: assignmentInstructionsInput.refine(
-    (text) => new TextEncoder().encode(text).byteLength <= webhookBodyLimit,
-    "instructions must be at most 64 KB",
-  ),
+  instructions: assignmentInstructionsInput,
 });
 
 const assignmentInput = z.object({ id: z.uuid() });

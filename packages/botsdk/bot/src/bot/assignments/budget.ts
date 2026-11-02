@@ -1,9 +1,11 @@
 import {
   assignmentMoney,
   type AssignmentBudget,
+  isEndedAssignment,
   isOverBudget,
 } from "@botsdk/client/bot/assignment";
 import { aliasedTable, and, eq, inArray, isNotNull, lte, notInArray, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
 import type { BotSdkContext, Transaction } from "../../plugin";
 import type { WorkflowContext } from "../../runner/internal";
@@ -50,8 +52,8 @@ const spent = (budget: AssignmentBudget) =>
 
 /** The Assignments a Turn is on, and how the budgets it draws from stand. */
 async function budgetsOfTurn(tx: Transaction, turn: { id: string; botId: string }) {
-  const { on, ended, sources } = await assignmentsOfTurn(tx, turn);
-  const ids = [...on.keys()];
+  const { on, ended, sources, apart, uncharged } = await assignmentsOfTurn(tx, turn);
+  const ids = [...on.keys()].filter((id) => !uncharged.has(id));
   const budgets = await budgetsOf(tx, ids);
   const budget = (id: string) => budgets.get(id)!.budget;
   // One already over budget takes no more spend, whatever else this Turn is for.
@@ -62,12 +64,18 @@ async function budgetsOfTurn(tx: Transaction, turn: { id: string; botId: string 
   // with that ended too there is no budget left to keep to.
   const endedBudgets = await budgetsOf(tx, ended);
   const tops = await budgetsOf(tx, [...new Set(ended.map((id) => endedBudgets.get(id)!.rootId))]);
-  const drawnFrom = [...tops.keys()].filter((id) => !endedStatuses.includes(tops.get(id)!.status));
+  const drawnFrom = [...tops.keys()].filter((id) => !isEndedAssignment(tops.get(id)!.status));
   const paid = new Set(live.map((id) => budgets.get(id)!.rootId));
-  // A Trigger of anything else (the user's Message, a Routine's run) still gets its Turn. A Check-in's
-  // doesn't stand apart: its Turn is taken as work on the Bot's open Assignments, and otherwise a
-  // Bot setting Check-ins could work on past the limit. The Trigger stays in the Bot's history.
-  const onlyWork = [...sources].every((source) => source === "assignment" || source === "check_in");
+  // A Trigger of anything else (the user's Message, a Routine's run, the user's answer to an
+  // Approval) still gets its Turn, as does a result that no open Assignment of the Bot's stands
+  // behind. A Check-in's or a Helper's report doesn't stand apart: such a Turn is taken as work on
+  // the Bot's open Assignments, and otherwise a Bot could work on past the limit. The Trigger stays
+  // in the Bot's history, so its next Turn reads it.
+  const onlyWork =
+    !apart &&
+    [...sources].every(
+      (source) => source === "assignment" || source === "check_in" || source === "helper",
+    );
   const nothingLeft = ids.length > 0 && live.length === 0;
   const finishedOver =
     ids.length === 0 && drawnFrom.some((id) => isOverBudget(tops.get(id)!.budget));
@@ -83,8 +91,9 @@ async function budgetsOfTurn(tx: Transaction, turn: { id: string; botId: string 
 
 /**
  * The budget a Turn's loop keeps to, or `undefined` for a Turn that can't be working on an
- * Assignment, which then runs with no check at all: one with no Assignment Trigger, unless it's a
- * Check-in's that no user asked for, which is on the Bot's open ones (`assignmentsOfTurn`). The
+ * Assignment, which then runs with no check at all: one with no Assignment Trigger, unless no user
+ * asked for it and it follows on from the Bot's work, so it's on the Bot's open ones
+ * (`onBotsOpenAssignments`). The
  * Triggers it started with don't change, so each attempt answers the same. A Room Turn has none.
  */
 export async function turnBudget(
@@ -104,7 +113,7 @@ export async function turnBudget(
     .where(and(eq(botTrigger.turnId, turn.id), lte(botTrigger.receivedAt, turn.startedAt)));
   const sources = new Set<string>(triggers.map((row) => row.source));
   if (!sources.has("assignment") && !onBotsOpenAssignments(sources)) return undefined;
-  // A Check-in's Turn that was running before budgets existed recorded no checks.
+  // Such a Turn that was running before budgets existed recorded no checks.
   if (!(await ctx.patched("assignment_budget"))) return undefined;
   // Set only by a live check: a replayed one changed nothing.
   const hints = new Set<string>();
@@ -231,7 +240,9 @@ export async function raiseAssignmentLimit(
     );
   if (!found) return { reason: "not_found" };
   const rootId = (await budgetsOf(tx, [id])).get(id)!.rootId;
-  /** The Assignments on this budget that are over it, read with their Bots. */
+  const parent = alias(botAssignment, "parent");
+  const parentBot = alias(bot, "parent_bot");
+  /** The Assignments on this budget that are over it, read with their Bots and parents' threads. */
   const overOf = async (db: Transaction) => {
     const rows = await db
       .select({
@@ -240,9 +251,13 @@ export async function raiseAssignmentLimit(
         assignedModel: bot.model,
         assignedConversationId: bot.conversationId,
         status: botAssignment.status,
+        parentId: botAssignment.parentAssignmentId,
+        parentConversationId: parentBot.conversationId,
       })
       .from(botAssignment)
       .innerJoin(bot, eq(bot.id, botAssignment.assignedBotId))
+      .leftJoin(parent, eq(parent.id, botAssignment.parentAssignmentId))
+      .leftJoin(parentBot, eq(parentBot.id, parent.assignedBotId))
       .where(
         and(
           inArray(botAssignment.id, [
@@ -287,7 +302,7 @@ export async function raiseAssignmentLimit(
     .select({ status: botAssignment.status })
     .from(botAssignment)
     .where(eq(botAssignment.id, id));
-  if (endedStatuses.includes(target!.status)) return { reason: "ended" };
+  if (isEndedAssignment(target!.status)) return { reason: "ended" };
   if (
     (callLimit !== undefined && callLimit <= before!.callLimit) ||
     (moneyLimitMicros !== undefined && moneyLimitMicros <= before!.moneyLimitMicros)
@@ -303,20 +318,22 @@ export async function raiseAssignmentLimit(
   const note = `Limit raised to ${budget.callLimit} model calls and ${assignmentMoney(budget.moneyLimitMicros)}.`;
   const over = isOverBudget(budget) ? [] : await overOf(tx);
   const waitingOn = new Set(
-    (
-      await tx
-        .select({ parent: botAssignment.parentAssignmentId })
-        .from(botAssignment)
-        .where(
-          and(
-            inArray(
-              botAssignment.parentAssignmentId,
-              over.length ? over.map((row) => row.id) : [rootId],
-            ),
-            notInArray(botAssignment.status, endedStatuses),
-          ),
-        )
-    ).map((row) => row.parent),
+    over.length === 0
+      ? []
+      : (
+          await tx
+            .select({ parent: botAssignment.parentAssignmentId })
+            .from(botAssignment)
+            .where(
+              and(
+                inArray(
+                  botAssignment.parentAssignmentId,
+                  over.map((row) => row.id),
+                ),
+                notInArray(botAssignment.status, endedStatuses),
+              ),
+            )
+        ).map((row) => row.parent),
   );
   // One still waiting on a child needs no wake, so its Bot needn't run yet.
   const freed = over.map((row) => ({ ...row, child: waitingOn.has(row.id) }));
@@ -342,10 +359,18 @@ export async function raiseAssignmentLimit(
       row.id,
       now,
     );
+    // A parent's thread shows its children, and it's locked with the budget's other open ones.
+    if (row.parentId && row.parentConversationId) {
+      await recordBotChange(
+        tx,
+        { conversationId: row.parentConversationId },
+        "assignment",
+        row.parentId,
+        now,
+      );
+    }
     if (row.child) continue;
-    const [notice] = (await assignmentsOf(tx, row.assignedBotId, ["working"])).filter(
-      (working) => working.id === row.id,
-    );
+    const [notice] = await assignmentsOf(tx, row.assignedBotId, ["working"], row.id);
     await receive(
       deps,
       tx,

@@ -1,0 +1,1 @@
+ALTER TABLE "botsdk"."bot_assignment" DROP CONSTRAINT "bot_assignment_assigner_trusted_check", ADD CONSTRAINT "bot_assignment_assigner_trusted_check" CHECK ("assigner_feature" is null or not "assigner_trusted");

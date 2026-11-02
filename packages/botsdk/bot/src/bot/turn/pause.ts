@@ -90,6 +90,7 @@ export async function resumeBot(deps: BotSdkContext, userId: string, botId: stri
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
   let rooms: string[] = [];
+  const resumedAt = deps.clock();
   const resumed = await deps.db.transaction(async (tx) => {
     rooms = await lockConversations(tx, found.conversationId, botId);
     const [row] = await tx
@@ -104,12 +105,16 @@ export async function resumeBot(deps: BotSdkContext, userId: string, botId: stri
   if (!resumed) return;
   await hintChanged(deps, found.conversationId);
   for (const conversationId of rooms) await hintChanged(deps, conversationId);
-  await wakeOnAssignments(deps, {
-    botId,
-    conversationId: found.conversationId,
-    userId,
-    model: found.model,
-  });
+  await wakeOnAssignments(
+    deps,
+    {
+      botId,
+      conversationId: found.conversationId,
+      userId,
+      model: found.model,
+    },
+    resumedAt,
+  );
 }
 
 /**

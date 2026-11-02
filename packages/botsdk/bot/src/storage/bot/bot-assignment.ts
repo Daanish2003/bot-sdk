@@ -61,8 +61,9 @@ export const botAssignment = botsdkSchema.table(
     /** The feature's job the core queues, in the transaction that ends the Assignment. */
     assignerJob: text("assigner_job"),
     /**
-     * Whether the assigner's text is a Bot's, read like a Room handoff. False for a feature's: it
-     * reaches the Bot as untrusted data (ADR 0021) and never counts as the user's word.
+     * Whether the assigner's text is a Bot's, read like a Room handoff. False for a feature's, and
+     * for a Bot's that split it off from untrusted work: it reaches the Bot as untrusted data (ADR
+     * 0021), down the whole chain, and never counts as the user's word.
      */
     assignerTrusted: boolean("assigner_trusted").notNull().default(true),
     /** The Assignment this one was split off from, held by the Bot that assigned this one. */
@@ -119,7 +120,7 @@ export const botAssignment = botsdkSchema.table(
     ),
     check(
       "bot_assignment_assigner_trusted_check",
-      sql`${table.assignerTrusted} = (${table.assignerFeature} is null)`,
+      sql`${table.assignerFeature} is null or not ${table.assignerTrusted}`,
     ),
   ],
 );

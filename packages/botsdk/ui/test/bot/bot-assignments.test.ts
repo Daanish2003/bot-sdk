@@ -275,6 +275,32 @@ describe("following and cancelling an Assignment", () => {
     turn.remove();
   });
 
+  it("shows no link to a Turn whose line isn't on the page", async () => {
+    mount(
+      [],
+      [
+        draft({
+          log: [
+            {
+              id: "l1",
+              status: "working",
+              actor: "system",
+              actorName: null,
+              note: "Gone from the page.",
+              turnId: "not-on-the-page",
+              calls: null,
+              costMicros: null,
+              at,
+            },
+          ],
+        }),
+      ],
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /^Assignment from/ }));
+    await screen.findByText("Gone from the page.");
+    expect(screen.queryByRole("button", { name: "Turn" })).toBeNull();
+  });
+
   it("shows the Assignment it was split off from, and those split off from it with their status", async () => {
     mount(
       [],

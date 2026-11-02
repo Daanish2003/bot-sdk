@@ -6,7 +6,8 @@ import { conversationChannel } from "../../src/chat/conversation-events";
 import { bot, botAssignment, botTrigger, botTurn, usage } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { deleteUserData, exportUserData } from "../../src/user-data";
-import { assignmentTools, turnBudget } from "../../src/bot/assignments";
+import { assignmentTools, turnBudget, wakeOnAssignments } from "../../src/bot/assignments";
+import { assignWork } from "../../src/bot/assignments/assignment";
 import type { Transaction } from "../../src/plugin";
 import { receive } from "../../src/bot/triggers";
 import { saveCredentials } from "../../src/models/internal";
@@ -761,7 +762,8 @@ describe("what the owner sees", () => {
       const read = await client.conversations.changes({ conversationId, since: 0 });
       if (read.reload) throw new Error("The change log asked for a reload");
       const change = read.changes.find((entry) => entry.kind === "assignment");
-      expect(change?.data).toMatchObject({ id: row!.id, title: "Draft the post" });
+      // The thread reads the list afresh on it, so the change carries nothing.
+      expect(change).toMatchObject({ refId: row!.id, data: null });
     },
     timeout,
   );
@@ -2820,6 +2822,947 @@ describe("an Assignment's budget (#1184)", () => {
       const row = exported.assignments.find((entry) => entry.assignedBotId === writer.id)!;
       expect(row).toMatchObject({ callLimit: 1, callsSpent: 1 });
       expect(row.log.some((entry) => entry.calls === 1)).toBe(true);
+    },
+    timeout,
+  );
+});
+
+describe("the branch review of spec #1166", () => {
+  const saysNothing = quiet;
+
+  /** Bot `botId` wakes on a Trigger from `source`, with no user asking. */
+  const wakeFrom = async (deps: TestDeps, botId: string, source: "helper" | "approval") => {
+    const conversationId = await conversationOf(botId);
+    await getTestDb().transaction((tx) =>
+      receive(deps, tx, {
+        id: `${source}:${uuidv7()}`,
+        botId,
+        conversationId,
+        source,
+        channel: source,
+        text: "Your Helper reported: it's ready.",
+        receivedAt: deps.clock(),
+      }),
+    );
+    deps.runner.wake();
+  };
+
+  /** How many of `calls` hold `text`, each counted once. */
+  const callsWith = (calls: TextOptions[], text: string) =>
+    calls.filter((call) => JSON.stringify(call.messages).includes(text)).length;
+
+  /** How many times the newest of `calls` says `text`. */
+  const timesInLast = (calls: TextOptions[], text: string) =>
+    JSON.stringify(calls.at(-1)!.messages).split(text).length - 1;
+
+  describe.each(["helper", "approval"] as const)("a Turn woken by a %s Trigger", (source) => {
+    it(
+      "counts as work on the Bot's open Assignment, so its chain and its budget hold",
+      async () => {
+        const writer: Round[] = [quiet];
+        const {
+          deps,
+          client,
+          bots: b,
+          tell,
+        } = await bots({
+          Scout: [assign("Writer"), quiet],
+          Writer: writer,
+          Editor: [quiet],
+        });
+        await tell("Scout", "Hand it on.");
+        await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+        const [parent] = await client.assignments.list({ botId: b.Writer.id });
+        const before = parent!.budget.calls;
+        writer.push(assign("Editor", "From the report"), quiet);
+
+        await wakeFrom(deps, b.Writer.id, source);
+
+        await expect
+          .poll(async () => (await client.assignments.list({ botId: b.Editor.id })).length, poll)
+          .toBe(1);
+        const [child] = await client.assignments.list({ botId: b.Editor.id });
+        expect(child!.parent?.id).toBe(parent!.id);
+        await expect
+          .poll(
+            async () => (await client.assignments.list({ botId: b.Writer.id }))[0]!.budget.calls,
+            poll,
+          )
+          .toBeGreaterThan(before);
+      },
+      timeout,
+    );
+  });
+
+  it(
+    "leaves a Helper's report in a Room off the Bot's open Assignments",
+    async () => {
+      const writer: Round[] = [quiet];
+      const {
+        deps,
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Scout: [assign("Writer"), quiet],
+        Writer: writer,
+        Editor: [quiet],
+      });
+      await tell("Scout", "Hand it on.");
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+      const room = await client.rooms.create({ name: "Launch", botIds: [b.Writer.id, b.Scout.id] });
+      writer.push(assign("Editor", "From the Room"), quiet);
+
+      await getTestDb().transaction((tx) =>
+        receive(deps, tx, {
+          id: `helper:${uuidv7()}`,
+          botId: b.Writer.id,
+          conversationId: room.conversationId,
+          source: "helper",
+          channel: "helper",
+          text: "Your Helper reported: it's ready.",
+          receivedAt: deps.clock(),
+        }),
+      );
+      deps.runner.wake();
+
+      await expect
+        .poll(async () => (await client.assignments.list({ botId: b.Editor.id })).length, poll)
+        .toBe(1);
+      const [child] = await client.assignments.list({ botId: b.Editor.id });
+      expect(child!.parent).toBeNull();
+    },
+    timeout,
+  );
+
+  it(
+    "gives the Bot a result batched with an Assignment that's out of budget",
+    async () => {
+      const {
+        fakes,
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Boss: [assign("Editor", "Side job"), quiet, quiet, quiet],
+        Editor: [finish({ status: "done", outcome: "Side job finished." }), quiet],
+        Scout: [assign("Boss", "Over budget"), quiet],
+      });
+      await tell("Boss", "Start the side job.");
+      await expect.poll(() => statusesOf(b.Boss.id), poll).toEqual(["complete"]);
+      await client.bots.pause({ botId: b.Boss.id });
+      await expect.poll(() => statusesOf(b.Editor.id), poll).toContain("complete");
+      await expect
+        .poll(async () => (await client.assignments.list({ botId: b.Editor.id }))[0]!.status, poll)
+        .toBe("done");
+      await tell("Scout", "Hand it on.");
+      await expect.poll(() => statusesOf(b.Scout.id), poll).toEqual(["complete"]);
+      const [over] = await client.assignments.list({ botId: b.Boss.id });
+      await getTestDb()
+        .update(botAssignment)
+        .set({ callLimit: 1, callsSpent: 1 })
+        .where(eq(botAssignment.id, over!.id));
+
+      // The wake's two Triggers join one Turn.
+      await client.bots.resume({ botId: b.Boss.id });
+
+      await expect
+        .poll(() => callsWith(fakes.Boss.calls, "Side job finished."), poll)
+        .toBeGreaterThan(0);
+      expect(timesInLast(fakes.Boss.calls, "Side job finished.")).toBe(1);
+      await expect
+        .poll(async () => (await client.assignments.list({ botId: b.Boss.id }))[0]!.status, poll)
+        .toBe("blocked");
+    },
+    timeout,
+  );
+
+  it(
+    "runs a Turn for the owner's answer to an Approval, even with nothing left in the budget",
+    async () => {
+      const {
+        deps,
+        fakes,
+        bots: b,
+        client,
+        tell,
+      } = await bots({
+        Scout: [assign("Writer"), quiet],
+        Writer: [quiet, quiet],
+      });
+      await tell("Scout", "Hand it on.");
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+      const [row] = await client.assignments.list({ botId: b.Writer.id });
+      await getTestDb()
+        .update(botAssignment)
+        .set({ callLimit: 1, callsSpent: 1 })
+        .where(eq(botAssignment.id, row!.id));
+
+      await wakeFrom(deps, b.Writer.id, "approval");
+
+      await expect.poll(() => fakes.Writer.calls.length, poll).toBe(2);
+      expect(JSON.stringify(fakes.Writer.calls[1]!.messages)).toContain("it's ready.");
+    },
+    timeout,
+  );
+
+  it(
+    "keeps a Helper's report for the next Turn when the budget stops its own",
+    async () => {
+      const {
+        deps,
+        fakes,
+        bots: b,
+        client,
+        tell,
+      } = await bots({
+        Scout: [assign("Writer"), quiet],
+        Writer: [quiet, quiet],
+      });
+      await tell("Scout", "Hand it on.");
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+      const [row] = await client.assignments.list({ botId: b.Writer.id });
+      await getTestDb()
+        .update(botAssignment)
+        .set({ callLimit: 1, callsSpent: 1 })
+        .where(eq(botAssignment.id, row!.id));
+
+      await wakeFrom(deps, b.Writer.id, "helper");
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete", "complete"]);
+      expect(fakes.Writer.calls).toHaveLength(1);
+
+      await tell("Writer", "Any news?");
+      await expect
+        .poll(() => statusesOf(b.Writer.id), poll)
+        .toEqual(["complete", "complete", "complete"]);
+      expect(JSON.stringify(fakes.Writer.calls[1]!.messages)).toContain("it's ready.");
+    },
+    timeout,
+  );
+
+  it(
+    "gives the Bot a child's result the budget stopped a Turn for, once the limit is raised",
+    async () => {
+      const {
+        fakes,
+        client,
+        bots: b,
+        tell,
+      } = await bots(
+        {
+          Scout: [assign("Writer", "Parent"), quiet],
+          Writer: [assign("Editor", "Child"), quiet, quiet],
+          Editor: [finish({ status: "done", outcome: "Child finished." }), quiet],
+        },
+        { manual: ["Editor"] },
+      );
+      await tell("Scout", "Hand it on.");
+      await expect.poll(() => fakes.Editor.calls.length, poll).toBe(1);
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+      const [parent] = await client.assignments.list({ botId: b.Writer.id });
+      await getTestDb()
+        .update(botAssignment)
+        .set({ callLimit: parent!.budget.calls + 1 })
+        .where(eq(botAssignment.id, parent!.id));
+
+      void fakes.Editor.releaseAll();
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete", "complete"]);
+      const seen = fakes.Writer.calls.length;
+      expect(callsWith(fakes.Writer.calls, "Child finished.")).toBe(0);
+
+      await client.assignments.raiseLimit({
+        botId: b.Writer.id,
+        assignmentId: parent!.id,
+        callLimit: parent!.budget.calls + 50,
+      });
+      await expect.poll(() => fakes.Writer.calls.length, poll).toBeGreaterThan(seen);
+      expect(timesInLast(fakes.Writer.calls, "Child finished.")).toBe(1);
+    },
+    timeout,
+  );
+
+  it(
+    "puts work a Stop set aside on the next Turn, for its budget",
+    async () => {
+      const {
+        deps,
+        fakes,
+        client,
+        bots: b,
+        tell,
+      } = await bots(
+        {
+          Scout: [assign("Writer", "Waiting"), quiet],
+          Writer: [quiet, quiet, quiet],
+        },
+        { manual: ["Writer"] },
+      );
+      await tell("Writer", "First.");
+      await expect.poll(() => fakes.Writer.calls.length, poll).toBe(1);
+      await tell("Scout", "Hand it on.");
+      await expect.poll(() => statusesOf(b.Scout.id), poll).toEqual(["complete"]);
+      await client.bots.stop({ botId: b.Writer.id });
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["stopped"]);
+      void fakes.Writer.releaseAll();
+
+      // A Routine's run, so nothing but the set-aside work makes this Turn one on the Assignment.
+      await getTestDb().transaction(async (tx) =>
+        receive(deps, tx, {
+          id: `routine:${uuidv7()}:${uuidv7()}`,
+          botId: b.Writer.id,
+          conversationId: await conversationOf(b.Writer.id),
+          source: "routine",
+          channel: "schedule",
+          text: "Run the report.",
+          receivedAt: deps.clock(),
+        }),
+      );
+      deps.runner.wake();
+
+      await expect
+        .poll(
+          async () => (await client.assignments.list({ botId: b.Writer.id }))[0]!.budget.calls,
+          poll,
+        )
+        .toBeGreaterThan(0);
+    },
+    timeout,
+  );
+
+  it(
+    "files a Check-in's new work under no Assignment that arrived during it",
+    async () => {
+      const {
+        deps,
+        fakes,
+        client,
+        bots: b,
+        tell,
+      } = await bots(
+        {
+          Scout: [assign("Writer", "Arrives"), quiet],
+          Writer: [assign("Editor", "My own"), quiet, quiet],
+          Editor: [quiet],
+        },
+        { manual: ["Writer"] },
+      );
+      await getTestDb().transaction(async (tx) =>
+        receive(deps, tx, {
+          id: `check_in:${uuidv7()}`,
+          botId: b.Writer.id,
+          conversationId: await conversationOf(b.Writer.id),
+          source: "check_in",
+          channel: "schedule",
+          text: "Come back to it.",
+          receivedAt: deps.clock(),
+        }),
+      );
+      deps.runner.wake();
+      await expect.poll(() => fakes.Writer.calls.length, poll).toBe(1);
+      await tell("Scout", "Hand it on.");
+      await expect
+        .poll(async () => (await client.assignments.list({ botId: b.Writer.id })).length, poll)
+        .toBe(1);
+
+      void fakes.Writer.releaseAll();
+
+      await expect
+        .poll(async () => (await client.assignments.list({ botId: b.Editor.id })).length, poll)
+        .toBe(1);
+      const [child] = await client.assignments.list({ botId: b.Editor.id });
+      expect(child!.parent).toBeNull();
+    },
+    timeout,
+  );
+
+  describe("what waited behind a Stop", () => {
+    /** Scout's result, or Scout's work for Writer, waits behind a Turn that Stop ends. */
+    async function waitingBehindStop() {
+      const made = await bots(
+        {
+          Boss: [assign("Editor", "Side job"), quiet, quiet, quiet, quiet],
+          Editor: [finish({ status: "done", outcome: "Side job finished." }), quiet],
+        },
+        { manual: ["Boss"] },
+      );
+      await made.tell("Boss", "Start the side job.");
+      await expect.poll(() => made.fakes.Boss.calls.length, poll).toBe(1);
+      await made.fakes.Boss.release(assign("Editor", "Side job").length);
+      await expect.poll(() => made.fakes.Boss.calls.length, poll).toBe(2);
+      // The second call is held, so the Turn runs on as Editor finishes.
+      await expect
+        .poll(
+          async () =>
+            (await made.client.assignments.list({ botId: made.bots.Editor.id }))[0]?.status,
+          poll,
+        )
+        .toBe("done");
+      await made.client.bots.stop({ botId: made.bots.Boss.id });
+      await expect.poll(() => statusesOf(made.bots.Boss.id), poll).toEqual(["stopped"]);
+      void made.fakes.Boss.releaseAll();
+      return made;
+    }
+
+    it(
+      "reaches the next Turn, once, with no Turn started for it",
+      async () => {
+        const { fakes, bots: b, tell } = await waitingBehindStop();
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        expect(await statusesOf(b.Boss.id)).toEqual(["stopped"]);
+
+        await tell("Boss", "Carry on.");
+        await expect.poll(() => statusesOf(b.Boss.id), poll).toEqual(["stopped", "complete"]);
+        expect(timesInLast(fakes.Boss.calls, "Side job finished.")).toBe(1);
+      },
+      timeout,
+    );
+
+    it(
+      "still reaches the next Turn when a reset came before it",
+      async () => {
+        const { fakes, client, bots: b, tell } = await waitingBehindStop();
+        await client.bots.reset({ botId: b.Boss.id, name: "Boss" });
+
+        await expect
+          .poll(() => callsWith(fakes.Boss.calls.slice(2), "Side job finished."), poll)
+          .toBe(1);
+        await expect.poll(() => statusesOf(b.Boss.id), poll).toEqual(["stopped", "complete"]);
+        const seen = fakes.Boss.calls.length;
+        await tell("Boss", "Anything else?");
+        await expect
+          .poll(() => statusesOf(b.Boss.id), poll)
+          .toEqual(["stopped", "complete", "complete"]);
+        expect(fakes.Boss.calls.length).toBeGreaterThan(seen);
+      },
+      timeout,
+    );
+  });
+
+  describe("waking a Bot afresh", () => {
+    it(
+      "adds no second Trigger to work a Turn caught up on since the reset",
+      async () => {
+        const {
+          deps,
+          client,
+          bots: b,
+          tell,
+          user,
+        } = await bots({ Scout: [assign("Writer"), quiet], Writer: [quiet, quiet, quiet] });
+        await tell("Scout", "Hand it on.");
+        await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+        const setModel = (to: string) =>
+          getTestDb().update(bot).set({ model: to }).where(eq(bot.id, b.Writer.id));
+        await setModel("anthropic:claude-sonnet-5-5");
+        await client.bots.reset({ botId: b.Writer.id, name: "Writer" });
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        await setModel(model);
+        await tell("Writer", "Hello.");
+        await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete", "complete"]);
+        const handOvers = async () =>
+          (await triggersOf(b.Writer.id)).filter((row) => row.id.startsWith("assignment:")).length;
+        const before = await handOvers();
+
+        await wakeOnAssignments(deps, {
+          botId: b.Writer.id,
+          conversationId: await conversationOf(b.Writer.id),
+          userId: user.id,
+          model,
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        expect(await handOvers()).toBe(before);
+        expect(await statusesOf(b.Writer.id)).toEqual(["complete", "complete"]);
+      },
+      timeout,
+    );
+
+    it(
+      "still wakes a Bot on work it had read before a pause, but not for a Trigger since the resume",
+      async () => {
+        const {
+          deps,
+          client,
+          bots: b,
+          tell,
+          user,
+        } = await bots({ Scout: [assign("Writer"), quiet], Writer: [quiet, quiet, quiet] });
+        await tell("Scout", "Hand it on.");
+        await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+        await client.bots.pause({ botId: b.Writer.id });
+        await client.bots.resume({ botId: b.Writer.id });
+        await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete", "complete"]);
+        const handOvers = async () =>
+          (await triggersOf(b.Writer.id)).filter((row) => row.id.startsWith("assignment:"));
+        const [, second] = await handOvers();
+
+        // A wake that lost the race to the Trigger above, as a resume's would.
+        await wakeOnAssignments(
+          deps,
+          {
+            botId: b.Writer.id,
+            conversationId: await conversationOf(b.Writer.id),
+            userId: user.id,
+            model,
+          },
+          second!.receivedAt,
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        expect(await handOvers()).toHaveLength(2);
+      },
+      timeout,
+    );
+  });
+
+  describe("a cancel in the batch window", () => {
+    /** Work reaches idle Writer as a Turn whose job hasn't started, and is cancelled at once. */
+    async function cancelledWhileQueued(
+      andThen?: (tell: (text: string) => Promise<unknown>) => Promise<void>,
+    ) {
+      const made = await bots({ Scout: [quiet], Writer: [says("Hello."), quiet] });
+      await made.tell("Scout", "Hello.");
+      await expect.poll(() => statusesOf(made.bots.Scout.id), poll).toEqual(["complete"]);
+      const [scoutTurn] = await turnsOf(made.bots.Scout.id);
+      const assigned = await getTestDb().transaction((tx) =>
+        assignWork(
+          made.deps,
+          tx,
+          { id: scoutTurn!.id, botId: made.bots.Scout.id, userId: made.user.id },
+          {
+            botName: "Writer",
+            title: "Draft the post",
+            instructions: "Write 100 words about the launch.",
+          },
+        ),
+      );
+      if ("error" in assigned) throw new Error(assigned.error);
+      await made.client.assignments.cancel({
+        botId: made.bots.Writer.id,
+        assignmentId: assigned.assigned.id,
+      });
+      await andThen?.((text) => made.tell("Writer", text));
+      made.deps.runner.wake();
+      return made;
+    }
+
+    it(
+      "ends the queued Turn with no model call, and costs nothing",
+      async () => {
+        const { fakes, client, bots: b, tell } = await cancelledWhileQueued();
+        await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(fakes.Writer.calls).toHaveLength(0);
+        expect((await client.assignments.list({ botId: b.Writer.id }))[0]!.budget.calls).toBe(0);
+
+        await tell("Writer", "Are you there?");
+        await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete", "complete"]);
+        expect(fakes.Writer.calls).toHaveLength(1);
+        expect(JSON.stringify(fakes.Writer.calls[0]!.messages)).not.toContain(
+          "Write 100 words about the launch.",
+        );
+      },
+      timeout,
+    );
+
+    it(
+      "leaves a Turn that took a user's Message too to run",
+      async () => {
+        const { fakes, bots: b } = await cancelledWhileQueued(async (tell) => {
+          await tell("Are you there?");
+        });
+        await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+        expect(fakes.Writer.calls.length).toBeGreaterThan(0);
+      },
+      timeout,
+    );
+  });
+
+  describe("a Check-in's Turn", () => {
+    const checkIn = async (deps: TestDeps, botId: string) => {
+      const conversationId = await conversationOf(botId);
+      await getTestDb().transaction((tx) =>
+        receive(deps, tx, {
+          id: `check_in:${uuidv7()}`,
+          botId,
+          conversationId,
+          source: "check_in",
+          channel: "schedule",
+          text: "Come back to the draft.",
+          receivedAt: deps.clock(),
+        }),
+      );
+      deps.runner.wake();
+    };
+
+    it(
+      "charges no Assignment that arrived while it ran",
+      async () => {
+        const {
+          deps,
+          fakes,
+          client,
+          bots: b,
+          tell,
+        } = await bots(
+          {
+            Scout: [assign("Writer", "First"), quiet, assign("Writer", "Second"), quiet],
+            Writer: [quiet, quiet, quiet, quiet],
+          },
+          { manual: ["Writer"] },
+        );
+        await tell("Scout", "Hand it on.");
+        await expect.poll(() => fakes.Writer.calls.length, poll).toBe(1);
+        await fakes.Writer.release(quiet.length);
+        await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+
+        await checkIn(deps, b.Writer.id);
+        await expect.poll(() => fakes.Writer.calls.length, poll).toBe(2);
+        await tell("Scout", "Hand on the second.");
+        await expect
+          .poll(async () => (await client.assignments.list({ botId: b.Writer.id })).length, poll)
+          .toBe(2);
+        void fakes.Writer.releaseAll();
+        await expect
+          .poll(async () => (await statusesOf(b.Writer.id)).slice(0, 2), poll)
+          .toEqual(["complete", "complete"]);
+
+        const [first, second] = await client.assignments.list({ botId: b.Writer.id });
+        expect(first!.title).toBe("First");
+        const checkInTurn = (await turnsOf(b.Writer.id))[1]!.id;
+        expect(first!.log.some((row) => row.calls !== null && row.turnId === checkInTurn)).toBe(
+          true,
+        );
+        expect(second!.log.some((row) => row.calls !== null && row.turnId === checkInTurn)).toBe(
+          false,
+        );
+      },
+      timeout,
+    );
+
+    it(
+      "charges no parent blocked on a child",
+      async () => {
+        const {
+          deps,
+          fakes,
+          client,
+          bots: b,
+          tell,
+        } = await bots(
+          {
+            Scout: [assign("Writer", "Parent"), quiet],
+            Writer: [assign("Editor", "Child"), quiet, quiet],
+            Editor: [quiet],
+          },
+          { manual: ["Editor"] },
+        );
+        await tell("Scout", "Hand it on.");
+        await expect.poll(() => fakes.Editor.calls.length, poll).toBe(1);
+        await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+        const [parent] = await client.assignments.list({ botId: b.Writer.id });
+        expect(parent!.status).toBe("blocked");
+
+        await checkIn(deps, b.Writer.id);
+        await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete", "complete"]);
+
+        const checkInTurn = (await turnsOf(b.Writer.id))[1]!.id;
+        const [after] = await client.assignments.list({ botId: b.Writer.id });
+        expect(after!.log.some((row) => row.calls !== null && row.turnId === checkInTurn)).toBe(
+          false,
+        );
+        void fakes.Editor.releaseAll();
+      },
+      timeout,
+    );
+  });
+
+  describe("a Secret's value in what a Bot writes", () => {
+    const token = "ghp_a-very-secret-token";
+
+    it(
+      "is masked in assign_work's title and instructions, and in a note",
+      async () => {
+        const made = await bots({
+          Scout: [
+            quiet,
+            round(
+              runs("assign_work", {
+                bot: "Writer",
+                title: `Use ${token}`,
+                instructions: `The key is ${token}.`,
+              }),
+            ),
+            quiet,
+          ],
+          Writer: [
+            (call) =>
+              round(
+                runs("add_assignment_note", {
+                  id: assignmentIdIn(call),
+                  note: `Tried ${token}.`,
+                }),
+              ),
+            quiet,
+          ],
+        });
+        await made.client.secrets.save({
+          botId: made.bots.Scout.id,
+          name: "GITHUB_TOKEN",
+          value: token,
+        });
+        await expect.poll(() => statusesOf(made.bots.Scout.id), poll).toEqual(["complete"]);
+        await made.tell("Scout", "Hand it on.");
+
+        await expect
+          .poll(
+            async () =>
+              (await made.client.assignments.list({ botId: made.bots.Writer.id }))[0]?.log.some(
+                (row) => row.note !== null,
+              ),
+            poll,
+          )
+          .toBe(true);
+        const [row] = await made.client.assignments.list({ botId: made.bots.Writer.id });
+        expect(JSON.stringify(row)).not.toContain(token);
+        expect(row!.instructions).toContain("The key is");
+        expect(JSON.stringify(made.fakes.Writer.calls[0]!.messages)).not.toContain(token);
+      },
+      timeout,
+    );
+  });
+
+  it(
+    "records read_assignment's answer, so a replay gets the same",
+    async () => {
+      const { bots: b, tell } = await bots({
+        Scout: [round(runs("read_assignment", {})), quiet],
+      });
+      await tell("Scout", "Look.");
+      await expect.poll(() => statusesOf(b.Scout.id), poll).toEqual(["complete"]);
+      const [turn] = await turnsOf(b.Scout.id);
+      const history = await loadHistory(getTestDb(), turn!.jobId!);
+      expect(history.map((entry) => entry.name)).toContain("read_assignment");
+    },
+    timeout,
+  );
+
+  it(
+    "tells the parent's thread when a raise frees its child",
+    async () => {
+      const {
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Scout: [assign("Writer", "Parent"), quiet],
+        Writer: [assign("Editor", "Child"), quiet],
+        Editor: [round(runs("read_assignment", {})), quiet, quiet],
+      });
+      const writerThread = await conversationOf(b.Writer.id);
+      // The chain's budget has one call left when Editor starts.
+      await client.bots.pause({ botId: b.Editor.id });
+      await tell("Scout", "Hand it on.");
+      await expect
+        .poll(async () => (await client.assignments.list({ botId: b.Editor.id })).length, poll)
+        .toBe(1);
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+      const [parent] = await client.assignments.list({ botId: b.Writer.id });
+      const [child] = await client.assignments.list({ botId: b.Editor.id });
+      await getTestDb()
+        .update(botAssignment)
+        .set({ callLimit: parent!.budget.calls + 1 })
+        .where(eq(botAssignment.id, parent!.id));
+      await client.bots.resume({ botId: b.Editor.id });
+      await expect
+        .poll(
+          async () => (await client.assignments.list({ botId: b.Editor.id }))[0]!.budget.overBudget,
+          poll,
+        )
+        .toBe(true);
+      const read = await client.conversations.changes({ conversationId: writerThread, since: 0 });
+      if (read.reload) throw new Error("The change log asked for a reload");
+      const lastSeq = read.changes.at(-1)!.seq;
+
+      // From the child's own page: the parent's thread has to hear of it too.
+      await client.assignments.raiseLimit({
+        botId: b.Editor.id,
+        assignmentId: child!.id,
+        callLimit: parent!.budget.calls + 50,
+      });
+
+      const after = await client.conversations.changes({
+        conversationId: writerThread,
+        since: lastSeq,
+      });
+      if (after.reload) throw new Error("The change log asked for a reload");
+      expect(after.changes.map((change) => [change.kind, change.refId])).toContainEqual([
+        "assignment",
+        parent!.id,
+      ]);
+    },
+    timeout,
+  );
+
+  it(
+    "refuses a Bot's instructions and outcome past their caps, by the tool's own schema",
+    async () => {
+      const long = "x".repeat(70_000);
+      const {
+        fakes,
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Scout: [
+          round(runs("assign_work", { bot: "Writer", title: "Long", instructions: long })),
+          assign("Writer", "Short"),
+          quiet,
+        ],
+        Writer: [finish({ status: "done", outcome: long }), quiet, quiet],
+      });
+      await tell("Scout", "Hand it on.");
+      await expect.poll(() => toolResultsIn(fakes.Scout.calls[1]).length, poll).toBeGreaterThan(0);
+      expect(JSON.stringify(toolResultsIn(fakes.Scout.calls[1]))).toMatch(
+        /at most|too_big|Too big/i,
+      );
+      await expect.poll(() => fakes.Writer.calls.length, poll).toBeGreaterThan(1);
+      expect(JSON.stringify(toolResultsIn(fakes.Writer.calls[1]))).toMatch(
+        /at most|too_big|Too big/i,
+      );
+      const [row] = await client.assignments.list({ botId: b.Writer.id });
+      expect(row!.title).toBe("Short");
+      expect(row!.status).not.toBe("done");
+    },
+    timeout,
+  );
+
+  describe("a Turn with the owner's Message beside a hand-over", () => {
+    /** Writer's second Turn takes both the work, which waited, and the owner's Message. */
+    async function batched(second: Round) {
+      const made = await bots(
+        {
+          Scout: [assign("Writer", "Parent"), quiet],
+          Writer: [saysNothing, second, quiet, quiet],
+          Editor: [quiet],
+        },
+        { manual: ["Writer"] },
+      );
+      await made.tell("Writer", "First.");
+      await expect.poll(() => made.fakes.Writer.calls.length, poll).toBe(1);
+      await made.tell("Scout", "Hand it on.");
+      await expect.poll(() => statusesOf(made.bots.Scout.id), poll).toEqual(["complete"]);
+      await made.tell("Writer", "Ask Editor something of mine.");
+      void made.fakes.Writer.releaseAll();
+      await expect
+        .poll(
+          async () => (await made.client.assignments.list({ botId: made.bots.Editor.id })).length,
+          poll,
+        )
+        .toBe(1);
+      const [child] = await made.client.assignments.list({ botId: made.bots.Editor.id });
+      const [parent] = await made.client.assignments.list({ botId: made.bots.Writer.id });
+      return { child: child!, parent: parent! };
+    }
+
+    it(
+      "starts its own chain when the Bot names no parent",
+      async () => {
+        const { child, parent } = await batched(assign("Editor", "Mine"));
+        expect(child.parent).toBeNull();
+        expect(parent.children).toEqual([]);
+        expect(parent.status).not.toBe("blocked");
+        const [row] = await getTestDb()
+          .select({ depth: botAssignment.depth })
+          .from(botAssignment)
+          .where(eq(botAssignment.id, child.id));
+        expect(row!.depth).toBe(1);
+      },
+      timeout,
+    );
+
+    it(
+      "files it under the Assignment the Bot names",
+      async () => {
+        const { child, parent } = await batched((call) =>
+          round(
+            runs("assign_work", {
+              bot: "Editor",
+              title: "Part of it",
+              instructions: "Check it.",
+              parent: assignmentIdIn(call),
+            }),
+          ),
+        );
+        expect(child.parent?.id).toBe(parent.id);
+      },
+      timeout,
+    );
+  });
+
+  it(
+    "says that naming a parent doesn't reset how deep a chain counts",
+    async () => {
+      const ids: string[] = [];
+      const made = await bots({
+        Scout: [
+          round(
+            runs("assign_work", { bot: "Writer", title: "One", instructions: "One." }),
+            runs("assign_work", { bot: "Writer", title: "Two", instructions: "Two." }),
+          ),
+          quiet,
+        ],
+        Writer: [
+          (call) => {
+            ids.push(
+              ...[
+                ...JSON.stringify(call.messages.slice(1)).matchAll(/Assignment ([0-9a-f-]{36})/g),
+              ].map((m) => m[1]!),
+            );
+            return assign("Editor");
+          },
+          quiet,
+          quiet,
+        ],
+        Editor: [quiet],
+      });
+      await made.tell("Scout", "Hand them on.");
+      await expect
+        .poll(() => toolResultsIn(made.fakes.Writer.calls[1]).length, poll)
+        .toBeGreaterThan(0);
+      expect(JSON.stringify(toolResultsIn(made.fakes.Writer.calls[1]))).toMatch(/deepest/);
+    },
+    timeout,
+  );
+
+  it(
+    "gives a Bot a result at most once, through resets and resumes",
+    async () => {
+      const {
+        fakes,
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Scout: [assign("Writer"), quiet, quiet, quiet, quiet, quiet],
+        Writer: [finish({ status: "done", outcome: "Once only." }), quiet],
+      });
+      await tell("Scout", "Hand it on.");
+      await expect.poll(() => callsWith(fakes.Scout.calls, "Once only."), poll).toBe(1);
+      await expect.poll(() => statusesOf(b.Scout.id), poll).toEqual(["complete", "complete"]);
+
+      for (let reset = 0; reset < 2; reset += 1) {
+        await client.bots.reset({ botId: b.Scout.id, name: "Scout" });
+        await client.bots.pause({ botId: b.Scout.id });
+        await client.bots.resume({ botId: b.Scout.id });
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        expect(await statusesOf(b.Scout.id)).toEqual(["complete", "complete"]);
+      }
+      await tell("Scout", "Hello?");
+      await expect
+        .poll(() => statusesOf(b.Scout.id), poll)
+        .toEqual(["complete", "complete", "complete"]);
+      expect(JSON.stringify(fakes.Scout.calls.at(-1)!.messages)).not.toContain("Once only.");
     },
     timeout,
   );

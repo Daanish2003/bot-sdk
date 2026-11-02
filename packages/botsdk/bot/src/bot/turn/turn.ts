@@ -34,7 +34,7 @@ import {
   turnStarted,
   waitingIn,
 } from "../triggers";
-import { assignmentsAtTurnStart, turnBudget } from "../assignments";
+import { assignmentsAtTurnStart, setAsideAtStop, turnBudget } from "../assignments";
 import {
   build,
   type ContextTurn,
@@ -90,6 +90,9 @@ export const undeliveredTextReminder =
 
 /** The first Checkpoint of a Turn's job, which starts the Turn (#501). */
 const startTurnActivity = "start_turn";
+
+/** What the start Checkpoint records for a Turn left with nothing to do, in place of its to-do list. */
+const nothingToDo = "nothing_to_do";
 
 /** The runner job of one Turn, keyed by the Turn's id (ADR 0011, the #482 amendment). */
 export const botTurnJob = defineCoreJob({
@@ -400,7 +403,7 @@ async function seenMessage(
  * Stops the Bot's running Turn by cancelling its job (#482, #483), and starts nothing after it
  * (#500): in the same transaction, the Turn it stops takes every Trigger waiting in the
  * Conversation queue, so `turnEnded` finds the line empty. Their Messages stay, and the next Turn
- * reads them as history. Does nothing when no Turn is running. The Turn is the one in
+ * reads them as history; an Assignment's are set aside for that Turn to take (`setAsideAtStop`). Does nothing when no Turn is running. The Turn is the one in
  * `conversationId`, the Bot's 1:1 Conversation when not given, or one of its Rooms (spec #1055),
  * where the Tasks view shows it; a Conversation the Bot isn't in is not found.
  */
@@ -426,8 +429,14 @@ export async function stopBot(
     await lockTurnConversations(tx, owner);
     const running = await runningTurnOf(tx, owner);
     if (!running) return false;
+    // First, so the Turn it hands the rest to finds the line empty.
+    await setAsideAtStop(tx, owner, { turnId: running, ended: false, now: deps.clock() });
     await tx.update(botTrigger).set({ turnId: running }).where(waitingIn(owner));
-    return cancelTurn(deps, tx, running, "stop");
+    const stopped = await cancelTurn(deps, tx, running, "stop");
+    if (stopped) {
+      await setAsideAtStop(tx, owner, { turnId: running, ended: true, now: deps.clock() });
+    }
+    return stopped;
   });
   if (!ended) return;
   deps.runner.wake();
@@ -572,16 +581,16 @@ async function runTurnJob(
   const created = await turnFacts(deps.db, turnId);
   if (!created) throw new PermanentJobError(`Turn ${turnId} no longer exists`);
   let turn = created;
-  let todo: TodoItem[] | null;
+  let start: TodoItem[] | null | typeof nothingToDo;
   try {
     // The to-do list as the Turn starts, recorded: every attempt reads the same.
     // Set only by a live start: a replayed one changed nothing, so hints nothing.
     let started = false;
-    todo = await ctx.step(startTurnActivity, async (tx) => {
+    start = await ctx.step(startTurnActivity, async (tx) => {
       await turnStarted(deps, tx, turnId);
-      await assignmentsAtTurnStart(deps, tx, turnId);
+      const hasWork = await assignmentsAtTurnStart(deps, tx, turnId);
       started = true;
-      return todoList(tx, turn.botId);
+      return hasWork ? todoList(tx, turn.botId) : nothingToDo;
     });
     // Read after the start: a resumed attempt replays it, so the Turn keeps the start it had.
     turn = (await turnFacts(deps.db, turnId)) ?? created;
@@ -590,7 +599,20 @@ async function runTurnJob(
     if (ctx.signal.aborted) await stopIfCancelled(deps, turn, { transcript: [], usage: null });
     throw caught;
   }
-  const played = await playTurn(deps, turn, ctx, { attempt: ctx.signal, todo });
+  const played: LoopResult =
+    start === nothingToDo
+      ? {
+          timedOut: false,
+          stepLimit: false,
+          stopped: false,
+          overBudget: false,
+          error: undefined,
+          finished: true,
+          transcript: [],
+          usage: null,
+          lastInput: undefined,
+        }
+      : await playTurn(deps, turn, ctx, { attempt: ctx.signal, todo: start });
   try {
     ctx.signal.throwIfAborted();
     // A thrown activity recorded nothing: the job retries it.
@@ -734,11 +756,15 @@ async function replayedTurn(
   });
   try {
     // A job that never started recorded no start.
-    const todo =
+    const start =
       history.length > 0
-        ? await workflow.context.step<TodoItem[] | null>(startTurnActivity, async () => null)
+        ? await workflow.context.step<TodoItem[] | null | typeof nothingToDo>(
+            startTurnActivity,
+            async () => null,
+          )
         : null;
-    return await playTurn(deps, turn, workflow.context, { db, todo });
+    if (start === nothingToDo) return { transcript: [], usage: null };
+    return await playTurn(deps, turn, workflow.context, { db, todo: start });
   } catch (caught) {
     // The job ended before it stored the Turn's input, so the Turn sent nothing.
     if (caught === ended.reason) return { transcript: [], usage: null };
