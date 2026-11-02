@@ -6,10 +6,10 @@ import { botsdkSchema } from "../botsdk-schema";
 /**
  * What a recorded call was for. Each kind is written by the call it names: a web search, one
  * generated image, a call that makes Memories (ADR 0013), a Bot's Turn, one of its Helpers, the
- * writing of a Summary, a call that warms a Bot's cache, an Auto-review of a Bot's tool call, or
- * the drafting of a Skill from a Demonstration. `run`, `title` and `transcription` (the
- * assistant's, ADR 0027) and `embedding` are no longer written: they stay for the rows already
- * recorded (`embedding` from the old Knowledge, spec #737).
+ * writing of a Summary, a call that warms a Bot's cache, an Auto-review of a Bot's tool call,
+ * the drafting of a Skill from a Demonstration, or a Representative's loop. `run`, `title` and
+ * `transcription` (the assistant's, ADR 0027) and `embedding` are no longer written: they stay for
+ * the rows already recorded (`embedding` from the old Knowledge, spec #737).
  */
 export const usageKind = botsdkSchema.enum("usage_kind", [
   "run",
@@ -25,6 +25,7 @@ export const usageKind = botsdkSchema.enum("usage_kind", [
   "warm",
   "review",
   "skill_draft",
+  "representative",
 ]);
 
 /**

@@ -20,6 +20,13 @@ export {
   type FeatureTurn,
 } from "./feature";
 export { assignmentEnded, type AssignmentEnded, type AssignmentsService } from "./bot/assignments";
+export type {
+  RepresentativeIdentity,
+  RepresentativeLoopKit,
+  RepresentativeLoopOptions,
+  RepresentativeLoopResult,
+  RepresentativeLoopService,
+} from "./bot/agent-loop";
 export { dropFeatureTables, type MigrateConfigModule } from "./migrate-cli";
 export {
   defineJob,
