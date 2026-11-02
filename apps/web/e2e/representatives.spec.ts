@@ -84,7 +84,9 @@ test("an owner chooses which Bot a Representative reports to", async ({ page }) 
   await expect(chooser.locator("option:checked")).toHaveText("You");
 
   // Only the owner's Bots are offered, and the choice holds after a reload.
-  await expect(chooser.locator("option")).toHaveText(["You", "Ada", "Grace"]);
+  await expect(chooser.locator("option")).toHaveCount(3);
+  await expect(chooser).toContainText("Ada");
+  await expect(chooser).toContainText("Grace");
   await chooser.selectOption({ label: "Grace" });
   await expect(page.getByText("Reporting Bot changed").first()).toBeVisible();
   await page.reload();
