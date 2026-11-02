@@ -109,6 +109,9 @@ const assignments = os.assignments.router({
   list: os.assignments.list.handler(({ context, input }) =>
     context.sdk.assignments.list({ ...input, userId: context.user.id }),
   ),
+  cancel: os.assignments.cancel.handler(({ context, input }) =>
+    context.sdk.assignments.cancel({ ...input, userId: context.user.id }),
+  ),
 });
 
 const triggers = os.triggers.router({

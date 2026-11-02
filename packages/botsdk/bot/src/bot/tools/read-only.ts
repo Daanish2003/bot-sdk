@@ -4,7 +4,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { botRoutine, botTrigger } from "../../storage";
 import type { Transaction } from "../../plugin";
 import { shellToolName } from "../agent-loop";
-import { assignWorkToolName } from "../assignments";
+import { assignWorkToolName, cancelAssignmentToolName } from "../assignments";
 import { watchUserToolName } from "../demonstrations";
 import {
   checkHelperToolName,
@@ -28,7 +28,7 @@ export const readOnlyError = "This check is read-only. Draft it and ask the user
 
 /**
  * The core tools a read-only run refuses: shell, the Helper tools, `generate_image`, `watch_user`,
- * the Routine tools that change a Routine, proposing a Custom Rule, and assigning work. SendToUser,
+ * the Routine tools that change a Routine, proposing a Custom Rule, and assigning or cancelling work. SendToUser,
  * web search, the Check-in tools, `finish_assignment` (one Turn can take a read-only Routine's fire
  * and an Assignment, which would otherwise be stuck) and the Computer's file tools still work.
  */
@@ -45,6 +45,7 @@ const refusedCoreTools: ReadonlySet<string> = new Set([
   deleteRoutineToolName,
   proposeRuleToolName,
   assignWorkToolName,
+  cancelAssignmentToolName,
 ]);
 
 /** Whether a read-only run refuses a call of tool `name`. */

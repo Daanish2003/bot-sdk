@@ -2,15 +2,19 @@ import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { conversationChannel } from "../../src/chat/conversation-events";
 import { bot, botAssignment, botTrigger, botTurn } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { deleteUserData, exportUserData } from "../../src/user-data";
+import { assignmentTools } from "../../src/bot/assignments";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner } from "../../src/runner/internal";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "@ai-chat/test-support/deps";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
+import { botContract } from "@botsdk/client/bot/contract";
+import { taskCount } from "@botsdk/client/bot/tasks";
 import { createFakeAdapter, type FakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 import { fakeReviewer, type FakeReviewer } from "@botsdk/testing/fake-reviewer";
@@ -914,6 +918,377 @@ describe("Rooms beside Assignments", () => {
       expect(outside).toMatchObject([{ source: "assignment", hops: 0 }]);
       const { messages } = await client.rooms.get({ conversationId: room.conversationId });
       expect(messages.map((sent) => sent.text).join("\n")).not.toContain("Side job");
+    },
+    timeout,
+  );
+});
+
+/** A tool call of the deferred kind on Assignment `id()`, read when its round is played. */
+const onAssignment =
+  (name: string, id: () => string, extra: Record<string, unknown> = {}) =>
+  () =>
+    round(runs(name, { id: id(), ...extra }));
+
+/** The `changed` hints a Conversation gets. */
+async function hintsOf(deps: TestDeps, conversationId: string) {
+  const hints: string[] = [];
+  await deps.pubsub.subscribe(conversationChannel(conversationId), (message) => {
+    hints.push(message);
+  });
+  return hints;
+}
+
+const conversationOf = async (botId: string) =>
+  (await getTestDb().select({ id: bot.conversationId }).from(bot).where(eq(bot.id, botId)))[0]!.id;
+
+describe("following an Assignment's log", () => {
+  it(
+    "logs each change with its actor, the assigned Bot's notes and the Turn, and shows a Bot only its own Assignments",
+    async () => {
+      let id = "";
+      const {
+        fakes,
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Scout: [assign("Writer"), quiet, onAssignment("read_assignment", () => id), quiet],
+        Writer: [
+          (call) => {
+            id = assignmentIdIn(call);
+            return round(runs("add_assignment_note", { id, note: "Halfway there." }));
+          },
+          onAssignment("read_assignment", () => id),
+          onAssignment("cancel_assignment", () => id),
+          quiet,
+        ],
+        Ops: [
+          onAssignment("read_assignment", () => id),
+          onAssignment("add_assignment_note", () => id, { note: "Mine." }),
+          onAssignment("cancel_assignment", () => id),
+          quiet,
+        ],
+      });
+
+      await tell("Scout", "Hand it on.");
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+
+      // The owner reads who did what, in which Turn, and the note.
+      const [row] = await client.assignments.list({ botId: b.Writer.id });
+      expect(
+        row!.log.map((entry) => [entry.status, entry.actor, entry.actorName, entry.note]),
+      ).toEqual([
+        ["open", "bot", "Scout", null],
+        ["working", "system", null, null],
+        ["working", "bot", "Writer", "Halfway there."],
+      ]);
+      const [writerTurn] = await turnsOf(b.Writer.id);
+      expect(row!.log[2]!.turnId).toBe(writerTurn!.id);
+
+      // The assigned Bot reads its own, and can't cancel what it didn't start.
+      const writerSaw = JSON.stringify(toolResultsIn(fakes.Writer.calls[2]));
+      expect(writerSaw).toMatch(/assigned to you/);
+      expect(writerSaw).toMatch(/Halfway there\./);
+      expect(writerSaw).toMatch(/Scout/);
+      expect(JSON.stringify(toolResultsIn(fakes.Writer.calls[3]).at(-1))).toMatch(
+        /was started by you/,
+      );
+
+      // The assigner reads it too, and its log cannot be cancelled by a Bot that isn't part of it.
+      await tell("Scout", "How is it going?");
+      await expect.poll(() => statusesOf(b.Scout.id), poll).toEqual(["complete", "complete"]);
+      expect(JSON.stringify(toolResultsIn(fakes.Scout.calls[3]).at(-1))).toMatch(
+        /started by you[\s\S]*Halfway there\./,
+      );
+
+      // A Bot that isn't part of it is refused all three, as if it didn't exist.
+      await tell("Ops", "Look at it.");
+      await expect.poll(() => statusesOf(b.Ops.id), poll).toEqual(["complete"]);
+      const refused = fakes.Ops.calls.map((call) => JSON.stringify(toolResultsIn(call).at(-1)));
+      expect(refused[1]).toMatch(/not part of an Assignment/);
+      expect(refused[2]).toMatch(/No Assignment with id .* is assigned to you/);
+      expect(refused[3]).toMatch(/was started by you/);
+      const [after] = await client.assignments.list({ botId: b.Writer.id });
+      expect(after!.status).toBe("working");
+      expect(after!.log).toHaveLength(3);
+    },
+    timeout,
+  );
+
+  it(
+    "offers no way to create, edit or remove a log row, or to create an Assignment, to the owner",
+    async () => {
+      expect(Object.keys(botContract.assignments).sort()).toEqual(["cancel", "list"]);
+    },
+    timeout,
+  );
+});
+
+describe("cancelling an Assignment", () => {
+  it(
+    "lets the owner cancel any one: it logs, wakes the waiting assigner, tells the assigned Bot, and refuses its finish",
+    async () => {
+      const {
+        fakes,
+        deps,
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Scout: [assign("Writer"), quiet, quiet],
+        Writer: [quiet, finish(), quiet],
+      });
+      await tell("Scout", "Hand it on.");
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+      const [working] = await client.assignments.list({ botId: b.Writer.id });
+      const hints = await Promise.all(
+        [b.Writer.id, b.Scout.id].map(async (botId) => hintsOf(deps, await conversationOf(botId))),
+      );
+
+      await client.assignments.cancel({ botId: b.Writer.id, assignmentId: working!.id });
+
+      // Whoever was waiting is woken, and the one working on it learns of it.
+      await expect.poll(() => statusesOf(b.Scout.id), poll).toEqual(["complete", "complete"]);
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete", "complete"]);
+      const [cancelled] = await client.assignments.list({ botId: b.Writer.id });
+      expect(cancelled).toMatchObject({ status: "cancelled", result: null });
+      expect(cancelled!.endedAt).toBeInstanceOf(Date);
+      expect(cancelled!.log.at(-1)).toMatchObject({
+        status: "cancelled",
+        actor: "user",
+        actorName: null,
+        turnId: null,
+      });
+      expect(JSON.stringify(fakes.Scout.calls.at(-1)!.messages.slice(1))).toContain(
+        "was cancelled by the user",
+      );
+      expect(JSON.stringify(fakes.Writer.calls[1]!.messages.slice(1))).toContain(
+        "was cancelled by the user",
+      );
+      // Finishing it is refused and changes nothing.
+      expect(JSON.stringify(toolResultsIn(fakes.Writer.calls[2]).at(-1))).toMatch(
+        /was cancelled, so it can't be finished/,
+      );
+      const [still] = await client.assignments.list({ botId: b.Writer.id });
+      expect(still).toMatchObject({ status: "cancelled", result: null });
+      expect(still!.log.filter((entry) => entry.status === "cancelled")).toHaveLength(1);
+
+      // Both threads were hinted once it committed.
+      for (const events of hints) expect(events).toContain(JSON.stringify({ type: "changed" }));
+
+      // Once ended, it can't be cancelled again.
+      await expect(
+        client.assignments.cancel({ botId: b.Writer.id, assignmentId: working!.id }),
+      ).rejects.toMatchObject({ code: "CONFLICT", data: { code: "error.assignmentEnded" } });
+    },
+    timeout,
+  );
+
+  it(
+    "hints both threads once the owner's cancel has committed, when no Turn would hint them",
+    async () => {
+      const {
+        deps,
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Scout: [assign("Writer"), quiet],
+        Writer: [quiet],
+      });
+      await tell("Scout", "Hand it on.");
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+      const [row] = await client.assignments.list({ botId: b.Writer.id });
+      // Paused, neither Bot runs a Turn, so any hint of their threads is the cancel's.
+      await client.bots.pause({ botId: b.Writer.id });
+      await client.bots.pause({ botId: b.Scout.id });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const hints = await Promise.all(
+        [b.Writer.id, b.Scout.id].map(async (botId) => hintsOf(deps, await conversationOf(botId))),
+      );
+
+      await client.assignments.cancel({ botId: b.Writer.id, assignmentId: row!.id });
+
+      for (const events of hints) {
+        await expect.poll(() => events, poll).toContain(JSON.stringify({ type: "changed" }));
+      }
+    },
+    timeout,
+  );
+
+  it(
+    "is refused for another user's Assignment, and under another Bot's id",
+    async () => {
+      const {
+        deps,
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Scout: [assign("Writer"), quiet],
+        Writer: [quiet],
+      });
+      await tell("Scout", "Hand it on.");
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+      const [row] = await client.assignments.list({ botId: b.Writer.id });
+      const stranger = chatRpc({ user: await insertUser(), deps });
+      const code = { code: "NOT_FOUND" };
+
+      await expect(
+        stranger.assignments.cancel({ botId: b.Writer.id, assignmentId: row!.id }),
+      ).rejects.toMatchObject(code);
+      await expect(
+        client.assignments.cancel({ botId: b.Scout.id, assignmentId: row!.id }),
+      ).rejects.toMatchObject(code);
+      await expect(
+        client.assignments.cancel({ botId: b.Writer.id, assignmentId: uuidv7() }),
+      ).rejects.toMatchObject(code);
+      expect((await client.assignments.list({ botId: b.Writer.id }))[0]!.status).toBe("working");
+    },
+    timeout,
+  );
+
+  it(
+    "lets a Bot cancel what it started, telling the assigned Bot, and hints the assigned Bot's thread",
+    async () => {
+      let id = "";
+      const {
+        fakes,
+        deps,
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Scout: [assign("Writer"), quiet, onAssignment("cancel_assignment", () => id), quiet],
+        Writer: [
+          (call) => {
+            id = assignmentIdIn(call);
+            return quiet;
+          },
+          quiet,
+        ],
+      });
+      await tell("Scout", "Hand it on.");
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+      // Paused, the Writer runs no Turn, so a hint of its thread can only be the cancel's.
+      await client.bots.pause({ botId: b.Writer.id });
+      const hints = await hintsOf(deps, await conversationOf(b.Writer.id));
+
+      await tell("Scout", "Never mind that.");
+      await expect.poll(() => statusesOf(b.Scout.id), poll).toEqual(["complete", "complete"]);
+
+      const [cancelled] = await client.assignments.list({ botId: b.Writer.id });
+      expect(cancelled!.status).toBe("cancelled");
+      expect(cancelled!.log.at(-1)).toMatchObject({ actor: "bot", actorName: "Scout" });
+      expect(cancelled!.log.at(-1)!.turnId).toEqual(expect.any(String));
+      expect(fakes.Scout.calls).toHaveLength(4);
+      await expect.poll(() => hints, poll).toContain(JSON.stringify({ type: "changed" }));
+    },
+    timeout,
+  );
+
+  it(
+    "causes no further work when it is cancelled while waiting behind another Turn",
+    async () => {
+      const {
+        fakes,
+        client,
+        bots: b,
+        tell,
+      } = await bots(
+        { Scout: [assign("Writer"), quiet, quiet], Writer: [says("Still on it.")] },
+        { manual: ["Writer"] },
+      );
+      await tell("Writer", "Do the thing.");
+      await expect.poll(() => fakes.Writer.calls.length, poll).toBe(1);
+      await tell("Scout", "Hand it on.");
+      await expect.poll(() => statusesOf(b.Scout.id), poll).toEqual(["complete"]);
+      const [waiting] = await client.assignments.list({ botId: b.Writer.id });
+      expect(waiting!.status).toBe("open");
+
+      await client.assignments.cancel({ botId: b.Writer.id, assignmentId: waiting!.id });
+      await fakes.Writer.releaseAll();
+
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+      // The Turn behind it never comes: Writer never read the work or the cancel.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(await statusesOf(b.Writer.id)).toEqual(["complete"]);
+      expect(fakes.Writer.calls).toHaveLength(1);
+      const triggers = await triggersOf(b.Writer.id);
+      expect(triggers.map((trigger) => [trigger.source, trigger.skipReason])).toEqual([
+        ["user", null],
+        ["assignment", "cancelled"],
+      ]);
+      const [after] = await client.assignments.list({ botId: b.Writer.id });
+      expect(after!.status).toBe("cancelled");
+      // The waiting assigner was woken all the same.
+      await expect.poll(() => statusesOf(b.Scout.id), poll).toEqual(["complete", "complete"]);
+    },
+    timeout,
+  );
+});
+
+describe("the Tasks count", () => {
+  it(
+    "counts an Assignment in progress with no Turn running and no Trigger waiting",
+    async () => {
+      const {
+        client,
+        bots: b,
+        tell,
+      } = await bots({
+        Scout: [assign("Writer"), quiet],
+        Writer: [quiet],
+      });
+      await tell("Scout", "Hand it on.");
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+
+      const tasks = await client.bots.tasks({ botId: b.Writer.id });
+
+      expect(tasks.inProgress.assignments).toHaveLength(1);
+      expect(taskCount(tasks)).toBe(1);
+    },
+    timeout,
+  );
+});
+
+describe("a note in the log", () => {
+  it(
+    "hints the assigned Bot's thread once it is committed, and is refused once the Assignment ended",
+    async () => {
+      const {
+        deps,
+        client,
+        user,
+        bots: b,
+        tell,
+      } = await bots({ Scout: [assign("Writer"), quiet], Writer: [quiet] });
+      await tell("Scout", "Hand it on.");
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+      const [row] = await client.assignments.list({ botId: b.Writer.id });
+      const [turn] = await turnsOf(b.Writer.id);
+      const note = assignmentTools(
+        deps,
+        { id: turn!.id, botId: b.Writer.id, userId: user.id },
+        <T>(_name: string, _id: string | undefined, write: (tx: never) => Promise<T>) =>
+          getTestDb().transaction((tx) => write(tx as never)),
+      ).find((tool) => tool.name === "add_assignment_note")!;
+      // The Turn's own hints have all arrived by now.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const hints = await hintsOf(deps, await conversationOf(b.Writer.id));
+
+      await note.execute!({ id: row!.id, note: "Started." }, undefined);
+
+      await expect.poll(() => hints, poll).toContain(JSON.stringify({ type: "changed" }));
+      const [noted] = await client.assignments.list({ botId: b.Writer.id });
+      expect(noted!.log.at(-1)).toMatchObject({ actor: "bot", note: "Started." });
+
+      await client.assignments.cancel({ botId: b.Writer.id, assignmentId: row!.id });
+      expect(await note.execute!({ id: row!.id, note: "Too late." }, undefined)).toMatchObject({
+        error: expect.stringMatching(/was cancelled, so it takes no more notes/),
+      });
+      const [after] = await client.assignments.list({ botId: b.Writer.id });
+      expect(after!.log.map((entry) => entry.note)).not.toContain("Too late.");
     },
     timeout,
   );

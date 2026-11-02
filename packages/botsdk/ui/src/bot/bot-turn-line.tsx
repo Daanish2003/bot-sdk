@@ -2,6 +2,7 @@ import type { BotTurnStep } from "@botsdk/client/bot/turn";
 import { useId, useState, type ReactNode } from "react";
 
 import { useI18n } from "@botsdk/react/provider";
+import { turnLineId } from "./assignment-item";
 import { CacheSteps, costOf, percentOf } from "./bot-cache-chip";
 
 /**
@@ -12,10 +13,13 @@ import { CacheSteps, costOf, percentOf } from "./bot-cache-chip";
  * Shows nothing for a Turn with no Steps and nothing saved.
  */
 export function BotTurnLine({
+  turnId,
   steps,
   saved,
   activity,
 }: {
+  /** The Turn it is under, which an Assignment's log links to. */
+  turnId?: string;
   steps: BotTurnStep[];
   saved?: ReactNode;
   /** The Turn's tool activity rows (#1126), first in the panel. */
@@ -29,7 +33,10 @@ export function BotTurnLine({
   const cost = costOf(steps.reduce((sum, step) => sum + step.costMicros, 0));
   const count = steps.filter((step) => step.kind !== "summary").length;
   return (
-    <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+    <div
+      id={turnId && turnLineId(turnId)}
+      className="flex flex-col gap-1 text-xs text-muted-foreground"
+    >
       <div
         data-turn-line
         role="group"

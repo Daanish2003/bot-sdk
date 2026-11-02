@@ -5,7 +5,7 @@ import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createElement } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { BotConversation } from "../../src/bot/bot-conversation";
@@ -38,6 +38,7 @@ const draft = (fields: Partial<BotAssignment> = {}): BotAssignment => ({
   createdAt,
   endedAt: null,
   afterMessageId: null,
+  log: [],
   ...fields,
 });
 
@@ -46,6 +47,7 @@ function mount(
   messages: BotMessage[],
   assignments: BotAssignment[],
   turns: BotTurnProvenance[] = [],
+  cancelled: string[] = [],
 ) {
   const router = {
     bots: {
@@ -54,6 +56,11 @@ function mount(
     },
     assignments: {
       list: os.input(z.object({ botId: z.string() })).handler(() => assignments),
+      cancel: os
+        .input(z.object({ botId: z.string(), assignmentId: z.string() }))
+        .handler(({ input }) => {
+          cancelled.push(input.assignmentId);
+        }),
     },
     routines: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
     checkIns: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
@@ -74,7 +81,7 @@ describe("an Assignment in its Bot's Conversation", () => {
       [draft({ afterMessageId: "m2" })],
     );
 
-    const toggle = await screen.findByRole("button", { name: /Draft the post/ });
+    const toggle = await screen.findByRole("button", { name: /^Assignment from/ });
     const rows = [
       ...container.querySelectorAll<HTMLElement>("[data-bot-message], [data-assignment]"),
     ].map((row) => (row.dataset.assignment ? `assignment:${row.dataset.status}` : row.textContent));
@@ -101,7 +108,7 @@ describe("an Assignment in its Bot's Conversation", () => {
       ],
     );
 
-    const toggle = await screen.findByRole("button", { name: /Draft the post/ });
+    const toggle = await screen.findByRole("button", { name: /^Assignment from/ });
     const first = container.querySelector("[data-assignment], [data-bot-message]") as HTMLElement;
     expect(first.dataset.assignment).toBe("a1");
 
@@ -115,7 +122,7 @@ describe("an Assignment in its Bot's Conversation", () => {
       [draft({ afterMessageId: "not-shown" })],
     );
 
-    await screen.findByRole("button", { name: /Draft the post/ });
+    await screen.findByRole("button", { name: /^Assignment from/ });
     const rows = [
       ...container.querySelectorAll<HTMLElement>("[data-bot-message], [data-assignment]"),
     ].map((row) => row.dataset.assignment ?? row.textContent);
@@ -145,30 +152,113 @@ describe("an Assignment in its Bot's Conversation", () => {
       ],
     );
 
-    await screen.findByRole("button", { name: /Draft the post/ });
+    await screen.findByRole("button", { name: /^Assignment from/ });
     expect(container.querySelector("[data-run]")).toBeNull();
   });
 });
 
 describe("the Tasks view's Assignments", () => {
-  it("lists one in progress, read-only, leaving the count to the live work", async () => {
+  it("lists one in progress, counting it, as no Turn or Trigger shows it", async () => {
     mount([], [draft()]);
 
-    fireEvent.click(await screen.findByRole("button", { name: /^Tasks 0/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Tasks 1/ }));
 
     const panel = await screen.findByRole("tabpanel", { name: "In progress" });
     const list = within(panel).getByRole("list", { name: "Assignments" });
-    expect(within(list).getByRole("button", { name: /Draft the post/ })).toBeTruthy();
-    expect(within(list).getAllByRole("button")).toHaveLength(1);
+    expect(within(list).getByRole("button", { name: /^Assignment from/ })).toBeTruthy();
+    expect(within(list).getByRole("button", { name: "Cancel Draft the post" })).toBeTruthy();
   });
 
-  it("lists an ended one under Done", async () => {
+  it("lists an ended one under Done, with no Cancel", async () => {
     mount([], [draft({ status: "done", endedAt: createdAt, result: { outcome: "Drafted." } })]);
 
     fireEvent.click(await screen.findByRole("button", { name: /^Tasks 0/ }));
     fireEvent.click(await screen.findByRole("tab", { name: "Done" }));
 
     const panel = await screen.findByRole("tabpanel", { name: "Done" });
-    expect(within(panel).getByRole("button", { name: /Draft the post/ })).toBeTruthy();
+    expect(within(panel).getByRole("button", { name: /^Assignment from/ })).toBeTruthy();
+    expect(within(panel).queryByRole("button", { name: /^Cancel/ })).toBeNull();
+  });
+});
+
+describe("following and cancelling an Assignment", () => {
+  const at = new Date("2026-10-19T09:30:00.000Z");
+
+  it("opens to its log: each status change, who made it, the Bot's notes, and a link to its Turn", async () => {
+    const turn = document.createElement("div");
+    turn.id = "turn-t1";
+    turn.scrollIntoView = vi.fn();
+    document.body.append(turn);
+    mount(
+      [said("m1", "user", "Hello")],
+      [
+        draft({
+          log: [
+            {
+              id: "l1",
+              status: "open",
+              actor: "bot",
+              actorName: "Scout",
+              note: null,
+              turnId: null,
+              at: createdAt,
+            },
+            {
+              id: "l2",
+              status: "working",
+              actor: "system",
+              actorName: null,
+              note: null,
+              turnId: "t1",
+              at,
+            },
+            {
+              id: "l3",
+              status: "working",
+              actor: "bot",
+              actorName: "Ada",
+              note: "Halfway there.",
+              turnId: "t1",
+              at,
+            },
+            {
+              id: "l4",
+              status: "cancelled",
+              actor: "user",
+              actorName: null,
+              note: null,
+              turnId: null,
+              at,
+            },
+          ],
+        }),
+      ],
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Assignment from/ }));
+
+    const log = screen.getByRole("list", { name: "Log" });
+    const entries = within(log)
+      .getAllByRole("listitem")
+      .map((row) => row.textContent);
+    expect(entries).toHaveLength(4);
+    expect(entries[0]).toContain("by Scout");
+    expect(entries[1]).toContain("by the SDK");
+    expect(entries[2]).toContain("by Ada");
+    expect(entries[2]).toContain("Halfway there.");
+    expect(entries[3]).toContain("Cancelled");
+    expect(entries[3]).toContain("by you");
+    fireEvent.click(within(log).getAllByRole("button", { name: "Turn" })[0]!);
+    expect(turn.scrollIntoView).toHaveBeenCalled();
+    turn.remove();
+  });
+
+  it("cancels from its collapsed item", async () => {
+    const cancelled: string[] = [];
+    mount([], [draft()], [], cancelled);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel Draft the post" }));
+
+    await vi.waitFor(() => expect(cancelled).toEqual(["a1"]));
   });
 });

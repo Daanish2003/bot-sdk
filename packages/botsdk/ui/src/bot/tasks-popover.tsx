@@ -7,7 +7,7 @@ import { useState } from "react";
 
 import { allHelpers } from "@botsdk/react/bot/helpers";
 import { useI18n } from "@botsdk/react/provider";
-import { AssignmentItem } from "./assignment-item";
+import { AssignmentItem, type AssignmentActionHandlers } from "./assignment-item";
 import { CancelCheckIn, type CheckInActionHandlers, checkInText } from "./check-in-line";
 import { helperIcon, StatusChip } from "./helper-card";
 import {
@@ -135,6 +135,7 @@ export function TasksPopover({
   /** The user's edit of a pending Check-in's time and note. */
   onEditCheckIn: (edit: CheckInEdit) => Promise<void>;
 } & SkipTriggerHandlers &
+  AssignmentActionHandlers &
   CheckInActionHandlers &
   RoutineActionHandlers) {
   const i18n = useI18n();
@@ -230,7 +231,11 @@ export function TasksPopover({
                 <ul aria-label={t("bots.assignments")} className="flex flex-col gap-2">
                   {inProgress.assignments.map((assignment) => (
                     <li key={assignment.id}>
-                      <AssignmentItem assignment={assignment} />
+                      <AssignmentItem
+                        assignment={assignment}
+                        onCancelAssignment={actions.onCancelAssignment}
+                        actingAssignments={actions.actingAssignments}
+                      />
                     </li>
                   ))}
                 </ul>
@@ -384,7 +389,11 @@ export function TasksPopover({
               })}
               {done.assignments.map((assignment) => (
                 <li key={assignment.id}>
-                  <AssignmentItem assignment={assignment} />
+                  <AssignmentItem
+                    assignment={assignment}
+                    onCancelAssignment={actions.onCancelAssignment}
+                    actingAssignments={actions.actingAssignments}
+                  />
                 </li>
               ))}
               {done.checkIns.map((checkIn) => (

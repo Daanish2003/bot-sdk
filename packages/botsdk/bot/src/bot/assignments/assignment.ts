@@ -1,4 +1,5 @@
 import type {
+  AssignmentLogEntry,
   AssignmentResult,
   AssignmentStatus,
   BotAssignment,
@@ -11,7 +12,9 @@ import {
   eq,
   gte,
   inArray,
+  isNotNull,
   isNull,
+  like,
   lte,
   notInArray,
   or,
@@ -230,6 +233,7 @@ export async function finishAssignment(
   const [row] = await tx
     .select({
       title: botAssignment.title,
+      status: botAssignment.status,
       assignerBotId: botAssignment.assignerBotId,
       assignedName: bot.name,
       assignedConversationId: bot.conversationId,
@@ -254,7 +258,14 @@ export async function finishAssignment(
     .set({ status, result, updatedAt: now, endedAt: now })
     .where(and(eq(botAssignment.id, id), notInArray(botAssignment.status, endedStatuses)))
     .returning({ id: botAssignment.id });
-  if (updated.length === 0) return { error: `Assignment ${id} already ended.` };
+  if (updated.length === 0) {
+    return {
+      error:
+        row.status === "cancelled"
+          ? `Assignment ${id} was cancelled, so it can't be finished. Stop work on it.`
+          : `Assignment ${id} already ended.`,
+    };
+  }
   await logStatus(tx, {
     assignmentId: id,
     status,
@@ -496,7 +507,7 @@ export async function listAssignments(
     )
     .orderBy(desc(message.createdAt), desc(message.id))
     .limit(1);
-  return db
+  const rows: Omit<BotAssignment, "log">[] = await db
     .select({
       id: botAssignment.id,
       title: botAssignment.title,
@@ -520,6 +531,301 @@ export async function listAssignments(
       ),
     )
     .orderBy(asc(botAssignment.createdAt), asc(botAssignment.id));
+  const logs = await logsOf(
+    db,
+    rows.map((row) => row.id),
+  );
+  return rows.map((row) => ({ ...row, log: logs.get(row.id) ?? [] }));
+}
+
+/** The log of each Assignment in `ids`, oldest first, as the owner reads it. */
+async function logsOf(
+  db: Database | Transaction,
+  ids: string[],
+): Promise<Map<string, AssignmentLogEntry[]>> {
+  const logs = new Map<string, AssignmentLogEntry[]>();
+  if (ids.length === 0) return logs;
+  const rows = await db
+    .select({
+      assignmentId: botAssignmentLog.assignmentId,
+      id: botAssignmentLog.id,
+      status: botAssignmentLog.status,
+      actor: botAssignmentLog.actor,
+      actorName: bot.name,
+      note: botAssignmentLog.note,
+      turnId: botAssignmentLog.turnId,
+      at: botAssignmentLog.at,
+    })
+    .from(botAssignmentLog)
+    .leftJoin(bot, eq(bot.id, botAssignmentLog.actorBotId))
+    .where(inArray(botAssignmentLog.assignmentId, ids))
+    .orderBy(asc(botAssignmentLog.at), asc(botAssignmentLog.id));
+  for (const { assignmentId, ...entry } of rows) {
+    logs.set(assignmentId, [...(logs.get(assignmentId) ?? []), entry]);
+  }
+  return logs;
+}
+
+/** The Bot tool that adds a note to the log of an Assignment handed to it. */
+export const addAssignmentNoteToolName = "add_assignment_note";
+
+/** The Bot tool that reads the status and log of the Assignments a Bot is part of. */
+export const readAssignmentToolName = "read_assignment";
+
+/** The Bot tool that cancels an Assignment the Bot started. */
+export const cancelAssignmentToolName = "cancel_assignment";
+
+/** The Trigger that tells a Bot waiting on, or working on, Assignment `id` that it was cancelled. */
+const cancelTriggerId = (id: string) => `assignment_cancel:${id}`;
+
+/** What a Bot reads when its Assignment was cancelled. */
+function cancelNotice(row: { id: string; title: string }, by: string): string {
+  return (
+    `Assignment ${row.id} was cancelled by ${by}: ${quotedTitle(row.title)}\n` +
+    `Stop work on it: ${finishAssignmentToolName} on it is refused.`
+  );
+}
+
+/** Who cancels an Assignment: the owner, from one of their Bots' pages, or a Bot in a Turn. */
+export type AssignmentCanceller =
+  | { by: "user"; userId: string; botId: string }
+  | { by: "bot"; turn: AssignmentCaller };
+
+/**
+ * Cancels Assignment `id`, in `tx`: it moves to `cancelled`, the log gets a row, and a Trigger of
+ * its Bot that no Turn has taken yet is skipped, so a cancel while it waits behind another Turn
+ * causes no more work. The Bot is told only if a Turn had read it, and the assigning Bot is woken
+ * when the owner cancels, as it waits on the result; both only if their Model can run. The owner
+ * may cancel any Assignment of their Bot, a Bot only those it started; anything else is `not_found`.
+ * `woken` is the Conversations to hint once `tx` has committed.
+ */
+export async function cancelAssignment(
+  deps: BotSdkContext,
+  tx: Transaction,
+  canceller: AssignmentCanceller,
+  id: string,
+): Promise<
+  { cancelled: { id: string }; woken: string[] } | { error: string; reason: "not_found" | "ended" }
+> {
+  const [found] = await tx
+    .select({
+      title: botAssignment.title,
+      assignedBotId: botAssignment.assignedBotId,
+      assignedUserId: bot.userId,
+      assignedModel: bot.model,
+      assignedConversationId: bot.conversationId,
+      assignerBotId: botAssignment.assignerBotId,
+    })
+    .from(botAssignment)
+    .innerJoin(bot, eq(bot.id, botAssignment.assignedBotId))
+    .where(eq(botAssignment.id, id));
+  const [assigner] = found?.assignerBotId
+    ? await tx
+        .select({ name: bot.name, model: bot.model, conversationId: bot.conversationId })
+        .from(bot)
+        .where(eq(bot.id, found.assignerBotId))
+    : [];
+  const row = found && {
+    ...found,
+    assignerName: assigner?.name,
+    assignerModel: assigner?.model,
+    assignerConversationId: assigner?.conversationId,
+  };
+  if (
+    !row ||
+    !(canceller.by === "user"
+      ? row.assignedUserId === canceller.userId && row.assignedBotId === canceller.botId
+      : row.assignerBotId === canceller.turn.botId)
+  ) {
+    return {
+      reason: "not_found",
+      error:
+        canceller.by === "user"
+          ? "Assignment not found"
+          : `No Assignment with id "${id}" was started by you.`,
+    };
+  }
+  const by = canceller.by === "user" ? "the user" : (row.assignerName ?? "another Bot");
+  const owner = { userId: row.assignedUserId };
+  const tellsAssigned = await canWork(deps, { ...owner, model: row.assignedModel });
+  const wakesAssigner =
+    canceller.by === "user" &&
+    row.assignerBotId !== null &&
+    assigner !== undefined &&
+    (await canWork(deps, { ...owner, model: assigner.model }));
+  const woken = [
+    row.assignedConversationId,
+    ...(row.assignerConversationId ? [row.assignerConversationId] : []),
+  ];
+  await lockConversationsInOrder(tx, woken);
+  const now = deps.clock();
+  const updated = await tx
+    .update(botAssignment)
+    .set({ status: "cancelled", updatedAt: now, endedAt: now })
+    .where(and(eq(botAssignment.id, id), notInArray(botAssignment.status, endedStatuses)))
+    .returning({ id: botAssignment.id });
+  if (updated.length === 0) {
+    return { reason: "ended", error: `Assignment ${id} already ended.` };
+  }
+  await logStatus(tx, {
+    assignmentId: id,
+    status: "cancelled",
+    actor: canceller.by,
+    actorBotId: canceller.by === "bot" ? canceller.turn.botId : null,
+    turnId: canceller.by === "bot" ? canceller.turn.id : null,
+    at: now,
+  });
+  const ofIt = and(
+    eq(botTrigger.botId, row.assignedBotId),
+    eq(botTrigger.source, "assignment"),
+    like(botTrigger.id, `${assignmentTriggerId(id)}%`),
+  );
+  await tx
+    .update(botTrigger)
+    .set({ skippedAt: now, skipReason: "cancelled" })
+    .where(and(ofIt, isNull(botTrigger.turnId), isNull(botTrigger.skippedAt)));
+  const [read] = await tx
+    .select({ id: botTrigger.id })
+    .from(botTrigger)
+    .where(and(ofIt, isNotNull(botTrigger.turnId)))
+    .limit(1);
+  await recordBotChange(tx, { conversationId: row.assignedConversationId }, "assignment", id, now);
+  if (read && tellsAssigned) {
+    await receive(deps, tx, {
+      id: cancelTriggerId(id),
+      botId: row.assignedBotId,
+      conversationId: row.assignedConversationId,
+      source: "assignment",
+      channel: assignmentChannel,
+      text: cancelNotice({ id, title: row.title }, by),
+      receivedAt: now,
+    });
+  }
+  if (wakesAssigner) {
+    await receive(deps, tx, {
+      id: cancelTriggerId(id),
+      botId: row.assignerBotId!,
+      conversationId: row.assignerConversationId!,
+      source: "assignment",
+      channel: assignmentChannel,
+      text: cancelNotice({ id, title: row.title }, by),
+      receivedAt: now,
+    });
+  }
+  return { cancelled: { id }, woken };
+}
+
+/**
+ * Adds a note to the log of Assignment `id`, in `tx`, as the Bot it's handed to; the row keeps the
+ * status it has. Only that Bot may, and not once the Assignment has ended. `woken` is the Conversation
+ * to hint once `tx` has committed.
+ */
+export async function addAssignmentNote(
+  deps: BotSdkContext,
+  tx: Transaction,
+  turn: AssignmentCaller,
+  { id, note }: { id: string; note: string },
+): Promise<{ noted: { id: string }; woken: string } | { error: string }> {
+  const [row] = await tx
+    .select({ conversationId: bot.conversationId, status: botAssignment.status })
+    .from(botAssignment)
+    .innerJoin(bot, eq(bot.id, botAssignment.assignedBotId))
+    .where(and(eq(botAssignment.id, id), eq(botAssignment.assignedBotId, turn.botId)));
+  if (!row) return { error: `No Assignment with id "${id}" is assigned to you.` };
+  await lockConversation(tx, row.conversationId);
+  const now = deps.clock();
+  const [updated] = await tx
+    .update(botAssignment)
+    .set({ updatedAt: now })
+    .where(and(eq(botAssignment.id, id), notInArray(botAssignment.status, endedStatuses)))
+    .returning({ status: botAssignment.status });
+  if (!updated) {
+    return {
+      error:
+        row.status === "cancelled"
+          ? `Assignment ${id} was cancelled, so it takes no more notes.`
+          : `Assignment ${id} already ended.`,
+    };
+  }
+  await logStatus(tx, {
+    assignmentId: id,
+    status: updated.status,
+    actor: "bot",
+    actorBotId: turn.botId,
+    note,
+    turnId: turn.id,
+    at: now,
+  });
+  await recordBotChange(tx, { conversationId: row.conversationId }, "assignment", id, now);
+  return { noted: { id }, woken: row.conversationId };
+}
+
+/** The most Assignments `readAssignments` lists, the newest. */
+const readListLimit = 50;
+
+/**
+ * What Bot `botId` reads of the Assignments it is part of, as the assigned Bot or the assigner: with
+ * an `id`, that one with its instructions, result and log; without, the newest few as a list. Any
+ * other Assignment reads as if it didn't exist.
+ */
+export async function readAssignments(
+  db: Database | Transaction,
+  botId: string,
+  id?: string,
+): Promise<unknown> {
+  const rows = await db
+    .select({
+      id: botAssignment.id,
+      title: botAssignment.title,
+      instructions: botAssignment.instructions,
+      status: botAssignment.status,
+      result: botAssignment.result,
+      assignedBotId: botAssignment.assignedBotId,
+      assignedName: bot.name,
+      assignerBotId: botAssignment.assignerBotId,
+    })
+    .from(botAssignment)
+    .innerJoin(bot, eq(bot.id, botAssignment.assignedBotId))
+    .where(
+      and(
+        or(eq(botAssignment.assignedBotId, botId), eq(botAssignment.assignerBotId, botId)),
+        id ? eq(botAssignment.id, id) : undefined,
+      ),
+    )
+    .orderBy(desc(botAssignment.createdAt), desc(botAssignment.id))
+    .limit(id ? 1 : readListLimit);
+  const assignerIds = rows.flatMap((row) => (row.assignerBotId ? [row.assignerBotId] : []));
+  const assigners = assignerIds.length
+    ? await db.select({ id: bot.id, name: bot.name }).from(bot).where(inArray(bot.id, assignerIds))
+    : [];
+  const summary = (row: (typeof rows)[number]) => ({
+    id: row.id,
+    title: row.title,
+    status: row.status,
+    yourPart: row.assignedBotId === botId ? "assigned to you" : "started by you",
+    assignedTo: row.assignedName,
+    startedBy: assigners.find((assigner) => assigner.id === row.assignerBotId)?.name ?? null,
+  });
+  if (!id) return { assignments: rows.reverse().map(summary) };
+  const [row] = rows;
+  if (!row) return { error: `You're not part of an Assignment with id "${id}".` };
+  const log = (await logsOf(db, [row.id])).get(row.id) ?? [];
+  return {
+    ...summary(row),
+    instructions: row.instructions,
+    result: row.result,
+    log: log.map((entry) => ({
+      at: entry.at.toISOString(),
+      status: entry.status,
+      by:
+        entry.actor === "user"
+          ? "the user"
+          : entry.actor === "system"
+            ? "the SDK"
+            : (entry.actorName ?? "a Bot that's gone"),
+      ...(entry.note && { note: entry.note }),
+    })),
+  };
 }
 
 /** The user's Assignments with their logs, for `sdk.users.export`. */

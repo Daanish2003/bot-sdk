@@ -191,19 +191,30 @@ test("a Bot assigns work to another, which shows collapsed in its Conversation a
   await expect(page.locator("[data-bot-message][data-role=assistant]").last()).toBeVisible();
 
   await page.goto(writer);
-  const item = page.getByRole("button", { name: new RegExp(assignmentTitle) });
+  const itemName = new RegExp(`^Assignment from .*${assignmentTitle}`);
+  const item = page.getByRole("button", { name: itemName });
   await expect(item).toBeVisible();
   await expect(item).toContainText("Scout");
   await expect(page.getByText(assignmentInstructions)).toBeHidden();
   await item.click();
   await expect(page.getByText(assignmentInstructions)).toBeVisible();
+  // Its log opens with it: the first row is the Bot that handed it over.
+  await expect(page.getByRole("list", { name: "Log" }).getByRole("listitem").first()).toContainText(
+    "by Scout",
+  );
 
-  await page.getByRole("button", { name: /^Tasks/ }).click();
+  await page.getByRole("button", { name: /^Tasks 1/ }).click();
   await expect(
-    page
-      .getByRole("tabpanel", { name: "In progress" })
-      .getByRole("button", { name: new RegExp(assignmentTitle) }),
+    page.getByRole("tabpanel", { name: "In progress" }).getByRole("button", { name: itemName }),
   ).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  // The owner can cancel it, and the log says so.
+  await page.getByRole("button", { name: `Cancel ${assignmentTitle}` }).click();
+  await expect(page.locator("[data-assignment][data-status=cancelled]")).toBeVisible();
+  await expect(page.getByRole("list", { name: "Log" }).getByRole("listitem").last()).toContainText(
+    "by you",
+  );
 });
 
 test("/ lands on /bots", async ({ page }) => {

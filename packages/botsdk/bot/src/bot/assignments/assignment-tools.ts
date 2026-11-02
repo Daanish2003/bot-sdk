@@ -5,10 +5,16 @@ import type { BotSdkContext } from "../../plugin";
 import type { LoopKit } from "../agent-loop";
 import { hintChanged } from "../conversation";
 import {
+  addAssignmentNote,
+  addAssignmentNoteToolName,
   assignWork,
   assignWorkToolName,
+  cancelAssignment,
+  cancelAssignmentToolName,
   finishAssignment,
   finishAssignmentToolName,
+  readAssignments,
+  readAssignmentToolName,
 } from "./assignment";
 
 const assignWorkDefinition = toolDefinition({
@@ -66,6 +72,39 @@ const finishAssignmentDefinition = toolDefinition({
   }),
 });
 
+const assignmentId = z.uuid().meta({ description: "The Assignment's id." });
+
+const readAssignmentDefinition = toolDefinition({
+  name: readAssignmentToolName,
+  description:
+    "Read the status and log of an Assignment you are part of, whether you were handed it or " +
+    "started it. Without an id, list the ones you are part of.",
+  inputSchema: z.object({
+    id: assignmentId.optional(),
+  }),
+});
+
+const addAssignmentNoteDefinition = toolDefinition({
+  name: addAssignmentNoteToolName,
+  description:
+    "Add a note to the log of an Assignment handed to you, such as how far you are. The user and " +
+    "the Bot that started it can read it. It can't be changed or removed.",
+  inputSchema: z.object({
+    id: assignmentId,
+    note: z.string().trim().min(1, "note must not be empty").max(2000).meta({
+      description: "A short note on how the work stands.",
+    }),
+  }),
+});
+
+const cancelAssignmentDefinition = toolDefinition({
+  name: cancelAssignmentToolName,
+  description:
+    "Cancel an Assignment you started that hasn't ended, so the work on it stops. Only the Bot " +
+    "that started it may.",
+  inputSchema: z.object({ id: assignmentId }),
+});
+
 /** The Bot's Assignment tools (spec #1166), each call one Checkpoint. They're deferred tools. */
 export function assignmentTools(
   deps: BotSdkContext,
@@ -116,5 +155,42 @@ export function assignmentTools(
     },
   );
 
-  return [assign, finish];
+  const read = readAssignmentDefinition.server(async ({ id }) =>
+    readAssignments(deps.db, turn.botId, id),
+  );
+
+  const note = addAssignmentNoteDefinition.server(async ({ id, note }, context) => {
+    // Set only by a live write, afresh on each try of it.
+    let woken: string | undefined;
+    const answer = await liveActivity(
+      addAssignmentNoteToolName,
+      context?.toolCallId,
+      async (tx) => {
+        woken = undefined;
+        const noted = await addAssignmentNote(deps, tx, turn, { id, note });
+        if ("error" in noted) return noted;
+        woken = noted.woken;
+        return { noted: noted.noted };
+      },
+    );
+    if (woken) await hintChanged(deps, woken);
+    return answer;
+  });
+
+  const cancel = cancelAssignmentDefinition.server(async ({ id }, context) => {
+    // Set only by a live write, afresh on each try of it.
+    let woken: string[] = [];
+    const answer = await liveActivity(cancelAssignmentToolName, context?.toolCallId, async (tx) => {
+      woken = [];
+      const cancelled = await cancelAssignment(deps, tx, { by: "bot", turn }, id);
+      if ("error" in cancelled) return { error: cancelled.error };
+      woken = cancelled.woken;
+      return { cancelled: cancelled.cancelled };
+    });
+    deps.runner.wake();
+    for (const conversationId of woken) await hintChanged(deps, conversationId);
+    return answer;
+  });
+
+  return [assign, finish, read, note, cancel];
 }

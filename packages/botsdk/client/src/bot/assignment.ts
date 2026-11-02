@@ -14,6 +14,20 @@ export type AssignmentResult = {
   when?: string;
 };
 
+/** One row of an Assignment's log (spec #1166): a status change and who made it. It never changes. */
+export type AssignmentLogEntry = {
+  id: string;
+  /** The status it moved to, or the one the Assignment had when a note was added. */
+  status: AssignmentStatus;
+  actor: "bot" | "user" | "system";
+  /** The Bot that made it, when `actor` is `bot`; `null` once that Bot is gone. */
+  actorName: string | null;
+  note: string | null;
+  /** The Turn it happened in, when one did. */
+  turnId: string | null;
+  at: Date;
+};
+
 /** An Assignment handed to a Bot, as its owner reads it. */
 export type BotAssignment = {
   id: string;
@@ -29,4 +43,6 @@ export type BotAssignment = {
   endedAt: Date | null;
   /** The Message its collapsed item follows; `null` when none came before it. */
   afterMessageId: string | null;
+  /** Its log, oldest first. */
+  log: AssignmentLogEntry[];
 };
