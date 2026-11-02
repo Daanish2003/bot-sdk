@@ -71,6 +71,7 @@ export const representativeMessages = {
   "representative.roleSystem": "System",
   "representative.approveAnyway": "Approve anyway",
   "representative.overrideReason": "Reason for approving anyway",
+  "representative.overrideLogged": ({ reason }: { reason: string }) => `Approved anyway: ${reason}`,
   "representative.overrideHelp": "The tests haven't passed. Your reason is kept with the Release.",
   "representative.runTestsStarted": "Tests started",
   "representative.rollBack": "Roll back to this Release",

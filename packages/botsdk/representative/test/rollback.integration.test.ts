@@ -265,6 +265,44 @@ describe("the Release history", () => {
   });
 });
 
+describe("the Release history and the override reason", () => {
+  it("lists each Release's logged override reason, and rolling back keeps every reason", async () => {
+    const { rpc } = await instance();
+    const { id, releases } = await released(rpc, ["One"]);
+    // The quiet fake Model never replies, so this test fails and the next Release is an override.
+    await rpc.representative.updateDraft({
+      id,
+      draft: {
+        jobText: "Two",
+        tests: [{ name: "Replies", message: "Hi", expect: [{ kind: "replied" }] }],
+      },
+    });
+    await rpc.representative.runTests({ id });
+    await expect
+      .poll(async () => (await rpc.representative.get({ id })).testStatus, poll)
+      .toBe("failed");
+    const second = await rpc.representative.approve({
+      id,
+      overrideReason: "The fake Model can't reply.",
+    });
+
+    const history = (await rpc.representative.get({ id })).releases;
+    expect(history.map(({ number, overrideReason }) => [number, overrideReason])).toEqual([
+      [2, "The fake Model can't reply."],
+      [1, null],
+    ]);
+
+    const back = await rpc.representative.rollback({ id, releaseId: releases[0]!.id });
+    expect(back.releases.map((release) => release.overrideReason)).toEqual([
+      "The fake Model can't reply.",
+      null,
+    ]);
+    expect(back.liveRelease?.overrideReason).toBeNull();
+    const forward = await rpc.representative.rollback({ id, releaseId: second.id });
+    expect(forward.liveRelease?.overrideReason).toBe("The fake Model can't reply.");
+  });
+});
+
 describe("rolling back", () => {
   it("repoints the live Release to an earlier one, changing no Release and not the draft", async () => {
     const { rpc } = await instance();

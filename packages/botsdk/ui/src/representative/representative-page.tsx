@@ -304,6 +304,11 @@ export function RepresentativePage({ id }: { id: string }) {
                 <span className="flex-1 font-medium">
                   {t("representative.release", { number: release.number })}
                 </span>
+                {release.overrideReason !== null && (
+                  <span data-override-reason className="min-w-0 break-words text-xs">
+                    {t("representative.overrideLogged", { reason: release.overrideReason })}
+                  </span>
+                )}
                 <span className="text-xs text-muted-foreground">
                   {new Date(release.approvedAt).toLocaleString(locale)}
                 </span>

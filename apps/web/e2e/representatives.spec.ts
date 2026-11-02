@@ -103,6 +103,8 @@ test("an owner reviews the diff against the live Release and rolls back to an ea
   await expect(page.locator('[data-release="2"]')).not.toContainText("Live");
   await expect(page.getByLabel("Job text")).toHaveValue("Answer anything, politely.");
   await expect(page.locator("[data-release]")).toHaveCount(2);
+  // Both Releases were approved with passing tests, so neither logs a reason.
+  await expect(page.locator("[data-override-reason]")).toHaveCount(0);
   await expect(diff.locator('[data-change="jobText"]')).toContainText(
     "Answer questions about opening hours.",
   );
@@ -140,6 +142,11 @@ test("failed tests block approval until the owner approves anyway with a reason"
   await page.getByLabel("Reason for approving anyway").fill("The fake Model cannot say it.");
   await page.getByRole("button", { name: "Approve anyway" }).click();
   await expect(page.getByText("Live: Release 1")).toBeVisible();
+
+  // The history shows the logged reason against the Release it was given for.
+  await expect(page.locator('[data-release="1"]')).toContainText(
+    "Approved anyway: The fake Model cannot say it.",
+  );
 
   // Editing the draft voids the results: they are no longer shown for it.
   await page.getByLabel("Job text").fill("Answer anything.");
