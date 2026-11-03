@@ -311,6 +311,8 @@ describe("a hand-off's result", () => {
       handsOff(),
       quiet(),
       relays("refund of 2000"),
+      // A reply that goes through in between, as two refusals in a row would hand off (#1261).
+      replies("One moment."),
       relays("refund of 20", "019a0000-0000-7000-8000-000000000000"),
       quiet(),
     ]);
@@ -321,11 +323,12 @@ describe("a hand-off's result", () => {
     expect(texts((await thread()).messages)).toEqual([
       "I want a refund",
       "Your refund of 20 is on its way.",
+      "One moment.",
     ]);
     const answers = (fake.calls.at(-1)!.messages as Array<{ role: string; content: unknown }>)
       .filter((message) => message.role === "tool")
       .map((message) => String(message.content));
-    expect(answers.at(-2)).toContain("exact quote");
+    expect(answers.at(-3)).toContain("exact quote");
     expect(answers.at(-1)).toContain("019a0000-0000-7000-8000-000000000000");
   });
 
