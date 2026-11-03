@@ -153,9 +153,9 @@ export const representativeTestJob = defineJob<TestPayload, TurnServices>({
       name,
       model,
       sourceId: resultId,
-      message: conversation.message,
+      on: { test: { current } },
+      entries: [{ author: "customer", text: conversation.message, verified: true }],
       content: draft,
-      test: { current },
     });
     // The draft changed or a new run replaced it, so what this came to has nowhere to go.
     if (!(await current())) return;

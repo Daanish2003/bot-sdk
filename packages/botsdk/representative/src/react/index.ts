@@ -92,3 +92,93 @@ export function useRefreshRepresentatives() {
   const queryClient = useQueryClient();
   return () => queryClient.invalidateQueries({ queryKey: representative.key() });
 }
+
+/** The owner's Customers (`representative.customerList`). */
+export function useCustomers() {
+  return useQuery(useRepresentative().customerList.queryOptions());
+}
+
+/** Adds a Customer by hand (`representative.customerCreate`). */
+export function useCreateCustomer(
+  options?: ProcedureMutationOptions<Representative["customerCreate"]>,
+) {
+  return useMutation(useRepresentative().customerCreate.mutationOptions(options));
+}
+
+/** Names a Customer (`representative.customerRename`). */
+export function useRenameCustomer(
+  options?: ProcedureMutationOptions<Representative["customerRename"]>,
+) {
+  return useMutation(useRepresentative().customerRename.mutationOptions(options));
+}
+
+/** Gives a Customer another identity (`representative.customerAddIdentity`). */
+export function useAddCustomerIdentity(
+  options?: ProcedureMutationOptions<Representative["customerAddIdentity"]>,
+) {
+  return useMutation(useRepresentative().customerAddIdentity.mutationOptions(options));
+}
+
+/** Corrects one identity of a Customer (`representative.customerUpdateIdentity`). */
+export function useUpdateCustomerIdentity(
+  options?: ProcedureMutationOptions<Representative["customerUpdateIdentity"]>,
+) {
+  return useMutation(useRepresentative().customerUpdateIdentity.mutationOptions(options));
+}
+
+/** Blocks or unblocks a Customer (`representative.customerSetBlocked`). */
+export function useSetCustomerBlocked(
+  options?: ProcedureMutationOptions<Representative["customerSetBlocked"]>,
+) {
+  return useMutation(useRepresentative().customerSetBlocked.mutationOptions(options));
+}
+
+/** Merges one Customer into another (`representative.customerMerge`). */
+export function useMergeCustomer(
+  options?: ProcedureMutationOptions<Representative["customerMerge"]>,
+) {
+  return useMutation(useRepresentative().customerMerge.mutationOptions(options));
+}
+
+/** The owner's merges of Customers (`representative.customerMergeList`). */
+export function useCustomerMerges() {
+  return useQuery(useRepresentative().customerMergeList.queryOptions());
+}
+
+/** Undoes a merge (`representative.customerMergeUndo`). */
+export function useUndoCustomerMerge(
+  options?: ProcedureMutationOptions<Representative["customerMergeUndo"]>,
+) {
+  return useMutation(useRepresentative().customerMergeUndo.mutationOptions(options));
+}
+
+/** A Representative's Customer threads (`representative.threadList`). */
+export function useThreads(id: string) {
+  return useQuery(useRepresentative().threadList.queryOptions({ input: { id } }));
+}
+
+/** One thread with its transcript (`representative.threadGet`). */
+export function useThread(id: string) {
+  return useQuery(useRepresentative().threadGet.queryOptions({ input: { id } }));
+}
+
+/** Takes a thread over from its Representative (`representative.threadTakeOver`). */
+export function useTakeOverThread(
+  options?: ProcedureMutationOptions<Representative["threadTakeOver"]>,
+) {
+  return useMutation(useRepresentative().threadTakeOver.mutationOptions(options));
+}
+
+/** Hands a thread back to its Representative (`representative.threadHandBack`). */
+export function useHandBackThread(
+  options?: ProcedureMutationOptions<Representative["threadHandBack"]>,
+) {
+  return useMutation(useRepresentative().threadHandBack.mutationOptions(options));
+}
+
+/** The owner's own message on a thread they hold (`representative.threadSend`). */
+export function useSendThreadMessage(
+  options?: ProcedureMutationOptions<Representative["threadSend"]>,
+) {
+  return useMutation(useRepresentative().threadSend.mutationOptions(options));
+}

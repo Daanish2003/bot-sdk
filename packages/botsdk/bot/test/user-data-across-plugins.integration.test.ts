@@ -35,6 +35,8 @@ import { mcp } from "@botsdk/mcp";
 import { representative } from "@botsdk/representative";
 import {
   representative as representativeTable,
+  representativeCustomer,
+  representativeCustomerIdentity,
   representativeRelease,
 } from "@botsdk/representative/server/db/schema";
 import { profilePath } from "@botsdk/memory/server/bot-memory";
@@ -68,6 +70,8 @@ const userTables = [
   mcpConnection,
   memorySettings,
   representativeTable,
+  representativeCustomer,
+  representativeCustomerIdentity,
 ].flatMap((value) => {
   if (!is(value, PgTable)) return [];
   const { name, columns } = getTableConfig(value);
@@ -213,6 +217,12 @@ async function seedEverything(
 
   await getTestDb().insert(memorySettings).values({ userId: user.id, enabled: false });
   await saveTokens(deps, user.id, "linear", { accessToken: "t", tokenType: "Bearer", scope: "" });
+  // A Customer of the owner's, with an identity.
+  const customerId = uuidv7();
+  await getTestDb().insert(representativeCustomer).values({ id: customerId, userId: user.id });
+  await getTestDb()
+    .insert(representativeCustomerIdentity)
+    .values({ id: uuidv7(), userId: user.id, customerId, channel: "fake", externalId: "+1" });
   // A Representative reporting to the Bot, with a Release.
   const representativeId = uuidv7();
   await getTestDb()

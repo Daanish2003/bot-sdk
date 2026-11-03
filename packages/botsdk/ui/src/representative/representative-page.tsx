@@ -30,11 +30,13 @@ import {
 } from "@botsdk/representative/client";
 
 import { ModelPicker } from "../models/shell/model-picker";
+import { RepresentativeThreads } from "./representative-threads";
 import { TestConversationsEditor, TestResults } from "./representative-tests";
 
 const toolKeys = {
   reply: "representative.toolReply",
   hand_to_bot: "representative.toolHandToBot",
+  verify_customer: "representative.toolVerifyCustomer",
 } as const satisfies Record<RepresentativeTool, string>;
 
 /** The draft's fields, saved together with Save draft. */
@@ -380,6 +382,7 @@ export function RepresentativePage({ id }: { id: string }) {
       {/* Keyed by the draft's fields, so a draft changed elsewhere reloads the form. */}
       <DraftEditor key={JSON.stringify(representative.draft)} representative={representative} />
       <DraftDiff id={id} />
+      <RepresentativeThreads id={id} />
       <section className="space-y-2">
         <h2 className="text-sm font-medium">{t("representative.releases")}</h2>
         {representative.releases.length === 0 ? (

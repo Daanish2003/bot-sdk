@@ -167,7 +167,7 @@ One typed piece of business information a Representative can state, such as a pr
 _Avoid_: Knowledge, FAQ
 
 **Customer thread**:
-The one running exchange between a Customer and a Representative across Channels, held either by the Representative or by the user who took it over. It closes when idle, and a later message starts a new one.
+The one running exchange between a Customer and a Representative across Channels, held either by the Representative or by the user who took it over. It runs one Turn at a time: a message that arrives during a Turn waits for the next one, and quick messages batch into one Turn. While the Representative holds it, it closes when idle, and a later message starts a new one. Taking over aborts the running Turn and sends the Customer one fixed note, and no model call runs until the user hands it back, which is always explicit. A thread the user holds never closes by itself.
 _Avoid_: Conversation, ticket, case
 
 **Outbound gate**:
@@ -181,6 +181,14 @@ _Avoid_: Notification, ticket, alert
 **Customer**:
 A person who deals with a user's business through a Representative. A Customer isn't a user and never signs in to the app, and belongs to that one user's business.
 _Avoid_: Contact, end user, client
+
+**Customer merge**:
+Making two Customers one, which happens only when a sender passes a code sent to an identity on the other's record, or when the user does it by hand. The absorbed Customer's identities and threads move to the other, and where both have an open thread with a Representative, the absorbed one's closes. It is recorded, verifies nobody, and the user can undo it: each identity goes back, and a closed thread stays closed.
+_Avoid_: Link, dedupe
+
+**Verified identity**:
+One of a Customer's identities whose sender passed its Channel's rule, within the last 90 days of contact. On a Channel whose rule is a code or a signed link, each pass vouches for its messages for an hour. A lapsed identity verifies again by a fresh enforcing DMARC pass on email, otherwise only by a code to another identity on record. A message whose sender isn't verified gets a prompt holding only what that identity said while unverified: nothing from the Customer's other identities, their memory or the identity's verified past.
+_Avoid_: Trusted, authenticated Customer
 
 **Assignment**:
 One piece of work handed to a Bot by a Representative or another Bot, with a status and a budget, and a log the user can read. It can be split into child Assignments, which block it while open; a chain stops at 3 deep.

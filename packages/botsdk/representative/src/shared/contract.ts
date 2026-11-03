@@ -12,7 +12,7 @@ import { z } from "zod";
  * The tools a Representative may have: a code-defined list, so no draft can give one a shell or a
  * new power. Later specs add to it.
  */
-export const representativeTools = ["reply", "hand_to_bot"] as const;
+export const representativeTools = ["reply", "hand_to_bot", "verify_customer"] as const;
 export type RepresentativeTool = (typeof representativeTools)[number];
 
 export const maxJobTextLength = 20_000;
@@ -191,6 +191,116 @@ export type DraftDiff = {
   changes: DraftChange[];
 };
 
+/** One way of reaching a Customer: a Channel, that Channel's id for them, and whether it is verified now. */
+export type CustomerIdentityView = {
+  id: string;
+  channel: string;
+  externalId: string;
+  verified: boolean;
+};
+
+/** One of the owner's Customers, shared by all their Representatives. */
+export type CustomerView = {
+  id: string;
+  /** What the owner calls them; null until they say. */
+  name: string | null;
+  /** Whether the owner blocked them: a blocked Customer's message runs no Turn and gets no reply. */
+  blocked: boolean;
+  identities: CustomerIdentityView[];
+  createdAt: Date;
+};
+
+/** One merge of a Customer into another, and whether it has been undone. */
+export type CustomerMergeView = {
+  id: string;
+  /** Whether a code the sender passed made it, or the owner. */
+  how: "code" | "owner";
+  survivor: { id: string; name: string | null };
+  absorbed: { id: string; name: string | null };
+  /** What moved, and what undoing it gives back. */
+  identities: { channel: string; externalId: string }[];
+  createdAt: Date;
+  undoneAt: Date | null;
+};
+
+/** Who holds a Customer thread: its Representative, the owner who took it over, or no one once closed. */
+export type ThreadHolder = "representative" | "owner" | "closed";
+
+/**
+ * Who a thread is waiting on, derived from who holds it and who spoke last: the Customer after an
+ * answer, and after a Customer's message the Representative, or the owner while they hold it. The
+ * Bot, in place of the Customer, while an Assignment handed off from the thread is open. Null
+ * once closed, while its Customer is blocked, whose message nobody answers, or when no Turn is on
+ * its way to the last word on a thread its Representative holds.
+ */
+export type ThreadWaitingOn = "customer" | "representative" | "owner" | "bot" | null;
+
+export type ThreadSummary = {
+  id: string;
+  customer: { id: string; name: string | null; blocked: boolean };
+  /** Where the Customer was last heard from, which is where a reply goes. */
+  lastHeard: { channel: string; externalId: string };
+  holder: ThreadHolder;
+  waitingOn: ThreadWaitingOn;
+  messageCount: number;
+  updatedAt: Date;
+};
+
+/** One message of a thread's transcript, with where it was heard from or sent to. */
+export type ThreadMessageView = {
+  id: string;
+  author: "customer" | "representative" | "owner" | "note" | "bot";
+  text: string;
+  channel: string;
+  externalId: string;
+  /** Whether the Turn it belongs to was for a verified sender. */
+  verified: boolean;
+  createdAt: Date;
+};
+
+export type ThreadView = ThreadSummary & {
+  representativeId: string;
+  /** The Customer's identities, each with whether it is verified. */
+  identities: CustomerIdentityView[];
+  /** Oldest first. */
+  messages: ThreadMessageView[];
+};
+
+/** The longest one thread message may be, whoever wrote it. */
+export const maxThreadMessageLength = 60_000;
+
+export const threadSendInput = z.object({
+  id: z.uuid(),
+  text: storable(z.string().trim().min(1).max(maxThreadMessageLength)),
+});
+
+export const maxCustomerNameLength = 100;
+/** Channel ids are lower case, so `SMS` and `sms` are one Channel. */
+const channelField = storable(z.string().trim().toLowerCase().min(1).max(64));
+const externalIdField = storable(z.string().trim().min(1).max(512));
+export const customerCreateInput = z.object({
+  name: storable(z.string().trim().min(1).max(maxCustomerNameLength)).optional(),
+  channel: channelField,
+  externalId: externalIdField,
+});
+export const customerAddIdentityInput = z.object({
+  id: z.uuid(),
+  channel: channelField,
+  externalId: externalIdField,
+});
+export const customerUpdateIdentityInput = z.object({
+  id: z.uuid(),
+  identityId: z.uuid(),
+  channel: channelField,
+  externalId: externalIdField,
+});
+export const customerSetBlockedInput = z.object({ id: z.uuid(), blocked: z.boolean() });
+export const customerMergeInput = z.object({ id: z.uuid(), intoId: z.uuid() });
+export const customerRenameInput = z.object({
+  id: z.uuid(),
+  name: storable(z.string().trim().max(maxCustomerNameLength)),
+});
+
 export const idInput = z.object({ id: z.uuid() });
 export const approveInput = z.object({
   id: z.uuid(),
@@ -235,6 +345,37 @@ export const representativeContract = {
   setEnabled: oc.input(setEnabledInput).output(type<RepresentativeView>()),
   /** Chooses which of the owner's Bots it reports to; its open Assignments move to that Bot. */
   setBot: oc.input(setBotInput).output(type<RepresentativeView>()),
+  /** The owner's Customers, oldest first. */
+  customerList: oc.output(type<CustomerView[]>()),
+  /** Adds a Customer by hand, with its first identity. Refused when the owner already has that identity. */
+  customerCreate: oc.input(customerCreateInput).output(type<CustomerView>()),
+  /** Names a Customer, or clears the name with an empty one. */
+  customerRename: oc.input(customerRenameInput).output(type<CustomerView>()),
+  /** Gives a Customer another identity. Refused when the owner already has it, on this Customer or another. */
+  customerAddIdentity: oc.input(customerAddIdentityInput).output(type<CustomerView>()),
+  /** Corrects one identity. Refused when it would match another of the owner's identities. */
+  customerUpdateIdentity: oc.input(customerUpdateIdentityInput).output(type<CustomerView>()),
+  /** Blocks or unblocks a Customer: a blocked one's message is kept for the owner and answered by no one. */
+  customerSetBlocked: oc.input(customerSetBlockedInput).output(type<CustomerView>()),
+  /**
+   * Merges Customer `id` into `intoId`, whose thread goes on where both have one open with a
+   * Representative. Refused while either is blocked. It verifies nobody, and can be undone.
+   */
+  customerMerge: oc.input(customerMergeInput).output(type<CustomerView>()),
+  /** The owner's merges of Customers, newest first, undone ones too. */
+  customerMergeList: oc.output(type<CustomerMergeView[]>()),
+  /** Undoes a merge: each identity goes back to its original Customer, and a closed thread stays closed. */
+  customerMergeUndo: oc.input(idInput).output(type<CustomerMergeView>()),
+  /** A Representative's Customer threads, the most recently active first. */
+  threadList: oc.input(idInput).output(type<ThreadSummary[]>()),
+  /** One thread with its transcript, holder and who it waits on. */
+  threadGet: oc.input(idInput).output(type<ThreadView>()),
+  /** Takes a thread over: its running Turn is aborted, and the Customer gets one fixed note. No model call runs until the owner hands back. */
+  threadTakeOver: oc.input(idInput).output(type<ThreadView>()),
+  /** Hands a held thread back to the Representative, which answers what the owner left unanswered. */
+  threadHandBack: oc.input(idInput).output(type<ThreadView>()),
+  /** The owner's own message to the Customer, on a thread they hold. */
+  threadSend: oc.input(threadSendInput).output(type<ThreadView>()),
 };
 
 export type RepresentativeContract = typeof representativeContract;

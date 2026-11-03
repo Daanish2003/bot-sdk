@@ -2,13 +2,31 @@ import type { FeatureContext } from "@botsdk/bot/feature";
 import { parseInput, type WithUser } from "@botsdk/bot/rpc-error";
 import {
   approveInput,
+  customerAddIdentityInput,
+  customerCreateInput,
+  customerMergeInput,
+  customerRenameInput,
+  customerSetBlockedInput,
+  customerUpdateIdentityInput,
   createInput,
   idInput,
   rollbackInput,
   setBotInput,
   setEnabledInput,
+  threadSendInput,
   updateDraftInput,
 } from "../shared/contract";
+import { listMerges, mergeCustomers, undoMerge } from "./customer-merge";
+import {
+  addIdentity,
+  createCustomer,
+  getThread,
+  listCustomers,
+  listThreads,
+  renameCustomer,
+  setBlocked,
+  updateIdentity,
+} from "./owner-customers";
 import {
   approveDraft,
   createRepresentative,
@@ -22,6 +40,7 @@ import {
   setEnabled,
   updateDraft,
 } from "./representatives";
+import { handBackThread, sendAsOwner, takeOverThread } from "./takeover";
 
 /*
  * The `representative` namespace's domain methods: what a Host calls in-process as
@@ -75,6 +94,53 @@ export function representativeApi(
       const { id, botId } = parseInput(setBotInput, rest);
       return setBot(context, userId, id, botId);
     },
+
+    customerList: async ({ userId }: { userId: string }) => listCustomers(context, userId),
+
+    customerCreate: async ({ userId, ...rest }: WithUser<typeof customerCreateInput>) =>
+      createCustomer(context, userId, parseInput(customerCreateInput, rest)),
+
+    customerRename: async ({ userId, ...rest }: WithUser<typeof customerRenameInput>) => {
+      const { id, name } = parseInput(customerRenameInput, rest);
+      return renameCustomer(context, userId, id, name);
+    },
+
+    customerAddIdentity: async ({ userId, ...rest }: WithUser<typeof customerAddIdentityInput>) =>
+      addIdentity(context, userId, parseInput(customerAddIdentityInput, rest)),
+
+    customerUpdateIdentity: async ({
+      userId,
+      ...rest
+    }: WithUser<typeof customerUpdateIdentityInput>) =>
+      updateIdentity(context, userId, parseInput(customerUpdateIdentityInput, rest)),
+
+    customerSetBlocked: async ({ userId, ...rest }: WithUser<typeof customerSetBlockedInput>) => {
+      const { id, blocked } = parseInput(customerSetBlockedInput, rest);
+      return setBlocked(context, userId, id, blocked, context.clock());
+    },
+
+    customerMerge: async ({ userId, ...rest }: WithUser<typeof customerMergeInput>) =>
+      mergeCustomers(context, userId, parseInput(customerMergeInput, rest)),
+
+    customerMergeList: async ({ userId }: { userId: string }) => listMerges(context, userId),
+
+    customerMergeUndo: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      undoMerge(context, userId, parseInput(idInput, rest).id),
+
+    threadList: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      listThreads(context, userId, parseInput(idInput, rest).id),
+
+    threadGet: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      getThread(context, userId, parseInput(idInput, rest).id),
+
+    threadTakeOver: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      takeOverThread(context, userId, parseInput(idInput, rest).id),
+
+    threadHandBack: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      handBackThread(context, userId, parseInput(idInput, rest).id),
+
+    threadSend: async ({ userId, ...rest }: WithUser<typeof threadSendInput>) =>
+      sendAsOwner(context, userId, parseInput(threadSendInput, rest)),
   };
 }
 

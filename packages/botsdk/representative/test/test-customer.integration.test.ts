@@ -1,8 +1,9 @@
 import type { AnyTextAdapter } from "@tanstack/ai";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { deleteUserData } from "@botsdk/bot/user-data";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import {
   claimJob,
@@ -10,13 +11,17 @@ import {
   type JobRunner,
   reapStaleJobs,
 } from "@botsdk/bot/runner/internal";
-import { bot, botAssignment, job, usage } from "@botsdk/bot/storage";
+import { bot, botAssignment, job, jobEvent, usage } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { packageManifest, packageRootOf } from "@ai-chat/test-support/package-shape";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
-import { startTestCustomerTurn, testCustomerTurn } from "@ai-chat/test-support/test-customer";
+import {
+  fakeChannel,
+  startTestCustomerTurn,
+  testCustomerTurn,
+} from "@ai-chat/test-support/test-customer";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
@@ -24,7 +29,10 @@ import * as packageRoot from "../src";
 import { representative } from "../src";
 import {
   representative as representativeTable,
+  representativeCustomer,
   representativeRelease,
+  representativeThread,
+  representativeThreadMessage,
 } from "../src/server/db/schema";
 import { representativeTurnJobName } from "../src/server/turn";
 import { representativeContract } from "../src/shared/contract";
@@ -137,6 +145,16 @@ const usageOf = (userId: string) =>
     .from(usage)
     .where(eq(usage.userId, userId));
 
+const lastTurnJob = async () =>
+  (
+    await getTestDb()
+      .select()
+      .from(job)
+      .where(eq(job.name, representativeTurnJobName))
+      .orderBy(desc(job.createdAt))
+      .limit(1)
+  )[0];
+
 const assignmentsOf = (botId: string) =>
   getTestDb().select().from(botAssignment).where(eq(botAssignment.assignedBotId, botId));
 
@@ -215,27 +233,17 @@ describe("a test Customer's Turn", () => {
     expect((await deps.runner.status(jobId))?.attempts).toBe(1);
   });
 
-  it("records its Model calls as representative, for the owner in the row and no one else", async () => {
+  it("records its Model calls as representative, for the owner in the row", async () => {
     const { deps, user, rpc } = await instance([replies(), quiet()]);
     const id = await liveRepresentative(rpc);
-    const stranger = await insertUser();
 
-    // A payload naming another user: the job loads the owner from the Representative's row.
-    const jobId = await deps.runner.enqueue(representativeTurnJobName, {
-      representativeId: id,
-      customerId: uuidv7(),
-      message: "Hi",
-      userId: stranger.id,
-    });
-    await expect
-      .poll(async () => (await deps.runner.status(jobId))?.status, poll)
-      .toBe("succeeded");
+    // Nothing the Customer sends names a user: the job loads the owner from the Representative's row.
+    await testCustomerTurn(deps, { representativeId: id, message: "Hi" });
 
     const rows = await usageOf(user.id);
     expect(rows.map((row) => row.kind)).toEqual(["representative", "representative"]);
     expect(new Set(rows.map((row) => row.sourceId)).size).toBe(1);
     expect(rows[0]?.sourceId).toBeTruthy();
-    expect(await usageOf(stranger.id)).toEqual([]);
   });
 
   it("gives two test Customers different cache keys, and one Customer the same key twice", async () => {
@@ -243,9 +251,9 @@ describe("a test Customer's Turn", () => {
     const id = await liveRepresentative(rpc);
     const first = uuidv7();
 
-    await testCustomerTurn(deps, { representativeId: id, message: "Hi", customerId: first });
-    await testCustomerTurn(deps, { representativeId: id, message: "Hi", customerId: uuidv7() });
-    await testCustomerTurn(deps, { representativeId: id, message: "Hi", customerId: first });
+    await testCustomerTurn(deps, { representativeId: id, message: "Hi", externalId: first });
+    await testCustomerTurn(deps, { representativeId: id, message: "Hi", externalId: uuidv7() });
+    await testCustomerTurn(deps, { representativeId: id, message: "Hi", externalId: first });
 
     const [one, two, again] = fake.calls.map(cacheKeyOf);
     expect(one).toMatch(/^representative:/);
@@ -302,22 +310,26 @@ describe("what a Turn may call", () => {
 
   it("gives the Model no way to name a Customer, and takes none it tries", async () => {
     const other = uuidv7();
-    const { fake, deps, rpc } = await instance([
+    const { fake, deps, user, rpc } = await instance([
       handsOff({ title: "A refund", instructions: "They want a refund.", customerId: other }),
       quiet(),
     ]);
     const { id: botId } = await rpc.bots.create({ name: "Clerk", model: botModel });
     const id = await liveRepresentative(rpc, {}, botId);
-    const customerId = uuidv7();
 
-    await testCustomerTurn(deps, { representativeId: id, message: "Hi", customerId });
+    await testCustomerTurn(deps, { representativeId: id, message: "Hi" });
 
     expect(JSON.stringify(fake.calls[0]?.tools?.map((tool) => tool.inputSchema))).not.toMatch(
       /customer/i,
     );
     const [assignment] = await assignmentsOf(botId);
     // The id stays out of what the Bot's Model reads, and the Customer's cache key stays code's.
-    expect(assignment?.instructions).not.toContain(customerId);
+    const [customer] = await getTestDb()
+      .select()
+      .from(representativeCustomer)
+      .where(eq(representativeCustomer.userId, user.id));
+    expect(customer).toBeDefined();
+    expect(assignment?.instructions).not.toContain(customer!.id);
     expect(assignment?.instructions).not.toContain(other);
     expect(fake.calls[1]?.threadId).toBe(fake.calls[0]?.threadId);
   });
@@ -351,7 +363,9 @@ describe("a Representative that may not run", () => {
   it("runs no Turn for a Representative that doesn't exist", async () => {
     const { fake, deps } = await instance([quiet()]);
 
-    await testCustomerTurn(deps, { representativeId: uuidv7(), message: "Hi" });
+    await expect(
+      testCustomerTurn(deps, { representativeId: uuidv7(), message: "Hi" }),
+    ).rejects.toThrow("No Representative");
 
     expect(fake.calls).toEqual([]);
   });
@@ -588,6 +602,142 @@ describe("a Turn replayed after a crash", () => {
   });
 });
 
+describe("a Turn replayed after a crash, on its thread", () => {
+  it("reads the messages it started with, and none that came after", async () => {
+    const fake = createFakeAdapter({ rounds: [quiet(), quiet(), quiet()], manual: true });
+    const timer = fakeJobClock(new Date());
+    let deps: TestDeps | undefined;
+    const jobs = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      clock: timer.clock,
+      drainMs: 1_000,
+      jobs: () => deps!.parts.jobs,
+    });
+    runners.push(jobs);
+    deps = createTestSdk({
+      jobs,
+      features: [representative()],
+      adapterFor: () => fake.adapter,
+      memory: false,
+    });
+    await getTestDb()
+      .update(job)
+      .set({ status: "cancelled" })
+      .where(inArray(job.status, ["queued", "running"]));
+    const user = await insertUser();
+    await saveCredentials(deps, user.id, {
+      service: "openai",
+      fields: { apiKey: "openai-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+    const id = await liveRepresentative(chatRpc({ user, deps }));
+    const attempt = async () => {
+      const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: false });
+      if (!claimed) throw new Error("Nothing to claim");
+      return jobs.runClaimed(claimed, {});
+    };
+    const turn = { representativeId: id, externalId: "+15550001" };
+    await startTestCustomerTurn(deps, { ...turn, message: "Before the crash" });
+
+    const lost = attempt();
+    await expect.poll(() => fake.calls.length, poll).toBe(1);
+    // Stored while the first attempt is out, as a message that arrives during a Turn is.
+    const [thread] = await getTestDb()
+      .update(representativeThread)
+      .set({ messageCount: 2 })
+      .where(eq(representativeThread.representativeId, id))
+      .returning();
+    await getTestDb().insert(representativeThreadMessage).values({
+      id: uuidv7(),
+      threadId: thread!.id,
+      position: 2,
+      author: "customer",
+      channel: fakeChannel,
+      externalId: "+15550001",
+      text: "After the crash",
+    });
+    timer.advance(61_000);
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps.parts.jobs);
+    timer.tick();
+    await lost;
+
+    const resumed = attempt();
+    await fake.releaseAll();
+    await resumed;
+
+    expect(fake.calls).toHaveLength(2);
+    for (const call of fake.calls) {
+      expect(JSON.stringify(call.messages)).toContain("Before the crash");
+      expect(JSON.stringify(call.messages)).not.toContain("After the crash");
+    }
+    // The Turn's first Checkpoint keeps where it read to, not the thread's text.
+    const events = await getTestDb()
+      .select()
+      .from(jobEvent)
+      .where(eq(jobEvent.jobId, (await lastTurnJob())!.id));
+    expect(events.length).toBeGreaterThan(0);
+    expect(
+      JSON.stringify(events.filter((event) => event.name === "representative_receive")),
+    ).not.toContain("Before the crash");
+  });
+});
+
+describe("a Turn replayed after its owner was deleted", () => {
+  it("fails as gone, with no further Model call, rather than as nondeterministic", async () => {
+    await getTestDb()
+      .update(job)
+      .set({ status: "cancelled" })
+      .where(inArray(job.status, ["queued", "running"]));
+    const fake = createFakeAdapter({ rounds: [quiet(), quiet()], manual: true });
+    const timer = fakeJobClock(new Date());
+    let deps: TestDeps | undefined;
+    const jobs = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      clock: timer.clock,
+      drainMs: 1_000,
+      jobs: () => deps!.parts.jobs,
+    });
+    runners.push(jobs);
+    deps = createTestSdk({
+      jobs,
+      features: [representative()],
+      adapterFor: () => fake.adapter,
+      memory: false,
+    });
+    const user = await insertUser();
+    await saveCredentials(deps, user.id, {
+      service: "openai",
+      fields: { apiKey: "openai-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+    const id = await liveRepresentative(chatRpc({ user, deps }));
+    const attempt = async () => {
+      const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: false });
+      if (!claimed) throw new Error("Nothing to claim");
+      return jobs.runClaimed(claimed, {});
+    };
+    const { jobId } = await startTestCustomerTurn(deps, { representativeId: id, message: "Hi" });
+
+    const lost = attempt();
+    await expect.poll(() => fake.calls.length, poll).toBe(1);
+    await deleteUserData(deps, user.id);
+    timer.advance(61_000);
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps.parts.jobs);
+    timer.tick();
+    await lost;
+    await attempt();
+
+    const ended = await deps.runner.status(jobId);
+    expect(ended?.status).toBe("failed");
+    expect(ended?.lastError).toContain("thread has gone");
+    expect(fake.calls).toHaveLength(1);
+  });
+});
+
 describe("who can reach a Turn", () => {
   it("has no way in from the package, the owner's API or a route", () => {
     const made = representative();
@@ -603,6 +753,15 @@ describe("who can reach a Turn", () => {
     expect(Object.keys(representativeContract).sort()).toEqual([
       "approve",
       "create",
+      "customerAddIdentity",
+      "customerCreate",
+      "customerList",
+      "customerMerge",
+      "customerMergeList",
+      "customerMergeUndo",
+      "customerRename",
+      "customerSetBlocked",
+      "customerUpdateIdentity",
       "declineApproval",
       "diff",
       "get",
@@ -612,12 +771,21 @@ describe("who can reach a Turn", () => {
       "runTests",
       "setBot",
       "setEnabled",
+      "threadGet",
+      "threadHandBack",
+      "threadList",
+      "threadSend",
+      "threadTakeOver",
       "updateDraft",
     ]);
     expect(Object.keys(made.api!({ db: getTestDb() } as never)).sort()).toEqual(
       Object.keys(representativeContract).sort(),
     );
     expect(made.routes ?? []).toEqual([]);
-    expect(made.publicRoutes ?? []).toEqual([]);
+    // The one thing served with no signed-in user is a signed link's page (#1256): it starts no Turn.
+    expect((made.publicRoutes ?? []).map((route) => `${route.method} ${route.path}`)).toEqual([
+      "GET /representative/verify/:token",
+      "POST /representative/verify/:token",
+    ]);
   });
 });

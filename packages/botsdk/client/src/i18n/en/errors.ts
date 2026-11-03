@@ -26,6 +26,16 @@ export const errorMessages = {
   "error.customRuleLimit": ({ max }: { max: number }) =>
     `You can have at most ${max} active rules. Delete one to add another.`,
   "error.representativeNotFound": "Representative not found",
+  "error.customerNotFound": "Customer not found",
+  "error.threadNotFound": "Thread not found",
+  "error.threadClosed": "This thread has closed",
+  "error.threadNotHeld": "Take over this thread to write in it",
+  "error.customerBlocked": "This Customer is blocked, so nothing is sent to them",
+  "error.customerIdentityTaken": "One of your Customers already has that identity.",
+  "error.customerMergeSame": "A Customer can't merge into itself.",
+  "error.customerMergeBlocked": "Unblock this Customer before merging.",
+  "error.customerMergeNotFound": "Merge not found",
+  "error.customerMergeLater": "Undo the later merge of this Customer first.",
   "error.representativeJobTextBlank":
     "Write the job text before approving: a Release needs to say what the Representative does.",
   "error.representativeNoRelease": "Approve a Release before switching this Representative on.",
