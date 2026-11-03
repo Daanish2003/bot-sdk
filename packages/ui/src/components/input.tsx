@@ -2,9 +2,13 @@ import * as React from "react";
 import { Input as InputPrimitive } from "@base-ui/react/input";
 import { cn } from "cn";
 
-function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+import { useEarlyText } from "../hooks/use-early-text";
+
+function Input({ className, type, ref, ...props }: React.ComponentProps<"input">) {
+  const own = useEarlyText(props.value, ref);
   return (
     <InputPrimitive
+      ref={own}
       type={type}
       data-slot="input"
       className={cn(
