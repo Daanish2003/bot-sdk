@@ -1,5 +1,6 @@
+import { ORPCError } from "@orpc/server";
 import { toolDefinition, type AnyTextAdapter, type TextOptions } from "@tanstack/ai";
-import { and, asc, eq, isNotNull, isNull, like } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, like } from "drizzle-orm";
 import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 
@@ -23,6 +24,7 @@ import { exportUserData } from "../../src/user-data";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner } from "../../src/runner/internal";
 import type { FeatureEntry } from "../../src/create-chat";
+import type { Transaction } from "../../src/plugin";
 import { readAssignments } from "../../src/bot/assignments/assignment";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { chatRpc } from "@ai-chat/test-support/sdk";
@@ -1385,4 +1387,226 @@ describe("a child of a feature's Assignment", () => {
       )
       .toBeGreaterThan(0);
   }, 30_000);
+});
+
+describe("the chain of a feature's Assignment (#1186)", () => {
+  /** The Bot a call is from, as its Prompt start names it. */
+  const callerOf = (call: TextOptions) =>
+    /Your name: (\w+)/.exec(JSON.stringify(call.messages))?.[1] as "Clerk" | "Helper";
+
+  /** Clerk and Helper, and a feature whose `relay` tool hands work on from the Turn that calls it. */
+  async function relaying(rounds: { Clerk: Round[]; Helper: Round[] }) {
+    const onEnded = defineJob({
+      name: "relay.ended",
+      payload: assignmentEnded,
+      run: async () => {},
+    });
+    const ids: Record<string, string> = {};
+    const refusals: string[] = [];
+    const feature = defineFeature({
+      id: "relay",
+      needs: ["assignments"],
+      jobs: [onEnded],
+      tools: (turn, { assignments, db, jobs }) => [
+        toolDefinition({
+          name: "relay",
+          description: "Hand work on to another Bot.",
+          inputSchema: z.object({ to: z.string() }),
+        }).server(async ({ to }) => {
+          try {
+            const { id } = await db.transaction((tx) =>
+              assignments.create(tx, {
+                userId: turn.userId,
+                botId: ids[to]!,
+                turnId: turn.id,
+                ...work,
+                job: onEnded,
+              }),
+            );
+            jobs.wake();
+            return { id };
+          } catch (error) {
+            if (!(error instanceof ORPCError)) throw error;
+            refusals.push(error.code);
+            return { error: error.message };
+          }
+        }),
+      ],
+    });
+    const fakes = {
+      Clerk: createFakeAdapter({ rounds: rounds.Clerk }),
+      Helper: createFakeAdapter({ rounds: rounds.Helper }),
+    };
+    const { deps, user, client, botId } = await botWith([], [feature], undefined, false, {
+      ...fakes.Clerk.adapter,
+      chatStream: (options: TextOptions) => fakes[callerOf(options)].adapter.chatStream(options),
+    });
+    const helper = await client.bots.create({ name: "Helper", model });
+    ids.Clerk = botId;
+    ids.Helper = helper.id;
+    const service = deps.parts.features[0]!.context.assignments!;
+    /** The same hand-over, in `tx`: with no Turn behind it, or from `turnId`. */
+    const createIn = (tx: Transaction, target: string, turnId?: string) =>
+      service.create(tx, {
+        userId: user.id,
+        botId: target,
+        ...(turnId && { turnId }),
+        ...work,
+        job: onEnded,
+      });
+    return {
+      fakes,
+      deps,
+      client,
+      refusals,
+      clerkId: botId,
+      helperId: helper.id,
+      createIn,
+      create: async (target: string, turnId?: string) => {
+        const made = await getTestDb().transaction((tx) => createIn(tx, target, turnId));
+        deps.runner.wake();
+        return made;
+      },
+    };
+  }
+
+  const relay = (to: string) => round(runs("relay", { to }));
+
+  /** Every Assignment of `botIds`, oldest first. */
+  const placed = (...botIds: string[]) =>
+    getTestDb()
+      .select({ depth: botAssignment.depth, parent: botAssignment.parentAssignmentId })
+      .from(botAssignment)
+      .where(inArray(botAssignment.assignedBotId, botIds))
+      .orderBy(asc(botAssignment.createdAt), asc(botAssignment.id));
+
+  const depthsOf = async (...botIds: string[]) => (await placed(...botIds)).map((row) => row.depth);
+
+  /** The id of Bot `botId`'s first Turn, once it has ended. */
+  const endedTurnOf = async (botId: string) => {
+    await expect.poll(() => turnsOf(botId), poll).toEqual(["complete"]);
+    const [turn] = await getTestDb()
+      .select({ id: botTurn.id })
+      .from(botTurn)
+      .where(eq(botTurn.botId, botId));
+    return turn!.id;
+  };
+
+  it(
+    "stops a Bot to feature to Bot loop at the chain limit, with a reason the Model can read",
+    async () => {
+      const { fakes, refusals, create, clerkId, helperId } = await relaying({
+        Clerk: [relay("Helper"), quiet, relay("Helper"), quiet],
+        Helper: [relay("Clerk"), quiet],
+      });
+
+      await create(clerkId);
+
+      await expect
+        .poll(() => JSON.stringify(toolResultsIn(fakes.Clerk.calls[3])), poll)
+        .toMatch(/stops at 3 deep/);
+      expect(refusals).toEqual(["CONFLICT"]);
+      expect(await depthsOf(clerkId, helperId)).toEqual([1, 2, 3]);
+      // The Helper never heard of a fourth.
+      expect(fakes.Helper.calls).toHaveLength(2);
+    },
+    timeout,
+  );
+
+  it(
+    "starts a new chain from a Turn that took the user's Message, as a Bot's own does",
+    async () => {
+      const { client, create, clerkId, helperId, refusals } = await relaying({
+        Clerk: [quiet, relay("Helper"), quiet],
+        Helper: [relay("Clerk"), quiet, quiet],
+      });
+      await create(helperId);
+      // Clerk is on an Assignment at depth 2 when the user asks.
+      await expect.poll(() => depthsOf(clerkId), poll).toEqual([2]);
+      await expect.poll(() => turnsOf(clerkId), poll).toEqual(["complete"]);
+
+      await client.bots.send({ botId: clerkId, id: uuidv7(), text: "Pass this on." });
+
+      await expect.poll(() => depthsOf(helperId), poll).toEqual([1, 1]);
+      expect(refusals).toEqual([]);
+    },
+    timeout,
+  );
+
+  it(
+    "counts from the deepest of the Assignments a Turn took, as it can name no parent of them",
+    async () => {
+      const { deps, createIn, create, clerkId, helperId, refusals } = await relaying({
+        Clerk: [relay("Helper"), quiet],
+        Helper: [quiet, quiet],
+      });
+      await create(helperId);
+      const turnId = await endedTurnOf(helperId);
+
+      // One at depth 1 and one at depth 2 arrive together, so one Turn of Clerk's takes both.
+      await getTestDb().transaction(async (tx) => {
+        await createIn(tx, clerkId);
+        await createIn(tx, clerkId, turnId);
+      });
+      deps.runner.wake();
+
+      await expect.poll(() => placed(helperId), poll).toHaveLength(2);
+      expect(await placed(helperId)).toEqual([
+        { depth: 1, parent: null },
+        { depth: 3, parent: null },
+      ]);
+      expect(refusals).toEqual([]);
+      expect(await turnsOf(clerkId)).toHaveLength(1);
+    },
+    timeout,
+  );
+
+  it(
+    "goes on from a Turn that has ended, as a job the Turn's tool queued would",
+    async () => {
+      const { create, clerkId, helperId } = await relaying({ Clerk: [quiet], Helper: [quiet] });
+      await create(clerkId);
+
+      await create(helperId, await endedTurnOf(clerkId));
+
+      expect(await placed(helperId)).toEqual([{ depth: 2, parent: null }]);
+    },
+    timeout,
+  );
+
+  it(
+    "starts at depth 1 with no Turn behind it, however deep its Bot is",
+    async () => {
+      const { create, clerkId, helperId } = await relaying({
+        Clerk: [relay("Helper"), quiet],
+        Helper: [quiet, quiet],
+      });
+      await create(clerkId);
+      await expect.poll(() => depthsOf(helperId), poll).toEqual([2]);
+
+      await create(helperId);
+
+      expect(await depthsOf(helperId)).toEqual([2, 1]);
+    },
+    timeout,
+  );
+
+  it(
+    "refuses a Turn that is unknown or another user's, and writes nothing",
+    async () => {
+      const { create, clerkId, helperId, client } = await relaying({ Clerk: [], Helper: [] });
+      const other = await relaying({ Clerk: [quiet], Helper: [] });
+      await other.create(other.clerkId);
+      const theirs = await endedTurnOf(other.clerkId);
+
+      await expect(create(clerkId, uuidv7())).rejects.toMatchObject({ code: "NOT_FOUND" });
+      await expect(create(clerkId, theirs)).rejects.toMatchObject({ code: "NOT_FOUND" });
+      await expect(create(clerkId, "not-a-uuid")).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+      expect(await client.assignments.list({ botId: clerkId })).toEqual([]);
+      expect(await turnsOf(clerkId)).toEqual([]);
+      expect(await depthsOf(clerkId, helperId)).toEqual([]);
+    },
+    timeout,
+  );
 });

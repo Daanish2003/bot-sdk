@@ -70,7 +70,7 @@ export const finishAssignmentToolName = "finish_assignment";
 export const endedStatuses = endedAssignmentStatuses;
 
 /** The most Assignments a chain may hold, so that Bots can't hand work around forever. */
-const assignmentChainLimit = 3;
+export const assignmentChainLimit = 3;
 
 /** The id of the Trigger that hands Assignment `id` to its Bot; a wake afresh adds to it. */
 const assignmentTriggerId = (id: string) => `${assignmentTriggerPrefix}${id}`;
@@ -493,6 +493,20 @@ async function placeInChain(
     };
   }
   return { parentId: [...on.keys()][0] ?? null, depth: deepest + 1 };
+}
+
+/**
+ * How deep an Assignment a feature hands over from this Turn goes, read under its Bot's 1:1's lock,
+ * counted as `placeInChain` counts it. It takes no parent: a feature names none, and a parent would
+ * wait on a child whose end only the feature's job hears of. As one that ended with no open parent
+ * does, it carries the chain on by its depth.
+ */
+export async function chainDepthFromTurn(
+  tx: Transaction,
+  turn: { id: string; botId: string },
+): Promise<number> {
+  const { on, reached, sources } = await assignmentsOfTurn(tx, turn);
+  return sources.has("user") ? 1 : Math.max(reached, ...on.values()) + 1;
 }
 
 /**

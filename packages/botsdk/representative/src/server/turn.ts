@@ -165,6 +165,7 @@ export function turnTools({ job, kit, userId, name, representativeId, stubbed }:
         if (stubbed) return { handedOff: true };
         let created: { id: string; conversationId: string };
         try {
+          // No Bot Turn is behind it, so it names none and starts a chain of its own.
           created = await job.assignments.create(tx, {
             userId,
             botId,
