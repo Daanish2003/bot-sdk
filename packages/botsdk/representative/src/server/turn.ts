@@ -18,6 +18,7 @@ import {
   storeReply,
   type ThreadEntry,
 } from "./customers";
+import { queueIdleCheck } from "./idle";
 import { representative, representativeHandOff, representativeRelease } from "./db/schema";
 
 /*
@@ -150,12 +151,13 @@ export function turnTools({ job, kit, userId, name, representativeId, threadId }
       name: "reply",
       description: "Send the Customer a message.",
       inputSchema: z.object({ text: z.string().min(1).max(maxThreadMessageLength).refine(noNul) }),
-    }).server(({ text }, context) =>
+    }).server(async ({ text }, context) => {
+      const now = await job.now();
       // Stored as sent: nothing reaches a real Channel until the gate spec.
-      kit.liveActivity("reply", context?.toolCallId, async (tx) =>
-        threadId === null ? { sent: true } : storeReply(tx, threadId, text),
-      ),
-    ),
+      return kit.liveActivity("reply", context?.toolCallId, async (tx) =>
+        threadId === null ? { sent: true } : storeReply(tx, threadId, text, now),
+      );
+    }),
     hand_to_bot: toolDefinition({
       name: "hand_to_bot",
       description: "Hand work you can't do yourself to the Bot you report to.",
@@ -316,13 +318,18 @@ export function representativeTurnJob(concurrency = defaultTurnConcurrency) {
     concurrency,
     run: async ({ representativeId, channel, externalId, message }, job) => {
       // First, and with its Checkpoint: stored exactly once, even when no Turn can run.
-      const received = await job.step("representative_receive", (tx) =>
-        receiveMessage(tx, {
+      const now = await job.now();
+      const received = await job.step("representative_receive", async (tx) => {
+        const stored = await receiveMessage(tx, {
           representativeId,
           heard: { channel, externalId },
           text: message,
-        }),
-      );
+          now,
+        });
+        // With the message, so a thread is never left without its closing job.
+        if (stored?.opened) await queueIdleCheck(job, tx, stored.threadId, now);
+        return stored;
+      });
       if (!received) return;
       const { customerId, threadId, position } = received;
       // Recorded: a replay after a crash stays on this Release, this owner and this Turn.

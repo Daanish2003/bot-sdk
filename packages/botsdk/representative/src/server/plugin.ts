@@ -13,6 +13,7 @@ import {
   representativeThread,
   representativeThreadMessage,
 } from "./db/schema";
+import { threadIdleJob } from "./idle";
 import { deleteCustomers, exportCustomers } from "./customers";
 import representativeMigrations from "./migrations.json" with { type: "json" };
 import {
@@ -58,7 +59,12 @@ export function representativeFeature(options: RepresentativeOptions = {}) {
     api: (context) => representativeApi(context),
     tools: (turn, context) => botDraftTools(turn, context),
     resetBot: (botId, userId, context) => dropApprovalsOfBot(context, botId, userId),
-    jobs: [representativeTurnJob(options.concurrency), handOffEndedJob, representativeTestJob],
+    jobs: [
+      representativeTurnJob(options.concurrency),
+      handOffEndedJob,
+      representativeTestJob,
+      threadIdleJob,
+    ],
     userData: {
       delete: {
         before: async (tx, userId) => {

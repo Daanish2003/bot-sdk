@@ -70,7 +70,12 @@ async function findOrMakeCustomer(tx: Transaction, userId: string, heard: Heard)
  */
 export async function receiveMessage(
   tx: Transaction,
-  { representativeId, heard, text }: { representativeId: string; heard: Heard; text: string },
+  {
+    representativeId,
+    heard,
+    text,
+    now,
+  }: { representativeId: string; heard: Heard; text: string; now: Date },
 ) {
   const [owner] = await tx
     .select({ userId: representative.userId })
@@ -88,6 +93,8 @@ export async function receiveMessage(
       lastChannel: heard.channel,
       lastExternalId: heard.externalId,
       messageCount: 1,
+      createdAt: now,
+      updatedAt: now,
     })
     .onConflictDoUpdate({
       target: [representativeThread.customerId, representativeThread.representativeId],
@@ -96,7 +103,7 @@ export async function receiveMessage(
         lastChannel: heard.channel,
         lastExternalId: heard.externalId,
         messageCount: sql`${representativeThread.messageCount} + 1`,
-        updatedAt: new Date(),
+        updatedAt: now,
       },
     })
     .returning({ id: representativeThread.id, position: representativeThread.messageCount });
@@ -104,7 +111,8 @@ export async function receiveMessage(
   await tx
     .insert(representativeThreadMessage)
     .values({ id: uuidv7(), threadId, position, author: "customer", text, ...heard });
-  return { customerId, threadId, position };
+  // Position 1 is a thread's first message: it has just been opened.
+  return { customerId, threadId, position, opened: position === 1 };
 }
 
 /**
@@ -145,12 +153,12 @@ export async function readThread(
  * still holds the thread. The update waits for a message being received on the thread, so it reads
  * where that message came from.
  */
-export async function storeReply(tx: Transaction, threadId: string, text: string) {
+export async function storeReply(tx: Transaction, threadId: string, text: string, now: Date) {
   const [thread] = await tx
     .update(representativeThread)
     .set({
       messageCount: sql`${representativeThread.messageCount} + 1`,
-      updatedAt: new Date(),
+      updatedAt: now,
     })
     .where(
       and(eq(representativeThread.id, threadId), eq(representativeThread.state, "representative")),
