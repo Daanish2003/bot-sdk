@@ -4,7 +4,7 @@ import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { rpcError } from "@botsdk/bot/rpc-error";
-import type { FactView, GapView } from "../shared/contract";
+import { type FactView, type GapView, maxGapQuestionLength } from "../shared/contract";
 import { insertFact } from "./facts";
 import { representativeGap } from "./db/schema";
 
@@ -57,7 +57,8 @@ export async function logGap(
     now: Date;
   },
 ): Promise<void> {
-  const normalized = normalizeQuestion(question);
+  question = question.trim().slice(0, maxGapQuestionLength);
+  const normalized = normalizeQuestion(question).slice(0, maxGapQuestionLength);
   if (normalized === "") return;
   await tx
     .insert(gap)
@@ -65,7 +66,7 @@ export async function logGap(
       id: uuidv7(),
       userId,
       representativeId,
-      question: question.trim(),
+      question,
       normalized,
       firstAt: now,
       lastAt: now,
@@ -120,8 +121,10 @@ export async function gapToFact(
 ): Promise<FactView> {
   const now = clock();
   return db.transaction(async (tx) => {
+    // The fact first: a refused key leaves the Gap unlocked and open.
+    const made = await insertFact(tx, userId, input, now);
     await close(tx, userId, id, "answered", now);
-    return insertFact(tx, userId, input, now);
+    return made;
   });
 }
 
