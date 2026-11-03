@@ -649,6 +649,7 @@ describe("picking a Knowledge file for a draft", () => {
 
   it("holds a file to the same limits as an upload, and the draft stays", async () => {
     const folder = knowledgeFolder({
+      "photo.png": "bytes",
       "empty.md": "  \n",
       "nul.md": "a\u0000b",
       "long.md": "a".repeat(2 * 1024 * 1024 + 1),
@@ -657,6 +658,7 @@ describe("picking a Knowledge file for a draft", () => {
     const id = await drafted(rpc);
 
     for (const [path, code] of [
+      ["photo.png", "error.representativeDocumentFormat"],
       ["empty.md", "error.representativeDocumentEmpty"],
       ["nul.md", "error.representativeDocumentUnreadable"],
       ["long.md", "error.representativeDocumentTooLong"],

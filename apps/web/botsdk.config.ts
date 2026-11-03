@@ -27,9 +27,14 @@ export const e2b = e2bConfigOf(process.env);
  * The Knowledge files a Representative's owner may pick (ticket #1265): the SDK's own `knowledge`
  * routes, reached when asked since the SDK is built from this config.
  */
+const knowledgeOfSdk = async () => {
+  const { knowledge } = (await import("./src/services")).sdk;
+  if (!("list" in knowledge)) throw new Error("The Knowledge feature is off");
+  return knowledge;
+};
 const knowledgeFiles: KnowledgeFiles = {
-  list: async (input) => (await import("./src/services")).sdk.knowledge.list(input),
-  read: async (input) => (await import("./src/services")).sdk.knowledge.read(input),
+  list: async (input) => (await knowledgeOfSdk()).list(input),
+  read: async (input) => (await knowledgeOfSdk()).read(input),
 };
 
 export default {
