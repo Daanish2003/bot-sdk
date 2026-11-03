@@ -63,7 +63,8 @@ afterEach(async () => {
   for (const runner of runners.splice(0)) await runner.stop();
 });
 
-const replies = () => round(toolCall({ name: "reply", input: { text: "Nine." } }));
+const replies = () =>
+  round(toolCall({ name: "reply", input: { text: "Nine.", kind: "small_talk" } }));
 const handsOff = (input: object = { title: "A refund", instructions: "They want a refund." }) =>
   round(toolCall({ name: "hand_to_bot", input }));
 const quiet = () => round();

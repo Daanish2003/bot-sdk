@@ -9,6 +9,7 @@ import {
   type TestCheck,
   type TranscriptEntry,
 } from "../shared/contract";
+import { insertValues } from "./replies";
 
 /*
  * What code makes of a test conversation (ticket #1192): the transcript the owner reads, the
@@ -66,6 +67,12 @@ function answerTo(messages: ModelMessage[], callId: string): Record<string, unkn
   }
 }
 
+/** The text `call`, a `reply` its tool answered as sent, went with: the Model's, with the facts' values in. */
+function sentText(messages: ModelMessage[], call: { id: string; function: { arguments: string } }) {
+  const inserted = answerTo(messages, call.id)?.inserted as Record<string, string> | undefined;
+  return insertValues(String(argumentsOf(call).text ?? ""), inserted ?? {});
+}
+
 /** What reached the Customer, in order: the text of each `reply` call the tool answered as sent. */
 function sentTexts(messages: ModelMessage[]) {
   return messages.flatMap((message) =>
@@ -73,7 +80,7 @@ function sentTexts(messages: ModelMessage[]) {
       .filter(
         (call) => call.function.name === "reply" && answerTo(messages, call.id)?.sent === true,
       )
-      .map((call) => String(argumentsOf(call).text ?? "")),
+      .map((call) => sentText(messages, call)),
   );
 }
 
@@ -157,7 +164,7 @@ export function transcriptOf(customerMessage: string, messages: ModelMessage[]):
       for (const call of message.toolCalls ?? []) {
         if (call.function.name === "reply" && answerTo(messages, call.id)?.sent === true) {
           sentCalls.add(call.id);
-          entries.push({ role: "representative", text: String(argumentsOf(call).text ?? "") });
+          entries.push({ role: "representative", text: sentText(messages, call) });
         } else {
           entries.push({ role: "tool", text: `${call.function.name} ${call.function.arguments}` });
         }

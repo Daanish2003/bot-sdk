@@ -48,7 +48,11 @@
     "sql": "CREATE TABLE \"botsdk\".\"representative_fact\" (\n\t\"id\" uuid PRIMARY KEY,\n\t\"user_id\" text NOT NULL,\n\t\"key\" text NOT NULL,\n\t\"type\" text NOT NULL,\n\t\"topic\" text NOT NULL,\n\t\"value\" text NOT NULL,\n\t\"valid_from\" timestamp,\n\t\"valid_until\" timestamp,\n\t\"created_at\" timestamp NOT NULL,\n\t\"updated_at\" timestamp NOT NULL,\n\tCONSTRAINT \"representative_fact_key\" UNIQUE(\"user_id\",\"key\")\n);\n--> statement-breakpoint\nCREATE TABLE \"botsdk\".\"representative_fact_log\" (\n\t\"id\" uuid PRIMARY KEY,\n\t\"user_id\" text NOT NULL,\n\t\"key\" text NOT NULL,\n\t\"action\" text NOT NULL,\n\t\"old\" jsonb,\n\t\"new\" jsonb,\n\t\"at\" timestamp NOT NULL\n);\n--> statement-breakpoint\nCREATE INDEX \"representative_fact_log_user_idx\" ON \"botsdk\".\"representative_fact_log\" (\"user_id\",\"at\");"
   },
   {
-    "name": "20261103213305_representative_document",
+    "name": "20261103205304_representative_reply_sources",
+    "sql": "ALTER TABLE \"botsdk\".\"representative_thread_message\" ADD COLUMN \"reply_kind\" text;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_thread_message\" ADD COLUMN \"sources\" jsonb;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_thread_message\" ADD COLUMN \"assignment_id\" uuid;"
+  },
+  {
+    "name": "20261103215337_representative_document",
     "sql": "CREATE TABLE \"botsdk\".\"representative_document\" (\n\t\"id\" uuid PRIMARY KEY,\n\t\"representative_id\" uuid NOT NULL,\n\t\"name\" text NOT NULL,\n\t\"text\" text NOT NULL,\n\t\"hash\" text NOT NULL,\n\t\"chars\" integer NOT NULL,\n\t\"created_at\" timestamp NOT NULL\n);\n--> statement-breakpoint\nCREATE INDEX \"representative_document_representative_idx\" ON \"botsdk\".\"representative_document\" (\"representative_id\");--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_document\" ADD CONSTRAINT \"representative_document_yOfvktNhvbC5_fkey\" FOREIGN KEY (\"representative_id\") REFERENCES \"botsdk\".\"representative\"(\"id\") ON DELETE CASCADE;"
   }
 ]

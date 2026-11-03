@@ -73,7 +73,8 @@ afterEach(async () => {
   for (const runner of runners.splice(0)) await runner.stop();
 });
 
-const replies = (text = "Nine.") => round(toolCall({ name: "reply", input: { text } }));
+const replies = (text = "Nine.") =>
+  round(toolCall({ name: "reply", input: { text, kind: "small_talk" } }));
 const quiet = () => round();
 
 const promptOf = (call: { messages: unknown } | undefined) => JSON.stringify(call?.messages ?? []);
@@ -574,7 +575,7 @@ describe("an unverified sender can still get help", () => {
   it("gets a reply and opens an Assignment", async () => {
     const { fake, deps } = await instance([
       round(
-        toolCall({ name: "reply", input: { text: "On it." } }),
+        toolCall({ name: "reply", input: { text: "On it.", kind: "small_talk" } }),
         toolCall({
           name: "hand_to_bot",
           input: { title: "A refund", instructions: "They want a refund." },
