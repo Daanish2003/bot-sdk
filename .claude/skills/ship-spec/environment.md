@@ -4,7 +4,7 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 
 ## The Linux machine (Omarchy, since 2026-11-01)
 
-The notes below were mostly written on Windows. Where they disagree, this section wins (#1117). Ignore CRLF, `taskkill`, Git Bash, Docker Desktop, WSL and "Filename too long".
+The notes below were mostly written on Windows. On Linux, where they disagree, this section wins (#1117): ignore CRLF, `taskkill`, Git Bash, Docker Desktop, WSL and "Filename too long". Check `uname` first: spec 1168 ran on Windows again, where this section doesn't hold (see the next section).
 
 - **Ports:** Postgres is on `127.0.0.1:5433`, not 5435, and Redis is on 6380. E2B Embed runs directly on this machine and owns 5432, 6379, 9000 and 3000. Never touch its containers.
 - **Vitest workers:** run with `--maxWorkers=2`. The whole suite through `pnpm test` at default workers cascaded.
@@ -35,6 +35,19 @@ The notes below were mostly written on Windows. Where they disagree, this sectio
 - **Fast-forward onto an agent's merge of its blockers (#1167):** #1191 started from a merge of #1188 into the integration tip. Merging #1188 again raised the same ADR conflict, so I aborted and fast-forwarded the integration branch onto that merge commit.
 - **More load flakes (#1167):** bot-screen "never closes the Screen once another Helper…" failed in 3 full verifies, bot-computer "a user delete during a Turn" in 2 and rooms "interrupts only the running Turns…" in 1. Each passed alone every time, and the first two also failed on the baseline.
 - **ADRs and a seam the review can't fix alone (#1167):** the branch review's R2 and R24 each needed a wider feature or core service. Filing them as follow-ups kept the review fixes moving, and the last finding's symptom was fixed without the wider seam.
+
+## Windows again (#1168, 2026-11-03)
+
+- **Ports:** Postgres is on `127.0.0.1:5435` and Redis on 6380. `verify.sh` hardcodes 5433, so a scratchpad copy with the port changed ran every verify. No `psql`, `flock` or `python` on PATH: use `docker exec ai-chat-postgres psql -U postgres`, and a `mkdir` lock in place of `flock` for the e2e queue.
+- **Low memory stops background commands:** on 16 GB, with 2–5 GB free, Claude Code stopped two runs of the checks while the session was idle, and the agents' too. Its notice says not to restart without the owner's word, so the run waits for them. A typecheck also died with exit `0xC0000142`. Three agents at a time held; run the verify that gates a push with none running.
+- **What frees memory:** the session's own `tsserver` (about 2 GB, and it comes back only if needed) and `wsl -d Ubuntu-24.04 -u root -- sh -c "sync; echo 3 > /proc/sys/vm/drop_caches"` (about 4 GB inside WSL, set `MSYS_NO_PATHCONV=1`). Both left E2B and the containers healthy. Don't stop the E2B distro without asking.
+- **`TaskStop` on a verify leaves vitest running:** its children kept using the shared Redis db. End them with `taskkill //PID <n> //T //F` and drop the `_r…_w…` database copies by exact name.
+- **A shell's cwd locks a worktree:** `rmSync` gets EPERM while any background command started in that folder lives, and so does `git branch -d`. Start CI watchers from the main checkout. `git worktree remove` fails with "Filename too long", so use `node -e rmSync`, then `git worktree prune`.
+- **Shell quoting:** backticks in `node -e "…"` run as commands and mangled the map comment, so write a script file through a quoted heredoc. `powershell -c "…"` loses `$_`, so single-quote the whole command. Running `.ps1` files is disabled here.
+- **`pnpm db:generate` fails through turbo:** run `node scripts/migration-parts.ts` from `packages/test-support` and rename the generated folder. A regenerated migration on the integration branch also means dropping the integration test and e2e databases by exact name.
+- **An agent re-reports while its background work lives:** it stalled root check-types once and looped duplicate reports. "Stopped with background work" isn't a report: wait for the hand-back, and ignore duplicates of one already read.
+- **Tests that leap the clock meet the idle job:** the 90-day lapse tests started failing when a 7-day idle close moved messages to a new thread. Assert on stored state, and have a clock-moving test run every job that came due rather than one chosen job.
+- **`git push origin --delete` can fail with "remote ref does not exist":** the repo deleted the branch at merge, so there's nothing left to do.
 
 ## Worktrees and git
 
