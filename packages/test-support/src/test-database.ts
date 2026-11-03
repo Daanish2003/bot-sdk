@@ -180,7 +180,7 @@ const isLockTimeout = (error: unknown) => {
 /**
  * Empties every table in `public` and in `botsdk`, except the SDK's migration journal: it records
  * what has been applied, so it must survive. A job an earlier test's stopped runner gave up on can
- * still hold a transaction, such as the memory pass's. A truncate waiting for it would hold up
+ * still hold a transaction. A truncate waiting for it would hold up
  * every new read of those tables, the ones that job waits on too, and Postgres sees no deadlock in
  * that. So each try gives up its place in the queue soon, which lets the job finish.
  */

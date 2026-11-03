@@ -1,15 +1,17 @@
 import type { TextOptions } from "@tanstack/ai";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { conversationChannel } from "@botsdk/bot/chat/conversation-events";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { createMemoryPubSub } from "@botsdk/bot/chat/pubsub";
-import { botTurn, job, usage } from "@botsdk/bot/storage";
+import { bot, botTurn, computer, conversation, job, message, usage } from "@botsdk/bot/storage";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import type { ComputerProvider } from "@botsdk/bot/computer/internal";
 import type { HostProvider } from "@botsdk/bot/models/internal";
 import { findBot } from "@botsdk/bot/bot/conversation";
-import { botMemoryPassJob, type PassContext } from "../../src/server/bot-pass";
+import { botResetJobName } from "@botsdk/bot/bot/turn";
+import { applyMemoryOps, botMemoryPassJob, type PassContext } from "../../src/server/bot-pass";
 import { saveCredentials, quotaLookup } from "@botsdk/bot/models/internal";
 
 import {
@@ -20,7 +22,14 @@ import {
 } from "@botsdk/bot/runner/internal";
 
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "@ai-chat/test-support/deps";
-import { createFakeAdapter, round, runError, text, withUsage } from "@botsdk/testing/fake-adapter";
+import {
+  createFakeAdapter,
+  type FakeAdapter,
+  round,
+  runError,
+  text,
+  withUsage,
+} from "@botsdk/testing/fake-adapter";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
@@ -75,7 +84,16 @@ async function botsWith(
   }: { names?: string[]; host?: boolean } & Pick<TestDepsOverrides, "getQuota" | "logger"> = {},
 ) {
   const fake = createFakeAdapter({ rounds });
-  const computerFake = fakeComputerProvider();
+  // Its `rm -rf -- '<dir>'` deletes the files under that directory, as a reset's does.
+  const computerFake = fakeComputerProvider({
+    onCommand: ({ command }) => {
+      const dir = /^rm -rf -- '([^']+)'$/.exec(command)?.[1];
+      for (const path of computerFake.files.keys()) {
+        if (dir && path.startsWith(`${dir}/`)) computerFake.files.delete(path);
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    },
+  });
   const pubsub = createMemoryPubSub();
   const offset = now.getTime() - Date.now();
   const clock = () => new Date(Date.now() + offset);
@@ -155,7 +173,103 @@ async function passesEnded(count = 1) {
 const ops = (...list: unknown[]) => round(text(JSON.stringify({ ops: list })));
 
 const userTextOf = (call: TextOptions | undefined) =>
-  (call?.messages ?? []).map((message) => String(message.content)).join("\n");
+  (call?.messages ?? []).map((entry) => String(entry.content)).join("\n");
+
+/** A wait a test holds open: it knows once something reached it, and lets that go on. */
+function hold() {
+  const reached = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  return {
+    reached: reached.promise,
+    release: () => gate.resolve(),
+    wait: () => {
+      reached.resolve();
+      return gate.promise;
+    },
+  };
+}
+
+/** Holds the Model call at `index` (from 0), which keeps its scripted round, until released. */
+function holdModelCall(fake: FakeAdapter, index: number) {
+  const held = hold();
+  const play = fake.adapter.chatStream;
+  fake.adapter.chatStream = async function* (options: TextOptions) {
+    const iterator = play(options)[Symbol.asyncIterator]();
+    const mine = fake.calls.length;
+    const first = iterator.next();
+    if (mine === index) await held.wait();
+    for (let next = await first; !next.done; next = await iterator.next()) yield next.value;
+  } as typeof fake.adapter.chatStream;
+  return held;
+}
+
+/** Holds every write to `path` on the fake Computer until released. */
+function holdWrite(provider: ComputerProvider, path: string) {
+  const held = hold();
+  const write = provider.writeFile;
+  provider.writeFile = async (sandboxId, target, content) => {
+    if (target === path) await held.wait();
+    return write(sandboxId, target, content);
+  };
+  return held;
+}
+
+/** Takes, and at once gives back, an exclusive lock on every table the pass reads or writes. */
+const lockEveryTable = () =>
+  getTestDb().transaction(async (tx) => {
+    await tx.execute(sql.raw("set local lock_timeout = '2s'"));
+    await tx.execute(
+      sql`lock table ${message}, ${botTurn}, ${bot}, ${conversation}, ${job}, ${computer}, ${usage} in access exclusive mode`,
+    );
+  });
+
+const resetJobEnded = async () => {
+  const [row] = await getTestDb().select().from(job).where(eq(job.name, botResetJobName));
+  return row?.status === "succeeded";
+};
+
+type WorkflowOptions = Parameters<typeof createWorkflow<Transaction>>[0];
+type HistoryEntry = WorkflowOptions["history"][number];
+
+/** What runs a Turn's pass as a retry over `history`, with `saveWith` as its store's. */
+function retryContext(
+  deps: TestDeps,
+  history: HistoryEntry[],
+  saveWith: WorkflowOptions["store"]["saveWith"] = async (_entry, fn) => ({
+    saved: true,
+    result: await getTestDb().transaction(fn),
+  }),
+) {
+  const workflow = createWorkflow<Transaction>({
+    history,
+    // Records nothing: every call runs for real, a `(tx) =>` one in a transaction.
+    store: { save: async () => true, saveWith },
+    now: () => now,
+  });
+  return {
+    workflow,
+    context: {
+      ...(deps.parts.jobs.get(botMemoryPassJob.name)!.services as PassContext),
+      ...workflow.context,
+      signal: new AbortController().signal,
+    },
+  };
+}
+
+/** Runs Turn `turnId`'s pass as a retry over `history`. */
+async function retryPass(deps: TestDeps, turnId: string, history: HistoryEntry[]) {
+  const { workflow, context } = retryContext(deps, history);
+  await botMemoryPassJob.run({ turnId }, context);
+  expect(() => workflow.finish()).not.toThrow();
+}
+
+/** A recorded plan's history entry. */
+const recordedPlan = (shown: unknown[], planned: unknown[]): HistoryEntry => ({
+  seq: 1,
+  kind: "activity",
+  name: "memory_ops",
+  result: { shown, ops: planned },
+});
 
 describe("the post-turn memory pass", () => {
   it("is queued once after a complete Turn, and not after an error Turn", async () => {
@@ -220,25 +334,28 @@ describe("the post-turn memory pass", () => {
   });
 
   it("skips an operation citing an unshown line or one edited since", async () => {
-    let setup: ReturnType<typeof botsWith> extends Promise<infer T> ? T : never;
-    const { client, botIds, read } = (setup = await botsWith([
-      round(),
-      () => {
-        // The user edits line 1 while the pass is thinking.
-        setup.seed(setup.botIds[0]!, "profile.md", ["- Prefers terse replies", "- Is vegetarian"]);
-        return ops(
-          { op: "replace", line: 1, text: "Prefers long replies" },
-          { op: "remove", line: 9 },
-          { op: "replace", line: 0, text: "Nope" },
-          { op: "remove", line: 2 },
-        );
-      },
-    ]));
+    const { client, deps, botIds, user, seed, read } = await botsWith([round(), ops()]);
     const [ada] = botIds as [string];
-    setup.seed(ada, "profile.md", ["- Prefers short replies", "- Is vegetarian"]);
-
     await send(client, ada, "hi");
     await passesEnded(1);
+    const path = memoryPath(ada, "profile.md");
+    // The Bot's own edit doesn't take the pass's lock, so it can land after the re-check.
+    seed(ada, "profile.md", ["- Prefers terse replies", "- Is vegetarian"]);
+
+    await applyMemoryOps(deps.computer!.forUser(user.id), {
+      botId: ada,
+      shown: [
+        { tier: "profile", path, line: 1, text: "Prefers short replies", content: "" },
+        { tier: "profile", path, line: 2, text: "Is vegetarian", content: "" },
+      ],
+      ops: [
+        { op: "replace", line: 1, text: "Prefers long replies" },
+        { op: "remove", line: 9 },
+        { op: "replace", line: 0, text: "Nope" },
+        { op: "remove", line: 2 },
+      ],
+      now,
+    });
 
     expect(read(ada, "profile.md")).toBe("- Prefers terse replies\n");
   });
@@ -248,14 +365,21 @@ describe("the post-turn memory pass", () => {
     const { client, botIds, read } = (setup = await botsWith([
       round(),
       () => {
-        // Once the pass applies its operations, reading the Notes lets the Bot add to its Profile.
+        // Once the pass has written its Profile, reading the Notes lets the Bot add to the Profile.
         const { provider } = setup.computerFake;
+        const profilePath = memoryPath(setup.botIds[0]!, "profile.md");
+        let wrote = false;
+        const writeFile = provider.writeFile;
+        provider.writeFile = async (sandboxId, path, content) => {
+          if (path === profilePath) wrote = true;
+          return writeFile(sandboxId, path, content);
+        };
         const readFile = provider.readFile;
         provider.readFile = async (sandboxId, path) => {
-          if (path === memoryPath(setup.botIds[0]!, "notes.md")) {
+          if (wrote && path === memoryPath(setup.botIds[0]!, "notes.md")) {
             const profile = setup.read(setup.botIds[0]!, "profile.md") ?? "";
             setup.computerFake.files.set(
-              memoryPath(setup.botIds[0]!, "profile.md"),
+              profilePath,
               new TextEncoder().encode(`${profile}- Likes jazz\n`),
             );
           }
@@ -541,6 +665,334 @@ describe("the post-turn memory pass", () => {
     expect((await client.bots.get({ botId: ada })).turns.map((t) => t.memoryChanges)).toEqual([
       null,
     ]);
+  });
+});
+
+describe("a pass holds no lock across its Model call, and re-checks what it planned from", () => {
+  const timeout = 30_000;
+
+  it("lets an exclusive lock through while it waits on its Model", { timeout }, async () => {
+    const { client, botIds, fake, read } = await botsWith([
+      round(),
+      ops({ op: "add", tier: "profile", text: "Lives in Berlin" }),
+    ]);
+    const held = holdModelCall(fake, 1);
+
+    await send(client, botIds[0]!, "hi");
+    await held.reached;
+    try {
+      await lockEveryTable();
+    } finally {
+      held.release();
+    }
+
+    await passesEnded(1);
+    expect(read(botIds[0]!, "profile.md")).toBe("- Lives in Berlin\n");
+  });
+
+  it(
+    "lets an exclusive lock through while the Computer holds up its write",
+    { timeout },
+    async () => {
+      const { client, botIds, computerFake, read } = await botsWith([
+        round(),
+        ops({ op: "add", tier: "profile", text: "Lives in Berlin" }),
+      ]);
+      const [ada] = botIds as [string];
+      const held = holdWrite(computerFake.provider, memoryPath(ada, "profile.md"));
+
+      await send(client, ada, "hi");
+      await held.reached;
+      try {
+        await lockEveryTable();
+      } finally {
+        held.release();
+      }
+
+      await passesEnded(1);
+      expect(read(ada, "profile.md")).toBe("- Lives in Berlin\n");
+    },
+  );
+
+  it("plans again from what an earlier pass wrote during its Model call", { timeout }, async () => {
+    const { client, botIds, fake, seed, read } = await botsWith([
+      round(),
+      // The first pass, shown both lines: line 2 is the one it means.
+      ops({ op: "replace", line: 2, text: "Is vegan" }),
+      round(),
+      // The second pass overtakes it, and moves that line up.
+      ops({ op: "remove", line: 1 }),
+      // The first pass again, shown the new numbers.
+      ops({ op: "replace", line: 1, text: "Is vegan" }),
+    ]);
+    const [ada] = botIds as [string];
+    seed(ada, "profile.md", ["- Prefers short replies", "- Is vegetarian"]);
+    const held = holdModelCall(fake, 1);
+
+    await send(client, ada, "hi");
+    await held.reached;
+    try {
+      await send(client, ada, "again");
+      await passesEnded(1);
+      expect(read(ada, "profile.md")).toBe("- Is vegetarian\n");
+    } finally {
+      held.release();
+    }
+
+    await passesEnded(2);
+    expect(fake.calls).toHaveLength(5);
+    expect(userTextOf(fake.calls[4])).toContain("1. Is vegetarian");
+    expect(userTextOf(fake.calls[4])).not.toContain("Prefers short replies");
+    expect(read(ada, "profile.md")).toBe("- Is vegan\n");
+  });
+
+  it("bills the plan it threw away", { timeout }, async () => {
+    const usageOfCall = { promptTokens: 100, completionTokens: 10, totalTokens: 110 };
+    let setup: ReturnType<typeof botsWith> extends Promise<infer T> ? T : never;
+    const { client, botIds, user, read } = (setup = await botsWith(
+      [
+        round(),
+        () => {
+          setup.seed(setup.botIds[0]!, "profile.md", ["- Prefers terse replies"]);
+          return withUsage(ops({ op: "replace", line: 1, text: "Stale" }), usageOfCall);
+        },
+        withUsage(ops({ op: "add", tier: "notes", text: "Asked about replies" }), usageOfCall),
+      ],
+      { host: true },
+    ));
+    const [ada] = botIds as [string];
+    setup.seed(ada, "profile.md", ["- Prefers short replies"]);
+
+    await send(client, ada, "hi");
+    await passesEnded(1);
+
+    const rows = await getTestDb().select().from(usage).where(eq(usage.userId, user.id));
+    expect(rows.filter((row) => row.kind === "memory")).toHaveLength(2);
+    expect(read(ada, "profile.md")).toBe("- Prefers terse replies\n");
+    expect(read(ada, "notes.md")).toBe("- 2030-03-15 Asked about replies\n");
+  });
+
+  it("gives up with a log after three plans that went stale", { timeout }, async () => {
+    const logger = { error: vi.fn() };
+    let setup: ReturnType<typeof botsWith> extends Promise<infer T> ? T : never;
+    let edits = 0;
+    const stale = () => {
+      edits += 1;
+      setup.seed(setup.botIds[0]!, "profile.md", [`- Edit ${edits}`]);
+      return ops({ op: "replace", line: 1, text: "Stale" });
+    };
+    const { client, botIds, fake, read } = (setup = await botsWith([round(), stale, stale, stale], {
+      logger,
+    }));
+    const [ada] = botIds as [string];
+
+    await send(client, ada, "hi");
+    const [ended] = await passesEnded(1);
+
+    expect(ended?.status).toBe("succeeded");
+    expect(fake.calls).toHaveLength(4);
+    expect(read(ada, "profile.md")).toBe("- Edit 3\n");
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringMatching(/^The memory pass of Turn .+ changed nothing: .+/),
+    );
+  });
+
+  it(
+    "doesn't plan again when it planned nothing, though its lines changed",
+    { timeout },
+    async () => {
+      let setup: ReturnType<typeof botsWith> extends Promise<infer T> ? T : never;
+      const { client, botIds, fake } = (setup = await botsWith([
+        round(),
+        () => {
+          setup.seed(setup.botIds[0]!, "profile.md", ["- Prefers terse replies"]);
+          return ops();
+        },
+      ]));
+
+      await send(client, botIds[0]!, "hi");
+      await passesEnded(1);
+
+      expect(fake.calls).toHaveLength(2);
+    },
+  );
+
+  it("takes a line with a NUL, which its Checkpoint drops, as unchanged", { timeout }, async () => {
+    const { client, botIds, fake, computerFake, read } = await botsWith([
+      round(),
+      ops({ op: "add", tier: "notes", text: "Asked about jazz" }),
+    ]);
+    const [ada] = botIds as [string];
+    computerFake.files.set(
+      memoryPath(ada, "profile.md"),
+      new TextEncoder().encode("- Likes\0 jazz\n"),
+    );
+
+    await send(client, ada, "hi");
+    await passesEnded(1);
+
+    expect(fake.calls).toHaveLength(2);
+    expect(read(ada, "notes.md")).toBe("- 2030-03-15 Asked about jazz\n");
+  });
+
+  describe("a reset", () => {
+    it("during its Model call goes through, and the pass writes nothing", { timeout }, async () => {
+      const { client, botIds, fake, read } = await botsWith([
+        round(),
+        ops({ op: "add", tier: "profile", text: "Lives in Berlin" }),
+      ]);
+      const [ada] = botIds as [string];
+      const held = holdModelCall(fake, 1);
+
+      await send(client, ada, "hi");
+      await held.reached;
+      try {
+        await client.bots.reset({ botId: ada, name: "Ada" });
+        await expect.poll(resetJobEnded, { timeout: 4_000 }).toBe(true);
+      } finally {
+        held.release();
+      }
+
+      await passesEnded(1);
+      expect(read(ada, "profile.md")).toBeNull();
+    });
+
+    it("waits for a write in flight, and deletes what it wrote", { timeout }, async () => {
+      const { client, botIds, computerFake, read } = await botsWith([
+        round(),
+        ops({ op: "add", tier: "profile", text: "Lives in Berlin" }),
+      ]);
+      const [ada] = botIds as [string];
+      const held = holdWrite(computerFake.provider, memoryPath(ada, "profile.md"));
+
+      await send(client, ada, "hi");
+      await held.reached;
+      try {
+        await client.bots.reset({ botId: ada, name: "Ada" });
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(await resetJobEnded()).toBe(false);
+      } finally {
+        held.release();
+      }
+
+      await expect.poll(resetJobEnded, { timeout: 4_000 }).toBe(true);
+      expect(read(ada, "profile.md")).toBeNull();
+    });
+  });
+
+  describe("a retry", () => {
+    /** A Bot past its Turn and its first pass, with the Profile `lines`. */
+    async function pastItsPass(rounds: Round[], lines: string[]) {
+      const setup = await botsWith([round(), ops(), ...rounds]);
+      const [ada] = setup.botIds as [string];
+      await send(setup.client, ada, "hi");
+      await passesEnded(1);
+      if (lines.length > 0) setup.seed(ada, "profile.md", lines);
+      const [turn] = await getTestDb().select().from(botTurn).where(eq(botTurn.botId, ada));
+      // As `jsonb` hands a shown line back: not in the order it was written.
+      const shownProfile = (line: number, text: string) => ({
+        line,
+        path: memoryPath(ada, "profile.md"),
+        text,
+        tier: "profile",
+        content: text,
+      });
+      return { ...setup, ada, turnId: turn!.id, shownProfile };
+    }
+
+    it("applies a recorded plan with no second Model call", { timeout }, async () => {
+      const { deps, fake, read, ada, turnId, shownProfile } = await pastItsPass(
+        [],
+        ["- Is vegetarian"],
+      );
+
+      await retryPass(deps, turnId, [
+        recordedPlan(
+          [shownProfile(1, "Is vegetarian")],
+          [{ op: "replace", line: 1, text: "Is vegan" }],
+        ),
+      ]);
+
+      expect(fake.calls).toHaveLength(2);
+      expect(read(ada, "profile.md")).toBe("- Is vegan\n");
+    });
+
+    it("doesn't apply twice once its apply is recorded", { timeout }, async () => {
+      const { deps, fake, read, ada, turnId, shownProfile } = await pastItsPass(
+        [],
+        ["- Is vegetarian"],
+      );
+
+      await retryPass(deps, turnId, [
+        recordedPlan(
+          [shownProfile(1, "Is vegetarian")],
+          [{ op: "replace", line: 1, text: "Is vegan" }],
+        ),
+        { seq: 2, kind: "activity", name: "memory_apply", result: [] },
+      ]);
+
+      expect(fake.calls).toHaveLength(2);
+      expect(read(ada, "profile.md")).toBe("- Is vegetarian\n");
+    });
+
+    it("plans again when its recorded plan has gone stale", { timeout }, async () => {
+      const { deps, fake, read, ada, turnId, shownProfile } = await pastItsPass(
+        [ops({ op: "replace", line: 1, text: "Is vegan" })],
+        ["- Is vegetarian"],
+      );
+
+      await retryPass(deps, turnId, [
+        recordedPlan(
+          [shownProfile(1, "Likes jazz"), shownProfile(2, "Is vegetarian")],
+          [{ op: "replace", line: 2, text: "Is vegan" }],
+        ),
+      ]);
+
+      expect(fake.calls).toHaveLength(3);
+      expect(userTextOf(fake.calls[2])).toContain("1. Is vegetarian");
+      expect(read(ada, "profile.md")).toBe("- Is vegan\n");
+    });
+
+    it("writes nothing when a stale recorded plan meets Memory off", { timeout }, async () => {
+      const { deps, client, fake, read, ada, turnId, shownProfile } = await pastItsPass(
+        [],
+        ["- Is vegetarian"],
+      );
+      await client.memory.setEnabled({ enabled: false });
+
+      await retryPass(deps, turnId, [
+        recordedPlan([shownProfile(1, "Likes jazz")], [{ op: "remove", line: 1 }]),
+      ]);
+
+      expect(fake.calls).toHaveLength(2);
+      expect(read(ada, "profile.md")).toBe("- Is vegetarian\n");
+    });
+
+    it(
+      "doesn't add twice after a crash between its writes and its Checkpoint",
+      { timeout },
+      async () => {
+        const { deps, fake, read, ada, turnId } = await pastItsPass([ops()], []);
+        const history = [
+          recordedPlan([], [{ op: "add", tier: "profile", text: "Lives in Berlin" }]),
+        ];
+        const crashed = retryContext(deps, history, async (_entry, fn) => {
+          await getTestDb().transaction(fn);
+          throw new Error("The process died before its Checkpoint");
+        });
+        await expect(botMemoryPassJob.run({ turnId }, crashed.context)).rejects.toThrow(
+          "The process died",
+        );
+        expect(read(ada, "profile.md")).toBe("- Lives in Berlin\n");
+
+        await retryPass(deps, turnId, history);
+
+        // The plan went stale with its own write: the next one is shown that line.
+        expect(fake.calls).toHaveLength(3);
+        expect(userTextOf(fake.calls[2])).toContain("1. Lives in Berlin");
+        expect(read(ada, "profile.md")).toBe("- Lives in Berlin\n");
+      },
+    );
   });
 });
 

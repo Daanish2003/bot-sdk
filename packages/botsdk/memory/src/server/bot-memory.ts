@@ -37,8 +37,8 @@ export async function forgetBotMemory(
     .from(computerTable)
     .where(eq(computerTable.userId, userId));
   if (!row) return;
-  // Under the lock a Bot's memory pass holds: a pass running now finishes first, and a later one
-  // sees the reset mark and writes nothing.
+  // Under the lock a Bot's memory pass applies its operations in: one applying now finishes first,
+  // and a later one sees the reset mark and writes nothing.
   await db.transaction(async (lock) => {
     await lock.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${memoryPassLock(botId)}, 0))`,
