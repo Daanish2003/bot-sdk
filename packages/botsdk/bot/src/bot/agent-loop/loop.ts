@@ -255,7 +255,10 @@ export type LoopOptions = {
   inbox?: (tx: Transaction) => Promise<string[]>;
   /** Runs after each `inbox` activity, once its Checkpoint has committed (and on its replay). */
   afterInbox?: () => Promise<void>;
-  /** The budget of the Assignments a Turn is working on (#1184). With none, nothing is checked. */
+  /**
+   * The budget of the Assignments a Turn is working on (#1184), which a Helper it started keeps to
+   * too (#1196). With none, nothing is checked.
+   */
   budget?: LoopBudget;
   /**
    * Where the loop's reviewed calls come from (a Turn's or a Helper's): each `shell` call, and each

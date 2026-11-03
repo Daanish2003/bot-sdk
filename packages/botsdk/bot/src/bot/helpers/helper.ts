@@ -49,6 +49,7 @@ import {
   runToolName,
   toolSearchTools,
 } from "../context";
+import { helperBudget } from "../assignments";
 import { closeWaitingReviews } from "../safety";
 import { hintBotThread, lockConversation, lockTurnConversations, receive } from "../triggers";
 
@@ -129,6 +130,9 @@ export const helperEndings = {
   timedOut: "The Helper ran out of time (30 minutes) before it finished.",
   crashed: "The Helper crashed and could not carry on.",
   failed: (error: string) => `The Helper failed: ${error}`,
+  overBudget: (soFar: string) =>
+    "The Helper stopped: the Assignment it works for is out of budget. " +
+    (soFar ? `What it had so far:\n\n${soFar}` : "It had nothing to report yet."),
   empty: "The Helper finished with no report.",
 };
 
@@ -530,6 +534,11 @@ async function playHelper(
         ),
       )
     : helperInput(helper);
+  // A replay whose history ends before the check's marker has no more to play, and no check to keep.
+  const budget = await helperBudget(deps, helper, ctx).catch((caught: unknown) => {
+    if (attempt) throw caught;
+    return undefined;
+  });
   let askedUser: string | undefined;
   // A General Helper's Connector tool clients stay open for its loop, and close when it ends.
   const connections = new AbortController();
@@ -546,6 +555,8 @@ async function playHelper(
     attempt,
     // The Bot isn't told by its Helper's results: its own next Computer call tells it.
     tellsBot: false,
+    // Its model calls count against the Assignments of the Turn that started it (#1196).
+    budget,
     // Before each Step, its progress so far is a change to the Bot thread, then its inbox is read.
     inbox: async (tx) => {
       await recordBotChange(tx, helper, "helper", helper.id, deps.clock());
@@ -690,7 +701,12 @@ export async function todoList(db: Database | Transaction, botId: string): Promi
 }
 
 /** How a Helper's played loop ends: its status and its report. */
-function endingOf(played: LoopResult): { status: "complete" | "error"; report: string } {
+function endingOf(played: PlayedHelper): { status: "complete" | "error"; report: string } {
+  // First: its abort may also read as an error.
+  if (played.overBudget) {
+    const soFar = latestText([...played.input, ...played.transcript]);
+    return { status: "error", report: capReport(helperEndings.overBudget(soFar)) };
+  }
   if (played.timedOut) return { status: "error", report: helperEndings.timedOut };
   if (played.error !== undefined) {
     return { status: "error", report: helperEndings.failed(played.error) };
@@ -704,11 +720,27 @@ function endingOf(played: LoopResult): { status: "complete" | "error"; report: s
 function finalText(transcript: readonly ModelMessage[]): string {
   const last = transcript.at(-1);
   if (last?.role !== "assistant" || last.toolCalls?.length) return "";
-  const content =
-    typeof last.content === "string"
-      ? last.content
-      : (last.content ?? []).map((part) => (part.type === "text" ? part.content : "")).join("");
-  return content.trim();
+  return textOf(last);
+}
+
+/**
+ * The newest plain text the Helper wrote, with tool calls or not. Never a tool's result: that is
+ * only what it read, and a report reaches the Bot as a Trigger.
+ */
+function latestText(transcript: readonly ModelMessage[]): string {
+  for (const entry of transcript.toReversed()) {
+    const text = entry.role === "assistant" ? textOf(entry) : "";
+    if (text) return text;
+  }
+  return "";
+}
+
+function textOf({ content }: ModelMessage): string {
+  const text =
+    typeof content === "string"
+      ? content
+      : (content ?? []).map((part) => (part.type === "text" ? part.content : "")).join("");
+  return text.trim();
 }
 
 function capReport(report: string): string {

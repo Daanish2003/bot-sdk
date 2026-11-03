@@ -9,7 +9,7 @@ import { alias } from "drizzle-orm/pg-core";
 
 import type { BotSdkContext, Transaction } from "../../plugin";
 import type { WorkflowContext } from "../../runner/internal";
-import { bot, botAssignment, botTrigger } from "../../storage";
+import { bot, botAssignment, botTrigger, botTurn } from "../../storage";
 import type { Database } from "../../storage";
 import { appendBotMessage, hintChanged, recordBotChange, textParts } from "../conversation";
 import { lockConversationSet, lockConversationsInOrder, receive } from "../triggers";
@@ -29,10 +29,11 @@ import {
  * An Assignment's budget (#1184): a limit on model calls, which holds on the user's own key where
  * cost is $0 (ADR 0007), and on money, where a price is known. The budget is the top Assignment's:
  * its descendants draw from it, so splitting work can't escape it. It is checked before each model
- * call of a Turn working on an Assignment, and a call already started finishes.
+ * call of a Turn working on an Assignment, and of a Helper that Turn started (#1196), and a call
+ * already started finishes.
  */
 
-/** How a Turn's loop keeps to the budgets of the Assignments it's working on. */
+/** How the loop of a Turn, or of a Helper it started, keeps to the budgets of what it's working on. */
 export type LoopBudget = {
   /**
    * In its own Checkpoint, before each model call: `stop` ends the loop there, and `note` is what
@@ -51,8 +52,12 @@ const spent = (budget: AssignmentBudget) =>
   `${assignmentMoney(budget.costMicros)} of ${assignmentMoney(budget.moneyLimitMicros)}`;
 
 /** The Assignments a Turn is on, and how the budgets it draws from stand. */
-async function budgetsOfTurn(tx: Transaction, turn: { id: string; botId: string }) {
-  const { on, ended, sources, apart, uncharged } = await assignmentsOfTurn(tx, turn);
+async function budgetsOfTurn(
+  tx: Transaction,
+  turn: { id: string; botId: string },
+  receivedBy?: Date,
+) {
+  const { on, ended, sources, apart, uncharged } = await assignmentsOfTurn(tx, turn, receivedBy);
   const ids = [...on.keys()].filter((id) => !uncharged.has(id));
   const budgets = await budgetsOf(tx, ids);
   const budget = (id: string) => budgets.get(id)!.budget;
@@ -86,7 +91,54 @@ async function budgetsOfTurn(tx: Transaction, turn: { id: string; botId: string 
     charged: [...live, ...drawnFrom.filter((id) => !paid.has(id))],
     onlyWork,
     acts: over.length > 0 || (onlyWork && (nothingLeft || finishedOver)),
+    // A Helper does nothing but the work, whatever else the Turn took.
+    stopsHelper: over.length > 0 || nothingLeft || finishedOver,
   };
+}
+
+/** Whether a Turn can be working on an Assignment, by the Triggers it started with. */
+async function mayBeOnAssignments(
+  db: Database | Transaction,
+  turn: { id: string; startedAt: Date },
+): Promise<boolean> {
+  const triggers = await db
+    .select({ source: botTrigger.source })
+    .from(botTrigger)
+    .innerJoin(
+      bot,
+      and(eq(bot.id, botTrigger.botId), eq(bot.conversationId, botTrigger.conversationId)),
+    )
+    // A Stop attaches what waited behind the Turn to it, which a replay must not read as its own.
+    .where(and(eq(botTrigger.turnId, turn.id), lte(botTrigger.receivedAt, turn.startedAt)));
+  const sources = new Set<string>(triggers.map((row) => row.source));
+  return sources.has("assignment") || onBotsOpenAssignments(sources);
+}
+
+/** Counts one model call against what Turn `turnId` draws from, on its log under that Turn. */
+async function charge(
+  tx: Transaction,
+  { budgets, charged }: Awaited<ReturnType<typeof budgetsOfTurn>>,
+  { turnId, costMicros, at }: { turnId: string; costMicros: number; at: Date },
+) {
+  for (const id of charged) {
+    const { rootId, status } = budgets.get(id)!;
+    await tx
+      .update(botAssignment)
+      .set({
+        callsSpent: sql`${botAssignment.callsSpent} + 1`,
+        microsSpent: sql`${botAssignment.microsSpent} + ${costMicros}`,
+      })
+      .where(eq(botAssignment.id, rootId));
+    await logStatus(tx, {
+      assignmentId: id,
+      status,
+      actor: "system",
+      turnId,
+      calls: 1,
+      costMicros,
+      at,
+    });
+  }
 }
 
 /**
@@ -102,17 +154,7 @@ export async function turnBudget(
   ctx: WorkflowContext<Transaction>,
   db: Database | Transaction,
 ): Promise<LoopBudget | undefined> {
-  const triggers = await db
-    .select({ source: botTrigger.source })
-    .from(botTrigger)
-    .innerJoin(
-      bot,
-      and(eq(bot.id, botTrigger.botId), eq(bot.conversationId, botTrigger.conversationId)),
-    )
-    // A Stop attaches what waited behind the Turn to it, which a replay must not read as its own.
-    .where(and(eq(botTrigger.turnId, turn.id), lte(botTrigger.receivedAt, turn.startedAt)));
-  const sources = new Set<string>(triggers.map((row) => row.source));
-  if (!sources.has("assignment") && !onBotsOpenAssignments(sources)) return undefined;
+  if (!(await mayBeOnAssignments(db, turn))) return undefined;
   // Such a Turn that was running before budgets existed recorded no checks.
   if (!(await ctx.patched("assignment_budget"))) return undefined;
   // Set only by a live check: a replayed one changed nothing.
@@ -184,29 +226,36 @@ export async function turnBudget(
       for (const conversationId of hints) await hintChanged(deps, conversationId);
       hints.clear();
     },
-    spend: async (tx, costMicros) => {
-      const { budgets, charged } = await budgetsOfTurn(tx, turn);
-      const at = deps.clock();
-      for (const id of charged) {
-        const { rootId, status } = budgets.get(id)!;
-        await tx
-          .update(botAssignment)
-          .set({
-            callsSpent: sql`${botAssignment.callsSpent} + 1`,
-            microsSpent: sql`${botAssignment.microsSpent} + ${costMicros}`,
-          })
-          .where(eq(botAssignment.id, rootId));
-        await logStatus(tx, {
-          assignmentId: id,
-          status,
-          actor: "system",
-          turnId: turn.id,
-          calls: 1,
-          costMicros,
-          at,
-        });
-      }
-    },
+    spend: async (tx, costMicros) =>
+      charge(tx, await budgetsOfTurn(tx, turn), { turnId: turn.id, costMicros, at: deps.clock() }),
+  };
+}
+
+/**
+ * The budget a Helper's loop keeps to, or `undefined` for a Helper whose Turn can't be working on
+ * an Assignment, or that was running before Helpers had budgets. It's charged to what its Turn is
+ * on, read at each call, so an Assignment that has ended or moved takes no more. At the limit it
+ * stops and writes nothing else: the Turn its report wakes is on the same Assignments, and that
+ * Turn's own check blocks them and asks the owner.
+ */
+export async function helperBudget(
+  deps: BotSdkContext,
+  helper: { startedByTurnId: string; botId: string },
+  ctx: WorkflowContext<Transaction>,
+): Promise<LoopBudget | undefined> {
+  const [started] = await deps.db
+    .select({ startedAt: botTurn.startedAt })
+    .from(botTurn)
+    .where(eq(botTurn.id, helper.startedByTurnId));
+  const turn = { id: helper.startedByTurnId, botId: helper.botId, startedAt: started!.startedAt };
+  if (!(await mayBeOnAssignments(deps.db, turn))) return undefined;
+  if (!(await ctx.patched("assignment_budget"))) return undefined;
+  const budgets = (tx: Transaction) => budgetsOfTurn(tx, turn, turn.startedAt);
+  return {
+    check: async (tx) => ({ stop: (await budgets(tx)).stopsHelper }),
+    afterCheck: async () => {},
+    spend: async (tx, costMicros) =>
+      charge(tx, await budgets(tx), { turnId: turn.id, costMicros, at: deps.clock() }),
   };
 }
 
