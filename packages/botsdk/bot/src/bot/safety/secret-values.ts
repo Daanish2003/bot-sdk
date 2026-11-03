@@ -150,7 +150,32 @@ export function maskSecrets(text: string, values: Iterable<string>): string {
   return secretMasker(values)(text);
 }
 
-/** `mask` (a `secretMasker`) over every string of a JSON-like result (a `read` result's lines, a hint). */
+/**
+ * `keys`, in order, each masked. A key that masks to a name already taken gets a number (`*** 2`),
+ * so neither value is lost; a key with no Secret keeps its name, and no number makes a Secret's
+ * value, so masking the result again changes nothing. A key is masked until it stops changing, as
+ * masking can leave a Secret that looks masked (`****` in `*****`); each pass shortens it, since a
+ * Secret is longer than `***`.
+ */
+function maskKeys(keys: string[], mask: (text: string) => string): string[] {
+  const taken = new Set(keys.filter((key) => mask(key) === key));
+  return keys.map((key) => {
+    let masked = key;
+    while (mask(masked) !== masked) masked = mask(masked);
+    if (masked === key) return key;
+    let distinct = masked;
+    for (let n = 2; taken.has(distinct) || mask(distinct) !== distinct; n++) {
+      distinct = `${masked} ${n}`;
+    }
+    taken.add(distinct);
+    return distinct;
+  });
+}
+
+/**
+ * `mask` (a `secretMasker`) over every string of a JSON-like result, its object keys included (a
+ * `read` result's lines, a hint).
+ */
 export function maskResult<T>(result: T, mask: (text: string) => string): T {
   if (mask === unmasked) return result;
   const walk = (node: unknown): unknown => {
@@ -159,7 +184,13 @@ export function maskResult<T>(result: T, mask: (text: string) => string): T {
     if (node && typeof node === "object") {
       // As JSON reads it (a Date is its text), since a result becomes JSON for the Model anyway.
       if ("toJSON" in node && typeof node.toJSON === "function") return walk(node.toJSON());
-      return Object.fromEntries(Object.entries(node).map(([key, child]) => [key, walk(child)]));
+      const entries = Object.entries(node);
+      const keys = maskKeys(
+        entries.map(([key]) => key),
+        mask,
+      );
+      // fromEntries defines each key, so a `__proto__` key stays a key and sets no prototype.
+      return Object.fromEntries(entries.map(([, child], index) => [keys[index], walk(child)]));
     }
     return node;
   };

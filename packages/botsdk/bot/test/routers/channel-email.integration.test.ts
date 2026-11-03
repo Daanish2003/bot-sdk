@@ -507,6 +507,31 @@ describe("an email to a Bot's address", () => {
     },
     30_000,
   );
+
+  it("drops a NUL from any field of a mail, and the Bot still gets it", async () => {
+    const { client, botId, address, conversationId, deliver } = await emailBot();
+
+    const response = await deliver({
+      to: [`${address}\u0000`],
+      messageId: "<fir\u0000st@mail.example>",
+      subject: "Pla\u0000ns",
+      text: "Book me\u0000 a table",
+      attachments: ["menu\u0000.pdf"],
+      headers: { "In-Reply-To": "<a\u0000b@mail.example>" },
+    });
+
+    expect(response.status).toBe(202);
+    expect((await triggersOf(conversationId)).map((trigger) => trigger.id)).toEqual([
+      "email:first@mail.example",
+    ]);
+    const [saved] = (await client.bots.get({ botId })).messages;
+    expect(saved?.text).toBe("Plans\nBook me a table\n\nAttachments (not kept): menu.pdf");
+    const [row] = await getTestDb()
+      .select({ parts: message.parts })
+      .from(message)
+      .where(eq(message.conversationId, conversationId));
+    expect(row?.parts.subject).toBe("Plans");
+  }, 30_000);
 });
 
 describe("channel.email", () => {

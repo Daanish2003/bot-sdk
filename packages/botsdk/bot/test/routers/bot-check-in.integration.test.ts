@@ -458,4 +458,17 @@ describe("the user's edit of a Check-in", () => {
     ).rejects.toMatchObject({ code: "CONFLICT" });
     expect(await queuedJobs()).toEqual([]);
   });
+
+  it("refuses a NUL in the note, as a client error, and keeps the note", async () => {
+    const { client, botId } = await botTurn({
+      rounds: [round(setCheckIn(setThursday)), round()],
+    });
+    const [listed] = await client.checkIns.list({ botId });
+
+    await expect(
+      client.checkIns.edit({ checkInId: listed!.id, note: "a\u0000b" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST", status: 400 });
+
+    expect((await client.checkIns.list({ botId }))[0]?.note).toBe(note);
+  });
 });

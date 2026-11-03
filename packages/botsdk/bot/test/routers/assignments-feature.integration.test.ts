@@ -1394,31 +1394,80 @@ describe("the chain of a feature's Assignment (#1186)", () => {
   const callerOf = (call: TextOptions) =>
     /Your name: (\w+)/.exec(JSON.stringify(call.messages))?.[1] as "Clerk" | "Helper";
 
-  /** Clerk and Helper, and a feature whose `relay` tool hands work on from the Turn that calls it. */
-  async function relaying(rounds: { Clerk: Round[]; Helper: Round[] }) {
+  /**
+   * Clerk and Helper, and a feature whose `relay` tool hands work on from the Turn that calls it,
+   * naming the Turn `naming` gives, if any, once `before` has resolved. Its `relay_later` tool queues
+   * a job that does the same, with the Turn's id or without.
+   */
+  async function relaying(
+    rounds: { Clerk: Round[]; Helper: Round[] },
+    {
+      naming = (turn) => turn.id,
+      before = async () => {},
+    }: {
+      naming?: (turn: { id: string }) => string | undefined;
+      before?: () => Promise<void>;
+    } = {},
+  ) {
     const onEnded = defineJob({
       name: "relay.ended",
       payload: assignmentEnded,
       run: async () => {},
+    });
+    const later = defineJob<
+      { to: string; turnId?: string | undefined; userId: string },
+      FeatureContext<"assignments">
+    >({
+      name: "relay.later",
+      payload: z.object({ to: z.string(), turnId: z.uuid().optional(), userId: z.string() }),
+      run: async ({ to, turnId, userId }, { assignments, db, jobs }) => {
+        await db.transaction((tx) =>
+          assignments.create(tx, {
+            userId,
+            botId: ids[to]!,
+            ...(turnId && { turnId }),
+            ...work,
+            job: onEnded,
+          }),
+        );
+        jobs.wake();
+      },
     });
     const ids: Record<string, string> = {};
     const refusals: string[] = [];
     const feature = defineFeature({
       id: "relay",
       needs: ["assignments"],
-      jobs: [onEnded],
+      jobs: [onEnded, later],
       tools: (turn, { assignments, db, jobs }) => [
+        toolDefinition({
+          name: "relay_later",
+          description: "Hand work on to another Bot from a job.",
+          inputSchema: z.object({ to: z.string(), keepTurn: z.boolean() }),
+        }).server(async ({ to, keepTurn }) => {
+          await db.transaction((tx) =>
+            jobs.enqueueIn(tx, later, {
+              to,
+              userId: turn.userId,
+              ...(keepTurn && { turnId: turn.id }),
+            }),
+          );
+          jobs.wake();
+          return { queued: true };
+        }),
         toolDefinition({
           name: "relay",
           description: "Hand work on to another Bot.",
           inputSchema: z.object({ to: z.string() }),
         }).server(async ({ to }) => {
+          await before();
           try {
+            const named = naming(turn);
             const { id } = await db.transaction((tx) =>
               assignments.create(tx, {
                 userId: turn.userId,
                 botId: ids[to]!,
-                turnId: turn.id,
+                ...(named && { turnId: named }),
                 ...work,
                 job: onEnded,
               }),
@@ -1457,6 +1506,8 @@ describe("the chain of a feature's Assignment (#1186)", () => {
     return {
       fakes,
       deps,
+      user,
+      onEnded,
       client,
       refusals,
       clerkId: botId,
@@ -1609,4 +1660,249 @@ describe("the chain of a feature's Assignment (#1186)", () => {
     },
     timeout,
   );
+
+  describe("in a feature's tool (#1218)", () => {
+    const relayLater = (to: string, keepTurn: boolean) =>
+      round(runs("relay_later", { to, keepTurn }));
+
+    it(
+      "counts from the Turn behind the call when the tool leaves out turnId, and refuses past the limit",
+      async () => {
+        const { fakes, refusals, create, clerkId, helperId } = await relaying(
+          {
+            Clerk: [relay("Helper"), quiet, relay("Helper"), quiet],
+            Helper: [relay("Clerk"), quiet],
+          },
+          { naming: () => undefined },
+        );
+
+        await create(clerkId);
+
+        await expect
+          .poll(() => JSON.stringify(toolResultsIn(fakes.Clerk.calls[3])), poll)
+          .toMatch(/stops at 3 deep/);
+        expect(refusals).toEqual(["CONFLICT"]);
+        expect(await depthsOf(clerkId, helperId)).toEqual([1, 2, 3]);
+        expect(fakes.Helper.calls).toHaveLength(2);
+      },
+      timeout,
+    );
+
+    it(
+      "can't lower its depth by naming another Turn",
+      async () => {
+        const shallow = { id: undefined as string | undefined };
+        const { client, fakes, refusals, create, clerkId, helperId } = await relaying(
+          {
+            Clerk: [quiet, relay("Helper"), quiet, relay("Helper"), quiet],
+            Helper: [relay("Clerk"), quiet],
+          },
+          { naming: () => shallow.id },
+        );
+        // A Turn that took the user's Message, so its chain would start again at depth 1.
+        await client.bots.send({ botId: clerkId, id: uuidv7(), text: "Hello." });
+        shallow.id = await endedTurnOf(clerkId);
+
+        await create(clerkId);
+
+        await expect
+          .poll(() => JSON.stringify(toolResultsIn(fakes.Clerk.calls[4])), poll)
+          .toMatch(/stops at 3 deep/);
+        expect(refusals).toEqual(["CONFLICT"]);
+        expect(await depthsOf(clerkId, helperId)).toEqual([1, 2, 3]);
+      },
+      timeout,
+    );
+
+    it(
+      "still counts from a deeper Turn it names, and still refuses an unknown one",
+      async () => {
+        const named = { id: undefined as string | undefined };
+        const { client, create, clerkId, helperId, refusals } = await relaying(
+          {
+            Clerk: [quiet, relay("Helper"), quiet, relay("Helper"), quiet],
+            Helper: [quiet, quiet],
+          },
+          { naming: () => named.id },
+        );
+        await create(helperId);
+        await create(clerkId, await endedTurnOf(helperId));
+        // Clerk's first Turn is on that Assignment, at depth 2.
+        named.id = await endedTurnOf(clerkId);
+
+        // This Turn took the user's Message, so alone it would give depth 1.
+        await client.bots.send({ botId: clerkId, id: uuidv7(), text: "Pass this on." });
+        await expect.poll(() => depthsOf(helperId), poll).toEqual([1, 3]);
+
+        named.id = uuidv7();
+        await client.bots.send({ botId: clerkId, id: uuidv7(), text: "And this." });
+        await expect.poll(() => refusals, poll).toEqual(["NOT_FOUND"]);
+        expect(await depthsOf(helperId)).toEqual([1, 3]);
+      },
+      timeout,
+    );
+
+    it(
+      "keeps two Turns at once apart: each call counts from its own",
+      async () => {
+        let entered = 0;
+        let bothIn = () => {};
+        const both = new Promise<void>((resolve) => {
+          bothIn = resolve;
+        });
+        const { client, create, refusals, clerkId, helperId } = await relaying(
+          { Clerk: [quiet, relay("Helper"), quiet], Helper: [quiet, relay("Clerk"), quiet, quiet] },
+          {
+            naming: () => undefined,
+            before: async () => {
+              entered += 1;
+              if (entered === 2) bothIn();
+              await both;
+            },
+          },
+        );
+        // Helper's coming Turn is on an Assignment at the limit, so its call must be refused.
+        await create(helperId);
+        await create(clerkId, await endedTurnOf(helperId));
+        const second = await endedTurnOf(clerkId);
+
+        await create(helperId, second);
+        // Clerk's Turn takes the user's Message, so its call starts a new chain at the same moment.
+        await client.bots.send({ botId: clerkId, id: uuidv7(), text: "Pass this on." });
+
+        await expect.poll(() => depthsOf(helperId), poll).toEqual([1, 3, 1]);
+        await expect.poll(() => refusals, poll).toEqual(["CONFLICT"]);
+        expect(entered).toBe(2);
+        expect(await depthsOf(clerkId)).toEqual([2]);
+      },
+      timeout,
+    );
+
+    it(
+      "leaves a job the tool queued to name the Turn: without it, it starts at depth 1",
+      async () => {
+        const { create, clerkId, helperId } = await relaying({
+          Clerk: [relayLater("Helper", false), relayLater("Helper", true), quiet],
+          Helper: [relay("Clerk"), quiet, quiet, quiet],
+        });
+
+        await create(helperId);
+
+        await expect
+          .poll(async () => (await depthsOf(helperId)).toSorted(), poll)
+          .toEqual([1, 1, 3]);
+        expect(await depthsOf(clerkId)).toEqual([2]);
+      },
+      timeout,
+    );
+
+    it(
+      "refuses to act for another owner from the Turn it runs in",
+      async () => {
+        const { deps, create, clerkId, onEnded } = await relaying({ Clerk: [quiet], Helper: [] });
+        await create(clerkId);
+        const turnId = await endedTurnOf(clerkId);
+        const other = await relaying({ Clerk: [], Helper: [] });
+        const inTurn = deps.parts.features[0]!.contextInTurn(turnId).assignments!;
+
+        await expect(
+          getTestDb().transaction((tx) =>
+            inTurn.create(tx, {
+              userId: other.user.id,
+              botId: other.clerkId,
+              ...work,
+              job: onEnded,
+            }),
+          ),
+        ).rejects.toMatchObject({ code: "NOT_FOUND" });
+        expect(await depthsOf(other.clerkId)).toEqual([]);
+      },
+      timeout,
+    );
+
+    it(
+      "counts a Helper's Connector tool from the Turn that started the Helper",
+      async () => {
+        const onEnded = defineJob({
+          name: "connector.ended",
+          payload: assignmentEnded,
+          run: async () => {},
+        });
+        const target = { id: "" };
+        const refusals: unknown[] = [];
+        const feature = defineFeature({
+          id: "connector",
+          needs: ["assignments"],
+          connectorTools: true,
+          jobs: [onEnded],
+          tools: (turn, { assignments, db, jobs }) => [
+            toolDefinition({
+              name: "relay",
+              description: "Hand work on to another Bot.",
+              inputSchema: z.object({}),
+            }).server(async () => {
+              try {
+                await db.transaction((tx) =>
+                  assignments.create(tx, {
+                    userId: turn.userId,
+                    botId: target.id,
+                    ...work,
+                    job: onEnded,
+                  }),
+                );
+                jobs.wake();
+              } catch (error) {
+                refusals.push(error);
+              }
+              return { done: true };
+            }),
+          ],
+        });
+        const turns = createFakeAdapter({
+          rounds: [
+            round(toolCall({ name: "start_helper", input: { type: "general", task: "Relay." } })),
+            quiet,
+            quiet,
+            quiet,
+            quiet,
+          ],
+        });
+        const helpers = createFakeAdapter({ rounds: [round(runs("relay", {})), quiet] });
+        const { client, user, botId, deps } = await botWith([], [feature], fakeReviewer(), false, {
+          ...turns.adapter,
+          chatStream: (options: TextOptions) =>
+            (options.systemPrompts ?? []).some((prompt) =>
+              (typeof prompt === "string" ? prompt : prompt.content).startsWith("You are a Helper"),
+            )
+              ? helpers.adapter.chatStream(options)
+              : turns.adapter.chatStream(options),
+        });
+        target.id = (await client.bots.create({ name: "Other", model })).id;
+
+        // The Turn that starts the Helper is on this Assignment, at depth 1.
+        await getTestDb().transaction((tx) =>
+          deps.parts.features[0]!.context.assignments!.create(tx, {
+            userId: user.id,
+            botId,
+            ...work,
+            job: onEnded,
+          }),
+        );
+        deps.runner.wake();
+
+        await expect.poll(() => refusals.length + helpers.calls.length, poll).toBeGreaterThan(1);
+        expect(refusals).toEqual([]);
+        await expect
+          .poll(async () => {
+            const rows = await getTestDb()
+              .select({ depth: botAssignment.depth })
+              .from(botAssignment)
+              .where(eq(botAssignment.assignedBotId, target.id));
+            return rows.map((row) => row.depth);
+          }, poll)
+          .toEqual([2]);
+      },
+      timeout,
+    );
+  });
 });
