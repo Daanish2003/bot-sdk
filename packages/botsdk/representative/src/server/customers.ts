@@ -11,6 +11,7 @@ import {
   representativeThreadMessage,
   type ThreadAuthor,
 } from "./db/schema";
+import { catchCode } from "./customer-proof";
 import { type ChannelProof, judgeSender } from "./verification";
 
 /*
@@ -78,6 +79,7 @@ async function judgeMessage(
     .select({
       verifiedContactAt: representativeCustomerIdentity.verifiedContactAt,
       lapsedAt: representativeCustomerIdentity.lapsedAt,
+      provenUntil: representativeCustomerIdentity.provenUntil,
     })
     .from(representativeCustomerIdentity)
     .where(where)
@@ -93,17 +95,20 @@ async function judgeMessage(
  * Representatives before Customers, can't leave a Customer behind. What it returns goes in a
  * Checkpoint, which user delete doesn't reach: ids and a place in the thread, not the thread's text.
  * A blocked Customer's message is stored all the same, for the owner (ticket #1251); `blocked` tells the
- * Turn to run no model and send nothing.
+ * Turn to run no model and send nothing. A message holding the sender's code is stored as a note of
+ * what became of the code instead (ticket #1256), so no model or prompt ever reads it.
  */
 export async function receiveMessage(
   tx: Transaction,
   {
+    keyring,
     representativeId,
     heard,
     proof,
     text,
     now,
   }: {
+    keyring: readonly string[];
     representativeId: string;
     heard: Heard;
     proof: ChannelProof | undefined;
@@ -125,6 +130,7 @@ export async function receiveMessage(
     .where(eq(representativeCustomer.id, customerId))
     .for("key share");
   const blocked = customer!.blockedAt !== null;
+  const stored = await catchCode(tx, { keyring, identityId, customerId, blocked, text, now });
   // A blocked Customer's messages renew nothing, so the lapse runs on through a block.
   const verified = !blocked && (await judgeMessage(tx, identityId, proof, now));
   const [thread] = await tx
@@ -150,9 +156,15 @@ export async function receiveMessage(
     })
     .returning({ id: representativeThread.id, position: representativeThread.messageCount });
   const { id: threadId, position } = thread!;
-  await tx
-    .insert(representativeThreadMessage)
-    .values({ id: uuidv7(), threadId, position, author: "customer", text, verified, ...heard });
+  await tx.insert(representativeThreadMessage).values({
+    id: uuidv7(),
+    threadId,
+    position,
+    author: "customer",
+    text: stored,
+    verified,
+    ...heard,
+  });
   // Position 1 is a thread's first message: it has just been opened.
   return { customerId, threadId, position, verified, blocked, opened: position === 1 };
 }
@@ -282,6 +294,7 @@ export async function exportCustomers(tx: Transaction, userId: string) {
         externalId: representativeCustomerIdentity.externalId,
         verifiedContactAt: representativeCustomerIdentity.verifiedContactAt,
         lapsedAt: representativeCustomerIdentity.lapsedAt,
+        provenUntil: representativeCustomerIdentity.provenUntil,
         createdAt: representativeCustomerIdentity.createdAt,
       })
       .from(representativeCustomerIdentity)
@@ -347,6 +360,7 @@ export async function exportCustomers(tx: Transaction, userId: string) {
       externalId: row.externalId,
       verifiedContactAt: row.verifiedContactAt,
       lapsedAt: row.lapsedAt,
+      provenUntil: row.provenUntil,
       createdAt: row.createdAt,
     })),
     threads: (threads.get(id) ?? []).map((thread) => ({

@@ -36,6 +36,7 @@ import { TestConversationsEditor, TestResults } from "./representative-tests";
 const toolKeys = {
   reply: "representative.toolReply",
   hand_to_bot: "representative.toolHandToBot",
+  verify_customer: "representative.toolVerifyCustomer",
 } as const satisfies Record<RepresentativeTool, string>;
 
 /** The draft's fields, saved together with Save draft. */

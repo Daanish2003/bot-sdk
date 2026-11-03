@@ -27,6 +27,7 @@ export const representativeMessages = {
   "representative.tools": "Tools",
   "representative.toolReply": "Reply to the Customer",
   "representative.toolHandToBot": "Hand off to the Bot",
+  "representative.toolVerifyCustomer": "Send a Customer a code or link to prove who they are",
   "representative.model": "Model",
   "representative.modelHelp": "With no Model chosen, it uses the Host's default.",
   "representative.modelUseDefault": "Use the default",

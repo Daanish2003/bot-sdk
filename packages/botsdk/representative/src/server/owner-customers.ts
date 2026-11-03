@@ -22,6 +22,7 @@ import {
   type ThreadAuthor,
   type ThreadState,
 } from "./db/schema";
+import { voidProofs } from "./customer-proof";
 import { isVerified } from "./verification";
 
 /*
@@ -189,7 +190,7 @@ export async function addIdentity(
 
 /**
  * Corrects one identity of a Customer of the owner's. A new address starts unverified: what was
- * proved was proved by the old one.
+ * proved was proved by the old one, and a code or link sent for the old one can't prove the new.
  */
 export async function updateIdentity(
   context: Context,
@@ -205,6 +206,18 @@ export async function updateIdentity(
     await lockCustomer(tx, userId, id);
     const { channel: oldChannel, externalId: oldExternalId } = representativeCustomerIdentity;
     const sameAddress = sql`${oldChannel} = ${channel} and ${oldExternalId} = ${externalId}`;
+    const [held] = await tx
+      .select({ same: sql<boolean>`${sameAddress}` })
+      .from(representativeCustomerIdentity)
+      .where(
+        and(
+          eq(representativeCustomerIdentity.id, identityId),
+          eq(representativeCustomerIdentity.customerId, id),
+          eq(representativeCustomerIdentity.userId, userId),
+        ),
+      )
+      .for("update");
+    if (held && !held.same) await voidProofs(tx, identityId);
     try {
       const updated = await tx
         .update(representativeCustomerIdentity)
@@ -213,6 +226,7 @@ export async function updateIdentity(
           externalId,
           verifiedContactAt: sql`case when ${sameAddress} then ${representativeCustomerIdentity.verifiedContactAt} end`,
           lapsedAt: sql`case when ${sameAddress} then ${representativeCustomerIdentity.lapsedAt} end`,
+          provenUntil: sql`case when ${sameAddress} then ${representativeCustomerIdentity.provenUntil} end`,
         })
         .where(
           and(

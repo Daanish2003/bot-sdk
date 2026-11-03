@@ -12,7 +12,7 @@ import { z } from "zod";
  * The tools a Representative may have: a code-defined list, so no draft can give one a shell or a
  * new power. Later specs add to it.
  */
-export const representativeTools = ["reply", "hand_to_bot"] as const;
+export const representativeTools = ["reply", "hand_to_bot", "verify_customer"] as const;
 export type RepresentativeTool = (typeof representativeTools)[number];
 
 export const maxJobTextLength = 20_000;

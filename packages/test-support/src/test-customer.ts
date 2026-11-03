@@ -27,6 +27,8 @@ export type TestCustomerTurn = {
   /** What the Channel's Customer path says of this sender, by its rule; a Channel with no rule by default. */
   proof?:
     | { rule: "sameIdentity" }
+    | { rule: "codeRoundTrip" }
+    | { rule: "codeToRecord" }
     | { rule: "dmarc"; pass: boolean; policy: "none" | "quarantine" | "reject" };
 };
 

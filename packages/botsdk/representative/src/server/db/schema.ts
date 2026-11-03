@@ -150,6 +150,8 @@ export const representativeCustomerIdentity = botsdkSchema.table(
     verifiedContactAt: timestamp("verified_contact_at"),
     /** When its verification lapsed; null when it hasn't, or it has been verified since. */
     lapsedAt: timestamp("lapsed_at"),
+    /** Until when a passed code or signed link vouches for its messages; null when none has. */
+    provenUntil: timestamp("proven_until"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
@@ -159,6 +161,39 @@ export const representativeCustomerIdentity = botsdkSchema.table(
       table.externalId,
     ),
     index("representative_customer_identity_customer_idx").on(table.customerId),
+  ],
+);
+
+/** How a verification reaches its target: a code to send back, or a signed link to open. */
+export type VerificationKind = "code" | "link";
+
+/**
+ * One code or signed link sent so that a sender can prove who they are (ticket #1256). `sender` is
+ * the identity it proves and the only one that may pass it; `target` is the identity it went to,
+ * which is the sender itself on a Channel whose rule is a round trip. Only a sender's newest counts.
+ */
+export const representativeVerification = botsdkSchema.table(
+  "representative_verification",
+  {
+    id: uuid("id").primaryKey(),
+    senderIdentityId: uuid("sender_identity_id")
+      .notNull()
+      .references((): AnyPgColumn => representativeCustomerIdentity.id, { onDelete: "cascade" }),
+    targetIdentityId: uuid("target_identity_id")
+      .notNull()
+      .references((): AnyPgColumn => representativeCustomerIdentity.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<VerificationKind>().notNull(),
+    /** A keyed hash of a code; null for a link, whose signature is stored nowhere. */
+    codeHash: text("code_hash"),
+    attempts: integer("attempts").notNull().default(0),
+    expiresAt: timestamp("expires_at").notNull(),
+    usedAt: timestamp("used_at"),
+    /** From the runner's clock, since expiry and the send limit are counted on it. */
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (table) => [
+    index("representative_verification_sender_idx").on(table.senderIdentityId, table.createdAt),
+    index("representative_verification_target_idx").on(table.targetIdentityId, table.createdAt),
   ],
 );
 

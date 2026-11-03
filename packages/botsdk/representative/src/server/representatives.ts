@@ -42,12 +42,16 @@ type MoveContext = Pick<
 type ApproveContext = AnswerContext & Pick<FeatureContext<"models">, "models">;
 type Row = typeof representative.$inferSelect;
 
-/** What a new Representative's draft holds: no job text yet, no switches or Skills, every tool. */
+/**
+ * What a new Representative's draft holds: no job text yet, no switches or Skills, and the tools
+ * every Representative needs. `verify_customer` sends codes people pay for and receive, so a Release
+ * has it only by choosing it (ticket #1256).
+ */
 export const emptyDraft = (): Draft => ({
   jobText: "",
   switches: {},
   skills: [],
-  tools: [...representativeTools],
+  tools: ["reply", "hand_to_bot"],
   model: null,
   tests: [],
 });

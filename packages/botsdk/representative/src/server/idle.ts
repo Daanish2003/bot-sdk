@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { defineJob } from "@botsdk/bot/runner/internal";
+import { pruneProofs } from "./customer-proof";
 import { representativeThread } from "./db/schema";
 
 /*
@@ -48,7 +49,10 @@ export const threadIdleJob = defineJob<ThreadIdlePayload>({
           ),
         )
         .returning({ id: representativeThread.id });
-      if (closed.length > 0) return;
+      if (closed.length > 0) {
+        await pruneProofs(tx, threadId, now);
+        return;
+      }
       const [thread] = await tx
         .select({ updatedAt: representativeThread.updatedAt })
         .from(representativeThread)
