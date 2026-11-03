@@ -1,9 +1,90 @@
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { useI18n } from "@botsdk/react/provider";
-import { useThread, useThreads } from "@botsdk/representative/react";
-import type { ThreadSummary } from "@botsdk/representative/client";
+import { serverErrorText } from "@botsdk/react/rpc-error";
+import {
+  useHandBackThread,
+  useRefreshRepresentatives,
+  useSendThreadMessage,
+  useTakeOverThread,
+  useThread,
+  useThreads,
+} from "@botsdk/representative/react";
+import type { ThreadMessageView, ThreadSummary } from "@botsdk/representative/client";
+
+const authorLabels = {
+  customer: "representative.threadCustomer",
+  representative: "representative.threadReply",
+  owner: "representative.threadOwner",
+  note: "representative.threadNote",
+} as const satisfies Record<ThreadMessageView["author"], string>;
+
+/** Take over and Hand back, and while the owner holds the thread, what they write to the Customer. */
+function ThreadActions({ thread }: { thread: ThreadSummary }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const [text, setText] = useState("");
+  const after = {
+    onSuccess: () => refresh(),
+    onError: (error: unknown) => toast.error(serverErrorText(i18n, error)),
+  };
+  const takeOver = useTakeOverThread(after);
+  const handBack = useHandBackThread(after);
+  const send = useSendThreadMessage({
+    ...after,
+    onSuccess: () => {
+      setText("");
+      return refresh();
+    },
+  });
+  if (thread.holder === "closed") return null;
+  if (thread.holder === "representative") {
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={takeOver.isPending}
+        onClick={() => takeOver.mutate({ id: thread.id })}
+      >
+        {t("representative.threadTakeOver")}
+      </Button>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      {!thread.customer.blocked && (
+        <form
+          className="space-y-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            send.mutate({ id: thread.id, text });
+          }}
+        >
+          <Textarea
+            aria-label={t("representative.threadMessageLabel")}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+          />
+          <Button type="submit" size="sm" disabled={send.isPending || text.trim() === ""}>
+            {t("representative.threadSend")}
+          </Button>
+        </form>
+      )}
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={handBack.isPending}
+        onClick={() => handBack.mutate({ id: thread.id })}
+      >
+        {t("representative.threadHandBack")}
+      </Button>
+    </div>
+  );
+}
 
 /** One thread's transcript, oldest first, each message under who wrote it and where it went. */
 function Transcript({ id }: { id: string }) {
@@ -11,38 +92,37 @@ function Transcript({ id }: { id: string }) {
   const thread = useThread(id);
   if (!thread.data) return null;
   return (
-    <ol className="space-y-2 border-t px-4 py-3">
-      {thread.data.customer.blocked && (
-        <li className="text-xs text-muted-foreground">{t("representative.threadBlocked")}</li>
-      )}
-      <li className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-        {thread.data.identities.map((identity) => (
-          <span key={identity.id} data-verified={identity.verified}>
-            {identity.channel}: {identity.externalId} ·{" "}
-            {t(
-              identity.verified
-                ? "representative.customers.verified"
-                : "representative.customers.unverified",
-            )}
-          </span>
-        ))}
-      </li>
-      {thread.data.messages.map((message) => (
-        <li key={message.id} data-author={message.author} className="space-y-0.5 text-sm">
-          <span className="block text-xs text-muted-foreground">
-            {t(
-              message.author === "customer"
-                ? "representative.threadCustomer"
-                : "representative.threadReply",
-            )}{" "}
-            · {t("representative.threadVia", { channel: message.channel })} ·{" "}
-            {!message.verified && <>{t("representative.customers.unverified")} · </>}
-            {new Date(message.createdAt).toLocaleString(locale)}
-          </span>
-          <span className="block whitespace-pre-wrap break-words">{message.text}</span>
+    <div className="space-y-3 border-t px-4 py-3">
+      <ol className="space-y-2">
+        {thread.data.customer.blocked && (
+          <li className="text-xs text-muted-foreground">{t("representative.threadBlocked")}</li>
+        )}
+        <li className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          {thread.data.identities.map((identity) => (
+            <span key={identity.id} data-verified={identity.verified}>
+              {identity.channel}: {identity.externalId} ·{" "}
+              {t(
+                identity.verified
+                  ? "representative.customers.verified"
+                  : "representative.customers.unverified",
+              )}
+            </span>
+          ))}
         </li>
-      ))}
-    </ol>
+        {thread.data.messages.map((message) => (
+          <li key={message.id} data-author={message.author} className="space-y-0.5 text-sm">
+            <span className="block text-xs text-muted-foreground">
+              {t(authorLabels[message.author])} ·{" "}
+              {t("representative.threadVia", { channel: message.channel })} ·{" "}
+              {!message.verified && <>{t("representative.customers.unverified")} · </>}
+              {new Date(message.createdAt).toLocaleString(locale)}
+            </span>
+            <span className="block whitespace-pre-wrap break-words">{message.text}</span>
+          </li>
+        ))}
+      </ol>
+      <ThreadActions thread={thread.data} />
+    </div>
   );
 }
 

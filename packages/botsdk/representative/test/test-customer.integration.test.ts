@@ -769,7 +769,10 @@ describe("who can reach a Turn", () => {
       "setBot",
       "setEnabled",
       "threadGet",
+      "threadHandBack",
       "threadList",
+      "threadSend",
+      "threadTakeOver",
       "updateDraft",
     ]);
     expect(Object.keys(made.api!({ db: getTestDb() } as never)).sort()).toEqual(

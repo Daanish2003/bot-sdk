@@ -92,6 +92,47 @@ test("an owner adds a Customer, edits identities, and blocks and unblocks one", 
   await expect(page.locator("[data-customer][data-blocked=true]")).toHaveCount(0);
 });
 
+test("an owner takes over a thread, writes to the Customer and hands it back", async ({ page }) => {
+  const owner = await signInAsSeededUser(page);
+  await page.goto("/representatives");
+  await page.getByLabel("Name").fill("Reception");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(page).toHaveURL(/\/representatives\/[\w-]+$/);
+  const representativeId = page.url().split("/").pop()!;
+
+  await seedThread(owner.id, representativeId, {
+    name: "Grace",
+    blocked: false,
+    messages: [["customer", "Can I talk to someone?"]],
+  });
+  await page.reload();
+
+  const grace = page.locator("[data-thread]").filter({ hasText: "Grace" });
+  await expect(grace).toContainText("Held by the Representative");
+  await grace.getByRole("button", { name: "Read Grace" }).click();
+  await expect(grace.getByRole("button", { name: "Hand back" })).toHaveCount(0);
+
+  await grace.getByRole("button", { name: "Take over" }).click();
+  await expect(grace).toContainText("Held by you");
+  await expect(grace).toContainText("Waiting on you");
+  await expect(grace.locator('[data-author="note"]')).toContainText("A person has joined");
+
+  await grace.getByLabel("Your message to the Customer").fill("Hi, this is the owner.");
+  await grace.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(grace.locator('[data-author="owner"]')).toContainText("Hi, this is the owner.");
+  await expect(grace).toContainText("Waiting on the Customer");
+  await expect(grace.getByLabel("Your message to the Customer")).toHaveValue("");
+
+  await page.reload();
+  await expect(grace).toContainText("Held by you");
+  await grace.getByRole("button", { name: "Read Grace" }).click();
+  await grace.getByRole("button", { name: "Hand back" }).click();
+  await expect(grace).toContainText("Held by the Representative");
+  await expect(grace).toContainText("Waiting on the Customer");
+  await expect(grace.getByRole("button", { name: "Take over" })).toBeVisible();
+  await expect(grace.getByLabel("Your message to the Customer")).toHaveCount(0);
+});
+
 test("an owner reads a Representative's threads, including a blocked Customer's kept message", async ({
   page,
 }) => {

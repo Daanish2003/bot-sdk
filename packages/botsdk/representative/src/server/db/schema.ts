@@ -172,7 +172,8 @@ export type ThreadState = "representative" | "owner" | "closed";
  * where anything sent outside a Turn goes: an unverified sender can't move it to themselves. `messageCount` numbers its messages.
  * `turnId` is the Turn that holds it, queued or running, and also its job's key. `waitingFrom` is the
  * position of the oldest message waiting for a Turn, and `waitingSince` when messages began to wait,
- * by the SDK's clock; both are null when none waits.
+ * by the SDK's clock; both are null when none waits. While the owner holds the thread they mark what
+ * a Turn answers after Hand back, unless the owner answers first.
  */
 export const representativeThread = botsdkSchema.table(
   "representative_thread",
@@ -203,14 +204,15 @@ export const representativeThread = botsdkSchema.table(
   ],
 );
 
-/** Who wrote a thread message. */
-export type ThreadAuthor = "customer" | "representative";
+/** Who wrote a thread message; a `note` is the fixed line the Customer gets when the owner takes over. */
+export type ThreadAuthor = "customer" | "representative" | "owner" | "note";
 
 /**
  * One message in a Customer thread: the feature's own row, not a core Message. `channel` and
  * `externalId` are where it was heard from, or where a reply went. `position` is its place in the
  * thread, taken under the thread's row lock, so it is the order the messages were really stored in.
- * `verified` says its Turn's sender was verified; a Turn for an unverified sender never reads it.
+ * `verified` says its Turn's sender was verified, or for what the owner sent, that its address has
+ * been; a Turn for an unverified sender never reads it.
  * It defaults to true so that a row nobody vouched for stays out of those Turns.
  */
 export const representativeThreadMessage = botsdkSchema.table(

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { isUniqueViolation } from "@botsdk/bot/lib/unique-violation";
@@ -38,7 +38,8 @@ const identityAddress = "representative_customer_identity_address";
 
 const customerNotFound = () =>
   rpcError("NOT_FOUND", "error.customerNotFound", "Customer not found");
-const threadNotFound = () => rpcError("NOT_FOUND", "error.threadNotFound", "Thread not found");
+export const threadNotFound = () =>
+  rpcError("NOT_FOUND", "error.threadNotFound", "Thread not found");
 const identityTaken = () =>
   rpcError(
     "CONFLICT",
@@ -47,9 +48,9 @@ const identityTaken = () =>
   );
 
 /**
- * Who a thread is waiting on, from who holds it, who spoke last and whether a message waits for a
- * next Turn, which a reply can come after. A blocked Customer's message waits on no one: nothing
- * answers it.
+ * Who a thread is waiting on, from who holds it, who spoke last, a note aside since it answers
+ * nothing, and whether a message waits for a next Turn, which a reply can come after. A blocked
+ * Customer's message waits on no one: nothing answers it.
  */
 export function waitingOn(
   state: ThreadState,
@@ -58,8 +59,8 @@ export function waitingOn(
   waitingForTurn: boolean,
 ): ThreadWaitingOn {
   if (state === "closed" || blocked) return null;
-  if (state === "owner") return "owner";
-  return lastAuthor === "representative" && !waitingForTurn ? "customer" : "representative";
+  if (state === "owner") return lastAuthor === "customer" || waitingForTurn ? "owner" : "customer";
+  return lastAuthor !== "customer" && !waitingForTurn ? "customer" : "representative";
 }
 
 /** `userId`'s Customers named by `ids` (all of them when omitted), oldest first, with their identities. */
@@ -279,6 +280,9 @@ type ThreadRow = {
   lastAuthor: ThreadAuthor | null;
 };
 
+/** The last author of a thread, a note aside. */
+const lastAuthorQuery = sql`select ${representativeThreadMessage.author} from ${representativeThreadMessage} where ${representativeThreadMessage.threadId} = ${representativeThread.id} and ${ne(representativeThreadMessage.author, "note")} order by ${representativeThreadMessage.position} desc limit 1`;
+
 const threadColumns = {
   id: representativeThread.id,
   customerId: representativeThread.customerId,
@@ -291,7 +295,7 @@ const threadColumns = {
   messageCount: representativeThread.messageCount,
   waitingFrom: representativeThread.waitingFrom,
   updatedAt: representativeThread.updatedAt,
-  lastAuthor: representativeThreadMessage.author,
+  lastAuthor: sql<ThreadAuthor | null>`(${lastAuthorQuery})`,
 };
 
 function summary(row: ThreadRow): ThreadSummary {
@@ -316,7 +320,7 @@ function summary(row: ThreadRow): ThreadSummary {
   };
 }
 
-/** The owner's threads, joined to their Customer (the owner's check) and last message. */
+/** The owner's threads, joined to their Customer and Representative (the owner's check). */
 function threadRows(db: Db, userId: string) {
   return db
     .select(threadColumns)
@@ -333,13 +337,6 @@ function threadRows(db: Db, userId: string) {
       and(
         eq(representative.id, representativeThread.representativeId),
         eq(representative.userId, userId),
-      ),
-    )
-    .leftJoin(
-      representativeThreadMessage,
-      and(
-        eq(representativeThreadMessage.threadId, representativeThread.id),
-        eq(representativeThreadMessage.position, representativeThread.messageCount),
       ),
     );
 }

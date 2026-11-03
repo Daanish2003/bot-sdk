@@ -12,6 +12,7 @@ import {
   rollbackInput,
   setBotInput,
   setEnabledInput,
+  threadSendInput,
   updateDraftInput,
 } from "../shared/contract";
 import {
@@ -37,6 +38,7 @@ import {
   setEnabled,
   updateDraft,
 } from "./representatives";
+import { handBackThread, sendAsOwner, takeOverThread } from "./takeover";
 
 /*
  * The `representative` namespace's domain methods: what a Host calls in-process as
@@ -120,6 +122,15 @@ export function representativeApi(
 
     threadGet: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
       getThread(context, userId, parseInput(idInput, rest).id),
+
+    threadTakeOver: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      takeOverThread(context, userId, parseInput(idInput, rest).id),
+
+    threadHandBack: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      handBackThread(context, userId, parseInput(idInput, rest).id),
+
+    threadSend: async ({ userId, ...rest }: WithUser<typeof threadSendInput>) =>
+      sendAsOwner(context, userId, parseInput(threadSendInput, rest)),
   };
 }
 

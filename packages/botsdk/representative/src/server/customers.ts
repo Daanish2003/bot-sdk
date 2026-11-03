@@ -25,9 +25,6 @@ export const threadPromptLimit = 100;
 /** The most characters of a thread a Turn reads, so a few huge messages can't fail every later Turn. */
 export const threadPromptChars = 200_000;
 
-/** The longest one thread message may be, either way. */
-export const maxThreadMessageLength = 60_000;
-
 /** Where a Customer's message came from. */
 export type Heard = { channel: string; externalId: string };
 
@@ -157,13 +154,14 @@ export async function receiveMessage(
       position: representativeThread.messageCount,
       turnId: representativeThread.turnId,
       waitingSince: representativeThread.waitingSince,
+      state: representativeThread.state,
     });
-  const { id: threadId, position, turnId, waitingSince } = thread!;
+  const { id: threadId, position, turnId, waitingSince, state } = thread!;
   await tx
     .insert(representativeThreadMessage)
     .values({ id: uuidv7(), threadId, position, author: "customer", text, verified, ...heard });
   // Position 1 is a thread's first message: it has just been opened.
-  return { threadId, turnId, waitingSince, blocked, opened: position === 1 };
+  return { threadId, turnId, waitingSince, blocked, state, opened: position === 1 };
 }
 
 /** Who sent the message at `position`, which a Turn answers; undefined once the thread has gone. */

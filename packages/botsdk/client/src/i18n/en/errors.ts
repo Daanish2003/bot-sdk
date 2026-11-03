@@ -28,6 +28,9 @@ export const errorMessages = {
   "error.representativeNotFound": "Representative not found",
   "error.customerNotFound": "Customer not found",
   "error.threadNotFound": "Thread not found",
+  "error.threadClosed": "This thread has closed",
+  "error.threadNotHeld": "Take over this thread to write in it",
+  "error.customerBlocked": "This Customer is blocked, so nothing is sent to them",
   "error.customerIdentityTaken": "One of your Customers already has that identity.",
   "error.representativeJobTextBlank":
     "Write the job text before approving: a Release needs to say what the Representative does.",

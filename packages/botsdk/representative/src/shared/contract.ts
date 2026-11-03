@@ -214,9 +214,9 @@ export type CustomerView = {
 export type ThreadHolder = "representative" | "owner" | "closed";
 
 /**
- * Who a thread is waiting on, derived from who spoke last: the Customer after a reply, the
- * Representative after a Customer's message, the owner while they hold it. Null once closed, or
- * while its Customer is blocked, whose message nobody answers.
+ * Who a thread is waiting on, derived from who holds it and who spoke last: the Customer after an
+ * answer, and after a Customer's message the Representative, or the owner while they hold it. Null
+ * once closed, or while its Customer is blocked, whose message nobody answers.
  */
 export type ThreadWaitingOn = "customer" | "representative" | "owner" | null;
 
@@ -234,7 +234,7 @@ export type ThreadSummary = {
 /** One message of a thread's transcript, with where it was heard from or sent to. */
 export type ThreadMessageView = {
   id: string;
-  author: "customer" | "representative";
+  author: "customer" | "representative" | "owner" | "note";
   text: string;
   channel: string;
   externalId: string;
@@ -250,6 +250,14 @@ export type ThreadView = ThreadSummary & {
   /** Oldest first. */
   messages: ThreadMessageView[];
 };
+
+/** The longest one thread message may be, whoever wrote it. */
+export const maxThreadMessageLength = 60_000;
+
+export const threadSendInput = z.object({
+  id: z.uuid(),
+  text: storable(z.string().trim().min(1).max(maxThreadMessageLength)),
+});
 
 export const maxCustomerNameLength = 100;
 /** Channel ids are lower case, so `SMS` and `sms` are one Channel. */
@@ -337,6 +345,12 @@ export const representativeContract = {
   threadList: oc.input(idInput).output(type<ThreadSummary[]>()),
   /** One thread with its transcript, holder and who it waits on. */
   threadGet: oc.input(idInput).output(type<ThreadView>()),
+  /** Takes a thread over: its running Turn is aborted, and the Customer gets one fixed note. No model call runs until the owner hands back. */
+  threadTakeOver: oc.input(idInput).output(type<ThreadView>()),
+  /** Hands a held thread back to the Representative, which answers what the owner left unanswered. */
+  threadHandBack: oc.input(idInput).output(type<ThreadView>()),
+  /** The owner's own message to the Customer, on a thread they hold. */
+  threadSend: oc.input(threadSendInput).output(type<ThreadView>()),
 };
 
 export type RepresentativeContract = typeof representativeContract;

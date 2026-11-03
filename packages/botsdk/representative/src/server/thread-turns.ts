@@ -6,13 +6,8 @@ import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { job } from "@botsdk/bot/storage";
-import { noNul } from "../shared/contract";
-import {
-  maxThreadMessageLength,
-  receiveMessage,
-  threadPromptChars,
-  threadPromptLimit,
-} from "./customers";
+import { maxThreadMessageLength, noNul } from "../shared/contract";
+import { receiveMessage, threadPromptChars, threadPromptLimit } from "./customers";
 import {
   representativeCustomer,
   representativeThread,
@@ -82,8 +77,8 @@ export type CustomerMessage = z.infer<typeof customerMessage>;
 /**
  * Takes a Customer's message: stores it on its thread, and has a Turn answer it. Null when the
  * Representative doesn't exist and nothing was stored. Otherwise `jobId` is the job of the Turn now
- * holding the thread, which a later Turn follows if it has already begun, or null when a blocked
- * Customer's message is kept with no Turn.
+ * holding the thread, which a later Turn follows if it has already begun, or null when the message
+ * is kept with no Turn: a blocked Customer's, or one on a thread the owner holds.
  * No route, RPC or API method reaches this: until a later spec lets real Customers in, only the test
  * Customer entry point in the private `@ai-chat/test-support` package does.
  */
@@ -99,11 +94,13 @@ export async function receiveCustomerMessage(services: Services, given: Customer
       now,
     });
     if (!received) return null;
-    const { threadId, turnId, waitingSince, blocked, opened } = received;
+    const { threadId, turnId, waitingSince, blocked, state, opened } = received;
     // With the message, so a thread is never left without its closing job.
     if (opened) await queueIdleCheck(services, tx, threadId, now);
     // Kept for the owner, and nothing more: no model call, no reply and no Assignment.
     if (blocked) return { jobId: null };
+    // It waits for the owner, or for Hand back: no model call runs while they hold the thread.
+    if (state === "owner") return { jobId: null };
     const runAfter = batchClosesAt(waitingSince!, now);
     if (!turnId) return { jobId: await startTurn(services, tx, threadId, runAfter) };
     // Its job hasn't started: this message joins the batch, and moves when it closes.
@@ -124,6 +121,19 @@ export async function receiveCustomerMessage(services: Services, given: Customer
       .where(and(eq(job.idempotencyKey, turnId), inArray(job.status, ["queued", "running"])));
     return { jobId: running?.id ?? (await startTurn(services, tx, threadId, runAfter)) };
   });
+}
+
+/**
+ * Has a new Turn answer what waits on the thread, whose row `tx` holds, as if it had just arrived.
+ * For a thread handed back, whose messages waited through the owner's hold.
+ */
+export async function queueWaitingTurn(services: Services, tx: Transaction, threadId: string) {
+  const now = services.clock();
+  await tx
+    .update(representativeThread)
+    .set({ waitingSince: now })
+    .where(eq(representativeThread.id, threadId));
+  await startTurn(services, tx, threadId, batchClosesAt(now, now));
 }
 
 /**
