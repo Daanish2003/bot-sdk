@@ -149,7 +149,8 @@ export type FeatureToolSet = {
  * whose listing failed did. Each feature gets the section it gave in `sections`. Without `kit`,
  * only the definitions are read, as an away Summary does, and a feature whose `tools` throws is
  * logged and left out. With `find`, the listing stops at the feature that gives the tool of that
- * name, so a call run outside a Turn (an approved one) lists no more than it needs.
+ * name, so a call run outside a Turn (an approved one) lists no more than it needs. Each feature's
+ * `assignments` count from `turnBehind`: the Turn's own id unless, as for a Helper, `turn` isn't one.
  */
 export async function featureTools(
   deps: BotSdkContext,
@@ -164,7 +165,11 @@ export async function featureTools(
     /** The loop's Computer call, for the tools a feature lists in `computerTools`. */
     computerCall: LoopKit["computerCall"];
   },
-  { connectorsOnly = false, find }: { connectorsOnly?: boolean; find?: string } = {},
+  {
+    connectorsOnly = false,
+    find,
+    turnBehind = turn.id,
+  }: { connectorsOnly?: boolean; find?: string; turnBehind?: string } = {},
 ): Promise<FeatureToolSet> {
   const names = new Set(taken);
   const decrypted: DecryptedSecrets = new Map();
@@ -174,14 +179,14 @@ export async function featureTools(
   const listed = [...enabledFeatures(deps)].sort(
     (a, b) => Number(a.feature.connectorTools ?? false) - Number(b.feature.connectorTools ?? false),
   );
-  for (const { feature, context } of listed) {
+  for (const { feature, contextInTurn } of listed) {
     if (!feature.tools || (connectorsOnly && !feature.connectorTools)) continue;
     const section = sections.find((read) => read.name === feature.id)?.section ?? null;
     let given: Awaited<ReturnType<NonNullable<typeof feature.tools>>>;
     try {
       given = await feature.tools(
         { ...turn, section },
-        context,
+        contextInTurn(turnBehind),
         kit && {
           signal: kit.signal,
           record: (list) => kit.record(feature.id, list),

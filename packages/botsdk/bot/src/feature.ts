@@ -271,6 +271,8 @@ export type FeatureDefinition<
    * The tools the feature adds to a Turn. Deferred: the Prompt start lists them by name. Each call
    * is a live request of the Turn's loop; a tool with `needsApproval` is Auto-reviewed (spec #691)
    * instead of asked of the user. With a `kit`, a feature may list tools from the outside world.
+   * The `assignments` in this `context` count from the Turn itself (#1218): a tool should use this
+   * one, since one kept from `api` or a job can't know the Turn.
    */
   tools?: (
     turn: FeatureToolTurn,
@@ -492,6 +494,8 @@ export type EnabledFeature = {
   feature: AnyFeature;
   /** Holds the services the feature needs; the types promise every one, as `AnyFeature`'s do. */
   context: FeatureContext<CoreService>;
+  /** `context` for the tools of Turn `turnId`, whose `assignments` count from that Turn (#1218). */
+  contextInTurn: (turnId: string) => FeatureContext<CoreService>;
 };
 
 /**
@@ -537,20 +541,25 @@ export function enableFeature(
   sdk: BotSdkContext,
   feature: AnyFeature,
   threads: ThreadsService,
-  assignmentsOf: (feature: AnyFeature) => AssignmentsService,
+  assignmentsOf: (feature: AnyFeature, turnBehind?: string) => AssignmentsService,
   representativeLoop: RepresentativeLoopService,
   releaseApprovals: ReleaseApprovalsService,
 ): EnabledFeature {
   const needs = feature.needs ?? [];
+  const context: FeatureContext<CoreService> = {
+    ...contextOf(sdk, needs, threads),
+    // Each feature's own: it acts only on what it assigned.
+    ...(needs.includes("assignments") && { assignments: assignmentsOf(feature) }),
+    ...(needs.includes("representativeLoop") && { representativeLoop }),
+    ...(needs.includes("releaseApprovals") && { releaseApprovals }),
+  };
   return {
     feature,
-    context: {
-      ...contextOf(sdk, needs, threads),
-      // Each feature's own: it acts only on what it assigned.
-      ...(needs.includes("assignments") && { assignments: assignmentsOf(feature) }),
-      ...(needs.includes("representativeLoop") && { representativeLoop }),
-      ...(needs.includes("releaseApprovals") && { releaseApprovals }),
-    },
+    context,
+    contextInTurn: (turnId) =>
+      needs.includes("assignments")
+        ? { ...context, assignments: assignmentsOf(feature, turnId) }
+        : context,
   };
 }
 

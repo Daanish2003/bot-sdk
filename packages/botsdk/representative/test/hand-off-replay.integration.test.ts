@@ -66,8 +66,8 @@ describe("a hand-off replayed after a crash", () => {
   });
 
   /** A Representative reporting to a Bot, its Turn queued, on a fake clock with jobs run by hand. */
-  async function queuedHandOff() {
-    const fake = createFakeAdapter({ rounds: [handsOff(), quiet()] });
+  async function queuedHandOff(rounds = [handsOff(), quiet()]) {
+    const fake = createFakeAdapter({ rounds });
     const botFake = createFakeAdapter({ rounds: Array.from({ length: 20 }, () => quiet()) });
     const timer = fakeJobClock(new Date());
     let deps: TestDeps | undefined;
@@ -102,10 +102,23 @@ describe("a hand-off replayed after a crash", () => {
     const { assignments, threads } = deps.parts.features[0]!.context;
     return {
       fake,
+      botFake,
       deps,
       botId,
+      representativeId: id,
       assignments: assignments!,
       threads: threads!,
+      /** Runs what is queued, the Bot's Turns too, until nothing is left. */
+      drain: async () => {
+        for (let tries = 0; tries < 20; tries += 1) {
+          const claimed = await claimJob(getTestDb(), timer.clock.now(), {
+            respectRunAfter: false,
+          });
+          if (!claimed) return;
+          await jobs.runClaimed(claimed, {});
+        }
+        throw new Error("The jobs never ran out");
+      },
       crash: async () => {
         timer.advance(61_000);
         await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps!.parts.jobs);
@@ -149,6 +162,32 @@ describe("a hand-off replayed after a crash", () => {
         .from(botAssignment)
         .where(eq(botAssignment.assignedBotId, botId)),
     ).toEqual([{ depth: 1, parent: null }]);
+  });
+
+  it("stays at depth 1 after a Bot Turn was given the feature's tools (#1218)", async () => {
+    const { deps, botFake, botId, representativeId, drain, turnEnds } = await queuedHandOff([
+      handsOff(),
+      quiet(),
+      handsOff(),
+      quiet(),
+    ]);
+    await turnEnds();
+    // The Bot's Turn on the first hand-off lists the feature's tools, counting from that Turn.
+    await drain();
+    expect(botFake.calls.length).toBeGreaterThan(0);
+
+    await startTestCustomerTurn(deps, { representativeId, message: "Hi again" });
+    await drain();
+
+    expect(
+      await getTestDb()
+        .select({ depth: botAssignment.depth, parent: botAssignment.parentAssignmentId })
+        .from(botAssignment)
+        .where(eq(botAssignment.assignedBotId, botId)),
+    ).toEqual([
+      { depth: 1, parent: null },
+      { depth: 1, parent: null },
+    ]);
   });
 
   it("leaves one of each after a crash between the Assignment and its hand-off row", async () => {
