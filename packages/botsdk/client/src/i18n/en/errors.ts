@@ -57,6 +57,11 @@ export const errorMessages = {
   "error.representativeDocumentEmpty": ({ name }: { name: string }) => `"${name}" has no text.`,
   "error.representativeDocumentUnreadable": ({ name }: { name: string }) =>
     `"${name}" can't be read as text.`,
+  "error.representativeKnowledgeUnavailable": "This server has no Knowledge to pick files from.",
+  "error.representativeKnowledgeNoSuchFile": ({ name }: { name: string }) =>
+    `"${name}" isn't in Knowledge any more.`,
+  "error.representativeKnowledgeNoCopy": ({ name }: { name: string }) =>
+    `"${name}" has no converted copy to take text from. Upload it to Knowledge again.`,
   "error.representativeDocumentName": "That file's name can't be used. Rename it and try again.",
   "error.representativeTooManyDocuments": ({ limit }: { limit: number }) =>
     `A draft can hold ${limit} documents. Remove one first.`,

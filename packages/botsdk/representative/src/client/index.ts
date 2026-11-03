@@ -23,6 +23,7 @@ export {
   type FactType,
   type FactView,
   type Expectation,
+  type KnowledgeChoice,
   type DraftChange,
   type DraftDiff,
   type ReleaseContent,

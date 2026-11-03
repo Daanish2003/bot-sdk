@@ -29,7 +29,7 @@ import {
   dropApprovalsOfBot,
   exportRepresentatives,
 } from "./representatives";
-import type { ConvertDocument } from "./documents";
+import type { ConvertDocument, KnowledgeFiles } from "./documents";
 import { representativeTestJob } from "./tests";
 import { handOffEndedJob, representativeTurnJob } from "./turn";
 
@@ -46,6 +46,12 @@ export type RepresentativeOptions = {
    * the parsers.
    */
   convertDocument?: ConvertDocument;
+  /**
+   * Lets the owner pick Knowledge files for a draft: `sdk.knowledge`'s `list` and `read`, passed by a
+   * Host that has the Knowledge feature (and so a Computer). The Computer is used only while the owner
+   * picks. Without it the picker isn't offered and uploads still work.
+   */
+  knowledgeFiles?: KnowledgeFiles;
 };
 
 /**
@@ -81,7 +87,7 @@ export function representativeFeature(
       migrations: representativeMigrations,
     },
     contract: representativeContract,
-    api: (context) => representativeApi(context, options.convertDocument),
+    api: (context) => representativeApi(context, options.convertDocument, options.knowledgeFiles),
     tools: (turn, context) => botDraftTools(turn, context),
     resetBot: (botId, userId, context) => dropApprovalsOfBot(context, botId, userId),
     publicRoutes: proofLinkRoutes,

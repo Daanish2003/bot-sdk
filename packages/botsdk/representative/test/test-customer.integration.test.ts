@@ -765,6 +765,7 @@ describe("who can reach a Turn", () => {
       "customerUpdateIdentity",
       "declineApproval",
       "diff",
+      "documentPick",
       "documentRemove",
       "documentUpload",
       "factAdd",
@@ -773,6 +774,8 @@ describe("who can reach a Turn", () => {
       "factList",
       "factLog",
       "get",
+      "knowledgeList",
+      "knowledgeStatus",
       "list",
       "rollback",
       // Plays a draft's test conversations (#1192), each a test job: no Turn, no Customer.
