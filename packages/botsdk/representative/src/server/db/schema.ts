@@ -98,7 +98,10 @@ export const representativeTestResult = botsdkSchema.table(
 
 /**
  * An Assignment a Representative handed to its Bot (`hand_to_bot`), so that choosing another Bot
- * can move the open ones. It goes with the Assignment, and with the Representative.
+ * can move the open ones. It goes with the Assignment, and with the Representative. From a Customer
+ * thread (ticket #1254), `threadId` is the thread it belongs to, and `channel`, `externalId` and
+ * `verified` are the sender and standing of the Turn that handed it off, so its result goes back to
+ * that sender; all four are null for a test conversation. `threadId` is cleared if the thread goes.
  */
 export const representativeHandOff = botsdkSchema.table(
   "representative_hand_off",
@@ -109,6 +112,12 @@ export const representativeHandOff = botsdkSchema.table(
     representativeId: uuid("representative_id")
       .notNull()
       .references((): AnyPgColumn => representative.id, { onDelete: "cascade" }),
+    threadId: uuid("thread_id").references((): AnyPgColumn => representativeThread.id, {
+      onDelete: "set null",
+    }),
+    channel: text("channel"),
+    externalId: text("external_id"),
+    verified: boolean("verified"),
   },
   (table) => [index("representative_hand_off_representative_idx").on(table.representativeId)],
 );
@@ -204,8 +213,11 @@ export const representativeThread = botsdkSchema.table(
   ],
 );
 
-/** Who wrote a thread message; a `note` is the fixed line the Customer gets when the owner takes over. */
-export type ThreadAuthor = "customer" | "representative" | "owner" | "note";
+/**
+ * Who wrote a thread message; a `note` is the fixed line the Customer gets when the owner takes
+ * over, and a `bot` message is what the Bot finished a hand-off with, for the Customer (ticket #1254).
+ */
+export type ThreadAuthor = "customer" | "representative" | "owner" | "note" | "bot";
 
 /**
  * One message in a Customer thread: the feature's own row, not a core Message. `channel` and

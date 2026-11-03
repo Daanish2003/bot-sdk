@@ -20,6 +20,7 @@ const authorLabels = {
   representative: "representative.threadReply",
   owner: "representative.threadOwner",
   note: "representative.threadNote",
+  bot: "representative.threadBot",
 } as const satisfies Record<ThreadMessageView["author"], string>;
 
 /** Take over and Hand back, and while the owner holds the thread, what they write to the Customer. */

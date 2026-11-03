@@ -101,26 +101,44 @@ export async function receiveCustomerMessage(services: Services, given: Customer
     if (blocked) return { jobId: null };
     // It waits for the owner, or for Hand back: no model call runs while they hold the thread.
     if (state === "owner") return { jobId: null };
-    const runAfter = batchClosesAt(waitingSince!, now);
-    if (!turnId) return { jobId: await startTurn(services, tx, threadId, runAfter) };
-    // Its job hasn't started: this message joins the batch, and moves when it closes.
-    const payload = { threadId, turnId };
-    const replaced = await services.jobs.replaceIfNotStarted(tx, turnId, turnJob, payload, {
-      runAfter,
-    });
-    if (replaced) {
-      wakeAt(services, runAfter);
-      return { jobId: replaced };
-    }
-    // Its job is running: if the Turn has begun, the message waits for the next one. Something else
-    // may have ended that job without ending the Turn; a new Turn takes over, so no thread sticks,
-    // and the old job's late `onFailed` can't touch it.
-    const [running] = await tx
-      .select({ id: job.id })
-      .from(job)
-      .where(and(eq(job.idempotencyKey, turnId), inArray(job.status, ["queued", "running"])));
-    return { jobId: running?.id ?? (await startTurn(services, tx, threadId, runAfter)) };
+    return {
+      jobId: await wakeTurn(services, tx, { threadId, turnId, waitingSince: waitingSince! }),
+    };
   });
+}
+
+/**
+ * Has a Turn answer what waits on the thread, whose row `tx` holds, since `waitingSince`: the job of
+ * the Turn now holding it. `turnId` is the Turn that held it already, if any.
+ */
+export async function wakeTurn(
+  services: Services,
+  tx: Transaction,
+  {
+    threadId,
+    turnId,
+    waitingSince,
+  }: { threadId: string; turnId: string | null; waitingSince: Date },
+) {
+  const runAfter = batchClosesAt(waitingSince, services.clock());
+  if (!turnId) return startTurn(services, tx, threadId, runAfter);
+  // Its job hasn't started: this message joins the batch, and moves when it closes.
+  const payload = { threadId, turnId };
+  const replaced = await services.jobs.replaceIfNotStarted(tx, turnId, turnJob, payload, {
+    runAfter,
+  });
+  if (replaced) {
+    wakeAt(services, runAfter);
+    return replaced;
+  }
+  // Its job is running: if the Turn has begun, the message waits for the next one. Something else
+  // may have ended that job without ending the Turn; a new Turn takes over, so no thread sticks,
+  // and the old job's late `onFailed` can't touch it.
+  const [running] = await tx
+    .select({ id: job.id })
+    .from(job)
+    .where(and(eq(job.idempotencyKey, turnId), inArray(job.status, ["queued", "running"])));
+  return running?.id ?? (await startTurn(services, tx, threadId, runAfter));
 }
 
 /**
@@ -154,8 +172,9 @@ function closeBatch(
   let chars = 0;
   return rows.find((row, index) => {
     chars += row.size;
+    // A Bot's result is answered to the sender it was handed off for, so it is a sender's too.
     const otherSender =
-      row.author === "customer" &&
+      (row.author === "customer" || row.author === "bot") &&
       (row.channel !== first.channel ||
         row.externalId !== first.externalId ||
         row.verified !== first.verified);
@@ -220,7 +239,7 @@ export async function beginTurn(tx: Transaction, threadId: string, turnId: strin
         .where(
           and(
             eq(message.threadId, threadId),
-            eq(message.author, "customer"),
+            inArray(message.author, ["customer", "bot"]),
             gt(message.position, upTo),
           ),
         )

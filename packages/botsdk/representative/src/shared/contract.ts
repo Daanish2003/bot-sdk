@@ -215,10 +215,11 @@ export type ThreadHolder = "representative" | "owner" | "closed";
 
 /**
  * Who a thread is waiting on, derived from who holds it and who spoke last: the Customer after an
- * answer, and after a Customer's message the Representative, or the owner while they hold it. Null
+ * answer, and after a Customer's message the Representative, or the owner while they hold it. The
+ * Bot, in place of the Customer, while an Assignment handed off from the thread is open. Null
  * once closed, or while its Customer is blocked, whose message nobody answers.
  */
-export type ThreadWaitingOn = "customer" | "representative" | "owner" | null;
+export type ThreadWaitingOn = "customer" | "representative" | "owner" | "bot" | null;
 
 export type ThreadSummary = {
   id: string;
@@ -234,7 +235,7 @@ export type ThreadSummary = {
 /** One message of a thread's transcript, with where it was heard from or sent to. */
 export type ThreadMessageView = {
   id: string;
-  author: "customer" | "representative" | "owner" | "note";
+  author: "customer" | "representative" | "owner" | "note" | "bot";
   text: string;
   channel: string;
   externalId: string;

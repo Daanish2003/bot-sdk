@@ -232,7 +232,7 @@ export async function readThread(
   // A message that waited through the last Turn comes after that Turn's reply, though sent before
   // it: a Turn's prompt ends on what it has to answer.
   const unanswered = (entry: (typeof newest)[number]) =>
-    entry.author === "customer" && entry.position >= batchFrom;
+    (entry.author === "customer" || entry.author === "bot") && entry.position >= batchFrom;
   kept.reverse();
   return [...kept.filter((entry) => !unanswered(entry)), ...kept.filter(unanswered)];
 }

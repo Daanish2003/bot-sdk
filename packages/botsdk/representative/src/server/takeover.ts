@@ -40,10 +40,10 @@ const customerBlocked = () =>
   );
 
 /**
- * Holds one of the owner's threads, or says it isn't theirs. Its Customer's row first, the order the
- * owner's block takes them in, so `blockedAt` stays true until `tx` ends.
+ * Holds one of the owner's threads, or null when it isn't theirs or doesn't exist. Its Customer's
+ * row first, the order the owner's block takes them in, so `blockedAt` stays true until `tx` ends.
  */
-async function lockThread(tx: Transaction, userId: string, threadId: string) {
+export async function tryLockThread(tx: Transaction, userId: string, threadId: string) {
   const [customer] = await tx
     .select({ blockedAt: representativeCustomer.blockedAt })
     .from(representativeCustomer)
@@ -63,7 +63,7 @@ async function lockThread(tx: Transaction, userId: string, threadId: string) {
     )
     .where(eq(representativeCustomer.userId, userId))
     .for("share", { of: representativeCustomer });
-  if (!customer) throw threadNotFound();
+  if (!customer) return null;
   const [thread] = await tx
     .select({
       state: representativeThread.state,
@@ -75,8 +75,15 @@ async function lockThread(tx: Transaction, userId: string, threadId: string) {
     .from(representativeThread)
     .where(eq(representativeThread.id, threadId))
     .for("update");
-  if (!thread) throw threadNotFound();
+  if (!thread) return null;
   return { ...thread, blockedAt: customer.blockedAt };
+}
+
+/** Holds one of the owner's threads, or says it isn't theirs. */
+async function lockThread(tx: Transaction, userId: string, threadId: string) {
+  const thread = await tryLockThread(tx, userId, threadId);
+  if (!thread) throw threadNotFound();
+  return thread;
 }
 
 /** Owner activity keeps a thread from closing as idle, and never moves its time back. */
@@ -157,7 +164,7 @@ async function oldestUnanswered(tx: Transaction, threadId: string) {
     .where(
       and(
         eq(message.threadId, threadId),
-        eq(message.author, "customer"),
+        inArray(message.author, ["customer", "bot"]),
         gt(message.position, answered?.position ?? 0),
       ),
     );
@@ -225,7 +232,7 @@ export async function sendAsOwner(
       .where(
         and(
           eq(message.threadId, id),
-          eq(message.author, "customer"),
+          inArray(message.author, ["customer", "bot"]),
           gte(message.position, thread.waitingFrom),
           not(
             and(
