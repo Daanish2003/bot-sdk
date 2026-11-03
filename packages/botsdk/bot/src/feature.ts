@@ -20,7 +20,9 @@ import type { Context } from "./context";
 import type { FeatureMigrations, Migration } from "./migrate";
 import type { BotSdkContext, BotSdkPlugin, Route, Transaction } from "./plugin";
 import { requireAuth } from "./procedures";
+import type { RepresentativeLoopService } from "./bot/agent-loop";
 import type { AssignmentsService } from "./bot/assignments";
+import type { ReleaseApprovalsService } from "./bot/safety";
 import type { ComputerApi } from "./computer/internal";
 import type { ModelsApi } from "./models/internal";
 import type { EnqueueOptions, JobDefinition } from "./runner/internal";
@@ -32,7 +34,13 @@ import type { EnqueueOptions, JobDefinition } from "./runner/internal";
  */
 
 /** The core services a feature may declare in `needs`. */
-export type CoreService = "assignments" | "computer" | "models" | "threads";
+export type CoreService =
+  | "assignments"
+  | "computer"
+  | "models"
+  | "releaseApprovals"
+  | "representativeLoop"
+  | "threads";
 
 /** What a feature tells a Conversation's open tabs. */
 export type ThreadsService = { hintChanged: (conversationId: string) => Promise<void> };
@@ -41,6 +49,8 @@ type Services = {
   assignments: AssignmentsService;
   computer: ComputerApi;
   models: ModelsApi;
+  releaseApprovals: ReleaseApprovalsService;
+  representativeLoop: RepresentativeLoopService;
   threads: ThreadsService;
 };
 
@@ -67,6 +77,23 @@ export type FeatureContext<Needs extends CoreService = never> = {
     wake: () => void;
   };
 } & Pick<Services, Needs>;
+
+/** A route a feature serves with no signed-in user (`publicRoutes`). Its path matches as a `Route`'s does. */
+export type PublicRoute<Needs extends CoreService = never> = {
+  method: Route["method"];
+  path: Route["path"];
+  handle: (
+    request: Request,
+    args: {
+      /** The feature's own context: not the core's. */
+      context: FeatureContext<Needs>;
+      /** The `:name` segments of the route's path. */
+      params: Record<string, string>;
+      /** `basePath` without a trailing slash. */
+      basePath: string;
+    },
+  ) => Promise<Response>;
+};
 
 /** The Turn a feature's `tools` and `afterTurn` are called for. */
 export type FeatureTurn = { id: string; userId: string; botId: string; conversationId: string };
@@ -302,6 +329,12 @@ export type FeatureDefinition<
   };
   /** Non-RPC routes, under `basePath`, until spec 3 replaces them. They get the whole core context. */
   routes?: Route[];
+  /**
+   * Routes served with no signed-in user, under `basePath`, before `getUser` runs. Unlike `routes`,
+   * a handler gets only the feature's own context, never the core's. A method and path another
+   * route has throws.
+   */
+  publicRoutes?: PublicRoute<Needs>[];
   /** Re-encrypts what the feature stores under the keyring's first secret (`sdk.rotateKeys`). */
   rotateKeys?: (
     context: FeatureContext<Needs>,
@@ -419,6 +452,8 @@ const serviceNames: Record<CoreService, string> = {
   assignments: "the Assignments",
   computer: "the Computer",
   models: "the Models",
+  releaseApprovals: "the release Approvals",
+  representativeLoop: "the Representative loop",
   threads: "the Conversation threads",
 };
 
@@ -459,6 +494,27 @@ export type EnabledFeature = {
   context: FeatureContext<CoreService>;
 };
 
+/**
+ * A feature's routes as the HTTP layer serves them: its `routes`, and its `publicRoutes` as public
+ * routes whose handler gets the feature's context. `context` is read when a request arrives, since
+ * the routes are merged before the contexts exist.
+ */
+export function featureRoutes(
+  feature: AnyFeature,
+  context: () => FeatureContext<CoreService>,
+): Route[] {
+  return [
+    ...(feature.routes ?? []),
+    ...(feature.publicRoutes ?? []).map((route): Route => ({
+      method: route.method,
+      path: route.path,
+      public: true,
+      handle: (request, { params, basePath }) =>
+        route.handle(request, { context: context(), params, basePath }),
+    })),
+  ];
+}
+
 /** The instance's enabled features, in the order the Host listed them. */
 export function enabledFeatures(sdk: Pick<BotSdkContext, "parts">): readonly EnabledFeature[] {
   return sdk.parts.features;
@@ -482,6 +538,8 @@ export function enableFeature(
   feature: AnyFeature,
   threads: ThreadsService,
   assignmentsOf: (feature: AnyFeature) => AssignmentsService,
+  representativeLoop: RepresentativeLoopService,
+  releaseApprovals: ReleaseApprovalsService,
 ): EnabledFeature {
   const needs = feature.needs ?? [];
   return {
@@ -490,6 +548,8 @@ export function enableFeature(
       ...contextOf(sdk, needs, threads),
       // Each feature's own: it acts only on what it assigned.
       ...(needs.includes("assignments") && { assignments: assignmentsOf(feature) }),
+      ...(needs.includes("representativeLoop") && { representativeLoop }),
+      ...(needs.includes("releaseApprovals") && { releaseApprovals }),
     },
   };
 }

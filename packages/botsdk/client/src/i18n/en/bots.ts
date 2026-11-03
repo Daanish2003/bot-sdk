@@ -366,6 +366,17 @@ description: Use this when
     `Prove which ${platform} account is yours, so this Bot answers only you.`,
   "bots.reviewAllow": "Allow",
   "bots.reviewDeny": "Deny",
+  "bots.releaseApprovalTitle": ({ name }: { name: string }) => `Representative drafted: ${name}`,
+  "bots.releaseApprovalReview": "Review and answer on its page",
+  "bots.releaseApprovalOpen": "Open its page",
+  "bots.releaseApprovalApproved": ({ name }: { name: string }) =>
+    `You approved the draft of ${name}.`,
+  "bots.releaseApprovalDeclined": ({ name }: { name: string }) =>
+    `You declined the draft of ${name}.`,
+  "bots.releaseApprovalDropped": ({ name }: { name: string }) =>
+    `The Bot was reset, so it no longer waits on the draft of ${name}.`,
+  "bots.releaseApprovalExpired": ({ name }: { name: string }) =>
+    `The request about ${name} expired. Its draft stays on its page.`,
   "bots.ruleProposed": "Rule proposed",
   "bots.ruleAdded": ({ text }: { text: string }) => `Rule added: ${text}`,
   "bots.waiting": ({ count }: { count: number }) => `Waiting ${count}`,

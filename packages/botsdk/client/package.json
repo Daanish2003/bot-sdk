@@ -11,6 +11,7 @@
     "./bot/changes": "./src/bot/changes.ts",
     "./bot/channel-account": "./src/bot/channel-account.ts",
     "./bot/assignment": "./src/bot/assignment.ts",
+    "./bot/release-approval": "./src/bot/release-approval.ts",
     "./bot/check-in": "./src/bot/check-in.ts",
     "./bot/choice": "./src/bot/choice.ts",
     "./bot/contract": "./src/bot/contract.ts",

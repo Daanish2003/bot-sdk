@@ -112,6 +112,8 @@ function BotConversationView({
     controls?.routine_approval ?? defaultRichControlRenderers.routine_approval;
   const ReviewApproval = controls?.review_approval ?? defaultRichControlRenderers.review_approval;
   const RuleApproval = controls?.rule_approval ?? defaultRichControlRenderers.rule_approval;
+  const ReleaseApproval =
+    controls?.release_approval ?? defaultRichControlRenderers.release_approval;
   const i18n = useI18n();
   const { t } = i18n;
   const [draft, setDraft] = useState("");
@@ -578,6 +580,9 @@ function BotConversationView({
                   )
                 );
               })()}
+            {control?.kind === "release_approval" && (
+              <ReleaseApproval card={control} text={message.text} />
+            )}
             {control?.kind === "computer" && (
               <ComputerCard
                 card={control}

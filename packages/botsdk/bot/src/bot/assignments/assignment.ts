@@ -22,6 +22,7 @@ import {
   isNull,
   like,
   lte,
+  max,
   ne,
   notExists,
   notInArray,
@@ -927,6 +928,16 @@ async function liveHandOvers(db: Database | Transaction, botId: string) {
   return rows.map((row) => ({ ...row, assignmentId: row.id.split(":")[1]! }));
 }
 
+const assignmentMovedPrefix = "assignment_moved:";
+
+/** The id of the Trigger that tells a Bot an Assignment it had read moved to another Bot. */
+const movedTriggerId = (id: string) => `${assignmentMovedPrefix}${id}:${uuidv7()}`;
+
+/** What that Trigger tells it. */
+const movedNotice = (row: { id: string; title: string }, feature: string | null) =>
+  `Assignment ${row.id} was moved to another Bot by ${featureNamed(feature)}: ` +
+  `${quotedTitle(row.title)}\nStop work on it: ${finishAssignmentToolName} on it is refused.`;
+
 /** A notice the Bot never got, under the id and channel its Trigger would have had. */
 type Missed = { id: string; channel: string; text: string };
 
@@ -936,7 +947,8 @@ type Missed = { id: string; channel: string; text: string };
  * owed to the assigner when the user cancelled it, as a Bot knows of its own, and to the assigned
  * Bot once a Turn of it had read the work. A notice counts as got when a Trigger of it stands since
  * the Bot's reset, as that reaches a Turn's input or its history, or, from before the reset, when a
- * Model call read it. So it arrives once, and never again.
+ * Model call read it. So it arrives once, and never again. A move is owed to the Bot a Turn of which
+ * read the work since its reset, unless a notice stands since that read.
  */
 async function missedResults(db: Database | Transaction, botId: string): Promise<Missed[]> {
   const got = (prefix: string) =>
@@ -1000,6 +1012,50 @@ async function missedResults(db: Database | Transaction, botId: string): Promise
     )
     .orderBy(asc(botAssignment.endedAt), asc(botAssignment.id));
   const owed = cancelled.filter((row) => (row.assignedBotId === botId ? row.read : row.byUser));
+  const taken = await db
+    .select({
+      id: botAssignment.id,
+      title: botAssignment.title,
+      assignerFeature: botAssignment.assignerFeature,
+      assignerTrusted: botAssignment.assignerTrusted,
+      readAt: max(botTrigger.receivedAt),
+    })
+    .from(botTrigger)
+    // Every id under `assignment:` holds its Assignment's id second.
+    .innerJoin(botAssignment, sql`${botAssignment.id} = split_part(${botTrigger.id}, ':', 2)::uuid`)
+    .where(
+      and(
+        eq(botTrigger.botId, botId),
+        eq(botTrigger.source, "assignment"),
+        like(botTrigger.id, `${assignmentTriggerPrefix}%`),
+        isNotNull(botTrigger.turnId),
+        ne(botAssignment.assignedBotId, botId),
+        noResetAfter(db, { botId }, botTrigger.receivedAt),
+      ),
+    )
+    .groupBy(botAssignment.id)
+    .orderBy(asc(botAssignment.id));
+  const notices = taken.length
+    ? await db
+        .select({ id: botTrigger.id, receivedAt: botTrigger.receivedAt })
+        .from(botTrigger)
+        .where(
+          and(
+            eq(botTrigger.botId, botId),
+            eq(botTrigger.source, "assignment"),
+            like(botTrigger.id, `${assignmentMovedPrefix}%`),
+            isNull(botTrigger.skippedAt),
+          ),
+        )
+    : [];
+  const moved = taken.filter(
+    (row) =>
+      !notices.some(
+        (notice) =>
+          notice.id.startsWith(`${assignmentMovedPrefix}${row.id}:`) &&
+          notice.receivedAt >= row.readAt!,
+      ),
+  );
   const assignerIds = owed.flatMap((row) => (row.assignerBotId ? [row.assignerBotId] : []));
   const assigners = assignerIds.length
     ? await db.select({ id: bot.id, name: bot.name }).from(bot).where(inArray(bot.id, assignerIds))
@@ -1024,6 +1080,11 @@ async function missedResults(db: Database | Transaction, botId: string): Promise
               : (assigners.find((assigner) => assigner.id === row.assignerBotId)?.name ??
                 "another Bot"),
       ),
+    })),
+    ...moved.map((row) => ({
+      id: movedTriggerId(row.id),
+      channel: handOverChannel(row),
+      text: movedNotice(row, row.assignerFeature),
     })),
   ];
 }
@@ -1760,6 +1821,112 @@ export async function cancelAssignment(
     });
   }
   return { cancelled: { id }, woken };
+}
+
+/**
+ * Moves Assignment `id`, which a feature made for its owner, to `target`, one of that owner's Bots,
+ * in `tx`. The status and the log stay, with a row added. A Trigger of its old Bot that no Turn has
+ * taken yet is skipped, the old Bot is told if a Turn had read it (one that can't hear it now gets it
+ * as a notice it missed), and the new Bot wakes on it.
+ * Another owner's, or another feature's, is `not_found`; one that has ended is `ended`. `woken` is
+ * the Conversations to hint once `tx` has committed.
+ */
+export async function moveAssignment(
+  deps: BotSdkContext,
+  tx: Transaction,
+  mover: { feature: string; userId: string },
+  id: string,
+  target: { id: string; name: string; conversationId: string },
+): Promise<{ moved: { id: string }; woken: string[] } | { reason: "not_found" | "ended" }> {
+  const rowOf = async (db: Database | Transaction) => {
+    const [row] = await db
+      .select({
+        title: botAssignment.title,
+        instructions: botAssignment.instructions,
+        status: botAssignment.status,
+        assignedBotId: botAssignment.assignedBotId,
+        assignedConversationId: bot.conversationId,
+        assignedModel: bot.model,
+        assignerFeature: botAssignment.assignerFeature,
+        assignerTrusted: botAssignment.assignerTrusted,
+      })
+      .from(botAssignment)
+      .innerJoin(bot, eq(bot.id, botAssignment.assignedBotId))
+      .where(
+        and(
+          eq(botAssignment.id, id),
+          eq(botAssignment.assignerFeature, mover.feature),
+          eq(bot.userId, mover.userId),
+        ),
+      );
+    return row;
+  };
+  const before = await rowOf(tx);
+  if (!before) return { reason: "not_found" };
+  // Ask before taking any lock.
+  const tellsOld = await canWork(deps, { userId: mover.userId, model: before.assignedModel });
+  const woken = await lockConversationSet(tx, async (db) => {
+    const row = await rowOf(db);
+    return [target.conversationId, ...(row ? [row.assignedConversationId] : [])];
+  });
+  const row = await rowOf(tx);
+  if (!row) return { reason: "not_found" };
+  if (isEndedAssignment(row.status)) return { reason: "ended" };
+  if (row.assignedBotId === target.id) return { moved: { id }, woken: [] };
+  const now = deps.clock();
+  const updated = await tx
+    .update(botAssignment)
+    .set({ assignedBotId: target.id, updatedAt: now })
+    .where(and(eq(botAssignment.id, id), notInArray(botAssignment.status, endedStatuses)))
+    .returning({ id: botAssignment.id });
+  if (updated.length === 0) return { reason: "ended" };
+  await logStatus(tx, {
+    assignmentId: id,
+    status: row.status,
+    actor: "feature",
+    note: `Moved to the Bot ${JSON.stringify(target.name)}`,
+    at: now,
+  });
+  const old = { conversationId: row.assignedConversationId, botId: row.assignedBotId };
+  const ofIt = and(
+    eq(botTrigger.botId, old.botId),
+    eq(botTrigger.source, "assignment"),
+    like(botTrigger.id, `${assignmentTriggerId(id)}%`),
+  );
+  const skipped = await tx
+    .update(botTrigger)
+    .set({ skippedAt: now, skipReason: "cancelled" })
+    .where(and(ofIt, isNull(botTrigger.turnId), isNull(botTrigger.skippedAt)))
+    .returning({ id: botTrigger.id, source: botTrigger.source });
+  for (const trigger of skipped) await recordSkipChange(tx, old, trigger, now);
+  const [read] = await tx
+    .select({ id: botTrigger.id })
+    .from(botTrigger)
+    .where(and(ofIt, isNotNull(botTrigger.turnId)))
+    .limit(1);
+  await recordBotChange(tx, { conversationId: old.conversationId }, "assignment", id, now);
+  await recordBotChange(tx, { conversationId: target.conversationId }, "assignment", id, now);
+  if (read && tellsOld) {
+    await receive(deps, tx, {
+      id: movedTriggerId(id),
+      botId: old.botId,
+      conversationId: old.conversationId,
+      source: "assignment",
+      channel: handOverChannel(row),
+      text: movedNotice({ id, title: row.title }, mover.feature),
+      receivedAt: now,
+    });
+  }
+  await receive(
+    deps,
+    tx,
+    assignmentTrigger(
+      { id, ...row, assignerName: null },
+      { botId: target.id, conversationId: target.conversationId },
+      now,
+    ),
+  );
+  return { moved: { id }, woken };
 }
 
 /**

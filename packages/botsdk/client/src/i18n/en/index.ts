@@ -2,6 +2,7 @@ import { botsMessages } from "./bots";
 import { chatMessages } from "./chat";
 import { errorMessages } from "./errors";
 import { pagesMessages } from "./pages";
+import { representativeMessages } from "./representative";
 import { settingsMessages } from "./settings";
 import { shellMessages } from "./shell";
 
@@ -15,5 +16,6 @@ export const en = {
   ...pagesMessages,
   ...settingsMessages,
   ...botsMessages,
+  ...representativeMessages,
   ...errorMessages,
 };

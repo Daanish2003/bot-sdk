@@ -6,6 +6,7 @@ import { choiceControlSchema } from "./choice";
 import { filesControlSchema } from "./files";
 import { handoffSchema } from "./mentions";
 import { computerCardSchema } from "./helper";
+import { releaseApprovalSchema } from "./release-approval";
 import { reviewApprovalSchema } from "./review";
 import { routineApprovalSchema } from "./routine";
 import { ruleApprovalSchema } from "./rule";
@@ -32,6 +33,7 @@ export const richControlSchema = z.discriminatedUnion("kind", [
   routineApprovalSchema,
   reviewApprovalSchema,
   ruleApprovalSchema,
+  releaseApprovalSchema,
   reservedControlSchema("draft"),
   reservedControlSchema("payment_approval"),
 ]);
@@ -45,7 +47,17 @@ export type RichControlKind = RichControl["kind"];
  * Bot sent (spec #761): none shows it, and it doesn't count as the Bot sending.
  */
 export const isApproval = (kind: RichControlKind | undefined) =>
-  kind === "routine_approval" || kind === "review_approval" || kind === "rule_approval";
+  kind === "routine_approval" ||
+  kind === "review_approval" ||
+  kind === "rule_approval" ||
+  kind === "release_approval";
+
+/**
+ * Whether a control of `kind` is an Approval a Channel can answer with a yes or no. A release
+ * Approval is answered only on its Representative's page, where the diff is.
+ */
+export const isChannelAnswerable = (kind: RichControlKind | undefined) =>
+  isApproval(kind) && kind !== "release_approval";
 
 /**
  * The catalog as JSON Schema, for a Host's own app to render it. It can't carry the Zod checks

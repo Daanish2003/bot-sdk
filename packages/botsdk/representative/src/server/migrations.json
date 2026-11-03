@@ -1,0 +1,18 @@
+[
+  {
+    "name": "20261102190519_representative_baseline",
+    "sql": "CREATE TABLE \"botsdk\".\"representative\" (\n\t\"id\" uuid PRIMARY KEY,\n\t\"user_id\" text NOT NULL,\n\t\"bot_id\" uuid,\n\t\"name\" text NOT NULL,\n\t\"enabled\" boolean DEFAULT false NOT NULL,\n\t\"live_release_id\" uuid,\n\t\"draft\" jsonb NOT NULL,\n\t\"created_at\" timestamp DEFAULT now() NOT NULL,\n\t\"updated_at\" timestamp DEFAULT now() NOT NULL\n);\n--> statement-breakpoint\nCREATE TABLE \"botsdk\".\"representative_release\" (\n\t\"id\" uuid PRIMARY KEY,\n\t\"representative_id\" uuid NOT NULL,\n\t\"number\" integer NOT NULL,\n\t\"content\" jsonb NOT NULL,\n\t\"approved_at\" timestamp DEFAULT now() NOT NULL,\n\tCONSTRAINT \"representative_release_number\" UNIQUE(\"representative_id\",\"number\")\n);\n--> statement-breakpoint\nCREATE INDEX \"representative_user_idx\" ON \"botsdk\".\"representative\" (\"user_id\",\"created_at\");--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative\" ADD CONSTRAINT \"representative_bot_id_bot_id_fkey\" FOREIGN KEY (\"bot_id\") REFERENCES \"botsdk\".\"bot\"(\"id\") ON DELETE SET NULL;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_release\" ADD CONSTRAINT \"representative_release_representative_id_representative_id_fkey\" FOREIGN KEY (\"representative_id\") REFERENCES \"botsdk\".\"representative\"(\"id\") ON DELETE CASCADE;"
+  },
+  {
+    "name": "20261102195946_representative_test_results",
+    "sql": "CREATE TABLE \"botsdk\".\"representative_test_result\" (\n\t\"id\" uuid PRIMARY KEY,\n\t\"representative_id\" uuid NOT NULL,\n\t\"draft_hash\" text NOT NULL,\n\t\"position\" integer NOT NULL,\n\t\"status\" text NOT NULL,\n\t\"transcript\" jsonb NOT NULL,\n\t\"checks\" jsonb NOT NULL,\n\t\"error\" text,\n\t\"created_at\" timestamp DEFAULT now() NOT NULL,\n\tCONSTRAINT \"representative_test_result_position\" UNIQUE(\"representative_id\",\"position\")\n);\n--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_release\" ADD COLUMN \"override_reason\" text;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_test_result\" ADD CONSTRAINT \"representative_test_result_enxpE5vSFupS_fkey\" FOREIGN KEY (\"representative_id\") REFERENCES \"botsdk\".\"representative\"(\"id\") ON DELETE CASCADE;"
+  },
+  {
+    "name": "20261102202436_representative_hand_off",
+    "sql": "CREATE TABLE \"botsdk\".\"representative_hand_off\" (\n\t\"assignment_id\" uuid PRIMARY KEY,\n\t\"representative_id\" uuid NOT NULL\n);\n--> statement-breakpoint\nCREATE INDEX \"representative_hand_off_representative_idx\" ON \"botsdk\".\"representative_hand_off\" (\"representative_id\");--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_hand_off\" ADD CONSTRAINT \"representative_hand_off_assignment_id_bot_assignment_id_fkey\" FOREIGN KEY (\"assignment_id\") REFERENCES \"botsdk\".\"bot_assignment\"(\"id\") ON DELETE CASCADE;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_hand_off\" ADD CONSTRAINT \"representative_hand_off_jlibJorNz5g3_fkey\" FOREIGN KEY (\"representative_id\") REFERENCES \"botsdk\".\"representative\"(\"id\") ON DELETE CASCADE;"
+  },
+  {
+    "name": "20261102205436_representative_release_approval",
+    "sql": "ALTER TABLE \"botsdk\".\"representative\" ADD COLUMN \"pending_approval\" jsonb;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative\" ADD COLUMN \"bot_draft_hash\" text;"
+  }
+]

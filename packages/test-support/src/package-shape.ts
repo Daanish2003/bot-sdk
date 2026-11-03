@@ -58,7 +58,13 @@ export function reachedFrom(packageRoot: string, entry: string): string[] {
   return [...seen];
 }
 
-const features = ["@botsdk/memory", "@botsdk/skills", "@botsdk/knowledge", "@botsdk/mcp"];
+const features = [
+  "@botsdk/memory",
+  "@botsdk/skills",
+  "@botsdk/knowledge",
+  "@botsdk/mcp",
+  "@botsdk/representative",
+];
 
 /**
  * The package test of an optional feature (spec #875): the feature at its root, its client part

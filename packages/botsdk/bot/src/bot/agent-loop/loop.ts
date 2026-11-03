@@ -55,7 +55,7 @@ import {
   markComputerRebuildSeen,
 } from "../conversation";
 
-import { type LoopPromptStart, type PreviousCall, promptHashesOf } from "./prompt-hashes";
+import { type LoopPromptStart, type PreviousCall, promptHashesOf, sha256 } from "./prompt-hashes";
 import {
   blockedError,
   type PendingApproval,
@@ -191,15 +191,35 @@ export type LoopSetup = {
     }
 );
 
+/** What a Representative's loop gets for a Computer call: it has none. */
+const noComputerError = "This agent has no Computer.";
+
 /** The share of the model's context window past which a loop summarizes before its next Step. */
 export const summaryThreshold = 0.75;
 
+/** A Bot, as a Turn or a Helper runs: its Model, its Computer and its thread. */
+export type BotIdentity = {
+  userId: string;
+  botId: string;
+  model: string;
+  representativeId?: never;
+};
+
+/**
+ * A Representative serving one Customer (#1188): `userId` is its owner, whose Quota pays. It has no
+ * Computer, nothing it reads is spilled, it gets no Auto-review, and its calls are billed as
+ * `representative` on a thread and cache key of that Customer's.
+ */
+export type RepresentativeIdentity = {
+  userId: string;
+  representativeId: string;
+  customerId: string;
+  model: string;
+  botId?: never;
+};
+
 export type LoopOptions = {
-  /** Whose Model the loop calls and whose Computer it works. */
-  owner: { userId: string; botId: string; model: string };
-  /** What its model calls are billed as. */
-  usageKind: ModelUsage["kind"];
-  /** The Turn or Helper its model calls are recorded for. */
+  /** The Turn, Helper or Representative Turn its model calls are recorded for. */
   sourceId: string;
   /** The model input before the loop's own Steps. */
   input: ModelMessage[];
@@ -245,7 +265,15 @@ export type LoopOptions = {
   review?: ReviewSource;
   /** Reads what a review reads outside its activities (`deps.db` unless given): a replay's `tx`. */
   db?: Database | Transaction;
-};
+} & (
+  | {
+      /** Whose Model the loop calls and whose Computer it works. */
+      owner: BotIdentity;
+      /** What its model calls are billed as. */
+      usageKind: Exclude<ModelUsage["kind"], "representative">;
+    }
+  | { owner: RepresentativeIdentity; usageKind?: never; review?: never }
+);
 
 /** What a played loop came to. `failure` is an activity that threw, which recorded nothing. */
 export type LoopResult = {
@@ -307,9 +335,24 @@ export async function runLoop(
 ): Promise<LoopResult> {
   const { owner, attempt, startedAt, stepLimit: limit, timeLimitMs } = options;
   const provider = parseModelId(owner.model)?.provider ?? "";
-  // A Turn's calls are its Bot's thread; a Helper's are its own. The cache key names it too.
-  const threadId = options.usageKind === "helper" ? options.sourceId : owner.botId;
-  const cacheKey = `${options.usageKind === "helper" ? "helper" : "bot"}:${threadId}`;
+  // A Bot has a Computer, a spill and a review; an identity naming a Representative never does. A
+  // Turn's calls are its Bot's thread, a Helper's its own, and a Representative's its Customer's,
+  // hashed: a Provider keeps a key's first 64 characters and has no need of a Customer's id.
+  const { bot, usageKind, threadId, cacheScope } =
+    owner.representativeId === undefined
+      ? {
+          bot: owner,
+          usageKind: options.usageKind as ModelUsage["kind"],
+          threadId: options.usageKind === "helper" ? options.sourceId : owner.botId,
+          cacheScope: options.usageKind === "helper" ? "helper" : "bot",
+        }
+      : {
+          bot: undefined,
+          usageKind: "representative" as const,
+          threadId: sha256(JSON.stringify([owner.representativeId, owner.customerId])).slice(0, 40),
+          cacheScope: "representative",
+        };
+  const cacheKey = `${cacheScope}:${threadId}`;
   const abortController = new AbortController();
   const onAttemptAbort = () => abortController.abort(attempt?.reason);
   if (attempt?.aborted) onAttemptAbort();
@@ -389,7 +432,7 @@ export async function runLoop(
         : models.freeModelMeter(owner.userId, owner.model);
       return {
         adapter: models.adapterForCall(owner.model, call),
-        record: async (tx, usage, reportedCost, promptHashes, kind = options.usageKind) => {
+        record: async (tx, usage, reportedCost, promptHashes, kind = usageKind) => {
           const call = { kind, usage, reportedCost, sourceId: options.sourceId, promptHashes };
           const onUsage = await meter.recordIn(tx, call);
           await options.budget?.spend(tx, meter.costOf(call));
@@ -490,7 +533,7 @@ export async function runLoop(
     inLiveCall = true;
     try {
       const { adapter } = await liveCall();
-      // The cache controls of the Model's Provider: the Bot's key, or its Helper's.
+      // The cache controls of the Model's Provider, under the loop's own key.
       const cached = withCacheControl(provider, cacheKey, pruned);
       for await (const chunk of adapter.chatStream(cached)) {
         chunks.push(withoutRaw(chunk));
@@ -669,10 +712,12 @@ export async function runLoop(
    */
   const capLong = async <T>(result: T, toolCallId: string | undefined): Promise<T> => {
     if (toolCallId === undefined) return result;
+    // A Representative's result is cut with nothing saved anywhere (#1148), so it has no path.
+    if (!bot) return (await capResult(result, "")) as T;
     const computer = deps.computer ? (userComputer ??= computerOf(deps, owner.userId)) : undefined;
     return (await capResult(
       result,
-      spillPath(owner.botId, toolCallId),
+      spillPath(bot.botId, toolCallId),
       computer &&
         ((path, content) => computer.writeFile(path, content, { signal: abortController.signal })),
     )) as T;
@@ -730,64 +775,6 @@ export async function runLoop(
       return result;
     });
 
-  // The latest rebuild of the Computer the Bot was told of, read on its first Computer call
-  // (undefined until then), and the one the latest result tells, recorded once it is saved.
-  let rebuildSeenAt: Date | null | undefined;
-  let telling: Date | undefined;
-  /**
-   * The Computer's operation for a live tool call. A failed wake, or an operation the provider
-   * failed, is the tool's result, unless the loop was stopped or ran out of time meanwhile: then
-   * the call stays unanswered. A database failure throws, so the job retries it. After a rebuild
-   * the Bot wasn't told of, the result carries the rebuilt note (#553).
-   */
-  const onComputer = async <T extends object>(
-    operate: (computer: ComputerHandle) => Promise<T>,
-  ) => {
-    const computer = (userComputer ??= computerOf(deps, owner.userId));
-    return operateComputer(computer, () => operate(computer), {
-      signal: abortController.signal,
-      seenAt: async () => {
-        if (rebuildSeenAt === undefined) {
-          rebuildSeenAt = await computerRebuildSeenAt(deps.db, owner.botId);
-        }
-        return rebuildSeenAt;
-      },
-      tell: (rebuiltAt) => {
-        telling = rebuiltAt;
-      },
-    });
-  };
-  /**
-   * `onComputer` for a live call: the loop's time limit, like a Stop, stops its operations
-   * through `live`'s signal, and its commands run no later than `live`'s deadline.
-   */
-  const onLiveComputer = async <T extends object>(
-    operate: (computer: ComputerHandle, live: FileToolOptions) => Promise<T>,
-  ) => {
-    inLiveCall = true;
-    try {
-      return await onComputer((computer) =>
-        operate(computer, {
-          deadline: new Date(startedAt.getTime() + timeLimitMs),
-          signal: abortController.signal,
-        }),
-      );
-    } finally {
-      inLiveCall = false;
-    }
-  };
-  /**
-   * After a Computer tool's Checkpoint is saved: the rebuild its result told is recorded as told.
-   * A crash before then tells it again in the retried attempt rather than never.
-   */
-  const recordTold = async <T>(result: T): Promise<T> => {
-    if (telling) {
-      if (options.tellsBot !== false) await markComputerRebuildSeen(deps.db, owner.botId, telling);
-      rebuildSeenAt = telling;
-      telling = undefined;
-    }
-    return result;
-  };
   /**
    * Auto-review of a reviewed tool's call, before it runs: the error the Model gets for a block,
    * its pending result once it outlives the wait, or `null` to run it. A `strict` call (an action
@@ -800,7 +787,7 @@ export async function runLoop(
     { ask, strict }: { ask?: ReviewAsk; strict?: boolean } = {},
   ): Promise<ReviewOutcome> => {
     // A loop with no review source has no one to ask: what the user always decides is refused.
-    if (!options.review) return ask ? { error: blockedError(ask.reason) } : null;
+    if (!options.review || !bot) return ask ? { error: blockedError(ask.reason) } : null;
     // A Screen action keeps the strict 15 seconds; shell and Connector calls go pending.
     // The live review is a model call: the loop's time limit cuts it off, as a Stop does.
     return reviewToolCall(
@@ -817,118 +804,187 @@ export async function runLoop(
         db: options.db ?? deps.db,
         usageOf: (chunks, sent) => callUsage(deps, chunks, sent),
       },
-      { owner, source: options.review, toolCallId, tool, input, ask, strict },
+      { owner: bot, source: options.review, toolCallId, tool, input, ask, strict },
     ).finally(() => {
       inLiveCall = false;
     });
   };
   /** The Secrets this loop has decrypted: each call reads the rows, and decrypts only new ones. */
   const decrypted: DecryptedSecrets = new Map();
-  const shell = shellDefinition.server((input, context) =>
-    toolCall(context?.toolCallId, async () => {
-      // Auto-review first: a blocked command never starts.
-      const blocked = await review(shellToolName, context?.toolCallId, input);
-      if (blocked) return blocked;
-      // The start marker: a resumed loop that replays it with no result never runs the command
-      // again, since it may have partly run. A yield waits for the command's own Checkpoint, so
-      // the marker never stands for a command that didn't start. No transaction: the command runs
-      // on the Computer, not in the database.
-      let startedHere = false;
-      await ctx.step(
-        shellStartActivity,
-        async () => {
-          beforeLiveTool();
-          startedHere = true;
-          return null;
+  /**
+   * The Computer's half of the kit, built only for a Bot: a Representative's loop has none of this
+   * code to reach, so it can't wake the Computer or read the owner's Secrets for it.
+   */
+  const botComputer = (self: BotIdentity): Pick<LoopKit, "computerCall" | "computerTools"> => {
+    // The latest rebuild of the Computer the Bot was told of, read on its first Computer call
+    // (undefined until then), and the one the latest result tells, recorded once it is saved.
+    let rebuildSeenAt: Date | null | undefined;
+    let telling: Date | undefined;
+    /**
+     * The Computer's operation for a live tool call. A failed wake, or an operation the provider
+     * failed, is the tool's result, unless the loop was stopped or ran out of time meanwhile: then
+     * the call stays unanswered. A database failure throws, so the job retries it. After a rebuild
+     * the Bot wasn't told of, the result carries the rebuilt note (#553).
+     */
+    const onComputer = async <T extends object>(
+      operate: (computer: ComputerHandle) => Promise<T>,
+    ) => {
+      const computer = (userComputer ??= computerOf(deps, owner.userId));
+      return operateComputer(computer, () => operate(computer), {
+        signal: abortController.signal,
+        seenAt: async () => {
+          if (rebuildSeenAt === undefined) {
+            rebuildSeenAt = await computerRebuildSeenAt(deps.db, self.botId);
+          }
+          return rebuildSeenAt;
         },
-        { yields: false },
-      );
-      const result = await ctx.step(shellToolName, async () => {
-        beforeLiveTool();
-        if (!startedHere) return { error: interruptedShellError };
-        const ran = await runShell(
-          deps,
-          { userId: owner.userId, botId: owner.botId, toolCallId: context?.toolCallId },
-          input,
-          decrypted,
-          onLiveComputer,
-        );
-        await keepOutput(context?.toolCallId, async () => ran);
-        return ran;
+        tell: (rebuiltAt) => {
+          telling = rebuiltAt;
+        },
       });
-      return recordTold(result);
-    }),
-  );
-  const computerCall: LoopKit["computerCall"] = (
-    name,
-    toolCallId,
-    operate,
-    { capped: cap = true, reviewed, unless, ask } = {},
-  ) =>
-    toolCall(toolCallId, async () => {
-      // A call that can't run is told so before its review, so it never waits for an Approval.
-      if (unless) {
-        const refused = await ctx.step(`${name}:unless`, async () => {
-          beforeLiveTool();
-          return unless();
-        });
-        if (refused) return refused;
+    };
+    /**
+     * `onComputer` for a live call: the loop's time limit, like a Stop, stops its operations
+     * through `live`'s signal, and its commands run no later than `live`'s deadline.
+     */
+    const onLiveComputer = async <T extends object>(
+      operate: (computer: ComputerHandle, live: FileToolOptions) => Promise<T>,
+    ) => {
+      inLiveCall = true;
+      try {
+        return await onComputer((computer) =>
+          operate(computer, {
+            deadline: new Date(startedAt.getTime() + timeLimitMs),
+            signal: abortController.signal,
+          }),
+        );
+      } finally {
+        inLiveCall = false;
       }
-      // Auto-review first: a blocked call never reaches the Computer. A reviewed Computer call is an
-      // action on a Screen, which never waits past its 15 seconds (ADR 0030).
-      const blocked = reviewed && (await review(name, toolCallId, reviewed, { ask, strict: true }));
-      // Strict, so never pending: a block is always its error.
-      if (blocked) return blocked as { error: string };
-      return recordTold(
-        await ctx.step(name, async () => {
+    };
+    /**
+     * After a Computer tool's Checkpoint is saved: the rebuild its result told is recorded as told.
+     * A crash before then tells it again in the retried attempt rather than never.
+     */
+    const recordTold = async <T>(result: T): Promise<T> => {
+      if (telling) {
+        if (options.tellsBot !== false) await markComputerRebuildSeen(deps.db, self.botId, telling);
+        rebuildSeenAt = telling;
+        telling = undefined;
+      }
+      return result;
+    };
+    const shell = shellDefinition.server((input, context) =>
+      toolCall(context?.toolCallId, async () => {
+        // Auto-review first: a blocked command never starts.
+        const blocked = await review(shellToolName, context?.toolCallId, input);
+        if (blocked) return blocked;
+        // The start marker: a resumed loop that replays it with no result never runs the command
+        // again, since it may have partly run. A yield waits for the command's own Checkpoint, so
+        // the marker never stands for a command that didn't start. No transaction: the command runs
+        // on the Computer, not in the database.
+        let startedHere = false;
+        await ctx.step(
+          shellStartActivity,
+          async () => {
+            beforeLiveTool();
+            startedHere = true;
+            return null;
+          },
+          { yields: false },
+        );
+        const result = await ctx.step(shellToolName, async () => {
           beforeLiveTool();
-          // A Computer tool's result may hold a Secret's value (a file, a page): masked, like `shell`.
-          const values = [...(await loadSecretValues(deps, owner.userId, decrypted)).values()];
-          const mask = secretMasker(values);
-          const result = maskResult(
-            await onLiveComputer((computer, live) => operate(computer, live, mask)),
-            mask,
+          if (!startedHere) return { error: interruptedShellError };
+          const ran = await runShell(
+            deps,
+            { userId: owner.userId, botId: self.botId, toolCallId: context?.toolCallId },
+            input,
+            decrypted,
+            onLiveComputer,
           );
-          if (reviewed) await keepOutput(toolCallId, async () => result);
-          // Cut inside the activity, so the Checkpoint holds only the cut form. A rebuilt note
-          // is the result's last field, so it stays in the cut text's end.
-          return cap ? await capLong(result, toolCallId) : result;
-        }),
-      );
-    });
-  /** A file tool: one activity, re-run after a crash, and a live call like `shell`'s. */
-  const fileTool =
-    <Input, Output extends object>(
-      name: string,
-      run: (
-        computer: ComputerHandle,
-        botId: string,
-        input: Input,
-        options: FileToolOptions,
-        mask: (text: string) => string,
-      ) => Promise<Output>,
-      cap = true,
+          await keepOutput(context?.toolCallId, async () => ran);
+          return ran;
+        });
+        return recordTold(result);
+      }),
+    );
+    const computerCall: LoopKit["computerCall"] = (
+      name,
+      toolCallId,
+      operate,
+      { capped: cap = true, reviewed, unless, ask } = {},
     ) =>
-    (input: Input, context?: { toolCallId?: string }) =>
-      computerCall(
-        name,
-        context?.toolCallId,
-        (computer, live, mask) => run(computer, owner.botId, input, live, mask),
-        { capped: cap },
-      );
-  const computerToolsByName: Record<string, AnyServerTool> = {
-    [shellDefinition.name]: shell,
-    [readDefinition.name]: readDefinition.server(fileTool("read", readTool, false)),
-    [writeDefinition.name]: writeDefinition.server(fileTool("write", writeTool)),
-    [editDefinition.name]: editDefinition.server(fileTool("edit", editTool)),
-    [listDefinition.name]: listDefinition.server(fileTool("list", listTool)),
+      toolCall(toolCallId, async () => {
+        // A call that can't run is told so before its review, so it never waits for an Approval.
+        if (unless) {
+          const refused = await ctx.step(`${name}:unless`, async () => {
+            beforeLiveTool();
+            return unless();
+          });
+          if (refused) return refused;
+        }
+        // Auto-review first: a blocked call never reaches the Computer. A reviewed Computer call is an
+        // action on a Screen, which never waits past its 15 seconds (ADR 0030).
+        const blocked =
+          reviewed && (await review(name, toolCallId, reviewed, { ask, strict: true }));
+        // Strict, so never pending: a block is always its error.
+        if (blocked) return blocked as { error: string };
+        return recordTold(
+          await ctx.step(name, async () => {
+            beforeLiveTool();
+            // A Computer tool's result may hold a Secret's value (a file, a page): masked, like `shell`.
+            const values = [...(await loadSecretValues(deps, owner.userId, decrypted)).values()];
+            const mask = secretMasker(values);
+            const result = maskResult(
+              await onLiveComputer((computer, live) => operate(computer, live, mask)),
+              mask,
+            );
+            if (reviewed) await keepOutput(toolCallId, async () => result);
+            // Cut inside the activity, so the Checkpoint holds only the cut form. A rebuilt note
+            // is the result's last field, so it stays in the cut text's end.
+            return cap ? await capLong(result, toolCallId) : result;
+          }),
+        );
+      });
+    /** A file tool: one activity, re-run after a crash, and a live call like `shell`'s. */
+    const fileTool =
+      <Input, Output extends object>(
+        name: string,
+        run: (
+          computer: ComputerHandle,
+          botId: string,
+          input: Input,
+          options: FileToolOptions,
+          mask: (text: string) => string,
+        ) => Promise<Output>,
+        cap = true,
+      ) =>
+      (input: Input, context?: { toolCallId?: string }) =>
+        computerCall(
+          name,
+          context?.toolCallId,
+          (computer, live, mask) => run(computer, self.botId, input, live, mask),
+          { capped: cap },
+        );
+    const computerToolsByName: Record<string, AnyServerTool> = {
+      [shellDefinition.name]: shell,
+      [readDefinition.name]: readDefinition.server(fileTool("read", readTool, false)),
+      [writeDefinition.name]: writeDefinition.server(fileTool("write", writeTool)),
+      [editDefinition.name]: editDefinition.server(fileTool("edit", editTool)),
+      [listDefinition.name]: listDefinition.server(fileTool("list", listTool)),
+    };
+    // In the shared order, which an away Summary's Prompt start sends too.
+    const computerTools = computerToolDefinitions.map((definition) => {
+      const tool = computerToolsByName[definition.name];
+      if (!tool) throw new Error(`No implementation for the Computer tool ${definition.name}`);
+      return tool;
+    });
+    return { computerCall, computerTools };
   };
-  // In the shared order, which an away Summary's Prompt start sends too.
-  const computerTools = computerToolDefinitions.map((definition) => {
-    const tool = computerToolsByName[definition.name];
-    if (!tool) throw new Error(`No implementation for the Computer tool ${definition.name}`);
-    return tool;
-  });
+  const computerKit: Pick<LoopKit, "computerCall" | "computerTools"> = bot
+    ? botComputer(bot)
+    : { computerTools: [], computerCall: async () => ({ error: noComputerError }) };
 
   /** What the loop's model calls and tool calls added to its input, in order. */
   const messages: ModelMessage[] = [];
@@ -936,9 +992,9 @@ export async function runLoop(
     const setup = await options.setup({
       liveActivity,
       liveRequest,
-      computerTools,
+      computerTools: computerKit.computerTools,
       signal: abortController.signal,
-      computerCall,
+      computerCall: computerKit.computerCall,
     });
     const { tools, ended = () => false } = setup;
     promptStart = setup.promptStart;

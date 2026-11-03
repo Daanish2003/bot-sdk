@@ -1,6 +1,7 @@
 /// <reference types="node" />
 import { postgres, type BotSdkOptions } from "@botsdk/bot";
 import { mcp } from "@botsdk/mcp";
+import { representative } from "@botsdk/representative";
 
 import { e2bConfigOf } from "./src/computer";
 import { computerFeatures } from "./src/features";
@@ -28,5 +29,7 @@ export default {
     ...computerFeatures(e2b !== undefined),
     // MCP (ADR 0027): the users' Connections to the Host's MCP servers (`MCP_SERVER_*`).
     mcp({ servers: mcpServersOf(process.env) }),
+    // Representatives (spec #1167): restricted agents that speak for the owner, through approved Releases.
+    representative(),
   ],
 } as const satisfies Pick<BotSdkOptions, "database" | "features">;

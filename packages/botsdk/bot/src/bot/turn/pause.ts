@@ -11,7 +11,7 @@ import { findBot, hintChanged, recordBotChange, roomIdsOf } from "../conversatio
 import { wakeOnAssignments } from "../assignments";
 import { deleteBotHelpers, stopHelpers } from "../helpers";
 import { deleteBotCheckIns, deleteBotRoutines } from "../routines";
-import { declineBotApprovals, reopenUnstartedCalls } from "../safety";
+import { declineBotApprovals, deliverAnswersAfterPause, reopenUnstartedCalls } from "../safety";
 import { awaySummaryKey, lockConversationSet, runningTurnOf, skipWaiting } from "../triggers";
 import { cancelTurn } from "./turn";
 
@@ -90,6 +90,7 @@ export async function resumeBot(deps: BotSdkContext, userId: string, botId: stri
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
   let rooms: string[] = [];
+  let answered = false;
   const resumedAt = deps.clock();
   const resumed = await deps.db.transaction(async (tx) => {
     rooms = await lockConversations(tx, found.conversationId, botId);
@@ -100,9 +101,14 @@ export async function resumeBot(deps: BotSdkContext, userId: string, botId: stri
       .returning({ id: bot.id });
     if (!row) return false;
     await recordChanges(tx, found, rooms, botId, deps.clock());
+    answered = await deliverAnswersAfterPause(deps, tx, {
+      botId,
+      conversationId: found.conversationId,
+    });
     return true;
   });
   if (!resumed) return;
+  if (answered) deps.runner.wake();
   await hintChanged(deps, found.conversationId);
   for (const conversationId of rooms) await hintChanged(deps, conversationId);
   await wakeOnAssignments(

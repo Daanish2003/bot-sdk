@@ -28,6 +28,7 @@
     "./sdk": "./src/sdk.ts",
     "./setup": "./src/setup.ts",
     "./test-database": "./src/test-database.ts",
+    "./test-customer": "./src/test-customer.ts",
     "./users": "./src/users.ts"
   },
   "scripts": {
@@ -64,6 +65,7 @@
     "@botsdk/mcp": "workspace:*",
     "@botsdk/memory": "workspace:*",
     "@botsdk/react": "workspace:*",
+    "@botsdk/representative": "workspace:*",
     "@botsdk/skills": "workspace:*",
     "@botsdk/testing": "workspace:*"
   }

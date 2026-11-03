@@ -32,6 +32,11 @@ import { computerBlobKey } from "../src/computer/internal";
 import { readTokens, saveTokens } from "@botsdk/mcp/server/connections";
 import { mcpConnection } from "@botsdk/mcp/server/db/connection";
 import { mcp } from "@botsdk/mcp";
+import { representative } from "@botsdk/representative";
+import {
+  representative as representativeTable,
+  representativeRelease,
+} from "@botsdk/representative/server/db/schema";
 import { profilePath } from "@botsdk/memory/server/bot-memory";
 import { memorySettings } from "@botsdk/memory/server/schema";
 import { listCredentials, saveCredentials, models } from "../src/models/internal";
@@ -57,8 +62,13 @@ function fakeBlobStore() {
   return { store, held };
 }
 
-/** Every table of the composed schema and the mcp and memory features' with a `user_id` column, with that column. */
-const userTables = [...Object.values(schema), mcpConnection, memorySettings].flatMap((value) => {
+/** Every table of the composed schema and the mcp, memory and representative features' with a `user_id` column, with that column. */
+const userTables = [
+  ...Object.values(schema),
+  mcpConnection,
+  memorySettings,
+  representativeTable,
+].flatMap((value) => {
   if (!is(value, PgTable)) return [];
   const { name, columns } = getTableConfig(value);
   const column = columns.find((candidate) => candidate.name === "user_id");
@@ -203,6 +213,40 @@ async function seedEverything(
 
   await getTestDb().insert(memorySettings).values({ userId: user.id, enabled: false });
   await saveTokens(deps, user.id, "linear", { accessToken: "t", tokenType: "Bearer", scope: "" });
+  // A Representative reporting to the Bot, with a Release.
+  const representativeId = uuidv7();
+  await getTestDb()
+    .insert(representativeTable)
+    .values({
+      id: representativeId,
+      userId: user.id,
+      botId,
+      name: "Front desk",
+      draft: {
+        jobText: "Answer",
+        switches: {},
+        skills: [],
+        tools: ["reply"],
+        model: null,
+        tests: [],
+      },
+    });
+  await getTestDb()
+    .insert(representativeRelease)
+    .values({
+      id: uuidv7(),
+      representativeId,
+      number: 1,
+      content: {
+        jobText: "Answer",
+        switches: {},
+        skills: [],
+        tools: ["reply"],
+        model: null,
+        documentSnapshot: null,
+        tests: [],
+      },
+    });
   await getTestDb()
     .insert(modelSettings)
     .values({ userId: user.id, imageModel: "openai:gpt-image-2" });
@@ -235,7 +279,7 @@ describe("deleteUser across plugins", () => {
     const deps = createTestSdk({
       blobStore: store,
       computer: fake.provider,
-      features: [mcp()],
+      features: [mcp(), representative()],
     });
     const owner = await insertUser();
     const other = await insertUser();

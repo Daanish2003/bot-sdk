@@ -4,6 +4,7 @@ import { memoryClient } from "@botsdk/memory/client";
 import { skillsClient } from "@botsdk/skills/client";
 import { knowledgeClient } from "@botsdk/knowledge/client";
 import { mcpClient } from "@botsdk/mcp/client";
+import { representativeClient } from "@botsdk/representative/client";
 import { channelClient } from "@botsdk/client";
 
 import { createTestSdk, type TestDeps } from "./deps";
@@ -26,7 +27,14 @@ export function createTestChat({
     deps,
     user,
     rateLimits,
-    features: [memoryClient(), skillsClient(), knowledgeClient(), mcpClient(), channelClient()],
+    features: [
+      memoryClient(),
+      skillsClient(),
+      knowledgeClient(),
+      mcpClient(),
+      representativeClient(),
+      channelClient(),
+    ],
   });
 }
 

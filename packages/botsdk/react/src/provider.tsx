@@ -19,6 +19,8 @@ export type ChatPage =
   | { to: "keys" }
   /** The rules page, where the user manages the rules for all their Bots. */
   | { to: "rules" }
+  /** The Representatives page; `id` opens that Representative. */
+  | { to: "representatives"; id?: string }
   /** The Bots app; `id` opens that Bot's Conversation. */
   | { to: "bots"; id?: string }
   /** A Room (spec #1055): the Conversation `id` the user shares with several of their Bots. */

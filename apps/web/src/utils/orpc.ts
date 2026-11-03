@@ -3,6 +3,7 @@ import { channelClient } from "@botsdk/client";
 import { knowledgeClient } from "@botsdk/knowledge/client";
 import { mcpClient } from "@botsdk/mcp/client";
 import { memoryClient } from "@botsdk/memory/client";
+import { representativeClient } from "@botsdk/representative/client";
 import { skillsClient } from "@botsdk/skills/client";
 import { QueryCache, QueryClient } from "@tanstack/react-query";
 import { createIsomorphicFn } from "@tanstack/react-start";
@@ -36,6 +37,7 @@ const features = [
   skillsClient(),
   knowledgeClient(),
   mcpClient(),
+  representativeClient(),
   channelClient(),
 ] as const;
 

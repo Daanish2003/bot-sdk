@@ -10,7 +10,14 @@ import {
   defineJob,
   type FeatureContext,
 } from "../../src";
-import { botAssignment, botReview, botTrigger, botTurn } from "../../src/storage";
+import {
+  bot,
+  botAssignment,
+  botAssignmentLog,
+  botReview,
+  botTrigger,
+  botTurn,
+} from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { exportUserData } from "../../src/user-data";
 import { saveCredentials } from "../../src/models/internal";
@@ -439,6 +446,174 @@ describe("a feature assigning work", () => {
     expect((await client.assignments.list({ botId }))[0]?.status).toBe("working");
     expect(other.endings).toEqual([]);
   });
+
+  it(
+    "moves its open Assignment to another Bot of the owner, keeping the status and adding a log row",
+    async () => {
+      const repairs = assigner();
+      const { fake, user, botId, client } = await botWith(
+        [quiet, quiet, quiet, quiet],
+        [repairs.feature],
+      );
+      const { id: second } = await client.bots.create({ name: "Second", model });
+      const { id } = await repairs
+        .assignments()
+        .create({ userId: user.id, botId, ...work, job: repairs.onEnded });
+      await expect.poll(() => turnsOf(botId), poll).toEqual(["complete"]);
+
+      await repairs.assignments().move({ userId: user.id, id, botId: second });
+
+      expect(await repairs.assignments().read({ userId: user.id, id })).toMatchObject({
+        botId: second,
+        status: "working",
+      });
+      expect(await client.assignments.list({ botId })).toEqual([]);
+      const log = await getTestDb()
+        .select({
+          status: botAssignmentLog.status,
+          actor: botAssignmentLog.actor,
+          note: botAssignmentLog.note,
+        })
+        .from(botAssignmentLog)
+        .where(eq(botAssignmentLog.assignmentId, id))
+        .orderBy(asc(botAssignmentLog.at), asc(botAssignmentLog.id));
+      expect(log.at(-1)).toEqual({
+        status: "working",
+        actor: "feature",
+        note: expect.stringContaining("Second"),
+      });
+      // The new Bot wakes on it, and the old one, which had read it, is told to stop.
+      await expect.poll(() => turnsOf(second), poll).toEqual(["complete"]);
+      await expect.poll(() => turnsOf(botId), poll).toEqual(["complete", "complete"]);
+      const heard = fake.calls.map((call) => inputText(call)).join("\n---\n");
+      expect(heard).toContain(`Assignment ${id} from `);
+      expect(heard).toContain(`Assignment ${id} was moved to another Bot`);
+      expect(repairs.endings).toEqual([]);
+    },
+    timeout,
+  );
+
+  it.each(["paused", "can't run"] as const)(
+    "tells a Bot that was %s of a move it missed, once, on its next Turn",
+    async (state) => {
+      const repairs = assigner();
+      const { fake, user, botId, client } = await botWith(
+        [quiet, quiet, quiet, quiet, quiet, quiet],
+        [repairs.feature],
+      );
+      const { id: second } = await client.bots.create({ name: "Second", model });
+      const { id } = await repairs
+        .assignments()
+        .create({ userId: user.id, botId, ...work, job: repairs.onEnded });
+      await expect.poll(() => turnsOf(botId), poll).toEqual(["complete"]);
+      if (state === "paused") await client.bots.pause({ botId });
+      else {
+        await getTestDb()
+          .update(bot)
+          .set({ model: "anthropic:claude-haiku-4-5" })
+          .where(eq(bot.id, botId));
+      }
+
+      await repairs.assignments().move({ userId: user.id, id, botId: second });
+      await expect.poll(() => turnsOf(second), poll).toEqual(["complete"]);
+
+      if (state === "paused") await client.bots.resume({ botId });
+      else {
+        // No control is needed: the Bot's next Turn, on anything, catches up.
+        await getTestDb().update(bot).set({ model }).where(eq(bot.id, botId));
+        await client.bots.send({ botId, id: uuidv7(), text: "Carry on." });
+      }
+      await expect.poll(() => turnsOf(botId), poll).toEqual(["complete", "complete"]);
+      const heard = fake.calls.map((call) => inputText(call)).join("\n---\n");
+      expect(heard).toContain(`Assignment ${id} was moved to another Bot`);
+      expect(await channelsOf(botId, "assignment_moved:%", true)).toEqual(["assignment_untrusted"]);
+
+      // Once: another pause and resume has nothing more to say about it.
+      await client.bots.pause({ botId });
+      await client.bots.resume({ botId });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(await turnsOf(botId)).toEqual(["complete", "complete"]);
+    },
+    timeout,
+  );
+
+  it(
+    "doesn't tell a Bot of a move when it never read the work, or was reset since",
+    async () => {
+      const repairs = assigner();
+      const { user, botId, client } = await botWith(
+        [quiet, quiet, quiet, quiet, quiet],
+        [repairs.feature],
+      );
+      const { id: second } = await client.bots.create({ name: "Second", model });
+      const { id: third } = await client.bots.create({ name: "Third", model });
+      await client.bots.pause({ botId });
+      const { id: unread } = await repairs
+        .assignments()
+        .create({ userId: user.id, botId, ...work, job: repairs.onEnded });
+      await repairs.assignments().move({ userId: user.id, id: unread, botId: third });
+      await client.bots.resume({ botId });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(await turnsOf(botId)).toEqual([]);
+
+      const { id } = await repairs
+        .assignments()
+        .create({ userId: user.id, botId, ...work, job: repairs.onEnded });
+      await expect.poll(() => turnsOf(botId), poll).toEqual(["complete"]);
+      await client.bots.pause({ botId });
+      await repairs.assignments().move({ userId: user.id, id, botId: second });
+      await client.bots.reset({ botId, name: "Clerk" });
+      await client.bots.resume({ botId });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(await channelsOf(botId, "assignment_moved:%", true)).toEqual([]);
+    },
+    timeout,
+  );
+
+  it(
+    "refuses to move an Assignment that ended, another owner's, or another feature's",
+    { timeout },
+    async () => {
+      const repairs = assigner();
+      const other = assigner("billing");
+      const { user, botId, client } = await botWith(
+        [quiet, quiet],
+        [repairs.feature, other.feature],
+      );
+      const { id: second } = await client.bots.create({ name: "Second", model });
+      const stranger = await insertUser();
+      const made = await repairs
+        .assignments()
+        .create({ userId: user.id, botId, ...work, job: repairs.onEnded });
+      const ended = await repairs
+        .assignments()
+        .create({ userId: user.id, botId, ...work, job: repairs.onEnded });
+      await expect.poll(() => turnsOf(botId), poll).toEqual(["complete"]);
+      await repairs.assignments().cancel({ userId: user.id, id: ended.id });
+
+      await expect(
+        repairs.assignments().move({ userId: user.id, id: ended.id, botId: second }),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+      await expect(
+        other.assignments().move({ userId: user.id, id: made.id, botId: second }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      await expect(
+        repairs.assignments().move({ userId: stranger.id, id: made.id, botId: second }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      // The owner's Bot is no Bot of the stranger's.
+      await expect(
+        repairs.assignments().move({ userId: stranger.id, id: made.id, botId }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+      expect(await repairs.assignments().read({ userId: user.id, id: made.id })).toMatchObject({
+        botId,
+      });
+      expect(await repairs.assignments().read({ userId: user.id, id: ended.id })).toMatchObject({
+        botId,
+        status: "cancelled",
+      });
+    },
+  );
 
   it("exports whether the assigner is trusted, and which feature it was", { timeout }, async () => {
     const repairs = assigner();

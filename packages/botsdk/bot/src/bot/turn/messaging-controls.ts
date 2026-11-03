@@ -1,5 +1,5 @@
 import { type ChoiceControl, maxChoiceOtherLength } from "@botsdk/client/bot/choice";
-import type { RichControl } from "@botsdk/client/bot/rich-control";
+import { isChannelAnswerable, type RichControl } from "@botsdk/client/bot/rich-control";
 import { ORPCError } from "@orpc/server";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
@@ -255,12 +255,28 @@ async function openControls({ sdk, owner }: Run) {
   type Open<Control> = { id: string; control: Control; parts: (typeof rows)[number]["parts"] };
   let choice: Open<ChoiceControl> | undefined;
   let approval: Open<ApprovalControl> | undefined;
+  // A yes or no after a waiting release Approval is about that card, which is answered only on its
+  // page: it never reaches back to an older Approval.
+  let approvalsOver = false;
   for (const row of rows) {
     const control = controlOf(row.parts);
     if (!control) continue;
+    if (
+      control.kind === "release_approval" &&
+      !approval &&
+      !control.answer &&
+      new Date(control.expiresAt) > sdk.clock()
+    ) {
+      approvalsOver = true;
+    }
     if (control.kind === "choice") {
       if (!choice && !control.answer) choice = { id: row.id, control, parts: row.parts };
-    } else if (!approval && isApprovalControl(control) && (await pending(sdk, control))) {
+    } else if (
+      !approval &&
+      !approvalsOver &&
+      isApprovalControl(control) &&
+      (await pending(sdk, control))
+    ) {
       approval = { id: row.id, control, parts: row.parts };
     }
   }
@@ -268,9 +284,7 @@ async function openControls({ sdk, owner }: Run) {
 }
 
 const isApprovalControl = (control: RichControl): control is ApprovalControl =>
-  control.kind === "routine_approval" ||
-  control.kind === "review_approval" ||
-  control.kind === "rule_approval";
+  isChannelAnswerable(control.kind);
 
 /** Whether the Approval still waits for the user. */
 async function pending(sdk: BotSdkContext, control: ApprovalControl): Promise<boolean> {

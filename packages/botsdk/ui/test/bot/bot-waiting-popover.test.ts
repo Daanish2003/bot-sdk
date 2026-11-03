@@ -161,6 +161,37 @@ describe("the Waiting N popover", { timeout: 30_000 }, () => {
     expect(screen.getByText("Rules for all your Bots →")).toBeTruthy();
   });
 
+  it("counts a Bot's draft waiting for an answer, until it is answered or expires", async () => {
+    const card = (id: string, extra: object) => ({
+      id,
+      role: "assistant",
+      text: `Asked about ${id}.`,
+      createdAt,
+      control: {
+        kind: "release_approval",
+        representativeId: "rep-1",
+        representativeName: "Front desk",
+        path: "/representatives/rep-1",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        ...extra,
+      },
+    });
+    mount(
+      fakeBotServer(
+        [],
+        [],
+        [
+          card("m1", {}),
+          card("m2", { answer: "approved" }),
+          card("m3", { expiresAt: new Date(Date.now() - 1).toISOString() }),
+        ],
+      ),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Waiting 1" }));
+    expect(await screen.findAllByText("Asked about m1.")).not.toEqual([]);
+  });
+
   it("says nothing waits when there are no pending Approvals", async () => {
     mount(fakeBotServer([review("r3", "allowed")]));
 
