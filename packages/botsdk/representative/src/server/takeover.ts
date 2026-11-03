@@ -86,7 +86,7 @@ async function lockThread(tx: Transaction, userId: string, threadId: string) {
   return thread;
 }
 
-/** Owner activity keeps a thread from closing as idle, and never moves its time back. */
+/** Owner activity counts as the thread's, so Hand back starts its idle days; its time never moves back. */
 const activeAt = (now: Date) => ({
   updatedAt: sql`greatest(${representativeThread.updatedAt}, ${now.toISOString()}::timestamp)`,
 });
