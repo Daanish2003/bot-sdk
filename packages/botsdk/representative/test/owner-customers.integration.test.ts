@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { saveCredentials } from "@botsdk/bot/models/internal";
@@ -9,6 +10,8 @@ import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { representative } from "../src";
+import { representativeCustomer } from "../src/server/db/schema";
+import { storeReply } from "../src/server/customers";
 import { waitingOn } from "../src/server/owner-customers";
 
 /*
@@ -71,14 +74,14 @@ const replies = (text = "Nine.") => round(toolCall({ name: "reply", input: { tex
 const quiet = () => round();
 
 describe("an owner's Customers", () => {
-  it("lists, adds and renames them, each with its identities", async () => {
+  it("lists, adds and renames them, each with its identities, with the Channel in lower case", async () => {
     const { deps } = await instance();
     const { rpc } = await owner(deps);
 
     expect(await rpc.representative.customerList()).toEqual([]);
     const added = await rpc.representative.customerCreate({
       name: "Ada",
-      channel: "sms",
+      channel: " SMS ",
       externalId: "+15550001",
     });
     expect(added).toMatchObject({
@@ -271,5 +274,37 @@ describe("a blocked Customer", () => {
       "Hello again",
       "Welcome back.",
     ]);
+  });
+
+  it("stops a Turn that began before the block from sending more, and keeps the first block's time", async () => {
+    const { deps } = await instance([quiet()]);
+    const { rpc, id } = await owner(deps);
+    await testCustomerTurn(deps, {
+      representativeId: id,
+      message: "Hello",
+      externalId: "+15550001",
+    });
+    const [line] = await rpc.representative.threadList({ id });
+    const sendAnother = () =>
+      getTestDb().transaction((tx) => storeReply(tx, line!.id, "Still here"));
+
+    expect(await sendAnother()).toEqual({ sent: true });
+    await rpc.representative.customerSetBlocked({ id: line!.customer.id, blocked: true });
+    expect(await sendAnother()).toMatchObject({
+      error: expect.stringContaining("nothing was sent"),
+    });
+    const thread = await rpc.representative.threadGet({ id: line!.id });
+    expect(thread.messages.map((message) => message.text)).toEqual(["Hello", "Still here"]);
+
+    const blockedAt = async () =>
+      (
+        await getTestDb()
+          .select({ at: representativeCustomer.blockedAt })
+          .from(representativeCustomer)
+          .where(eq(representativeCustomer.id, line!.customer.id))
+      )[0]?.at;
+    const first = await blockedAt();
+    await rpc.representative.customerSetBlocked({ id: line!.customer.id, blocked: true });
+    expect(await blockedAt()).toEqual(first);
   });
 });

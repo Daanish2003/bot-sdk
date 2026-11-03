@@ -243,7 +243,8 @@ export type ThreadView = ThreadSummary & {
 };
 
 export const maxCustomerNameLength = 100;
-const channelField = storable(z.string().trim().min(1).max(64));
+/** Channel ids are lower case, so `SMS` and `sms` are one Channel. */
+const channelField = storable(z.string().trim().toLowerCase().min(1).max(64));
 const externalIdField = storable(z.string().trim().min(1).max(512));
 export const customerCreateInput = z.object({
   name: storable(z.string().trim().min(1).max(maxCustomerNameLength)).optional(),

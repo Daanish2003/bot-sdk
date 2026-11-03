@@ -14,6 +14,7 @@ async function seedThread(
 ) {
   const customerId = randomUUID();
   const threadId = randomUUID();
+  const externalId = `+1555${customerId.slice(0, 8)}`;
   const db = createDb({ DATABASE_URL: e2eDatabaseUrl() });
   try {
     const run = (text: string, values: unknown[]) => db.$client.query(text, values);
@@ -22,17 +23,17 @@ async function seedThread(
       [customerId, userId, name, blocked ? new Date() : null],
     );
     await run(
-      "insert into botsdk.representative_customer_identity (id, user_id, customer_id, channel, external_id) values ($1, $2, $3, 'sms', '+15550001')",
-      [randomUUID(), userId, customerId],
+      "insert into botsdk.representative_customer_identity (id, user_id, customer_id, channel, external_id) values ($1, $2, $3, 'sms', $4)",
+      [randomUUID(), userId, customerId, externalId],
     );
     await run(
-      "insert into botsdk.representative_thread (id, customer_id, representative_id, last_channel, last_external_id, message_count) values ($1, $2, $3, 'sms', '+15550001', $4)",
-      [threadId, customerId, representativeId, messages.length],
+      "insert into botsdk.representative_thread (id, customer_id, representative_id, last_channel, last_external_id, message_count) values ($1, $2, $3, 'sms', $5, $4)",
+      [threadId, customerId, representativeId, messages.length, externalId],
     );
     for (const [position, [author, text]] of messages.entries()) {
       await run(
-        "insert into botsdk.representative_thread_message (id, thread_id, position, author, channel, external_id, text) values ($1, $2, $3, $4, 'sms', '+15550001', $5)",
-        [randomUUID(), threadId, position + 1, author, text],
+        "insert into botsdk.representative_thread_message (id, thread_id, position, author, channel, external_id, text) values ($1, $2, $3, $4, 'sms', $6, $5)",
+        [randomUUID(), threadId, position + 1, author, text, externalId],
       );
     }
   } finally {

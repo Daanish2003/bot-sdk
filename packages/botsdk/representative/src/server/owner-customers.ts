@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { isUniqueViolation } from "@botsdk/bot/lib/unique-violation";
@@ -117,7 +117,13 @@ export async function createCustomer(
     const made = await tx
       .insert(representativeCustomerIdentity)
       .values({ id: uuidv7(), userId, customerId, channel, externalId })
-      .onConflictDoNothing()
+      .onConflictDoNothing({
+        target: [
+          representativeCustomerIdentity.userId,
+          representativeCustomerIdentity.channel,
+          representativeCustomerIdentity.externalId,
+        ],
+      })
       .returning({ id: representativeCustomerIdentity.id });
     if (made.length === 0) throw identityTaken();
     return customerId;
@@ -157,7 +163,13 @@ export async function addIdentity(
     const made = await tx
       .insert(representativeCustomerIdentity)
       .values({ id: uuidv7(), userId, customerId: id, channel, externalId })
-      .onConflictDoNothing()
+      .onConflictDoNothing({
+        target: [
+          representativeCustomerIdentity.userId,
+          representativeCustomerIdentity.channel,
+          representativeCustomerIdentity.externalId,
+        ],
+      })
       .returning({ id: representativeCustomerIdentity.id });
     if (made.length === 0) throw identityTaken();
   });
@@ -211,7 +223,7 @@ export async function setBlocked(
 ) {
   const [updated] = await db
     .update(representativeCustomer)
-    .set({ blockedAt: blocked ? now : null })
+    .set({ blockedAt: blocked ? sql`coalesce(${representativeCustomer.blockedAt}, ${now})` : null })
     .where(and(eq(representativeCustomer.id, id), eq(representativeCustomer.userId, userId)))
     .returning({ id: representativeCustomer.id });
   if (!updated) throw customerNotFound();

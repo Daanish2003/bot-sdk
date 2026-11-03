@@ -26,14 +26,12 @@ function IdentityFields({
   submitLabel,
   pending,
   onSubmit,
-  clearOnSubmit = false,
 }: {
   label: string;
   initial: Identity;
   submitLabel: string;
   pending: boolean;
   onSubmit: (value: Identity) => void;
-  clearOnSubmit?: boolean;
 }) {
   const { t } = useI18n();
   const [channel, setChannel] = useState(initial.channel);
@@ -44,10 +42,6 @@ function IdentityFields({
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit({ channel, externalId });
-        if (clearOnSubmit) {
-          setChannel("");
-          setExternalId("");
-        }
       }}
     >
       <Input
@@ -150,12 +144,12 @@ function CustomerCard({ customer }: { customer: CustomerView }) {
           />
         ))}
         <IdentityFields
+          // Remounted empty once an identity is added, and kept as typed when the add is refused.
           key={customer.identities.length}
           label={`${label} (new)`}
           initial={{ channel: "", externalId: "" }}
           submitLabel={t("representative.customers.addIdentity")}
           pending={add.isPending}
-          clearOnSubmit
           onSubmit={(value) => add.mutate({ id: customer.id, ...value })}
         />
       </div>

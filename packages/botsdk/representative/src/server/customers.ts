@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, lte, notExists, sql } from "drizzle-orm";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
@@ -159,7 +159,22 @@ export async function storeReply(tx: Transaction, threadId: string, text: string
       updatedAt: new Date(),
     })
     .where(
-      and(eq(representativeThread.id, threadId), eq(representativeThread.state, "representative")),
+      and(
+        eq(representativeThread.id, threadId),
+        eq(representativeThread.state, "representative"),
+        // A Turn that began before the owner blocked this Customer sends nothing more.
+        notExists(
+          tx
+            .select({ one: sql`1` })
+            .from(representativeCustomer)
+            .where(
+              and(
+                eq(representativeCustomer.id, representativeThread.customerId),
+                isNotNull(representativeCustomer.blockedAt),
+              ),
+            ),
+        ),
+      ),
     )
     .returning({
       position: representativeThread.messageCount,
@@ -167,7 +182,10 @@ export async function storeReply(tx: Transaction, threadId: string, text: string
       externalId: representativeThread.lastExternalId,
     });
   if (!thread)
-    return { error: "This thread is gone or no longer yours to answer, so nothing was sent." };
+    return {
+      error:
+        "This thread is gone or no longer yours to answer (it may be held by the owner, or its Customer blocked), so nothing was sent.",
+    };
   await tx
     .insert(representativeThreadMessage)
     .values({ id: uuidv7(), threadId, author: "representative", text, ...thread });
