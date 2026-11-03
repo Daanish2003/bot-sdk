@@ -191,6 +191,21 @@ export function useDeleteFact(options?: ProcedureMutationOptions<Representative[
   return useMutation(useRepresentative().factDelete.mutationOptions(options));
 }
 
+/** The owner's open Gaps (`representative.gapList`). */
+export function useGaps() {
+  return useQuery(useRepresentative().gapList.queryOptions());
+}
+
+/** Dismisses a Gap (`representative.gapDismiss`). */
+export function useDismissGap(options?: ProcedureMutationOptions<Representative["gapDismiss"]>) {
+  return useMutation(useRepresentative().gapDismiss.mutationOptions(options));
+}
+
+/** Turns a Gap into a fact, closing it (`representative.gapToFact`). */
+export function useGapToFact(options?: ProcedureMutationOptions<Representative["gapToFact"]>) {
+  return useMutation(useRepresentative().gapToFact.mutationOptions(options));
+}
+
 /** A Representative's Customer threads (`representative.threadList`). */
 export function useThreads(id: string) {
   return useQuery(useRepresentative().threadList.queryOptions({ input: { id } }));

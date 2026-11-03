@@ -9,9 +9,12 @@ import { serverErrorText } from "@botsdk/react/rpc-error";
 import {
   useAddFact,
   useDeleteFact,
+  useDismissGap,
   useEditFact,
   useFactLog,
   useFacts,
+  useGapToFact,
+  useGaps,
   useRefreshRepresentatives,
 } from "@botsdk/representative/react";
 import {
@@ -19,6 +22,7 @@ import {
   type FactType,
   type FactView,
   factTypes,
+  type GapView,
 } from "@botsdk/representative/client";
 
 const toDateField = (date: Date | null) => (date ? date.toISOString().slice(0, 10) : "");
@@ -207,6 +211,55 @@ function NewFactForm() {
   );
 }
 
+/** One Gap: its question as plain text, how often it came up, and the ways to close it. */
+function GapRow({ gap }: { gap: GapView }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const [key, setKey] = useState("");
+  const onError = (error: unknown) => toast.error(serverErrorText(i18n, error));
+  const dismiss = useDismissGap({ onSuccess: () => refresh(), onError });
+  const answer = useGapToFact({ onSuccess: () => refresh(), onError });
+  return (
+    <li data-gap={gap.id} className="space-y-2 p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        {/* The Model wrote it: React shows it as text, never as markup. */}
+        <span data-gap-question className="text-sm font-medium break-words">
+          {gap.question}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {t("representative.facts.gapCount", { count: gap.count })}
+        </span>
+        <Button
+          className="ml-auto"
+          variant="outline"
+          size="sm"
+          disabled={dismiss.isPending}
+          aria-label={t("representative.facts.gapDismissOf", { name: gap.question })}
+          onClick={() => dismiss.mutate({ id: gap.id })}
+        >
+          {t("representative.facts.gapDismiss")}
+        </Button>
+      </div>
+      <Input
+        className="w-64"
+        aria-label={t("representative.facts.gapKeyOf", { name: gap.question })}
+        placeholder={t("representative.facts.key")}
+        value={key}
+        maxLength={64}
+        onChange={(event) => setKey(event.target.value)}
+      />
+      <FactFields
+        label={t("representative.facts.gapNewFact")}
+        initial={{ type: "text", topic: "General", value: "", validFrom: "", validUntil: "" }}
+        submitLabel={t("representative.facts.gapToFact")}
+        disabled={answer.isPending || key.trim() === ""}
+        onSubmit={(value) => answer.mutate({ id: gap.id, key, ...value })}
+      />
+    </li>
+  );
+}
+
 function LogRow({ entry }: { entry: FactLogView }) {
   const { t } = useI18n();
   return (
@@ -239,6 +292,7 @@ export function FactsPage() {
   const { t } = useI18n();
   const facts = useFacts();
   const log = useFactLog();
+  const gaps = useGaps();
   // The list comes sorted by topic, so each topic's facts are together.
   const topics = new Map<string, FactView[]>();
   for (const fact of facts.data ?? [])
@@ -249,6 +303,17 @@ export function FactsPage() {
         <h1 className="text-xl font-semibold">{t("representative.facts.title")}</h1>
         <p className="text-sm text-muted-foreground">{t("representative.facts.intro")}</p>
       </div>
+      {gaps.data && gaps.data.length > 0 && (
+        <section data-gaps className="space-y-2">
+          <h2 className="text-sm font-medium">{t("representative.facts.gapsTitle")}</h2>
+          <p className="text-sm text-muted-foreground">{t("representative.facts.gapsIntro")}</p>
+          <ul className="divide-y overflow-hidden rounded-xl border">
+            {gaps.data.map((gap) => (
+              <GapRow key={gap.id} gap={gap} />
+            ))}
+          </ul>
+        </section>
+      )}
       <section className="space-y-2">
         <h2 className="text-sm font-medium">{t("representative.facts.addTitle")}</h2>
         <NewFactForm />

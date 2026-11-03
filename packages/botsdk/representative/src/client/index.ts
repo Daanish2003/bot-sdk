@@ -23,6 +23,7 @@ export {
   type FactSnapshot,
   type FactType,
   type FactView,
+  type GapView,
   type Expectation,
   type DraftChange,
   type DraftDiff,
