@@ -274,6 +274,7 @@ type ThreadRow = {
   lastChannel: string;
   lastExternalId: string;
   messageCount: number;
+  waitingFrom: number | null;
   updatedAt: Date;
   lastAuthor: ThreadAuthor | null;
 };
