@@ -353,89 +353,108 @@ describe("what an unverified sender's prompt holds", () => {
 });
 
 describe("the 90-day lapse", () => {
+  /*
+   * A thread closes after 7 idle days (#1252), so a move of weeks can land a message on a new thread,
+   * whenever the idle job gets to it. These read what a message recorded, on whichever thread it is,
+   * and the identity's stored state. That a message recorded as unverified stays out of a prompt is
+   * shown above, inside the 7 days.
+   */
   const telegram = {
     channel: "telegram",
     externalId: "7",
     proof: sameIdentity,
   } as const;
 
-  it("keeps a verified identity verified just inside 90 days without contact", async () => {
-    const { fake, deps, timer } = await instance([
-      replies("Your balance is 40."),
-      quiet(),
-      quiet(),
-    ]);
-    const { id } = await ownerWithRepresentative(deps);
+  /** Whether the message saying `text` was recorded as from a verified sender. */
+  const recordedVerified = async (deps: TestDeps, userId: string, text: string) => {
+    const customers = await customersOf(deps, userId);
+    const messages = customers.flatMap((customer) =>
+      customer.threads.flatMap((thread) => thread.messages),
+    );
+    return messages.find((message) => message.text === text)?.verified;
+  };
 
-    await testCustomerTurn(deps, {
-      ...telegram,
-      representativeId: id,
-      message: "My card ends 1234",
-    });
+  it("lapses at 90 days without contact and not a minute sooner", async () => {
+    const { deps, timer } = await instance([quiet(), quiet(), quiet()]);
+    const { user, id } = await ownerWithRepresentative(deps);
+    const turn = { ...telegram, representativeId: id };
+
+    await testCustomerTurn(deps, { ...turn, message: "First" });
     timer.advance(90 * day - 60_000);
-    await testCustomerTurn(deps, { ...telegram, representativeId: id, message: "Back" });
+    await testCustomerTurn(deps, { ...turn, message: "Just inside" });
 
-    expect(promptOf(fake.calls[2])).toContain("My card ends 1234");
+    expect(await recordedVerified(deps, user.id, "Just inside")).toBe(true);
+    const inside = await stateOf(deps, user.id, "telegram");
+    expect(new Date(inside!.verifiedContactAt!)).toEqual(timer.clock.now());
+    expect(inside?.lapsedAt).toBeNull();
+
+    timer.advance(90 * day);
+    await testCustomerTurn(deps, { ...turn, message: "At 90 days" });
+
+    expect(await recordedVerified(deps, user.id, "At 90 days")).toBe(false);
   });
 
   it("counts from the last contact, not from the first verification", async () => {
-    const { fake, deps, timer } = await instance([quiet(), quiet(), quiet()]);
-    const { id } = await ownerWithRepresentative(deps);
+    const { deps, timer } = await instance([quiet(), quiet(), quiet(), quiet()]);
+    const { user, id } = await ownerWithRepresentative(deps);
+    const turn = { ...telegram, representativeId: id };
 
-    await testCustomerTurn(deps, { ...telegram, representativeId: id, message: "One" });
+    await testCustomerTurn(deps, { ...turn, message: "One" });
     timer.advance(80 * day);
-    await testCustomerTurn(deps, { ...telegram, representativeId: id, message: "Two" });
+    await testCustomerTurn(deps, { ...turn, message: "Two" });
     timer.advance(80 * day);
-    await testCustomerTurn(deps, { ...telegram, representativeId: id, message: "Three" });
+    await testCustomerTurn(deps, { ...turn, message: "Three" });
 
-    expect(promptOf(fake.calls[2])).toContain("One");
+    // 160 days from the first, 80 from the last.
+    expect(await recordedVerified(deps, user.id, "Three")).toBe(true);
+
+    timer.advance(90 * day);
+    await testCustomerTurn(deps, { ...turn, message: "Four" });
+
+    expect(await recordedVerified(deps, user.id, "Four")).toBe(false);
   });
 
-  it("makes the identity unverified at 90 days, so the number's next holder reads nothing", async () => {
-    const { fake, deps, timer } = await instance([
-      replies("Your balance is 40."),
-      quiet(),
-      quiet(),
-      quiet(),
-    ]);
+  it("makes the identity unverified at 90 days, and the same identity can't win it back", async () => {
+    const { deps, timer } = await instance([quiet(), quiet(), quiet()]);
     const { user, id } = await ownerWithRepresentative(deps);
+    const turn = { ...telegram, representativeId: id };
 
-    await testCustomerTurn(deps, {
-      ...telegram,
-      representativeId: id,
-      message: "My card ends 1234",
-    });
+    await testCustomerTurn(deps, { ...turn, message: "Old holder" });
     timer.advance(90 * day);
-    await testCustomerTurn(deps, { ...telegram, representativeId: id, message: "New holder" });
+    await testCustomerTurn(deps, { ...turn, message: "New holder" });
 
-    expect(promptOf(fake.calls[2])).toContain("New holder");
-    expect(promptOf(fake.calls[2])).not.toContain("My card ends 1234");
-    expect(promptOf(fake.calls[2])).not.toContain("Your balance is 40.");
-    const state = await stateOf(deps, user.id, "telegram");
-    expect(state?.verifiedContactAt).toBeNull();
-    expect(new Date(state!.lapsedAt!)).toEqual(timer.clock.now());
+    expect(await recordedVerified(deps, user.id, "New holder")).toBe(false);
+    const lapsed = await stateOf(deps, user.id, "telegram");
+    expect(lapsed?.verifiedContactAt).toBeNull();
+    expect(new Date(lapsed!.lapsedAt!)).toEqual(timer.clock.now());
 
     // The same identity proved nothing new, so a second message doesn't win it back.
-    await testCustomerTurn(deps, { ...telegram, representativeId: id, message: "Second try" });
-    expect(promptOf(fake.calls[3])).not.toContain("My card ends 1234");
+    await testCustomerTurn(deps, { ...turn, message: "Second try" });
+
+    expect(await recordedVerified(deps, user.id, "Second try")).toBe(false);
     expect((await stateOf(deps, user.id, "telegram"))?.verifiedContactAt).toBeNull();
   });
 
   it("lets a fresh enforcing DMARC pass verify again, since it proves itself each time", async () => {
-    const { fake, deps, timer } = await instance([quiet(), quiet()]);
+    const { deps, timer } = await instance([quiet(), quiet(), quiet()]);
     const { user, id } = await ownerWithRepresentative(deps);
-    const email = {
-      representativeId: id,
-      channel: "email",
-      externalId: "a@example.com",
-      proof: enforcingPass,
-    };
+    const email = { representativeId: id, channel: "email", externalId: "a@example.com" };
 
-    await testCustomerTurn(deps, { ...email, message: "Before" });
+    await testCustomerTurn(deps, { ...email, proof: enforcingPass, message: "Before" });
     timer.advance(91 * day);
-    await testCustomerTurn(deps, { ...email, message: "After" });
+    await testCustomerTurn(deps, {
+      ...email,
+      proof: { rule: "dmarc", pass: false, policy: "reject" },
+      message: "Failed",
+    });
 
-    expect(promptOf(fake.calls[1])).toContain("Before");
+    const lapsed = await stateOf(deps, user.id, "email");
+    expect(lapsed?.verifiedContactAt).toBeNull();
+    expect(lapsed?.lapsedAt).not.toBeNull();
+
+    await testCustomerTurn(deps, { ...email, proof: enforcingPass, message: "After" });
+
+    expect(await recordedVerified(deps, user.id, "After")).toBe(true);
     const state = await stateOf(deps, user.id, "email");
     expect(state?.lapsedAt).toBeNull();
     expect(new Date(state!.verifiedContactAt!)).toEqual(timer.clock.now());
@@ -450,6 +469,9 @@ describe("the 90-day lapse", () => {
     await testCustomerTurn(deps, { ...email, proof: enforcingPass, message: "Real" });
     timer.advance(89 * day);
     await testCustomerTurn(deps, { ...email, proof: failing, message: "Spoof" });
+
+    expect((await stateOf(deps, user.id, "email"))?.verifiedContactAt).not.toBeNull();
+
     timer.advance(2 * day);
     await testCustomerTurn(deps, { ...email, proof: failing, message: "Spoof again" });
 
