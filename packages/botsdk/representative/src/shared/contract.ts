@@ -188,6 +188,8 @@ export type TestStatus = "none" | "notRun" | "running" | "failed" | "passed";
  * that call knows its own.
  */
 export type PendingApproval = {
+  /** The hash of the documents when the Bot asked; none for no documents. */
+  documentsHash?: string;
   id: string;
   botId: string;
   expiresAt: string;

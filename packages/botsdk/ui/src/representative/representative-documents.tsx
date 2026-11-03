@@ -20,20 +20,36 @@ export const documentsOverCap = (representative: RepresentativeView) =>
   documentChars(representative.draft.documents) > maxReleaseDocumentChars;
 
 /**
- * The draft's documents: uploaded and removed on the spot, apart from Save draft, since their text is
- * copied to the server as they are chosen.
+ * Uploading and removing a draft's documents. The page holds these, as nothing may be approved while
+ * the documents are changing, and each counts as pending until the page has the draft it left.
  */
-export function DraftDocuments({ representative }: { representative: RepresentativeView }) {
+export function useDocumentChanges() {
   const i18n = useI18n();
-  const { t } = i18n;
-  const { id, draft } = representative;
-  const input = useRef<HTMLInputElement>(null);
   const refresh = useRefreshRepresentatives();
   const onError = (error: Parameters<typeof serverErrorText>[1]) =>
     toast.error(serverErrorText(i18n, error));
   const upload = useUploadDocument({ onSuccess: refresh, onError });
   const remove = useRemoveDocument({ onSuccess: refresh, onError });
-  const busy = upload.isPending || remove.isPending;
+  return { upload, remove, pending: upload.isPending || remove.isPending };
+}
+
+/**
+ * The draft's documents: uploaded and removed on the spot, apart from Save draft, since their text is
+ * copied to the server as they are chosen.
+ */
+export function DraftDocuments({
+  representative,
+  changes: { upload, remove },
+  busy,
+}: {
+  representative: RepresentativeView;
+  changes: ReturnType<typeof useDocumentChanges>;
+  busy: boolean;
+}) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const { id, draft } = representative;
+  const input = useRef<HTMLInputElement>(null);
   const chars = documentChars(draft.documents);
   const number = (value: number) => value.toLocaleString(i18n.locale);
   return (

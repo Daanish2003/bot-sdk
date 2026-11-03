@@ -7,6 +7,7 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { type Draft, draftSchema, noNul, type PendingApproval } from "../shared/contract";
 import { representative, representativeRelease } from "./db/schema";
+import { snapshotOf } from "./documents";
 import {
   emptyDraft,
   mergedDraft,
@@ -188,6 +189,7 @@ async function draftFromBot(
       botId,
       expiresAt: card.expiresAt.toISOString(),
       postedAt: now.toISOString(),
+      documentsHash: snapshotOf(draft.documents)?.hash,
       ...(call && { call }),
     };
     await tx

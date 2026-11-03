@@ -35,9 +35,12 @@ type DraftRow = { id: string; draft: Draft };
 const plainExtensions = [".md", ".txt"];
 const convertedExtensions = [".pdf", ".docx"];
 
-/** A name fit for a list and a prompt's label: no control characters, as a line break would forge one. */
+/** Anything that breaks a line or reorders text, which could forge a label in a name. */
+const forgingCharacters = /[\p{Cc}\p{Zl}\p{Zp}\u202A-\u202E\u2066-\u2069]/u;
+
+/** A name fit for a list and a prompt's label. */
 function requireName(name: string) {
-  if (name.trim() === "" || name.length > maxDocumentNameLength || /\p{Cc}/u.test(name)) {
+  if (name.trim() === "" || name.length > maxDocumentNameLength || forgingCharacters.test(name)) {
     throw rpcError(
       "BAD_REQUEST",
       "error.representativeDocumentName",
@@ -79,14 +82,15 @@ export async function readableText(file: File, convert?: ConvertDocument): Promi
       name,
     });
   if (plain && file.size > maxDocumentTextBytes) throw tooLong();
-  const text = converted ? await convert!(file) : await decoded(file);
+  // A PDF's unmapped glyph can come out as a NUL, which costs the document nothing to lose.
+  const text = converted ? (await convert!(file)).replaceAll("\0", "") : await decoded(file);
   if (Buffer.byteLength(text) > maxDocumentTextBytes) throw tooLong();
   if (text.trim() === "") {
     throw rpcError("BAD_REQUEST", "error.representativeDocumentEmpty", "That file has no text", {
       name,
     });
   }
-  // Postgres takes no NUL in text.
+  // Postgres takes no NUL in text, and a text file with one isn't text.
   if (!noNul(text)) throw unreadable(name);
   return text;
 }
@@ -192,7 +196,10 @@ export function snapshotOf(documents: DocumentRef[]): DocumentSnapshot | null {
   return { hash, documents };
 }
 
-/** The text of `documents`, in their order. One gone since (its owner was deleted) is left out. */
+/** A document's text is gone: nothing may answer without it. Only a draft's can go, by removal. */
+export class DocumentGone extends Error {}
+
+/** The text of `documents`, in their order, or `DocumentGone` if any has gone. */
 export async function readDocuments(db: Db, documents: DocumentRef[]): Promise<DocumentText[]> {
   if (documents.length === 0) return [];
   const rows = await db
@@ -209,9 +216,10 @@ export async function readDocuments(db: Db, documents: DocumentRef[]): Promise<D
       ),
     );
   const byId = new Map(rows.map((row) => [row.id, row]));
-  return documents.flatMap((document) => {
+  return documents.map((document) => {
     const row = byId.get(document.id);
-    return row ? [{ name: row.name, text: row.text }] : [];
+    if (!row) throw new DocumentGone(`Document ${document.id} is gone`);
+    return { name: row.name, text: row.text };
   });
 }
 

@@ -12,7 +12,7 @@ import {
   type TestStatus,
 } from "../shared/contract";
 import { representative, representativeTestResult } from "./db/schema";
-import { readDocuments } from "./documents";
+import { DocumentGone, type DocumentText, readDocuments } from "./documents";
 import { checkExpectations, draftHash, transcriptOf } from "./test-checks";
 import { hostDefaultModel, playLoop, type TurnServices } from "./turn";
 
@@ -165,6 +165,17 @@ export const representativeTestJob = defineJob<TestPayload, TurnServices>({
       return;
     }
     const current = async () => (await currentResult(job, resultId)) !== null;
+    let documents: DocumentText[];
+    try {
+      documents = await readDocuments(job.db, draft.documents);
+    } catch (caught) {
+      if (!(caught instanceof DocumentGone)) throw caught;
+      await write(job, resultId, {
+        status: "error",
+        error: "A document of the draft changed while this waited",
+      });
+      return;
+    }
     const played = await playLoop(job, {
       userId,
       representativeId,
@@ -175,7 +186,7 @@ export const representativeTestJob = defineJob<TestPayload, TurnServices>({
       on: { test: { current } },
       entries: [{ author: "customer", text: conversation.message, verified: true }],
       content: draft,
-      documents: await readDocuments(job.db, draft.documents),
+      documents,
     });
     // The draft changed or a new run replaced it, so what this came to has nowhere to go.
     if (!(await current())) return;

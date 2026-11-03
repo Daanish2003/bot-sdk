@@ -641,6 +641,20 @@ describe("the release Approval", () => {
     expect(wakes(made)[0]).toContain("after changing it");
   });
 
+  it("tells the Bot when the owner changed the documents before approving", async () => {
+    const made = await drafted();
+    const { id } = await onlyRepresentative(made);
+    await made.rpc.representative.documentUpload({
+      id,
+      file: new File(["Open at nine."], "hours.md"),
+    });
+
+    await made.rpc.representative.approve({ id });
+
+    await expect.poll(() => wakes(made), poll).toHaveLength(1);
+    expect(wakes(made)[0]).toContain("after changing it");
+  });
+
   it("wakes the Bot with a no given on the page, and keeps the draft", async () => {
     const made = await drafted();
     const { id } = await onlyRepresentative(made);

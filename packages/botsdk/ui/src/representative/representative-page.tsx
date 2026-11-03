@@ -30,7 +30,7 @@ import {
 } from "@botsdk/representative/client";
 
 import { ModelPicker } from "../models/shell/model-picker";
-import { DraftDocuments, documentsOverCap } from "./representative-documents";
+import { DraftDocuments, documentsOverCap, useDocumentChanges } from "./representative-documents";
 import { RepresentativeThreads } from "./representative-threads";
 import { TestConversationsEditor, TestResults } from "./representative-tests";
 
@@ -77,7 +77,8 @@ function DraftEditor({ representative }: { representative: RepresentativeView })
   const usableModels = models.data?.models ?? [];
   const modelListed = usableModels.some((model) => model.id === draft.model);
   const [reason, setReason] = useState("");
-  const busy = save.isPending || approve.isPending || run.isPending;
+  const documentChanges = useDocumentChanges();
+  const busy = save.isPending || approve.isPending || run.isPending || documentChanges.pending;
   const body = { id: representative.id, draft };
   // Saving changes the draft, which voids its results, so a form with edits has no passing tests.
   const dirty = canonicalJson(draft) !== canonicalJson(formFields(representative.draft));
@@ -140,7 +141,7 @@ function DraftEditor({ representative }: { representative: RepresentativeView })
         </div>
         <p className="text-xs text-muted-foreground">{t("representative.modelHelp")}</p>
       </div>
-      <DraftDocuments representative={representative} />
+      <DraftDocuments representative={representative} changes={documentChanges} busy={busy} />
       <TestConversationsEditor
         tests={draft.tests}
         onChange={(tests) => setDraft({ ...draft, tests })}

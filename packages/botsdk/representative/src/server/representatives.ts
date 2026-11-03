@@ -512,7 +512,9 @@ export async function approveDraft(
         id: row.pendingApproval.id,
         answer: "approved",
         releaseNumber: release!.number,
-        edited: row.botDraftHash !== botFieldsHash(row.draft),
+        edited:
+          row.botDraftHash !== botFieldsHash(row.draft) ||
+          row.pendingApproval.documentsHash !== snapshotOf(documents)?.hash,
       }));
     return {
       answered,
@@ -671,7 +673,7 @@ export function draftChanges(draft: Draft, live: ReleaseContent | null): DraftCh
     "document",
     keyed(live?.documentSnapshot?.documents ?? []),
     keyed(draft.documents),
-    (document) => document && { chars: document.chars, hash: document.hash },
+    (document) => document && `${document.chars} characters (${document.hash.slice(0, 8)})`,
   );
   skillOrder();
   testOrder();
