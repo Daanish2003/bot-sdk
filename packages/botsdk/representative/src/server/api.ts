@@ -7,6 +7,8 @@ import {
   customerMergeInput,
   customerRenameInput,
   customerSetBlockedInput,
+  factAddInput,
+  factEditInput,
   customerUpdateIdentityInput,
   createInput,
   idInput,
@@ -16,6 +18,7 @@ import {
   threadSendInput,
   updateDraftInput,
 } from "../shared/contract";
+import { addFact, deleteFact, editFact, listFactLog, listFacts } from "./facts";
 import { listMerges, mergeCustomers, undoMerge } from "./customer-merge";
 import {
   addIdentity,
@@ -126,6 +129,19 @@ export function representativeApi(
 
     customerMergeUndo: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
       undoMerge(context, userId, parseInput(idInput, rest).id),
+
+    factList: async ({ userId }: { userId: string }) => listFacts(context, userId),
+
+    factAdd: async ({ userId, ...rest }: WithUser<typeof factAddInput>) =>
+      addFact(context, userId, parseInput(factAddInput, rest)),
+
+    factEdit: async ({ userId, ...rest }: WithUser<typeof factEditInput>) =>
+      editFact(context, userId, parseInput(factEditInput, rest)),
+
+    factDelete: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      deleteFact(context, userId, parseInput(idInput, rest).id),
+
+    factLog: async ({ userId }: { userId: string }) => listFactLog(context, userId),
 
     threadList: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
       listThreads(context, userId, parseInput(idInput, rest).id),

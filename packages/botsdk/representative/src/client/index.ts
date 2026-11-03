@@ -16,6 +16,10 @@ export {
   type CustomerMergeView,
   type CustomerView,
   type Draft,
+  type FactLogView,
+  type FactSnapshot,
+  type FactType,
+  type FactView,
   type Expectation,
   type DraftChange,
   type DraftDiff,
@@ -37,5 +41,7 @@ export {
   type ThreadWaitingOn,
   type TranscriptEntry,
   canonicalJson,
+  factTypes,
+  isInEffect,
   representativeTools,
 } from "../shared/contract";
