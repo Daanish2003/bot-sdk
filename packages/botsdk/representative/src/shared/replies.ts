@@ -16,7 +16,11 @@ export const sourceFreeKinds: readonly ReplyKind[] = ["small_talk", "handoff"];
  */
 export type ReplyProof = { kind: ReplyKind | null; sources: ReplySource[] };
 
-/** A Published fact by its key, or a Bot's result by its Assignment and an exact quote from it. */
+/**
+ * A Published fact by its key, a Bot's result by its Assignment and an exact quote from it, or an
+ * exact quote from a document of the Release (ticket #1266).
+ */
 export type ReplySource =
   | { type: "fact"; key: string }
-  | { type: "assignment"; assignmentId: string; quote: string };
+  | { type: "assignment"; assignmentId: string; quote: string }
+  | { type: "document"; name: string; quote: string };

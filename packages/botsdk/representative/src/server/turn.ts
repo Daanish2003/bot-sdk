@@ -10,6 +10,7 @@ import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { defineJob, type JobContext, PermanentJobError } from "@botsdk/bot/runner/internal";
 import {
+  maxDocumentNameLength,
   maxThreadMessageLength,
   noNul,
   type ReleaseContent,
@@ -176,6 +177,8 @@ type Turn = {
   thread: LiveThread | null;
   /** What this Turn read of its thread. */
   entries: ThreadEntry[];
+  /** The documents of the Release this Turn started on (a test conversation: the draft's): the only ones a reply may quote. */
+  documents: DocumentText[];
 };
 
 /** The most a test conversation's reply answer holds of the values put in it, as JSON. */
@@ -192,15 +195,29 @@ const replySource = z.union([
     assignmentId: z.string().trim().min(1).max(64).refine(noNul),
     quote: z.string().trim().min(1).max(maxThreadMessageLength).refine(noNul),
   }),
+  z.object({
+    type: z.literal("document"),
+    name: z.string().trim().min(1).max(maxDocumentNameLength).refine(noNul),
+    quote: z.string().trim().min(1).max(maxThreadMessageLength).refine(noNul),
+  }),
 ]);
 
 /** The code-defined tools, by the name a Release lists them under. None takes a Customer's id. */
-export function turnTools({ job, kit, userId, name, representativeId, thread, entries }: Turn) {
+export function turnTools({
+  job,
+  kit,
+  userId,
+  name,
+  representativeId,
+  thread,
+  entries,
+  documents,
+}: Turn) {
   return {
     reply: toolDefinition({
       name: "reply",
       description:
-        "Send the Customer a message, with its kind and the sources it rests on. They see only the text, with each {{key}} replaced by that fact's value.",
+        "Send the Customer a message, with its kind and the sources it rests on (a fact by key, a result by Assignment, or a document by name, each with an exact quote). They see only the text, with each {{key}} replaced by that fact's value.",
       inputSchema: z.object({
         text: z.string().min(1).max(maxThreadMessageLength).refine(noNul),
         kind: z.enum(replyKinds),
@@ -210,7 +227,15 @@ export function turnTools({ job, kit, userId, name, representativeId, thread, en
       const now = await job.now();
       // All in the activity: a replay gets what it recorded, whatever has happened to a fact since.
       return kit.liveActivity("reply", context?.toolCallId, async (tx) => {
-        const checked = await checkReply(tx, { userId, now, text, kind, sources, entries });
+        const checked = await checkReply(tx, {
+          userId,
+          now,
+          text,
+          kind,
+          sources,
+          entries,
+          documents,
+        });
         if ("error" in checked) return checked;
         // Stored as sent: nothing reaches a real Channel until the gate spec.
         if (thread) return storeReply(tx, thread, checked, kind, now);
@@ -505,6 +530,7 @@ export async function playLoop(
         representativeId,
         thread: "thread" in on ? on.thread : null,
         entries,
+        documents,
       });
       // By name, so a name off the code-defined list gives nothing.
       const listed = content.tools.flatMap((tool) =>
