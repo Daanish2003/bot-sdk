@@ -92,7 +92,7 @@ test("an owner uploads documents to a draft, sees them in the diff, and the cap 
 
   await page.getByRole("button", { name: "Approve as a new Release" }).click();
   await expect(page.getByText("Live: Release 1")).toBeVisible();
-  await expect(page.getByText("The draft is the same as the live Release")).toBeVisible();
+  await expect(page.getByText("The draft matches the live Release.")).toBeVisible();
 
   // Past the cap, the owner is told why, and Approve is held back.
   await upload("long.md", Buffer.from("a".repeat(100_000)));

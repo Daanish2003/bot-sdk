@@ -11,6 +11,7 @@ export type PackageManifest = {
   exports: Record<string, string>;
   dependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
+  peerDependenciesMeta?: Record<string, { optional?: boolean }>;
   devDependencies?: Record<string, string>;
 };
 
@@ -91,7 +92,10 @@ export function describeFeaturePackage(name: string, testUrl: string) {
       expect(Object.keys(manifest.peerDependencies ?? {})).toEqual(
         expect.arrayContaining(["@botsdk/bot", "@botsdk/client", "@botsdk/react"]),
       );
-      const names = Object.keys({ ...manifest.dependencies, ...manifest.peerDependencies });
+      // An optional peer is the Host's to pass in, so a Host never has to install it.
+      const names = Object.keys({ ...manifest.dependencies, ...manifest.peerDependencies }).filter(
+        (other) => !manifest.peerDependenciesMeta?.[other]?.optional,
+      );
       expect(names.filter((other) => features.includes(other) && other !== name)).toEqual([]);
     });
 

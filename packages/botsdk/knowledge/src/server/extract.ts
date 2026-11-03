@@ -87,6 +87,11 @@ let pdfJsLoading: Promise<PdfJs> | undefined;
 function loadPdfJs(): Promise<PdfJs> {
   pdfJsLoading ??= (async () => {
     globalThis.DOMMatrix ??= CSSMatrix as unknown as typeof globalThis.DOMMatrix;
+    // pdf.js looks for its worker file beside itself, which isn't there once a Host bundles it, so
+    // every PDF would fail as unreadable. Handed to it here, the bundler brings the worker along.
+    (globalThis as { pdfjsWorker?: unknown }).pdfjsWorker ??=
+      // @ts-expect-error pdf.js ships no types for its worker.
+      await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
     return import("pdfjs-dist/legacy/build/pdf.mjs");
   })();
   return pdfJsLoading;
