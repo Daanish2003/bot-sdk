@@ -29,6 +29,12 @@ export const normalizeQuestion = (question: string) =>
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 
+/** The most open Gaps the owner is shown. */
+const maxListed = 200;
+
+/** `text` cut to the question limit in whole characters, never inside a surrogate pair. */
+const cut = (text: string) => [...text].slice(0, maxGapQuestionLength).join("");
+
 const view = (row: typeof gap.$inferSelect): GapView => ({
   id: row.id,
   question: row.question,
@@ -57,8 +63,8 @@ export async function logGap(
     now: Date;
   },
 ): Promise<void> {
-  question = question.trim().slice(0, maxGapQuestionLength);
-  const normalized = normalizeQuestion(question).slice(0, maxGapQuestionLength);
+  question = cut(question.trim());
+  const normalized = cut(normalizeQuestion(question));
   if (normalized === "") return;
   await tx
     .insert(gap)
@@ -87,7 +93,8 @@ export async function listGaps({ db }: Context, userId: string): Promise<GapView
     .select()
     .from(gap)
     .where(and(eq(gap.userId, userId), eq(gap.status, "open")))
-    .orderBy(desc(gap.lastAt), desc(gap.id));
+    .orderBy(desc(gap.lastAt), desc(gap.id))
+    .limit(maxListed);
   return rows.map(view);
 }
 
@@ -121,10 +128,9 @@ export async function gapToFact(
 ): Promise<FactView> {
   const now = clock();
   return db.transaction(async (tx) => {
-    // The fact first: a refused key leaves the Gap unlocked and open.
-    const made = await insertFact(tx, userId, input, now);
+    // The Gap first, so a closed or foreign one is "not found" whatever the key; a refused key rolls it back.
     await close(tx, userId, id, "answered", now);
-    return made;
+    return insertFact(tx, userId, input, now);
   });
 }
 
