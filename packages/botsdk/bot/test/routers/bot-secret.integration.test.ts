@@ -504,6 +504,58 @@ describe("Secrets", () => {
       expect(await everythingStored()).not.toContain(token);
     }, 30_000);
 
+    it.each([
+      ["with no review", false],
+      ["Auto-reviewed", true],
+    ])(
+      "masks a Secret used as a key in the result the Model reads and the Checkpoint holds, %s",
+      async (_name, needsApproval) => {
+        const result = {
+          [token]: "first",
+          [`at_${token}`]: 2,
+          [encodeURIComponent(token)]: "second",
+        };
+        const { client, botId, deps, user, fake } = await botWith(calls(), {
+          features: [lookup(() => result, needsApproval)],
+        });
+        await storeSecret(deps, user.id, "GITHUB_TOKEN", token);
+
+        await send(client, botId, "look");
+
+        expect(toolResultOf(fake.calls.at(-1))).toEqual({
+          "***": "first",
+          "at_***": 2,
+          "*** 2": "second",
+        });
+        expect(await everythingStored()).not.toContain(token);
+      },
+      30_000,
+    );
+
+    it("masks a Secret used as a key before a long result is cut, so the spill file and the Checkpoint hold no value", async () => {
+      const { client, botId, deps, user, fake, computerFake } = await botWith(calls(), {
+        features: [
+          lookup(
+            () => ({ [token]: "x".repeat(200_000), [`at_${token}`]: "y".repeat(200_000) }),
+            false,
+          ),
+        ],
+      });
+      await storeSecret(deps, user.id, "GITHUB_TOKEN", token);
+
+      await send(client, botId, "look");
+
+      const read = toolTextOf(fake.calls.at(-1));
+      expect(read).toContain("characters left out");
+      expect(read).toContain("***");
+      expect(read).not.toContain(token);
+      const path = [...computerFake.files.keys()].find((name) => name.includes("/.outputs/"));
+      const spilled = new TextDecoder().decode(computerFake.files.get(path!));
+      expect(spilled).toContain("at_***");
+      expect(spilled).not.toContain(token);
+      expect(await everythingStored()).not.toContain(token);
+    }, 30_000);
+
     it("masks a long result before it is cut, so the spill file and the Checkpoint hold no value", async () => {
       const long = `${token} ${"x".repeat(200_000)} ${token}`;
       const { client, botId, deps, user, fake, computerFake } = await botWith(calls(), {

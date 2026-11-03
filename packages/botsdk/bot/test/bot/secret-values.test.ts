@@ -72,4 +72,90 @@ describe("masking a Secret's value", () => {
 
     expect(maskResult(once, mask)).toEqual(once);
   });
+
+  describe("a Secret's value in a key", () => {
+    const value = "hunter2-long";
+    const other = "other+secret/value";
+    const mask = secretMasker([value, other]);
+
+    it("masks a key that is the value, or holds it or one of its other forms as a part", () => {
+      const result = {
+        [value]: 1,
+        [`token_${value}`]: { [`${base64(value)}:nested`]: 2 },
+        list: [{ [`?t=${encodeURIComponent(other)}`]: 3 }],
+      };
+
+      expect(maskResult(result, mask)).toEqual({
+        "***": 1,
+        "token_***": { "***:nested": 2 },
+        list: [{ "?t=***": 3 }],
+      });
+    });
+
+    it("keeps every value when keys mask alike, each in the place its key had", () => {
+      const masked = maskResult(
+        { [value]: "plain", a: 0, [base64(value)]: "encoded", [other]: "other" },
+        mask,
+      );
+
+      expect(Object.entries(masked)).toEqual([
+        ["***", "plain"],
+        ["a", 0],
+        ["*** 2", "encoded"],
+        ["*** 3", "other"],
+      ]);
+    });
+
+    it("leaves a key with no Secret its name, and numbers the key that held one", () => {
+      const masked = maskResult({ [value]: "secret", "***": "kept", "*** 2": "kept too" }, mask);
+
+      expect(Object.entries(masked)).toEqual([
+        ["*** 3", "secret"],
+        ["***", "kept"],
+        ["*** 2", "kept too"],
+      ]);
+    });
+
+    it("never numbers a key into a Secret's value", () => {
+      const numbered = secretMasker([value, other, "*** 2"]);
+
+      const masked = maskResult({ [value]: "one", [other]: "two" }, numbered);
+
+      expect(masked).toEqual({ "***": "one", "*** 3": "two" });
+      expect(maskResult(masked, numbered)).toEqual(masked);
+    });
+
+    it("masks a key until no value is left, when masking leaves one (a Secret that looks masked)", () => {
+      const starry = secretMasker(["****"]);
+
+      expect(maskResult({ "*****": 1 }, starry)).toEqual({ "***": 1 });
+    });
+
+    it("gives the same keys masked twice as masked once, in the same order", () => {
+      const once = maskResult(
+        { [value]: 1, b: { [base64(value)]: 2, [value]: 3 }, [base64(value)]: 4, "***": 5 },
+        mask,
+      );
+
+      expect(JSON.stringify(maskResult(once, mask))).toBe(JSON.stringify(once));
+    });
+
+    it("keeps a result with no Secret in its keys exactly: its shape and its key order", () => {
+      const result = { z: 1, a: { y: [1, { x: value }], b: null }, 2: "two", 1: "one", "": true };
+
+      expect(JSON.stringify(maskResult(result, mask))).toBe(
+        JSON.stringify(result).replace(value, "***"),
+      );
+    });
+
+    it("keeps a __proto__ key an ordinary key, so no prototype changes", () => {
+      const result = JSON.parse(`{"__proto__":{"${value}":"${value}","polluted":true}}`);
+
+      const masked = maskResult(result, mask);
+
+      expect(Object.getPrototypeOf(masked)).toBe(Object.prototype);
+      expect(JSON.stringify(masked)).toBe('{"__proto__":{"***":"***","polluted":true}}');
+      expect(masked.polluted).toBeUndefined();
+    });
+  });
 });

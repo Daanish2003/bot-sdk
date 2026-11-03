@@ -1561,7 +1561,7 @@ describe("a late answer to a pending Approval", () => {
             name: "lookup",
             description: "Looks.",
             inputSchema: z.object({}),
-          }).server(async () => ({ found: value })),
+          }).server(async () => ({ found: value, [`at_${value}`]: true })),
           needsApproval: true,
         },
       ],
