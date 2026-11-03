@@ -1,6 +1,15 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { pgSchema, text } from "drizzle-orm/pg-core";
-import { afterAll, afterEach, beforeAll, describe, expect, expectTypeOf, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  onTestFinished,
+  beforeAll,
+  describe,
+  expect,
+  expectTypeOf,
+  it,
+} from "vitest";
 import { z } from "zod";
 
 import {
@@ -335,6 +344,7 @@ describe("a feature's job context", () => {
       });
       slowStarted.length = 0;
       const { sdk, jobs } = await started();
+      onTestFinished(() => release());
       const id = await sdk.runner.enqueue(
         "host.slow",
         { label: "running" },
@@ -376,6 +386,7 @@ describe("a feature's job context", () => {
     });
     slowStarted.length = 0;
     const { sdk, jobs } = await started();
+    onTestFinished(() => release());
     const id = await sdk.runner.enqueue(
       "host.slow",
       { label: "started" },

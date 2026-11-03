@@ -93,7 +93,7 @@ export type FeatureContext<Needs extends CoreService = never> = {
       payload: P,
       options?: Pick<EnqueueOptions, "runAfter">,
     ) => Promise<string | undefined>;
-    /** Claims due jobs now; call it once the transaction that queued them has committed. */
+    /** Claims due jobs now. `enqueueIn` and `replaceIfNotStarted` already notify the Executor once their transaction commits, so this is for a job that is due without them. */
     wake: () => void;
   };
 } & Pick<Services, Needs>;
