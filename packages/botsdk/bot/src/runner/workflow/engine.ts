@@ -106,9 +106,16 @@ function describe({ kind, name }: Call): string {
   return name ? `${kind} "${name}"` : kind;
 }
 
-/** A value as it reads back from the history: JSON, with `undefined` as null. */
+/** A NUL as JSON writes it: an escape on an even run of backslashes, which is not the text of one. */
+const jsonNul = /(?<!\\)((?:\\\\)*)\\u0000/g;
+
+/**
+ * A value as it reads back from the history: JSON, with `undefined` as null, and without NUL, which
+ * Postgres `jsonb` refuses. Dropping it here keeps one bad byte in a result from failing the workflow.
+ */
 function asJson<T>(value: T): T {
-  return (value === undefined ? null : JSON.parse(JSON.stringify(value))) as T;
+  if (value === undefined) return null as T;
+  return JSON.parse(JSON.stringify(value).replace(jsonNul, "$1")) as T;
 }
 
 export type WorkflowOptions<Tx> = {

@@ -125,10 +125,11 @@ const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  * What masks `values` in a text, built once for many texts: each value, and its base64 and
  * URL-encoded forms, becomes `***`. A base64 form also matches when wrapped across lines, as GNU
  * `base64` wraps at 76 columns. The longest forms go first, so one that contains another is
- * replaced whole.
+ * replaced whole. The text loses any NUL first: a Checkpoint drops NUL anyway, so one inside a value
+ * would hide it here and join it there. A value that holds one is matched without it too.
  */
 export function secretMasker(values: Iterable<string>): (text: string) => string {
-  const forms = allFormsOf(values);
+  const forms = allFormsOf([...values].flatMap((value) => [value, value.replaceAll("\0", "")]));
   if (forms.length === 0) return unmasked;
   const pattern = new RegExp(
     forms
@@ -138,7 +139,7 @@ export function secretMasker(values: Iterable<string>): (text: string) => string
       .join("|"),
     "g",
   );
-  return (text) => text.replace(pattern, maskedValue);
+  return (text) => text.replaceAll("\0", "").replace(pattern, maskedValue);
 }
 
 /**

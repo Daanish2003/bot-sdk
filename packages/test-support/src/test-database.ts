@@ -160,14 +160,29 @@ export function getTestDb(): Database {
   return db;
 }
 
+/** Forgets the pool first: one that can't close in time must not be handed to the next file. */
 export async function closeTestDb() {
-  await db?.$client.end();
+  const closing = db;
   db = undefined;
+  await closing?.$client.end();
 }
+
+/** How long one try of the truncate queues for its locks, and how long it keeps trying. */
+const truncateLockWait = "1s";
+const truncateTriesMs = 8_000;
+
+/** Whether `error` is Postgres's `lock_not_available`, on the error itself or drizzle's wrapper. */
+const isLockTimeout = (error: unknown) => {
+  const { code, cause } = error as { code?: string; cause?: { code?: string } };
+  return (code ?? cause?.code) === "55P03";
+};
 
 /**
  * Empties every table in `public` and in `botsdk`, except the SDK's migration journal: it records
- * what has been applied, so it must survive.
+ * what has been applied, so it must survive. A job an earlier test's stopped runner gave up on can
+ * still hold a transaction, such as the memory pass's. A truncate waiting for it would hold up
+ * every new read of those tables, the ones that job waits on too, and Postgres sees no deadlock in
+ * that. So each try gives up its place in the queue soon, which lets the job finish.
  */
 export async function truncateAllTables(database: Database) {
   const { rows } = await database.execute<{ schemaname: string; tablename: string }>(
@@ -178,5 +193,16 @@ export async function truncateAllTables(database: Database) {
   const tables = rows
     .map(({ schemaname, tablename }) => `"${schemaname}"."${tablename}"`)
     .join(", ");
-  await database.execute(sql.raw(`truncate table ${tables} restart identity cascade`));
+  const deadline = Date.now() + truncateTriesMs;
+  for (;;) {
+    try {
+      await database.transaction(async (tx) => {
+        await tx.execute(sql.raw(`set local lock_timeout = '${truncateLockWait}'`));
+        await tx.execute(sql.raw(`truncate table ${tables} restart identity cascade`));
+      });
+      return;
+    } catch (error) {
+      if (!isLockTimeout(error) || Date.now() >= deadline) throw error;
+    }
+  }
 }

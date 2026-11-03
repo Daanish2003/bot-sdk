@@ -1,5 +1,6 @@
 import {
   type AnyTextAdapter,
+  EventType,
   type ModelMessage,
   type TextOptions,
   toolDefinition,
@@ -1697,6 +1698,272 @@ describe("a late answer to a pending Approval", () => {
     });
     expect(bot.computerFake.callsOf("run")).toEqual([]);
     expect(await turnsOf(bot.botId)).toHaveLength(1);
+  }, 30_000);
+
+  const denialOf = (reviewId: string) =>
+    `The user denied your earlier shell call "Deploy" (review ${reviewId})`;
+
+  /** How many of the Model's calls had `words` as new input, its newest message. */
+  const newestHolding = (fake: Bot["fake"], words: string) =>
+    fake.calls.filter((call) =>
+      inputOf(call).some((sent) => sent.role === "user" && String(sent.content).includes(words)),
+    ).length;
+
+  /** The Turns' statuses, once none of them runs. */
+  const settledTurns = async (botId: string) => {
+    await expect
+      .poll(async () => (await turnsOf(botId)).some((turn) => turn.status === "running"), {
+        timeout: 10_000,
+      })
+      .toBe(false);
+    return (await turnsOf(botId)).map((turn) => turn.status);
+  };
+
+  describe("while the Bot is paused", () => {
+    it("wakes it with a denial on resume, once", async () => {
+      const bot = await botWith([round(shell("make deploy")), round(), round()], {
+        reviewer: deploying(),
+      });
+      const waiting = await pendingAfter(bot, "ship it");
+      await bot.client.bots.pause({ botId: bot.botId });
+
+      await bot.client.reviews.deny({ reviewId: waiting.id });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(await turnsOf(bot.botId)).toHaveLength(1);
+
+      await bot.client.bots.resume({ botId: bot.botId });
+
+      expect(await newestInputOf(bot.fake, 2)).toContain(denialOf(waiting.id));
+      expect(await settledTurns(bot.botId)).toEqual(["complete", "complete"]);
+      const calls = bot.fake.calls.length;
+      await bot.client.bots.pause({ botId: bot.botId });
+      await bot.client.bots.resume({ botId: bot.botId });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(bot.fake.calls).toHaveLength(calls);
+    }, 30_000);
+
+    it("wakes it with the result of a call already running when it paused", async () => {
+      let finish: () => void = () => {};
+      const running = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      const bot = await botWith([round(shell("make deploy")), round(), round()], {
+        reviewer: deploying(),
+        onCommand: async () => {
+          await running;
+          return { exitCode: 0, stdout: "deployed v2", stderr: "" };
+        },
+      });
+      const waiting = await pendingAfter(bot, "ship it");
+      await bot.client.reviews.allow({ reviewId: waiting.id });
+      await expect.poll(() => bot.computerFake.callsOf("run").length, { timeout: 10_000 }).toBe(1);
+      await bot.client.bots.pause({ botId: bot.botId });
+
+      finish();
+      await expect
+        .poll(
+          async () =>
+            (await getTestDb().select().from(botTrigger)).filter(
+              (row) => row.botId === bot.botId && row.source === "approval",
+            ).length,
+          { timeout: 10_000 },
+        )
+        .toBe(1);
+      expect(await turnsOf(bot.botId)).toHaveLength(1);
+
+      await bot.client.bots.resume({ botId: bot.botId });
+
+      expect(await newestInputOf(bot.fake, 2)).toContain("deployed v2");
+    }, 30_000);
+
+    it("leaves a Bot reset since asleep", async () => {
+      const bot = await botWith([round(shell("make deploy")), round(), round()], {
+        reviewer: deploying(),
+      });
+      const waiting = await pendingAfter(bot, "ship it");
+      await bot.client.bots.pause({ botId: bot.botId });
+      await bot.client.reviews.deny({ reviewId: waiting.id });
+      await bot.client.bots.reset({ botId: bot.botId, name: "Ada" });
+
+      await bot.client.bots.resume({ botId: bot.botId });
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(bot.fake.calls).toHaveLength(2);
+    }, 30_000);
+  });
+
+  describe("before a Stop", () => {
+    /**
+     * A Bot whose first call is pending, whose next Turn has its own call in its 15-second wait, and
+     * a denial of the first given meanwhile: it waits behind that running Turn.
+     */
+    async function denialWaitingBehindTurn(rounds: Round[] = []) {
+      const bot = await botWith(
+        [round(shell("make deploy")), round(), round(shell("make tag")), ...rounds],
+        {
+          reviewer: reviewerPlaying(
+            verdict({ outcome: "block", reason: "You didn't ask to deploy.", summary: "Deploy" }),
+            verdict({ outcome: "block", reason: "You didn't ask to tag.", summary: "Tag" }),
+          ),
+        },
+      );
+      const first = await pendingAfter(bot, "ship it");
+      await bot.client.bots.send({ botId: bot.botId, id: uuidv7(), text: "and tag it" });
+      await waitingReview(bot.botId);
+      await bot.client.reviews.deny({ reviewId: first.id });
+      return { bot, first };
+    }
+
+    it("starts no Turn, and the Bot's next Turn sees it, once", async () => {
+      const { bot, first } = await denialWaitingBehindTurn([round(), round()]);
+      const denial = denialOf(first.id);
+
+      await bot.client.bots.stop({ botId: bot.botId });
+
+      expect(await settledTurns(bot.botId)).toEqual(["complete", "stopped"]);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(await turnsOf(bot.botId)).toHaveLength(2);
+      expect(newestHolding(bot.fake, denial)).toBe(0);
+
+      await send(bot.client, bot.botId, "where were we");
+      expect(newestHolding(bot.fake, denial)).toBe(1);
+
+      // Read now, so the Turn after it has it only as history, not as new input.
+      const calls = bot.fake.calls.length;
+      await send(bot.client, bot.botId, "and now");
+      const newest = String(inputOf(bot.fake.calls[calls]).at(-1)?.content);
+      expect(newest).toContain("and now");
+      expect(newest).not.toContain(denial);
+    }, 30_000);
+
+    it("keeps an answer whose own Turn a Stop ends before it starts", async () => {
+      const bot = await botWith([round(shell("make deploy")), round(), round()], {
+        reviewer: deploying(),
+      });
+      const waiting = await pendingAfter(bot, "ship it");
+      const denial = denialOf(waiting.id);
+
+      await bot.client.reviews.deny({ reviewId: waiting.id });
+      await bot.client.bots.stop({ botId: bot.botId });
+
+      expect(await settledTurns(bot.botId)).toEqual(["complete", "stopped"]);
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      expect(await turnsOf(bot.botId)).toHaveLength(2);
+      expect(newestHolding(bot.fake, denial)).toBe(0);
+
+      await send(bot.client, bot.botId, "where were we");
+      expect(newestHolding(bot.fake, denial)).toBe(1);
+    }, 30_000);
+
+    it("forgets it on a reset", async () => {
+      const { bot, first } = await denialWaitingBehindTurn([round()]);
+      await bot.client.bots.stop({ botId: bot.botId });
+      await settledTurns(bot.botId);
+
+      await bot.client.bots.reset({ botId: bot.botId, name: "Ada" });
+      await send(bot.client, bot.botId, "start over");
+
+      expect(newestHolding(bot.fake, denialOf(first.id))).toBe(0);
+    }, 30_000);
+
+    it("a pause delivers on resume, once, what it found waiting", async () => {
+      const { bot, first } = await denialWaitingBehindTurn([round(), round()]);
+      const denial = denialOf(first.id);
+
+      await bot.client.bots.pause({ botId: bot.botId });
+      await settledTurns(bot.botId);
+      expect(newestHolding(bot.fake, denial)).toBe(0);
+
+      await bot.client.bots.resume({ botId: bot.botId });
+
+      await expect.poll(() => newestHolding(bot.fake, denial), { timeout: 10_000 }).toBe(1);
+    }, 30_000);
+  });
+});
+
+describe("a NUL in a Turn's Checkpoints", () => {
+  const toolResults = (call: TextOptions | undefined) =>
+    inputOf(call)
+      .filter((sent) => sent.role === "tool")
+      .map((sent) => String(sent.content));
+
+  const turnJobAttempts = async (botId: string) => {
+    const [turn] = await turnsOf(botId);
+    const [row] = await getTestDb().select().from(job).where(eq(job.id, turn!.jobId!));
+    return row?.attempts;
+  };
+
+  it.each([
+    ["shell", { command: "echo a\0b" }],
+    ["send_to_user", { text: "hi\0there" }],
+  ])(
+    "refuses a %s call holding one: it doesn't run, the Model is told, and the Turn goes on",
+    async (name, input) => {
+      const bot = await botWith([round(toolCall({ name, input })), round(), round()]);
+
+      await send(bot.client, bot.botId, "go");
+
+      expect((await turnsOf(bot.botId)).map((turn) => [turn.status, turn.error])).toEqual([
+        ["complete", null],
+      ]);
+      expect(await turnJobAttempts(bot.botId)).toBe(1);
+      expect(bot.fake.calls).toHaveLength(2);
+      expect(toolResults(bot.fake.calls.at(-1)).join()).toContain("NUL");
+      expect(toolResults(bot.fake.calls.at(-1)).join()).toContain("refused");
+      expect(bot.computerFake.callsOf("run")).toEqual([]);
+      expect(bot.reviewer.calls).toEqual([]);
+      const { messages } = await bot.client.bots.get({ botId: bot.botId });
+      expect(messages.filter((row) => row.role === "assistant")).toEqual([]);
+
+      // Its transcript goes back to the Model in the next Turn's history.
+      await send(bot.client, bot.botId, "and now");
+      expect((await turnsOf(bot.botId)).map((turn) => turn.status)).toEqual([
+        "complete",
+        "complete",
+      ]);
+    },
+    30_000,
+  );
+
+  it("refuses one whose arguments stream as a raw NUL, or come only at the call's end", async () => {
+    const end = (chunks: ReturnType<typeof toolCall>) =>
+      chunks.filter((chunk) => chunk.type !== EventType.TOOL_CALL_ARGS);
+    const bot = await botWith([
+      round(toolCall({ name: "shell", input: {}, raw: '{"command":"echo a\0b"}' })),
+      round(end(toolCall({ name: "shell", input: { command: "echo c\0d" } }))),
+      round(),
+    ]);
+
+    await send(bot.client, bot.botId, "go");
+
+    expect((await turnsOf(bot.botId)).map((turn) => turn.status)).toEqual(["complete"]);
+    expect(bot.computerFake.callsOf("run")).toEqual([]);
+    expect(toolResults(bot.fake.calls.at(-1)).filter((row) => row.includes("NUL"))).toHaveLength(2);
+  }, 30_000);
+
+  it("leaves a tool call's text that only spells an escape alone", async () => {
+    const bot = await botWith([round(shell("printf '\\u0000'")), round()]);
+
+    await send(bot.client, bot.botId, "go");
+
+    expect(bot.computerFake.callsOf("run").map((run) => run.command)).toEqual(["printf '\\u0000'"]);
+  }, 30_000);
+
+  it("drops one from the Model's text and a tool's result, and the Turn ends as usual", async () => {
+    const bot = await botWith([round(text("hello\0world"), shell("cat bin")), round()], {
+      onCommand: () => ({ exitCode: 0, stdout: "a\0b", stderr: "" }),
+    });
+
+    await send(bot.client, bot.botId, "go");
+
+    expect((await turnsOf(bot.botId)).map((turn) => [turn.status, turn.error])).toEqual([
+      ["complete", null],
+    ]);
+    expect(await turnJobAttempts(bot.botId)).toBe(1);
+    const sent = JSON.stringify(inputOf(bot.fake.calls.at(-1)));
+    expect(sent).not.toContain("\\u0000");
+    expect(sent).toContain("helloworld");
+    expect(toolResults(bot.fake.calls.at(-1)).join()).toContain("ab");
   }, 30_000);
 });
 

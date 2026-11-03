@@ -437,6 +437,53 @@ describe("a Bot proposes a Custom Rule", () => {
     await expect.poll(() => approvalNote(fake), { timeout: 10_000 }).toContain("denied");
   });
 
+  it.each([
+    ["approve", "approved"],
+    ["deny", "denied"],
+  ] as const)(
+    "%s while the Bot is paused wakes it on resume, once",
+    { timeout },
+    async (how, said) => {
+      const { client, botId, fake } = await botWith(proposing());
+      await send(client, botId, "propose it");
+      const [rule] = await client.rules.list();
+      await client.bots.pause({ botId });
+
+      await client.rules[how]({ ruleId: rule!.id });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(approvalNote(fake)).toBeUndefined();
+
+      await client.bots.resume({ botId });
+
+      await expect.poll(() => approvalNote(fake), { timeout: 10_000 }).toContain(said);
+      // Once only: another pause and resume has nothing to say.
+      await expect
+        .poll(async () => (await client.bots.get({ botId })).turns?.at(-1)?.status ?? "", {
+          timeout: 10_000,
+        })
+        .not.toBe("running");
+      const calls = fake.calls.length;
+      await client.bots.pause({ botId });
+      await client.bots.resume({ botId });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(fake.calls).toHaveLength(calls);
+    },
+  );
+
+  it("doesn't wake a Bot reset since, with an answer given while paused", { timeout }, async () => {
+    const { client, botId, fake } = await botWith(proposing());
+    await send(client, botId, "propose it");
+    const [rule] = await client.rules.list();
+    await client.bots.pause({ botId });
+    await client.rules.deny({ ruleId: rule!.id });
+    await client.bots.reset({ botId, name: "Ada" });
+
+    await client.bots.resume({ botId });
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(approvalNote(fake)).toBeUndefined();
+  });
+
   it("refuses an approval at the limit, and the rule stays proposed", { timeout }, async () => {
     const { client, botId, fake } = await botWith(proposing());
     await send(client, botId, "propose it");

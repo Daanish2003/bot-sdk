@@ -309,6 +309,104 @@ describe("Approvals in a Room", () => {
   );
 
   it(
+    "wakes the Bot in the Room, on resume, with a late no given while it was paused",
+    async () => {
+      const reviewer = fakeReviewer(() =>
+        verdictRound({ outcome: "block", reason: "Not asked.", summary: "Deploy" }),
+      );
+      const { client, writer, room, send } = await threeBotRoom(
+        [
+          round(toolCall({ name: "shell", input: { command: "make deploy" } })),
+          says("Understood."),
+          says("Noted."),
+        ],
+        undefined,
+        reviewer,
+      );
+      await send("@Writer, deploy it.");
+      let waiting: typeof botReview.$inferSelect | undefined;
+      await expect
+        .poll(async () => {
+          [waiting] = await getTestDb()
+            .select()
+            .from(botReview)
+            .where(and(eq(botReview.botId, writer.id), eq(botReview.state, "waiting")));
+          return waiting?.id;
+        }, poll)
+        .toBeDefined();
+      // A new Message leaves it pending; a pause while it waited would close it.
+      await send("@Writer, one more thing.");
+      await expect.poll(async () => (await statusesOf(writer.id)).at(-1), poll).toBe("complete");
+      await client.bots.pause({ botId: writer.id });
+      await expect(client.reviews.deny({ reviewId: waiting!.id })).resolves.toMatchObject({
+        decided: true,
+      });
+      const before = (await turnsOf(writer.id, room.conversationId)).length;
+
+      await client.bots.resume({ botId: writer.id });
+
+      await expect
+        .poll(async () => (await turnsOf(writer.id, room.conversationId)).length, poll)
+        .toBe(before + 1);
+      const approval = (await triggersOf(writer.id)).find(
+        (trigger) => trigger.source === "approval",
+      );
+      expect(approval).toMatchObject({ conversationId: room.conversationId, skippedAt: null });
+      expect(approval!.turnId).not.toBeNull();
+    },
+    timeout,
+  );
+
+  it(
+    "keeps a late no given before a Stop of the Room for the Bot's next Turn there, starting none",
+    async () => {
+      const reviewer = fakeReviewer(() =>
+        verdictRound({ outcome: "block", reason: "Not asked.", summary: "Deploy" }),
+      );
+      const fake = createFakeAdapter({
+        rounds: [
+          round(toolCall({ name: "shell", input: { command: "make deploy" } })),
+          round(toolCall({ name: "shell", input: { command: "make tag" } })),
+          says("Noted."),
+        ],
+      });
+      const { client, writer, room, send } = await threeBotRoom([], fake.adapter, reviewer);
+      const waitingReviews = () =>
+        getTestDb()
+          .select()
+          .from(botReview)
+          .where(and(eq(botReview.botId, writer.id), eq(botReview.state, "waiting")));
+      await send("@Writer, deploy it.");
+      await expect.poll(async () => (await waitingReviews()).length, poll).toBe(1);
+      const [first] = await waitingReviews();
+      // A new Message leaves it pending; the Turn it starts has its own call in its wait.
+      await send("@Writer, and tag it.");
+      await expect
+        .poll(
+          async () => (await waitingReviews()).filter((row) => row.id !== first!.id).length,
+          poll,
+        )
+        .toBe(1);
+      await expect(client.reviews.deny({ reviewId: first!.id })).resolves.toMatchObject({
+        decided: true,
+      });
+
+      await client.rooms.stop({ conversationId: room.conversationId });
+
+      await expect.poll(async () => (await statusesOf(writer.id)).at(-1), poll).toBe("stopped");
+      const stopped = await statusesOf(writer.id);
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      expect(await statusesOf(writer.id)).toEqual(stopped);
+
+      await send("@Writer, where were we?");
+
+      await expect.poll(() => fake.calls.length, poll).toBe(3);
+      expect(JSON.stringify(fake.calls[2]!.messages)).toContain("The user denied your earlier");
+    },
+    timeout,
+  );
+
+  it(
     "wakes only the Bot that asked when the user answers a choice in the Room",
     async () => {
       const { client, scout, writer, ops, room, send } = await threeBotRoom([

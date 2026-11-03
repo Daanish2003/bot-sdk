@@ -352,6 +352,22 @@ describe("Secrets", () => {
     expect(toolResultOf(fake.calls.at(-1)).stdout).toBe("GITHUB_TOKEN=***\n");
   });
 
+  it("masks a value a command prints split by a NUL", async () => {
+    const split = `${token.slice(0, 6)}\0${token.slice(6)}`;
+    const { client, botId, deps, user, fake } = await botWith(
+      [round(shell("cat bin")), round(sends("Done."))],
+      {
+        onCommand: () => ({ exitCode: 0, stdout: `TOKEN=${split}\n`, stderr: "" }),
+      },
+    );
+    await storeSecret(deps, user.id, "GITHUB_TOKEN", token);
+
+    await send(client, botId, "read it");
+
+    expect(toolResultOf(fake.calls.at(-1)).stdout).toBe("TOKEN=***\n");
+    expect(await everythingStored()).not.toContain(token);
+  });
+
   it("keeps a command's output on its review with the Secret masked, never the value", async () => {
     const { client, botId, deps, user } = await botWith(
       [round(shell("env")), round(sends("Done."))],
@@ -474,6 +490,19 @@ describe("Secrets", () => {
       },
       30_000,
     );
+
+    it("masks a Secret a NUL splits, so dropping the NUL for the Checkpoint joins no value", async () => {
+      const split = `${token.slice(0, 6)}\0${token.slice(6)}`;
+      const { client, botId, deps, user, fake } = await botWith(calls(), {
+        features: [lookup(() => ({ found: [split] }), false)],
+      });
+      await storeSecret(deps, user.id, "GITHUB_TOKEN", token);
+
+      await send(client, botId, "look");
+
+      expect(toolResultOf(fake.calls.at(-1))).toEqual({ found: ["***"] });
+      expect(await everythingStored()).not.toContain(token);
+    }, 30_000);
 
     it.each([
       ["with no review", false],

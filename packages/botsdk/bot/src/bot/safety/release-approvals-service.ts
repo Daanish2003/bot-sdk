@@ -1,7 +1,7 @@
 import { approvalExpiryMs } from "@botsdk/client/bot/review";
 import type { ReleaseApproval } from "@botsdk/client/bot/release-approval";
 import { searchTextOf } from "@botsdk/client/message-parts";
-import { and, eq, isNull, like } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { rpcError } from "../../rpc-error";
@@ -13,13 +13,7 @@ import {
   noResetAfter,
   recordBotChange,
 } from "../conversation";
-import {
-  type BotConversation,
-  lockConversation,
-  receive,
-  runningTurnOf,
-  startTurn,
-} from "../triggers";
+import { lockConversation, receive, runningTurnOf, startTurn } from "../triggers";
 
 /*
  * The `releaseApprovals` core service (ticket #1195, ADR 0029): how a Bot's draft of a Representative
@@ -76,32 +70,38 @@ export type ReleaseApprovalsService = {
 export const releaseApprovalTriggerId = (id: string) => `release-approval:${id}`;
 
 /**
- * Delivers the answers the owner gave while Bot `owner` was paused, in the transaction that resumes
- * it, which holds its Conversation's lock: the Router kept each as skipped, and its tool promised
- * the Bot it would be woken. One from before the Bot's last reset stays skipped: it has forgotten
- * the draft. Whether it started anything: if so, the caller wakes the runner once `tx` commits.
+ * Delivers every answer Bot `botId` was given while paused (a denied Approval, a stored call's result,
+ * a Custom Rule's or a release's answer), in the transaction that resumes it, which holds the locks
+ * of `conversationIds`, its 1:1 and its Rooms: the Router kept each as skipped, and each was promised
+ * to the Bot. Each wakes it in the Conversation it was asked in. One from before the Bot's last reset
+ * stays skipped, as it has forgotten what was asked, and so does one from a Room it has left. Whether
+ * it delivered any: if so, the caller wakes the runner once `tx` commits.
  */
 export async function deliverAnswersAfterPause(
   deps: BotSdkContext,
   tx: Transaction,
-  owner: BotConversation,
+  botId: string,
+  conversationIds: string[],
 ): Promise<boolean> {
   const delivered = await tx
     .update(botTrigger)
     .set({ skippedAt: null, skipReason: null, receivedAt: deps.clock() })
     .where(
       and(
-        eq(botTrigger.botId, owner.botId),
-        like(botTrigger.id, `${releaseApprovalTriggerId("")}%`),
+        eq(botTrigger.botId, botId),
+        inArray(botTrigger.conversationId, conversationIds),
+        eq(botTrigger.source, "approval"),
         eq(botTrigger.skipReason, "paused"),
         isNull(botTrigger.turnId),
-        noResetAfter(tx, { botId: owner.botId }, botTrigger.receivedAt),
+        noResetAfter(tx, { botId }, botTrigger.receivedAt),
       ),
     )
-    .returning({ id: botTrigger.id });
-  if (delivered.length === 0) return false;
-  if (!(await runningTurnOf(tx, owner))) await startTurn(deps, tx, owner);
-  return true;
+    .returning({ conversationId: botTrigger.conversationId });
+  for (const conversationId of new Set(delivered.map((row) => row.conversationId))) {
+    const owner = { botId, conversationId };
+    if (!(await runningTurnOf(tx, owner))) await startTurn(deps, tx, owner);
+  }
+  return delivered.length > 0;
 }
 
 /** What the Trigger wakes the Bot with. */

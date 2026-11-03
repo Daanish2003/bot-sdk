@@ -27,6 +27,34 @@ describe("masking a Secret's value", () => {
     expect(maskedFormsOf([value])).toContain(printed);
   });
 
+  it("masks a value a NUL splits or stands next to, as a Checkpoint would drop the NUL and join it", () => {
+    const value = "ghp_abcdef123456";
+    const split = `${value.slice(0, 6)}\0${value.slice(6)}`;
+
+    expect(maskSecrets(`a ${split} b`, [value])).toBe("a *** b");
+    expect(maskSecrets(`a \0${value}\0 b`, [value])).toBe("a *** b");
+    expect(maskSecrets(`\0a\0`, [value])).toBe("a");
+  });
+
+  it("masks a value a NUL splits in a result's key, and keeps both values when keys mask alike", () => {
+    const value = "ghp_abcdef123456";
+    const split = `${value.slice(0, 6)}\0${value.slice(6)}`;
+
+    const masked = maskResult({ [split]: 1, [value]: 2 }, secretMasker([value]));
+
+    expect(JSON.stringify(masked)).not.toContain(value.slice(6));
+    expect(Object.values(masked).sort()).toEqual([1, 2]);
+  });
+
+  it("masks a value that holds a NUL, as written and without it, and its encoded forms", () => {
+    const value = "ghp_abc\0def123456";
+
+    expect(maskSecrets(`a ${value} b`, [value])).toBe("a *** b");
+    expect(maskSecrets("a ghp_abcdef123456 b", [value])).toBe("a *** b");
+    expect(maskSecrets(`a ${base64(value)} b`, [value])).toBe("a *** b");
+    expect(maskSecrets(`a ${encodeURIComponent(value)} b`, [value])).toBe("a *** b");
+  });
+
   it("masks every string of a result, and leaves one with no Secret as it is", () => {
     const value = "hunter2-long";
     const result = { lines: [`a ${value}`, encodeURIComponent(`${value}`)], n: 1 };
