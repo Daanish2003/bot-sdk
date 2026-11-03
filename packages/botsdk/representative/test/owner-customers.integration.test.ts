@@ -286,7 +286,7 @@ describe("a blocked Customer", () => {
     });
     const [line] = await rpc.representative.threadList({ id });
     const sendAnother = () =>
-      getTestDb().transaction((tx) => storeReply(tx, line!.id, "Still here"));
+      getTestDb().transaction((tx) => storeReply(tx, line!.id, "Still here", new Date()));
 
     expect(await sendAnother()).toEqual({ sent: true });
     await rpc.representative.customerSetBlocked({ id: line!.customer.id, blocked: true });
