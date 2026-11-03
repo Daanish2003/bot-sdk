@@ -2,7 +2,9 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { usage } from "../../src/storage";
+import { encryptCredentials } from "../../src/credentials/encryption";
+import { secretEncryption } from "../../src/bot/safety";
+import { botSecret, usage } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { fakeImageAdapter, fakePngBase64, quotaLookup } from "../../src/models/internal";
 import type { HostProvider } from "../../src/models/internal";
@@ -146,6 +148,36 @@ const usageOf = (userId: string) =>
 const toolNames = (call: TextOptions | undefined) => (call?.tools ?? []).map((tool) => tool.name);
 
 describe("generate_image", () => {
+  it(
+    "still returns the image's path and bills it when the user has a Secret",
+    async () => {
+      const { client, botId, turnFake, computerFake, user, deps } = await botWith([
+        round(draw({ prompt: "a red bicycle" })),
+        round(done),
+      ]);
+      await getTestDb()
+        .insert(botSecret)
+        .values({
+          userId: user.id,
+          name: "IMAGE_TOKEN",
+          encrypted: encryptCredentials(
+            { value: "ghp_image_secret_value_1234" },
+            secretEncryption(deps, user.id, "IMAGE_TOKEN"),
+          ),
+          createdAt: new Date(),
+        });
+
+      await send(client, botId, "draw a bicycle");
+
+      const result = lastToolResult(turnFake.calls[1]);
+      expect(result.path).toMatch(/^images\/[0-9a-f-]+\.png$/);
+      expect(computerFake.files.has(`/home/user/bots/${botId}/${result.path}`)).toBe(true);
+      const billed = await getTestDb().select().from(usage).where(eq(usage.userId, user.id));
+      expect(billed.length).toBeGreaterThan(0);
+    },
+    testTimeout,
+  );
+
   it(
     "writes the image to the Computer under images/ and returns its path",
     async () => {
