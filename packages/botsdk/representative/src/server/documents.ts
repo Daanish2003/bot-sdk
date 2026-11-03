@@ -8,6 +8,7 @@ import {
   canonicalJson,
   type DocumentRef,
   type DocumentSnapshot,
+  type KnowledgeChoice,
   type Draft,
   maxDocumentNameLength,
   maxDocumentTextBytes,
@@ -114,9 +115,6 @@ export type KnowledgeFiles = {
   read(input: { userId: string; path: string }): Promise<{ content: string }>;
 };
 
-/** A Knowledge file the owner may pick. */
-export type KnowledgeChoice = { path: string; size: number };
-
 const noKnowledge = () =>
   rpcError(
     "BAD_REQUEST",
@@ -156,6 +154,17 @@ export async function knowledgeText(
     );
   }
   const lower = path.toLowerCase();
+  if (
+    ![...plainExtensions, ".html", ".csv", ...convertedExtensions].some((e) => lower.endsWith(e))
+  ) {
+    throw rpcError(
+      "BAD_REQUEST",
+      "error.representativeDocumentFormat",
+      "Pick a Markdown, text, HTML, CSV, PDF or DOCX file",
+      { name: path },
+    );
+  }
+  if (!file.readable && file.size > maxDocumentTextBytes) throw tooLong(path);
   if (!file.readable && convertedExtensions.some((extension) => lower.endsWith(extension))) {
     throw rpcError(
       "BAD_REQUEST",
