@@ -2,6 +2,7 @@ import { oc, type } from "@orpc/contract";
 import { z } from "zod";
 
 import { checkFactValue, factTypes, type FactType } from "./facts";
+import type { ReplyProof } from "./replies";
 
 export { factTypes, isInEffect, type FactType } from "./facts";
 
@@ -164,6 +165,8 @@ export type RepresentativeSummary = {
 export type TranscriptEntry = {
   role: "customer" | "representative" | "tool" | "system";
   text: string;
+  /** What a sent reply rests on; absent on every other line and on a result stored before it. */
+  reply?: ReplyProof;
 };
 
 /** One expectation, and whether code found it held. */
@@ -275,7 +278,8 @@ export type ThreadHolder = "representative" | "owner" | "closed";
 /**
  * Who a thread is waiting on, derived from who holds it and who spoke last: the Customer after an
  * answer, and after a Customer's message the Representative, or the owner while they hold it. The
- * Bot, in place of the Customer, while an Assignment handed off from the thread is open. Null
+ * Bot, in place of the Customer, while an Assignment handed off from the thread is open. The owner
+ * after code's fixed hand-off message with no Bot working on it (ticket #1261). Null
  * once closed, while its Customer is blocked, whose message nobody answers, or when no Turn is on
  * its way to the last word on a thread its Representative holds.
  */
@@ -301,6 +305,8 @@ export type ThreadMessageView = {
   externalId: string;
   /** Whether the Turn it belongs to was for a verified sender. */
   verified: boolean;
+  /** A Representative's reply's kind and sources; null on every other message. */
+  reply: ReplyProof | null;
   createdAt: Date;
 };
 
@@ -372,7 +378,23 @@ export type FactLogView = {
   action: "add" | "edit" | "delete";
   old: FactSnapshot | null;
   new: FactSnapshot | null;
+  /** The Bot, by its name then, whose proposal the owner approved; null for the owner's own change. */
+  proposedBy: string | null;
   at: Date;
+};
+
+/** A Bot's proposed fact waiting for the owner, with what it would replace. */
+export type FactProposalView = {
+  id: string;
+  key: string;
+  botId: string;
+  botName: string;
+  why: string;
+  /** The fact as it is now; null when the key has none. */
+  current: FactSnapshot | null;
+  proposed: FactSnapshot;
+  postedAt: Date;
+  expiresAt: Date;
 };
 
 export const maxFactTopicLength = 100;
@@ -400,14 +422,15 @@ function refineFact(
     context.addIssue({ code: "custom", path: ["validUntil"], message: "Ends before it starts" });
   }
 }
+/** What a reply names a fact by: lower case, with dots, dashes and underscores. */
+export const factKey = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
 export const factAddInput = z
   .object({
-    /** What a reply names it by: lower case, with dots, dashes and underscores. */
-    key: z
-      .string()
-      .trim()
-      .toLowerCase()
-      .regex(/^[a-z0-9][a-z0-9._-]{0,63}$/),
+    key: factKey,
     ...factFields,
   })
   .superRefine(refineFact);
@@ -521,6 +544,12 @@ export const representativeContract = {
   factDelete: oc.input(idInput).output(type<FactLogView>()),
   /** Every add, edit and delete of the owner's facts, newest first. */
   factLog: oc.output(type<FactLogView[]>()),
+  /** The facts the owner's Bots have proposed that still wait for an answer, oldest first. */
+  factProposals: oc.output(type<FactProposalView[]>()),
+  /** Applies a Bot's proposed fact, logged as its proposal, and wakes the Bot. */
+  factProposalApprove: oc.input(idInput).output(type<FactView>()),
+  /** Refuses a Bot's proposed fact, which changes nothing, and wakes the Bot. */
+  factProposalDecline: oc.input(idInput).output(type<void>()),
   /** A Representative's Customer threads, the most recently active first. */
   threadList: oc.input(idInput).output(type<ThreadSummary[]>()),
   /** One thread with its transcript, holder and who it waits on. */

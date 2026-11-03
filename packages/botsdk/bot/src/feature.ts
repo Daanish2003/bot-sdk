@@ -22,7 +22,7 @@ import type { BotSdkContext, BotSdkPlugin, Route, Transaction } from "./plugin";
 import { requireAuth } from "./procedures";
 import type { RepresentativeLoopService } from "./bot/agent-loop";
 import type { AssignmentsService } from "./bot/assignments";
-import type { ReleaseApprovalsService } from "./bot/safety";
+import type { FactApprovalsService, ReleaseApprovalsService } from "./bot/safety";
 import type { ComputerApi } from "./computer/internal";
 import type { ModelsApi } from "./models/internal";
 import type { EnqueueOptions, JobDefinition } from "./runner/internal";
@@ -37,6 +37,7 @@ import type { EnqueueOptions, JobDefinition } from "./runner/internal";
 export type CoreService =
   | "assignments"
   | "computer"
+  | "factApprovals"
   | "models"
   | "releaseApprovals"
   | "representativeLoop"
@@ -49,6 +50,7 @@ type Services = {
   assignments: AssignmentsService;
   computer: ComputerApi;
   models: ModelsApi;
+  factApprovals: FactApprovalsService;
   releaseApprovals: ReleaseApprovalsService;
   representativeLoop: RepresentativeLoopService;
   threads: ThreadsService;
@@ -473,6 +475,7 @@ const coreTableNames = new Set(
 const serviceNames: Record<CoreService, string> = {
   assignments: "the Assignments",
   computer: "the Computer",
+  factApprovals: "the fact Approvals",
   models: "the Models",
   releaseApprovals: "the release Approvals",
   representativeLoop: "the Representative loop",
@@ -564,6 +567,7 @@ export function enableFeature(
   assignmentsOf: (feature: AnyFeature, turnBehind?: string) => AssignmentsService,
   representativeLoop: RepresentativeLoopService,
   releaseApprovals: ReleaseApprovalsService,
+  factApprovals: FactApprovalsService,
 ): EnabledFeature {
   const needs = feature.needs ?? [];
   const context: FeatureContext<CoreService> = {
@@ -572,6 +576,7 @@ export function enableFeature(
     ...(needs.includes("assignments") && { assignments: assignmentsOf(feature) }),
     ...(needs.includes("representativeLoop") && { representativeLoop }),
     ...(needs.includes("releaseApprovals") && { releaseApprovals }),
+    ...(needs.includes("factApprovals") && { factApprovals }),
   };
   return {
     feature,

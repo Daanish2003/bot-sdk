@@ -9,7 +9,8 @@ import {
   type TestCheck,
   type TranscriptEntry,
 } from "../shared/contract";
-import { insertValues } from "./replies";
+import { codeHandOffKind, type ReplyProof, replyKinds, type ReplySource } from "../shared/replies";
+import { handOffMessage, insertValues } from "./replies";
 
 /*
  * What code makes of a test conversation (ticket #1192): the transcript the owner reads, the
@@ -67,29 +68,47 @@ function answerTo(messages: ModelMessage[], callId: string): Record<string, unkn
   }
 }
 
+/** The kind and sources a sent `reply` call's answer carries; a test has no Assignment, so only facts. */
+function sentReply(messages: ModelMessage[], call: { id: string }): ReplyProof {
+  const answer = answerTo(messages, call.id);
+  return {
+    kind: replyKinds.find((kind) => kind === answer?.kind) ?? null,
+    sources: Array.isArray(answer?.sources) ? (answer.sources as ReplySource[]) : [],
+  };
+}
+
 /** The text `call`, a `reply` its tool answered as sent, went with: the Model's, with the facts' values in. */
 function sentText(messages: ModelMessage[], call: { id: string; function: { arguments: string } }) {
   const inserted = answerTo(messages, call.id)?.inserted as Record<string, string> | undefined;
   return insertValues(String(argumentsOf(call).text ?? ""), inserted ?? {});
 }
 
-/** What reached the Customer, in order: the text of each `reply` call the tool answered as sent. */
+/**
+ * What reached the Customer, in order: the text of each `reply` call the tool answered as sent, and
+ * for one refused for the last time, code's fixed message in place of its text.
+ */
 function sentTexts(messages: ModelMessage[]) {
   return messages.flatMap((message) =>
     (message.toolCalls ?? [])
-      .filter(
-        (call) => call.function.name === "reply" && answerTo(messages, call.id)?.sent === true,
-      )
-      .map((call) => sentText(messages, call)),
+      .filter((call) => call.function.name === "reply")
+      .flatMap((call) => {
+        const answer = answerTo(messages, call.id);
+        if (answer?.sent === true) return [sentText(messages, call)];
+        return answer?.handedOff === true ? [handOffMessage] : [];
+      }),
   );
 }
 
-/** Whether a `hand_to_bot` call was answered as handed off: a refusal does not count. */
+/**
+ * Whether the Turn handed off: a `hand_to_bot` call answered so, a refusal not counting, or a `reply`
+ * refused for the last time, whose hand-off is code's.
+ */
 function handedOff(messages: ModelMessage[]) {
   return messages.some((message) =>
     (message.toolCalls ?? []).some(
       (call) =>
-        call.function.name === "hand_to_bot" && answerTo(messages, call.id)?.handedOff === true,
+        (call.function.name === "hand_to_bot" || call.function.name === "reply") &&
+        answerTo(messages, call.id)?.handedOff === true,
     ),
   );
 }
@@ -113,13 +132,13 @@ export function checkExpectations(
         return {
           expectation,
           passed: handed,
-          detail: handed ? "It handed off to the Bot." : "It did not hand off to the Bot.",
+          detail: handed ? "It handed off." : "It did not hand off.",
         };
       case "not_handed_off":
         return {
           expectation,
           passed: !handed,
-          detail: handed ? "It handed off to the Bot." : "It did not hand off to the Bot.",
+          detail: handed ? "It handed off." : "It did not hand off.",
         };
       case "said": {
         const found = lowered.some((text) => text.includes(expectation.text.toLowerCase()));
@@ -164,9 +183,20 @@ export function transcriptOf(customerMessage: string, messages: ModelMessage[]):
       for (const call of message.toolCalls ?? []) {
         if (call.function.name === "reply" && answerTo(messages, call.id)?.sent === true) {
           sentCalls.add(call.id);
-          entries.push({ role: "representative", text: sentText(messages, call) });
+          entries.push({
+            role: "representative",
+            text: sentText(messages, call),
+            reply: sentReply(messages, call),
+          });
         } else {
           entries.push({ role: "tool", text: `${call.function.name} ${call.function.arguments}` });
+          if (call.function.name === "reply" && answerTo(messages, call.id)?.handedOff === true) {
+            entries.push({
+              role: "representative",
+              text: handOffMessage,
+              reply: { kind: codeHandOffKind, sources: [] },
+            });
+          }
         }
       }
     } else if (!sentCalls.has(message.toolCallId ?? "")) {
