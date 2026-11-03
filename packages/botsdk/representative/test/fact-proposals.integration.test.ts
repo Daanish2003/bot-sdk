@@ -278,6 +278,25 @@ describe("a Bot's proposed fact", () => {
     expect(wakes(made)).toEqual([]);
   });
 
+  it("can't be answered once the Bot is reset, even before the reset's job has run", async () => {
+    const made = await proposed();
+    await runners.at(-1)!.stop();
+
+    await made.rpc.bots.reset({ botId: made.botId, name: "Ada" });
+
+    for (const answer of [
+      made.rpc.representative.factProposalApprove,
+      made.rpc.representative.factProposalDecline,
+    ]) {
+      await expect(answer({ id: made.proposal.id })).rejects.toThrow();
+    }
+    expect(await valueOf(made)).toBe("45 USD");
+    expect(await made.rpc.representative.factLog()).toHaveLength(1);
+    expect(await made.rpc.representative.factProposals()).toEqual([]);
+    expect((await cardsOf(made))[0]!.control).toMatchObject({ answer: "dropped" });
+    expect(wakes(made)).toEqual([]);
+  });
+
   it("goes with its Bot", async () => {
     const made = await proposed();
 
@@ -376,7 +395,7 @@ describe("the proposal tool", () => {
       proposes({
         key: price.key,
         value: "50 USD",
-        validUntil: "2030-01-01T00:00:00Z",
+        validUntil: "2030-01-01",
       }),
       quiet(),
     ]);

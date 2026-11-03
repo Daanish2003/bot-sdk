@@ -217,10 +217,13 @@ function ProposalSide({
   side,
   title,
   fact,
+  other,
 }: {
   side: "current" | "proposed";
   title: string;
   fact: FactSnapshot | null;
+  /** The other side: a field that differs from it is marked. */
+  other: FactSnapshot | null;
 }) {
   const { t } = useI18n();
   return (
@@ -230,18 +233,31 @@ function ProposalSide({
         <dl className="space-y-1">
           {(
             [
-              ["representative.facts.field.value", fact.value],
-              ["representative.facts.field.type", fact.type],
-              ["representative.facts.field.topic", fact.topic],
-              ["representative.facts.field.from", toDateField(fact.validFrom)],
-              ["representative.facts.field.until", toDateField(fact.validUntil)],
+              ["representative.facts.field.value", fact.value, other?.value],
+              ["representative.facts.field.type", fact.type, other?.type],
+              ["representative.facts.field.topic", fact.topic, other?.topic],
+              [
+                "representative.facts.field.from",
+                toDateField(fact.validFrom),
+                other && toDateField(other.validFrom),
+              ],
+              [
+                "representative.facts.field.until",
+                toDateField(fact.validUntil),
+                other && toDateField(other.validUntil),
+              ],
             ] as const
           ).map(
-            ([label, value]) =>
+            ([label, value, otherValue]) =>
               value !== "" && (
                 <div key={label} className="flex flex-wrap gap-x-2">
                   <dt className="text-xs text-muted-foreground">{t(label)}</dt>
-                  <dd className="break-words">{value}</dd>
+                  <dd
+                    data-changed={other !== null && value !== otherValue}
+                    className="break-words data-[changed=true]:font-semibold"
+                  >
+                    {value}
+                  </dd>
                 </div>
               ),
           )}
@@ -288,11 +304,13 @@ function ProposalRow({ proposal }: { proposal: FactProposalView }) {
           side="current"
           title={t("representative.facts.proposalCurrent")}
           fact={proposal.current}
+          other={proposal.proposed}
         />
         <ProposalSide
           side="proposed"
           title={t("representative.facts.proposalProposed")}
           fact={proposal.proposed}
+          other={proposal.current}
         />
       </div>
       <div className="flex gap-2">

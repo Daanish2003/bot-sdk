@@ -58,7 +58,7 @@ export const factApprovalTriggerId = (id: string) => `fact-approval:${id}`;
 function answerText(key: string, answer: "approved" | "declined") {
   const proposal = `your proposal for the Published fact ${JSON.stringify(key)}`;
   return answer === "approved"
-    ? `[Approval] The user approved ${proposal}. It applies now.`
+    ? `[Approval] The user approved ${proposal}. The fact is saved as you proposed it.`
     : `[Approval] The user declined ${proposal}. The fact stays as it was. Don't propose it again unless they ask.`;
 }
 

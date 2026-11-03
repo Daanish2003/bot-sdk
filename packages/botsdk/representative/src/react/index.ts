@@ -174,7 +174,11 @@ export function useEditFact(options?: ProcedureMutationOptions<Representative["f
 
 /** The facts the owner's Bots have proposed that still wait (`representative.factProposals`). */
 export function useFactProposals() {
-  return useQuery(useRepresentative().factProposals.queryOptions());
+  // Nothing tells this page a Bot proposed, and a card's link must find what it links to.
+  return useQuery({
+    ...useRepresentative().factProposals.queryOptions(),
+    refetchOnMount: "always",
+  });
 }
 
 /** Approves a Bot's proposed fact (`representative.factProposalApprove`). */

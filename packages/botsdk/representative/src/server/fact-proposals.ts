@@ -16,7 +16,17 @@ import {
 } from "../shared/contract";
 import { factTypes } from "../shared/facts";
 import { representativeFact, representativeFactProposal } from "./db/schema";
-import { applyProposedFact, fieldsOf, logged, snapshot } from "./facts";
+import { applyProposedFact, factOf, fieldsOf, logged } from "./facts";
+
+/** When the Bot was last reset: anything it asked before then, it has forgotten. */
+async function lastResetOf(tx: Transaction, botId: string) {
+  const [mark] = await tx
+    .select({ at: max(message.createdAt) })
+    .from(message)
+    .innerJoin(bot, eq(bot.conversationId, message.conversationId))
+    .where(and(eq(bot.id, botId), eq(message.role, "reset")));
+  return mark?.at ?? null;
+}
 
 /*
  * A Bot proposing a Published fact (ticket #1264). The tool only ever stores a proposal and posts the
@@ -38,7 +48,7 @@ const proposal = representativeFactProposal;
 const proposalGone = () =>
   rpcError("CONFLICT", "error.factProposalGone", "That proposal is no longer waiting");
 
-const dateField = z.iso.datetime({ offset: true }).nullable().optional();
+const dateField = z.iso.date().nullable().optional();
 
 const proposeFactDefinition = toolDefinition({
   name: proposeFactToolName,
@@ -46,7 +56,7 @@ const proposeFactDefinition = toolDefinition({
     "Propose adding or changing one of the user's Published facts: the exact prices, hours, phone " +
     "numbers and links their Representatives state. Nothing changes unless the user approves it on " +
     "the Facts page; if they answer within 7 days you are woken with the answer. A `key` that exists " +
-    "changes that fact, keeping any field you don't name; a new `key` adds one and needs `type` and " +
+    "changes that fact, with any field you don't name as it is now; a new `key` adds one and needs `type` and " +
     "`topic`. Values by type: money `45 USD`, hours `Mon-Fri 09:00-17:00; Sat closed`, phone " +
     "`+14155550100`, url `https://…`. One proposal waits per key.",
   inputSchema: z.object({
@@ -54,8 +64,10 @@ const proposeFactDefinition = toolDefinition({
     value: z.string().refine(noNul),
     type: z.enum(factTypes).optional(),
     topic: z.string().refine(noNul).optional(),
-    validFrom: dateField.describe("When it starts, as an ISO date and time; null for always."),
-    validUntil: dateField.describe("When it ends, as an ISO date and time; null for never."),
+    validFrom: dateField.describe("The day it starts (UTC), as YYYY-MM-DD; null for always."),
+    validUntil: dateField.describe(
+      "The day it stops, from that day's start (UTC), as YYYY-MM-DD; null for never.",
+    ),
     /** What the card tells the user. */
     why: z
       .string()
@@ -70,7 +82,7 @@ const proposeFactDefinition = toolDefinition({
 });
 
 const dateOf = (given: string | null | undefined, kept: Date | null) =>
-  given === undefined ? kept : given === null ? null : new Date(given);
+  given === undefined ? kept : given === null ? null : new Date(`${given}T00:00:00Z`);
 
 async function proposeFact(
   { db, clock, jobs, factApprovals, threads }: ProposeContext,
@@ -184,8 +196,8 @@ export async function listFactProposals(
     botId: row.botId,
     botName,
     why: row.why,
-    current: current && snapshot(logged(current)),
-    proposed: snapshot(row.proposed),
+    current: current && factOf(logged(current)),
+    proposed: factOf(row.proposed),
     postedAt: row.postedAt,
     expiresAt: row.expiresAt,
   }));
@@ -219,6 +231,12 @@ async function answerProposal<Result>(
     const { row, botName } = found;
     await tx.delete(proposal).where(eq(proposal.id, id));
     const now = clock();
+    // The reset's job drops it after the reset commits, maybe much later: until then it is as good as dropped.
+    const reset = await lastResetOf(tx, row.botId);
+    if (reset && row.postedAt <= reset) {
+      const dropped = await factApprovals.drop(tx, { userId, id: row.cardId });
+      return { gone: dropped?.conversationId ?? null };
+    }
     const answered = await factApprovals.answer(tx, { userId, id: row.cardId, answer });
     if (!answered) return null;
     return {
@@ -227,6 +245,10 @@ async function answerProposal<Result>(
     };
   });
   if (!outcome) throw proposalGone();
+  if ("gone" in outcome) {
+    if (outcome.gone) await threads.hintChanged(outcome.gone);
+    throw proposalGone();
+  }
   jobs.wake();
   await threads.hintChanged(outcome.conversationId);
   return outcome.result;
@@ -238,7 +260,7 @@ export const approveFactProposal = (
   id: string,
 ): Promise<FactView> =>
   answerProposal(context, userId, id, "approved", (tx, row, botName, now) =>
-    applyProposedFact(tx, userId, row.key, snapshot(row.proposed), botName, now),
+    applyProposedFact(tx, userId, row.key, factOf(row.proposed), botName, now),
   );
 
 export const declineFactProposal = (
@@ -262,14 +284,10 @@ export async function dropProposalsOfBot(
       .from(proposal)
       .where(and(eq(proposal.userId, userId), eq(proposal.botId, botId)))
       .for("update");
-    const [mark] = await tx
-      .select({ at: max(message.createdAt) })
-      .from(message)
-      .innerJoin(bot, eq(bot.conversationId, message.conversationId))
-      .where(and(eq(bot.id, botId), eq(message.role, "reset")));
+    const reset = await lastResetOf(tx, botId);
     const conversations = new Set<string>();
     for (const row of rows) {
-      if (mark?.at && row.postedAt > mark.at) continue;
+      if (reset && row.postedAt > reset) continue;
       const closed = await factApprovals.drop(tx, { userId, id: row.cardId });
       if (closed) conversations.add(closed.conversationId);
       await tx.delete(proposal).where(eq(proposal.id, row.id));

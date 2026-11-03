@@ -56,7 +56,11 @@ test("a Bot's proposal reaches the owner as a link, and is answered on the Facts
   page,
 }) => {
   await signInAsSeededUserWithModel(page);
-  await page.goto("/facts");
+  await createBot(page, "Ada");
+  // By the app's own links, so what the Facts page read stays cached when the card links back to it.
+  await page.getByRole("button", { name: "E2E User" }).click();
+  await page.getByRole("menuitem", { name: "Facts" }).click();
+  await expect(page).toHaveURL(/\/facts$/);
   await page.getByLabel("Key", { exact: true }).fill("price.haircut");
   await page.getByLabel("Type of new fact").selectOption("money");
   await page.getByLabel("Topic of new fact").fill("Prices");
@@ -64,7 +68,7 @@ test("a Bot's proposal reaches the owner as a link, and is answered on the Facts
   await page.getByRole("button", { name: "Add fact" }).click();
   await expect(page.locator('[data-fact="price.haircut"]')).toBeVisible();
 
-  await createBot(page, "Ada");
+  await page.goBack();
   await sendToBot(page, `${proposeFactMarker} Raise the haircut price`);
   const card = page.locator("[data-fact-approval]");
   await expect(card).toHaveAttribute("data-state", "waiting");
@@ -84,7 +88,7 @@ test("a Bot's proposal reaches the owner as a link, and is answered on the Facts
   await expect(page.getByLabel("Value of price.haircut")).toHaveValue(proposedFactValue);
   await expect(page.getByText("proposed by Ada, approved by you")).toBeVisible();
 
-  await page.goto("/bots");
-  await page.getByRole("link", { name: "Ada" }).first().click();
+  // Back by the app's history, where the thread read before the answer is cached.
+  await page.goBack();
   await expect(page.locator("[data-fact-approval]")).toHaveAttribute("data-state", "approved");
 });

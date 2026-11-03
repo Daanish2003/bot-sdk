@@ -55,12 +55,14 @@ export const logged = (row: FactSnapshot): LoggedFact => ({
   validUntil: row.validUntil?.toISOString() ?? null,
 });
 
-export const snapshot = <Stored extends LoggedFact | null>(stored: Stored) =>
-  (stored && {
-    ...stored,
-    validFrom: stored.validFrom ? new Date(stored.validFrom) : null,
-    validUntil: stored.validUntil ? new Date(stored.validUntil) : null,
-  }) as Stored extends null ? null : FactSnapshot;
+/** A logged fact, with its dates read back. */
+export const factOf = (stored: LoggedFact): FactSnapshot => ({
+  ...stored,
+  validFrom: stored.validFrom ? new Date(stored.validFrom) : null,
+  validUntil: stored.validUntil ? new Date(stored.validUntil) : null,
+});
+
+const snapshot = (stored: LoggedFact | null) => stored && factOf(stored);
 
 async function record(
   tx: Transaction,

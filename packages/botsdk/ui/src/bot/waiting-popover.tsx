@@ -28,21 +28,14 @@ export function WaitingPopover({ botId }: { botId: string }) {
   );
   // A release or fact Approval is only a card in the thread, so the thread's own read says which wait.
   const thread = useQuery(orpc.bots.get.queryOptions({ input: { botId } }));
-  const drafted = (thread.data?.messages ?? []).flatMap((message) =>
-    message.control?.kind === "release_approval" &&
-    !message.control.answer &&
-    new Date(message.control.expiresAt) > new Date()
-      ? [{ id: message.id, card: message.control, text: message.text }]
+  const linkCards = (thread.data?.messages ?? []).flatMap(({ id, control, text }) =>
+    (control?.kind === "release_approval" || control?.kind === "fact_approval") &&
+    !control.answer &&
+    new Date(control.expiresAt) > new Date()
+      ? [{ id, card: control, text }]
       : [],
   );
-  const factCards = (thread.data?.messages ?? []).flatMap((message) =>
-    message.control?.kind === "fact_approval" &&
-    !message.control.answer &&
-    new Date(message.control.expiresAt) > new Date()
-      ? [{ id: message.id, card: message.control, text: message.text }]
-      : [],
-  );
-  const count = pending.length + proposed.length + drafted.length + factCards.length;
+  const count = pending.length + proposed.length + linkCards.length;
   return (
     <Popover>
       <PopoverTrigger
@@ -78,14 +71,13 @@ export function WaitingPopover({ botId }: { botId: string }) {
                 />
               </li>
             ))}
-            {drafted.map(({ id, card, text }) => (
+            {linkCards.map(({ id, card, text }) => (
               <li key={id} className="flex flex-col">
-                <ReleaseApprovalCard card={card} text={text} />
-              </li>
-            ))}
-            {factCards.map(({ id, card, text }) => (
-              <li key={id} className="flex flex-col">
-                <FactApprovalCard card={card} text={text} />
+                {card.kind === "fact_approval" ? (
+                  <FactApprovalCard card={card} text={text} />
+                ) : (
+                  <ReleaseApprovalCard card={card} text={text} />
+                )}
               </li>
             ))}
           </ul>
