@@ -233,8 +233,9 @@
         <h3>Challenge</h3>
         <p>
           Read <code>runBotMemoryPass</code> in <code>bot-pass.ts</code>. It takes a
-          <code>pg_advisory_xact_lock</code> keyed on the Bot before the pass reads the files. Why
-          must the lock come before the read, not after? Tell your teacher.
+          <code>pg_advisory_xact_lock</code> keyed on the Bot before the pass re-reads the files to
+          apply its operations. Why must the lock come before that read, not after? Tell your
+          teacher.
         </p>
       </details>
 

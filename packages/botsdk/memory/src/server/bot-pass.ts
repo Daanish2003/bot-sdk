@@ -70,6 +70,11 @@ export type MemoryOp = z.infer<typeof passReply>["ops"][number];
 const transcriptChars = 2_000;
 /** How much of a tool call's arguments the pass reads. */
 const toolArgsChars = 200;
+/**
+ * How many plans a pass makes when its lines keep changing under it. One more covers the usual
+ * case, a pass that overtook it; each is billed, so past the next it gives up and logs.
+ */
+const passPlanLimit = 3;
 
 /**
  * A line the pass was shown, by its number: its file, its 1-based line there, its text as
@@ -122,11 +127,14 @@ export async function enqueueBotMemoryPass(
 }
 
 /**
- * Runs Turn `turnId`'s pass on the Bot's own Model, one pass at a time per Bot, as recorded
- * activities: a retried job applies the operations its first call returned, with no second call.
+ * Runs Turn `turnId`'s pass on the Bot's own Model, as recorded activities: a retried job applies
+ * the operations its first call returned, with no second call. The Model runs with no transaction
+ * or lock held (#1237), so its operations are applied only if the lines it was shown are still
+ * there as shown; otherwise it plans again, from the lines as they are now and through the same
+ * checks, up to `passPlanLimit` times. A later pass is thus always shown what an earlier one wrote.
  * Ends quietly, with nothing changed, with Memory off, no `computer`, no Model call or the Quota
- * spent (as its first attempt found them), and when the call fails or returns invalid output. A
- * Computer failure throws.
+ * spent (as its plan found them), when the call fails or returns invalid output, and when its lines
+ * keep changing. A plan thrown away stays billed. A Computer failure throws.
  */
 async function runBotMemoryPass(
   deps: PassContext,
@@ -149,27 +157,25 @@ async function runBotMemoryPass(
   if (!turn || (turn.status !== "complete" && turn.status !== "stopped")) return;
   const computer = () => deps.computer.forUser(turn.userId);
 
-  const changes = await deps.db.transaction(async (lock) => {
-    // One pass at a time per Bot, as the assistant's Memory job does per user: a later pass is
-    // shown what an earlier one wrote.
-    await lock.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${memoryPassLock(turn.botId)}, 0))`,
-    );
-    // A Turn from before the Bot's reset is one it forgot (spec #1007): nothing of it is written.
-    // Read under the lock a reset's file delete also takes, so no pass writes after that delete.
-    const [kept] = await lock
+  // A Turn from before the Bot's reset is one it forgot (spec #1007): nothing of it is written.
+  const forgotten = async () => {
+    const [kept] = await deps.db
       .select({ id: botTurn.id })
       .from(botTurn)
       .where(
         and(
           eq(botTurn.id, turnId),
-          noResetAfter(lock, { conversationId: turn.conversationId }, botTurn.startedAt),
+          noResetAfter(deps.db, { conversationId: turn.conversationId }, botTurn.startedAt),
         ),
       );
-    if (!kept) return [];
+    return !kept;
+  };
+
+  for (let plans = 0; plans < passPlanLimit; plans += 1) {
     // The checks are part of the recorded call: a retry applies the operations its first attempt
     // planned, even once Memory is off or the Quota is spent.
     const planned = await step("memory_ops", async () => {
+      if (await forgotten()) return null;
       if (!(await memoryEnabledFor(deps, turn.userId))) return null;
       const call = await deps.models.resolveModelCall(turn.userId, turn.model);
       if (!call || !(await call.meter.mayRun()).ok) return null;
@@ -192,9 +198,26 @@ async function runBotMemoryPass(
         return null;
       }
     });
-    if (!planned) return [];
+    if (!planned) return;
     // The writes and the change list, once: a retry after the Checkpoint reads the change list.
-    return step("memory_apply", async (tx) => {
+    // Null when the plan has gone stale. A write may wake the Computer, so until they're done `tx`
+    // holds only the advisory lock (one pass at a time per Bot, and a reset's file delete waits for
+    // it) and no table's, and these reads go through `deps.db`: an exclusive lock waits for no
+    // Computer call, and no Computer call's own queries wait behind that lock while `tx` holds it up.
+    const changes = await step("memory_apply", async (tx) => {
+      // Nothing to write can't go stale, and most Turns change nothing: no second Model call.
+      if (planned.ops.length === 0) return [];
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${memoryPassLock(turn.botId)}, 0))`,
+      );
+      // Under the lock, so no pass writes after a reset's delete.
+      if (await forgotten()) return [];
+      const lines = await shownLines(computer(), {
+        botId: turn.botId,
+        turnStartedAt: turn.startedAt,
+        signal,
+      });
+      if (!sameLines(lines, planned.shown)) return null;
       const applied = await applyMemoryOps(computer(), {
         botId: turn.botId,
         ...planned,
@@ -209,9 +232,28 @@ async function runBotMemoryPass(
       }
       return applied;
     });
-  });
-  if (changes.length === 0) return;
-  await deps.threads.hintChanged(turn.conversationId);
+    if (!changes) continue;
+    if (changes.length > 0) await deps.threads.hintChanged(turn.conversationId);
+    return;
+  }
+  deps.logger.error(
+    `The memory pass of Turn ${turnId} changed nothing: its memory lines changed under all ${passPlanLimit} of its plans`,
+  );
+}
+
+/**
+ * Whether the lines read now are the ones a plan was shown. Field by field, as a recorded plan's
+ * keys come back from `jsonb` in another order, and without the NUL its Checkpoint dropped.
+ */
+function sameLines(now: ShownLine[], planned: ShownLine[]): boolean {
+  const textOf = (line: ShownLine) => line.text.replaceAll("\0", "");
+  return (
+    now.length === planned.length &&
+    now.every((line, index) => {
+      const other = planned[index]!;
+      return line.path === other.path && line.line === other.line && textOf(line) === textOf(other);
+    })
+  );
 }
 
 /**
