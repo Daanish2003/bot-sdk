@@ -370,7 +370,15 @@ export const factAddInput = z
   })
   .superRefine(refineFact);
 /** A fact's key is fixed once it's made, since a reply may already name it. */
-export const factEditInput = z.object({ id: z.uuid(), ...factFields }).superRefine(refineFact);
+/** An edit replaces the fact's fields, so the valid dates are given too, or null to clear them. */
+export const factEditInput = z
+  .object({
+    id: z.uuid(),
+    ...factFields,
+    validFrom: z.date().nullable(),
+    validUntil: z.date().nullable(),
+  })
+  .superRefine(refineFact);
 
 export const idInput = z.object({ id: z.uuid() });
 export const approveInput = z.object({

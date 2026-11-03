@@ -22,6 +22,9 @@ import {
 
 type Context = Pick<FeatureContext, "db" | "clock">;
 
+/** How many of the newest log entries the owner is shown. */
+const maxLogEntries = 500;
+
 const fact = representativeFact;
 const log = representativeFactLog;
 
@@ -194,7 +197,8 @@ export async function listFactLog({ db }: Context, userId: string): Promise<Fact
     .select()
     .from(log)
     .where(eq(log.userId, userId))
-    .orderBy(desc(log.at), desc(log.id));
+    .orderBy(desc(log.at), desc(log.id))
+    .limit(maxLogEntries);
   return rows.map(logView);
 }
 

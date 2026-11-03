@@ -17,18 +17,24 @@ const segmentPattern = new RegExp(
 
 /** `45 USD` or `19.99 EUR`: an amount of up to two decimals, then a three-letter currency code. */
 function money(value: string) {
-  const match = /^(\d{1,12}(?:\.\d{1,2})?)\s*([A-Za-z]{3})$/.exec(value);
+  const match = /^((?:0|[1-9]\d{0,11})(?:\.\d{1,2})?)\s*([A-Za-z]{3})$/.exec(value);
   return match ? `${match[1]} ${match[2]!.toUpperCase()}` : null;
 }
 
 /** `Mon-Fri 09:00-17:00; Sat closed`: day or day range, then an opening span or `closed`. */
 function hours(value: string) {
+  const covered = new Set<string>();
   const segments = value.split(";").map((segment) => segment.trim().replace(/\s+/g, " "));
   for (const segment of segments) {
     const match = segmentPattern.exec(segment);
     if (!match) return null;
     const [, from, to, openH, openM, closeH, closeM] = match;
     if (to && days.indexOf(to) < days.indexOf(from!)) return null;
+    // A day is covered by one segment only, so no two segments can disagree.
+    for (let day = days.indexOf(from!); day <= days.indexOf(to ?? from!); day++) {
+      if (covered.has(days[day]!)) return null;
+      covered.add(days[day]!);
+    }
     if (openH !== undefined && `${openH}${openM}` >= `${closeH}${closeM}`) return null;
   }
   return segments.join("; ");
@@ -42,7 +48,7 @@ function phone(value: string) {
 
 /** A web address that opens with http or https. */
 function url(value: string) {
-  if (value.length > 2_048) return null;
+  if (value.length > 2_048 || !/^https?:\/\/\S+$/.test(value)) return null;
   try {
     const { protocol } = new URL(value);
     return protocol === "http:" || protocol === "https:" ? value : null;

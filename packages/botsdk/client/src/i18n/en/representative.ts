@@ -168,7 +168,7 @@ export const representativeMessages = {
     `Undo merging ${from} into ${into}`,
   "representative.facts.title": "Facts",
   "representative.facts.intro":
-    "The exact details of your business: prices, hours, phone numbers and links. Your Representatives state them as written, and an edit applies at once with no Release.",
+    "The exact details of your business: prices, hours, phone numbers and links. Your Representatives state them as written, and an edit applies at once with no Release. A fact valid until a date stops at the start of that day (UTC).",
   "representative.facts.addTitle": "Add a fact",
   "representative.facts.key": "Key",
   "representative.facts.none": "No facts yet.",

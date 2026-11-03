@@ -73,6 +73,8 @@ describe("an owner's Published facts", () => {
       type: "money",
       topic: "Prices",
       value: "50.50 usd",
+      validFrom: null,
+      validUntil: null,
     });
     expect(edited).toMatchObject({ id: added.id, key: "price.haircut", value: "50.50 USD" });
 
@@ -92,6 +94,9 @@ describe("an owner's Published facts", () => {
     ["money", "45", "45 USD"],
     ["hours", "all day", "Mon-Fri 09:00-17:00"],
     ["hours", "Mon-Fri 17:00-09:00", "Mon-Fri 09:00-17:00"],
+    ["hours", "Mon-Fri 09:00-17:00; Wed closed", "Mon-Tue 09:00-17:00; Wed closed"],
+    ["money", "0045 USD", "45 USD"],
+    ["url", "https:example.com", "https://example.com"],
     ["phone", "call us", "+1 (555) 000-1234"],
     ["url", "not a link", "https://example.com/book"],
     ["url", "javascript:alert(1)", "https://example.com/book"],
@@ -100,7 +105,14 @@ describe("an owner's Published facts", () => {
     const { rpc } = await owner(deps);
 
     await expect(
-      rpc.representative.factAdd({ key: "a.fact", type, topic: "General", value: bad }),
+      rpc.representative.factAdd({
+        key: "a.fact",
+        type,
+        topic: "General",
+        value: bad,
+        validFrom: null,
+        validUntil: null,
+      }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(await rpc.representative.factList()).toEqual([]);
 
@@ -111,7 +123,14 @@ describe("an owner's Published facts", () => {
       value: good,
     });
     await expect(
-      rpc.representative.factEdit({ id: added.id, type, topic: "General", value: bad }),
+      rpc.representative.factEdit({
+        id: added.id,
+        type,
+        topic: "General",
+        value: bad,
+        validFrom: null,
+        validUntil: null,
+      }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect((await rpc.representative.factList())[0]?.value).toBe(added.value);
   });
@@ -146,7 +165,14 @@ describe("an owner's Published facts", () => {
     // A fact of another owner's is not found, to edit or delete.
     const [mine] = await ada.rpc.representative.factList();
     await expect(
-      ada.rpc.representative.factEdit({ id: theirs.id, type: "text", topic: "x", value: "y" }),
+      ada.rpc.representative.factEdit({
+        id: theirs.id,
+        type: "text",
+        topic: "x",
+        value: "y",
+        validFrom: null,
+        validUntil: null,
+      }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(ada.rpc.representative.factDelete({ id: theirs.id })).rejects.toMatchObject({
       code: "NOT_FOUND",
@@ -167,6 +193,8 @@ describe("an owner's Published facts", () => {
       type: "money",
       topic: "Prices",
       value: "50 USD",
+      validFrom: null,
+      validUntil: null,
     });
     timer.advance(60_000);
     await rpc.representative.factDelete({ id: added.id });
@@ -185,6 +213,21 @@ describe("an owner's Published facts", () => {
       "2026-06-01T09:01:00.000Z",
       "2026-06-01T09:00:00.000Z",
     ]);
+  });
+
+  it("logs nothing for an edit that changes nothing", async () => {
+    const { deps } = instance();
+    const { rpc } = await owner(deps);
+    const added = await rpc.representative.factAdd(price);
+
+    await rpc.representative.factEdit({
+      id: added.id,
+      ...price,
+      validFrom: null,
+      validUntil: null,
+    });
+
+    expect((await rpc.representative.factLog()).map((entry) => entry.action)).toEqual(["add"]);
   });
 
   it("puts a fact in effect only between its valid dates, and a seasonal value ends by itself", async () => {
@@ -243,6 +286,8 @@ describe("an owner's Published facts", () => {
       type: "money",
       topic: "Prices",
       value: "60 USD",
+      validFrom: null,
+      validUntil: null,
     });
 
     await rpc.representative.rollback({ id, releaseId: first.id });
@@ -264,6 +309,8 @@ describe("an owner's Published facts", () => {
       type: "money",
       topic: "Prices",
       value: "50 USD",
+      validFrom: null,
+      validUntil: null,
     });
 
     const exported = (await exportUserData(deps, user.id)) as unknown as {
