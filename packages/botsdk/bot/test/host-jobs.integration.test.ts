@@ -1,9 +1,24 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { pgSchema, text } from "drizzle-orm/pg-core";
-import { afterAll, afterEach, beforeAll, describe, expect, expectTypeOf, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  onTestFinished,
+  beforeAll,
+  describe,
+  expect,
+  expectTypeOf,
+  it,
+} from "vitest";
 import { z } from "zod";
 
-import { defineFeature, defineJob, type BotSdkOptions, type Database } from "../src";
+import {
+  defineFeature,
+  defineJob,
+  type BotSdkOptions,
+  type Database,
+  type FeatureContext,
+} from "../src";
 import { buildBotSdk, type BotSdk } from "../src/create-chat";
 import { databaseOf, job, jobEvent } from "../src/storage";
 import { getTestDb, testDatabaseUrl } from "@ai-chat/test-support/test-database";
@@ -256,5 +271,136 @@ describe("a feature's job", () => {
       .from(job)
       .where(and(eq(job.id, id)));
     expect(row?.attempts).toBe(1);
+  });
+});
+
+describe("a feature's job context", () => {
+  const later = () => new Date(Date.now() + 60 * 60_000);
+
+  let jobs: FeatureContext["jobs"] | undefined;
+  const capture = defineJob({
+    name: "host.capture",
+    payload: z.object({}),
+    run: async (_payload, ctx) => {
+      jobs = ctx.jobs;
+    },
+  });
+  const feature = () => defineFeature({ id: "capturer", jobs: [capture] });
+
+  async function started() {
+    const sdk = hostSdk({ features: [feature()] });
+    await sdk.start();
+    const id = await sdk.runner.enqueue("host.capture", {});
+    await expect.poll(() => statusOf(sdk, id), poll).toBe("succeeded");
+    return { sdk, jobs: jobs! };
+  }
+
+  it("cancels a queued job by its key in its transaction, so it never runs", async () => {
+    const { sdk, jobs } = await started();
+    const id = await sdk.runner.enqueue(
+      "host.note",
+      { id: "never", text: "x" },
+      { idempotencyKey: "note:never", runAfter: later() },
+    );
+
+    const was = await getTestDb().transaction((tx) => jobs.cancelIn(tx, "note:never"));
+
+    expect(was).toBe("queued");
+    expect(await statusOf(sdk, id)).toBe("cancelled");
+    expect(await notes()).toEqual([]);
+  });
+
+  it("cancels nothing, and says so, when no job has the key", async () => {
+    const { jobs } = await started();
+
+    expect(await getTestDb().transaction((tx) => jobs.cancelIn(tx, "note:none"))).toBeUndefined();
+  });
+
+  it("keeps a cancel whose transaction rolls back from cancelling", async () => {
+    const { sdk, jobs } = await started();
+    const id = await sdk.runner.enqueue(
+      "host.note",
+      { id: "kept", text: "x" },
+      { idempotencyKey: "note:kept", runAfter: later() },
+    );
+
+    await getTestDb()
+      .transaction(async (tx) => {
+        await jobs.cancelIn(tx, "note:kept");
+        throw new Error("rolled back");
+      })
+      .catch(() => {});
+
+    expect(await statusOf(sdk, id)).toBe("queued");
+  });
+
+  it(
+    "cancels a running job, which aborts at its next cancel check",
+    { timeout: 30_000 },
+    async () => {
+      let release!: () => void;
+      slowGate = new Promise((resolve) => {
+        release = resolve;
+      });
+      slowStarted.length = 0;
+      const { sdk, jobs } = await started();
+      onTestFinished(() => release());
+      const id = await sdk.runner.enqueue(
+        "host.slow",
+        { label: "running" },
+        { idempotencyKey: "slow:running" },
+      );
+      await expect.poll(() => slowStarted, poll).toEqual(["running"]);
+
+      const was = await getTestDb().transaction((tx) => jobs.cancelIn(tx, "slow:running"));
+      release();
+
+      expect(was).toBe("running");
+      await expect.poll(() => statusOf(sdk, id), poll).toBe("cancelled");
+    },
+  );
+
+  it("replaces a job that hasn't started with a new one", async () => {
+    const { sdk, jobs } = await started();
+    const old = await sdk.runner.enqueue(
+      "host.note",
+      { id: "old", text: "x" },
+      { idempotencyKey: "note:batch", runAfter: later() },
+    );
+
+    const next = await getTestDb().transaction((tx) =>
+      jobs.replaceIfNotStarted(tx, "note:batch", noteJob, { id: "new", text: "y" }),
+    );
+
+    expect(next).toBeDefined();
+    expect(next).not.toBe(old);
+    expect(await statusOf(sdk, old)).toBe("cancelled");
+    await expect.poll(() => statusOf(sdk, next!), poll).toBe("succeeded");
+    expect(await notes()).toEqual(["new"]);
+  });
+
+  it("is told, with undefined, when the job has already started", { timeout: 30_000 }, async () => {
+    let release!: () => void;
+    slowGate = new Promise((resolve) => {
+      release = resolve;
+    });
+    slowStarted.length = 0;
+    const { sdk, jobs } = await started();
+    onTestFinished(() => release());
+    const id = await sdk.runner.enqueue(
+      "host.slow",
+      { label: "started" },
+      { idempotencyKey: "slow:started" },
+    );
+    await expect.poll(() => slowStarted, poll).toEqual(["started"]);
+
+    const next = await getTestDb().transaction((tx) =>
+      jobs.replaceIfNotStarted(tx, "slow:started", slowJob, { label: "again" }),
+    );
+    release();
+
+    expect(next).toBeUndefined();
+    await expect.poll(() => statusOf(sdk, id), poll).toBe("succeeded");
+    expect(slowStarted).toEqual(["started"]);
   });
 });
