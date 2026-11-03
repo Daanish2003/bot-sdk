@@ -8,13 +8,14 @@ import { pruneProofs } from "./customer-proof";
 import { representativeThread } from "./db/schema";
 
 /*
- * A Customer thread closes after 7 idle days (ticket #1252). Recurring jobs aren't supported and a
- * feature has no boot hook, so each thread keeps one delayed job: it re-checks the thread's last
- * activity, closes it if it has been idle long enough, and otherwise queues the next check for the
- * day the idle time would be up.
+ * A thread its Representative holds closes after 7 idle days (ticket #1252); one the owner holds
+ * never does (#1253). Recurring jobs aren't supported and a feature has no boot hook, so each thread
+ * keeps one delayed job: it re-checks the thread's last activity, closes it if it has been idle long
+ * enough, and otherwise queues the next check for the day the idle time would be up. A held thread's
+ * check looks again later, so the chain is still there after Hand back, which counts as activity.
  */
 
-/** How long a thread may sit with no activity before it closes. */
+/** How long a thread its Representative holds may sit with no activity before it closes. */
 export const threadIdleMs = 7 * 24 * 60 * 60_000;
 
 export const threadIdleJobName = "representative.thread-idle";
@@ -44,19 +45,23 @@ export const threadIdleJob = defineJob<ThreadIdlePayload>({
         .where(
           and(
             eq(representativeThread.id, threadId),
-            ne(representativeThread.state, "closed"),
+            eq(representativeThread.state, "representative"),
             lte(representativeThread.updatedAt, new Date(now.getTime() - threadIdleMs)),
           ),
         )
         .returning({ id: representativeThread.id });
       if (closing.length > 0) return true;
       const [thread] = await tx
-        .select({ updatedAt: representativeThread.updatedAt })
+        .select({ state: representativeThread.state, updatedAt: representativeThread.updatedAt })
         .from(representativeThread)
         .where(
           and(eq(representativeThread.id, threadId), ne(representativeThread.state, "closed")),
         );
-      if (thread) await queueIdleCheck(job, tx, threadId, thread.updatedAt);
+      if (thread) {
+        // A held thread's last activity may be long past, which would queue this same check again.
+        const from = thread.state === "owner" ? now : thread.updatedAt;
+        await queueIdleCheck(job, tx, threadId, from);
+      }
       return false;
     });
     // After the thread's lock is let go: a message takes its proof's lock and then the thread's.

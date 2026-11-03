@@ -129,6 +129,11 @@ async function serving(rounds: Round[], held?: Promise<void>) {
       await attemptsEnd();
       return claimed;
     },
+    /** Moves the clock on, having run every job that came due, whenever each was due. */
+    pass: async (ms: number) => {
+      timer.advance(ms);
+      while (await claim()) await attemptsEnd();
+    },
     /** The Customer's message; its job is null when no Turn follows. */
     send: async (
       message: string,
@@ -340,29 +345,10 @@ describe("nothing but the owner's Hand back", () => {
     expect(fake.calls).toHaveLength(0);
   });
 
-  it("closes a held thread only after 7 days with no owner activity either", async () => {
-    const { timer, runDue, send, takeOver, say, thread } = await serving([]);
-    await send("Hello");
-    await takeOver();
-
-    // The check due 7 days after the first message finds the owner active since.
-    timer.advance(threadIdleMs - day);
-    await say("Still on it.");
-    timer.advance(day);
-    await runDue();
-    expect((await thread()).holder).toBe("owner");
-
-    timer.advance(threadIdleMs);
-    await runDue();
-    expect((await thread()).holder).toBe("closed");
-  });
-
   it("can't reopen a closed thread", async () => {
-    const { timer, runDue, send, takeOver, handBack, say, thread } = await serving([]);
+    const { pass, send, takeOver, handBack, say, thread } = await serving([quiet()]);
     await send("Hello");
-    await takeOver();
-    timer.advance(threadIdleMs);
-    await runDue();
+    await pass(threadIdleMs);
     const { holder, messageCount } = await thread();
     expect(holder).toBe("closed");
 
@@ -371,6 +357,55 @@ describe("nothing but the owner's Hand back", () => {
     await expect(handBack()).rejects.toMatchObject(closed);
     await expect(say("Hi")).rejects.toMatchObject(closed);
     expect(await thread()).toMatchObject({ holder: "closed", messageCount });
+  });
+});
+
+describe("a thread the owner holds, over time", () => {
+  it("never closes, even with no owner activity at all", async () => {
+    const { pass, send, takeOver, thread } = await serving([]);
+    await send("Hello");
+    await takeOver();
+
+    for (let week = 0; week < 8; week++) {
+      await pass(threadIdleMs);
+      expect((await thread()).holder).toBe("owner");
+    }
+  });
+
+  it("keeps a Customer's message on it, however long it has been held, and no new thread opens", async () => {
+    const { pass, send, takeOver, thread, rpc, fake } = await serving([]);
+    await send("Hello");
+    await takeOver();
+    const { id, representativeId } = await thread();
+
+    await pass(threadIdleMs * 3);
+    await send("Anyone there?");
+    await pass(threadIdleMs * 3);
+
+    const threads = await rpc.representative.threadList({ id: representativeId });
+    expect(threads.map((listed) => [listed.id, listed.holder])).toEqual([[id, "owner"]]);
+    expect((await thread()).messages.at(-1)?.text).toBe("Anyone there?");
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  it("closes 7 days after Hand back, and not before, however long the hold was", async () => {
+    const { pass, send, takeOver, say, handBack, thread } = await serving([]);
+    await send("Hello");
+    await takeOver();
+    await say("On it.");
+
+    // A check runs during the hold, so the next is due less than 7 days after Hand back.
+    await pass(threadIdleMs * 3);
+    await pass(day);
+    await handBack();
+    await pass(0);
+    expect((await thread()).holder).toBe("representative");
+
+    await pass(threadIdleMs - 1);
+    expect((await thread()).holder).toBe("representative");
+
+    await pass(1);
+    expect((await thread()).holder).toBe("closed");
   });
 });
 
