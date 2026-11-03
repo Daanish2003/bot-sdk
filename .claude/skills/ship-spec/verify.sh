@@ -9,9 +9,9 @@ suffix="${2:?database suffix}"
 redis_db="${3:-0}"
 
 # CI's placeholder env (.github/workflows/ci.yml), pointed at this machine's ports (environment.md).
-export TEST_DATABASE_URL="postgresql://postgres:password@127.0.0.1:5435/ai-chat_test_${suffix}"
+export TEST_DATABASE_URL="postgresql://postgres:password@127.0.0.1:5433/ai-chat_test_${suffix}"
 export TEST_REDIS_URL="redis://127.0.0.1:6380/${redis_db}"
-export DATABASE_URL="postgresql://postgres:password@127.0.0.1:5435/ai-chat"
+export DATABASE_URL="postgresql://postgres:password@127.0.0.1:5433/ai-chat"
 export BETTER_AUTH_URL="http://localhost:3001"
 export BETTER_AUTH_SECRET="ci-better-auth-secret-not-for-production"
 export KEY_ENCRYPTION_SECRET="ci-key-encryption-secret-not-for-production"
@@ -41,6 +41,6 @@ step install pnpm install --frozen-lockfile
 step lint pnpm exec oxlint
 step format pnpm exec oxfmt --check
 step typecheck pnpm check-types
-step test pnpm test
+step test pnpm exec vitest run --maxWorkers=2
 
 echo "VERIFY OK"

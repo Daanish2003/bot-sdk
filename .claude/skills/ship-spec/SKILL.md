@@ -65,7 +65,7 @@ Pick the cheapest model that will get the ticket **right the first time**. A fai
 
 ## 2. Set up
 
-1. **Check the services.** Postgres must answer on `127.0.0.1:5435` with the `vector` extension available, and Redis on `127.0.0.1:6380`. If either is down, start it as environment.md says, then check again. If Docker itself isn't running, the run is quiet: ask the user to start Docker Desktop.
+1. **Check the services.** Postgres must answer on `127.0.0.1:5433` with the `vector` extension available, and Redis on `127.0.0.1:6380`. If either is down, start it as environment.md says, then check again. If Docker itself isn't running, the run is quiet: ask the user to start Docker Desktop.
 2. Create `feature/<spec-slug>` from `origin/main` (or from the base the spec names) and push it.
 3. Create the integration worktree as environment.md says.
 4. Write the **run brief** to `%TEMP%/ai-chat-ship-<spec>.md` from [brief.md](brief.md). Fill in its blanks (spec, integration branch, slot holders) and add nothing that a pointer already holds.
