@@ -166,6 +166,31 @@ export function useUndoCustomerMerge(
   return useMutation(useRepresentative().customerMergeUndo.mutationOptions(options));
 }
 
+/** The owner's Published facts (`representative.factList`). */
+export function useFacts() {
+  return useQuery(useRepresentative().factList.queryOptions());
+}
+
+/** The log of changes to the owner's facts (`representative.factLog`). */
+export function useFactLog() {
+  return useQuery(useRepresentative().factLog.queryOptions());
+}
+
+/** Adds a fact (`representative.factAdd`). */
+export function useAddFact(options?: ProcedureMutationOptions<Representative["factAdd"]>) {
+  return useMutation(useRepresentative().factAdd.mutationOptions(options));
+}
+
+/** Edits a fact (`representative.factEdit`). */
+export function useEditFact(options?: ProcedureMutationOptions<Representative["factEdit"]>) {
+  return useMutation(useRepresentative().factEdit.mutationOptions(options));
+}
+
+/** Deletes a fact (`representative.factDelete`). */
+export function useDeleteFact(options?: ProcedureMutationOptions<Representative["factDelete"]>) {
+  return useMutation(useRepresentative().factDelete.mutationOptions(options));
+}
+
 /** A Representative's Customer threads (`representative.threadList`). */
 export function useThreads(id: string) {
   return useQuery(useRepresentative().threadList.queryOptions({ input: { id } }));

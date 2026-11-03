@@ -167,7 +167,7 @@ The documents a Release holds whole in a Representative's prompt, copied as text
 _Avoid_: Knowledge, excerpt, embedding
 
 **Published fact**:
-One typed piece of business information a Representative can state, such as a price or opening hours, quoted exactly and never reworded. It changes live, and a change a Bot proposes needs the user's Approval.
+One typed piece of business information a Representative can state, such as a price or opening hours, quoted exactly and never reworded. It has a key (unique to the user), a type (text, money, hours, phone or url, each value checked against it), a topic and optional valid dates, outside which it is not in effect. Every Representative of the user shares them. It changes live, each add, edit and delete goes in a log with the old value, the new value and the time, and a change a Bot proposes needs the user's Approval.
 _Avoid_: Knowledge, FAQ
 
 **Customer thread**:

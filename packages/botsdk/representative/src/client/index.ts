@@ -18,6 +18,10 @@ export {
   type DocumentRef,
   type DocumentSnapshot,
   type Draft,
+  type FactLogView,
+  type FactSnapshot,
+  type FactType,
+  type FactView,
   type Expectation,
   type DraftChange,
   type DraftDiff,
@@ -41,5 +45,7 @@ export {
   canonicalJson,
   documentChars,
   maxReleaseDocumentChars,
+  factTypes,
+  isInEffect,
   representativeTools,
 } from "../shared/contract";

@@ -16,6 +16,7 @@ import { bot, botAssignment, botsdkSchema } from "@botsdk/bot/storage";
 import type { ChannelProofRule } from "../verification";
 import type {
   Draft,
+  FactType,
   PendingApproval,
   ReleaseContent,
   TestCheck,
@@ -359,4 +360,59 @@ export const representativeThreadMessage = botsdkSchema.table(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [unique("representative_thread_message_position").on(table.threadId, table.position)],
+);
+
+/**
+ * A Published fact (ticket #1258): one typed piece of the owner's business information, shared by
+ * every one of their Representatives and outside every Release, so an edit applies at once. `value`
+ * is in the stored form its type gives it. A key is unique per owner.
+ */
+export const representativeFact = botsdkSchema.table(
+  "representative_fact",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    key: text("key").notNull(),
+    type: text("type").$type<FactType>().notNull(),
+    topic: text("topic").notNull(),
+    value: text("value").notNull(),
+    /** From when it is in effect; null for always. */
+    validFrom: timestamp("valid_from"),
+    /** Until when, not including it; null for never. */
+    validUntil: timestamp("valid_until"),
+    /** From the SDK's clock, since which facts are in effect is counted on it. */
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (table) => [unique("representative_fact_key").on(table.userId, table.key)],
+);
+
+/** A fact as a log keeps it: JSON, so its dates are ISO strings. */
+export type LoggedFact = {
+  type: FactType;
+  topic: string;
+  value: string;
+  validFrom: string | null;
+  validUntil: string | null;
+};
+
+/** What a change did to a fact. */
+export type FactAction = "add" | "edit" | "delete";
+
+/**
+ * One add, edit or delete of a Published fact (ticket #1258). It holds the key and both sides of
+ * the change, with no foreign key, so it outlives the fact it records.
+ */
+export const representativeFactLog = botsdkSchema.table(
+  "representative_fact_log",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    key: text("key").notNull(),
+    action: text("action").$type<FactAction>().notNull(),
+    old: jsonb("old").$type<LoggedFact>(),
+    new: jsonb("new").$type<LoggedFact>(),
+    at: timestamp("at").notNull(),
+  },
+  (table) => [index("representative_fact_log_user_idx").on(table.userId, table.at)],
 );

@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "ceb90938-dcf1-4f00-aa6f-00ed4b4e013e",
+  "id": "dd3e9d5c-7019-44f4-8d09-ffcb2733b1b8",
   "prevIds": ["05a3e5cd-0998-4023-8f3b-ff136dda8aa9"],
   "ddl": [
     {
@@ -30,7 +30,13 @@
     },
     {
       "isRlsEnabled": false,
-      "name": "representative_document",
+      "name": "representative_fact",
+      "entityType": "tables",
+      "schema": "botsdk"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "representative_fact_log",
       "entityType": "tables",
       "schema": "botsdk"
     },
@@ -536,20 +542,7 @@
       "name": "id",
       "entityType": "columns",
       "schema": "botsdk",
-      "table": "representative_document"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "representative_id",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_document"
+      "table": "representative_fact"
     },
     {
       "type": "text",
@@ -559,10 +552,10 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "name",
+      "name": "user_id",
       "entityType": "columns",
       "schema": "botsdk",
-      "table": "representative_document"
+      "table": "representative_fact"
     },
     {
       "type": "text",
@@ -572,10 +565,10 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "text",
+      "name": "key",
       "entityType": "columns",
       "schema": "botsdk",
-      "table": "representative_document"
+      "table": "representative_fact"
     },
     {
       "type": "text",
@@ -585,23 +578,62 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "hash",
+      "name": "type",
       "entityType": "columns",
       "schema": "botsdk",
-      "table": "representative_document"
+      "table": "representative_fact"
     },
     {
-      "type": "integer",
+      "type": "text",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "chars",
+      "name": "topic",
       "entityType": "columns",
       "schema": "botsdk",
-      "table": "representative_document"
+      "table": "representative_fact"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "value",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_fact"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "valid_from",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_fact"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "valid_until",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_fact"
     },
     {
       "type": "timestamp",
@@ -614,7 +646,111 @@
       "name": "created_at",
       "entityType": "columns",
       "schema": "botsdk",
-      "table": "representative_document"
+      "table": "representative_fact"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_fact"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_fact_log"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_fact_log"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "key",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_fact_log"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "action",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_fact_log"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "old",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_fact_log"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "new",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_fact_log"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "at",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_fact_log"
     },
     {
       "type": "uuid",
@@ -1469,7 +1605,14 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "representative_id",
+          "value": "user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "at",
           "isExpression": false,
           "asc": true,
           "nullsFirst": false,
@@ -1481,10 +1624,10 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "representative_document_representative_idx",
+      "name": "representative_fact_log_user_idx",
       "entityType": "indexes",
       "schema": "botsdk",
-      "table": "representative_document"
+      "table": "representative_fact_log"
     },
     {
       "nameExplicit": true,
@@ -1708,19 +1851,6 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["representative_id"],
-      "schemaTo": "botsdk",
-      "tableTo": "representative",
-      "columnsTo": ["id"],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "representative_document_yOfvktNhvbC5_fkey",
-      "entityType": "fks",
-      "schema": "botsdk",
-      "table": "representative_document"
-    },
-    {
-      "nameExplicit": false,
       "columns": ["assignment_id"],
       "schemaTo": "botsdk",
       "tableTo": "bot_assignment",
@@ -1884,9 +2014,17 @@
     {
       "columns": ["id"],
       "nameExplicit": false,
-      "name": "representative_document_pkey",
+      "name": "representative_fact_pkey",
       "schema": "botsdk",
-      "table": "representative_document",
+      "table": "representative_fact",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["id"],
+      "nameExplicit": false,
+      "name": "representative_fact_log_pkey",
+      "schema": "botsdk",
+      "table": "representative_fact_log",
       "entityType": "pks"
     },
     {
@@ -1945,6 +2083,15 @@
       "entityType": "uniques",
       "schema": "botsdk",
       "table": "representative_customer_identity"
+    },
+    {
+      "nameExplicit": true,
+      "columns": ["user_id", "key"],
+      "nullsNotDistinct": false,
+      "name": "representative_fact_key",
+      "entityType": "uniques",
+      "schema": "botsdk",
+      "table": "representative_fact"
     },
     {
       "nameExplicit": true,

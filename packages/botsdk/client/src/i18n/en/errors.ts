@@ -32,6 +32,8 @@ export const errorMessages = {
   "error.threadNotHeld": "Take over this thread to write in it",
   "error.customerBlocked": "This Customer is blocked, so nothing is sent to them",
   "error.customerIdentityTaken": "One of your Customers already has that identity.",
+  "error.factNotFound": "Fact not found",
+  "error.factKeyTaken": "You already have a fact with that key.",
   "error.customerMergeSame": "A Customer can't merge into itself.",
   "error.customerMergeBlocked": "Unblock this Customer before merging.",
   "error.customerMergeNotFound": "Merge not found",

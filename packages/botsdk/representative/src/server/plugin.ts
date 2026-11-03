@@ -9,6 +9,8 @@ import {
   representativeCustomerIdentity,
   representativeCustomerMerge,
   representativeDocument,
+  representativeFact,
+  representativeFactLog,
   representativeHandOff,
   representativeRelease,
   representativeTestResult,
@@ -20,6 +22,7 @@ import { threadIdleJob } from "./idle";
 import { exportMerges } from "./customer-merge";
 import { type CustomerChannel, noCustomerChannel, proofLinkRoutes } from "./customer-proof";
 import { deleteCustomers, exportCustomers } from "./customers";
+import { deleteFacts, exportFacts } from "./facts";
 import representativeMigrations from "./migrations.json" with { type: "json" };
 import {
   deleteRepresentatives,
@@ -66,6 +69,8 @@ export function representativeFeature(
         representativeCustomerIdentity,
         representativeCustomerMerge,
         representativeDocument,
+        representativeFact,
+        representativeFactLog,
         representativeHandOff,
         representativeRelease,
         representativeTestResult,
@@ -93,12 +98,14 @@ export function representativeFeature(
           // this has passed it, no new Customer can appear behind the delete below.
           await deleteRepresentatives(tx, userId);
           await deleteCustomers(tx, userId);
+          await deleteFacts(tx, userId);
         },
       },
       export: async (tx, userId) => ({
         representatives: await exportRepresentatives(tx, userId),
         customers: await exportCustomers(tx, userId),
         customerMerges: await exportMerges(tx, userId),
+        ...(await exportFacts(tx, userId)),
       }),
     },
   });

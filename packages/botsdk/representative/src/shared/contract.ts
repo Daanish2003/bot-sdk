@@ -1,6 +1,10 @@
 import { oc, type } from "@orpc/contract";
 import { z } from "zod";
 
+import { checkFactValue, factTypes, type FactType } from "./facts";
+
+export { factTypes, isInEffect, type FactType } from "./facts";
+
 /*
  * The `representative` feature's contract (spec #1167): the owner's Representatives, their working
  * drafts and their Releases, served under `<basePath>/rpc/representative` and implemented by
@@ -340,6 +344,81 @@ export const customerRenameInput = z.object({
   name: storable(z.string().trim().max(maxCustomerNameLength)),
 });
 
+/** The fields of a Published fact that don't name it, as stored or logged. */
+export type FactSnapshot = {
+  type: FactType;
+  topic: string;
+  value: string;
+  validFrom: Date | null;
+  validUntil: Date | null;
+};
+
+/** One of the owner's Published facts. `inEffect` is whether its valid dates cover now. */
+export type FactView = FactSnapshot & {
+  id: string;
+  key: string;
+  inEffect: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+/** One change to a fact: `old` is null for an add, and `new` for a delete. */
+export type FactLogView = {
+  id: string;
+  key: string;
+  action: "add" | "edit" | "delete";
+  old: FactSnapshot | null;
+  new: FactSnapshot | null;
+  at: Date;
+};
+
+export const maxFactTopicLength = 100;
+const factFields = {
+  type: z.enum(factTypes),
+  topic: storable(z.string().trim().min(1).max(maxFactTopicLength)),
+  value: storable(z.string()),
+  validFrom: z.date().nullable().optional(),
+  validUntil: z.date().nullable().optional(),
+};
+/** A value must fit its type, and a fact can't end before it starts. */
+function refineFact(
+  {
+    type,
+    value,
+    validFrom,
+    validUntil,
+  }: Pick<FactSnapshot, "type" | "value"> & Partial<Pick<FactSnapshot, "validFrom" | "validUntil">>,
+  context: z.RefinementCtx,
+) {
+  if (checkFactValue(type, value) === null) {
+    context.addIssue({ code: "custom", path: ["value"], message: `Not a valid ${type} value` });
+  }
+  if (validFrom && validUntil && validUntil <= validFrom) {
+    context.addIssue({ code: "custom", path: ["validUntil"], message: "Ends before it starts" });
+  }
+}
+export const factAddInput = z
+  .object({
+    /** What a reply names it by: lower case, with dots, dashes and underscores. */
+    key: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[a-z0-9][a-z0-9._-]{0,63}$/),
+    ...factFields,
+  })
+  .superRefine(refineFact);
+/** A fact's key is fixed once it's made, since a reply may already name it. */
+/** An edit replaces the fact's fields, so the valid dates are given too, or null to clear them. */
+export const factEditInput = z
+  .object({
+    id: z.uuid(),
+    ...factFields,
+    validFrom: z.date().nullable(),
+    validUntil: z.date().nullable(),
+  })
+  .superRefine(refineFact);
+
 export const idInput = z.object({ id: z.uuid() });
 export const approveInput = z.object({
   id: z.uuid(),
@@ -415,6 +494,16 @@ export const representativeContract = {
   customerMergeList: oc.output(type<CustomerMergeView[]>()),
   /** Undoes a merge: each identity goes back to its original Customer, and a closed thread stays closed. */
   customerMergeUndo: oc.input(idInput).output(type<CustomerMergeView>()),
+  /** The owner's Published facts, grouped by topic and then key. They are shared by every Representative. */
+  factList: oc.output(type<FactView[]>()),
+  /** Adds a fact, which applies at once. Refused when a value doesn't fit its type or the owner already has the key. */
+  factAdd: oc.input(factAddInput).output(type<FactView>()),
+  /** Changes a fact's type, topic, value or valid dates, which applies at once. The key stays. */
+  factEdit: oc.input(factEditInput).output(type<FactView>()),
+  /** Deletes a fact. */
+  factDelete: oc.input(idInput).output(type<FactLogView>()),
+  /** Every add, edit and delete of the owner's facts, newest first. */
+  factLog: oc.output(type<FactLogView[]>()),
   /** A Representative's Customer threads, the most recently active first. */
   threadList: oc.input(idInput).output(type<ThreadSummary[]>()),
   /** One thread with its transcript, holder and who it waits on. */
