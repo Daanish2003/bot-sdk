@@ -20,6 +20,7 @@ import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter
 import type { AnyTextAdapter } from "@tanstack/ai";
 import { requestProof } from "../src/server/customer-proof";
 import {
+  representativeCustomer,
   representativeCustomerIdentity,
   representativeVerification,
 } from "../src/server/db/schema";
@@ -293,6 +294,103 @@ describe("what a code allows", () => {
     expect(JSON.stringify(turn.messages)).not.toContain(code);
     expect(JSON.stringify(turn.systemPrompts)).toContain("is verified");
     expect(JSON.stringify(turn.systemPrompts)).not.toContain("isn't verified");
+  });
+
+  it("catches a code in another script's digits, and passes it", async () => {
+    const { deps, user, id, code, fake } = await codeSent([quiet()]);
+    const arabic = [...code].map((digit) => String.fromCodePoint(0x660 + Number(digit))).join("");
+
+    await testCustomerTurn(deps, sms(id, arabic));
+
+    expect((await standingOn(deps, user.id)).verifiedContactAt).not.toBeNull();
+    expect(promptOf(fake.calls.at(-1))).not.toContain(arabic);
+  });
+
+  it("tells a Model whose sender is already verified that no proof is needed", async () => {
+    const { deps, id, code, sent, fake } = await codeSent([verifies(), quiet()]);
+
+    await testCustomerTurn(deps, sms(id, code));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(sent).toHaveLength(1);
+    expect(answerIn(fake.calls.at(-1))).toContain("already verified");
+    expect(answerIn(fake.calls.at(-1))).not.toContain("on its way");
+  });
+
+  it("sends nothing to a sender who passed a code since their Turn began", async () => {
+    const { deps, user, id, code, sent, timer } = await codeSent([quiet()]);
+    await testCustomerTurn(deps, sms(id, code));
+    const [customer] = await customersOf(deps, user.id);
+
+    const proof = await getTestDb().transaction((tx) =>
+      requestProof(tx, {
+        keyring: ["a-test-secret"],
+        userId: user.id,
+        thread: {
+          threadId: customer!.threads[0]!.id,
+          heard: { channel: "sms", externalId: "+15550001" },
+          verified: false,
+          proofRule: "codeRoundTrip",
+        },
+        claimed: null,
+        now: timer.clock.now(),
+      }),
+    );
+
+    expect(proof).toBeNull();
+    expect(sent).toHaveLength(1);
+  });
+
+  it("sends nothing when the owner blocks the Customer while a proof waits for its lock", async () => {
+    const { deps, user, timer } = await codeSent([]);
+    const [customer] = await customersOf(deps, user.id);
+    let release = () => {};
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let holding = () => {};
+    const held = new Promise<void>((resolve) => (holding = resolve));
+    const blocker = getTestDb().transaction(async (tx) => {
+      await tx
+        .select({ id: representativeCustomerIdentity.id })
+        .from(representativeCustomerIdentity)
+        .where(eq(representativeCustomerIdentity.userId, user.id))
+        .for("update");
+      holding();
+      await released;
+    });
+    await held;
+    const asked = getTestDb().transaction((tx) =>
+      requestProof(tx, {
+        keyring: ["a-test-secret"],
+        userId: user.id,
+        thread: {
+          threadId: customer!.threads[0]!.id,
+          heard: { channel: "sms", externalId: "+15550001" },
+          verified: false,
+          proofRule: "codeRoundTrip",
+        },
+        claimed: null,
+        now: timer.clock.now(),
+      }),
+    );
+    await vi.waitFor(
+      async () => {
+        const { rows } = await getTestDb().execute<{ waiting: number }>(
+          sql`select count(*)::int as waiting from pg_stat_activity
+               where datname = current_database() and wait_event_type = 'Lock'
+               and query ilike '%representative_customer_identity%'`,
+        );
+        expect(rows[0]!.waiting).toBeGreaterThanOrEqual(1);
+      },
+      { timeout: 10_000 },
+    );
+    await getTestDb()
+      .update(representativeCustomer)
+      .set({ blockedAt: timer.clock.now() })
+      .where(eq(representativeCustomer.id, customer!.id));
+    release();
+    await blocker;
+
+    expect(await asked).toBeNull();
   });
 
   it("stores only a hash of a code", async () => {
@@ -621,6 +719,49 @@ describe("a code to an identity on record, from web chat", () => {
     expect(answerIn(fake.calls[3])).toEqual(answerIn(fake.calls[1]));
   });
 
+  it("won't send a Customer with other identities a code by way of someone else's", async () => {
+    const { deps, sent } = await instance([
+      quiet(),
+      verifies({ channel: "email", externalId: "b@example.com" }),
+      quiet(),
+      verifies({ channel: "email", externalId: "a@example.com" }),
+      quiet(),
+    ]);
+    const { user, id, rpc } = await owner(deps);
+    await rpc.representative.customerCreate({ channel: "email", externalId: "b@example.com" });
+    await testCustomerTurn(deps, web(id, "Hi"));
+    const customer = (await customersOf(deps, user.id)).find((row) =>
+      row.identities.some((identity) => identity.externalId === "session-1"),
+    );
+    await rpc.representative.customerAddIdentity({
+      id: customer!.id,
+      channel: "email",
+      externalId: "a@example.com",
+    });
+    await testCustomerTurn(deps, web(id, "I'm b"));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(sent).toEqual([]);
+
+    await testCustomerTurn(deps, web(id, "I'm a"));
+    await expect.poll(() => sent.length).toBe(1);
+
+    expect(sent[0]).toMatchObject({ externalId: "a@example.com" });
+  });
+
+  it("tells a Model that claims half an identity to give both parts", async () => {
+    const { deps, sent, fake } = await instance([
+      verifies({ externalId: "a@example.com" }),
+      quiet(),
+    ]);
+    const { id, rpc } = await owner(deps);
+    await rpc.representative.customerCreate({ channel: "email", externalId: "a@example.com" });
+
+    await testCustomerTurn(deps, web(id, "I'm a"));
+
+    expect(sent).toEqual([]);
+    expect(answerIn(fake.calls[1])).not.toContain("on its way");
+  });
+
   it("keeps a code on its way when a later claim leads nowhere", async () => {
     const { deps, sent } = await instance([
       verifies({ channel: "email", externalId: "a@example.com" }),
@@ -918,6 +1059,7 @@ describe("a code to an identity on record, from web chat", () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     expect(answerIn(fake.calls[1])).toContain("on its way");
+    expect(JSON.stringify(fake.calls[0]?.systemPrompts)).toContain("isn't verified");
     expect(sent).toEqual([]);
   });
 });
@@ -1032,7 +1174,7 @@ describe("a lapsed identity", () => {
 });
 
 describe("a Channel with no rule", () => {
-  it("sends nothing, and answers the same", async () => {
+  it("sends nothing, and says nothing can be proved here", async () => {
     const { deps, sent, fake } = await instance([
       verifies({ channel: "sms", externalId: "+15550001" }),
       quiet(),
@@ -1044,7 +1186,8 @@ describe("a Channel with no rule", () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     expect(sent).toEqual([]);
-    expect(answerIn(fake.calls[1])).toContain("on its way");
+    expect(answerIn(fake.calls[1])).not.toContain("on its way");
+    expect(answerIn(fake.calls[1])).toContain("can't be proved");
   });
 });
 

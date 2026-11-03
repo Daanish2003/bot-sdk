@@ -16,8 +16,10 @@ import {
   type RepresentativeTool,
 } from "../shared/contract";
 import {
+  alreadyVerifiedAnswer,
   type CustomerChannel,
   noCustomerChannel,
+  noProofAnswer,
   proofAnswer,
   requestProof,
   type SentProof,
@@ -248,10 +250,29 @@ export function turnTools({ job, kit, userId, name, representativeId, thread }: 
         "they claim, such as the email or phone number they say is on their record. Code decides " +
         "whether anything is sent and where, and never tells you, so tell the Customer only what " +
         "this tool answers.",
-      inputSchema: z.object({
-        channel: z.string().trim().toLowerCase().min(1).max(64).refine(noNul).optional(),
-        externalId: z.string().trim().min(1).max(512).refine(noNul).optional(),
-      }),
+      inputSchema: z
+        .object({
+          channel: z
+            .string()
+            .trim()
+            .toLowerCase()
+            .min(1)
+            .max(64)
+            .refine(noNul)
+            .optional()
+            .describe('Where the claimed identity lives, such as "email" or "sms".'),
+          externalId: z
+            .string()
+            .trim()
+            .min(1)
+            .max(512)
+            .refine(noNul)
+            .optional()
+            .describe("The address on that Channel, as the Customer gave it."),
+        })
+        .refine((claim) => Boolean(claim.channel) === Boolean(claim.externalId), {
+          message: "Give both channel and externalId, or neither.",
+        }),
     }).server(async ({ channel, externalId }, context) => {
       const now = await job.now();
       const claimed = channel && externalId ? { channel, externalId } : null;
@@ -263,7 +284,8 @@ export function turnTools({ job, kit, userId, name, representativeId, thread }: 
           thread === null
             ? null
             : await requestProof(tx, { keyring: job.keyring, userId, thread, claimed, now });
-        return proofAnswer;
+        if (thread?.verified) return alreadyVerifiedAnswer;
+        return thread && !thread.proofRule ? noProofAnswer : proofAnswer;
       });
       if (outgoing && thread) {
         const { to, proof } = outgoing as SentProof;
@@ -378,13 +400,12 @@ export async function playLoop(
       const listed = content.tools.flatMap((tool) =>
         Object.hasOwn(tools, tool) ? [tools[tool]!] : [],
       );
-      const systemPrompts = systemPromptsOf(content);
-      if (!test) {
-        return {
-          systemPrompts: [...systemPrompts, senderStanding("thread" in on && on.thread.verified)],
-          tools: listed,
-        };
-      }
+      // A test conversation's stand-in is unverified, as its prompt treats it.
+      const systemPrompts = [
+        ...systemPromptsOf(content),
+        senderStanding("thread" in on && on.thread.verified),
+      ];
+      if (!test) return { systemPrompts, tools: listed };
       let stale = false;
       return {
         systemPrompts,

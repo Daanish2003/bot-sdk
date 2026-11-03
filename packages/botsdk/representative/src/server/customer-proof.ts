@@ -1,4 +1,4 @@
-import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
+import { createHmac, hkdfSync, randomInt, timingSafeEqual } from "node:crypto";
 import { and, desc, eq, gt, inArray, isNull, lte, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
@@ -56,8 +56,27 @@ export const proofAnswer = {
     "If that identity can receive a proof, one is on its way. Ask the Customer to send the code here, or to open the link, and don't say whether the identity is on record.",
 };
 
+/** The answers that depend on nothing about the claim, so they tell nobody who is a Customer. */
+export const noProofAnswer = {
+  answer: "Who this sender is can't be proved on this Channel, so don't ask them for a code.",
+};
+export const alreadyVerifiedAnswer = {
+  answer: "This sender is already verified, so no proof is needed.",
+};
+
+const proofKeys = new Map<string, Buffer>();
+/** Its own key under the secret, as ADR 0010's other uses of the keyring have. */
+const proofKey = (secret: string) => {
+  let key = proofKeys.get(secret);
+  if (!key) {
+    key = Buffer.from(hkdfSync("sha256", secret, "", "botsdk representative proof", 32));
+    proofKeys.set(secret, key);
+  }
+  return key;
+};
+
 const signed = (secret: string, purpose: "code" | "link", value: string) =>
-  createHmac("sha256", secret).update(`botsdk:representative:${purpose}:${value}`).digest();
+  createHmac("sha256", proofKey(secret)).update(`${purpose}:${value}`).digest();
 
 /** Whether `actual` is `value`'s keyed hash under any secret of the keyring. */
 const signedByKeyring = (
@@ -98,6 +117,7 @@ async function identityAt(
       customerId: representativeCustomerIdentity.customerId,
       verifiedContactAt: representativeCustomerIdentity.verifiedContactAt,
       lapsedAt: representativeCustomerIdentity.lapsedAt,
+      provenUntil: representativeCustomerIdentity.provenUntil,
       blockedAt: representativeCustomer.blockedAt,
     })
     .from(representativeCustomerIdentity)
@@ -129,13 +149,23 @@ async function holdIdentities(tx: Transaction, ids: string[]) {
   }
 }
 
+/** Whether a Customer has just this one identity: a stranger, with nothing a proof could open. */
+async function isOnlyIdentity(tx: Transaction, customerId: string) {
+  const identities = await tx
+    .select({ id: representativeCustomerIdentity.id })
+    .from(representativeCustomerIdentity)
+    .where(eq(representativeCustomerIdentity.customerId, customerId))
+    .limit(2);
+  return identities.length === 1;
+}
+
 /**
  * Makes a proof for this Turn's sender, if one should go, for the caller to send once it commits.
  * A sender whose number or address can be reached proves themselves by it, whatever the Model
  * claims, unless their verification has lapsed: that number's next holder would get the code. A
- * lapsed sender gets a code only by way of another identity of their own Customer, since a new holder
- * could make an identity of their own and claim it, and a sender on a Channel whose rule is the
- * record by way of any identity on record. A lapsed identity or a blocked Customer's receives none.
+ * sender gets a code by way of another identity of their own Customer. Only one who hasn't lapsed and
+ * whose Customer has no other identity can use any identity on record, since passing a code opens
+ * what their Customer holds, and a new holder could make an identity of their own and claim it. A lapsed identity or a blocked Customer's receives none.
  * So a Customer with one identity and a lapse has no way back but the owner. A claim that leads
  * nowhere leaves a code nobody can pass, unless a real one is on its way, so that what the sender
  * types next is treated just as it is after a claim on record.
@@ -179,7 +209,9 @@ export async function requestProof(
   await holdIdentities(tx, [before.id, ...(claim ? [claim.id] : [])]);
   // Read again under the hold: either may have changed while waiting for it.
   const sender = await identityAt(tx, userId, heard);
-  if (sender?.id !== before.id) return null;
+  if (sender?.id !== before.id || sender.blockedAt !== null) return null;
+  // They passed a code while this Turn ran.
+  if (sender.provenUntil !== null && now < sender.provenUntil) return null;
   const found = claimed && claim ? await identityAt(tx, userId, claimed) : undefined;
   const reachesSender = proofRule === "codeRoundTrip" || proofRule === "dmarc";
   const lapsed = hasLapsed(sender, now);
@@ -193,7 +225,8 @@ export async function requestProof(
     found.id !== sender.id &&
     found.blockedAt === null &&
     !hasLapsed(found, now) &&
-    (!lapsed || found.customerId === sender.customerId)
+    (found.customerId === sender.customerId ||
+      (!lapsed && (await isOnlyIdentity(tx, sender.customerId))))
   ) {
     target = { id: found.id, ...claimed };
   }
@@ -281,9 +314,19 @@ const codesLookedAt = 20;
 const digitRuns = /\d(?:[ .\-\u2013\u2014]?\d)*/g;
 const onlyACode = /^\s*\d(?:[ .\-\u2013\u2014]?\d){5}\s*$/;
 
+/** `text` with every script's decimal digits as ASCII ones, each block running from 0 up in tens. */
+function withPlainDigits(text: string) {
+  return text.normalize("NFKC").replace(/\p{Nd}/gu, (digit) => {
+    const at = digit.codePointAt(0)!;
+    let zero = at;
+    while (/\p{Nd}/u.test(String.fromCodePoint(zero - 1))) zero -= 1;
+    return String((at - zero) % 10);
+  });
+}
+
 /** The six-digit codes in a message, however they are spaced, and whether it is nothing but one. */
 function codesIn(text: string) {
-  const normal = text.normalize("NFKC");
+  const normal = withPlainDigits(text);
   const candidates = (normal.match(digitRuns) ?? [])
     .map((run) => run.replace(/\D/g, ""))
     .filter((run) => run.length === 6);
@@ -330,7 +373,7 @@ export async function catchCode(
     now: Date;
   },
 ): Promise<string> {
-  const digits = text.normalize("NFKC").replace(/\D/g, "").slice(0, digitsLookedAt);
+  const digits = withPlainDigits(text).replace(/\D/g, "").slice(0, digitsLookedAt);
   if (digits.length < 6) return text;
   const { candidates, alone } = codesIn(text);
   // The identity before its verification, the order the owner's edit takes them in.
