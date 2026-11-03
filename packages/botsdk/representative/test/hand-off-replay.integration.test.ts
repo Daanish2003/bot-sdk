@@ -100,6 +100,11 @@ describe("a hand-off replayed after a crash", () => {
     await rpc.representative.setEnabled({ id, enabled: true });
     const { jobId } = await startTestCustomerTurn(deps, { representativeId: id, message: "Hi" });
     const { assignments, threads } = deps.parts.features[0]!.context;
+    let attempt: Promise<void> | undefined;
+    const leaseLost = async () => {
+      timer.advance(61_000);
+      await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps!.parts.jobs);
+    };
     return {
       fake,
       botFake,
@@ -119,10 +124,13 @@ describe("a hand-off replayed after a crash", () => {
         }
         throw new Error("The jobs never ran out");
       },
+      /** The lease goes, and the attempt hasn't heard: it goes on as a stalled process would. */
+      leaseLost,
+      /** The lease goes and the attempt hears, so its code starts no more work, as a dead one wouldn't. */
       crash: async () => {
-        timer.advance(61_000);
-        await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps!.parts.jobs);
+        await leaseLost();
         timer.tick();
+        await attempt;
       },
       /** Runs attempts until the Turn's job ends. */
       turnEnds: async () => {
@@ -133,7 +141,8 @@ describe("a hand-off replayed after a crash", () => {
             respectRunAfter: false,
           });
           if (!claimed) throw new Error(`Nothing to claim, with the Turn ${status?.status}`);
-          await jobs.runClaimed(claimed, {});
+          attempt = jobs.runClaimed(claimed, {});
+          await attempt;
         }
         throw new Error("The Turn never ended");
       },
@@ -231,6 +240,24 @@ describe("a hand-off replayed after a crash", () => {
 
     await turnEnds();
 
+    await expectOneHandOff(botId);
+    expect(toolResults(fake)).toEqual([{ handedOff: true }]);
+  });
+
+  it("repeats only the Model call when a stalled attempt reaches the Model after its lease went", async () => {
+    const { fake, deps, botId, leaseLost, turnEnds } = await queuedHandOff([
+      handsOff(),
+      quiet(),
+      quiet(),
+    ]);
+    vi.spyOn(deps.pubsub, "publish").mockImplementationOnce(async () => {
+      await leaseLost();
+    });
+
+    await turnEnds();
+
+    // The stalled attempt's call saves nothing, so the next attempt makes it again; the tool replays.
+    expect(fake.calls).toHaveLength(3);
     await expectOneHandOff(botId);
     expect(toolResults(fake)).toEqual([{ handedOff: true }]);
   });
