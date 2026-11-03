@@ -8,10 +8,13 @@ import { useI18n } from "@botsdk/react/provider";
 import { serverErrorText } from "@botsdk/react/rpc-error";
 import {
   useAddFact,
+  useApproveFactProposal,
+  useDeclineFactProposal,
   useDeleteFact,
   useDismissGap,
   useEditFact,
   useFactLog,
+  useFactProposals,
   useFacts,
   useGapToFact,
   useGaps,
@@ -19,6 +22,8 @@ import {
 } from "@botsdk/representative/react";
 import {
   type FactLogView,
+  type FactProposalView,
+  type FactSnapshot,
   type FactType,
   type FactView,
   factTypes,
@@ -260,6 +265,130 @@ function GapRow({ gap }: { gap: GapView }) {
   );
 }
 
+/** One side of a proposal, field by field; a fact the key doesn't have yet says so. */
+function ProposalSide({
+  side,
+  title,
+  fact,
+  other,
+}: {
+  side: "current" | "proposed";
+  title: string;
+  fact: FactSnapshot | null;
+  /** The other side: a field that differs from it is marked. */
+  other: FactSnapshot | null;
+}) {
+  const { t } = useI18n();
+  return (
+    <div data-side={side} className="min-w-0 space-y-1 rounded-md border p-3 text-sm">
+      <h4 className="text-xs font-medium text-muted-foreground">{title}</h4>
+      {fact ? (
+        <dl className="space-y-1">
+          {(
+            [
+              ["representative.facts.field.value", fact.value, other?.value],
+              ["representative.facts.field.type", fact.type, other?.type],
+              ["representative.facts.field.topic", fact.topic, other?.topic],
+              [
+                "representative.facts.field.from",
+                toDateField(fact.validFrom),
+                other && toDateField(other.validFrom),
+              ],
+              [
+                "representative.facts.field.until",
+                toDateField(fact.validUntil),
+                other && toDateField(other.validUntil),
+              ],
+            ] as const
+          ).map(
+            ([label, value, otherValue]) =>
+              value !== "" && (
+                <div key={label} className="flex flex-wrap gap-x-2">
+                  <dt className="text-xs text-muted-foreground">{t(label)}</dt>
+                  <dd
+                    data-changed={other !== null && value !== otherValue}
+                    className="break-words data-[changed=true]:font-semibold"
+                  >
+                    {value}
+                  </dd>
+                </div>
+              ),
+          )}
+        </dl>
+      ) : (
+        <p className="text-muted-foreground">{t("representative.facts.proposalNone")}</p>
+      )}
+    </div>
+  );
+}
+
+/** A Bot's proposed fact: what it is now beside what it would become, answered here and nowhere else. */
+function ProposalRow({ proposal }: { proposal: FactProposalView }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const callbacks = {
+    onSuccess: () => refresh(),
+    onError: async (error: unknown) => {
+      toast.error(serverErrorText(i18n, error));
+      // Refused because it no longer waits, so the row should go.
+      await refresh();
+    },
+  };
+  const approve = useApproveFactProposal(callbacks);
+  const decline = useDeclineFactProposal(callbacks);
+  const acting = approve.isPending || decline.isPending;
+  return (
+    <li data-fact-proposal={proposal.key} className="space-y-2 p-4">
+      <div className="flex flex-wrap items-baseline gap-2">
+        <span className="font-mono text-sm font-medium">{proposal.key}</span>
+        <span className="text-xs text-muted-foreground">
+          {t("representative.facts.proposalFrom", { name: proposal.botName })}
+        </span>
+        <span className="ml-auto text-xs text-muted-foreground">
+          {t("representative.facts.proposalExpires", {
+            date: proposal.expiresAt.toLocaleDateString(),
+          })}
+        </span>
+      </div>
+      <p className="text-sm whitespace-pre-wrap">{proposal.why}</p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <ProposalSide
+          side="current"
+          title={t("representative.facts.proposalCurrent")}
+          fact={proposal.current}
+          other={proposal.proposed}
+        />
+        <ProposalSide
+          side="proposed"
+          title={t("representative.facts.proposalProposed")}
+          fact={proposal.proposed}
+          other={proposal.current}
+        />
+      </div>
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          disabled={acting}
+          aria-label={t("representative.facts.proposalApproveOf", { name: proposal.key })}
+          onClick={() => approve.mutate({ id: proposal.id })}
+        >
+          {t("representative.facts.proposalApprove")}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={acting}
+          aria-label={t("representative.facts.proposalDeclineOf", { name: proposal.key })}
+          onClick={() => decline.mutate({ id: proposal.id })}
+        >
+          {t("representative.facts.proposalDecline")}
+        </Button>
+      </div>
+    </li>
+  );
+}
+
 function LogRow({ entry }: { entry: FactLogView }) {
   const { t } = useI18n();
   return (
@@ -274,6 +403,11 @@ function LogRow({ entry }: { entry: FactLogView }) {
       {entry.new && (
         <span className="text-xs text-muted-foreground">
           {t("representative.facts.logNew", { value: entry.new.value })}
+        </span>
+      )}
+      {entry.proposedBy && (
+        <span className="text-xs text-muted-foreground">
+          {t("representative.facts.logProposedBy", { name: entry.proposedBy })}
         </span>
       )}
       <time className="ml-auto text-xs text-muted-foreground" dateTime={entry.at.toISOString()}>
@@ -293,6 +427,7 @@ export function FactsPage() {
   const facts = useFacts();
   const log = useFactLog();
   const gaps = useGaps();
+  const proposals = useFactProposals();
   // The list comes sorted by topic, so each topic's facts are together.
   const topics = new Map<string, FactView[]>();
   for (const fact of facts.data ?? [])
@@ -310,6 +445,16 @@ export function FactsPage() {
           <ul className="divide-y overflow-hidden rounded-xl border">
             {gaps.data.map((gap) => (
               <GapRow key={gap.id} gap={gap} />
+            ))}
+          </ul>
+        </section>
+      )}
+      {proposals.data && proposals.data.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-medium">{t("representative.facts.proposalsTitle")}</h2>
+          <ul className="divide-y overflow-hidden rounded-xl border">
+            {proposals.data.map((proposal) => (
+              <ProposalRow key={proposal.id} proposal={proposal} />
             ))}
           </ul>
         </section>

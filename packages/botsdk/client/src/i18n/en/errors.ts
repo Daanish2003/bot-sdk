@@ -35,6 +35,7 @@ export const errorMessages = {
   "error.factNotFound": "Fact not found",
   "error.factKeyTaken": "You already have a fact with that key.",
   "error.gapNotFound": "Gap not found",
+  "error.factProposalGone": "That proposal is no longer waiting.",
   "error.customerMergeSame": "A Customer can't merge into itself.",
   "error.customerMergeBlocked": "Unblock this Customer before merging.",
   "error.customerMergeNotFound": "Merge not found",

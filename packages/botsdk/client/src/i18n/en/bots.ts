@@ -377,6 +377,17 @@ description: Use this when
     `The Bot was reset, so it no longer waits on the draft of ${name}.`,
   "bots.releaseApprovalExpired": ({ name }: { name: string }) =>
     `The request about ${name} expired. Its draft stays on its page.`,
+  "bots.factApprovalTitle": ({ key }: { key: string }) => `Fact proposed: ${key}`,
+  "bots.factApprovalReview": "Review and answer on the Facts page",
+  "bots.factApprovalOpen": "Open the Facts page",
+  "bots.factApprovalApproved": ({ key }: { key: string }) =>
+    `You approved the proposal for ${key}.`,
+  "bots.factApprovalDeclined": ({ key }: { key: string }) =>
+    `You declined the proposal for ${key}.`,
+  "bots.factApprovalDropped": ({ key }: { key: string }) =>
+    `The Bot was reset, so its proposal for ${key} is gone.`,
+  "bots.factApprovalExpired": ({ key }: { key: string }) =>
+    `The proposal for ${key} expired and changed nothing.`,
   "bots.ruleProposed": "Rule proposed",
   "bots.ruleAdded": ({ text }: { text: string }) => `Rule added: ${text}`,
   "bots.waiting": ({ count }: { count: number }) => `Waiting ${count}`,

@@ -14,6 +14,7 @@ import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { representativeThread, representativeThreadMessage } from "../src/server/db/schema";
 import { representativeFeature } from "../src/server/plugin";
+import { handOffMessage } from "../src/server/replies";
 import { takeoverNote } from "../src/server/takeover";
 import { receiveCustomerMessage } from "../src/server/thread-turns";
 
@@ -311,6 +312,8 @@ describe("a hand-off's result", () => {
       handsOff(),
       quiet(),
       relays("refund of 2000"),
+      // A reply that goes through in between, as two refusals in a row would hand off (#1261).
+      replies("One moment."),
       relays("refund of 20", "019a0000-0000-7000-8000-000000000000"),
       quiet(),
     ]);
@@ -321,12 +324,38 @@ describe("a hand-off's result", () => {
     expect(texts((await thread()).messages)).toEqual([
       "I want a refund",
       "Your refund of 20 is on its way.",
+      "One moment.",
     ]);
     const answers = (fake.calls.at(-1)!.messages as Array<{ role: string; content: unknown }>)
       .filter((message) => message.role === "tool")
       .map((message) => String(message.content));
-    expect(answers.at(-2)).toContain("exact quote");
+    expect(answers.at(-3)).toContain("exact quote");
     expect(answers.at(-1)).toContain("019a0000-0000-7000-8000-000000000000");
+  });
+
+  it("waits on the owner when relaying it is refused twice, with no new Assignment", async () => {
+    const { send, drain, thread, fake, botId, botFake } = await serving([
+      handsOff(),
+      quiet(),
+      relays("refund of 2000"),
+      relays("refund of 3000"),
+    ]);
+    await send("I want a refund");
+
+    await drain();
+
+    const { messages, waitingOn } = await thread();
+    expect(texts(messages)).toEqual([
+      "I want a refund",
+      "Your refund of 20 is on its way.",
+      handOffMessage,
+    ]);
+    expect(waitingOn).toBe("owner");
+    expect(fake.calls).toHaveLength(4);
+    expect(botFake.calls).toHaveLength(2);
+    expect(
+      await getTestDb().select().from(botAssignment).where(eq(botAssignment.assignedBotId, botId)),
+    ).toHaveLength(1);
   });
 
   it("isn't a source once it is history: the owner held it", async () => {

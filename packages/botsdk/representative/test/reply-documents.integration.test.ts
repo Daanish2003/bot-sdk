@@ -137,6 +137,25 @@ describe("a reply citing a document quote", () => {
     ]);
   });
 
+  it("shows the owner the document source with its name and quote", async () => {
+    const { deps, rpc, id, upload } = await instance([
+      cites("warranty.md", "Two years on every kettle"),
+      quiet(),
+    ]);
+    await upload("warranty.md", warranty);
+    await rpc.representative.approve({ id });
+    await rpc.representative.setEnabled({ id, enabled: true });
+
+    await testCustomerTurn(deps, { representativeId: id, message: "Warranty?" });
+
+    const [summary] = await rpc.representative.threadList({ id });
+    const { messages } = await rpc.representative.threadGet({ id: summary!.id });
+    expect(messages.at(-1)?.reply).toEqual({
+      kind: "answer",
+      sources: [{ type: "document", name: "warranty.md", quote: "Two years on every kettle" }],
+    });
+  });
+
   it("refuses an invented quote with the reason, and sends nothing", async () => {
     const { deps, fake, rpc, id, upload, sent } = await instance([
       cites("warranty.md", "Three years on every kettle"),
@@ -155,6 +174,8 @@ describe("a reply citing a document quote", () => {
   it("refuses a quote from a document the Release does not hold, though an earlier Release or the draft did", async () => {
     const { deps, fake, rpc, id, upload, remove, sent } = await instance([
       cites("warranty.md", "Two years on every kettle"),
+      // A reply that goes through in between, as two refusals in a row would hand off (#1261).
+      cites("returns.md", "Returns are free"),
       cites("draft-only.md", "Only in the draft"),
       cites("returns.md", "Returns are free"),
       quiet(),
@@ -171,8 +192,9 @@ describe("a reply citing a document quote", () => {
     await testCustomerTurn(deps, { representativeId: id, message: "Warranty?" });
 
     expect(answersIn(fake.calls[1])[0]).toMatch(/Nothing was sent.*warranty\.md/);
-    expect(answersIn(fake.calls[2])[1]).toMatch(/Nothing was sent.*draft-only\.md/);
+    expect(answersIn(fake.calls[3])[2]).toMatch(/Nothing was sent.*draft-only\.md/);
     expect((await sent()).map((message) => message.sources)).toEqual([
+      [{ type: "document", name: "returns.md", quote: "Returns are free" }],
       [{ type: "document", name: "returns.md", quote: "Returns are free" }],
     ]);
   });

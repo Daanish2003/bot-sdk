@@ -34,7 +34,14 @@ export const insertValues = (text: string, values: Record<string, string>) =>
     return Object.hasOwn(values, trimmed) ? values[trimmed]! : written;
   });
 
-export const refused = (why: string) => ({ error: `Nothing was sent: ${why}` });
+export const refused = (why: string) => ({
+  error: `Nothing was sent: ${why}`,
+  refused: true as const,
+});
+
+/** What a Customer gets when code hands off (ticket #1261), so a refused guess never reaches them. */
+export const handOffMessage =
+  "I can't confirm that right now, so I've passed this on to someone who can. They'll follow up with you here.";
 
 /**
  * The facts of `userId`'s that are in effect at `now`, in a fixed order, as a Turn's prompt lists
@@ -86,7 +93,7 @@ export async function checkReply(
     /** The documents the Turn's Release pinned: a quote is checked against these and no other text. */
     documents: DocumentText[];
   },
-): Promise<CheckedReply | { error: string }> {
+): Promise<CheckedReply | ReturnType<typeof refused>> {
   if (brokenKey(text)) {
     return refused("the text has a broken {{key}}. Write a fact's key as {{key}}, or not at all.");
   }

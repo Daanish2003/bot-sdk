@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "9e76231d-7e01-4aa3-b4c4-fc62ac3e6e1c",
+  "id": "9519b797-69db-47bd-b0ad-7e3554850607",
   "prevIds": ["3c91c6dc-b56b-46e1-8b5e-39a4cb013c0f"],
   "ddl": [
     {
@@ -48,7 +48,7 @@
     },
     {
       "isRlsEnabled": false,
-      "name": "representative_gap",
+      "name": "representative_fact_proposal",
       "entityType": "tables",
       "schema": "botsdk"
     },
@@ -843,6 +843,19 @@
       "table": "representative_fact_log"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "proposed_by",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_fact_log"
+    },
+    {
       "type": "timestamp",
       "typeSchema": null,
       "notNull": true,
@@ -866,7 +879,7 @@
       "name": "id",
       "entityType": "columns",
       "schema": "botsdk",
-      "table": "representative_gap"
+      "table": "representative_fact_proposal"
     },
     {
       "type": "text",
@@ -879,20 +892,20 @@
       "name": "user_id",
       "entityType": "columns",
       "schema": "botsdk",
-      "table": "representative_gap"
+      "table": "representative_fact_proposal"
     },
     {
       "type": "uuid",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "representative_id",
+      "name": "bot_id",
       "entityType": "columns",
       "schema": "botsdk",
-      "table": "representative_gap"
+      "table": "representative_fact_proposal"
     },
     {
       "type": "text",
@@ -902,10 +915,23 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "question",
+      "name": "key",
       "entityType": "columns",
       "schema": "botsdk",
-      "table": "representative_gap"
+      "table": "representative_fact_proposal"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "proposed",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_fact_proposal"
     },
     {
       "type": "text",
@@ -915,75 +941,62 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "normalized",
+      "name": "why",
       "entityType": "columns",
       "schema": "botsdk",
-      "table": "representative_gap"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "1",
-      "generated": null,
-      "identity": null,
-      "name": "count",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_gap"
+      "table": "representative_fact_proposal"
     },
     {
       "type": "text",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'open'",
-      "generated": null,
-      "identity": null,
-      "name": "status",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_gap"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "first_at",
+      "name": "card_id",
       "entityType": "columns",
       "schema": "botsdk",
-      "table": "representative_gap"
+      "table": "representative_fact_proposal"
     },
     {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "last_at",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_gap"
-    },
-    {
-      "type": "timestamp",
+      "type": "text",
       "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "closed_at",
+      "name": "call",
       "entityType": "columns",
       "schema": "botsdk",
-      "table": "representative_gap"
+      "table": "representative_fact_proposal"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "posted_at",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_fact_proposal"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "expires_at",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_fact_proposal"
     },
     {
       "type": "uuid",
@@ -1926,42 +1939,7 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "user_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "normalized",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": "\"status\" = 'open'",
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "representative_gap_open_idx",
-      "entityType": "indexes",
-      "schema": "botsdk",
-      "table": "representative_gap"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "user_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "last_at",
+          "value": "bot_id",
           "isExpression": false,
           "asc": true,
           "nullsFirst": false,
@@ -1973,10 +1951,10 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "representative_gap_user_idx",
+      "name": "representative_fact_proposal_bot_idx",
       "entityType": "indexes",
       "schema": "botsdk",
-      "table": "representative_gap"
+      "table": "representative_fact_proposal"
     },
     {
       "nameExplicit": true,
@@ -2213,16 +2191,16 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["representative_id"],
+      "columns": ["bot_id"],
       "schemaTo": "botsdk",
-      "tableTo": "representative",
+      "tableTo": "bot",
       "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
-      "onDelete": "SET NULL",
-      "name": "representative_gap_representative_id_representative_id_fkey",
+      "onDelete": "CASCADE",
+      "name": "representative_fact_proposal_bot_id_bot_id_fkey",
       "entityType": "fks",
       "schema": "botsdk",
-      "table": "representative_gap"
+      "table": "representative_fact_proposal"
     },
     {
       "nameExplicit": false,
@@ -2413,9 +2391,9 @@
     {
       "columns": ["id"],
       "nameExplicit": false,
-      "name": "representative_gap_pkey",
+      "name": "representative_fact_proposal_pkey",
       "schema": "botsdk",
-      "table": "representative_gap",
+      "table": "representative_fact_proposal",
       "entityType": "pks"
     },
     {
@@ -2483,6 +2461,15 @@
       "entityType": "uniques",
       "schema": "botsdk",
       "table": "representative_fact"
+    },
+    {
+      "nameExplicit": true,
+      "columns": ["user_id", "key"],
+      "nullsNotDistinct": false,
+      "name": "representative_fact_proposal_key",
+      "entityType": "uniques",
+      "schema": "botsdk",
+      "table": "representative_fact_proposal"
     },
     {
       "nameExplicit": true,

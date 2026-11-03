@@ -114,6 +114,7 @@ function BotConversationView({
   const RuleApproval = controls?.rule_approval ?? defaultRichControlRenderers.rule_approval;
   const ReleaseApproval =
     controls?.release_approval ?? defaultRichControlRenderers.release_approval;
+  const FactApproval = controls?.fact_approval ?? defaultRichControlRenderers.fact_approval;
   const i18n = useI18n();
   const { t } = i18n;
   const [draft, setDraft] = useState("");
@@ -582,6 +583,9 @@ function BotConversationView({
               })()}
             {control?.kind === "release_approval" && (
               <ReleaseApproval card={control} text={message.text} />
+            )}
+            {control?.kind === "fact_approval" && (
+              <FactApproval card={control} text={message.text} />
             )}
             {control?.kind === "computer" && (
               <ComputerCard

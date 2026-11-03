@@ -145,6 +145,8 @@ export const representativeMessages = {
   "representative.replySourceFact": ({ key }: { key: string }) => `Fact ${key}`,
   "representative.replySourceAssignment": ({ id, quote }: { id: string; quote: string }) =>
     `Bot result of Assignment ${id}: "${quote}"`,
+  "representative.replySourceDocument": ({ name, quote }: { name: string; quote: string }) =>
+    `Document ${name}: "${quote}"`,
   "representative.replySourcesNote":
     "Code checked that each source exists. It did not check that the reply says it right.",
   "representative.threadBlocked": "Blocked: this Customer gets no reply.",
@@ -215,6 +217,23 @@ export const representativeMessages = {
   "representative.facts.gapToFact": "Turn into a fact",
   "representative.facts.gapKeyOf": ({ name }: { name: string }) => `Key for: ${name}`,
   "representative.facts.gapNewFact": "new fact from a gap",
+  "representative.facts.proposalsTitle": "Proposed by your Bots",
+  "representative.facts.proposalFrom": ({ name }: { name: string }) => `From ${name}`,
+  "representative.facts.proposalCurrent": "Current",
+  "representative.facts.proposalProposed": "Proposed",
+  "representative.facts.proposalNone": "No fact yet",
+  "representative.facts.proposalApprove": "Approve",
+  "representative.facts.proposalDecline": "Decline",
+  "representative.facts.proposalApproveOf": ({ name }: { name: string }) => `Approve ${name}`,
+  "representative.facts.proposalDeclineOf": ({ name }: { name: string }) => `Decline ${name}`,
+  "representative.facts.proposalExpires": ({ date }: { date: string }) => `Expires ${date}`,
+  "representative.facts.field.type": "Type",
+  "representative.facts.field.topic": "Topic",
+  "representative.facts.field.value": "Value",
+  "representative.facts.field.from": "Valid from",
+  "representative.facts.field.until": "Valid until",
+  "representative.facts.logProposedBy": ({ name }: { name: string }) =>
+    `proposed by ${name}, approved by you`,
   "representative.facts.logTitle": "Changes",
   "representative.facts.log.add": "Added",
   "representative.facts.log.edit": "Edited",

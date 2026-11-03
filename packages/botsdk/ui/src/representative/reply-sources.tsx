@@ -25,10 +25,15 @@ export function ReplySources({ reply }: { reply: ReplyProof }) {
             <li key={at} className="break-words">
               {source.type === "fact"
                 ? t("representative.replySourceFact", { key: source.key })
-                : t("representative.replySourceAssignment", {
-                    id: source.assignmentId,
-                    quote: source.quote,
-                  })}
+                : source.type === "document"
+                  ? t("representative.replySourceDocument", {
+                      name: source.name,
+                      quote: source.quote,
+                    })
+                  : t("representative.replySourceAssignment", {
+                      id: source.assignmentId,
+                      quote: source.quote,
+                    })}
             </li>
           ))}
         </ul>
