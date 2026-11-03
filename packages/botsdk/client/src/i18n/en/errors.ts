@@ -55,6 +55,9 @@ export const errorMessages = {
   "error.reviewNotFound": "Request not found",
   "error.helperStopped": "This task was stopped.",
   "error.assignmentBotCantWork": "This Bot can't work right now.",
+  "error.assignmentChainTooDeep": ({ limit }: { limit: number }) =>
+    `A chain of Assignments stops at ${limit} deep.`,
+  "error.turnNotFound": "Turn not found",
   "error.choiceAnswered": "This question was already answered.",
   "error.choiceInvalid": "That is not one of the options.",
   "error.demonstrationNotFound": "Demonstration not found",

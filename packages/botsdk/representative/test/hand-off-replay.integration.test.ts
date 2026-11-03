@@ -138,6 +138,19 @@ describe("a hand-off replayed after a crash", () => {
     ]);
   };
 
+  it("starts a chain of its own at depth 1, having no Bot Turn behind it (#1186)", async () => {
+    const { botId, turnEnds } = await queuedHandOff();
+
+    await turnEnds();
+
+    expect(
+      await getTestDb()
+        .select({ depth: botAssignment.depth, parent: botAssignment.parentAssignmentId })
+        .from(botAssignment)
+        .where(eq(botAssignment.assignedBotId, botId)),
+    ).toEqual([{ depth: 1, parent: null }]);
+  });
+
   it("leaves one of each after a crash between the Assignment and its hand-off row", async () => {
     const { fake, botId, assignments, crash, turnEnds } = await queuedHandOff();
     const create = assignments.create.bind(assignments);

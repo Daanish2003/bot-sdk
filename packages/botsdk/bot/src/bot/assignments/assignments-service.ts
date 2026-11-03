@@ -6,14 +6,16 @@ import type { AnyFeature } from "../../feature";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { parseInput, rpcError } from "../../rpc-error";
 import type { JobDefinition } from "../../runner/internal";
-import { bot, botAssignment } from "../../storage";
+import { bot, botAssignment, botTurn } from "../../storage";
 import { hintChanged } from "../conversation";
-import { lockConversation } from "../triggers";
+import { lockConversationsInOrder } from "../triggers";
 import {
+  assignmentChainLimit,
   assignmentInstructionsInput,
   assignmentTitleInput,
   cancelAssignment,
   canWork,
+  chainDepthFromTurn,
   moveAssignment,
   openAssignment,
 } from "./assignment";
@@ -44,6 +46,7 @@ export type AssignmentEnded = z.infer<typeof assignmentEnded>;
 
 const createInput = z.object({
   botId: z.uuid(),
+  turnId: z.uuid().optional(),
   title: assignmentTitleInput,
   instructions: assignmentInstructionsInput,
 });
@@ -60,17 +63,25 @@ export type AssignmentsService = {
    * transaction that ends the Assignment. Another user's Bot is NOT_FOUND, and a Bot whose Model
    * can't run is CONFLICT.
    *
+   * `turnId` is the Bot Turn that started the work: the `id` of the Turn a feature's `tools` and
+   * `afterTurn` are called for, which a job they queue carries in its payload. The core places the
+   * Assignment in that Turn's chain, so a Bot → feature → Bot loop stops where a Bot's own chain does:
+   * past the limit is CONFLICT, in a message the Model can act on. A Turn that doesn't exist or isn't
+   * this owner's is NOT_FOUND. With no Turn behind the work, as for a webhook or a Representative's
+   * hand-off, it starts a chain at depth 1.
+   *
    * It runs in the caller's transaction, so a job step's Checkpoint commits with it and a replay
    * never makes a second one. A refusal comes before anything is written, so the caller may catch it
-   * and commit. It takes the Conversation's lock, so any lock of the caller's that others take before
-   * a Conversation's comes first. The caller wakes the runner and hints `conversationId` once `tx`
-   * commits.
+   * and commit. It takes the Conversation's lock, and the 1:1's of `turnId`'s Bot, so any lock of the
+   * caller's that others take before a Conversation's comes first. The caller wakes the runner and
+   * hints `conversationId` once `tx` commits.
    */
   create: (
     tx: Transaction,
     input: {
       userId: string;
       botId: string;
+      turnId?: string;
       title: string;
       instructions: string;
       job: Pick<JobDefinition<AssignmentEnded>, "name" | "payload">;
@@ -103,7 +114,7 @@ const notFound = () => rpcError("NOT_FOUND", "error.assignmentNotFound", "Assign
 export function assignmentsService(deps: BotSdkContext, feature: AnyFeature): AssignmentsService {
   return {
     create: async (tx, { userId, job, ...rest }) => {
-      const { botId, ...work } = parseInput(createInput, rest);
+      const { botId, turnId, ...work } = parseInput(createInput, rest);
       if (!feature.jobs?.some((own) => own.name === job.name)) {
         throw new Error(`The job "${job.name}" isn't one of feature "${feature.id}"'s jobs`);
       }
@@ -112,10 +123,31 @@ export function assignmentsService(deps: BotSdkContext, feature: AnyFeature): As
         .from(bot)
         .where(and(eq(bot.id, botId), eq(bot.userId, userId)));
       if (!target) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
+      const [turn] = turnId
+        ? await tx
+            .select({ id: botTurn.id, botId: botTurn.botId, conversationId: bot.conversationId })
+            .from(botTurn)
+            .innerJoin(bot, eq(bot.id, botTurn.botId))
+            .where(and(eq(botTurn.id, turnId), eq(bot.userId, userId)))
+        : [];
+      if (turnId && !turn) throw rpcError("NOT_FOUND", "error.turnNotFound", "Turn not found");
       if (!(await canWork(deps, { userId, model: target.model }))) {
         throw rpcError("CONFLICT", "error.assignmentBotCantWork", "The Bot can't work right now");
       }
-      await lockConversation(tx, target.conversationId);
+      await lockConversationsInOrder(tx, [
+        target.conversationId,
+        ...(turn ? [turn.conversationId] : []),
+      ]);
+      const depth = turn ? await chainDepthFromTurn(tx, turn) : 1;
+      if (depth > assignmentChainLimit) {
+        throw rpcError(
+          "CONFLICT",
+          "error.assignmentChainTooDeep",
+          `A chain of Assignments stops at ${assignmentChainLimit} deep, and this would go past ` +
+            "that. Do the rest of the work yourself, or finish with what you have.",
+          { limit: assignmentChainLimit },
+        );
+      }
       const id = await openAssignment(
         deps,
         tx,
@@ -128,7 +160,7 @@ export function assignmentsService(deps: BotSdkContext, feature: AnyFeature): As
           assignerTrusted: false,
           log: { actor: "feature" },
         },
-        work,
+        { ...work, depth },
       );
       return { id, conversationId: target.conversationId };
     },
