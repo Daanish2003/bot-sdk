@@ -5,7 +5,7 @@ You are an **implementer** for one ticket of [spec #<SPEC>](https://github.com/D
 - Integration branch: `feature/<SLUG>`
 - Migration slot holder: <TICKET or none>. Only that ticket may add a migration.
 - e2e slot holder: <TICKET or none>. Only that ticket may run Playwright.
-- Your test database: `ai-chat_test_<N>`, where `<N>` is your ticket number. It is the only database you may drop, and only by that exact name. Never drop by pattern (`LIKE`, a loop over `pg_database`): other tickets and the integration verify use databases on the same server.
+- Your test database: `ai-chat_test_<N>`, where `<N>` is your ticket number. Your e2e database, when you run Playwright: `ai-chat_e2e_<SPEC>_<N>`. Those two are the only databases you may drop, and only by their exact names. Never drop by pattern (`LIKE`, a loop over `pg_database`): other tickets and the integration verify use databases on the same server.
 - Machine gotchas: `.claude/skills/ship-spec/environment.md`. Read it first.
 
 ## Steps
