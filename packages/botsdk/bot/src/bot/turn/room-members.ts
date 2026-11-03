@@ -13,11 +13,11 @@ import {
   roomOf,
 } from "../conversation";
 import {
+  handToStoppedTurn,
   lockConversationSet,
   oneToOnesOf,
   runningTurnOf,
   skipWaiting,
-  waitingIn,
 } from "../triggers";
 import { discardUnstarted } from "./pause";
 import { cancelTurn } from "./turn";
@@ -217,7 +217,7 @@ export async function stopRoom(
       const owner = { botId, conversationId };
       const running = await runningTurnOf(tx, owner);
       if (!running) continue;
-      await tx.update(botTrigger).set({ turnId: running }).where(waitingIn(owner));
+      await handToStoppedTurn(tx, owner, running);
       await cancelTurn(deps, tx, running, "stop");
     }
   });

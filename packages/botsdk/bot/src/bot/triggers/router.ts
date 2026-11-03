@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, max, min, or, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNull, max, min, or, sql, type SQL } from "drizzle-orm";
 
 import { bot, botTrigger, botTurn, conversation, message } from "../../storage";
 import { uuidv7 } from "../../lib/uuidv7";
@@ -206,6 +206,28 @@ export async function skipWaiting(
   at: Date,
 ): Promise<void> {
   await tx.update(botTrigger).set({ skippedAt: at, skipReason: reason }).where(waitingIn(owner));
+}
+
+/**
+ * Hands every Trigger waiting in the Bot's Conversation queue to Turn `turnId`, which a Stop is ending,
+ * in `tx`, which holds the Conversation's row lock: the Turn it ends finds the line empty, and nothing
+ * follows it. The Turn's input doesn't hold them, so a Trigger with no Message reaches the Bot's next
+ * Turn instead (`newestInput`), an Approval's answer included: the Stop keeps it from starting a Turn,
+ * not from being read. That reads what came after the stopped Turn's start, so one that came once its
+ * job was claimed but before its start is moved just past it.
+ */
+export async function handToStoppedTurn(
+  tx: Transaction,
+  owner: BotConversation,
+  turnId: string,
+): Promise<void> {
+  await tx
+    .update(botTrigger)
+    .set({
+      turnId,
+      receivedAt: sql`greatest(${botTrigger.receivedAt}, (select ${botTurn.startedAt} + interval '1 millisecond' from ${botTurn} where ${botTurn.id} = ${turnId}))`,
+    })
+    .where(waitingIn(owner));
 }
 
 /**

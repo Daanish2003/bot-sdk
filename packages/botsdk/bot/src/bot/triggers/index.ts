@@ -15,6 +15,7 @@ export {
   awaySummaryKey,
   botTurnJobName,
   type BotConversation,
+  handToStoppedTurn,
   hintBotThread,
   isOneToOne,
   isPaused,

@@ -22,6 +22,7 @@ import {
 
 import {
   botTurnJobName,
+  handToStoppedTurn,
   hintBotThread,
   isPaused,
   lockConversation,
@@ -32,7 +33,6 @@ import {
   runningTurnOf,
   startTurn,
   turnStarted,
-  waitingIn,
 } from "../triggers";
 import { assignmentsAtTurnStart, setAsideAtStop, turnBudget } from "../assignments";
 import {
@@ -403,7 +403,8 @@ async function seenMessage(
  * Stops the Bot's running Turn by cancelling its job (#482, #483), and starts nothing after it
  * (#500): in the same transaction, the Turn it stops takes every Trigger waiting in the
  * Conversation queue, so `turnEnded` finds the line empty. Their Messages stay, and the next Turn
- * reads them as history; an Assignment's are set aside for that Turn to take (`setAsideAtStop`). Does nothing when no Turn is running. The Turn is the one in
+ * reads them as history, and what they carry with no Message, such as an Approval's answer, as new
+ * input (`handToStoppedTurn`); an Assignment's are set aside for that Turn to take (`setAsideAtStop`). Does nothing when no Turn is running. The Turn is the one in
  * `conversationId`, the Bot's 1:1 Conversation when not given, or one of its Rooms (spec #1055),
  * where the Tasks view shows it; a Conversation the Bot isn't in is not found.
  */
@@ -431,7 +432,7 @@ export async function stopBot(
     if (!running) return false;
     // First, so the Turn it hands the rest to finds the line empty.
     await setAsideAtStop(tx, owner, { turnId: running, ended: false, now: deps.clock() });
-    await tx.update(botTrigger).set({ turnId: running }).where(waitingIn(owner));
+    await handToStoppedTurn(tx, owner, running);
     const stopped = await cancelTurn(deps, tx, running, "stop");
     if (stopped) {
       await setAsideAtStop(tx, owner, { turnId: running, ended: true, now: deps.clock() });

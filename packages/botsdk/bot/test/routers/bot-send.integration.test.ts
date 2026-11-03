@@ -1125,7 +1125,7 @@ describe("batching quick Messages", () => {
    */
   async function batchingBot(rounds: Round[], { manual = false, at = new Date() } = {}) {
     const timer = fakeJobClock(at);
-    const { fake, jobs, client, user, botId } = await botWith(rounds, {
+    const { fake, deps, jobs, client, user, botId } = await botWith(rounds, {
       idle: true,
       manual,
       clock: timer.clock.now,
@@ -1134,6 +1134,9 @@ describe("batching quick Messages", () => {
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
     return {
       fake,
+      deps,
+      jobs,
+      clock: timer.clock,
       client,
       botId,
       conversationId,
@@ -1359,6 +1362,46 @@ describe("batching quick Messages", () => {
     ]);
     const [failed] = await getTestDb().select().from(job).where(eq(job.id, first!.jobId!));
     expect(failed).toMatchObject({ status: "cancelled", attempts: 1 });
+  });
+
+  it("keeps for the next Turn an answer that came once the job was claimed, before its start, when a Stop ends that Turn", async () => {
+    const { fake, deps, jobs, clock, client, botId, conversationId, advance, sendNow, runDue } =
+      await batchingBot([round(text("Never.")), round()], { manual: true, at: noon });
+    await sendNow("one");
+    advance(500);
+    // Claimed, so the answer can no longer join the Turn, whose start is still to come.
+    const claimed = (await claimJob(getTestDb(), clock.now(), { respectRunAfter: true }))!;
+    const answer = "[Approval] The user denied your earlier shell call.";
+    await getTestDb().transaction((tx) =>
+      receive(deps, tx, {
+        id: "approval:test",
+        botId,
+        conversationId,
+        source: "approval",
+        channel: "web",
+        text: answer,
+        receivedAt: deps.clock(),
+      }),
+    );
+    advance(1);
+    const running = jobs.runClaimed(claimed);
+    await expect.poll(() => fake.calls.length).toBe(1);
+    expect(JSON.stringify(fake.calls[0]!.messages)).not.toContain(answer);
+
+    await client.bots.stop({ botId });
+    const released = fake.releaseAll();
+    await running;
+    // This runner doesn't watch its job, so the sweep ends the Turn the Stop cancelled.
+    advance(10 * 60_000);
+    await reapStaleJobs(getTestDb(), clock.now(), silent, deps.parts.jobs);
+    expect((await turnsOf(botId)).map((turn) => turn.status)).toEqual(["stopped"]);
+
+    await sendNow("two");
+    advance(500);
+    await runDue();
+    await released;
+
+    expect(JSON.stringify(fake.calls[1]!.messages)).toContain(answer);
   });
 });
 
