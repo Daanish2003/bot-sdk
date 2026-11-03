@@ -16,11 +16,13 @@ import { representativeFact } from "./db/schema";
 
 const keyPattern = /\{\{([^{}]*)\}\}/g;
 
-/**
- * The most a reply's answer to the Model holds of the values put in it, as JSON. Over the long-output
- * limit an answer is cut, and a test conversation reads what was sent from it.
- */
-const maxInsertedLength = 8_000;
+/** The most characters of facts a Turn's prompt lists, so an owner's many facts can't fail every Turn. */
+export const factsPromptChars = 100_000;
+
+/** Whether `text` shows braces meant as a key, once whole keys are taken out of it. */
+const brokenKey = (text: string) =>
+  /\{\{\{|\}\}\}/.test(text) ||
+  /\{\{|\}\}|\{[a-z0-9][a-z0-9._-]*\}/.test(text.replace(keyPattern, ""));
 
 const keysIn = (text: string) => [...text.matchAll(keyPattern)].map((match) => match[1]!.trim());
 
@@ -31,18 +33,27 @@ export const insertValues = (text: string, values: Record<string, string>) =>
     return Object.hasOwn(values, trimmed) ? values[trimmed]! : written;
   });
 
-const refused = (why: string) => ({ error: `Nothing was sent: ${why}` });
+export const refused = (why: string) => ({ error: `Nothing was sent: ${why}` });
 
-/** The facts of `userId`'s that are in effect at `now`, in a fixed order, as a Turn's prompt lists them. */
+/**
+ * The facts of `userId`'s that are in effect at `now`, in a fixed order, as a Turn's prompt lists
+ * them, up to `factsPromptChars`; `more` says some didn't fit.
+ */
 export async function factsInEffect(tx: Transaction, userId: string, now: Date) {
   const rows = await tx
     .select()
     .from(representativeFact)
     .where(eq(representativeFact.userId, userId))
     .orderBy(asc(representativeFact.topic), asc(representativeFact.key));
-  return rows
-    .filter((row) => isInEffect(row, now))
-    .map(({ key, type, topic, value }) => ({ key, type, topic, value }));
+  const facts: Array<Pick<(typeof rows)[number], "key" | "type" | "topic" | "value">> = [];
+  let chars = 0;
+  for (const { key, type, topic, value, ...dates } of rows) {
+    if (!isInEffect(dates, now)) continue;
+    chars += key.length + topic.length + value.length;
+    if (chars > factsPromptChars) return { facts, more: true };
+    facts.push({ key, type, topic, value });
+  }
+  return { facts, more: false };
 }
 
 export type CheckedReply = {
@@ -72,7 +83,7 @@ export async function checkReply(
     entries: ThreadEntry[];
   },
 ): Promise<CheckedReply | { error: string }> {
-  if (/\{\{|\}\}/.test(text.replace(keyPattern, ""))) {
+  if (brokenKey(text)) {
     return refused("the text has a broken {{key}}. Write a fact's key as {{key}}, or not at all.");
   }
   const written = [...new Set(keysIn(text))];
@@ -118,9 +129,6 @@ export async function checkReply(
     }
   }
   const inserted = Object.fromEntries(written.map((key) => [key, facts.get(key)!.value]));
-  if (JSON.stringify(inserted).length > maxInsertedLength) {
-    return refused("it quotes too much at once. Split it into shorter replies.");
-  }
   const filled = insertValues(text, inserted);
   if (filled.length > maxThreadMessageLength) {
     return refused("it is too long once its facts' values are in. Say it more shortly.");

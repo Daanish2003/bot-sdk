@@ -19,6 +19,7 @@ import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { representative } from "../src";
+import { factsPromptChars } from "../src/server/replies";
 import {
   representativeCustomer,
   representativeThread,
@@ -310,6 +311,19 @@ describe("a reply quoting a fact by key", () => {
     expect(answersIn(fake.calls[1])[0]).toContain("error");
   });
 
+  it.each(["It is {{{price.haircut}}}.", "It is {price.haircut}."])(
+    "refuses braces meant as a key: %s",
+    async (text) => {
+      const { rpc, turn, sent, fake } = await serving([answers(text), quiet()]);
+      await rpc.representative.factAdd(price);
+
+      await turn();
+
+      expect(await sent()).toEqual([]);
+      expect(answersIn(fake.calls[1])[0]).toContain("broken");
+    },
+  );
+
   it("refuses a reply too long to send once its values are in", async () => {
     const { rpc, turn, sent, fake } = await serving([
       answers(`${"x".repeat(59_990)}{{note}}`, [{ type: "fact", key: "note" }]),
@@ -329,26 +343,25 @@ describe("a reply quoting a fact by key", () => {
   });
 });
 
-describe("a reply quoting more than its answer can hold", () => {
-  it("is refused, so a test conversation can always read what was sent", async () => {
-    const values = ["a", "b", "c", "d", "e"];
-    const { rpc, turn, sent, fake } = await serving([
-      replies({ text: values.map((key) => `{{${key}}}`).join(" "), kind: "answer" }),
+describe("a reply quoting a lot", () => {
+  const keys = ["a", "b", "c", "d", "e"];
+  const longFact = (key: string) => ({
+    key,
+    type: "text" as const,
+    topic: "General",
+    value: key.repeat(1_900),
+  });
+
+  it("goes through on a live Turn", async () => {
+    const { rpc, turn, sent } = await serving([
+      replies({ text: keys.map((key) => `{{${key}}}`).join(" "), kind: "answer" }),
       quiet(),
     ]);
-    for (const key of values) {
-      await rpc.representative.factAdd({
-        key,
-        type: "text",
-        topic: "General",
-        value: key.repeat(1_900),
-      });
-    }
+    for (const key of keys) await rpc.representative.factAdd(longFact(key));
 
     await turn();
 
-    expect(await sent()).toEqual([]);
-    expect(answersIn(fake.calls[1])[0]).toMatch(/too much/);
+    expect((await sent())[0]?.text).toBe(keys.map((key) => key.repeat(1_900)).join(" "));
   });
 });
 
@@ -570,6 +583,35 @@ describe("the prompt", () => {
     expect(after?.systemPrompts).toEqual(before?.systemPrompts);
   });
 
+  it("lists no more facts than fit, and says so; a key past the limit still inserts", async () => {
+    const { rpc, turn, sent, fake } = await serving([
+      replies({ text: "{{note.z}}", kind: "answer" }),
+      quiet(),
+    ]);
+    for (let index = 0; index < 51; index += 1) {
+      await rpc.representative.factAdd({
+        key: `note.${String(index).padStart(2, "0")}`,
+        type: "text",
+        topic: "General",
+        value: "x".repeat(2_000),
+      });
+    }
+    await rpc.representative.factAdd({
+      key: "note.z",
+      type: "text",
+      topic: "General",
+      value: "The last.",
+    });
+
+    await turn();
+
+    const first = String(promptOf(fake.calls[0])[0]?.content);
+    expect(first).toContain("More facts are in effect");
+    expect(first).not.toContain("The last.");
+    expect(first.length).toBeLessThan(factsPromptChars + 10_000);
+    expect((await sent())[0]?.text).toBe("The last.");
+  });
+
   it("has no facts message with none in effect, and never another owner's", async () => {
     const other = await serving([quiet()]);
     await other.rpc.representative.factAdd(price);
@@ -587,6 +629,7 @@ describe("a test conversation", () => {
   async function tested(
     rounds: Round[],
     expectations: Array<{ kind: "said" | "not_said"; text: string } | { kind: "replied" }>,
+    facts: Array<{ key: string; type: "text"; topic: string; value: string }> = [],
   ) {
     const fake = createFakeAdapter({ rounds });
     let deps: TestDeps | undefined;
@@ -622,6 +665,7 @@ describe("a test conversation", () => {
       },
     });
     await rpc.representative.factAdd(price);
+    for (const fact of facts) await rpc.representative.factAdd(fact);
     await rpc.representative.runTests({ id });
     await expect
       .poll(async () => {
@@ -653,6 +697,23 @@ describe("a test conversation", () => {
         .from(representativeCustomer)
         .where(eq(representativeCustomer.userId, userId)),
     ).toEqual([]);
+  });
+
+  it("refuses a reply quoting more than its answer can hold, as its checks read it there", async () => {
+    const keys = ["a", "b", "c", "d", "e"];
+    const { result, fake } = await tested(
+      [replies({ text: keys.map((key) => `{{${key}}}`).join(" "), kind: "answer" }), quiet()],
+      [{ kind: "replied" }],
+      keys.map((key) => ({
+        key,
+        type: "text" as const,
+        topic: "General",
+        value: key.repeat(1_900),
+      })),
+    );
+
+    expect(result.status).toBe("failed");
+    expect(answersIn(fake.calls[1])[0]).toMatch(/too much/);
   });
 
   it("refuses as a live Turn does: a refused reply was never sent", async () => {

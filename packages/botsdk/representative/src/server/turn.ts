@@ -28,7 +28,7 @@ import {
 import { deliverHandOffResult } from "./hand-off-result";
 import { type Heard, readSender, readThread, storeReply, type ThreadEntry } from "./customers";
 import { representative, representativeHandOff, representativeRelease } from "./db/schema";
-import { checkReply, factsInEffect } from "./replies";
+import { checkReply, factsInEffect, refused } from "./replies";
 import {
   beginTurn,
   endTurn,
@@ -177,6 +177,9 @@ type Turn = {
   entries: ThreadEntry[];
 };
 
+/** The most a test conversation's reply answer holds of the values put in it, as JSON. */
+const maxTestInsertedLength = 8_000;
+
 /** Where a reply's information came from. A plain union: OpenAI's strict tools refuse the `oneOf` a discriminated one becomes. */
 const replySource = z.union([
   z.object({
@@ -209,12 +212,13 @@ export function turnTools({ job, kit, userId, name, representativeId, thread, en
         const checked = await checkReply(tx, { userId, now, text, kind, sources, entries });
         if ("error" in checked) return checked;
         // Stored as sent: nothing reaches a real Channel until the gate spec.
-        const stored =
-          thread === null ? { sent: true } : await storeReply(tx, thread, checked, kind, now);
-        // What a test conversation's checks read, as the arguments still hold the keys.
-        return "sent" in stored && Object.keys(checked.inserted).length > 0
-          ? { ...stored, inserted: checked.inserted }
-          : stored;
+        if (thread) return storeReply(tx, thread, checked, kind, now);
+        // A test conversation's checks read what was sent from this answer, as the arguments still
+        // hold the keys, and an answer over the long-output limit is cut.
+        if (JSON.stringify(checked.inserted).length > maxTestInsertedLength) {
+          return refused("it quotes too much at once. Split it into shorter replies.");
+        }
+        return { sent: true, inserted: checked.inserted };
       });
     }),
     hand_to_bot: toolDefinition({
@@ -397,7 +401,7 @@ const citeAs = (assignmentId: string) =>
  * to one misses only from here on: the system text, which ends on a cache breakpoint, holds the
  * Release's fixed content (#673). None, and there is no such message.
  */
-const factsPrompt = (facts: Awaited<ReturnType<typeof factsInEffect>>) =>
+const factsPrompt = ({ facts, more }: Awaited<ReturnType<typeof factsInEffect>>) =>
   facts.length === 0
     ? []
     : [
@@ -410,6 +414,7 @@ const factsPrompt = (facts: Awaited<ReturnType<typeof factsInEffect>>) =>
                 ({ key, type, topic, value }) =>
                   `{{${key}}} (${type}, ${topic}): ${JSON.stringify(value)}`,
               )
+              .concat(more ? ["(More facts are in effect than fit here.)"] : [])
               .join("\n"),
           ),
         },

@@ -467,6 +467,7 @@ export async function exportCustomers(tx: Transaction, userId: string) {
         verified: representativeThreadMessage.verified,
         replyKind: representativeThreadMessage.replyKind,
         sources: representativeThreadMessage.sources,
+        assignmentId: representativeThreadMessage.assignmentId,
         createdAt: representativeThreadMessage.createdAt,
       })
       .from(representativeThreadMessage)
@@ -513,6 +514,7 @@ export async function exportCustomers(tx: Transaction, userId: string) {
         verified: message.verified,
         replyKind: message.replyKind,
         sources: message.sources,
+        assignmentId: message.assignmentId,
         createdAt: message.createdAt,
       })),
     })),
