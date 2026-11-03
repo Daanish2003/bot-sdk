@@ -1,6 +1,6 @@
 import type { TextOptions } from "@tanstack/ai";
 import { and, eq, inArray } from "drizzle-orm";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { conversationChannel } from "@botsdk/bot/chat/conversation-events";
 import type { Transaction } from "@botsdk/bot/plugin";
@@ -71,7 +71,8 @@ async function botsWith(
     names = ["Ada"],
     host = false,
     getQuota,
-  }: { names?: string[]; host?: boolean } & Pick<TestDepsOverrides, "getQuota"> = {},
+    logger,
+  }: { names?: string[]; host?: boolean } & Pick<TestDepsOverrides, "getQuota" | "logger"> = {},
 ) {
   const fake = createFakeAdapter({ rounds });
   const computerFake = fakeComputerProvider();
@@ -94,6 +95,7 @@ async function botsWith(
     pubsub,
     ...(host && { hostProviders }),
     ...(getQuota && { getQuota }),
+    ...(logger && { logger }),
   });
   await jobs.start();
   started.push(jobs);
@@ -316,6 +318,43 @@ describe("the post-turn memory pass", () => {
 
     expect(ended.every((row) => row.status === "succeeded")).toBe(true);
     expect(read(ada, "profile.md")).toBe("- Prefers short replies\n");
+  });
+
+  it("logs a reply with no valid JSON, and changes nothing", async () => {
+    const logger = { error: vi.fn() };
+    const { client, botIds, seed, read } = await botsWith(
+      [round(), round(text("Sure! I'll remember that."))],
+      { logger },
+    );
+    const [ada] = botIds as [string];
+    seed(ada, "profile.md", ["- Prefers short replies"]);
+
+    await send(client, ada, "hi");
+    const [ended] = await passesEnded(1);
+
+    expect(ended?.status).toBe("succeeded");
+    expect(read(ada, "profile.md")).toBe("- Prefers short replies\n");
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringMatching(/^The memory pass of Turn .+ changed nothing$/),
+      expect.any(SyntaxError),
+    );
+  });
+
+  it.each([
+    ["its JSON", (json: string) => `${json}\nI added that to your profile.`],
+    ["its fenced JSON", (json: string) => `\`\`\`json\n${json}\n\`\`\`\n\nI added that {profile}.`],
+  ])("applies the operations of a reply with text after %s", async (_shape, replyOf) => {
+    const add = { op: "add", tier: "profile", text: "Lives in Berlin {or so}" };
+    const { client, botIds, read } = await botsWith([
+      round(),
+      round(text(replyOf(JSON.stringify({ ops: [add] })))),
+    ]);
+    const [ada] = botIds as [string];
+
+    await send(client, ada, "hi");
+    await passesEnded(1);
+
+    expect(read(ada, "profile.md")).toBe("- Lives in Berlin {or so}\n");
   });
 
   it("clamps an importance out of range, and takes 5 for a null one", async () => {
