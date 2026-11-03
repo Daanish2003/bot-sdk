@@ -71,7 +71,8 @@ async function owner(deps: TestDeps, serving = true) {
   return { user, rpc, id };
 }
 
-const replies = (text = "Nine.") => round(toolCall({ name: "reply", input: { text } }));
+const replies = (text = "Nine.") =>
+  round(toolCall({ name: "reply", input: { text, kind: "small_talk" } }));
 const quiet = () => round();
 
 describe("an owner's Customers", () => {
@@ -433,7 +434,8 @@ describe("a blocked Customer", () => {
         storeReply(
           tx,
           { threadId: line!.id, heard: line!.lastHeard, verified: false },
-          "Still here",
+          { text: "Still here", sources: [] },
+          "small_talk",
           new Date(),
         ),
       );

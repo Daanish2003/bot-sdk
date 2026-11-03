@@ -14,6 +14,7 @@ import {
 
 import { bot, botAssignment, botsdkSchema } from "@botsdk/bot/storage";
 import type { ChannelProofRule } from "../verification";
+import type { ReplyKind, ReplySource } from "../../shared/replies";
 import type {
   Draft,
   FactType,
@@ -335,6 +336,12 @@ export const representativeThreadMessage = botsdkSchema.table(
     proofRule: text("proof_rule").$type<ChannelProofRule>(),
     /** A Bot's result that came while the owner held the thread: theirs to send, never a Turn's. */
     heldForOwner: boolean("held_for_owner").notNull().default(false),
+    /** A reply's kind (ticket #1260); null on every other message and on a reply stored before kinds. */
+    replyKind: text("reply_kind").$type<ReplyKind>(),
+    /** What a reply rests on, as code checked it, kept from the Customer; null as for `replyKind`. */
+    sources: jsonb("sources").$type<ReplySource[]>(),
+    /** The Assignment a Bot's result ended, which a reply relaying it cites. No foreign key: the result outlives it. */
+    assignmentId: uuid("assignment_id"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [unique("representative_thread_message_position").on(table.threadId, table.position)],

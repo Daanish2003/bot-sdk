@@ -223,7 +223,15 @@ describe("an owner merging two Customers", () => {
       release = resolve;
     });
     const { deps, entered, timer } = await instance(
-      [round(toolCall({ name: "reply", input: { text: "From the closed thread" } })), quiet()],
+      [
+        round(
+          toolCall({
+            name: "reply",
+            input: { text: "From the closed thread", kind: "small_talk" },
+          }),
+        ),
+        quiet(),
+      ],
       held,
     );
     const { rpc, id } = await owner(deps);
