@@ -210,6 +210,19 @@ export type CustomerView = {
   createdAt: Date;
 };
 
+/** One merge of a Customer into another, and whether it has been undone. */
+export type CustomerMergeView = {
+  id: string;
+  /** Whether a code the sender passed made it, or the owner. */
+  how: "code" | "owner";
+  survivor: { id: string; name: string | null };
+  absorbed: { id: string; name: string | null };
+  /** What moved, and what undoing it gives back. */
+  identities: { channel: string; externalId: string }[];
+  createdAt: Date;
+  undoneAt: Date | null;
+};
+
 /** Who holds a Customer thread: its Representative, the owner who took it over, or no one once closed. */
 export type ThreadHolder = "representative" | "owner" | "closed";
 
@@ -281,6 +294,7 @@ export const customerUpdateIdentityInput = z.object({
   externalId: externalIdField,
 });
 export const customerSetBlockedInput = z.object({ id: z.uuid(), blocked: z.boolean() });
+export const customerMergeInput = z.object({ id: z.uuid(), intoId: z.uuid() });
 export const customerRenameInput = z.object({
   id: z.uuid(),
   name: storable(z.string().trim().max(maxCustomerNameLength)),
@@ -342,6 +356,15 @@ export const representativeContract = {
   customerUpdateIdentity: oc.input(customerUpdateIdentityInput).output(type<CustomerView>()),
   /** Blocks or unblocks a Customer: a blocked one's message is kept for the owner and answered by no one. */
   customerSetBlocked: oc.input(customerSetBlockedInput).output(type<CustomerView>()),
+  /**
+   * Merges Customer `id` into `intoId`, whose thread goes on where both have one open with a
+   * Representative. Refused while either is blocked. It verifies nobody, and can be undone.
+   */
+  customerMerge: oc.input(customerMergeInput).output(type<CustomerView>()),
+  /** The owner's merges of Customers, newest first, undone ones too. */
+  customerMergeList: oc.output(type<CustomerMergeView[]>()),
+  /** Undoes a merge: each identity goes back to its original Customer, and a closed thread stays closed. */
+  customerMergeUndo: oc.input(idInput).output(type<CustomerMergeView>()),
   /** A Representative's Customer threads, the most recently active first. */
   threadList: oc.input(idInput).output(type<ThreadSummary[]>()),
   /** One thread with its transcript, holder and who it waits on. */

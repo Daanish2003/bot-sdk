@@ -177,6 +177,42 @@ export const representativeCustomerIdentity = botsdkSchema.table(
   ],
 );
 
+/** Who merged two Customers: a code the sender passed, or the owner by hand. */
+export type CustomerMergeHow = "code" | "owner";
+
+/**
+ * One merge of a Customer into another (ticket #1257), kept once undone. The absorbed Customer's row
+ * stays, with no identities or threads, so that undoing gives each back to it: `identityIds` and
+ * `threadIds` are what moved, and `heldThreadIds` the survivor's threads the owner holds only because
+ * of it. A Customer with a merge not undone is gone from everything but this.
+ */
+export const representativeCustomerMerge = botsdkSchema.table(
+  "representative_customer_merge",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    survivorCustomerId: uuid("survivor_customer_id")
+      .notNull()
+      .references((): AnyPgColumn => representativeCustomer.id, { onDelete: "cascade" }),
+    absorbedCustomerId: uuid("absorbed_customer_id")
+      .notNull()
+      .references((): AnyPgColumn => representativeCustomer.id, { onDelete: "cascade" }),
+    how: text("how").$type<CustomerMergeHow>().notNull(),
+    identityIds: jsonb("identity_ids").$type<string[]>().notNull(),
+    threadIds: jsonb("thread_ids").$type<string[]>().notNull(),
+    heldThreadIds: jsonb("held_thread_ids").$type<string[]>().notNull(),
+    createdAt: timestamp("created_at").notNull(),
+    undoneAt: timestamp("undone_at"),
+  },
+  (table) => [
+    index("representative_customer_merge_user_idx").on(table.userId, table.createdAt),
+    index("representative_customer_merge_survivor_idx").on(table.survivorCustomerId),
+    uniqueIndex("representative_customer_merge_absorbed_idx")
+      .on(table.absorbedCustomerId)
+      .where(sql`${table.undoneAt} is null`),
+  ],
+);
+
 /** How a verification reaches its target: a code to send back, or a signed link to open. */
 export type VerificationKind = "code" | "link";
 

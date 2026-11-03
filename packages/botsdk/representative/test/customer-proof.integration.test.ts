@@ -924,26 +924,6 @@ describe("a code to an identity on record, from web chat", () => {
     expect((await identityOf(deps, user.id, "session-1")).verifiedContactAt).toBeNull();
   });
 
-  it("sends a verified sender nothing, whatever it claims", async () => {
-    const { deps, sent } = await instance([
-      verifies({ channel: "email", externalId: "a@example.com" }),
-      quiet(),
-    ]);
-    const { id, rpc } = await owner(deps);
-    await rpc.representative.customerCreate({ channel: "email", externalId: "a@example.com" });
-
-    await testCustomerTurn(deps, {
-      representativeId: id,
-      channel: "telegram",
-      externalId: "7",
-      proof: { rule: "sameIdentity" },
-      message: "I'm a",
-    });
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    expect(sent).toEqual([]);
-  });
-
   it("can't use up a number's own codes: strangers' claims of it don't lock its holder out", async () => {
     const claim = { channel: "sms", externalId: "+15550001" };
     const { deps, sent } = await instance([

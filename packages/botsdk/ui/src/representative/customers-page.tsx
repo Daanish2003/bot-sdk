@@ -9,13 +9,16 @@ import { serverErrorText } from "@botsdk/react/rpc-error";
 import {
   useAddCustomerIdentity,
   useCreateCustomer,
+  useCustomerMerges,
   useCustomers,
+  useMergeCustomer,
   useRefreshRepresentatives,
   useRenameCustomer,
   useSetCustomerBlocked,
+  useUndoCustomerMerge,
   useUpdateCustomerIdentity,
 } from "@botsdk/representative/react";
-import type { CustomerView } from "@botsdk/representative/client";
+import type { CustomerMergeView, CustomerView } from "@botsdk/representative/client";
 
 type Identity = { channel: string; externalId: string };
 
@@ -70,7 +73,99 @@ function IdentityFields({
   );
 }
 
-function CustomerCard({ customer }: { customer: CustomerView }) {
+/** Merges this Customer into another of the owner's, which is what is left. It can be undone. */
+function MergeInto({
+  customer,
+  label,
+  others,
+}: {
+  customer: CustomerView;
+  label: string;
+  others: CustomerView[];
+}) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const [intoId, setIntoId] = useState("");
+  const merge = useMergeCustomer({
+    onSuccess: () => refresh(),
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <select
+        className="h-8 w-56 rounded-md border bg-background px-2 text-sm"
+        aria-label={t("representative.customers.mergeInto", { name: label })}
+        value={intoId}
+        onChange={(event) => setIntoId(event.target.value)}
+      >
+        <option value="">{t("representative.customers.mergeChoose")}</option>
+        {others.map((other) => (
+          <option key={other.id} value={other.id}>
+            {`${other.name ?? t("representative.customers.unnamed")} · ${other.identities[0]?.externalId ?? ""}`}
+          </option>
+        ))}
+      </select>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={merge.isPending || intoId === ""}
+        aria-label={t("representative.customers.mergeOf", { name: label })}
+        onClick={() => merge.mutate({ id: customer.id, intoId })}
+      >
+        {t("representative.customers.merge")}
+      </Button>
+    </div>
+  );
+}
+
+/** One merge: what moved, who did it, and Undo while it stands. */
+function MergeRow({ merge }: { merge: CustomerMergeView }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const undo = useUndoCustomerMerge({
+    onSuccess: () => refresh(),
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  const names = {
+    from: merge.absorbed.name ?? t("representative.customers.unnamed"),
+    into: merge.survivor.name ?? t("representative.customers.unnamed"),
+  };
+  return (
+    <li data-merge={merge.id} className="flex flex-wrap items-center gap-2 p-3 text-sm">
+      <span className="font-medium">{t("representative.customers.mergeRow", names)}</span>
+      <span className="text-xs text-muted-foreground">
+        {t(
+          merge.how === "code"
+            ? "representative.customers.mergeByCode"
+            : "representative.customers.mergeByOwner",
+        )}
+      </span>
+      <span className="text-xs text-muted-foreground">
+        {merge.identities.map((identity) => identity.externalId).join(", ")}
+      </span>
+      {merge.undoneAt ? (
+        <span className="ml-auto text-xs font-medium">
+          {t("representative.customers.mergeUndone")}
+        </span>
+      ) : (
+        <Button
+          className="ml-auto"
+          variant="outline"
+          size="sm"
+          disabled={undo.isPending}
+          aria-label={t("representative.customers.mergeUndoOf", names)}
+          onClick={() => undo.mutate({ id: merge.id })}
+        >
+          {t("representative.customers.mergeUndo")}
+        </Button>
+      )}
+    </li>
+  );
+}
+
+function CustomerCard({ customer, others }: { customer: CustomerView; others: CustomerView[] }) {
   const i18n = useI18n();
   const { t } = i18n;
   const refresh = useRefreshRepresentatives();
@@ -162,6 +257,7 @@ function CustomerCard({ customer }: { customer: CustomerView }) {
           onSubmit={(value) => add.mutate({ id: customer.id, ...value })}
         />
       </div>
+      {others.length > 0 && <MergeInto customer={customer} label={label} others={others} />}
     </li>
   );
 }
@@ -235,6 +331,8 @@ function NewCustomerForm() {
 export function CustomersPage() {
   const { t } = useI18n();
   const customers = useCustomers();
+  const all = customers.data ?? [];
+  const merges = useCustomerMerges();
   return (
     <main className="mx-auto w-full max-w-2xl space-y-6 p-6">
       <div className="space-y-1">
@@ -254,9 +352,20 @@ export function CustomersPage() {
             // Keyed by its stored name, so a refetch after a save reloads the name field.
             key={`${customer.id}:${customer.name ?? ""}`}
             customer={customer}
+            others={all.filter((other) => other.id !== customer.id)}
           />
         ))}
       </ul>
+      {merges.data && merges.data.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-medium">{t("representative.customers.merges")}</h2>
+          <ul className="divide-y overflow-hidden rounded-xl border">
+            {merges.data.map((merge) => (
+              <MergeRow key={merge.id} merge={merge} />
+            ))}
+          </ul>
+        </section>
+      )}
     </main>
   );
 }

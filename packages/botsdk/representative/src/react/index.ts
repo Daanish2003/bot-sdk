@@ -133,6 +133,25 @@ export function useSetCustomerBlocked(
   return useMutation(useRepresentative().customerSetBlocked.mutationOptions(options));
 }
 
+/** Merges one Customer into another (`representative.customerMerge`). */
+export function useMergeCustomer(
+  options?: ProcedureMutationOptions<Representative["customerMerge"]>,
+) {
+  return useMutation(useRepresentative().customerMerge.mutationOptions(options));
+}
+
+/** The owner's merges of Customers (`representative.customerMergeList`). */
+export function useCustomerMerges() {
+  return useQuery(useRepresentative().customerMergeList.queryOptions());
+}
+
+/** Undoes a merge (`representative.customerMergeUndo`). */
+export function useUndoCustomerMerge(
+  options?: ProcedureMutationOptions<Representative["customerMergeUndo"]>,
+) {
+  return useMutation(useRepresentative().customerMergeUndo.mutationOptions(options));
+}
+
 /** A Representative's Customer threads (`representative.threadList`). */
 export function useThreads(id: string) {
   return useQuery(useRepresentative().threadList.queryOptions({ input: { id } }));

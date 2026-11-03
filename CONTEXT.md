@@ -182,6 +182,10 @@ _Avoid_: Notification, ticket, alert
 A person who deals with a user's business through a Representative. A Customer isn't a user and never signs in to the app, and belongs to that one user's business.
 _Avoid_: Contact, end user, client
 
+**Customer merge**:
+Making two Customers one, which happens only when a sender passes a code sent to an identity on the other's record, or when the user does it by hand. The absorbed Customer's identities and threads move to the other, and where both have an open thread with a Representative, the absorbed one's closes. It is recorded, verifies nobody, and the user can undo it: each identity goes back, and a closed thread stays closed.
+_Avoid_: Link, dedupe
+
 **Verified identity**:
 One of a Customer's identities whose sender passed its Channel's rule, within the last 90 days of contact. On a Channel whose rule is a code or a signed link, each pass vouches for its messages for an hour. A lapsed identity verifies again only by a code to another identity on record. A message whose sender isn't verified gets a prompt holding only what that identity said while unverified: nothing from the Customer's other identities, their memory or the identity's verified past.
 _Avoid_: Trusted, authenticated Customer

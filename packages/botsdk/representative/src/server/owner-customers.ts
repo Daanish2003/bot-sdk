@@ -25,6 +25,7 @@ import {
   type ThreadAuthor,
   type ThreadState,
 } from "./db/schema";
+import { isMergedAway, notMergedAway } from "./customer-merge";
 import { voidProofs } from "./customer-proof";
 import { isVerified } from "./verification";
 
@@ -40,7 +41,7 @@ type Db = Context["db"] | Transaction;
 
 const identityAddress = "representative_customer_identity_address";
 
-const customerNotFound = () =>
+export const customerNotFound = () =>
   rpcError("NOT_FOUND", "error.customerNotFound", "Customer not found");
 export const threadNotFound = () =>
   rpcError("NOT_FOUND", "error.threadNotFound", "Thread not found");
@@ -73,7 +74,7 @@ export function waitingOn(
   return !speaking && !waitingForTurn ? (botWorking ? "bot" : "customer") : "representative";
 }
 
-/** `userId`'s Customers named by `ids` (all of them when omitted), oldest first, with their identities. */
+/** `userId`'s Customers named by `ids` (all of them when omitted), oldest first, with their identities; none merged away. */
 async function readCustomers(
   { db, clock }: Context,
   userId: string,
@@ -85,6 +86,7 @@ async function readCustomers(
     .where(
       and(
         eq(representativeCustomer.userId, userId),
+        notMergedAway(),
         ids ? inArray(representativeCustomer.id, ids) : undefined,
       ),
     )
@@ -120,7 +122,7 @@ async function readCustomers(
   }));
 }
 
-async function readCustomer(context: Context, userId: string, id: string) {
+export async function readCustomer(context: Context, userId: string, id: string) {
   const [customer] = await readCustomers(context, userId, [id]);
   if (!customer) throw customerNotFound();
   return customer;
@@ -155,24 +157,25 @@ export async function createCustomer(
   return readCustomer(context, userId, id);
 }
 
-/** Holds the owner's Customer row against a concurrent delete, or says it isn't theirs. */
+/** Holds the owner's Customer row against a concurrent delete or merge, or says it isn't theirs. */
 async function lockCustomer(tx: Transaction, userId: string, id: string) {
   const [row] = await tx
     .select({ id: representativeCustomer.id })
     .from(representativeCustomer)
     .where(and(eq(representativeCustomer.id, id), eq(representativeCustomer.userId, userId)))
     .for("update");
-  if (!row) throw customerNotFound();
+  if (!row || (await isMergedAway(tx, id))) throw customerNotFound();
 }
 
 /** Names a Customer; an empty name clears it. */
 export async function renameCustomer(context: Context, userId: string, id: string, name: string) {
-  const [updated] = await context.db
-    .update(representativeCustomer)
-    .set({ name: name === "" ? null : name })
-    .where(and(eq(representativeCustomer.id, id), eq(representativeCustomer.userId, userId)))
-    .returning({ id: representativeCustomer.id });
-  if (!updated) throw customerNotFound();
+  await context.db.transaction(async (tx) => {
+    await lockCustomer(tx, userId, id);
+    await tx
+      .update(representativeCustomer)
+      .set({ name: name === "" ? null : name })
+      .where(eq(representativeCustomer.id, id));
+  });
   return readCustomer(context, userId, id);
 }
 
@@ -269,14 +272,13 @@ export async function setBlocked(
   now: Date,
 ) {
   await context.db.transaction(async (tx) => {
-    const [updated] = await tx
+    await lockCustomer(tx, userId, id);
+    await tx
       .update(representativeCustomer)
       .set({
         blockedAt: blocked ? sql`coalesce(${representativeCustomer.blockedAt}, ${now})` : null,
       })
-      .where(and(eq(representativeCustomer.id, id), eq(representativeCustomer.userId, userId)))
-      .returning({ id: representativeCustomer.id });
-    if (!updated) throw customerNotFound();
+      .where(eq(representativeCustomer.id, id));
     // What waited gets no Turn, then or after an unblock: only the next message is answered.
     if (blocked) {
       await tx

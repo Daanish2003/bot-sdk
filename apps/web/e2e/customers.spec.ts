@@ -92,6 +92,38 @@ test("an owner adds a Customer, edits identities, and blocks and unblocks one", 
   await expect(page.locator("[data-customer][data-blocked=true]")).toHaveCount(0);
 });
 
+test("an owner merges two Customers and undoes the merge", async ({ page }) => {
+  await signInAsSeededUser(page);
+  await page.goto("/customers");
+  const add = async (name: string, externalId: string) => {
+    await page.getByLabel("Name", { exact: true }).fill(name);
+    await page.getByLabel("Channel", { exact: true }).fill("sms");
+    await page.getByLabel("Identity on that Channel").fill(externalId);
+    await page.getByRole("button", { name: "Add Customer" }).click();
+    await expect(page.getByLabel(`Name of ${name}`)).toBeVisible();
+  };
+  await add("Ada", "+15550001");
+  await add("Bob", "+15550002");
+
+  await page.getByLabel("Merge Bob into").selectOption({ label: "Ada · +15550001" });
+  await page.getByRole("button", { name: "Merge Bob" }).click();
+
+  await expect(page.getByLabel("Name of Bob")).toHaveCount(0);
+  await expect(page.locator("[data-customer]")).toHaveCount(1);
+  await expect(page.getByLabel("Identity of Ada", { exact: true })).toHaveCount(2);
+  await expect(page.locator("[data-merge]")).toContainText("Bob into Ada");
+  await page.reload();
+  await expect(page.locator("[data-customer]")).toHaveCount(1);
+
+  await page.getByRole("button", { name: "Undo merging Bob into Ada" }).click();
+
+  await expect(page.locator("[data-customer]")).toHaveCount(2);
+  await expect(page.getByLabel("Identity of Bob", { exact: true })).toHaveValue("+15550002");
+  await expect(page.getByLabel("Identity of Ada", { exact: true })).toHaveValue("+15550001");
+  await expect(page.locator("[data-merge]")).toContainText("Undone");
+  await expect(page.getByRole("button", { name: "Undo merging Bob into Ada" })).toHaveCount(0);
+});
+
 test("an owner takes over a thread, writes to the Customer and hands it back", async ({ page }) => {
   const owner = await signInAsSeededUser(page);
   await page.goto("/representatives");

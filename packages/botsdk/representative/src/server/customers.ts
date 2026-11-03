@@ -11,7 +11,8 @@ import {
   representativeThreadMessage,
   type ThreadAuthor,
 } from "./db/schema";
-import { catchCode } from "./customer-proof";
+import { holdCustomers } from "./customer-merge";
+import { catchCode, customerProofLeadsTo, mayHoldCode } from "./customer-proof";
 import { type ChannelProof, judgeSender } from "./verification";
 
 /*
@@ -64,6 +65,40 @@ async function findOrMakeIdentity(tx: Transaction, userId: string, heard: Heard)
   return winner!;
 }
 
+/** The Customer an identity is on now. */
+async function customerOfIdentity(tx: Transaction, identityId: string) {
+  const [identity] = await tx
+    .select({ customerId: representativeCustomerIdentity.customerId })
+    .from(representativeCustomerIdentity)
+    .where(eq(representativeCustomerIdentity.id, identityId));
+  return identity!.customerId;
+}
+
+/**
+ * Holds the sender's Customer until `tx` ends, so that no merge or undo can move their identity off
+ * it, and returns it: one that moved them as this waited is followed. The owner's edits take a
+ * Customer before its identity, so this does too. A message that could pass a live code to another
+ * Customer holds both as a merge does, since waiting for that later, with its identity held, could
+ * deadlock with this sender's next message.
+ */
+async function holdSendersCustomer(tx: Transaction, identityId: string, text: string, now: Date) {
+  const merges = mayHoldCode(text);
+  for (;;) {
+    const customerId = await customerOfIdentity(tx, identityId);
+    const leadsTo = merges ? await customerProofLeadsTo(tx, identityId, now) : undefined;
+    if (leadsTo && leadsTo !== customerId) {
+      await holdCustomers(tx, [customerId, leadsTo]);
+    } else {
+      await tx
+        .select({ id: representativeCustomer.id })
+        .from(representativeCustomer)
+        .where(eq(representativeCustomer.id, customerId))
+        .for("key share");
+    }
+    if ((await customerOfIdentity(tx, identityId)) === customerId) return customerId;
+  }
+}
+
 /** Whether this message's sender is verified, with the identity's standing moved on by it. */
 async function judgeMessage(
   tx: Transaction,
@@ -98,14 +133,14 @@ async function judgeMessage(
 export async function receiveMessage(
   tx: Transaction,
   {
-    keyring,
+    services,
     representativeId,
     heard,
     proof,
     text,
     now,
   }: {
-    keyring: readonly string[];
+    services: Pick<FeatureContext, "clock" | "jobs" | "keyring">;
     representativeId: string;
     heard: Heard;
     proof: ChannelProof | undefined;
@@ -119,15 +154,23 @@ export async function receiveMessage(
     .where(eq(representative.id, representativeId))
     .for("key share");
   if (!owner) return null;
-  const { identityId, customerId } = await findOrMakeIdentity(tx, owner.userId, heard);
-  // Before the identity's lock, the order the owner's edits take them in.
+  const { identityId } = await findOrMakeIdentity(tx, owner.userId, heard);
+  const heldCustomerId = await holdSendersCustomer(tx, identityId, text, now);
   const [customer] = await tx
     .select({ blockedAt: representativeCustomer.blockedAt })
     .from(representativeCustomer)
-    .where(eq(representativeCustomer.id, customerId))
-    .for("key share");
+    .where(eq(representativeCustomer.id, heldCustomerId));
   const blocked = customer!.blockedAt !== null;
-  const stored = await catchCode(tx, { keyring, identityId, customerId, blocked, text, now });
+  const stored = await catchCode(tx, {
+    services,
+    identityId,
+    customerId: heldCustomerId,
+    blocked,
+    text,
+    now,
+  });
+  // Passing a code can have merged their Customer into another, whose thread this goes on.
+  const customerId = stored === text ? heldCustomerId : await customerOfIdentity(tx, identityId);
   // A blocked Customer's messages renew nothing, so the lapse runs on through a block.
   const verified = !blocked && (await judgeMessage(tx, identityId, proof, now));
   const [thread] = await tx

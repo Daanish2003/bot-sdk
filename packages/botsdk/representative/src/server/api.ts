@@ -4,6 +4,7 @@ import {
   approveInput,
   customerAddIdentityInput,
   customerCreateInput,
+  customerMergeInput,
   customerRenameInput,
   customerSetBlockedInput,
   customerUpdateIdentityInput,
@@ -15,6 +16,7 @@ import {
   threadSendInput,
   updateDraftInput,
 } from "../shared/contract";
+import { listMerges, mergeCustomers, undoMerge } from "./customer-merge";
 import {
   addIdentity,
   createCustomer,
@@ -116,6 +118,14 @@ export function representativeApi(
       const { id, blocked } = parseInput(customerSetBlockedInput, rest);
       return setBlocked(context, userId, id, blocked, context.clock());
     },
+
+    customerMerge: async ({ userId, ...rest }: WithUser<typeof customerMergeInput>) =>
+      mergeCustomers(context, userId, parseInput(customerMergeInput, rest)),
+
+    customerMergeList: async ({ userId }: { userId: string }) => listMerges(context, userId),
+
+    customerMergeUndo: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      undoMerge(context, userId, parseInput(idInput, rest).id),
 
     threadList: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
       listThreads(context, userId, parseInput(idInput, rest).id),

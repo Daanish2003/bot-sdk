@@ -13,6 +13,7 @@ export function representativeClient(): RepresentativeFeatureClient {
 
 export {
   type CustomerIdentityView,
+  type CustomerMergeView,
   type CustomerView,
   type Draft,
   type Expectation,

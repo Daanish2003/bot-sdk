@@ -275,7 +275,15 @@ export function turnTools({ job, kit, userId, name, representativeId, thread }: 
         }),
     }).server(async ({ channel, externalId }, context) => {
       const now = await job.now();
-      const claimed = channel && externalId ? { channel, externalId } : null;
+      const said = channel && externalId ? { channel, externalId } : null;
+      // A verified sender claiming the address they write from claims nothing, and that tells nobody
+      // anything about who is a Customer.
+      const claimed =
+        thread?.verified &&
+        said?.channel === thread.heard.channel &&
+        said.externalId === thread.heard.externalId
+          ? null
+          : said;
       // Set only by a live write, so a replay sends nothing twice.
       let outgoing: SentProof | null = null;
       const answer = await kit.liveActivity("verify_customer", context?.toolCallId, async (tx) => {
@@ -284,7 +292,7 @@ export function turnTools({ job, kit, userId, name, representativeId, thread }: 
           thread === null
             ? null
             : await requestProof(tx, { keyring: job.keyring, userId, thread, claimed, now });
-        if (thread?.verified) return alreadyVerifiedAnswer;
+        if (thread?.verified && !claimed) return alreadyVerifiedAnswer;
         return thread && !thread.proofRule ? noProofAnswer : proofAnswer;
       });
       if (outgoing && thread) {

@@ -90,7 +90,7 @@ export async function receiveCustomerMessage(
   return services.db.transaction(async (tx) => {
     const now = services.clock();
     const received = await receiveMessage(tx, {
-      keyring: services.keyring,
+      services,
       representativeId,
       heard: { channel, externalId },
       proof,

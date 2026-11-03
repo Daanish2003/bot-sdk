@@ -108,7 +108,7 @@ async function sendToCustomer(
     now,
   }: {
     threadId: string;
-    thread: Thread;
+    thread: Pick<Thread, "lastChannel" | "lastExternalId">;
     author: Extract<ThreadAuthor, "owner" | "note">;
     text: string;
     now: Date;
@@ -172,33 +172,43 @@ async function oldestUnanswered(tx: Transaction, threadId: string) {
 }
 
 /**
- * Takes the thread from its Representative: its Turn is aborted, whatever it hasn't sent is dropped,
- * and the Customer gets the fixed note, unless blocked. What that Turn or a next one would have
- * answered stays marked as waiting. Taking over a thread already held does nothing.
+ * Takes the thread, whose row `tx` holds, from its Representative: its Turn is aborted, whatever it
+ * hasn't sent is dropped, and the Customer gets the fixed note, unless blocked. What that Turn or a
+ * next one would have answered stays marked as waiting.
  */
+export async function holdThread(
+  { clock, jobs }: Pick<Context, "clock" | "jobs">,
+  tx: Transaction,
+  threadId: string,
+  thread: Pick<Thread, "turnId" | "waitingFrom" | "lastChannel" | "lastExternalId" | "blockedAt">,
+) {
+  if (thread.turnId) await jobs.cancelIn(tx, thread.turnId);
+  const now = clock();
+  const waitingFrom =
+    thread.waitingFrom ??
+    (thread.turnId && !thread.blockedAt ? await oldestUnanswered(tx, threadId) : null);
+  await tx
+    .update(representativeThread)
+    .set({
+      state: "owner",
+      turnId: null,
+      waitingFrom,
+      waitingSince: waitingFrom === null ? null : now,
+      ...activeAt(now),
+    })
+    .where(eq(representativeThread.id, threadId));
+  if (!thread.blockedAt) {
+    await sendToCustomer(tx, { threadId, thread, author: "note", text: takeoverNote, now });
+  }
+}
+
+/** Takes a thread over for the owner. Taking over a thread already held does nothing. */
 export async function takeOverThread(context: Context, userId: string, threadId: string) {
   await context.db.transaction(async (tx) => {
     const thread = await lockThread(tx, userId, threadId);
     if (thread.state === "closed") throw threadClosed();
     if (thread.state === "owner") return;
-    if (thread.turnId) await context.jobs.cancelIn(tx, thread.turnId);
-    const now = context.clock();
-    const waitingFrom =
-      thread.waitingFrom ??
-      (thread.turnId && !thread.blockedAt ? await oldestUnanswered(tx, threadId) : null);
-    await tx
-      .update(representativeThread)
-      .set({
-        state: "owner",
-        turnId: null,
-        waitingFrom,
-        waitingSince: waitingFrom === null ? null : now,
-        ...activeAt(now),
-      })
-      .where(eq(representativeThread.id, threadId));
-    if (!thread.blockedAt) {
-      await sendToCustomer(tx, { threadId, thread, author: "note", text: takeoverNote, now });
-    }
+    await holdThread(context, tx, threadId, thread);
   });
   return getThread(context, userId, threadId);
 }
@@ -257,6 +267,20 @@ export async function sendAsOwner(
   return getThread(context, userId, id);
 }
 
+/** Gives a thread the owner holds, whose row `tx` holds, back: a Turn answers what still waits. */
+export async function releaseThread(
+  services: Context,
+  tx: Transaction,
+  threadId: string,
+  thread: Pick<Thread, "waitingFrom">,
+) {
+  await tx
+    .update(representativeThread)
+    .set({ state: "representative", ...activeAt(services.clock()) })
+    .where(eq(representativeThread.id, threadId));
+  if (thread.waitingFrom !== null) await queueWaitingTurn(services, tx, threadId);
+}
+
 /**
  * Gives a held thread back to its Representative, and a Turn answers what still waits, if anything.
  * Handing back a thread it already holds does nothing.
@@ -266,11 +290,7 @@ export async function handBackThread(context: Context, userId: string, threadId:
     const thread = await lockThread(tx, userId, threadId);
     if (thread.state === "closed") throw threadClosed();
     if (thread.state === "representative") return;
-    await tx
-      .update(representativeThread)
-      .set({ state: "representative", ...activeAt(context.clock()) })
-      .where(eq(representativeThread.id, threadId));
-    if (thread.waitingFrom !== null) await queueWaitingTurn(context, tx, threadId);
+    await releaseThread(context, tx, threadId, thread);
   });
   return getThread(context, userId, threadId);
 }

@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { FeatureContext, PublicRoute } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
+import { absorbCustomer } from "./customer-merge";
 import {
   representativeCustomer,
   representativeCustomerIdentity,
@@ -139,7 +140,7 @@ async function identityAt(
  * Holds these identities in id order, so two senders claiming each other can't deadlock, and the
  * owner's correction of an address can't pass a proof on its way to the old one.
  */
-async function holdIdentities(tx: Transaction, ids: string[]) {
+export async function holdIdentities(tx: Transaction, ids: string[]) {
   for (const id of [...new Set(ids)].sort()) {
     await tx
       .select({ id: representativeCustomerIdentity.id })
@@ -166,9 +167,13 @@ async function isOnlyIdentity(tx: Transaction, customerId: string) {
  * sender gets a code by way of another identity of their own Customer. Only one who hasn't lapsed and
  * whose Customer has no other identity can use any identity on record, since passing a code opens
  * what their Customer holds, and a new holder could make an identity of their own and claim it. A lapsed identity or a blocked Customer's receives none.
- * So a Customer with one identity and a lapse has no way back but the owner. A claim that leads
- * nowhere leaves a code nobody can pass, unless a real one is on its way, so that what the sender
- * types next is treated just as it is after a claim on record.
+ * So a Customer with one identity and a lapse has no way back but the owner. A verified sender has
+ * nothing to prove, so one goes only for a claim on another Customer, which links their Channel
+ * (ticket #1257). Not from a Channel whose sender can be spoofed, though: an hour's vouching for a
+ * number is too little to hand its whole history to whoever holds the identity claimed, so such a
+ * sender is linked from the other side, or by the owner. A claim that leads nowhere leaves a code
+ * nobody can pass, unless a real one is on its way, so that what the sender types next is treated
+ * just as it is after a claim on record.
  */
 export async function requestProof(
   tx: Transaction,
@@ -191,7 +196,7 @@ export async function requestProof(
     now: Date;
   },
 ): Promise<SentProof | null> {
-  if (!proofRule || verified) return null;
+  if (!proofRule || (verified && !claimed)) return null;
   // As for a reply: a Turn that began before the owner took over or blocked sends nothing more.
   const [held] = await tx
     .select({ state: representativeThread.state, blockedAt: representativeCustomer.blockedAt })
@@ -211,12 +216,12 @@ export async function requestProof(
   const sender = await identityAt(tx, userId, heard);
   if (sender?.id !== before.id || sender.blockedAt !== null) return null;
   // They passed a code while this Turn ran.
-  if (sender.provenUntil !== null && now < sender.provenUntil) return null;
+  if (!verified && sender.provenUntil !== null && now < sender.provenUntil) return null;
   const found = claimed && claim ? await identityAt(tx, userId, claimed) : undefined;
   const reachesSender = proofRule === "codeRoundTrip" || proofRule === "dmarc";
   const lapsed = hasLapsed(sender, now);
   let target: { id: string; channel: string; externalId: string } | null = null;
-  if (reachesSender && !lapsed) {
+  if (reachesSender && !lapsed && !verified) {
     target = { id: sender.id, ...heard };
   } else if (
     claimed &&
@@ -225,8 +230,9 @@ export async function requestProof(
     found.id !== sender.id &&
     found.blockedAt === null &&
     !hasLapsed(found, now) &&
-    (found.customerId === sender.customerId ||
-      (!lapsed && (await isOnlyIdentity(tx, sender.customerId))))
+    (found.customerId === sender.customerId
+      ? !verified
+      : !lapsed && !reachesSender && (await isOnlyIdentity(tx, sender.customerId)))
   ) {
     target = { id: found.id, ...claimed };
   }
@@ -333,6 +339,99 @@ function codesIn(text: string) {
   return { candidates, alone: onlyACode.test(normal) };
 }
 
+/** A message's digits, as ASCII ones. Six of them could be a code. */
+const digitsIn = (text: string) => withPlainDigits(text).replace(/\D/g, "");
+
+/** Whether `text` could hold a code, so that catching it could merge its sender's Customer. */
+export const mayHoldCode = (text: string) => digitsIn(text).length >= 6;
+
+/** The Customer that a code just passed by this sender would merge theirs into, if any is live. */
+export async function customerProofLeadsTo(tx: Transaction, identityId: string, now: Date) {
+  const [newest] = await tx
+    .select({
+      customerId: representativeCustomerIdentity.customerId,
+      kind: representativeVerification.kind,
+      usedAt: representativeVerification.usedAt,
+      expiresAt: representativeVerification.expiresAt,
+      attempts: representativeVerification.attempts,
+    })
+    .from(representativeVerification)
+    .innerJoin(
+      representativeCustomerIdentity,
+      eq(representativeCustomerIdentity.id, representativeVerification.targetIdentityId),
+    )
+    .where(eq(representativeVerification.senderIdentityId, identityId))
+    .orderBy(desc(representativeVerification.createdAt), desc(representativeVerification.id))
+    .limit(1);
+  return newest?.kind === "code" && isLive(newest, now) ? newest.customerId : undefined;
+}
+
+type MergeServices = Pick<FeatureContext, "clock" | "jobs" | "keyring">;
+
+/**
+ * Merges the sender's Customer into that of the identity their code went to, when that is another:
+ * passing it proves they hold that identity (ticket #1257). What held when it was sent must hold
+ * still, as `requestProof` asks it: false, proving nothing, when it doesn't.
+ */
+async function mergeIntoTarget(
+  services: MergeServices,
+  tx: Transaction,
+  {
+    senderId,
+    customerId,
+    targetId,
+    now,
+  }: { senderId: string; customerId: string; targetId: string; now: Date },
+) {
+  const identity = representativeCustomerIdentity;
+  const [leadsTo] = await tx
+    .select({ customerId: identity.customerId })
+    .from(identity)
+    .where(eq(identity.id, targetId));
+  if (!leadsTo) return false;
+  if (leadsTo.customerId === customerId) return true;
+  // `holdSendersCustomer` holds both unless the proof's target has moved since. Waiting for another
+  // now, with the identity held and out of order, could deadlock, so the code goes instead.
+  const held = await tx
+    .select({ id: representativeCustomer.id })
+    .from(representativeCustomer)
+    .where(inArray(representativeCustomer.id, [customerId, leadsTo.customerId]))
+    .for("update", { skipLocked: true });
+  if (held.length !== 2) return false;
+  const read = (id: string) =>
+    tx
+      .select({
+        userId: identity.userId,
+        customerId: identity.customerId,
+        verifiedContactAt: identity.verifiedContactAt,
+        lapsedAt: identity.lapsedAt,
+        blockedAt: representativeCustomer.blockedAt,
+      })
+      .from(identity)
+      .innerJoin(representativeCustomer, eq(representativeCustomer.id, identity.customerId))
+      .where(eq(identity.id, id));
+  const [target] = await read(targetId);
+  const [sender] = await read(senderId);
+  if (
+    !target ||
+    !sender ||
+    target.userId !== sender.userId ||
+    target.blockedAt !== null ||
+    hasLapsed(target, now) ||
+    hasLapsed(sender, now) ||
+    !(await isOnlyIdentity(tx, customerId))
+  ) {
+    return false;
+  }
+  await absorbCustomer(services, tx, {
+    userId: sender.userId,
+    absorbedId: customerId,
+    survivorId: target.customerId,
+    how: "code",
+  });
+  return true;
+}
+
 /** The sender's identity, now proved: what its next messages get for an hour, and its lapse ended. */
 const proved = (identityId: string, now: Date, tx: Transaction) =>
   tx
@@ -358,14 +457,14 @@ const proved = (identityId: string, now: Date, tx: Transaction) =>
 export async function catchCode(
   tx: Transaction,
   {
-    keyring,
+    services,
     identityId,
     customerId,
     blocked,
     text,
     now,
   }: {
-    keyring: readonly string[];
+    services: MergeServices;
     identityId: string;
     customerId: string;
     blocked: boolean;
@@ -373,7 +472,8 @@ export async function catchCode(
     now: Date;
   },
 ): Promise<string> {
-  const digits = withPlainDigits(text).replace(/\D/g, "").slice(0, digitsLookedAt);
+  const { keyring } = services;
+  const digits = digitsIn(text).slice(0, digitsLookedAt);
   if (digits.length < 6) return text;
   const { candidates, alone } = codesIn(text);
   // The identity before its verification, the order the owner's edit takes them in.
@@ -398,6 +498,13 @@ export async function catchCode(
         .update(representativeVerification)
         .set({ usedAt: now })
         .where(eq(representativeVerification.id, newest.id));
+      const merged = await mergeIntoTarget(services, tx, {
+        senderId: identityId,
+        customerId,
+        targetId: newest.targetIdentityId,
+        now,
+      });
+      if (!merged) return codeNotes.dead;
       await proved(identityId, now, tx);
       return codeNotes.passed;
     }

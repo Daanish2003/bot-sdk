@@ -7,6 +7,7 @@ import {
   representative,
   representativeCustomer,
   representativeCustomerIdentity,
+  representativeCustomerMerge,
   representativeHandOff,
   representativeRelease,
   representativeTestResult,
@@ -15,6 +16,7 @@ import {
   representativeVerification,
 } from "./db/schema";
 import { threadIdleJob } from "./idle";
+import { exportMerges } from "./customer-merge";
 import { type CustomerChannel, noCustomerChannel, proofLinkRoutes } from "./customer-proof";
 import { deleteCustomers, exportCustomers } from "./customers";
 import representativeMigrations from "./migrations.json" with { type: "json" };
@@ -53,6 +55,7 @@ export function representativeFeature(
         representative,
         representativeCustomer,
         representativeCustomerIdentity,
+        representativeCustomerMerge,
         representativeHandOff,
         representativeRelease,
         representativeTestResult,
@@ -85,6 +88,7 @@ export function representativeFeature(
       export: async (tx, userId) => ({
         representatives: await exportRepresentatives(tx, userId),
         customers: await exportCustomers(tx, userId),
+        customerMerges: await exportMerges(tx, userId),
       }),
     },
   });

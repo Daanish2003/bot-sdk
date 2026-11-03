@@ -153,4 +153,17 @@ export const representativeMessages = {
   "representative.customers.blockedHelp":
     "A blocked Customer's message is kept for you. It runs no model, gets no reply and opens no Assignment.",
   "representative.customers.saved": "Saved",
+  "representative.customers.mergeInto": ({ name }: { name: string }) => `Merge ${name} into`,
+  "representative.customers.mergeChoose": "Choose a Customer",
+  "representative.customers.merge": "Merge",
+  "representative.customers.mergeOf": ({ name }: { name: string }) => `Merge ${name}`,
+  "representative.customers.merges": "Merges",
+  "representative.customers.mergeRow": ({ from, into }: { from: string; into: string }) =>
+    `${from} into ${into}`,
+  "representative.customers.mergeByCode": "By a code they passed",
+  "representative.customers.mergeByOwner": "By you",
+  "representative.customers.mergeUndone": "Undone",
+  "representative.customers.mergeUndo": "Undo",
+  "representative.customers.mergeUndoOf": ({ from, into }: { from: string; into: string }) =>
+    `Undo merging ${from} into ${into}`,
 };
