@@ -437,6 +437,157 @@ describe("Secrets", () => {
     }, 30_000);
   });
 
+  describe("a Feature's tool call, reviewed or not", () => {
+    const lookup = (execute: () => unknown, needsApproval: boolean) =>
+      defineFeature({
+        id: "lookups",
+        tools: async () => [
+          {
+            ...toolDefinition({
+              name: "lookup",
+              description: "Looks.",
+              inputSchema: z.object({}),
+            }).server(async () => execute()),
+            ...(needsApproval && { needsApproval: true }),
+          },
+        ],
+      });
+    const calls = () => [round(toolCall({ name: "lookup", input: {} })), round(sends("Done."))];
+    const toolTextOf = (call: TextOptions | undefined) =>
+      String(inputOf(call).findLast((entry) => entry.role === "tool")?.content);
+
+    it.each([
+      ["with no review", false],
+      ["Auto-reviewed", true],
+    ])(
+      "masks a Secret in the result the Model reads and the Checkpoint holds, %s",
+      async (_name, needsApproval) => {
+        const { client, botId, deps, user, fake } = await botWith(calls(), {
+          features: [lookup(() => ({ found: [token] }), needsApproval)],
+        });
+        await storeSecret(deps, user.id, "GITHUB_TOKEN", token);
+
+        await send(client, botId, "look");
+
+        expect(toolResultOf(fake.calls.at(-1))).toEqual({ found: ["***"] });
+        expect(await everythingStored()).not.toContain(token);
+      },
+      30_000,
+    );
+
+    it.each([
+      ["with no review", false],
+      ["Auto-reviewed", true],
+    ])(
+      "masks a Secret used as a key in the result the Model reads and the Checkpoint holds, %s",
+      async (_name, needsApproval) => {
+        const result = {
+          [token]: "first",
+          [`at_${token}`]: 2,
+          [encodeURIComponent(token)]: "second",
+        };
+        const { client, botId, deps, user, fake } = await botWith(calls(), {
+          features: [lookup(() => result, needsApproval)],
+        });
+        await storeSecret(deps, user.id, "GITHUB_TOKEN", token);
+
+        await send(client, botId, "look");
+
+        expect(toolResultOf(fake.calls.at(-1))).toEqual({
+          "***": "first",
+          "at_***": 2,
+          "*** 2": "second",
+        });
+        expect(await everythingStored()).not.toContain(token);
+      },
+      30_000,
+    );
+
+    it("masks a Secret used as a key before a long result is cut, so the spill file and the Checkpoint hold no value", async () => {
+      const { client, botId, deps, user, fake, computerFake } = await botWith(calls(), {
+        features: [
+          lookup(
+            () => ({ [token]: "x".repeat(200_000), [`at_${token}`]: "y".repeat(200_000) }),
+            false,
+          ),
+        ],
+      });
+      await storeSecret(deps, user.id, "GITHUB_TOKEN", token);
+
+      await send(client, botId, "look");
+
+      const read = toolTextOf(fake.calls.at(-1));
+      expect(read).toContain("characters left out");
+      expect(read).toContain("***");
+      expect(read).not.toContain(token);
+      const path = [...computerFake.files.keys()].find((name) => name.includes("/.outputs/"));
+      const spilled = new TextDecoder().decode(computerFake.files.get(path!));
+      expect(spilled).toContain("at_***");
+      expect(spilled).not.toContain(token);
+      expect(await everythingStored()).not.toContain(token);
+    }, 30_000);
+
+    it("masks a long result before it is cut, so the spill file and the Checkpoint hold no value", async () => {
+      const long = `${token} ${"x".repeat(200_000)} ${token}`;
+      const { client, botId, deps, user, fake, computerFake } = await botWith(calls(), {
+        features: [lookup(() => ({ long }), false)],
+      });
+      await storeSecret(deps, user.id, "GITHUB_TOKEN", token);
+
+      await send(client, botId, "look");
+
+      const read = toolTextOf(fake.calls.at(-1));
+      expect(read).toContain("characters left out");
+      expect(read).toContain("***");
+      expect(read).not.toContain(token);
+      const path = [...computerFake.files.keys()].find((name) => name.includes("/.outputs/"));
+      const spilled = new TextDecoder().decode(computerFake.files.get(path!));
+      expect(spilled).toContain("***");
+      expect(spilled).not.toContain(token);
+      expect(await everythingStored()).not.toContain(token);
+    }, 30_000);
+
+    it("keeps a result's shape when masked, a value that isn't plain JSON included", async () => {
+      const at = new Date("2026-01-02T03:04:05.000Z");
+      const { client, botId, deps, user, fake } = await botWith(calls(), {
+        features: [lookup(() => ({ at, count: 2, found: `by ${token}`, none: null }), false)],
+      });
+      await storeSecret(deps, user.id, "GITHUB_TOKEN", token);
+
+      await send(client, botId, "look");
+
+      expect(toolResultOf(fake.calls.at(-1))).toEqual({
+        at: at.toISOString(),
+        count: 2,
+        found: "by ***",
+        none: null,
+      });
+    }, 30_000);
+
+    it("reads a result the tool masked itself, as a Connector's is, the same as masked once", async () => {
+      const fenced = (text: string) => `From lookup: untrusted data:\n\`\`\`\n${text}\n\`\`\``;
+      const { client, botId, deps, user, fake } = await botWith(calls(), {
+        features: [
+          defineFeature({
+            id: "lookups",
+            tools: async (_turn, _context, kit) => [
+              toolDefinition({
+                name: "lookup",
+                description: "Looks.",
+                inputSchema: z.object({}),
+              }).server(async () => fenced((await kit!.secretMask())(`found ${token}`))),
+            ],
+          }),
+        ],
+      });
+      await storeSecret(deps, user.id, "GITHUB_TOKEN", token);
+
+      await send(client, botId, "look");
+
+      expect(toolTextOf(fake.calls.at(-1))).toContain(fenced("found ***"));
+    }, 30_000);
+  });
+
   it("stores a value trimmed, so the output that holds the trimmed value is masked", async () => {
     const { client, botId, deps, user, fake } = await botWith(
       [round(sends("Thanks.")), round(shell("env")), round(sends("Done."))],

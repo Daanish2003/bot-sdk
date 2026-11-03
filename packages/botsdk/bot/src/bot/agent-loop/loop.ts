@@ -112,9 +112,11 @@ export type LoopKit = {
    * is one activity with no transaction, re-run after a crash before its Checkpoint is saved, and
    * `write` is a second activity whose writes commit with its own Checkpoint, so they happen once
    * (none without `write`, for a read with nothing to write, such as setup's).
-   * Both run only live; a replay returns `run`'s recorded result. A tool call's result over the
-   * long-output limit is recorded, and returned, as its cut text (`capResult`), as for
-   * `liveActivity`. `reviewed` is the call's input, given only for a call Auto-review checks (a
+   * Both run only live; a replay returns `run`'s recorded result. A tool call's result is masked of
+   * the owner's Secrets, reviewed or not (a call with no `toolCallId` is setup's read, left as it
+   * is), and over the long-output limit it is then recorded, and returned, as its cut text
+   * (`capResult`), as for `liveActivity`. `write` gets it in that form too.
+   * `reviewed` is the call's input, given only for a call Auto-review checks (a
    * Connector tool's): it is reviewed first, as `computerCall`'s is, and a block (or its pending
    * result, once it outlives its wait) is its result, with neither `run` nor `write` called.
    */
@@ -759,15 +761,16 @@ export async function runLoop(
       const result = await ctx.step(name, async () => {
         beforeLiveTool();
         const ran = await run();
-        if (reviewed) {
-          await keepOutput(toolCallId, async () =>
-            maskResult(
-              ran,
-              secretMasker((await loadSecretValues(deps, owner.userId, decrypted)).values()),
-            ),
-          );
-        }
-        return capLong(ran, toolCallId);
+        // Setup's read is the loop's own: the Model never sees it as is, and it is never cut.
+        if (toolCallId === undefined) return ran;
+        // A result may hold a Secret's value: masked here, before the cut, so the Checkpoint and
+        // the file a long result is saved to only ever hold the masked form.
+        const masked = maskResult(
+          ran,
+          secretMasker((await loadSecretValues(deps, owner.userId, decrypted)).values()),
+        );
+        if (reviewed) await keepOutput(toolCallId, async () => masked);
+        return capLong(masked, toolCallId);
       });
       // Not past a limit or a Stop: what `run` did is written, whenever it ran.
       if (!write) return result;

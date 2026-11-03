@@ -120,8 +120,8 @@ async function charge(
   { budgets, charged }: Awaited<ReturnType<typeof budgetsOfTurn>>,
   { turnId, costMicros, at }: { turnId: string; costMicros: number; at: Date },
 ) {
-  for (const id of charged) {
-    const { rootId, status } = budgets.get(id)!;
+  // One call is one charge to a budget, however many of the Turn's Assignments draw from it.
+  for (const rootId of new Set(charged.map((id) => budgets.get(id)!.rootId))) {
     await tx
       .update(botAssignment)
       .set({
@@ -129,9 +129,11 @@ async function charge(
         microsSpent: sql`${botAssignment.microsSpent} + ${costMicros}`,
       })
       .where(eq(botAssignment.id, rootId));
+  }
+  for (const id of charged) {
     await logStatus(tx, {
       assignmentId: id,
-      status,
+      status: budgets.get(id)!.status,
       actor: "system",
       turnId,
       calls: 1,

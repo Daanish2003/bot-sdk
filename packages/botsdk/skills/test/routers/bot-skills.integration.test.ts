@@ -412,7 +412,7 @@ describe("the Skills read", { timeout: 30_000 }, () => {
     await readStarted;
 
     await client.bots.stop({ botId });
-    // The running attempt sees the cancel at its next heartbeat.
+    // The running attempt sees the cancel at its next cancel check.
     timer.tick();
     await running;
 

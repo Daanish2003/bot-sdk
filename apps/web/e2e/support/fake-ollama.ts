@@ -222,10 +222,17 @@ export function wideReply(): string {
   ].join("\n");
 }
 
-/** Reply word by word, this far apart; a prompt with `slowMarker` is slow enough to Stop. */
+/**
+ * Reply word by word, this far apart. A prompt with `slowMarker` gets `slowReply`, 40 s of it, so
+ * only a Stop ends its Turn within a test's wait.
+ */
 const chunkDelayMs = 40;
 const slowChunkDelayMs = 400;
 export const slowMarker = "[slow]";
+const slowReply = "Still going ".repeat(50).trim();
+
+/** Lists the prompts of the slow Model calls open right now, as a JSON array. */
+export const slowCallsPath = "/slow-calls";
 
 /**
  * A stand-in Ollama server: `/api/tags` lists `fakeModel`, `/api/chat` streams `fakeReply` of the
@@ -233,7 +240,13 @@ export const slowMarker = "[slow]";
  * generation asks).
  */
 export function startFakeOllama(port: number): Promise<Server> {
+  const slowCalls = new Set<string>();
   const server = createServer((request, response) => {
+    if (request.url === slowCallsPath) {
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify([...slowCalls]));
+      return;
+    }
     if (request.url === fetchedPagePath && request.method === "GET") {
       response.setHeader("content-type", "text/html; charset=utf-8");
       response.end(
@@ -396,7 +409,9 @@ export function startFakeOllama(port: number): Promise<Server> {
             ? replyToTool(asked, last.content)
             : prompt.includes(wideMarker)
               ? wideReply()
-              : fakeReply(prompt.slice(0, 80));
+              : prompt.includes(slowMarker)
+                ? slowReply
+                : fakeReply(prompt.slice(0, 80));
       const line = (content: string, done: boolean) =>
         JSON.stringify({
           model: fakeModel,
@@ -412,6 +427,10 @@ export function startFakeOllama(port: number): Promise<Server> {
         return;
       }
       response.setHeader("content-type", "application/x-ndjson");
+      if (prompt.includes(slowMarker)) {
+        slowCalls.add(prompt);
+        response.on("close", () => slowCalls.delete(prompt));
+      }
       const words = text.split(/(?<= )/);
       let index = 0;
       const timer = setInterval(

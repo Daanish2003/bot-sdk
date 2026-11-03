@@ -80,6 +80,7 @@ const assignmentIdIn = (call: TextOptions) =>
 async function bots({
   scout = [assign(), quiet],
   writer,
+  editor = [],
   helper,
   manualWriter = false,
   manualHelper = false,
@@ -87,6 +88,7 @@ async function bots({
 }: {
   scout?: Round[];
   writer: Round[];
+  editor?: Round[];
   helper: Round[];
   manualWriter?: boolean;
   manualHelper?: boolean;
@@ -94,12 +96,15 @@ async function bots({
 }) {
   const scoutFake = createFakeAdapter({ rounds: scout });
   const writerFake = createFakeAdapter({ rounds: writer, manual: manualWriter });
+  const editorFake = createFakeAdapter({ rounds: editor });
   const helperFake = createFakeAdapter({ rounds: helper, manual: manualHelper });
   const adapter: AnyTextAdapter = {
     ...scoutFake.adapter,
     chatStream: (options: TextOptions) => {
       if (isHelperCall(options)) return helperFake.adapter.chatStream(options);
-      return (callerOf(options) === "Scout" ? scoutFake : writerFake).adapter.chatStream(options);
+      const caller = callerOf(options);
+      const fake = caller === "Scout" ? scoutFake : caller === "Editor" ? editorFake : writerFake;
+      return fake.adapter.chatStream(options);
     },
   };
   let deps: TestDeps | undefined;
@@ -128,6 +133,7 @@ async function bots({
   const client = chatRpc({ user, deps });
   const scoutBot = await client.bots.create({ name: "Scout", model });
   const writerBot = await client.bots.create({ name: "Writer", model });
+  const editorBot = await client.bots.create({ name: "Editor", model });
   const tell = (botId: string, said: string) =>
     client.bots.send({ botId, id: uuidv7(), text: said });
   return {
@@ -136,6 +142,7 @@ async function bots({
     tell,
     scoutId: scoutBot.id,
     writerId: writerBot.id,
+    editorId: editorBot.id,
     writerFake,
     helperFake,
   };
@@ -229,6 +236,83 @@ describe("a Helper's model calls and the Assignments of the Turn that started it
       await expect.poll(() => statusesOf(made.writerId), poll).toEqual(["complete", "complete"]);
       expect((await budgetOf(made, 0)).calls).toBe(4);
       expect((await budgetOf(made, 1)).calls).toBe(4);
+    },
+    timeout,
+  );
+
+  it(
+    "charges a root once per model call when the Turn is on two Assignments under it (#1230)",
+    async () => {
+      const made = await bots({
+        writer: [
+          round(
+            runs("assign_work", { bot: "Editor", title: "One", instructions: "First." }),
+            runs("assign_work", { bot: "Editor", title: "Two", instructions: "Second." }),
+          ),
+          quiet,
+        ],
+        editor: [handsOff, quiet],
+        helper: [working(), working(), round(text("Done."))],
+      });
+      // Editor takes both children in one Turn.
+      await made.client.bots.pause({ botId: made.editorId });
+      await limited(made);
+      await expect.poll(() => statusesOf(made.writerId), poll).toEqual(["complete"]);
+      expect((await budgetOf(made)).calls).toBe(2);
+
+      await made.client.bots.resume({ botId: made.editorId });
+      await expect.poll(() => statusesOf(made.editorId), poll).toEqual(["complete", "complete"]);
+      expect((await helperOf(made.editorId))!.status).toBe("complete");
+      expect(made.helperFake.calls).toHaveLength(3);
+
+      // Writer's two calls, Editor's Turn's one, the Helper's three and the report's Turn's one.
+      expect((await budgetOf(made)).calls).toBe(7);
+      // The calls still show on the log of each child.
+      const [first] = await turnsOf(made.editorId);
+      const children = await made.client.assignments.list({ botId: made.editorId });
+      expect(children).toHaveLength(2);
+      for (const child of children) expect(await callsLogged(child.id, first!.id)).toBe(4);
+    },
+    timeout,
+  );
+
+  it(
+    "stays stopped when a Stop aborts its live model call, with no report and no more charged",
+    async () => {
+      const made = await bots({
+        writer: [handsOff, quiet],
+        helper: [working("Found some."), round(text("Unreached."))],
+        manualHelper: true,
+      });
+      const id = await limited(made);
+      await expect.poll(() => made.helperFake.calls.length, poll).toBe(1);
+      await made.helperFake.release(working("Found some.").length);
+      await expect.poll(() => made.helperFake.calls.length, poll).toBe(2);
+      const { calls: spent } = await budgetOf(made);
+      // At the limit too: a cancel must not end it as out of budget.
+      await getTestDb()
+        .update(botAssignment)
+        .set({ callLimit: spent })
+        .where(eq(botAssignment.id, id));
+      const helper = await helperOf(made.writerId);
+
+      await made.client.helpers.stop({ botId: made.writerId, helperId: helper!.id });
+
+      // The runner's cancel check aborts the attempt within a second (#1222), mid-call.
+      const signal = made.helperFake.calls[1]!.request?.signal;
+      await expect.poll(() => signal?.aborted, { timeout: 3_000 }).toBe(true);
+      // The stop's own job writes what the Checkpoints hold.
+      await expect
+        .poll(async () => JSON.stringify((await helperOf(made.writerId))!.transcript), poll)
+        .toContain("Found some.");
+      expect(await helperOf(made.writerId)).toMatchObject({ status: "stopped", report: null });
+      const reports = await getTestDb()
+        .select({ id: botTrigger.id })
+        .from(botTrigger)
+        .where(and(eq(botTrigger.botId, made.writerId), eq(botTrigger.source, "helper")));
+      expect(reports).toEqual([]);
+      // A call cut off bills nothing.
+      expect((await budgetOf(made)).calls).toBe(spent);
     },
     timeout,
   );

@@ -80,14 +80,14 @@ export type JobRunner = {
     options?: EnqueueOptions & { now?: Date },
   ) => Promise<string>;
   /**
-   * Drops the queued job with this key, or aborts the running one at its next heartbeat or, sooner,
-   * at its next Checkpoint, whose save is fenced. A plain activity's side effect has run by then,
+   * Drops the queued job with this key, or aborts the running one at its next cancel check or,
+   * sooner, at its next Checkpoint, whose save is fenced. A plain activity's side effect has run by then,
    * and only its Checkpoint is dropped; a `(tx) =>` activity's write is rolled back.
    */
   cancel: (idempotencyKey: string) => Promise<void>;
   /**
    * Cancels the active job with this key in the caller's transaction, and returns what it was
-   * (`queued` never runs; `running` aborts at its next heartbeat or write), or undefined when
+   * (`queued` never runs; `running` aborts at its next cancel check or write), or undefined when
    * none is active. `now` defaults to the runner's clock.
    */
   cancelIn: (

@@ -14,7 +14,9 @@ import { runLoop } from "../../src/bot/agent-loop";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { type HostProvider, quotaLookup, saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner } from "../../src/runner/internal";
-import { usage } from "../../src/storage";
+import { encryptCredentials } from "../../src/credentials/encryption";
+import { secretEncryption } from "../../src/bot/safety";
+import { botSecret, usage } from "../../src/storage";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "@ai-chat/test-support/deps";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
@@ -197,6 +199,42 @@ describe("a Representative's loop", () => {
       expect(result).not.toContain(".outputs");
       expect(computer.calls).toEqual([]);
       expect([...computer.files.keys()]).toEqual([]);
+    },
+    timeout,
+  );
+
+  it(
+    "masks its owner's Secret in a live request's result, and leaves one with no tool call as it is",
+    async () => {
+      const value = "ghp_owner_secret_value_1234";
+      const { fake, deps, user, identity, play } = await representativeWith([
+        replies(),
+        round(text("Done.")),
+      ]);
+      await getTestDb()
+        .insert(botSecret)
+        .values({
+          userId: user.id,
+          name: "OWNER_TOKEN",
+          encrypted: encryptCredentials({ value }, secretEncryption(deps, user.id, "OWNER_TOKEN")),
+          createdAt: new Date(),
+        });
+      let setupRead: unknown;
+
+      const played = await play(identity(), (kit) => [
+        toolDefinition({
+          name: "reply",
+          description: "Reply.",
+          inputSchema: z.object({ text: z.string() }),
+        }).server(async (_input, context) => {
+          setupRead = await kit.liveRequest("setup", undefined, async () => ({ value }));
+          return kit.liveRequest("reply", context?.toolCallId, async () => ({ sent: value }));
+        }),
+      ]);
+
+      expect(played.error).toBeUndefined();
+      expect(toolResultsIn(fake.calls[1])).toEqual([JSON.stringify({ sent: "***" })]);
+      expect(setupRead).toEqual({ value });
     },
     timeout,
   );

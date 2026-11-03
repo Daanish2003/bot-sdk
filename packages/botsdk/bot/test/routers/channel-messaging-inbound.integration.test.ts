@@ -223,6 +223,39 @@ describe("a message from the Linked identity", () => {
     expect(await triggersOf(conversationId)).toEqual([]);
     expect(await userMessagesOf(conversationId)).toEqual([]);
   });
+
+  it("drops a NUL from a message, and the Bot still gets it", async () => {
+    const { fake, client, botId, conversationId, accountId } = await telegramBot();
+
+    await fake.deliver("@bot_1", {
+      sourceId: "1001:\u000077",
+      text: "Book me\u0000 a table",
+      files: [
+        {
+          id: "f1",
+          name: "menu\u0000.pdf",
+          contentType: "application/pdf",
+          size: fake.adapter.limits.download + 1,
+          kind: "document",
+        },
+      ],
+    });
+
+    expect((await triggersOf(conversationId)).map((trigger) => trigger.id)).toEqual([
+      `fake:${accountId}:1001:77`,
+    ]);
+    const { messages } = await client.bots.get({ botId });
+    expect(messages[0]!.text).toBe("Book me a table\n\nFiles not kept (too large): menu.pdf");
+  });
+
+  it("drops a message that holds only a NUL", async () => {
+    const { fake, conversationId } = await telegramBot();
+
+    await fake.deliver("@bot_1", { text: "\u0000" });
+
+    expect(await triggersOf(conversationId)).toEqual([]);
+    expect(await userMessagesOf(conversationId)).toEqual([]);
+  });
 });
 
 describe("the files of a message from the Linked identity", () => {

@@ -19,7 +19,7 @@ export class PermanentJobError extends Error {
  * What a job's `run` gets besides its payload (spec #872): the workflow context (ADR 0011, the
  * #481 amendment), whose `step`, `now`, `random` and `patched` are recorded in the job's history and
  * replayed when the job is retried or re-claimed (code outside them reruns on every attempt), the
- * `signal` that aborts at the next heartbeat after a cancel, and the core services the job was
+ * `signal` that aborts at the next cancel check after a cancel, and the core services the job was
  * registered with: a feature's job gets its feature's context, a Host's job the Host's.
  */
 export type JobContext<Services extends object = FeatureContext> = WorkflowContext<Transaction> & {
@@ -141,6 +141,8 @@ const DAY_MS = 86_400_000;
 export const JOB_TIMING = {
   /** A running job writes `heartbeat_at` this often. */
   heartbeatMs: 10_000,
+  /** A running job reads its row this often, so a cancel reaches it soon. It writes nothing. */
+  cancelCheckMs: 1_000,
   /** A running job whose heartbeat is older than this has lost its lease. */
   leaseMs: 60_000,
   /** The longest one attempt may run before it is ended and counted as a failure. */

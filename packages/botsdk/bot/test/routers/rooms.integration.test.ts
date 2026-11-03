@@ -365,6 +365,31 @@ describe("rooms", () => {
     },
     timeout,
   );
+
+  it(
+    "refuses a NUL in a Room's Message or name, as a client error, and saves nothing",
+    async () => {
+      const { client, scout, writer } = await threeBots();
+      const botIds = [scout.id, writer.id];
+      const { conversationId } = await client.rooms.create({ name: "Launch", botIds });
+      const refused = { code: "BAD_REQUEST", status: 400 };
+
+      await expect(client.rooms.send({ conversationId, text: "a\u0000b" })).rejects.toMatchObject(
+        refused,
+      );
+      await expect(client.rooms.rename({ conversationId, name: "a\u0000b" })).rejects.toMatchObject(
+        refused,
+      );
+      await expect(client.rooms.create({ name: "a\u0000b", botIds })).rejects.toMatchObject(
+        refused,
+      );
+
+      const { room, messages } = await client.rooms.get({ conversationId });
+      expect(room.name).toBe("Launch");
+      expect(messages).toEqual([]);
+    },
+    timeout,
+  );
 });
 
 /**

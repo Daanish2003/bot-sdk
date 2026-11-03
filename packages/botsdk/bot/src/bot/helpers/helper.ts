@@ -594,7 +594,7 @@ async function playHelper(
                 record: (featureId, list) => ctx.step(`${featureId}:tools`, list),
                 computerCall: kit.computerCall,
               },
-              { connectorsOnly: true },
+              { connectorsOnly: true, turnBehind: helper.startedByTurnId },
             )
           : undefined;
         if (!connectors || connectors.tools.length === 0) {

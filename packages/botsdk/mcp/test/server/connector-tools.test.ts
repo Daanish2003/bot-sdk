@@ -1,3 +1,4 @@
+import { maskResult, secretMasker } from "@botsdk/bot/bot/safety";
 import type { AnyServerTool } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
@@ -39,6 +40,52 @@ async function call(connectors: Awaited<ReturnType<typeof connectorsOf>>, name: 
 }
 
 describe("connectorTools", () => {
+  it("gives a result that the core masks again the same as one masked once", async () => {
+    const value = "ghp_connector_secret_value_1234";
+    const mask = secretMasker([value]);
+    const connectors = await connectorTools({
+      ...wiring([
+        {
+          name: "web_fetch_page",
+          description: "Fetches a page.",
+          execute: async () => ({ text: `Issue by ${value}` }),
+        },
+      ] as unknown as AnyServerTool[]),
+      secretMask: async () => mask,
+      signal: new AbortController().signal,
+      record: (list) => list(),
+      taken: new Set(),
+    });
+
+    const once = await call(connectors, "web_fetch_page");
+
+    expect(JSON.stringify(once)).not.toContain(value);
+    expect(JSON.stringify(once)).toContain("***");
+    expect(maskResult(once, mask)).toEqual(once);
+  });
+
+  it("masks a Secret used as a key before it becomes text, so JSON escaping can't hide it", async () => {
+    const value = 'ghp_connector"quoted_1234';
+    const connectors = await connectorTools({
+      ...wiring([
+        {
+          name: "web_fetch_page",
+          description: "Fetches a page.",
+          execute: async () => ({ [value]: 1 }),
+        },
+      ] as unknown as AnyServerTool[]),
+      secretMask: async () => secretMasker([value]),
+      signal: new AbortController().signal,
+      record: (list) => list(),
+      taken: new Set(),
+    });
+
+    const result = JSON.stringify(await call(connectors, "web_fetch_page"));
+
+    expect(result).not.toContain("connector");
+    expect(result).toContain("***");
+  });
+
   it("leaves out a Connector tool named like one of the Turn's own tools", async () => {
     const connectors = await connectorTools({
       ...wiring([
