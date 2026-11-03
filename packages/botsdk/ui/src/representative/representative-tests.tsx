@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { ReplySources } from "./reply-sources";
 
 import { useI18n } from "@botsdk/react/provider";
 import type {
@@ -228,6 +229,7 @@ export function TestResults({ representative }: { representative: Representative
                 <li key={at}>
                   <span className="font-medium">{t(roleKeys[entry.role])}:</span>{" "}
                   <span className="whitespace-pre-wrap">{entry.text}</span>
+                  {entry.reply && <ReplySources reply={entry.reply} />}
                 </li>
               ))}
             </ol>

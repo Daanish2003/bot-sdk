@@ -219,7 +219,7 @@ export function turnTools({ job, kit, userId, name, representativeId, thread, en
         if (JSON.stringify(checked.inserted).length > maxTestInsertedLength) {
           return refused("it quotes too much at once. Split it into shorter replies.");
         }
-        return { sent: true, inserted: checked.inserted };
+        return { sent: true, inserted: checked.inserted, kind, sources: checked.sources };
       });
     }),
     hand_to_bot: toolDefinition({
