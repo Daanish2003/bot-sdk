@@ -376,6 +376,22 @@ describe("a second refusal", () => {
     expect((await made.thread()).waitingOn).toBe("owner");
   });
 
+  it("opens the Assignment whatever the Customer wrote, within what an Assignment takes", async () => {
+    const made = await serving([guesses("It is 10 USD."), guesses("It is 12 USD.")]);
+    // Long, three bytes a character, and with a run of backticks its fence must outgrow.
+    const long = "語".repeat(14_000) + "`".repeat(1_000);
+    const backticks = "`".repeat(20_000);
+    await made.send(long);
+    await made.send(backticks);
+    await made.send(long);
+    made.timer.advance(500);
+    await made.claim();
+    await made.attemptsEnd();
+
+    expect(textsOf(await made.sent())).toEqual([handOffMessage]);
+    expect(await made.assignments()).toHaveLength(1);
+  });
+
   it("hints the Bot's Conversation once the hand-off has committed", async () => {
     const made = await serving([guesses("It is 10 USD."), guesses("It is 12 USD.")]);
     const { threads } = made.deps.parts.features[0]!.context;
@@ -500,6 +516,40 @@ describe("a second refusal in a test conversation", () => {
     expect(fake.calls).toHaveLength(2);
     expect(await assignments()).toEqual([]);
     expect(await rpc.representative.threadList({ id })).toEqual([]);
+  });
+
+  it("doesn't count a test's own limit on what it can read back, which a live Turn hasn't", async () => {
+    const keys = ["a", "b", "c", "d", "e"];
+    const { rpc, id, timer, claim, attemptsEnd } = await serving([
+      guesses("It is 10 USD."),
+      round(
+        toolCall({
+          name: "reply",
+          input: { text: keys.map((key) => `{{${key}}}`).join(" "), kind: "answer" },
+        }),
+      ),
+      quiet(),
+    ]);
+    for (const key of keys) {
+      await rpc.representative.factAdd({
+        key,
+        type: "text",
+        topic: "General",
+        value: key.repeat(1_900),
+      });
+    }
+    await rpc.representative.updateDraft({
+      id,
+      draft: {
+        tests: [{ name: "Terms", message: "Terms?", expect: [{ kind: "not_handed_off" }] }],
+      },
+    });
+    await rpc.representative.runTests({ id });
+    timer.advance(500);
+    await claim({ overdue: true });
+    await attemptsEnd();
+
+    expect((await rpc.representative.get({ id })).testStatus).toBe("passed");
   });
 
   it("counts as handed off with no Bot too", async () => {

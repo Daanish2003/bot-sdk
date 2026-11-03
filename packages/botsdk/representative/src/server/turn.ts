@@ -111,8 +111,8 @@ const codeHandOffTitle = "A Customer's question couldn't be answered";
 const codeHandOffNote =
   "Code refused the Representative's replies to this Customer twice, for what they rested on, and told the Customer someone will follow up. Find out what they need, and finish with what they should be told.";
 const codeHandOffMessages = 3;
-/** So the messages and the note stay within `maxHandOffInstructionsLength`. */
-const codeHandOffMessageLength = 15_000;
+/** So the messages stay within what an Assignment takes in bytes, at three a character, with their fences. */
+const codeHandOffMessageLength = 3_000;
 
 /**
  * The Model of a Release that names none: the Host's default among those the owner can use. Not
@@ -185,9 +185,10 @@ type TurnProgress = {
   refusals: number;
   /** A `hand_to_bot` call handed work off. */
   handedOff: boolean;
-  /** The Turn has ended on a second refusal: no more tools run and no more Model calls follow. */
-  over: boolean;
 };
+
+/** The Turn has ended on a second refusal: no more tools run and no more Model calls follow. */
+const isOver = ({ refusals }: TurnProgress) => refusals > 1;
 
 type MadeHandOff = { id: string; botId: string; conversationId: string };
 
@@ -305,7 +306,9 @@ export function turnTools({
           now,
         );
         if ("error" in stored) return false;
-        if (!botId || progress.handedOff) return true;
+        // A Turn telling a Bot's result doesn't send the work round again: the owner has it from here.
+        const relaying = entries.some((entry) => entry.author === "bot" && !entry.earlier);
+        if (!botId || progress.handedOff || relaying) return true;
         try {
           made = await openHandOff(
             tx,
@@ -333,13 +336,15 @@ export function turnTools({
         // A test conversation's checks read what was sent from this answer, as the arguments still
         // hold the keys, and an answer over the long-output limit is cut.
         if (JSON.stringify(checked.inserted).length > maxTestInsertedLength) {
-          return refuse(tx, refused("it quotes too much at once. Split it into shorter replies."));
+          // A limit of this answer, not the reply's: a live Turn has none, so this counts for nothing.
+          return {
+            error: refused("it quotes too much at once. Split it into shorter replies.").error,
+          };
         }
         return { sent: true, inserted: checked.inserted };
       });
       if ("refused" in answer) {
         progress.refusals += 1;
-        progress.over = progress.refusals > 1;
       } else if ("sent" in answer) {
         progress.refusals = 0;
       }
@@ -596,7 +601,7 @@ export async function playLoop(
     timeLimitMs: turnTimeLimitMs,
     plainTextReminder,
     setup: async (kit) => {
-      const progress: TurnProgress = { refusals: 0, handedOff: false, over: false };
+      const progress: TurnProgress = { refusals: 0, handedOff: false };
       const tools: Record<string, AnyServerTool> = turnTools({
         job,
         kit,
@@ -615,7 +620,7 @@ export async function playLoop(
                 ...tools[tool]!,
                 // A call the same Step made after the hand-off that ended the Turn.
                 execute: async (args: unknown, context?: unknown) =>
-                  progress.over
+                  isOver(progress)
                     ? { error: turnOverRefusal }
                     : tools[tool]!.execute!(args, context as never),
               },
@@ -627,11 +632,11 @@ export async function playLoop(
         ...systemPromptsOf(content),
         senderStanding("thread" in on && on.thread.verified),
       ];
-      if (!test) return { systemPrompts, ended: () => progress.over, tools: listed };
+      if (!test) return { systemPrompts, ended: () => isOver(progress), tools: listed };
       let stale = false;
       return {
         systemPrompts,
-        ended: () => stale || progress.over,
+        ended: () => stale || isOver(progress),
         tools: listed.map((tool): AnyServerTool => ({
           ...tool,
           execute: async (args: unknown, context?: unknown) => {
