@@ -65,12 +65,17 @@ async function findOrMakeCustomer(tx: Transaction, userId: string, heard: Heard)
 /**
  * Stores a Customer's message on its thread, whether or not a Turn can run: `null` only when the
  * Representative doesn't exist. It holds that row, so the owner's delete, which removes
- * Representatives before Customers, can't leave a Customer behind. What it returns goes in a
- * Checkpoint, which user delete doesn't reach: ids and a place in the thread, not the thread's text.
+ * Representatives before Customers, can't leave a Customer behind. It also holds the thread's row
+ * until `tx` ends, so what it returns of the thread's Turn stays true for the caller.
  */
 export async function receiveMessage(
   tx: Transaction,
-  { representativeId, heard, text }: { representativeId: string; heard: Heard; text: string },
+  {
+    representativeId,
+    heard,
+    text,
+    now,
+  }: { representativeId: string; heard: Heard; text: string; now: Date },
 ) {
   const [owner] = await tx
     .select({ userId: representative.userId })
@@ -88,6 +93,7 @@ export async function receiveMessage(
       lastChannel: heard.channel,
       lastExternalId: heard.externalId,
       messageCount: 1,
+      waitingSince: now,
     })
     .onConflictDoUpdate({
       target: [representativeThread.customerId, representativeThread.representativeId],
@@ -96,15 +102,21 @@ export async function receiveMessage(
         lastChannel: heard.channel,
         lastExternalId: heard.externalId,
         messageCount: sql`${representativeThread.messageCount} + 1`,
+        waitingSince: sql`coalesce(${representativeThread.waitingSince}, ${sql.param(now, representativeThread.waitingSince)})`,
         updatedAt: new Date(),
       },
     })
-    .returning({ id: representativeThread.id, position: representativeThread.messageCount });
-  const { id: threadId, position } = thread!;
+    .returning({
+      id: representativeThread.id,
+      position: representativeThread.messageCount,
+      turnId: representativeThread.turnId,
+      waitingSince: representativeThread.waitingSince,
+    });
+  const { id: threadId, position, turnId, waitingSince } = thread!;
   await tx
     .insert(representativeThreadMessage)
     .values({ id: uuidv7(), threadId, position, author: "customer", text, ...heard });
-  return { customerId, threadId, position };
+  return { threadId, turnId, waitingSince: waitingSince! };
 }
 
 /**

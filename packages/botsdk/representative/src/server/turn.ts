@@ -7,26 +7,26 @@ import { defaultModelFor } from "@botsdk/client/models/models";
 import { assignmentEnded, type AssignmentEnded, type RepresentativeLoopKit } from "@botsdk/bot";
 import { untrustedBlock } from "@botsdk/bot/bot/routines";
 import type { FeatureContext } from "@botsdk/bot/feature";
-import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { defineJob, type JobContext, PermanentJobError } from "@botsdk/bot/runner/internal";
 import { noNul, type ReleaseContent, type RepresentativeTool } from "../shared/contract";
-import {
-  maxThreadMessageLength,
-  readThread,
-  receiveMessage,
-  storeReply,
-  type ThreadEntry,
-} from "./customers";
+import { maxThreadMessageLength, readThread, storeReply, type ThreadEntry } from "./customers";
 import { representative, representativeHandOff, representativeRelease } from "./db/schema";
+import {
+  beginTurn,
+  endTurn,
+  representativeTurnJobName,
+  type TurnJobPayload,
+  turnJobPayload,
+} from "./thread-turns";
 
 /*
- * A Representative Turn (ticket #1191): one job per Customer message. It stores the message on the
- * Customer's thread (ticket #1249), reads the live Release once and plays the loop on that thread,
- * with only that Release's tools. No route, RPC or API method queues it:
- * until a later spec lets real Customers in, only the test Customer entry point in the private
- * `@ai-chat/test-support` package does.
+ * A Representative Turn (ticket #1191): one job per batch of a Customer's messages, which
+ * `thread-turns.ts` queues. It reads the live Release once and plays the loop on the thread, with
+ * only that Release's tools.
  */
+
+export { representativeTurnJobName };
 
 export type TurnServices = FeatureContext<
   "assignments" | "models" | "representativeLoop" | "threads"
@@ -38,8 +38,6 @@ const assignmentEndedCode = "error.assignmentEnded";
 export const isAssignmentEnded = (error: unknown) =>
   error instanceof ORPCError && error.data?.code === assignmentEndedCode;
 
-export const representativeTurnJobName = "representative.turn";
-
 /** The sizing rule, from the runner measurement (#1153): at least arrivals per second × Turn seconds. */
 export const defaultTurnConcurrency = 50;
 
@@ -49,15 +47,6 @@ const maxHandOffInstructionsLength = 60_000;
 
 export const turnStepLimit = 10;
 export const turnTimeLimitMs = 5 * 60_000;
-
-const representativeTurnPayload = z.object({
-  representativeId: z.uuid(),
-  /** Who sent it. The Customer's id is code's, from this identity: a Model never names one. */
-  channel: z.string().min(1).max(64).refine(noNul),
-  externalId: z.string().min(1).max(512).refine(noNul),
-  message: z.string().min(1).max(maxThreadMessageLength).refine(noNul),
-});
-export type RepresentativeTurnPayload = z.infer<typeof representativeTurnPayload>;
 
 /** What a hand-off's Assignment tells when it ends. Nothing carries it to a Customer until the gate spec. */
 export const handOffEndedJob = defineJob<AssignmentEnded, TurnServices>({
@@ -113,7 +102,7 @@ async function readStart({ db, models, logger }: TurnServices, representativeId:
     logger.error(`Representative ${representativeId} has no Model it can use`);
     return null;
   }
-  return { ...row, model, turnId: uuidv7() };
+  return { ...row, model };
 }
 
 /**
@@ -310,54 +299,54 @@ export async function playLoop(
 
 /** The Representative Turn's job, at `concurrency` at once per process. */
 export function representativeTurnJob(concurrency = defaultTurnConcurrency) {
-  return defineJob<RepresentativeTurnPayload, TurnServices>({
+  return defineJob<TurnJobPayload, TurnServices>({
     name: representativeTurnJobName,
-    payload: representativeTurnPayload,
+    payload: turnJobPayload,
     concurrency,
-    run: async ({ representativeId, channel, externalId, message }, job) => {
-      // First, and with its Checkpoint: stored exactly once, even when no Turn can run.
-      const received = await job.step("representative_receive", (tx) =>
-        receiveMessage(tx, {
-          representativeId,
-          heard: { channel, externalId },
-          text: message,
-        }),
+    // Thrown out of `run`, so its last Checkpoint never ran: what waited still gets its Turn.
+    onFailed: ({ threadId, turnId }, _error, services) =>
+      services.db.transaction((tx) => endTurn(services, tx, threadId, turnId)),
+    run: async ({ threadId, turnId }, job) => {
+      const begun = await job.step("representative_turn_begin", (tx) =>
+        beginTurn(tx, threadId, turnId),
       );
-      if (!received) return;
-      const { customerId, threadId, position } = received;
-      // Recorded: a replay after a crash stays on this Release, this owner and this Turn.
+      if (!begun) return;
+      const { customerId, representativeId, upTo } = begun;
+      // Recorded: a replay after a crash stays on this Release and this owner.
       const start = await job.step("representative_start", () => readStart(job, representativeId));
-      if (!start) return;
-      const { userId, name, model, content, turnId } = start;
-      const entries = await readThread(job.db, threadId, position);
-      // The owner was deleted since. Not a plain return: a replay has history left to read, and a
-      // workflow ending with some left over fails as nondeterministic.
-      if (entries.length === 0) {
-        throw new PermanentJobError(`Representative Turn ${turnId}: its thread has gone`);
+      if (start) {
+        const { userId, name, model, content } = start;
+        const entries = await readThread(job.db, threadId, upTo);
+        // The owner was deleted since. Not a plain return: a replay has history left to read, and a
+        // workflow ending with some left over fails as nondeterministic.
+        if (entries.length === 0) {
+          throw new PermanentJobError(`Representative Turn ${turnId}: its thread has gone`);
+        }
+        const played = await playLoop(job, {
+          userId,
+          representativeId,
+          customerId,
+          name,
+          model,
+          sourceId: turnId,
+          on: { threadId },
+          entries,
+          content,
+        });
+        // A failed job, not a succeeded one, and no retry: a Step may already have replied.
+        if (played.error !== undefined) {
+          throw new PermanentJobError(`Representative Turn ${turnId} failed: ${played.error}`);
+        }
+        if (played.quotaSpent || played.timedOut || played.stepLimit) {
+          const why = played.quotaSpent
+            ? "the owner's Quota is spent"
+            : played.timedOut
+              ? "it ran out of time"
+              : "it used all its Steps";
+          job.logger.error(`Representative Turn ${turnId} ended early: ${why}`);
+        }
       }
-      const played = await playLoop(job, {
-        userId,
-        representativeId,
-        customerId,
-        name,
-        model,
-        sourceId: turnId,
-        on: { threadId },
-        entries,
-        content,
-      });
-      // A failed job, not a succeeded one, and no retry: a Step may already have replied.
-      if (played.error !== undefined) {
-        throw new PermanentJobError(`Representative Turn ${turnId} failed: ${played.error}`);
-      }
-      if (played.quotaSpent || played.timedOut || played.stepLimit) {
-        const why = played.quotaSpent
-          ? "the owner's Quota is spent"
-          : played.timedOut
-            ? "it ran out of time"
-            : "it used all its Steps";
-        job.logger.error(`Representative Turn ${turnId} ended early: ${why}`);
-      }
+      await job.step("representative_turn_end", (tx) => endTurn(job, tx, threadId, turnId));
     },
   });
 }

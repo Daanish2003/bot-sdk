@@ -233,28 +233,17 @@ describe("a test Customer's Turn", () => {
     expect((await deps.runner.status(jobId))?.attempts).toBe(1);
   });
 
-  it("records its Model calls as representative, for the owner in the row and no one else", async () => {
+  it("records its Model calls as representative, for the owner in the row", async () => {
     const { deps, user, rpc } = await instance([replies(), quiet()]);
     const id = await liveRepresentative(rpc);
-    const stranger = await insertUser();
 
-    // A payload naming another user: the job loads the owner from the Representative's row.
-    const jobId = await deps.runner.enqueue(representativeTurnJobName, {
-      representativeId: id,
-      channel: fakeChannel,
-      externalId: uuidv7(),
-      message: "Hi",
-      userId: stranger.id,
-    });
-    await expect
-      .poll(async () => (await deps.runner.status(jobId))?.status, poll)
-      .toBe("succeeded");
+    // Nothing the Customer sends names a user: the job loads the owner from the Representative's row.
+    await testCustomerTurn(deps, { representativeId: id, message: "Hi" });
 
     const rows = await usageOf(user.id);
     expect(rows.map((row) => row.kind)).toEqual(["representative", "representative"]);
     expect(new Set(rows.map((row) => row.sourceId)).size).toBe(1);
     expect(rows[0]?.sourceId).toBeTruthy();
-    expect(await usageOf(stranger.id)).toEqual([]);
   });
 
   it("gives two test Customers different cache keys, and one Customer the same key twice", async () => {
@@ -374,7 +363,9 @@ describe("a Representative that may not run", () => {
   it("runs no Turn for a Representative that doesn't exist", async () => {
     const { fake, deps } = await instance([quiet()]);
 
-    await testCustomerTurn(deps, { representativeId: uuidv7(), message: "Hi" });
+    await expect(
+      testCustomerTurn(deps, { representativeId: uuidv7(), message: "Hi" }),
+    ).rejects.toThrow("No Representative");
 
     expect(fake.calls).toEqual([]);
   });
@@ -681,7 +672,7 @@ describe("a Turn replayed after a crash, on its thread", () => {
       expect(JSON.stringify(call.messages)).toContain("Before the crash");
       expect(JSON.stringify(call.messages)).not.toContain("After the crash");
     }
-    // The receiving Checkpoint keeps where the Turn read to, not the thread's text.
+    // The Turn's first Checkpoint keeps where it read to, not the thread's text.
     const events = await getTestDb()
       .select()
       .from(jobEvent)

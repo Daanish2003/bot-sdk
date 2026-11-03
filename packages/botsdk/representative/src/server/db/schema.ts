@@ -161,6 +161,8 @@ export type ThreadState = "representative" | "owner" | "closed";
  * A Customer thread: the one running exchange between a Customer and a Representative, across the
  * Customer's Channels. It is never a Conversation. `lastChannel` and `lastExternalId` are where the
  * Customer was last heard from, which is where a reply goes. `messageCount` numbers its messages.
+ * `turnId` is the Turn that holds it, queued or running, and also its job's key. `waitingSince` is
+ * when the oldest message that no Turn has begun on arrived, by the SDK's clock.
  */
 export const representativeThread = botsdkSchema.table(
   "representative_thread",
@@ -176,6 +178,8 @@ export const representativeThread = botsdkSchema.table(
     lastChannel: text("last_channel").notNull(),
     lastExternalId: text("last_external_id").notNull(),
     messageCount: integer("message_count").notNull().default(0),
+    turnId: uuid("turn_id"),
+    waitingSince: timestamp("waiting_since"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
