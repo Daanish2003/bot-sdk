@@ -162,7 +162,7 @@ export const representativeMessages = {
   "representative.replySourceDocument": ({ name, quote }: { name: string; quote: string }) =>
     `Document ${name}: "${quote}"`,
   "representative.replySourcesNote":
-    "Code checked that each source exists. It did not check that the reply says it right.",
+    "Code checked that each source exists. It did not check that the reply says it right. Code also refuses a price, phone number or link the Model typed, but a price written out in words is not caught.",
   "representative.threadBlocked": "Blocked: this Customer gets no reply.",
   "representative.customers.title": "Customers",
   "representative.customers.intro":

@@ -242,7 +242,7 @@ describe("a reply quoting a fact by key", () => {
     const made = await serving(
       [
         replies({
-          text: "{{price.haircut}}, not the 45 USD I saw.",
+          text: "{{price.haircut}}, not the price I saw.",
           kind: "answer",
           sources: [{ type: "fact", key: "price.haircut", value: "1 USD" }],
         }),
@@ -260,7 +260,7 @@ describe("a reply quoting a fact by key", () => {
 
     expect(JSON.stringify(promptOf(made.fake.calls[0]))).toContain("45 USD");
     expect((await made.sent())[0]).toMatchObject({
-      text: "60 USD, not the 45 USD I saw.",
+      text: "60 USD, not the price I saw.",
       sources: [{ type: "fact", key: "price.haircut" }],
     });
   });
