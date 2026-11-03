@@ -371,6 +371,7 @@ describe("whose Customer it is", () => {
       representativeId: id,
       channel: "whatsapp",
       externalId: number,
+      proof: { rule: "sameIdentity" },
       message: "Two",
     });
     await testCustomerTurn(deps, {
@@ -393,7 +394,7 @@ describe("whose Customer it is", () => {
       ["customer", "sms", "Three"],
       ["representative", "sms", "On SMS again."],
     ]);
-    // The thread goes with the Customer, so the later Turn reads what the earlier Channel said.
+    // The thread goes with the Customer, so a verified sender's Turn reads what the earlier Channel said.
     expect(JSON.stringify(fake.calls[2]?.messages)).toContain("One");
   });
 });

@@ -11,6 +11,7 @@ import {
   representativeThreadMessage,
   type ThreadAuthor,
 } from "./db/schema";
+import { type ChannelProof, judgeSender } from "./verification";
 
 /*
  * Customers and their threads (ticket #1249). A message finds or makes its Customer by identity
@@ -33,11 +34,14 @@ export type Heard = { channel: string; externalId: string };
 /** A thread message as a Turn reads it. */
 export type ThreadEntry = { author: ThreadAuthor; text: string };
 
-/** The Customer behind an identity of `userId`'s, made along with the identity on its first message. */
-async function findOrMakeCustomer(tx: Transaction, userId: string, heard: Heard) {
+/** An identity of `userId`'s with its Customer, made together on the identity's first message. */
+async function findOrMakeIdentity(tx: Transaction, userId: string, heard: Heard) {
   const existing = () =>
     tx
-      .select({ customerId: representativeCustomerIdentity.customerId })
+      .select({
+        identityId: representativeCustomerIdentity.id,
+        customerId: representativeCustomerIdentity.customerId,
+      })
       .from(representativeCustomerIdentity)
       .where(
         and(
@@ -47,7 +51,7 @@ async function findOrMakeCustomer(tx: Transaction, userId: string, heard: Heard)
         ),
       );
   const [found] = await existing();
-  if (found) return found.customerId;
+  if (found) return found;
   const customerId = uuidv7();
   await tx.insert(representativeCustomer).values({ id: customerId, userId });
   const made = await tx
@@ -55,11 +59,32 @@ async function findOrMakeCustomer(tx: Transaction, userId: string, heard: Heard)
     .values({ id: uuidv7(), userId, customerId, ...heard })
     .onConflictDoNothing()
     .returning({ id: representativeCustomerIdentity.id });
-  if (made.length > 0) return customerId;
+  if (made[0]) return { identityId: made[0].id, customerId };
   // Another first message of this identity won, and has committed: its Customer is the one.
   await tx.delete(representativeCustomer).where(eq(representativeCustomer.id, customerId));
   const [winner] = await existing();
-  return winner!.customerId;
+  return winner!;
+}
+
+/** Whether this message's sender is verified, with the identity's standing moved on by it. */
+async function judgeMessage(
+  tx: Transaction,
+  identityId: string,
+  proof: ChannelProof | undefined,
+  now: Date,
+) {
+  const where = eq(representativeCustomerIdentity.id, identityId);
+  const [standing] = await tx
+    .select({
+      verifiedContactAt: representativeCustomerIdentity.verifiedContactAt,
+      lapsedAt: representativeCustomerIdentity.lapsedAt,
+    })
+    .from(representativeCustomerIdentity)
+    .where(where)
+    .for("update");
+  const judged = judgeSender(standing!, proof, now);
+  await tx.update(representativeCustomerIdentity).set(judged.standing).where(where);
+  return judged.verified;
 }
 
 /**
@@ -70,7 +95,19 @@ async function findOrMakeCustomer(tx: Transaction, userId: string, heard: Heard)
  */
 export async function receiveMessage(
   tx: Transaction,
-  { representativeId, heard, text }: { representativeId: string; heard: Heard; text: string },
+  {
+    representativeId,
+    heard,
+    proof,
+    text,
+    now,
+  }: {
+    representativeId: string;
+    heard: Heard;
+    proof: ChannelProof | undefined;
+    text: string;
+    now: Date;
+  },
 ) {
   const [owner] = await tx
     .select({ userId: representative.userId })
@@ -78,7 +115,8 @@ export async function receiveMessage(
     .where(eq(representative.id, representativeId))
     .for("key share");
   if (!owner) return null;
-  const customerId = await findOrMakeCustomer(tx, owner.userId, heard);
+  const { identityId, customerId } = await findOrMakeIdentity(tx, owner.userId, heard);
+  const verified = await judgeMessage(tx, identityId, proof, now);
   const [thread] = await tx
     .insert(representativeThread)
     .values({
@@ -103,18 +141,22 @@ export async function receiveMessage(
   const { id: threadId, position } = thread!;
   await tx
     .insert(representativeThreadMessage)
-    .values({ id: uuidv7(), threadId, position, author: "customer", text, ...heard });
-  return { customerId, threadId, position };
+    .values({ id: uuidv7(), threadId, position, author: "customer", text, verified, ...heard });
+  return { customerId, threadId, position, verified };
 }
 
 /**
  * What a Turn reads of its thread: oldest first, up to and including `upTo`, so a replay reads what
- * the first attempt read, and within both limits. Empty once the thread has gone.
+ * the first attempt read, and within both limits. Empty once the thread has gone. For an unverified
+ * sender, only what that identity said while unverified and the replies to it: nothing from the
+ * Customer's other identities, and nothing from this identity's verified past, since a spoofed
+ * number or a recycled one is that identity too.
  */
 export async function readThread(
   db: FeatureContext["db"],
   threadId: string,
   upTo: number,
+  unverifiedSender: Heard | null,
 ): Promise<ThreadEntry[]> {
   const newest = await db
     .select({
@@ -126,6 +168,13 @@ export async function readThread(
       and(
         eq(representativeThreadMessage.threadId, threadId),
         lte(representativeThreadMessage.position, upTo),
+        unverifiedSender
+          ? and(
+              eq(representativeThreadMessage.verified, false),
+              eq(representativeThreadMessage.channel, unverifiedSender.channel),
+              eq(representativeThreadMessage.externalId, unverifiedSender.externalId),
+            )
+          : undefined,
       ),
     )
     .orderBy(desc(representativeThreadMessage.position))
@@ -141,11 +190,15 @@ export async function readThread(
 }
 
 /**
- * Stores a reply as sent on the Channel the Customer was last heard from, if the Representative
- * still holds the thread. The update waits for a message being received on the thread, so it reads
- * where that message came from.
+ * Stores a reply as sent to the sender its Turn answers, if the Representative still holds the
+ * thread. Not to whoever was heard last: an unverified identity writing during a verified Turn
+ * mustn't get that Turn's reply.
  */
-export async function storeReply(tx: Transaction, threadId: string, text: string) {
+export async function storeReply(
+  tx: Transaction,
+  { threadId, heard, verified }: { threadId: string; heard: Heard; verified: boolean },
+  text: string,
+) {
   const [thread] = await tx
     .update(representativeThread)
     .set({
@@ -155,16 +208,20 @@ export async function storeReply(tx: Transaction, threadId: string, text: string
     .where(
       and(eq(representativeThread.id, threadId), eq(representativeThread.state, "representative")),
     )
-    .returning({
-      position: representativeThread.messageCount,
-      channel: representativeThread.lastChannel,
-      externalId: representativeThread.lastExternalId,
-    });
+    .returning({ position: representativeThread.messageCount });
   if (!thread)
     return { error: "This thread is gone or no longer yours to answer, so nothing was sent." };
   await tx
     .insert(representativeThreadMessage)
-    .values({ id: uuidv7(), threadId, author: "representative", text, ...thread });
+    .values({
+      id: uuidv7(),
+      threadId,
+      author: "representative",
+      text,
+      verified,
+      ...heard,
+      ...thread,
+    });
   return { sent: true };
 }
 
@@ -193,6 +250,8 @@ export async function exportCustomers(tx: Transaction, userId: string) {
         customerId: representativeCustomerIdentity.customerId,
         channel: representativeCustomerIdentity.channel,
         externalId: representativeCustomerIdentity.externalId,
+        verifiedContactAt: representativeCustomerIdentity.verifiedContactAt,
+        lapsedAt: representativeCustomerIdentity.lapsedAt,
         createdAt: representativeCustomerIdentity.createdAt,
       })
       .from(representativeCustomerIdentity)
@@ -231,6 +290,7 @@ export async function exportCustomers(tx: Transaction, userId: string) {
         text: representativeThreadMessage.text,
         channel: representativeThreadMessage.channel,
         externalId: representativeThreadMessage.externalId,
+        verified: representativeThreadMessage.verified,
         createdAt: representativeThreadMessage.createdAt,
       })
       .from(representativeThreadMessage)
@@ -255,6 +315,8 @@ export async function exportCustomers(tx: Transaction, userId: string) {
     identities: (identities.get(id) ?? []).map((row) => ({
       channel: row.channel,
       externalId: row.externalId,
+      verifiedContactAt: row.verifiedContactAt,
+      lapsedAt: row.lapsedAt,
       createdAt: row.createdAt,
     })),
     threads: (threads.get(id) ?? []).map((thread) => ({
@@ -269,6 +331,7 @@ export async function exportCustomers(tx: Transaction, userId: string) {
         text: message.text,
         channel: message.channel,
         externalId: message.externalId,
+        verified: message.verified,
         createdAt: message.createdAt,
       })),
     })),

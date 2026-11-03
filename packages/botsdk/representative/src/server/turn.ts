@@ -12,6 +12,7 @@ import type { Transaction } from "@botsdk/bot/plugin";
 import { defineJob, type JobContext, PermanentJobError } from "@botsdk/bot/runner/internal";
 import { noNul, type ReleaseContent, type RepresentativeTool } from "../shared/contract";
 import {
+  type Heard,
   maxThreadMessageLength,
   readThread,
   receiveMessage,
@@ -19,6 +20,7 @@ import {
   type ThreadEntry,
 } from "./customers";
 import { representative, representativeHandOff, representativeRelease } from "./db/schema";
+import { channelProof } from "./verification";
 
 /*
  * A Representative Turn (ticket #1191): one job per Customer message. It stores the message on the
@@ -55,6 +57,8 @@ const representativeTurnPayload = z.object({
   /** Who sent it. The Customer's id is code's, from this identity: a Model never names one. */
   channel: z.string().min(1).max(64).refine(noNul),
   externalId: z.string().min(1).max(512).refine(noNul),
+  /** What the Channel's Customer path says of the sender; a Channel with no rule says nothing. */
+  proof: channelProof.optional(),
   message: z.string().min(1).max(maxThreadMessageLength).refine(noNul),
 });
 export type RepresentativeTurnPayload = z.infer<typeof representativeTurnPayload>;
@@ -133,18 +137,20 @@ async function reportingBot(
   return row?.botId ?? null;
 }
 
+type LiveThread = { threadId: string; heard: Heard; verified: boolean };
+
 type Turn = {
   job: JobContext<TurnServices>;
   kit: RepresentativeLoopKit;
   userId: string;
   name: string;
   representativeId: string;
-  /** The Customer's thread; null for a test conversation (#1192), whose tools answer as the live ones do and reach nothing. */
-  threadId: string | null;
+  /** The Customer's thread and the sender it answers; null for a test conversation (#1192), whose tools answer as the live ones do and reach nothing. */
+  thread: LiveThread | null;
 };
 
 /** The code-defined tools, by the name a Release lists them under. None takes a Customer's id. */
-export function turnTools({ job, kit, userId, name, representativeId, threadId }: Turn) {
+export function turnTools({ job, kit, userId, name, representativeId, thread }: Turn) {
   return {
     reply: toolDefinition({
       name: "reply",
@@ -153,7 +159,7 @@ export function turnTools({ job, kit, userId, name, representativeId, threadId }
     }).server(({ text }, context) =>
       // Stored as sent: nothing reaches a real Channel until the gate spec.
       kit.liveActivity("reply", context?.toolCallId, async (tx) =>
-        threadId === null ? { sent: true } : storeReply(tx, threadId, text),
+        thread === null ? { sent: true } : storeReply(tx, thread, text),
       ),
     ),
     hand_to_bot: toolDefinition({
@@ -173,7 +179,7 @@ export function turnTools({ job, kit, userId, name, representativeId, threadId }
         const botId = await reportingBot(tx, representativeId, true);
         if (!botId) return { error: noBotRefusal };
         // A test opens no Assignment: the Bot hears nothing.
-        if (threadId === null) return { handedOff: true };
+        if (thread === null) return { handedOff: true };
         let created: { id: string; conversationId: string };
         try {
           // No Bot Turn is behind it, so it names none and starts a chain of its own.
@@ -262,7 +268,7 @@ export async function playLoop(
     name: string;
     model: string;
     sourceId: string;
-    on: { threadId: string } | { test: { current: () => Promise<boolean> } };
+    on: { thread: LiveThread } | { test: { current: () => Promise<boolean> } };
     entries: ThreadEntry[];
     content: Pick<ReleaseContent, "jobText" | "skills" | "tools">;
   },
@@ -283,7 +289,7 @@ export async function playLoop(
         userId,
         name,
         representativeId,
-        threadId: "threadId" in on ? on.threadId : null,
+        thread: "thread" in on ? on.thread : null,
       });
       // By name, so a name off the code-defined list gives nothing.
       const listed = content.tools.flatMap((tool) =>
@@ -314,22 +320,19 @@ export function representativeTurnJob(concurrency = defaultTurnConcurrency) {
     name: representativeTurnJobName,
     payload: representativeTurnPayload,
     concurrency,
-    run: async ({ representativeId, channel, externalId, message }, job) => {
+    run: async ({ representativeId, channel, externalId, proof, message }, job) => {
       // First, and with its Checkpoint: stored exactly once, even when no Turn can run.
+      const heard = { channel, externalId };
       const received = await job.step("representative_receive", (tx) =>
-        receiveMessage(tx, {
-          representativeId,
-          heard: { channel, externalId },
-          text: message,
-        }),
+        receiveMessage(tx, { representativeId, heard, proof, text: message, now: job.clock() }),
       );
       if (!received) return;
-      const { customerId, threadId, position } = received;
+      const { customerId, threadId, position, verified } = received;
       // Recorded: a replay after a crash stays on this Release, this owner and this Turn.
       const start = await job.step("representative_start", () => readStart(job, representativeId));
       if (!start) return;
       const { userId, name, model, content, turnId } = start;
-      const entries = await readThread(job.db, threadId, position);
+      const entries = await readThread(job.db, threadId, position, verified ? null : heard);
       // The owner was deleted since. Not a plain return: a replay has history left to read, and a
       // workflow ending with some left over fails as nondeterministic.
       if (entries.length === 0) {
@@ -342,7 +345,7 @@ export function representativeTurnJob(concurrency = defaultTurnConcurrency) {
         name,
         model,
         sourceId: turnId,
-        on: { threadId },
+        on: { thread: { threadId, heard, verified } },
         entries,
         content,
       });
