@@ -160,7 +160,7 @@ export type ThreadState = "representative" | "owner" | "closed";
 /**
  * A Customer thread: the one running exchange between a Customer and a Representative, across the
  * Customer's Channels. It is never a Conversation. `lastChannel` and `lastExternalId` are where the
- * Customer was last heard from, which is where a reply goes.
+ * Customer was last heard from, which is where a reply goes. `messageCount` numbers its messages.
  */
 export const representativeThread = botsdkSchema.table(
   "representative_thread",
@@ -175,6 +175,7 @@ export const representativeThread = botsdkSchema.table(
     state: text("state").$type<ThreadState>().notNull().default("representative"),
     lastChannel: text("last_channel").notNull(),
     lastExternalId: text("last_external_id").notNull(),
+    messageCount: integer("message_count").notNull().default(0),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -182,6 +183,7 @@ export const representativeThread = botsdkSchema.table(
     uniqueIndex("representative_thread_open_idx")
       .on(table.customerId, table.representativeId)
       .where(sql`${table.state} <> 'closed'`),
+    index("representative_thread_customer_idx").on(table.customerId),
     index("representative_thread_representative_idx").on(table.representativeId),
   ],
 );
@@ -191,7 +193,8 @@ export type ThreadAuthor = "customer" | "representative";
 
 /**
  * One message in a Customer thread: the feature's own row, not a core Message. `channel` and
- * `externalId` are where it was heard from, or where a reply went.
+ * `externalId` are where it was heard from, or where a reply went. `position` is its place in the
+ * thread, taken under the thread's row lock, so it is the order the messages were really stored in.
  */
 export const representativeThreadMessage = botsdkSchema.table(
   "representative_thread_message",
@@ -200,13 +203,12 @@ export const representativeThreadMessage = botsdkSchema.table(
     threadId: uuid("thread_id")
       .notNull()
       .references((): AnyPgColumn => representativeThread.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
     author: text("author").$type<ThreadAuthor>().notNull(),
     channel: text("channel").notNull(),
     externalId: text("external_id").notNull(),
     text: text("text").notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (table) => [
-    index("representative_thread_message_thread_idx").on(table.threadId, table.createdAt),
-  ],
+  (table) => [unique("representative_thread_message_position").on(table.threadId, table.position)],
 );

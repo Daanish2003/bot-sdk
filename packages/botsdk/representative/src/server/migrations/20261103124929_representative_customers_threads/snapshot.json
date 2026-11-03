@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "df3adcbe-5395-4dda-9e15-4e8c2e1f3d87",
+  "id": "3bb62222-98c1-4332-a9c5-da54d219fa9f",
   "prevIds": ["dfb29006-6908-4bef-93a7-608346977cfa"],
   "ddl": [
     {
@@ -612,6 +612,19 @@
       "table": "representative_thread"
     },
     {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "message_count",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_thread"
+    },
+    {
       "type": "timestamp",
       "typeSchema": null,
       "notNull": true,
@@ -659,6 +672,19 @@
       "generated": null,
       "identity": null,
       "name": "thread_id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_thread_message"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "position",
       "entityType": "columns",
       "schema": "botsdk",
       "table": "representative_thread_message"
@@ -858,6 +884,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "customer_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "representative_thread_customer_idx",
+      "entityType": "indexes",
+      "schema": "botsdk",
+      "table": "representative_thread"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "representative_id",
           "isExpression": false,
           "asc": true,
@@ -874,34 +921,6 @@
       "entityType": "indexes",
       "schema": "botsdk",
       "table": "representative_thread"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "thread_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "representative_thread_message_thread_idx",
-      "entityType": "indexes",
-      "schema": "botsdk",
-      "table": "representative_thread_message"
     },
     {
       "nameExplicit": false,
@@ -1110,6 +1129,15 @@
       "entityType": "uniques",
       "schema": "botsdk",
       "table": "representative_test_result"
+    },
+    {
+      "nameExplicit": true,
+      "columns": ["thread_id", "position"],
+      "nullsNotDistinct": false,
+      "name": "representative_thread_message_position",
+      "entityType": "uniques",
+      "schema": "botsdk",
+      "table": "representative_thread_message"
     }
   ],
   "renames": []

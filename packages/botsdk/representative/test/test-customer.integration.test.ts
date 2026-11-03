@@ -1,5 +1,5 @@
 import type { AnyTextAdapter } from "@tanstack/ai";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
@@ -10,7 +10,7 @@ import {
   type JobRunner,
   reapStaleJobs,
 } from "@botsdk/bot/runner/internal";
-import { bot, botAssignment, job, usage } from "@botsdk/bot/storage";
+import { bot, botAssignment, job, jobEvent, usage } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { packageManifest, packageRootOf } from "@ai-chat/test-support/package-shape";
@@ -30,6 +30,8 @@ import {
   representative as representativeTable,
   representativeCustomer,
   representativeRelease,
+  representativeThread,
+  representativeThreadMessage,
 } from "../src/server/db/schema";
 import { representativeTurnJobName } from "../src/server/turn";
 import { representativeContract } from "../src/shared/contract";
@@ -141,6 +143,16 @@ const usageOf = (userId: string) =>
     .select({ kind: usage.kind, sourceId: usage.sourceId, userId: usage.userId })
     .from(usage)
     .where(eq(usage.userId, userId));
+
+const lastTurnJob = async () =>
+  (
+    await getTestDb()
+      .select()
+      .from(job)
+      .where(eq(job.name, representativeTurnJobName))
+      .orderBy(desc(job.createdAt))
+      .limit(1)
+  )[0];
 
 const assignmentsOf = (botId: string) =>
   getTestDb().select().from(botAssignment).where(eq(botAssignment.assignedBotId, botId));
@@ -595,6 +607,88 @@ describe("a Turn replayed after a crash", () => {
     }
     const rows = await usageOf(user.id);
     expect(new Set(rows.map((row) => row.sourceId)).size).toBe(1);
+  });
+});
+
+describe("a Turn replayed after a crash, on its thread", () => {
+  it("reads the messages it started with, and none that came after", async () => {
+    const fake = createFakeAdapter({ rounds: [quiet(), quiet(), quiet()], manual: true });
+    const timer = fakeJobClock(new Date());
+    let deps: TestDeps | undefined;
+    const jobs = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      clock: timer.clock,
+      drainMs: 1_000,
+      jobs: () => deps!.parts.jobs,
+    });
+    runners.push(jobs);
+    deps = createTestSdk({
+      jobs,
+      features: [representative()],
+      adapterFor: () => fake.adapter,
+      memory: false,
+    });
+    await getTestDb()
+      .update(job)
+      .set({ status: "cancelled" })
+      .where(inArray(job.status, ["queued", "running"]));
+    const user = await insertUser();
+    await saveCredentials(deps, user.id, {
+      service: "openai",
+      fields: { apiKey: "openai-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+    const id = await liveRepresentative(chatRpc({ user, deps }));
+    const attempt = async () => {
+      const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: false });
+      if (!claimed) throw new Error("Nothing to claim");
+      return jobs.runClaimed(claimed, {});
+    };
+    const turn = { representativeId: id, externalId: "+15550001" };
+    await startTestCustomerTurn(deps, { ...turn, message: "Before the crash" });
+
+    const lost = attempt();
+    await expect.poll(() => fake.calls.length, poll).toBe(1);
+    // Stored while the first attempt is out, as a message that arrives during a Turn is.
+    const [thread] = await getTestDb()
+      .update(representativeThread)
+      .set({ messageCount: 2 })
+      .where(eq(representativeThread.representativeId, id))
+      .returning();
+    await getTestDb().insert(representativeThreadMessage).values({
+      id: uuidv7(),
+      threadId: thread!.id,
+      position: 2,
+      author: "customer",
+      channel: fakeChannel,
+      externalId: "+15550001",
+      text: "After the crash",
+    });
+    timer.advance(61_000);
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps.parts.jobs);
+    timer.tick();
+    await lost;
+
+    const resumed = attempt();
+    await fake.releaseAll();
+    await resumed;
+
+    expect(fake.calls).toHaveLength(2);
+    for (const call of fake.calls) {
+      expect(JSON.stringify(call.messages)).toContain("Before the crash");
+      expect(JSON.stringify(call.messages)).not.toContain("After the crash");
+    }
+    // The Checkpoints keep where the Turn read to, not what anyone said: user delete can't reach them.
+    const events = await getTestDb()
+      .select()
+      .from(jobEvent)
+      .where(eq(jobEvent.jobId, (await lastTurnJob())!.id));
+    expect(events.length).toBeGreaterThan(0);
+    expect(
+      JSON.stringify(events.filter((event) => event.name === "representative_receive")),
+    ).not.toContain("Before the crash");
   });
 });
 

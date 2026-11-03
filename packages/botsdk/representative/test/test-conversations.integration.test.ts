@@ -12,7 +12,11 @@ import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 import { representative } from "../src";
-import { representativeRelease, representativeTestResult } from "../src/server/db/schema";
+import {
+  representativeRelease,
+  representativeTestResult,
+  representativeThread,
+} from "../src/server/db/schema";
 import { transcriptOf } from "../src/server/test-checks";
 import type { Draft } from "../src/shared/contract";
 
@@ -217,6 +221,13 @@ describe("running them", () => {
     );
     expect(done.tests[0]?.checks.map((check) => check.passed)).toEqual([true, true]);
     expect(entered).toHaveLength(4);
+    // Its stand-in Customer is no Customer: it opens no thread, and its reply is stored nowhere.
+    expect(
+      await getTestDb()
+        .select()
+        .from(representativeThread)
+        .where(eq(representativeThread.representativeId, id)),
+    ).toEqual([]);
     void deps;
   });
 

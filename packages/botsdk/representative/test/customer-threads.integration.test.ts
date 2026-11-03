@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { saveCredentials } from "@botsdk/bot/models/internal";
@@ -199,7 +199,7 @@ describe("a Customer's first message", () => {
     expect(leftOver).toHaveLength(1);
   });
 
-  it("keeps nothing for a Representative that isn't serving", async () => {
+  it("keeps a message that no Turn can answer, for a Representative that isn't serving", async () => {
     const { fake, deps } = await instance([quiet()]);
     const { user, rpc, id } = await ownerWithRepresentative(deps);
     await rpc.representative.setEnabled({ id, enabled: false });
@@ -207,6 +207,17 @@ describe("a Customer's first message", () => {
     await testCustomerTurn(deps, { representativeId: id, message: "Hi" });
 
     expect(fake.calls).toEqual([]);
+    expect(await customersOf(deps, user.id)).toMatchObject([
+      { threads: [{ messages: [{ author: "customer", text: "Hi" }] }] },
+    ]);
+  });
+
+  it("makes nothing for a Representative that doesn't exist", async () => {
+    const { deps } = await instance([quiet()]);
+    const { user } = await ownerWithRepresentative(deps);
+
+    await testCustomerTurn(deps, { representativeId: uuidv7(), message: "Hi" });
+
     expect(await customersOf(deps, user.id)).toEqual([]);
   });
 });
@@ -439,6 +450,7 @@ describe("what the Turn reads", () => {
         Array.from({ length: 100 }, (_, index) => ({
           id: uuidv7(),
           threadId: thread.id,
+          position: index + 2,
           author: "customer" as const,
           channel: fakeChannel,
           externalId: "+15550001",
@@ -446,12 +458,35 @@ describe("what the Turn reads", () => {
         })),
       );
 
+    await getTestDb()
+      .update(representativeThread)
+      .set({ messageCount: 101 })
+      .where(eq(representativeThread.id, thread.id));
+
     await testCustomerTurn(deps, { ...turn, message: "The last" });
 
     const prompt = promptOf(fake.calls[1]);
     expect(prompt).toHaveLength(100);
     expect(JSON.stringify(prompt)).not.toContain("The first");
     expect(prompt.at(-1)?.content).toContain("The last");
+  });
+
+  it("leaves out what doesn't fit in its characters, but never the newest message", async () => {
+    const { fake, deps } = await instance([quiet(), quiet(), quiet(), quiet()]);
+    const { id } = await ownerWithRepresentative(deps);
+    const turn = { representativeId: id, externalId: "+15550001" };
+    const huge = (mark: string) => mark + "x".repeat(150_000);
+
+    await testCustomerTurn(deps, { ...turn, message: huge("OLDEST") });
+    await testCustomerTurn(deps, { ...turn, message: huge("MIDDLE") });
+    await testCustomerTurn(deps, { ...turn, message: "Short" });
+    await testCustomerTurn(deps, { ...turn, message: "x".repeat(250_000) });
+
+    const third = JSON.stringify(promptOf(fake.calls[2]));
+    expect(third).toContain("MIDDLE");
+    expect(third).not.toContain("OLDEST");
+    expect(third).toContain("Short");
+    expect(promptOf(fake.calls[3])).toHaveLength(1);
   });
 
   it("takes the Customer from the identity, not from anything in the job's payload", async () => {
@@ -484,6 +519,7 @@ describe("a reply whose thread has gone", () => {
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
+    onTestFinished(() => release());
     const { fake, entered, deps } = await instance([replies(), quiet()], held);
     const { user, id } = await ownerWithRepresentative(deps);
 

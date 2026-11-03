@@ -1,6 +1,6 @@
 import type { AnyTextAdapter } from "@tanstack/ai";
 import { eq, inArray } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import {
@@ -293,6 +293,7 @@ describe("a hand-off replayed after a crash", () => {
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
+    onTestFinished(() => release());
     const { fake, entered, botId, assignments, turnEnds } = await queuedHandOff(undefined, held);
     const create = vi.spyOn(assignments, "create");
     const [owner] = await getTestDb()

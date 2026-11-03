@@ -11,13 +11,13 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { defineJob, type JobContext, PermanentJobError } from "@botsdk/bot/runner/internal";
 import { noNul, type ReleaseContent, type RepresentativeTool } from "../shared/contract";
-import { type Heard, receiveMessage, storeReply, type ThreadEntry } from "./customers";
+import { readThread, receiveMessage, storeReply, type ThreadEntry } from "./customers";
 import { representative, representativeHandOff, representativeRelease } from "./db/schema";
 
 /*
- * A Representative Turn (ticket #1191): one job per Customer message. It reads the live Release once,
- * stores the message on the Customer's thread (ticket #1249) and plays the loop on that thread, with
- * only that Release's tools. No route, RPC or API method queues it:
+ * A Representative Turn (ticket #1191): one job per Customer message. It stores the message on the
+ * Customer's thread (ticket #1249), reads the live Release once and plays the loop on that thread,
+ * with only that Release's tools. No route, RPC or API method queues it:
  * until a later spec lets real Customers in, only the test Customer entry point in the private
  * `@ai-chat/test-support` package does.
  */
@@ -233,8 +233,9 @@ const threadPrompt = (entries: ThreadEntry[]) =>
 
 /**
  * Plays the loop for a Customer's thread on `content`, which is what a Representative Turn and a
- * test conversation share. With `test`, the tools are stubbed and the loop ends after any Step that
- * finds `test.current` false, so a conversation nobody can use stops costing the owner.
+ * test conversation share. `on` says which: a real thread, or a `test`, whose tools are stubbed and
+ * whose loop ends after any Step that finds `test.current` false, so a conversation nobody can use
+ * stops costing the owner.
  */
 export async function playLoop(
   job: JobContext<TurnServices>,
@@ -245,10 +246,9 @@ export async function playLoop(
     name,
     model,
     sourceId,
-    threadId,
+    on,
     entries,
     content,
-    test,
   }: {
     userId: string;
     representativeId: string;
@@ -256,12 +256,12 @@ export async function playLoop(
     name: string;
     model: string;
     sourceId: string;
-    threadId: string | null;
+    on: { threadId: string } | { test: { current: () => Promise<boolean> } };
     entries: ThreadEntry[];
     content: Pick<ReleaseContent, "jobText" | "skills" | "tools">;
-    test?: { current: () => Promise<boolean> };
   },
 ) {
+  const test = "test" in on ? on.test : undefined;
   return job.representativeLoop.run(job, {
     representative: { userId, representativeId, customerId, model },
     sourceId,
@@ -277,7 +277,7 @@ export async function playLoop(
         userId,
         name,
         representativeId,
-        threadId,
+        threadId: "threadId" in on ? on.threadId : null,
       });
       // By name, so a name off the code-defined list gives nothing.
       const listed = content.tools.flatMap((tool) =>
@@ -309,17 +309,23 @@ export function representativeTurnJob(concurrency = defaultTurnConcurrency) {
     payload: representativeTurnPayload,
     concurrency,
     run: async ({ representativeId, channel, externalId, message }, job) => {
+      // First, and with its Checkpoint: stored exactly once, even when no Turn can run.
+      const received = await job.step("representative_receive", (tx) =>
+        receiveMessage(tx, {
+          representativeId,
+          heard: { channel, externalId },
+          text: message,
+        }),
+      );
+      if (!received) return;
+      const { customerId, threadId, position } = received;
       // Recorded: a replay after a crash stays on this Release, this owner and this Turn.
       const start = await job.step("representative_start", () => readStart(job, representativeId));
       if (!start) return;
       const { userId, name, model, content, turnId } = start;
-      const heard: Heard = { channel, externalId };
-      // With its Checkpoint: stored exactly once, and a replay reads what this attempt read.
-      const received = await job.step("representative_receive", (tx) =>
-        receiveMessage(tx, { userId, representativeId, heard, text: message }),
-      );
-      if (!received) return;
-      const { customerId, threadId, entries } = received;
+      const entries = await readThread(job.db, threadId, position);
+      // The owner was deleted since: there's nobody to answer.
+      if (entries.length === 0) return;
       const played = await playLoop(job, {
         userId,
         representativeId,
@@ -327,7 +333,7 @@ export function representativeTurnJob(concurrency = defaultTurnConcurrency) {
         name,
         model,
         sourceId: turnId,
-        threadId,
+        on: { threadId },
         entries,
         content,
       });
