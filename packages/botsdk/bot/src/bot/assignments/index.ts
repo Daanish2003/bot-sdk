@@ -20,4 +20,4 @@ export {
   type AssignmentsService,
   assignmentsService,
 } from "./assignments-service";
-export { type LoopBudget, raiseAssignmentLimit, turnBudget } from "./budget";
+export { helperBudget, type LoopBudget, raiseAssignmentLimit, turnBudget } from "./budget";

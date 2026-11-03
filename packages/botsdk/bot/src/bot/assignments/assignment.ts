@@ -339,11 +339,13 @@ export const onBotsOpenAssignments = (sources: Set<string>) =>
  * cancel that no open Assignment of the Bot's stands behind, so no budget can stop the Bot reading
  * it. `uncharged` are those it's on only as open ones that were blocked on a child as it started:
  * new work still files under them, so that a Check-in can't open a fresh budget, but it costs them
- * nothing.
+ * nothing. With `receivedBy`, it reads only the Triggers received by then: a Stop attaches what
+ * waited behind the Turn to it, which a Helper that outlives the Turn must not read as the Turn's.
  */
 export async function assignmentsOfTurn(
   tx: Database | Transaction,
   turn: { id: string; botId: string },
+  receivedBy?: Date,
 ): Promise<{
   on: Map<string, number>;
   reached: number;
@@ -355,7 +357,9 @@ export async function assignmentsOfTurn(
   const triggers = await tx
     .select({ id: botTrigger.id, source: botTrigger.source })
     .from(botTrigger)
-    .where(eq(botTrigger.turnId, turn.id));
+    .where(
+      and(eq(botTrigger.turnId, turn.id), receivedBy && lte(botTrigger.receivedAt, receivedBy)),
+    );
   const sources = new Set<string>(triggers.map((row) => row.source));
   const on = new Map<string, number>();
   const ended: string[] = [];

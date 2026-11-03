@@ -31,7 +31,7 @@ export type AssignmentLogEntry = {
   note: string | null;
   /** The Turn it happened in, when one did. */
   turnId: string | null;
-  /** On a row of spend: the model calls of that Turn in a row, the status as it was. */
+  /** On a row of spend: the model calls of that Turn and its Helpers in a row, the status as it was. */
   calls: number | null;
   /** On a row of spend: what those calls cost, in millionths of a US dollar. */
   costMicros: number | null;
