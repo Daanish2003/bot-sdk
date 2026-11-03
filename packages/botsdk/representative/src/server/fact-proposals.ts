@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import type { FeatureContext, FeatureTurn } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import type { Transaction } from "@botsdk/bot/plugin";
 import { rpcError } from "@botsdk/bot/rpc-error";
 import { bot, message } from "@botsdk/bot/storage";
 import {
@@ -192,8 +193,8 @@ export async function listFactProposals(
 
 /**
  * Answers the proposal `id`. It closes the card first, under its Conversation's lock, and only a card
- * that still waited lets the answer count: one the Bot's reset dropped can't change the fact. A
- * proposal whose card is past waiting is forgotten as it is refused.
+ * that still waited lets the answer count: one expired or dropped by the Bot's reset can't change the
+ * fact. A proposal whose card is past waiting is forgotten as it is refused.
  */
 async function answerProposal<Result>(
   { db, clock, jobs, factApprovals, threads }: ProposeContext,
@@ -201,7 +202,7 @@ async function answerProposal<Result>(
   id: string,
   answer: "approved" | "declined",
   apply: (
-    tx: Parameters<Parameters<ProposeContext["db"]["transaction"]>[0]>[0],
+    tx: Transaction,
     row: typeof proposal.$inferSelect,
     botName: string,
     now: Date,
@@ -218,10 +219,7 @@ async function answerProposal<Result>(
     const { row, botName } = found;
     await tx.delete(proposal).where(eq(proposal.id, id));
     const now = clock();
-    const answered =
-      row.expiresAt > now
-        ? await factApprovals.answer(tx, { userId, id: row.cardId, answer })
-        : null;
+    const answered = await factApprovals.answer(tx, { userId, id: row.cardId, answer });
     if (!answered) return null;
     return {
       result: await apply(tx, row, botName, now),
