@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { createBot, sendToBot, signInAsSeededUser, signInAsSeededUserWithModel } from "./helpers";
+import { appWebHost } from "./host";
 import {
   draftedRepresentativeName,
   draftedRepresentativeWhy,
@@ -148,6 +149,27 @@ test("an owner reviews the diff against the live Release and rolls back to an ea
   // It holds after a reload.
   await page.reload();
   await expect(page.getByText("Live: Release 1")).toBeVisible();
+});
+
+// #1242: the server's HTML can be typed in before the scripts run. Holding them makes that certain.
+test("a Name typed before the page hydrates still counts", async ({ page }) => {
+  await appWebHost.signIn(page);
+  let releaseScripts!: () => void;
+  const scriptsHeld = new Promise<void>((resolve) => (releaseScripts = resolve));
+  await page.route("**/assets/*.js", async (route) => {
+    await scriptsHeld;
+    await route.continue();
+  });
+
+  await page.goto("/representatives", { waitUntil: "commit" });
+  await page.getByLabel("Name").fill("Early");
+  releaseScripts();
+
+  const create = page.getByRole("button", { name: "Create", exact: true });
+  await expect(create).toBeEnabled();
+  await expect(page.getByLabel("Name")).toHaveValue("Early");
+  await create.click();
+  await expect(page.getByRole("heading", { name: "Early" })).toBeVisible();
 });
 
 test("failed tests block approval until the owner approves anyway with a reason", async ({
