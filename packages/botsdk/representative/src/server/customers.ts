@@ -67,6 +67,8 @@ async function findOrMakeCustomer(tx: Transaction, userId: string, heard: Heard)
  * Representative doesn't exist. It holds that row, so the owner's delete, which removes
  * Representatives before Customers, can't leave a Customer behind. What it returns goes in a
  * Checkpoint, which user delete doesn't reach: ids and a place in the thread, not the thread's text.
+ * A blocked Customer's message is stored all the same, for the owner (ticket #1251); `blocked` tells the
+ * Turn to run no model and send nothing.
  */
 export async function receiveMessage(
   tx: Transaction,
@@ -79,6 +81,10 @@ export async function receiveMessage(
     .for("key share");
   if (!owner) return null;
   const customerId = await findOrMakeCustomer(tx, owner.userId, heard);
+  const [customer] = await tx
+    .select({ blockedAt: representativeCustomer.blockedAt })
+    .from(representativeCustomer)
+    .where(eq(representativeCustomer.id, customerId));
   const [thread] = await tx
     .insert(representativeThread)
     .values({
@@ -104,7 +110,7 @@ export async function receiveMessage(
   await tx
     .insert(representativeThreadMessage)
     .values({ id: uuidv7(), threadId, position, author: "customer", text, ...heard });
-  return { customerId, threadId, position };
+  return { customerId, threadId, position, blocked: customer!.blockedAt !== null };
 }
 
 /**

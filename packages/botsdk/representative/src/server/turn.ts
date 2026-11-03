@@ -324,6 +324,8 @@ export function representativeTurnJob(concurrency = defaultTurnConcurrency) {
         }),
       );
       if (!received) return;
+      // Kept for the owner, and nothing more: no model call, no reply and no Assignment.
+      if (received.blocked) return;
       const { customerId, threadId, position } = received;
       // Recorded: a replay after a crash stays on this Release, this owner and this Turn.
       const start = await job.step("representative_start", () => readStart(job, representativeId));

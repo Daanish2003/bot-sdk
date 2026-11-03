@@ -2,6 +2,11 @@ import type { FeatureContext } from "@botsdk/bot/feature";
 import { parseInput, type WithUser } from "@botsdk/bot/rpc-error";
 import {
   approveInput,
+  customerAddIdentityInput,
+  customerCreateInput,
+  customerRenameInput,
+  customerSetBlockedInput,
+  customerUpdateIdentityInput,
   createInput,
   idInput,
   rollbackInput,
@@ -9,6 +14,16 @@ import {
   setEnabledInput,
   updateDraftInput,
 } from "../shared/contract";
+import {
+  addIdentity,
+  createCustomer,
+  getThread,
+  listCustomers,
+  listThreads,
+  renameCustomer,
+  setBlocked,
+  updateIdentity,
+} from "./owner-customers";
 import {
   approveDraft,
   createRepresentative,
@@ -75,6 +90,36 @@ export function representativeApi(
       const { id, botId } = parseInput(setBotInput, rest);
       return setBot(context, userId, id, botId);
     },
+
+    customerList: async ({ userId }: { userId: string }) => listCustomers(context, userId),
+
+    customerCreate: async ({ userId, ...rest }: WithUser<typeof customerCreateInput>) =>
+      createCustomer(context, userId, parseInput(customerCreateInput, rest)),
+
+    customerRename: async ({ userId, ...rest }: WithUser<typeof customerRenameInput>) => {
+      const { id, name } = parseInput(customerRenameInput, rest);
+      return renameCustomer(context, userId, id, name);
+    },
+
+    customerAddIdentity: async ({ userId, ...rest }: WithUser<typeof customerAddIdentityInput>) =>
+      addIdentity(context, userId, parseInput(customerAddIdentityInput, rest)),
+
+    customerUpdateIdentity: async ({
+      userId,
+      ...rest
+    }: WithUser<typeof customerUpdateIdentityInput>) =>
+      updateIdentity(context, userId, parseInput(customerUpdateIdentityInput, rest)),
+
+    customerSetBlocked: async ({ userId, ...rest }: WithUser<typeof customerSetBlockedInput>) => {
+      const { id, blocked } = parseInput(customerSetBlockedInput, rest);
+      return setBlocked(context, userId, id, blocked, context.clock());
+    },
+
+    threadList: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      listThreads(context, userId, parseInput(idInput, rest).id),
+
+    threadGet: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      getThread(context, userId, parseInput(idInput, rest).id),
   };
 }
 

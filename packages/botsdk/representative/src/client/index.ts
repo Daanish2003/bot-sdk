@@ -12,6 +12,8 @@ export function representativeClient(): RepresentativeFeatureClient {
 }
 
 export {
+  type CustomerIdentityView,
+  type CustomerView,
   type Draft,
   type Expectation,
   type DraftChange,
@@ -27,6 +29,11 @@ export {
   type TestResultStatus,
   type TestResultView,
   type TestStatus,
+  type ThreadHolder,
+  type ThreadMessageView,
+  type ThreadSummary,
+  type ThreadView,
+  type ThreadWaitingOn,
   type TranscriptEntry,
   canonicalJson,
   representativeTools,
