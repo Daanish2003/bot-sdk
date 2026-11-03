@@ -137,6 +137,25 @@ describe("a reply citing a document quote", () => {
     ]);
   });
 
+  it("shows the owner the document source with its name and quote", async () => {
+    const { deps, rpc, id, upload } = await instance([
+      cites("warranty.md", "Two years on every kettle"),
+      quiet(),
+    ]);
+    await upload("warranty.md", warranty);
+    await rpc.representative.approve({ id });
+    await rpc.representative.setEnabled({ id, enabled: true });
+
+    await testCustomerTurn(deps, { representativeId: id, message: "Warranty?" });
+
+    const [summary] = await rpc.representative.threadList({ id });
+    const { messages } = await rpc.representative.threadGet({ id: summary!.id });
+    expect(messages.at(-1)?.reply).toEqual({
+      kind: "answer",
+      sources: [{ type: "document", name: "warranty.md", quote: "Two years on every kettle" }],
+    });
+  });
+
   it("refuses an invented quote with the reason, and sends nothing", async () => {
     const { deps, fake, rpc, id, upload, sent } = await instance([
       cites("warranty.md", "Three years on every kettle"),

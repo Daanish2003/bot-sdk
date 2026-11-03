@@ -145,6 +145,8 @@ export const representativeMessages = {
   "representative.replySourceFact": ({ key }: { key: string }) => `Fact ${key}`,
   "representative.replySourceAssignment": ({ id, quote }: { id: string; quote: string }) =>
     `Bot result of Assignment ${id}: "${quote}"`,
+  "representative.replySourceDocument": ({ name, quote }: { name: string; quote: string }) =>
+    `Document ${name}: "${quote}"`,
   "representative.replySourcesNote":
     "Code checked that each source exists. It did not check that the reply says it right.",
   "representative.threadBlocked": "Blocked: this Customer gets no reply.",
