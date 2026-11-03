@@ -127,7 +127,7 @@
       <p>
         In your 1:1 Conversation, a Message sent after the Turn's job has started does not wait. It
         interrupts. <code>sendToBot</code> saves the Message, queues its Trigger and cancels the
-        running job. The Turn aborts at its next Checkpoint or heartbeat (up to 10 s), ends
+        running job. The Turn aborts at its next Checkpoint or cancel check (up to 1 s), ends
         <code>stopped</code> and calls <code>turnEnded</code>. What it already sent stays. The next
         Turn takes the new Message, and the first Turn's transcript is part of its input. Several
         sends during the abort all join that one Turn. <code>CONFLICT</code> and its toast are gone.

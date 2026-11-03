@@ -320,8 +320,8 @@ describe("Conversation row locks", () => {
 });
 
 /**
- * A running Turn ends once its attempt sees the cancel, at its next heartbeat (every 10 s), so a
- * wait for it allows one heartbeat and the time to end the Turn.
+ * A running Turn ends once its attempt sees the cancel, at its next cancel check (every second), so
+ * a wait for it allows for one, and the time to end the Turn.
  */
 const heartbeat = { timeout: 20_000 };
 

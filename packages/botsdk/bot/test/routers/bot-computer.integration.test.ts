@@ -520,7 +520,7 @@ describe("a shell call whose attempt is cut off", () => {
     await commandStarted;
 
     await client.bots.stop({ botId });
-    // The running attempt sees the cancel at its next heartbeat.
+    // The running attempt sees the cancel at its next cancel check.
     timer.tick();
     await running;
 
