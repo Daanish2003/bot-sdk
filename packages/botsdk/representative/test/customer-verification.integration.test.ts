@@ -385,11 +385,12 @@ describe("the 90-day lapse", () => {
 
     await testCustomerTurn(deps, { ...turn, message: "First" });
     timer.advance(90 * day - 60_000);
+    const justInside = timer.clock.now();
     await testCustomerTurn(deps, { ...turn, message: "Just inside" });
 
     expect(await recordedVerified(deps, user.id, "Just inside")).toBe(true);
     const inside = await stateOf(deps, user.id, "telegram");
-    expect(new Date(inside!.verifiedContactAt!)).toEqual(timer.clock.now());
+    expect(new Date(inside!.verifiedContactAt!)).toEqual(justInside);
     expect(inside?.lapsedAt).toBeNull();
 
     timer.advance(90 * day);
