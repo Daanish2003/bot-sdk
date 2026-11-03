@@ -24,6 +24,9 @@ export const threadPromptLimit = 100;
 /** The most characters of a thread a Turn reads, so a few huge messages can't fail every later Turn. */
 export const threadPromptChars = 200_000;
 
+/** The longest one thread message may be, either way. */
+export const maxThreadMessageLength = 60_000;
+
 /** Where a Customer's message came from. */
 export type Heard = { channel: string; externalId: string };
 
@@ -62,9 +65,8 @@ async function findOrMakeCustomer(tx: Transaction, userId: string, heard: Heard)
 /**
  * Stores a Customer's message on its thread, whether or not a Turn can run: `null` only when the
  * Representative doesn't exist. It holds that row, so the owner's delete, which removes
- * Representatives before Customers, can't leave a Customer behind. What it returns is what a Turn's
- * Checkpoint keeps: ids and a place in the thread, never what anyone said, which user delete
- * couldn't reach there.
+ * Representatives before Customers, can't leave a Customer behind. What it returns goes in a
+ * Checkpoint, which user delete doesn't reach: ids and a place in the thread, not the thread's text.
  */
 export async function receiveMessage(
   tx: Transaction,
@@ -107,8 +109,7 @@ export async function receiveMessage(
 
 /**
  * What a Turn reads of its thread: oldest first, up to and including `upTo`, so a replay reads what
- * the first attempt read, and within both limits. The newest message is always kept. Empty once the
- * thread has gone.
+ * the first attempt read, and within both limits. Empty once the thread has gone.
  */
 export async function readThread(
   db: FeatureContext["db"],
@@ -133,15 +134,16 @@ export async function readThread(
   let chars = 0;
   for (const entry of newest) {
     chars += entry.text.length;
-    if (chars > threadPromptChars && kept.length > 0) break;
+    if (chars > threadPromptChars) break;
     kept.push(entry);
   }
   return kept.reverse();
 }
 
 /**
- * Stores a reply as sent on the Channel the Customer was last heard from. The update waits for a
- * message being received on the thread, so it reads where that message came from.
+ * Stores a reply as sent on the Channel the Customer was last heard from, if the Representative
+ * still holds the thread. The update waits for a message being received on the thread, so it reads
+ * where that message came from.
  */
 export async function storeReply(tx: Transaction, threadId: string, text: string) {
   const [thread] = await tx
@@ -150,13 +152,16 @@ export async function storeReply(tx: Transaction, threadId: string, text: string
       messageCount: sql`${representativeThread.messageCount} + 1`,
       updatedAt: new Date(),
     })
-    .where(eq(representativeThread.id, threadId))
+    .where(
+      and(eq(representativeThread.id, threadId), eq(representativeThread.state, "representative")),
+    )
     .returning({
       position: representativeThread.messageCount,
       channel: representativeThread.lastChannel,
       externalId: representativeThread.lastExternalId,
     });
-  if (!thread) return { error: "This Customer's thread is gone, so nothing was sent." };
+  if (!thread)
+    return { error: "This thread is gone or no longer yours to answer, so nothing was sent." };
   await tx
     .insert(representativeThreadMessage)
     .values({ id: uuidv7(), threadId, author: "representative", text, ...thread });
@@ -168,7 +173,9 @@ function grouped<T>(rows: T[], keyOf: (row: T) => string) {
   const groups = new Map<string, T[]>();
   for (const row of rows) {
     const key = keyOf(row);
-    groups.set(key, [...(groups.get(key) ?? []), row]);
+    const group = groups.get(key);
+    if (group) group.push(row);
+    else groups.set(key, [row]);
   }
   return groups;
 }

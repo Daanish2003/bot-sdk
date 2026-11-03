@@ -3,6 +3,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { deleteUserData } from "@botsdk/bot/user-data";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import {
   claimJob,
@@ -680,7 +681,7 @@ describe("a Turn replayed after a crash, on its thread", () => {
       expect(JSON.stringify(call.messages)).toContain("Before the crash");
       expect(JSON.stringify(call.messages)).not.toContain("After the crash");
     }
-    // The Checkpoints keep where the Turn read to, not what anyone said: user delete can't reach them.
+    // The receiving Checkpoint keeps where the Turn read to, not the thread's text.
     const events = await getTestDb()
       .select()
       .from(jobEvent)
@@ -689,6 +690,60 @@ describe("a Turn replayed after a crash, on its thread", () => {
     expect(
       JSON.stringify(events.filter((event) => event.name === "representative_receive")),
     ).not.toContain("Before the crash");
+  });
+});
+
+describe("a Turn replayed after its owner was deleted", () => {
+  it("fails as gone, with no further Model call, rather than as nondeterministic", async () => {
+    await getTestDb()
+      .update(job)
+      .set({ status: "cancelled" })
+      .where(inArray(job.status, ["queued", "running"]));
+    const fake = createFakeAdapter({ rounds: [quiet(), quiet()], manual: true });
+    const timer = fakeJobClock(new Date());
+    let deps: TestDeps | undefined;
+    const jobs = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      clock: timer.clock,
+      drainMs: 1_000,
+      jobs: () => deps!.parts.jobs,
+    });
+    runners.push(jobs);
+    deps = createTestSdk({
+      jobs,
+      features: [representative()],
+      adapterFor: () => fake.adapter,
+      memory: false,
+    });
+    const user = await insertUser();
+    await saveCredentials(deps, user.id, {
+      service: "openai",
+      fields: { apiKey: "openai-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+    const id = await liveRepresentative(chatRpc({ user, deps }));
+    const attempt = async () => {
+      const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: false });
+      if (!claimed) throw new Error("Nothing to claim");
+      return jobs.runClaimed(claimed, {});
+    };
+    const { jobId } = await startTestCustomerTurn(deps, { representativeId: id, message: "Hi" });
+
+    const lost = attempt();
+    await expect.poll(() => fake.calls.length, poll).toBe(1);
+    await deleteUserData(deps, user.id);
+    timer.advance(61_000);
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps.parts.jobs);
+    timer.tick();
+    await lost;
+    await attempt();
+
+    const ended = await deps.runner.status(jobId);
+    expect(ended?.status).toBe("failed");
+    expect(ended?.lastError).toContain("thread has gone");
+    expect(fake.calls).toHaveLength(1);
   });
 });
 

@@ -471,22 +471,31 @@ describe("what the Turn reads", () => {
     expect(prompt.at(-1)?.content).toContain("The last");
   });
 
-  it("leaves out what doesn't fit in its characters, but never the newest message", async () => {
+  it("leaves out what doesn't fit in its characters, oldest first", async () => {
     const { fake, deps } = await instance([quiet(), quiet(), quiet(), quiet()]);
     const { id } = await ownerWithRepresentative(deps);
     const turn = { representativeId: id, externalId: "+15550001" };
-    const huge = (mark: string) => mark + "x".repeat(150_000);
+    const long = (mark: string) => mark + "x".repeat(59_000);
 
-    await testCustomerTurn(deps, { ...turn, message: huge("OLDEST") });
-    await testCustomerTurn(deps, { ...turn, message: huge("MIDDLE") });
-    await testCustomerTurn(deps, { ...turn, message: "Short" });
-    await testCustomerTurn(deps, { ...turn, message: "x".repeat(250_000) });
+    for (const mark of ["OLDEST", "SECOND", "THIRD", "NEWEST"]) {
+      await testCustomerTurn(deps, { ...turn, message: long(mark) });
+    }
 
-    const third = JSON.stringify(promptOf(fake.calls[2]));
-    expect(third).toContain("MIDDLE");
-    expect(third).not.toContain("OLDEST");
-    expect(third).toContain("Short");
-    expect(promptOf(fake.calls[3])).toHaveLength(1);
+    const last = JSON.stringify(promptOf(fake.calls[3]));
+    expect(last).not.toContain("OLDEST");
+    for (const mark of ["SECOND", "THIRD", "NEWEST"]) expect(last).toContain(mark);
+  });
+
+  it("refuses a message past the longest one, and stores nothing of it", async () => {
+    const { fake, deps } = await instance([quiet()]);
+    const { user, id } = await ownerWithRepresentative(deps);
+
+    await expect(
+      startTestCustomerTurn(deps, { representativeId: id, message: "x".repeat(60_001) }),
+    ).rejects.toThrow();
+
+    expect(fake.calls).toEqual([]);
+    expect(await customersOf(deps, user.id)).toEqual([]);
   });
 
   it("takes the Customer from the identity, not from anything in the job's payload", async () => {
@@ -514,6 +523,33 @@ describe("what the Turn reads", () => {
 });
 
 describe("a reply whose thread has gone", () => {
+  it("stores nothing once the Representative no longer holds the thread", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    onTestFinished(() => release());
+    const { fake, entered, deps } = await instance([replies(), quiet()], held);
+    const { user, id } = await ownerWithRepresentative(deps);
+
+    const { jobId } = await startTestCustomerTurn(deps, { representativeId: id, message: "Hi" });
+    await expect.poll(() => entered.length, poll).toBe(1);
+    await getTestDb()
+      .update(representativeThread)
+      .set({ state: "owner" })
+      .where(eq(representativeThread.representativeId, id));
+    release();
+    await expect
+      .poll(async () => (await deps.runner.status(jobId))?.status, poll)
+      .toBe("succeeded");
+
+    expect(JSON.parse(toolResultsIn(fake.calls[1])[0]!)).toEqual({
+      error: expect.stringContaining("no longer yours"),
+    });
+    const [customer] = await customersOf(deps, user.id);
+    expect(customer?.threads[0]?.messages.map((message) => message.author)).toEqual(["customer"]);
+  });
+
   it("tells the Model, and stores nothing, when the owner was deleted during the Turn", async () => {
     let release!: () => void;
     const held = new Promise<void>((resolve) => {

@@ -11,7 +11,13 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { defineJob, type JobContext, PermanentJobError } from "@botsdk/bot/runner/internal";
 import { noNul, type ReleaseContent, type RepresentativeTool } from "../shared/contract";
-import { readThread, receiveMessage, storeReply, type ThreadEntry } from "./customers";
+import {
+  maxThreadMessageLength,
+  readThread,
+  receiveMessage,
+  storeReply,
+  type ThreadEntry,
+} from "./customers";
 import { representative, representativeHandOff, representativeRelease } from "./db/schema";
 
 /*
@@ -49,7 +55,7 @@ const representativeTurnPayload = z.object({
   /** Who sent it. The Customer's id is code's, from this identity: a Model never names one. */
   channel: z.string().min(1).max(64).refine(noNul),
   externalId: z.string().min(1).max(512).refine(noNul),
-  message: z.string().min(1).refine(noNul),
+  message: z.string().min(1).max(maxThreadMessageLength).refine(noNul),
 });
 export type RepresentativeTurnPayload = z.infer<typeof representativeTurnPayload>;
 
@@ -143,7 +149,7 @@ export function turnTools({ job, kit, userId, name, representativeId, threadId }
     reply: toolDefinition({
       name: "reply",
       description: "Send the Customer a message.",
-      inputSchema: z.object({ text: z.string().min(1).refine(noNul) }),
+      inputSchema: z.object({ text: z.string().min(1).max(maxThreadMessageLength).refine(noNul) }),
     }).server(({ text }, context) =>
       // Stored as sent: nothing reaches a real Channel until the gate spec.
       kit.liveActivity("reply", context?.toolCallId, async (tx) =>
@@ -324,8 +330,11 @@ export function representativeTurnJob(concurrency = defaultTurnConcurrency) {
       if (!start) return;
       const { userId, name, model, content, turnId } = start;
       const entries = await readThread(job.db, threadId, position);
-      // The owner was deleted since: there's nobody to answer.
-      if (entries.length === 0) return;
+      // The owner was deleted since. Not a plain return: a replay has history left to read, and a
+      // workflow ending with some left over fails as nondeterministic.
+      if (entries.length === 0) {
+        throw new PermanentJobError(`Representative Turn ${turnId}: its thread has gone`);
+      }
       const played = await playLoop(job, {
         userId,
         representativeId,
