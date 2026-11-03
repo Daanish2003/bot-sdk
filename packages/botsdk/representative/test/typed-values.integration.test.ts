@@ -157,8 +157,17 @@ describe("a typed price, phone number or link", () => {
     ["a URL with a scheme", "See https://example.com/prices."],
     ["a bare domain", "See example.com for prices."],
     ["an amount with a currency name", "It costs 12 euros."],
+    ["a currency code before the amount", "It costs USD 45."],
+    ["a currency sign after the amount", "It costs 45$."],
+    ["part of the fact's price", "A haircut is 5 USD."],
+    ["a price that only starts like the quote's", "A beard trim is $2."],
+    ["digits typed against a key", "A haircut is 1{{price.haircut}}."],
+    ["a phone number the quote only starts with", "Call +1 555 010 019."],
   ])("refuses %s", async (_name, text) => {
-    const { fake, sent } = await turnWith([says(text, "small_talk"), quiet()]);
+    const { fake, sent } = await turnWith([
+      says(text, "answer", [fact, cite("a beard trim $20"), cite("Call +1 555 010 0199")]),
+      quiet(),
+    ]);
 
     expect(await sent()).toEqual([]);
     expect(answersIn(fake.calls[1])[0]).toMatch(refusal);
@@ -204,12 +213,15 @@ describe("a typed price, phone number or link", () => {
 
   it("goes through when it is not money, a phone number or a link", async () => {
     const { sent } = await turnWith([
-      says("It takes 2 days, as in step 3 of 4, by 2026-11-04 or v1.2 at 10:30.", "small_talk"),
+      says(
+        "It takes 2 days, as in step 3 of 4, by 2026-11-04 or v1.2 at 10:30, order 1234567, on 11-04-2026.",
+        "small_talk",
+      ),
       quiet(),
     ]);
 
     expect((await sent()).map((message) => message.text)).toEqual([
-      "It takes 2 days, as in step 3 of 4, by 2026-11-04 or v1.2 at 10:30.",
+      "It takes 2 days, as in step 3 of 4, by 2026-11-04 or v1.2 at 10:30, order 1234567, on 11-04-2026.",
     ]);
   });
 
