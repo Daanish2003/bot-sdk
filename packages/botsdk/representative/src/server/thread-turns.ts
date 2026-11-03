@@ -6,13 +6,8 @@ import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { job } from "@botsdk/bot/storage";
-import { noNul } from "../shared/contract";
-import {
-  maxThreadMessageLength,
-  receiveMessage,
-  threadPromptChars,
-  threadPromptLimit,
-} from "./customers";
+import { maxThreadMessageLength, noNul } from "../shared/contract";
+import { receiveMessage, threadPromptChars, threadPromptLimit } from "./customers";
 import {
   representativeCustomer,
   representativeThread,
@@ -82,8 +77,8 @@ export type CustomerMessage = z.infer<typeof customerMessage>;
 /**
  * Takes a Customer's message: stores it on its thread, and has a Turn answer it. Null when the
  * Representative doesn't exist and nothing was stored. Otherwise `jobId` is the job of the Turn now
- * holding the thread, which a later Turn follows if it has already begun, or null when a blocked
- * Customer's message is kept with no Turn.
+ * holding the thread, which a later Turn follows if it has already begun, or null when the message
+ * is kept with no Turn: a blocked Customer's, or one on a thread the owner holds.
  * No route, RPC or API method reaches this: until a later spec lets real Customers in, only the test
  * Customer entry point in the private `@ai-chat/test-support` package does.
  */
@@ -103,31 +98,64 @@ export async function receiveCustomerMessage(
       now,
     });
     if (!received) return null;
-    const { threadId, turnId, waitingSince, blocked, opened } = received;
+    const { threadId, turnId, waitingSince, blocked, state, opened } = received;
     // With the message, so a thread is never left without its closing job.
     if (opened) await queueIdleCheck(services, tx, threadId, now);
     // Kept for the owner, and nothing more: no model call, no reply and no Assignment.
     if (blocked) return { jobId: null };
-    const runAfter = batchClosesAt(waitingSince!, now);
-    if (!turnId) return { jobId: await startTurn(services, tx, threadId, runAfter) };
-    // Its job hasn't started: this message joins the batch, and moves when it closes.
-    const payload = { threadId, turnId };
-    const replaced = await services.jobs.replaceIfNotStarted(tx, turnId, turnJob, payload, {
-      runAfter,
-    });
-    if (replaced) {
-      wakeAt(services, runAfter);
-      return { jobId: replaced };
-    }
-    // Its job is running: if the Turn has begun, the message waits for the next one. Something else
-    // may have ended that job without ending the Turn; a new Turn takes over, so no thread sticks,
-    // and the old job's late `onFailed` can't touch it.
-    const [running] = await tx
-      .select({ id: job.id })
-      .from(job)
-      .where(and(eq(job.idempotencyKey, turnId), inArray(job.status, ["queued", "running"])));
-    return { jobId: running?.id ?? (await startTurn(services, tx, threadId, runAfter)) };
+    // It waits for the owner, or for Hand back: no model call runs while they hold the thread.
+    if (state === "owner") return { jobId: null };
+    return {
+      jobId: await wakeTurn(services, tx, { threadId, turnId, waitingSince: waitingSince! }),
+    };
   });
+}
+
+/**
+ * Has a Turn answer what waits on the thread, whose row `tx` holds, since `waitingSince`: the job of
+ * the Turn now holding it. `turnId` is the Turn that held it already, if any.
+ */
+export async function wakeTurn(
+  services: Services,
+  tx: Transaction,
+  {
+    threadId,
+    turnId,
+    waitingSince,
+  }: { threadId: string; turnId: string | null; waitingSince: Date },
+) {
+  const runAfter = batchClosesAt(waitingSince, services.clock());
+  if (!turnId) return startTurn(services, tx, threadId, runAfter);
+  // Its job hasn't started: this message joins the batch, and moves when it closes.
+  const payload = { threadId, turnId };
+  const replaced = await services.jobs.replaceIfNotStarted(tx, turnId, turnJob, payload, {
+    runAfter,
+  });
+  if (replaced) {
+    wakeAt(services, runAfter);
+    return replaced;
+  }
+  // Its job is running: if the Turn has begun, the message waits for the next one. Something else
+  // may have ended that job without ending the Turn; a new Turn takes over, so no thread sticks,
+  // and the old job's late `onFailed` can't touch it.
+  const [running] = await tx
+    .select({ id: job.id })
+    .from(job)
+    .where(and(eq(job.idempotencyKey, turnId), inArray(job.status, ["queued", "running"])));
+  return running?.id ?? (await startTurn(services, tx, threadId, runAfter));
+}
+
+/**
+ * Has a new Turn answer what waits on the thread, whose row `tx` holds, as if it had just arrived.
+ * For a thread handed back, whose messages waited through the owner's hold.
+ */
+export async function queueWaitingTurn(services: Services, tx: Transaction, threadId: string) {
+  const now = services.clock();
+  await tx
+    .update(representativeThread)
+    .set({ waitingSince: now })
+    .where(eq(representativeThread.id, threadId));
+  await startTurn(services, tx, threadId, batchClosesAt(now, now));
 }
 
 /**
@@ -148,8 +176,9 @@ function closeBatch(
   let chars = 0;
   return rows.find((row, index) => {
     chars += row.size;
+    // A Bot's result is answered to the sender it was handed off for, so it is a sender's too.
     const otherSender =
-      row.author === "customer" &&
+      (row.author === "customer" || row.author === "bot") &&
       (row.channel !== first.channel ||
         row.externalId !== first.externalId ||
         row.verified !== first.verified);
@@ -214,7 +243,7 @@ export async function beginTurn(tx: Transaction, threadId: string, turnId: strin
         .where(
           and(
             eq(message.threadId, threadId),
-            eq(message.author, "customer"),
+            inArray(message.author, ["customer", "bot"]),
             gt(message.position, upTo),
           ),
         )

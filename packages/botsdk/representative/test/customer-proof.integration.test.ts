@@ -1,3 +1,4 @@
+import { eq, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { batchLongestMs } from "@botsdk/bot/bot/triggers";
@@ -17,7 +18,11 @@ import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import type { AnyTextAdapter } from "@tanstack/ai";
-import { representativeVerification } from "../src/server/db/schema";
+import { requestProof } from "../src/server/customer-proof";
+import {
+  representativeCustomerIdentity,
+  representativeVerification,
+} from "../src/server/db/schema";
 import { representativeFeature } from "../src/server/plugin";
 import { proofLastsMs } from "../src/server/verification";
 
@@ -135,6 +140,7 @@ type Exported = {
         lapsedAt: string | Date | null;
       }>;
       threads: Array<{
+        id: string;
         messages: Array<{ author: string; text: string; verified: boolean }>;
       }>;
     }>;
@@ -265,6 +271,28 @@ describe("what a code allows", () => {
 
     const exported = await exportUserData(deps, user.id);
     expect(JSON.stringify(exported)).toContain(new Date(passedAt + proofLastsMs).toISOString());
+  });
+
+  it("hides a code typed while the owner holds the thread, and the Turn after Hand back knows it passed", async () => {
+    const { deps, user, id, code, fake, rpc, timer } = await codeSent([quiet()]);
+    const [summary] = await rpc.representative.threadList({ id });
+    await rpc.representative.threadTakeOver({ id: summary!.id });
+
+    await testCustomerTurn(deps, sms(id, code));
+    const held = await rpc.representative.threadGet({ id: summary!.id });
+    expect(JSON.stringify(held.messages)).not.toContain(code);
+    expect((await standingOn(deps, user.id)).verifiedContactAt).not.toBeNull();
+
+    const before = fake.calls.length;
+    await rpc.representative.threadHandBack({ id: summary!.id });
+    timer.advance(batchLongestMs);
+    timer.tick();
+    await expect.poll(() => fake.calls.length, { timeout: 10_000 }).toBeGreaterThan(before);
+
+    const turn = fake.calls.at(-1)!;
+    expect(JSON.stringify(turn.messages)).not.toContain(code);
+    expect(JSON.stringify(turn.systemPrompts)).toContain("is verified");
+    expect(JSON.stringify(turn.systemPrompts)).not.toContain("isn't verified");
   });
 
   it("stores only a hash of a code", async () => {
@@ -628,26 +656,86 @@ describe("a code to an identity on record, from web chat", () => {
     expect(answerIn(fake.calls[1])).toContain("on its way");
   });
 
-  it("gets through when two senders claim each other at once", async () => {
-    const claimOf = (externalId: string) => verifies({ channel: "web", externalId });
-    const { deps, sent } = await instance(
-      Array.from({ length: 6 }).flatMap((_, index) => [
-        claimOf(index % 2 ? "session-a" : "session-b"),
-        quiet(),
-      ]),
+  it("gets through when two senders claim each other at the same moment", async () => {
+    const { deps } = await instance([quiet(), quiet()]);
+    const { user, id } = await owner(deps);
+    const heard = (externalId: string) => ({ channel: "web", externalId });
+    await testCustomerTurn(deps, { ...web(id, "Hi"), externalId: "session-a" });
+    await testCustomerTurn(deps, { ...web(id, "Hi"), externalId: "session-b" });
+    const customers = await customersOf(deps, user.id);
+    const threadOf = (externalId: string) =>
+      customers.find((customer) =>
+        customer.identities.some((identity) => identity.externalId === externalId),
+      )!.threads[0]!.id;
+    const claimEachOther = (sender: string, claimed: string) =>
+      getTestDb().transaction((tx) =>
+        requestProof(tx, {
+          keyring: ["a-test-secret"],
+          userId: user.id,
+          thread: {
+            threadId: threadOf(sender),
+            heard: heard(sender),
+            verified: false,
+            proofRule: "codeToRecord",
+          },
+          claimed: heard(claimed),
+          now: new Date(),
+        }),
+      );
+    // Holding both rows stops each claim at its first lock, and letting go of them together has
+    // each take that lock at once: locks taken in the sender's order would then deadlock.
+    let release = () => {};
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let holding = () => {};
+    const held = new Promise<void>((resolve) => (holding = resolve));
+    const blocker = getTestDb().transaction(async (tx) => {
+      await tx
+        .select({ id: representativeCustomerIdentity.id })
+        .from(representativeCustomerIdentity)
+        .where(eq(representativeCustomerIdentity.userId, user.id))
+        .for("update");
+      holding();
+      await released;
+    });
+    await held;
+    const claims = Promise.all([
+      claimEachOther("session-a", "session-b"),
+      claimEachOther("session-b", "session-a"),
+    ]);
+    await vi.waitFor(
+      async () => {
+        const { rows } = await getTestDb().execute<{ waiting: number }>(
+          sql`select count(*)::int as waiting from pg_stat_activity
+               where datname = current_database() and wait_event_type = 'Lock'
+               and query ilike '%representative_customer_identity%'`,
+        );
+        expect(rows[0]!.waiting).toBeGreaterThanOrEqual(2);
+      },
+      { timeout: 10_000 },
     );
-    const { id } = await owner(deps);
-    const turn = (externalId: string) => ({ ...web(id, "Hi"), externalId });
-    await Promise.all([
-      testCustomerTurn(deps, { ...turn("session-a"), message: "First" }),
-      testCustomerTurn(deps, { ...turn("session-b"), message: "First" }),
-    ]);
-    await Promise.all([
-      testCustomerTurn(deps, turn("session-a")),
-      testCustomerTurn(deps, turn("session-b")),
-    ]);
+    release();
+    await blocker;
 
-    await expect.poll(() => sent.length).toBeGreaterThan(0);
+    const sent = await claims;
+
+    expect(sent.map((proof) => proof?.to.externalId)).toEqual(["session-b", "session-a"]);
+  });
+
+  it("proves an unverified sender from a Turn that Hand back queued, with no new message", async () => {
+    const { deps, fake, sent, timer } = await instance([quiet(), verifies(), quiet()]);
+    const { id, rpc } = await owner(deps);
+    await testCustomerTurn(deps, sms(id, "Hi"));
+    const [summary] = await rpc.representative.threadList({ id });
+    await rpc.representative.threadTakeOver({ id: summary!.id });
+    await testCustomerTurn(deps, sms(id, "Still there?"));
+
+    await rpc.representative.threadHandBack({ id: summary!.id });
+    timer.advance(batchLongestMs);
+    timer.tick();
+
+    await expect.poll(() => sent.length, { timeout: 10_000 }).toBe(1);
+    expect(sent[0]).toMatchObject({ externalId: "+15550001", kind: "code" });
+    expect(JSON.stringify(fake.calls.at(-1)!.systemPrompts)).toContain("isn't verified");
   });
 
   it("treats a bare code the same after a claim on record and one that isn't", async () => {

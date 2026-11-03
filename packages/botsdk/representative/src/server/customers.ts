@@ -26,9 +26,6 @@ export const threadPromptLimit = 100;
 /** The most characters of a thread a Turn reads, so a few huge messages can't fail every later Turn. */
 export const threadPromptChars = 200_000;
 
-/** The longest one thread message may be, either way. */
-export const maxThreadMessageLength = 60_000;
-
 /** Where a Customer's message came from. */
 export type Heard = { channel: string; externalId: string };
 
@@ -164,8 +161,9 @@ export async function receiveMessage(
       position: representativeThread.messageCount,
       turnId: representativeThread.turnId,
       waitingSince: representativeThread.waitingSince,
+      state: representativeThread.state,
     });
-  const { id: threadId, position, turnId, waitingSince } = thread!;
+  const { id: threadId, position, turnId, waitingSince, state } = thread!;
   await tx.insert(representativeThreadMessage).values({
     id: uuidv7(),
     threadId,
@@ -177,25 +175,41 @@ export async function receiveMessage(
     ...heard,
   });
   // Position 1 is a thread's first message: it has just been opened.
-  return { threadId, turnId, waitingSince, blocked, opened: position === 1 };
+  return { threadId, turnId, waitingSince, blocked, state, opened: position === 1 };
 }
 
-/** Who sent the message at `position`, which a Turn answers; undefined once the thread has gone. */
-export async function readSender(db: FeatureContext["db"], threadId: string, position: number) {
+/**
+ * Who a Turn answers, from the message at `position`, and the rule their Channel checks them by, from
+ * their newest message up to `upTo`: a batch can start on a Bot's result, which no Channel carried.
+ * Undefined once the thread has gone.
+ */
+export async function readSender(
+  db: FeatureContext["db"],
+  threadId: string,
+  position: number,
+  upTo: number,
+) {
+  const message = representativeThreadMessage;
   const [sender] = await db
-    .select({
-      channel: representativeThreadMessage.channel,
-      externalId: representativeThreadMessage.externalId,
-      proofRule: representativeThreadMessage.proofRule,
-    })
-    .from(representativeThreadMessage)
+    .select({ channel: message.channel, externalId: message.externalId })
+    .from(message)
+    .where(and(eq(message.threadId, threadId), eq(message.position, position)));
+  if (!sender) return undefined;
+  const [heard] = await db
+    .select({ proofRule: message.proofRule })
+    .from(message)
     .where(
       and(
-        eq(representativeThreadMessage.threadId, threadId),
-        eq(representativeThreadMessage.position, position),
+        eq(message.threadId, threadId),
+        lte(message.position, upTo),
+        eq(message.author, "customer"),
+        eq(message.channel, sender.channel),
+        eq(message.externalId, sender.externalId),
       ),
-    );
-  return sender;
+    )
+    .orderBy(desc(message.position))
+    .limit(1);
+  return { ...sender, proofRule: heard?.proofRule ?? null };
 }
 
 /**
@@ -245,7 +259,7 @@ export async function readThread(
   // A message that waited through the last Turn comes after that Turn's reply, though sent before
   // it: a Turn's prompt ends on what it has to answer.
   const unanswered = (entry: (typeof newest)[number]) =>
-    entry.author === "customer" && entry.position >= batchFrom;
+    (entry.author === "customer" || entry.author === "bot") && entry.position >= batchFrom;
   kept.reverse();
   return [...kept.filter((entry) => !unanswered(entry)), ...kept.filter(unanswered)];
 }

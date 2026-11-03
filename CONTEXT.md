@@ -167,7 +167,7 @@ One typed piece of business information a Representative can state, such as a pr
 _Avoid_: Knowledge, FAQ
 
 **Customer thread**:
-The one running exchange between a Customer and a Representative across Channels, held either by the Representative or by the user who took it over. It runs one Turn at a time: a message that arrives during a Turn waits for the next one, and quick messages batch into one Turn. It closes when idle, and a later message starts a new one.
+The one running exchange between a Customer and a Representative across Channels, held either by the Representative or by the user who took it over. It runs one Turn at a time: a message that arrives during a Turn waits for the next one, and quick messages batch into one Turn. It closes when idle, and a later message starts a new one. Taking over aborts the running Turn and sends the Customer one fixed note, and no model call runs until the user hands it back, which is always explicit.
 _Avoid_: Conversation, ticket, case
 
 **Outbound gate**:

@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "f7d4bf46-e22c-46cd-a54c-513f1d85f6dc",
+  "id": "b71d10ac-0b7c-48af-ad68-fc917b904060",
   "prevIds": ["06b9149f-d60b-4330-8162-ccf7713e3fdb"],
   "ddl": [
     {
@@ -49,12 +49,6 @@
     {
       "isRlsEnabled": false,
       "name": "representative_thread_message",
-      "entityType": "tables",
-      "schema": "botsdk"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "representative_verification",
       "entityType": "tables",
       "schema": "botsdk"
     },
@@ -360,19 +354,6 @@
     {
       "type": "timestamp",
       "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "proven_until",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_customer_identity"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": "now()",
@@ -405,6 +386,58 @@
       "generated": null,
       "identity": null,
       "name": "representative_id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_hand_off"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "thread_id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_hand_off"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "channel",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_hand_off"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "external_id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_hand_off"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "verified",
       "entityType": "columns",
       "schema": "botsdk",
       "table": "representative_hand_off"
@@ -865,19 +898,6 @@
       "table": "representative_thread_message"
     },
     {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "proof_rule",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_thread_message"
-    },
-    {
       "type": "timestamp",
       "typeSchema": null,
       "notNull": true,
@@ -889,123 +909,6 @@
       "entityType": "columns",
       "schema": "botsdk",
       "table": "representative_thread_message"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_verification"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "sender_identity_id",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_verification"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "target_identity_id",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_verification"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "kind",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_verification"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "code_hash",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_verification"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "0",
-      "generated": null,
-      "identity": null,
-      "name": "attempts",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_verification"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "expires_at",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_verification"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "used_at",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_verification"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_verification"
     },
     {
       "nameExplicit": true,
@@ -1109,6 +1012,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "thread_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "representative_hand_off_thread_idx",
+      "entityType": "indexes",
+      "schema": "botsdk",
+      "table": "representative_hand_off"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "customer_id",
           "isExpression": false,
           "asc": true,
@@ -1176,62 +1100,6 @@
       "table": "representative_thread"
     },
     {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "sender_identity_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "representative_verification_sender_idx",
-      "entityType": "indexes",
-      "schema": "botsdk",
-      "table": "representative_verification"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "target_identity_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "representative_verification_target_idx",
-      "entityType": "indexes",
-      "schema": "botsdk",
-      "table": "representative_verification"
-    },
-    {
       "nameExplicit": false,
       "columns": ["bot_id"],
       "schemaTo": "botsdk",
@@ -1279,6 +1147,19 @@
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "representative_hand_off_jlibJorNz5g3_fkey",
+      "entityType": "fks",
+      "schema": "botsdk",
+      "table": "representative_hand_off"
+    },
+    {
+      "nameExplicit": false,
+      "columns": ["thread_id"],
+      "schemaTo": "botsdk",
+      "tableTo": "representative_thread",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "representative_hand_off_thread_id_representative_thread_id_fkey",
       "entityType": "fks",
       "schema": "botsdk",
       "table": "representative_hand_off"
@@ -1349,32 +1230,6 @@
       "table": "representative_thread_message"
     },
     {
-      "nameExplicit": false,
-      "columns": ["sender_identity_id"],
-      "schemaTo": "botsdk",
-      "tableTo": "representative_customer_identity",
-      "columnsTo": ["id"],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "representative_verification_7Gh33xVIgHII_fkey",
-      "entityType": "fks",
-      "schema": "botsdk",
-      "table": "representative_verification"
-    },
-    {
-      "nameExplicit": false,
-      "columns": ["target_identity_id"],
-      "schemaTo": "botsdk",
-      "tableTo": "representative_customer_identity",
-      "columnsTo": ["id"],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "representative_verification_A3Cuu01hb7X4_fkey",
-      "entityType": "fks",
-      "schema": "botsdk",
-      "table": "representative_verification"
-    },
-    {
       "columns": ["id"],
       "nameExplicit": false,
       "name": "representative_pkey",
@@ -1436,14 +1291,6 @@
       "name": "representative_thread_message_pkey",
       "schema": "botsdk",
       "table": "representative_thread_message",
-      "entityType": "pks"
-    },
-    {
-      "columns": ["id"],
-      "nameExplicit": false,
-      "name": "representative_verification_pkey",
-      "schema": "botsdk",
-      "table": "representative_verification",
       "entityType": "pks"
     },
     {

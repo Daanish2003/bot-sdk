@@ -142,3 +142,24 @@ export function useThreads(id: string) {
 export function useThread(id: string) {
   return useQuery(useRepresentative().threadGet.queryOptions({ input: { id } }));
 }
+
+/** Takes a thread over from its Representative (`representative.threadTakeOver`). */
+export function useTakeOverThread(
+  options?: ProcedureMutationOptions<Representative["threadTakeOver"]>,
+) {
+  return useMutation(useRepresentative().threadTakeOver.mutationOptions(options));
+}
+
+/** Hands a thread back to its Representative (`representative.threadHandBack`). */
+export function useHandBackThread(
+  options?: ProcedureMutationOptions<Representative["threadHandBack"]>,
+) {
+  return useMutation(useRepresentative().threadHandBack.mutationOptions(options));
+}
+
+/** The owner's own message on a thread they hold (`representative.threadSend`). */
+export function useSendThreadMessage(
+  options?: ProcedureMutationOptions<Representative["threadSend"]>,
+) {
+  return useMutation(useRepresentative().threadSend.mutationOptions(options));
+}
