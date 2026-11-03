@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "36709661-46bc-46c0-8784-99ae20c43bda",
+  "id": "05a3e5cd-0998-4023-8f3b-ff136dda8aa9",
   "prevIds": ["afcbd5ed-8227-4ea1-b857-7a34b368eb10"],
   "ddl": [
     {
@@ -488,7 +488,7 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "held_thread_ids",
+      "name": "moved_holds",
       "entityType": "columns",
       "schema": "botsdk",
       "table": "representative_customer_merge"
@@ -904,6 +904,19 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "turn_from",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_thread"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "waiting_from",
       "entityType": "columns",
       "schema": "botsdk",
@@ -1061,6 +1074,19 @@
       "generated": null,
       "identity": null,
       "name": "proof_rule",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_thread_message"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "held_for_owner",
       "entityType": "columns",
       "schema": "botsdk",
       "table": "representative_thread_message"

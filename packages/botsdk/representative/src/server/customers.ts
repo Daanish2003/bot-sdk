@@ -30,8 +30,13 @@ export const threadPromptChars = 200_000;
 /** Where a Customer's message came from. */
 export type Heard = { channel: string; externalId: string };
 
-/** A thread message as a Turn reads it. */
-export type ThreadEntry = { author: ThreadAuthor; text: string; verified: boolean };
+/** A thread message as a Turn reads it; `earlier` when it isn't part of what this Turn answers. */
+export type ThreadEntry = {
+  author: ThreadAuthor;
+  text: string;
+  verified: boolean;
+  earlier?: boolean;
+};
 
 /** An identity of `userId`'s with its Customer, made together on the identity's first message. */
 async function findOrMakeIdentity(tx: Transaction, userId: string, heard: Heard) {
@@ -75,16 +80,18 @@ async function customerOfIdentity(tx: Transaction, identityId: string) {
 }
 
 /**
- * Holds the sender's Customer until `tx` ends, so that no merge or undo can move their identity off
- * it, and returns it: one that moved them as this waited is followed. The owner's edits take a
- * Customer before its identity, so this does too. A message that could pass a live code to another
- * Customer holds both as a merge does, since waiting for that later, with its identity held, could
- * deadlock with this sender's next message.
+ * Finds or makes the sender's identity and holds its Customer until `tx` ends, so that no merge, undo
+ * or edit can move that identity, and returns both. One that moved them as this waited is followed:
+ * to the Customer a merge put them on, or, when the owner corrected this address away, to whoever
+ * has it now, which may be someone new. The owner's edits take a Customer before its identity, so
+ * this does too. A message that could pass a live code to another Customer holds both as a merge
+ * does, since waiting for that later, with its identity held, could deadlock with this sender's next
+ * message.
  */
-async function holdSendersCustomer(tx: Transaction, identityId: string, text: string, now: Date) {
+async function holdSender(tx: Transaction, userId: string, heard: Heard, text: string, now: Date) {
   const merges = mayHoldCode(text);
   for (;;) {
-    const customerId = await customerOfIdentity(tx, identityId);
+    const { identityId, customerId } = await findOrMakeIdentity(tx, userId, heard);
     const leadsTo = merges ? await customerProofLeadsTo(tx, identityId, now) : undefined;
     if (leadsTo && leadsTo !== customerId) {
       await holdCustomers(tx, [customerId, leadsTo]);
@@ -95,7 +102,8 @@ async function holdSendersCustomer(tx: Transaction, identityId: string, text: st
         .where(eq(representativeCustomer.id, customerId))
         .for("key share");
     }
-    if ((await customerOfIdentity(tx, identityId)) === customerId) return customerId;
+    const held = await findOrMakeIdentity(tx, userId, heard);
+    if (held.identityId === identityId && held.customerId === customerId) return held;
   }
 }
 
@@ -154,8 +162,13 @@ export async function receiveMessage(
     .where(eq(representative.id, representativeId))
     .for("key share");
   if (!owner) return null;
-  const { identityId } = await findOrMakeIdentity(tx, owner.userId, heard);
-  const heldCustomerId = await holdSendersCustomer(tx, identityId, text, now);
+  const { identityId, customerId: heldCustomerId } = await holdSender(
+    tx,
+    owner.userId,
+    heard,
+    text,
+    now,
+  );
   const [customer] = await tx
     .select({ blockedAt: representativeCustomer.blockedAt })
     .from(representativeCustomer)
@@ -275,6 +288,7 @@ export async function readThread(
       author: representativeThreadMessage.author,
       text: representativeThreadMessage.text,
       verified: representativeThreadMessage.verified,
+      heldForOwner: representativeThreadMessage.heldForOwner,
     })
     .from(representativeThreadMessage)
     .where(
@@ -304,7 +318,14 @@ export async function readThread(
   const unanswered = (entry: (typeof newest)[number]) =>
     (entry.author === "customer" || entry.author === "bot") && entry.position >= batchFrom;
   kept.reverse();
-  return [...kept.filter((entry) => !unanswered(entry)), ...kept.filter(unanswered)];
+  return [...kept.filter((entry) => !unanswered(entry)), ...kept.filter(unanswered)].map(
+    ({ author, text, verified, position, heldForOwner }) => ({
+      author,
+      text,
+      verified,
+      earlier: position < batchFrom || heldForOwner,
+    }),
+  );
 }
 
 /**
@@ -322,6 +343,7 @@ export async function storeReply(
     .update(representativeThread)
     .set({
       messageCount: sql`${representativeThread.messageCount} + 1`,
+      turnFrom: null,
       updatedAt: sql`greatest(${representativeThread.updatedAt}, ${now.toISOString()}::timestamp)`,
     })
     .where(
@@ -361,7 +383,7 @@ export async function storeReply(
 }
 
 /** `rows` by the key `keyOf` gives, each group in the order given. */
-function grouped<T>(rows: T[], keyOf: (row: T) => string) {
+export function grouped<T>(rows: T[], keyOf: (row: T) => string) {
   const groups = new Map<string, T[]>();
   for (const row of rows) {
     const key = keyOf(row);
@@ -375,7 +397,12 @@ function grouped<T>(rows: T[], keyOf: (row: T) => string) {
 /** Each of `userId`'s Customers, with its identities and its threads' messages. */
 export async function exportCustomers(tx: Transaction, userId: string) {
   const customers = await tx
-    .select({ id: representativeCustomer.id, createdAt: representativeCustomer.createdAt })
+    .select({
+      id: representativeCustomer.id,
+      name: representativeCustomer.name,
+      blockedAt: representativeCustomer.blockedAt,
+      createdAt: representativeCustomer.createdAt,
+    })
     .from(representativeCustomer)
     .where(eq(representativeCustomer.userId, userId))
     .orderBy(asc(representativeCustomer.createdAt), asc(representativeCustomer.id));
@@ -445,8 +472,10 @@ export async function exportCustomers(tx: Transaction, userId: string) {
       ),
     (row) => row.threadId,
   );
-  return customers.map(({ id, createdAt }) => ({
+  return customers.map(({ id, name, blockedAt, createdAt }) => ({
     id,
+    name,
+    blockedAt,
     createdAt,
     identities: (identities.get(id) ?? []).map((row) => ({
       channel: row.channel,

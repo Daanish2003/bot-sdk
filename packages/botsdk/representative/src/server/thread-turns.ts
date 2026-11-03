@@ -52,7 +52,7 @@ async function startTurn(services: Services, tx: Transaction, threadId: string, 
   const turnId = uuidv7();
   await tx
     .update(representativeThread)
-    .set({ turnId })
+    .set({ turnId, turnFrom: null })
     .where(eq(representativeThread.id, threadId));
   wakeAt(services, runAfter);
   return services.jobs.enqueueIn(
@@ -250,9 +250,12 @@ export async function beginTurn(tx: Transaction, threadId: string, turnId: strin
     : [];
   await tx
     .update(representativeThread)
-    .set(
-      next?.position ? { waitingFrom: next.position } : { waitingFrom: null, waitingSince: null },
-    )
+    .set({
+      turnFrom: rows[0]!.position,
+      ...(next?.position
+        ? { waitingFrom: next.position }
+        : { waitingFrom: null, waitingSince: null }),
+    })
     .where(inThread);
   return {
     customerId,

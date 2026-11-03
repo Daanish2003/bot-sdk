@@ -8,6 +8,7 @@ import type { CustomerMergeView } from "../shared/contract";
 import { holdIdentities } from "./customer-proof";
 import {
   type CustomerMergeHow,
+  type MovedHold,
   representativeCustomer,
   representativeCustomerIdentity,
   representativeCustomerMerge,
@@ -15,6 +16,7 @@ import {
   representativeThreadMessage,
   representativeVerification,
 } from "./db/schema";
+import { queueIdleCheck } from "./idle";
 import { customerNotFound, readCustomer } from "./owner-customers";
 import { holdThread, releaseThread } from "./takeover";
 
@@ -110,6 +112,7 @@ export async function absorbCustomer(
     representativeId: thread.representativeId,
     state: thread.state,
     turnId: thread.turnId,
+    turnFrom: thread.turnFrom,
     waitingFrom: thread.waitingFrom,
     lastChannel: thread.lastChannel,
     lastExternalId: thread.lastExternalId,
@@ -124,15 +127,21 @@ export async function absorbCustomer(
     .from(thread)
     .where(and(eq(thread.customerId, survivorId), ne(thread.state, "closed")))
     .for("update");
-  const heldThreadIds: string[] = [];
+  const movedHolds: MovedHold[] = [];
   for (const open of threads) {
     if (open.state === "closed") continue;
     const match = surviving.find((each) => each.representativeId === open.representativeId);
     if (!match) continue;
     await closeThread(services, tx, open);
-    if (open.state === "owner" && match.state === "representative") {
-      await holdThread(services, tx, match.id, { ...match, blockedAt: null });
-      heldThreadIds.push(match.id);
+    if (open.state === "owner") {
+      const caused = match.state === "representative";
+      if (caused) await holdThread(services, tx, match.id, { ...match, blockedAt: null });
+      movedHolds.push({
+        closedThreadId: open.id,
+        survivingThreadId: match.id,
+        caused,
+        waitingFrom: open.waitingFrom,
+      });
     }
   }
   await tx.update(thread).set({ customerId: survivorId }).where(eq(thread.customerId, absorbedId));
@@ -144,7 +153,7 @@ export async function absorbCustomer(
     how,
     identityIds,
     threadIds: threads.map((row) => row.id),
-    heldThreadIds,
+    movedHolds,
     createdAt: services.clock(),
   });
 }
@@ -190,18 +199,28 @@ type Addresses = Awaited<ReturnType<typeof addressesOf>>;
 /**
  * Closes each open thread of a Customer that has words to or from an address not in `own`: since the
  * merge, the other person's, even if the owner has corrected it since. Going on would read them into
- * this one's prompt, and could send to the wrong person.
+ * this one's prompt, and could send to the wrong person. The owner's hold outlives a thread closed
+ * this way, on a new empty one, unless the merge alone made it (`mergeHeld`): the next message waits
+ * for them as it would have.
  */
 async function closeMixedThreads(
   services: Services,
   tx: Transaction,
   customerId: string,
   own: Addresses,
+  mergeHeld: string[],
 ) {
   const thread = representativeThread;
   const message = representativeThreadMessage;
   const open = await tx
-    .select({ id: thread.id, turnId: thread.turnId })
+    .select({
+      id: thread.id,
+      turnId: thread.turnId,
+      state: thread.state,
+      representativeId: thread.representativeId,
+      lastChannel: thread.lastChannel,
+      lastExternalId: thread.lastExternalId,
+    })
     .from(thread)
     .where(and(eq(thread.customerId, customerId), ne(thread.state, "closed")))
     .for("update");
@@ -225,23 +244,76 @@ async function closeMixedThreads(
       ),
     );
   for (const { threadId } of mixed) {
-    await closeThread(
-      services,
-      tx,
-      open.find((row) => row.id === threadId)!,
-    );
+    const closing = open.find((row) => row.id === threadId)!;
+    await closeThread(services, tx, closing);
+    if (closing.state !== "owner" || mergeHeld.includes(closing.id)) continue;
+    const heard =
+      own.find(
+        ({ channel, externalId }) =>
+          channel === closing.lastChannel && externalId === closing.lastExternalId,
+      ) ?? own[0]!;
+    const now = services.clock();
+    const id = uuidv7();
+    await tx.insert(thread).values({
+      id,
+      customerId,
+      representativeId: closing.representativeId,
+      state: "owner",
+      lastChannel: heard.channel,
+      lastExternalId: heard.externalId,
+      messageCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await queueIdleCheck(services, tx, id, now);
+  }
+}
+
+/**
+ * Gives each thread a merge closed its owner's hold and what it had waiting back, on the absorbed
+ * Customer, whose threads are
+ * back by now. It was that Customer's one open thread with its Representative, and nothing has opened
+ * another since: a Customer merged away gets no thread.
+ */
+async function reopenHeldThreads(
+  services: Services,
+  tx: Transaction,
+  absorbedId: string,
+  holds: MovedHold[],
+) {
+  const thread = representativeThread;
+  const now = services.clock();
+  for (const { closedThreadId, waitingFrom } of holds) {
+    const reopened = await tx
+      .update(thread)
+      .set({
+        state: "owner",
+        waitingFrom,
+        waitingSince: waitingFrom === null ? null : now,
+        updatedAt: sql`greatest(${thread.updatedAt}, ${now.toISOString()}::timestamp)`,
+      })
+      .where(
+        and(
+          eq(thread.id, closedThreadId),
+          eq(thread.customerId, absorbedId),
+          eq(thread.state, "closed"),
+        ),
+      )
+      .returning({ id: thread.id });
+    if (reopened.length > 0) await queueIdleCheck(services, tx, closedThreadId, now);
   }
 }
 
 /**
  * Undoes one of the owner's merges: each identity and thread that moved goes back to its original
- * Customer. A thread the merge closed stays closed. An identity the owner added since stays on the
- * survivor, and so does a thread begun since, which can't be told apart. A code on its way between
- * the two is void, so that it can't merge them again; and a block set since holds for both, since
- * nothing says which of them it was meant for. What a code merge's sender proved by it goes too,
- * since the owner says they aren't that person, and a thread held only because of the merge goes
- * back to its Representative. A survivor since merged away must come back first. Doing it again
- * changes nothing.
+ * Customer. A thread the merge closed stays closed, unless the owner held it, which reopens it held:
+ * nothing goes back to the Representative without a Hand back. An identity the owner added since
+ * stays on the survivor, and so does a thread begun since, which can't be told apart. A code on its
+ * way between the two is void, so that it can't merge them again; and a block set since holds for
+ * both, since nothing says which of them it was meant for. What a code merge's sender proved by it
+ * goes too, since the owner says they aren't that person, and a thread held only because of the
+ * merge, with no Hand back since, goes back to its Representative. A survivor since merged away must
+ * come back first. Doing it again changes nothing.
  */
 export async function undoMerge(context: Context, userId: string, id: string) {
   const inScope = and(eq(merge.id, id), eq(merge.userId, userId));
@@ -250,8 +322,12 @@ export async function undoMerge(context: Context, userId: string, id: string) {
     if (!found) throw mergeNotFound();
     const { survivorCustomerId: survivorId, absorbedCustomerId: absorbedId } = found;
     const held = await holdCustomers(tx, [survivorId, absorbedId]);
-    const [current] = await tx.select({ undoneAt: merge.undoneAt }).from(merge).where(inScope);
-    if (current?.undoneAt) return;
+    // Read under the locks: a Hand back can have changed its holds as this waited.
+    const [current] = await tx
+      .select({ undoneAt: merge.undoneAt, movedHolds: merge.movedHolds })
+      .from(merge)
+      .where(inScope);
+    if (!current || current.undoneAt) return;
     if (await isMergedAway(tx, survivorId)) {
       throw rpcError(
         "CONFLICT",
@@ -287,23 +363,32 @@ export async function undoMerge(context: Context, userId: string, id: string) {
           eq(representativeThread.customerId, survivorId),
         ),
       );
-    await closeMixedThreads(context, tx, survivorId, kept);
-    await closeMixedThreads(context, tx, absorbedId, returned);
+    await reopenHeldThreads(context, tx, absorbedId, current.movedHolds);
+    // A hold another standing merge moved onto the thread still rests there, whatever this one did.
+    const others = await tx
+      .select({ movedHolds: merge.movedHolds })
+      .from(merge)
+      .where(and(eq(merge.userId, userId), isNull(merge.undoneAt), ne(merge.id, id)));
+    const resting = others.flatMap((other) =>
+      other.movedHolds.map((hold) => hold.survivingThreadId),
+    );
+    const mergeHeld = current.movedHolds
+      .filter((hold) => hold.caused && !resting.includes(hold.survivingThreadId))
+      .map((hold) => hold.survivingThreadId);
+    await closeMixedThreads(context, tx, survivorId, kept, mergeHeld);
+    await closeMixedThreads(context, tx, absorbedId, returned, mergeHeld);
     if (found.how === "code") {
       await tx
         .update(identity)
         .set({ verifiedContactAt: null, provenUntil: null })
         .where(inArray(identity.id, found.identityIds));
     }
-    if (found.heldThreadIds.length > 0) {
+    if (mergeHeld.length > 0) {
       const stillHeld = await tx
         .select({ id: representativeThread.id, waitingFrom: representativeThread.waitingFrom })
         .from(representativeThread)
         .where(
-          and(
-            inArray(representativeThread.id, found.heldThreadIds),
-            eq(representativeThread.state, "owner"),
-          ),
+          and(inArray(representativeThread.id, mergeHeld), eq(representativeThread.state, "owner")),
         )
         .for("update");
       for (const thread of stillHeld) await releaseThread(context, tx, thread.id, thread);
@@ -389,7 +474,7 @@ export async function exportMerges(tx: Transaction, userId: string) {
       how: merge.how,
       identityIds: merge.identityIds,
       threadIds: merge.threadIds,
-      heldThreadIds: merge.heldThreadIds,
+      movedHolds: merge.movedHolds,
       createdAt: merge.createdAt,
       undoneAt: merge.undoneAt,
     })

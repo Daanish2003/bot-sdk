@@ -181,10 +181,22 @@ export const representativeCustomerIdentity = botsdkSchema.table(
 export type CustomerMergeHow = "code" | "owner";
 
 /**
+ * A hold of the owner's on an absorbed thread that a merge closed, passing to the surviving thread:
+ * `caused` when the owner held the surviving one only because of this.
+ */
+export type MovedHold = {
+  closedThreadId: string;
+  survivingThreadId: string;
+  caused: boolean;
+  /** What the closed thread had waiting, which undoing gives back to it. */
+  waitingFrom: number | null;
+};
+
+/**
  * One merge of a Customer into another (ticket #1257), kept once undone. The absorbed Customer's row
  * stays, with no identities or threads, so that undoing gives each back to it: `identityIds` and
- * `threadIds` are what moved, and `heldThreadIds` the survivor's threads the owner holds only because
- * of it. A Customer with a merge not undone is gone from everything but this.
+ * `threadIds` are what moved, and `movedHolds` the holds it moved that haven't been handed back since.
+ * A Customer with a merge not undone is gone from everything but this.
  */
 export const representativeCustomerMerge = botsdkSchema.table(
   "representative_customer_merge",
@@ -200,7 +212,7 @@ export const representativeCustomerMerge = botsdkSchema.table(
     how: text("how").$type<CustomerMergeHow>().notNull(),
     identityIds: jsonb("identity_ids").$type<string[]>().notNull(),
     threadIds: jsonb("thread_ids").$type<string[]>().notNull(),
-    heldThreadIds: jsonb("held_thread_ids").$type<string[]>().notNull(),
+    movedHolds: jsonb("moved_holds").$type<MovedHold[]>().notNull(),
     createdAt: timestamp("created_at").notNull(),
     undoneAt: timestamp("undone_at"),
   },
@@ -254,6 +266,8 @@ export type ThreadState = "representative" | "owner" | "closed";
  * Customer's Channels. It is never a Conversation. `lastChannel` and `lastExternalId` are where the
  * Customer was last heard from by a verified sender, or first heard from if none has been, which is
  * where anything sent outside a Turn goes: an unverified sender can't move it to themselves. `messageCount` numbers its messages.
+ * `turnFrom` is where the batch of the Turn holding it starts, once that Turn has begun and until it
+ * first replies: what a takeover aborting it leaves unanswered.
  * `turnId` is the Turn that holds it, queued or running, and also its job's key. `waitingFrom` is the
  * position of the oldest message waiting for a Turn, and `waitingSince` when messages began to wait,
  * by the SDK's clock; both are null when none waits. While the owner holds the thread they mark what
@@ -274,6 +288,7 @@ export const representativeThread = botsdkSchema.table(
     lastExternalId: text("last_external_id").notNull(),
     messageCount: integer("message_count").notNull().default(0),
     turnId: uuid("turn_id"),
+    turnFrom: integer("turn_from"),
     waitingFrom: integer("waiting_from"),
     waitingSince: timestamp("waiting_since"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -317,6 +332,8 @@ export const representativeThreadMessage = botsdkSchema.table(
     verified: boolean("verified").notNull().default(true),
     /** The rule its Channel checks its sender by, which decides how a Turn can have them proved. */
     proofRule: text("proof_rule").$type<ChannelProofRule>(),
+    /** A Bot's result that came while the owner held the thread: theirs to send, never a Turn's. */
+    heldForOwner: boolean("held_for_owner").notNull().default(false),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [unique("representative_thread_message_position").on(table.threadId, table.position)],

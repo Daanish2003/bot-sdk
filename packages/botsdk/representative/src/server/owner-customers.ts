@@ -27,6 +27,7 @@ import {
 } from "./db/schema";
 import { isMergedAway, notMergedAway } from "./customer-merge";
 import { voidProofs } from "./customer-proof";
+import { grouped } from "./customers";
 import { isVerified } from "./verification";
 
 /*
@@ -54,24 +55,29 @@ const identityTaken = () =>
 
 /**
  * Who a thread is waiting on, from who holds it, who spoke last, a note aside since it answers
- * nothing, and whether a message waits for a next Turn, which a reply can come after. A blocked
- * Customer's message waits on no one: nothing answers it. A Customer who is owed nothing else is
- * waiting on the Bot while an Assignment handed off from the thread is open (ticket #1254), and the
- * Bot's result waits on the owner, if they hold the thread, as a Customer's message does.
+ * nothing, and whether a Turn holds the thread or a message waits for one, which a reply can come
+ * after. A blocked Customer's message waits on no one: nothing answers it. Nor does a word on a thread
+ * its Representative holds with no Turn on the way, such as a Bot's result the owner held and then
+ * handed back, or what was kept during a block: only the Customer's next message gets a Turn. A
+ * Customer who is owed nothing else is waiting on the Bot while an Assignment handed off from the
+ * thread is open (ticket #1254), and the Bot's result waits on the owner, if they hold the thread, as
+ * a Customer's message does.
  */
 export function waitingOn(
   state: ThreadState,
   lastAuthor: ThreadAuthor | null,
   blocked: boolean,
-  waitingForTurn: boolean,
+  turnDue: boolean,
   botWorking = false,
 ): ThreadWaitingOn {
   if (state === "closed" || blocked) return null;
   const speaking = lastAuthor === "customer" || lastAuthor === "bot";
   if (state === "owner") {
-    return speaking || waitingForTurn ? "owner" : botWorking ? "bot" : "customer";
+    return speaking || turnDue ? "owner" : botWorking ? "bot" : "customer";
   }
-  return !speaking && !waitingForTurn ? (botWorking ? "bot" : "customer") : "representative";
+  if (turnDue) return "representative";
+  if (botWorking) return "bot";
+  return speaking ? null : "customer";
 }
 
 /** `userId`'s Customers named by `ids` (all of them when omitted), oldest first, with their identities; none merged away. */
@@ -106,19 +112,20 @@ async function readCustomers(
     )
     .orderBy(asc(representativeCustomerIdentity.createdAt), asc(representativeCustomerIdentity.id));
   const now = clock();
+  const byCustomer = grouped(identities, (identity) => identity.customerId);
   return customers.map((customer) => ({
     id: customer.id,
     name: customer.name,
     blocked: customer.blockedAt !== null,
     createdAt: customer.createdAt,
-    identities: identities
-      .filter((identity) => identity.customerId === customer.id)
-      .map(({ id, channel, externalId, verifiedContactAt }) => ({
+    identities: (byCustomer.get(customer.id) ?? []).map(
+      ({ id, channel, externalId, verifiedContactAt }) => ({
         id,
         channel,
         externalId,
         verified: isVerified({ verifiedContactAt }, now),
-      })),
+      }),
+    ),
   }));
 }
 
@@ -205,7 +212,9 @@ export async function addIdentity(
 
 /**
  * Corrects one identity of a Customer of the owner's. A new address starts unverified: what was
- * proved was proved by the old one, and a code or link sent for the old one can't prove the new.
+ * proved was proved by the old one, and a code or link sent for the old one can't prove the new. An
+ * open thread last heard at the old address now goes to the new one, and so does what waits there, so
+ * no Turn or word of the owner's treats it as another sender's. What came before stays as it was said.
  */
 export async function updateIdentity(
   context: Context,
@@ -222,7 +231,11 @@ export async function updateIdentity(
     const { channel: oldChannel, externalId: oldExternalId } = representativeCustomerIdentity;
     const sameAddress = sql`${oldChannel} = ${channel} and ${oldExternalId} = ${externalId}`;
     const [held] = await tx
-      .select({ same: sql<boolean>`${sameAddress}` })
+      .select({
+        same: sql<boolean>`${sameAddress}`,
+        channel: oldChannel,
+        externalId: oldExternalId,
+      })
       .from(representativeCustomerIdentity)
       .where(
         and(
@@ -256,16 +269,41 @@ export async function updateIdentity(
       if (isUniqueViolation(error, identityAddress)) throw identityTaken();
       throw error;
     }
+    if (held && !held.same) {
+      const message = representativeThreadMessage;
+      await tx
+        .update(message)
+        .set({ channel, externalId })
+        .where(
+          and(
+            eq(message.channel, held.channel),
+            eq(message.externalId, held.externalId),
+            sql`exists (select 1 from ${representativeThread} where ${representativeThread.id} = ${message.threadId} and ${representativeThread.customerId} = ${id} and ${representativeThread.state} <> 'closed' and ${message.position} >= ${representativeThread.waitingFrom})`,
+          ),
+        );
+      await tx
+        .update(representativeThread)
+        .set({ lastChannel: channel, lastExternalId: externalId })
+        .where(
+          and(
+            eq(representativeThread.customerId, id),
+            ne(representativeThread.state, "closed"),
+            eq(representativeThread.lastChannel, held.channel),
+            eq(representativeThread.lastExternalId, held.externalId),
+          ),
+        );
+    }
   });
   return readCustomer(context, userId, id);
 }
 
 /**
- * Blocks or unblocks a Customer. A message already kept stays kept; the next one is answered again
- * once unblocked.
+ * Blocks or unblocks a Customer. Blocking aborts their threads' Turns, as a takeover does, so no more
+ * Model calls run and no Assignment opens: the job's fence refuses what those Turns try next. A
+ * message already kept stays kept; the next one is answered again once unblocked.
  */
 export async function setBlocked(
-  context: Context,
+  context: Context & Pick<FeatureContext, "jobs">,
   userId: string,
   id: string,
   blocked: boolean,
@@ -276,14 +314,24 @@ export async function setBlocked(
     await tx
       .update(representativeCustomer)
       .set({
-        blockedAt: blocked ? sql`coalesce(${representativeCustomer.blockedAt}, ${now})` : null,
+        blockedAt: blocked
+          ? sql`coalesce(${representativeCustomer.blockedAt}, ${now.toISOString()}::timestamp)`
+          : null,
       })
       .where(eq(representativeCustomer.id, id));
     // What waited gets no Turn, then or after an unblock: only the next message is answered.
     if (blocked) {
+      const threads = await tx
+        .select({ turnId: representativeThread.turnId })
+        .from(representativeThread)
+        .where(eq(representativeThread.customerId, id))
+        .for("update");
+      for (const { turnId } of threads) {
+        if (turnId) await context.jobs.cancelIn(tx, turnId);
+      }
       await tx
         .update(representativeThread)
-        .set({ waitingFrom: null, waitingSince: null })
+        .set({ turnId: null, waitingFrom: null, waitingSince: null })
         .where(eq(representativeThread.customerId, id));
     }
   });
@@ -300,6 +348,7 @@ type ThreadRow = {
   lastChannel: string;
   lastExternalId: string;
   messageCount: number;
+  turnId: string | null;
   waitingFrom: number | null;
   updatedAt: Date;
   lastAuthor: ThreadAuthor | null;
@@ -325,6 +374,7 @@ const threadColumns = {
   lastChannel: representativeThread.lastChannel,
   lastExternalId: representativeThread.lastExternalId,
   messageCount: representativeThread.messageCount,
+  turnId: representativeThread.turnId,
   waitingFrom: representativeThread.waitingFrom,
   updatedAt: representativeThread.updatedAt,
   lastAuthor: sql<ThreadAuthor | null>`(${lastAuthorQuery})`,
@@ -346,7 +396,7 @@ function summary(row: ThreadRow): ThreadSummary {
       row.state,
       row.lastAuthor,
       row.blockedAt !== null,
-      row.waitingFrom !== null,
+      row.turnId !== null || row.waitingFrom !== null,
       row.botWorking,
     ),
     messageCount: row.messageCount,

@@ -71,8 +71,21 @@ beforeEach(async () => {
     .where(inArray(job.status, ["queued", "running"]));
 });
 
-async function serving(representativeRounds: Rounds, botRounds: Rounds = [refunded, quiet]) {
+async function serving(
+  representativeRounds: Rounds,
+  botRounds: Rounds = [refunded, quiet],
+  held?: Promise<void>,
+) {
   const fake = createFakeAdapter({ rounds: representativeRounds });
+  const entered: unknown[] = [];
+  const gated: AnyTextAdapter = {
+    ...(fake.adapter as AnyTextAdapter),
+    chatStream: async function* (options) {
+      entered.push(options);
+      await held;
+      yield* fake.adapter.chatStream(options);
+    },
+  };
   const botFake = createFakeAdapter({ rounds: botRounds });
   const timer = fakeJobClock(new Date());
   const proofsSent: Array<{ channel: string; externalId: string; kind: string; secret: string }> =
@@ -99,7 +112,7 @@ async function serving(representativeRounds: Rounds, botRounds: Rounds = [refund
         },
       ),
     ],
-    adapterFor: (id) => (id === botModel ? botFake.adapter : (fake.adapter as AnyTextAdapter)),
+    adapterFor: (id) => (id === botModel ? botFake.adapter : gated),
     memory: false,
   });
   made = deps;
@@ -137,6 +150,9 @@ async function serving(representativeRounds: Rounds, botRounds: Rounds = [refund
     return true;
   };
   return {
+    jobs,
+    timer,
+    entered,
     proofsSent,
     fake,
     botFake,
@@ -174,6 +190,41 @@ const turnsOf = async (threadId: string) =>
 const texts = (messages: Array<{ text: string }>) => messages.map((message) => message.text);
 
 describe("a hand-off's result", () => {
+  it("isn't made by a Turn whose Customer the owner blocks during its Model call", async () => {
+    let open = () => {};
+    const held = new Promise<void>((resolve) => (open = resolve));
+    const { entered, jobs, timer, send, thread, rpc, botId } = await serving(
+      [handsOff(), quiet()],
+      undefined,
+      held,
+    );
+    await send("I want a refund");
+    timer.advance(1_000);
+    const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: true });
+    const attempt = jobs.runClaimed(claimed!, {});
+    await vi.waitFor(() => expect(entered).toHaveLength(1), { timeout: 10_000 });
+    const { customer, id } = await thread();
+
+    await rpc.representative.customerSetBlocked({ id: customer.id, blocked: true });
+
+    const [turn] = await getTestDb()
+      .select({ status: job.status })
+      .from(job)
+      .where(and(eq(job.name, "representative.turn"), sql`${job.payload}->>'threadId' = ${id}`));
+    expect(turn?.status).toBe("cancelled");
+    const [row] = await getTestDb()
+      .select({ turnId: representativeThread.turnId })
+      .from(representativeThread)
+      .where(eq(representativeThread.id, id));
+    expect(row?.turnId).toBeNull();
+    open();
+    await attempt;
+    expect(entered).toHaveLength(1);
+    expect(
+      await getTestDb().select().from(botAssignment).where(eq(botAssignment.assignedBotId, botId)),
+    ).toEqual([]);
+  });
+
   it("wakes a Turn that tells the Customer, where they were last heard", async () => {
     const { fake, send, drain, thread } = await serving([
       handsOff(),
@@ -262,6 +313,72 @@ describe("a hand-off's result", () => {
     await rpc.representative.threadSend({ id: held.id, text: "It is coming." });
     expect(await thread()).toMatchObject({ waitingOn: "customer" });
     expect(fake.calls).toHaveLength(2);
+  });
+
+  it("is history to every later Turn once the owner has held it, so the Model isn't told to relay it", async () => {
+    const { fake, send, runNext, drain, thread, rpc } = await serving([
+      handsOff(),
+      quiet(),
+      quiet(),
+    ]);
+    await send("I want a refund", { rule: "sameIdentity" });
+    await runNext();
+    await rpc.representative.threadTakeOver({ id: (await thread()).id });
+    await drain();
+
+    await rpc.representative.threadHandBack({ id: (await thread()).id });
+    expect(await thread()).toMatchObject({ holder: "representative", waitingOn: null });
+    expect(await runNext()).toBe(false);
+
+    await send("Anything else?", { rule: "sameIdentity" });
+    expect(await runNext()).toBe(true);
+
+    const prompt = JSON.stringify(fake.calls.at(-1)?.messages);
+    expect(prompt).toContain("Your refund of 20 is on its way.");
+    expect(prompt).toContain("An earlier result of work you handed to the Bot");
+    expect(prompt).not.toContain("Tell the Customer what it says");
+  });
+
+  it("isn't the Model's to tell when it came during a hold with a Customer's message waiting", async () => {
+    const { fake, send, runNext, drain, thread, rpc } = await serving([
+      handsOff(),
+      quiet(),
+      quiet(),
+    ]);
+    await send("I want a refund", { rule: "sameIdentity" });
+    await runNext();
+    await rpc.representative.threadTakeOver({ id: (await thread()).id });
+    await send("Well?", { rule: "sameIdentity" });
+    await drain();
+
+    await rpc.representative.threadHandBack({ id: (await thread()).id });
+    expect(await runNext()).toBe(true);
+
+    const prompt = JSON.stringify(fake.calls.at(-1)?.messages);
+    expect(prompt).toContain("Well?");
+    expect(prompt).toContain("Your refund of 20 is on its way.");
+    expect(prompt).not.toContain("Tell the Customer what it says");
+  });
+
+  it("is history too when it was for an unverified sender", async () => {
+    const { fake, send, runNext, drain, thread, rpc } = await serving([
+      handsOff(),
+      quiet(),
+      quiet(),
+    ]);
+    await send("I want a refund");
+    await runNext();
+    await rpc.representative.threadTakeOver({ id: (await thread()).id });
+    await drain();
+    await rpc.representative.threadHandBack({ id: (await thread()).id });
+
+    await send("Anything else?", { rule: "sameIdentity" });
+    expect(await runNext()).toBe(true);
+
+    const prompt = JSON.stringify(fake.calls.at(-1)?.messages);
+    expect(prompt).toContain("Your refund of 20 is on its way.");
+    expect(prompt).toContain("for an unverified sender");
+    expect(prompt).not.toContain("Tell them only what is safe");
   });
 
   it("is kept in a thread that has closed, and sends nothing", async () => {

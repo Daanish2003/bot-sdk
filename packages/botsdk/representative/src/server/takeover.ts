@@ -1,4 +1,4 @@
-import { and, eq, gt, gte, inArray, max, min, not, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, min, not, sql } from "drizzle-orm";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
@@ -7,6 +7,7 @@ import { rpcError } from "@botsdk/bot/rpc-error";
 import {
   representative,
   representativeCustomer,
+  representativeCustomerMerge,
   representativeThread,
   representativeThreadMessage,
   type ThreadAuthor,
@@ -68,6 +69,7 @@ export async function tryLockThread(tx: Transaction, userId: string, threadId: s
     .select({
       state: representativeThread.state,
       turnId: representativeThread.turnId,
+      turnFrom: representativeThread.turnFrom,
       waitingFrom: representativeThread.waitingFrom,
       lastChannel: representativeThread.lastChannel,
       lastExternalId: representativeThread.lastExternalId,
@@ -147,46 +149,27 @@ async function sendToCustomer(
 }
 
 /**
- * The oldest of the Customer's messages after the last reply or word from the owner, which is what a
- * begun Turn was answering. A note answers nothing.
- */
-async function oldestUnanswered(tx: Transaction, threadId: string) {
-  const message = representativeThreadMessage;
-  const [answered] = await tx
-    .select({ position: max(message.position) })
-    .from(message)
-    .where(
-      and(eq(message.threadId, threadId), inArray(message.author, ["representative", "owner"])),
-    );
-  const [unanswered] = await tx
-    .select({ position: min(message.position) })
-    .from(message)
-    .where(
-      and(
-        eq(message.threadId, threadId),
-        inArray(message.author, ["customer", "bot"]),
-        gt(message.position, answered?.position ?? 0),
-      ),
-    );
-  return unanswered?.position ?? null;
-}
-
-/**
  * Takes the thread, whose row `tx` holds, from its Representative: its Turn is aborted, whatever it
  * hasn't sent is dropped, and the Customer gets the fixed note, unless blocked. What that Turn or a
- * next one would have answered stays marked as waiting.
+ * next one would have answered stays marked as waiting: a begun Turn with no reply yet moved the mark
+ * past its batch, so the mark goes back to where that batch starts.
  */
 export async function holdThread(
   { clock, jobs }: Pick<Context, "clock" | "jobs">,
   tx: Transaction,
   threadId: string,
-  thread: Pick<Thread, "turnId" | "waitingFrom" | "lastChannel" | "lastExternalId" | "blockedAt">,
+  thread: Pick<
+    Thread,
+    "turnId" | "turnFrom" | "waitingFrom" | "lastChannel" | "lastExternalId" | "blockedAt"
+  >,
 ) {
   if (thread.turnId) await jobs.cancelIn(tx, thread.turnId);
   const now = clock();
+  const unanswered = thread.turnId ? thread.turnFrom : null;
   const waitingFrom =
-    thread.waitingFrom ??
-    (thread.turnId && !thread.blockedAt ? await oldestUnanswered(tx, threadId) : null);
+    unanswered === null
+      ? thread.waitingFrom
+      : Math.min(thread.waitingFrom ?? unanswered, unanswered);
   await tx
     .update(representativeThread)
     .set({
@@ -282,6 +265,31 @@ export async function releaseThread(
 }
 
 /**
+ * Handing a thread back ends any hold a merge moved onto it: a later hold is the owner's own, which
+ * undoing that merge leaves alone, and the thread the hold came from has none to get back.
+ */
+async function forgetMovedHold(tx: Transaction, userId: string, threadId: string) {
+  const merge = representativeCustomerMerge;
+  const merges = await tx
+    .select({ id: merge.id, movedHolds: merge.movedHolds })
+    .from(merge)
+    .where(
+      and(
+        eq(merge.userId, userId),
+        isNull(merge.undoneAt),
+        sql`${merge.movedHolds} @> ${JSON.stringify([{ survivingThreadId: threadId }])}::jsonb`,
+      ),
+    )
+    .for("update");
+  for (const { id, movedHolds } of merges) {
+    await tx
+      .update(merge)
+      .set({ movedHolds: movedHolds.filter((hold) => hold.survivingThreadId !== threadId) })
+      .where(eq(merge.id, id));
+  }
+}
+
+/**
  * Gives a held thread back to its Representative, and a Turn answers what still waits, if anything.
  * Handing back a thread it already holds does nothing.
  */
@@ -290,6 +298,7 @@ export async function handBackThread(context: Context, userId: string, threadId:
     const thread = await lockThread(tx, userId, threadId);
     if (thread.state === "closed") throw threadClosed();
     if (thread.state === "representative") return;
+    await forgetMovedHold(tx, userId, threadId);
     await releaseThread(context, tx, threadId, thread);
   });
   return getThread(context, userId, threadId);

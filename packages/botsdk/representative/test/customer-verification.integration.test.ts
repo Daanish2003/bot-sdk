@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { batchLongestMs } from "@botsdk/bot/bot/triggers";
@@ -11,6 +11,7 @@ import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import {
+  fakeChannel,
   startTestCustomerTurn,
   testCustomerTurn,
   type TestCustomerTurn,
@@ -20,7 +21,11 @@ import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import type { AnyTextAdapter } from "@tanstack/ai";
 import { representative } from "../src";
-import { representativeCustomerIdentity, representativeHandOff } from "../src/server/db/schema";
+import {
+  representativeCustomer,
+  representativeCustomerIdentity,
+  representativeHandOff,
+} from "../src/server/db/schema";
 
 /*
  * What an unverified sender gets (ticket #1255): Turns from fake Channels, each saying which rule it
@@ -135,6 +140,63 @@ const stateOf = async (deps: TestDeps, userId: string, channel: string) => {
     .flatMap((customer) => customer.identities)
     .find((identity) => identity.channel === channel);
 };
+
+describe("an owner correcting an address as its message arrives", () => {
+  it("doesn't file that message under the corrected identity, nor verify it", async () => {
+    const { deps } = await instance([round()]);
+    const { user, rpc, id } = await ownerWithRepresentative(deps);
+    const made = await rpc.representative.customerCreate({
+      channel: fakeChannel,
+      externalId: "+1",
+    });
+    let release = () => {};
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let holding = () => {};
+    const held = new Promise<void>((resolve) => (holding = resolve));
+    const editor = getTestDb().transaction(async (tx) => {
+      await tx
+        .select({ id: representativeCustomer.id })
+        .from(representativeCustomer)
+        .where(eq(representativeCustomer.id, made.id))
+        .for("update");
+      holding();
+      await released;
+      await tx
+        .update(representativeCustomerIdentity)
+        .set({ externalId: "+2" })
+        .where(eq(representativeCustomerIdentity.customerId, made.id));
+    });
+    await held;
+    const message = startTestCustomerTurn(deps, {
+      representativeId: id,
+      externalId: "+1",
+      message: "Hello",
+      proof: { rule: "sameIdentity" },
+    });
+    await vi.waitFor(
+      async () => {
+        const { rows } = await getTestDb().execute<{ waiting: number }>(
+          sql`select count(*)::int as waiting from pg_stat_activity
+               where datname = current_database() and wait_event_type = 'Lock'
+               and query ilike '%representative_customer%'`,
+        );
+        expect(rows[0]!.waiting).toBeGreaterThanOrEqual(1);
+      },
+      { timeout: 10_000 },
+    );
+    release();
+    await editor;
+    await message;
+
+    const customers = await customersOf(deps, user.id);
+    const corrected = customers.find((customer) => customer.id === made.id)!;
+    expect(corrected.identities).toMatchObject([{ externalId: "+2", verifiedContactAt: null }]);
+    expect(corrected.threads).toEqual([]);
+    const stranger = customers.find((customer) => customer.id !== made.id)!;
+    expect(stranger.identities).toMatchObject([{ externalId: "+1" }]);
+    expect(stranger.threads).toHaveLength(1);
+  });
+});
 
 describe("a Channel's rule", () => {
   it("verifies the sender on a Channel whose rule is the same identity", async () => {

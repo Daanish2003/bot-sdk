@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
+import { exportUserData } from "@botsdk/bot/user-data";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { testCustomerTurn } from "@ai-chat/test-support/test-customer";
@@ -10,7 +11,7 @@ import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { representative } from "../src";
-import { representativeCustomer } from "../src/server/db/schema";
+import { representativeCustomer, representativeThread } from "../src/server/db/schema";
 import { storeReply } from "../src/server/customers";
 import { waitingOn } from "../src/server/owner-customers";
 
@@ -228,13 +229,113 @@ describe("an owner's threads", () => {
   });
 
   it("derives who a thread waits on", () => {
-    expect(waitingOn("representative", "customer", false, false)).toBe("representative");
+    // A Customer's or Bot's word that nothing is on its way to answer waits on no one.
+    expect(waitingOn("representative", "customer", false, false)).toBeNull();
+    expect(waitingOn("representative", "bot", false, false)).toBeNull();
+    expect(waitingOn("representative", "customer", false, true)).toBe("representative");
+    expect(waitingOn("representative", "customer", false, false, true)).toBe("bot");
     expect(waitingOn("representative", "representative", false, false)).toBe("customer");
     // A message waiting for a next Turn, which came before the reply.
     expect(waitingOn("representative", "representative", false, true)).toBe("representative");
     expect(waitingOn("owner", "customer", false, false)).toBe("owner");
     expect(waitingOn("closed", "customer", false, false)).toBeNull();
     expect(waitingOn("representative", "customer", true, false)).toBeNull();
+  });
+});
+
+describe("correcting an identity", () => {
+  it("moves an open thread last heard at the old address, so what is sent goes to the new one", async () => {
+    const { deps } = await instance([quiet()]);
+    const { rpc, id } = await owner(deps);
+    await testCustomerTurn(deps, {
+      representativeId: id,
+      externalId: "+15550001",
+      message: "Hello",
+      proof: { rule: "sameIdentity" },
+    });
+    const [line] = await rpc.representative.threadList({ id });
+    const [identity] = (await rpc.representative.threadGet({ id: line!.id })).identities;
+
+    await rpc.representative.customerUpdateIdentity({
+      id: line!.customer.id,
+      identityId: identity!.id,
+      channel: "sms",
+      externalId: "+15550002",
+    });
+
+    expect((await rpc.representative.threadGet({ id: line!.id })).lastHeard).toEqual({
+      channel: "sms",
+      externalId: "+15550002",
+    });
+    await rpc.representative.threadTakeOver({ id: line!.id });
+    const sent = await rpc.representative.threadSend({ id: line!.id, text: "Found you" });
+    expect(sent.messages.at(-1)).toMatchObject({ channel: "sms", externalId: "+15550002" });
+  });
+
+  it("takes what waits with it, so the owner's word to the new address answers it", async () => {
+    const { deps, fake } = await instance([quiet()]);
+    const { rpc, id } = await owner(deps);
+    const heard = { representativeId: id, externalId: "+15550001" };
+    await testCustomerTurn(deps, { ...heard, message: "Hello", proof: { rule: "sameIdentity" } });
+    const [line] = await rpc.representative.threadList({ id });
+    await rpc.representative.threadTakeOver({ id: line!.id });
+    await testCustomerTurn(deps, { ...heard, message: "Anyone?", proof: { rule: "sameIdentity" } });
+    const before = await rpc.representative.threadGet({ id: line!.id });
+    const calls = fake.calls.length;
+
+    await rpc.representative.customerUpdateIdentity({
+      id: line!.customer.id,
+      identityId: before.identities[0]!.id,
+      channel: "sms",
+      externalId: "+15550002",
+    });
+    const sent = await rpc.representative.threadSend({ id: line!.id, text: "Here" });
+
+    expect(sent.waitingOn).toBe("customer");
+    expect(sent.messages[0]).toMatchObject({ externalId: "+15550001" });
+    await rpc.representative.threadHandBack({ id: line!.id });
+    expect((await rpc.representative.threadGet({ id: line!.id })).waitingOn).toBe("customer");
+    expect(fake.calls).toHaveLength(calls);
+  });
+
+  it("leaves a thread last heard at another identity, and a closed thread, where they were", async () => {
+    const { deps } = await instance([quiet()]);
+    const { rpc, id } = await owner(deps);
+    await testCustomerTurn(deps, {
+      representativeId: id,
+      externalId: "+15550001",
+      message: "Hello",
+    });
+    const [line] = await rpc.representative.threadList({ id });
+    const customer = await rpc.representative.customerAddIdentity({
+      id: line!.customer.id,
+      channel: "email",
+      externalId: "a@example.com",
+    });
+    const email = customer.identities.find((identity) => identity.channel === "email")!;
+    const first = customer.identities.find((identity) => identity.channel !== "email")!;
+    const lastHeard = async () =>
+      (await rpc.representative.threadGet({ id: line!.id })).lastHeard.externalId;
+
+    await rpc.representative.customerUpdateIdentity({
+      id: customer.id,
+      identityId: email.id,
+      channel: "email",
+      externalId: "b@example.com",
+    });
+    expect(await lastHeard()).toBe("+15550001");
+
+    await getTestDb()
+      .update(representativeThread)
+      .set({ state: "closed" })
+      .where(eq(representativeThread.id, line!.id));
+    await rpc.representative.customerUpdateIdentity({
+      id: customer.id,
+      identityId: first.id,
+      channel: first.channel,
+      externalId: "+15550009",
+    });
+    expect(await lastHeard()).toBe("+15550001");
   });
 });
 
@@ -276,6 +377,46 @@ describe("a blocked Customer", () => {
       "Hello again",
       "Welcome back.",
     ]);
+  });
+
+  it("waits on no one for what was kept during a block, after an unblock", async () => {
+    const { fake, deps } = await instance();
+    const { rpc, id } = await owner(deps);
+    const customer = await rpc.representative.customerCreate({
+      channel: "fake",
+      externalId: "+15550001",
+    });
+    await rpc.representative.customerSetBlocked({ id: customer.id, blocked: true });
+    await testCustomerTurn(deps, {
+      representativeId: id,
+      externalId: "+15550001",
+      message: "Kept",
+    });
+
+    await rpc.representative.customerSetBlocked({ id: customer.id, blocked: false });
+
+    const [line] = await rpc.representative.threadList({ id });
+    expect(line).toMatchObject({ holder: "representative", waitingOn: null });
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  it("shows in the owner's export with their name, at the time it was set", async () => {
+    const { deps } = await instance();
+    const { user, rpc } = await owner(deps, false);
+    const customer = await rpc.representative.customerCreate({
+      name: "Ada",
+      channel: "sms",
+      externalId: "+15550001",
+    });
+    const before = Date.now();
+    await rpc.representative.customerSetBlocked({ id: customer.id, blocked: true });
+
+    const exported = (await exportUserData(deps, user.id)) as unknown as {
+      representative: { customers: Array<{ name: string | null; blockedAt: Date | null }> };
+    };
+    const [row] = exported.representative.customers;
+    expect(row?.name).toBe("Ada");
+    expect(Math.abs(new Date(row!.blockedAt!).getTime() - before)).toBeLessThan(60_000);
   });
 
   it("stops a Turn that began before the block from sending more, and keeps the first block's time", async () => {

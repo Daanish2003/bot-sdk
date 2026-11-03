@@ -17,7 +17,7 @@ import { insertUser } from "@ai-chat/test-support/users";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import type { AnyTextAdapter } from "@tanstack/ai";
-import { representativeCustomer } from "../src/server/db/schema";
+import { representativeCustomer, representativeThread } from "../src/server/db/schema";
 import { representativeFeature } from "../src/server/plugin";
 
 /*
@@ -535,6 +535,152 @@ describe("an owner undoing a merge", () => {
     const [second] = await rpc.representative.customerMergeList();
     await rpc.representative.customerMergeUndo({ id: second!.id });
     expect((await rpc.representative.threadGet({ id: adaThread.id })).holder).toBe("owner");
+  });
+
+  /** Bob's thread held by the owner and merged into Ada, whose thread is then held only by that. */
+  const heldThenMerged = async (rounds: Round[]) => {
+    const { deps, fake } = await instance(rounds);
+    const { rpc, id } = await owner(deps);
+    const { ada, bob } = await twoWithThreads(deps, rpc, id);
+    const threads = await threadsOf(rpc, id);
+    const bobThread = threads.find((each) => each.customer.id === bob.id)!;
+    const adaThread = threads.find((each) => each.customer.id === ada.id)!;
+    await rpc.representative.threadTakeOver({ id: bobThread.id });
+    await rpc.representative.customerMerge({ id: bob.id, intoId: ada.id });
+    const [merge] = await rpc.representative.customerMergeList();
+    return { deps, fake, rpc, id, ada, bob, bobThread, adaThread, merge: merge! };
+  };
+
+  it("leaves a hold the owner took deliberately after handing the merged thread back", async () => {
+    const { rpc, adaThread, bobThread, merge } = await heldThenMerged(quietly(4));
+    await rpc.representative.threadHandBack({ id: adaThread.id });
+    await rpc.representative.threadTakeOver({ id: adaThread.id });
+
+    await rpc.representative.customerMergeUndo({ id: merge.id });
+
+    expect((await rpc.representative.threadGet({ id: adaThread.id })).holder).toBe("owner");
+    // Handing it back gave up the hold that came from Bob's thread too.
+    expect((await rpc.representative.threadGet({ id: bobThread.id })).holder).toBe("closed");
+  });
+
+  it("keeps the owner's hold on the absorbed side: its next message gets no Model", async () => {
+    const { deps, fake, rpc, id, adaThread, bobThread, merge } = await heldThenMerged(quietly(4));
+    const calls = fake.calls.length;
+
+    await rpc.representative.customerMergeUndo({ id: merge.id });
+
+    expect((await rpc.representative.threadGet({ id: bobThread.id })).holder).toBe("owner");
+    expect((await rpc.representative.threadGet({ id: adaThread.id })).holder).toBe(
+      "representative",
+    );
+    await testCustomerTurn(deps, say(id, "web", "session-1", "Are you there?"));
+    expect(fake.calls).toHaveLength(calls);
+    const open = (await threadsOf(rpc, id)).filter((each) => each.holder !== "closed");
+    expect(open.map((each) => each.id).sort()).toEqual([adaThread.id, bobThread.id].sort());
+    expect((await rpc.representative.threadGet({ id: bobThread.id })).messages.at(-1)?.text).toBe(
+      "Are you there?",
+    );
+  });
+
+  it("gives the reopened thread back what it had waiting, for a Turn after Hand back", async () => {
+    const { deps } = await instance(quietly(4));
+    const { rpc, id } = await owner(deps);
+    const { ada, bob } = await twoWithThreads(deps, rpc, id);
+    const threads = await threadsOf(rpc, id);
+    const bobThread = threads.find((each) => each.customer.id === bob.id)!;
+    await rpc.representative.threadTakeOver({ id: bobThread.id });
+    await testCustomerTurn(deps, say(id, "web", "session-1", "Still waiting"));
+    await rpc.representative.customerMerge({ id: bob.id, intoId: ada.id });
+    const [merge] = await rpc.representative.customerMergeList();
+
+    await rpc.representative.customerMergeUndo({ id: merge!.id });
+
+    const [row] = await getTestDb()
+      .select({ waitingFrom: representativeThread.waitingFrom })
+      .from(representativeThread)
+      .where(eq(representativeThread.id, bobThread.id));
+    expect(row?.waitingFrom).toBe(3);
+    expect(await rpc.representative.threadGet({ id: bobThread.id })).toMatchObject({
+      holder: "owner",
+      waitingOn: "owner",
+    });
+  });
+
+  it("doesn't release a hold another merge still rests on the thread", async () => {
+    const { deps } = await instance(quietly(4));
+    const { rpc, id } = await owner(deps);
+    const { ada, bob } = await twoWithThreads(deps, rpc, id);
+    await testCustomerTurn(deps, say(id, "web", "session-2", "Carl here"));
+    const carl = await customerOf(rpc, "session-2");
+    const threads = await threadsOf(rpc, id);
+    const threadOf = (customerId: string) =>
+      threads.find((each) => each.customer.id === customerId)!;
+    await rpc.representative.threadTakeOver({ id: threadOf(bob.id).id });
+    await rpc.representative.threadTakeOver({ id: threadOf(carl.id).id });
+    await rpc.representative.customerMerge({ id: bob.id, intoId: ada.id });
+    await rpc.representative.customerMerge({ id: carl.id, intoId: ada.id });
+    const merges = await rpc.representative.customerMergeList();
+    const bobs = merges.find((each) => each.absorbed.id === bob.id)!;
+
+    await rpc.representative.customerMergeUndo({ id: bobs.id });
+
+    expect((await rpc.representative.threadGet({ id: threadOf(ada.id).id })).holder).toBe("owner");
+  });
+
+  it("keeps both holds when the owner held both threads", async () => {
+    const { deps } = await instance(quietly(4));
+    const { rpc, id } = await owner(deps);
+    const { ada, bob } = await twoWithThreads(deps, rpc, id);
+    const threads = await threadsOf(rpc, id);
+    const bobThread = threads.find((each) => each.customer.id === bob.id)!;
+    const adaThread = threads.find((each) => each.customer.id === ada.id)!;
+    await rpc.representative.threadTakeOver({ id: bobThread.id });
+    await rpc.representative.threadTakeOver({ id: adaThread.id });
+    await rpc.representative.customerMerge({ id: bob.id, intoId: ada.id });
+    const [merge] = await rpc.representative.customerMergeList();
+
+    await rpc.representative.customerMergeUndo({ id: merge!.id });
+
+    expect((await rpc.representative.threadGet({ id: bobThread.id })).holder).toBe("owner");
+    expect((await rpc.representative.threadGet({ id: adaThread.id })).holder).toBe("owner");
+  });
+
+  it("keeps a deliberate hold when undoing closes the held thread for mixing two people", async () => {
+    const { deps, fake } = await instance(quietly(4));
+    const { rpc, id } = await owner(deps);
+    const { ada, bob } = await twoWithThreads(deps, rpc, id);
+    const threads = await threadsOf(rpc, id);
+    const adaThread = threads.find((each) => each.customer.id === ada.id)!;
+    await rpc.representative.threadTakeOver({ id: adaThread.id });
+    await rpc.representative.customerMerge({ id: bob.id, intoId: ada.id });
+    await testCustomerTurn(deps, say(id, "web", "session-1", "Bob, in Ada's thread"));
+    const [merge] = await rpc.representative.customerMergeList();
+    const calls = fake.calls.length;
+
+    await rpc.representative.customerMergeUndo({ id: merge!.id });
+
+    expect((await rpc.representative.threadGet({ id: adaThread.id })).holder).toBe("closed");
+    const adas = (await threadsOf(rpc, id)).filter((each) => each.customer.id === ada.id);
+    const fresh = adas.find((each) => each.holder !== "closed")!;
+    expect(fresh).toMatchObject({ holder: "owner", messageCount: 0 });
+
+    await testCustomerTurn(deps, say(id, "sms", "+15550001", "Still there?"));
+    expect(fake.calls).toHaveLength(calls);
+    expect(await rpc.representative.threadGet({ id: fresh.id })).toMatchObject({
+      holder: "owner",
+      messageCount: 1,
+    });
+  });
+
+  it("doesn't keep a hold on a mixed thread when only the merge made it", async () => {
+    const { deps, rpc, id, ada, adaThread, merge } = await heldThenMerged(quietly(4));
+    await testCustomerTurn(deps, say(id, "web", "session-1", "Bob, in Ada's thread"));
+
+    await rpc.representative.customerMergeUndo({ id: merge.id });
+
+    expect((await rpc.representative.threadGet({ id: adaThread.id })).holder).toBe("closed");
+    const adas = (await threadsOf(rpc, id)).filter((each) => each.customer.id === ada.id);
+    expect(adas.filter((each) => each.holder !== "closed")).toEqual([]);
   });
 
   it("passes on a block set since the merge, to both", async () => {

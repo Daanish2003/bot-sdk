@@ -491,7 +491,8 @@ describe("a blocked Customer", () => {
     await rpc.representative.customerSetBlocked({ id, blocked: true });
 
     timer.advance(500);
-    expect(await runDue()).toBe(true);
+    // The block cancelled its Turn, so nothing was left to run.
+    expect(await runDue()).toBe(false);
     expect(fake.calls).toHaveLength(0);
     expect((await threadRows())[0]).toMatchObject({ turnId: null, waitingFrom: null });
 

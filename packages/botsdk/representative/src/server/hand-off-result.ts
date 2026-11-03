@@ -87,6 +87,7 @@ export async function deliverHandOffResult(
     author: "bot",
     text,
     verified: handOff.verified ?? false,
+    heldForOwner: thread.state === "owner",
     ...sender,
   });
   if (wakes) {

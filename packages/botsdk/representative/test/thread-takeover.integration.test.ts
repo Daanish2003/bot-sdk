@@ -1,5 +1,5 @@
 import type { AnyTextAdapter } from "@tanstack/ai";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { saveCredentials } from "@botsdk/bot/models/internal";
@@ -13,6 +13,7 @@ import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { representative } from "../src";
+import { representativeThread } from "../src/server/db/schema";
 import { threadIdleMs } from "../src/server/idle";
 import { takeoverNote } from "../src/server/takeover";
 import { receiveCustomerMessage } from "../src/server/thread-turns";
@@ -487,6 +488,79 @@ describe("after handing back", () => {
     expect(await runDue()).toBe(true);
 
     expect(prompt(fake.calls.at(-1))).toMatch(/Hello!.*Second/);
+  });
+
+  it("what an aborted Turn was answering gets a Turn, though another sender's message waited behind it", async () => {
+    const held = gate();
+    const { entered, timer, claim, attemptsEnd, send, takeOver, handBack, runDue, thread, rpc } =
+      await serving([replies("Too late"), quiet(), quiet()], held.opened);
+    await send("From the first address", { proof: { rule: "sameIdentity" } });
+    const { customer } = await thread();
+    await rpc.representative.customerAddIdentity({
+      id: customer.id,
+      channel: fakeChannel,
+      externalId: "+15550002",
+    });
+    timer.advance(500);
+    await claim();
+    await expect.poll(() => entered.length, poll).toBe(1);
+    await send("From the second address", { externalId: "+15550002" });
+
+    await takeOver();
+    held.open();
+    await attemptsEnd();
+    await handBack();
+    timer.advance(500);
+    expect(await runDue()).toBe(true);
+
+    const prompted = prompt(entered.at(-1) as { messages: unknown });
+    expect(entered).toHaveLength(2);
+    expect(prompted).toContain("From the first address");
+    expect(prompted).not.toContain("From the second address");
+  });
+
+  it("leaves a batch a Turn chose silence on alone, when the next Turn hadn't begun", async () => {
+    const { timer, send, takeOver, runDue, thread } = await serving([quiet()]);
+    await send("Nothing to say to this");
+    timer.advance(500);
+    expect(await runDue()).toBe(true);
+    await send("Next");
+
+    await takeOver();
+
+    const { id } = await thread();
+    const [row] = await getTestDb()
+      .select({ waitingFrom: representativeThread.waitingFrom })
+      .from(representativeThread)
+      .where(eq(representativeThread.id, id));
+    expect(row?.waitingFrom).toBe(2);
+  });
+
+  it("an aborted Turn gives back only its own batch, not what was settled before it", async () => {
+    const held = gate();
+    const { entered, timer, claim, attemptsEnd, send, takeOver, thread, rpc } = await serving(
+      [quiet()],
+      held.opened,
+    );
+    await send("Kept");
+    const { customer, id } = await thread();
+    await rpc.representative.customerSetBlocked({ id: customer.id, blocked: true });
+    await send("Kept during the block");
+    await rpc.representative.customerSetBlocked({ id: customer.id, blocked: false });
+    await send("Now");
+    timer.advance(500);
+    await claim();
+    await expect.poll(() => entered.length, poll).toBe(1);
+
+    await takeOver();
+    held.open();
+    await attemptsEnd();
+
+    const [row] = await getTestDb()
+      .select({ waitingFrom: representativeThread.waitingFrom })
+      .from(representativeThread)
+      .where(eq(representativeThread.id, id));
+    expect(row?.waitingFrom).toBe(3);
   });
 
   it("what was kept while the Customer was blocked gets no Turn, even after an unblock", async () => {

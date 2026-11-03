@@ -187,7 +187,7 @@ Making two Customers one, which happens only when a sender passes a code sent to
 _Avoid_: Link, dedupe
 
 **Verified identity**:
-One of a Customer's identities whose sender passed its Channel's rule, within the last 90 days of contact. On a Channel whose rule is a code or a signed link, each pass vouches for its messages for an hour. A lapsed identity verifies again only by a code to another identity on record. A message whose sender isn't verified gets a prompt holding only what that identity said while unverified: nothing from the Customer's other identities, their memory or the identity's verified past.
+One of a Customer's identities whose sender passed its Channel's rule, within the last 90 days of contact. On a Channel whose rule is a code or a signed link, each pass vouches for its messages for an hour. A lapsed identity verifies again by a fresh enforcing DMARC pass on email, otherwise only by a code to another identity on record. A message whose sender isn't verified gets a prompt holding only what that identity said while unverified: nothing from the Customer's other identities, their memory or the identity's verified past.
 _Avoid_: Trusted, authenticated Customer
 
 **Assignment**:
