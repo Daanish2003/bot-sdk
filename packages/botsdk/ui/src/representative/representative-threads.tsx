@@ -15,6 +15,18 @@ function Transcript({ id }: { id: string }) {
       {thread.data.customer.blocked && (
         <li className="text-xs text-muted-foreground">{t("representative.threadBlocked")}</li>
       )}
+      <li className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        {thread.data.identities.map((identity) => (
+          <span key={identity.id} data-verified={identity.verified}>
+            {identity.channel}: {identity.externalId} ·{" "}
+            {t(
+              identity.verified
+                ? "representative.customers.verified"
+                : "representative.customers.unverified",
+            )}
+          </span>
+        ))}
+      </li>
       {thread.data.messages.map((message) => (
         <li key={message.id} data-author={message.author} className="space-y-0.5 text-sm">
           <span className="block text-xs text-muted-foreground">
@@ -24,6 +36,7 @@ function Transcript({ id }: { id: string }) {
                 : "representative.threadReply",
             )}{" "}
             · {t("representative.threadVia", { channel: message.channel })} ·{" "}
+            {!message.verified && <>{t("representative.customers.unverified")} · </>}
             {new Date(message.createdAt).toLocaleString(locale)}
           </span>
           <span className="block whitespace-pre-wrap break-words">{message.text}</span>

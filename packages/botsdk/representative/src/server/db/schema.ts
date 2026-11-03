@@ -146,6 +146,10 @@ export const representativeCustomerIdentity = botsdkSchema.table(
       .references((): AnyPgColumn => representativeCustomer.id, { onDelete: "cascade" }),
     channel: text("channel").notNull(),
     externalId: text("external_id").notNull(),
+    /** Its last verified contact; null when never verified, or lapsed. Verification is per identity. */
+    verifiedContactAt: timestamp("verified_contact_at"),
+    /** When its verification lapsed; null when it hasn't, or it has been verified since. */
+    lapsedAt: timestamp("lapsed_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
@@ -164,7 +168,8 @@ export type ThreadState = "representative" | "owner" | "closed";
 /**
  * A Customer thread: the one running exchange between a Customer and a Representative, across the
  * Customer's Channels. It is never a Conversation. `lastChannel` and `lastExternalId` are where the
- * Customer was last heard from, which is where a reply goes. `messageCount` numbers its messages.
+ * Customer was last heard from by a verified sender, or first heard from if none has been, which is
+ * where anything sent outside a Turn goes: an unverified sender can't move it to themselves. `messageCount` numbers its messages.
  */
 export const representativeThread = botsdkSchema.table(
   "representative_thread",
@@ -199,6 +204,8 @@ export type ThreadAuthor = "customer" | "representative";
  * One message in a Customer thread: the feature's own row, not a core Message. `channel` and
  * `externalId` are where it was heard from, or where a reply went. `position` is its place in the
  * thread, taken under the thread's row lock, so it is the order the messages were really stored in.
+ * `verified` says its Turn's sender was verified; a Turn for an unverified sender never reads it.
+ * It defaults to true so that a row nobody vouched for stays out of those Turns.
  */
 export const representativeThreadMessage = botsdkSchema.table(
   "representative_thread_message",
@@ -212,6 +219,7 @@ export const representativeThreadMessage = botsdkSchema.table(
     channel: text("channel").notNull(),
     externalId: text("external_id").notNull(),
     text: text("text").notNull(),
+    verified: boolean("verified").notNull().default(true),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [unique("representative_thread_message_position").on(table.threadId, table.position)],

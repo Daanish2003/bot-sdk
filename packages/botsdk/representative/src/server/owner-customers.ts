@@ -22,6 +22,7 @@ import {
   type ThreadAuthor,
   type ThreadState,
 } from "./db/schema";
+import { isVerified } from "./verification";
 
 /*
  * What the owner sees and does with their Customers and threads (ticket #1251). Every read and write
@@ -30,7 +31,7 @@ import {
  * thread's owner to its Customer's, so each write path here checks it.
  */
 
-type Context = Pick<FeatureContext, "db">;
+type Context = Pick<FeatureContext, "db" | "clock">;
 type Db = Context["db"] | Transaction;
 
 const identityAddress = "representative_customer_identity_address";
@@ -60,7 +61,11 @@ export function waitingOn(
 }
 
 /** `userId`'s Customers named by `ids` (all of them when omitted), oldest first, with their identities. */
-async function readCustomers(db: Db, userId: string, ids?: string[]): Promise<CustomerView[]> {
+async function readCustomers(
+  { db, clock }: Context,
+  userId: string,
+  ids?: string[],
+): Promise<CustomerView[]> {
   const customers = await db
     .select()
     .from(representativeCustomer)
@@ -85,6 +90,7 @@ async function readCustomers(db: Db, userId: string, ids?: string[]): Promise<Cu
       ),
     )
     .orderBy(asc(representativeCustomerIdentity.createdAt), asc(representativeCustomerIdentity.id));
+  const now = clock();
   return customers.map((customer) => ({
     id: customer.id,
     name: customer.name,
@@ -92,26 +98,31 @@ async function readCustomers(db: Db, userId: string, ids?: string[]): Promise<Cu
     createdAt: customer.createdAt,
     identities: identities
       .filter((identity) => identity.customerId === customer.id)
-      .map(({ id, channel, externalId }) => ({ id, channel, externalId })),
+      .map(({ id, channel, externalId, verifiedContactAt }) => ({
+        id,
+        channel,
+        externalId,
+        verified: isVerified({ verifiedContactAt }, now),
+      })),
   }));
 }
 
-async function readCustomer(db: Db, userId: string, id: string) {
-  const [customer] = await readCustomers(db, userId, [id]);
+async function readCustomer(context: Context, userId: string, id: string) {
+  const [customer] = await readCustomers(context, userId, [id]);
   if (!customer) throw customerNotFound();
   return customer;
 }
 
 /** The owner's Customers, oldest first. */
-export const listCustomers = ({ db }: Context, userId: string) => readCustomers(db, userId);
+export const listCustomers = (context: Context, userId: string) => readCustomers(context, userId);
 
 /** Adds a Customer with its first identity; the identity is the owner's already, so no Customer is made. */
 export async function createCustomer(
-  { db }: Context,
+  context: Context,
   userId: string,
   { name, channel, externalId }: { name?: string; channel: string; externalId: string },
 ) {
-  const id = await db.transaction(async (tx) => {
+  const id = await context.db.transaction(async (tx) => {
     const customerId = uuidv7();
     await tx.insert(representativeCustomer).values({ id: customerId, userId, name });
     const made = await tx
@@ -128,7 +139,7 @@ export async function createCustomer(
     if (made.length === 0) throw identityTaken();
     return customerId;
   });
-  return readCustomer(db, userId, id);
+  return readCustomer(context, userId, id);
 }
 
 /** Holds the owner's Customer row against a concurrent delete, or says it isn't theirs. */
@@ -142,23 +153,23 @@ async function lockCustomer(tx: Transaction, userId: string, id: string) {
 }
 
 /** Names a Customer; an empty name clears it. */
-export async function renameCustomer({ db }: Context, userId: string, id: string, name: string) {
-  const [updated] = await db
+export async function renameCustomer(context: Context, userId: string, id: string, name: string) {
+  const [updated] = await context.db
     .update(representativeCustomer)
     .set({ name: name === "" ? null : name })
     .where(and(eq(representativeCustomer.id, id), eq(representativeCustomer.userId, userId)))
     .returning({ id: representativeCustomer.id });
   if (!updated) throw customerNotFound();
-  return readCustomer(db, userId, id);
+  return readCustomer(context, userId, id);
 }
 
 /** Gives a Customer another identity of the owner's. */
 export async function addIdentity(
-  { db }: Context,
+  context: Context,
   userId: string,
   { id, channel, externalId }: { id: string; channel: string; externalId: string },
 ) {
-  await db.transaction(async (tx) => {
+  await context.db.transaction(async (tx) => {
     await lockCustomer(tx, userId, id);
     const made = await tx
       .insert(representativeCustomerIdentity)
@@ -173,12 +184,15 @@ export async function addIdentity(
       .returning({ id: representativeCustomerIdentity.id });
     if (made.length === 0) throw identityTaken();
   });
-  return readCustomer(db, userId, id);
+  return readCustomer(context, userId, id);
 }
 
-/** Corrects one identity of a Customer of the owner's. */
+/**
+ * Corrects one identity of a Customer of the owner's. A new address starts unverified: what was
+ * proved was proved by the old one.
+ */
 export async function updateIdentity(
-  { db }: Context,
+  context: Context,
   userId: string,
   {
     id,
@@ -187,12 +201,19 @@ export async function updateIdentity(
     externalId,
   }: { id: string; identityId: string; channel: string; externalId: string },
 ) {
-  await db.transaction(async (tx) => {
+  await context.db.transaction(async (tx) => {
     await lockCustomer(tx, userId, id);
+    const { channel: oldChannel, externalId: oldExternalId } = representativeCustomerIdentity;
+    const sameAddress = sql`${oldChannel} = ${channel} and ${oldExternalId} = ${externalId}`;
     try {
       const updated = await tx
         .update(representativeCustomerIdentity)
-        .set({ channel, externalId })
+        .set({
+          channel,
+          externalId,
+          verifiedContactAt: sql`case when ${sameAddress} then ${representativeCustomerIdentity.verifiedContactAt} end`,
+          lapsedAt: sql`case when ${sameAddress} then ${representativeCustomerIdentity.lapsedAt} end`,
+        })
         .where(
           and(
             eq(representativeCustomerIdentity.id, identityId),
@@ -207,7 +228,7 @@ export async function updateIdentity(
       throw error;
     }
   });
-  return readCustomer(db, userId, id);
+  return readCustomer(context, userId, id);
 }
 
 /**
@@ -215,19 +236,19 @@ export async function updateIdentity(
  * once unblocked.
  */
 export async function setBlocked(
-  { db }: Context,
+  context: Context,
   userId: string,
   id: string,
   blocked: boolean,
   now: Date,
 ) {
-  const [updated] = await db
+  const [updated] = await context.db
     .update(representativeCustomer)
     .set({ blockedAt: blocked ? sql`coalesce(${representativeCustomer.blockedAt}, ${now})` : null })
     .where(and(eq(representativeCustomer.id, id), eq(representativeCustomer.userId, userId)))
     .returning({ id: representativeCustomer.id });
   if (!updated) throw customerNotFound();
-  return readCustomer(db, userId, id);
+  return readCustomer(context, userId, id);
 }
 
 type ThreadRow = {
@@ -324,10 +345,11 @@ export async function listThreads(
 
 /** One thread of the owner's with its transcript, oldest first. */
 export async function getThread(
-  { db }: Context,
+  context: Context,
   userId: string,
   threadId: string,
 ): Promise<ThreadView> {
+  const { db } = context;
   const [row] = await threadRows(db, userId).where(eq(representativeThread.id, threadId));
   if (!row) throw threadNotFound();
   const messages: ThreadMessageView[] = await db
@@ -337,14 +359,17 @@ export async function getThread(
       text: representativeThreadMessage.text,
       channel: representativeThreadMessage.channel,
       externalId: representativeThreadMessage.externalId,
+      verified: representativeThreadMessage.verified,
       createdAt: representativeThreadMessage.createdAt,
     })
     .from(representativeThreadMessage)
     .where(eq(representativeThreadMessage.threadId, threadId))
     .orderBy(asc(representativeThreadMessage.position));
+  const { identities } = await readCustomer(context, userId, row.customerId);
   return {
     ...summary(row),
     representativeId: row.representativeId,
+    identities,
     messages,
   };
 }

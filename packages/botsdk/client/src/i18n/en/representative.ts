@@ -138,6 +138,8 @@ export const representativeMessages = {
   "representative.customers.externalIdOf": ({ name }: { name: string }) => `Identity of ${name}`,
   "representative.customers.block": "Block",
   "representative.customers.unblock": "Unblock",
+  "representative.customers.verified": "Verified",
+  "representative.customers.unverified": "Not verified",
   "representative.customers.blockedBadge": "Blocked",
   "representative.customers.blockedHelp":
     "A blocked Customer's message is kept for you. It runs no model, gets no reply and opens no Assignment.",

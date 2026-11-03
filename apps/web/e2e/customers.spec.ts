@@ -10,7 +10,12 @@ import { e2eDatabaseUrl } from "./database";
 async function seedThread(
   userId: string,
   representativeId: string,
-  { name, blocked, messages }: { name: string; blocked: boolean; messages: [string, string][] },
+  {
+    name,
+    blocked,
+    verified = false,
+    messages,
+  }: { name: string; blocked: boolean; verified?: boolean; messages: [string, string][] },
 ) {
   const customerId = randomUUID();
   const threadId = randomUUID();
@@ -23,8 +28,8 @@ async function seedThread(
       [customerId, userId, name, blocked ? new Date() : null],
     );
     await run(
-      "insert into botsdk.representative_customer_identity (id, user_id, customer_id, channel, external_id) values ($1, $2, $3, 'sms', $4)",
-      [randomUUID(), userId, customerId, externalId],
+      "insert into botsdk.representative_customer_identity (id, user_id, customer_id, channel, external_id, verified_contact_at) values ($1, $2, $3, 'sms', $4, $5)",
+      [randomUUID(), userId, customerId, externalId, verified ? new Date() : null],
     );
     await run(
       "insert into botsdk.representative_thread (id, customer_id, representative_id, last_channel, last_external_id, message_count) values ($1, $2, $3, 'sms', $5, $4)",
@@ -101,6 +106,7 @@ test("an owner reads a Representative's threads, including a blocked Customer's 
   await seedThread(owner.id, representativeId, {
     name: "Ada",
     blocked: false,
+    verified: true,
     messages: [
       ["customer", "When do you open?"],
       ["representative", "We open at nine."],
@@ -120,10 +126,20 @@ test("an owner reads a Representative's threads, including a blocked Customer's 
   await ada.getByRole("button", { name: "Read Ada" }).click();
   await expect(ada.locator('[data-author="customer"]')).toContainText("When do you open?");
   await expect(ada.locator('[data-author="representative"]')).toContainText("We open at nine.");
+  await expect(ada.locator('[data-verified="true"]')).toContainText("Verified");
 
   const mallory = page.locator("[data-thread]").filter({ hasText: "Mallory" });
   await expect(mallory).toContainText("Blocked");
   await expect(mallory).not.toContainText("Waiting on");
   await mallory.getByRole("button", { name: "Read Mallory" }).click();
   await expect(mallory.locator('[data-author="customer"]')).toContainText("Let me in");
+  await expect(mallory.locator('[data-verified="false"]')).toContainText("Not verified");
+
+  await page.goto("/customers");
+  const customer = (name: string) =>
+    page.locator("[data-customer]").filter({ has: page.getByLabel(`Name of ${name}`) });
+  await expect(customer("Ada").locator('[data-verified="true"]')).toContainText("Verified");
+  await expect(customer("Mallory").locator('[data-verified="false"]')).toContainText(
+    "Not verified",
+  );
 });

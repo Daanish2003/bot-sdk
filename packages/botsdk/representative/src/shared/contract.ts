@@ -191,8 +191,13 @@ export type DraftDiff = {
   changes: DraftChange[];
 };
 
-/** One way of reaching a Customer: a Channel and that Channel's id for them. */
-export type CustomerIdentityView = { id: string; channel: string; externalId: string };
+/** One way of reaching a Customer: a Channel, that Channel's id for them, and whether it is verified now. */
+export type CustomerIdentityView = {
+  id: string;
+  channel: string;
+  externalId: string;
+  verified: boolean;
+};
 
 /** One of the owner's Customers, shared by all their Representatives. */
 export type CustomerView = {
@@ -233,11 +238,15 @@ export type ThreadMessageView = {
   text: string;
   channel: string;
   externalId: string;
+  /** Whether the Turn it belongs to was for a verified sender. */
+  verified: boolean;
   createdAt: Date;
 };
 
 export type ThreadView = ThreadSummary & {
   representativeId: string;
+  /** The Customer's identities, each with whether it is verified. */
+  identities: CustomerIdentityView[];
   /** Oldest first. */
   messages: ThreadMessageView[];
 };

@@ -22,5 +22,9 @@
   {
     "name": "20261103133054_representative_customer_name_block",
     "sql": "ALTER TABLE \"botsdk\".\"representative_customer\" ADD COLUMN \"name\" text;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_customer\" ADD COLUMN \"blocked_at\" timestamp;"
+  },
+  {
+    "name": "20261103135949_representative_identity_verification",
+    "sql": "ALTER TABLE \"botsdk\".\"representative_customer_identity\" ADD COLUMN \"verified_contact_at\" timestamp;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_customer_identity\" ADD COLUMN \"lapsed_at\" timestamp;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_thread_message\" ADD COLUMN \"verified\" boolean DEFAULT true NOT NULL;"
   }
 ]

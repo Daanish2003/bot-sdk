@@ -762,6 +762,12 @@ describe("who can reach a Turn", () => {
     expect(Object.keys(representativeContract).sort()).toEqual([
       "approve",
       "create",
+      "customerAddIdentity",
+      "customerCreate",
+      "customerList",
+      "customerRename",
+      "customerSetBlocked",
+      "customerUpdateIdentity",
       "declineApproval",
       "diff",
       "get",
@@ -771,6 +777,8 @@ describe("who can reach a Turn", () => {
       "runTests",
       "setBot",
       "setEnabled",
+      "threadGet",
+      "threadList",
       "updateDraft",
     ]);
     expect(Object.keys(made.api!({ db: getTestDb() } as never)).sort()).toEqual(

@@ -131,17 +131,26 @@ function CustomerCard({ customer }: { customer: CustomerView }) {
           {t("representative.customers.identities")}
         </h3>
         {customer.identities.map((identity) => (
-          <IdentityFields
-            // Keyed by what is stored, so a refetch after a save reloads the fields.
-            key={`${identity.id}:${identity.channel}:${identity.externalId}`}
-            label={label}
-            initial={identity}
-            submitLabel={t("representative.customers.saveIdentity")}
-            pending={update.isPending}
-            onSubmit={(value) =>
-              update.mutate({ id: customer.id, identityId: identity.id, ...value })
-            }
-          />
+          <div key={identity.id} data-verified={identity.verified} className="space-y-1">
+            <IdentityFields
+              // Keyed by what is stored, so a refetch after a save reloads the fields.
+              key={`${identity.channel}:${identity.externalId}`}
+              label={label}
+              initial={identity}
+              submitLabel={t("representative.customers.saveIdentity")}
+              pending={update.isPending}
+              onSubmit={(value) =>
+                update.mutate({ id: customer.id, identityId: identity.id, ...value })
+              }
+            />
+            <p className="text-xs text-muted-foreground">
+              {t(
+                identity.verified
+                  ? "representative.customers.verified"
+                  : "representative.customers.unverified",
+              )}
+            </p>
+          </div>
         ))}
         <IdentityFields
           // Remounted empty once an identity is added, and kept as typed when the add is refused.

@@ -24,14 +24,24 @@ export type TestCustomerTurn = {
   channel?: string;
   /** Who it is on that Channel; a new identity, so a new Customer, by default. */
   externalId?: string;
+  /** What the Channel's Customer path says of this sender, by its rule; a Channel with no rule by default. */
+  proof?:
+    | { rule: "sameIdentity" }
+    | { rule: "dmarc"; pass: boolean; policy: "none" | "quarantine" | "reject" };
 };
 
 /** Queues a Representative Turn for a stand-in Customer, without waiting for it. */
 export async function startTestCustomerTurn(
   deps: Pick<TestDeps, "runner">,
-  { representativeId, message, channel = fakeChannel, externalId = uuidv7() }: TestCustomerTurn,
+  {
+    representativeId,
+    message,
+    channel = fakeChannel,
+    externalId = uuidv7(),
+    proof,
+  }: TestCustomerTurn,
 ) {
-  const payload = { representativeId, channel, externalId, message };
+  const payload = { representativeId, channel, externalId, message, proof };
   return { channel, externalId, jobId: await deps.runner.enqueue(turnJobName, payload) };
 }
 
