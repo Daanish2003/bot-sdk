@@ -192,6 +192,8 @@ async function runStoredCall(
   const connections = new AbortController();
   const cancel = () => connections.abort();
   ctx.signal.addEventListener("abort", cancel, { once: true });
+  // An abort during the Quota step never reaches a listener added now.
+  if (ctx.signal.aborted) cancel();
   try {
     const shell = call.tool === shellToolName ? shellCall(deps, call, connections.signal) : null;
     const run = shell?.run ?? (await featureCall(deps, ctx, call, connections.signal));
