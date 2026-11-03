@@ -1,6 +1,6 @@
 import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { and, asc, eq, inArray } from "drizzle-orm";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   botCheckIn,
@@ -15,6 +15,7 @@ import {
 } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { findBot } from "../../src/bot/conversation";
+import { summarizeAwayJob } from "../../src/bot/turn/summary-away";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner, claimJob } from "../../src/runner/internal";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
@@ -549,6 +550,32 @@ describe("a Summary while the user is away", () => {
     expect(fake.calls).toHaveLength(2);
     expect(await summariesOf(botId)).toEqual([]);
     expect((await awayJobs(botId)).map((row) => row.status)).toEqual(["succeeded"]);
+  });
+
+  it("makes no summary call when its job is aborted during the reads before it (#1235)", async () => {
+    const { botId, deps, fake, send, advance } = await botWith({
+      rounds: [reporting(120_000, say("Here's your week.", true)), round(text(prose)), round()],
+    });
+    await send("plan my week");
+    advance(10 * minute);
+    const callsBefore = fake.calls.length;
+    const attempt = new AbortController();
+    // The last read before the call: its listener is not added yet when the abort lands.
+    const resolveModel = deps.models.resolveModel;
+    vi.spyOn(deps.models, "resolveModel").mockImplementation(async (...args) => {
+      attempt.abort(new Error("The job was cancelled"));
+      return resolveModel(...args);
+    });
+
+    await expect(
+      summarizeAwayJob.run({ botId }, {
+        deps,
+        signal: attempt.signal,
+        step: (_name: string, fn: () => unknown) => fn(),
+      } as never),
+    ).rejects.toThrow("The job was cancelled");
+
+    expect(fake.calls).toHaveLength(callsBefore);
   });
 
   it("throws its Summary away when a Turn started while it ran", async () => {

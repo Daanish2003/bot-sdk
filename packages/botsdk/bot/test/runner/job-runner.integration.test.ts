@@ -1,10 +1,10 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { buildBotSdk } from "../../src/create-chat";
 import { models } from "../../src/models/internal";
-import { job } from "../../src/storage";
+import { job, jobEvent } from "../../src/storage";
 import {
   type JobDefinition,
   jobTable,
@@ -96,6 +96,15 @@ listed({
   },
 });
 
+listed({
+  name: "test.read-signal",
+  payload: z.object({ label: z.string() }),
+  run: async ({ label }, { signal }) => {
+    started.push(label);
+    if (signal.aborted) aborted.push(label);
+  },
+});
+
 /** Released by the test that runs `test.linger`; until then its handler goes on after its abort. */
 let lingerGate: Promise<void> | undefined;
 
@@ -161,6 +170,12 @@ async function statusOf(name: string) {
   const [row] = await getTestDb().select().from(job).where(eq(job.name, name));
   return row?.status;
 }
+
+/**
+ * Waits until `test.hold`'s handler listens for its abort. Status `running` is no sign of that: the
+ * claim sets it before the attempt reads its history and starts the handler (#1235).
+ */
+const holdStarted = () => expect.poll(() => started).toContain("a");
 
 beforeEach(() => {
   ran.length = 0;
@@ -584,7 +599,7 @@ describe("heartbeats and leases", () => {
 
     await runner.start();
 
-    await expect.poll(() => statusOf("test.hold")).toBe("running");
+    await holdStarted();
     expect(timer.intervals).toContain(10_000);
     timer.advance(10_000);
     timer.tick();
@@ -606,7 +621,7 @@ describe("heartbeats and leases", () => {
     });
     await crashed.enqueue("test.hold", { label: "a" });
     await crashed.start();
-    await expect.poll(() => statusOf("test.hold")).toBe("running");
+    await holdStarted();
     // Stopping leaves the lease behind, as a crash would.
     await crashed.stop();
     holding = false;
@@ -657,7 +672,7 @@ describe("heartbeats and leases", () => {
     });
     await lost.enqueue("test.hold", { label: "a" });
     await lost.start();
-    await expect.poll(() => statusOf("test.hold")).toBe("running");
+    await holdStarted();
     timer.advance(61_000);
     await reapStaleJobs(db, timer.clock.now(), silent, testTable());
     expect(await claimJob(db, timer.clock.now())).toMatchObject({ attempts: 2 });
@@ -680,7 +695,7 @@ describe("heartbeats and leases", () => {
     });
     await runner.enqueue("test.hold", { label: "a" });
     await runner.start();
-    await expect.poll(() => statusOf("test.hold")).toBe("running");
+    await holdStarted();
 
     timer.advance(15 * 60_000);
     timer.tick();
@@ -690,6 +705,47 @@ describe("heartbeats and leases", () => {
     expect(await jobRows()).toMatchObject([
       { attempts: 1, lastError: "Timed out after 15 minutes" },
     ]);
+    await runner.stop();
+  });
+
+  it("still starts a handler its attempt aborted while reading its history, with the signal already aborted", async () => {
+    const timer = fakeJobClock(start);
+    const runner = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      jobs: testTable,
+      clock: timer.clock,
+      drainMs: 20,
+    });
+    await runner.enqueue("test.read-signal", { label: "a" });
+    // Stalls the attempt's read of its history, between its claim and its handler.
+    let unlock!: () => void;
+    const unlocked = new Promise<void>((resolve) => {
+      unlock = resolve;
+    });
+    let locked!: () => void;
+    const lockHeld = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    const holder = getTestDb().transaction(async (tx) => {
+      await tx.execute(sql`lock table ${jobEvent} in access exclusive mode`);
+      locked();
+      await unlocked;
+    });
+    await lockHeld;
+    await runner.start();
+    await expect.poll(() => statusOf("test.read-signal")).toBe("running");
+
+    timer.advance(15 * 60_000);
+    timer.tick();
+    await expect.poll(() => statusOf("test.read-signal")).toBe("queued");
+    expect(started).toEqual([]);
+    unlock();
+    await holder;
+
+    // A lost attempt's handler is what ends its Turn, so it runs, and sees the abort it missed.
+    await expect.poll(() => started).toEqual(["a"]);
+    expect(aborted).toEqual(["a"]);
     await runner.stop();
   });
 });
@@ -723,7 +779,7 @@ describe("cancel", () => {
     });
     await runner.enqueue("test.hold", { label: "a" }, { idempotencyKey: "k" });
     await runner.start();
-    await expect.poll(() => statusOf("test.hold")).toBe("running");
+    await holdStarted();
 
     await runner.cancel("k");
     expect(await statusOf("test.hold")).toBe("cancelled");
@@ -748,7 +804,7 @@ describe("cancel", () => {
     });
     await runner.enqueue("test.hold", { label: "a" }, { idempotencyKey: "k" });
     await runner.start();
-    await expect.poll(() => statusOf("test.hold")).toBe("running");
+    await holdStarted();
 
     // A check finds a job it still holds and leaves it running, with no heartbeat written.
     const heartbeatBefore = (await jobRows())[0]?.heartbeatAt;
@@ -800,7 +856,7 @@ describe("cancel", () => {
     });
     await runner.enqueue("test.hold", { label: "a" }, { idempotencyKey: "k" });
     await runner.start();
-    await expect.poll(() => statusOf("test.hold")).toBe("running");
+    await holdStarted();
     await runner.cancel("k");
     timer.advance(10_000);
     timer.tick();
@@ -825,7 +881,7 @@ describe("cancel", () => {
     });
     await runner.enqueue("test.hold", { label: "a" }, { idempotencyKey: "k" });
     await runner.start();
-    await expect.poll(() => statusOf("test.hold")).toBe("running");
+    await holdStarted();
     await runner.cancel("k");
 
     // The handler ends on its own, before a heartbeat tells it of the cancel.
@@ -892,7 +948,7 @@ describe("stop", () => {
     });
     await runner.enqueue("test.hold", { label: "a" });
     await runner.start();
-    await expect.poll(() => statusOf("test.hold")).toBe("running");
+    await holdStarted();
     const heartbeatBefore = (await jobRows())[0]?.heartbeatAt;
 
     await runner.stop();

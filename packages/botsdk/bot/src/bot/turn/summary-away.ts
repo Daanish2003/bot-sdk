@@ -104,6 +104,8 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
           }),
         ),
     } as AnyTextAdapter;
+    // An abort during the reads above never reaches a listener added now: no call, and no bill.
+    ctx.signal.throwIfAborted();
     const abortController = new AbortController();
     const onAbort = () => abortController.abort(ctx.signal.reason);
     ctx.signal.addEventListener("abort", onAbort, { once: true });

@@ -27,12 +27,12 @@ import type { FeatureEntry } from "../../src/create-chat";
 import { encryptCredentials } from "../../src/credentials/encryption";
 import { findBot } from "../../src/bot/conversation";
 import { lockConversation } from "../../src/bot/triggers";
-import { reviewOutputOf } from "../../src/bot/safety/review";
+import { reviewOutputOf, sleep } from "../../src/bot/safety/review";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { approvalExpiryJobName, secretEncryption } from "../../src/bot/safety";
 import { deleteUserData } from "../../src/user-data";
 import { interruptedShellError } from "../../src/bot/agent-loop";
-import { interruptedApprovedCallError } from "../../src/bot/turn/approved-call";
+import { approvedCallJob, interruptedApprovedCallError } from "../../src/bot/turn/approved-call";
 import {
   approvedCallJobName,
   listedReviews,
@@ -985,6 +985,12 @@ describe("a pending Approval expires after 7 days", () => {
   });
 });
 
+describe("an Approval wait's pause", () => {
+  it("ends at once when its job was aborted during the read before it (#1235)", async () => {
+    await sleep(60_000, AbortSignal.abort());
+  }, 2_000);
+});
+
 describe("an Approval wait cut off by a crash", () => {
   // Each test claims its Turn's job by hand: no job another test left behind may be claimed first.
   beforeEach(async () => {
@@ -1550,6 +1556,57 @@ describe("a late answer to a pending Approval", () => {
     reviewerPlaying(
       verdict({ outcome: "block", reason: "You didn't ask to deploy.", summary: "Deploy" }),
     );
+
+  it("closes what an approved call opens when its job was aborted during the Quota check (#1235)", async () => {
+    let abortedWhenListed: boolean | undefined;
+    const lookup = defineFeature({
+      id: "lookups",
+      tools: async (_turn, _context, kit) => {
+        abortedWhenListed = kit?.signal.aborted;
+        return [
+          {
+            ...toolDefinition({
+              name: "lookup",
+              description: "Looks.",
+              inputSchema: z.object({}),
+            }).server(async () => ({ found: true })),
+            needsApproval: true,
+          },
+        ];
+      },
+    });
+    const bot = await botWith([round(toolCall({ name: "lookup", input: {} })), round()], {
+      reviewer: reviewerPlaying(
+        verdict({ outcome: "block", reason: "You didn't ask.", summary: "Look" }),
+      ),
+      features: [lookup],
+    });
+    const waiting = await pendingAfter(bot, "look");
+    await getTestDb()
+      .update(botReview)
+      .set({ state: "allowed" })
+      .where(eq(botReview.id, waiting.id));
+    const attempt = new AbortController();
+    const resolveModelCall = bot.deps.models.resolveModelCall;
+    vi.spyOn(bot.deps.models, "resolveModelCall").mockImplementation(async (...args) => {
+      attempt.abort(new Error("The job was cancelled"));
+      return resolveModelCall(...args);
+    });
+
+    await expect(
+      approvedCallJob.run({ reviewId: waiting.id }, {
+        deps: bot.deps,
+        signal: attempt.signal,
+        // As the engine's: a live step checks the signal before it runs.
+        step: (_name: string, fn: () => unknown) => {
+          attempt.signal.throwIfAborted();
+          return fn();
+        },
+      } as never),
+    ).rejects.toThrow("The job was cancelled");
+
+    expect(abortedWhenListed).toBe(true);
+  });
 
   it("masks a Secret in an allowed Feature call's result, in the Trigger and the Checkpoint", async () => {
     const value = "ghp_approved_secret_value_1234";

@@ -20,7 +20,9 @@ export class PermanentJobError extends Error {
  * #481 amendment), whose `step`, `now`, `random` and `patched` are recorded in the job's history and
  * replayed when the job is retried or re-claimed (code outside them reruns on every attempt), the
  * `signal` that aborts at the next cancel check after a cancel, and the core services the job was
- * registered with: a feature's job gets its feature's context, a Host's job the Host's.
+ * registered with: a feature's job gets its feature's context, a Host's job the Host's. The signal
+ * may have aborted already, even when `run` starts, and an `abort` listener added after that never
+ * fires: check `signal.aborted` when adding one.
  */
 export type JobContext<Services extends object = FeatureContext> = WorkflowContext<Transaction> & {
   signal: AbortSignal;

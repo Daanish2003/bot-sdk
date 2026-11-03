@@ -378,8 +378,9 @@ async function waitForApproval(
 }
 
 /** Waits `ms`, or until `signal` aborts. */
-function sleep(ms: number, signal: AbortSignal) {
+export function sleep(ms: number, signal: AbortSignal) {
   return new Promise<void>((resolve) => {
+    if (signal.aborted) return resolve();
     const done = () => {
       clearTimeout(timer);
       signal.removeEventListener("abort", done);
