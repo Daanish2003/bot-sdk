@@ -35,10 +35,10 @@ export const threadIdleJob = defineJob<ThreadIdlePayload>({
   payload: threadIdlePayload,
   run: async ({ threadId }, job) => {
     const now = await job.now();
-    await job.step("representative_thread_idle", async (tx) => {
+    const closed = await job.step("representative_thread_idle", async (tx) => {
       // One statement, so a message arriving as it runs either lands first (and the thread isn't
       // idle) or finds the thread closed and opens a new one.
-      const closed = await tx
+      const closing = await tx
         .update(representativeThread)
         .set({ state: "closed" })
         .where(
@@ -49,10 +49,7 @@ export const threadIdleJob = defineJob<ThreadIdlePayload>({
           ),
         )
         .returning({ id: representativeThread.id });
-      if (closed.length > 0) {
-        await pruneProofs(tx, threadId, now);
-        return;
-      }
+      if (closing.length > 0) return true;
       const [thread] = await tx
         .select({ updatedAt: representativeThread.updatedAt })
         .from(representativeThread)
@@ -60,7 +57,12 @@ export const threadIdleJob = defineJob<ThreadIdlePayload>({
           and(eq(representativeThread.id, threadId), ne(representativeThread.state, "closed")),
         );
       if (thread) await queueIdleCheck(job, tx, threadId, thread.updatedAt);
+      return false;
     });
+    // After the thread's lock is let go: a message takes its proof's lock and then the thread's.
+    if (closed) {
+      await job.step("representative_thread_prune", (tx) => pruneProofs(tx, threadId, now));
+    }
   },
 });
 
