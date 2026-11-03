@@ -1,6 +1,6 @@
 # Environment: this machine's gotchas
 
-Shared by the orchestrator and every implementer. Each bullet cost a past run a retry. Add new ones at the end of a run, in the section they belong to (SKILL.md step 5), and delete any that a run proves wrong.
+Shared by the orchestrator and every implementer. Each bullet cost a past run a retry. Add new ones at the end of a run, in the section they belong to (SKILL.md step 5), and delete any that a run proves wrong. A bullet calling a test a flake records what a run saw, not a cause: that test is still a possible product bug (AGENTS.md §5), as #1222 was.
 
 ## The Linux machine (Omarchy, since 2026-11-01)
 
@@ -119,13 +119,13 @@ The notes below were mostly written on Windows. Where they disagree, this sectio
 - **More load timeouts (#691):** bot-memory-search "is absent with Memory off or with no computer plugin, and present otherwise" takes about 2 s alone and hit the 5 s default timeout in a full verify. It passed 3/3 alone.
 - **Large commits:** the lint-staged pre-commit hook fails with "command line too long" at about 150 or more files. Split a wide move into several commits.
 - **Tailwind v4 `@source`:** a glob like `@source "../plugins/*/ui"` was not scanned. Name each folder, otherwise the e2e fails with unstyled screens.
-- **e2e flakes:** two-factor, password-reset, knowledge and artifacts.phone have failed under `--workers=2` and passed when re-run alone. Re-run the failures with `--workers=1` before treating them as real. In the #737 run, delete-account and password-reset failed even under `--workers=1` and then passed 4/4 with `--repeat-each=2`. In CI, artifacts.phone has failed twice in one run (retry included) and passed on `gh run rerun <id> --failed` (again in the #531 run).
+- **e2e flakes:** two-factor, password-reset, knowledge and artifacts.phone have failed under `--workers=2` and passed when re-run alone. `--workers=1` separates load from logic; passing there doesn't clear a test. In the #737 run, delete-account and password-reset failed even under `--workers=1` and then passed 4/4 with `--repeat-each=2`. In CI, artifacts.phone has failed twice in one run (retry included) and passed on `gh run rerun <id> --failed` (again in the #531 run).
 - **Code review by an agent:** a forked `code-review` can review the main checkout and see an empty diff. Point it at the worktree path. In the #543 run, forked reviews often never returned to the implementer, which then reported "0 findings (empty result)". The orchestrator's branch review covers it.
 - **A ticket can build the next ticket's scope (#691):** #695 (Secrets) also built most of #696 (per-command envs and masking). Compare each report with the later tickets, and post on the later ticket what is already done and what is left before you launch it.
 - **Implementers invent Model ids (#698):** a Host got `openai:gpt-5-mini`, which isn't curated. Check any Model id in a report against `packages/botsdk/client/src/models/models-snapshot.ts`.
   In the #587 run, forked reviews also returned empty results or reviewed the wrong scope (the main checkout or the whole branch). Give the review the worktree path and the ticket's commit range.
 - **Fresh worktrees have no `node_modules`:** a first `pnpm exec` in one stalled for 40 minutes on an install contended by parallel agents. Tell implementers to run `pnpm install --frozen-lockfile --prefer-offline` in the foreground first, which takes about 1 minute.
-- **CI flake (#737):** on PR #777, `bot-demonstration-capture` "ends as Done at 200 stored steps" timed out polling for `drafting` (got `failed`), though the branch didn't touch Demonstrations and the local verify passed on the same SHA. Re-run with `gh run rerun <id> --failed`.
+- **CI flake (#737):** on PR #777, `bot-demonstration-capture` "ends as Done at 200 stored steps" timed out polling for `drafting` (got `failed`), though the branch didn't touch Demonstrations and the local verify passed on the same SHA.
 - **Client-only error codes (#737):** `rpc-error-codes.test.ts` fails when an `error.*` key isn't sent by server code. A key that only the UI uses (the Knowledge popover's UTF-8 refusal) must go in that test's `clientOnly` set. A ticket's affected tests don't run this file, so only the full verify catches it.
 - **Stale diagnostics after removing a worktree (#737):** the editor's tsserver kept reporting errors for files in a removed worktree (`ai-chat-wt/737-review`) for the rest of the run. Ignore any diagnostic whose path is a removed worktree or the scratchpad.
 - **SendMessage can sit queued (#737):** a message to a running implementer showed as "queued" and the agent never acted on it. Resend it, then check that the agent's next report covers it.

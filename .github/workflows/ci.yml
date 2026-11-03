@@ -2,9 +2,14 @@ name: CI
 
 on:
   pull_request:
+  push:
+    branches: [main]
 
+# A PR's next push replaces its running CI. Each push to `main` has its own group: in a shared one,
+# a merge could cancel the run of the merge before it, even with cancel-in-progress off, because
+# a group holds one pending run and a newer one replaces it.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: true
 
 permissions:

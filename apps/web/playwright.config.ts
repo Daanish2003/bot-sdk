@@ -15,13 +15,16 @@ export default defineConfig({
   // The shared scenarios seed their users instead.
   timeout: 90_000,
   forbidOnly: !!process.env.CI,
+  // The retry tells flaky from broken, and both attempts' traces are kept to compare. A test that
+  // passes only on its retry still fails the run: it may be a real bug, as #1222 was.
   retries: process.env.CI ? 1 : 0,
+  failOnFlakyTests: !!process.env.CI,
   // In CI, "list" too: a run cancelled at its timeout still shows which tests ran and how.
   reporter: process.env.CI ? [["github"], ["list"]] : "list",
   globalSetup: "./e2e/global-setup.ts",
   use: {
     baseURL,
-    trace: "retain-on-failure",
+    trace: "retain-on-failure-and-retries",
     // Better Auth counts rate limits per client IP. The server runs as production, where a request
     // with no forwarded IP shares one bucket per path, so every browser in the run would share it.
     // Each worker sends its own test IP, so workers are counted apart. The limits are unchanged.
