@@ -222,6 +222,7 @@ describe("a second refusal", () => {
 
     const { id: threadId, messages, waitingOn } = await thread();
     expect(textsOf(await sent())).toEqual([handOffMessage]);
+    expect((await sent())[0]?.reply).toEqual({ kind: "code_handoff", sources: [] });
     expect(JSON.stringify(messages)).not.toMatch(/10 USD|12 USD/);
     expect(fake.calls).toHaveLength(2);
     expect(waitingOn).toBe("bot");
@@ -237,6 +238,27 @@ describe("a second refusal", () => {
     expect(assignment!.instructions).toContain("How much is a haircut?");
     expect(assignment!.instructions).toContain("isn't verified");
     expect(assignment!.instructions).not.toMatch(/10 USD|12 USD/);
+  });
+
+  it("counts a refused document quote like any other refusal", async () => {
+    const { turn, sent, assignments } = await serving([
+      round(
+        toolCall({
+          name: "reply",
+          input: {
+            text: "It is 10 USD.",
+            kind: "answer",
+            sources: [{ type: "document", name: "prices.md", quote: "10 USD" }],
+          },
+        }),
+      ),
+      guesses("It is 12 USD."),
+    ]);
+
+    await turn();
+
+    expect(textsOf(await sent())).toEqual([handOffMessage]);
+    expect(await assignments()).toHaveLength(1);
   });
 
   it("needs no hand_to_bot in the Release", async () => {
@@ -512,6 +534,7 @@ describe("a second refusal in a test conversation", () => {
     expect(result.tests[0]?.transcript).toContainEqual({
       role: "representative",
       text: handOffMessage,
+      reply: { kind: "code_handoff", sources: [] },
     });
     expect(fake.calls).toHaveLength(2);
     expect(await assignments()).toEqual([]);

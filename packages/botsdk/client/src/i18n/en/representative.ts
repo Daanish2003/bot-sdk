@@ -39,6 +39,18 @@ export const representativeMessages = {
   "representative.noReleases": "Nothing approved yet.",
   "representative.release": ({ number }: { number: number }) => `Release ${number}`,
   "representative.liveBadge": "Live",
+  "representative.documents": "Documents",
+  "representative.documentsHelp":
+    "Each document goes out whole in the Release, as information the Representative answers from. Markdown, text, PDF or DOCX. Changing them makes earlier test results stop counting.",
+  "representative.noDocuments": "No documents yet.",
+  "representative.documentChars": ({ chars }: { chars: string }) => `${chars} characters`,
+  "representative.documentsTotal": ({ chars, limit }: { chars: string; limit: string }) =>
+    `${chars} of ${limit} characters`,
+  "representative.documentsOverCap": ({ limit }: { limit: string }) =>
+    `This draft can't be approved: a Release holds at most ${limit} characters of documents. Remove some, so you choose what matters.`,
+  "representative.uploadDocument": "Upload a document",
+  "representative.uploadDocumentFile": "Document file",
+  "representative.removeDocument": "Remove",
   "representative.tests": "Test conversations",
   "representative.testsHelp":
     "Each conversation runs on the draft with its tools stubbed: nothing is sent and no Assignment is created. Code checks the expectations. Running them uses your Quota.",
@@ -93,6 +105,7 @@ export const representativeMessages = {
   "representative.diffField.skill": "Skill",
   "representative.diffField.tool": "Tool",
   "representative.diffField.test": "Test conversation",
+  "representative.diffField.document": "Document",
   "representative.diffBefore": "Live",
   "representative.diffAfter": "Draft",
   "representative.diffAbsent": "none",
@@ -126,6 +139,16 @@ export const representativeMessages = {
   "representative.threadMessageLabel": "Your message to the Customer",
   "representative.threadSend": "Send",
   "representative.threadVia": ({ channel }: { channel: string }) => `via ${channel}`,
+  "representative.replyKind": ({ kind }: { kind: string }) => `Kind: ${kind}`,
+  "representative.replyKindUnknown": "Kind: not recorded",
+  "representative.replyNoSources": "No sources",
+  "representative.replySourceFact": ({ key }: { key: string }) => `Fact ${key}`,
+  "representative.replySourceAssignment": ({ id, quote }: { id: string; quote: string }) =>
+    `Bot result of Assignment ${id}: "${quote}"`,
+  "representative.replySourceDocument": ({ name, quote }: { name: string; quote: string }) =>
+    `Document ${name}: "${quote}"`,
+  "representative.replySourcesNote":
+    "Code checked that each source exists. It did not check that the reply says it right.",
   "representative.threadBlocked": "Blocked: this Customer gets no reply.",
   "representative.customers.title": "Customers",
   "representative.customers.intro":

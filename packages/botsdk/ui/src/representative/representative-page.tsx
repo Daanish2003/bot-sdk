@@ -30,6 +30,7 @@ import {
 } from "@botsdk/representative/client";
 
 import { ModelPicker } from "../models/shell/model-picker";
+import { DraftDocuments, documentsOverCap, useDocumentChanges } from "./representative-documents";
 import { RepresentativeThreads } from "./representative-threads";
 import { TestConversationsEditor, TestResults } from "./representative-tests";
 
@@ -39,12 +40,17 @@ const toolKeys = {
   verify_customer: "representative.toolVerifyCustomer",
 } as const satisfies Record<RepresentativeTool, string>;
 
+/** The draft's fields that Save draft saves: its documents change on their own. */
+function formFields({ documents: _documents, ...fields }: Draft) {
+  return fields;
+}
+
 /** The draft's fields, saved together with Save draft. */
 function DraftEditor({ representative }: { representative: RepresentativeView }) {
   const i18n = useI18n();
   const { t } = i18n;
   const refresh = useRefreshRepresentatives();
-  const [draft, setDraft] = useState<Draft>(representative.draft);
+  const [draft, setDraft] = useState(() => formFields(representative.draft));
   const save = useUpdateDraft({
     onSuccess: async () => {
       await refresh();
@@ -71,10 +77,13 @@ function DraftEditor({ representative }: { representative: RepresentativeView })
   const usableModels = models.data?.models ?? [];
   const modelListed = usableModels.some((model) => model.id === draft.model);
   const [reason, setReason] = useState("");
-  const busy = save.isPending || approve.isPending || run.isPending;
+  const documentChanges = useDocumentChanges();
+  const busy = save.isPending || approve.isPending || run.isPending || documentChanges.pending;
   const body = { id: representative.id, draft };
   // Saving changes the draft, which voids its results, so a form with edits has no passing tests.
-  const dirty = canonicalJson(draft) !== canonicalJson(representative.draft);
+  const dirty = canonicalJson(draft) !== canonicalJson(formFields(representative.draft));
+  // No reason gets past this: the owner chooses what matters, in the documents' section.
+  const overCap = documentsOverCap(representative);
   // Tests that failed, or haven't run for this draft, hold Approve back until a reason is given.
   const blocked =
     draft.tests.length > 0 &&
@@ -132,6 +141,7 @@ function DraftEditor({ representative }: { representative: RepresentativeView })
         </div>
         <p className="text-xs text-muted-foreground">{t("representative.modelHelp")}</p>
       </div>
+      <DraftDocuments representative={representative} changes={documentChanges} busy={busy} />
       <TestConversationsEditor
         tests={draft.tests}
         onChange={(tests) => setDraft({ ...draft, tests })}
@@ -154,7 +164,7 @@ function DraftEditor({ representative }: { representative: RepresentativeView })
           {t("representative.runTests")}
         </Button>
         <Button
-          disabled={busy || blocked}
+          disabled={busy || blocked || overCap}
           // The server approves what it holds: the form's edits are saved first.
           onClick={() =>
             save
@@ -180,7 +190,7 @@ function DraftEditor({ representative }: { representative: RepresentativeView })
           />
           <Button
             variant="outline"
-            disabled={busy || reason.trim() === ""}
+            disabled={busy || overCap || reason.trim() === ""}
             onClick={() =>
               // The reason belongs to the draft it is given for: its edits are saved first.
               save
@@ -379,8 +389,11 @@ export function RepresentativePage({ id }: { id: string }) {
         <Label htmlFor="representative-enabled">{t("representative.switch")}</Label>
       </div>
       <WaitingApproval representative={representative} />
-      {/* Keyed by the draft's fields, so a draft changed elsewhere reloads the form. */}
-      <DraftEditor key={JSON.stringify(representative.draft)} representative={representative} />
+      {/* Keyed by the draft's fields, so a draft changed elsewhere reloads the form. A document uploaded leaves the form's edits alone. */}
+      <DraftEditor
+        key={JSON.stringify(formFields(representative.draft))}
+        representative={representative}
+      />
       <DraftDiff id={id} />
       <RepresentativeThreads id={id} />
       <section className="space-y-2">

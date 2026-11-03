@@ -471,11 +471,20 @@ export async function getThread(
       channel: representativeThreadMessage.channel,
       externalId: representativeThreadMessage.externalId,
       verified: representativeThreadMessage.verified,
+      replyKind: representativeThreadMessage.replyKind,
+      sources: representativeThreadMessage.sources,
       createdAt: representativeThreadMessage.createdAt,
     })
     .from(representativeThreadMessage)
     .where(eq(representativeThreadMessage.threadId, threadId))
-    .orderBy(asc(representativeThreadMessage.position));
+    .orderBy(asc(representativeThreadMessage.position))
+    .then((rows) =>
+      rows.map(({ replyKind, sources, ...message }) => ({
+        ...message,
+        reply:
+          message.author === "representative" ? { kind: replyKind, sources: sources ?? [] } : null,
+      })),
+    );
   const { identities } = await readCustomer(context, userId, row.customerId);
   return {
     ...summary(row),

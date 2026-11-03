@@ -9,6 +9,7 @@ import {
   type TestCheck,
   type TranscriptEntry,
 } from "../shared/contract";
+import { codeHandOffKind, type ReplyProof, replyKinds, type ReplySource } from "../shared/replies";
 import { handOffMessage, insertValues } from "./replies";
 
 /*
@@ -22,9 +23,27 @@ const textOf = (content: ModelMessage["content"]) =>
     ? content
     : (content ?? []).map((part) => (part.type === "text" ? part.content : "")).join("");
 
-/** Identifies a draft's content: a result counts only while the draft hashes as it did when it ran. */
-export const draftHash = (draft: Draft) =>
-  createHash("sha256").update(canonicalJson(draft)).digest("hex");
+export const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
+
+/**
+ * Identifies a draft's content: a result counts only while the draft hashes as it did when it ran.
+ * Documents count by name and text, so the same file uploaded again changes nothing, and a draft with
+ * none hashes as one written before documents did.
+ */
+export const draftHash = ({ documents, ...fields }: Draft) =>
+  sha256(
+    canonicalJson(
+      documents.length === 0
+        ? fields
+        : { ...fields, documents: documents.map(({ name, hash }) => [name, hash]) },
+    ),
+  );
+
+/**
+ * What a Bot wrote of a draft: all of it but the documents, which are the owner's choice. A choice of
+ * theirs is no edit that could be lost to a Bot's next draft, which keeps it.
+ */
+export const botFieldsHash = (draft: Draft) => draftHash({ ...draft, documents: [] });
 
 function argumentsOf(call: { function: { arguments: string } }): Record<string, unknown> {
   try {
@@ -47,6 +66,15 @@ function answerTo(messages: ModelMessage[], callId: string): Record<string, unkn
   } catch {
     return null;
   }
+}
+
+/** The kind and sources a sent `reply` call's answer carries; a test has no Assignment, so only facts. */
+function sentReply(messages: ModelMessage[], call: { id: string }): ReplyProof {
+  const answer = answerTo(messages, call.id);
+  return {
+    kind: replyKinds.find((kind) => kind === answer?.kind) ?? null,
+    sources: Array.isArray(answer?.sources) ? (answer.sources as ReplySource[]) : [],
+  };
 }
 
 /** The text `call`, a `reply` its tool answered as sent, went with: the Model's, with the facts' values in. */
@@ -155,11 +183,19 @@ export function transcriptOf(customerMessage: string, messages: ModelMessage[]):
       for (const call of message.toolCalls ?? []) {
         if (call.function.name === "reply" && answerTo(messages, call.id)?.sent === true) {
           sentCalls.add(call.id);
-          entries.push({ role: "representative", text: sentText(messages, call) });
+          entries.push({
+            role: "representative",
+            text: sentText(messages, call),
+            reply: sentReply(messages, call),
+          });
         } else {
           entries.push({ role: "tool", text: `${call.function.name} ${call.function.arguments}` });
           if (call.function.name === "reply" && answerTo(messages, call.id)?.handedOff === true) {
-            entries.push({ role: "representative", text: handOffMessage });
+            entries.push({
+              role: "representative",
+              text: handOffMessage,
+              reply: { kind: codeHandOffKind, sources: [] },
+            });
           }
         }
       }

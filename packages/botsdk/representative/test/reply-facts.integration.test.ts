@@ -212,6 +212,30 @@ describe("a reply quoting a fact by key", () => {
     expect(thread).not.toContain("{{");
   });
 
+  it("shows the owner each reply's kind and sources, and an older reply as having none", async () => {
+    const { rpc, id, turn } = await serving([answers("A haircut is {{price.haircut}}."), quiet()]);
+    await rpc.representative.factAdd(price);
+
+    await turn();
+
+    const [summary] = await rpc.representative.threadList({ id });
+    const { messages } = await rpc.representative.threadGet({ id: summary!.id });
+    expect(messages.map(({ author, reply }) => ({ author, reply }))).toEqual([
+      { author: "customer", reply: null },
+      {
+        author: "representative",
+        reply: { kind: "answer", sources: [{ type: "fact", key: "price.haircut" }] },
+      },
+    ]);
+
+    await getTestDb()
+      .update(representativeThreadMessage)
+      .set({ replyKind: null, sources: null })
+      .where(eq(representativeThreadMessage.author, "representative"));
+    const older = await rpc.representative.threadGet({ id: summary!.id });
+    expect(older.messages.at(-1)?.reply).toEqual({ kind: null, sources: [] });
+  });
+
   it("inserts the fact's value now, whatever the Model saw or wrote beside the key", async () => {
     let factId = "";
     const made = await serving(
@@ -462,10 +486,10 @@ describe("a reply's kind and sources", () => {
         sources: [{ type: "fact", key: "price.haircut" }],
       },
     ]);
-    // What a Customer's Channel carries is the message's text; nothing else of the owner's view has them yet.
+    // What a Customer's Channel carries is the message's text alone; only the owner's view has the sources.
     const [summary] = await rpc.representative.threadList({ id });
     const { messages } = await rpc.representative.threadGet({ id: summary!.id });
-    expect(JSON.stringify(messages)).not.toContain("price.haircut");
+    expect(messages.at(-1)?.text).not.toContain("price.haircut");
     // The owner's export holds them, as it holds the rest of the thread.
     const exported = (await exportUserData(deps, user.id)) as unknown as {
       representative: {
@@ -689,7 +713,11 @@ describe("a test conversation", () => {
     expect(result.status).toBe("passed");
     expect(result.transcript).toEqual([
       { role: "customer", text: "How much?" },
-      { role: "representative", text: "It is 45 USD." },
+      {
+        role: "representative",
+        text: "It is 45 USD.",
+        reply: { kind: "answer", sources: [{ type: "fact", key: "price.haircut" }] },
+      },
     ]);
     expect(
       await getTestDb()
@@ -697,6 +725,19 @@ describe("a test conversation", () => {
         .from(representativeCustomer)
         .where(eq(representativeCustomer.userId, userId)),
     ).toEqual([]);
+  });
+
+  it("shows a test conversation's reply with its kind and sources", async () => {
+    const { result } = await tested(
+      [answers("It is {{price.haircut}}."), quiet()],
+      [{ kind: "replied" }],
+    );
+
+    expect(result.transcript.at(-1)).toEqual({
+      role: "representative",
+      text: "It is 45 USD.",
+      reply: { kind: "answer", sources: [{ type: "fact", key: "price.haircut" }] },
+    });
   });
 
   it("refuses a reply quoting more than its answer can hold, as its checks read it there", async () => {

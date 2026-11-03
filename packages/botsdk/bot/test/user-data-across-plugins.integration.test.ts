@@ -271,6 +271,7 @@ async function seedEverything(
         tools: ["reply"],
         model: null,
         tests: [],
+        documents: [],
       },
     });
   await getTestDb()

@@ -8,6 +8,7 @@ import {
   representativeCustomer,
   representativeCustomerIdentity,
   representativeCustomerMerge,
+  representativeDocument,
   representativeFact,
   representativeFactLog,
   representativeHandOff,
@@ -28,6 +29,7 @@ import {
   dropApprovalsOfBot,
   exportRepresentatives,
 } from "./representatives";
+import type { ConvertDocument } from "./documents";
 import { representativeTestJob } from "./tests";
 import { handOffEndedJob, representativeTurnJob } from "./turn";
 
@@ -37,6 +39,13 @@ export type RepresentativeOptions = {
    * least arrivals per second × Turn length in seconds.
    */
   concurrency?: number;
+  /**
+   * Reads an uploaded PDF or DOCX as text, refusing what it can't, as `convertDocument` from
+   * `@botsdk/knowledge/convert` does with Knowledge's limits. Without it, documents upload as Markdown
+   * or plain text only. Asked of the Host because the feature has no Computer and no other use for
+   * the parsers.
+   */
+  convertDocument?: ConvertDocument;
 };
 
 /**
@@ -59,6 +68,7 @@ export function representativeFeature(
         representativeCustomer,
         representativeCustomerIdentity,
         representativeCustomerMerge,
+        representativeDocument,
         representativeFact,
         representativeFactLog,
         representativeHandOff,
@@ -71,7 +81,7 @@ export function representativeFeature(
       migrations: representativeMigrations,
     },
     contract: representativeContract,
-    api: (context) => representativeApi(context),
+    api: (context) => representativeApi(context, options.convertDocument),
     tools: (turn, context) => botDraftTools(turn, context),
     resetBot: (botId, userId, context) => dropApprovalsOfBot(context, botId, userId),
     publicRoutes: proofLinkRoutes,

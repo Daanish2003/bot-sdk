@@ -11,6 +11,8 @@ import {
   factEditInput,
   customerUpdateIdentityInput,
   createInput,
+  documentRemoveInput,
+  documentUploadInput,
   idInput,
   rollbackInput,
   setBotInput,
@@ -18,6 +20,7 @@ import {
   threadSendInput,
   updateDraftInput,
 } from "../shared/contract";
+import type { ConvertDocument } from "./documents";
 import { addFact, deleteFact, editFact, listFactLog, listFacts } from "./facts";
 import { listMerges, mergeCustomers, undoMerge } from "./customer-merge";
 import {
@@ -37,11 +40,13 @@ import {
   diffDraft,
   getRepresentative,
   listRepresentatives,
+  removeDocument,
   rollbackRelease,
   runTests,
   setBot,
   setEnabled,
   updateDraft,
+  uploadDocument,
 } from "./representatives";
 import { handBackThread, sendAsOwner, takeOverThread } from "./takeover";
 
@@ -54,6 +59,7 @@ import { handBackThread, sendAsOwner, takeOverThread } from "./takeover";
 /** The `representative` namespace over the feature's context. */
 export function representativeApi(
   context: FeatureContext<"assignments" | "models" | "releaseApprovals" | "threads">,
+  convertDocument?: ConvertDocument,
 ) {
   return {
     list: async ({ userId }: { userId: string }) => listRepresentatives(context, userId),
@@ -67,6 +73,16 @@ export function representativeApi(
     updateDraft: async ({ userId, ...rest }: WithUser<typeof updateDraftInput>) => {
       const { id, draft } = parseInput(updateDraftInput, rest);
       return updateDraft(context, userId, id, draft);
+    },
+
+    documentUpload: async ({ userId, ...rest }: WithUser<typeof documentUploadInput>) => {
+      const { id, file } = parseInput(documentUploadInput, rest);
+      return uploadDocument(context, userId, id, file, convertDocument);
+    },
+
+    documentRemove: async ({ userId, ...rest }: WithUser<typeof documentRemoveInput>) => {
+      const { id, documentId } = parseInput(documentRemoveInput, rest);
+      return removeDocument(context, userId, id, documentId);
     },
 
     runTests: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
