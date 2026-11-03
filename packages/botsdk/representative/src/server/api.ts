@@ -19,6 +19,7 @@ import {
   updateDraftInput,
 } from "../shared/contract";
 import { addFact, deleteFact, editFact, listFactLog, listFacts } from "./facts";
+import { approveFactProposal, declineFactProposal, listFactProposals } from "./fact-proposals";
 import { listMerges, mergeCustomers, undoMerge } from "./customer-merge";
 import {
   addIdentity,
@@ -53,7 +54,9 @@ import { handBackThread, sendAsOwner, takeOverThread } from "./takeover";
 
 /** The `representative` namespace over the feature's context. */
 export function representativeApi(
-  context: FeatureContext<"assignments" | "models" | "releaseApprovals" | "threads">,
+  context: FeatureContext<
+    "assignments" | "factApprovals" | "models" | "releaseApprovals" | "threads"
+  >,
 ) {
   return {
     list: async ({ userId }: { userId: string }) => listRepresentatives(context, userId),
@@ -142,6 +145,14 @@ export function representativeApi(
       deleteFact(context, userId, parseInput(idInput, rest).id),
 
     factLog: async ({ userId }: { userId: string }) => listFactLog(context, userId),
+
+    factProposals: async ({ userId }: { userId: string }) => listFactProposals(context, userId),
+
+    factProposalApprove: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      approveFactProposal(context, userId, parseInput(idInput, rest).id),
+
+    factProposalDecline: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      declineFactProposal(context, userId, parseInput(idInput, rest).id),
 
     threadList: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
       listThreads(context, userId, parseInput(idInput, rest).id),

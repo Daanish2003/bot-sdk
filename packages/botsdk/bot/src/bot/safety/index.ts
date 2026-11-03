@@ -46,6 +46,7 @@ export {
   reviewedRules,
   updateRule,
 } from "./custom-rule";
+export { type FactApprovalsService, factApprovalsService } from "./fact-approvals-service";
 export {
   deliverAnswersAfterPause,
   type ReleaseApprovalsService,

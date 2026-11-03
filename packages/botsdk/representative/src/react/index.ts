@@ -172,6 +172,25 @@ export function useEditFact(options?: ProcedureMutationOptions<Representative["f
   return useMutation(useRepresentative().factEdit.mutationOptions(options));
 }
 
+/** The facts the owner's Bots have proposed that still wait (`representative.factProposals`). */
+export function useFactProposals() {
+  return useQuery(useRepresentative().factProposals.queryOptions());
+}
+
+/** Approves a Bot's proposed fact (`representative.factProposalApprove`). */
+export function useApproveFactProposal(
+  options?: ProcedureMutationOptions<Representative["factProposalApprove"]>,
+) {
+  return useMutation(useRepresentative().factProposalApprove.mutationOptions(options));
+}
+
+/** Declines a Bot's proposed fact (`representative.factProposalDecline`). */
+export function useDeclineFactProposal(
+  options?: ProcedureMutationOptions<Representative["factProposalDecline"]>,
+) {
+  return useMutation(useRepresentative().factProposalDecline.mutationOptions(options));
+}
+
 /** Deletes a fact (`representative.factDelete`). */
 export function useDeleteFact(options?: ProcedureMutationOptions<Representative["factDelete"]>) {
   return useMutation(useRepresentative().factDelete.mutationOptions(options));

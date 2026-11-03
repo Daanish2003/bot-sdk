@@ -192,6 +192,26 @@ describe("the Waiting N popover", { timeout: 30_000 }, () => {
     expect(await screen.findAllByText("Asked about m1.")).not.toEqual([]);
   });
 
+  it("counts a fact Approval's waiting card, and only a waiting one", async () => {
+    const card = (id: string, extra: object) => ({
+      id,
+      role: "assistant",
+      text: `Asked about ${id}.`,
+      createdAt,
+      control: {
+        kind: "fact_approval",
+        key: "price.haircut",
+        path: "/facts",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        ...extra,
+      },
+    });
+    mount(fakeBotServer([], [], [card("m1", {}), card("m2", { answer: "declined" })]));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Waiting 1" }));
+    expect(await screen.findAllByText("Asked about m1.")).not.toEqual([]);
+  });
+
   it("says nothing waits when there are no pending Approvals", async () => {
     mount(fakeBotServer([review("r3", "allowed")]));
 

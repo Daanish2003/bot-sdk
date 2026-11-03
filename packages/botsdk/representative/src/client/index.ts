@@ -17,6 +17,7 @@ export {
   type CustomerView,
   type Draft,
   type FactLogView,
+  type FactProposalView,
   type FactSnapshot,
   type FactType,
   type FactView,
