@@ -92,6 +92,7 @@ describe("creating and editing a Representative", () => {
     });
 
     expect(updated.draft).toEqual({
+      documents: [],
       jobText: "Answer pricing questions",
       switches: {},
       skills: [],

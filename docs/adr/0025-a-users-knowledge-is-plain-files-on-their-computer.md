@@ -14,6 +14,10 @@ The lecture says "What the agent knows lives in files" (slides 10, 11), and the 
 
 The assistant's Project Knowledge (its tables, blobs, `vector` extension, search tool, Excerpts and all embedding support) is removed in the same step, with no export.
 
+## Amendment: a Document snapshot is a published copy (2026-11-04, #1259)
+
+A Representative has no Computer, so a Release holds a Document snapshot in Postgres: a fixed copy of the text of documents the owner chose, which a Turn reads from the database. That is a published copy for Customers, and it doesn't change this decision for Bots: they keep using the files, which stay their source of truth, and a Knowledge edit reaches a snapshot only if the owner chooses that file again. Search stays out of it: the copy is held whole in the prompt. The parsers are shared, as `convertDocument` from `@botsdk/knowledge/convert`, which needs no Computer. A Host passes it to the Representative feature; `@botsdk/knowledge` is an optional peer, because declaring the Computer would force one on every Host with Representatives.
+
 ## Considered Options
 
 - **Keep hybrid search as a tool beside the files** (the build order's first wording): better recall for paraphrased questions, but a second copy to keep in step with files the Bots edit freely, and the lecture never mentions an index. Shipped coding agents have moved the same way (Cursor dropped its embedding index in July 2026).

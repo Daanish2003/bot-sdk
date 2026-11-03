@@ -1,6 +1,7 @@
 import type { FeatureClient } from "@botsdk/client";
 
 import { representativeContract, type RepresentativeContract } from "../shared/contract";
+export type { ReplyKind, ReplyProof, ReplySource } from "../shared/replies";
 
 export type { RepresentativeContract };
 
@@ -15,6 +16,8 @@ export {
   type CustomerIdentityView,
   type CustomerMergeView,
   type CustomerView,
+  type DocumentRef,
+  type DocumentSnapshot,
   type Draft,
   type FactLogView,
   type FactProposalView,
@@ -42,6 +45,8 @@ export {
   type ThreadWaitingOn,
   type TranscriptEntry,
   canonicalJson,
+  documentChars,
+  maxReleaseDocumentChars,
   factTypes,
   isInEffect,
   representativeTools,

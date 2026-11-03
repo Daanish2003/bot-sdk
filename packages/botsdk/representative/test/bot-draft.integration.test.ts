@@ -344,6 +344,57 @@ describe("the draft tool", () => {
     expect((await made.rpc.representative.get({ id })).approval).toBeNull();
   });
 
+  it("can't choose documents, and keeps the choice the owner made, which is no edit of theirs", async () => {
+    const made = await drafted();
+    const { id } = await onlyRepresentative(made);
+    await made.rpc.representative.declineApproval({ id });
+    const { draft } = await made.rpc.representative.documentUpload({
+      id,
+      file: new File(["Open at nine."], "hours.md"),
+    });
+
+    made.script([
+      // None of these is the tool's to set.
+      drafts({
+        representativeId: id,
+        jobText: "Answer kindly.",
+        documents: [],
+        documentSnapshot: 1,
+      }),
+      quiet(),
+    ]);
+    await made.send("Be kinder");
+
+    const view = await made.rpc.representative.get({ id });
+    expect(toolResults(made.botFake)).not.toContain("edited");
+    expect(view.draft.jobText).toBe("Answer kindly.");
+    expect(draft.documents).toHaveLength(1);
+    expect(view.draft.documents).toEqual(draft.documents);
+    const release = await made.rpc.representative.approve({ id });
+    expect(release.content.documentSnapshot?.documents).toEqual(draft.documents);
+  });
+
+  it("can go on when only documents differ from the live Release, and still not over the owner's edit", async () => {
+    const made = await drafted();
+    const { id } = await onlyRepresentative(made);
+    await made.rpc.representative.approve({ id });
+    await made.rpc.representative.documentUpload({
+      id,
+      file: new File(["Open at nine."], "hours.md"),
+    });
+
+    made.script([drafts({ representativeId: id, jobText: "Answer kindly." }), quiet()]);
+    await made.send("Be kinder");
+    expect((await made.rpc.representative.get({ id })).draft.jobText).toBe("Answer kindly.");
+    await made.rpc.representative.declineApproval({ id });
+
+    await made.rpc.representative.updateDraft({ id, draft: { jobText: "The owner's words." } });
+    made.script([drafts({ representativeId: id, jobText: "Mine." }), quiet()]);
+    await made.send("Change it");
+    expect(toolResults(made.botFake)).toContain("edited");
+    expect((await made.rpc.representative.get({ id })).draft.jobText).toBe("The owner's words.");
+  });
+
   it("can change a draft again once it matches the live Release", async () => {
     const made = await instance([]);
     const { id } = await made.rpc.representative.create({ name: "Mine", botId: made.botId });
@@ -590,6 +641,20 @@ describe("the release Approval", () => {
     const made = await drafted();
     const { id } = await onlyRepresentative(made);
     await made.rpc.representative.updateDraft({ id, draft: { jobText: "The owner's words." } });
+
+    await made.rpc.representative.approve({ id });
+
+    await expect.poll(() => wakes(made), poll).toHaveLength(1);
+    expect(wakes(made)[0]).toContain("after changing it");
+  });
+
+  it("tells the Bot when the owner changed the documents before approving", async () => {
+    const made = await drafted();
+    const { id } = await onlyRepresentative(made);
+    await made.rpc.representative.documentUpload({
+      id,
+      file: new File(["Open at nine."], "hours.md"),
+    });
 
     await made.rpc.representative.approve({ id });
 

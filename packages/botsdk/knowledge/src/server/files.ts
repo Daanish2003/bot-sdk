@@ -15,15 +15,8 @@ import {
   walkListingBytes,
   walkScript,
 } from "@botsdk/bot/bot/knowledge-files";
-import {
-  knowledgeDocumentExtensions,
-  knowledgeDocumentLimitBytes,
-  knowledgeExtensions,
-  knowledgeLimitBytes,
-  knowledgeTextLimitBytes,
-  readableCopyPath,
-} from "../shared/folder";
-import { ExtractionFailure, extractKnowledgeText, pdfMediaType, wordMediaType } from "./extract";
+import { knowledgeExtensions, knowledgeLimitBytes, readableCopyPath } from "../shared/folder";
+import { convertDocument } from "./convert";
 import type { KnowledgeFile, KnowledgeListing } from "../shared/contract";
 
 /*
@@ -383,43 +376,6 @@ export async function createKnowledgeFolder(
   });
 }
 
-const failureError = (name: string, code: ExtractionFailure["code"], pdf: boolean) => {
-  switch (code) {
-    case "no_text":
-      return pdf
-        ? rpcError(
-            "BAD_REQUEST",
-            "error.knowledgeNoText",
-            "This PDF has no text to read (it may be a scan)",
-          )
-        : rpcError("BAD_REQUEST", "error.knowledgeNoDocText", "This document has no text to read");
-    case "encrypted":
-      return rpcError(
-        "BAD_REQUEST",
-        "error.knowledgeEncrypted",
-        "That file is password-protected",
-        {
-          name,
-        },
-      );
-    case "too_large":
-      return rpcError(
-        "BAD_REQUEST",
-        "error.knowledgeTooComplex",
-        "That file is too complex to read",
-        { name },
-      );
-    case "too_long":
-      return rpcError("BAD_REQUEST", "error.knowledgeTextTooLong", "That file has too much text", {
-        name,
-      });
-    default:
-      return rpcError("BAD_REQUEST", "error.knowledgeUnreadable", "That file can't be read", {
-        name,
-      });
-  }
-};
-
 /**
  * Converts a PDF or DOCX on the server and writes the original with `<name>.md` beside it (PDFs
  * carry `## Page N` markers). Refused, with nothing written, for another format, a file over 20 MB,
@@ -439,36 +395,8 @@ export async function uploadKnowledgeDocument(
   requirePath(folder, { allowEmpty: true });
   const name = file.name;
   if (!validSegment(name)) throw badPath();
-  const lower = name.toLowerCase();
-  if (!knowledgeDocumentExtensions.some((extension) => lower.endsWith(extension))) {
-    throw rpcError(
-      "BAD_REQUEST",
-      "error.knowledgeFormat",
-      "Knowledge converts PDF and DOCX files",
-      {
-        name,
-        types: knowledgeDocumentExtensions.join(", "),
-      },
-    );
-  }
-  if (file.size > knowledgeDocumentLimitBytes) {
-    throw rpcError("BAD_REQUEST", "error.knowledgeDocumentTooLarge", "That file is over 20 MB", {
-      name,
-    });
-  }
+  const text = await convertDocument(file);
   const original = new Uint8Array(await file.arrayBuffer());
-  const isPdf = lower.endsWith(".pdf");
-  let text: string;
-  try {
-    text = await extractKnowledgeText(isPdf ? pdfMediaType : wordMediaType, original, {
-      pageMarkers: isPdf,
-      maxBytes: knowledgeTextLimitBytes,
-    });
-  } catch (caught) {
-    if (caught instanceof ExtractionFailure) throw failureError(name, caught.code, isPdf);
-    throw caught;
-  }
-  if (text.trim() === "") throw failureError(name, "no_text", isPdf);
 
   const path = folder === "" ? name : `${folder}/${name}`;
   // The copy goes first, so a failure never leaves an original that Bots can't read.
