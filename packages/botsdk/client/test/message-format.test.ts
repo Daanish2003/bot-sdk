@@ -44,7 +44,7 @@ describe("oneLine", () => {
     expect(oneLine("")).toBe("");
     expect(oneLine("---")).toBe("");
     expect(oneLine("![a cat](https://evil.example/cat.png)")).toBe("");
-    expect(oneLine("<div></div>")).toBe("");
+    expect(oneLine("<!-- a note -->")).toBe("");
   });
 
   it("previews a JSON Message as code, whatever its length, so asterisks aren't lost", () => {
@@ -105,15 +105,20 @@ describe("what never comes through", () => {
     expect(plainText(source)).toBe("x");
   });
 
+  it("keeps words in brackets through source that runs the parser out of stack", () => {
+    const source = `${">".repeat(100_000)} convert <input> <b class=x>to</b> <output>`;
+    expect(plainText(source)).toBe("convert <input> to <output>");
+  });
+
   it("takes nothing unsafe through a run too long to read at once", () => {
     const source = `${"word ".repeat(2000)}<script>alert(1)</script> ![alt](https://evil.example/a.png) [x](javascript:y)`;
     expect(plainText(source)).not.toMatch(/<|alert|evil|javascript/);
   });
 
-  it("keeps the words of block HTML, without its tags or hidden elements", () => {
-    expect(oneLine("<div>Your train leaves at 9</div>")).toBe("Your train leaves at 9");
+  it("keeps block HTML as written, without its hidden elements", () => {
+    expect(oneLine("<div>Your train leaves at 9</div>")).toBe("<div>Your train leaves at 9</div>");
     expect(plainText("<details>\nhello\n<script>alert(1)</script>\nthere\n</details>")).toBe(
-      "hello\nthere",
+      "<details>\nhello\nthere\n</details>",
     );
     expect(plainText("<script>alert(1)\nmore")).toBe("");
   });
@@ -122,8 +127,18 @@ describe("what never comes through", () => {
     expect(plainText('<!-- a > b -->\n\n<div title="a>b">words</div>')).toBe("words");
   });
 
-  describe("a word in angle brackets that isn't an HTML element", () => {
+  describe("a word in angle brackets", () => {
     it.each([
+      ["placeholders named like elements", "convert <input> <output>", "convert <input> <output>"],
+      ["one that isn't, then one that is", "cp <source> <target>", "cp <source> <target>"],
+      ["a type named like an element", "Array<object>", "Array<object>"],
+      ["a one-letter type", "Box<U>", "Box<U>"],
+      ["a type on a dotted name", "React.FC<P>", "React.FC<P>"],
+      ["a tag with no attributes", "<b>bold</b>", "<b>bold</b>"],
+      ["an element alone on its line", "<input>\n\nnext", "<input>\n\nnext"],
+      ["one that closes itself", "a <foo/> b <hr /> c", "a <foo/> b <hr /> c"],
+      ["one named after a hidden element", "see <style-guide> now", "see <style-guide> now"],
+      ["a dotted name in block HTML", "<div>\n<React.FC>\n</div>", "<div>\n<React.FC>\n</div>"],
       ["a type in a line", "Use Array<string> here", "Use Array<string> here"],
       ["a placeholder", "grep <path> <text>", "grep <path> <text>"],
       ["a closing form", "from <foo> to </foo> now", "from <foo> to </foo> now"],
@@ -135,6 +150,7 @@ describe("what never comes through", () => {
 
     it("stays in a one-line preview", () => {
       expect(oneLine("Returns Promise<void> on success")).toBe("Returns Promise<void> on success");
+      expect(oneLine("convert <input> <output>")).toBe("convert <input> <output>");
     });
 
     it.each([
@@ -147,12 +163,45 @@ describe("what never comes through", () => {
   });
 
   it.each([
-    ["an element", "a <marquee>b</marquee> c", "a b c"],
+    ["an element with attributes", 'a <marquee loop="1">b</marquee> c', "a b c"],
     ["an unknown case of one", "a <SVG onload=alert(1)>b c", "a b c"],
+    ["a name no element has, with attributes", 'a <x y="1">b</x> c', "a b c"],
+    ["one with attributes and no values", "a <video controls autoplay>b</video> c", "a b c"],
     ["one in a sentence with other words", "a <b and c> d", "a  d"],
+    ["one over several lines", "a <img\nsrc=x\nonerror=alert(1)> b", "a  b"],
     ["a comment", "a <!-- string --> b", "a  b"],
-    ["a block of them", "<svg>\n<a href=x></a>\n</svg>", ""],
+    ["one in a block of bare tags", "<svg>\n<a href=x></a>\n</svg>", "<svg>\n</svg>"],
+    ["a closing tag blank lines from its own", '<div align="center">\n\n# T\n\n</div>', "T"],
   ])("keeps dropping %s", (_name, source, text) => {
+    expect(plainText(source)).toBe(text);
+  });
+
+  it.each([
+    ["an image left open", "before <img src=x onerror=alert(1) after", "before "],
+    ["one left open over lines", "before <img\nsrc=x onerror=alert(1)", "before "],
+    ["a quote left open", 'a <b class="x', "a "],
+    ["one with a slash for a space", "a <img/src=x onerror=alert(1)> b", "a  b"],
+    ["a script left open", "before <script src=x", "before "],
+    ["a script's name, left open", "the <script", "the "],
+    ["a script with a slash", "a <script/x> b", "a  b"],
+    ["a style left open", "before <style media=x", "before "],
+    ["a script put back together", "<scr<script>ipt>", ""],
+    ["one nested deeper", "<sc<scr<script>ipt>ript>", "script>"],
+    ["one split by a closing tag", "<</script>script>", ""],
+    ["an escaped script", "\\<script> b", " b"],
+    ["an entity's script", "a &lt;script&gt; b", "a  b"],
+    ["an entity's image", "a &lt;img src=x onerror=y&gt; b", "a  b"],
+    ["block HTML's entity", "<div>&lt;script&gt;</div>", "<div></div>"],
+  ])("drops %s, as text a parser doesn't call a tag", (_name, source, text) => {
+    expect(plainText(source)).toBe(text);
+    expect(oneLine(source)).not.toMatch(/<(img|script|style)|onerror/i);
+  });
+
+  it.each([
+    ["a comparison", "if a <b && c==2", "if a <b && c==2"],
+    ["a word that isn't an element", "x <y z=2", "x <y z=2"],
+    ["a less-than", "1 < 2 and x=3", "1 < 2 and x=3"],
+  ])("keeps %s that only looks like the start of a tag", (_name, source, text) => {
     expect(plainText(source)).toBe(text);
   });
 
@@ -162,10 +211,13 @@ describe("what never comes through", () => {
 
   it("reads an HTML line break as a line break", () => {
     expect(plainText("hello<br>world<br/>again")).toBe("hello\nworld\nagain");
+    expect(plainText("<div>\nhello<br>world\n</div>")).toBe("<div>\nhello\nworld\n</div>");
   });
 
   it("keeps the words around raw HTML", () => {
-    expect(oneLine("<b>bold</b> before <script>alert(1)</script> after")).toBe("bold before after");
+    expect(oneLine("<b>bold</b> before <script>alert(1)</script> after")).toBe(
+      "<b>bold</b> before after",
+    );
     expect(plainText("before ![alt](https://evil.example/a.png) after")).toBe("before  after");
   });
 

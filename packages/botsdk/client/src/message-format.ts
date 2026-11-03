@@ -6,9 +6,10 @@ import { mentionedMembers } from "./bot/mentions";
  * A Message's Markdown source, read once for every Channel that isn't the web (spec #1117): the
  * parsed structure a Channel's renderer writes from, and the plain text and one line built on it.
  *
- * The structure holds what is safe to show and nothing else: raw HTML and images are gone, and a
- * link is only ever `http`, `https` or `mailto`. It holds text as written, so a renderer escapes
- * all of it for its own format.
+ * The structure holds what is safe to show and nothing else: hidden elements, tags with attributes,
+ * comments and images are gone, and a link is only ever `http`, `https` or `mailto`. A bare tag is
+ * a word, as in `Array<object>` or `convert <input>`, and stays as written, as it does on the web.
+ * It holds text as written, so a renderer escapes all of it for its own format.
  *
  * It has its own entry and the only import of `marked`, so a page that doesn't use it doesn't load
  * `marked`.
@@ -39,12 +40,14 @@ export type Block =
 const wordChar = /[a-z0-9]/i;
 
 /** The HTML whose content is code, not text to read: it goes with its tags. */
-const hiddenTagOpen = /^<(script|style)\b/i;
-const hiddenTagClose = /^<\/(script|style)\b/i;
+const hiddenTagOpen = /^<(script|style)(?![\w-])/i;
+const hiddenTagClose = /^<\/(script|style)(?![\w-])/i;
 const lineBreakTag = /^<br\b/i;
+/** A tag with only its name, as in `<b>`, `</b>` or `<b/>`. */
+const bareTag = /^<\/?[a-z][\w.:-]*\s*\/?>$/i;
 /**
- * The elements of HTML, old ones too, and the roots of SVG and MathML. What only looks like a tag is
- * a word, as in `Array<string>` or `grep <path>`, and stays as text.
+ * The elements of HTML, old ones too, and the roots of SVG and MathML. Anything after one's name is
+ * an attribute. Anything after another name is words until it has a value, as in `a <x and c> b`.
  */
 const htmlElements = new Set(
   (
@@ -61,7 +64,7 @@ const htmlElements = new Set(
 );
 /** A hidden element and what's in it, then any other tag or comment, closed or left open. */
 const htmlInBlock =
-  /<(script|style)\b[\s\S]*?(?:<\/\1\s*>|$)|<!--[\s\S]*?(?:-->|$)|<[/!?]?[a-z](?:"[^"]*"|'[^']*'|[^>"'])*(?:>|$)/gi;
+  /<(script|style)(?![\w-])[\s\S]*?(?:<\/\1\s*>|$)|<!--[\s\S]*?(?:-->|$)|<[/!?]?[a-z](?:"[^"]*"|'[^']*'|[^>"'])*(?:>|$)/gi;
 
 const namedEntities = new Map([
   ["amp", "&"],
@@ -72,18 +75,89 @@ const namedEntities = new Map([
   ["nbsp", " "],
 ]);
 
+/** How many tags of each name were dropped and not yet closed, across one Message. */
+type DroppedTags = Map<string, number>;
+
 /**
  * Whether `raw`, one tag as `marked` or `htmlInBlock` found it, is a word in angle brackets and not
- * a tag: its name is no element, and it holds no other tag in its attributes to carry through.
+ * a hidden element or a tag with attributes. It holds no other tag to carry through.
  */
 function isWordInBrackets(raw: string): boolean {
+  if (hiddenTagOpen.test(raw) || hiddenTagClose.test(raw)) return false;
+  if (bareTag.test(raw)) return true;
   const name = /^<\/?([a-z][\w-]*)/i.exec(raw)?.[1];
-  return name !== undefined && !htmlElements.has(name.toLowerCase()) && !raw.includes("<", 1);
+  return name !== undefined && !htmlElements.has(name.toLowerCase()) && !/[<=]/.test(raw.slice(1));
 }
 
-/** `html` without its hidden elements, tags and comments. */
-function withoutHtml(html: string): string {
-  return html.replace(htmlInBlock, (found) => (isWordInBrackets(found) ? found : ""));
+/**
+ * Whether one tag stays as text, read in the Message's order. A closing tag goes when its opening
+ * tag went, so that `<a href="x">here</a>` reads `here`.
+ */
+function keepsTag(raw: string, dropped: DroppedTags): boolean {
+  const name = /^<\/?([a-z][\w.:-]*)/i.exec(raw)?.[1]?.toLowerCase() ?? "";
+  const open = dropped.get(name) ?? 0;
+  const closing = raw.startsWith("</");
+  if (closing && open > 0) {
+    dropped.set(name, open - 1);
+    return false;
+  }
+  if (isWordInBrackets(raw)) return true;
+  if (!closing) dropped.set(name, open + 1);
+  return false;
+}
+
+/** `html` without its hidden elements, tags with attributes and comments. */
+function withoutHtml(html: string, dropped: DroppedTags): string {
+  return html.replace(htmlInBlock, (found) => {
+    if (lineBreakTag.test(found)) return "\n";
+    return keepsTag(found, dropped) ? found : "";
+  });
+}
+
+/**
+ * A tag `marked` leaves in text: a hidden element's, or an element's with an attribute's value,
+ * left open, written with a slash for a space, or from an entity or an escape. Left open, it runs to
+ * the next bracket, as it would in a browser. It captures the name of the second kind.
+ */
+const tagInText =
+  /<\/?(?:script|style)(?![\w-])[^<>]*>?|<([a-z][\w-]*)(?:[\s/]+[a-z_:][\w:.-]*)+\s*=[^<>]*>?/gi;
+
+function dropTagsInText(text: string): string {
+  return text.replace(tagInText, (found, name?: string) =>
+    !name || htmlElements.has(name.toLowerCase()) ? "" : found,
+  );
+}
+
+/** `text` without those tags. One that dropping another puts back together takes every `<` with it. */
+function withoutTagsInText(text: string): string {
+  const once = dropTagsInText(text);
+  return dropTagsInText(once) === once ? once : once.replaceAll("<", "");
+}
+
+/** `nodes` without tags in their text. Text and breaks are read together: a tag can run over lines. */
+function withoutTagsInNodes(nodes: Inline[]): Inline[] {
+  if (!nodes.some((node) => node.type === "text" && node.text.includes("<"))) return nodes;
+  const kept: Inline[] = [];
+  let run = "";
+  const endRun = () => {
+    withoutTagsInText(run)
+      .split("\n")
+      .forEach((line, at) => {
+        if (at > 0) kept.push({ type: "break" });
+        if (line) kept.push({ type: "text", text: line });
+      });
+    run = "";
+  };
+  for (const node of nodes) {
+    if (node.type === "text") run += node.text;
+    else if (node.type === "break") run += "\n";
+    else {
+      endRun();
+      kept.push(node);
+    }
+  }
+  endRun();
+  return kept;
 }
 
 /** The text an entity stands for. `marked` keeps entities as written and leaves this to a renderer. */
@@ -129,17 +203,19 @@ function pushInline(nodes: Inline[], node: Inline): void {
 
 /** Text with line breaks in it, as a renderer expects it: text and breaks. */
 function linesOf(text: string): Inline[] {
-  return text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .flatMap((line, at): Inline[] => [
-      ...(at > 0 ? [{ type: "break" } as const] : []),
-      { type: "text", text: decodeEntities(line) },
-    ]);
+  return withoutTagsInNodes(
+    text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .flatMap((line, at): Inline[] => [
+        ...(at > 0 ? [{ type: "break" } as const] : []),
+        { type: "text", text: decodeEntities(line) },
+      ]),
+  );
 }
 
-function inlines(tokens: readonly Token[] = []): Inline[] {
+function inlines(dropped: DroppedTags, tokens: readonly Token[] = []): Inline[] {
   const nodes: Inline[] = [];
   let hidden = false;
   tokens.forEach((token, at) => {
@@ -150,7 +226,7 @@ function inlines(tokens: readonly Token[] = []): Inline[] {
       // Hidden only up to its closing tag: with none, it's a word a Bot wrote about the tag.
       else if (hiddenTagOpen.test(token.raw)) {
         hidden = tokens.slice(at + 1).some((later) => hiddenTagClose.test(later.raw));
-      } else if (isWordInBrackets(token.raw)) pushInline(nodes, { type: "text", text: token.raw });
+      } else if (keepsTag(token.raw, dropped)) pushInline(nodes, { type: "text", text: token.raw });
       return;
     }
     if (hidden) return;
@@ -168,7 +244,7 @@ function inlines(tokens: readonly Token[] = []): Inline[] {
       case "strong":
       case "em":
       case "del": {
-        const children = inlines((token as Tokens.Strong).tokens);
+        const children = inlines(dropped, (token as Tokens.Strong).tokens);
         if (isInsideWord(tokens, at)) {
           const mark = token.raw.match(/^[*~_]+/)?.[0] ?? "";
           for (const node of [
@@ -188,7 +264,7 @@ function inlines(tokens: readonly Token[] = []): Inline[] {
       }
       case "link": {
         const link = token as Tokens.Link;
-        const children = inlines(link.tokens);
+        const children = inlines(dropped, link.tokens);
         const href = safeHref(link.href);
         if (href && children.length > 0) nodes.push({ type: "link", href, children });
         else for (const child of children) pushInline(nodes, child);
@@ -197,16 +273,12 @@ function inlines(tokens: readonly Token[] = []): Inline[] {
       // An image, or anything `marked` adds later: not known to be safe.
     }
   });
-  return nodes;
-}
-
-function tableCell(cell: Tokens.TableCell): Inline[] {
-  return inlines(cell.tokens);
+  return withoutTagsInNodes(nodes);
 }
 
 /** A list item's blocks. A task says whether it's done in its first text. */
-function listItem(item: Tokens.ListItem): Block[] {
-  const content = blocks(item.tokens);
+function listItem(item: Tokens.ListItem, dropped: DroppedTags): Block[] {
+  const content = blocks(item.tokens, dropped);
   if (!item.task) return content;
   const children: Inline[] = [{ type: "text", text: item.checked ? "☑ " : "☐ " }];
   const [first, ...rest] = content;
@@ -215,12 +287,13 @@ function listItem(item: Tokens.ListItem): Block[] {
   return [{ ...first, children }, ...rest];
 }
 
-function blocks(tokens: readonly Token[]): Block[] {
+function blocks(tokens: readonly Token[], dropped: DroppedTags): Block[] {
   return tokens.flatMap((token): Block[] => {
     switch (token.type) {
       case "paragraph":
       case "text": {
         const children = inlines(
+          dropped,
           (token as Tokens.Paragraph).tokens ?? [
             { type: "text", raw: token.raw, text: (token as Tokens.Text).text },
           ],
@@ -229,7 +302,7 @@ function blocks(tokens: readonly Token[]): Block[] {
       }
       case "heading": {
         const { depth, tokens: content } = token as Tokens.Heading;
-        const children = inlines(content);
+        const children = inlines(dropped, content);
         return children.length > 0 ? [{ type: "heading", level: depth, children }] : [];
       }
       case "code": {
@@ -237,7 +310,7 @@ function blocks(tokens: readonly Token[]): Block[] {
         return [{ type: "code", language: lang?.split(/\s/)[0] || null, text }];
       }
       case "blockquote": {
-        const children = blocks((token as Tokens.Blockquote).tokens);
+        const children = blocks((token as Tokens.Blockquote).tokens, dropped);
         return children.length > 0 ? [{ type: "quote", children }] : [];
       }
       case "list": {
@@ -247,7 +320,7 @@ function blocks(tokens: readonly Token[]): Block[] {
             type: "list",
             ordered,
             start: typeof start === "number" ? start : 1,
-            items: items.map(listItem),
+            items: items.map((item) => listItem(item, dropped)),
           },
         ];
       }
@@ -257,15 +330,15 @@ function blocks(tokens: readonly Token[]): Block[] {
           {
             type: "table",
             align,
-            header: header.map(tableCell),
-            rows: rows.map((row) => row.map(tableCell)),
+            header: header.map((cell) => inlines(dropped, cell.tokens)),
+            rows: rows.map((row) => row.map((cell) => inlines(dropped, cell.tokens))),
           },
         ];
       }
       case "hr":
         return [{ type: "rule" }];
       case "html": {
-        const children = linesOf(withoutHtml(token.raw));
+        const children = linesOf(withoutHtml(token.raw, dropped));
         return children.length > 0 ? [{ type: "paragraph", children }] : [];
       }
       default:
@@ -333,11 +406,11 @@ function tokenize(source: string, inlineBudget: number): Token[] {
 function parse(source: string, inlineBudget: number): Block[] {
   if (isJson(source)) return jsonBlock(source);
   try {
-    return blocks(tokenize(source, inlineBudget));
+    return blocks(tokenize(source, inlineBudget), new Map());
   } catch {
     // `marked` ran out of stack, as it does on a few thousand nested quotes. Without a parse, what
     // never comes through is taken out by hand and the rest is text.
-    const text = withoutHtml(source)
+    const text = withoutHtml(source, new Map())
       .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
       .replace(/^[>\s]+/gm, "");
     return [{ type: "paragraph", children: linesOf(text) }];
