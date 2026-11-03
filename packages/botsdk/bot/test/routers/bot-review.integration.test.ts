@@ -1,23 +1,34 @@
-import type { AnyTextAdapter, ModelMessage, TextOptions } from "@tanstack/ai";
+import {
+  type AnyTextAdapter,
+  type ModelMessage,
+  type TextOptions,
+  toolDefinition,
+} from "@tanstack/ai";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import {
   bot,
   botHelper,
   botReview,
+  botSecret,
   botTrigger,
   botTurn,
   conversationChange,
   job,
+  jobEvent,
   usage,
 } from "../../src/storage";
+import { defineFeature } from "../../src";
 import { conversationChannel } from "../../src/chat/conversation-events";
+import type { FeatureEntry } from "../../src/create-chat";
+import { encryptCredentials } from "../../src/credentials/encryption";
 import { findBot } from "../../src/bot/conversation";
 import { lockConversation } from "../../src/bot/triggers";
 import { reviewOutputOf } from "../../src/bot/safety/review";
 import { uuidv7 } from "../../src/lib/uuidv7";
-import { approvalExpiryJobName } from "../../src/bot/safety";
+import { approvalExpiryJobName, secretEncryption } from "../../src/bot/safety";
 import { deleteUserData } from "../../src/user-data";
 import { interruptedShellError } from "../../src/bot/agent-loop";
 import { interruptedApprovedCallError } from "../../src/bot/turn/approved-call";
@@ -83,7 +94,9 @@ async function botWith(
     reviewModel,
     onCommand,
     helpers = [],
+    features,
   }: {
+    features?: FeatureEntry[];
     reviewer?: FakeReviewer;
     reviewModel?: string;
     onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>;
@@ -124,6 +137,7 @@ async function botWith(
       return reviewer.adapter;
     },
     memory: false,
+    features,
   });
   await jobs.start();
   started.push(jobs);
@@ -1535,6 +1549,48 @@ describe("a late answer to a pending Approval", () => {
     reviewerPlaying(
       verdict({ outcome: "block", reason: "You didn't ask to deploy.", summary: "Deploy" }),
     );
+
+  it("masks a Secret in an allowed Feature call's result, in the Trigger and the Checkpoint", async () => {
+    const value = "ghp_approved_secret_value_1234";
+    const lookup = defineFeature({
+      id: "lookups",
+      tools: async () => [
+        {
+          ...toolDefinition({
+            name: "lookup",
+            description: "Looks.",
+            inputSchema: z.object({}),
+          }).server(async () => ({ found: value, [`at_${value}`]: true })),
+          needsApproval: true,
+        },
+      ],
+    });
+    const bot = await botWith([round(toolCall({ name: "lookup", input: {} })), round(), round()], {
+      reviewer: reviewerPlaying(
+        verdict({ outcome: "block", reason: "You didn't ask.", summary: "Look" }),
+      ),
+      features: [lookup],
+    });
+    await getTestDb()
+      .insert(botSecret)
+      .values({
+        userId: bot.user.id,
+        name: "GITHUB_TOKEN",
+        encrypted: encryptCredentials(
+          { value },
+          secretEncryption(bot.deps, bot.user.id, "GITHUB_TOKEN"),
+        ),
+        createdAt: new Date(),
+      });
+    const waiting = await pendingAfter(bot, "look");
+
+    await bot.client.reviews.allow({ reviewId: waiting.id });
+    const woke = await newestInputOf(bot.fake, 2);
+
+    expect(woke).toContain("***");
+    expect(woke).not.toContain(value);
+    expect(JSON.stringify(await getTestDb().select().from(jobEvent))).not.toContain(value);
+  });
 
   it("runs the stored command once on Allow, and the Bot's next Turn sees its result as an Approval Trigger", async () => {
     const bot = await botWith([round(shell("make deploy --prod")), round(), round()], {

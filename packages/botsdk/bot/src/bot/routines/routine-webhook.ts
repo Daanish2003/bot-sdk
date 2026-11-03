@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 
 import { bot, botRoutine, botTrigger } from "../../storage";
 import { uuidv7 } from "../../lib/uuidv7";
+import { withoutNul } from "../../lib/without-nul";
 import type { BotSdkContext } from "../../plugin";
 import {
   fireKeyPrefix,
@@ -47,7 +48,7 @@ export async function receiveRoutineWebhook(
   const received = await receiveWebhook(deps, {
     tokenHash: webhookTokenHash(token),
     key,
-    payload: body,
+    payload: withoutNul(body),
   });
   if (received === undefined) return "notFound";
   if (received) {

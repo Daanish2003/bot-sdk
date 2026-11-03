@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { storable } from "./storable";
+
 /**
  * A Custom Rule's modes (ADR 0031), loosest first: a matching call passes `without_asking`, passes
  * when `pre_approved` only if the user asked for it, always waits for an Approval with `ask`, and is
@@ -21,7 +23,7 @@ export const maxCustomRuleLength = 500;
 export const maxActiveCustomRules = 50;
 
 /** A Custom Rule's text: the user's sentence, trimmed, of 1 to 500 characters. */
-export const customRuleTextSchema = z.string().trim().min(1).max(maxCustomRuleLength);
+export const customRuleTextSchema = storable(z.string().trim().min(1).max(maxCustomRuleLength));
 
 /**
  * A Custom Rule as the client sees it: the user's standing instruction for one kind of action, in

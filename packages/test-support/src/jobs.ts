@@ -61,13 +61,13 @@ export async function drainJobs({
 /** A clock the test moves by hand; `tick()` fires every timer (poll and heartbeat). */
 export function fakeJobClock(start: Date) {
   let current = start.getTime();
-  const timers = new Set<() => void>();
+  const timers = new Map<() => void, number>();
   const intervals: number[] = [];
   const clock: JobClock = {
     now: () => new Date(current),
     setInterval: (callback, ms) => {
       intervals.push(ms);
-      timers.add(callback);
+      timers.set(callback, ms);
       return callback;
     },
     clearInterval: (handle) => {
@@ -80,8 +80,9 @@ export function fakeJobClock(start: Date) {
     advance: (ms: number) => {
       current += ms;
     },
-    tick: () => {
-      for (const timer of timers) timer();
+    /** Fires every timer, or with `everyMs`, only the timers of that interval. */
+    tick: (everyMs?: number) => {
+      for (const [timer, ms] of timers) if (everyMs === undefined || ms === everyMs) timer();
     },
   };
 }

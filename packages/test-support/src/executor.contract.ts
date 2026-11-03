@@ -301,7 +301,7 @@ function conformance(
       await expect.poll(() => started, poll).toEqual(["a"]);
 
       await jobs.cancel("hold");
-      // The next heartbeat finds the job cancelled.
+      // The next cancel check finds the job cancelled.
       timer.tick();
 
       await expect.poll(() => aborted, poll).toEqual(["a"]);

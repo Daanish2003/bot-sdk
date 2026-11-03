@@ -224,4 +224,17 @@ describe("Multiple choice", () => {
       client.bots.choose({ botId, messageId: user.id, answer: { option: "Red" } }),
     ).rejects.toMatchObject({ data: { code: "error.messageNotFound" } });
   });
+
+  it("refuses a NUL in an Other answer, as a client error, and leaves the choice open", async () => {
+    const { client, botId } = await botWith([round(asks(true))]);
+    await send(client, botId, "pick for me");
+    await turnsEnded(botId, 1);
+    const asked = await lastChoice(client, botId);
+
+    await expect(
+      client.bots.choose({ botId, messageId: asked.id, answer: { other: "Gre\u0000en" } }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST", status: 400 });
+
+    expect((await lastChoice(client, botId)).control).not.toHaveProperty("answer");
+  });
 });
