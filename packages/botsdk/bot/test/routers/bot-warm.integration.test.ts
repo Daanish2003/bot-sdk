@@ -1,4 +1,5 @@
 import type { ModelMessage, TextOptions } from "@tanstack/ai";
+import { createAnthropicChat } from "@tanstack/ai-anthropic";
 import { asc, eq, inArray } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -6,7 +7,7 @@ import { bot as botTable, botPromptStart, botTurn, usage } from "../../src/stora
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner, systemClock, claimJob } from "../../src/runner/internal";
-import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
+import { createTestSdk, type TestDeps, type TestDepsOverrides } from "@ai-chat/test-support/deps";
 import { createFakeAdapter, round, text, withUsage } from "@botsdk/testing/fake-adapter";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
@@ -27,7 +28,15 @@ afterEach(async () => {
 async function botWith(
   rounds: Parameters<typeof createFakeAdapter>[0]["rounds"],
   modelId: string,
-  { linked = false } = {},
+  {
+    linked = false,
+    adapterFor,
+    logger = silent,
+  }: {
+    linked?: boolean;
+    adapterFor?: TestDepsOverrides["adapterFor"];
+    logger?: TestDepsOverrides["logger"];
+  } = {},
 ) {
   const fake = createFakeAdapter({ rounds });
   let deps: TestDeps | undefined;
@@ -41,7 +50,8 @@ async function botWith(
   deps = createTestSdk({
     memory: false,
     jobs,
-    adapterFor: () => fake.adapter,
+    logger,
+    adapterFor: adapterFor ?? (() => fake.adapter),
     ...(linked && { linkedCredentials: async () => ({ apiKey: "plan-token" }) }),
   });
   await jobs.start();
@@ -98,8 +108,101 @@ const written = { promptTokens: 40, completionTokens: 0, totalTokens: 40 };
 const warmRound = () =>
   withUsage(round(), { ...written, promptTokensDetails: { cacheWriteTokens: 40 } });
 
+/** An Anthropic Messages stream with `blocks` as its content, stopped for `stopReason`. */
+function anthropicStream(
+  blocks: Record<string, unknown>[],
+  stopReason: string,
+  usage: Record<string, number>,
+): Response {
+  const events = [
+    {
+      type: "message_start",
+      message: {
+        id: "msg_1",
+        type: "message",
+        role: "assistant",
+        model: "claude-sonnet-5-5",
+        content: [],
+        stop_reason: null,
+        usage: { ...usage, output_tokens: 1 },
+      },
+    },
+    ...blocks.flatMap(({ delta, ...content_block }, index) => [
+      { type: "content_block_start", index, content_block },
+      ...(delta ? [{ type: "content_block_delta", index, delta }] : []),
+      { type: "content_block_stop", index },
+    ]),
+    { type: "message_delta", delta: { stop_reason: stopReason }, usage: { output_tokens: 1 } },
+    { type: "message_stop" },
+  ];
+  const body = events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+  return new Response(body.join(""), { headers: { "content-type": "text/event-stream" } });
+}
+
+/** What a warm can have time to start in its one output token. */
+const warmReplies: [string, Record<string, unknown>][] = [
+  ["text", { type: "text", text: "", delta: { type: "text_delta", text: "Warmed-reply-text" } }],
+  ["a tool call", { type: "tool_use", id: "toolu_1", name: "Warmed-reply-text", input: {} }],
+  [
+    "thinking",
+    {
+      type: "thinking",
+      thinking: "",
+      delta: { type: "thinking_delta", thinking: "Warmed-reply-text" },
+    },
+  ],
+];
+
 describe("bot.warm", () => {
-  it("warms an Anthropic Bot's stored Prompt start and history with max_tokens 0 and the 1-hour breakpoints", async () => {
+  // The real adapter, so its own checks of the request run, over a stubbed `fetch`.
+  it.each(warmReplies)(
+    "warms through the real Anthropic adapter when the 1-token reply starts %s, and keeps none of it",
+    async (_start, block) => {
+      const finished = () => anthropicStream([], "end_turn", { input_tokens: 10 });
+      const responses = [
+        finished(),
+        anthropicStream([block], "max_tokens", {
+          input_tokens: 10,
+          cache_creation_input_tokens: 40,
+        }),
+        finished(),
+      ];
+      const requests: Record<string, unknown>[] = [];
+      const errors: unknown[][] = [];
+      const { user, client, botId } = await botWith([], "anthropic:claude-sonnet-5-5", {
+        adapterFor: (model, credentials) =>
+          createAnthropicChat(model.split(":")[1] as "claude-sonnet-5-5", credentials.apiKey!, {
+            fetch: async (_url, init) => {
+              requests.push(JSON.parse(String(init?.body)));
+              return responses.shift()!;
+            },
+          }),
+        logger: { error: (...args: unknown[]) => errors.push(args) },
+      });
+      await send(client, botId, "hi");
+      await ageCalls(user.id, 56);
+      const [turnBefore] = await getTestDb().select().from(botTurn).where(eq(botTurn.botId, botId));
+
+      expect(await client.bots.warm({ botId })).toEqual({ warmed: true });
+
+      expect(errors).toEqual([]);
+      expect(requests).toHaveLength(2);
+      expect(requests[1]).toMatchObject({ max_tokens: 1, stream: true });
+      const rows = await getTestDb().select().from(usage).where(eq(usage.userId, user.id));
+      expect(rows.find((row) => row.kind === "warm")).toMatchObject({
+        cacheWriteTokens: 40,
+        outputTokens: 1,
+      });
+      const [turnAfter] = await getTestDb().select().from(botTurn).where(eq(botTurn.botId, botId));
+      expect(turnAfter!.transcript).toEqual(turnBefore!.transcript);
+
+      await send(client, botId, "back again");
+      expect(requests).toHaveLength(3);
+      expect(JSON.stringify(requests[2]!.messages)).not.toContain("Warmed-reply-text");
+    },
+  );
+
+  it("warms an Anthropic Bot's stored Prompt start and history with max_tokens 1 and the 1-hour breakpoints", async () => {
     const { fake, user, client, botId } = await botWith(
       [round(), warmRound()],
       "anthropic:claude-sonnet-5-5",
@@ -117,7 +220,7 @@ describe("bot.warm", () => {
       .from(botPromptStart)
       .where(eq(botPromptStart.botId, botId));
     // The Prompt start, then everything the Turn left in the history, with the Turn's breakpoints.
-    expect(warm.modelOptions).toEqual({ cache_control: oneHour, max_tokens: 0 });
+    expect(warm.modelOptions).toEqual({ cache_control: oneHour, max_tokens: 1 });
     expect(JSON.parse(JSON.stringify(warm.tools))).toEqual(start!.tools);
     expect(warm.systemPrompts).toEqual(turnCall.systemPrompts);
     const [turn] = await getTestDb().select().from(botTurn).where(eq(botTurn.botId, botId));
