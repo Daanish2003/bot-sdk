@@ -15,7 +15,7 @@ import {
   type ReleaseContent,
   type RepresentativeTool,
 } from "../shared/contract";
-import { replyKinds } from "../shared/replies";
+import { codeHandOffKind, replyKinds } from "../shared/replies";
 import {
   alreadyVerifiedAnswer,
   type CustomerChannel,
@@ -28,7 +28,7 @@ import {
 import { deliverHandOffResult } from "./hand-off-result";
 import { type Heard, readSender, readThread, storeReply, type ThreadEntry } from "./customers";
 import { representative, representativeHandOff, representativeRelease } from "./db/schema";
-import { checkReply, factsInEffect, refused } from "./replies";
+import { checkReply, factsInEffect, handOffMessage, refused } from "./replies";
 import {
   beginTurn,
   endTurn,
@@ -87,7 +87,9 @@ export const rules =
   "when it says the work has gone to someone else; answer for anything else. An answer rests on " +
   "at least one source, which code checks and the Customer never sees: a fact's key, or the " +
   "Assignment behind a Bot's result with an exact quote from that result. A key you write in the " +
-  "text counts as a source. Code refuses a reply it can't check, sends nothing, and tells you why.";
+  "text counts as a source. Code refuses a reply it can't check, sends nothing, and tells you why. " +
+  "You get one retry: a second refusal in a row ends the Turn, and code tells the Customer it has " +
+  "been passed on.";
 
 export const plainTextReminder =
   "(A note from the system, not from the Customer.) Your last reply was plain text, so it was not " +
@@ -102,6 +104,15 @@ const senderStanding = (verified: boolean) =>
 
 const noBotRefusal =
   "This Representative reports to no Bot, so nothing can be handed off. Carry on without it.";
+
+const turnOverRefusal = "This Turn has handed off and ended, so this did nothing.";
+
+const codeHandOffTitle = "A Customer's question couldn't be answered";
+const codeHandOffNote =
+  "Code refused the Representative's replies to this Customer twice, for what they rested on, and told the Customer someone will follow up. Find out what they need, and finish with what they should be told.";
+const codeHandOffMessages = 3;
+/** So the messages and the note stay within `maxHandOffInstructionsLength`. */
+const codeHandOffMessageLength = 15_000;
 
 /**
  * The Model of a Release that names none: the Host's default among those the owner can use. Not
@@ -165,6 +176,21 @@ type LiveThread = {
   channel: CustomerChannel;
 };
 
+/**
+ * What a Turn's tools have come to. Kept from their answers, which a replay gets as recorded and in
+ * the same order, so a crash can't change the count (ticket #1261).
+ */
+type TurnProgress = {
+  /** Replies refused since the last one that was sent. */
+  refusals: number;
+  /** A `hand_to_bot` call handed work off. */
+  handedOff: boolean;
+  /** The Turn has ended on a second refusal: no more tools run and no more Model calls follow. */
+  over: boolean;
+};
+
+type MadeHandOff = { id: string; botId: string; conversationId: string };
+
 type Turn = {
   job: JobContext<TurnServices>;
   kit: RepresentativeLoopKit;
@@ -175,6 +201,7 @@ type Turn = {
   thread: LiveThread | null;
   /** What this Turn read of its thread. */
   entries: ThreadEntry[];
+  progress: TurnProgress;
 };
 
 /** The most a test conversation's reply answer holds of the values put in it, as JSON. */
@@ -194,7 +221,59 @@ const replySource = z.union([
 ]);
 
 /** The code-defined tools, by the name a Release lists them under. None takes a Customer's id. */
-export function turnTools({ job, kit, userId, name, representativeId, thread, entries }: Turn) {
+export function turnTools({
+  job,
+  kit,
+  userId,
+  name,
+  representativeId,
+  thread,
+  entries,
+  progress,
+}: Turn) {
+  /** Opens an Assignment for `botId` from `liveThread`, in `tx`. An `ORPCError` says the Bot can't take it. */
+  const openHandOff = async (
+    tx: Transaction,
+    liveThread: LiveThread,
+    botId: string,
+    title: string,
+    instructions: string,
+  ): Promise<MadeHandOff> => {
+    // No Bot Turn is behind it, so it names none and starts a chain of its own.
+    const created = await job.assignments.create(tx, {
+      userId,
+      botId,
+      title,
+      instructions: `From Representative "${name}".${liveThread.verified ? "" : unverifiedHandOff}\n\n${instructions}`,
+      job: handOffEndedJob,
+    });
+    await tx.insert(representativeHandOff).values({
+      assignmentId: created.id,
+      representativeId,
+      threadId: liveThread.threadId,
+      channel: liveThread.heard.channel,
+      externalId: liveThread.heard.externalId,
+      verified: liveThread.verified,
+    });
+    return { ...created, botId };
+  };
+
+  /** After a hand-off's commit: the Bot's Conversation hears, and the work follows a Bot chosen meanwhile. */
+  const settleHandOff = async ({ id, botId, conversationId }: MadeHandOff) => {
+    // It is handed off whatever happens here: Bot `botId` has it, and choosing a Bot moves it. An
+    // error here would reach the Model as a failed call, and it would hand off again.
+    try {
+      await job.threads.hintChanged(conversationId);
+      // The owner may have chosen another Bot while this was made: setBot only moves what it can see.
+      const now = await reportingBot(job.db, representativeId);
+      if (now && now !== botId) await job.assignments.move({ userId, id, botId: now });
+    } catch (error) {
+      if (!isAssignmentEnded(error)) {
+        job.logger.error(`Hand-off ${id} stays on Bot ${botId}: moving it failed`, error);
+      }
+    }
+  };
+
   return {
     reply: toolDefinition({
       name: "reply",
@@ -207,19 +286,68 @@ export function turnTools({ job, kit, userId, name, representativeId, thread, en
       }),
     }).server(async ({ text, kind, sources = [] }, context) => {
       const now = await job.now();
+      // Set only by a live write, afresh on each try of it.
+      let made: MadeHandOff | undefined;
+      /**
+       * A retry refused too: the Customer gets the fixed message, and the Bot, if there is one and
+       * this Turn hasn't handed off, the work. False when the thread isn't this Turn's to answer
+       * any more: nothing goes to anyone. A test conversation only says it did.
+       */
+      const handOffInCode = async (tx: Transaction) => {
+        if (thread === null) return true;
+        // The row before the thread's and the Conversation's locks, the order the owner's changes take them in.
+        const botId = await reportingBot(tx, representativeId, true);
+        const stored = await storeReply(
+          tx,
+          thread,
+          { text: handOffMessage, sources: [] },
+          codeHandOffKind,
+          now,
+        );
+        if ("error" in stored) return false;
+        if (!botId || progress.handedOff) return true;
+        try {
+          made = await openHandOff(
+            tx,
+            thread,
+            botId,
+            codeHandOffTitle,
+            codeHandOffInstructions(entries, thread.verified),
+          );
+        } catch (error) {
+          if (!(error instanceof ORPCError)) throw error;
+          // The Bot can't take it: the Customer has been told, and the thread waits on the owner.
+          job.logger.error(`Representative ${representativeId}: no hand-off`, error);
+        }
+        return true;
+      };
+      const refuse = async (tx: Transaction, refusal: ReturnType<typeof refused>) =>
+        progress.refusals === 0 ? refusal : { ...refusal, handedOff: await handOffInCode(tx) };
       // All in the activity: a replay gets what it recorded, whatever has happened to a fact since.
-      return kit.liveActivity("reply", context?.toolCallId, async (tx) => {
+      const answer = await kit.liveActivity("reply", context?.toolCallId, async (tx) => {
+        made = undefined;
         const checked = await checkReply(tx, { userId, now, text, kind, sources, entries });
-        if ("error" in checked) return checked;
+        if ("error" in checked) return refuse(tx, checked);
         // Stored as sent: nothing reaches a real Channel until the gate spec.
         if (thread) return storeReply(tx, thread, checked, kind, now);
         // A test conversation's checks read what was sent from this answer, as the arguments still
         // hold the keys, and an answer over the long-output limit is cut.
         if (JSON.stringify(checked.inserted).length > maxTestInsertedLength) {
-          return refused("it quotes too much at once. Split it into shorter replies.");
+          return refuse(tx, refused("it quotes too much at once. Split it into shorter replies."));
         }
         return { sent: true, inserted: checked.inserted };
       });
+      if ("refused" in answer) {
+        progress.refusals += 1;
+        progress.over = progress.refusals > 1;
+      } else if ("sent" in answer) {
+        progress.refusals = 0;
+      }
+      if (made) {
+        job.jobs.wake();
+        await settleHandOff(made);
+      }
+      return answer;
     }),
     hand_to_bot: toolDefinition({
       name: "hand_to_bot",
@@ -230,7 +358,7 @@ export function turnTools({ job, kit, userId, name, representativeId, thread, en
       }),
     }).server(async ({ title, instructions }, context) => {
       // Set only by a live write, afresh on each try of it.
-      let made: { id: string; botId: string; conversationId: string } | undefined;
+      let made: MadeHandOff | undefined;
       const answer = await kit.liveActivity("hand_to_bot", context?.toolCallId, async (tx) => {
         made = undefined;
         // The row before the Conversation's lock, the order the owner's changes take them in: the
@@ -239,49 +367,18 @@ export function turnTools({ job, kit, userId, name, representativeId, thread, en
         if (!botId) return { error: noBotRefusal };
         // A test opens no Assignment: the Bot hears nothing.
         if (thread === null) return { handedOff: true };
-        let created: { id: string; conversationId: string };
         try {
-          // No Bot Turn is behind it, so it names none and starts a chain of its own.
-          created = await job.assignments.create(tx, {
-            userId,
-            botId,
-            title,
-            instructions: `From Representative "${name}".${thread.verified ? "" : unverifiedHandOff}\n\n${instructions}`,
-            job: handOffEndedJob,
-          });
+          made = await openHandOff(tx, thread, botId, title, instructions);
         } catch (error) {
           // The Bot can't take it or the work is malformed: the Model hears, and the Turn goes on.
           if (error instanceof ORPCError) return { error: error.message };
           throw error;
         }
-        await tx.insert(representativeHandOff).values({
-          assignmentId: created.id,
-          representativeId,
-          ...(thread && {
-            threadId: thread.threadId,
-            channel: thread.heard.channel,
-            externalId: thread.heard.externalId,
-            verified: thread.verified,
-          }),
-        });
-        made = { ...created, botId };
         return { handedOff: true };
       });
+      progress.handedOff ||= "handedOff" in answer;
       job.jobs.wake();
-      if (!made) return answer;
-      const { id, botId, conversationId } = made;
-      // It is handed off whatever happens here: Bot `botId` has it, and choosing a Bot moves it. An
-      // error here would reach the Model as a failed call, and it would hand off again.
-      try {
-        await job.threads.hintChanged(conversationId);
-        // The owner may have chosen another Bot while this was made: setBot only moves what it can see.
-        const now = await reportingBot(job.db, representativeId);
-        if (now && now !== botId) await job.assignments.move({ userId, id, botId: now });
-      } catch (error) {
-        if (!isAssignmentEnded(error)) {
-          job.logger.error(`Hand-off ${id} stays on Bot ${botId}: moving it failed`, error);
-        }
-      }
+      if (made) await settleHandOff(made);
       return answer;
     }),
     verify_customer: toolDefinition({
@@ -441,6 +538,19 @@ const threadPrompt = (entries: ThreadEntry[], verifiedTurn: boolean) =>
     };
   });
 
+/** What the Bot reads of code's hand-off: why it has the work, then what the Customer last wrote, under the same labels. */
+const codeHandOffInstructions = (entries: ThreadEntry[], verifiedTurn: boolean) =>
+  [
+    codeHandOffNote,
+    ...threadPrompt(
+      entries
+        .filter((entry) => entry.author === "customer")
+        .slice(-codeHandOffMessages)
+        .map((entry) => ({ ...entry, text: entry.text.slice(0, codeHandOffMessageLength) })),
+      verifiedTurn,
+    ).map((message) => message.content),
+  ].join("\n\n");
+
 /**
  * Plays the loop for a Customer's thread on `content`, which is what a Representative Turn and a
  * test conversation share. `on` says which: a real thread, or a `test`, whose tools are stubbed and
@@ -486,6 +596,7 @@ export async function playLoop(
     timeLimitMs: turnTimeLimitMs,
     plainTextReminder,
     setup: async (kit) => {
+      const progress: TurnProgress = { refusals: 0, handedOff: false, over: false };
       const tools: Record<string, AnyServerTool> = turnTools({
         job,
         kit,
@@ -494,21 +605,33 @@ export async function playLoop(
         representativeId,
         thread: "thread" in on ? on.thread : null,
         entries,
+        progress,
       });
       // By name, so a name off the code-defined list gives nothing.
-      const listed = content.tools.flatMap((tool) =>
-        Object.hasOwn(tools, tool) ? [tools[tool]!] : [],
+      const listed = content.tools.flatMap((tool): AnyServerTool[] =>
+        Object.hasOwn(tools, tool)
+          ? [
+              {
+                ...tools[tool]!,
+                // A call the same Step made after the hand-off that ended the Turn.
+                execute: async (args: unknown, context?: unknown) =>
+                  progress.over
+                    ? { error: turnOverRefusal }
+                    : tools[tool]!.execute!(args, context as never),
+              },
+            ]
+          : [],
       );
       // A test conversation's stand-in is unverified, as its prompt treats it.
       const systemPrompts = [
         ...systemPromptsOf(content),
         senderStanding("thread" in on && on.thread.verified),
       ];
-      if (!test) return { systemPrompts, tools: listed };
+      if (!test) return { systemPrompts, ended: () => progress.over, tools: listed };
       let stale = false;
       return {
         systemPrompts,
-        ended: () => stale,
+        ended: () => stale || progress.over,
         tools: listed.map((tool): AnyServerTool => ({
           ...tool,
           execute: async (args: unknown, context?: unknown) => {

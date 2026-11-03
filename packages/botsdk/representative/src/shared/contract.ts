@@ -233,7 +233,8 @@ export type ThreadHolder = "representative" | "owner" | "closed";
 /**
  * Who a thread is waiting on, derived from who holds it and who spoke last: the Customer after an
  * answer, and after a Customer's message the Representative, or the owner while they hold it. The
- * Bot, in place of the Customer, while an Assignment handed off from the thread is open. Null
+ * Bot, in place of the Customer, while an Assignment handed off from the thread is open. The owner
+ * after code's fixed hand-off message with no Bot working on it (ticket #1261). Null
  * once closed, while its Customer is blocked, whose message nobody answers, or when no Turn is on
  * its way to the last word on a thread its Representative holds.
  */

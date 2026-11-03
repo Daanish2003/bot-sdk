@@ -14,7 +14,7 @@ import {
 import { holdCustomers } from "./customer-merge";
 import { catchCode, customerProofLeadsTo, mayHoldCode } from "./customer-proof";
 import { type ChannelProof, judgeSender } from "./verification";
-import type { ReplyKind, ReplySource } from "../shared/replies";
+import type { ReplySource, StoredReplyKind } from "../shared/replies";
 
 /*
  * Customers and their threads (ticket #1249). A message finds or makes its Customer by identity
@@ -345,7 +345,7 @@ export async function storeReply(
   tx: Transaction,
   { threadId, heard, verified }: { threadId: string; heard: Heard; verified: boolean },
   { text, sources }: { text: string; sources: ReplySource[] },
-  replyKind: ReplyKind,
+  replyKind: StoredReplyKind,
   now: Date,
 ) {
   const [thread] = await tx

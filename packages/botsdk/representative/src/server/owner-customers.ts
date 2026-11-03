@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { type AnyColumn, and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 
 import { endedAssignmentStatuses } from "@botsdk/client/bot/assignment";
 import { botAssignment } from "@botsdk/bot/storage";
@@ -15,6 +15,7 @@ import type {
   ThreadView,
   ThreadWaitingOn,
 } from "../shared/contract";
+import { codeHandOffKind, type StoredReplyKind } from "../shared/replies";
 import {
   representative,
   representativeCustomer,
@@ -61,7 +62,8 @@ const identityTaken = () =>
  * handed back, or what was kept during a block: only the Customer's next message gets a Turn. A
  * Customer who is owed nothing else is waiting on the Bot while an Assignment handed off from the
  * thread is open (ticket #1254), and the Bot's result waits on the owner, if they hold the thread, as
- * a Customer's message does.
+ * a Customer's message does. When the last word is code's fixed hand-off message (ticket #1261), and
+ * no Bot is working on it, someone owes the Customer what it promised, and that is the owner.
  */
 export function waitingOn(
   state: ThreadState,
@@ -69,14 +71,18 @@ export function waitingOn(
   blocked: boolean,
   turnDue: boolean,
   botWorking = false,
+  codeHandedOff = false,
 ): ThreadWaitingOn {
   if (state === "closed" || blocked) return null;
   const speaking = lastAuthor === "customer" || lastAuthor === "bot";
   if (state === "owner") {
-    return speaking || turnDue ? "owner" : botWorking ? "bot" : "customer";
+    if (speaking || turnDue) return "owner";
+    if (botWorking) return "bot";
+    return codeHandedOff ? "owner" : "customer";
   }
   if (turnDue) return "representative";
   if (botWorking) return "bot";
+  if (codeHandedOff) return "owner";
   return speaking ? null : "customer";
 }
 
@@ -352,11 +358,13 @@ type ThreadRow = {
   waitingFrom: number | null;
   updatedAt: Date;
   lastAuthor: ThreadAuthor | null;
+  lastReplyKind: StoredReplyKind | null;
   botWorking: boolean;
 };
 
-/** The last author of a thread, a note aside. */
-const lastAuthorQuery = sql`select ${representativeThreadMessage.author} from ${representativeThreadMessage} where ${representativeThreadMessage.threadId} = ${representativeThread.id} and ${ne(representativeThreadMessage.author, "note")} order by ${representativeThreadMessage.position} desc limit 1`;
+/** `column` of a thread's last message, a note aside. */
+const lastMessageQuery = (column: AnyColumn) =>
+  sql`select ${column} from ${representativeThreadMessage} where ${representativeThreadMessage.threadId} = ${representativeThread.id} and ${ne(representativeThreadMessage.author, "note")} order by ${representativeThreadMessage.position} desc limit 1`;
 
 /** Whether an Assignment handed off from the thread is still open. */
 const botWorkingQuery = sql`exists (select 1 from ${representativeHandOff} inner join ${botAssignment} on ${botAssignment.id} = ${representativeHandOff.assignmentId} where ${representativeHandOff.threadId} = ${representativeThread.id} and ${botAssignment.status} not in (${sql.join(
@@ -377,7 +385,8 @@ const threadColumns = {
   turnId: representativeThread.turnId,
   waitingFrom: representativeThread.waitingFrom,
   updatedAt: representativeThread.updatedAt,
-  lastAuthor: sql<ThreadAuthor | null>`(${lastAuthorQuery})`,
+  lastAuthor: sql<ThreadAuthor | null>`(${lastMessageQuery(representativeThreadMessage.author)})`,
+  lastReplyKind: sql<StoredReplyKind | null>`(${lastMessageQuery(representativeThreadMessage.replyKind)})`,
   botWorking: sql<boolean>`${botWorkingQuery}`,
 };
 
@@ -398,6 +407,7 @@ function summary(row: ThreadRow): ThreadSummary {
       row.blockedAt !== null,
       row.turnId !== null || row.waitingFrom !== null,
       row.botWorking,
+      row.lastReplyKind === codeHandOffKind,
     ),
     messageCount: row.messageCount,
     updatedAt: row.updatedAt,
