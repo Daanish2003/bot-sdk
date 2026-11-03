@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useState } from "react";
+import { ReplySources } from "./reply-sources";
 import { toast } from "sonner";
 
 import { useI18n } from "@botsdk/react/provider";
@@ -119,6 +120,7 @@ function Transcript({ id }: { id: string }) {
               {new Date(message.createdAt).toLocaleString(locale)}
             </span>
             <span className="block whitespace-pre-wrap break-words">{message.text}</span>
+            {message.reply && <ReplySources reply={message.reply} />}
           </li>
         ))}
       </ol>

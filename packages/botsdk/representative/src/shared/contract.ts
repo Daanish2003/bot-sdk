@@ -2,6 +2,7 @@ import { oc, type } from "@orpc/contract";
 import { z } from "zod";
 
 import { checkFactValue, factTypes, type FactType } from "./facts";
+import type { ReplyProof } from "./replies";
 
 export { factTypes, isInEffect, type FactType } from "./facts";
 
@@ -26,6 +27,14 @@ export const maxTestConversations = 20;
 export const maxExpectations = 20;
 export const maxOverrideReasonLength = 1_000;
 export const maxSwitches = 100;
+/** The most characters a Release's documents may hold together: past it, a draft can't be approved. */
+export const maxReleaseDocumentChars = 100_000;
+/** The most documents a draft may hold. */
+export const maxDraftDocuments = 50;
+/** The most readable text one document may hold, in bytes: what Knowledge allows a converted file. */
+export const maxDocumentTextBytes = 2 * 1024 * 1024;
+/** The longest a document's name may be. */
+export const maxDocumentNameLength = 200;
 
 /** Whether `text` can be stored: Postgres takes no NUL in text or jsonb. */
 export const noNul = (text: string) => !text.includes("\u0000");
@@ -94,13 +103,41 @@ export const draftSchema = z.object({
   /** Scripted test conversations, run on the draft and pinned in the Release. */
   tests: z.array(testConversationSchema).max(maxTestConversations),
 });
-export type Draft = z.output<typeof draftSchema>;
 
 /**
- * What a Release pins: the owner's draft, with its test conversations, and the document snapshot
- * reference (empty until the Knowledge spec).
+ * A document in a draft or a Release: a reference to its text, which is kept in a row of its own that
+ * never changes, because drafts and Releases pass through Checkpoints and tools that shouldn't hold it.
  */
-export type ReleaseContent = Draft & { documentSnapshot: null };
+export type DocumentRef = {
+  id: string;
+  name: string;
+  /** SHA-256 of the text. */
+  hash: string;
+  /** How long the text is, in characters. */
+  chars: number;
+};
+
+/** A draft: what the owner writes, and the documents they chose, which only the document procedures change. */
+export type Draft = z.output<typeof draftSchema> & { documents: DocumentRef[] };
+
+/** The characters `documents` hold together, which the Release cap counts. */
+export const documentChars = (documents: DocumentRef[]) =>
+  documents.reduce((total, document) => total + document.chars, 0);
+
+/** The documents a Release pinned, frozen and hashed at approval. */
+export type DocumentSnapshot = {
+  /** SHA-256 over each document's name and text hash, in order. */
+  hash: string;
+  documents: DocumentRef[];
+};
+
+/**
+ * What a Release pins: the owner's draft, with its test conversations, and its document snapshot,
+ * null when it has no documents.
+ */
+export type ReleaseContent = Omit<Draft, "documents"> & {
+  documentSnapshot: DocumentSnapshot | null;
+};
 
 export type ReleaseSummary = {
   id: string;
@@ -125,6 +162,8 @@ export type RepresentativeSummary = {
 export type TranscriptEntry = {
   role: "customer" | "representative" | "tool" | "system";
   text: string;
+  /** What a sent reply rests on; absent on every other line and on a result stored before it. */
+  reply?: ReplyProof;
 };
 
 /** One expectation, and whether code found it held. */
@@ -156,6 +195,8 @@ export type TestStatus = "none" | "notRun" | "running" | "failed" | "passed";
  * that call knows its own.
  */
 export type PendingApproval = {
+  /** The hash of the documents when the Bot asked; none for no documents. */
+  documentsHash?: string;
   id: string;
   botId: string;
   expiresAt: string;
@@ -179,10 +220,11 @@ export type RepresentativeView = RepresentativeSummary & {
  * text, and null where that side has none (a Skill or switch only one side holds, a first Release).
  */
 export type DraftChange = {
-  field: "jobText" | "switch" | "skill" | "tool" | "model" | "test";
+  field: "jobText" | "switch" | "skill" | "tool" | "model" | "test" | "document";
   /**
-   * The switch, Skill, tool or test the change is about; null for the job text and Model, and for
-   * Skills or tests put in another order, whose sides are then their names in order.
+   * The switch, Skill, tool, test or document the change is about; null for the job text and Model,
+   * and for Skills, tests or documents put in another order, whose sides are then their names in
+   * order.
    */
   name: string | null;
   before: string | null;
@@ -259,6 +301,8 @@ export type ThreadMessageView = {
   externalId: string;
   /** Whether the Turn it belongs to was for a verified sender. */
   verified: boolean;
+  /** A Representative's reply's kind and sources; null on every other message. */
+  reply: ReplyProof | null;
   createdAt: Date;
 };
 
@@ -412,6 +456,8 @@ export const updateDraftInput = z.object({
   id: z.uuid(),
   draft: draftSchema.partial(),
 });
+export const documentUploadInput = z.object({ id: z.uuid(), file: z.file() });
+export const documentRemoveInput = z.object({ id: z.uuid(), documentId: z.uuid() });
 export const setEnabledInput = z.object({ id: z.uuid(), enabled: z.boolean() });
 export const setBotInput = z.object({ id: z.uuid(), botId: z.uuid() });
 
@@ -424,11 +470,19 @@ export const representativeContract = {
   create: oc.input(createInput).output(type<RepresentativeView>()),
   /** Changes fields of the draft. The live Release stays as it is. */
   updateDraft: oc.input(updateDraftInput).output(type<RepresentativeView>()),
+  /**
+   * Adds a document to the draft, its text copied now with no Computer; one of the same name is
+   * replaced. Markdown and plain text always, PDF and DOCX when the Host passed a conversion.
+   */
+  documentUpload: oc.input(documentUploadInput).output(type<RepresentativeView>()),
+  /** Takes a document out of the draft. A Release that holds it keeps it. */
+  documentRemove: oc.input(documentRemoveInput).output(type<RepresentativeView>()),
   /** Runs the draft's test conversations on a job, replacing earlier results, and returns at once. */
   runTests: oc.input(idInput).output(type<RepresentativeView>()),
   /**
    * Pins the draft as the next numbered Release and makes it live. Refused while its tests have
-   * failed or haven't finished, unless `overrideReason` says why not.
+   * failed or haven't finished, unless `overrideReason` says why not, and whatever the reason while
+   * its documents pass `maxReleaseDocumentChars`.
    */
   approve: oc.input(approveInput).output(type<ReleaseView>()),
   /** The owner's no to a Bot's draft: the Bot is told, and the draft stays. */

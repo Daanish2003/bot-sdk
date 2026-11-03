@@ -52,7 +52,11 @@
     "sql": "ALTER TABLE \"botsdk\".\"representative_thread_message\" ADD COLUMN \"reply_kind\" text;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_thread_message\" ADD COLUMN \"sources\" jsonb;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_thread_message\" ADD COLUMN \"assignment_id\" uuid;"
   },
   {
-    "name": "20261103215151_representative_gaps",
+    "name": "20261103215337_representative_document",
+    "sql": "CREATE TABLE \"botsdk\".\"representative_document\" (\n\t\"id\" uuid PRIMARY KEY,\n\t\"representative_id\" uuid NOT NULL,\n\t\"name\" text NOT NULL,\n\t\"text\" text NOT NULL,\n\t\"hash\" text NOT NULL,\n\t\"chars\" integer NOT NULL,\n\t\"created_at\" timestamp NOT NULL\n);\n--> statement-breakpoint\nCREATE INDEX \"representative_document_representative_idx\" ON \"botsdk\".\"representative_document\" (\"representative_id\");--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_document\" ADD CONSTRAINT \"representative_document_yOfvktNhvbC5_fkey\" FOREIGN KEY (\"representative_id\") REFERENCES \"botsdk\".\"representative\"(\"id\") ON DELETE CASCADE;"
+  },
+  {
+    "name": "20261103223743_representative_gaps",
     "sql": "CREATE TABLE \"botsdk\".\"representative_gap\" (\n\t\"id\" uuid PRIMARY KEY,\n\t\"user_id\" text NOT NULL,\n\t\"representative_id\" uuid,\n\t\"question\" text NOT NULL,\n\t\"normalized\" text NOT NULL,\n\t\"count\" integer DEFAULT 1 NOT NULL,\n\t\"status\" text DEFAULT 'open' NOT NULL,\n\t\"first_at\" timestamp NOT NULL,\n\t\"last_at\" timestamp NOT NULL,\n\t\"closed_at\" timestamp\n);\n--> statement-breakpoint\nCREATE UNIQUE INDEX \"representative_gap_open_idx\" ON \"botsdk\".\"representative_gap\" (\"user_id\",\"normalized\") WHERE \"status\" = 'open';--> statement-breakpoint\nCREATE INDEX \"representative_gap_user_idx\" ON \"botsdk\".\"representative_gap\" (\"user_id\",\"last_at\");--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_gap\" ADD CONSTRAINT \"representative_gap_representative_id_representative_id_fkey\" FOREIGN KEY (\"representative_id\") REFERENCES \"botsdk\".\"representative\"(\"id\") ON DELETE SET NULL;"
   }
 ]

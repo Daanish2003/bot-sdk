@@ -1,5 +1,6 @@
 /// <reference types="node" />
 import { postgres, type BotSdkOptions } from "@botsdk/bot";
+import { convertDocument } from "@botsdk/knowledge/convert";
 import { mcp } from "@botsdk/mcp";
 import { representative } from "@botsdk/representative";
 
@@ -30,6 +31,7 @@ export default {
     // MCP (ADR 0027): the users' Connections to the Host's MCP servers (`MCP_SERVER_*`).
     mcp({ servers: mcpServersOf(process.env) }),
     // Representatives (spec #1167): restricted agents that speak for the owner, through approved Releases.
-    representative(),
+    // Their uploads convert with Knowledge's parsers, which need no Computer.
+    representative({ convertDocument }),
   ],
 } as const satisfies Pick<BotSdkOptions, "database" | "features">;

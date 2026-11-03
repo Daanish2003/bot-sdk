@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "54086f7e-7c06-4561-aabd-00a1700ed5c5",
-  "prevIds": ["41b983fe-ab72-4e9a-85fc-66d05e3b51f6"],
+  "id": "9e76231d-7e01-4aa3-b4c4-fc62ac3e6e1c",
+  "prevIds": ["3c91c6dc-b56b-46e1-8b5e-39a4cb013c0f"],
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -25,6 +25,12 @@
     {
       "isRlsEnabled": false,
       "name": "representative_customer_merge",
+      "entityType": "tables",
+      "schema": "botsdk"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "representative_document",
       "entityType": "tables",
       "schema": "botsdk"
     },
@@ -536,6 +542,97 @@
       "entityType": "columns",
       "schema": "botsdk",
       "table": "representative_customer_merge"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_document"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "representative_id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_document"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "name",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_document"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "text",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_document"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "hash",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_document"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "chars",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_document"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_document"
     },
     {
       "type": "uuid",
@@ -1780,6 +1877,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "representative_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "representative_document_representative_idx",
+      "entityType": "indexes",
+      "schema": "botsdk",
+      "table": "representative_document"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "user_id",
           "isExpression": false,
           "asc": true,
@@ -2087,6 +2205,19 @@
       "tableTo": "representative",
       "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "representative_document_yOfvktNhvbC5_fkey",
+      "entityType": "fks",
+      "schema": "botsdk",
+      "table": "representative_document"
+    },
+    {
+      "nameExplicit": false,
+      "columns": ["representative_id"],
+      "schemaTo": "botsdk",
+      "tableTo": "representative",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "name": "representative_gap_representative_id_representative_id_fkey",
       "entityType": "fks",
@@ -2253,6 +2384,14 @@
       "name": "representative_customer_merge_pkey",
       "schema": "botsdk",
       "table": "representative_customer_merge",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["id"],
+      "nameExplicit": false,
+      "name": "representative_document_pkey",
+      "schema": "botsdk",
+      "table": "representative_document",
       "entityType": "pks"
     },
     {

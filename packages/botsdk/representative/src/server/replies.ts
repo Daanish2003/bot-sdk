@@ -5,6 +5,7 @@ import { maxThreadMessageLength } from "../shared/contract";
 import { isInEffect } from "../shared/facts";
 import { type ReplyKind, type ReplySource, sourceFreeKinds } from "../shared/replies";
 import type { ThreadEntry } from "./customers";
+import type { DocumentText } from "./documents";
 import { representativeFact } from "./db/schema";
 
 /*
@@ -73,6 +74,7 @@ export async function checkReply(
     kind,
     sources,
     entries,
+    documents,
   }: {
     userId: string;
     now: Date;
@@ -81,6 +83,8 @@ export async function checkReply(
     sources: ReplySource[];
     /** What this Turn read of its thread: a Bot's result is a source only if it was this Turn's to tell. */
     entries: ThreadEntry[];
+    /** The documents the Turn's Release pinned: a quote is checked against these and no other text. */
+    documents: DocumentText[];
   },
 ): Promise<CheckedReply | { error: string }> {
   if (brokenKey(text)) {
@@ -125,6 +129,20 @@ export async function checkReply(
     if (!told) {
       return refused(
         `no result of Assignment "${source.assignmentId}" that this Turn is to tell has that exact quote.`,
+      );
+    }
+  }
+  for (const source of sources) {
+    if (source.type !== "document") continue;
+    const document = documents.find((candidate) => candidate.name === source.name);
+    if (!document) {
+      return refused(
+        `"${source.name.slice(0, 64)}" is not a document of this Release. Cite one you were given, or don't state it.`,
+      );
+    }
+    if (!document.text.includes(source.quote)) {
+      return refused(
+        `document "${source.name.slice(0, 64)}" has no such exact quote. Quote it word for word, or don't state it.`,
       );
     }
   }

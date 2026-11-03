@@ -765,6 +765,8 @@ describe("who can reach a Turn", () => {
       "customerUpdateIdentity",
       "declineApproval",
       "diff",
+      "documentRemove",
+      "documentUpload",
       "factAdd",
       "factDelete",
       "factEdit",

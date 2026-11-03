@@ -22,6 +22,7 @@
   "devDependencies": {
     "@ai-chat/config": "workspace:*",
     "@ai-chat/test-support": "workspace:*",
+    "@botsdk/knowledge": "workspace:*",
     "@botsdk/testing": "workspace:*",
     "@tanstack/react-query": "^5.102.8",
     "@types/react": "catalog:",
@@ -32,11 +33,15 @@
   "peerDependencies": {
     "@botsdk/bot": "workspace:*",
     "@botsdk/client": "workspace:*",
+    "@botsdk/knowledge": "workspace:*",
     "@botsdk/react": "workspace:*",
     "@tanstack/react-query": "^5.102.8",
     "react": "catalog:"
   },
   "peerDependenciesMeta": {
+    "@botsdk/knowledge": {
+      "optional": true
+    },
     "@botsdk/react": {
       "optional": true
     },

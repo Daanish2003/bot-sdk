@@ -191,7 +191,11 @@ describe("the diff between a draft and the live Release", () => {
       documentSnapshot: null,
       tests: [kept, { name: "Refunds", turns: ["a"] }],
     };
-    const draft = { ...base, tests: [kept, { name: "Refunds", turns: ["b"] }, { name: "New" }] };
+    const draft = {
+      ...base,
+      documents: [],
+      tests: [kept, { name: "Refunds", turns: ["b"] }, { name: "New" }],
+    };
 
     const tests = draftChanges(draft as never, live as never).filter(
       (change) => change.field === "test",
@@ -219,7 +223,10 @@ describe("the diff between a draft and the live Release", () => {
       ],
     };
 
-    const changes = draftChanges({ ...base, skills: [{ name: "A", text: "1" }] }, live);
+    const changes = draftChanges(
+      { ...base, skills: [{ name: "A", text: "1" }], documents: [] },
+      live,
+    );
 
     // The second "A" is gone.
     expect(changes).toEqual([
@@ -243,14 +250,17 @@ describe("the diff between a draft and the live Release", () => {
   it("shows a Model chosen where the live Release named none, and the reverse, as none", () => {
     const base = { jobText: "x", switches: {}, skills: [], tools: [], tests: [] };
     const live = { ...base, model: null, documentSnapshot: null };
-    const draft = { ...base, model };
+    const draft = { ...base, model, documents: [] };
 
     expect(draftChanges(draft, live)).toEqual([
       { field: "model", name: null, before: null, after: JSON.stringify(model) },
     ]);
-    expect(draftChanges({ ...base, model: null }, { ...draft, documentSnapshot: null })).toEqual([
-      { field: "model", name: null, before: JSON.stringify(model), after: null },
-    ]);
+    expect(
+      draftChanges(
+        { ...base, model: null, documents: [] },
+        { ...base, model, documentSnapshot: null },
+      ),
+    ).toEqual([{ field: "model", name: null, before: JSON.stringify(model), after: null }]);
   });
 
   it("keeps a repeated name's key from colliding with a real name", () => {
@@ -263,7 +273,7 @@ describe("the diff between a draft and the live Release", () => {
     const edited = [skills[0]!, { name: "A", text: "changed" }, skills[2]!];
 
     const changes = draftChanges(
-      { ...base, skills: edited },
+      { ...base, skills: edited, documents: [] },
       { ...base, skills, documentSnapshot: null },
     );
 
@@ -288,7 +298,7 @@ describe("the diff between a draft and the live Release", () => {
     });
 
     const changes = draftChanges(
-      { ...base, skills: [second, first], tests: [test("B"), test("A")] },
+      { ...base, skills: [second, first], tests: [test("B"), test("A")], documents: [] },
       { ...base, skills: [first, second], tests: [test("A"), test("B")], documentSnapshot: null },
     );
 
@@ -314,7 +324,7 @@ describe("the diff between a draft and the live Release", () => {
     const second = { name: "Second", text: "2" };
 
     const changes = draftChanges(
-      { ...base, skills: [second] },
+      { ...base, skills: [second], documents: [] },
       { ...base, skills: [first, second], documentSnapshot: null },
     );
 
