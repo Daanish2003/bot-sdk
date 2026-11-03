@@ -105,7 +105,9 @@ function citedSources(messages: ModelMessage[]): ReplySource[] {
   );
 }
 
-const describeSource = (source: ReplySource) =>
+const describeSource = (
+  source: ReplySource | NonNullable<Extract<Expectation, { kind: "cited" }>["source"]>,
+) =>
   source.type === "fact"
     ? `the fact ${source.key}`
     : source.type === "document"
