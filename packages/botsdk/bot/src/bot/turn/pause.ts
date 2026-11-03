@@ -81,10 +81,11 @@ async function recordChanges(
 }
 
 /**
- * Resumes the user's paused Bot (spec #1007): the pause is cleared. Nothing skipped meanwhile is
+ * Resumes the user's paused Bot (spec #1007): the pause is cleared. What came due meanwhile is not
  * replayed, and its Routines run again from their next slot; its open Assignments wake it afresh
- * (spec #1166), as work others are waiting on has no slot to come back at. Resuming a Bot that isn't paused
- * changes nothing. Another user's Bot is not found.
+ * (spec #1166), as work others are waiting on has no slot to come back at, and so do the answers it
+ * was given meanwhile (`deliverAnswersAfterPause`). Resuming a Bot that isn't paused changes nothing.
+ * Another user's Bot is not found.
  */
 export async function resumeBot(deps: BotSdkContext, userId: string, botId: string): Promise<void> {
   const found = await findBot(deps.db, userId, botId);
@@ -101,10 +102,7 @@ export async function resumeBot(deps: BotSdkContext, userId: string, botId: stri
       .returning({ id: bot.id });
     if (!row) return false;
     await recordChanges(tx, found, rooms, botId, deps.clock());
-    answered = await deliverAnswersAfterPause(deps, tx, {
-      botId,
-      conversationId: found.conversationId,
-    });
+    answered = await deliverAnswersAfterPause(deps, tx, botId, [found.conversationId, ...rooms]);
     return true;
   });
   if (!resumed) return;

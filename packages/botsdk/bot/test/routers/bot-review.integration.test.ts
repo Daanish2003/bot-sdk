@@ -1642,6 +1642,92 @@ describe("a late answer to a pending Approval", () => {
     expect(bot.computerFake.callsOf("run")).toEqual([]);
     expect(await turnsOf(bot.botId)).toHaveLength(1);
   }, 30_000);
+
+  const denialOf = (reviewId: string) =>
+    `The user denied your earlier shell call "Deploy" (review ${reviewId})`;
+
+  /** The Turns' statuses, once none of them runs. */
+  const settledTurns = async (botId: string) => {
+    await expect
+      .poll(async () => (await turnsOf(botId)).some((turn) => turn.status === "running"), {
+        timeout: 10_000,
+      })
+      .toBe(false);
+    return (await turnsOf(botId)).map((turn) => turn.status);
+  };
+
+  describe("while the Bot is paused", () => {
+    it("wakes it with a denial on resume, once", async () => {
+      const bot = await botWith([round(shell("make deploy")), round(), round()], {
+        reviewer: deploying(),
+      });
+      const waiting = await pendingAfter(bot, "ship it");
+      await bot.client.bots.pause({ botId: bot.botId });
+
+      await bot.client.reviews.deny({ reviewId: waiting.id });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(await turnsOf(bot.botId)).toHaveLength(1);
+
+      await bot.client.bots.resume({ botId: bot.botId });
+
+      expect(await newestInputOf(bot.fake, 2)).toContain(denialOf(waiting.id));
+      expect(await settledTurns(bot.botId)).toEqual(["complete", "complete"]);
+      const calls = bot.fake.calls.length;
+      await bot.client.bots.pause({ botId: bot.botId });
+      await bot.client.bots.resume({ botId: bot.botId });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(bot.fake.calls).toHaveLength(calls);
+    }, 30_000);
+
+    it("wakes it with the result of a call already running when it paused", async () => {
+      let finish: () => void = () => {};
+      const running = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      const bot = await botWith([round(shell("make deploy")), round(), round()], {
+        reviewer: deploying(),
+        onCommand: async () => {
+          await running;
+          return { exitCode: 0, stdout: "deployed v2", stderr: "" };
+        },
+      });
+      const waiting = await pendingAfter(bot, "ship it");
+      await bot.client.reviews.allow({ reviewId: waiting.id });
+      await expect.poll(() => bot.computerFake.callsOf("run").length, { timeout: 10_000 }).toBe(1);
+      await bot.client.bots.pause({ botId: bot.botId });
+
+      finish();
+      await expect
+        .poll(
+          async () =>
+            (await getTestDb().select().from(botTrigger)).filter(
+              (row) => row.botId === bot.botId && row.source === "approval",
+            ).length,
+          { timeout: 10_000 },
+        )
+        .toBe(1);
+      expect(await turnsOf(bot.botId)).toHaveLength(1);
+
+      await bot.client.bots.resume({ botId: bot.botId });
+
+      expect(await newestInputOf(bot.fake, 2)).toContain("deployed v2");
+    }, 30_000);
+
+    it("leaves a Bot reset since asleep", async () => {
+      const bot = await botWith([round(shell("make deploy")), round(), round()], {
+        reviewer: deploying(),
+      });
+      const waiting = await pendingAfter(bot, "ship it");
+      await bot.client.bots.pause({ botId: bot.botId });
+      await bot.client.reviews.deny({ reviewId: waiting.id });
+      await bot.client.bots.reset({ botId: bot.botId, name: "Ada" });
+
+      await bot.client.bots.resume({ botId: bot.botId });
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(bot.fake.calls).toHaveLength(2);
+    }, 30_000);
+  });
 });
 
 describe("bot.review.list", () => {
