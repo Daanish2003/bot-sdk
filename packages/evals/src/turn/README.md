@@ -273,4 +273,14 @@ tool-name list in the Prompt start are tuned until these pass. Record each run h
 - **After those fixes:** summary 1/1 (judge 1/1), tool-reminder 3/3, tool-routine 3/3 and
   tool-helper 3/3. Results: `context-2026-10-21T05-45-41-242Z.json`.
 
-**cache: not run yet.** It needs a direct Anthropic key, because the plan caches nothing (#664).
+**2026-11-03, direct Anthropic key, `anthropic:claude-haiku-4-5`, `--only=cache` (#703):**
+
+- **First run:** cache 0/1. The Turn calls passed, but `warmBot` skipped with `unavailable`, because
+  `@tanstack/ai-anthropic@1.0.0` refuses `max_tokens: 0` before any request goes out. The warm now
+  sends `max_tokens: 1` (#1214).
+- **After that fix:** cache 1/1. Six Turn calls and one warm, with no `bug` flags. Each Turn call after
+  the first read 90% to 97% of its input from the cache. The warm read 6,160 tokens, wrote 383 and
+  generated 1 output token, and the Turn after it read 6,543 of its 6,678 tokens. Results:
+  `context-2026-11-03T05-40-00-870Z.json`.
+- **Not covered:** the eval makes the warm due by aging the usage rows, so the real cache was still
+  alive. A warm after the cache has really expired, and how a real gap costs, wasn't run.
