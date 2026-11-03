@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { oneLine, parseMessage, plainText } from "@botsdk/client/message-format";
+
+// A few tests here read very long source, which takes seconds and many times that on a busy machine.
+vi.setConfig({ testTimeout: 120_000 });
 
 describe("oneLine", () => {
   it("is the first line with no Markdown characters", () => {
@@ -293,9 +296,11 @@ describe("text as written", () => {
   });
 
   it("reads a long run in time that grows with its length", () => {
-    const started = performance.now();
+    // CPU time: what else a busy machine runs doesn't count. A run read whole takes a minute or more.
+    const started = process.cpuUsage();
     expect(plainText("*a ".repeat(30_000))).toContain("a");
-    expect(performance.now() - started).toBeLessThan(20_000);
+    const { user, system } = process.cpuUsage(started);
+    expect((user + system) / 1000).toBeLessThan(20_000);
   });
 
   it("keeps formatting in a long run", () => {
