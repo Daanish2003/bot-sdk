@@ -536,7 +536,7 @@ export async function runLoop(
       // The cache controls of the Model's Provider, under the loop's own key.
       const cached = withCacheControl(provider, cacheKey, pruned);
       for await (const chunk of adapter.chatStream(cached)) {
-        chunks.push(withoutRaw(chunk));
+        chunks.push(withNulEscaped(withoutRaw(chunk)));
       }
     } catch (caught) {
       throw new ModelCallError(caught);
@@ -1064,6 +1064,9 @@ export async function runLoop(
                 providerMessages: [...(config.providerMessages ?? config.messages), ...added],
               };
             },
+            // Read from the recorded call, so a replay refuses it alike.
+            onBeforeToolCall: (_middlewareCtx, { args }) =>
+              holdsNul(args) ? { type: "skip", result: { error: nulRefusedError } } : undefined,
             onShouldContinue: (_middlewareCtx, state) => {
               // A tool call that ends the loop ends it with no further model call.
               if (ended()) return false;
@@ -1180,6 +1183,32 @@ function withoutRaw(chunk: StreamChunk): StreamChunk {
   if (!("rawEvent" in chunk)) return chunk;
   const { rawEvent: _raw, ...rest } = chunk;
   return rest as StreamChunk;
+}
+
+/** What the Model gets for a tool call whose arguments hold a NUL, which nothing can store. */
+const nulRefusedError =
+  "This call was refused and didn't run: its arguments hold a NUL character (\\u0000), which " +
+  "can't be stored. Call it again without one.";
+
+/** Whether a tool call's parsed arguments hold a NUL, in a key or a value. */
+function holdsNul(value: unknown): boolean {
+  if (typeof value === "string") return value.includes("\0");
+  if (typeof value !== "object" || value === null) return false;
+  return Object.entries(value).some(([key, item]) => key.includes("\0") || holdsNul(item));
+}
+
+/**
+ * A live chunk with a tool call's NUL as its JSON escape: a Checkpoint drops a NUL (`asJson`), which
+ * would run a call the Model didn't write, but keeps the escape's text, so the arguments still parse
+ * to a NUL and the call is refused. An `input` that holds one gives way to its JSON, as the input
+ * would otherwise win over the streamed text once it lost the NUL.
+ */
+function withNulEscaped(chunk: StreamChunk): StreamChunk {
+  const escaped = (text: string) => text.replaceAll("\0", "\\u0000");
+  if (chunk.type === EventType.TOOL_CALL_ARGS) return { ...chunk, delta: escaped(chunk.delta) };
+  if (chunk.type !== EventType.TOOL_CALL_END || !holdsNul(chunk.input)) return chunk;
+  const { input, ...rest } = chunk;
+  return { ...rest, args: JSON.stringify(input) } as StreamChunk;
 }
 
 /** Whether the last Step ended in non-empty plain text and no tool call. */

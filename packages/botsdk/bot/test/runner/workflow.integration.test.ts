@@ -226,7 +226,19 @@ listed({
   },
 });
 
+let nulResults: unknown[] = [];
+
+listed({
+  name: "workflow.nul",
+  payload: z.object({}),
+  run: async (_payload, ctx) => {
+    nulResults.push(await ctx.step("plain", () => ({ text: "a\0b", "k\0ey": "\\u0000 \\\\\0" })));
+    nulResults.push(await ctx.step("tx", async (_tx) => ["c\0d"]));
+  },
+});
+
 beforeEach(() => {
+  nulResults = [];
   holdAt = undefined;
   effects.length = 0;
   results = [];
@@ -293,6 +305,16 @@ async function jobOf(id: string) {
 const markers = async () => db().select().from(job).where(eq(job.name, MARKER));
 
 describe("a workflow's history", () => {
+  it("keeps a result holding a NUL without it, and returns what it kept, keeping the text of an escape", async () => {
+    const { timer, id } = await enqueue("workflow.nul");
+
+    await attempt(timer);
+
+    expect(nulResults).toEqual([{ text: "ab", key: "\\u0000 \\\\" }, ["cd"]]);
+    expect((await jobOf(id))?.status).toBe("succeeded");
+    expect((await historyOf(id)).map((row) => row.result)).toEqual(nulResults);
+  });
+
   it("records each finished activity as a Checkpoint, in call order", async () => {
     const { timer, id } = await enqueue("workflow.steps");
 

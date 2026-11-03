@@ -1,4 +1,4 @@
-import type { AnyTextAdapter, ModelMessage, TextOptions } from "@tanstack/ai";
+import { type AnyTextAdapter, EventType, type ModelMessage, type TextOptions } from "@tanstack/ai";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -1822,6 +1822,92 @@ describe("a late answer to a pending Approval", () => {
       await expect.poll(() => newestHolding(bot.fake, denial), { timeout: 10_000 }).toBe(1);
     }, 30_000);
   });
+});
+
+describe("a NUL in a Turn's Checkpoints", () => {
+  const toolResults = (call: TextOptions | undefined) =>
+    inputOf(call)
+      .filter((sent) => sent.role === "tool")
+      .map((sent) => String(sent.content));
+
+  const turnJobAttempts = async (botId: string) => {
+    const [turn] = await turnsOf(botId);
+    const [row] = await getTestDb().select().from(job).where(eq(job.id, turn!.jobId!));
+    return row?.attempts;
+  };
+
+  it.each([
+    ["shell", { command: "echo a\0b" }],
+    ["send_to_user", { text: "hi\0there" }],
+  ])(
+    "refuses a %s call holding one: it doesn't run, the Model is told, and the Turn goes on",
+    async (name, input) => {
+      const bot = await botWith([round(toolCall({ name, input })), round(), round()]);
+
+      await send(bot.client, bot.botId, "go");
+
+      expect((await turnsOf(bot.botId)).map((turn) => [turn.status, turn.error])).toEqual([
+        ["complete", null],
+      ]);
+      expect(await turnJobAttempts(bot.botId)).toBe(1);
+      expect(bot.fake.calls).toHaveLength(2);
+      expect(toolResults(bot.fake.calls.at(-1)).join()).toContain("NUL");
+      expect(toolResults(bot.fake.calls.at(-1)).join()).toContain("refused");
+      expect(bot.computerFake.callsOf("run")).toEqual([]);
+      expect(bot.reviewer.calls).toEqual([]);
+      const { messages } = await bot.client.bots.get({ botId: bot.botId });
+      expect(messages.filter((row) => row.role === "assistant")).toEqual([]);
+
+      // Its transcript goes back to the Model in the next Turn's history.
+      await send(bot.client, bot.botId, "and now");
+      expect((await turnsOf(bot.botId)).map((turn) => turn.status)).toEqual([
+        "complete",
+        "complete",
+      ]);
+    },
+    30_000,
+  );
+
+  it("refuses one whose arguments stream as a raw NUL, or come only at the call's end", async () => {
+    const end = (chunks: ReturnType<typeof toolCall>) =>
+      chunks.filter((chunk) => chunk.type !== EventType.TOOL_CALL_ARGS);
+    const bot = await botWith([
+      round(toolCall({ name: "shell", input: {}, raw: '{"command":"echo a\0b"}' })),
+      round(end(toolCall({ name: "shell", input: { command: "echo c\0d" } }))),
+      round(),
+    ]);
+
+    await send(bot.client, bot.botId, "go");
+
+    expect((await turnsOf(bot.botId)).map((turn) => turn.status)).toEqual(["complete"]);
+    expect(bot.computerFake.callsOf("run")).toEqual([]);
+    expect(toolResults(bot.fake.calls.at(-1)).filter((row) => row.includes("NUL"))).toHaveLength(2);
+  }, 30_000);
+
+  it("leaves a tool call's text that only spells an escape alone", async () => {
+    const bot = await botWith([round(shell("printf '\\u0000'")), round()]);
+
+    await send(bot.client, bot.botId, "go");
+
+    expect(bot.computerFake.callsOf("run").map((run) => run.command)).toEqual(["printf '\\u0000'"]);
+  }, 30_000);
+
+  it("drops one from the Model's text and a tool's result, and the Turn ends as usual", async () => {
+    const bot = await botWith([round(text("hello\0world"), shell("cat bin")), round()], {
+      onCommand: () => ({ exitCode: 0, stdout: "a\0b", stderr: "" }),
+    });
+
+    await send(bot.client, bot.botId, "go");
+
+    expect((await turnsOf(bot.botId)).map((turn) => [turn.status, turn.error])).toEqual([
+      ["complete", null],
+    ]);
+    expect(await turnJobAttempts(bot.botId)).toBe(1);
+    const sent = JSON.stringify(inputOf(bot.fake.calls.at(-1)));
+    expect(sent).not.toContain("\\u0000");
+    expect(sent).toContain("helloworld");
+    expect(toolResults(bot.fake.calls.at(-1)).join()).toContain("ab");
+  }, 30_000);
 });
 
 describe("bot.review.list", () => {
