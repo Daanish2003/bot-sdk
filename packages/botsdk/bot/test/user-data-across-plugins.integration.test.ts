@@ -37,6 +37,8 @@ import {
   representative as representativeTable,
   representativeCustomer,
   representativeCustomerIdentity,
+  representativeFact,
+  representativeFactLog,
   representativeRelease,
 } from "@botsdk/representative/server/db/schema";
 import { profilePath } from "@botsdk/memory/server/bot-memory";
@@ -72,6 +74,8 @@ const userTables = [
   representativeTable,
   representativeCustomer,
   representativeCustomerIdentity,
+  representativeFact,
+  representativeFactLog,
 ].flatMap((value) => {
   if (!is(value, PgTable)) return [];
   const { name, columns } = getTableConfig(value);
@@ -223,6 +227,34 @@ async function seedEverything(
   await getTestDb()
     .insert(representativeCustomerIdentity)
     .values({ id: uuidv7(), userId: user.id, customerId, channel: "fake", externalId: "+1" });
+  // A Published fact, and the log entry of adding it.
+  const factAt = new Date("2026-06-01T09:00:00Z");
+  const loggedFact = {
+    type: "money",
+    topic: "Prices",
+    value: "45 USD",
+    validFrom: null,
+    validUntil: null,
+  } as const;
+  await getTestDb()
+    .insert(representativeFact)
+    .values({
+      id: uuidv7(),
+      userId: user.id,
+      key: "price.haircut",
+      ...loggedFact,
+      createdAt: factAt,
+      updatedAt: factAt,
+    });
+  await getTestDb().insert(representativeFactLog).values({
+    id: uuidv7(),
+    userId: user.id,
+    key: "price.haircut",
+    action: "add",
+    old: null,
+    new: loggedFact,
+    at: factAt,
+  });
   // A Representative reporting to the Bot, with a Release.
   const representativeId = uuidv7();
   await getTestDb()

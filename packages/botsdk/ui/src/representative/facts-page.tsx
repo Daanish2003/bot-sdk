@@ -1,0 +1,281 @@
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useState } from "react";
+import { toast } from "sonner";
+
+import { useI18n } from "@botsdk/react/provider";
+import { serverErrorText } from "@botsdk/react/rpc-error";
+import {
+  useAddFact,
+  useDeleteFact,
+  useEditFact,
+  useFactLog,
+  useFacts,
+  useRefreshRepresentatives,
+} from "@botsdk/representative/react";
+import {
+  type FactLogView,
+  type FactType,
+  type FactView,
+  factTypes,
+} from "@botsdk/representative/client";
+
+const toDateField = (date: Date | null) => (date ? date.toISOString().slice(0, 10) : "");
+const fromDateField = (value: string) => (value === "" ? null : new Date(`${value}T00:00:00Z`));
+
+type Fields = {
+  type: FactType;
+  topic: string;
+  value: string;
+  validFrom: Date | null;
+  validUntil: Date | null;
+};
+
+/** The type, topic, value and valid dates of one fact, saved with a button. */
+function FactFields({
+  label,
+  initial,
+  submitLabel,
+  disabled,
+  onSubmit,
+}: {
+  label: string;
+  initial: { type: FactType; topic: string; value: string; validFrom: string; validUntil: string };
+  submitLabel: string;
+  disabled: boolean;
+  onSubmit: (value: Fields) => void;
+}) {
+  const { t } = useI18n();
+  const [type, setType] = useState(initial.type);
+  const [topic, setTopic] = useState(initial.topic);
+  const [value, setValue] = useState(initial.value);
+  const [validFrom, setValidFrom] = useState(initial.validFrom);
+  const [validUntil, setValidUntil] = useState(initial.validUntil);
+  return (
+    <form
+      className="flex flex-wrap items-center gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit({
+          type,
+          topic,
+          value,
+          validFrom: fromDateField(validFrom),
+          validUntil: fromDateField(validUntil),
+        });
+      }}
+    >
+      <select
+        className="h-8 rounded-md border bg-background px-2 text-sm"
+        aria-label={t("representative.facts.typeOf", { name: label })}
+        value={type}
+        onChange={(event) => setType(event.target.value as FactType)}
+      >
+        {factTypes.map((each) => (
+          <option key={each} value={each}>
+            {each}
+          </option>
+        ))}
+      </select>
+      <Input
+        className="w-36"
+        aria-label={t("representative.facts.topicOf", { name: label })}
+        value={topic}
+        maxLength={100}
+        onChange={(event) => setTopic(event.target.value)}
+      />
+      <Input
+        className="w-64"
+        aria-label={t("representative.facts.valueOf", { name: label })}
+        value={value}
+        maxLength={2000}
+        onChange={(event) => setValue(event.target.value)}
+      />
+      <Input
+        className="w-40"
+        type="date"
+        aria-label={t("representative.facts.fromOf", { name: label })}
+        value={validFrom}
+        onChange={(event) => setValidFrom(event.target.value)}
+      />
+      <Input
+        className="w-40"
+        type="date"
+        aria-label={t("representative.facts.untilOf", { name: label })}
+        value={validUntil}
+        onChange={(event) => setValidUntil(event.target.value)}
+      />
+      <Button
+        type="submit"
+        variant="outline"
+        size="sm"
+        disabled={disabled || topic.trim() === "" || value.trim() === ""}
+      >
+        {submitLabel}
+      </Button>
+    </form>
+  );
+}
+
+function FactRow({ fact }: { fact: FactView }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const onError = (error: unknown) => toast.error(serverErrorText(i18n, error));
+  const edit = useEditFact({
+    onSuccess: async () => {
+      await refresh();
+      toast.success(t("representative.facts.saved"));
+    },
+    onError,
+  });
+  const remove = useDeleteFact({ onSuccess: () => refresh(), onError });
+  return (
+    <li data-fact={fact.key} data-in-effect={fact.inEffect} className="space-y-2 p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-mono text-sm font-medium">{fact.key}</span>
+        {!fact.inEffect && (
+          <span className="text-xs font-medium">{t("representative.facts.notInEffect")}</span>
+        )}
+        <Button
+          className="ml-auto"
+          variant="destructive"
+          size="sm"
+          disabled={remove.isPending}
+          aria-label={t("representative.facts.deleteOf", { name: fact.key })}
+          onClick={() => remove.mutate({ id: fact.id })}
+        >
+          {t("representative.facts.delete")}
+        </Button>
+      </div>
+      <FactFields
+        // Keyed by what is stored, so a refetch after a save reloads the fields.
+        key={fact.updatedAt.getTime()}
+        label={fact.key}
+        initial={{
+          type: fact.type,
+          topic: fact.topic,
+          value: fact.value,
+          validFrom: toDateField(fact.validFrom),
+          validUntil: toDateField(fact.validUntil),
+        }}
+        submitLabel={t("representative.facts.save")}
+        disabled={edit.isPending}
+        onSubmit={(value) => edit.mutate({ id: fact.id, ...value })}
+      />
+    </li>
+  );
+}
+
+function NewFactForm() {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const [key, setKey] = useState("");
+  const [added, setAdded] = useState(0);
+  const add = useAddFact({
+    onSuccess: async () => {
+      await refresh();
+      setKey("");
+      setAdded((count) => count + 1);
+    },
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  return (
+    <div className="space-y-2">
+      <div className="space-y-1">
+        <Label htmlFor="fact-key">{t("representative.facts.key")}</Label>
+        <Input
+          id="fact-key"
+          className="w-64"
+          value={key}
+          maxLength={64}
+          onChange={(event) => setKey(event.target.value)}
+        />
+      </div>
+      <FactFields
+        // Remounted empty once a fact is added, and kept as typed when the add is refused.
+        key={added}
+        label={t("representative.facts.new")}
+        initial={{ type: "text", topic: "General", value: "", validFrom: "", validUntil: "" }}
+        submitLabel={t("representative.facts.add")}
+        disabled={add.isPending || key.trim() === ""}
+        onSubmit={(value) => add.mutate({ key, ...value })}
+      />
+    </div>
+  );
+}
+
+function LogRow({ entry }: { entry: FactLogView }) {
+  const { t } = useI18n();
+  return (
+    <li data-log={entry.action} className="flex flex-wrap items-center gap-2 p-3 text-sm">
+      <span className="font-medium">{t(`representative.facts.log.${entry.action}`)}</span>
+      <span className="font-mono">{entry.key}</span>
+      {entry.old && (
+        <span className="text-xs text-muted-foreground">
+          {t("representative.facts.logOld", { value: entry.old.value })}
+        </span>
+      )}
+      {entry.new && (
+        <span className="text-xs text-muted-foreground">
+          {t("representative.facts.logNew", { value: entry.new.value })}
+        </span>
+      )}
+      <time className="ml-auto text-xs text-muted-foreground" dateTime={entry.at.toISOString()}>
+        {entry.at.toLocaleString()}
+      </time>
+    </li>
+  );
+}
+
+/**
+ * Facts: the owner's Published facts, grouped by topic, with a form to add one, and the log of
+ * every change. They belong to the owner and are shared by every Representative, and an edit
+ * applies at once. The Host mounts it at `/facts`.
+ */
+export function FactsPage() {
+  const { t } = useI18n();
+  const facts = useFacts();
+  const log = useFactLog();
+  // The list comes sorted by topic, so each topic's facts are together.
+  const topics = new Map<string, FactView[]>();
+  for (const fact of facts.data ?? [])
+    topics.set(fact.topic, [...(topics.get(fact.topic) ?? []), fact]);
+  return (
+    <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
+      <div className="space-y-1">
+        <h1 className="text-xl font-semibold">{t("representative.facts.title")}</h1>
+        <p className="text-sm text-muted-foreground">{t("representative.facts.intro")}</p>
+      </div>
+      <section className="space-y-2">
+        <h2 className="text-sm font-medium">{t("representative.facts.addTitle")}</h2>
+        <NewFactForm />
+      </section>
+      {facts.data?.length === 0 && (
+        <p className="text-sm text-muted-foreground">{t("representative.facts.none")}</p>
+      )}
+      {[...topics].map(([topic, inTopic]) => (
+        <section key={topic} data-topic={topic} className="space-y-2">
+          <h2 className="text-sm font-medium">{topic}</h2>
+          <ul className="divide-y overflow-hidden rounded-xl border">
+            {inTopic.map((fact) => (
+              <FactRow key={fact.id} fact={fact} />
+            ))}
+          </ul>
+        </section>
+      ))}
+      {log.data && log.data.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-medium">{t("representative.facts.logTitle")}</h2>
+          <ul className="divide-y overflow-hidden rounded-xl border">
+            {log.data.map((entry) => (
+              <LogRow key={entry.id} entry={entry} />
+            ))}
+          </ul>
+        </section>
+      )}
+    </main>
+  );
+}
