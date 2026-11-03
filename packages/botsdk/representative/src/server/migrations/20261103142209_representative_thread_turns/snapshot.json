@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "41919cf3-dade-49ea-92cf-e0679a5ac31b",
-  "prevIds": ["3bb62222-98c1-4332-a9c5-da54d219fa9f"],
+  "id": "06b9149f-d60b-4330-8162-ccf7713e3fdb",
+  "prevIds": ["30868cf4-3bbe-4d50-b005-3a6cffce3b04"],
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -222,6 +222,32 @@
       "table": "representative_customer"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "name",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_customer"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "blocked_at",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_customer"
+    },
+    {
       "type": "timestamp",
       "typeSchema": null,
       "notNull": true,
@@ -295,6 +321,32 @@
       "generated": null,
       "identity": null,
       "name": "external_id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_customer_identity"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "verified_contact_at",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_customer_identity"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "lapsed_at",
       "entityType": "columns",
       "schema": "botsdk",
       "table": "representative_customer_identity"
@@ -638,6 +690,19 @@
       "table": "representative_thread"
     },
     {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "waiting_from",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_thread"
+    },
+    {
       "type": "timestamp",
       "typeSchema": null,
       "notNull": false,
@@ -763,6 +828,19 @@
       "generated": null,
       "identity": null,
       "name": "text",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_thread_message"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "true",
+      "generated": null,
+      "identity": null,
+      "name": "verified",
       "entityType": "columns",
       "schema": "botsdk",
       "table": "representative_thread_message"

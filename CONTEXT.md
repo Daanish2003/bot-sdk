@@ -182,6 +182,10 @@ _Avoid_: Notification, ticket, alert
 A person who deals with a user's business through a Representative. A Customer isn't a user and never signs in to the app, and belongs to that one user's business.
 _Avoid_: Contact, end user, client
 
+**Verified identity**:
+One of a Customer's identities whose sender passed its Channel's rule, within the last 90 days of contact. A message whose sender isn't verified gets a prompt holding only what that identity said while unverified: nothing from the Customer's other identities, their memory or the identity's verified past.
+_Avoid_: Trusted, authenticated Customer
+
 **Assignment**:
 One piece of work handed to a Bot by a Representative or another Bot, with a status and a budget, and a log the user can read. It can be split into child Assignments, which block it while open; a chain stops at 3 deep.
 _Avoid_: Tracked task, task, ticket, work order

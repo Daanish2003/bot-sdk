@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, min, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { batchLongestMs, batchQuietMs } from "@botsdk/bot/bot/triggers";
@@ -7,14 +7,25 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { job } from "@botsdk/bot/storage";
 import { noNul } from "../shared/contract";
-import { maxThreadMessageLength, receiveMessage } from "./customers";
-import { representativeThread } from "./db/schema";
+import {
+  maxThreadMessageLength,
+  receiveMessage,
+  threadPromptChars,
+  threadPromptLimit,
+} from "./customers";
+import { representativeThread, representativeThreadMessage } from "./db/schema";
+import { queueIdleCheck } from "./idle";
+import { channelProof } from "./verification";
 
 /*
  * One Turn at a time on a Customer thread, with quick messages batched (ticket #1250). A message is
  * stored as it arrives. The thread's row says which Turn holds it and since when messages have
  * waited for one, and every change to those takes the row's lock, so an arriving message and a Turn
  * beginning or ending see each other. A Turn reads the messages that were there when it began.
+ *
+ * A batch has one sender, verified or not throughout, and fits what a Turn reads. It closes at the
+ * first message that breaks either, which waits for the next Turn, so each sender's Turn replies to
+ * that sender alone, and no batched message is dropped unread.
  */
 
 type Services = Pick<FeatureContext, "db" | "clock" | "jobs">;
@@ -58,30 +69,38 @@ const customerMessage = z.object({
   /** Who sent it. The Customer's id is code's, from this identity: a Model never names one. */
   channel: z.string().min(1).max(64).refine(noNul),
   externalId: z.string().min(1).max(512).refine(noNul),
+  /** What the Channel's Customer path says of the sender; a Channel with no rule says nothing. */
+  proof: channelProof.optional(),
   message: z.string().min(1).max(maxThreadMessageLength).refine(noNul),
 });
 export type CustomerMessage = z.infer<typeof customerMessage>;
 
 /**
  * Takes a Customer's message: stores it on its thread, and has a Turn answer it. Returns the job of
- * the Turn now holding the thread, which a later Turn follows if it has already begun, or null when
- * the Representative doesn't exist and nothing was stored.
+ * the Turn now holding the thread, which a later Turn follows if it has already begun; null when a
+ * blocked Customer's message is kept with no Turn; undefined when the Representative doesn't exist
+ * and nothing was stored.
  * No route, RPC or API method reaches this: until a later spec lets real Customers in, only the test
  * Customer entry point in the private `@ai-chat/test-support` package does.
  */
 export async function receiveCustomerMessage(services: Services, given: CustomerMessage) {
-  const { representativeId, channel, externalId, message } = customerMessage.parse(given);
+  const { representativeId, channel, externalId, proof, message } = customerMessage.parse(given);
   return services.db.transaction(async (tx) => {
     const now = services.clock();
     const received = await receiveMessage(tx, {
       representativeId,
       heard: { channel, externalId },
+      proof,
       text: message,
       now,
     });
-    if (!received) return null;
-    const { threadId, turnId, waitingSince } = received;
-    const runAfter = batchClosesAt(waitingSince, now);
+    if (!received) return undefined;
+    const { threadId, turnId, waitingSince, blocked, opened } = received;
+    // With the message, so a thread is never left without its closing job.
+    if (opened) await queueIdleCheck(services, tx, threadId, now);
+    // Kept for the owner, and nothing more: no model call, no reply and no Assignment.
+    if (blocked) return null;
+    const runAfter = batchClosesAt(waitingSince!, now);
     if (!turnId) return startTurn(services, tx, threadId, runAfter);
     // Its job hasn't started: this message joins the batch, and moves when it closes.
     const payload = { threadId, turnId };
@@ -104,21 +123,97 @@ export async function receiveCustomerMessage(services: Services, given: Customer
 }
 
 /**
- * Begins Turn `turnId` in its job's first Checkpoint: the batch closes, so what arrives from here on
- * waits for the next Turn. What it returns is what a replay reads again. Null when the thread has
- * gone or another Turn holds it.
+ * Where the batch starting at `rows`' first closes: at the row that breaks it, or at the end of the
+ * thread when none does. Sizes are in bytes, which a message's length in a Turn's read never exceeds.
+ */
+function closeBatch(
+  rows: {
+    position: number;
+    author: string;
+    channel: string;
+    externalId: string;
+    verified: boolean;
+    size: number;
+  }[],
+) {
+  const first = rows[0]!;
+  let chars = 0;
+  return rows.find((row, index) => {
+    chars += row.size;
+    const otherSender =
+      row.author === "customer" &&
+      (row.channel !== first.channel ||
+        row.externalId !== first.externalId ||
+        row.verified !== first.verified);
+    return index > 0 && (index >= threadPromptLimit || chars > threadPromptChars || otherSender);
+  });
+}
+
+/**
+ * Begins Turn `turnId` in its job's first Checkpoint: its batch closes, so what is past it waits for
+ * the next Turn. What it returns is what a replay goes by: a place in the thread, not who or what was
+ * said, since user delete doesn't reach a Checkpoint. Null, running no Turn, when the thread has gone,
+ * another Turn holds it, or nothing waits any more, as when the Customer was blocked since.
  */
 export async function beginTurn(tx: Transaction, threadId: string, turnId: string) {
   const [thread] = await tx
-    .update(representativeThread)
-    .set({ waitingSince: null })
-    .where(and(eq(representativeThread.id, threadId), eq(representativeThread.turnId, turnId)))
-    .returning({
+    .select({
       customerId: representativeThread.customerId,
       representativeId: representativeThread.representativeId,
-      upTo: representativeThread.messageCount,
-    });
-  return thread ?? null;
+      messageCount: representativeThread.messageCount,
+      waitingFrom: representativeThread.waitingFrom,
+    })
+    .from(representativeThread)
+    .where(and(eq(representativeThread.id, threadId), eq(representativeThread.turnId, turnId)))
+    .for("update");
+  if (!thread) return null;
+  const inThread = eq(representativeThread.id, threadId);
+  const { customerId, representativeId, messageCount, waitingFrom } = thread;
+  if (waitingFrom === null) {
+    await tx.update(representativeThread).set({ turnId: null }).where(inThread);
+    return null;
+  }
+  const message = representativeThreadMessage;
+  const rows = await tx
+    .select({
+      position: message.position,
+      author: message.author,
+      channel: message.channel,
+      externalId: message.externalId,
+      verified: message.verified,
+      size: sql<number>`octet_length(${message.text})`,
+    })
+    .from(message)
+    .where(and(eq(message.threadId, threadId), gte(message.position, waitingFrom)))
+    .orderBy(asc(message.position))
+    .limit(threadPromptLimit + 1);
+  const pastBatch = closeBatch(rows);
+  const upTo = pastBatch ? pastBatch.position - 1 : messageCount;
+  const [next] = pastBatch
+    ? await tx
+        .select({ position: min(message.position) })
+        .from(message)
+        .where(
+          and(
+            eq(message.threadId, threadId),
+            eq(message.author, "customer"),
+            gt(message.position, upTo),
+          ),
+        )
+    : [];
+  await tx
+    .update(representativeThread)
+    .set(
+      next?.position ? { waitingFrom: next.position } : { waitingFrom: null, waitingSince: null },
+    )
+    .where(inThread);
+  return {
+    customerId,
+    representativeId,
+    upTo,
+    senderAt: rows[0]!.position,
+    verified: rows[0]!.verified,
+  };
 }
 
 /** Ends Turn `turnId`, if it still holds the thread: the next Turn takes what has waited, if anything has. */

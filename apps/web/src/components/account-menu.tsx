@@ -46,6 +46,7 @@ export default function AccountMenu({
           <DropdownMenuItem render={<Link to="/representatives" />}>
             Representatives
           </DropdownMenuItem>
+          <DropdownMenuItem render={<Link to="/customers" />}>Customers</DropdownMenuItem>
           <DropdownMenuItem render={<Link to="/settings/account" />}>Account</DropdownMenuItem>
           {isAdmin && <DropdownMenuItem render={<Link to="/admin" />}>Admin</DropdownMenuItem>}
           <DropdownMenuItem
