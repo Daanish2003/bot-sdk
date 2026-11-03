@@ -2374,17 +2374,23 @@ describe("an Assignment's budget (#1184)", () => {
   );
 
   /** Scout hands Writer two Assignments while it's paused, so one Turn takes both. */
-  async function twoInOneTurn(writer: Round[]) {
-    const made = await bots({
-      Scout: [
-        round(
-          runs("assign_work", { bot: "Writer", title: "First", instructions: "Do it." }),
-          runs("assign_work", { bot: "Writer", title: "Second", instructions: "Do it." }),
-        ),
-        quiet,
-      ],
-      Writer: writer,
-    });
+  async function twoInOneTurn(
+    writer: Round[],
+    options: { hostProviders?: typeof hostProviders } = {},
+  ) {
+    const made = await bots(
+      {
+        Scout: [
+          round(
+            runs("assign_work", { bot: "Writer", title: "First", instructions: "Do it." }),
+            runs("assign_work", { bot: "Writer", title: "Second", instructions: "Do it." }),
+          ),
+          quiet,
+        ],
+        Writer: writer,
+      },
+      options,
+    );
     await made.client.bots.pause({ botId: made.bots.Writer.id });
     await made.tell("Scout", "Hand them on.");
     await expect.poll(() => statusesOf(made.bots.Scout.id), poll).toEqual(["complete"]);
@@ -2401,6 +2407,82 @@ describe("an Assignment's budget (#1184)", () => {
       const [first, second] = await client.assignments.list({ botId: b.Writer.id });
       expect(first!.budget.calls).toBe(1);
       expect(second!.budget.calls).toBe(1);
+    },
+    timeout,
+  );
+
+  it(
+    "charges one model call to each of a Turn's two different budgets, in calls and in money",
+    async () => {
+      const {
+        client,
+        bots: b,
+        first,
+        second,
+      } = await twoInOneTurn([costly(quiet)], { hostProviders });
+      await getTestDb().update(bot).set({ model: hostModel }).where(eq(bot.id, b.Writer.id));
+      await client.bots.resume({ botId: b.Writer.id });
+      await expect.poll(() => statusesOf(b.Writer.id), poll).toEqual(["complete"]);
+
+      const rows = await client.assignments.list({ botId: b.Writer.id });
+      expect(rows.map((row) => row.id)).toEqual([first.id, second.id]);
+      for (const row of rows) {
+        expect(row.budget).toMatchObject({ calls: 1, costMicros: 300_000 });
+      }
+    },
+    timeout,
+  );
+
+  it(
+    "charges one model call once to a budget two of a Turn's Assignments share, in calls and in money",
+    async () => {
+      const {
+        client,
+        bots: b,
+        id,
+        resume,
+      } = await limited(
+        {
+          Scout: [assign("Writer"), quiet],
+          Writer: [
+            round(
+              runs("assign_work", { bot: "Editor", title: "First", instructions: "Do it." }),
+              runs("assign_work", { bot: "Editor", title: "Second", instructions: "Do it." }),
+            ),
+            quiet,
+          ],
+          Editor: [costly(quiet)],
+        } as Record<"Scout" | "Writer" | "Editor", Round[]>,
+        { callLimit: 20 },
+        { hostProviders },
+      );
+      // Editor takes both children in one Turn, and only its call costs.
+      await client.bots.pause({ botId: b.Editor!.id });
+      await getTestDb().update(bot).set({ model: hostModel }).where(eq(bot.id, b.Editor!.id));
+      await resume();
+      await expect.poll(() => statusesOf(b.Writer!.id), poll).toEqual(["complete"]);
+      const parent = await assignmentOf(client, b.Writer!.id);
+      expect(parent.id).toBe(id);
+      expect(parent.budget).toMatchObject({ calls: 2, costMicros: 0 });
+
+      await client.bots.resume({ botId: b.Editor!.id });
+      await expect.poll(() => statusesOf(b.Editor!.id), poll).toEqual(["complete"]);
+
+      const children = await client.assignments.list({ botId: b.Editor!.id });
+      expect(children).toHaveLength(2);
+      // Writer's two calls and Editor's one make three, and only Editor's costs.
+      expect((await assignmentOf(client, b.Writer!.id)).budget).toMatchObject({
+        calls: 3,
+        costMicros: 300_000,
+      });
+      // The call worked on both, so each child's own log shows it.
+      for (const child of children) {
+        expect(child.budget).toMatchObject({ calls: 3, costMicros: 300_000 });
+        expect(child.log.find((entry) => entry.calls)).toMatchObject({
+          calls: 1,
+          costMicros: 300_000,
+        });
+      }
     },
     timeout,
   );
