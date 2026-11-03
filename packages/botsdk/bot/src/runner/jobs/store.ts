@@ -23,7 +23,7 @@ import { job, jobEvent } from "../../storage";
 import { uuidv7 } from "../../lib/uuidv7";
 import { NonDeterminismError, WorkflowYieldedError, createWorkflow } from "../workflow/engine";
 import { JOB_TIMING, type JobTable, PermanentJobError, backoffAfter } from "./define";
-import { heartbeatJob, jobHistoryStore, loadHistory, ownAttempt } from "./history";
+import { heartbeatJob, holdsJob, jobHistoryStore, loadHistory, ownAttempt } from "./history";
 import type { EnqueueOptions, JobClock, JobStatus } from "./runner";
 
 type Logger = Pick<Console, "error">;
@@ -207,11 +207,12 @@ async function recordOutcome(
 
 /**
  * Runs a claimed job and resolves once its outcome is decided. While it runs, the attempt
- * heartbeats every `JOB_TIMING.heartbeatMs`. It ends in one of these ways:
+ * heartbeats every `JOB_TIMING.heartbeatMs` and reads its row every `JOB_TIMING.cancelCheckMs`. It
+ * ends in one of these ways:
  *
  * - the handler settles, and the outcome is recorded (see `recordOutcome`);
  * - the attempt passes `JOB_TIMING.attemptCapMs`, which is a failure and is recorded;
- * - a heartbeat or a history save finds the row gone (cancelled, or re-queued after a lost lease),
+ * - a check, a heartbeat or a history save finds the row gone (cancelled, or re-queued after a lost lease),
  *   so the handler is aborted and nothing is written;
  * - `drain` aborts (a deploy's `stop()`), so the workflow yields at its next Checkpoint and the
  *   row is handed back `queued` without counting the attempt, for another process to resume;
@@ -249,6 +250,7 @@ export async function runClaimedJob(
   const attempt = new AbortController();
   const startedAt = clock.now().getTime();
   let heartbeat: unknown;
+  let cancelCheck: unknown;
   let decided = false;
   // Set when the attempt is aborted because it no longer owns its row (a cancel, or a lost lease).
   let lost = false;
@@ -261,7 +263,9 @@ export async function runClaimedJob(
   const release = () => {
     decided = true;
     clock.clearInterval(heartbeat);
+    clock.clearInterval(cancelCheck);
     heartbeat = undefined;
+    cancelCheck = undefined;
     shutdown?.removeEventListener("abort", onShutdown);
   };
   const onShutdown = () => {
@@ -301,6 +305,14 @@ export async function runClaimedJob(
     if (held) return;
     lose("The job was cancelled");
   };
+  const checkCancel = async () => {
+    if (decided) return;
+    const held = await holdsJob(db, claimed).catch((error: unknown) => {
+      logger.error(`Checking job "${claimed.name}" for a cancel failed`, error);
+      return true;
+    });
+    if (!held) lose("The job was cancelled");
+  };
   // The attempt no longer owns its row: abort the handler and write nothing more.
   const lose = (reason: string) => {
     if (decided) return;
@@ -311,6 +323,7 @@ export async function runClaimedJob(
   };
 
   heartbeat = clock.setInterval(() => void beat(), JOB_TIMING.heartbeatMs);
+  cancelCheck = clock.setInterval(() => void checkCancel(), JOB_TIMING.cancelCheckMs);
   if (shutdown?.aborted) onShutdown();
   else shutdown?.addEventListener("abort", onShutdown, { once: true });
   if (!decided) {
@@ -452,8 +465,8 @@ async function acknowledgeCancel(db: Database, claimed: ClaimedJob): Promise<voi
 const heartbeatOnCancel = sql`case when ${job.status} = 'queued' then null else ${job.heartbeatAt} end`;
 
 /**
- * Cancels the queued job with this key, or the running one at its next heartbeat or, sooner, at its
- * next Checkpoint, whose save is fenced.
+ * Cancels the queued job with this key, or the running one at its next cancel check or, sooner, at
+ * its next Checkpoint, whose save is fenced.
  */
 export async function cancelJob(db: Database, idempotencyKey: string, now: Date): Promise<void> {
   await db
@@ -487,7 +500,7 @@ export async function cancelQueuedJobsIn(
 
 /**
  * Cancels the active job with this key in the caller's transaction, and returns what it was:
- * `queued` (it never runs) or `running` (its attempt aborts at its next heartbeat or write).
+ * `queued` (it never runs) or `running` (its attempt aborts at its next cancel check or write).
  * Returns undefined when no job with this key is active.
  */
 export async function cancelJobIn(

@@ -21,7 +21,7 @@ export type RunnerApi = Pick<JobRunner, "enqueue" | "cancel" | "status"> & {
   ) => Promise<string>;
   /**
    * Cancels the active job with this key in the caller's transaction, and returns what it was
-   * (`queued` never runs; `running` aborts at its next heartbeat or write), or undefined when
+   * (`queued` never runs; `running` aborts at its next cancel check or write), or undefined when
    * none is active.
    */
   cancelIn: (tx: Transaction, idempotencyKey: string) => Promise<"queued" | "running" | undefined>;
