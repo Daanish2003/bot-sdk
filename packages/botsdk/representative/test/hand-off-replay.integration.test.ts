@@ -1,3 +1,4 @@
+import type { AnyTextAdapter } from "@tanstack/ai";
 import { eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -66,8 +67,21 @@ describe("a hand-off replayed after a crash", () => {
   });
 
   /** A Representative reporting to a Bot, its Turn queued, on a fake clock with jobs run by hand. */
-  async function queuedHandOff(rounds = [handsOff(), quiet()]) {
+  async function queuedHandOff(
+    rounds = [handsOff(), quiet()],
+    /** Holds each of the Representative's Model calls until it resolves. */
+    held?: Promise<void>,
+  ) {
     const fake = createFakeAdapter({ rounds });
+    const entered: unknown[] = [];
+    const adapter: AnyTextAdapter = {
+      ...fake.adapter,
+      chatStream: async function* (options) {
+        entered.push(options);
+        await held;
+        yield* fake.adapter.chatStream(options);
+      },
+    };
     const botFake = createFakeAdapter({ rounds: Array.from({ length: 20 }, () => quiet()) });
     const timer = fakeJobClock(new Date());
     let deps: TestDeps | undefined;
@@ -82,7 +96,7 @@ describe("a hand-off replayed after a crash", () => {
     deps = createTestSdk({
       jobs,
       features: [representative()],
-      adapterFor: (id) => (id === botModel ? botFake.adapter : fake.adapter),
+      adapterFor: (id) => (id === botModel ? botFake.adapter : adapter),
       memory: false,
     });
     const user = await insertUser();
@@ -107,6 +121,7 @@ describe("a hand-off replayed after a crash", () => {
     };
     return {
       fake,
+      entered,
       botFake,
       deps,
       botId,
@@ -274,18 +289,24 @@ describe("a hand-off replayed after a crash", () => {
   });
 
   it("takes the Representative's row before the Conversation's lock, as the owner's choices do", async () => {
-    const { fake, botId, assignments, turnEnds } = await queuedHandOff();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { fake, entered, botId, assignments, turnEnds } = await queuedHandOff(undefined, held);
     const create = vi.spyOn(assignments, "create");
     const [owner] = await getTestDb()
       .select({ conversationId: bot.conversationId })
       .from(bot)
       .where(eq(bot.id, botId));
-    let turn: Promise<void> | undefined;
+    // The Turn is at its Model call: storing the message before it takes the row too.
+    const turn = turnEnds();
+    await expect.poll(() => entered.length, poll).toBe(1);
 
     // What choosing another Bot does when it drops an Approval: the row first, then the Conversation.
     await getTestDb().transaction(async (tx) => {
       await tx.select().from(representativeTable).for("update");
-      turn = turnEnds();
+      release();
       await expect.poll(() => fake.calls.length, poll).toBe(1);
       await new Promise((resolve) => setTimeout(resolve, 300));
       // It waits for the row, holding no Conversation lock that this would wait on in turn.

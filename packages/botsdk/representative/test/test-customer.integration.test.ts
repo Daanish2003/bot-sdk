@@ -16,7 +16,11 @@ import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { packageManifest, packageRootOf } from "@ai-chat/test-support/package-shape";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
-import { startTestCustomerTurn, testCustomerTurn } from "@ai-chat/test-support/test-customer";
+import {
+  fakeChannel,
+  startTestCustomerTurn,
+  testCustomerTurn,
+} from "@ai-chat/test-support/test-customer";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
@@ -24,6 +28,7 @@ import * as packageRoot from "../src";
 import { representative } from "../src";
 import {
   representative as representativeTable,
+  representativeCustomer,
   representativeRelease,
 } from "../src/server/db/schema";
 import { representativeTurnJobName } from "../src/server/turn";
@@ -223,7 +228,8 @@ describe("a test Customer's Turn", () => {
     // A payload naming another user: the job loads the owner from the Representative's row.
     const jobId = await deps.runner.enqueue(representativeTurnJobName, {
       representativeId: id,
-      customerId: uuidv7(),
+      channel: fakeChannel,
+      externalId: uuidv7(),
       message: "Hi",
       userId: stranger.id,
     });
@@ -243,9 +249,9 @@ describe("a test Customer's Turn", () => {
     const id = await liveRepresentative(rpc);
     const first = uuidv7();
 
-    await testCustomerTurn(deps, { representativeId: id, message: "Hi", customerId: first });
-    await testCustomerTurn(deps, { representativeId: id, message: "Hi", customerId: uuidv7() });
-    await testCustomerTurn(deps, { representativeId: id, message: "Hi", customerId: first });
+    await testCustomerTurn(deps, { representativeId: id, message: "Hi", externalId: first });
+    await testCustomerTurn(deps, { representativeId: id, message: "Hi", externalId: uuidv7() });
+    await testCustomerTurn(deps, { representativeId: id, message: "Hi", externalId: first });
 
     const [one, two, again] = fake.calls.map(cacheKeyOf);
     expect(one).toMatch(/^representative:/);
@@ -302,22 +308,26 @@ describe("what a Turn may call", () => {
 
   it("gives the Model no way to name a Customer, and takes none it tries", async () => {
     const other = uuidv7();
-    const { fake, deps, rpc } = await instance([
+    const { fake, deps, user, rpc } = await instance([
       handsOff({ title: "A refund", instructions: "They want a refund.", customerId: other }),
       quiet(),
     ]);
     const { id: botId } = await rpc.bots.create({ name: "Clerk", model: botModel });
     const id = await liveRepresentative(rpc, {}, botId);
-    const customerId = uuidv7();
 
-    await testCustomerTurn(deps, { representativeId: id, message: "Hi", customerId });
+    await testCustomerTurn(deps, { representativeId: id, message: "Hi" });
 
     expect(JSON.stringify(fake.calls[0]?.tools?.map((tool) => tool.inputSchema))).not.toMatch(
       /customer/i,
     );
     const [assignment] = await assignmentsOf(botId);
     // The id stays out of what the Bot's Model reads, and the Customer's cache key stays code's.
-    expect(assignment?.instructions).not.toContain(customerId);
+    const [customer] = await getTestDb()
+      .select()
+      .from(representativeCustomer)
+      .where(eq(representativeCustomer.userId, user.id));
+    expect(customer).toBeDefined();
+    expect(assignment?.instructions).not.toContain(customer!.id);
     expect(assignment?.instructions).not.toContain(other);
     expect(fake.calls[1]?.threadId).toBe(fake.calls[0]?.threadId);
   });

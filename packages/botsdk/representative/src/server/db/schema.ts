@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
   boolean,
@@ -7,6 +8,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -109,4 +111,102 @@ export const representativeHandOff = botsdkSchema.table(
       .references((): AnyPgColumn => representative.id, { onDelete: "cascade" }),
   },
   (table) => [index("representative_hand_off_representative_idx").on(table.representativeId)],
+);
+
+/**
+ * A Customer (spec #1168): a person who deals with one owner's business. Its Representatives share
+ * it. It isn't a user, and it is made by its first message, with no sign-up.
+ */
+export const representativeCustomer = botsdkSchema.table(
+  "representative_customer",
+  {
+    id: uuid("id").primaryKey(),
+    /** The owner: the Host's user id, with no foreign key, as everywhere in the `botsdk` schema. */
+    userId: text("user_id").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("representative_customer_user_idx").on(table.userId, table.createdAt)],
+);
+
+/**
+ * One way of reaching a Customer: a Channel and that Channel's id for them, unique per owner. A new
+ * identity makes a new Customer, so the same number on two Channels is two Customers.
+ */
+export const representativeCustomerIdentity = botsdkSchema.table(
+  "representative_customer_identity",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references((): AnyPgColumn => representativeCustomer.id, { onDelete: "cascade" }),
+    channel: text("channel").notNull(),
+    externalId: text("external_id").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    unique("representative_customer_identity_address").on(
+      table.userId,
+      table.channel,
+      table.externalId,
+    ),
+    index("representative_customer_identity_customer_idx").on(table.customerId),
+  ],
+);
+
+/** Who holds a Customer thread, or `closed` once it has ended. */
+export type ThreadState = "representative" | "owner" | "closed";
+
+/**
+ * A Customer thread: the one running exchange between a Customer and a Representative, across the
+ * Customer's Channels. It is never a Conversation. `lastChannel` and `lastExternalId` are where the
+ * Customer was last heard from, which is where a reply goes.
+ */
+export const representativeThread = botsdkSchema.table(
+  "representative_thread",
+  {
+    id: uuid("id").primaryKey(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references((): AnyPgColumn => representativeCustomer.id, { onDelete: "cascade" }),
+    representativeId: uuid("representative_id")
+      .notNull()
+      .references((): AnyPgColumn => representative.id, { onDelete: "cascade" }),
+    state: text("state").$type<ThreadState>().notNull().default("representative"),
+    lastChannel: text("last_channel").notNull(),
+    lastExternalId: text("last_external_id").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("representative_thread_open_idx")
+      .on(table.customerId, table.representativeId)
+      .where(sql`${table.state} <> 'closed'`),
+    index("representative_thread_representative_idx").on(table.representativeId),
+  ],
+);
+
+/** Who wrote a thread message. */
+export type ThreadAuthor = "customer" | "representative";
+
+/**
+ * One message in a Customer thread: the feature's own row, not a core Message. `channel` and
+ * `externalId` are where it was heard from, or where a reply went.
+ */
+export const representativeThreadMessage = botsdkSchema.table(
+  "representative_thread_message",
+  {
+    id: uuid("id").primaryKey(),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references((): AnyPgColumn => representativeThread.id, { onDelete: "cascade" }),
+    author: text("author").$type<ThreadAuthor>().notNull(),
+    channel: text("channel").notNull(),
+    externalId: text("external_id").notNull(),
+    text: text("text").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("representative_thread_message_thread_idx").on(table.threadId, table.createdAt),
+  ],
 );

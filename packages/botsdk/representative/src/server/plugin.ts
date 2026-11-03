@@ -5,10 +5,15 @@ import { representativeApi } from "./api";
 import { botDraftTools } from "./bot-draft";
 import {
   representative,
+  representativeCustomer,
+  representativeCustomerIdentity,
   representativeHandOff,
   representativeRelease,
   representativeTestResult,
+  representativeThread,
+  representativeThreadMessage,
 } from "./db/schema";
+import { deleteCustomers, exportCustomers } from "./customers";
 import representativeMigrations from "./migrations.json" with { type: "json" };
 import {
   deleteRepresentatives,
@@ -39,9 +44,13 @@ export function representativeFeature(options: RepresentativeOptions = {}) {
     schema: {
       tables: {
         representative,
+        representativeCustomer,
+        representativeCustomerIdentity,
         representativeHandOff,
         representativeRelease,
         representativeTestResult,
+        representativeThread,
+        representativeThreadMessage,
       },
       migrations: representativeMigrations,
     },
@@ -51,9 +60,17 @@ export function representativeFeature(options: RepresentativeOptions = {}) {
     resetBot: (botId, userId, context) => dropApprovalsOfBot(context, botId, userId),
     jobs: [representativeTurnJob(options.concurrency), handOffEndedJob, representativeTestJob],
     userData: {
-      delete: { before: (tx, userId) => deleteRepresentatives(tx, userId) },
+      delete: {
+        before: async (tx, userId) => {
+          // Representatives first: a Turn receiving a message holds its Representative's row, so once
+          // this has passed it, no new Customer can appear behind the delete below.
+          await deleteRepresentatives(tx, userId);
+          await deleteCustomers(tx, userId);
+        },
+      },
       export: async (tx, userId) => ({
         representatives: await exportRepresentatives(tx, userId),
+        customers: await exportCustomers(tx, userId),
       }),
     },
   });

@@ -153,7 +153,8 @@ export const representativeTestJob = defineJob<TestPayload, TurnServices>({
       name,
       model,
       sourceId: resultId,
-      message: conversation.message,
+      threadId: null,
+      entries: [{ author: "customer", text: conversation.message }],
       content: draft,
       test: { current },
     });
