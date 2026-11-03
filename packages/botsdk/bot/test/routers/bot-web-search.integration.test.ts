@@ -3,7 +3,9 @@ import { asc, eq, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createHookEmitter } from "../../src/chat/hooks";
-import { botHelper, usage } from "../../src/storage";
+import { encryptCredentials } from "../../src/credentials/encryption";
+import { secretEncryption } from "../../src/bot/safety";
+import { botHelper, botSecret, usage } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import type { HostProvider } from "../../src/models/internal";
 import { webSearchUnavailableError } from "../../src/bot/agent-loop";
@@ -149,7 +151,17 @@ async function botWith(
   }
   const client = chatRpc({ user, deps });
   const created = await client.bots.create({ name: "Ada", model: host ? hostModel : model });
-  return { turnFake, helperFake, computerFake, tavily, client, user, botId: created.id, jobs };
+  return {
+    turnFake,
+    helperFake,
+    computerFake,
+    tavily,
+    client,
+    user,
+    botId: created.id,
+    jobs,
+    deps,
+  };
 }
 
 async function send(client: ReturnType<typeof chatRpc>, botId: string, message: string) {
@@ -167,6 +179,51 @@ const done = sends({ text: "ok", endTurn: true });
 /** The raw text of the last tool result the Model got: a cut one is not JSON. */
 const lastToolText = (call: TextOptions | undefined) =>
   String(inputOf(call).findLast((entry) => entry.role === "tool")?.content);
+
+const storeSecret = (deps: TestDeps, userId: string, value: string) =>
+  getTestDb()
+    .insert(botSecret)
+    .values({
+      userId,
+      name: "SEARCH_TOKEN",
+      encrypted: encryptCredentials({ value }, secretEncryption(deps, userId, "SEARCH_TOKEN")),
+      createdAt: new Date(),
+    });
+
+describe("a web search result holding a Secret's value", () => {
+  const value = "ghp_search_secret_value_1234";
+
+  it("is masked for the Model, keeps its shape and is still billed", async () => {
+    const { client, botId, turnFake, user, deps } = await botWith(
+      [round(search("history")), round(done)],
+      { host: true, snippet: `found ${value}` },
+    );
+    await storeSecret(deps, user.id, value);
+
+    await send(client, botId, "history?");
+
+    expect(lastToolResult(turnFake.calls[1]).results[0].snippet).toBe("found ***");
+    expect((await usageOf(user.id)).filter((row) => row.kind === "web_search")).toHaveLength(1);
+  });
+
+  it("is masked for a Helper's Model too", async () => {
+    const { client, botId, helperFake, user, deps } = await botWith(
+      [round(startHelper("Find it."), done), round()],
+      {
+        host: true,
+        withComputer: true,
+        snippet: `found ${value}`,
+        helperRounds: [round(search("it")), round(text("Found."))],
+      },
+    );
+    await storeSecret(deps, user.id, value);
+
+    await send(client, botId, "find it");
+    await expect.poll(() => helperFake.calls.length, { timeout: 10_000 }).toBe(2);
+
+    expect(lastToolResult(helperFake.calls[1]).results[0].snippet).toBe("found ***");
+  });
+});
 
 describe("a long web search result", () => {
   const snippet = `${"a".repeat(6000)}${"b".repeat(6000)}`;

@@ -34,4 +34,24 @@ describe("masking a Secret's value", () => {
     expect(maskResult(result, secretMasker([value]))).toEqual({ lines: ["a ***", "***"], n: 1 });
     expect(maskResult(result, secretMasker([]))).toBe(result);
   });
+
+  it("reads a value that isn't plain JSON as JSON does, so a masked result keeps it", () => {
+    const value = "hunter2-long";
+    const at = new Date("2026-01-02T03:04:05.000Z");
+    const result = { at, custom: { toJSON: () => `by ${value}` }, found: value };
+
+    expect(maskResult(result, secretMasker([value]))).toEqual({
+      at: at.toISOString(),
+      custom: "by ***",
+      found: "***",
+    });
+  });
+
+  it("gives the same result masked twice as masked once", () => {
+    const value = "hunter2-long";
+    const mask = secretMasker([value]);
+    const once = maskResult({ lines: [value, `a ${value} b`], text: value }, mask);
+
+    expect(maskResult(once, mask)).toEqual(once);
+  });
 });
