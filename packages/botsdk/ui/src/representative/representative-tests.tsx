@@ -154,7 +154,7 @@ export function TestConversationsEditor({
                         aria-label={t("representative.citedSourceName")}
                         className="w-56"
                         value={sourceName(expectation.source)}
-                        maxLength={200}
+                        maxLength={expectation.source.type === "fact" ? 64 : 200}
                         onChange={(event) => {
                           const value = event.target.value;
                           const next: Expectation = {
