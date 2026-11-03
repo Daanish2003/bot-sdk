@@ -61,7 +61,7 @@ jobs:
       # the suite's serve() endpoint on this runner's 127.0.0.1.
       TEST_INNGEST_URL: http://127.0.0.1:8288
       TEST_INNGEST_CALLBACK_HOST: 127.0.0.1
-      # Placeholders so Varlock validates during the web app's typecheck build.
+      # Placeholders for the steps that load Varlock, such as the drizzle configs of `db:generate`.
       DATABASE_URL: postgresql://postgres:password@localhost:5432/ai-chat
       BETTER_AUTH_URL: http://localhost:3001
       BETTER_AUTH_SECRET: ci-better-auth-secret-not-for-production
