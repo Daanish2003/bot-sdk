@@ -119,7 +119,10 @@ export const representativeHandOff = botsdkSchema.table(
     externalId: text("external_id"),
     verified: boolean("verified"),
   },
-  (table) => [index("representative_hand_off_representative_idx").on(table.representativeId)],
+  (table) => [
+    index("representative_hand_off_representative_idx").on(table.representativeId),
+    index("representative_hand_off_thread_idx").on(table.threadId),
+  ],
 );
 
 /**

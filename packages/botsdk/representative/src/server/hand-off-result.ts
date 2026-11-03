@@ -47,6 +47,11 @@ export async function deliverHandOffResult(
   // A test conversation's, or its thread has gone.
   if (!handOff?.threadId || handOff.channel === null || handOff.externalId === null) return;
   const { threadId } = handOff;
+  // Delivered once, whatever the job's tries: no later one finds the thread.
+  await tx
+    .update(representativeHandOff)
+    .set({ threadId: null })
+    .where(eq(representativeHandOff.assignmentId, ended.assignmentId));
   // Not the owner's: nothing is stored.
   const thread = await tryLockThread(tx, ended.userId, threadId);
   if (!thread) return;

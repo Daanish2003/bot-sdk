@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "412cfcbe-9710-4d24-8e92-b39a39f19b54",
+  "id": "b71d10ac-0b7c-48af-ad68-fc917b904060",
   "prevIds": ["06b9149f-d60b-4330-8162-ccf7713e3fdb"],
   "ddl": [
     {
@@ -1004,6 +1004,27 @@
       "method": "btree",
       "concurrently": false,
       "name": "representative_hand_off_representative_idx",
+      "entityType": "indexes",
+      "schema": "botsdk",
+      "table": "representative_hand_off"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "thread_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "representative_hand_off_thread_idx",
       "entityType": "indexes",
       "schema": "botsdk",
       "table": "representative_hand_off"
