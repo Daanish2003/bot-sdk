@@ -2,6 +2,7 @@ import { oc, type } from "@orpc/contract";
 import { z } from "zod";
 
 import { checkFactValue, factTypes, type FactType } from "./facts";
+import type { ReplyProof } from "./replies";
 
 export { factTypes, isInEffect, type FactType } from "./facts";
 
@@ -125,6 +126,8 @@ export type RepresentativeSummary = {
 export type TranscriptEntry = {
   role: "customer" | "representative" | "tool" | "system";
   text: string;
+  /** What a sent reply rests on; absent on every other line and on a result stored before it. */
+  reply?: ReplyProof;
 };
 
 /** One expectation, and whether code found it held. */
@@ -259,6 +262,8 @@ export type ThreadMessageView = {
   externalId: string;
   /** Whether the Turn it belongs to was for a verified sender. */
   verified: boolean;
+  /** A Representative's reply's kind and sources; null on every other message. */
+  reply: ReplyProof | null;
   createdAt: Date;
 };
 

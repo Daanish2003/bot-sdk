@@ -577,7 +577,7 @@ describe("the transcript the owner reads", () => {
       ]),
     ).toEqual([
       { role: "customer", text: "Hi" },
-      { role: "representative", text: "Hello." },
+      { role: "representative", text: "Hello.", reply: { kind: null, sources: [] } },
     ]);
   });
 

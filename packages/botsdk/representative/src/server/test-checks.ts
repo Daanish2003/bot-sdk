@@ -9,6 +9,7 @@ import {
   type TestCheck,
   type TranscriptEntry,
 } from "../shared/contract";
+import { type ReplyProof, replyKinds, type ReplySource } from "../shared/replies";
 import { insertValues } from "./replies";
 
 /*
@@ -50,6 +51,14 @@ function answerTo(messages: ModelMessage[], callId: string): Record<string, unkn
 }
 
 /** The text `call`, a `reply` its tool answered as sent, went with: the Model's, with the facts' values in. */
+function sentReply(messages: ModelMessage[], call: { id: string }): ReplyProof {
+  const answer = answerTo(messages, call.id);
+  return {
+    kind: replyKinds.find((kind) => kind === answer?.kind) ?? null,
+    sources: Array.isArray(answer?.sources) ? (answer.sources as ReplySource[]) : [],
+  };
+}
+
 function sentText(messages: ModelMessage[], call: { id: string; function: { arguments: string } }) {
   const inserted = answerTo(messages, call.id)?.inserted as Record<string, string> | undefined;
   return insertValues(String(argumentsOf(call).text ?? ""), inserted ?? {});
@@ -146,7 +155,11 @@ export function transcriptOf(customerMessage: string, messages: ModelMessage[]):
       for (const call of message.toolCalls ?? []) {
         if (call.function.name === "reply" && answerTo(messages, call.id)?.sent === true) {
           sentCalls.add(call.id);
-          entries.push({ role: "representative", text: sentText(messages, call) });
+          entries.push({
+            role: "representative",
+            text: sentText(messages, call),
+            reply: sentReply(messages, call),
+          });
         } else {
           entries.push({ role: "tool", text: `${call.function.name} ${call.function.arguments}` });
         }

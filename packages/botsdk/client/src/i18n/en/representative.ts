@@ -126,6 +126,14 @@ export const representativeMessages = {
   "representative.threadMessageLabel": "Your message to the Customer",
   "representative.threadSend": "Send",
   "representative.threadVia": ({ channel }: { channel: string }) => `via ${channel}`,
+  "representative.replyKind": ({ kind }: { kind: string }) => `Kind: ${kind}`,
+  "representative.replyKindUnknown": "Kind: not recorded",
+  "representative.replyNoSources": "No sources",
+  "representative.replySourceFact": ({ key }: { key: string }) => `Fact ${key}`,
+  "representative.replySourceAssignment": ({ id, quote }: { id: string; quote: string }) =>
+    `Bot result of Assignment ${id}: "${quote}"`,
+  "representative.replySourcesNote":
+    "Code checked that each source exists. It did not check that the reply says it right.",
   "representative.threadBlocked": "Blocked: this Customer gets no reply.",
   "representative.customers.title": "Customers",
   "representative.customers.intro":
