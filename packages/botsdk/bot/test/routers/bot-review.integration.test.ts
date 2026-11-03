@@ -767,6 +767,30 @@ describe("Auto-review of the Bot's shell commands", () => {
     ]);
   });
 
+  it.each([
+    ["a verdict", (json: string) => `${json}\nThough this looks destructive.`],
+    ["a fenced verdict", (json: string) => `\`\`\`json\n${json}\n\`\`\`\nOn reflection, block it.`],
+    [
+      "a second verdict",
+      (json: string) => `${json}\n{"outcome":"block","reason":"r","summary":"s"}`,
+    ],
+  ])("blocks a call whose reviewer wrote anything after %s", async (_shape, replyOf) => {
+    const passing = JSON.stringify({ outcome: "pass", reason: "You asked.", summary: "Run it" });
+    const reviewer = reviewerPlaying(() => round(text(replyOf(passing))));
+    const { client, botId, computerFake } = await botWith([round(shell("one")), round()], {
+      reviewer,
+    });
+    const stopDenying = denyingEach(client, botId);
+
+    await send(client, botId, "run the step");
+    await stopDenying();
+
+    expect(computerFake.callsOf("run")).toEqual([]);
+    expect((await reviewsOf(botId)).map((row) => [row.verdict, row.reason])).toEqual([
+      ["block", reviewFailedReason],
+    ]);
+  });
+
   it("blocks a call whose reviewer has no verdict within 30 seconds", async () => {
     const reviewer = reviewerPlaying(() => new Promise<never>(() => {}));
     const { client, botId, fake, computerFake } = await botWith([round(shell("slow")), round()], {

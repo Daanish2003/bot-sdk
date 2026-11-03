@@ -17,7 +17,7 @@ import { rpcError } from "../../rpc-error";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import type { ModelMeter } from "../../models/internal";
 import type { MessageUsage } from "../../models/shared/usage";
-import { parseReply } from "../../lib/parse-reply";
+import { parseWholeReply } from "../../lib/parse-reply";
 import {
   hintBotThread,
   isPaused,
@@ -853,10 +853,13 @@ export async function judge(
   return { ...verdict, model, bill };
 }
 
-/** The reviewer's reply as a verdict, after stripping code fences; `null` when it holds none. */
+/**
+ * The reviewer's reply as a verdict, after stripping code fences; `null` when it holds none. Text
+ * after the verdict makes it none: it could take back a pass, and no verdict blocks the call.
+ */
 function parseVerdict(reply: string): ReviewVerdict | null {
   try {
-    return parseReply(verdictSchema, reply);
+    return parseWholeReply(verdictSchema, reply);
   } catch {
     return null;
   }
