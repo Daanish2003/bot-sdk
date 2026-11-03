@@ -4,4 +4,4 @@ import { representativeFeature, type RepresentativeOptions } from "./server/plug
 export const representative = (options?: RepresentativeOptions) => representativeFeature(options);
 export type { RepresentativeOptions };
 export type { RepresentativeApi } from "./server/api";
-export type { ConvertDocument } from "./server/documents";
+export type { ConvertDocument, KnowledgeFiles } from "./server/documents";

@@ -2,7 +2,7 @@
 import { postgres, type BotSdkOptions } from "@botsdk/bot";
 import { convertDocument } from "@botsdk/knowledge/convert";
 import { mcp } from "@botsdk/mcp";
-import { representative } from "@botsdk/representative";
+import { representative, type KnowledgeFiles } from "@botsdk/representative";
 
 import { e2bConfigOf } from "./src/computer";
 import { computerFeatures } from "./src/features";
@@ -23,6 +23,20 @@ if (!databaseUrl) throw new Error("Set DATABASE_URL");
 /** The self-hosted E2B the Computers run on, or none: the server builds its Computer from it. */
 export const e2b = e2bConfigOf(process.env);
 
+/**
+ * The Knowledge files a Representative's owner may pick (ticket #1265): the SDK's own `knowledge`
+ * routes, reached when asked since the SDK is built from this config.
+ */
+const knowledgeOfSdk = async () => {
+  const { knowledge } = (await import("./src/services")).sdk;
+  if (!("list" in knowledge)) throw new Error("The Knowledge feature is off");
+  return knowledge;
+};
+const knowledgeFiles: KnowledgeFiles = {
+  list: async (input) => (await knowledgeOfSdk()).list(input),
+  read: async (input) => (await knowledgeOfSdk()).read(input),
+};
+
 export default {
   database: postgres({ connectionString: databaseUrl }),
   features: [
@@ -31,7 +45,8 @@ export default {
     // MCP (ADR 0027): the users' Connections to the Host's MCP servers (`MCP_SERVER_*`).
     mcp({ servers: mcpServersOf(process.env) }),
     // Representatives (spec #1167): restricted agents that speak for the owner, through approved Releases.
-    // Their uploads convert with Knowledge's parsers, which need no Computer.
-    representative({ convertDocument }),
+    // Their uploads convert with Knowledge's parsers, which need no Computer. Knowledge files can be
+    // picked only where Knowledge is on, which needs the Computer.
+    representative({ convertDocument, ...(e2b && { knowledgeFiles }) }),
   ],
 } as const satisfies Pick<BotSdkOptions, "database" | "features">;

@@ -26,6 +26,7 @@ export {
   type FactView,
   type GapView,
   type Expectation,
+  type KnowledgeChoice,
   type DraftChange,
   type DraftDiff,
   type ReleaseContent,

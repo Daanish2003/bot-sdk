@@ -51,6 +51,13 @@ export const representativeMessages = {
   "representative.uploadDocument": "Upload a document",
   "representative.uploadDocumentFile": "Document file",
   "representative.removeDocument": "Remove",
+  "representative.pickKnowledge": "Choose from Knowledge",
+  "representative.pickKnowledgeHelp":
+    "A copy of the file's text is taken now. If you change the file later, choose it again to take in the change.",
+  "representative.pickKnowledgeLoading": "Reading your Knowledge…",
+  "representative.pickKnowledgeEmpty": "No files in Knowledge.",
+  "representative.pickKnowledgeUse": "Use",
+  "representative.pickKnowledgeClose": "Close",
   "representative.tests": "Test conversations",
   "representative.testsHelp":
     "Each conversation runs on the draft with its tools stubbed: nothing is sent and no Assignment is created. Code checks the expectations. Running them uses your Quota.",

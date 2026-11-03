@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useI18n } from "@botsdk/react/provider";
@@ -10,6 +10,9 @@ import {
   type RepresentativeView,
 } from "@botsdk/representative/client";
 import {
+  useKnowledgeChoices,
+  useKnowledgeStatus,
+  usePickKnowledge,
   useRefreshRepresentatives,
   useRemoveDocument,
   useUploadDocument,
@@ -30,7 +33,13 @@ export function useDocumentChanges() {
     toast.error(serverErrorText(i18n, error));
   const upload = useUploadDocument({ onSuccess: refresh, onError });
   const remove = useRemoveDocument({ onSuccess: refresh, onError });
-  return { upload, remove, pending: upload.isPending || remove.isPending };
+  const pick = usePickKnowledge({ onSuccess: refresh, onError });
+  return {
+    upload,
+    remove,
+    pick,
+    pending: upload.isPending || remove.isPending || pick.isPending,
+  };
 }
 
 /**
@@ -39,7 +48,7 @@ export function useDocumentChanges() {
  */
 export function DraftDocuments({
   representative,
-  changes: { upload, remove },
+  changes: { upload, remove, pick },
   busy,
 }: {
   representative: RepresentativeView;
@@ -50,6 +59,10 @@ export function DraftDocuments({
   const { t } = i18n;
   const { id, draft } = representative;
   const input = useRef<HTMLInputElement>(null);
+  // The picker is offered only on a Host that passed Knowledge; the Computer wakes only once opened.
+  const knowledgeOn = useKnowledgeStatus().data?.available === true;
+  const [picking, setPicking] = useState(false);
+  const choices = useKnowledgeChoices(picking);
   const chars = documentChars(draft.documents);
   const number = (value: number) => value.toLocaleString(i18n.locale);
   return (
@@ -113,6 +126,56 @@ export function DraftDocuments({
       <Button variant="outline" size="sm" disabled={busy} onClick={() => input.current?.click()}>
         {t("representative.uploadDocument")}
       </Button>
+      {knowledgeOn && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="ml-2"
+          disabled={busy}
+          onClick={() => setPicking((open) => !open)}
+        >
+          {picking ? t("representative.pickKnowledgeClose") : t("representative.pickKnowledge")}
+        </Button>
+      )}
+      {knowledgeOn && picking && (
+        <div className="space-y-2" data-testid="knowledge-picker">
+          <p className="text-xs text-muted-foreground">{t("representative.pickKnowledgeHelp")}</p>
+          {choices.isError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {serverErrorText(i18n, choices.error)}
+            </p>
+          ) : choices.data === undefined ? (
+            <p className="text-sm text-muted-foreground">
+              {t("representative.pickKnowledgeLoading")}
+            </p>
+          ) : choices.data.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {t("representative.pickKnowledgeEmpty")}
+            </p>
+          ) : (
+            <ul className="divide-y overflow-hidden rounded-xl border">
+              {choices.data.map((file) => (
+                <li
+                  key={file.path}
+                  data-knowledge={file.path}
+                  className="flex flex-wrap items-center gap-3 px-4 py-2 text-sm"
+                >
+                  <span className="min-w-0 flex-1 break-words">{file.path}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    aria-label={`${t("representative.pickKnowledgeUse")} ${file.path}`}
+                    onClick={() => pick.mutate({ id, path: file.path })}
+                  >
+                    {t("representative.pickKnowledgeUse")}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </section>
   );
 }

@@ -8,6 +8,7 @@ import {
   canonicalJson,
   type DocumentRef,
   type DocumentSnapshot,
+  type KnowledgeChoice,
   type Draft,
   maxDocumentNameLength,
   maxDocumentTextBytes,
@@ -77,14 +78,22 @@ export async function readableText(file: File, convert?: ConvertDocument): Promi
       { name },
     );
   }
-  const tooLong = () =>
-    rpcError("BAD_REQUEST", "error.representativeDocumentTooLong", "That file has too much text", {
-      name,
-    });
-  if (plain && file.size > maxDocumentTextBytes) throw tooLong();
+  if (plain && file.size > maxDocumentTextBytes) throw tooLong(name);
   // A PDF's unmapped glyph can come out as a NUL, which costs the document nothing to lose.
-  const text = converted ? (await convert!(file)).replaceAll("\0", "") : await decoded(file);
-  if (Buffer.byteLength(text) > maxDocumentTextBytes) throw tooLong();
+  return checkedText(
+    name,
+    converted ? (await convert!(file)).replaceAll("\0", "") : await decoded(file),
+  );
+}
+
+const tooLong = (name: string) =>
+  rpcError("BAD_REQUEST", "error.representativeDocumentTooLong", "That file has too much text", {
+    name,
+  });
+
+/** `text` if a document may hold it: not too long, not blank, and storable. Else the refusal. */
+function checkedText(name: string, text: string): string {
+  if (Buffer.byteLength(text) > maxDocumentTextBytes) throw tooLong(name);
   if (text.trim() === "") {
     throw rpcError("BAD_REQUEST", "error.representativeDocumentEmpty", "That file has no text", {
       name,
@@ -93,6 +102,79 @@ export async function readableText(file: File, convert?: ConvertDocument): Promi
   // Postgres takes no NUL in text, and a text file with one isn't text.
   if (!noNul(text)) throw unreadable(name);
   return text;
+}
+
+/**
+ * How a Host lets the owner pick Knowledge files: `sdk.knowledge`'s `list` and `read`, which wake
+ * the Computer. The feature has no Computer of its own, and uses this only while the owner picks.
+ */
+export type KnowledgeFiles = {
+  list(input: { userId: string }): Promise<{
+    files: { path: string; size: number; readable?: string }[];
+  }>;
+  read(input: { userId: string; path: string }): Promise<{ content: string }>;
+};
+
+const noKnowledge = () =>
+  rpcError(
+    "BAD_REQUEST",
+    "error.representativeKnowledgeUnavailable",
+    "This server has no Knowledge to pick from",
+  );
+
+/** The Knowledge files the owner may pick, waking their Computer. */
+export async function knowledgeChoices(
+  files: KnowledgeFiles | undefined,
+  userId: string,
+): Promise<KnowledgeChoice[]> {
+  if (!files) throw noKnowledge();
+  const { files: listed } = await files.list({ userId });
+  return listed.map(({ path, size }) => ({ path, size }));
+}
+
+/**
+ * The text of the Knowledge file at `path`, named by it: a PDF or DOCX's converted copy, as an
+ * upload would hold, and held to an upload's limits. The file is only read.
+ */
+export async function knowledgeText(
+  files: KnowledgeFiles | undefined,
+  userId: string,
+  path: string,
+): Promise<DocumentText> {
+  if (!files) throw noKnowledge();
+  requireName(path);
+  const { files: listed } = await files.list({ userId });
+  const file = listed.find((each) => each.path === path);
+  if (!file) {
+    throw rpcError(
+      "NOT_FOUND",
+      "error.representativeKnowledgeNoSuchFile",
+      "That Knowledge file isn't there any more",
+      { name: path },
+    );
+  }
+  const lower = path.toLowerCase();
+  if (
+    ![...plainExtensions, ".html", ".csv", ...convertedExtensions].some((e) => lower.endsWith(e))
+  ) {
+    throw rpcError(
+      "BAD_REQUEST",
+      "error.representativeDocumentFormat",
+      "Pick a Markdown, text, HTML, CSV, PDF or DOCX file",
+      { name: path },
+    );
+  }
+  if (!file.readable && file.size > maxDocumentTextBytes) throw tooLong(path);
+  if (!file.readable && convertedExtensions.some((extension) => lower.endsWith(extension))) {
+    throw rpcError(
+      "BAD_REQUEST",
+      "error.representativeKnowledgeNoCopy",
+      "That file has no converted copy to take text from",
+      { name: path },
+    );
+  }
+  const { content } = await files.read({ userId, path: file.readable ?? path });
+  return { name: path, text: checkedText(path, content) };
 }
 
 const unreadable = (name: string) =>

@@ -15,6 +15,7 @@ import { testCustomerTurn } from "@ai-chat/test-support/test-customer";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round } from "@botsdk/testing/fake-adapter";
 import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
+import { rpcError } from "@botsdk/bot/rpc-error";
 import { representative, type RepresentativeOptions } from "../src";
 import { representativeDocument, representativeRelease } from "../src/server/db/schema";
 import { DocumentGone, readDocuments } from "../src/server/documents";
@@ -556,5 +557,250 @@ describe("a user's delete and export", () => {
         .from(representativeDocument)
         .where(eq(representativeDocument.representativeId, id)),
     ).toEqual([]);
+  });
+});
+/*
+ * Knowledge files picked for a draft (ticket #1265). The Host's reader stands in for the Knowledge
+ * feature: a listing with each converted file's readable copy, and a read of one path.
+ */
+
+type KnowledgeReader = NonNullable<RepresentativeOptions["knowledgeFiles"]>;
+
+/** A Knowledge folder in memory: `files` by path, a PDF or DOCX's readable copy at `<path>.md`. */
+function knowledgeFolder(files: Record<string, string>) {
+  const calls: string[] = [];
+  const folder: { files: Record<string, string>; calls: string[]; reader: KnowledgeReader } = {
+    files,
+    calls,
+    reader: {
+      async list({ userId }) {
+        calls.push(`list ${userId}`);
+        const paths = Object.keys(folder.files);
+        return {
+          files: paths
+            .filter((path) => !path.endsWith(".pdf.md") && !path.endsWith(".docx.md"))
+            .map((path) => ({
+              path,
+              size: folder.files[path]!.length,
+              ...(paths.includes(`${path}.md`) && { readable: `${path}.md` }),
+            })),
+        };
+      },
+      async read({ path }) {
+        calls.push(`read ${path}`);
+        const content = folder.files[path];
+        if (content === undefined) throw new Error(`no ${path}`);
+        return { content };
+      },
+    },
+  };
+  return folder;
+}
+
+const documentTexts = async (id: string) =>
+  (
+    await getTestDb()
+      .select({ name: representativeDocument.name, text: representativeDocument.text })
+      .from(representativeDocument)
+      .where(eq(representativeDocument.representativeId, id))
+  ).sort((a, b) => (a.name < b.name ? -1 : 1));
+
+describe("picking a Knowledge file for a draft", () => {
+  it("copies a file's text, and a PDF's or DOCX's converted copy rather than its bytes", async () => {
+    const folder = knowledgeFolder({
+      "faq/hours.md": "Open at nine.",
+      "handbook.pdf": "%PDF-bytes",
+      "handbook.pdf.md": "## Page 1\n\nReturns within 30 days.",
+    });
+    const { rpc } = await instance({ options: { knowledgeFiles: folder.reader } });
+    const id = await drafted(rpc);
+
+    expect(await rpc.representative.knowledgeStatus()).toEqual({ available: true });
+    expect((await rpc.representative.knowledgeList()).map(({ path }) => path)).toEqual([
+      "faq/hours.md",
+      "handbook.pdf",
+    ]);
+    await rpc.representative.documentPick({ id, path: "faq/hours.md" });
+    const view = await rpc.representative.documentPick({ id, path: "handbook.pdf" });
+
+    expect(view.draft.documents.map((document) => document.name)).toEqual([
+      "faq/hours.md",
+      "handbook.pdf",
+    ]);
+    expect(await documentTexts(id)).toEqual([
+      { name: "faq/hours.md", text: "Open at nine." },
+      { name: "handbook.pdf", text: "## Page 1\n\nReturns within 30 days." },
+    ]);
+  });
+
+  it("is the same document as an upload of that text", async () => {
+    const folder = knowledgeFolder({ "hours.md": "Open at nine." });
+    const { rpc } = await instance({ options: { knowledgeFiles: folder.reader } });
+    const id = await drafted(rpc);
+    const uploaded = await rpc.representative.documentUpload({
+      id,
+      file: textFile("hours.md", "Open at nine."),
+    });
+
+    const picked = await rpc.representative.documentPick({ id, path: "hours.md" });
+
+    expect(picked.draft.documents).toEqual(uploaded.draft.documents);
+  });
+
+  it("holds a file to the same limits as an upload, and the draft stays", async () => {
+    const folder = knowledgeFolder({
+      "photo.png": "bytes",
+      "empty.md": "  \n",
+      "nul.md": "a\u0000b",
+      "long.md": "a".repeat(2 * 1024 * 1024 + 1),
+    });
+    const { rpc } = await instance({ options: { knowledgeFiles: folder.reader } });
+    const id = await drafted(rpc);
+
+    for (const [path, code] of [
+      ["photo.png", "error.representativeDocumentFormat"],
+      ["empty.md", "error.representativeDocumentEmpty"],
+      ["nul.md", "error.representativeDocumentUnreadable"],
+      ["long.md", "error.representativeDocumentTooLong"],
+      ["gone.md", "error.representativeKnowledgeNoSuchFile"],
+    ] as const) {
+      await expect(rpc.representative.documentPick({ id, path })).rejects.toMatchObject({
+        data: { code },
+      });
+    }
+    expect((await rpc.representative.get({ id })).draft.documents).toEqual([]);
+  });
+
+  it("can't reach another owner's draft", async () => {
+    const folder = knowledgeFolder({ "hours.md": "Open at nine." });
+    const { deps, rpc } = await instance({ options: { knowledgeFiles: folder.reader } });
+    const id = await drafted(rpc);
+    const stranger = chatRpc({ user: await insertUser(), deps });
+
+    await expect(
+      stranger.representative.documentPick({ id, path: "hours.md" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(folder.calls).toEqual([]);
+  });
+
+  it("gives a clear error when the Computer can't be reached, and the draft stays as it was", async () => {
+    const folder = knowledgeFolder({ "hours.md": "Open at nine." });
+    const unreachable = () => {
+      throw rpcError(
+        "BAD_REQUEST",
+        "error.knowledgeComputerUnavailable",
+        "Your Computer can't be reached right now",
+      );
+    };
+    let reachable = true;
+    const { rpc } = await instance({
+      options: {
+        knowledgeFiles: {
+          list: async (input) => (reachable ? folder.reader.list(input) : unreachable()),
+          read: async (input) => (reachable ? folder.reader.read(input) : unreachable()),
+        },
+      },
+    });
+    const id = await drafted(rpc);
+    const before = await rpc.representative.documentPick({ id, path: "hours.md" });
+    reachable = false;
+
+    await expect(rpc.representative.documentPick({ id, path: "hours.md" })).rejects.toMatchObject({
+      data: { code: "error.knowledgeComputerUnavailable" },
+    });
+    await expect(rpc.representative.knowledgeList()).rejects.toMatchObject({
+      data: { code: "error.knowledgeComputerUnavailable" },
+    });
+    expect((await rpc.representative.get({ id })).draft).toEqual(before.draft);
+  });
+
+  it("is absent without a reader, and an upload still works", async () => {
+    const { rpc } = await instance();
+    const id = await drafted(rpc);
+
+    expect(await rpc.representative.knowledgeStatus()).toEqual({ available: false });
+    await expect(rpc.representative.knowledgeList()).rejects.toMatchObject({
+      data: { code: "error.representativeKnowledgeUnavailable" },
+    });
+    await expect(rpc.representative.documentPick({ id, path: "hours.md" })).rejects.toMatchObject({
+      data: { code: "error.representativeKnowledgeUnavailable" },
+    });
+    const view = await rpc.representative.documentUpload({
+      id,
+      file: textFile("hours.md", "Open at nine."),
+    });
+    expect(view.draft.documents).toHaveLength(1);
+  });
+});
+
+describe("a picked Knowledge file after it changes", () => {
+  it("changes nothing in the draft until it is picked again, and then earlier test results stop counting", async () => {
+    const folder = knowledgeFolder({ "hours.md": "Open at nine." });
+    const { rpc } = await instance({ options: { knowledgeFiles: folder.reader } });
+    const id = await drafted(rpc);
+    await rpc.representative.updateDraft({ id, draft: { tests: [hello] } });
+    const picked = await rpc.representative.documentPick({ id, path: "hours.md" });
+    await rpc.representative.runTests({ id });
+    await expect
+      .poll(async () => (await rpc.representative.get({ id })).testStatus, poll)
+      .toBe("passed");
+
+    folder.files["hours.md"] = "Open at ten.";
+
+    const untouched = await rpc.representative.get({ id });
+    expect(untouched.draft.documents).toEqual(picked.draft.documents);
+    expect(untouched.testStatus).toBe("passed");
+    const again = await rpc.representative.documentPick({ id, path: "hours.md" });
+    expect(again.draft.documents[0]!.hash).not.toBe(picked.draft.documents[0]!.hash);
+    expect(again).toMatchObject({ testStatus: "notRun", tests: [] });
+    expect(await documentTexts(id)).toEqual([{ name: "hours.md", text: "Open at ten." }]);
+  });
+
+  it("changes nothing in an approved snapshot or the Turns on it, whether edited or deleted", async () => {
+    const folder = knowledgeFolder({ "hours.md": "Open at nine." });
+    const { computer, deps, fake, rpc } = await instance({
+      options: { knowledgeFiles: folder.reader },
+    });
+    const id = await drafted(rpc);
+    await rpc.representative.documentPick({ id, path: "hours.md" });
+    const release = await rpc.representative.approve({ id });
+    await rpc.representative.setEnabled({ id, enabled: true });
+    const callsAfterApproval = [...folder.calls];
+
+    folder.files["hours.md"] = "Open at ten.";
+    await testCustomerTurn(deps, { representativeId: id, message: "When?" });
+    delete folder.files["hours.md"];
+    await testCustomerTurn(deps, { representativeId: id, message: "And now?" });
+
+    await expect.poll(() => fake.calls.length, poll).toBeGreaterThan(1);
+    for (const call of fake.calls) {
+      expect(prompts(call).join("\n")).toContain("Open at nine.");
+      expect(prompts(call).join("\n")).not.toContain("Open at ten.");
+    }
+    const [row] = await getTestDb()
+      .select()
+      .from(representativeRelease)
+      .where(eq(representativeRelease.id, release.id));
+    expect(row!.content.documentSnapshot).toEqual(release.content.documentSnapshot);
+    // Approving and answering never went to the Knowledge files or the Computer.
+    expect(folder.calls).toEqual(callsAfterApproval);
+    expect(computer.calls).toEqual([]);
+  });
+
+  it("leaves the Knowledge files as they were: picking only reads", async () => {
+    const files = { "hours.md": "Open at nine.", "a.pdf": "bytes", "a.pdf.md": "Text." };
+    const folder = knowledgeFolder({ ...files });
+    const { rpc } = await instance({ options: { knowledgeFiles: folder.reader } });
+    const id = await drafted(rpc);
+
+    await rpc.representative.documentPick({ id, path: "hours.md" });
+    await rpc.representative.documentPick({ id, path: "a.pdf" });
+    await rpc.representative.documentRemove({
+      id,
+      documentId: (await rpc.representative.get({ id })).draft.documents[0]!.id,
+    });
+
+    expect(folder.files).toEqual(files);
+    expect(folder.calls.every((call) => /^(list|read) /.test(call))).toBe(true);
   });
 });

@@ -12,6 +12,7 @@ import {
   gapToFactInput,
   customerUpdateIdentityInput,
   createInput,
+  documentPickInput,
   documentRemoveInput,
   documentUploadInput,
   idInput,
@@ -21,7 +22,7 @@ import {
   threadSendInput,
   updateDraftInput,
 } from "../shared/contract";
-import type { ConvertDocument } from "./documents";
+import { type ConvertDocument, type KnowledgeFiles, knowledgeChoices } from "./documents";
 import { addFact, deleteFact, editFact, listFactLog, listFacts } from "./facts";
 import { dismissGap, gapToFact, listGaps } from "./gaps";
 import { approveFactProposal, declineFactProposal, listFactProposals } from "./fact-proposals";
@@ -43,6 +44,7 @@ import {
   diffDraft,
   getRepresentative,
   listRepresentatives,
+  pickKnowledgeDocument,
   removeDocument,
   rollbackRelease,
   runTests,
@@ -65,6 +67,7 @@ export function representativeApi(
     "assignments" | "factApprovals" | "models" | "releaseApprovals" | "threads"
   >,
   convertDocument?: ConvertDocument,
+  knowledgeFiles?: KnowledgeFiles,
 ) {
   return {
     list: async ({ userId }: { userId: string }) => listRepresentatives(context, userId),
@@ -83,6 +86,18 @@ export function representativeApi(
     documentUpload: async ({ userId, ...rest }: WithUser<typeof documentUploadInput>) => {
       const { id, file } = parseInput(documentUploadInput, rest);
       return uploadDocument(context, userId, id, file, convertDocument);
+    },
+
+    /** Whether the owner can pick Knowledge files. Reads nothing, so it wakes no Computer. */
+    knowledgeStatus: () => ({ available: knowledgeFiles !== undefined }),
+
+    /** The Knowledge files the owner may pick, waking their Computer. */
+    knowledgeList: async ({ userId }: { userId: string }) =>
+      knowledgeChoices(knowledgeFiles, userId),
+
+    documentPick: async ({ userId, ...rest }: WithUser<typeof documentPickInput>) => {
+      const { id, path } = parseInput(documentPickInput, rest);
+      return pickKnowledgeDocument(context, userId, id, path, knowledgeFiles);
     },
 
     documentRemove: async ({ userId, ...rest }: WithUser<typeof documentRemoveInput>) => {

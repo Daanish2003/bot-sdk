@@ -31,6 +31,8 @@ import {
   type ConvertDocument,
   dropDocument,
   exportDocuments,
+  type KnowledgeFiles,
+  knowledgeText,
   readableText,
   snapshotOf,
 } from "./documents";
@@ -248,6 +250,26 @@ export async function uploadDocument(
   // Asked first, so nobody's file is read for a Representative that isn't theirs.
   await ownedRow(db, userId, id);
   const document = { name: file.name, text: await readableText(file, convert) };
+  return db.transaction(async (tx) => {
+    const row = await ownedRow(tx, userId, id, true);
+    return saveDocuments(tx, row, await chooseDocument(tx, row, document, clock()), clock());
+  });
+}
+
+/**
+ * Copies a Knowledge file's text into the draft, as an upload would. The Computer is asked before the
+ * transaction, so an unreachable one leaves the draft as it was and holds no row.
+ */
+export async function pickKnowledgeDocument(
+  { db, clock }: Context,
+  userId: string,
+  id: string,
+  path: string,
+  files: KnowledgeFiles | undefined,
+): Promise<RepresentativeView> {
+  // Asked first, so nobody's Computer is woken for a Representative that isn't theirs.
+  await ownedRow(db, userId, id);
+  const document = await knowledgeText(files, userId, path);
   return db.transaction(async (tx) => {
     const row = await ownedRow(tx, userId, id, true);
     return saveDocuments(tx, row, await chooseDocument(tx, row, document, clock()), clock());

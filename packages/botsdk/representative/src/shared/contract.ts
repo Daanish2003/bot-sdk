@@ -138,6 +138,9 @@ export type Draft = z.output<typeof draftSchema> & { documents: DocumentRef[] };
 export const documentChars = (documents: DocumentRef[]) =>
   documents.reduce((total, document) => total + document.chars, 0);
 
+/** A Knowledge file that can be picked for a draft. */
+export type KnowledgeChoice = { path: string; size: number };
+
 /** The documents a Release pinned, frozen and hashed at approval. */
 export type DocumentSnapshot = {
   /** SHA-256 over each document's name and text hash, in order. */
@@ -486,6 +489,10 @@ export const updateDraftInput = z.object({
   draft: draftSchema.partial(),
 });
 export const documentUploadInput = z.object({ id: z.uuid(), file: z.file() });
+export const documentPickInput = z.object({
+  id: z.uuid(),
+  path: storable(z.string().min(1).max(1_000)),
+});
 export const documentRemoveInput = z.object({ id: z.uuid(), documentId: z.uuid() });
 export const setEnabledInput = z.object({ id: z.uuid(), enabled: z.boolean() });
 export const setBotInput = z.object({ id: z.uuid(), botId: z.uuid() });
@@ -504,6 +511,16 @@ export const representativeContract = {
    * replaced. Markdown and plain text always, PDF and DOCX when the Host passed a conversion.
    */
   documentUpload: oc.input(documentUploadInput).output(type<RepresentativeView>()),
+  /** Whether Knowledge files can be picked for a draft: false on a Host with no Computer or Knowledge. */
+  knowledgeStatus: oc.output(type<{ available: boolean }>()),
+  /** The Knowledge files that can be picked, waking the owner's Computer. Refused when they can't be picked at all. */
+  knowledgeList: oc.output(type<KnowledgeChoice[]>()),
+  /**
+   * Copies a Knowledge file's text into the draft as an upload would (a PDF or DOCX's converted copy),
+   * named by its path; one of the same name is replaced. Later Knowledge edits reach the draft only by
+   * picking the file again. The Computer is used for this and nothing else.
+   */
+  documentPick: oc.input(documentPickInput).output(type<RepresentativeView>()),
   /** Takes a document out of the draft. A Release that holds it keeps it. */
   documentRemove: oc.input(documentRemoveInput).output(type<RepresentativeView>()),
   /** Runs the draft's test conversations on a job, replacing earlier results, and returns at once. */

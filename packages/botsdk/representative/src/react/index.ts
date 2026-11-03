@@ -52,6 +52,23 @@ export function useUploadDocument(
   return useMutation(useRepresentative().documentUpload.mutationOptions(options));
 }
 
+/** Whether Knowledge files can be picked (`representative.knowledgeStatus`). */
+export function useKnowledgeStatus() {
+  return useQuery(useRepresentative().knowledgeStatus.queryOptions());
+}
+
+/** The Knowledge files that can be picked, read only once `enabled` (`representative.knowledgeList`). */
+export function useKnowledgeChoices(enabled: boolean) {
+  return useQuery({ ...useRepresentative().knowledgeList.queryOptions(), enabled, retry: false });
+}
+
+/** Copies a Knowledge file into the draft (`representative.documentPick`). */
+export function usePickKnowledge(
+  options?: ProcedureMutationOptions<Representative["documentPick"]>,
+) {
+  return useMutation(useRepresentative().documentPick.mutationOptions(options));
+}
+
 /** Takes a document out of the draft (`representative.documentRemove`). */
 export function useRemoveDocument(
   options?: ProcedureMutationOptions<Representative["documentRemove"]>,
