@@ -34,6 +34,50 @@ export const insertValues = (text: string, values: Record<string, string>) =>
     return Object.hasOwn(values, trimmed) ? values[trimmed]! : written;
   });
 
+/*
+ * A code check of shapes (ticket #1268), not a judge of meaning: money, phone numbers and links a
+ * Model typed. A price written out in words is not caught.
+ */
+const typedShapes = [
+  // An amount: a currency sign before it, or a currency name after it.
+  {
+    name: "price",
+    pattern:
+      /[$€£¥]\s?\d[\d,]*(?:\.\d+)?|\b\d[\d,]*(?:\.\d+)?\s?(?:usd|eur|gbp|dollars?|euros?|pounds?|bucks)\b/gi,
+  },
+  // A scheme or "www.", or a bare domain on a common top-level domain.
+  {
+    name: "link",
+    pattern:
+      /\b(?:https?:\/\/|www\.)[^\s<>"]+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|org|net|io|co|app|dev|info|biz|us|uk|ca|au|de|fr|shop|store|online|site)\b(?:\/[^\s<>"]*)?/gi,
+  },
+  // Seven to fifteen digits with the usual separators, other than a date.
+  { name: "phone number", pattern: /\+?\(?\d[\d\s().-]{5,}\d/g },
+];
+
+const digitsOf = (text: string) => text.replace(/\D/g, "");
+const squashed = (text: string) => text.toLowerCase().replace(/\s+/g, " ");
+
+/** The first price, phone number or link in `text` that none of `allowed` holds, or undefined. */
+function typedValue(text: string, allowed: string[]) {
+  const lowered = allowed.map(squashed);
+  const numbers = allowed.map(digitsOf);
+  for (const { name, pattern } of typedShapes) {
+    for (const [found] of text.matchAll(pattern)) {
+      const value = found.replace(/[.,;:!?)]+$/, "");
+      if (name === "phone number") {
+        const digits = digitsOf(value);
+        if (digits.length < 7 || digits.length > 15 || /^\d{4}-\d{2}-\d{2}$/.test(value)) continue;
+        if (numbers.some((held) => held.includes(digits))) continue;
+        return { name, value };
+      }
+      if (lowered.some((held) => held.includes(squashed(value)))) continue;
+      return { name, value };
+    }
+  }
+  return undefined;
+}
+
 export const refused = (why: string) => ({
   error: `Nothing was sent: ${why}`,
   refused: true as const,
@@ -152,6 +196,17 @@ export async function checkReply(
         `document "${source.name.slice(0, 64)}" has no such exact quote. Quote it word for word, or don't state it.`,
       );
     }
+  }
+  // What the Model typed, with its keys taken out: only a fact's value or a cited quote may hold a
+  // price, phone number or link, and a Customer's words are neither.
+  const typed = typedValue(text.replace(keyPattern, " "), [
+    ...written.map((key) => facts.get(key)!.value),
+    ...sources.flatMap((source) => (source.type === "fact" ? [] : [source.quote])),
+  ]);
+  if (typed) {
+    return refused(
+      `the text has a ${typed.name} you typed ("${typed.value.slice(0, 64)}"). Only a Published fact's key, written as {{key}}, or a quote you cite may give one.`,
+    );
   }
   const inserted = Object.fromEntries(written.map((key) => [key, facts.get(key)!.value]));
   const filled = insertValues(text, inserted);
