@@ -64,6 +64,28 @@ describe("connectorTools", () => {
     expect(maskResult(once, mask)).toEqual(once);
   });
 
+  it("masks a Secret used as a key before it becomes text, so JSON escaping can't hide it", async () => {
+    const value = 'ghp_connector"quoted_1234';
+    const connectors = await connectorTools({
+      ...wiring([
+        {
+          name: "web_fetch_page",
+          description: "Fetches a page.",
+          execute: async () => ({ [value]: 1 }),
+        },
+      ] as unknown as AnyServerTool[]),
+      secretMask: async () => secretMasker([value]),
+      signal: new AbortController().signal,
+      record: (list) => list(),
+      taken: new Set(),
+    });
+
+    const result = JSON.stringify(await call(connectors, "web_fetch_page"));
+
+    expect(result).not.toContain("connector");
+    expect(result).toContain("***");
+  });
+
   it("leaves out a Connector tool named like one of the Turn's own tools", async () => {
     const connectors = await connectorTools({
       ...wiring([
