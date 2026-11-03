@@ -419,7 +419,39 @@ export const representativeFactLog = botsdkSchema.table(
     action: text("action").$type<FactAction>().notNull(),
     old: jsonb("old").$type<LoggedFact>(),
     new: jsonb("new").$type<LoggedFact>(),
+    /** The Bot, by its name then, whose proposal the owner approved; null for the owner's own change. */
+    proposedBy: text("proposed_by"),
     at: timestamp("at").notNull(),
   },
   (table) => [index("representative_fact_log_user_idx").on(table.userId, table.at)],
+);
+
+/**
+ * A Bot's proposed Published fact, waiting for the owner (ticket #1264): the whole fact it would
+ * become. It goes when answered, dropped or replaced, and one that expired stays only until the
+ * owner's next proposal clears it, changing nothing meanwhile. One waits per key. It goes with its
+ * Bot, whose card goes with the Conversation.
+ */
+export const representativeFactProposal = botsdkSchema.table(
+  "representative_fact_proposal",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    botId: uuid("bot_id")
+      .notNull()
+      .references((): AnyPgColumn => bot.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    proposed: jsonb("proposed").$type<LoggedFact>().notNull(),
+    why: text("why").notNull(),
+    /** The Approval's card in the Bot's Conversation. */
+    cardId: text("card_id").notNull(),
+    /** The Turn and tool call that asked, so a replay after a crash asks only once. */
+    call: text("call"),
+    postedAt: timestamp("posted_at").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+  },
+  (table) => [
+    unique("representative_fact_proposal_key").on(table.userId, table.key),
+    index("representative_fact_proposal_bot_idx").on(table.botId),
+  ],
 );

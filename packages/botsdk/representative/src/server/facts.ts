@@ -11,6 +11,7 @@ import {
   type LoggedFact,
   representativeFact,
   representativeFactLog,
+  representativeFactProposal,
 } from "./db/schema";
 
 /*
@@ -27,6 +28,7 @@ const maxLogEntries = 500;
 
 const fact = representativeFact;
 const log = representativeFactLog;
+const proposal = representativeFactProposal;
 
 const factNotFound = () => rpcError("NOT_FOUND", "error.factNotFound", "Fact not found");
 const factKeyTaken = () =>
@@ -45,7 +47,7 @@ const view = (row: typeof fact.$inferSelect, now: Date): FactView => ({
   updatedAt: row.updatedAt,
 });
 
-const logged = (row: FactSnapshot): LoggedFact => ({
+export const logged = (row: FactSnapshot): LoggedFact => ({
   type: row.type,
   topic: row.topic,
   value: row.value,
@@ -53,12 +55,14 @@ const logged = (row: FactSnapshot): LoggedFact => ({
   validUntil: row.validUntil?.toISOString() ?? null,
 });
 
-const snapshot = (stored: LoggedFact | null): FactSnapshot | null =>
-  stored && {
-    ...stored,
-    validFrom: stored.validFrom ? new Date(stored.validFrom) : null,
-    validUntil: stored.validUntil ? new Date(stored.validUntil) : null,
-  };
+/** A logged fact, with its dates read back. */
+export const factOf = (stored: LoggedFact): FactSnapshot => ({
+  ...stored,
+  validFrom: stored.validFrom ? new Date(stored.validFrom) : null,
+  validUntil: stored.validUntil ? new Date(stored.validUntil) : null,
+});
+
+const snapshot = (stored: LoggedFact | null) => stored && factOf(stored);
 
 async function record(
   tx: Transaction,
@@ -68,6 +72,7 @@ async function record(
   old: FactSnapshot | null,
   next: FactSnapshot | null,
   at: Date,
+  proposedBy: string | null = null,
 ) {
   const [entry] = await tx
     .insert(log)
@@ -78,6 +83,7 @@ async function record(
       action,
       old: old && logged(old),
       new: next && logged(next),
+      proposedBy,
       at,
     })
     .returning();
@@ -99,7 +105,7 @@ type Fields = {
   validUntil?: Date | null;
 };
 
-const fieldsOf = (input: Fields): FactSnapshot => ({
+export const fieldsOf = (input: Fields): FactSnapshot => ({
   type: input.type,
   topic: input.topic,
   value: stored(input.type, input.value),
@@ -165,6 +171,44 @@ export async function editFact(
   });
 }
 
+/**
+ * Sets the fact of `key` to `fields` in the owner's transaction, for a Bot's proposal they approved,
+ * logged as that Bot's. The fact may have been added, changed or deleted since the Bot proposed, so
+ * this adds or edits by what is there now. A change that leaves it as it was is not logged.
+ */
+export async function applyProposedFact(
+  tx: Transaction,
+  userId: string,
+  key: string,
+  fields: FactSnapshot,
+  proposedBy: string,
+  now: Date,
+): Promise<FactView> {
+  const [before] = await tx
+    .select()
+    .from(fact)
+    .where(and(eq(fact.userId, userId), eq(fact.key, key)))
+    .for("update");
+  if (before) {
+    if (JSON.stringify(logged(before)) === JSON.stringify(logged(fields))) return view(before, now);
+    const [row] = await tx
+      .update(fact)
+      .set({ ...fields, updatedAt: now })
+      .where(eq(fact.id, before.id))
+      .returning();
+    await record(tx, userId, key, "edit", before, fields, now, proposedBy);
+    return view(row!, now);
+  }
+  const [row] = await tx
+    .insert(fact)
+    .values({ id: uuidv7(), userId, key, ...fields, createdAt: now, updatedAt: now })
+    .onConflictDoNothing({ target: [fact.userId, fact.key] })
+    .returning();
+  if (!row) throw factKeyTaken();
+  await record(tx, userId, key, "add", null, fields, now, proposedBy);
+  return view(row, now);
+}
+
 /** Deletes a fact, and returns the log entry that says so. */
 export async function deleteFact(
   { db, clock }: Context,
@@ -188,6 +232,7 @@ const logView = (row: typeof log.$inferSelect): FactLogView => ({
   action: row.action,
   old: snapshot(row.old),
   new: snapshot(row.new),
+  proposedBy: row.proposedBy,
   at: row.at,
 });
 
@@ -218,14 +263,34 @@ export async function exportFacts(tx: Transaction, userId: string) {
     .where(eq(fact.userId, userId))
     .orderBy(asc(fact.topic), asc(fact.key));
   const entries = await tx
-    .select({ key: log.key, action: log.action, old: log.old, new: log.new, at: log.at })
+    .select({
+      key: log.key,
+      action: log.action,
+      old: log.old,
+      new: log.new,
+      proposedBy: log.proposedBy,
+      at: log.at,
+    })
     .from(log)
     .where(eq(log.userId, userId))
     .orderBy(asc(log.at), asc(log.id));
-  return { facts, factLog: entries };
+  const proposals = await tx
+    .select({
+      key: proposal.key,
+      botId: proposal.botId,
+      proposed: proposal.proposed,
+      why: proposal.why,
+      postedAt: proposal.postedAt,
+      expiresAt: proposal.expiresAt,
+    })
+    .from(proposal)
+    .where(eq(proposal.userId, userId))
+    .orderBy(asc(proposal.postedAt), asc(proposal.id));
+  return { facts, factLog: entries, factProposals: proposals };
 }
 
 export async function deleteFacts(tx: Transaction, userId: string): Promise<void> {
   await tx.delete(fact).where(eq(fact.userId, userId));
   await tx.delete(log).where(eq(log.userId, userId));
+  await tx.delete(proposal).where(eq(proposal.userId, userId));
 }

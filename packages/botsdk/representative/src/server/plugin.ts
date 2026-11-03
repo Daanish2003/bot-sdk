@@ -11,6 +11,7 @@ import {
   representativeDocument,
   representativeFact,
   representativeFactLog,
+  representativeFactProposal,
   representativeHandOff,
   representativeRelease,
   representativeTestResult,
@@ -22,6 +23,7 @@ import { threadIdleJob } from "./idle";
 import { exportMerges } from "./customer-merge";
 import { type CustomerChannel, noCustomerChannel, proofLinkRoutes } from "./customer-proof";
 import { deleteCustomers, exportCustomers } from "./customers";
+import { dropProposalsOfBot, factProposalTools } from "./fact-proposals";
 import { deleteFacts, exportFacts } from "./facts";
 import representativeMigrations from "./migrations.json" with { type: "json" };
 import {
@@ -61,7 +63,14 @@ export function representativeFeature(
 ) {
   return defineFeature({
     id: "representative",
-    needs: ["assignments", "models", "releaseApprovals", "representativeLoop", "threads"],
+    needs: [
+      "assignments",
+      "factApprovals",
+      "models",
+      "releaseApprovals",
+      "representativeLoop",
+      "threads",
+    ],
     schema: {
       tables: {
         representative,
@@ -71,6 +80,7 @@ export function representativeFeature(
         representativeDocument,
         representativeFact,
         representativeFactLog,
+        representativeFactProposal,
         representativeHandOff,
         representativeRelease,
         representativeTestResult,
@@ -82,8 +92,14 @@ export function representativeFeature(
     },
     contract: representativeContract,
     api: (context) => representativeApi(context, options.convertDocument),
-    tools: (turn, context) => botDraftTools(turn, context),
-    resetBot: (botId, userId, context) => dropApprovalsOfBot(context, botId, userId),
+    tools: (turn, context) => [
+      ...botDraftTools(turn, context),
+      ...factProposalTools(turn, context),
+    ],
+    resetBot: async (botId, userId, context) => {
+      await dropApprovalsOfBot(context, botId, userId);
+      await dropProposalsOfBot(context, botId, userId);
+    },
     publicRoutes: proofLinkRoutes,
     jobs: [
       representativeTurnJob(options.concurrency, channel),

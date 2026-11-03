@@ -375,7 +375,23 @@ export type FactLogView = {
   action: "add" | "edit" | "delete";
   old: FactSnapshot | null;
   new: FactSnapshot | null;
+  /** The Bot, by its name then, whose proposal the owner approved; null for the owner's own change. */
+  proposedBy: string | null;
   at: Date;
+};
+
+/** A Bot's proposed fact waiting for the owner, with what it would replace. */
+export type FactProposalView = {
+  id: string;
+  key: string;
+  botId: string;
+  botName: string;
+  why: string;
+  /** The fact as it is now; null when the key has none. */
+  current: FactSnapshot | null;
+  proposed: FactSnapshot;
+  postedAt: Date;
+  expiresAt: Date;
 };
 
 export const maxFactTopicLength = 100;
@@ -403,14 +419,15 @@ function refineFact(
     context.addIssue({ code: "custom", path: ["validUntil"], message: "Ends before it starts" });
   }
 }
+/** What a reply names a fact by: lower case, with dots, dashes and underscores. */
+export const factKey = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
 export const factAddInput = z
   .object({
-    /** What a reply names it by: lower case, with dots, dashes and underscores. */
-    key: z
-      .string()
-      .trim()
-      .toLowerCase()
-      .regex(/^[a-z0-9][a-z0-9._-]{0,63}$/),
+    key: factKey,
     ...factFields,
   })
   .superRefine(refineFact);
@@ -510,6 +527,12 @@ export const representativeContract = {
   factDelete: oc.input(idInput).output(type<FactLogView>()),
   /** Every add, edit and delete of the owner's facts, newest first. */
   factLog: oc.output(type<FactLogView[]>()),
+  /** The facts the owner's Bots have proposed that still wait for an answer, oldest first. */
+  factProposals: oc.output(type<FactProposalView[]>()),
+  /** Applies a Bot's proposed fact, logged as its proposal, and wakes the Bot. */
+  factProposalApprove: oc.input(idInput).output(type<FactView>()),
+  /** Refuses a Bot's proposed fact, which changes nothing, and wakes the Bot. */
+  factProposalDecline: oc.input(idInput).output(type<void>()),
   /** A Representative's Customer threads, the most recently active first. */
   threadList: oc.input(idInput).output(type<ThreadSummary[]>()),
   /** One thread with its transcript, holder and who it waits on. */

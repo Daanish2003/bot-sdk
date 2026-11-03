@@ -38,6 +38,7 @@ import {
 } from "../conversation";
 import { approvalExpiryJobName, approvalExpiryKey } from "./approval-expiry";
 import { reviewedRules, ruleApprovalTriggerId } from "./custom-rule";
+import { factApprovalTriggerId } from "./fact-approvals-service";
 import { releaseApprovalTriggerId } from "./release-approvals-service";
 import { isSavedSecretText } from "./secret-values";
 
@@ -968,6 +969,12 @@ async function reviewerInput(
       return (
         "- The user's answer to a Representative draft the Bot proposed, given on the " +
         "Representative's page. It is about that draft alone, and it authorizes no call by itself."
+      );
+    }
+    if (trigger.id.startsWith(factApprovalTriggerId(""))) {
+      return (
+        "- The user's answer to a Published fact the Bot proposed, given on the Facts page. It is " +
+        "about that proposal alone, and it authorizes no call by itself."
       );
     }
     if (trigger.source === "approval") {
