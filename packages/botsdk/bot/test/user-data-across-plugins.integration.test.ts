@@ -39,6 +39,7 @@ import {
   representativeCustomerIdentity,
   representativeFact,
   representativeFactLog,
+  representativeGap,
   representativeFactProposal,
   representativeRelease,
 } from "@botsdk/representative/server/db/schema";
@@ -77,6 +78,7 @@ const userTables = [
   representativeCustomerIdentity,
   representativeFact,
   representativeFactLog,
+  representativeGap,
   representativeFactProposal,
 ].flatMap((value) => {
   if (!is(value, PgTable)) return [];
@@ -256,6 +258,15 @@ async function seedEverything(
     old: null,
     new: loggedFact,
     at: factAt,
+  });
+  // A Gap the owner has not closed.
+  await getTestDb().insert(representativeGap).values({
+    id: uuidv7(),
+    userId: user.id,
+    question: "Do you do weddings?",
+    normalized: "do you do weddings",
+    firstAt: factAt,
+    lastAt: factAt,
   });
   // A Bot's proposed change to the fact, waiting for the owner.
   await getTestDb()

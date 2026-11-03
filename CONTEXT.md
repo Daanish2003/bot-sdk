@@ -170,6 +170,10 @@ _Avoid_: Knowledge, excerpt, embedding
 One typed piece of business information a Representative can state, such as a price or opening hours, quoted exactly and never reworded. It has a key (unique to the user), a type (text, money, hours, phone or url, each value checked against it), a topic and optional valid dates, outside which it is not in effect. Every Representative of the user shares them. It changes live, each add, edit and delete goes in a log with the old value, the new value and the time, and a change a Bot proposes needs the user's Approval.
 _Avoid_: Knowledge, FAQ
 
+**Gap**:
+A question a Representative could not confirm from any source, which it logs for the user after telling the Customer plainly that it can't confirm and offering a hand-off. It belongs to the user, records which Representative first logged it, and counts how often the same question (compared without case, spacing or punctuation) comes up. The user dismisses it or turns it into a Published fact, and either closes it: the same question asked again starts a new Gap. The Model wrote its wording, so only the user sees it, as plain text. A test conversation logs none.
+_Avoid_: Unanswered question, missing answer, ticket
+
 **Customer thread**:
 The one running exchange between a Customer and a Representative across Channels, held either by the Representative or by the user who took it over. It runs one Turn at a time: a message that arrives during a Turn waits for the next one, and quick messages batch into one Turn. While the Representative holds it, it closes when idle, and a later message starts a new one. Taking over aborts the running Turn and sends the Customer one fixed note, and no model call runs until the user hands it back, which is always explicit. A thread the user holds never closes by itself.
 _Avoid_: Conversation, ticket, case

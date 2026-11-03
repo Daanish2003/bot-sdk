@@ -10,6 +10,7 @@ import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { defineJob, type JobContext, PermanentJobError } from "@botsdk/bot/runner/internal";
 import {
+  maxGapQuestionLength,
   maxDocumentNameLength,
   maxThreadMessageLength,
   noNul,
@@ -29,6 +30,7 @@ import {
 import { deliverHandOffResult } from "./hand-off-result";
 import { type Heard, readSender, readThread, storeReply, type ThreadEntry } from "./customers";
 import { representative, representativeHandOff, representativeRelease } from "./db/schema";
+import { logGap } from "./gaps";
 import { type DocumentText, readDocuments } from "./documents";
 import { checkReply, factsInEffect, handOffMessage, refused } from "./replies";
 import {
@@ -86,7 +88,9 @@ export const rules =
   "To state a Published fact, write its key as {{key}} in the reply: code puts its current value " +
   "there, so never type the value yourself. Each reply has a kind: small_talk when it states no " +
   "business information, such as a greeting or asking the Customer to prove who they are; handoff " +
-  "when it says the work has gone to someone else; answer for anything else. An answer rests on " +
+  "when it says the work has gone to someone else; cant_confirm when nothing you were given says " +
+  "what the Customer asked: say plainly that you can't confirm it, offer a hand-off, and put the " +
+  "question in the question field so the owner sees it; answer for anything else. An answer rests on " +
   "at least one source, which code checks and the Customer never sees: a fact's key, or the " +
   "Assignment behind a Bot's result with an exact quote from that result. A key you write in the " +
   "text counts as a source. Code refuses a reply it can't check, sends nothing, and tells you why. " +
@@ -294,8 +298,19 @@ export function turnTools({
         text: z.string().min(1).max(maxThreadMessageLength).refine(noNul),
         kind: z.enum(replyKinds),
         sources: z.array(replySource).max(20).optional(),
+        question: z
+          .string()
+          .trim()
+          .min(1)
+          .max(maxGapQuestionLength)
+          .refine(noNul)
+          .optional()
+          .describe("For kind cant_confirm: the question you can't confirm, in a few words."),
       }),
-    }).server(async ({ text, kind, sources = [] }, context) => {
+    }).server(async ({ text, kind, sources = [], question }, context) => {
+      if (kind === "cant_confirm" && question === undefined) {
+        return refused('a reply of kind "cant_confirm" needs the question it can\'t confirm.');
+      }
       const now = await job.now();
       // Set only by a live write, afresh on each try of it.
       let made: MadeHandOff | undefined;
@@ -350,7 +365,14 @@ export function turnTools({
         });
         if ("error" in checked) return refuse(tx, checked);
         // Stored as sent: nothing reaches a real Channel until the gate spec.
-        if (thread) return storeReply(tx, thread, checked, kind, now);
+        if (thread) {
+          const stored = await storeReply(tx, thread, checked, kind, now);
+          // A test conversation logs no Gap. Logged with the reply, so a refused one logs none.
+          if (kind === "cant_confirm" && question !== undefined && !("error" in stored)) {
+            await logGap(tx, { userId, representativeId, question, now });
+          }
+          return stored;
+        }
         // A test conversation's checks read what was sent from this answer, as the arguments still
         // hold the keys, and an answer over the long-output limit is cut.
         if (JSON.stringify(checked.inserted).length > maxTestInsertedLength) {

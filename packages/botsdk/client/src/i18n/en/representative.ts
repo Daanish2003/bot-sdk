@@ -214,6 +214,16 @@ export const representativeMessages = {
   "representative.facts.fromOf": ({ name }: { name: string }) => `Valid from of ${name}`,
   "representative.facts.untilOf": ({ name }: { name: string }) => `Valid until of ${name}`,
   "representative.facts.deleteOf": ({ name }: { name: string }) => `Delete ${name}`,
+  "representative.facts.gapsTitle": "Gaps",
+  "representative.facts.gapsIntro":
+    "Questions your Representatives could not confirm from any fact. Turn one into a fact so the next Customer gets an answer, or dismiss it.",
+  "representative.facts.gapCount": ({ count }: { count: number }) =>
+    count === 1 ? "Asked once" : `Asked ${count} times`,
+  "representative.facts.gapDismiss": "Dismiss",
+  "representative.facts.gapDismissOf": ({ name }: { name: string }) => `Dismiss: ${name}`,
+  "representative.facts.gapToFact": "Turn into a fact",
+  "representative.facts.gapKeyOf": ({ name }: { name: string }) => `Key for: ${name}`,
+  "representative.facts.gapNewFact": "new fact from a gap",
   "representative.facts.proposalsTitle": "Proposed by your Bots",
   "representative.facts.proposalFrom": ({ name }: { name: string }) => `From ${name}`,
   "representative.facts.proposalCurrent": "Current",

@@ -1,13 +1,14 @@
 /*
  * What a Representative's reply carries beside its text (ticket #1260): its kind, and the sources it
  * rests on, which code checks and the Customer never sees. Kinds in `sourceFreeKinds` state no
- * business information, so they need no source.
+ * business information, so they need no source. A `cant_confirm` reply (ticket #1263) says the
+ * Representative has no source for a question, and carries that question for the owner's Gaps.
  */
 
-export const replyKinds = ["answer", "small_talk", "handoff"] as const;
+export const replyKinds = ["answer", "small_talk", "handoff", "cant_confirm"] as const;
 export type ReplyKind = (typeof replyKinds)[number];
 
-export const sourceFreeKinds: readonly ReplyKind[] = ["small_talk", "handoff"];
+export const sourceFreeKinds: readonly ReplyKind[] = ["small_talk", "handoff", "cant_confirm"];
 
 /** The fixed message code sends when it hands off (ticket #1261): no Model's kind, so none can claim it. */
 export const codeHandOffKind = "code_handoff";

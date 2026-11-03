@@ -9,6 +9,7 @@ import {
   customerSetBlockedInput,
   factAddInput,
   factEditInput,
+  gapToFactInput,
   customerUpdateIdentityInput,
   createInput,
   documentRemoveInput,
@@ -22,6 +23,7 @@ import {
 } from "../shared/contract";
 import type { ConvertDocument } from "./documents";
 import { addFact, deleteFact, editFact, listFactLog, listFacts } from "./facts";
+import { dismissGap, gapToFact, listGaps } from "./gaps";
 import { approveFactProposal, declineFactProposal, listFactProposals } from "./fact-proposals";
 import { listMerges, mergeCustomers, undoMerge } from "./customer-merge";
 import {
@@ -162,6 +164,13 @@ export function representativeApi(
 
     factLog: async ({ userId }: { userId: string }) => listFactLog(context, userId),
 
+    gapList: async ({ userId }: { userId: string }) => listGaps(context, userId),
+
+    gapDismiss: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      dismissGap(context, userId, parseInput(idInput, rest).id),
+
+    gapToFact: async ({ userId, ...rest }: WithUser<typeof gapToFactInput>) =>
+      gapToFact(context, userId, parseInput(gapToFactInput, rest)),
     factProposals: async ({ userId }: { userId: string }) => listFactProposals(context, userId),
 
     factProposalApprove: async ({ userId, ...rest }: WithUser<typeof idInput>) =>

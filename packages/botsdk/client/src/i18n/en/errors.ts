@@ -34,6 +34,7 @@ export const errorMessages = {
   "error.customerIdentityTaken": "One of your Customers already has that identity.",
   "error.factNotFound": "Fact not found",
   "error.factKeyTaken": "You already have a fact with that key.",
+  "error.gapNotFound": "Gap not found",
   "error.factProposalGone": "That proposal is no longer waiting.",
   "error.customerMergeSame": "A Customer can't merge into itself.",
   "error.customerMergeBlocked": "Unblock this Customer before merging.",

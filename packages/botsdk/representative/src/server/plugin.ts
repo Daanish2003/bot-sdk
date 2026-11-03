@@ -11,6 +11,7 @@ import {
   representativeDocument,
   representativeFact,
   representativeFactLog,
+  representativeGap,
   representativeFactProposal,
   representativeHandOff,
   representativeRelease,
@@ -25,6 +26,7 @@ import { type CustomerChannel, noCustomerChannel, proofLinkRoutes } from "./cust
 import { deleteCustomers, exportCustomers } from "./customers";
 import { dropProposalsOfBot, factProposalTools } from "./fact-proposals";
 import { deleteFacts, exportFacts } from "./facts";
+import { deleteGaps, exportGaps } from "./gaps";
 import representativeMigrations from "./migrations.json" with { type: "json" };
 import {
   deleteRepresentatives,
@@ -80,6 +82,7 @@ export function representativeFeature(
         representativeDocument,
         representativeFact,
         representativeFactLog,
+        representativeGap,
         representativeFactProposal,
         representativeHandOff,
         representativeRelease,
@@ -115,6 +118,7 @@ export function representativeFeature(
           await deleteRepresentatives(tx, userId);
           await deleteCustomers(tx, userId);
           await deleteFacts(tx, userId);
+          await deleteGaps(tx, userId);
         },
       },
       export: async (tx, userId) => ({
@@ -122,6 +126,7 @@ export function representativeFeature(
         customers: await exportCustomers(tx, userId),
         customerMerges: await exportMerges(tx, userId),
         ...(await exportFacts(tx, userId)),
+        ...(await exportGaps(tx, userId)),
       }),
     },
   });

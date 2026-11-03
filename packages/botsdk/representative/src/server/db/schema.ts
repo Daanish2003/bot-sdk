@@ -426,6 +426,42 @@ export const representativeFactLog = botsdkSchema.table(
   (table) => [index("representative_fact_log_user_idx").on(table.userId, table.at)],
 );
 
+/** Where a Gap stands: `open` until the owner dismisses it or turns it into a fact. */
+export type GapStatus = "open" | "dismissed" | "answered";
+
+/**
+ * A Gap (ticket #1263): a question a Representative couldn't confirm from any source, which the
+ * owner can answer with a fact or dismiss. It belongs to the owner, and `representativeId` is the
+ * Representative that first logged it, cleared if that one is deleted. `question` is the Model's
+ * own wording, so it is untrusted and only ever shown to the owner as plain text. `normalized` is
+ * what the owner's open Gaps are deduplicated by, with `count` of how often it came up. A dismissed
+ * or answered one is never counted again: the same question then starts a new Gap.
+ */
+export const representativeGap = botsdkSchema.table(
+  "representative_gap",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    representativeId: uuid("representative_id").references((): AnyPgColumn => representative.id, {
+      onDelete: "set null",
+    }),
+    question: text("question").notNull(),
+    normalized: text("normalized").notNull(),
+    count: integer("count").notNull().default(1),
+    status: text("status").$type<GapStatus>().notNull().default("open"),
+    /** From the SDK's clock, like the facts' dates. */
+    firstAt: timestamp("first_at").notNull(),
+    lastAt: timestamp("last_at").notNull(),
+    closedAt: timestamp("closed_at"),
+  },
+  (table) => [
+    uniqueIndex("representative_gap_open_idx")
+      .on(table.userId, table.normalized)
+      .where(sql`${table.status} = 'open'`),
+    index("representative_gap_user_idx").on(table.userId, table.lastAt),
+  ],
+);
+
 /**
  * A Bot's proposed Published fact, waiting for the owner (ticket #1264): the whole fact it would
  * become. It goes when answered, dropped or replaced, and one that expired stays only until the
