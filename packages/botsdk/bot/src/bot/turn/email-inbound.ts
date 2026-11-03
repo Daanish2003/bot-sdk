@@ -11,6 +11,7 @@ import {
   message,
 } from "../../storage";
 
+import { withoutNul } from "../../lib/without-nul";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { sentFileBlobKey, storeMailFiles } from "../conversation";
 
@@ -35,7 +36,7 @@ export async function receiveEmail(
   }: { channel: EmailChannel; verifiedEmail: (userId: string) => Promise<string | null> },
   mail: InboundMail,
 ): Promise<void> {
-  const dropped = await deliver(sdk, channel, verifiedEmail, mail);
+  const dropped = await deliver(sdk, channel, verifiedEmail, withoutNul(mail));
   // A provider delivers at least once, so a redelivery is routine and goes unlogged, as is the
   // Bots' own outbound mail, which a local mail catcher posts back here.
   if (dropped && dropped !== redelivery && dropped !== ownMail)

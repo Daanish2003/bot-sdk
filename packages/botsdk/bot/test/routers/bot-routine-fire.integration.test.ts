@@ -1163,4 +1163,15 @@ describe("the user's edit of a Routine", () => {
 
     expect((await client.routines.list({ botId }))[0]?.prompt).toBe(morningBrief.prompt);
   });
+
+  it("refuses a NUL in the prompt, as a client error, and keeps the prompt", async () => {
+    const { client, botId, routineId } = await approvedRoutine({ at: sunday });
+
+    await expect(client.routines.edit({ routineId, prompt: "a\u0000b" })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      status: 400,
+    });
+
+    expect((await client.routines.list({ botId }))[0]?.prompt).toBe(morningBrief.prompt);
+  });
 });

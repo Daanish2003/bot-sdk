@@ -1,6 +1,7 @@
 import { maxFileBytes } from "@botsdk/client/bot/files";
 import { and, eq } from "drizzle-orm";
 
+import { withoutNul } from "../../lib/without-nul";
 import type { BotSdkContext } from "../../plugin";
 import {
   CredentialsRejectedError,
@@ -69,7 +70,7 @@ export async function receiveMessaging(
   recent.add(update.sourceId);
   if (recent.size > recentLimit) recent.delete(recent.values().next().value!);
   try {
-    await receiveOnce(sdk, adapter, account, update, appUrl, onRejected);
+    await receiveOnce(sdk, adapter, account, withoutNul(update), appUrl, onRejected);
   } catch (error) {
     recent.delete(update.sourceId);
     throw error;

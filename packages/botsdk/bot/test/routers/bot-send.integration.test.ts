@@ -526,6 +526,25 @@ describe("bot.send", () => {
       code: "NOT_FOUND",
     });
   });
+
+  it("refuses a NUL in a Message's text, as a client error, and saves nothing", async () => {
+    const { client, botId } = await botWith([]);
+
+    await expect(
+      client.bots.send({ botId, id: uuidv7(), text: "Book a\u0000 table" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST", status: 400 });
+
+    expect((await client.bots.get({ botId })).messages).toEqual([]);
+  });
+
+  it("refuses a NUL in a Bot's name, as a client error", async () => {
+    const { client } = await botWith([]);
+
+    await expect(client.bots.create({ name: "A\u0000da", model })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      status: 400,
+    });
+  });
 });
 
 describe("a Step that ends in plain text", () => {

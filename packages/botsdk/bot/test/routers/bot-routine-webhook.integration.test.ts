@@ -452,6 +452,16 @@ describe("a webhook Routine's URL", () => {
       expect(outputs()).toEqual(files);
     });
   });
+
+  it("takes a body holding a NUL, with the NUL dropped", async () => {
+    const { conversationId, token, call } = await approvedWebhook();
+
+    const response = await call(token, '{"amount":\u00001}');
+
+    expect(response.status).toBe(202);
+    const [trigger] = await routineTriggers(conversationId);
+    expect(trigger?.text).toContain('{"amount":1}');
+  });
 });
 
 describe("bot.routine.rotate", () => {
