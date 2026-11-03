@@ -456,6 +456,7 @@ describe("what the Turn reads", () => {
           channel: fakeChannel,
           externalId: "+15550001",
           text: `Filler ${index}`,
+          verified: false,
         })),
       );
 

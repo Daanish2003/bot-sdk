@@ -359,6 +359,7 @@ export async function getThread(
       text: representativeThreadMessage.text,
       channel: representativeThreadMessage.channel,
       externalId: representativeThreadMessage.externalId,
+      verified: representativeThreadMessage.verified,
       createdAt: representativeThreadMessage.createdAt,
     })
     .from(representativeThreadMessage)

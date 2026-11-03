@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "06c8bb56-8055-46aa-8acd-9bad956b9c2d",
+  "id": "30868cf4-3bbe-4d50-b005-3a6cffce3b04",
   "prevIds": ["8ffe69a8-5e67-4ec4-8ce7-c18f27703eb3"],
   "ddl": [
     {
@@ -798,7 +798,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "false",
+      "default": "true",
       "generated": null,
       "identity": null,
       "name": "verified",

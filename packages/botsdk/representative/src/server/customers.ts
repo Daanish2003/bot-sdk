@@ -32,7 +32,7 @@ export const maxThreadMessageLength = 60_000;
 export type Heard = { channel: string; externalId: string };
 
 /** A thread message as a Turn reads it. */
-export type ThreadEntry = { author: ThreadAuthor; text: string };
+export type ThreadEntry = { author: ThreadAuthor; text: string; verified: boolean };
 
 /** An identity of `userId`'s with its Customer, made together on the identity's first message. */
 async function findOrMakeIdentity(tx: Transaction, userId: string, heard: Heard) {
@@ -118,11 +118,15 @@ export async function receiveMessage(
     .for("key share");
   if (!owner) return null;
   const { identityId, customerId } = await findOrMakeIdentity(tx, owner.userId, heard);
-  const verified = await judgeMessage(tx, identityId, proof, now);
+  // Before the identity's lock, the order the owner's edits take them in.
   const [customer] = await tx
     .select({ blockedAt: representativeCustomer.blockedAt })
     .from(representativeCustomer)
-    .where(eq(representativeCustomer.id, customerId));
+    .where(eq(representativeCustomer.id, customerId))
+    .for("key share");
+  const blocked = customer!.blockedAt !== null;
+  // A blocked Customer's messages renew nothing, so the lapse runs on through a block.
+  const verified = !blocked && (await judgeMessage(tx, identityId, proof, now));
   const [thread] = await tx
     .insert(representativeThread)
     .values({
@@ -137,8 +141,7 @@ export async function receiveMessage(
       target: [representativeThread.customerId, representativeThread.representativeId],
       targetWhere: sql`state <> 'closed'`,
       set: {
-        lastChannel: heard.channel,
-        lastExternalId: heard.externalId,
+        ...(verified && { lastChannel: heard.channel, lastExternalId: heard.externalId }),
         messageCount: sql`${representativeThread.messageCount} + 1`,
         updatedAt: new Date(),
       },
@@ -148,7 +151,7 @@ export async function receiveMessage(
   await tx
     .insert(representativeThreadMessage)
     .values({ id: uuidv7(), threadId, position, author: "customer", text, verified, ...heard });
-  return { customerId, threadId, position, verified, blocked: customer!.blockedAt !== null };
+  return { customerId, threadId, position, verified, blocked };
 }
 
 /**
@@ -168,6 +171,7 @@ export async function readThread(
     .select({
       author: representativeThreadMessage.author,
       text: representativeThreadMessage.text,
+      verified: representativeThreadMessage.verified,
     })
     .from(representativeThreadMessage)
     .where(

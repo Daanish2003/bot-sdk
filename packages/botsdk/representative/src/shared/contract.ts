@@ -238,6 +238,8 @@ export type ThreadMessageView = {
   text: string;
   channel: string;
   externalId: string;
+  /** Whether the Turn it belongs to was for a verified sender. */
+  verified: boolean;
   createdAt: Date;
 };
 

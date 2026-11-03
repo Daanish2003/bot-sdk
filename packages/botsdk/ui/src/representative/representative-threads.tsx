@@ -36,6 +36,7 @@ function Transcript({ id }: { id: string }) {
                 : "representative.threadReply",
             )}{" "}
             · {t("representative.threadVia", { channel: message.channel })} ·{" "}
+            {!message.verified && <>{t("representative.customers.unverified")} · </>}
             {new Date(message.createdAt).toLocaleString(locale)}
           </span>
           <span className="block whitespace-pre-wrap break-words">{message.text}</span>

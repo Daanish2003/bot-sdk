@@ -154,7 +154,7 @@ export const representativeTestJob = defineJob<TestPayload, TurnServices>({
       model,
       sourceId: resultId,
       on: { test: { current } },
-      entries: [{ author: "customer", text: conversation.message }],
+      entries: [{ author: "customer", text: conversation.message, verified: true }],
       content: draft,
     });
     // The draft changed or a new run replaced it, so what this came to has nowhere to go.
