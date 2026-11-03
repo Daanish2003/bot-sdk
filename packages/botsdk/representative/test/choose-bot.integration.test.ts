@@ -283,22 +283,16 @@ describe("choosing the Bot a Representative reports to", () => {
 });
 
 describe("a hand-off while the owner chooses another Bot", () => {
-  /** Chooses `botId` right after the hand-off's Assignment is made, with `then` to follow. */
-  function choosesDuringCreate(
-    deps: TestDeps,
-    id: string,
-    botId: string,
-    then: (assignmentId: string) => Promise<void> = async () => {},
-  ) {
+  /** Chooses `botId` right after the hand-off's Assignment is made. */
+  function choosesDuringCreate(deps: TestDeps, id: string, botId: string) {
     const { assignments } = deps.parts.features[0]!.context;
     const create = assignments.create.bind(assignments);
-    vi.spyOn(assignments, "create").mockImplementationOnce(async (input) => {
-      const made = await create(input);
+    vi.spyOn(assignments, "create").mockImplementationOnce(async (tx, input) => {
+      const made = await create(tx, input);
       await getTestDb()
         .update(representativeTable)
         .set({ botId })
         .where(eq(representativeTable.id, id));
-      await then(made.id);
       return made;
     });
   }
@@ -332,9 +326,12 @@ describe("a hand-off while the owner chooses another Bot", () => {
     const { id: second } = await rpc.bots.create({ name: "Second", model: botModel });
     const id = await liveRepresentative(rpc, first);
     const { assignments } = deps.parts.features[0]!.context;
-    choosesDuringCreate(deps, id, second, (assignmentId) =>
-      assignments.cancel({ userId: user.id, id: assignmentId }),
-    );
+    choosesDuringCreate(deps, id, second);
+    const move = assignments.move.bind(assignments);
+    vi.spyOn(assignments, "move").mockImplementationOnce(async (input) => {
+      await assignments.cancel({ userId: user.id, id: input.id });
+      return move(input);
+    });
 
     await testCustomerTurn(deps, { representativeId: id, message: "Hi" });
 

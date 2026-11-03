@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import type { AnyFeature } from "../../feature";
-import type { BotSdkContext } from "../../plugin";
+import type { BotSdkContext, Transaction } from "../../plugin";
 import { parseInput, rpcError } from "../../rpc-error";
 import type { JobDefinition } from "../../runner/internal";
 import { bot, botAssignment } from "../../storage";
@@ -59,14 +59,23 @@ export type AssignmentsService = {
    * Auto-review ever takes it as the user's word. `job` is one of the feature's `jobs`, queued in the
    * transaction that ends the Assignment. Another user's Bot is NOT_FOUND, and a Bot whose Model
    * can't run is CONFLICT.
+   *
+   * It runs in the caller's transaction, so a job step's Checkpoint commits with it and a replay
+   * never makes a second one. A refusal comes before anything is written, so the caller may catch it
+   * and commit. It takes the Conversation's lock, so any lock of the caller's that others take before
+   * a Conversation's comes first. The caller wakes the runner and hints `conversationId` once `tx`
+   * commits.
    */
-  create: (input: {
-    userId: string;
-    botId: string;
-    title: string;
-    instructions: string;
-    job: Pick<JobDefinition<AssignmentEnded>, "name" | "payload">;
-  }) => Promise<{ id: string }>;
+  create: (
+    tx: Transaction,
+    input: {
+      userId: string;
+      botId: string;
+      title: string;
+      instructions: string;
+      job: Pick<JobDefinition<AssignmentEnded>, "name" | "payload">;
+    },
+  ) => Promise<{ id: string; conversationId: string }>;
   /** One of the feature's own Assignments for this owner; any other is NOT_FOUND. */
   read: (input: { userId: string; id: string }) => Promise<{
     id: string;
@@ -93,12 +102,12 @@ const notFound = () => rpcError("NOT_FOUND", "error.assignmentNotFound", "Assign
 /** The `assignments` service `feature` gets. */
 export function assignmentsService(deps: BotSdkContext, feature: AnyFeature): AssignmentsService {
   return {
-    create: async ({ userId, job, ...rest }) => {
+    create: async (tx, { userId, job, ...rest }) => {
       const { botId, ...work } = parseInput(createInput, rest);
       if (!feature.jobs?.some((own) => own.name === job.name)) {
         throw new Error(`The job "${job.name}" isn't one of feature "${feature.id}"'s jobs`);
       }
-      const [target] = await deps.db
+      const [target] = await tx
         .select({ id: bot.id, model: bot.model, conversationId: bot.conversationId })
         .from(bot)
         .where(and(eq(bot.id, botId), eq(bot.userId, userId)));
@@ -106,26 +115,22 @@ export function assignmentsService(deps: BotSdkContext, feature: AnyFeature): As
       if (!(await canWork(deps, { userId, model: target.model }))) {
         throw rpcError("CONFLICT", "error.assignmentBotCantWork", "The Bot can't work right now");
       }
-      const id = await deps.db.transaction(async (tx) => {
-        await lockConversation(tx, target.conversationId);
-        return openAssignment(
-          deps,
-          tx,
-          target,
-          {
-            assignerBotId: null,
-            assignerName: null,
-            assignerFeature: feature.id,
-            assignerJob: job.name,
-            assignerTrusted: false,
-            log: { actor: "feature" },
-          },
-          work,
-        );
-      });
-      deps.runner.wake();
-      await hintChanged(deps, target.conversationId);
-      return { id };
+      await lockConversation(tx, target.conversationId);
+      const id = await openAssignment(
+        deps,
+        tx,
+        target,
+        {
+          assignerBotId: null,
+          assignerName: null,
+          assignerFeature: feature.id,
+          assignerJob: job.name,
+          assignerTrusted: false,
+          log: { actor: "feature" },
+        },
+        work,
+      );
+      return { id, conversationId: target.conversationId };
     },
 
     read: async ({ userId, ...rest }) => {
