@@ -1,5 +1,5 @@
 import type { AssignmentResult, AssignmentStatus } from "@botsdk/client/bot/assignment";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import type { AnyFeature } from "../../feature";
@@ -70,11 +70,16 @@ export type AssignmentsService = {
    * this owner's is NOT_FOUND. With no Turn behind the work, as for a webhook or a Representative's
    * hand-off, it starts a chain at depth 1.
    *
+   * In a feature's `tools`, the service in the `context` they're given counts from the Turn it's
+   * called in by itself, so `turnId` can be left out. If a tool names another Turn too, the deeper of
+   * the two counts, so naming one can't lower its depth, and it must be this owner's. A job has no
+   * live Turn, so `turnId` is the only way it stays in the chain.
+   *
    * It runs in the caller's transaction, so a job step's Checkpoint commits with it and a replay
    * never makes a second one. A refusal comes before anything is written, so the caller may catch it
-   * and commit. It takes the Conversation's lock, and the 1:1's of `turnId`'s Bot, so any lock of the
-   * caller's that others take before a Conversation's comes first. The caller wakes the runner and
-   * hints `conversationId` once `tx` commits.
+   * and commit. It takes the Conversation's lock, and the 1:1's of the Bot of each Turn it counts
+   * from, so any lock of the caller's that others take before a Conversation's comes first. The
+   * caller wakes the runner and hints `conversationId` once `tx` commits.
    */
   create: (
     tx: Transaction,
@@ -110,8 +115,15 @@ export type AssignmentsService = {
 
 const notFound = () => rpcError("NOT_FOUND", "error.assignmentNotFound", "Assignment not found");
 
-/** The `assignments` service `feature` gets. */
-export function assignmentsService(deps: BotSdkContext, feature: AnyFeature): AssignmentsService {
+/**
+ * The `assignments` service `feature` gets. With `turnBehind`, the Turn its tools were listed for
+ * (#1218), `create` always counts from that Turn, whatever its caller names.
+ */
+export function assignmentsService(
+  deps: BotSdkContext,
+  feature: AnyFeature,
+  turnBehind?: string,
+): AssignmentsService {
   return {
     create: async (tx, { userId, job, ...rest }) => {
       const { botId, turnId, ...work } = parseInput(createInput, rest);
@@ -123,22 +135,26 @@ export function assignmentsService(deps: BotSdkContext, feature: AnyFeature): As
         .from(bot)
         .where(and(eq(bot.id, botId), eq(bot.userId, userId)));
       if (!target) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-      const [turn] = turnId
+      const turnIds = [...new Set([turnBehind, turnId])].filter((id) => id !== undefined);
+      const turns = turnIds.length
         ? await tx
             .select({ id: botTurn.id, botId: botTurn.botId, conversationId: bot.conversationId })
             .from(botTurn)
             .innerJoin(bot, eq(bot.id, botTurn.botId))
-            .where(and(eq(botTurn.id, turnId), eq(bot.userId, userId)))
+            .where(and(inArray(botTurn.id, turnIds), eq(bot.userId, userId)))
         : [];
-      if (turnId && !turn) throw rpcError("NOT_FOUND", "error.turnNotFound", "Turn not found");
+      if (turns.length < turnIds.length) {
+        throw rpcError("NOT_FOUND", "error.turnNotFound", "Turn not found");
+      }
       if (!(await canWork(deps, { userId, model: target.model }))) {
         throw rpcError("CONFLICT", "error.assignmentBotCantWork", "The Bot can't work right now");
       }
       await lockConversationsInOrder(tx, [
         target.conversationId,
-        ...(turn ? [turn.conversationId] : []),
+        ...turns.map((turn) => turn.conversationId),
       ]);
-      const depth = turn ? await chainDepthFromTurn(tx, turn) : 1;
+      let depth = 1;
+      for (const turn of turns) depth = Math.max(depth, await chainDepthFromTurn(tx, turn));
       if (depth > assignmentChainLimit) {
         throw rpcError(
           "CONFLICT",
