@@ -45,6 +45,20 @@ export function useUpdateDraft(options?: ProcedureMutationOptions<Representative
   return useMutation(useRepresentative().updateDraft.mutationOptions(options));
 }
 
+/** Adds a document to the draft (`representative.documentUpload`). */
+export function useUploadDocument(
+  options?: ProcedureMutationOptions<Representative["documentUpload"]>,
+) {
+  return useMutation(useRepresentative().documentUpload.mutationOptions(options));
+}
+
+/** Takes a document out of the draft (`representative.documentRemove`). */
+export function useRemoveDocument(
+  options?: ProcedureMutationOptions<Representative["documentRemove"]>,
+) {
+  return useMutation(useRepresentative().documentRemove.mutationOptions(options));
+}
+
 /** Approves the draft into a Release (`representative.approve`). */
 export function useApproveRelease(options?: ProcedureMutationOptions<Representative["approve"]>) {
   return useMutation(useRepresentative().approve.mutationOptions(options));

@@ -44,6 +44,21 @@ export const errorMessages = {
   "error.representativeTestsUnfinished":
     "The tests haven't finished for this draft. Run them, or approve anyway and say why.",
   "error.representativeOverrideReason": "Say why you are approving anyway.",
+  "error.representativeDocumentsTooLong": ({ chars, limit }: { chars: number; limit: number }) =>
+    `This draft's documents hold ${chars} characters, and a Release can hold ${limit}. Remove some before approving.`,
+  "error.representativeDocumentFormat": ({ name }: { name: string }) =>
+    `"${name}" can't be added: upload a Markdown, text, PDF or DOCX file.`,
+  "error.representativeDocumentNoConversion": ({ name }: { name: string }) =>
+    `"${name}" can't be read here: this server takes only Markdown and plain text.`,
+  "error.representativeDocumentTooLong": ({ name }: { name: string }) =>
+    `"${name}" has too much text.`,
+  "error.representativeDocumentEmpty": ({ name }: { name: string }) => `"${name}" has no text.`,
+  "error.representativeDocumentUnreadable": ({ name }: { name: string }) =>
+    `"${name}" can't be read as text.`,
+  "error.representativeDocumentName": "That file's name can't be used. Rename it and try again.",
+  "error.representativeTooManyDocuments": ({ limit }: { limit: number }) =>
+    `A draft can hold ${limit} documents. Remove one first.`,
+  "error.representativeDocumentNotFound": "That document isn't in the draft any more.",
   "error.representativeModelUnavailable":
     "This draft names a Model you can't use. Choose another before approving.",
   "error.representativeNoApproval": "No Approval is waiting on this draft any more.",

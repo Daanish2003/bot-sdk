@@ -15,6 +15,8 @@ export {
   type CustomerIdentityView,
   type CustomerMergeView,
   type CustomerView,
+  type DocumentRef,
+  type DocumentSnapshot,
   type Draft,
   type Expectation,
   type DraftChange,
@@ -37,5 +39,7 @@ export {
   type ThreadWaitingOn,
   type TranscriptEntry,
   canonicalJson,
+  documentChars,
+  maxReleaseDocumentChars,
   representativeTools,
 } from "../shared/contract";

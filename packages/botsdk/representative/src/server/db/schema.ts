@@ -55,6 +55,28 @@ export const representative = botsdkSchema.table(
  * A Release: one unchangeable version of a Representative, numbered from 1. Nothing updates a row
  * once it is inserted; rollback only repoints `representative.live_release_id`.
  */
+/**
+ * The text of a document chosen for a draft (ticket #1259). A row never changes: a new upload is a new
+ * row, and one goes only once neither the draft nor a Release refers to it. It goes with its
+ * Representative, which takes it out of the owner's account delete.
+ */
+export const representativeDocument = botsdkSchema.table(
+  "representative_document",
+  {
+    id: uuid("id").primaryKey(),
+    representativeId: uuid("representative_id")
+      .notNull()
+      .references((): AnyPgColumn => representative.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    text: text("text").notNull(),
+    /** SHA-256 of the text. */
+    hash: text("hash").notNull(),
+    chars: integer("chars").notNull(),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (table) => [index("representative_document_representative_idx").on(table.representativeId)],
+);
+
 export const representativeRelease = botsdkSchema.table(
   "representative_release",
   {
