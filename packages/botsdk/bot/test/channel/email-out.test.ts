@@ -207,6 +207,33 @@ describe("emailBody with Markdown (spec #1117)", () => {
     expect(body.html).toContain("Use Array&lt;string&gt; here");
   });
 
+  it.each([
+    ["convert <input> <output>", "convert &lt;input&gt; &lt;output&gt;"],
+    ["cp <source> <target>", "cp &lt;source&gt; &lt;target&gt;"],
+    ["Array<object>", "Array&lt;object&gt;"],
+    ["Box<U>", "Box&lt;U&gt;"],
+    ["React.FC<P>", "React.FC&lt;P&gt;"],
+    ["<b>bold</b>", "&lt;b&gt;bold&lt;/b&gt;"],
+  ])("keeps %s in both parts, escaped in the HTML", (source, escaped) => {
+    const body = emailBody({ text: source }, { botUrl });
+    expect(body.text).toBe(source);
+    expect(body.html).toContain(escaped);
+    expect(body.html).not.toContain("<b>");
+  });
+
+  it.each([
+    "before <script src=x",
+    "before <img src=x onerror=alert(1) after",
+    "before <img\nsrc=x onerror=alert(1)",
+    "<scr<script>ipt>",
+    "a &lt;script&gt; b",
+  ])("takes no tag through either part from %s", (source) => {
+    const { text, html } = emailBody({ text: source }, { botUrl });
+    for (const part of [text, html]) {
+      expect(part).not.toMatch(/<(script|img)|&lt;(script|img)|onerror/i);
+    }
+  });
+
   it("never lets a script, a javascript: link or a remote image through", () => {
     const hostile = [
       "<script>alert(1)</script>",

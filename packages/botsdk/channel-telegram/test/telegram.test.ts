@@ -442,8 +442,17 @@ describe("what a Message looks like on Telegram", () => {
   });
 
   it.each([
+    ["a word in brackets", "convert <input> <output>", "convert <input\\> <output\\>"],
+    ["a tag with no attributes", "<b>bold</b>", "<b\\>bold</b\\>"],
+    ["a type", "Box<U> and React.FC<P>", "Box<U\\> and React\\.FC<P\\>"],
+  ])("shows %s as written", async (_, markdown, expected) => {
+    expect(await sent(markdown)).toEqual([expected]);
+  });
+
+  it.each([
     ["<script>", "<script>alert(1)</script>\n\nhi", "hi"],
     ["inline HTML", "a <b onclick='x()'>b</b>", "a b"],
+    ["a tag left open", "before <img src=x\n\nhi", "before \n\nhi"],
     ["a javascript: link", "[x](javascript:alert(1))", "x"],
     ["a tg: link", "[x](tg://user?id=1)", "x"],
     ["a relative link", "[x](/a)", "x"],
@@ -574,7 +583,7 @@ describe("what a Message looks like on Telegram", () => {
           "bold it gone code 2*3*4",
           "  quoted",
           "• one\n• two",
-          "docs (https://a.b/c) x  y",
+          "docs (https://a.b/c) <b>x</b>  y",
           "a  b\n1  2",
           "code **block**",
         ].join("\n\n"),
