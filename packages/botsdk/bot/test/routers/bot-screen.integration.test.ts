@@ -1,10 +1,10 @@
 import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { botHelper, botTrigger, computer as computerTable } from "../../src/storage";
+import { botHelper, botTrigger, computer as computerTable, job } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
-import { askUserToolName, closeScreen } from "../../src/bot/helpers";
+import { askUserToolName, closeScreen, lockScreen } from "../../src/bot/helpers";
 import type { ScreenPeer } from "../../src/bot/helpers";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner, systemClock } from "../../src/runner/internal";
@@ -42,26 +42,29 @@ const reason = "Sign in to Salesforce: enter your password and the code from you
  * A user with a Bot whose Computer-use Helper is waiting for them at a hand-off, over an SDK with
  * `computer` on. Each Screen's noVNC port is a fake noVNC that wants E2B's traffic token; no Chrome
  * answers on the DevTools ports. The clock is the real time plus `offset.ms`. `onCommand` answers the
- * sandbox's commands.
+ * sandbox's commands. With `nextHelper`, the Bot's next Turn starts another Computer-use Helper, which
+ * waits at a hand-off too.
  */
 async function waitingHelper(
   onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>,
-  { liveViewBase }: { liveViewBase?: string } = {},
+  { liveViewBase, nextHelper = false }: { liveViewBase?: string; nextHelper?: boolean } = {},
 ) {
   const novnc = await fakeNovnc();
   const offset = { ms: 0 };
   const clock = () => new Date(Date.now() + offset.ms);
+  const startingTurn = [
+    round(
+      toolCall({ name: "start_helper", input: { type: "computer_use", task } }),
+      toolCall({ name: "send_to_user", input: { text: "On it.", endTurn: true } }),
+    ),
+    round(),
+  ];
+  const askingHelper = [round(toolCall({ name: askUserToolName, input: { reason } }))];
   const turnFake = createFakeAdapter({
-    rounds: [
-      round(
-        toolCall({ name: "start_helper", input: { type: "computer_use", task } }),
-        toolCall({ name: "send_to_user", input: { text: "On it.", endTurn: true } }),
-      ),
-      round(),
-    ],
+    rounds: nextHelper ? [...startingTurn, ...startingTurn] : startingTurn,
   });
   const helperFake = createFakeAdapter({
-    rounds: [round(toolCall({ name: askUserToolName, input: { reason } }))],
+    rounds: nextHelper ? [...askingHelper, ...askingHelper] : askingHelper,
   });
   const adapter = {
     ...turnFake.adapter,
@@ -130,6 +133,17 @@ const sandboxOf = (fake: ReturnType<typeof fakeComputerProvider>) => ({
   sandboxId: fake.callsOf("create").at(-1)!.sandboxId,
   screenToken: new TextDecoder().decode(fake.files.get("/tmp/screens/1/token")),
 });
+
+/** How many database sessions, in any process, wait for the user's Screen `slot`'s lock now. */
+const waitingForScreenLock = async (userId: string, slot: number) => {
+  const { rows } = await getTestDb().execute(sql`
+    select count(*)::int as waiting from pg_locks
+    where locktype = 'advisory' and not granted
+      and database = (select oid from pg_database where datname = current_database())
+      and (classid::bigint << 32 | objid::bigint) = hashtextextended(${`screen:${userId}:${slot}`}, 0)
+  `);
+  return (rows[0] as { waiting: number }).waiting;
+};
 
 /** A beat queries the database twice, which can take more than `vi.waitFor`'s default 1 s under load. */
 const beatTimeout = { timeout: 10_000 };
@@ -279,25 +293,84 @@ describe("stopping a Computer-use Helper", () => {
 
   it("never closes the Screen once another Helper of the user holds its slot", async () => {
     const { client, deps, user, helper, botId, computerFake } = await waitingHelper();
-    await client.helpers.stop({ botId, helperId: helper.id });
-    // The next Helper takes the slot the stop freed.
-    await getTestDb().insert(botHelper).values({
-      id: uuidv7(),
-      botId,
-      type: "computer_use",
-      task: "Next.",
-      status: "running",
-      startedByTurnId: helper.startedByTurnId,
-      screen: 1,
-      startedAt: new Date(),
-    });
     const before = screenCommands(computerFake).length;
 
-    // The stopped Helper's job, late to see its cancel, closes its Screen as it ends.
+    // The next Helper takes the slot the stop freed as `start_helper` does: under the slot's lock,
+    // which the stopped Helper's `bot.helper.stopped` job waits for before it looks for a holder.
+    await getTestDb().transaction(async (tx) => {
+      await lockScreen(tx, user.id, 1);
+      await client.helpers.stop({ botId, helperId: helper.id });
+      await expect.poll(() => waitingForScreenLock(user.id, 1), { timeout: 10_000 }).toBe(1);
+      await tx.insert(botHelper).values({
+        id: uuidv7(),
+        botId,
+        type: "computer_use",
+        task: "Next.",
+        status: "running",
+        startedByTurnId: helper.startedByTurnId,
+        screen: 1,
+        startedAt: new Date(),
+      });
+    });
+    await expect
+      .poll(
+        async () =>
+          (
+            await getTestDb()
+              .select({ status: job.status })
+              .from(job)
+              .where(eq(job.idempotencyKey, `helper-stopped:${helper.id}`))
+          )[0]?.status,
+        { timeout: 10_000 },
+      )
+      .toBe("succeeded");
+
+    // The stopped Helper's own job, late to see its cancel, closes its Screen as it ends.
     await closeScreen(deps, { id: helper.id, userId: user.id, screen: 1 });
 
     expect(screenCommands(computerFake).slice(before)).toEqual([]);
-  });
+  }, 30_000);
+
+  it("makes the next Helper wait out a close already under way, so the close never lands on it", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let closing = false;
+    const { client, user, helper, botId, computerFake } = await waitingHelper(
+      async ({ command }) => {
+        if (command.endsWith("ai-chat-screen stop 1")) {
+          closing = true;
+          await held;
+        }
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+      { nextHelper: true },
+    );
+    await client.helpers.stop({ botId, helperId: helper.id });
+    // The close is past its look for a holder, and its `stop` is still running.
+    await expect.poll(() => closing, { timeout: 10_000 }).toBe(true);
+
+    const nextTurn = (async () => {
+      for await (const _event of await followSend(client, { botId, id: uuidv7(), text: "next" }));
+    })();
+    try {
+      await expect.poll(() => waitingForScreenLock(user.id, 1), { timeout: 10_000 }).toBe(1);
+      expect(await helpersOf(botId)).toHaveLength(1);
+    } finally {
+      release();
+    }
+    await nextTurn;
+
+    await expect
+      .poll(async () => (await helpersOf(botId))[1]?.status, { timeout: 10_000 })
+      .toBe("waiting");
+    expect((await helpersOf(botId))[1]?.screen).toBe(1);
+    // After that one close, the next Helper's Screen only ever opens.
+    const commands = screenCommands(computerFake);
+    const afterClose = commands.slice(commands.indexOf("/usr/local/bin/ai-chat-screen stop 1") + 1);
+    expect(new Set(afterClose)).toEqual(
+      new Set([`/usr/local/bin/ai-chat-screen start 1 ${botId}`]),
+    );
+  }, 30_000);
 });
 
 describe("bot.screen.control", () => {
