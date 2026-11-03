@@ -728,7 +728,7 @@ function finalText(transcript: readonly ModelMessage[]): string {
  * only what it read, and a report reaches the Bot as a Trigger.
  */
 function latestText(transcript: readonly ModelMessage[]): string {
-  for (const entry of transcript.toReversed()) {
+  for (const entry of [...transcript].reverse()) {
     const text = entry.role === "assistant" ? textOf(entry) : "";
     if (text) return text;
   }
