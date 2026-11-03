@@ -459,3 +459,60 @@ describe("an unverified sender can still get help", () => {
     expect(handOffs).toHaveLength(1);
   });
 });
+
+describe("what the owner sees", () => {
+  it("shows each identity's verified state on the Customers page and the thread, until it lapses", async () => {
+    const { deps, timer } = await instance([quiet()]);
+    const { user, rpc, id } = await ownerWithRepresentative(deps);
+    await testCustomerTurn(deps, {
+      representativeId: id,
+      channel: "telegram",
+      externalId: "7",
+      proof: sameIdentity,
+      message: "Hi",
+    });
+    const [customer] = await customersOf(deps, user.id);
+    await addIdentity(user.id, customer!.id, "sms", "+15550001");
+
+    const expected = (telegram: boolean) => [
+      { channel: "telegram", verified: telegram },
+      { channel: "sms", verified: false },
+    ];
+    const [thread] = await rpc.representative.threadList({ id });
+    expect((await rpc.representative.customerList())[0]?.identities).toMatchObject(expected(true));
+    expect((await rpc.representative.threadGet({ id: thread!.id })).identities).toMatchObject(
+      expected(true),
+    );
+
+    // With no message since: the lapse shows without one.
+    timer.advance(90 * day);
+    expect((await rpc.representative.customerList())[0]?.identities).toMatchObject(expected(false));
+    expect((await rpc.representative.threadGet({ id: thread!.id })).identities).toMatchObject(
+      expected(false),
+    );
+  });
+
+  it("starts an identity the owner re-addresses as unverified, and keeps it when the address is unchanged", async () => {
+    const { deps } = await instance([quiet()]);
+    const { rpc, id } = await ownerWithRepresentative(deps);
+    const telegram = { channel: "telegram", externalId: "7" };
+    await testCustomerTurn(deps, {
+      ...telegram,
+      representativeId: id,
+      proof: sameIdentity,
+      message: "Hi",
+    });
+    const [customer] = await rpc.representative.customerList();
+    const edit = { id: customer!.id, identityId: customer!.identities[0]!.id };
+
+    const unchanged = await rpc.representative.customerUpdateIdentity({ ...edit, ...telegram });
+    expect(unchanged.identities[0]?.verified).toBe(true);
+
+    const moved = await rpc.representative.customerUpdateIdentity({
+      ...edit,
+      channel: "telegram",
+      externalId: "8",
+    });
+    expect(moved.identities[0]?.verified).toBe(false);
+  });
+});

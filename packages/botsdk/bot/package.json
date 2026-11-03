@@ -38,6 +38,7 @@
     "./feature": "./src/feature.ts",
     "./lib/guarded-fetch": "./src/lib/guarded-fetch.ts",
     "./lib/parse-reply": "./src/lib/parse-reply.ts",
+    "./lib/unique-violation": "./src/lib/unique-violation.ts",
     "./lib/uuidv7": "./src/lib/uuidv7.ts",
     "./migrate": "./src/migrate.ts",
     "./migrate-cli": "./src/migrate-cli.ts",

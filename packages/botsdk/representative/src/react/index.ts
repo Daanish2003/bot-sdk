@@ -92,3 +92,53 @@ export function useRefreshRepresentatives() {
   const queryClient = useQueryClient();
   return () => queryClient.invalidateQueries({ queryKey: representative.key() });
 }
+
+/** The owner's Customers (`representative.customerList`). */
+export function useCustomers() {
+  return useQuery(useRepresentative().customerList.queryOptions());
+}
+
+/** Adds a Customer by hand (`representative.customerCreate`). */
+export function useCreateCustomer(
+  options?: ProcedureMutationOptions<Representative["customerCreate"]>,
+) {
+  return useMutation(useRepresentative().customerCreate.mutationOptions(options));
+}
+
+/** Names a Customer (`representative.customerRename`). */
+export function useRenameCustomer(
+  options?: ProcedureMutationOptions<Representative["customerRename"]>,
+) {
+  return useMutation(useRepresentative().customerRename.mutationOptions(options));
+}
+
+/** Gives a Customer another identity (`representative.customerAddIdentity`). */
+export function useAddCustomerIdentity(
+  options?: ProcedureMutationOptions<Representative["customerAddIdentity"]>,
+) {
+  return useMutation(useRepresentative().customerAddIdentity.mutationOptions(options));
+}
+
+/** Corrects one identity of a Customer (`representative.customerUpdateIdentity`). */
+export function useUpdateCustomerIdentity(
+  options?: ProcedureMutationOptions<Representative["customerUpdateIdentity"]>,
+) {
+  return useMutation(useRepresentative().customerUpdateIdentity.mutationOptions(options));
+}
+
+/** Blocks or unblocks a Customer (`representative.customerSetBlocked`). */
+export function useSetCustomerBlocked(
+  options?: ProcedureMutationOptions<Representative["customerSetBlocked"]>,
+) {
+  return useMutation(useRepresentative().customerSetBlocked.mutationOptions(options));
+}
+
+/** A Representative's Customer threads (`representative.threadList`). */
+export function useThreads(id: string) {
+  return useQuery(useRepresentative().threadList.queryOptions({ input: { id } }));
+}
+
+/** One thread with its transcript (`representative.threadGet`). */
+export function useThread(id: string) {
+  return useQuery(useRepresentative().threadGet.queryOptions({ input: { id } }));
+}

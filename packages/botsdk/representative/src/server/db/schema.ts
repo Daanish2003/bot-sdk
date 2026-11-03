@@ -123,6 +123,10 @@ export const representativeCustomer = botsdkSchema.table(
     id: uuid("id").primaryKey(),
     /** The owner: the Host's user id, with no foreign key, as everywhere in the `botsdk` schema. */
     userId: text("user_id").notNull(),
+    /** What the owner calls them; null until they say. */
+    name: text("name"),
+    /** When the owner blocked them; null while not blocked. A blocked Customer's message runs no Turn. */
+    blockedAt: timestamp("blocked_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [index("representative_customer_user_idx").on(table.userId, table.createdAt)],

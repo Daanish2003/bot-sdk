@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "7e8acf06-122d-42ef-bc54-999df51b8c72",
-  "prevIds": ["3bb62222-98c1-4332-a9c5-da54d219fa9f"],
+  "id": "06c8bb56-8055-46aa-8acd-9bad956b9c2d",
+  "prevIds": ["8ffe69a8-5e67-4ec4-8ce7-c18f27703eb3"],
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -217,6 +217,32 @@
       "generated": null,
       "identity": null,
       "name": "user_id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_customer"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "name",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_customer"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "blocked_at",
       "entityType": "columns",
       "schema": "botsdk",
       "table": "representative_customer"

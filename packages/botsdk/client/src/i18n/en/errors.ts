@@ -26,6 +26,9 @@ export const errorMessages = {
   "error.customRuleLimit": ({ max }: { max: number }) =>
     `You can have at most ${max} active rules. Delete one to add another.`,
   "error.representativeNotFound": "Representative not found",
+  "error.customerNotFound": "Customer not found",
+  "error.threadNotFound": "Thread not found",
+  "error.customerIdentityTaken": "One of your Customers already has that identity.",
   "error.representativeJobTextBlank":
     "Write the job text before approving: a Release needs to say what the Representative does.",
   "error.representativeNoRelease": "Approve a Release before switching this Representative on.",

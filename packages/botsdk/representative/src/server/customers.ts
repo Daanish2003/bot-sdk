@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, lte, notExists, sql } from "drizzle-orm";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
@@ -92,6 +92,8 @@ async function judgeMessage(
  * Representative doesn't exist. It holds that row, so the owner's delete, which removes
  * Representatives before Customers, can't leave a Customer behind. What it returns goes in a
  * Checkpoint, which user delete doesn't reach: ids and a place in the thread, not the thread's text.
+ * A blocked Customer's message is stored all the same, for the owner (ticket #1251); `blocked` tells the
+ * Turn to run no model and send nothing.
  */
 export async function receiveMessage(
   tx: Transaction,
@@ -117,6 +119,10 @@ export async function receiveMessage(
   if (!owner) return null;
   const { identityId, customerId } = await findOrMakeIdentity(tx, owner.userId, heard);
   const verified = await judgeMessage(tx, identityId, proof, now);
+  const [customer] = await tx
+    .select({ blockedAt: representativeCustomer.blockedAt })
+    .from(representativeCustomer)
+    .where(eq(representativeCustomer.id, customerId));
   const [thread] = await tx
     .insert(representativeThread)
     .values({
@@ -142,7 +148,7 @@ export async function receiveMessage(
   await tx
     .insert(representativeThreadMessage)
     .values({ id: uuidv7(), threadId, position, author: "customer", text, verified, ...heard });
-  return { customerId, threadId, position, verified };
+  return { customerId, threadId, position, verified, blocked: customer!.blockedAt !== null };
 }
 
 /**
@@ -206,22 +212,38 @@ export async function storeReply(
       updatedAt: new Date(),
     })
     .where(
-      and(eq(representativeThread.id, threadId), eq(representativeThread.state, "representative")),
+      and(
+        eq(representativeThread.id, threadId),
+        eq(representativeThread.state, "representative"),
+        // A Turn that began before the owner blocked this Customer sends nothing more.
+        notExists(
+          tx
+            .select({ one: sql`1` })
+            .from(representativeCustomer)
+            .where(
+              and(
+                eq(representativeCustomer.id, representativeThread.customerId),
+                isNotNull(representativeCustomer.blockedAt),
+              ),
+            ),
+        ),
+      ),
     )
     .returning({ position: representativeThread.messageCount });
   if (!thread)
-    return { error: "This thread is gone or no longer yours to answer, so nothing was sent." };
-  await tx
-    .insert(representativeThreadMessage)
-    .values({
-      id: uuidv7(),
-      threadId,
-      author: "representative",
-      text,
-      verified,
-      ...heard,
-      ...thread,
-    });
+    return {
+      error:
+        "This thread is gone or no longer yours to answer (it may be held by the owner, or its Customer blocked), so nothing was sent.",
+    };
+  await tx.insert(representativeThreadMessage).values({
+    id: uuidv7(),
+    threadId,
+    author: "representative",
+    text,
+    verified,
+    ...heard,
+    ...thread,
+  });
   return { sent: true };
 }
 
