@@ -36,6 +36,16 @@ describe("masking a Secret's value", () => {
     expect(maskSecrets(`\0a\0`, [value])).toBe("a");
   });
 
+  it("masks a value a NUL splits in a result's key, and keeps both values when keys mask alike", () => {
+    const value = "ghp_abcdef123456";
+    const split = `${value.slice(0, 6)}\0${value.slice(6)}`;
+
+    const masked = maskResult({ [split]: 1, [value]: 2 }, secretMasker([value]));
+
+    expect(JSON.stringify(masked)).not.toContain(value.slice(6));
+    expect(Object.values(masked).sort()).toEqual([1, 2]);
+  });
+
   it("masks a value that holds a NUL, as written and without it, and its encoded forms", () => {
     const value = "ghp_abc\0def123456";
 
