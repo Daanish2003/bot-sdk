@@ -41,6 +41,14 @@ export const draftedRepresentativeName = "Front desk";
 export const draftedRepresentativeWhy = "Customers keep asking about opening hours.";
 
 /**
+ * A Bot prompt with this marker makes the fake Model propose `price.haircut` become `proposedFactValue`
+ * with `propose_fact` (ticket #1264), through `run_tool`.
+ */
+export const proposeFactMarker = "[propose-fact]";
+export const proposedFactValue = "50 USD";
+export const proposedFactWhy = "The new price list starts next week.";
+
+/**
  * A prompt with this marker makes the fake Model call `generate_image` (spec #278), when the request
  * offers it. The Host's Image Model is `fakeImageModel`, answered by the fake image adapter.
  */
@@ -360,6 +368,13 @@ export function startFakeOllama(port: number): Promise<Server> {
             jobText: "Answer questions about opening hours.",
             why: draftedRepresentativeWhy,
           },
+        });
+        return;
+      }
+      if (stream && !answering && offers(runToolName) && prompt.includes(proposeFactMarker)) {
+        calls(runToolName, {
+          name: "propose_fact",
+          args: { key: "price.haircut", value: proposedFactValue, why: proposedFactWhy },
         });
         return;
       }

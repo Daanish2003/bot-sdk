@@ -255,14 +255,14 @@ async function openControls({ sdk, owner }: Run) {
   type Open<Control> = { id: string; control: Control; parts: (typeof rows)[number]["parts"] };
   let choice: Open<ChoiceControl> | undefined;
   let approval: Open<ApprovalControl> | undefined;
-  // A yes or no after a waiting release Approval is about that card, which is answered only on its
-  // page: it never reaches back to an older Approval.
+  // A yes or no after a waiting release or fact Approval is about that card, which is answered only
+  // on its page: it never reaches back to an older Approval.
   let approvalsOver = false;
   for (const row of rows) {
     const control = controlOf(row.parts);
     if (!control) continue;
     if (
-      control.kind === "release_approval" &&
+      (control.kind === "release_approval" || control.kind === "fact_approval") &&
       !approval &&
       !control.answer &&
       new Date(control.expiresAt) > sdk.clock()

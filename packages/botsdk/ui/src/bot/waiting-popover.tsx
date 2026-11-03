@@ -6,6 +6,7 @@ import { ShieldAlertIcon } from "lucide-react";
 import { useBotReviews } from "@botsdk/react/bot/reviews";
 import { useCustomRules } from "@botsdk/react/bot/rules";
 import { useChatAdapter, useI18n } from "@botsdk/react/provider";
+import { FactApprovalCard } from "./fact-approval-card";
 import { ReleaseApprovalCard } from "./release-approval-card";
 import { ReviewRequest } from "./review-request";
 import { RuleCard } from "./rule-card";
@@ -25,16 +26,16 @@ export function WaitingPopover({ botId }: { botId: string }) {
   const proposed = rules.rules.filter(
     (rule) => rule.state === "proposed" && rule.proposedByBotId === botId,
   );
-  // A release Approval is only a card in the thread, so the thread's own read says which wait.
+  // A release or fact Approval is only a card in the thread, so the thread's own read says which wait.
   const thread = useQuery(orpc.bots.get.queryOptions({ input: { botId } }));
-  const drafted = (thread.data?.messages ?? []).flatMap((message) =>
-    message.control?.kind === "release_approval" &&
-    !message.control.answer &&
-    new Date(message.control.expiresAt) > new Date()
-      ? [{ id: message.id, card: message.control, text: message.text }]
+  const linkCards = (thread.data?.messages ?? []).flatMap(({ id, control, text }) =>
+    (control?.kind === "release_approval" || control?.kind === "fact_approval") &&
+    !control.answer &&
+    new Date(control.expiresAt) > new Date()
+      ? [{ id, card: control, text }]
       : [],
   );
-  const count = pending.length + proposed.length + drafted.length;
+  const count = pending.length + proposed.length + linkCards.length;
   return (
     <Popover>
       <PopoverTrigger
@@ -70,9 +71,13 @@ export function WaitingPopover({ botId }: { botId: string }) {
                 />
               </li>
             ))}
-            {drafted.map(({ id, card, text }) => (
+            {linkCards.map(({ id, card, text }) => (
               <li key={id} className="flex flex-col">
-                <ReleaseApprovalCard card={card} text={text} />
+                {card.kind === "fact_approval" ? (
+                  <FactApprovalCard card={card} text={text} />
+                ) : (
+                  <ReleaseApprovalCard card={card} text={text} />
+                )}
               </li>
             ))}
           </ul>

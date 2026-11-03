@@ -39,7 +39,7 @@ import type { SecretsApi } from "./bot/secrets-api";
 import type { AssignmentsApi } from "./bot/assignments-api";
 import { representativeLoopService } from "./bot/agent-loop";
 import { assignmentsService } from "./bot/assignments";
-import { releaseApprovalsService } from "./bot/safety";
+import { factApprovalsService, releaseApprovalsService } from "./bot/safety";
 import type { CheckInsApi, RoutinesApi } from "./bot/routines-api";
 import type { TriggersApi } from "./bot/triggers-api";
 import type { DemonstrationsApi } from "./bot/demonstrations-api";
@@ -367,6 +367,7 @@ export function buildBotSdk(
     "assignments",
     "representativeLoop",
     "releaseApprovals",
+    "factApprovals",
     ...(options.computer ? ["computer"] : []),
   ]);
   const ids = new Set<string>();
@@ -411,6 +412,7 @@ export function buildBotSdk(
   // Each feature in the Host's order, with the core services it needs.
   const representativeLoop = representativeLoopService(sdk);
   const releaseApprovals = releaseApprovalsService(sdk);
+  const factApprovals = factApprovalsService(sdk);
   const enabled = features.map((feature) =>
     enableFeature(
       sdk,
@@ -419,6 +421,7 @@ export function buildBotSdk(
       (own, turnBehind) => assignmentsService(sdk, own, turnBehind),
       representativeLoop,
       releaseApprovals,
+      factApprovals,
     ),
   );
   const plugins = [...core, ...enabled.map(featurePlugin)];

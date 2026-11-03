@@ -14,7 +14,7 @@ import {
 
 import { bot, botAssignment, botsdkSchema } from "@botsdk/bot/storage";
 import type { ChannelProofRule } from "../verification";
-import type { ReplyKind, ReplySource } from "../../shared/replies";
+import type { ReplySource, StoredReplyKind } from "../../shared/replies";
 import type {
   Draft,
   FactType,
@@ -359,7 +359,7 @@ export const representativeThreadMessage = botsdkSchema.table(
     /** A Bot's result that came while the owner held the thread: theirs to send, never a Turn's. */
     heldForOwner: boolean("held_for_owner").notNull().default(false),
     /** A reply's kind (ticket #1260); null on every other message and on a reply stored before kinds. */
-    replyKind: text("reply_kind").$type<ReplyKind>(),
+    replyKind: text("reply_kind").$type<StoredReplyKind>(),
     /** What a reply rests on, as code checked it, kept from the Customer; null as for `replyKind`. */
     sources: jsonb("sources").$type<ReplySource[]>(),
     /** The Assignment a Bot's result ended, which a reply relaying it cites. No foreign key: the result outlives it. */
@@ -419,7 +419,39 @@ export const representativeFactLog = botsdkSchema.table(
     action: text("action").$type<FactAction>().notNull(),
     old: jsonb("old").$type<LoggedFact>(),
     new: jsonb("new").$type<LoggedFact>(),
+    /** The Bot, by its name then, whose proposal the owner approved; null for the owner's own change. */
+    proposedBy: text("proposed_by"),
     at: timestamp("at").notNull(),
   },
   (table) => [index("representative_fact_log_user_idx").on(table.userId, table.at)],
+);
+
+/**
+ * A Bot's proposed Published fact, waiting for the owner (ticket #1264): the whole fact it would
+ * become. It goes when answered, dropped or replaced, and one that expired stays only until the
+ * owner's next proposal clears it, changing nothing meanwhile. One waits per key. It goes with its
+ * Bot, whose card goes with the Conversation.
+ */
+export const representativeFactProposal = botsdkSchema.table(
+  "representative_fact_proposal",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    botId: uuid("bot_id")
+      .notNull()
+      .references((): AnyPgColumn => bot.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    proposed: jsonb("proposed").$type<LoggedFact>().notNull(),
+    why: text("why").notNull(),
+    /** The Approval's card in the Bot's Conversation. */
+    cardId: text("card_id").notNull(),
+    /** The Turn and tool call that asked, so a replay after a crash asks only once. */
+    call: text("call"),
+    postedAt: timestamp("posted_at").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+  },
+  (table) => [
+    unique("representative_fact_proposal_key").on(table.userId, table.key),
+    index("representative_fact_proposal_bot_idx").on(table.botId),
+  ],
 );

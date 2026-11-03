@@ -39,6 +39,7 @@ import {
   representativeCustomerIdentity,
   representativeFact,
   representativeFactLog,
+  representativeFactProposal,
   representativeRelease,
 } from "@botsdk/representative/server/db/schema";
 import { profilePath } from "@botsdk/memory/server/bot-memory";
@@ -76,6 +77,7 @@ const userTables = [
   representativeCustomerIdentity,
   representativeFact,
   representativeFactLog,
+  representativeFactProposal,
 ].flatMap((value) => {
   if (!is(value, PgTable)) return [];
   const { name, columns } = getTableConfig(value);
@@ -255,6 +257,20 @@ async function seedEverything(
     new: loggedFact,
     at: factAt,
   });
+  // A Bot's proposed change to the fact, waiting for the owner.
+  await getTestDb()
+    .insert(representativeFactProposal)
+    .values({
+      id: uuidv7(),
+      userId: user.id,
+      botId,
+      key: "price.haircut",
+      proposed: { ...loggedFact, value: "50 USD" },
+      why: "The price list changed.",
+      cardId: uuidv7(),
+      postedAt: factAt,
+      expiresAt: new Date(factAt.getTime() + 7 * 24 * 60 * 60 * 1000),
+    });
   // A Representative reporting to the Bot, with a Release.
   const representativeId = uuidv7();
   await getTestDb()

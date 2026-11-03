@@ -88,6 +88,7 @@ export function messagingBody(
       lines.push(link("Show me in the app"));
       break;
     case "release_approval":
+    case "fact_approval":
       lines.push(link("Review it in the app"));
       break;
     case undefined:

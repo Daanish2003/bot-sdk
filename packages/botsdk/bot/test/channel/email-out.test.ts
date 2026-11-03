@@ -100,6 +100,15 @@ describe("emailBody", () => {
         expiresAt: "2026-11-10T09:00:00.000Z",
       } as RichControl),
     ).toBe(`Review it in the app: ${botUrl}`);
+    // A fact Approval is answered only on the Facts page.
+    expect(
+      lastLineOf({
+        kind: "fact_approval",
+        key: "price.haircut",
+        path: "/facts",
+        expiresAt: "2026-11-10T09:00:00.000Z",
+      } as RichControl),
+    ).toBe(`Review it in the app: ${botUrl}`);
     expect(lastLineOf({ kind: "review_approval", reviewId: "v1" } as RichControl)).toBe(
       `Approve or decline in the app: ${botUrl}`,
     );
