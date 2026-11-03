@@ -8,6 +8,7 @@ import { assignmentEnded, type AssignmentEnded, type RepresentativeLoopKit } fro
 import { untrustedBlock } from "@botsdk/bot/bot/routines";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import type { Transaction } from "@botsdk/bot/plugin";
 import { defineJob, type JobContext, PermanentJobError } from "@botsdk/bot/runner/internal";
 import { noNul, type ReleaseContent, type RepresentativeTool } from "../shared/contract";
 import { representative, representativeHandOff, representativeRelease } from "./db/schema";
@@ -19,7 +20,9 @@ import { representative, representativeHandOff, representativeRelease } from "./
  * `@ai-chat/test-support` package does.
  */
 
-export type TurnServices = FeatureContext<"assignments" | "models" | "representativeLoop">;
+export type TurnServices = FeatureContext<
+  "assignments" | "models" | "representativeLoop" | "threads"
+>;
 
 const assignmentEndedCode = "error.assignmentEnded";
 
@@ -104,12 +107,20 @@ async function readStart({ db, models, logger }: TurnServices, representativeId:
   return { ...row, model, turnId: uuidv7() };
 }
 
-/** The Bot `representativeId` reports to right now, or null. */
-async function reportingBot({ db }: TurnServices, representativeId: string) {
-  const [row] = await db
+/**
+ * The Bot `representativeId` reports to right now, or null. With `lock`, it holds the Representative's
+ * row against the owner's changes, in a mode any number of Turns can hold at once.
+ */
+async function reportingBot(
+  db: TurnServices["db"] | Transaction,
+  representativeId: string,
+  lock = false,
+) {
+  const query = db
     .select({ botId: representative.botId })
     .from(representative)
     .where(eq(representative.id, representativeId));
+  const [row] = await (lock ? query.for("key share") : query);
   return row?.botId ?? null;
 }
 
@@ -141,40 +152,54 @@ export function turnTools({ job, kit, userId, name, representativeId, stubbed }:
         title: z.string().trim().min(1).max(maxHandOffTitleLength).refine(noNul),
         instructions: z.string().trim().min(1).max(maxHandOffInstructionsLength).refine(noNul),
       }),
-    }).server(({ title, instructions }, context) =>
-      kit.liveRequest("hand_to_bot", context?.toolCallId, async () => {
-        const botId = await reportingBot(job, representativeId);
+    }).server(async ({ title, instructions }, context) => {
+      // Set only by a live write, afresh on each try of it.
+      let made: { id: string; botId: string; conversationId: string } | undefined;
+      const answer = await kit.liveActivity("hand_to_bot", context?.toolCallId, async (tx) => {
+        made = undefined;
+        // The row before the Conversation's lock, the order the owner's changes take them in: the
+        // hand-off's row needs a share of it, so waiting for that holding the lock could deadlock.
+        const botId = await reportingBot(tx, representativeId, true);
         if (!botId) return { error: noBotRefusal };
         // A test opens no Assignment: the Bot hears nothing.
         if (stubbed) return { handedOff: true };
-        let id: string;
+        let created: { id: string; conversationId: string };
         try {
-          ({ id } = await job.assignments.create({
+          created = await job.assignments.create(tx, {
             userId,
             botId,
             title,
             instructions: `From Representative "${name}".\n\n${instructions}`,
             job: handOffEndedJob,
-          }));
+          });
         } catch (error) {
           // The Bot can't take it or the work is malformed: the Model hears, and the Turn goes on.
           if (error instanceof ORPCError) return { error: error.message };
           throw error;
         }
-        await job.db.insert(representativeHandOff).values({ assignmentId: id, representativeId });
-        // The owner may have chosen another Bot while this was made: setBot only moves what it can see.
-        const now = await reportingBot(job, representativeId);
-        if (now && now !== botId) {
-          // It is handed off whatever happens here: Bot `botId` has it, and choosing a Bot moves it.
-          await job.assignments.move({ userId, id, botId: now }).catch((error: unknown) => {
-            if (!isAssignmentEnded(error)) {
-              job.logger.error(`Hand-off ${id} stays on Bot ${botId}: moving it failed`, error);
-            }
-          });
-        }
+        await tx
+          .insert(representativeHandOff)
+          .values({ assignmentId: created.id, representativeId });
+        made = { ...created, botId };
         return { handedOff: true };
-      }),
-    ),
+      });
+      job.jobs.wake();
+      if (!made) return answer;
+      const { id, botId, conversationId } = made;
+      // It is handed off whatever happens here: Bot `botId` has it, and choosing a Bot moves it. An
+      // error here would reach the Model as a failed call, and it would hand off again.
+      try {
+        await job.threads.hintChanged(conversationId);
+        // The owner may have chosen another Bot while this was made: setBot only moves what it can see.
+        const now = await reportingBot(job.db, representativeId);
+        if (now && now !== botId) await job.assignments.move({ userId, id, botId: now });
+      } catch (error) {
+        if (!isAssignmentEnded(error)) {
+          job.logger.error(`Hand-off ${id} stays on Bot ${botId}: moving it failed`, error);
+        }
+      }
+      return answer;
+    }),
   } satisfies Record<RepresentativeTool, AnyServerTool>;
 }
 
