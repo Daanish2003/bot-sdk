@@ -13,7 +13,11 @@ import {
   threadPromptChars,
   threadPromptLimit,
 } from "./customers";
-import { representativeThread, representativeThreadMessage } from "./db/schema";
+import {
+  representativeCustomer,
+  representativeThread,
+  representativeThreadMessage,
+} from "./db/schema";
 import { queueIdleCheck } from "./idle";
 import { channelProof } from "./verification";
 
@@ -76,10 +80,10 @@ const customerMessage = z.object({
 export type CustomerMessage = z.infer<typeof customerMessage>;
 
 /**
- * Takes a Customer's message: stores it on its thread, and has a Turn answer it. Returns the job of
- * the Turn now holding the thread, which a later Turn follows if it has already begun; null when a
- * blocked Customer's message is kept with no Turn; undefined when the Representative doesn't exist
- * and nothing was stored.
+ * Takes a Customer's message: stores it on its thread, and has a Turn answer it. Null when the
+ * Representative doesn't exist and nothing was stored. Otherwise `jobId` is the job of the Turn now
+ * holding the thread, which a later Turn follows if it has already begun, or null when a blocked
+ * Customer's message is kept with no Turn.
  * No route, RPC or API method reaches this: until a later spec lets real Customers in, only the test
  * Customer entry point in the private `@ai-chat/test-support` package does.
  */
@@ -94,14 +98,14 @@ export async function receiveCustomerMessage(services: Services, given: Customer
       text: message,
       now,
     });
-    if (!received) return undefined;
+    if (!received) return null;
     const { threadId, turnId, waitingSince, blocked, opened } = received;
     // With the message, so a thread is never left without its closing job.
     if (opened) await queueIdleCheck(services, tx, threadId, now);
     // Kept for the owner, and nothing more: no model call, no reply and no Assignment.
-    if (blocked) return null;
+    if (blocked) return { jobId: null };
     const runAfter = batchClosesAt(waitingSince!, now);
-    if (!turnId) return startTurn(services, tx, threadId, runAfter);
+    if (!turnId) return { jobId: await startTurn(services, tx, threadId, runAfter) };
     // Its job hasn't started: this message joins the batch, and moves when it closes.
     const payload = { threadId, turnId };
     const replaced = await services.jobs.replaceIfNotStarted(tx, turnId, turnJob, payload, {
@@ -109,7 +113,7 @@ export async function receiveCustomerMessage(services: Services, given: Customer
     });
     if (replaced) {
       wakeAt(services, runAfter);
-      return replaced;
+      return { jobId: replaced };
     }
     // Its job is running: if the Turn has begun, the message waits for the next one. Something else
     // may have ended that job without ending the Turn; a new Turn takes over, so no thread sticks,
@@ -118,7 +122,7 @@ export async function receiveCustomerMessage(services: Services, given: Customer
       .select({ id: job.id })
       .from(job)
       .where(and(eq(job.idempotencyKey, turnId), inArray(job.status, ["queued", "running"])));
-    return running?.id ?? startTurn(services, tx, threadId, runAfter);
+    return { jobId: running?.id ?? (await startTurn(services, tx, threadId, runAfter)) };
   });
 }
 
@@ -153,7 +157,8 @@ function closeBatch(
  * Begins Turn `turnId` in its job's first Checkpoint: its batch closes, so what is past it waits for
  * the next Turn. What it returns is what a replay goes by: a place in the thread, not who or what was
  * said, since user delete doesn't reach a Checkpoint. Null, running no Turn, when the thread has gone,
- * another Turn holds it, or nothing waits any more, as when the Customer was blocked since.
+ * another Turn holds it, or nothing is left for a Turn to answer: nothing waits any more, the Customer
+ * is blocked, or the Representative no longer holds the thread. What waited then gets no Turn.
  */
 export async function beginTurn(tx: Transaction, threadId: string, turnId: string) {
   const [thread] = await tx
@@ -162,15 +167,24 @@ export async function beginTurn(tx: Transaction, threadId: string, turnId: strin
       representativeId: representativeThread.representativeId,
       messageCount: representativeThread.messageCount,
       waitingFrom: representativeThread.waitingFrom,
+      state: representativeThread.state,
+      blockedAt: representativeCustomer.blockedAt,
     })
     .from(representativeThread)
+    .innerJoin(
+      representativeCustomer,
+      eq(representativeCustomer.id, representativeThread.customerId),
+    )
     .where(and(eq(representativeThread.id, threadId), eq(representativeThread.turnId, turnId)))
-    .for("update");
+    .for("update", { of: representativeThread });
   if (!thread) return null;
   const inThread = eq(representativeThread.id, threadId);
-  const { customerId, representativeId, messageCount, waitingFrom } = thread;
-  if (waitingFrom === null) {
-    await tx.update(representativeThread).set({ turnId: null }).where(inThread);
+  const { customerId, representativeId, messageCount, waitingFrom, state, blockedAt } = thread;
+  if (waitingFrom === null || blockedAt || state !== "representative") {
+    await tx
+      .update(representativeThread)
+      .set({ turnId: null, waitingFrom: null, waitingSince: null })
+      .where(inThread);
     return null;
   }
   const message = representativeThreadMessage;

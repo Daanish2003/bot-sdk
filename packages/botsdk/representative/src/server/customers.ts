@@ -198,10 +198,12 @@ export async function readThread(
   db: FeatureContext["db"],
   threadId: string,
   upTo: number,
+  batchFrom: number,
   unverifiedSender: Heard | null,
 ): Promise<ThreadEntry[]> {
   const newest = await db
     .select({
+      position: representativeThreadMessage.position,
       author: representativeThreadMessage.author,
       text: representativeThreadMessage.text,
       verified: representativeThreadMessage.verified,
@@ -222,14 +224,19 @@ export async function readThread(
     )
     .orderBy(desc(representativeThreadMessage.position))
     .limit(threadPromptLimit);
-  const kept: ThreadEntry[] = [];
+  const kept: typeof newest = [];
   let chars = 0;
   for (const entry of newest) {
     chars += entry.text.length;
     if (chars > threadPromptChars) break;
     kept.push(entry);
   }
-  return kept.reverse();
+  // A message that waited through the last Turn comes after that Turn's reply, though sent before
+  // it: a Turn's prompt ends on what it has to answer.
+  const unanswered = (entry: (typeof newest)[number]) =>
+    entry.author === "customer" && entry.position >= batchFrom;
+  kept.reverse();
+  return [...kept.filter((entry) => !unanswered(entry)), ...kept.filter(unanswered)];
 }
 
 /**

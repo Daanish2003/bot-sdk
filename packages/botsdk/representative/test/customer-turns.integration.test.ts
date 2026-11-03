@@ -21,6 +21,7 @@ import { createFakeAdapter, round, runError, toolCall } from "@botsdk/testing/fa
 import { representative } from "../src";
 import { threadPromptLimit } from "../src/server/customers";
 import {
+  representativeCustomer,
   representativeCustomerIdentity,
   representativeThread,
   representativeThreadMessage,
@@ -281,6 +282,28 @@ describe("a message that arrives during a Turn", () => {
   });
 });
 
+describe("a message that waited through a Turn", () => {
+  it("ends the next Turn's prompt, after the reply it came before", async () => {
+    const held = gate();
+    const { fake, entered, timer, claim, attemptsEnd, runDue, send } = await serving(
+      [replies("Hello!"), quiet(), quiet()],
+      held.opened,
+    );
+    await send("First");
+    timer.advance(500);
+    await claim();
+    await expect.poll(() => entered.length, poll).toBe(1);
+    await send("What's the price?");
+    held.open();
+    await attemptsEnd();
+
+    timer.advance(500);
+    expect(await runDue()).toBe(true);
+
+    expect(prompt(fake.calls.at(-1))).toMatch(/First.*Hello!.*What's the price\?/);
+  });
+});
+
 describe("two threads", () => {
   it("run Turns at the same time", async () => {
     const held = gate();
@@ -418,6 +441,39 @@ describe("quick messages over what a Turn reads", () => {
     timer.advance(500);
     expect(await runDue()).toBe(true);
     expect(prompt(fake.calls[1])).toContain(`Message ${threadPromptLimit}.`);
+  });
+});
+
+describe("a Turn with nothing left to answer", () => {
+  it("runs no Model for a Customer blocked as the message arrived", async () => {
+    const { fake, timer, runDue, send, threadRows } = await serving([quiet()]);
+    await send("Crossed with the block");
+    // Where a block and an arriving message leave it when the message reads the Customer first.
+    await getTestDb()
+      .update(representativeCustomer)
+      .set({ blockedAt: timer.clock.now() })
+      .where(eq(representativeCustomer.id, (await threadRows())[0]!.customerId));
+
+    timer.advance(500);
+    expect(await runDue()).toBe(true);
+
+    expect(fake.calls).toHaveLength(0);
+    expect((await threadRows())[0]).toMatchObject({ turnId: null, waitingFrom: null });
+  });
+
+  it.each(["owner", "closed"] as const)("runs no Model on a thread that is %s", async (state) => {
+    const { fake, timer, runDue, send, threadRows } = await serving([quiet()]);
+    await send("Hello?");
+    await getTestDb()
+      .update(representativeThread)
+      .set({ state })
+      .where(eq(representativeThread.id, (await threadRows())[0]!.id));
+
+    timer.advance(500);
+    expect(await runDue()).toBe(true);
+
+    expect(fake.calls).toHaveLength(0);
+    expect((await threadRows())[0]).toMatchObject({ turnId: null, waitingFrom: null });
   });
 });
 

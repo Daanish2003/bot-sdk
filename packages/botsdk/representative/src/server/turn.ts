@@ -344,12 +344,14 @@ export function representativeTurnJob(concurrency = defaultTurnConcurrency) {
       if (start) {
         const { userId, name, model, content } = start;
         const heard = await readSender(job.db, threadId, senderAt);
+        const entries = heard
+          ? await readThread(job.db, threadId, upTo, senderAt, verified ? null : heard)
+          : [];
         // The owner was deleted since. Not a plain return: a replay has history left to read, and a
         // workflow ending with some left over fails as nondeterministic.
-        if (!heard) {
+        if (!heard || entries.length === 0) {
           throw new PermanentJobError(`Representative Turn ${turnId}: its thread has gone`);
         }
-        const entries = await readThread(job.db, threadId, upTo, verified ? null : heard);
         const played = await playLoop(job, {
           userId,
           representativeId,

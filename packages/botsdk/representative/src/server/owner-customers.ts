@@ -47,17 +47,19 @@ const identityTaken = () =>
   );
 
 /**
- * Who a thread is waiting on, from who holds it and who spoke last. A blocked Customer's message
- * waits on no one: nothing answers it.
+ * Who a thread is waiting on, from who holds it, who spoke last and whether a message waits for a
+ * next Turn, which a reply can come after. A blocked Customer's message waits on no one: nothing
+ * answers it.
  */
 export function waitingOn(
   state: ThreadState,
   lastAuthor: ThreadAuthor | null,
   blocked: boolean,
+  waitingForTurn: boolean,
 ): ThreadWaitingOn {
   if (state === "closed" || blocked) return null;
   if (state === "owner") return "owner";
-  return lastAuthor === "representative" ? "customer" : "representative";
+  return lastAuthor === "representative" && !waitingForTurn ? "customer" : "representative";
 }
 
 /** `userId`'s Customers named by `ids` (all of them when omitted), oldest first, with their identities. */
@@ -286,6 +288,7 @@ const threadColumns = {
   lastChannel: representativeThread.lastChannel,
   lastExternalId: representativeThread.lastExternalId,
   messageCount: representativeThread.messageCount,
+  waitingFrom: representativeThread.waitingFrom,
   updatedAt: representativeThread.updatedAt,
   lastAuthor: representativeThreadMessage.author,
 };
@@ -301,7 +304,12 @@ function summary(row: ThreadRow): ThreadSummary {
     },
     lastHeard: { channel: row.lastChannel, externalId: row.lastExternalId },
     holder,
-    waitingOn: waitingOn(row.state, row.lastAuthor, row.blockedAt !== null),
+    waitingOn: waitingOn(
+      row.state,
+      row.lastAuthor,
+      row.blockedAt !== null,
+      row.waitingFrom !== null,
+    ),
     messageCount: row.messageCount,
     updatedAt: row.updatedAt,
   };

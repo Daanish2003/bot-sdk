@@ -44,15 +44,15 @@ async function sendTestCustomerMessage(
 ) {
   const feature = deps.parts.features.find(({ feature }) => feature.id === "representative");
   if (!feature) throw new Error("This test SDK has no representative feature");
-  const jobId = await receiveCustomerMessage(feature.context, {
+  const received = await receiveCustomerMessage(feature.context, {
     representativeId,
     channel,
     externalId,
     proof,
     message,
   });
-  if (jobId === undefined) throw new Error(`No Representative ${representativeId}`);
-  return { channel, externalId, jobId };
+  if (!received) throw new Error(`No Representative ${representativeId}`);
+  return { channel, externalId, jobId: received.jobId };
 }
 
 /**
