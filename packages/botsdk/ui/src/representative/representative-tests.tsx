@@ -24,11 +24,25 @@ const kindKeys = {
   not_handed_off: "representative.expectNotHandedOff",
   said: "representative.expectSaid",
   not_said: "representative.expectNotSaid",
+  cited: "representative.expectCited",
 } as const satisfies Record<Expectation["kind"], string>;
 
 const kinds = Object.keys(kindKeys) as Expectation["kind"][];
 
 const withText = (kind: Expectation["kind"]) => kind === "said" || kind === "not_said";
+
+const sourceKeys = {
+  any: "representative.citedAny",
+  fact: "representative.citedFact",
+  document: "representative.citedDocument",
+} as const;
+
+type CitedExpectation = Extract<Expectation, { kind: "cited" }>;
+
+const sourceKind = (expectation: CitedExpectation) => expectation.source?.type ?? "any";
+
+const sourceName = (source: NonNullable<CitedExpectation["source"]>) =>
+  source.type === "fact" ? source.key : source.name;
 
 const blankTest = (): TestConversation => ({
   name: "",
@@ -108,6 +122,57 @@ export function TestConversationsEditor({
                     </option>
                   ))}
                 </select>
+                {expectation.kind === "cited" && (
+                  <>
+                    <select
+                      aria-label={t("representative.citedSource")}
+                      value={sourceKind(expectation)}
+                      onChange={(event) => {
+                        const type = event.target.value as keyof typeof sourceKeys;
+                        const name = expectation.source ? sourceName(expectation.source) : "";
+                        const next: Expectation =
+                          type === "any"
+                            ? { kind: "cited" }
+                            : type === "fact"
+                              ? { kind: "cited", source: { type, key: name } }
+                              : { kind: "cited", source: { type, name } };
+                        change(index, {
+                          ...test,
+                          expect: test.expect.map((each, i) => (i === at ? next : each)),
+                        });
+                      }}
+                      className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
+                    >
+                      {(Object.keys(sourceKeys) as (keyof typeof sourceKeys)[]).map((type) => (
+                        <option key={type} value={type}>
+                          {t(sourceKeys[type])}
+                        </option>
+                      ))}
+                    </select>
+                    {expectation.source && (
+                      <Input
+                        aria-label={t("representative.citedSourceName")}
+                        className="w-56"
+                        value={sourceName(expectation.source)}
+                        maxLength={200}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          const next: Expectation = {
+                            kind: "cited",
+                            source:
+                              expectation.source?.type === "fact"
+                                ? { type: "fact", key: value }
+                                : { type: "document", name: value },
+                          };
+                          change(index, {
+                            ...test,
+                            expect: test.expect.map((each, i) => (i === at ? next : each)),
+                          });
+                        }}
+                      />
+                    )}
+                  </>
+                )}
                 {"text" in expectation && (
                   <Input
                     aria-label={t("representative.expectationText")}
@@ -188,7 +253,6 @@ const roleKeys = {
 const stateKeys = {
   notRun: "representative.testsNotRun",
   running: "representative.testsRunning",
-  failed: "representative.testsFailed",
   passed: "representative.testsPassed",
 } as const;
 
@@ -200,7 +264,14 @@ export function TestResults({ representative }: { representative: Representative
     <section className="space-y-2" aria-label={t("representative.testResults")}>
       <h2 className="text-sm font-medium">{t("representative.testResults")}</h2>
       <p className="text-xs text-muted-foreground" data-test-status={representative.testStatus}>
-        {t(stateKeys[representative.testStatus])}
+        {representative.testStatus === "failed"
+          ? t("representative.testsFailed", {
+              failed: representative.tests.filter(
+                (test) => test.status === "failed" || test.status === "error",
+              ).length,
+              total: representative.tests.length,
+            })
+          : t(stateKeys[representative.testStatus])}
       </p>
       {representative.tests.map((test) => (
         <details

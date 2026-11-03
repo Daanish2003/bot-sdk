@@ -65,7 +65,9 @@ export const skillCopySchema = z.object({
 
 /**
  * What code checks about a test conversation: the list is closed and has no model judge. `said` and
- * `not_said` look for the text in what the Representative sent the Customer, ignoring case.
+ * `not_said` look for the text in what the Representative sent the Customer, ignoring case. `cited`
+ * passes when a reply sent to the Customer carried a source code accepted, of the named fact or
+ * document when one is named.
  */
 export const expectationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("replied") }),
@@ -73,6 +75,18 @@ export const expectationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("not_handed_off") }),
   z.object({ kind: z.literal("said"), text: storable(z.string().trim().min(1).max(500)) }),
   z.object({ kind: z.literal("not_said"), text: storable(z.string().trim().min(1).max(500)) }),
+  z.object({
+    kind: z.literal("cited"),
+    source: z
+      .discriminatedUnion("type", [
+        z.object({ type: z.literal("fact"), key: storable(z.string().trim().min(1).max(64)) }),
+        z.object({
+          type: z.literal("document"),
+          name: storable(z.string().trim().min(1).max(maxDocumentNameLength)),
+        }),
+      ])
+      .optional(),
+  }),
 ]);
 export type Expectation = z.output<typeof expectationSchema>;
 

@@ -94,6 +94,24 @@ function sentTexts(messages: ModelMessage[]) {
   );
 }
 
+/** The sources of every reply the tool answered as sent: a refused reply cites nothing. */
+function citedSources(messages: ModelMessage[]): ReplySource[] {
+  return messages.flatMap((message) =>
+    (message.toolCalls ?? [])
+      .filter(
+        (call) => call.function.name === "reply" && answerTo(messages, call.id)?.sent === true,
+      )
+      .flatMap((call) => sentReply(messages, call).sources),
+  );
+}
+
+const describeSource = (source: ReplySource) =>
+  source.type === "fact"
+    ? `the fact ${source.key}`
+    : source.type === "document"
+      ? `the document ${source.name}`
+      : "a Bot's result";
+
 /** Whether a `hand_to_bot` call was answered as handed off: a refusal does not count. */
 function handedOff(messages: ModelMessage[]) {
   return messages.some((message) =>
@@ -110,6 +128,7 @@ export function checkExpectations(
 ): TestCheck[] {
   const sent = sentTexts(messages);
   const handed = handedOff(messages);
+  const sources = citedSources(messages);
   const lowered = sent.map((text) => text.toLowerCase());
   return expectations.map((expectation): TestCheck => {
     switch (expectation.kind) {
@@ -139,6 +158,27 @@ export function checkExpectations(
           detail: found
             ? `It said "${expectation.text}".`
             : `It never said "${expectation.text}" to the Customer.`,
+        };
+      }
+      case "cited": {
+        const named = expectation.source;
+        const wanted = named ? describeSource(named) : "a source";
+        const passed = named
+          ? sources.some((source) =>
+              named.type === "fact"
+                ? source.type === "fact" && source.key === named.key
+                : source.type === "document" && source.name === named.name,
+            )
+          : sources.length > 0;
+        const cited = [...new Set(sources.map(describeSource))].join(", ");
+        return {
+          expectation,
+          passed,
+          detail: passed
+            ? `It cited ${wanted}.`
+            : sources.length === 0
+              ? "It cited no source."
+              : `It never cited ${wanted}. It cited ${cited}.`,
         };
       }
       case "not_said": {

@@ -20,6 +20,7 @@ import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { representative } from "../src";
 import { factsPromptChars } from "../src/server/replies";
+import type { Expectation } from "../src/shared/contract";
 import {
   representativeCustomer,
   representativeThread,
@@ -652,7 +653,7 @@ describe("the prompt", () => {
 describe("a test conversation", () => {
   async function tested(
     rounds: Round[],
-    expectations: Array<{ kind: "said" | "not_said"; text: string } | { kind: "replied" }>,
+    expectations: Expectation[],
     facts: Array<{ key: string; type: "text"; topic: string; value: string }> = [],
   ) {
     const fake = createFakeAdapter({ rounds });
@@ -725,6 +726,32 @@ describe("a test conversation", () => {
         .from(representativeCustomer)
         .where(eq(representativeCustomer.userId, userId)),
     ).toEqual([]);
+  });
+
+  it("passes cited for the fact a reply rested on, and fails it for another", async () => {
+    const { result } = await tested(
+      [answers("It is {{price.haircut}}."), quiet()],
+      [
+        { kind: "cited" },
+        { kind: "cited", source: { type: "fact", key: "price.haircut" } },
+        { kind: "cited", source: { type: "fact", key: "price.shave" } },
+      ],
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.checks.map((check) => check.passed)).toEqual([true, true, false]);
+    expect(result.checks[2]?.detail).toBe(
+      "It never cited the fact price.shave. It cited the fact price.haircut.",
+    );
+  });
+
+  it("fails cited for a reply that cited nothing", async () => {
+    const { result } = await tested(
+      [replies({ text: "Hello!", kind: "small_talk" }), quiet()],
+      [{ kind: "cited" }],
+    );
+
+    expect(result.checks).toMatchObject([{ passed: false, detail: "It cited no source." }]);
   });
 
   it("shows a test conversation's reply with its kind and sources", async () => {

@@ -242,7 +242,7 @@ test("failed tests block approval until the owner approves anyway with a reason"
   await page.getByRole("button", { name: "Run tests" }).click();
   await expect(page.locator('[data-test-result="failed"]')).toBeVisible();
   await expect(page.locator('[data-test-result="failed"]')).toHaveAttribute("open", "");
-  await expect(page.getByText("A test failed. Approving needs a reason.")).toBeVisible();
+  await expect(page.getByText("1 of 1 test failed. Approving needs a reason.")).toBeVisible();
 
   // Approve is refused, and Approve anyway needs a reason.
   await expect(page.getByRole("button", { name: "Approve as a new Release" })).toBeDisabled();

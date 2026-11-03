@@ -185,6 +185,36 @@ describe("writing test conversations", () => {
     ).rejects.toThrow();
   });
 
+  it("holds 20 paraphrase tests, runs them all and shows how many failed", async () => {
+    const paraphrases: Conversation[] = Array.from({ length: 20 }, (_, at) => ({
+      name: `Paraphrase ${at}`,
+      message: `Paraphrase #${String(at).padStart(2, "0")}#: when do you open?`,
+      expect: [{ kind: "said", text: "nine" }],
+    }));
+    const { rpc } = await instance(
+      Object.fromEntries(
+        paraphrases.map((test, at) => [
+          test.message.slice(0, 15),
+          [replies(at % 4 === 0 ? "Soon." : "We open at nine."), quiet()],
+        ]),
+      ),
+    );
+    const id = await draftWith(rpc, paraphrases);
+
+    await expect(
+      rpc.representative.updateDraft({
+        id,
+        draft: { tests: [...paraphrases, paraphrases[0]!] },
+      }),
+    ).rejects.toThrow();
+    await rpc.representative.runTests({ id });
+    const done = await finished(rpc, id);
+
+    expect(done.tests).toHaveLength(20);
+    expect(done.testStatus).toBe("failed");
+    expect(done.tests.filter((test) => test.status === "failed")).toHaveLength(5);
+  });
+
   it("approves a draft with no test conversations as before: nothing can fail", async () => {
     const { rpc } = await instance({});
     const id = await draftWith(rpc, []);

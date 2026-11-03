@@ -12,6 +12,7 @@ import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { representative } from "../src";
 import { representativeThread, representativeThreadMessage } from "../src/server/db/schema";
+import type { Expectation } from "../src/shared/contract";
 
 /*
  * A reply citing a quote from a Release's document (ticket #1266): from a fake Channel through a
@@ -230,7 +231,7 @@ describe("a reply citing a document quote", () => {
 });
 
 describe("a test conversation citing a document quote", () => {
-  async function tested(rounds: Round[]) {
+  async function tested(rounds: Round[], expectations: Expectation[] = [{ kind: "replied" }]) {
     const { fake, rpc, id, upload } = await instance(rounds);
     await upload("warranty.md", warranty);
     await rpc.representative.updateDraft({
@@ -238,7 +239,7 @@ describe("a test conversation citing a document quote", () => {
       draft: {
         jobText: "Answer questions.",
         model,
-        tests: [{ name: "Warranty", message: "Warranty?", expect: [{ kind: "replied" }] }],
+        tests: [{ name: "Warranty", message: "Warranty?", expect: expectations }],
       },
     });
     await rpc.representative.runTests({ id });
@@ -263,5 +264,33 @@ describe("a test conversation citing a document quote", () => {
 
     expect(result.status).toBe("failed");
     expect(answersIn(fake.calls[1])[0]).toMatch(/Nothing was sent/);
+  });
+
+  it("passes cited for a named document, and fails it for another source", async () => {
+    const { result } = await tested(
+      [cites("warranty.md", "Two years on every kettle"), quiet()],
+      [
+        { kind: "cited" },
+        { kind: "cited", source: { type: "document", name: "warranty.md" } },
+        { kind: "cited", source: { type: "document", name: "returns.md" } },
+        { kind: "cited", source: { type: "fact", key: "price.haircut" } },
+      ],
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.checks.map((check) => check.passed)).toEqual([true, true, false, false]);
+    expect(result.checks[1]?.detail).toBe("It cited the document warranty.md.");
+    expect(result.checks[2]?.detail).toBe(
+      "It never cited the document returns.md. It cited the document warranty.md.",
+    );
+  });
+
+  it("doesn't count a refused reply as cited", async () => {
+    const { result } = await tested(
+      [cites("warranty.md", "Ten years"), quiet()],
+      [{ kind: "cited" }],
+    );
+
+    expect(result.checks).toMatchObject([{ passed: false, detail: "It cited no source." }]);
   });
 });
