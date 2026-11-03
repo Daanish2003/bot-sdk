@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "447332ae-3204-4744-9c32-50c731da4461",
+  "id": "41b983fe-ab72-4e9a-85fc-66d05e3b51f6",
   "prevIds": ["dd3e9d5c-7019-44f4-8d09-ffcb2733b1b8"],
   "ddl": [
     {
@@ -37,12 +37,6 @@
     {
       "isRlsEnabled": false,
       "name": "representative_fact_log",
-      "entityType": "tables",
-      "schema": "botsdk"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "representative_fact_proposal",
       "entityType": "tables",
       "schema": "botsdk"
     },
@@ -746,19 +740,6 @@
       "table": "representative_fact_log"
     },
     {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "proposed_by",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_fact_log"
-    },
-    {
       "type": "timestamp",
       "typeSchema": null,
       "notNull": true,
@@ -770,136 +751,6 @@
       "entityType": "columns",
       "schema": "botsdk",
       "table": "representative_fact_log"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_fact_proposal"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "user_id",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_fact_proposal"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "bot_id",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_fact_proposal"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "key",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_fact_proposal"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "proposed",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_fact_proposal"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "why",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_fact_proposal"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "card_id",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_fact_proposal"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "call",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_fact_proposal"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "posted_at",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_fact_proposal"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "expires_at",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_fact_proposal"
     },
     {
       "type": "uuid",
@@ -1474,6 +1325,45 @@
       "table": "representative_thread_message"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "reply_kind",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_thread_message"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "sources",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_thread_message"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "assignment_id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_thread_message"
+    },
+    {
       "type": "timestamp",
       "typeSchema": null,
       "notNull": true,
@@ -1782,27 +1672,6 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "bot_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "representative_fact_proposal_bot_idx",
-      "entityType": "indexes",
-      "schema": "botsdk",
-      "table": "representative_fact_proposal"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
           "value": "representative_id",
           "isExpression": false,
           "asc": true,
@@ -2021,19 +1890,6 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["bot_id"],
-      "schemaTo": "botsdk",
-      "tableTo": "bot",
-      "columnsTo": ["id"],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "representative_fact_proposal_bot_id_bot_id_fkey",
-      "entityType": "fks",
-      "schema": "botsdk",
-      "table": "representative_fact_proposal"
-    },
-    {
-      "nameExplicit": false,
       "columns": ["assignment_id"],
       "schemaTo": "botsdk",
       "tableTo": "bot_assignment",
@@ -2211,14 +2067,6 @@
       "entityType": "pks"
     },
     {
-      "columns": ["id"],
-      "nameExplicit": false,
-      "name": "representative_fact_proposal_pkey",
-      "schema": "botsdk",
-      "table": "representative_fact_proposal",
-      "entityType": "pks"
-    },
-    {
       "columns": ["assignment_id"],
       "nameExplicit": false,
       "name": "representative_hand_off_pkey",
@@ -2283,15 +2131,6 @@
       "entityType": "uniques",
       "schema": "botsdk",
       "table": "representative_fact"
-    },
-    {
-      "nameExplicit": true,
-      "columns": ["user_id", "key"],
-      "nullsNotDistinct": false,
-      "name": "representative_fact_proposal_key",
-      "entityType": "uniques",
-      "schema": "botsdk",
-      "table": "representative_fact_proposal"
     },
     {
       "nameExplicit": true,

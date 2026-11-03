@@ -279,7 +279,9 @@ describe("the draft tool", () => {
         quiet(),
       ],
       {
-        customerRounds: [round(toolCall({ name: "reply", input: { text: "At nine." } }))],
+        customerRounds: [
+          round(toolCall({ name: "reply", input: { text: "At nine.", kind: "small_talk" } })),
+        ],
       },
     );
 
@@ -529,7 +531,12 @@ describe("the draft tool", () => {
         }),
         quiet(),
       ],
-      { customerRounds: [round(toolCall({ name: "reply", input: { text: "At ten." } })), quiet()] },
+      {
+        customerRounds: [
+          round(toolCall({ name: "reply", input: { text: "At ten.", kind: "small_talk" } })),
+          quiet(),
+        ],
+      },
     );
 
     await made.send("Draft it");
@@ -703,7 +710,9 @@ describe("the release Approval", () => {
       ],
       {
         customerRounds: [
-          round(toolCall({ name: "reply", input: { text: "We open at nine." } })),
+          round(
+            toolCall({ name: "reply", input: { text: "We open at nine.", kind: "small_talk" } }),
+          ),
           quiet(),
         ],
       },

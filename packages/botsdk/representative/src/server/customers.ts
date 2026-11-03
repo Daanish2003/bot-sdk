@@ -14,6 +14,7 @@ import {
 import { holdCustomers } from "./customer-merge";
 import { catchCode, customerProofLeadsTo, mayHoldCode } from "./customer-proof";
 import { type ChannelProof, judgeSender } from "./verification";
+import type { ReplyKind, ReplySource } from "../shared/replies";
 
 /*
  * Customers and their threads (ticket #1249). A message finds or makes its Customer by identity
@@ -36,6 +37,8 @@ export type ThreadEntry = {
   text: string;
   verified: boolean;
   earlier?: boolean;
+  /** The Assignment behind a Bot's result that is this Turn's to tell. */
+  assignmentId?: string;
 };
 
 /** An identity of `userId`'s with its Customer, made together on the identity's first message. */
@@ -289,6 +292,7 @@ export async function readThread(
       text: representativeThreadMessage.text,
       verified: representativeThreadMessage.verified,
       heldForOwner: representativeThreadMessage.heldForOwner,
+      assignmentId: representativeThreadMessage.assignmentId,
     })
     .from(representativeThreadMessage)
     .where(
@@ -319,12 +323,16 @@ export async function readThread(
     (entry.author === "customer" || entry.author === "bot") && entry.position >= batchFrom;
   kept.reverse();
   return [...kept.filter((entry) => !unanswered(entry)), ...kept.filter(unanswered)].map(
-    ({ author, text, verified, position, heldForOwner }) => ({
-      author,
-      text,
-      verified,
-      earlier: position < batchFrom || heldForOwner,
-    }),
+    ({ author, text, verified, position, heldForOwner, assignmentId }) => {
+      const earlier = position < batchFrom || heldForOwner;
+      return {
+        author,
+        text,
+        verified,
+        earlier,
+        ...(assignmentId && !earlier && { assignmentId }),
+      };
+    },
   );
 }
 
@@ -336,7 +344,8 @@ export async function readThread(
 export async function storeReply(
   tx: Transaction,
   { threadId, heard, verified }: { threadId: string; heard: Heard; verified: boolean },
-  text: string,
+  { text, sources }: { text: string; sources: ReplySource[] },
+  replyKind: ReplyKind,
   now: Date,
 ) {
   const [thread] = await tx
@@ -375,6 +384,8 @@ export async function storeReply(
     threadId,
     author: "representative",
     text,
+    replyKind,
+    sources,
     verified,
     ...heard,
     ...thread,
@@ -454,6 +465,9 @@ export async function exportCustomers(tx: Transaction, userId: string) {
         channel: representativeThreadMessage.channel,
         externalId: representativeThreadMessage.externalId,
         verified: representativeThreadMessage.verified,
+        replyKind: representativeThreadMessage.replyKind,
+        sources: representativeThreadMessage.sources,
+        assignmentId: representativeThreadMessage.assignmentId,
         createdAt: representativeThreadMessage.createdAt,
       })
       .from(representativeThreadMessage)
@@ -498,6 +512,9 @@ export async function exportCustomers(tx: Transaction, userId: string) {
         channel: message.channel,
         externalId: message.externalId,
         verified: message.verified,
+        replyKind: message.replyKind,
+        sources: message.sources,
+        assignmentId: message.assignmentId,
         createdAt: message.createdAt,
       })),
     })),
