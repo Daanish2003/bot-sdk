@@ -50,7 +50,7 @@ function answerTo(messages: ModelMessage[], callId: string): Record<string, unkn
   }
 }
 
-/** The text `call`, a `reply` its tool answered as sent, went with: the Model's, with the facts' values in. */
+/** The kind and sources a sent `reply` call's answer carries; a test has no Assignment, so only facts. */
 function sentReply(messages: ModelMessage[], call: { id: string }): ReplyProof {
   const answer = answerTo(messages, call.id);
   return {
@@ -59,6 +59,7 @@ function sentReply(messages: ModelMessage[], call: { id: string }): ReplyProof {
   };
 }
 
+/** The text `call`, a `reply` its tool answered as sent, went with: the Model's, with the facts' values in. */
 function sentText(messages: ModelMessage[], call: { id: string; function: { arguments: string } }) {
   const inserted = answerTo(messages, call.id)?.inserted as Record<string, string> | undefined;
   return insertValues(String(argumentsOf(call).text ?? ""), inserted ?? {});

@@ -215,7 +215,7 @@ export function turnTools({ job, kit, userId, name, representativeId, thread, en
         if (thread) return storeReply(tx, thread, checked, kind, now);
         // A test conversation's checks read what was sent from this answer, as the arguments still
         // hold the keys, and an answer over the long-output limit is cut.
-        if (JSON.stringify([checked.inserted, checked.sources]).length > maxTestInsertedLength) {
+        if (JSON.stringify(checked.inserted).length > maxTestInsertedLength) {
           return refused("it quotes too much at once. Split it into shorter replies.");
         }
         return { sent: true, inserted: checked.inserted, kind, sources: checked.sources };
