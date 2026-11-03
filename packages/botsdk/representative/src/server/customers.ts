@@ -103,7 +103,7 @@ export async function receiveMessage(
         lastChannel: heard.channel,
         lastExternalId: heard.externalId,
         messageCount: sql`${representativeThread.messageCount} + 1`,
-        updatedAt: now,
+        updatedAt: sql`greatest(${representativeThread.updatedAt}, ${now.toISOString()}::timestamp)`,
       },
     })
     .returning({ id: representativeThread.id, position: representativeThread.messageCount });
@@ -158,7 +158,7 @@ export async function storeReply(tx: Transaction, threadId: string, text: string
     .update(representativeThread)
     .set({
       messageCount: sql`${representativeThread.messageCount} + 1`,
-      updatedAt: now,
+      updatedAt: sql`greatest(${representativeThread.updatedAt}, ${now.toISOString()}::timestamp)`,
     })
     .where(
       and(eq(representativeThread.id, threadId), eq(representativeThread.state, "representative")),
