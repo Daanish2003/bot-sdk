@@ -70,6 +70,9 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - **Verify; never assert on faith.** Before stating that a file, function, config key, API or library behavior exists or works, confirm it: read the file, grep, or run it, and cite the path. Docs, comments and memory are leads to verify. If you cannot verify, say so.
 - **Fix the root cause, everywhere.** When a defect has one cause in several places, fix every instance in the same change. If the real fix is large, name it and propose it instead of shipping only the surface patch.
 - **Done means verified.** A test is only trusted once it has been seen to fail (break the behavior, watch it go red). A CI fix is done when the pushed commit's job is green for that SHA, not when it passes locally.
+- **A red CI job needs a cause.** Rerun a failed job only after stating a cause from its log. A test that keeps failing, or passes only on its retry, is a possible product bug until shown otherwise; "flake" is a conclusion that needs evidence.
+- **Run e2e locally** (`pnpm test:e2e`) when a PR changes behaviour a spec covers.
+- **A PR's CI counts only against the latest `main`.** `main` requires `check` and `apps/web image and end-to-end` on an up-to-date branch. When `main` moves, merge it in and wait for CI on the new SHA.
 
 ## 6. Decision Rights
 
