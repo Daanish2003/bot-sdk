@@ -35,6 +35,9 @@ import {
   approvedCallJobName,
   approvedCallKey,
   approvedCallStartActivity,
+  loadSecretValues,
+  maskResult,
+  secretMasker,
 } from "../safety";
 
 /*
@@ -287,7 +290,11 @@ async function featureCall(
     return { error: features.missing(call.tool) ?? unavailableToolError(call.tool) };
   }
   return async () => {
-    const result = await execute(call.input, { toolCallId: call.toolCallId } as never);
+    // Masked before the cut, as a Turn's `liveRequest` does: this call doesn't run through one.
+    const result = maskResult(
+      await execute(call.input, { toolCallId: call.toolCallId } as never),
+      secretMasker((await loadSecretValues(deps, call.userId)).values()),
+    );
     const computer = deps.computer ? computerOf(deps, call.userId) : undefined;
     return capResult(
       result,

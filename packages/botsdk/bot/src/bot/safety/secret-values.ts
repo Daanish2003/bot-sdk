@@ -157,6 +157,8 @@ export function maskResult<T>(result: T, mask: (text: string) => string): T {
     if (typeof node === "string") return mask(node);
     if (Array.isArray(node)) return node.map(walk);
     if (node && typeof node === "object") {
+      // As JSON reads it (a Date is its text), since a result becomes JSON for the Model anyway.
+      if ("toJSON" in node && typeof node.toJSON === "function") return walk(node.toJSON());
       return Object.fromEntries(Object.entries(node).map(([key, child]) => [key, walk(child)]));
     }
     return node;
