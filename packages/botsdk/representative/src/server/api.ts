@@ -9,6 +9,7 @@ import {
   customerSetBlockedInput,
   factAddInput,
   factEditInput,
+  gapToFactInput,
   customerUpdateIdentityInput,
   createInput,
   idInput,
@@ -19,6 +20,7 @@ import {
   updateDraftInput,
 } from "../shared/contract";
 import { addFact, deleteFact, editFact, listFactLog, listFacts } from "./facts";
+import { dismissGap, gapToFact, listGaps } from "./gaps";
 import { listMerges, mergeCustomers, undoMerge } from "./customer-merge";
 import {
   addIdentity,
@@ -142,6 +144,14 @@ export function representativeApi(
       deleteFact(context, userId, parseInput(idInput, rest).id),
 
     factLog: async ({ userId }: { userId: string }) => listFactLog(context, userId),
+
+    gapList: async ({ userId }: { userId: string }) => listGaps(context, userId),
+
+    gapDismiss: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      dismissGap(context, userId, parseInput(idInput, rest).id),
+
+    gapToFact: async ({ userId, ...rest }: WithUser<typeof gapToFactInput>) =>
+      gapToFact(context, userId, parseInput(gapToFactInput, rest)),
 
     threadList: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
       listThreads(context, userId, parseInput(idInput, rest).id),

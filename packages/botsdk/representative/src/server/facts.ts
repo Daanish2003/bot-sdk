@@ -118,6 +118,24 @@ export async function listFacts({ db, clock }: Context, userId: string): Promise
   return rows.map((row) => view(row, now));
 }
 
+/** Adds a fact in `tx`, in effect at once, and logs it; refused when the owner has the key already. */
+export async function insertFact(
+  tx: Transaction,
+  userId: string,
+  input: Fields & { key: string },
+  now: Date,
+): Promise<FactView> {
+  const fields = fieldsOf(input);
+  const [row] = await tx
+    .insert(fact)
+    .values({ id: uuidv7(), userId, key: input.key, ...fields, createdAt: now, updatedAt: now })
+    .onConflictDoNothing({ target: [fact.userId, fact.key] })
+    .returning();
+  if (!row) throw factKeyTaken();
+  await record(tx, userId, row.key, "add", null, fields, now);
+  return view(row, now);
+}
+
 /** Adds a fact, which is in effect at once; refused when the owner has the key already. */
 export async function addFact(
   { db, clock }: Context,
@@ -125,17 +143,7 @@ export async function addFact(
   input: Fields & { key: string },
 ): Promise<FactView> {
   const now = clock();
-  const fields = fieldsOf(input);
-  return db.transaction(async (tx) => {
-    const [row] = await tx
-      .insert(fact)
-      .values({ id: uuidv7(), userId, key: input.key, ...fields, createdAt: now, updatedAt: now })
-      .onConflictDoNothing({ target: [fact.userId, fact.key] })
-      .returning();
-    if (!row) throw factKeyTaken();
-    await record(tx, userId, row.key, "add", null, fields, now);
-    return view(row, now);
-  });
+  return db.transaction((tx) => insertFact(tx, userId, input, now));
 }
 
 /** Changes a fact. A change that leaves it as it was is not logged. */

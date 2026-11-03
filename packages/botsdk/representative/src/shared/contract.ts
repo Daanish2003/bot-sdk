@@ -358,17 +358,16 @@ function refineFact(
     context.addIssue({ code: "custom", path: ["validUntil"], message: "Ends before it starts" });
   }
 }
-export const factAddInput = z
-  .object({
-    /** What a reply names it by: lower case, with dots, dashes and underscores. */
-    key: z
-      .string()
-      .trim()
-      .toLowerCase()
-      .regex(/^[a-z0-9][a-z0-9._-]{0,63}$/),
-    ...factFields,
-  })
-  .superRefine(refineFact);
+const factAddFields = {
+  /** What a reply names it by: lower case, with dots, dashes and underscores. */
+  key: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9][a-z0-9._-]{0,63}$/),
+  ...factFields,
+};
+export const factAddInput = z.object(factAddFields).superRefine(refineFact);
 /** A fact's key is fixed once it's made, since a reply may already name it. */
 /** An edit replaces the fact's fields, so the valid dates are given too, or null to clear them. */
 export const factEditInput = z
@@ -379,6 +378,24 @@ export const factEditInput = z
     validUntil: z.date().nullable(),
   })
   .superRefine(refineFact);
+
+/** The most characters of a question a reply carries into a Gap. */
+export const maxGapQuestionLength = 500;
+
+/** One question the Representatives couldn't confirm: the Model's wording, so plain text for the owner only. */
+export type GapView = {
+  id: string;
+  question: string;
+  /** How many times it came up, in any wording that normalizes to the same text. */
+  count: number;
+  /** The Representative that first logged it; null once that one is deleted. */
+  representativeId: string | null;
+  firstAt: Date;
+  lastAt: Date;
+};
+
+/** Turns a Gap into a fact: the fact's fields, and the Gap it answers. */
+export const gapToFactInput = z.object({ id: z.uuid(), ...factAddFields }).superRefine(refineFact);
 
 export const idInput = z.object({ id: z.uuid() });
 export const approveInput = z.object({
@@ -455,6 +472,12 @@ export const representativeContract = {
   factDelete: oc.input(idInput).output(type<FactLogView>()),
   /** Every add, edit and delete of the owner's facts, newest first. */
   factLog: oc.output(type<FactLogView[]>()),
+  /** The owner's open Gaps, the most recently asked first. */
+  gapList: oc.output(type<GapView[]>()),
+  /** Dismisses a Gap: it leaves the list, and the same question asked again starts a new one. */
+  gapDismiss: oc.input(idInput).output(type<GapView>()),
+  /** Adds a fact and closes the Gap it answers, together. Refused when the owner has the key already. */
+  gapToFact: oc.input(gapToFactInput).output(type<FactView>()),
   /** A Representative's Customer threads, the most recently active first. */
   threadList: oc.input(idInput).output(type<ThreadSummary[]>()),
   /** One thread with its transcript, holder and who it waits on. */
