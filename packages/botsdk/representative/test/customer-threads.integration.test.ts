@@ -23,7 +23,6 @@ import {
   representativeThread,
   representativeThreadMessage,
 } from "../src/server/db/schema";
-import { representativeTurnJobName } from "../src/server/turn";
 
 /*
  * A Customer's first message (ticket #1249): from a fake Channel, through the test Customer entry
@@ -179,14 +178,9 @@ describe("a Customer's first message", () => {
     const { user, id } = await ownerWithRepresentative(deps);
     const turn = { representativeId: id, externalId: "+15550001" };
 
-    const started = await Promise.all(
+    await Promise.all(
       ["One", "Two", "Three"].map((message) => startTestCustomerTurn(deps, { ...turn, message })),
     );
-    for (const { jobId } of started) {
-      await expect
-        .poll(async () => (await deps.runner.status(jobId))?.status, poll)
-        .toBe("succeeded");
-    }
 
     const customers = await customersOf(deps, user.id);
     expect(customers).toHaveLength(1);
@@ -216,7 +210,9 @@ describe("a Customer's first message", () => {
     const { deps } = await instance([quiet()]);
     const { user } = await ownerWithRepresentative(deps);
 
-    await testCustomerTurn(deps, { representativeId: uuidv7(), message: "Hi" });
+    await expect(
+      testCustomerTurn(deps, { representativeId: uuidv7(), message: "Hi" }),
+    ).rejects.toThrow("No Representative");
 
     expect(await customersOf(deps, user.id)).toEqual([]);
   });
@@ -498,29 +494,6 @@ describe("what the Turn reads", () => {
 
     expect(fake.calls).toEqual([]);
     expect(await customersOf(deps, user.id)).toEqual([]);
-  });
-
-  it("takes the Customer from the identity, not from anything in the job's payload", async () => {
-    const { deps } = await instance([quiet(), quiet()]);
-    const { user, id } = await ownerWithRepresentative(deps);
-    await testCustomerTurn(deps, { representativeId: id, externalId: "+1", message: "One" });
-    const [victim] = await customersOf(deps, user.id);
-
-    const jobId = await deps.runner.enqueue(representativeTurnJobName, {
-      representativeId: id,
-      channel: fakeChannel,
-      externalId: "+2",
-      message: "Two",
-      customerId: victim!.id,
-    });
-    await expect
-      .poll(async () => (await deps.runner.status(jobId))?.status, poll)
-      .toBe("succeeded");
-
-    const after = await customersOf(deps, user.id);
-    expect(after).toHaveLength(2);
-    const found = after.find((customer) => customer.id === victim!.id);
-    expect(found?.threads[0]?.messages.map((message) => message.text)).toEqual(["One"]);
   });
 });
 

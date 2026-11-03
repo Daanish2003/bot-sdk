@@ -13,6 +13,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 import { bot, botAssignment, botsdkSchema } from "@botsdk/bot/storage";
+import type { ChannelProofRule } from "../verification";
 import type {
   Draft,
   PendingApproval,
@@ -205,6 +206,9 @@ export type ThreadState = "representative" | "owner" | "closed";
  * Customer's Channels. It is never a Conversation. `lastChannel` and `lastExternalId` are where the
  * Customer was last heard from by a verified sender, or first heard from if none has been, which is
  * where anything sent outside a Turn goes: an unverified sender can't move it to themselves. `messageCount` numbers its messages.
+ * `turnId` is the Turn that holds it, queued or running, and also its job's key. `waitingFrom` is the
+ * position of the oldest message waiting for a Turn, and `waitingSince` when messages began to wait,
+ * by the SDK's clock; both are null when none waits.
  */
 export const representativeThread = botsdkSchema.table(
   "representative_thread",
@@ -220,6 +224,9 @@ export const representativeThread = botsdkSchema.table(
     lastChannel: text("last_channel").notNull(),
     lastExternalId: text("last_external_id").notNull(),
     messageCount: integer("message_count").notNull().default(0),
+    turnId: uuid("turn_id"),
+    waitingFrom: integer("waiting_from"),
+    waitingSince: timestamp("waiting_since"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -255,6 +262,8 @@ export const representativeThreadMessage = botsdkSchema.table(
     externalId: text("external_id").notNull(),
     text: text("text").notNull(),
     verified: boolean("verified").notNull().default(true),
+    /** The rule its Channel checks its sender by, which decides how a Turn can have them proved. */
+    proofRule: text("proof_rule").$type<ChannelProofRule>(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [unique("representative_thread_message_position").on(table.threadId, table.position)],

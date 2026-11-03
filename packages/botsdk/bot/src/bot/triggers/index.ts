@@ -13,6 +13,8 @@ export {
 } from "./trigger-ids";
 export {
   awaySummaryKey,
+  batchLongestMs,
+  batchQuietMs,
   botTurnJobName,
   type BotConversation,
   handToStoppedTurn,

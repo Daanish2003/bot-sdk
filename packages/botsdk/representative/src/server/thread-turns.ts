@@ -1,0 +1,259 @@
+import { and, asc, eq, gt, gte, inArray, min, sql } from "drizzle-orm";
+import { z } from "zod";
+
+import { batchLongestMs, batchQuietMs } from "@botsdk/bot/bot/triggers";
+import type { FeatureContext } from "@botsdk/bot/feature";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import type { Transaction } from "@botsdk/bot/plugin";
+import { job } from "@botsdk/bot/storage";
+import { noNul } from "../shared/contract";
+import {
+  maxThreadMessageLength,
+  receiveMessage,
+  threadPromptChars,
+  threadPromptLimit,
+} from "./customers";
+import {
+  representativeCustomer,
+  representativeThread,
+  representativeThreadMessage,
+} from "./db/schema";
+import { queueIdleCheck } from "./idle";
+import { channelProof } from "./verification";
+
+/*
+ * One Turn at a time on a Customer thread, with quick messages batched (ticket #1250). A message is
+ * stored as it arrives. The thread's row says which Turn holds it and since when messages have
+ * waited for one, and every change to those takes the row's lock, so an arriving message and a Turn
+ * beginning or ending see each other. A Turn reads the messages that were there when it began.
+ *
+ * A batch has one sender, verified or not throughout, and fits what a Turn reads. It closes at the
+ * first message that breaks either, which waits for the next Turn, so each sender's Turn replies to
+ * that sender alone, and no batched message is dropped unread.
+ */
+
+type Services = Pick<FeatureContext, "db" | "clock" | "jobs">;
+
+export const representativeTurnJobName = "representative.turn";
+
+/** A Turn's job, as the thread queues it: the thread and its Turn, never a message or a Customer. */
+export const turnJobPayload = z.object({ threadId: z.uuid(), turnId: z.uuid() });
+export type TurnJobPayload = z.infer<typeof turnJobPayload>;
+
+const turnJob = { name: representativeTurnJobName, payload: turnJobPayload };
+
+/** When a batch waiting since `since` closes: as the Router's do, however long messages go on. */
+const batchClosesAt = (since: Date, now: Date) =>
+  new Date(Math.min(now.getTime() + batchQuietMs, since.getTime() + batchLongestMs));
+
+/** The runner only polls for a job due later, so it is woken then. A tx that rolls back wakes it for nothing. */
+function wakeAt({ clock, jobs }: Services, runAfter: Date) {
+  const delay = runAfter.getTime() - clock().getTime();
+  if (delay > 0) setTimeout(() => jobs.wake(), delay).unref?.();
+}
+
+/** Gives the thread, whose row `tx` holds, to a new Turn, whose job's key is its id. */
+async function startTurn(services: Services, tx: Transaction, threadId: string, runAfter: Date) {
+  const turnId = uuidv7();
+  await tx
+    .update(representativeThread)
+    .set({ turnId })
+    .where(eq(representativeThread.id, threadId));
+  wakeAt(services, runAfter);
+  return services.jobs.enqueueIn(
+    tx,
+    turnJob,
+    { threadId, turnId },
+    { idempotencyKey: turnId, runAfter },
+  );
+}
+
+const customerMessage = z.object({
+  representativeId: z.uuid(),
+  /** Who sent it. The Customer's id is code's, from this identity: a Model never names one. */
+  channel: z.string().min(1).max(64).refine(noNul),
+  externalId: z.string().min(1).max(512).refine(noNul),
+  /** What the Channel's Customer path says of the sender; a Channel with no rule says nothing. */
+  proof: channelProof.optional(),
+  message: z.string().min(1).max(maxThreadMessageLength).refine(noNul),
+});
+export type CustomerMessage = z.infer<typeof customerMessage>;
+
+/**
+ * Takes a Customer's message: stores it on its thread, and has a Turn answer it. Null when the
+ * Representative doesn't exist and nothing was stored. Otherwise `jobId` is the job of the Turn now
+ * holding the thread, which a later Turn follows if it has already begun, or null when a blocked
+ * Customer's message is kept with no Turn.
+ * No route, RPC or API method reaches this: until a later spec lets real Customers in, only the test
+ * Customer entry point in the private `@ai-chat/test-support` package does.
+ */
+export async function receiveCustomerMessage(
+  services: Services & Pick<FeatureContext, "keyring">,
+  given: CustomerMessage,
+) {
+  const { representativeId, channel, externalId, proof, message } = customerMessage.parse(given);
+  return services.db.transaction(async (tx) => {
+    const now = services.clock();
+    const received = await receiveMessage(tx, {
+      keyring: services.keyring,
+      representativeId,
+      heard: { channel, externalId },
+      proof,
+      text: message,
+      now,
+    });
+    if (!received) return null;
+    const { threadId, turnId, waitingSince, blocked, opened } = received;
+    // With the message, so a thread is never left without its closing job.
+    if (opened) await queueIdleCheck(services, tx, threadId, now);
+    // Kept for the owner, and nothing more: no model call, no reply and no Assignment.
+    if (blocked) return { jobId: null };
+    const runAfter = batchClosesAt(waitingSince!, now);
+    if (!turnId) return { jobId: await startTurn(services, tx, threadId, runAfter) };
+    // Its job hasn't started: this message joins the batch, and moves when it closes.
+    const payload = { threadId, turnId };
+    const replaced = await services.jobs.replaceIfNotStarted(tx, turnId, turnJob, payload, {
+      runAfter,
+    });
+    if (replaced) {
+      wakeAt(services, runAfter);
+      return { jobId: replaced };
+    }
+    // Its job is running: if the Turn has begun, the message waits for the next one. Something else
+    // may have ended that job without ending the Turn; a new Turn takes over, so no thread sticks,
+    // and the old job's late `onFailed` can't touch it.
+    const [running] = await tx
+      .select({ id: job.id })
+      .from(job)
+      .where(and(eq(job.idempotencyKey, turnId), inArray(job.status, ["queued", "running"])));
+    return { jobId: running?.id ?? (await startTurn(services, tx, threadId, runAfter)) };
+  });
+}
+
+/**
+ * Where the batch starting at `rows`' first closes: at the row that breaks it, or at the end of the
+ * thread when none does. Sizes are in bytes, which a message's length in a Turn's read never exceeds.
+ */
+function closeBatch(
+  rows: {
+    position: number;
+    author: string;
+    channel: string;
+    externalId: string;
+    verified: boolean;
+    size: number;
+  }[],
+) {
+  const first = rows[0]!;
+  let chars = 0;
+  return rows.find((row, index) => {
+    chars += row.size;
+    const otherSender =
+      row.author === "customer" &&
+      (row.channel !== first.channel ||
+        row.externalId !== first.externalId ||
+        row.verified !== first.verified);
+    return index > 0 && (index >= threadPromptLimit || chars > threadPromptChars || otherSender);
+  });
+}
+
+/**
+ * Begins Turn `turnId` in its job's first Checkpoint: its batch closes, so what is past it waits for
+ * the next Turn. What it returns is what a replay goes by: a place in the thread, not who or what was
+ * said, since user delete doesn't reach a Checkpoint. Null, running no Turn, when the thread has gone,
+ * another Turn holds it, or nothing is left for a Turn to answer: nothing waits any more, the Customer
+ * is blocked, or the Representative no longer holds the thread. What waited then gets no Turn.
+ */
+export async function beginTurn(tx: Transaction, threadId: string, turnId: string) {
+  const [thread] = await tx
+    .select({
+      customerId: representativeThread.customerId,
+      representativeId: representativeThread.representativeId,
+      messageCount: representativeThread.messageCount,
+      waitingFrom: representativeThread.waitingFrom,
+      state: representativeThread.state,
+      blockedAt: representativeCustomer.blockedAt,
+    })
+    .from(representativeThread)
+    .innerJoin(
+      representativeCustomer,
+      eq(representativeCustomer.id, representativeThread.customerId),
+    )
+    .where(and(eq(representativeThread.id, threadId), eq(representativeThread.turnId, turnId)))
+    .for("update", { of: representativeThread });
+  if (!thread) return null;
+  const inThread = eq(representativeThread.id, threadId);
+  const { customerId, representativeId, messageCount, waitingFrom, state, blockedAt } = thread;
+  if (waitingFrom === null || blockedAt || state !== "representative") {
+    await tx
+      .update(representativeThread)
+      .set({ turnId: null, waitingFrom: null, waitingSince: null })
+      .where(inThread);
+    return null;
+  }
+  const message = representativeThreadMessage;
+  const rows = await tx
+    .select({
+      position: message.position,
+      author: message.author,
+      channel: message.channel,
+      externalId: message.externalId,
+      verified: message.verified,
+      size: sql<number>`octet_length(${message.text})`,
+    })
+    .from(message)
+    .where(and(eq(message.threadId, threadId), gte(message.position, waitingFrom)))
+    .orderBy(asc(message.position))
+    .limit(threadPromptLimit + 1);
+  const pastBatch = closeBatch(rows);
+  const upTo = pastBatch ? pastBatch.position - 1 : messageCount;
+  const [next] = pastBatch
+    ? await tx
+        .select({ position: min(message.position) })
+        .from(message)
+        .where(
+          and(
+            eq(message.threadId, threadId),
+            eq(message.author, "customer"),
+            gt(message.position, upTo),
+          ),
+        )
+    : [];
+  await tx
+    .update(representativeThread)
+    .set(
+      next?.position ? { waitingFrom: next.position } : { waitingFrom: null, waitingSince: null },
+    )
+    .where(inThread);
+  return {
+    customerId,
+    representativeId,
+    upTo,
+    senderAt: rows[0]!.position,
+    verified: rows[0]!.verified,
+  };
+}
+
+/** Ends Turn `turnId`, if it still holds the thread: the next Turn takes what has waited, if anything has. */
+export async function endTurn(
+  services: Services,
+  tx: Transaction,
+  threadId: string,
+  turnId: string,
+) {
+  const [thread] = await tx
+    .select({ waitingSince: representativeThread.waitingSince })
+    .from(representativeThread)
+    .where(and(eq(representativeThread.id, threadId), eq(representativeThread.turnId, turnId)))
+    .for("update");
+  if (!thread) return;
+  if (thread.waitingSince) {
+    const runAfter = batchClosesAt(thread.waitingSince, services.clock());
+    await startTurn(services, tx, threadId, runAfter);
+    return;
+  }
+  await tx
+    .update(representativeThread)
+    .set({ turnId: null })
+    .where(eq(representativeThread.id, threadId));
+}

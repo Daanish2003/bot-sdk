@@ -92,11 +92,11 @@ async function judgeMessage(
 /**
  * Stores a Customer's message on its thread, whether or not a Turn can run: `null` only when the
  * Representative doesn't exist. It holds that row, so the owner's delete, which removes
- * Representatives before Customers, can't leave a Customer behind. What it returns goes in a
- * Checkpoint, which user delete doesn't reach: ids and a place in the thread, not the thread's text.
- * A blocked Customer's message is stored all the same, for the owner (ticket #1251); `blocked` tells the
- * Turn to run no model and send nothing. A message holding the sender's code is stored as a note of
- * what became of the code instead (ticket #1256), so no model or prompt ever reads it.
+ * Representatives before Customers, can't leave a Customer behind. It also holds the thread's row
+ * until `tx` ends, so what it returns of the thread's Turn stays true for the caller. A blocked
+ * Customer's message is stored all the same, for the owner (ticket #1251), and waits for no Turn. A
+ * message holding the sender's code is stored as a note of what became of the code instead (ticket
+ * #1256), so no model or prompt ever reads it.
  */
 export async function receiveMessage(
   tx: Transaction,
@@ -142,6 +142,7 @@ export async function receiveMessage(
       lastChannel: heard.channel,
       lastExternalId: heard.externalId,
       messageCount: 1,
+      ...(!blocked && { waitingFrom: 1, waitingSince: now }),
       createdAt: now,
       updatedAt: now,
     })
@@ -151,11 +152,20 @@ export async function receiveMessage(
       set: {
         ...(verified && { lastChannel: heard.channel, lastExternalId: heard.externalId }),
         messageCount: sql`${representativeThread.messageCount} + 1`,
+        ...(!blocked && {
+          waitingFrom: sql`coalesce(${representativeThread.waitingFrom}, ${representativeThread.messageCount} + 1)`,
+          waitingSince: sql`coalesce(${representativeThread.waitingSince}, ${now.toISOString()}::timestamp)`,
+        }),
         updatedAt: sql`greatest(${representativeThread.updatedAt}, ${now.toISOString()}::timestamp)`,
       },
     })
-    .returning({ id: representativeThread.id, position: representativeThread.messageCount });
-  const { id: threadId, position } = thread!;
+    .returning({
+      id: representativeThread.id,
+      position: representativeThread.messageCount,
+      turnId: representativeThread.turnId,
+      waitingSince: representativeThread.waitingSince,
+    });
+  const { id: threadId, position, turnId, waitingSince } = thread!;
   await tx.insert(representativeThreadMessage).values({
     id: uuidv7(),
     threadId,
@@ -163,10 +173,29 @@ export async function receiveMessage(
     author: "customer",
     text: stored,
     verified,
+    proofRule: proof?.rule,
     ...heard,
   });
   // Position 1 is a thread's first message: it has just been opened.
-  return { customerId, threadId, position, verified, blocked, opened: position === 1 };
+  return { threadId, turnId, waitingSince, blocked, opened: position === 1 };
+}
+
+/** Who sent the message at `position`, which a Turn answers; undefined once the thread has gone. */
+export async function readSender(db: FeatureContext["db"], threadId: string, position: number) {
+  const [sender] = await db
+    .select({
+      channel: representativeThreadMessage.channel,
+      externalId: representativeThreadMessage.externalId,
+      proofRule: representativeThreadMessage.proofRule,
+    })
+    .from(representativeThreadMessage)
+    .where(
+      and(
+        eq(representativeThreadMessage.threadId, threadId),
+        eq(representativeThreadMessage.position, position),
+      ),
+    );
+  return sender;
 }
 
 /**
@@ -180,10 +209,12 @@ export async function readThread(
   db: FeatureContext["db"],
   threadId: string,
   upTo: number,
+  batchFrom: number,
   unverifiedSender: Heard | null,
 ): Promise<ThreadEntry[]> {
   const newest = await db
     .select({
+      position: representativeThreadMessage.position,
       author: representativeThreadMessage.author,
       text: representativeThreadMessage.text,
       verified: representativeThreadMessage.verified,
@@ -204,14 +235,19 @@ export async function readThread(
     )
     .orderBy(desc(representativeThreadMessage.position))
     .limit(threadPromptLimit);
-  const kept: ThreadEntry[] = [];
+  const kept: typeof newest = [];
   let chars = 0;
   for (const entry of newest) {
     chars += entry.text.length;
     if (chars > threadPromptChars) break;
     kept.push(entry);
   }
-  return kept.reverse();
+  // A message that waited through the last Turn comes after that Turn's reply, though sent before
+  // it: a Turn's prompt ends on what it has to answer.
+  const unanswered = (entry: (typeof newest)[number]) =>
+    entry.author === "customer" && entry.position >= batchFrom;
+  kept.reverse();
+  return [...kept.filter((entry) => !unanswered(entry)), ...kept.filter(unanswered)];
 }
 
 /**

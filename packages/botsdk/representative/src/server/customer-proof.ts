@@ -11,7 +11,7 @@ import {
   representativeThread,
   representativeVerification,
 } from "./db/schema";
-import { type ChannelProof, hasLapsed, proofLastsMs } from "./verification";
+import { type ChannelProofRule, hasLapsed, proofLastsMs } from "./verification";
 
 /*
  * A Customer proves who they are with a code or a signed link (ticket #1256). The `verify_customer`
@@ -145,7 +145,7 @@ export async function requestProof(
   {
     keyring,
     userId,
-    thread: { threadId, heard, verified, proof },
+    thread: { threadId, heard, verified, proofRule },
     claimed,
     now,
   }: {
@@ -155,13 +155,13 @@ export async function requestProof(
       threadId: string;
       heard: { channel: string; externalId: string };
       verified: boolean;
-      proof: ChannelProof | undefined;
+      proofRule: ChannelProofRule | null;
     };
     claimed: { channel: string; externalId: string } | null;
     now: Date;
   },
 ): Promise<SentProof | null> {
-  if (!proof || verified) return null;
+  if (!proofRule || verified) return null;
   // As for a reply: a Turn that began before the owner took over or blocked sends nothing more.
   const [held] = await tx
     .select({ state: representativeThread.state, blockedAt: representativeCustomer.blockedAt })
@@ -181,7 +181,7 @@ export async function requestProof(
   const sender = await identityAt(tx, userId, heard);
   if (sender?.id !== before.id) return null;
   const found = claimed && claim ? await identityAt(tx, userId, claimed) : undefined;
-  const reachesSender = proof.rule === "codeRoundTrip" || proof.rule === "dmarc";
+  const reachesSender = proofRule === "codeRoundTrip" || proofRule === "dmarc";
   const lapsed = hasLapsed(sender, now);
   let target: { id: string; channel: string; externalId: string } | null = null;
   if (reachesSender && !lapsed) {
@@ -244,7 +244,7 @@ export async function requestProof(
   }
 
   const id = uuidv7();
-  const isLink = target !== null && proof.rule === "dmarc" && target.id === sender.id;
+  const isLink = target !== null && proofRule === "dmarc" && target.id === sender.id;
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
   await tx.insert(representativeVerification).values({
     id,

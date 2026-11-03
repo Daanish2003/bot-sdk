@@ -33,6 +33,7 @@ export const channelProof = z.discriminatedUnion("rule", [
   }),
 ]);
 export type ChannelProof = z.infer<typeof channelProof>;
+export type ChannelProofRule = ChannelProof["rule"];
 
 /** An identity's standing, as stored on it. */
 export type IdentityStanding = {

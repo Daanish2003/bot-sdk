@@ -228,11 +228,13 @@ describe("an owner's threads", () => {
   });
 
   it("derives who a thread waits on", () => {
-    expect(waitingOn("representative", "customer", false)).toBe("representative");
-    expect(waitingOn("representative", "representative", false)).toBe("customer");
-    expect(waitingOn("owner", "customer", false)).toBe("owner");
-    expect(waitingOn("closed", "customer", false)).toBeNull();
-    expect(waitingOn("representative", "customer", true)).toBeNull();
+    expect(waitingOn("representative", "customer", false, false)).toBe("representative");
+    expect(waitingOn("representative", "representative", false, false)).toBe("customer");
+    // A message waiting for a next Turn, which came before the reply.
+    expect(waitingOn("representative", "representative", false, true)).toBe("representative");
+    expect(waitingOn("owner", "customer", false, false)).toBe("owner");
+    expect(waitingOn("closed", "customer", false, false)).toBeNull();
+    expect(waitingOn("representative", "customer", true, false)).toBeNull();
   });
 });
 

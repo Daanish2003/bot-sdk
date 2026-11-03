@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { batchLongestMs } from "@botsdk/bot/bot/triggers";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { botAssignment } from "@botsdk/bot/storage";
 import { saveCredentials } from "@botsdk/bot/models/internal";
@@ -102,7 +103,7 @@ async function instance(rounds: Round[], held?: Promise<void>) {
   });
   await jobs.start();
   runners.push(jobs);
-  return { fake, timer, entered, deps };
+  return { fake, timer, entered, deps: Object.assign(deps, { timer }) };
 }
 
 /** A new owner with a Representative serving on a first Release. */
@@ -139,6 +140,7 @@ describe("a Channel's rule", () => {
   it("verifies the sender on a Channel whose rule is the same identity", async () => {
     const { deps, timer } = await instance([quiet()]);
     const { user, id } = await ownerWithRepresentative(deps);
+    const arrived = timer.clock.now();
 
     await testCustomerTurn(deps, {
       representativeId: id,
@@ -149,7 +151,7 @@ describe("a Channel's rule", () => {
     });
 
     expect(new Date((await stateOf(deps, user.id, "telegram"))!.verifiedContactAt!)).toEqual(
-      timer.clock.now(),
+      arrived,
     );
     const [customer] = await customersOf(deps, user.id);
     expect(customer?.threads[0]?.messages).toMatchObject([{ text: "Hi", verified: true }]);
@@ -316,8 +318,8 @@ describe("what an unverified sender's prompt holds", () => {
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const { deps, entered } = await instance(
-      [replies("Your balance is 40."), replies("Who is this?"), quiet(), quiet()],
+    const { deps, entered, timer } = await instance(
+      [replies("Your balance is 40."), quiet(), replies("Who is this?"), quiet()],
       held,
     );
     const { user, id } = await ownerWithRepresentative(deps);
@@ -328,26 +330,28 @@ describe("what an unverified sender's prompt holds", () => {
       proof: sameIdentity,
       message: "One",
     });
+    timer.advance(batchLongestMs);
+    timer.tick();
     await expect.poll(() => entered.length, poll).toBe(1);
     const [customer] = await customersOf(deps, user.id);
     await addIdentity(user.id, customer!.id, "sms", "+15550001");
-    const second = await startTestCustomerTurn(deps, {
-      ...spoofed,
-      representativeId: id,
-    });
-    await expect.poll(() => entered.length, poll).toBe(2);
+    await startTestCustomerTurn(deps, { ...spoofed, representativeId: id });
     release();
-    for (const { jobId } of [first, second]) {
-      await expect
-        .poll(async () => (await deps.runner.status(jobId))?.status, poll)
-        .toBe("succeeded");
-    }
+    await expect
+      .poll(async () => (await deps.runner.status(first.jobId))?.status, poll)
+      .toBe("succeeded");
+    // The message that came during that Turn gets its own.
+    timer.advance(batchLongestMs);
+    timer.tick();
 
-    const [only] = await customersOf(deps, user.id);
-    const sent = only?.threads[0]?.messages.filter((entry) => entry.author === "representative");
-    expect(sent?.map(({ channel, verified }) => [channel, verified]).sort()).toEqual([
-      ["sms", false],
+    const replyRows = async () => {
+      const [only] = await customersOf(deps, user.id);
+      return only?.threads[0]?.messages.filter((entry) => entry.author === "representative");
+    };
+    await expect.poll(async () => (await replyRows())?.length, poll).toBe(2);
+    expect((await replyRows())?.map(({ channel, verified }) => [channel, verified])).toEqual([
       ["telegram", true],
+      ["sms", false],
     ]);
   });
 });
@@ -381,11 +385,12 @@ describe("the 90-day lapse", () => {
 
     await testCustomerTurn(deps, { ...turn, message: "First" });
     timer.advance(90 * day - 60_000);
+    const justInside = timer.clock.now();
     await testCustomerTurn(deps, { ...turn, message: "Just inside" });
 
     expect(await recordedVerified(deps, user.id, "Just inside")).toBe(true);
     const inside = await stateOf(deps, user.id, "telegram");
-    expect(new Date(inside!.verifiedContactAt!)).toEqual(timer.clock.now());
+    expect(new Date(inside!.verifiedContactAt!)).toEqual(justInside);
     expect(inside?.lapsedAt).toBeNull();
 
     timer.advance(90 * day);
@@ -421,12 +426,13 @@ describe("the 90-day lapse", () => {
 
     await testCustomerTurn(deps, { ...turn, message: "Old holder" });
     timer.advance(90 * day);
+    const arrived = timer.clock.now();
     await testCustomerTurn(deps, { ...turn, message: "New holder" });
 
     expect(await recordedVerified(deps, user.id, "New holder")).toBe(false);
     const lapsed = await stateOf(deps, user.id, "telegram");
     expect(lapsed?.verifiedContactAt).toBeNull();
-    expect(new Date(lapsed!.lapsedAt!)).toEqual(timer.clock.now());
+    expect(new Date(lapsed!.lapsedAt!)).toEqual(arrived);
 
     // The same identity proved nothing new, so a second message doesn't win it back.
     await testCustomerTurn(deps, { ...turn, message: "Second try" });
@@ -452,12 +458,13 @@ describe("the 90-day lapse", () => {
     expect(lapsed?.verifiedContactAt).toBeNull();
     expect(lapsed?.lapsedAt).not.toBeNull();
 
+    const after = timer.clock.now();
     await testCustomerTurn(deps, { ...email, proof: enforcingPass, message: "After" });
 
     expect(await recordedVerified(deps, user.id, "After")).toBe(true);
     const state = await stateOf(deps, user.id, "email");
     expect(state?.lapsedAt).toBeNull();
-    expect(new Date(state!.verifiedContactAt!)).toEqual(timer.clock.now());
+    expect(new Date(state!.verifiedContactAt!)).toEqual(after);
   });
 
   it("isn't kept off by a message that proves nothing", async () => {

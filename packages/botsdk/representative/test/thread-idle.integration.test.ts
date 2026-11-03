@@ -13,6 +13,7 @@ import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round } from "@botsdk/testing/fake-adapter";
 import { representative } from "../src";
+import { representativeTurnJobName } from "../src/server/thread-turns";
 import { threadIdleJobName, threadIdleMs } from "../src/server/idle";
 
 /*
@@ -60,6 +61,7 @@ async function instance() {
     jobs,
     features: [representative()],
     adapterFor: () => fake.adapter,
+    clock: timer.clock.now,
     memory: false,
   });
   await jobs.start();
@@ -77,7 +79,11 @@ async function instance() {
   await rpc.representative.approve({ id });
   await rpc.representative.setEnabled({ id, enabled: true });
   const say = (message: string) =>
-    testCustomerTurn(deps, { representativeId: id, message, externalId: "+15550001" });
+    testCustomerTurn(Object.assign(deps, { timer }), {
+      representativeId: id,
+      message,
+      externalId: "+15550001",
+    });
   /** Moves the runner's clock on and has it claim what is now due. */
   const passTime = (ms: number) => {
     timer.advance(ms);
@@ -88,7 +94,7 @@ async function instance() {
       .select({ status: job.status, runAfter: job.runAfter })
       .from(job)
       .where(and(eq(job.name, threadIdleJobName)));
-  return { deps, user, timer, say, passTime, idleChecks };
+  return { deps, user, rpc, timer, say, passTime, idleChecks };
 }
 
 const threadsOf = async (deps: TestDeps, userId: string) =>
@@ -111,14 +117,14 @@ describe("a thread's 7 idle days", () => {
 
   it("does not close it early, and activity pushes the close back by queueing the check again", async () => {
     const { deps, user, timer, say, passTime, idleChecks } = await instance();
-    const opened = timer.clock.now().getTime();
     await say("Hello");
 
     passTime(6 * day);
+    const spoke = timer.clock.now().getTime();
     await say("Still there?");
     passTime(day);
 
-    // The check at day 7 found activity at day 6 and queued the next one for day 13.
+    // The check at day 7 found activity at day 6 and queued the next one for 7 days after it.
     await expect
       .poll(async () => (await idleChecks()).map((check) => check.status).sort(), poll)
       .toEqual(["queued", "succeeded"]);
@@ -126,13 +132,39 @@ describe("a thread's 7 idle days", () => {
       "representative",
     ]);
     const next = (await idleChecks()).find((check) => check.status === "queued");
-    expect(next?.runAfter.getTime()).toBe(opened + 13 * day);
+    expect(next?.runAfter.getTime()).toBe(spoke + 7 * day);
 
     passTime(6 * day);
 
     await expect
       .poll(async () => (await threadsOf(deps, user.id)).map((thread) => thread.state), poll)
       .toEqual(["closed"]);
+  });
+
+  it("gives a thread a blocked Customer opens its check too, with no Turn", async () => {
+    const { deps, user, rpc, say, passTime, idleChecks } = await instance();
+    await say("Hello");
+    passTime(threadIdleMs);
+    await expect
+      .poll(async () => (await threadsOf(deps, user.id)).map((thread) => thread.state), poll)
+      .toEqual(["closed"]);
+    const [customer] = await customersOf(deps, user.id);
+    await rpc.representative.customerSetBlocked({ id: customer!.id, blocked: true });
+
+    await say("Blocked, and writing again");
+
+    await expect
+      .poll(async () => (await idleChecks()).filter(({ status }) => status === "queued"), poll)
+      .toHaveLength(1);
+    const turns = await getTestDb()
+      .select({ id: job.id })
+      .from(job)
+      .where(and(eq(job.name, representativeTurnJobName), eq(job.status, "queued")));
+    expect(turns).toEqual([]);
+    passTime(threadIdleMs);
+    await expect
+      .poll(async () => (await threadsOf(deps, user.id)).map((thread) => thread.state), poll)
+      .toEqual(["closed", "closed"]);
   });
 
   it("starts a new thread for the same Customer after closing, and keeps the old one readable", async () => {

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { batchLongestMs } from "@botsdk/bot/bot/triggers";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
@@ -98,7 +99,7 @@ async function instance(rounds: Round[], held?: Promise<void>, failing?: () => n
   });
   await jobs.start();
   runners.push(jobs);
-  return { fake, timer, sent, deps, entered };
+  return { fake, timer, sent, deps: Object.assign(deps, { timer }), entered };
 }
 
 /** A new owner with a Representative serving on a first Release that has chosen `verify_customer`. */
@@ -259,12 +260,11 @@ describe("what a code allows", () => {
   it("exports how long a passed code lasts", async () => {
     const { deps, user, id, code, timer } = await codeSent([quiet()]);
 
+    const passedAt = timer.clock.now().getTime();
     await testCustomerTurn(deps, sms(id, code));
 
     const exported = await exportUserData(deps, user.id);
-    expect(JSON.stringify(exported)).toContain(
-      new Date(timer.clock.now().getTime() + proofLastsMs).toISOString(),
-    );
+    expect(JSON.stringify(exported)).toContain(new Date(passedAt + proofLastsMs).toISOString());
   });
 
   it("stores only a hash of a code", async () => {
@@ -451,10 +451,12 @@ describe("what a code allows", () => {
   it("isn't sent once the owner has blocked the Customer mid-Turn", async () => {
     let release = () => {};
     const held = new Promise<void>((resolve) => (release = resolve));
-    const { deps, sent, entered } = await instance([verifies(), quiet()], held);
+    const { deps, sent, entered, timer } = await instance([verifies(), quiet()], held);
     const { user, id, rpc } = await owner(deps);
 
     const { jobId } = await startTestCustomerTurn(deps, sms(id, "Hi"));
+    timer.advance(batchLongestMs);
+    timer.tick();
     await expect.poll(() => entered.length).toBe(1);
     const [customer] = await customersOf(deps, user.id);
     await rpc.representative.customerSetBlocked({ id: customer!.id, blocked: true });
