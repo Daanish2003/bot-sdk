@@ -39,6 +39,7 @@ import {
   representativeCustomerIdentity,
   representativeFact,
   representativeFactLog,
+  representativeGap,
   representativeRelease,
 } from "@botsdk/representative/server/db/schema";
 import { profilePath } from "@botsdk/memory/server/bot-memory";
@@ -76,6 +77,7 @@ const userTables = [
   representativeCustomerIdentity,
   representativeFact,
   representativeFactLog,
+  representativeGap,
 ].flatMap((value) => {
   if (!is(value, PgTable)) return [];
   const { name, columns } = getTableConfig(value);
@@ -254,6 +256,15 @@ async function seedEverything(
     old: null,
     new: loggedFact,
     at: factAt,
+  });
+  // A Gap the owner has not closed.
+  await getTestDb().insert(representativeGap).values({
+    id: uuidv7(),
+    userId: user.id,
+    question: "Do you do weddings?",
+    normalized: "do you do weddings",
+    firstAt: factAt,
+    lastAt: factAt,
   });
   // A Representative reporting to the Bot, with a Release.
   const representativeId = uuidv7();

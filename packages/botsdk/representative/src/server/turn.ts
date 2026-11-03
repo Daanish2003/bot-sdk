@@ -215,7 +215,7 @@ export function turnTools({ job, kit, userId, name, representativeId, thread, en
           .max(maxGapQuestionLength)
           .refine(noNul)
           .optional()
-          .describe("For kind cant_confirm: the Customer's question, in a few words."),
+          .describe("For kind cant_confirm: the question you can't confirm, in a few words."),
       }),
     }).server(async ({ text, kind, sources = [], question }, context) => {
       if (kind === "cant_confirm" && question === undefined) {
