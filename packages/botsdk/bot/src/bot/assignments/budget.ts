@@ -187,8 +187,8 @@ export async function turnBudget(
     spend: async (tx, costMicros) => {
       const { budgets, charged } = await budgetsOfTurn(tx, turn);
       const at = deps.clock();
-      for (const id of charged) {
-        const { rootId, status } = budgets.get(id)!;
+      // One call is one charge to a budget, however many of the Turn's Assignments draw from it.
+      for (const rootId of new Set(charged.map((id) => budgets.get(id)!.rootId))) {
         await tx
           .update(botAssignment)
           .set({
@@ -196,9 +196,11 @@ export async function turnBudget(
             microsSpent: sql`${botAssignment.microsSpent} + ${costMicros}`,
           })
           .where(eq(botAssignment.id, rootId));
+      }
+      for (const id of charged) {
         await logStatus(tx, {
           assignmentId: id,
-          status,
+          status: budgets.get(id)!.status,
           actor: "system",
           turnId: turn.id,
           calls: 1,

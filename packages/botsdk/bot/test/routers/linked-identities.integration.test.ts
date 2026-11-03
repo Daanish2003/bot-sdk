@@ -454,6 +454,17 @@ describe("an unknown sender's link code", () => {
       expect(await identitiesOf(grace.user.id)).toHaveLength(1);
     },
   );
+
+  it("links a sender whose handle holds a NUL, with the NUL dropped", timeout, async () => {
+    const { deps, fake } = messagingSdk();
+    const ada = await aBot(deps, "1");
+    await listen(deps, fake, "1");
+    const { code } = await ada.client.channels.identities.linkCode();
+
+    await fake.deliver("@bot_1", { ...from("1001", "@a\u0000da"), text: code });
+
+    expect((await identitiesOf(ada.user.id)).map((identity) => identity.handle)).toEqual(["@ada"]);
+  });
 });
 
 describe("user data", () => {

@@ -24,6 +24,7 @@ import type { BotReview, ReviewApprovalState } from "./review";
 import { type BotRoutine, routineScheduleSchema } from "./routine";
 import { type CustomRule, customRuleModes, customRuleTextSchema } from "./rule";
 import { type BotSecret, secretNameSchema } from "./secret";
+import { storable } from "./storable";
 import type { BotTasks } from "./tasks";
 import { isTimeZone } from "./time-zone";
 import {
@@ -126,7 +127,7 @@ export type WarmResult = { warmed: true } | { warmed: false; skipped: WarmSkippe
 
 /** `bots.create`'s input, besides `userId`. */
 export const createBotInput = z.object({
-  name: z.string().trim().min(1).max(100),
+  name: storable(z.string().trim().min(1).max(100)),
   model: z.string(),
 });
 
@@ -150,7 +151,7 @@ export const conversationChangesInput = z.object({
 
 /** `rooms.create`'s input, besides `userId`: the Room's name and its Bots, the first the lead. */
 export const createRoomInput = z.object({
-  name: z.string().trim().min(1).max(100),
+  name: storable(z.string().trim().min(1).max(100)),
   botIds: z.array(z.uuid()).max(20),
 });
 
@@ -160,7 +161,7 @@ export const roomInput = z.object({ conversationId: z.uuid() });
 /** `rooms.rename`'s input, besides `userId`. */
 export const renameRoomInput = z.object({
   conversationId: z.uuid(),
-  name: z.string().trim().min(1).max(100),
+  name: storable(z.string().trim().min(1).max(100)),
 });
 
 /** The input of the methods that act on one member of a Room, besides `userId`. */
@@ -174,7 +175,7 @@ export const roomSendInput = z.object({
     .uuidv7()
     .transform((id) => id.toLowerCase())
     .optional(),
-  text: z.string().trim().min(1),
+  text: storable(z.string().trim().min(1)),
   // The client's IANA zone; without one, the zone the user last sent from anywhere.
   timeZone: z.string().refine(isTimeZone, "Not an IANA time zone").optional(),
 });
@@ -185,7 +186,7 @@ export const sendInput = z
     botId: z.uuid(),
     // Lowercased, as the Trigger's text id holds it, so an uppercase resend still re-joins.
     id: z.uuidv7().transform((id) => id.toLowerCase()),
-    text: z.string().trim(),
+    text: storable(z.string().trim()),
     files: z.array(z.uuid()).optional(),
     // The client's IANA zone; the Turn's newest input shows the time in it (UTC when absent).
     timeZone: z.string().refine(isTimeZone, "Not an IANA time zone").optional(),
@@ -204,7 +205,7 @@ export const chooseInput = z.object({
   messageId: z.uuid(),
   answer: z.union([
     z.object({ option: z.string().max(maxChoiceOptionLength) }),
-    z.object({ other: z.string().max(maxChoiceOtherLength) }),
+    z.object({ other: storable(z.string().max(maxChoiceOtherLength)) }),
   ]),
 });
 
@@ -243,7 +244,7 @@ export const checkInInput = z.object({ checkInId: z.uuid() });
 /** `routines.edit`'s input, besides `userId`: a new prompt, a new schedule, read-only or not. */
 export const editRoutineInput = routineInput
   .extend({
-    prompt: z.string().trim().min(1).optional(),
+    prompt: storable(z.string().trim().min(1)).optional(),
     schedule: routineScheduleSchema.optional(),
     readOnly: z.boolean().optional(),
   })
@@ -255,7 +256,7 @@ export const editRoutineInput = routineInput
 
 /** `checkIns.edit`'s input, besides `userId`: a new time, a new note, or both. */
 export const editCheckInInput = checkInInput
-  .extend({ at: z.date().optional(), note: z.string().trim().min(1).optional() })
+  .extend({ at: z.date().optional(), note: storable(z.string().trim().min(1)).optional() })
   .refine((input) => input.at !== undefined || input.note !== undefined, {
     error: "An edit needs a time or a note",
   });

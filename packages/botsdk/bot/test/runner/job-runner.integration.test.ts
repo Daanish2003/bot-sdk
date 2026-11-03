@@ -711,7 +711,7 @@ describe("cancel", () => {
     expect(await statusOf("test.record")).toBe("cancelled");
   });
 
-  it("aborts a running job at its next heartbeat, and the handler sees the signal", async () => {
+  it("aborts a running job at its next timer, and the handler sees the signal", async () => {
     const timer = fakeJobClock(start);
     holding = true;
     const runner = inProcessRunner({
@@ -736,6 +736,37 @@ describe("cancel", () => {
     expect(await jobRows()).toMatchObject([{ status: "cancelled", attempts: 1 }]);
     await runner.stop();
   });
+  it("aborts a running job at its next cancel check, long before its next heartbeat, and writes nothing", async () => {
+    const timer = fakeJobClock(start);
+    holding = true;
+    const runner = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      jobs: testTable,
+      clock: timer.clock,
+      drainMs: 20,
+    });
+    await runner.enqueue("test.hold", { label: "a" }, { idempotencyKey: "k" });
+    await runner.start();
+    await expect.poll(() => statusOf("test.hold")).toBe("running");
+
+    // A check finds a job it still holds and leaves it running, with no heartbeat written.
+    const heartbeatBefore = (await jobRows())[0]?.heartbeatAt;
+    timer.advance(1_000);
+    timer.tick(1_000);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(aborted).toEqual([]);
+    expect((await jobRows())[0]?.heartbeatAt).toEqual(heartbeatBefore);
+
+    await runner.cancel("k");
+    timer.advance(1_000);
+    timer.tick(1_000);
+
+    await expect.poll(() => aborted).toEqual(["a"]);
+    expect(await jobRows()).toMatchObject([{ status: "cancelled", attempts: 1 }]);
+    await runner.stop();
+  });
+
   it("calls onCancelled from the sweep, exactly once, for a cancelled job whose attempt lost its lease", async () => {
     const timer = fakeJobClock(start);
     const db = getTestDb();

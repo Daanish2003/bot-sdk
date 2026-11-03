@@ -106,6 +106,12 @@ async function sdkWithRunner(
   return { deps, jobs };
 }
 
+/**
+ * A Turn's job falls due when its batch closes, 500 ms after a send (`batchQuietMs`), so the default
+ * 1 s poll leaves a loaded machine too little time to reach its Model call.
+ */
+const modelCall = { timeout: 5_000 };
+
 /** A user with an OpenAI key, a Bot on `model`, and a client over a Bot-enabled SDK whose Model plays `rounds`. */
 async function botWith(
   rounds: Round[],
@@ -526,6 +532,25 @@ describe("bot.send", () => {
       code: "NOT_FOUND",
     });
   });
+
+  it("refuses a NUL in a Message's text, as a client error, and saves nothing", async () => {
+    const { client, botId } = await botWith([]);
+
+    await expect(
+      client.bots.send({ botId, id: uuidv7(), text: "Book a\u0000 table" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST", status: 400 });
+
+    expect((await client.bots.get({ botId })).messages).toEqual([]);
+  });
+
+  it("refuses a NUL in a Bot's name, as a client error", async () => {
+    const { client } = await botWith([]);
+
+    await expect(client.bots.create({ name: "A\u0000da", model })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      status: 400,
+    });
+  });
 });
 
 describe("a Step that ends in plain text", () => {
@@ -844,7 +869,7 @@ describe("one Turn at a time", () => {
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
     const firstStream = await followSend(client, { botId, id: uuidv7(), text: "one" });
     await firstStream.next();
-    await expect.poll(() => fake.calls.length).toBe(1);
+    await expect.poll(() => fake.calls.length, modelCall).toBe(1);
     const two = await queueTrigger(deps, { botId, conversationId }, "two");
     const three = await queueTrigger(deps, { botId, conversationId }, "three");
     const [firstTurn] = await turnsOf(botId);
@@ -878,7 +903,7 @@ describe("one Turn at a time", () => {
     );
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
     await sendSaved(client, botId, "one");
-    await expect.poll(() => fake.calls.length).toBe(1);
+    await expect.poll(() => fake.calls.length, modelCall).toBe(1);
     await queueTrigger(deps, { botId, conversationId }, "two");
 
     await fake.releaseAll();
@@ -893,7 +918,7 @@ describe("one Turn at a time", () => {
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
     const firstStream = await followSend(client, { botId, id: uuidv7(), text: "one" });
     await firstStream.next();
-    await expect.poll(() => fake.calls.length).toBe(1);
+    await expect.poll(() => fake.calls.length, modelCall).toBe(1);
     const routineRun = (id: string, text: string) =>
       getTestDb().transaction((tx) =>
         receive(deps, tx, {
@@ -935,7 +960,7 @@ describe("one Turn at a time", () => {
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
     const firstStream = await followSend(client, { botId, id: uuidv7(), text: "one" });
     await firstStream.next();
-    await expect.poll(() => fake.calls.length).toBe(1);
+    await expect.poll(() => fake.calls.length, modelCall).toBe(1);
     const skipped = await queueTrigger(deps, { botId, conversationId }, "two");
     await getTestDb()
       .update(botTrigger)
@@ -998,7 +1023,7 @@ describe("skipping the line", () => {
       (event) => event.type === "message" && event.message.role === "assistant",
     );
     // Step 1 is saved, and the Turn waits in Step 2's model call.
-    await expect.poll(() => fake.calls.length).toBe(2);
+    await expect.poll(() => fake.calls.length, modelCall).toBe(2);
 
     const correction = await followSend(client, {
       botId,
@@ -1051,7 +1076,7 @@ describe("skipping the line", () => {
     });
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
     await sendSaved(client, botId, "one");
-    await expect.poll(() => fake.calls.length).toBe(1);
+    await expect.poll(() => fake.calls.length, modelCall).toBe(1);
     await sendSaved(client, botId, "two");
     const third = await followSend(client, { botId, id: uuidv7(), text: "three" });
     await third.next();
@@ -1082,7 +1107,7 @@ describe("skipping the line", () => {
     });
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
     await sendSaved(client, botId, "one");
-    await expect.poll(() => fake.calls.length).toBe(1);
+    await expect.poll(() => fake.calls.length, modelCall).toBe(1);
     const twoId = uuidv7();
     const two = await followSend(client, { botId, id: twoId, text: "two" });
     await two.next();
@@ -1323,7 +1348,7 @@ describe("batching quick Messages", () => {
     await sendNow("one");
     advance(500);
     const running = runDue();
-    await expect.poll(() => fake.calls.length).toBe(1);
+    await expect.poll(() => fake.calls.length, modelCall).toBe(1);
     advance(1_000);
     await sendNow("two");
     expect((await triggersOf(conversationId)).at(-1)?.turnId).toBeNull();
@@ -1417,7 +1442,7 @@ describe("a resent Message", () => {
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
     const id = uuidv7();
     expect(await sendSaved(client, botId, "hi", { id })).toMatchObject({ message: { id } });
-    await expect.poll(() => fake.calls.length).toBe(1);
+    await expect.poll(() => fake.calls.length, modelCall).toBe(1);
 
     const resent = await followSend(client, { botId, id, text: "hi" });
     expect(await resent.next()).toMatchObject({ value: { message: { id, text: "hi" } } });
@@ -1842,7 +1867,7 @@ describe("a Turn that resumes after a crash", () => {
     const lost = attempt();
     await fake.release(steps[0]!.length + steps[1]!.length);
     // Step 2 is saved, and the attempt waits in Step 3's model call.
-    await expect.poll(() => fake.calls.length).toBe(3);
+    await expect.poll(() => fake.calls.length, modelCall).toBe(3);
     await expect.poll(() => sentTexts(client, botId)).toEqual(["One", "Two"]);
     await crash();
     await lost;
@@ -1919,7 +1944,7 @@ describe("a Turn that resumes after a crash", () => {
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
     const lost = attempt();
     // The Turn has started, and waits in its model call.
-    await expect.poll(() => fake.calls.length).toBe(1);
+    await expect.poll(() => fake.calls.length, modelCall).toBe(1);
     // Another connection holds the Conversation's row, so SendToUser's transaction waits on it.
     let unlock = () => {};
     let locked = () => {};
@@ -2002,7 +2027,7 @@ describe("a Turn that resumes after a crash", () => {
       stream,
       (event) => event.type === "message" && event.message.role === "assistant",
     );
-    await expect.poll(() => fake.calls.length).toBe(2);
+    await expect.poll(() => fake.calls.length, modelCall).toBe(2);
     await crash();
     await lost;
     // The follow stays open while another process resumes the Turn.
@@ -2026,7 +2051,7 @@ describe("a Turn that resumes after a crash", () => {
     const stream = await followSend(client, { botId, id: uuidv7(), text: "ok" });
     const running = attempt();
     // The Turn has started, and waits in its model call.
-    await expect.poll(() => fake.calls.length).toBe(1);
+    await expect.poll(() => fake.calls.length, modelCall).toBe(1);
     // Another connection holds the Turn's row, so the end_turn Checkpoint waits on it.
     const turnRow = await holdLocks((tx) =>
       tx.select({ id: botTurn.id }).from(botTurn).where(eq(botTurn.botId, botId)).for("update"),
@@ -2065,7 +2090,7 @@ describe("a Turn that resumes after a crash", () => {
     const lost = attempt();
     await fake.release(round(sends({ text: "On it…", endTurn: false })).length);
     // Step 1 is saved, and the attempt waits in Step 2's model call.
-    await expect.poll(() => fake.calls.length).toBe(2);
+    await expect.poll(() => fake.calls.length, modelCall).toBe(2);
     await expect.poll(() => sentTexts(client, botId)).toEqual(["On it…"]);
     const saved = await sendSaved(client, botId, "and then?");
     return { lost, savedId: saved?.type === "message" ? saved.message.id : "" };
@@ -2164,7 +2189,7 @@ describe("a Turn that resumes after a crash", () => {
     await sendSaved(client, botId, "one");
     const drain = new AbortController();
     const handedBack = attempt(undefined, drain.signal);
-    await expect.poll(() => fake.calls.length).toBe(1);
+    await expect.poll(() => fake.calls.length, modelCall).toBe(1);
     // The deploy starts: the model call's Checkpoint is saved, then the attempt yields.
     drain.abort();
     await fake.release(first.length);
@@ -2223,7 +2248,7 @@ describe("a Turn that resumes after a crash", () => {
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
     const lost = attempt();
     // The Turn has started, and waits in its model call.
-    await expect.poll(() => fake.calls.length).toBe(1);
+    await expect.poll(() => fake.calls.length, modelCall).toBe(1);
     // Another connection holds the Conversation's row, so SendToUser's transaction waits on it.
     const conversationRow = await holdLocks((tx) =>
       tx
@@ -2266,7 +2291,7 @@ describe("a Turn that resumes after a crash", () => {
     await fake.release(first.length);
     for (const calls of [2, 3, 4]) {
       // Each attempt waits in the second Step's model call when its process stops.
-      await expect.poll(() => fake.calls.length).toBe(calls);
+      await expect.poll(() => fake.calls.length, modelCall).toBe(calls);
       await crash();
       if (calls < 4) lost.push(attempt());
     }
@@ -2294,10 +2319,10 @@ describe("a Turn that resumes after a crash", () => {
     await sendSaved(client, botId, "one");
 
     const lost = [attempt()];
-    await expect.poll(() => fake.calls.length).toBe(1);
+    await expect.poll(() => fake.calls.length, modelCall).toBe(1);
     await queueTrigger(deps, { botId, conversationId }, "two");
     for (const calls of [1, 2, 3]) {
-      await expect.poll(() => fake.calls.length).toBe(calls);
+      await expect.poll(() => fake.calls.length, modelCall).toBe(calls);
       await crash();
       if (calls < 3) lost.push(attempt());
     }
@@ -2339,7 +2364,7 @@ describe("a Turn that resumes after a crash", () => {
     const lost = attempt();
     await fake.release(first.length);
     // The plain-text Step is saved, and the attempt waits in the reminder Step's model call.
-    await expect.poll(() => fake.calls.length).toBe(2);
+    await expect.poll(() => fake.calls.length, modelCall).toBe(2);
     await crash();
     await lost;
     const resumed = attempt(instance());
@@ -2366,7 +2391,7 @@ describe("a Turn that resumes after a crash", () => {
     const lost = attempt();
     await fake.release(step.length * 6);
     // Six Steps are saved, and the attempt waits in the seventh's model call.
-    await expect.poll(() => fake.calls.length).toBe(7);
+    await expect.poll(() => fake.calls.length, modelCall).toBe(7);
     await expect.poll(async () => (await sentTexts(client, botId)).length).toBe(6);
     await crash();
     await lost;
@@ -2386,7 +2411,7 @@ describe("a Turn that resumes after a crash", () => {
 
     const lost = attempt();
     await fake.release(step.length);
-    await expect.poll(() => fake.calls.length).toBe(2);
+    await expect.poll(() => fake.calls.length, modelCall).toBe(2);
     await expect.poll(() => sentTexts(client, botId)).toEqual(["One"]);
     await crash();
     await lost;

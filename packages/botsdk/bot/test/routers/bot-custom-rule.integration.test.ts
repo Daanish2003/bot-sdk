@@ -195,6 +195,19 @@ describe("rules", () => {
     expect(await stranger.rules.list()).toEqual([]);
     expect(await client.rules.list()).toEqual([mine]);
   });
+
+  it("refuses a NUL in a Custom Rule's text, as a client error", async () => {
+    const { client } = await botWith();
+    const refused = { code: "BAD_REQUEST", status: 400 };
+    const { id: ruleId } = await client.rules.create({ text: "Mine", mode: "ask" });
+
+    await expect(client.rules.create({ text: "a\u0000b", mode: "ask" })).rejects.toMatchObject(
+      refused,
+    );
+    await expect(client.rules.update({ ruleId, text: "a\u0000b" })).rejects.toMatchObject(refused);
+
+    expect((await client.rules.list()).map((rule) => rule.text)).toEqual(["Mine"]);
+  });
 });
 
 describe("Auto-review with Custom Rules", () => {

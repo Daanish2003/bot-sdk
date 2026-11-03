@@ -28,6 +28,15 @@ export async function heartbeatJob(
   return held.length > 0;
 }
 
+/** Whether the attempt still holds its row. It writes nothing: see `JOB_TIMING.cancelCheckMs`. */
+export async function holdsJob(
+  db: Database | Transaction,
+  claimed: Pick<ClaimedJob, "id" | "attempts">,
+): Promise<boolean> {
+  const held = await db.select({ id: job.id }).from(job).where(ownAttempt(claimed));
+  return held.length > 0;
+}
+
 /** A job's recorded history, in seq order. */
 export async function loadHistory(
   db: Database | Transaction,

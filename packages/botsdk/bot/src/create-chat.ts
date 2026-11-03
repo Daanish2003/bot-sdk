@@ -416,7 +416,7 @@ export function buildBotSdk(
       sdk,
       feature,
       threads,
-      (own) => assignmentsService(sdk, own),
+      (own, turnBehind) => assignmentsService(sdk, own, turnBehind),
       representativeLoop,
       releaseApprovals,
     ),
