@@ -42,7 +42,8 @@ export function promptStartTokens(hashes: readonly PromptHash[] | null): number 
  *   the same, so the cache missed before the newest message.
  * - Every Turn call after the first reads at least `promptStartReadShare` of the Prompt start from
  *   the cache, unless it is flagged `expected` (the first call on a new Prompt start).
- * - The warming call ran, and it billed a cache write or read, so Anthropic took `max_tokens: 0`.
+ * - The warming call ran, and it billed a cache write or read, so Anthropic took `max_tokens: 1`
+ *   (the adapter refuses 0), which allows one output token.
  */
 export function scoreCache(
   calls: readonly CacheCall[],

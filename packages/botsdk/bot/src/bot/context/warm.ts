@@ -70,7 +70,9 @@ async function lastCallAt(db: Database | Transaction, userId: string, botId: str
 /**
  * Warms the cache of one of the caller's Bots (slide 32): sends the Bot's stored Prompt start and
  * history, everything the next Turn sends before its newest message, with the Turn's own cache
- * controls and nothing to generate. Anthropic gets `max_tokens: 0`, and OpenAI GPT-5.6+
+ * controls and next to nothing to generate. Anthropic gets `max_tokens: 1`, which can bill one
+ * output token (not 0: `@tanstack/ai-anthropic` refuses it before any request goes out, and
+ * Anthropic refuses it on a streamed call, which this is), and OpenAI GPT-5.6+
  * `prompt_cache_options.prewarm`; the Provider bills the prompt as a cache write, recorded as a
  * `warm` call with the Bot as its source. It does nothing while a Turn runs, while the Bot's last
  * model call is within the cache lifetime minus 5 minutes, unless the Prompt start was built after
@@ -164,7 +166,7 @@ async function warmCall(
 
   const base = models.adapterForCall(model, call);
   const warming: Record<string, unknown> =
-    provider === "anthropic" ? { max_tokens: 0 } : { prompt_cache_options: { prewarm: true } };
+    provider === "anthropic" ? { max_tokens: 1 } : { prompt_cache_options: { prewarm: true } };
   // The Prompt start's own tool definitions go to the Model, as a Turn's calls send them.
   const adapter = {
     kind: "text",
@@ -193,7 +195,8 @@ async function warmCall(
     })) {
       chunks.push(chunk);
     }
-    // A warm generates nothing, so Anthropic ends it `max_tokens`, with the usage it billed.
+    // A warm stops at its one token, so Anthropic ends it `max_tokens`, with the usage it billed.
+    // Whatever that token began is dropped with these chunks.
     finished = chunks.map((chunk) =>
       chunk.type === EventType.RUN_ERROR && chunk.code === "max_tokens" && chunk.usage
         ? ({ ...chunk, type: EventType.RUN_FINISHED } as unknown as StreamChunk)

@@ -235,9 +235,9 @@ EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval_con
   has a `bug` flag in `prompt_hashes`; every Turn call after the first reads at least 80% of the
   Prompt start's estimated size (`tools`, system blocks, `first_message`) from the cache, unless it
   is flagged `expected`; `warmBot` returns `warmed: true` and its `warm` row wrote or read the cache
-  with no output. That last part is the check of the Anthropic `max_tokens: 0` warming call (#677),
-  which no test has run against the real API: a rejection shows as `warmBot` skipping with
-  `unavailable` and a logged error ("Warming the cache of Bot ... failed").
+  with at most 1 output token. That last part is the check of the Anthropic `max_tokens: 1` warming
+  call (#677; not 0, which `@tanstack/ai-anthropic` refuses, #703), which no test has run against the
+  real API: a rejection shows as `warmBot` skipping with `unavailable` and a logged error ("Warming the cache of Bot ... failed").
 - **summary:** the Bot is told three facts (a dog's name, a flight number, a budget), then filed 45
   pasted notes of 12,000 characters (about 120,000 tokens, over the away Summary's 100,000). One more
   Turn ends over the threshold and queues the away Summary; the eval brings that job forward (it
