@@ -73,6 +73,26 @@ export type FeatureContext<Needs extends CoreService = never> = {
       payload: P,
       options?: EnqueueOptions,
     ) => Promise<string>;
+    /**
+     * Cancels the active job with this idempotency key in the caller's transaction, and returns
+     * what it was: `queued` never runs, `running` aborts at its next cancel check. Undefined when
+     * no job with the key is active.
+     */
+    cancelIn: (
+      tx: Transaction,
+      idempotencyKey: string,
+    ) => Promise<"queued" | "running" | undefined>;
+    /**
+     * Replaces the active job with this key by a new one, in the caller's transaction, and returns
+     * the new job's id. Undefined, changing nothing, when none is active or it has already started.
+     */
+    replaceIfNotStarted: <P>(
+      tx: Transaction,
+      idempotencyKey: string,
+      job: Pick<JobDefinition<P>, "name" | "payload">,
+      payload: P,
+      options?: Pick<EnqueueOptions, "runAfter">,
+    ) => Promise<string | undefined>;
     /** Claims due jobs now; call it once the transaction that queued them has committed. */
     wake: () => void;
   };
@@ -579,6 +599,9 @@ export function contextOf(
     jobs: {
       enqueueIn: (tx, job, payload, options) =>
         sdk.runner.enqueueIn(tx, job.name, payload, options),
+      cancelIn: (tx, idempotencyKey) => sdk.runner.cancelIn(tx, idempotencyKey),
+      replaceIfNotStarted: (tx, idempotencyKey, job, payload, options) =>
+        sdk.runner.replaceIfNotStarted(tx, idempotencyKey, job.name, payload, options),
       wake: () => sdk.runner.wake(),
     },
   };
