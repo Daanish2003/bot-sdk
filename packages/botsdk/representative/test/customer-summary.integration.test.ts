@@ -519,7 +519,9 @@ const idleChecks = () =>
 
 describe("a closed thread's profile values (ticket #1282)", () => {
   type Operation = { field: string; value: string; line: number };
-  type Line = { author: "customer" | "representative" | "owner"; verified: boolean };
+  type Line = { author: "customer" | "representative" | "owner"; verified: boolean; text?: string };
+  const sayings =
+    "French German Ada Green Klingon Eve 1 High St, 2 Low St, 3 Mid St, Unverified St";
 
   const reply =
     (...operations: Operation[]) =>
@@ -542,7 +544,7 @@ describe("a closed thread's profile values (ticket #1282)", () => {
           verified: line.verified,
           channel: "test",
           externalId: "+15550001",
-          text: `Line ${index + 1}`,
+          text: line.text ?? sayings,
         })),
       );
   };
@@ -602,6 +604,15 @@ describe("a closed thread's profile values (ticket #1282)", () => {
       { field: "language", status: "claimed" },
       { field: "address", status: "claimed" },
     ]);
+  });
+
+  it("keeps a value claimed when the verified line it cites doesn't say it", async () => {
+    const { profile } = await closed(
+      [{ field: "address", value: "Evil St", line: 1 }],
+      [{ author: "customer", verified: true, text: "Hello there" }],
+    );
+
+    expect(await profile()).toMatchObject([{ field: "address", status: "claimed" }]);
   });
 
   it("gives each value the status of its own cited line", async () => {

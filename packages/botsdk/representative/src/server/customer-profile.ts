@@ -233,8 +233,8 @@ export function parseProfileOperations(text: string): ProfileOperation[] {
 /**
  * Writes what the pass proposed, under the thread's lock, which the caller holds. Code decides every
  * value's status, not the Model: `confirmed` only if the line it cites has a Customer as its author
- * and that message was verified (a row's `verified` means something else on an owner's, and is true by
- * default). A line that isn't in the thread as the Model saw it, or a field that isn't there, drops
+ * that message was verified, and it says the value (a row's `verified` means something else on an owner's, and is true by
+ * default). A line that isn't in the thread, or a field that isn't there, drops
  * the operation. A `confirmed` owner value is never overwritten, nor any `confirmed` value by a `claimed` one.
  */
 export async function writePassValues(
@@ -264,6 +264,7 @@ export async function writePassValues(
       position: representativeThreadMessage.position,
       author: representativeThreadMessage.author,
       verified: representativeThreadMessage.verified,
+      text: representativeThreadMessage.text,
     })
     .from(representativeThreadMessage)
     .where(
@@ -279,7 +280,9 @@ export async function writePassValues(
     const line = lines.find((each) => each.position === operation.line);
     const value = operation.value.replaceAll("\0", "").trim().slice(0, maxProfileValueLength);
     if ((!fixed && !ownField) || !line || !value) continue;
-    const status = line.author === "customer" && line.verified ? "confirmed" : "claimed";
+    // The Model chooses the line it cites, so the line must also say the value: a verified line can't vouch for a value it doesn't hold.
+    const says = line.text.toLowerCase().includes(value.toLowerCase());
+    const status = line.author === "customer" && line.verified && says ? "confirmed" : "claimed";
     const column = fixed
       ? representativeProfileValue.fixedField
       : representativeProfileValue.fieldId;
@@ -290,7 +293,9 @@ export async function writePassValues(
         status: representativeProfileValue.status,
       })
       .from(representativeProfileValue)
-      .where(and(eq(representativeProfileValue.customerId, customerId), eq(column, key)));
+      .where(and(eq(representativeProfileValue.customerId, customerId), eq(column, key)))
+      // Held, because another thread of this Customer or the owner may be writing it too.
+      .for("update");
     if (existing?.status === "confirmed" && (existing.source === "owner" || status === "claimed")) {
       continue;
     }

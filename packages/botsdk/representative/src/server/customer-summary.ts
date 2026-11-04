@@ -134,10 +134,11 @@ type Outcome = { text: string; operations: ProfileOperation[] } | { skipped: Cus
 
 /** Splits a reply into its summary and the profile operations after the marker's last line; an unreadable tail gives none. */
 function splitReply(reply: string) {
-  const at = reply.lastIndexOf(`\n${profileOperationsMarker}`);
-  if (at === -1) return { summary: reply, operations: [] };
-  const tail = reply.slice(at + 1 + profileOperationsMarker.length);
-  return { summary: reply.slice(0, at), operations: parseProfileOperations(tail) };
+  const marker = new RegExp(`^${profileOperationsMarker}[ \t\r]*$`, "gm");
+  const at = [...reply.matchAll(marker)].at(-1);
+  if (!at) return { summary: reply, operations: [] };
+  const tail = reply.slice(at.index + at[0].length);
+  return { summary: reply.slice(0, at.index), operations: parseProfileOperations(tail) };
 }
 
 /**
