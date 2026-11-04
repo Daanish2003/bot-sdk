@@ -123,10 +123,10 @@ function memberIds(merges: StandingMerge[], customerId: string): string[] {
 
 /**
  * The values a Customer can read, its own first. A value it cleared hides what its absorbed Customers
- * hold of that field from before the clearing, unless they were merged in after it. It hides nothing
- * of a Customer this one was itself merged into.
+ * hold of that field, unless they were merged in after it, or it is `confirmed` since. A claim can't
+ * bring it back. It hides nothing of a Customer this one was itself merged into.
  */
-function reachable(
+function valuesReadBy(
   merges: StandingMerge[],
   rows: Map<string, ValueRow[]>,
   customerId: string,
@@ -136,9 +136,9 @@ function reachable(
   const absorbed = merges
     .filter((each) => each.survivorId === customerId)
     .flatMap(({ absorbedId, mergedAt }) =>
-      reachable(merges, rows, absorbedId).filter((row) => {
+      valuesReadBy(merges, rows, absorbedId).filter((row) => {
         const at = clearedAt.get(fieldOf(row));
-        return !at || mergedAt > at || row.recordedAt > at;
+        return !at || mergedAt > at || (row.recordedAt > at && row.status === "confirmed");
       }),
     );
   return [...own.filter((row) => !isCleared(row)), ...absorbed];
@@ -162,14 +162,14 @@ function winners(rows: ValueRow[]) {
 /**
  * What each of the owner's Customers named by `customerIds` reads as its profile, by Customer: its own
  * values and those of everyone merged into it, one per field, oldest first. It is the read for a
- * Customer as it stands today, which the owner's view uses, and what a prompt should use too.
+ * Customer as it stands today: the owner's view and a Turn's memory both use it.
  */
 export async function combinedProfilesOf(db: Db, userId: string, customerIds: string[]) {
   const merges = await standingMergesOf(db, userId);
   const members = customerIds.flatMap((id) => memberIds(merges, id));
   const rows = grouped(await valueRowsOf(db, userId, members), (row) => row.customerId);
   return new Map(
-    customerIds.map((id) => [id, winners(reachable(merges, rows, id)).map(viewOf)] as const),
+    customerIds.map((id) => [id, winners(valuesReadBy(merges, rows, id)).map(viewOf)] as const),
   );
 }
 
@@ -398,7 +398,7 @@ export async function writePassValues(
       ),
     );
   const merges = await standingMergesOf(tx, userId);
-  const threadHome = originalCustomerOf(merges, customerId, (each) =>
+  const threadCustomer = originalCustomerOf(merges, customerId, (each) =>
     each.threadIds.includes(threadId),
   );
   const identities = await tx
@@ -431,12 +431,12 @@ export async function writePassValues(
             (each) => each.channel === line.channel && each.externalId === line.externalId,
           )
         : undefined;
-    const home = sender
+    const valueCustomer = sender
       ? originalCustomerOf(merges, sender.customerId, (each) =>
           each.identityIds.includes(sender.id),
         )
-      : threadHome;
-    const survivorId = survivorOf(merges, home);
+      : threadCustomer;
+    const survivorId = survivorOf(merges, valueCustomer);
     const combined = (await combinedProfilesOf(tx, userId, [survivorId])).get(survivorId)!;
     if (
       combined.some(
@@ -452,12 +452,13 @@ export async function writePassValues(
         status: representativeProfileValue.status,
       })
       .from(representativeProfileValue)
-      .where(and(eq(representativeProfileValue.customerId, home), eq(column, key)))
+      .where(and(eq(representativeProfileValue.customerId, valueCustomer), eq(column, key)))
       // Held, because another thread of this Customer or the owner may be writing it too.
       .for("update");
     if (existing && isCleared(existing)) {
       // Written over, the clearing would stop hiding what's merged in, which a claim might lose to.
-      if (status === "claimed" && merges.some((each) => each.survivorId === home)) continue;
+      if (status === "claimed" && merges.some((each) => each.survivorId === valueCustomer))
+        continue;
     } else if (
       existing?.status === "confirmed" &&
       (existing.source === "owner" || status === "claimed")
@@ -475,7 +476,7 @@ export async function writePassValues(
       .values({
         id: uuidv7(),
         userId,
-        customerId: home,
+        customerId: valueCustomer,
         ...(fixed ? { fixedField: fixed } : { fieldId: key }),
         ...written,
       })

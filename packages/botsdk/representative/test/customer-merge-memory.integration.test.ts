@@ -433,6 +433,32 @@ describe("an owner clearing a value during a merge", () => {
     expect(await profile(first.id)).toEqual({});
   });
 
+  it("stays hidden when a pass only claims it for the absorbed Customer, who has the claim after undo", async () => {
+    const world = await instance();
+    const { rpc, pass, passTime, settle, customer, say, merge, undoLatest, profile, id } = world;
+    const first = await customer(ada);
+    const second = await customer(bob);
+    await merge(second.id, first.id);
+    await settle();
+    await rpc.representative.customerProfileSet({ id: first.id, field: "address", value: "" });
+
+    await say("It is 2 Low St", bob);
+    const open = (await rpc.representative.threadList({ id })).find(
+      (each) => each.holder !== "closed",
+    )!;
+    await world.verifiedLine(open.id, "It is 2 Low St", bob);
+    await getTestDb()
+      .update(representativeThreadMessage)
+      .set({ verified: false })
+      .where(eq(representativeThreadMessage.threadId, open.id));
+    pass.push([{ field: "address", value: "2 Low St", line: 1 }]);
+    await passTime(threadIdleMs);
+
+    expect(await profile(first.id)).toEqual({});
+    await undoLatest();
+    expect(await profile(second.id)).toEqual({ address: "2 Low St" });
+  });
+
   it("hides only what it could see: not its survivor's own, nor a later merge's", async () => {
     const { rpc, customer, seed, merge, profile, passTime } = await instance();
     const first = await customer(ada);
