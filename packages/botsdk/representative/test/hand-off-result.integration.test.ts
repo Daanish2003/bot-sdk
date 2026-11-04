@@ -39,6 +39,8 @@ vi.setConfig({ testTimeout: 30_000 });
 
 const model = "openai:gpt-6-luna";
 const botModel = "openai:gpt-5.4-mini";
+/** A daytime in UTC, the business's time zone by default: the business starts nothing in quiet hours, so tests that run on a clock pin one rather than read the real hour. */
+const noon = new Date("2026-11-04T12:00:00Z");
 const silent = { error: () => {} };
 const number = "+15550001";
 
@@ -113,7 +115,7 @@ async function serving(
   representativeRounds: Rounds,
   botRounds: Rounds = [refunded, quiet],
   held?: Promise<void>,
-  start = new Date(),
+  start = noon,
 ) {
   const fake = createFakeAdapter({ rounds: representativeRounds });
   const entered: unknown[] = [];
