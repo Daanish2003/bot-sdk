@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { saveCredentials } from "@botsdk/bot/models/internal";
@@ -20,7 +20,7 @@ import {
   representativeThreadMessage,
 } from "../src/server/db/schema";
 import { customerSummaryMarker } from "../src/server/customer-summary";
-import { threadExpiryJobName, threadExpiryMs } from "../src/server/expiry";
+import { queueThreadExpiry, threadExpiryJobName, threadExpiryMs } from "../src/server/expiry";
 import { threadIdleMs } from "../src/server/idle";
 
 /*
@@ -170,6 +170,7 @@ async function instance({
     return { ada: ada!, bob: bob!, bobsThreadId: bobs.id };
   };
   return {
+    deps,
     rpc,
     id,
     say,
@@ -266,6 +267,27 @@ describe("a closed thread's expiry", () => {
     await settle();
 
     for (const thread of closed) expect(await threadRows(thread.id)).toEqual([]);
+  });
+
+  it("keeps one expiry per thread, from its latest close", async () => {
+    const { deps, closedThread, passTime, settle, threadRows } = await instance();
+    const threadId = await closedThread();
+    const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
+    // The thread was reopened (a merge undone) and closed again 100 days on.
+    const again = new Date(Date.now() + 100 * day);
+    await feature.context.db.transaction((tx) =>
+      queueThreadExpiry(feature.context, tx, threadId, again),
+    );
+
+    const queued = await getTestDb()
+      .select({ runAfter: job.runAfter })
+      .from(job)
+      .where(and(eq(job.name, threadExpiryJobName), eq(job.status, "queued")));
+    expect(queued).toHaveLength(1);
+    expect(queued[0]!.runAfter.getTime()).toBe(again.getTime() + threadExpiryMs);
+    passTime(threadExpiryMs);
+    await settle();
+    expect(await threadRows(threadId)).toHaveLength(1);
   });
 
   it("does nothing, and doesn't fail, when its thread is already gone", async () => {

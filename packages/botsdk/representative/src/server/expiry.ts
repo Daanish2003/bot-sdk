@@ -38,7 +38,8 @@ export const threadExpiryJob = defineJob<z.infer<typeof payload>>({
 
 /**
  * Queues the expiry due `threadExpiryMs` after `closedAt`, in the transaction that closes the thread.
- * Keyed by when it is due, so a thread closed again after undoing a merge gets its own.
+ * A thread is kept by one job: a thread closed again after a merge was undone replaces the first
+ * close's job, so it isn't deleted before its own 12 months are up.
  */
 export async function queueThreadExpiry(
   { jobs }: Pick<FeatureContext, "jobs">,
@@ -46,11 +47,12 @@ export async function queueThreadExpiry(
   threadId: string,
   closedAt: Date,
 ) {
-  const dueAt = new Date(closedAt.getTime() + threadExpiryMs);
+  const key = `${threadExpiryJobName}:${threadId}`;
+  await jobs.cancelIn(tx, key);
   await jobs.enqueueIn(
     tx,
     threadExpiryJob,
     { threadId },
-    { idempotencyKey: `${threadExpiryJobName}:${threadId}:${dueAt.getTime()}`, runAfter: dueAt },
+    { idempotencyKey: key, runAfter: new Date(closedAt.getTime() + threadExpiryMs) },
   );
 }
