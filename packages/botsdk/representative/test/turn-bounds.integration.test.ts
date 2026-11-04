@@ -1,4 +1,5 @@
 import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
+import { noCustomerChannel } from "../src/server/customer-proof";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -166,12 +167,15 @@ async function serving(
     },
     send: async (message: string) => {
       await promoteAutoTopic(id);
-      return receiveCustomerMessage(feature.context, {
-        representativeId: id,
-        channel: fakeChannel,
-        externalId: number,
-        message,
-      });
+      return receiveCustomerMessage(
+        { ...feature.context, channel: noCustomerChannel },
+        {
+          representativeId: id,
+          channel: fakeChannel,
+          externalId: number,
+          message,
+        },
+      );
     },
   };
 }

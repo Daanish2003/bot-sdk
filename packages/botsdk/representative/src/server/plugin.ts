@@ -121,7 +121,8 @@ export function representativeFeature(
       migrations: representativeMigrations,
     },
     contract: representativeContract,
-    api: (context) => representativeApi(context, options.convertDocument, options.knowledgeFiles),
+    api: (context) =>
+      representativeApi(context, options.convertDocument, options.knowledgeFiles, channel),
     tools: (turn, context) => [
       ...botDraftTools(turn, context),
       ...factProposalTools(turn, context),

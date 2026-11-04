@@ -24,6 +24,9 @@ import {
   passGate,
   type Sender,
   storeAndDeliver,
+  type ViaChannel,
+  channelLimits,
+  channelRule,
 } from "./outbound-gate";
 
 /*
@@ -33,7 +36,7 @@ import {
  * thread's row lock, which a message arriving and a reply being written take too.
  */
 
-type Context = Pick<FeatureContext, "db" | "clock" | "jobs">;
+type Context = Pick<FeatureContext, "db" | "clock" | "jobs"> & ViaChannel;
 
 /** What a Customer gets while a Reply draft waits for the owner. */
 export const holdingNote =
@@ -165,7 +168,7 @@ async function notedSinceCustomer(tx: Transaction, threadId: string, to: Heard) 
  * holding note, through the gate, if it hasn't had one since it last wrote.
  */
 export async function afterDraftHeld(
-  services: Pick<Context, "jobs">,
+  services: Pick<Context, "jobs" | "channel">,
   tx: Transaction,
   {
     decisionId,
@@ -206,6 +209,7 @@ export async function afterDraftHeld(
     now,
     releaseId,
     refusals,
+    channel: services.channel,
     content: { text: holdingNote, verified },
   });
   if (noted?.outcome !== "send") return;
@@ -281,6 +285,7 @@ async function sendDraft(context: Context, userId: string, id: string, words?: s
       to: heard,
       now,
       releaseId,
+      channel: context.channel,
       content: {
         text,
         verified,
@@ -289,7 +294,7 @@ async function sendDraft(context: Context, userId: string, id: string, words?: s
         topic: topic ?? undefined,
       },
     });
-    if (passed?.outcome !== "send" && passed?.outcome !== "hold") return true;
+    if (passed?.outcome !== "send" && passed?.outcome !== "hold") return passed?.rule ?? "gone";
     const author = edited ? "owner" : "representative";
     const messageId =
       passed.outcome === "send"
@@ -307,9 +312,10 @@ async function sendDraft(context: Context, userId: string, id: string, words?: s
       await tx.update(thread).set({ leftForOwnerAt: null }).where(eq(thread.id, threadId));
     }
     await resolve(tx, id, edited ? "edited" : "approved", now, messageId);
-    return false;
+    return null;
   });
-  // After the commit, so the decision stays in the log.
+  // After the commit, so the decision stays in the log. The draft stays waiting.
+  if (dropped === channelRule) throw channelLimits();
   if (dropped) throw replyDraftNotSent();
 }
 

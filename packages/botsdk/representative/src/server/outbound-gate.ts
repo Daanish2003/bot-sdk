@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import type { MessagingReach } from "@botsdk/bot/channel";
 import type { FeatureContext } from "@botsdk/bot/feature";
+import { rpcError } from "@botsdk/bot/rpc-error";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { defineJob } from "@botsdk/bot/runner/internal";
@@ -33,6 +34,17 @@ import { modeOfLabel, sourcesBelongToLabel } from "./topics";
  * goes to the Channel by a job queued in that transaction, so it survives a crash and a Channel's
  * brief failure, and a replay of a Turn queues nothing twice.
  */
+
+export const channelRule = "channel";
+export const channelLimits = () =>
+  rpcError(
+    "CONFLICT",
+    "error.channelLimits",
+    "This Channel doesn't let this message go now: its reply window has closed, it is too long, or it can't start a chat",
+  );
+
+/** What every sender of a message to a Customer is given: the Channel it goes by, which the gate asks for limits. */
+export type ViaChannel = { channel: Pick<CustomerChannel, "reach"> };
 
 /** The fixed order. A rule with no check yet (`liveChecks`) passes everything until its ticket adds one. */
 export const gateOrder = [
@@ -65,6 +77,14 @@ const rulesOf: Record<OutboundKind, readonly GateRule[]> = {
   reply_draft: gateOrder.filter((rule) => rule !== "topic" && rule !== "caps"),
 };
 
+/**
+ * What becomes of a message the Channel's limits stop. A reply, the code's hand-off and a release by
+ * itself wait for the owner, to send or drop. Every other kind is not kept: the owner's own send and
+ * an approved draft are refused to the owner who is right there, a proof has no secret to keep, and a
+ * fixed note is stale once the moment has passed.
+ */
+const heldWhenLimited = new Set<OutboundKind>(["reply", "code_hand_off", "released"]);
+
 /** What the rules read of a message's thread. */
 type GateFacts = {
   threadState: string;
@@ -89,6 +109,8 @@ type GateFacts = {
   reach: MessagingReach;
   /** Hours since the Customer last wrote from the address it goes to; null when they never have. */
   hoursSinceHeard: number | null;
+  /** Whether a message of this kind waits for the owner when the Channel's limits stop it; otherwise it is dropped. */
+  holdsWhenLimited: boolean;
   /** How long the message is. */
   length: number;
   /** It is quiet hours where the Customer is, or where the business is when that is unknown. */
@@ -112,12 +134,14 @@ export const liveChecks: Partial<Record<GateRule, GateCheck>> = {
     sentInARow >= maxInARow || sentToday >= maxPerDay ? "hold" : null,
   quietHours: ({ businessStarted, quiet }) => (businessStarted && quiet ? "hold" : null),
   // Held, never sent by another way: the address is the one the Customer wrote from, and the owner decides.
-  channel: ({ reach, businessStarted, hoursSinceHeard, length }) =>
+  channel: ({ reach, businessStarted, hoursSinceHeard, length, holdsWhenLimited }) =>
     (reach.canStartConversation === false && businessStarted) ||
     (reach.replyWindowHours !== undefined &&
       (hoursSinceHeard === null || hoursSinceHeard > reach.replyWindowHours)) ||
     (reach.maxLength !== undefined && length > reach.maxLength)
-      ? "hold"
+      ? holdsWhenLimited
+        ? "hold"
+        : "drop"
       : null,
 };
 
@@ -147,8 +171,11 @@ export type Outgoing = {
   jobs?: JobsService;
   /** The message starts with the business, such as a relayed Bot result: quiet hours hold it. */
   businessStarted?: boolean;
-  /** What the platform it goes by limits (ticket #1305): the `channel` rule reads it. */
-  reach?: MessagingReach;
+  /**
+   * The Channel it goes by, which the gate asks for its platform's limits (ticket #1305). Required, so a
+   * sender can't forget it: a path with no Channel can't pass the gate.
+   */
+  channel: Pick<CustomerChannel, "reach">;
   /**
    * The id of the held message this is the automatic release of: it also passes `on`, `caps` and the topic, and
    * holding it again writes no second held row. A Page for it counts the other held messages only.
@@ -436,11 +463,12 @@ export async function passGate(
   const topicMode = rules.includes("topic")
     ? await modeOfLabel(tx, row.userId, content?.topic)
     : null;
-  const reach = outgoing.reach ?? {};
+  const reach = outgoing.channel.reach?.(to.channel) ?? {};
   const facts: GateFacts = {
     ...row,
     businessStarted,
     reach,
+    holdsWhenLimited: heldWhenLimited.has(kind),
     length: content?.text.length ?? 0,
     hoursSinceHeard:
       rules.includes("channel") && reach.replyWindowHours !== undefined

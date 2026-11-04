@@ -35,6 +35,8 @@ export const errorMessages = {
   "error.heldMessageNotFound": "Held message not found",
   "error.threadNotHeld": "Take over this thread to write in it",
   "error.customerBlocked": "This Customer is blocked, so nothing is sent to them",
+  "error.channelLimits":
+    "This Channel doesn't let this message go now: its reply window has closed, it is too long, or it can't start a chat",
   "error.customerOptedOut": "This Customer opted out, so nothing is sent to them",
   "error.customerIdentityTaken": "One of your Customers already has that identity.",
   "error.factNotFound": "Fact not found",

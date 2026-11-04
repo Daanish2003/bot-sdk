@@ -14,7 +14,11 @@ import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { fakeMessagingAdapter } from "@botsdk/testing/fake-channel";
-import { type CustomerChannel, requestProof } from "../src/server/customer-proof";
+import {
+  noCustomerChannel,
+  type CustomerChannel,
+  requestProof,
+} from "../src/server/customer-proof";
 import { storeReply } from "../src/server/customers";
 import {
   representative,
@@ -194,7 +198,7 @@ const anotherReply = async (
   const id = await world.threadId();
   return getTestDb().transaction((tx) =>
     storeReply(
-      feature.context,
+      { ...feature.context, channel: world.channel },
       tx,
       {
         threadId: id,
@@ -202,7 +206,6 @@ const anotherReply = async (
         heard: { channel: "fake", externalId: number },
         verified: false,
         businessStarted,
-        channel: world.channel,
       },
       { text: "Still here", sources: topic === "general" ? [autoSource] : [], topic },
       "small_talk",
@@ -359,7 +362,7 @@ describe("a Representative's reply", () => {
       const feature = world.deps.parts.features.find(
         (each) => each.feature.id === "representative",
       )!;
-      await holdThread(feature.context, tx, id, thread!);
+      await holdThread({ ...feature.context, channel: noCustomerChannel }, tx, id, thread!);
     });
     await turn.catch(() => {});
 
@@ -493,6 +496,7 @@ describe("a proof for a blocked Customer", () => {
     getTestDb().transaction((tx) =>
       requestProof(tx, {
         keyring: ["a test secret"],
+        channel: noCustomerChannel,
         userId: world.user.id,
         thread: {
           threadId,
@@ -566,6 +570,7 @@ describe("the gate's order and what it holds", () => {
         tx,
         {
           kind: "reply",
+          channel: world.channel,
           threadId: id,
           to: { channel: "fake", externalId: number },
           now: world.timer.clock.now(),
@@ -1010,7 +1015,7 @@ describe("quiet hours", () => {
     const threadId = await world.threadId();
     await getTestDb().transaction((tx) =>
       storeReply(
-        feature.context,
+        { ...feature.context, channel: noCustomerChannel },
         tx,
         {
           threadId,
@@ -1309,6 +1314,70 @@ describe("a Channel's limits", () => {
       ["hold", "channel"],
     ]);
     expect(world.got()).toEqual([]);
+  });
+
+  /** A reply labelled with a topic the owner hasn't promoted: it waits as a Reply draft. */
+  const draftReply = () =>
+    round(
+      toolCall({
+        name: "reply",
+        input: { topic: "billing", sources: [], text: "Hi", kind: "small_talk" },
+      }),
+    );
+
+  it("keeps an approved draft waiting, and tells the owner why, outside the reply window", async () => {
+    const world = await instance([draftReply(), quiet()], undefined, new Date(), {
+      replyWindowHours: 24,
+    });
+    await world.hears("What do I owe?");
+    await expect
+      .poll(async () => (await world.rpc.representative.replyDraftList()).length, poll)
+      .toBe(1);
+    const [draft] = await world.rpc.representative.replyDraftList();
+    world.timer.advance(25 * hour);
+
+    await expect(
+      world.rpc.representative.replyDraftApprove({ id: draft!.id }),
+    ).rejects.toMatchObject({
+      data: { code: "error.channelLimits" },
+    });
+
+    expect(await world.rpc.representative.replyDraftList()).toHaveLength(1);
+    expect((await outcomes(world)).at(-1)).toEqual(["drop", "channel"]);
+    expect(world.got()).not.toContain("Hi");
+  });
+
+  it("refuses the owner's own message outside the reply window, and keeps nothing held", async () => {
+    const world = await instance([quiet()], undefined, new Date(), { replyWindowHours: 24 });
+    await world.hears("Hello");
+    const id = await world.threadId();
+    await world.rpc.representative.threadTakeOver({ id });
+    world.timer.advance(25 * hour);
+
+    await expect(
+      world.rpc.representative.threadSend({ id, text: "It's me." }),
+    ).rejects.toMatchObject({
+      data: { code: "error.channelLimits" },
+    });
+
+    expect(await held()).toEqual([]);
+    expect(world.got()).not.toContain("It's me.");
+    expect((await outcomes(world)).at(-1)).toEqual(["drop", "channel"]);
+    expect(await pages()).toEqual([]);
+  });
+
+  it("drops a holding note the Channel's limits stop, and the draft still waits", async () => {
+    const world = await instance([draftReply(), quiet()], undefined, new Date(), { maxLength: 10 });
+
+    await world.hears("What do I owe?");
+
+    await expect.poll(async () => (await outcomes(world)).length, poll).toBe(2);
+    expect(await outcomes(world)).toEqual([
+      ["hold", "topic"],
+      ["drop", "channel"],
+    ]);
+    expect(world.got()).toEqual([]);
+    expect(await world.rpc.representative.replyDraftList()).toHaveLength(1);
   });
 
   it("lets the owner send a held message, or drop it", async () => {

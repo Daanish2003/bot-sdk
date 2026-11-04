@@ -21,6 +21,7 @@ import {
   passGate,
   quietAt,
   storeAndDeliver,
+  type ViaChannel,
 } from "./outbound-gate";
 import { getThread } from "./owner-customers";
 import type { CustomerChannel } from "./customer-proof";
@@ -34,7 +35,8 @@ import { lockThread, refusedByGate, threadClosed } from "./takeover";
  */
 
 type Context = Pick<FeatureContext, "db" | "clock" | "jobs"> &
-  Partial<Pick<FeatureContext<"pages">, "pages">>;
+  Partial<Pick<FeatureContext<"pages">, "pages">> &
+  ViaChannel;
 
 const heldNotFound = () =>
   rpcError("NOT_FOUND", "error.heldMessageNotFound", "Held message not found");
@@ -86,13 +88,7 @@ export async function sendHeldMessage(context: Context, userId: string, heldId: 
  * The send behind `sendHeldMessage`. `byItself` is a quiet-hours hold going when they end: the owner
  * holding the thread since keeps it held for them, as nothing is sent while they hold it.
  */
-async function releaseHeld(
-  context: Context,
-  userId: string,
-  heldId: string,
-  byItself: boolean,
-  channel?: Pick<CustomerChannel, "reach">,
-) {
+async function releaseHeld(context: Context, userId: string, heldId: string, byItself: boolean) {
   return context.db.transaction(async (tx) => {
     const found = await ownedHeld(tx, userId, heldId);
     if (!found) throw heldNotFound();
@@ -136,7 +132,7 @@ async function releaseHeld(
       to: { channel: channelId, externalId },
       now,
       pages: context.pages,
-      reach: byItself ? channel?.reach?.(channelId) : undefined,
+      channel: context.channel,
       // Only a business-started message is held for quiet hours, so it is one still.
       businessStarted: byItself && message.rule === "quietHours",
       // Going by itself it also passes what the owner's own send needn't: the switch, the caps and the topic's mode.
@@ -206,7 +202,7 @@ export const heldReleaseJob = (channel: CustomerChannel) =>
         .where(eq(held.id, heldId));
       if (!row) return;
       try {
-        await releaseHeld(job, row.userId, heldId, true, channel);
+        await releaseHeld({ ...job, channel }, row.userId, heldId, true);
       } catch (error) {
         if (!(error instanceof ORPCError)) throw error;
       }

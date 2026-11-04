@@ -207,13 +207,16 @@ async function serving(
       throw new Error("The jobs never ran out");
     },
     send: async (message: string, proof?: { rule: "sameIdentity" | "codeRoundTrip" }) =>
-      receiveCustomerMessage(feature.context, {
-        representativeId: id,
-        channel: fakeChannel,
-        externalId: number,
-        message,
-        proof,
-      }),
+      receiveCustomerMessage(
+        { ...feature.context, channel: noCustomerChannel },
+        {
+          representativeId: id,
+          channel: fakeChannel,
+          externalId: number,
+          message,
+          proof,
+        },
+      ),
   };
 }
 

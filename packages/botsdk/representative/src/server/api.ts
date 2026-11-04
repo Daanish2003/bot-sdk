@@ -74,6 +74,7 @@ import {
   updateDraft,
   uploadDocument,
 } from "./representatives";
+import { type CustomerChannel, noCustomerChannel } from "./customer-proof";
 import { dropHeldMessage, sendHeldMessage } from "./held-messages";
 import {
   approveReplyDraft,
@@ -92,12 +93,12 @@ import { addTopic, listTopics, removeTopic, setTopicMode } from "./topics";
 
 /** The `representative` namespace over the feature's context. */
 export function representativeApi(
-  context: FeatureContext<
-    "assignments" | "factApprovals" | "models" | "releaseApprovals" | "threads"
-  >,
+  base: FeatureContext<"assignments" | "factApprovals" | "models" | "releaseApprovals" | "threads">,
   convertDocument?: ConvertDocument,
   knowledgeFiles?: KnowledgeFiles,
+  customerChannel: CustomerChannel = noCustomerChannel,
 ) {
+  const context = { ...base, channel: customerChannel };
   return {
     list: async ({ userId }: { userId: string }) => listRepresentatives(context, userId),
 

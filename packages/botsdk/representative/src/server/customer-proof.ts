@@ -7,7 +7,7 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { MessagingReach } from "@botsdk/bot/channel";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { absorbCustomer } from "./customer-merge";
-import { type GateRefusal, passGate } from "./outbound-gate";
+import { type GateRefusal, passGate, type ViaChannel } from "./outbound-gate";
 import {
   representativeCustomer,
   representativeCustomerIdentity,
@@ -191,6 +191,7 @@ export async function requestProof(
     thread: { threadId, heard, verified, proofRule, releaseId, refusals },
     claimed,
     now,
+    channel,
   }: {
     keyring: readonly string[];
     userId: string;
@@ -204,6 +205,7 @@ export async function requestProof(
     };
     claimed: { channel: string; externalId: string } | null;
     now: Date;
+    channel: Pick<CustomerChannel, "reach">;
   },
 ): Promise<SentProof | null> {
   if (!proofRule || (verified && !claimed)) return null;
@@ -223,7 +225,7 @@ export async function requestProof(
   if (sender?.id !== before.id) return null;
   // The gate logs why a blocked Customer gets nothing.
   if (sender.blockedAt !== null) {
-    await passGate(tx, { kind: "proof", threadId, to: heard, now, releaseId, refusals });
+    await passGate(tx, { kind: "proof", threadId, to: heard, now, releaseId, refusals, channel });
     return null;
   }
   // They passed a code while this Turn ran.
@@ -299,6 +301,7 @@ export async function requestProof(
         releaseId,
         refusals,
         customerId,
+        channel,
       }));
     if (decision?.outcome !== "send") target = null;
   }
@@ -401,7 +404,7 @@ export async function customerProofLeadsTo(tx: Transaction, identityId: string, 
   return newest?.kind === "code" && isLive(newest, now) ? newest.customerId : undefined;
 }
 
-type MergeServices = Pick<FeatureContext, "clock" | "jobs" | "keyring">;
+type MergeServices = Pick<FeatureContext, "clock" | "jobs" | "keyring"> & ViaChannel;
 
 /**
  * Merges the sender's Customer into that of the identity their code went to, when that is another:

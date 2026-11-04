@@ -1,4 +1,5 @@
 import type { AnyTextAdapter } from "@tanstack/ai";
+import { noCustomerChannel } from "../src/server/customer-proof";
 import { and, asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -568,7 +569,9 @@ describe("the owner, at a limit", () => {
       .update(representativeThread)
       .set({ limitNotedAt: null, turnId, waitingFrom: 1 })
       .where(eq(representativeThread.id, id));
-    const context = world.featureContext() as Parameters<typeof reachLimit>[0];
+    const context = { ...world.featureContext(), channel: noCustomerChannel } as Parameters<
+      typeof reachLimit
+    >[0];
     const reach = () =>
       getTestDb().transaction((tx) =>
         reachLimit(context, tx, {

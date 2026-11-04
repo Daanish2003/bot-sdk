@@ -258,6 +258,15 @@ async function reportingBot(
   return row?.botId ?? null;
 }
 
+/** What the gate needs of a Turn: its jobs, its Pages and the Channel its Customer is reached by. */
+const gating = (job: JobContext<TurnServices>, thread: LiveThread) => ({
+  jobs: job.jobs,
+  pages: job.pages,
+  clock: job.clock,
+  keyring: job.keyring,
+  channel: thread.channel,
+});
+
 type LiveThread = {
   threadId: string;
   heard: Heard;
@@ -437,7 +446,7 @@ async function handOffInCode(
   const botId = await reportingBot(tx, representativeId, true);
   const customerId = await holdThreadCustomer(tx, thread.threadId);
   const stored = await storeReply(
-    job,
+    gating(job, thread),
     tx,
     thread,
     { text: handOffMessage, sources: [] },
@@ -567,7 +576,7 @@ export function turnTools(turn: Turn) {
         if ("error" in checked) return refuse(tx, checked);
         if (thread) {
           const stored = await storeReply(
-            job,
+            gating(job, thread),
             tx,
             thread,
             { ...checked, topic: storableLabel(topic) },
@@ -717,7 +726,14 @@ export function turnTools(turn: Turn) {
         outgoing =
           thread === null
             ? null
-            : await requestProof(tx, { keyring: job.keyring, userId, thread, claimed, now });
+            : await requestProof(tx, {
+                keyring: job.keyring,
+                userId,
+                thread,
+                claimed,
+                now,
+                channel: thread.channel,
+              });
         if (thread?.verified && !claimed) return alreadyVerifiedAnswer;
         return thread && !thread.proofRule ? noProofAnswer : proofAnswer;
       });
@@ -755,7 +771,7 @@ export function turnTools(turn: Turn) {
             .for("key share");
           fresh = false;
           if (await holdThreadCustomer(tx, thread.threadId)) {
-            fresh = await optOut(job, tx, {
+            fresh = await optOut(gating(job, thread), tx, {
               userId,
               threadId: thread.threadId,
               heard: thread.heard,
@@ -1102,7 +1118,7 @@ export function representativeTurnJob(
           if (played.quotaSpent) {
             const now = await job.now();
             await job.step("representative_at_limit", (tx) =>
-              reachLimit(job, tx, {
+              reachLimit(gating(job, thread), tx, {
                 userId,
                 representativeId,
                 turnId,

@@ -14,14 +14,9 @@ import {
 } from "./db/schema";
 import { holdCustomers } from "./customer-merge";
 import { nameIn, profilesOf } from "./customer-profile";
-import {
-  catchCode,
-  type CustomerChannel,
-  customerProofLeadsTo,
-  mayHoldCode,
-} from "./customer-proof";
+import { catchCode, customerProofLeadsTo, mayHoldCode } from "./customer-proof";
 import { liftOptOut, keywordIn, optOut } from "./opt-out";
-import { type GateRefusal, passGate, storeAndDeliver } from "./outbound-gate";
+import { type GateRefusal, passGate, storeAndDeliver, type ViaChannel } from "./outbound-gate";
 import { afterDraftHeld, replaceHeld } from "./reply-drafts";
 import { type ChannelProof, judgeSender } from "./verification";
 import {
@@ -167,7 +162,7 @@ export async function receiveMessage(
     text,
     now,
   }: {
-    services: Pick<FeatureContext, "clock" | "jobs" | "keyring">;
+    services: Pick<FeatureContext, "clock" | "jobs" | "keyring"> & ViaChannel;
     representativeId: string;
     heard: Heard;
     proof: ChannelProof | undefined;
@@ -412,7 +407,7 @@ const heldNote =
  * during a verified Turn mustn't get that Turn's reply. `upTo` is the last message its Turn read.
  */
 export async function storeReply(
-  services: Pick<FeatureContext<"pages">, "jobs" | "pages">,
+  services: Pick<FeatureContext<"pages">, "jobs" | "pages"> & ViaChannel,
   tx: Transaction,
   {
     threadId,
@@ -422,7 +417,6 @@ export async function storeReply(
     releaseId,
     refusals,
     businessStarted,
-    channel,
   }: {
     threadId: string;
     upTo: number;
@@ -432,8 +426,6 @@ export async function storeReply(
     refusals?: GateRefusal[];
     /** The Turn answers no new Customer message: quiet hours hold what it says. */
     businessStarted?: boolean;
-    /** The Channel it goes by: what the platform limits (ticket #1305). */
-    channel?: Pick<CustomerChannel, "reach">;
   },
   { text, sources, topic }: { text: string; sources: ReplySource[]; topic?: string },
   replyKind: StoredReplyKind,
@@ -454,7 +446,7 @@ export async function storeReply(
     pages: services.pages,
     jobs: services.jobs,
     businessStarted,
-    reach: channel?.reach?.(heard.channel),
+    channel: services.channel,
     content: { text, verified, replyKind, sources, topic },
   });
   if (decision?.rule === draftRule) {
