@@ -470,7 +470,7 @@ describe("a proof for a blocked Customer", () => {
           threadId,
           heard: { channel: "fake", externalId: number },
           verified: false,
-          proofRule: claimed ? "selfAsserted" : "codeRoundTrip",
+          proofRule: claimed ? "codeToRecord" : "codeRoundTrip",
         },
         claimed,
         now: world.timer.clock.now(),
