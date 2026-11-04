@@ -15,6 +15,7 @@ export {
   type MessagingButtons,
   type MessagingCall,
   type MessagingFile,
+  type MessagingReach,
   MessagingSendError,
   type MessagingUpdate,
   type OutboundMessage,

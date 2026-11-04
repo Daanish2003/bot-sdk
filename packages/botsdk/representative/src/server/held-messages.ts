@@ -21,8 +21,10 @@ import {
   passGate,
   quietAt,
   storeAndDeliver,
+  type ViaChannel,
 } from "./outbound-gate";
 import { getThread } from "./owner-customers";
+import type { CustomerChannel } from "./customer-proof";
 import { lockThread, refusedByGate, threadClosed } from "./takeover";
 
 /*
@@ -33,7 +35,8 @@ import { lockThread, refusedByGate, threadClosed } from "./takeover";
  */
 
 type Context = Pick<FeatureContext, "db" | "clock" | "jobs"> &
-  Partial<Pick<FeatureContext<"pages">, "pages">>;
+  Partial<Pick<FeatureContext<"pages">, "pages">> &
+  ViaChannel;
 
 const heldNotFound = () =>
   rpcError("NOT_FOUND", "error.heldMessageNotFound", "Held message not found");
@@ -114,7 +117,7 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
       .for("update", { of: held });
     if (!message) throw heldNotFound();
     const now = context.clock();
-    const { channel, externalId } = message;
+    const { channel: channelId, externalId } = message;
     if (byItself && message.rule === "quietHours") {
       // The hours or the Customer's zone may have changed since: it goes when they end now.
       const quiet = await quietAt(tx, found, now);
@@ -126,9 +129,12 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
     const decided = await passGate(tx, {
       kind: "released",
       threadId: found,
-      to: { channel, externalId },
+      to: { channel: channelId, externalId },
       now,
       pages: context.pages,
+      channel: context.channel,
+      // Only a business-started message is held for quiet hours, so it is one still.
+      businessStarted: byItself && message.rule === "quietHours",
       // Going by itself it also passes what the owner's own send needn't: the switch, the caps and the topic's mode.
       // Held again it leaves the one held row, and Pages unless others already wait.
       ...(byItself
@@ -168,7 +174,7 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
         replyKind: message.replyKind,
         sources: message.sources,
         verified: message.verified,
-        channel,
+        channel: channelId,
         externalId,
       },
       now,
@@ -182,25 +188,26 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
  * sent or dropped it, or a new Customer message replaced it, and then there is nothing to send. A
  * Customer blocked since, or a closed thread, leaves it held for the owner to drop.
  */
-export const heldReleaseJob = defineJob<z.infer<typeof heldReleasePayload>>({
-  name: heldReleaseJobName,
-  payload: heldReleasePayload,
-  run: async ({ heldId }, job) => {
-    const held = representativeHeldMessage;
-    const [row] = await job.db
-      .select({ userId: representative.userId })
-      .from(held)
-      .innerJoin(representativeThread, eq(representativeThread.id, held.threadId))
-      .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
-      .where(eq(held.id, heldId));
-    if (!row) return;
-    try {
-      await releaseHeld(job, row.userId, heldId, true);
-    } catch (error) {
-      if (!(error instanceof ORPCError)) throw error;
-    }
-  },
-});
+export const heldReleaseJob = (channel: CustomerChannel) =>
+  defineJob<z.infer<typeof heldReleasePayload>>({
+    name: heldReleaseJobName,
+    payload: heldReleasePayload,
+    run: async ({ heldId }, job) => {
+      const held = representativeHeldMessage;
+      const [row] = await job.db
+        .select({ userId: representative.userId })
+        .from(held)
+        .innerJoin(representativeThread, eq(representativeThread.id, held.threadId))
+        .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
+        .where(eq(held.id, heldId));
+      if (!row) return;
+      try {
+        await releaseHeld({ ...job, channel }, row.userId, heldId, true);
+      } catch (error) {
+        if (!(error instanceof ORPCError)) throw error;
+      }
+    },
+  });
 
 /** Drops the held message: the Customer never gets it. */
 export async function dropHeldMessage(context: Context, userId: string, heldId: string) {

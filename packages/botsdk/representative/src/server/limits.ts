@@ -6,7 +6,7 @@ import type { Transaction } from "@botsdk/bot/plugin";
 import { limitNoteKind } from "../shared/replies";
 import { type Heard, storeReply } from "./customers";
 import { representativeThread } from "./db/schema";
-import { holdForRules, type GateRefusal } from "./outbound-gate";
+import { holdForRules, type GateRefusal, type ViaChannel } from "./outbound-gate";
 import { leaveOldMessages, queueWaitingTurn } from "./thread-turns";
 
 /*
@@ -105,7 +105,7 @@ export async function checkLimitsNow(
  * thread hasn't had one at this limit. A thread that has left this Turn gets nothing.
  */
 export async function reachLimit(
-  services: Pick<FeatureContext<"pages">, "jobs" | "pages">,
+  services: Pick<FeatureContext<"pages">, "jobs" | "pages"> & ViaChannel,
   tx: Transaction,
   {
     userId,

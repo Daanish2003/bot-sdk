@@ -5,6 +5,7 @@ import { batchLongestMs, batchQuietMs } from "@botsdk/bot/bot/triggers";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
+import type { ViaChannel } from "./outbound-gate";
 import { job } from "@botsdk/bot/storage";
 import { maxThreadMessageLength, noNul } from "../shared/contract";
 import {
@@ -91,7 +92,7 @@ export type CustomerMessage = z.infer<typeof customerMessage>;
  * Customer entry point in the private `@ai-chat/test-support` package does.
  */
 export async function receiveCustomerMessage(
-  services: Services & Pick<FeatureContext, "keyring">,
+  services: Services & Pick<FeatureContext, "keyring"> & ViaChannel,
   given: CustomerMessage,
 ) {
   const { representativeId, channel, externalId, proof, message } = customerMessage.parse(given);

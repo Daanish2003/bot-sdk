@@ -1,7 +1,9 @@
 import { and, asc, count, eq, gt, inArray, isNull, max, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
+import type { MessagingReach } from "@botsdk/bot/channel";
 import type { FeatureContext } from "@botsdk/bot/feature";
+import { rpcError } from "@botsdk/bot/rpc-error";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { defineJob } from "@botsdk/bot/runner/internal";
@@ -33,6 +35,17 @@ import { modeOfLabel, sourcesBelongToLabel } from "./topics";
  * brief failure, and a replay of a Turn queues nothing twice.
  */
 
+export const channelRule = "channel";
+export const channelLimits = () =>
+  rpcError(
+    "CONFLICT",
+    "error.channelLimits",
+    "This Channel doesn't let this message go now: its reply window has closed, it is too long, or it can't start a chat",
+  );
+
+/** What every sender of a message to a Customer is given: the Channel it goes by, which the gate asks for limits. */
+export type ViaChannel = { channel: Pick<CustomerChannel, "reach"> };
+
 /** The fixed order. A rule with no check yet (`liveChecks`) passes everything until its ticket adds one. */
 export const gateOrder = [
   "held",
@@ -52,7 +65,8 @@ const rulesOf: Record<OutboundKind, readonly GateRule[]> = {
   code_hand_off: ["held", "blocked", "optedOut", "on", "channel"],
   limit_note: ["held", "blocked", "optedOut", "on", "channel"],
   owner: ["blocked", "optedOut", "channel"],
-  released: ["blocked", "optedOut", "channel"],
+  // The owner's send passes the Channel's limits: they chose to. A release by itself checks them again.
+  released: ["blocked", "optedOut"],
   takeover_note: ["blocked", "optedOut", "channel"],
   proof: ["blocked", "optedOut", "channel"],
   // The words that tell a Customer their opt-out worked: the rule that drops the rest can't drop it.
@@ -62,6 +76,14 @@ const rulesOf: Record<OutboundKind, readonly GateRule[]> = {
   holding_note: gateOrder.filter((rule) => rule !== "topic" && rule !== "caps"),
   reply_draft: gateOrder.filter((rule) => rule !== "topic" && rule !== "caps"),
 };
+
+/**
+ * What becomes of a message the Channel's limits stop. A reply, the code's hand-off and a release by
+ * itself wait for the owner, to send or drop. Every other kind is not kept: the owner's own send and
+ * an approved draft are refused to the owner who is right there, a proof has no secret to keep, and a
+ * fixed note is stale once the moment has passed.
+ */
+const heldWhenLimited = new Set<OutboundKind>(["reply", "code_hand_off", "released"]);
 
 /** What the rules read of a message's thread. */
 type GateFacts = {
@@ -83,6 +105,14 @@ type GateFacts = {
   maxPerDay: number;
   /** The message starts with the business: no new Customer message is being answered. */
   businessStarted: boolean;
+  /** What the platform of the Channel it goes by limits; nothing, if its adapter declares nothing. */
+  reach: MessagingReach;
+  /** Hours since the Customer last wrote from the address it goes to; null when they never have. */
+  hoursSinceHeard: number | null;
+  /** Whether a message of this kind waits for the owner when the Channel's limits stop it; otherwise it is dropped. */
+  holdsWhenLimited: boolean;
+  /** How long the message is. */
+  length: number;
   /** It is quiet hours where the Customer is, or where the business is when that is unknown. */
   quiet: boolean;
 };
@@ -103,6 +133,16 @@ export const liveChecks: Partial<Record<GateRule, GateCheck>> = {
   caps: ({ sentInARow, sentToday, maxInARow, maxPerDay }) =>
     sentInARow >= maxInARow || sentToday >= maxPerDay ? "hold" : null,
   quietHours: ({ businessStarted, quiet }) => (businessStarted && quiet ? "hold" : null),
+  // Held, never sent by another way: the address is the one the Customer wrote from, and the owner decides.
+  channel: ({ reach, businessStarted, hoursSinceHeard, length, holdsWhenLimited }) =>
+    (reach.canStartConversation === false && businessStarted) ||
+    (reach.replyWindowHours !== undefined &&
+      (hoursSinceHeard === null || hoursSinceHeard > reach.replyWindowHours)) ||
+    (reach.maxLength !== undefined && length > reach.maxLength)
+      ? holdsWhenLimited
+        ? "hold"
+        : "drop"
+      : null,
 };
 
 /** The rule whose hold lets itself go: the message is sent when the quiet period ends. */
@@ -131,6 +171,11 @@ export type Outgoing = {
   jobs?: JobsService;
   /** The message starts with the business, such as a relayed Bot result: quiet hours hold it. */
   businessStarted?: boolean;
+  /**
+   * The Channel it goes by, which the gate asks for its platform's limits (ticket #1305). Required, so a
+   * sender can't forget it: a path with no Channel can't pass the gate.
+   */
+  channel: Pick<CustomerChannel, "reach">;
   /**
    * The id of the held message this is the automatic release of: it also passes `on`, `caps` and the topic, and
    * holding it again writes no second held row. A Page for it counts the other held messages only.
@@ -294,6 +339,28 @@ async function sentCounts(tx: Transaction, threadId: string, customerId: string,
   return { sentInARow: inARow!.count, sentToday: today!.count };
 }
 
+/** Hours from the Customer's last message from `from` on the thread to `now`; null when they never wrote from it. */
+async function hoursSinceHeard(
+  tx: Transaction,
+  threadId: string,
+  from: { channel: string; externalId: string },
+  now: Date,
+) {
+  const message = representativeThreadMessage;
+  const [last] = await tx
+    .select({ at: max(message.createdAt) })
+    .from(message)
+    .where(
+      and(
+        eq(message.threadId, threadId),
+        eq(message.author, "customer"),
+        eq(message.channel, from.channel),
+        eq(message.externalId, from.externalId),
+      ),
+    );
+  return last?.at ? (now.getTime() - last.at.getTime()) / (60 * 60 * 1000) : null;
+}
+
 /**
  * The time zone a Customer's quiet hours are read in: theirs when the owner set it or a verified
  * message of theirs said it, otherwise `fallback`, the business's. An unverified sender's claim of a
@@ -345,7 +412,7 @@ export async function passGate(
 ): Promise<GateDecision | null> {
   const { kind, threadId, to, now, content } = outgoing;
   const rules: readonly GateRule[] = outgoing.releasing
-    ? [...rulesOf[kind], "on", "caps", "topic"]
+    ? [...rulesOf[kind], "on", "caps", "channel", "topic"]
     : rulesOf[kind];
   if (rules.includes("held") && !(await holdForRules(tx, threadId))) return null;
   const [row] = await tx
@@ -396,9 +463,17 @@ export async function passGate(
   const topicMode = rules.includes("topic")
     ? await modeOfLabel(tx, row.userId, content?.topic)
     : null;
+  const reach = outgoing.channel.reach?.(to.channel) ?? {};
   const facts: GateFacts = {
     ...row,
     businessStarted,
+    reach,
+    holdsWhenLimited: heldWhenLimited.has(kind),
+    length: content?.text.length ?? 0,
+    hoursSinceHeard:
+      rules.includes("channel") && reach.replyWindowHours !== undefined
+        ? await hoursSinceHeard(tx, threadId, to, now)
+        : null,
     quiet: isQuiet(now, timeZone, period),
     blockedAt: customer?.blockedAt ?? null,
     topicMode,

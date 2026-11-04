@@ -10,6 +10,7 @@ import {
   representativeFact,
   representativeTopic,
 } from "../../botsdk/representative/src/server/db/schema";
+import { noCustomerChannel } from "../../botsdk/representative/src/server/customer-proof";
 import { customerDeliveryJobName } from "../../botsdk/representative/src/server/outbound-gate";
 import { receiveCustomerMessage } from "../../botsdk/representative/src/server/thread-turns";
 
@@ -110,13 +111,17 @@ async function sendTestCustomerMessage(
   const feature = deps.parts.features.find(({ feature }) => feature.id === "representative");
   if (!feature) throw new Error("This test SDK has no representative feature");
   await promoteAutoTopic(representativeId);
-  const received = await receiveCustomerMessage(feature.context, {
-    representativeId,
-    channel,
-    externalId,
-    proof,
-    message,
-  });
+  const received = await receiveCustomerMessage(
+    // The stand-in Customer reaches no real Channel, so its opt-out confirmation meets no limits.
+    { ...feature.context, channel: noCustomerChannel },
+    {
+      representativeId,
+      channel,
+      externalId,
+      proof,
+      message,
+    },
+  );
   if (!received) throw new Error(`No Representative ${representativeId}`);
   return { channel, externalId, jobId: received.jobId };
 }

@@ -333,6 +333,7 @@ describe("what a code allows", () => {
     const proof = await getTestDb().transaction((tx) =>
       requestProof(tx, {
         keyring: ["a-test-secret"],
+        channel: noCustomerChannel,
         userId: user.id,
         thread: {
           threadId: customer!.threads[0]!.id,
@@ -369,6 +370,7 @@ describe("what a code allows", () => {
     const asked = getTestDb().transaction((tx) =>
       requestProof(tx, {
         keyring: ["a-test-secret"],
+        channel: noCustomerChannel,
         userId: user.id,
         thread: {
           threadId: customer!.threads[0]!.id,
@@ -819,6 +821,7 @@ describe("a code to an identity on record, from web chat", () => {
       getTestDb().transaction((tx) =>
         requestProof(tx, {
           keyring: ["a-test-secret"],
+          channel: noCustomerChannel,
           userId: user.id,
           thread: {
             threadId: threadOf(sender),

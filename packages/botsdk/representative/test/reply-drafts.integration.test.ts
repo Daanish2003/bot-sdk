@@ -1,4 +1,5 @@
 import type { AnyTextAdapter } from "@tanstack/ai";
+import { noCustomerChannel } from "../src/server/customer-proof";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
@@ -573,6 +574,7 @@ describe("a draft whose Turn's fence rolled it back", () => {
       .transaction(async (tx) => {
         await passGate(tx, {
           kind: "reply",
+          channel: noCustomerChannel,
           threadId,
           to: { channel: "fake", externalId: number },
           now: world.timer.clock.now(),
@@ -990,6 +992,7 @@ describe("what a cap holds", () => {
       .transaction(async (tx) => {
         await passGate(tx, {
           kind: "reply",
+          channel: noCustomerChannel,
           threadId,
           to: { channel: "fake", externalId: number },
           now: world.timer.clock.now(),
@@ -1149,6 +1152,7 @@ describe("a reply on an auto topic", () => {
       getTestDb().transaction((tx) =>
         passGate(tx, {
           kind: "reply",
+          channel: noCustomerChannel,
           threadId,
           to: { channel: "fake", externalId: number },
           now: world.timer.clock.now(),

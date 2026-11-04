@@ -11,7 +11,13 @@ import {
   representativeThreadMessage,
   type ThreadAuthor,
 } from "./db/schema";
-import { passGate, storeAndDeliver } from "./outbound-gate";
+import {
+  channelLimits,
+  channelRule,
+  passGate,
+  storeAndDeliver,
+  type ViaChannel,
+} from "./outbound-gate";
 import { getThread, threadNotFound } from "./owner-customers";
 import { replaceHeld, turnSender } from "./reply-drafts";
 import { queueWaitingTurn } from "./thread-turns";
@@ -25,7 +31,7 @@ import { queueWaitingTurn } from "./thread-turns";
  * owner has. What goes to the Customer passes the Outbound gate first.
  */
 
-type Context = Pick<FeatureContext, "db" | "clock" | "jobs">;
+type Context = Pick<FeatureContext, "db" | "clock" | "jobs"> & ViaChannel;
 
 /** What a Customer gets when the owner takes their thread over. */
 export const takeoverNote = "A person has joined this conversation and will reply from here.";
@@ -49,7 +55,11 @@ const customerOptedOut = () =>
 
 /** Why the owner's message didn't go, from the rule that stopped it. */
 export const refusedByGate = (rule: string) =>
-  rule === "optedOut" ? customerOptedOut() : customerBlocked();
+  rule === "optedOut"
+    ? customerOptedOut()
+    : rule === channelRule
+      ? channelLimits()
+      : customerBlocked();
 
 /**
  * Holds one of the owner's threads, or null when it isn't theirs or doesn't exist. Its Customer's
@@ -113,7 +123,7 @@ type Thread = Awaited<ReturnType<typeof lockThread>>;
  * that never has is that sender's to read.
  */
 async function sendToCustomer(
-  services: Pick<Context, "jobs">,
+  services: Pick<Context, "jobs" | "channel">,
   tx: Transaction,
   {
     threadId,
@@ -150,6 +160,7 @@ async function sendToCustomer(
     threadId,
     to: { channel, externalId },
     now,
+    channel: services.channel,
     content: { text, verified },
   });
   if (decision?.outcome !== "send") {
@@ -188,7 +199,7 @@ export function waitingAfterAbort(
  * past its batch, so the mark goes back to where that batch starts.
  */
 export async function holdThread(
-  { clock, jobs }: Pick<Context, "clock" | "jobs">,
+  { clock, jobs, channel }: Pick<Context, "clock" | "jobs" | "channel">,
   tx: Transaction,
   threadId: string,
   thread: Pick<Thread, "turnId" | "turnFrom" | "waitingFrom" | "lastChannel" | "lastExternalId">,
@@ -211,7 +222,13 @@ export async function holdThread(
       ...activeAt(now),
     })
     .where(eq(representativeThread.id, threadId));
-  await sendToCustomer({ jobs }, tx, { threadId, thread, author: "note", text: takeoverNote, now });
+  await sendToCustomer({ jobs, channel }, tx, {
+    threadId,
+    thread,
+    author: "note",
+    text: takeoverNote,
+    now,
+  });
 }
 
 /** Takes a thread over for the owner. Taking over a thread already held does nothing. */

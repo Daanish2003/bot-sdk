@@ -4,7 +4,7 @@ import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import type { OptOutSource } from "../shared/contract";
 import { representativeCustomerIdentity, representativeThread } from "./db/schema";
-import { type GateRefusal, passGate, storeAndDeliver } from "./outbound-gate";
+import { type GateRefusal, passGate, storeAndDeliver, type ViaChannel } from "./outbound-gate";
 import { replaceHeld } from "./reply-drafts";
 
 /*
@@ -98,7 +98,7 @@ export async function liftOptOut(tx: Transaction, userId: string, heard: Heard) 
  * none. The thread's row must be held by `tx`, as the writes to the thread need it.
  */
 export async function optOut(
-  services: Pick<FeatureContext, "jobs">,
+  services: Pick<FeatureContext, "jobs"> & ViaChannel,
   tx: Transaction,
   {
     userId,
@@ -141,6 +141,7 @@ export async function optOut(
     now,
     releaseId,
     refusals,
+    channel: services.channel,
     content: { text: optOutConfirmation, verified },
   });
   if (decision?.outcome !== "send") return true;
