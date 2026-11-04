@@ -3,8 +3,19 @@ import { and, eq, isNull } from "drizzle-orm";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { page } from "@botsdk/bot/storage";
-import { representative, representativeThread } from "./db/schema";
-import { type GateRefusal, passGate, storeAndDeliver } from "./outbound-gate";
+import {
+  representative,
+  representativeHeldMessage,
+  representativeOutboundDecision,
+  representativeThread,
+} from "./db/schema";
+import {
+  dropHeld,
+  type GateRefusal,
+  passGate,
+  storeAndDeliver,
+  type ViaChannel,
+} from "./outbound-gate";
 
 /*
  * The emergency script (ticket #1308): a Release's fixed safety text, which a keyword in that Release
@@ -66,11 +77,12 @@ export async function stopForScript(
  * Sends `text`, the script of the Release in effect, to `heard`, if the gate passes it. The owner is
  * Paged unless the Customer is blocked (they chose not to hear from them, and an emergency Page gets
  * through at any hour) or the thread's last emergency Page is still unacknowledged: a Customer repeating
- * themselves isn't a new alarm. The script answers the Turn's batch. Takes the thread's row, as the writes
+ * themselves isn't a new alarm. Held by the Channel's limits, it waits for the owner to send it, and the
+ * Page says so. The script answers the Turn's batch. Takes the thread's row, as the writes
  * to it need it; a caller holding the Customer's row took it first.
  */
 export async function sendEmergencyScript(
-  services: Pick<FeatureContext<"pages">, "jobs" | "pages">,
+  services: Pick<FeatureContext<"pages">, "jobs" | "pages"> & ViaChannel,
   tx: Transaction,
   {
     threadId,
@@ -101,6 +113,24 @@ export async function sendEmergencyScript(
     .where(eq(representativeThread.id, threadId))
     .for("update", { of: representativeThread });
   if (!owner) return;
+  // Saying it again leaves one to send: this one goes or waits in its place.
+  const waiting = await tx
+    .select({ id: representativeHeldMessage.id })
+    .from(representativeHeldMessage)
+    .innerJoin(
+      representativeOutboundDecision,
+      eq(representativeOutboundDecision.id, representativeHeldMessage.decisionId),
+    )
+    .where(
+      and(
+        eq(representativeHeldMessage.threadId, threadId),
+        isNull(representativeHeldMessage.resolution),
+        eq(representativeOutboundDecision.kind, "emergency_script"),
+      ),
+    );
+  for (const { id } of waiting) {
+    await dropHeld(tx, { threadId, heldId: id, kind: "emergency_script", rule: "replaced", now });
+  }
   const decision = await passGate(tx, {
     kind: "emergency_script",
     threadId,
@@ -108,6 +138,7 @@ export async function sendEmergencyScript(
     now,
     releaseId,
     refusals,
+    channel: services.channel,
     content: { text, verified },
   });
   if (decision?.outcome === "send") {
@@ -133,7 +164,10 @@ export async function sendEmergencyScript(
       cause,
       urgency: "emergency",
       title: "A Customer may have an emergency",
-      text: `${owner.name} sent a Customer its emergency script. Open the thread to see what they said.`,
+      text:
+        decision.outcome === "send"
+          ? `${owner.name} sent a Customer its emergency script. Open the thread to see what they said.`
+          : `${owner.name} couldn't send a Customer its emergency script: the Channel's limits stopped it. Open the thread to send it.`,
       path: `/representatives/${owner.representativeId}`,
     });
   }

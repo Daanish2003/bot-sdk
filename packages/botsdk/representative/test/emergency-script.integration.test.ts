@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { page } from "@botsdk/bot/storage";
-import { webPushChannel } from "@botsdk/bot/channel";
+import { type MessagingReach, webPushChannel } from "@botsdk/bot/channel";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
@@ -28,6 +28,7 @@ import {
 import { liveChecks, passGate } from "../src/server/outbound-gate";
 import { saysKeyword } from "../src/server/emergency-script";
 import { representativeFeature } from "../src/server/plugin";
+import { receiveCustomerMessage } from "../src/server/thread-turns";
 
 /*
  * The emergency script (ticket #1308), through the real inbound and reply paths: a fake Model on real
@@ -84,7 +85,9 @@ async function instance(
     handle: "@bot_1",
     credentials: { token: "1:secret" },
   };
+  let reach: MessagingReach = {};
   const channel: CustomerChannel = {
+    reach: () => reach,
     send: async (to, { text }) => {
       await messaging.adapter.send(account, { chatId: to.externalId, text }, { fetch });
     },
@@ -142,11 +145,25 @@ async function instance(
     rpc,
     id,
     user,
+    channel,
+    /** What the Channel says it can carry, from here on. */
+    limitChannel: (to: MessagingReach) => {
+      reach = to;
+    },
     deps: world,
     threadId,
     to,
     hears: (message: string) =>
       testCustomerTurn(world, { representativeId: id, externalId: number, message }),
+    /** A message by the Channel itself, whose limits `hears` leaves out. */
+    arrives: (message: string) =>
+      receiveCustomerMessage(
+        {
+          ...world.parts.features.find(({ feature }) => feature.id === "representative")!.context,
+          channel,
+        },
+        { representativeId: id, channel: "fake", externalId: number, message },
+      ),
     starts: (message: string) =>
       startTestCustomerTurn(world, { representativeId: id, externalId: number, message }),
     /** What reached the Customer, in the order the fake sent it. */
@@ -167,7 +184,7 @@ async function instance(
       const thread = await threadId();
       return getTestDb().transaction((tx) =>
         storeReply(
-          feature.context,
+          { ...feature.context, channel },
           tx,
           { threadId: thread, upTo: 1, heard: to, verified: false },
           { text: "Hi", sources: [autoSource], topic: "general" },
@@ -285,6 +302,7 @@ describe("a keyword in the Release", () => {
     const outgoing = await getTestDb().transaction((tx) =>
       requestProof(tx, {
         keyring: world.deps.keyring,
+        channel: world.channel,
         userId: world.user.id,
         thread: { threadId, heard: world.to, verified: false, proofRule: "codeRoundTrip" },
         claimed: null,
@@ -359,6 +377,7 @@ describe("a keyword in the Release", () => {
         to: world.to,
         now: at,
         businessStarted: true,
+        channel: world.channel,
         content: { text: script, verified: false },
       }),
     );
@@ -518,8 +537,99 @@ describe("what counts as saying a keyword", () => {
   });
 });
 
+describe("a script the Channel's limits stop", () => {
+  /** Too short for the script, so the gate's Channel rule stops it. */
+  const tooShort = { maxLength: 3 };
+  const held = async (world: World) => (await world.thread()).held;
+
+  it("is held for the owner, not dropped, and the owner is told at once what is waiting", async () => {
+    const world = await instance([]);
+    world.limitChannel(tooShort);
+
+    await world.arrives("fire");
+
+    expect(await world.decisions()).toContainEqual(["emergency_script", "hold", "channel"]);
+    expect(await held(world)).toMatchObject([{ text: script, rule: "channel" }]);
+    expect(world.got()).toEqual([]);
+    const pages = (await world.pages()).filter(({ urgency }) => urgency === "emergency");
+    expect(pages).toHaveLength(1);
+    expect(pages[0]!.text).toContain("couldn't send");
+  });
+
+  it("goes when the owner sends it, past the Channel's limits, and to an opted-out Customer", async () => {
+    const world = await instance([]);
+    await world.hears("STOP");
+    await expect.poll(world.got, poll).toHaveLength(1);
+    world.limitChannel(tooShort);
+    await world.arrives("fire");
+    const [message] = await held(world);
+
+    await world.rpc.representative.threadHeldSend({ id: message!.id });
+
+    await expect.poll(world.got, poll).toContain(script);
+    expect(await held(world)).toEqual([]);
+    const { messages } = await world.thread();
+    expect(messages.at(-1)).toMatchObject({ author: "note", text: script });
+    expect(await world.decisions()).toContainEqual(["emergency_script_released", "send", "passed"]);
+  });
+
+  it("stays held, and goes to nobody, when the Customer has been blocked since", async () => {
+    const world = await instance([]);
+    world.limitChannel(tooShort);
+    await world.arrives("fire");
+    const [message] = await held(world);
+    const [line] = await world.rpc.representative.threadList({ id: world.id });
+    await world.rpc.representative.customerSetBlocked({ id: line!.customer.id, blocked: true });
+
+    await expect(world.rpc.representative.threadHeldSend({ id: message!.id })).rejects.toThrow();
+
+    expect(world.got()).toEqual([]);
+    expect(await held(world)).toHaveLength(1);
+  });
+
+  it("isn't put out of date by what the Customer says next, and saying it again leaves one to send", async () => {
+    const world = await instance([quiet()]);
+    world.limitChannel(tooShort);
+    await world.arrives("fire");
+
+    await world.hears("Are you there?");
+    expect(await held(world)).toMatchObject([{ text: script }]);
+
+    await world.arrives("fire!");
+    expect(await held(world)).toHaveLength(1);
+  });
+});
+
+describe("a spending cap", () => {
+  it("can't stop a keyword, even on a thread past its cap", async () => {
+    const world = await instance([quiet()]);
+    await world.rpc.representative.setSpendingCaps({ id: world.id, threadCalls: 1 });
+    await world.hears("Hello");
+    expect(world.entered).toHaveLength(1);
+
+    await world.hears("fire");
+
+    expect(world.entered).toHaveLength(1);
+    await expect.poll(world.got, poll).toEqual([script]);
+  });
+
+  it("can't stop a flag in the call that spends it, which answers the batch, so no limit note follows", async () => {
+    const world = await instance([flags(), quiet()], []);
+    await world.rpc.representative.setSpendingCaps({ id: world.id, threadCalls: 1 });
+
+    await world.hears("There's smoke");
+
+    await expect.poll(world.got, poll).toEqual([script]);
+    expect(world.entered).toHaveLength(1);
+    expect((await world.thread()).messages.map(({ author }) => author)).toEqual([
+      "customer",
+      "note",
+    ]);
+  });
+});
+
 describe("the gate", () => {
-  it("passes the script through every rule that can fail, except a block", async () => {
+  it("passes the script through every rule that can fail, except a block and the Channel's", async () => {
     const world = await instance([quiet()]);
     await world.hears("Hello");
     const threadId = await world.threadId();
@@ -536,14 +646,16 @@ describe("the gate", () => {
             to: world.to,
             now: at,
             businessStarted: true,
+            channel: world.channel,
             content: { text: script, verified: false },
           },
           checks,
         ),
       );
 
-    const { blocked, ...others } = failing;
+    const { blocked, channel, ...others } = failing;
     expect(await gate(others)).toMatchObject({ outcome: "send", rule: "passed" });
+    expect(await gate({ channel: channel! })).toMatchObject({ outcome: "hold", rule: "channel" });
     expect(await gate({ blocked: blocked! })).toMatchObject({ outcome: "hold", rule: "blocked" });
   });
 });

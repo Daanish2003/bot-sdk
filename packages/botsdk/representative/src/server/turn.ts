@@ -816,7 +816,7 @@ export function turnTools(turn: Turn) {
         if (thread !== null) {
           // The Customer's row before the thread's, the order a merge and a delete take them in.
           await holdThreadCustomer(tx, thread.threadId);
-          await sendEmergencyScript(job, tx, {
+          await sendEmergencyScript(gating(job, thread), tx, {
             threadId: thread.threadId,
             heard: thread.heard,
             verified: thread.verified,

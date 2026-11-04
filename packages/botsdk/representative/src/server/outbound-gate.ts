@@ -71,8 +71,10 @@ const rulesOf: Record<OutboundKind, readonly GateRule[]> = {
   proof: ["blocked", "optedOut", "channel"],
   // The words that tell a Customer their opt-out worked: the rule that drops the rest can't drop it.
   opt_out_confirmation: ["blocked", "channel"],
-  // Safety wins: only a block stops it, and a Channel that can't deliver it.
+  // Safety wins: only a block stops it, and a Channel that can't deliver it, which holds it for the owner.
   emergency_script: ["blocked", "channel"],
+  // That held script when the owner sends it. Still safety text, so an opt-out doesn't stop it, and they chose to pass the Channel's limits.
+  emergency_script_released: ["blocked"],
   // All a reply passes but these: the owner's word settles them for a draft, as for a released
   // message, and the note is code's, which isn't what the caps count.
   holding_note: gateOrder.filter((rule) => rule !== "topic" && rule !== "caps"),
@@ -80,12 +82,18 @@ const rulesOf: Record<OutboundKind, readonly GateRule[]> = {
 };
 
 /**
- * What becomes of a message the Channel's limits stop. A reply, the code's hand-off and a release by
- * itself wait for the owner, to send or drop. Every other kind is not kept: the owner's own send and
+ * What becomes of a message the Channel's limits stop. A reply, the code's hand-off, a release by
+ * itself and the emergency script, which can't go stale as a note does, wait for the owner, to send or
+ * drop. Every other kind is not kept: the owner's own send and
  * an approved draft are refused to the owner who is right there, a proof has no secret to keep, and a
  * fixed note is stale once the moment has passed.
  */
-const heldWhenLimited = new Set<OutboundKind>(["reply", "code_hand_off", "released"]);
+const heldWhenLimited = new Set<OutboundKind>([
+  "reply",
+  "code_hand_off",
+  "released",
+  "emergency_script",
+]);
 
 /** What the rules read of a message's thread. */
 type GateFacts = {
@@ -598,7 +606,8 @@ export const outdatedBy = (by: Sender) =>
 /**
  * Drops the messages held on `threadId` (just `heldId` when given, and just what `by` outdates when
  * given), each with a decision of its own saying `rule`, and returns how many. The held message goes;
- * its first decision stays in the log. A Reply draft has its own answers, and stays (`reply-drafts`).
+ * its first decision stays in the log. A Reply draft has its own answers, and stays (`reply-drafts`), and
+ * a held emergency script goes only by its `heldId`: nothing a Customer says next puts it out of date.
  */
 export async function dropHeld(
   tx: Transaction,
@@ -632,7 +641,7 @@ export async function dropHeld(
     .where(
       and(
         eq(held.threadId, threadId),
-        heldId ? eq(held.id, heldId) : undefined,
+        heldId ? eq(held.id, heldId) : ne(decision.kind, "emergency_script"),
         by && outdatedBy(by),
         isNull(held.resolution),
         ne(decision.rule, draftRule),

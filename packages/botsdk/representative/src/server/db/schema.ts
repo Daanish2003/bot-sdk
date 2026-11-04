@@ -645,7 +645,8 @@ export type OutboundKind =
   | "opt_out_confirmation"
   | "holding_note"
   | "reply_draft"
-  | "emergency_script";
+  | "emergency_script"
+  | "emergency_script_released";
 
 export type GateOutcome = "send" | "hold" | "drop";
 

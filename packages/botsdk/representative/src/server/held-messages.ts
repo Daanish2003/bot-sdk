@@ -110,6 +110,7 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
         channel: decision.channel,
         externalId: decision.externalId,
         rule: decision.rule,
+        heldKind: decision.kind,
       })
       .from(held)
       .innerJoin(decision, eq(decision.id, held.decisionId))
@@ -118,6 +119,8 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
     if (!message) throw heldNotFound();
     const now = context.clock();
     const { channel: channelId, externalId } = message;
+    // The decision that held it says what it is: an emergency script keeps its own rules, and its author.
+    const script = message.heldKind === "emergency_script";
     if (byItself && message.rule === "quietHours") {
       // The hours or the Customer's zone may have changed since: it goes when they end now.
       const quiet = await quietAt(tx, found, now);
@@ -127,7 +130,7 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
       }
     }
     const decided = await passGate(tx, {
-      kind: "released",
+      kind: script ? "emergency_script_released" : "released",
       threadId: found,
       to: { channel: channelId, externalId },
       now,
@@ -169,7 +172,7 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
       decided.id,
       {
         threadId: found,
-        author: "representative",
+        author: script ? "note" : "representative",
         text: message.text,
         replyKind: message.replyKind,
         sources: message.sources,
