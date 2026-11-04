@@ -264,16 +264,31 @@ describe("the thread cap", () => {
     expect(await world.pages()).toEqual(["thread_cap"]);
   });
 
-  it("ends a Turn that reaches it before its next model call", async () => {
+  it("ends a Turn that reaches it before its next model call, and tells the Customer if it hasn't answered", async () => {
+    const world = await instance([round(toolCall({ name: "look_up", input: {} })), round()]);
+    await world.setCaps({ threadCalls: 1 });
+
+    await world.hears("Hello");
+
+    await delivered(world, 1);
+    expect(world.entered).toHaveLength(1);
+    expect(world.got()).toEqual([limitNote]);
+    expect(await world.pages()).toEqual(["thread_cap"]);
+  });
+
+  it("ends a Turn that has already answered without a note, so a lift sends no second answer", async () => {
     const world = await instance([replies("Hello, how can I help?"), round()]);
     await world.setCaps({ threadCalls: 1 });
 
     await world.hears("Hello");
 
-    await delivered(world, 2);
+    await delivered(world, 1);
+    await expect.poll(() => world.entered.length, { timeout: 10_000 }).toBe(1);
+    await world.setCaps({ threadCalls: 100 });
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(world.got()).toEqual(["Hello, how can I help?"]);
     expect(world.entered).toHaveLength(1);
-    expect(world.got()).toEqual(["Hello, how can I help?", limitNote]);
-    expect(await world.pages()).toEqual(["thread_cap"]);
+    expect(await world.pages()).toEqual([]);
   });
 
   it("goes on below the limit", async () => {

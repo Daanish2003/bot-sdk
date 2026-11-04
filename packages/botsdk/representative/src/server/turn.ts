@@ -1059,7 +1059,24 @@ export function representativeTurnJob(
           if (played.error !== undefined && !played.capped) {
             throw new PermanentJobError(`Representative Turn ${turnId} failed: ${played.error}`);
           }
-          if (played.quotaSpent || played.capped) {
+          // A cap reached after the Turn has answered this batch is a plain end: a note would follow the
+          // answer, and the batch waiting again would be answered twice when the cap lifts.
+          const answered =
+            played.capped &&
+            (await job.step("representative_answered", async (tx) => {
+              const [row] = await tx
+                .select({ n: count() })
+                .from(representativeThreadMessage)
+                .where(
+                  and(
+                    eq(representativeThreadMessage.threadId, threadId),
+                    eq(representativeThreadMessage.author, "representative"),
+                    gt(representativeThreadMessage.position, upTo),
+                  ),
+                );
+              return (row?.n ?? 0) > 0;
+            }));
+          if ((played.quotaSpent || played.capped) && !answered) {
             const now = await job.now();
             await job.step("representative_at_limit", async (tx) =>
               reachLimit(job, tx, {
