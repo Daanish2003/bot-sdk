@@ -1,14 +1,14 @@
 import type { BotMemoryChange, MemoryTier } from "@botsdk/client/memory/changes";
 import { searchTextOf } from "@botsdk/client/message-parts";
 import type { ModelMessage } from "@tanstack/ai";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { bot, botTrigger, botTurn, message } from "@botsdk/bot/storage";
+import { bot, botAssignment, botTrigger, botTurn, message } from "@botsdk/bot/storage";
 import type { Database } from "@botsdk/bot/storage";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
-import { lockConversation } from "@botsdk/bot/bot/triggers";
+import { lockConversation, untrustedAssignmentChannel } from "@botsdk/bot/bot/triggers";
 import { noResetAfter, recordBotChange } from "@botsdk/bot/bot/conversation";
 import { sendToUserToolName } from "@botsdk/bot/bot/context";
 import type { ComputerHandle } from "@botsdk/bot/computer/internal";
@@ -103,6 +103,47 @@ export const botMemoryPassJob = defineJob<PassPayload, PassContext>({
 });
 
 /**
+ * What the pass may read of Turn `turnId`: Customer details must never reach a Bot's memory files,
+ * where they can't be found or deleted (spec #1170). The rule keys on the untrusted Assignment
+ * channel, so it covers any feature's Assignments and the children a Bot split off from them.
+ * - `skip`: the Turn took only untrusted Assignment Triggers, or follows on from the Bot's own
+ *   work (a Check-in, a Helper's report, an answered Approval) while it holds an untrusted
+ *   Assignment that was not ended before the Turn started. No pass reads it.
+ * - `user`: the Turn took such a Trigger beside others. The pass reads the user's lines and the
+ *   trusted Triggers, and no line of the Bot's.
+ * - `all`: as before.
+ */
+async function passScope(
+  db: Database,
+  turn: { id: string; botId: string; startedAt: Date },
+): Promise<"skip" | "user" | "all"> {
+  const triggers = await db
+    .select({ source: botTrigger.source, channel: botTrigger.channel })
+    .from(botTrigger)
+    .where(eq(botTrigger.turnId, turn.id));
+  const untrusted = triggers.filter((each) => each.channel === untrustedAssignmentChannel);
+  if (untrusted.length > 0) return untrusted.length === triggers.length ? "skip" : "user";
+  const sources = new Set(triggers.map((each) => each.source));
+  const followsOn =
+    (sources.has("check_in") || sources.has("helper") || sources.has("approval")) &&
+    !sources.has("user");
+  if (!followsOn) return "all";
+  const [held] = await db
+    .select({ id: botAssignment.id })
+    .from(botAssignment)
+    .where(
+      and(
+        eq(botAssignment.assignedBotId, turn.botId),
+        eq(botAssignment.assignerTrusted, false),
+        lte(botAssignment.createdAt, turn.startedAt),
+        or(isNull(botAssignment.endedAt), gte(botAssignment.endedAt, turn.startedAt)),
+      ),
+    )
+    .limit(1);
+  return held ? "skip" : "all";
+}
+
+/**
  * Queues Turn `turnId`'s pass in `tx`, the transaction that ends it, when it ended `complete` or
  * `stopped` and the user's Memory is on. The runner is woken once `tx` has committed.
  */
@@ -112,12 +153,18 @@ export async function enqueueBotMemoryPass(
   turnId: string,
 ): Promise<void> {
   const [turn] = await tx
-    .select({ status: botTurn.status, userId: bot.userId })
+    .select({
+      status: botTurn.status,
+      userId: bot.userId,
+      botId: botTurn.botId,
+      startedAt: botTurn.startedAt,
+    })
     .from(botTurn)
     .innerJoin(bot, eq(bot.id, botTurn.botId))
     .where(eq(botTurn.id, turnId));
   if (!turn || (turn.status !== "complete" && turn.status !== "stopped")) return;
   if (!(await memoryEnabledFor({ db: tx }, turn.userId))) return;
+  if ((await passScope(tx, { id: turnId, ...turn })) === "skip") return;
   await jobs.enqueueIn(
     tx,
     botMemoryPassJob,
@@ -155,6 +202,8 @@ async function runBotMemoryPass(
     .innerJoin(bot, eq(bot.id, botTurn.botId))
     .where(eq(botTurn.id, turnId));
   if (!turn || (turn.status !== "complete" && turn.status !== "stopped")) return;
+  const scope = await passScope(deps.db, { id: turnId, ...turn });
+  if (scope === "skip") return;
   const computer = () => deps.computer.forUser(turn.userId);
 
   // A Turn from before the Bot's reset is one it forgot (spec #1007): nothing of it is written.
@@ -184,7 +233,12 @@ async function runBotMemoryPass(
         turnStartedAt: turn.startedAt,
         signal,
       });
-      const transcript = await turnTranscript(deps.db, turnId, turn.transcript ?? []);
+      const transcript = await turnTranscript(
+        deps.db,
+        turnId,
+        scope === "user" ? [] : (turn.transcript ?? []),
+        scope === "user",
+      );
       try {
         const reply = await askBackground(deps, {
           botId: turn.botId,
@@ -439,20 +493,28 @@ async function turnTranscript(
   db: Database,
   turnId: string,
   transcript: ModelMessage[],
+  withoutUntrusted: boolean,
 ): Promise<string> {
   const inputs = await db
-    .select({ source: botTrigger.source, text: botTrigger.text, parts: message.parts })
+    .select({
+      source: botTrigger.source,
+      channel: botTrigger.channel,
+      text: botTrigger.text,
+      parts: message.parts,
+    })
     .from(botTrigger)
     .leftJoin(message, eq(message.id, botTrigger.messageId))
     .where(eq(botTrigger.turnId, turnId))
     .orderBy(asc(botTrigger.receivedAt), asc(botTrigger.id));
   const cut = (text: string, limit = transcriptChars) =>
     text.length > limit ? `${text.slice(0, limit)}…` : text;
-  const lines = inputs.map((input) =>
-    input.parts
-      ? `User: ${cut(searchTextOf(input.parts))}`
-      : `Trigger (${input.source}): ${cut(input.text ?? "")}`,
-  );
+  const lines = inputs
+    .filter((input) => !(withoutUntrusted && input.channel === untrustedAssignmentChannel))
+    .map((input) =>
+      input.parts
+        ? `User: ${cut(searchTextOf(input.parts))}`
+        : `Trigger (${input.source}): ${cut(input.text ?? "")}`,
+    );
   for (const entry of transcript) {
     if (entry.role !== "assistant") continue;
     if (typeof entry.content === "string" && entry.content.trim()) {
