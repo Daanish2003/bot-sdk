@@ -27,6 +27,8 @@ export {
   type FactType,
   type FactView,
   type GapView,
+  type ReplyDraftView,
+  type TopicView,
   correctableFixedFields,
   maxProfileFieldNameLength,
   maxProfileValueLength,

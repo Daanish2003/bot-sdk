@@ -31,7 +31,8 @@ const poll = { timeout: 10_000 };
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 const quiet = () => round();
-const replies = (input: object) => round(toolCall({ name: "reply", input }));
+const replies = (input: object) =>
+  round(toolCall({ name: "reply", input: { topic: "general", ...input } }));
 const cantConfirm = (question: string, text = "I can't confirm that. Shall I hand it off?") =>
   replies({ text, kind: "cant_confirm", question });
 const answers = (text: string, key = "price.haircut") =>

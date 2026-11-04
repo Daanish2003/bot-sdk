@@ -1273,7 +1273,9 @@ describe("the order a delete takes its locks in", () => {
 
 describe("the order a hand-off takes its locks in", () => {
   const replyWithNoSource = () =>
-    round(toolCall({ name: "reply", input: { text: "It's fine.", kind: "answer" } }));
+    round(
+      toolCall({ name: "reply", input: { topic: "general", text: "It's fine.", kind: "answer" } }),
+    );
 
   /** Whether `table`'s row `id` is free to lock right now, without waiting for it. */
   const isFree = (table: typeof conversation | typeof representativeThread, id: string) =>

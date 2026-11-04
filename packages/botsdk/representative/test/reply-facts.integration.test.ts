@@ -39,7 +39,8 @@ const day = 24 * 60 * 60 * 1000;
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 const quiet = () => round();
-const replies = (input: object) => round(toolCall({ name: "reply", input }));
+const replies = (input: object) =>
+  round(toolCall({ name: "reply", input: { topic: "general", ...input } }));
 const answers = (text: string, sources: object[] = [{ type: "fact", key: "price.haircut" }]) =>
   replies({ text, kind: "answer", sources });
 
@@ -649,8 +650,8 @@ describe("the prompt", () => {
 
     await turn("Hello there");
 
-    // The Customer's message, then code's word on who sent it.
-    expect(promptOf(fake.calls[0])).toHaveLength(2);
+    // The Customer's message, the topics to label a reply with, then code's word on who sent it.
+    expect(promptOf(fake.calls[0])).toHaveLength(3);
     expect(promptOf(fake.calls[0])[0]?.content).toContain("Hello there");
     expect(JSON.stringify(fake.calls[0]?.messages)).not.toContain("45 USD");
   });

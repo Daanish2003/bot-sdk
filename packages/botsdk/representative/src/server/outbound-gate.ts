@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
@@ -11,6 +11,7 @@ import { holdThreadCustomer } from "./customers";
 import {
   type GateOutcome,
   type OutboundKind,
+  type TopicMode,
   representative,
   representativeCustomer,
   representativeCustomerIdentity,
@@ -19,6 +20,7 @@ import {
   representativeThread,
   representativeThreadMessage,
 } from "./db/schema";
+import { modeOfLabel } from "./topics";
 
 /*
  * The Outbound gate (ticket #1298): one code-owned check of every message to a Customer, in a fixed
@@ -48,6 +50,9 @@ const rulesOf: Record<OutboundKind, readonly GateRule[]> = {
   owner: ["blocked", "optedOut", "channel"],
   takeover_note: ["blocked", "optedOut", "channel"],
   proof: ["blocked", "optedOut", "channel"],
+  // All a reply passes but its topic: the owner's word settles that for a draft, and the note is code's.
+  holding_note: gateOrder.filter((rule) => rule !== "topic"),
+  reply_draft: gateOrder.filter((rule) => rule !== "topic"),
 };
 
 /** What the rules read of a message's thread. */
@@ -55,6 +60,8 @@ type GateFacts = {
   threadState: string;
   blockedAt: Date | null;
   enabled: boolean;
+  /** The owner's mode for the topic the message is labelled with; null for one they don't have. */
+  topicMode: TopicMode | null;
 };
 
 export type GateCheck = (facts: GateFacts) => Exclude<GateOutcome, "send"> | null;
@@ -64,6 +71,7 @@ export const liveChecks: Partial<Record<GateRule, GateCheck>> = {
   held: ({ threadState }) => (threadState === "representative" ? null : "drop"),
   blocked: ({ blockedAt }) => (blockedAt === null ? null : "drop"),
   on: ({ enabled }) => (enabled ? null : "drop"),
+  topic: ({ topicMode }) => (topicMode === "auto" ? null : "hold"),
 };
 
 /** What a decision's `rule` says when no rule stopped the message. */
@@ -86,6 +94,8 @@ export type Outgoing = {
     verified: boolean;
     replyKind?: StoredReplyKind;
     sources?: ReplySource[];
+    /** The topic a reply was labelled with, as the Model wrote it. */
+    topic?: string;
   };
 };
 
@@ -126,7 +136,7 @@ export async function logRefusals(db: FeatureContext["db"], refusals: GateRefusa
  * thread's. A switch-off, a block or a takeover then lands either before this decision or after this
  * transaction's message. False when the thread has gone.
  */
-async function holdForRules(tx: Transaction, threadId: string) {
+export async function holdForRules(tx: Transaction, threadId: string) {
   const [thread] = await tx
     .select({ representativeId: representativeThread.representativeId })
     .from(representativeThread)
@@ -172,6 +182,7 @@ export async function passGate(
       customerId: representativeThread.customerId,
       enabled: representative.enabled,
       liveReleaseId: representative.liveReleaseId,
+      userId: representative.userId,
     })
     .from(representativeThread)
     .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
@@ -181,7 +192,11 @@ export async function passGate(
     .select({ blockedAt: representativeCustomer.blockedAt })
     .from(representativeCustomer)
     .where(eq(representativeCustomer.id, outgoing.customerId ?? row.customerId));
-  const facts: GateFacts = { ...row, blockedAt: customer?.blockedAt ?? null };
+  const facts: GateFacts = {
+    ...row,
+    blockedAt: customer?.blockedAt ?? null,
+    topicMode: rules.includes("topic") ? await modeOfLabel(tx, row.userId, content?.topic) : null,
+  };
 
   let outcome: GateOutcome = "send";
   let rule: string = passedRule;
@@ -218,12 +233,21 @@ export async function passGate(
           verified: content.verified,
           replyKind: content.replyKind,
           sources: content.sources,
+          topic: content.topic,
           createdAt: now,
         },
       }),
   };
   await writeDecision(tx, written);
-  if (outcome !== "send") outgoing.refusals?.push(written);
+  // Written again only if its Turn's fence rolled this back, and a Turn stopped like that has no say.
+  if (outcome !== "send") {
+    outgoing.refusals?.push({
+      ...written,
+      ...(written.held && {
+        held: { ...written.held, resolution: "cancelled", resolvedAt: now },
+      }),
+    });
+  }
   return { id, outcome, rule };
 }
 
@@ -254,6 +278,35 @@ export async function deliverMessage(
     { decisionId },
     { idempotencyKey: `${customerDeliveryJobName}:${decisionId}` },
   );
+}
+
+/**
+ * Stores a message the gate passed as the next one on the thread, whose row `tx` holds, and sends it.
+ * A reply that answers its Turn's batch also says `turnFrom: null` in `threadChanges`.
+ */
+export async function storeAndDeliver(
+  services: Pick<FeatureContext, "jobs">,
+  tx: Transaction,
+  decisionId: string,
+  message: Omit<typeof representativeThreadMessage.$inferInsert, "id" | "position">,
+  now: Date,
+  threadChanges: { turnFrom?: null } = {},
+) {
+  const [updated] = await tx
+    .update(representativeThread)
+    .set({
+      messageCount: sql`${representativeThread.messageCount} + 1`,
+      updatedAt: sql`greatest(${representativeThread.updatedAt}, ${now.toISOString()}::timestamp)`,
+      ...threadChanges,
+    })
+    .where(eq(representativeThread.id, message.threadId))
+    .returning({ position: representativeThread.messageCount });
+  const messageId = uuidv7();
+  await tx
+    .insert(representativeThreadMessage)
+    .values({ id: messageId, position: updated!.position, ...message });
+  await deliverMessage(services, tx, decisionId, messageId);
+  return messageId;
 }
 
 /** Why a message the gate passed never went, as the log says it. */
@@ -346,6 +399,8 @@ export async function exportOutboundDecisions(tx: Transaction, userId: string) {
       externalId: decision.externalId,
       messageId: decision.messageId,
       heldText: held.text,
+      heldTopic: held.topic,
+      heldResolution: held.resolution,
       createdAt: decision.createdAt,
     })
     .from(decision)

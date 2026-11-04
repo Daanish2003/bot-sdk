@@ -14,7 +14,8 @@ import {
 import { holdCustomers } from "./customer-merge";
 import { nameIn, profilesOf } from "./customer-profile";
 import { catchCode, customerProofLeadsTo, mayHoldCode } from "./customer-proof";
-import { deliverMessage, type GateRefusal, passGate } from "./outbound-gate";
+import { type GateRefusal, passGate, storeAndDeliver } from "./outbound-gate";
+import { afterDraftHeld, replaceDrafts } from "./reply-drafts";
 import { type ChannelProof, judgeSender } from "./verification";
 import { codeHandOffKind, type ReplySource, type StoredReplyKind } from "../shared/replies";
 
@@ -235,6 +236,7 @@ export async function receiveMessage(
     proofRule: proof?.rule,
     ...heard,
   });
+  await replaceDrafts(tx, threadId, now, { ...heard, verified });
   // Position 1 is a thread's first message: it has just been opened.
   return { threadId, turnId, waitingSince, blocked, state, opened: position === 1 };
 }
@@ -365,25 +367,27 @@ export async function holdThreadCustomer(tx: Transaction, threadId: string) {
 /**
  * Passes a reply through the Outbound gate, addressed to the sender its Turn answers, and if the gate
  * sends it, stores it and sends it. Not to whoever was heard last: an unverified identity writing
- * during a verified Turn mustn't get that Turn's reply.
+ * during a verified Turn mustn't get that Turn's reply. `upTo` is the last message its Turn read.
  */
 export async function storeReply(
   services: Pick<FeatureContext, "jobs">,
   tx: Transaction,
   {
     threadId,
+    upTo,
     heard,
     verified,
     releaseId,
     refusals,
   }: {
     threadId: string;
+    upTo: number;
     heard: Heard;
     verified: boolean;
     releaseId?: string | null;
     refusals?: GateRefusal[];
   },
-  { text, sources }: { text: string; sources: ReplySource[] },
+  { text, sources, topic }: { text: string; sources: ReplySource[]; topic?: string },
   replyKind: StoredReplyKind,
   now: Date,
 ) {
@@ -394,35 +398,35 @@ export async function storeReply(
     now,
     releaseId,
     refusals,
-    content: { text, verified, replyKind, sources },
+    content: { text, verified, replyKind, sources, topic },
   });
+  if (decision?.outcome === "hold") {
+    if (decision.rule === "topic") {
+      await afterDraftHeld(
+        services,
+        tx,
+        { decisionId: decision.id, threadId, upTo, heard, verified, releaseId, refusals },
+        now,
+      );
+    }
+    return {
+      held: true,
+      note: "This reply is waiting for the owner and hasn't reached the Customer. Don't send it again.",
+    };
+  }
   if (decision?.outcome !== "send")
     return {
       error:
         "This thread is gone or no longer yours to answer (it may be held by the owner, its Customer blocked, or you switched off), so nothing was sent.",
     };
-  const [thread] = await tx
-    .update(representativeThread)
-    .set({
-      messageCount: sql`${representativeThread.messageCount} + 1`,
-      turnFrom: null,
-      updatedAt: sql`greatest(${representativeThread.updatedAt}, ${now.toISOString()}::timestamp)`,
-    })
-    .where(eq(representativeThread.id, threadId))
-    .returning({ position: representativeThread.messageCount });
-  const messageId = uuidv7();
-  await tx.insert(representativeThreadMessage).values({
-    id: messageId,
-    threadId,
-    author: "representative",
-    text,
-    replyKind,
-    sources,
-    verified,
-    ...heard,
-    ...thread!,
-  });
-  await deliverMessage(services, tx, decision.id, messageId);
+  await storeAndDeliver(
+    services,
+    tx,
+    decision.id,
+    { threadId, author: "representative", text, replyKind, sources, verified, ...heard },
+    now,
+    { turnFrom: null },
+  );
   return { sent: true };
 }
 

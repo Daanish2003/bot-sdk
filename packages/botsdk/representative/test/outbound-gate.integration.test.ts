@@ -45,10 +45,10 @@ type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 const quiet = () => round();
 const replies = (text: string) =>
-  round(toolCall({ name: "reply", input: { text, kind: "small_talk" } }));
+  round(toolCall({ name: "reply", input: { topic: "general", text, kind: "small_talk" } }));
 /** A reply no source backs: code refuses it. */
 const guesses = (text: string) =>
-  round(toolCall({ name: "reply", input: { text, kind: "answer" } }));
+  round(toolCall({ name: "reply", input: { topic: "general", text, kind: "answer" } }));
 
 const runners: JobRunner[] = [];
 afterEach(async () => {
@@ -175,8 +175,8 @@ const anotherReply = async ({ deps, threadId }: World) => {
     storeReply(
       feature.context,
       tx,
-      { threadId: id, heard: { channel: "fake", externalId: number }, verified: false },
-      { text: "Still here", sources: [] },
+      { threadId: id, upTo: 1, heard: { channel: "fake", externalId: number }, verified: false },
+      { text: "Still here", sources: [], topic: "general" },
       "small_talk",
       new Date(),
     ),

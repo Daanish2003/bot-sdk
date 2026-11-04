@@ -8,7 +8,11 @@ import { job } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { claimPastDeliveries, fakeChannel } from "@ai-chat/test-support/test-customer";
+import {
+  claimPastDeliveries,
+  fakeChannel,
+  promoteAutoTopic,
+} from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
@@ -36,7 +40,7 @@ type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 const quiet = () => round();
 const replies = (text: string) =>
-  round(toolCall({ name: "reply", input: { text, kind: "small_talk" } }));
+  round(toolCall({ name: "reply", input: { topic: "general", text, kind: "small_talk" } }));
 
 /** A gate a test opens, which opens by itself when the test ends. */
 function gate() {
@@ -104,6 +108,7 @@ async function serving(rounds: Round[], held?: Promise<void>) {
   await rpc.representative.setEnabled({ id, enabled: true });
 
   const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
+  await promoteAutoTopic(id);
   const running: Array<Promise<void>> = [];
   const claim = async () => {
     const claimed = await claimPastDeliveries(jobs, timer.clock.now(), { respectRunAfter: true });

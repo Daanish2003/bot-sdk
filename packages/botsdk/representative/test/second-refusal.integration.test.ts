@@ -36,10 +36,11 @@ type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 const quiet = () => round();
 /** A reply no source backs: code refuses it. */
-const guess = (text: string) => toolCall({ name: "reply", input: { text, kind: "answer" } });
+const guess = (text: string) =>
+  toolCall({ name: "reply", input: { topic: "general", text, kind: "answer" } });
 const guesses = (text: string) => round(guess(text));
 const greets = (text: string) =>
-  round(toolCall({ name: "reply", input: { text, kind: "small_talk" } }));
+  round(toolCall({ name: "reply", input: { topic: "general", text, kind: "small_talk" } }));
 const handsOff = () =>
   toolCall({
     name: "hand_to_bot",
@@ -244,6 +245,7 @@ describe("a second refusal", () => {
         toolCall({
           name: "reply",
           input: {
+            topic: "general",
             text: "It is 10 USD.",
             kind: "answer",
             sources: [{ type: "document", name: "prices.md", quote: "10 USD" }],
@@ -318,7 +320,10 @@ describe("a second refusal", () => {
         guess("It is 10 USD."),
         guess("It is 12 USD."),
         handsOff(),
-        toolCall({ name: "reply", input: { text: "One more thing.", kind: "small_talk" } }),
+        toolCall({
+          name: "reply",
+          input: { topic: "general", text: "One more thing.", kind: "small_talk" },
+        }),
       ),
     ]);
 
@@ -546,7 +551,11 @@ describe("a second refusal in a test conversation", () => {
       round(
         toolCall({
           name: "reply",
-          input: { text: keys.map((key) => `{{${key}}}`).join(" "), kind: "answer" },
+          input: {
+            topic: "general",
+            text: keys.map((key) => `{{${key}}}`).join(" "),
+            kind: "answer",
+          },
         }),
       ),
       quiet(),
@@ -760,7 +769,10 @@ describe("a cant_confirm reply with no question", () => {
   it("counts as a refusal, so a Model repeating it hands off", async () => {
     const repeats = () =>
       round(
-        toolCall({ name: "reply", input: { text: "I can't confirm that.", kind: "cant_confirm" } }),
+        toolCall({
+          name: "reply",
+          input: { topic: "general", text: "I can't confirm that.", kind: "cant_confirm" },
+        }),
       );
     const { turn, sent, fake } = await serving([repeats(), repeats(), repeats(), repeats()]);
 
@@ -784,6 +796,7 @@ describe("a test conversation's reply", () => {
         toolCall({
           name: "reply",
           input: {
+            topic: "general",
             text: "Here you go.",
             kind: "answer",
             sources: [{ type: "document", name: "terms.md", quote: "q".repeat(11_000) }],
@@ -852,7 +865,12 @@ describe("what code takes for a typed value", () => {
 describe("what code takes for a typed value, from a fact", () => {
   it("lets a fact's value through whole, a sign and a code together", async () => {
     const { rpc, turn, sent } = await serving([
-      round(toolCall({ name: "reply", input: { text: "It is {{price.x}}.", kind: "answer" } })),
+      round(
+        toolCall({
+          name: "reply",
+          input: { topic: "general", text: "It is {{price.x}}.", kind: "answer" },
+        }),
+      ),
       quiet(),
     ]);
     await rpc.representative.factAdd({
@@ -872,7 +890,10 @@ describe("a Turn's Checkpoints", () => {
   it("hold no fact's value from a test conversation's reply either, which still reads it", async () => {
     const { rpc, id, timer, claim, attemptsEnd } = await serving([
       round(
-        toolCall({ name: "reply", input: { text: "It is {{price.haircut}}.", kind: "answer" } }),
+        toolCall({
+          name: "reply",
+          input: { topic: "general", text: "It is {{price.haircut}}.", kind: "answer" },
+        }),
       ),
       quiet(),
     ]);

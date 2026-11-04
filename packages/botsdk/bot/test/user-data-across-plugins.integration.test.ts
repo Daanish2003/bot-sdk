@@ -43,6 +43,7 @@ import {
   representativeFact,
   representativeFactLog,
   representativeGap,
+  representativeTopic,
   representativeFactProposal,
   representativeRelease,
   representativeThread,
@@ -86,6 +87,7 @@ const userTables = [
   representativeFact,
   representativeFactLog,
   representativeGap,
+  representativeTopic,
   representativeFactProposal,
   representativeCustomerSummary,
 ].flatMap((value) => {
@@ -292,6 +294,12 @@ async function seedEverything(
     old: null,
     new: loggedFact,
     at: factAt,
+  });
+  // A topic of the owner's.
+  await getTestDb().insert(representativeTopic).values({
+    id: uuidv7(),
+    userId: user.id,
+    name: "Billing",
   });
   // A Gap the owner has not closed.
   await getTestDb().insert(representativeGap).values({

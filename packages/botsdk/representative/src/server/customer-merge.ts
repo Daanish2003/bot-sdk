@@ -20,6 +20,7 @@ import {
 } from "./db/schema";
 import { queueIdleCheck } from "./idle";
 import { customerNotFound, readCustomer } from "./owner-customers";
+import { replaceDrafts } from "./reply-drafts";
 import { holdThread, releaseThread } from "./takeover";
 import { afterThreadClose } from "./customer-summary";
 import { queueThreadExpiry } from "./expiry";
@@ -74,11 +75,13 @@ export async function holdCustomers(tx: Transaction, ids: string[]) {
  * its summary is the caller's: a thread closed for holding two people's words has none.
  */
 async function closeThread(
-  { jobs }: Services,
+  { jobs, clock }: Services,
   tx: Transaction,
   thread: { id: string; turnId: string | null },
 ) {
   if (thread.turnId) await jobs.cancelIn(tx, thread.turnId);
+  // A closed thread can't send them, and an undo mustn't bring back what has since gone out of date.
+  await replaceDrafts(tx, thread.id, clock());
   await tx
     .update(representativeThread)
     .set({ state: "closed", turnId: null, waitingFrom: null, waitingSince: null })

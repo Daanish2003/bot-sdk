@@ -72,7 +72,7 @@ async function owner(deps: TestDeps, serving = true) {
 }
 
 const replies = (text = "Nine.") =>
-  round(toolCall({ name: "reply", input: { text, kind: "small_talk" } }));
+  round(toolCall({ name: "reply", input: { topic: "general", text, kind: "small_talk" } }));
 const quiet = () => round();
 
 describe("an owner's Customers", () => {
@@ -435,8 +435,8 @@ describe("a blocked Customer", () => {
         storeReply(
           feature.context,
           tx,
-          { threadId: line!.id, heard: line!.lastHeard, verified: false },
-          { text: "Still here", sources: [] },
+          { threadId: line!.id, upTo: 1, heard: line!.lastHeard, verified: false },
+          { text: "Still here", sources: [], topic: "general" },
           "small_talk",
           new Date(),
         ),
