@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
@@ -19,7 +19,7 @@ import {
  */
 
 /** How many Assignments one read returns, the newest first. */
-export const workLimit = 20;
+const workLimit = 20;
 
 /** What a read says of one Assignment. `forCustomer` is set only once a Bot ended it with some. */
 export type CustomerWork = {
@@ -102,7 +102,12 @@ export async function readCustomerWork(
         ),
       ),
     )
-    .orderBy(desc(botAssignment.createdAt), desc(botAssignment.id))
+    // Open work first, so a long history of finished work never crowds it out of the limit.
+    .orderBy(
+      sql`${botAssignment.status} in ('done', 'failed', 'cancelled')`,
+      desc(botAssignment.createdAt),
+      desc(botAssignment.id),
+    )
     .limit(workLimit);
   return rows.map((row) => ({
     assignmentId: row.id,
