@@ -500,7 +500,7 @@ async function turnTranscript(
   db: Database,
   turnId: string,
   transcript: ModelMessage[],
-  withoutUntrusted: boolean,
+  onlyWhatPassMayRead: boolean,
 ): Promise<string> {
   const inputs = await db
     .select({
@@ -516,7 +516,7 @@ async function turnTranscript(
   const cut = (text: string, limit = transcriptChars) =>
     text.length > limit ? `${text.slice(0, limit)}…` : text;
   const lines = inputs
-    .filter((input) => !withoutUntrusted || passMayRead(input))
+    .filter((input) => !onlyWhatPassMayRead || passMayRead(input))
     .map((input) =>
       input.parts
         ? `User: ${cut(searchTextOf(input.parts))}`
