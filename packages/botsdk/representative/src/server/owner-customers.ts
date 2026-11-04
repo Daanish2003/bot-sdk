@@ -539,6 +539,27 @@ export async function listThreads(
   return rows.map((row) => summary(row, nameIn(profiles.get(row.customerId))));
 }
 
+/** The most threads the inbox lists as running. */
+const runningListLimit = 50;
+
+/**
+ * The threads the owner's Representatives hold, the most recently active first (ticket #1313): those
+ * running without the owner. One they took over, and a closed one, are not.
+ */
+export async function listRunningThreads({ db }: Context, userId: string) {
+  const rows = await threadRows(db, userId)
+    .where(eq(representativeThread.state, "representative"))
+    .orderBy(desc(representativeThread.updatedAt), desc(representativeThread.id))
+    .limit(runningListLimit);
+  const profiles = await combinedProfilesOf(db, userId, [
+    ...new Set(rows.map((row) => row.customerId)),
+  ]);
+  return rows.map((row) => ({
+    ...summary(row, nameIn(profiles.get(row.customerId))),
+    representativeId: row.representativeId,
+  }));
+}
+
 /** One thread of the owner's with its transcript, oldest first. */
 export async function getThread(
   context: Context,

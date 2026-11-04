@@ -1395,3 +1395,77 @@ describe("a Channel's limits", () => {
     expect(await held()).toEqual([]);
   });
 });
+
+describe("the owner's inbox", () => {
+  it("lists what the gate held and the threads running, across Representatives, with who each is", async () => {
+    const world = await instance([quiet(), quiet()]);
+    await heard(world);
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 1 });
+    await anotherReply(world);
+    await anotherReply(world);
+    const second = await world.rpc.representative.create({ name: "Billing desk" });
+    await world.rpc.representative.updateDraft({
+      id: second.id,
+      draft: { jobText: "Answer billing.", model, tools: ["reply"] },
+    });
+    await world.rpc.representative.approve({ id: second.id });
+    await world.rpc.representative.setEnabled({ id: second.id, enabled: true });
+    await testCustomerTurn(world.deps, {
+      representativeId: second.id,
+      externalId: "+15550002",
+      message: "Hi",
+    });
+    const [message] = (await world.rpc.representative.threadGet({ id: await world.threadId() }))
+      .held;
+
+    const inbox = await world.rpc.representative.inbox();
+
+    expect(inbox.held).toMatchObject([
+      {
+        id: message!.id,
+        text: "Still here",
+        rule: "caps",
+        representativeId: world.id,
+        representativeName: "Front desk",
+        threadId: await world.threadId(),
+      },
+    ]);
+    expect(inbox.running.map(({ representativeName }) => representativeName).sort()).toEqual([
+      "Billing desk",
+      "Front desk",
+    ]);
+    expect(inbox.running.every(({ holder }) => holder === "representative")).toBe(true);
+  });
+
+  it("leaves a thread the owner holds, or that is closed, out of the running ones, and a draft out of the held", async () => {
+    const draft = round(
+      toolCall({
+        name: "reply",
+        input: { topic: "billing", sources: [], text: "Hi", kind: "small_talk" },
+      }),
+    );
+    const world = await instance([draft, quiet()]);
+    await world.hears("What do I owe?");
+    expect(await world.rpc.representative.replyDraftList()).toHaveLength(1);
+    const id = await world.threadId();
+
+    await world.rpc.representative.threadTakeOver({ id });
+    expect((await world.rpc.representative.inbox()).running).toEqual([]);
+
+    await world.rpc.representative.threadHandBack({ id });
+    expect((await world.rpc.representative.inbox()).running).toMatchObject([{ id }]);
+    expect((await world.rpc.representative.inbox()).held).toEqual([]);
+  });
+
+  it("is the owner's: another owner sees none of it", async () => {
+    const world = await instance([quiet()]);
+    await heard(world);
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 1 });
+    await anotherReply(world);
+    await anotherReply(world);
+    expect((await world.rpc.representative.inbox()).held).toHaveLength(1);
+    const stranger = chatRpc({ user: await insertUser(), deps: world.deps });
+
+    expect(await stranger.representative.inbox()).toEqual({ held: [], running: [] });
+  });
+});

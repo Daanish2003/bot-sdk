@@ -431,6 +431,26 @@ export type HeldMessageView = {
   createdAt: Date;
 };
 
+/** A held message on the owner-wide inbox (ticket #1313): who it is for, and where to read its thread. */
+export type InboxHeldView = HeldMessageView & {
+  threadId: string;
+  representativeId: string;
+  representativeName: string;
+  customerName: string | null;
+};
+
+/** A thread a Representative is running without the owner (ticket #1313), with whose it is. */
+export type InboxThreadView = ThreadSummary & {
+  representativeId: string;
+  representativeName: string;
+};
+
+/**
+ * What the owner's inbox needs beyond their Reply drafts and Pages (ticket #1313): the messages the
+ * Outbound gate held, and the threads their Representatives hold, across all of them.
+ */
+export type OwnerInbox = { held: InboxHeldView[]; running: InboxThreadView[] };
+
 export type ThreadView = ThreadSummary & {
   representativeId: string;
   /** The Customer's identities, each with whether it is verified. */
@@ -852,6 +872,8 @@ export const representativeContract = {
   replyDraftEdit: oc.input(replyDraftEditInput).output(type<void>()),
   /** Rejects a Reply draft: nothing is sent. */
   replyDraftReject: oc.input(idInput).output(type<void>()),
+  /** The messages the gate held and the threads Representatives are running, across all the owner's Representatives (ticket #1313). */
+  inbox: oc.output(type<OwnerInbox>()),
   /** Sends a message the gate held, as the owner's own, if the gate still passes it. Logged. */
   threadHeldSend: oc.input(idInput).output(type<ThreadView>()),
   /** Drops a message the gate held, which the Customer never gets. Logged. */

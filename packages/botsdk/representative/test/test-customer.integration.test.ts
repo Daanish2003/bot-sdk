@@ -811,6 +811,7 @@ describe("who can reach a Turn", () => {
       "gapList",
       "gapToFact",
       "get",
+      "inbox",
       "knowledgeList",
       "knowledgeStatus",
       "list",

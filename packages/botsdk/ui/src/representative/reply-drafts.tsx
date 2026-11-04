@@ -34,7 +34,7 @@ function useAfterAnswer() {
 }
 
 /** One reply waiting: its words, where they go, and the owner's three answers. */
-function DraftRow({ draft }: { draft: ReplyDraftView }) {
+export function DraftRow({ draft }: { draft: ReplyDraftView }) {
   const { t } = useI18n();
   const after = useAfterAnswer();
   const approve = useApproveReplyDraft(after);
