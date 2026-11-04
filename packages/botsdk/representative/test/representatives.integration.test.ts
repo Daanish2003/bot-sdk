@@ -71,7 +71,7 @@ describe("creating and editing a Representative", () => {
         jobText: "",
         switches: {},
         skills: [],
-        tools: ["reply", "hand_to_bot"],
+        tools: ["reply", "hand_to_bot", "read_customer_work"],
         model: null,
       },
     });
@@ -320,7 +320,7 @@ describe("approving a draft into a Release", () => {
     expect(edited.liveRelease).toEqual(release);
     expect(edited.liveRelease?.content).toMatchObject({
       jobText: "Answer pricing questions",
-      tools: ["reply", "hand_to_bot"],
+      tools: ["reply", "hand_to_bot", "read_customer_work"],
       model: null,
     });
   });

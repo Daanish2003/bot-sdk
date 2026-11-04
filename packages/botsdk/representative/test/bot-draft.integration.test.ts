@@ -207,7 +207,7 @@ describe("the draft tool", () => {
       model: customerModel,
       tests: [opens],
       // The Skill's words add no tool: the list is what any new draft starts with.
-      tools: ["reply", "hand_to_bot"],
+      tools: ["reply", "hand_to_bot", "read_customer_work"],
     });
   });
 
