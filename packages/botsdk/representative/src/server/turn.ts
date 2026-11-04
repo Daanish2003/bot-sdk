@@ -27,6 +27,7 @@ import {
   requestProof,
   type SentProof,
 } from "./customer-proof";
+import { memoryPrompt, noMemory, readCustomerMemory, type CustomerMemory } from "./customer-memory";
 import { deliverHandOffResult } from "./hand-off-result";
 import { type Heard, readSender, readThread, storeReply, type ThreadEntry } from "./customers";
 import {
@@ -105,8 +106,8 @@ export const rules =
   "what the Customer asked: say plainly that you can't confirm it, offer a hand-off, and put the " +
   "question in the question field so the owner sees it; answer for anything else. An answer rests on " +
   "at least one source, which code checks and the Customer never sees: a fact's key, the " +
-  "Assignment behind a Bot's result with an exact quote from that result, or a document by its " +
-  "name with an exact quote from it. A key you write in the text counts as a source. Code refuses " +
+  "Assignment behind a Bot's result with an exact quote from that result, a document by its " +
+  "name with an exact quote from it, or the memory of a verified Customer with an exact quote from it. A key you write in the text counts as a source. Code refuses " +
   "a reply it can't check, sends nothing, and tells you why. You get one retry: a second refusal " +
   "in a row ends the Turn, and so does ending it with a refusal not made good, and code tells the " +
   "Customer it has been passed on.\n\n" +
@@ -238,9 +239,11 @@ type Turn = {
   progress: TurnProgress;
   /** The documents of the Release this Turn started on (a test conversation: the draft's): the only ones a reply may quote. */
   documents: DocumentText[];
+  /** What this Turn read of a verified Customer's memory; none for an unverified sender and a test conversation. */
+  memory: CustomerMemory;
 };
 
-type HandOffTurn = Omit<Turn, "kit" | "documents">;
+type HandOffTurn = Omit<Turn, "kit" | "documents" | "memory">;
 
 /** Where a reply's information came from. A plain union: OpenAI's strict tools refuse the `oneOf` a discriminated one becomes. */
 const replySource = z.union([
@@ -256,6 +259,10 @@ const replySource = z.union([
   z.object({
     type: z.literal("document"),
     name: z.string().trim().min(1).max(maxDocumentNameLength).refine(noNul),
+    quote: z.string().trim().min(1).max(maxThreadMessageLength).refine(noNul),
+  }),
+  z.object({
+    type: z.literal("memory"),
     quote: z.string().trim().min(1).max(maxThreadMessageLength).refine(noNul),
   }),
 ]);
@@ -381,12 +388,12 @@ async function handOffAtEnd(turn: HandOffTurn) {
 
 /** The code-defined tools, by the name a Release lists them under. None takes a Customer's id. */
 export function turnTools(turn: Turn) {
-  const { job, kit, userId, representativeId, thread, entries, progress, documents } = turn;
+  const { job, kit, userId, representativeId, thread, entries, progress, documents, memory } = turn;
   return {
     reply: toolDefinition({
       name: "reply",
       description:
-        "Send the Customer a message, with its kind and the sources it rests on (a fact by key, a result by Assignment, or a document by name, each with an exact quote). They see only the text, with each {{key}} replaced by that fact's value.",
+        "Send the Customer a message, with its kind and the sources it rests on (a fact by key, a result by Assignment, a document by name, or the Customer's memory, each but a fact with an exact quote). They see only the text, with each {{key}} replaced by that fact's value.",
       inputSchema: z.object({
         text: z.string().min(1).max(maxThreadMessageLength).refine(noNul),
         kind: z.enum(replyKinds),
@@ -428,6 +435,7 @@ export function turnTools(turn: Turn) {
           sources,
           entries,
           documents,
+          memory,
         });
         if ("error" in checked) return refuse(tx, checked);
         // Stored as sent: nothing reaches a real Channel until the gate spec.
@@ -709,8 +717,10 @@ export async function playLoop(
   // Model calls and replies come from what they recorded, so only a call made after a crash sees a
   // later edit, as any call made after that edit would.
   const facts = await factsInEffect(job.db, userId, startedAt);
-  // A test conversation's stand-in is unverified, as its prompt treats it.
+  // A test conversation's stand-in is unverified, as its prompt treats it. Only a verified sender's
+  // Turn reads memory, and only their Customer's: code sets the id.
   const verified = "thread" in on && on.thread.verified;
+  const memory = verified ? await readCustomerMemory(job.db, userId, customerId) : noMemory;
   const progress: TurnProgress = { refusals: 0, handedOff: false, evidence: new Map() };
   const turn = {
     job,
@@ -724,13 +734,18 @@ export async function playLoop(
   const played = await job.representativeLoop.run(job, {
     representative: { userId, representativeId, customerId, model },
     sourceId,
-    input: [...factsPrompt(facts), ...threadPrompt(entries, verified), senderStanding(verified)],
+    input: [
+      ...factsPrompt(facts),
+      ...memoryPrompt(memory),
+      ...threadPrompt(entries, verified),
+      senderStanding(verified),
+    ],
     startedAt,
     stepLimit: turnStepLimit,
     timeLimitMs: turnTimeLimitMs,
     plainTextReminder,
     setup: async (kit) => {
-      const tools: Record<string, AnyServerTool> = turnTools({ ...turn, kit, documents });
+      const tools: Record<string, AnyServerTool> = turnTools({ ...turn, kit, documents, memory });
       // By name, so a name off the code-defined list gives nothing.
       const listed = content.tools.flatMap((tool): AnyServerTool[] =>
         Object.hasOwn(tools, tool)
