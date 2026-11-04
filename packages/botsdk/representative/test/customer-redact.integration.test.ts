@@ -32,6 +32,7 @@ import { createFakeAdapter, round, text, toolCall } from "@botsdk/testing/fake-a
 import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 import { representative } from "../src";
+import { holdCustomers } from "../src/server/customer-merge";
 import { representativeHandOff, representativeThread } from "../src/server/db/schema";
 
 /*
@@ -101,11 +102,14 @@ async function serving({
   turnRounds,
   botRounds,
   held,
+  onTurnCall,
   onCommand,
 }: {
   turnRounds: Rounds;
   botRounds: Rounds;
   held?: Promise<void>;
+  /** Runs before each of a Representative's Model calls, when its Turn holds nothing. */
+  onTurnCall?: () => Promise<void>;
   onCommand?: NonNullable<Parameters<typeof fakeComputerProvider>[0]>["onCommand"];
 }) {
   const queue = (rounds: Rounds) =>
@@ -126,6 +130,13 @@ async function serving({
       yield* botFake.adapter.chatStream(options);
     },
   };
+  const repGated: AnyTextAdapter = {
+    ...(repFake.adapter as AnyTextAdapter),
+    chatStream: async function* (options) {
+      await onTurnCall?.();
+      yield* repFake.adapter.chatStream(options);
+    },
+  };
   const computerFake = fakeComputerProvider({ onCommand });
   const timer = fakeJobClock(new Date());
   let made: TestDeps | undefined;
@@ -142,7 +153,7 @@ async function serving({
     jobs,
     clock: timer.clock.now,
     features: [representative()],
-    adapterFor: (id) => (id === botModel ? gated : repFake.adapter),
+    adapterFor: (id) => (id === botModel ? gated : repGated),
     memory: false,
   });
   made = deps;
@@ -1160,5 +1171,91 @@ describe("the order a delete takes its locks in", () => {
     await holding;
     await deleting;
     expect(await records(botIds)).not.toContain(adaWords);
+  });
+});
+
+describe("the order a hand-off takes its locks in", () => {
+  const replyWithNoSource = () =>
+    round(toolCall({ name: "reply", input: { text: "It's fine.", kind: "answer" } }));
+
+  /** Whether `table`'s row `id` is free to lock right now, without waiting for it. */
+  const isFree = (table: typeof conversation | typeof representativeThread, id: string) =>
+    getTestDb().transaction(async (tx) => {
+      const rows = await tx
+        .select({ id: table.id })
+        .from(table)
+        .where(eq(table.id, id))
+        .for("update", { skipLocked: true });
+      return rows.length === 1;
+    });
+
+  /**
+   * Plays a Turn with `turnRounds` while its Customer's row is held as a delete or a merge holds it,
+   * from its `heldAt`-th Model call. Returns what was free while the Turn waited on that row.
+   */
+  async function whileCustomerHeld(turnRounds: Rounds, heldAt: number) {
+    let calls = 0;
+    let release = () => {};
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let holding: Promise<void> | undefined;
+    let holderPid: number | undefined;
+    let owner: Awaited<ReturnType<typeof serving>> | undefined = undefined;
+    owner = await serving({
+      turnRounds,
+      botRounds: [],
+      onTurnCall: async () => {
+        calls += 1;
+        if (calls !== heldAt) return;
+        const ada = await owner!.customerAt(adaNumber);
+        let ready = () => {};
+        const started = new Promise<void>((resolve) => (ready = resolve));
+        holding = getTestDb().transaction(async (tx) => {
+          await holdCustomers(tx, [ada.id]);
+          const pids = await tx.execute(sql`select pg_backend_pid() as pid`);
+          holderPid = (pids.rows[0] as { pid: number }).pid;
+          ready();
+          await released;
+        });
+        await started;
+      },
+    });
+    const saying = owner.say("I'd like a refund.", adaNumber);
+    try {
+      await vi.waitFor(
+        async () => {
+          expect(holderPid).toBeDefined();
+          const blocked = await getTestDb().execute(
+            sql`select pid from pg_stat_activity where ${holderPid}::int = any(pg_blocking_pids(pid))`,
+          );
+          expect(blocked.rows.length).toBeGreaterThan(0);
+        },
+        { timeout: 10_000 },
+      );
+      const [row] = await getTestDb()
+        .select({ conversationId: bot.conversationId })
+        .from(bot)
+        .where(eq(bot.id, owner.botId));
+      const [thread] = await getTestDb().select().from(representativeThread);
+      return {
+        conversationFree: await isFree(conversation, row!.conversationId),
+        threadFree: await isFree(representativeThread, thread!.id),
+      };
+    } finally {
+      release();
+      await holding;
+      await saying;
+    }
+  }
+
+  it("a Turn's hand_to_bot waits on the Customer before taking the Conversation", async () => {
+    const free = await whileCustomerHeld([adaHandsOff], 1);
+
+    expect(free).toEqual({ conversationFree: true, threadFree: true });
+  });
+
+  it("code's hand-off waits on the Customer before taking the thread or the Conversation", async () => {
+    const free = await whileCustomerHeld([replyWithNoSource, replyWithNoSource], 2);
+
+    expect(free).toEqual({ conversationFree: true, threadFree: true });
   });
 });

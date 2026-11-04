@@ -275,11 +275,16 @@ const replySource = z.union([
   }),
 ]);
 
-/** Opens an Assignment for `botId` from `liveThread`, in `tx`. An `ORPCError` says the Bot can't take it. */
+/**
+ * Opens an Assignment for `botId` from `liveThread`, in `tx`. `customerId` is the thread's Customer,
+ * which the caller holds before any thread's or Conversation's lock, as a delete and a merge do. An
+ * `ORPCError` says the Bot can't take it.
+ */
 async function openHandOff(
   { job, userId, name, representativeId }: HandOffTurn,
   tx: Transaction,
   liveThread: LiveThread,
+  customerId: string | null,
   botId: string,
   title: string,
   instructions: string,
@@ -296,7 +301,7 @@ async function openHandOff(
     assignmentId: created.id,
     representativeId,
     threadId: liveThread.threadId,
-    customerId: await holdThreadCustomer(tx, liveThread.threadId),
+    customerId,
     channel: liveThread.heard.channel,
     externalId: liveThread.heard.externalId,
     verified: liveThread.verified,
@@ -338,6 +343,7 @@ async function handOffInCode(
   if (thread === null) return { handedOff: true };
   // The row before the thread's and the Conversation's locks, the order the owner's changes take them in.
   const botId = await reportingBot(tx, representativeId, true);
+  const customerId = await holdThreadCustomer(tx, thread.threadId);
   const stored = await storeReply(
     tx,
     thread,
@@ -354,6 +360,7 @@ async function handOffInCode(
       turn,
       tx,
       thread,
+      customerId,
       botId,
       codeHandOffTitle,
       codeHandOffInstructions(entries, thread.verified),
@@ -504,8 +511,10 @@ export function turnTools(turn: Turn) {
         if (!botId) return { error: noBotRefusal };
         // A test opens no Assignment: the Bot hears nothing.
         if (thread === null) return { handedOff: true };
+        // The same for the Customer's row.
+        const held = await holdThreadCustomer(tx, thread.threadId);
         try {
-          made = await openHandOff(turn, tx, thread, botId, title, instructions);
+          made = await openHandOff(turn, tx, thread, held, botId, title, instructions);
         } catch (error) {
           // The Bot can't take it or the work is malformed: the Model hears, and the Turn goes on.
           if (error instanceof ORPCError) return { error: error.message };
