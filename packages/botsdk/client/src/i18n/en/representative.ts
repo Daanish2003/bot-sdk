@@ -207,6 +207,8 @@ export const representativeMessages = {
   "representative.customers.deleteGoesMemory": "Their profile values and summaries",
   "representative.customers.deleteGoesThreads": "Their threads and every message in them",
   "representative.customers.deleteGoesHandOffs": "How to reach them about work handed to your Bot",
+  "representative.customers.deleteGoesAssignments":
+    "The text of work they handed to your Bot, in its Assignments and its Conversation. The Assignments stay, redacted, and any still open is cancelled",
   "representative.customers.deleteGoesJobs": "Their queued Turns and other waiting work",
   "representative.customers.deleteGoesElsewhere":
     "Messages to or from their identities on other Customers' threads, which an undone merge can leave there. Those threads' summaries and hand-offs from them go too, and a thread with nothing left",
@@ -220,6 +222,8 @@ export const representativeMessages = {
     "Gaps your Representatives logged, which can repeat what they asked and don't say who asked",
   "representative.customers.deleteStaysJobRecords":
     "Records of past Model calls, which can quote them, until they expire within 30 days",
+  "representative.customers.deleteStaysReworded":
+    "Anything your Bot put in its own words beyond the work itself, such as a Conversation summary",
   "representative.customers.deleteCancel": "Cancel",
   "representative.customers.deleteConfirm": "Delete for good",
   "representative.customers.deleted": ({ name }: { name: string }) => `Deleted ${name}`,

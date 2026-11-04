@@ -110,6 +110,7 @@ test("an owner sees what goes, then deletes a Customer and those merged into the
   const goes = dialog.getByRole("region", { name: "What goes" });
   await expect(goes).toContainText("Their profile values and summaries");
   await expect(goes).toContainText("Their threads and every message in them");
+  await expect(goes).toContainText("in its Assignments and its Conversation");
   await expect(goes).toContainText("Dora");
   const stays = dialog.getByRole("region", { name: "What stays" });
   await expect(stays).toContainText("spend records");

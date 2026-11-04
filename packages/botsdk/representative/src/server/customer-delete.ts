@@ -26,10 +26,13 @@ import { customerNotFound } from "./owner-customers";
  * reach is here: queued jobs, the merge history that stores ids in JSON, and what an undone merge left
  * of this person on the other Customer's thread. Spend rows stay: they name no Customer. A job's
  * Checkpoints and a Gap's question stay too, the limits ADR 0035 documents, and a lesson proposal
- * names no Customer.
+ * names no Customer. What a Bot's records hold of their Assignments is redacted by reference (#1288).
  */
 
-type Context = Pick<FeatureContext, "db" | "jobs">;
+type Context = Pick<
+  FeatureContext<"assignments" | "threads">,
+  "db" | "jobs" | "assignments" | "threads"
+>;
 
 /**
  * Holds the owner's Customer and everyone merged into them, and returns their ids. A merge moving as
@@ -169,10 +172,10 @@ async function giveBackHandOffs(tx: Transaction, userId: string, customerIds: st
 }
 
 /**
- * Hard-deletes the owner's Customer and everyone merged into them, and returns the Assignments their
- * hand-offs named, which nothing else can find once the hand-offs have gone: their text is still in the
- * Assignment and the Bot's Conversation, for #1288 to redact. A message waiting on these rows finds no
- * identity afterwards, and comes from a stranger. Queued Turns, passes and expiries are cancelled. A
+ * Hard-deletes the owner's Customer and everyone merged into them, and redacts the Assignments their
+ * hand-offs named, in the same transaction since nothing else can find those once the hand-offs have
+ * gone, and returns them. A message waiting on these rows finds no identity afterwards, and comes
+ * from a stranger. Queued Turns, passes and expiries are cancelled. A
  * running Turn's writes are refused by its fence, and a thread's idle check, whose key holds its due
  * date, and a hand-off's result both run and find nothing.
  */
@@ -181,7 +184,7 @@ export async function deleteCustomer(
   userId: string,
   id: string,
 ): Promise<{ assignmentIds: string[] }> {
-  return context.db.transaction(async (tx) => {
+  const done = await context.db.transaction(async (tx) => {
     const customerIds = await holdCustomerAndMerged(tx, userId, id);
     const identity = representativeCustomerIdentity;
     const identities = await tx
@@ -248,6 +251,16 @@ export async function deleteCustomer(
     }
 
     await tx.delete(representativeCustomer).where(inArray(representativeCustomer.id, customerIds));
-    return { assignmentIds };
+    // Last, as this feature's locks come before a Conversation's.
+    const { conversationIds } = await context.assignments.redact(tx, {
+      userId,
+      ids: assignmentIds,
+    });
+    return { assignmentIds, conversationIds };
   });
+  context.jobs.wake();
+  for (const conversationId of done.conversationIds) {
+    await context.threads.hintChanged(conversationId);
+  }
+  return { assignmentIds: done.assignmentIds };
 }

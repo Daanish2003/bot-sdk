@@ -182,6 +182,7 @@ function DeleteCustomer({
     t("representative.customers.deleteGoesMemory"),
     t("representative.customers.deleteGoesThreads"),
     t("representative.customers.deleteGoesHandOffs"),
+    t("representative.customers.deleteGoesAssignments"),
     t("representative.customers.deleteGoesJobs"),
     t("representative.customers.deleteGoesElsewhere"),
     t("representative.customers.deleteGoesMergeHistory"),
@@ -225,6 +226,7 @@ function DeleteCustomer({
                 <li>{t("representative.customers.deleteStaysSpend")}</li>
                 <li>{t("representative.customers.deleteStaysGaps")}</li>
                 <li>{t("representative.customers.deleteStaysJobRecords")}</li>
+                <li>{t("representative.customers.deleteStaysReworded")}</li>
               </ul>
             </section>
           </div>
