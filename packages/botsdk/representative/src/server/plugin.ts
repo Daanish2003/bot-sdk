@@ -44,6 +44,7 @@ import {
 import type { ConvertDocument, KnowledgeFiles } from "./documents";
 import { representativeTestJob } from "./tests";
 import { exportCustomerSummaries, customerSummaryJob } from "./customer-summary";
+import { stopUserTurns } from "./thread-turns";
 import { handOffEndedJob, representativeTurnJob } from "./turn";
 
 export type RepresentativeOptions = {
@@ -124,6 +125,7 @@ export function representativeFeature(
       await dropApprovalsOfBot(context, botId, userId);
       await dropProposalsOfBot(context, botId, userId);
     },
+    stopTurns: (userId, context) => stopUserTurns(context, userId),
     publicRoutes: proofLinkRoutes,
     jobs: [
       representativeTurnJob(options.concurrency, channel),

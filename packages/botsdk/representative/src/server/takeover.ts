@@ -164,6 +164,22 @@ async function sendToCustomer(
 }
 
 /**
+ * Where the thread's waiting mark goes back to when its Turn is aborted: a begun Turn with no reply
+ * yet moved the mark past its batch, so it goes back to where that batch starts.
+ */
+export function waitingAfterAbort(
+  thread: Pick<Thread, "turnId" | "turnFrom" | "waitingFrom">,
+  now: Date,
+) {
+  const unanswered = thread.turnId ? thread.turnFrom : null;
+  const waitingFrom =
+    unanswered === null
+      ? thread.waitingFrom
+      : Math.min(thread.waitingFrom ?? unanswered, unanswered);
+  return { waitingFrom, waitingSince: waitingFrom === null ? null : now };
+}
+
+/**
  * Takes the thread, whose row `tx` holds, from its Representative: its Turn is aborted, whatever it
  * hasn't sent is dropped, and the Customer gets the fixed note, if the gate passes it. What that Turn or a
  * next one would have answered stays marked as waiting: a begun Turn with no reply yet moved the mark
@@ -177,18 +193,12 @@ export async function holdThread(
 ) {
   if (thread.turnId) await jobs.cancelIn(tx, thread.turnId);
   const now = clock();
-  const unanswered = thread.turnId ? thread.turnFrom : null;
-  const waitingFrom =
-    unanswered === null
-      ? thread.waitingFrom
-      : Math.min(thread.waitingFrom ?? unanswered, unanswered);
   await tx
     .update(representativeThread)
     .set({
       state: "owner",
       turnId: null,
-      waitingFrom,
-      waitingSince: waitingFrom === null ? null : now,
+      ...waitingAfterAbort(thread, now),
       ...activeAt(now),
     })
     .where(eq(representativeThread.id, threadId));

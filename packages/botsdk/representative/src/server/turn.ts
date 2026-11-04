@@ -1,6 +1,6 @@
 import { type AnyServerTool, toolDefinition } from "@tanstack/ai";
 import { ORPCError } from "@orpc/contract";
-import { and, eq } from "drizzle-orm";
+import { and, count, eq, gt, isNotNull, max } from "drizzle-orm";
 import { z } from "zod";
 
 import { defaultModelFor } from "@botsdk/client/models/models";
@@ -40,7 +40,12 @@ import {
   type ThreadEntry,
 } from "./customers";
 import { type GateRefusal, logRefusals } from "./outbound-gate";
-import { representative, representativeHandOff, representativeRelease } from "./db/schema";
+import {
+  representative,
+  representativeHandOff,
+  representativeRelease,
+  representativeThreadMessage,
+} from "./db/schema";
 import { logGap } from "./gaps";
 import { type DocumentText, readDocuments } from "./documents";
 import {
@@ -53,7 +58,9 @@ import {
 } from "./replies";
 import {
   beginTurn,
+  dropBannedTurn,
   endTurn,
+  threadOwner,
   representativeTurnJobName,
   type TurnJobPayload,
   turnJobPayload,
@@ -137,6 +144,15 @@ const senderStanding = (verified: boolean) => ({
 
 const noBotRefusal =
   "This Representative reports to no Bot, so nothing can be handed off. Carry on without it.";
+
+const secondHandOffRefusal =
+  "You already handed off this Turn, and a Turn hands off once, so nothing was handed to the Bot. Carry on without it.";
+
+/** At most this many hand-offs on a thread, with no Customer message between them (ticket #1299). */
+export const maxHandOffsInARow = 3;
+
+const handOffLoopRefusal =
+  "Hand-offs in a row on this thread, with no message from the Customer between them, have reached the limit, so nothing was handed to the Bot. Carry on without it.";
 
 const turnOverRefusal = "This Turn has handed off and ended, so this did nothing.";
 
@@ -280,6 +296,31 @@ const replySource = z.union([
     quote: z.string().trim().min(1).max(maxThreadMessageLength).refine(noNul),
   }),
 ]);
+
+/**
+ * How many hand-offs on `threadId` have come back with a result since the Customer last wrote. Each
+ * Turn after the first in such a run was woken by a result, so this counts the run.
+ */
+async function handOffsInARow(tx: Transaction, threadId: string) {
+  const message = representativeThreadMessage;
+  const inThread = eq(message.threadId, threadId);
+  const [lastCustomer] = await tx
+    .select({ position: max(message.position) })
+    .from(message)
+    .where(and(inThread, eq(message.author, "customer")));
+  const [row] = await tx
+    .select({ n: count() })
+    .from(message)
+    .where(
+      and(
+        inThread,
+        eq(message.author, "bot"),
+        isNotNull(message.assignmentId),
+        gt(message.position, lastCustomer?.position ?? 0),
+      ),
+    );
+  return row!.n;
+}
 
 /**
  * Opens an Assignment for `botId` from `liveThread`, in `tx`. `customerId` is the thread's Customer,
@@ -515,10 +556,15 @@ export function turnTools(turn: Turn) {
         // hand-off's row needs a share of it, so waiting for that holding the lock could deadlock.
         const botId = await reportingBot(tx, representativeId, true);
         if (!botId) return { error: noBotRefusal };
+        // From the Turn's recorded answers, so a replay refuses the same call.
+        if (progress.handedOff) return { error: secondHandOffRefusal };
         // A test opens no Assignment: the Bot hears nothing.
         if (thread === null) return { handedOff: true };
         // The same for the Customer's row.
         const held = await holdThreadCustomer(tx, thread.threadId);
+        if ((await handOffsInARow(tx, thread.threadId)) >= maxHandOffsInARow) {
+          return { error: handOffLoopRefusal };
+        }
         try {
           made = await openHandOff(turn, tx, thread, held, botId, title, instructions);
         } catch (error) {
@@ -864,6 +910,15 @@ export function representativeTurnJob(
     onFailed: ({ threadId, turnId }, _error, services) =>
       services.db.transaction((tx) => endTurn(services, tx, threadId, turnId)),
     run: async ({ threadId, turnId }, job) => {
+      // No Turn starts during a Ban (ticket #1299). Recorded, so a replay goes the way this one did.
+      const banned = await job.step("representative_turn_ban", async (tx) => {
+        const owner = await threadOwner(tx, threadId);
+        return owner !== null && (await job.isUserBlocked(owner));
+      });
+      if (banned) {
+        await job.step("representative_turn_banned", (tx) => dropBannedTurn(tx, threadId, turnId));
+        return;
+      }
       const begun = await job.step("representative_turn_begin", (tx) =>
         beginTurn(tx, threadId, turnId),
       );
