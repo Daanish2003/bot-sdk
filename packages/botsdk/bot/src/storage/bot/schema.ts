@@ -31,6 +31,7 @@ import { botTurn, botTurnStatus } from "./bot-turn";
 import { botUpload } from "./bot-upload";
 import { customRule, customRuleMode, customRuleState } from "./custom-rule";
 import { notificationRoute, notificationSettings } from "./notification-settings";
+import { page, pageUrgency } from "./page";
 import { pushSubscription } from "./push-subscription";
 
 export * from "./bot";
@@ -49,9 +50,10 @@ export * from "./bot-turn";
 export * from "./bot-upload";
 export * from "./custom-rule";
 export * from "./notification-settings";
+export * from "./page";
 export * from "./push-subscription";
 
-/** The `bot` plugin's schema module: its `bot`, `bot_turn`, `bot_prompt_start`, `bot_summary`, `bot_trigger`, `bot_routine`, `bot_check_in`, `bot_helper`, `bot_helper_message`, `bot_helper_screenshot`, `bot_review`, `bot_room_member`, `bot_assignment`, `bot_assignment_log`, `secret`, `bot_demonstration`, `bot_demonstration_event`, `bot_upload`, `custom_rule`, `notification_settings` and `push_subscription` tables. */
+/** The `bot` plugin's schema module: its `bot`, `bot_turn`, `bot_prompt_start`, `bot_summary`, `bot_trigger`, `bot_routine`, `bot_check_in`, `bot_helper`, `bot_helper_message`, `bot_helper_screenshot`, `bot_review`, `bot_room_member`, `bot_assignment`, `bot_assignment_log`, `secret`, `bot_demonstration`, `bot_demonstration_event`, `bot_upload`, `custom_rule`, `notification_settings` and `push_subscription`, `page` tables. */
 export const botSchema = {
   tables: {
     bot,
@@ -75,6 +77,7 @@ export const botSchema = {
     customRule,
     notificationSettings,
     pushSubscription,
+    page,
   },
   enums: {
     botTurnStatus,
@@ -94,5 +97,6 @@ export const botSchema = {
     customRuleMode,
     customRuleState,
     notificationRoute,
+    pageUrgency,
   },
 } satisfies PluginSchema;

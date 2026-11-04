@@ -22,6 +22,7 @@ import type { BotSdkContext, BotSdkPlugin, Route, Transaction } from "./plugin";
 import { requireAuth } from "./procedures";
 import type { RepresentativeLoopService } from "./bot/agent-loop";
 import type { AssignmentsService } from "./bot/assignments";
+import type { PagesService } from "./bot/pages-api";
 import type { FactApprovalsService, ReleaseApprovalsService } from "./bot/safety";
 import type { ComputerApi } from "./computer/internal";
 import type { ModelsApi } from "./models/internal";
@@ -39,6 +40,7 @@ export type CoreService =
   | "computer"
   | "factApprovals"
   | "models"
+  | "pages"
   | "releaseApprovals"
   | "representativeLoop"
   | "threads";
@@ -50,6 +52,7 @@ type Services = {
   assignments: AssignmentsService;
   computer: ComputerApi;
   models: ModelsApi;
+  pages: PagesService;
   factApprovals: FactApprovalsService;
   releaseApprovals: ReleaseApprovalsService;
   representativeLoop: RepresentativeLoopService;
@@ -464,6 +467,7 @@ const instanceKeys: Record<keyof BotSdk, true> = {
   reviews: true,
   rules: true,
   notifications: true,
+  pages: true,
   channels: true,
   migrate: true,
   start: true,
@@ -484,6 +488,7 @@ const serviceNames: Record<CoreService, string> = {
   computer: "the Computer",
   factApprovals: "the fact Approvals",
   models: "the Models",
+  pages: "the Pages",
   releaseApprovals: "the release Approvals",
   representativeLoop: "the Representative loop",
   threads: "the Conversation threads",
@@ -575,6 +580,7 @@ export function enableFeature(
   representativeLoop: RepresentativeLoopService,
   releaseApprovals: ReleaseApprovalsService,
   factApprovals: FactApprovalsService,
+  pages: PagesService,
 ): EnabledFeature {
   const needs = feature.needs ?? [];
   const context: FeatureContext<CoreService> = {
@@ -584,6 +590,7 @@ export function enableFeature(
     ...(needs.includes("representativeLoop") && { representativeLoop }),
     ...(needs.includes("releaseApprovals") && { releaseApprovals }),
     ...(needs.includes("factApprovals") && { factApprovals }),
+    ...(needs.includes("pages") && { pages }),
   };
   return {
     feature,

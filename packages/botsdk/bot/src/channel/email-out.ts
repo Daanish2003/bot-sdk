@@ -72,10 +72,29 @@ export function emailBody(
         ),
       );
   }
+  return { ...mailOf(paragraphs), ...(attachments && { attachments }) };
+}
+
+/**
+ * A Page as an email's body (ticket #1300): its Markdown `text`, a link `label` to `url`, and a line
+ * saying nobody reads a reply, since no Bot has the address it comes from.
+ */
+export function pageEmailBody(
+  text: string,
+  { label, url }: { label: string; url: string },
+): Pick<OutboundMail, "text" | "html"> {
+  return mailOf([
+    { markdown: text },
+    { text: label, href: url },
+    { text: "Replies to this address aren't read." },
+  ]);
+}
+
+/** `paragraphs` as a mail's plain text and HTML. */
+function mailOf(paragraphs: Paragraph[]): Pick<OutboundMail, "text" | "html"> {
   return {
     text: paragraphs.map(paragraphText).filter(Boolean).join("\n\n"),
     html: paragraphs.map(htmlOf).filter(Boolean).join("\n") || "<p></p>",
-    ...(attachments && { attachments }),
   };
 }
 

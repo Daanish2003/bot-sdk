@@ -12,6 +12,7 @@ import {
   representativeThreadMessage,
   type ThreadAuthor,
 } from "./db/schema";
+import { deliverMessage, passGate } from "./outbound-gate";
 import { getThread, threadNotFound } from "./owner-customers";
 import { queueWaitingTurn } from "./thread-turns";
 
@@ -21,8 +22,7 @@ import { queueWaitingTurn } from "./thread-turns";
  * reply takes too: a reply either landed first, or finds the thread held, or, once the owner has
  * handed back, finds its job cancelled and rolls back. Only `handBackThread` gives a thread back.
  * The thread's waiting mark outlives the takeover, as what a Turn answers after Hand back unless the
- * owner has. What goes to the Customer is stored as sent: nothing reaches a real Channel until the
- * gate spec.
+ * owner has. What goes to the Customer passes the Outbound gate first.
  */
 
 type Context = Pick<FeatureContext, "db" | "clock" | "jobs">;
@@ -96,11 +96,13 @@ const activeAt = (now: Date) => ({
 type Thread = Awaited<ReturnType<typeof lockThread>>;
 
 /**
- * Sends `text` to where the Customer was last heard. An address that has ever been verified keeps
+ * Passes `text` through the Outbound gate to where the Customer was last heard, and if the gate
+ * sends it, stores it and sends it. Says what the gate decided. An address that has ever been verified keeps
  * what is sent to it out of a Turn for whoever next writes from it unproven, and what is sent to one
  * that never has is that sender's to read.
  */
 async function sendToCustomer(
+  services: Pick<Context, "jobs">,
   tx: Transaction,
   {
     threadId,
@@ -130,22 +132,34 @@ async function sendToCustomer(
         eq(message.externalId, externalId),
       ),
     );
+  // No message from there stays out of unverified Turns, as a row nobody vouched for does.
+  const verified = heard?.verified ?? true;
+  const decision = await passGate(tx, {
+    kind: author === "owner" ? "owner" : "takeover_note",
+    threadId,
+    to: { channel, externalId },
+    now,
+    content: { text, verified },
+  });
+  if (decision?.outcome !== "send") return decision?.outcome ?? "drop";
   const [updated] = await tx
     .update(representativeThread)
     .set({ messageCount: sql`${representativeThread.messageCount} + 1`, ...activeAt(now) })
     .where(eq(representativeThread.id, threadId))
     .returning({ position: representativeThread.messageCount });
+  const messageId = uuidv7();
   await tx.insert(message).values({
-    id: uuidv7(),
+    id: messageId,
     threadId,
     position: updated!.position,
     author,
     text,
     channel,
     externalId,
-    // No message from there stays out of unverified Turns, as a row nobody vouched for does.
-    verified: heard?.verified ?? true,
+    verified,
   });
+  await deliverMessage(services, tx, decision.id, messageId);
+  return decision.outcome;
 }
 
 /**
@@ -166,7 +180,7 @@ export function waitingAfterAbort(
 
 /**
  * Takes the thread, whose row `tx` holds, from its Representative: its Turn is aborted, whatever it
- * hasn't sent is dropped, and the Customer gets the fixed note, unless blocked. What that Turn or a
+ * hasn't sent is dropped, and the Customer gets the fixed note, if the gate passes it. What that Turn or a
  * next one would have answered stays marked as waiting: a begun Turn with no reply yet moved the mark
  * past its batch, so the mark goes back to where that batch starts.
  */
@@ -174,10 +188,7 @@ export async function holdThread(
   { clock, jobs }: Pick<Context, "clock" | "jobs">,
   tx: Transaction,
   threadId: string,
-  thread: Pick<
-    Thread,
-    "turnId" | "turnFrom" | "waitingFrom" | "lastChannel" | "lastExternalId" | "blockedAt"
-  >,
+  thread: Pick<Thread, "turnId" | "turnFrom" | "waitingFrom" | "lastChannel" | "lastExternalId">,
 ) {
   if (thread.turnId) await jobs.cancelIn(tx, thread.turnId);
   const now = clock();
@@ -190,9 +201,7 @@ export async function holdThread(
       ...activeAt(now),
     })
     .where(eq(representativeThread.id, threadId));
-  if (!thread.blockedAt) {
-    await sendToCustomer(tx, { threadId, thread, author: "note", text: takeoverNote, now });
-  }
+  await sendToCustomer({ jobs }, tx, { threadId, thread, author: "note", text: takeoverNote, now });
 }
 
 /** Takes a thread over for the owner. Taking over a thread already held does nothing. */
@@ -215,19 +224,18 @@ export async function sendAsOwner(
   userId: string,
   { id, text }: { id: string; text: string },
 ) {
-  await context.db.transaction(async (tx) => {
+  const outcome = await context.db.transaction(async (tx) => {
     const thread = await lockThread(tx, userId, id);
     if (thread.state === "closed") throw threadClosed();
     if (thread.state !== "owner") throw threadNotHeld();
-    if (thread.blockedAt) throw customerBlocked();
-    await sendToCustomer(tx, {
+    const decided = await sendToCustomer(context, tx, {
       threadId: id,
       thread,
       author: "owner",
       text,
       now: context.clock(),
     });
-    if (thread.waitingFrom === null) return;
+    if (decided !== "send" || thread.waitingFrom === null) return decided;
     const message = representativeThreadMessage;
     const [elsewhere] = await tx
       .select({ position: min(message.position) })
@@ -256,7 +264,10 @@ export async function sendAsOwner(
         .set({ waitingFrom: null, waitingSince: null })
         .where(eq(representativeThread.id, id));
     }
+    return decided;
   });
+  // After the commit, so the decision stays in the log.
+  if (outcome !== "send") throw customerBlocked();
   return getThread(context, userId, id);
 }
 

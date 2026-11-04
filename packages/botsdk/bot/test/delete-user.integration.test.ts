@@ -14,6 +14,7 @@ import {
   linkCode,
   linkedIdentity,
   notificationSettings,
+  page,
   pushSubscription,
   userCredentials,
   usage,
@@ -57,6 +58,16 @@ async function seedOwner(user: TestUser, deps: TestDeps) {
   await client.notifications.push.subscribe({
     endpoint: `https://push.example/send/${user.id}`,
     keys: { p256dh: "B".padEnd(87, "A"), auth: "a".padEnd(22, "A") },
+  });
+  await getTestDb().insert(page).values({
+    id: uuidv7(),
+    userId: user.id,
+    cause: "assignment_overdue",
+    urgency: "routine",
+    title: "An Assignment stalled",
+    text: "Your Bot has not finished.",
+    path: "/",
+    createdAt: new Date(),
   });
   await getTestDb()
     .insert(linkedIdentity)
@@ -107,6 +118,7 @@ async function ownedRows(userId: string) {
     pushSubscriptions: await count(
       db.select().from(pushSubscription).where(eq(pushSubscription.userId, userId)),
     ),
+    pages: await count(db.select().from(page).where(eq(page.userId, userId))),
     linkedIdentities: await count(
       db.select().from(linkedIdentity).where(eq(linkedIdentity.userId, userId)),
     ),
@@ -123,6 +135,7 @@ const emptyRows = {
   usage: 0,
   notificationSettings: 0,
   pushSubscriptions: 0,
+  pages: 0,
   linkedIdentities: 0,
   linkCodes: 0,
 };
