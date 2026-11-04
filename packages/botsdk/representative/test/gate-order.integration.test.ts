@@ -346,6 +346,15 @@ describe("two rules failing together", () => {
     await reply(dropped);
     expect((await dropped.decisions()).at(-1)).toMatchObject({ outcome: "drop", rule: "on" });
     expect(await db().select().from(representativeHeldMessage)).toEqual([]);
+
+    // A limit holds: the words wait for the owner.
+    const held = await heardWorld();
+    await breakRows(held, ["caps", "quietHours"]);
+    await reply(held, situationOf(["caps", "quietHours"]));
+    expect((await held.decisions()).at(-1)).toMatchObject({ outcome: "hold", rule: "caps" });
+    expect(await db().select().from(representativeHeldMessage)).toMatchObject([
+      { text: "Still here" },
+    ]);
   });
 });
 
@@ -372,6 +381,14 @@ describe("what each message passes", () => {
     "the opt-out confirmation": { kind: "opt_out_confirmation", passes: ["blocked", "channel"] },
     "the emergency script": { kind: "emergency_script", passes: ["blocked", "channel"] },
   };
+
+  // The owner's rules drop what they stop and the limits hold it, except that a Channel's limits hold
+  // only what can't go stale and is the Representative's: a reply, the hand-off and the emergency script.
+  const outcomeOf = (kind: OutboundKind, rule: GateRule) =>
+    ["caps", "quietHours", "topic"].includes(rule) ||
+    (rule === "channel" && ["reply", "code_hand_off", "emergency_script"].includes(kind))
+      ? "hold"
+      : "drop";
 
   it.each(Object.entries(table))("%s passes exactly the rules it lists", async (_name, row) => {
     const world = await heardWorld();
@@ -411,7 +428,7 @@ describe("what each message passes", () => {
 
       if (row.passes.includes(rule)) {
         expect(decision, `${row.kind} fails ${rule}`).toMatchObject({ rule });
-        expect(decision!.outcome).not.toBe("send");
+        expect(decision!.outcome, `${row.kind} on ${rule}`).toBe(outcomeOf(row.kind, rule));
       } else {
         expect(decision, `${row.kind} ignores ${rule}`).toMatchObject({
           outcome: "send",
@@ -566,7 +583,9 @@ describe("no path sends without a decision", () => {
     const sent = decisions.filter(({ outcome }) => outcome === "send");
     await expect.poll(() => world.got().length, poll).toBe(sent.length);
     const kinds = sent.map(({ kind }) => kind);
-    expect(kinds).toEqual(expect.arrayContaining(["reply", "takeover_note", "owner"]));
+    expect(kinds).toEqual(
+      expect.arrayContaining(["reply", "takeover_note", "owner", "holding_note"]),
+    );
     // Every message the Customer was given is a stored message a send decision points at.
     const stored = await db()
       .select({ id: representativeThreadMessage.id, text: representativeThreadMessage.text })
@@ -644,7 +663,7 @@ describe("the emergency script", () => {
     return world;
   }
 
-  it("goes past an owner's hold, an opt-out, a switch-off, a spent cap, quiet hours and an unpromoted topic at once", async () => {
+  it("goes past an owner's hold, an opt-out, a switch-off and a spent cap at once", async () => {
     const world = await everythingExceptBlockFailing();
     const before = world.got().length;
 
@@ -661,7 +680,7 @@ describe("the emergency script", () => {
     expect(await reply(world, { now: night })).not.toEqual({ sent: true });
   });
 
-  it("goes in a business-started message too, with every one of those failing", async () => {
+  it("goes in a business-started message at night, on a topic the owner hasn't promoted, with all of those failing", async () => {
     const world = await everythingExceptBlockFailing();
 
     const decision = await db().transaction(async (tx) =>
@@ -672,7 +691,7 @@ describe("the emergency script", () => {
         now: night,
         businessStarted: true,
         channel: { reach: () => ({}) },
-        content: { text: script, verified: false },
+        content: { text: script, verified: false, topic: "pricing", sources: [] },
       }),
     );
 
