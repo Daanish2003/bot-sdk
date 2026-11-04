@@ -776,11 +776,11 @@ describe("a test conversation", () => {
     });
   });
 
-  it("refuses a reply quoting more than its answer can hold, as its checks read it there", async () => {
+  it("counts a reply as sent however much its facts hold, as a live Turn would", async () => {
     const keys = ["a", "b", "c", "d", "e"];
     const { result, fake } = await tested(
       [replies({ text: keys.map((key) => `{{${key}}}`).join(" "), kind: "answer" }), quiet()],
-      [{ kind: "replied" }],
+      [{ kind: "replied" }, { kind: "said", text: "eeee" }],
       keys.map((key) => ({
         key,
         type: "text" as const,
@@ -789,8 +789,8 @@ describe("a test conversation", () => {
       })),
     );
 
-    expect(result.status).toBe("failed");
-    expect(answersIn(fake.calls[1])[0]).toMatch(/too much/);
+    expect(result.status).toBe("passed");
+    expect(answersIn(fake.calls[1])[0]).toBe(JSON.stringify({ sent: true }));
   });
 
   it("refuses as a live Turn does: a refused reply was never sent", async () => {

@@ -32,7 +32,14 @@ import { type Heard, readSender, readThread, storeReply, type ThreadEntry } from
 import { representative, representativeHandOff, representativeRelease } from "./db/schema";
 import { logGap } from "./gaps";
 import { type DocumentText, readDocuments } from "./documents";
-import { checkReply, factsInEffect, handOffMessage, refused } from "./replies";
+import {
+  checkReply,
+  factsInEffect,
+  handOffMessage,
+  refused,
+  type ReplyEvidence,
+  replyEvidence,
+} from "./replies";
 import {
   beginTurn,
   endTurn,
@@ -200,6 +207,8 @@ type TurnProgress = {
   refusals: number;
   /** A `hand_to_bot` call handed work off. */
   handedOff: boolean;
+  /** A test conversation's sent replies, by tool call. A live Turn stores them on its thread. */
+  evidence: Map<string, ReplyEvidence>;
 };
 
 /** The Turn has ended on a second refusal: no more tools run and no more Model calls follow. */
@@ -227,9 +236,6 @@ type Turn = {
 };
 
 type HandOffTurn = Omit<Turn, "kit" | "documents">;
-
-/** The most a test conversation's reply answer may be, as JSON: under the long-output limit, which would cut it. */
-const maxTestAnswerLength = 8_000;
 
 /** Where a reply's information came from. A plain union: OpenAI's strict tools refuse the `oneOf` a discriminated one becomes. */
 const replySource = z.union([
@@ -340,7 +346,7 @@ async function handOffInCode(
 }
 
 /**
- * A Turn that ended, however it ended, on a refusal nothing made good: a first refusal has had its
+ * A Turn whose loop ended, however it ended, on a refusal nothing made good: a first refusal has had its
  * retry, and the Customer is owed a word. Says whether code handed off. One step, so a replay does it
  * once, and the same check of the thread as a reply's, so nothing goes on a thread the owner took.
  */
@@ -423,27 +429,25 @@ export function turnTools(turn: Turn) {
           }
           return stored;
         }
-        // A test conversation's checks read what was sent from this answer, as the arguments still
-        // hold the keys, and an answer over the long-output limit is cut.
-        const sent = { sent: true, inserted: checked.inserted, kind, sources: checked.sources };
-        if (JSON.stringify(sent).length > maxTestAnswerLength) {
-          // A limit of this answer, not the reply's. A live Turn has none and would have sent it, so
-          // it is no refusal, and it makes good one before it.
-          return {
-            error: refused("it quotes too much at once. Split it into shorter replies.").error,
-            wouldHaveSent: true,
-          };
-        }
-        return sent;
+        return { sent: true };
       });
       if (says(answer, "refused")) {
         progress.refusals += 1;
-      } else if (says(answer, "sent") || says(answer, "wouldHaveSent")) {
+      } else if (says(answer, "sent")) {
         progress.refusals = 0;
       }
       if (made) {
         job.jobs.wake();
         await settleHandOff(turn, made);
+      }
+      // What a test conversation's checks read of a sent reply, as the arguments still hold the keys.
+      // Beside the answer, which is recorded and cut as any tool's: a Checkpoint keeps no fact's value
+      // or quote, and what a live Turn would send isn't cut to the long-output limit.
+      if (thread === null && context?.toolCallId && says(answer, "sent")) {
+        progress.evidence.set(
+          context.toolCallId,
+          await replyEvidence(job.db, userId, text, sources),
+        );
       }
       return answer;
     }),
@@ -697,7 +701,7 @@ export async function playLoop(
   const facts = await factsInEffect(job.db, userId, startedAt);
   // A test conversation's stand-in is unverified, as its prompt treats it.
   const verified = "thread" in on && on.thread.verified;
-  const progress: TurnProgress = { refusals: 0, handedOff: false };
+  const progress: TurnProgress = { refusals: 0, handedOff: false, evidence: new Map() };
   const turn = {
     job,
     userId,
@@ -750,7 +754,10 @@ export async function playLoop(
     },
   });
   // Before anything reads how the loop ended: a Model error fails the job, and the Customer still hears.
-  return { ...played, handedOffAtEnd: await handOffAtEnd(turn) };
+  return {
+    ...played,
+    testRun: { handedOffAtEnd: await handOffAtEnd(turn), evidence: progress.evidence },
+  };
 }
 
 /** The Representative Turn's job, at `concurrency` at once per process. */

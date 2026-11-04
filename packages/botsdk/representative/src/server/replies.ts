@@ -40,15 +40,16 @@ export const insertValues = (text: string, values: Record<string, string>) =>
  * Model typed. A price written out in words is not caught.
  */
 const withScheme = /(?:[Hh][Tt][Tt][Pp][Ss]?:\/\/|[Ww][Ww][Ww]\.)[^\s<>"]+/;
-// Not a domain in an email address, on either side of its @: an address is none of the three.
 const bareDomain =
-  /(?<!@[\w.-]*)\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|org|net|io|co|app|dev|info|biz|us|uk|ca|au|de|fr|eu|me|ai|xyz|shop|store|online|site)\b(?![\w.-]*@)(?:\/[^\s<>"]*)?/;
+  /\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|org|net|io|co|app|dev|info|biz|us|uk|ca|au|de|fr|eu|me|ai|xyz|shop|store|online|site)\b(?:\/[^\s<>"]*)?/;
+/** An email address, whole: it is none of the three, whatever digits or domain it holds. With a path it is a link. */
+const emailAddress = /[\w.+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+(?![\w/-])/gi;
 /**
  * ISO 4217 codes beyond the three the price pattern knows, capitals only, as a list and not any three
- * capitals: "24 HRS" and "10 USB" are no prices.
+ * capitals: "24 HRS" and "10 USB" are no prices. AMD is left out, as "Ryzen 5 AMD" is the likelier read.
  */
 const currencyCodes =
-  "AED|AFN|AMD|ANG|AOA|ARS|AUD|AWG|AZN|BBD|BDT|BGN|BHD|BIF|BMD|BND|BRL|BSD|BTN|BWP|BYN|BZD|CAD|CDF|CHF|CLP|CNY|CRC|CVE|CZK|DJF|DKK|DOP|DZD|EGP|ERN|ETB|FJD|FKP|GHS|GIP|GMD|GNF|GTQ|GYD|HKD|HNL|HTG|HUF|IDR|ILS|INR|IQD|IRR|ISK|JMD|JOD|JPY|KES|KGS|KHR|KMF|KPW|KRW|KWD|KYD|KZT|LAK|LBP|LKR|LRD|LSL|LYD|MDL|MGA|MKD|MMK|MNT|MRU|MUR|MVR|MWK|MXN|MYR|MZN|NAD|NGN|NIO|NOK|NPR|NZD|OMR|PAB|PGK|PKR|PLN|PYG|QAR|RSD|RUB|RWF|SAR|SBD|SCR|SDG|SEK|SGD|SHP|SLE|SRD|SSP|STN|SVC|SYP|SZL|THB|TJS|TMT|TND|TTD|TWD|TZS|UAH|UGX|UYU|UZS|VES|VND|VUV|WST|XAF|XCD|XOF|XPF|YER|ZAR|ZMW|ZWG";
+  "AED|AFN|ANG|AOA|ARS|AUD|AWG|AZN|BBD|BDT|BGN|BHD|BIF|BMD|BND|BRL|BSD|BTN|BWP|BYN|BZD|CAD|CDF|CHF|CLP|CNY|CRC|CVE|CZK|DJF|DKK|DOP|DZD|EGP|ERN|ETB|FJD|FKP|GHS|GIP|GMD|GNF|GTQ|GYD|HKD|HNL|HTG|HUF|IDR|ILS|INR|IQD|IRR|ISK|JMD|JOD|JPY|KES|KGS|KHR|KMF|KPW|KRW|KWD|KYD|KZT|LAK|LBP|LKR|LRD|LSL|LYD|MDL|MGA|MKD|MMK|MNT|MRU|MUR|MVR|MWK|MXN|MYR|MZN|NAD|NGN|NIO|NOK|NPR|NZD|OMR|PAB|PGK|PKR|PLN|PYG|QAR|RSD|RUB|RWF|SAR|SBD|SCR|SDG|SEK|SGD|SHP|SLE|SRD|SSP|STN|SVC|SYP|SZL|THB|TJS|TMT|TND|TTD|TWD|TZS|UAH|UGX|UYU|UZS|VES|VND|VUV|WST|XAF|XCD|XOF|XPF|YER|ZAR|ZMW|ZWG";
 /** The codes that also read as a word or a name, only after an amount: "TOP 10" is no price and "50 TRY" is. */
 const wordLikeCurrencyCodes = "ALL|BAM|BOB|COP|CUP|GEL|MAD|MOP|PEN|PHP|RON|SOS|TOP|TRY";
 const amount = String.raw`\d[\d,]*(?:\.\d+)?`;
@@ -63,8 +64,8 @@ const typedShapes = [
   {
     name: "price",
     pattern: new RegExp(
-      String.raw`\b(?:${currencyCodes})\s?${amount}(?!\w)|\b${amount}\s?(?:${currencyCodes}|${wordLikeCurrencyCodes})\b`,
-      "g",
+      String.raw`\b(?:${currencyCodes})\s?${amount}(?!\w)|(?<!\p{Sc}\s?)\b${amount}\s?(?:${currencyCodes}|${wordLikeCurrencyCodes})\b`,
+      "gu",
     ),
   },
   // A scheme or "www.", or a bare domain on a common lowercase top-level domain.
@@ -107,13 +108,14 @@ function phonesIn(text: string) {
 function typedValue(text: string, allowed: string[]) {
   const lowered = allowed.map(squashed);
   const numbers = new Set(allowed.flatMap(phonesIn).map(digitsOf));
+  const read = text.replace(emailAddress, " ");
   for (const { name, pattern } of typedShapes) {
     if (name === "phone number") {
-      const loose = phonesIn(text).find((value) => !numbers.has(digitsOf(value)));
+      const loose = phonesIn(read).find((value) => !numbers.has(digitsOf(value)));
       if (loose) return { name, value: loose };
       continue;
     }
-    for (const [found] of text.matchAll(pattern)) {
+    for (const [found] of read.matchAll(pattern)) {
       const value = found.replace(/[.,;:!?)]+$/, "");
       if (lowered.some((held) => holds(held, squashed(value)))) continue;
       return { name, value };
@@ -150,6 +152,38 @@ export async function factsInEffect(db: FeatureContext["db"], userId: string, no
     facts.push({ key, type, topic, value });
   }
   return { facts, more: false };
+}
+
+/** The kind of source list a sent reply has: every fact it names or writes, then the rest as cited. */
+const withFactSources = (keys: string[], sources: ReplySource[]) => [
+  ...keys.map((key): ReplySource => ({ type: "fact", key })),
+  ...sources.filter((source) => source.type !== "fact"),
+];
+
+export type ReplyEvidence = { inserted: Record<string, string>; sources: ReplySource[] };
+
+/** What `text`, which `checkReply` passed, went out with, as the facts are now. */
+export async function replyEvidence(
+  db: FeatureContext["db"],
+  userId: string,
+  text: string,
+  sources: ReplySource[],
+): Promise<ReplyEvidence> {
+  const written = [...new Set(keysIn(text))];
+  const cited = sources.flatMap((source) => (source.type === "fact" ? [source.key] : []));
+  const rows =
+    written.length === 0
+      ? []
+      : await db
+          .select({ key: representativeFact.key, value: representativeFact.value })
+          .from(representativeFact)
+          .where(
+            and(eq(representativeFact.userId, userId), inArray(representativeFact.key, written)),
+          );
+  return {
+    inserted: Object.fromEntries(rows.map((row) => [row.key, row.value])),
+    sources: withFactSources([...new Set([...cited, ...written])], sources),
+  };
 }
 
 export type CheckedReply = {
@@ -261,9 +295,6 @@ export async function checkReply(
   return {
     text: filled,
     inserted,
-    sources: [
-      ...keys.map((key): ReplySource => ({ type: "fact", key })),
-      ...sources.filter((source) => source.type !== "fact"),
-    ],
+    sources: withFactSources(keys, sources),
   };
 }

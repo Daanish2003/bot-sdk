@@ -1,4 +1,4 @@
-import { type AnyColumn, and, eq, lte, ne, sql } from "drizzle-orm";
+import { and, eq, lte, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
@@ -6,6 +6,7 @@ import type { Transaction } from "@botsdk/bot/plugin";
 import { defineJob } from "@botsdk/bot/runner/internal";
 import { codeHandOffKind, type StoredReplyKind } from "../shared/replies";
 import { pruneProofs } from "./customer-proof";
+import { lastMessageQuery } from "./last-message";
 import { representativeThread, representativeThreadMessage } from "./db/schema";
 
 /*
@@ -21,10 +22,6 @@ import { representativeThread, representativeThreadMessage } from "./db/schema";
 export const threadIdleMs = 7 * 24 * 60 * 60_000;
 
 export const threadIdleJobName = "representative.thread-idle";
-
-/** `column` of a thread's last message, a note aside. */
-export const lastMessageQuery = (column: AnyColumn) =>
-  sql`select ${column} from ${representativeThreadMessage} where ${representativeThreadMessage.threadId} = ${representativeThread.id} and ${ne(representativeThreadMessage.author, "note")} order by ${representativeThreadMessage.position} desc limit 1`;
 
 const lastReplyKind = lastMessageQuery(representativeThreadMessage.replyKind);
 

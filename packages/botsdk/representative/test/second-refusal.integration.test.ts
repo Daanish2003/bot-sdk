@@ -565,7 +565,17 @@ describe("a second refusal in a test conversation", () => {
     await rpc.representative.updateDraft({
       id,
       draft: {
-        tests: [{ name: "Terms", message: "Terms?", expect: [{ kind: "not_handed_off" }] }],
+        tests: [
+          {
+            name: "Terms",
+            message: "Terms?",
+            expect: [
+              { kind: "not_handed_off" },
+              { kind: "replied" },
+              { kind: "said", text: "aaa" },
+            ],
+          },
+        ],
       },
     });
     await rpc.representative.runTests({ id });
@@ -771,7 +781,7 @@ describe("the system rules", () => {
 });
 
 describe("a test conversation's reply", () => {
-  it("is refused, not spilled, when what it cites is too long to read back", async () => {
+  it("counts as sent however long what it cites, as it would in a live Turn", async () => {
     const { rpc, id, timer, claim, attemptsEnd } = await serving([
       round(
         toolCall({
@@ -792,7 +802,9 @@ describe("a test conversation's reply", () => {
     await rpc.representative.updateDraft({
       id,
       draft: {
-        tests: [{ name: "Terms", message: "Terms?", expect: [{ kind: "not_said", text: "zzz" }] }],
+        tests: [
+          { name: "Terms", message: "Terms?", expect: [{ kind: "replied" }, { kind: "cited" }] },
+        ],
       },
     });
     await rpc.representative.runTests({ id });
@@ -801,8 +813,8 @@ describe("a test conversation's reply", () => {
     await attemptsEnd();
 
     const { tests } = await rpc.representative.get({ id });
-    expect(tests[0]?.status).not.toBe("error");
-    expect(JSON.stringify(tests[0]?.transcript)).toContain("too much");
+    expect(tests[0]?.status).toBe("passed");
+    expect(JSON.stringify(tests[0]?.transcript)).toContain("q".repeat(11_000));
   });
 });
 
@@ -819,6 +831,9 @@ describe("what code takes for a typed value", () => {
     "We have 24 HRS of cover, 10 USB ports and 3 PCS in stock.",
     "TOP 10 tips, and TRY 3 of them.",
     "All 5 of them.",
+    "Write to order1234567890@shop.com",
+    "Write to hello@www.acme.com",
+    "A Ryzen 5 AMD laptop.",
   ])("lets through %s", async (text) => {
     expect(await says(text)).toEqual([text]);
   });
@@ -831,12 +846,60 @@ describe("what code takes for a typed value", () => {
     "It costs 1200 JPY.",
     "It costs ₩9000.",
     "It costs 500 TRY.",
+    "Go to pay@evil.com/reset",
   ])("refuses %s", async (text) => {
     expect(await says(text)).toEqual([handOffMessage]);
   });
 });
 
+describe("what code takes for a typed value, from a fact", () => {
+  it("lets a fact's value through whole, a sign and a code together", async () => {
+    const { rpc, turn, sent } = await serving([
+      round(toolCall({ name: "reply", input: { text: "It is {{price.x}}.", kind: "answer" } })),
+      quiet(),
+    ]);
+    await rpc.representative.factAdd({
+      key: "price.x",
+      type: "text",
+      topic: "Prices",
+      value: "$500 CAD",
+    });
+
+    await turn();
+
+    expect(textsOf(await sent())).toEqual(["It is $500 CAD."]);
+  });
+});
+
 describe("a Turn's Checkpoints", () => {
+  it("hold no fact's value from a test conversation's reply either, which still reads it", async () => {
+    const { rpc, id, timer, claim, attemptsEnd } = await serving([
+      round(
+        toolCall({ name: "reply", input: { text: "It is {{price.haircut}}.", kind: "answer" } }),
+      ),
+      quiet(),
+    ]);
+    await rpc.representative.factAdd({
+      key: "price.haircut",
+      type: "money",
+      topic: "Prices",
+      value: "45 USD",
+    });
+    await rpc.representative.updateDraft({
+      id,
+      draft: {
+        tests: [{ name: "Price", message: "How much?", expect: [{ kind: "said", text: "is 45" }] }],
+      },
+    });
+    await rpc.representative.runTests({ id });
+    timer.advance(500);
+    await claim({ overdue: true });
+    await attemptsEnd();
+
+    expect((await rpc.representative.get({ id })).testStatus).toBe("passed");
+    expect(JSON.stringify(await getTestDb().select().from(jobEvent))).not.toContain("45 USD");
+  });
+
   it("hold no fact's value, which a user delete wouldn't reach", async () => {
     const { rpc, turn, fake } = await serving([quiet()]);
     await rpc.representative.factAdd({

@@ -29,7 +29,7 @@ import {
 import { isMergedAway, notMergedAway } from "./customer-merge";
 import { voidProofs } from "./customer-proof";
 import { grouped } from "./customers";
-import { lastMessageQuery } from "./idle";
+import { lastMessageQuery } from "./last-message";
 import { isVerified } from "./verification";
 
 /*

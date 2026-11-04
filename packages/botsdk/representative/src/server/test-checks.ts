@@ -10,7 +10,7 @@ import {
   type TranscriptEntry,
 } from "../shared/contract";
 import { codeHandOffKind, type ReplyProof, replyKinds, type ReplySource } from "../shared/replies";
-import { handOffMessage, insertValues } from "./replies";
+import { handOffMessage, insertValues, type ReplyEvidence } from "./replies";
 
 /*
  * What code makes of a test conversation (ticket #1192): the transcript the owner reads, the
@@ -68,45 +68,58 @@ function answerTo(messages: ModelMessage[], callId: string): Record<string, unkn
   }
 }
 
-/** The kind and sources a sent `reply` call's answer carries; a test has no Assignment, so only facts. */
-function sentReply(messages: ModelMessage[], call: { id: string }): ReplyProof {
-  const answer = answerTo(messages, call.id);
+/** What the tools kept of a test conversation beside what they answered the Model. */
+export type TestRun = {
+  /** The Turn ended on a refusal nothing made good, so code handed off after its messages. */
+  handedOffAtEnd: boolean;
+  evidence: Map<string, ReplyEvidence>;
+};
+
+const noRun: TestRun = { handedOffAtEnd: false, evidence: new Map() };
+
+type ReplyCall = { id: string; function: { arguments: string } };
+
+/** The kind and sources of a sent `reply` call; a test has no Assignment, so no Bot's result. */
+function sentReply(run: TestRun, call: ReplyCall): ReplyProof {
+  const written = argumentsOf(call).kind;
   return {
-    kind: replyKinds.find((kind) => kind === answer?.kind) ?? null,
-    sources: Array.isArray(answer?.sources) ? (answer.sources as ReplySource[]) : [],
+    kind: replyKinds.find((kind) => kind === written) ?? null,
+    sources: run.evidence.get(call.id)?.sources ?? [],
   };
 }
 
 /** The text `call`, a `reply` its tool answered as sent, went with: the Model's, with the facts' values in. */
-function sentText(messages: ModelMessage[], call: { id: string; function: { arguments: string } }) {
-  const inserted = answerTo(messages, call.id)?.inserted as Record<string, string> | undefined;
-  return insertValues(String(argumentsOf(call).text ?? ""), inserted ?? {});
+function sentText(run: TestRun, call: ReplyCall) {
+  return insertValues(
+    String(argumentsOf(call).text ?? ""),
+    run.evidence.get(call.id)?.inserted ?? {},
+  );
 }
 
 /**
  * What reached the Customer, in order: the text of each `reply` call the tool answered as sent, and
  * for one refused for the last time, code's fixed message in place of its text.
  */
-function sentTexts(messages: ModelMessage[]) {
+function sentTexts(messages: ModelMessage[], run: TestRun) {
   return messages.flatMap((message) =>
     (message.toolCalls ?? [])
       .filter((call) => call.function.name === "reply")
       .flatMap((call) => {
         const answer = answerTo(messages, call.id);
-        if (answer?.sent === true) return [sentText(messages, call)];
+        if (answer?.sent === true) return [sentText(run, call)];
         return answer?.handedOff === true ? [handOffMessage] : [];
       }),
   );
 }
 
 /** The sources of every reply the tool answered as sent: a refused reply cites nothing. */
-function citedSources(messages: ModelMessage[]): ReplySource[] {
+function citedSources(messages: ModelMessage[], run: TestRun): ReplySource[] {
   return messages.flatMap((message) =>
     (message.toolCalls ?? [])
       .filter(
         (call) => call.function.name === "reply" && answerTo(messages, call.id)?.sent === true,
       )
-      .flatMap((call) => sentReply(messages, call).sources),
+      .flatMap((call) => sentReply(run, call).sources),
   );
 }
 
@@ -136,12 +149,11 @@ function handedOff(messages: ModelMessage[]) {
 export function checkExpectations(
   expectations: Expectation[],
   messages: ModelMessage[],
-  /** The Turn ended on a refusal nothing made good, so code handed off after these messages. */
-  handedOffAtEnd = false,
+  run: TestRun = noRun,
 ): TestCheck[] {
-  const sent = [...sentTexts(messages), ...(handedOffAtEnd ? [handOffMessage] : [])];
-  const handed = handedOffAtEnd || handedOff(messages);
-  const sources = citedSources(messages);
+  const sent = [...sentTexts(messages, run), ...(run.handedOffAtEnd ? [handOffMessage] : [])];
+  const handed = run.handedOffAtEnd || handedOff(messages);
+  const sources = citedSources(messages, run);
   const lowered = sent.map((text) => text.toLowerCase());
   return expectations.map((expectation): TestCheck => {
     switch (expectation.kind) {
@@ -217,7 +229,7 @@ export function checkExpectations(
 export function transcriptOf(
   customerMessage: string,
   messages: ModelMessage[],
-  handedOffAtEnd = false,
+  run: TestRun = noRun,
 ): TranscriptEntry[] {
   const entries: TranscriptEntry[] = [{ role: "customer", text: customerMessage }];
   const sentCalls = new Set<string>();
@@ -233,8 +245,8 @@ export function transcriptOf(
           sentCalls.add(call.id);
           entries.push({
             role: "representative",
-            text: sentText(messages, call),
-            reply: sentReply(messages, call),
+            text: sentText(run, call),
+            reply: sentReply(run, call),
           });
         } else {
           entries.push({ role: "tool", text: `${call.function.name} ${call.function.arguments}` });
@@ -251,7 +263,7 @@ export function transcriptOf(
       entries.push({ role: "tool", text: textOf(message.content) });
     }
   }
-  if (handedOffAtEnd) {
+  if (run.handedOffAtEnd) {
     entries.push({
       role: "representative",
       text: handOffMessage,
