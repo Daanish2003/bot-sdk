@@ -28,7 +28,11 @@ import {
 } from "../src/server/db/schema";
 import { threadIdleJobName, threadIdleMs } from "../src/server/idle";
 import { handOffMessage } from "../src/server/replies";
-import { customerSummaryJobName, customerSummaryMarker } from "../src/server/customer-summary";
+import {
+  customerSummaryJobName,
+  customerSummaryMarker,
+  profileOperationsMarker,
+} from "../src/server/customer-summary";
 
 /*
  * A closed thread's summary (ticket #1279): a thread driven closed by a real runner on a fake clock
@@ -512,6 +516,219 @@ describe("a closed thread's summary", () => {
 
 const idleChecks = () =>
   getTestDb().select({ status: job.status }).from(job).where(eq(job.name, threadIdleJobName));
+
+describe("a closed thread's profile values (ticket #1282)", () => {
+  type Operation = { field: string; value: string; line: number };
+  type Line = { author: "customer" | "representative" | "owner"; verified: boolean; text?: string };
+  const sayings =
+    "French German Ada Green Klingon Eve 1 High St, 2 Low St, 3 Mid St, Unverified St";
+
+  const reply =
+    (...operations: Operation[]) =>
+    () =>
+      round(text(`A summary.\n${profileOperationsMarker}\n${JSON.stringify(operations)}`));
+
+  /** Replaces the thread's lines with these, by position, so each one's author and standing is known. */
+  const setLines = async (threadId: string, lines: Line[]) => {
+    await getTestDb()
+      .delete(representativeThreadMessage)
+      .where(eq(representativeThreadMessage.threadId, threadId));
+    await getTestDb()
+      .insert(representativeThreadMessage)
+      .values(
+        lines.map((line, index) => ({
+          id: uuidv7(),
+          threadId,
+          position: index + 1,
+          author: line.author,
+          verified: line.verified,
+          channel: "test",
+          externalId: "+15550001",
+          text: line.text ?? sayings,
+        })),
+      );
+  };
+
+  type World = Awaited<ReturnType<typeof instance>>;
+  const profileOf = async (rpc: World["rpc"], id: string) =>
+    (await rpc.representative.customerList()).find((each) => each.id === id)!.profile;
+
+  /** Drives a thread to close with its lines set as given; the pass has run when this returns. */
+  async function closed(operations: Operation[], lines: Line[]) {
+    const world = await instance({ pass: [reply(...operations)] });
+    await world.say("Hello");
+    const [thread] = await world.rpc.representative.threadList({ id: world.id });
+    await setLines(thread!.id, lines);
+    world.passTime(threadIdleMs);
+    await world.passesEnded();
+    const customer = await world.customerOf();
+    return { ...world, customer, profile: () => profileOf(world.rpc, customer.id) };
+  }
+
+  it("makes a verified Customer's statement confirmed, citing its source and date", async () => {
+    const { profile } = await closed(
+      [{ field: "language", value: "French", line: 1 }],
+      [{ author: "customer", verified: true }],
+    );
+
+    expect(await profile()).toMatchObject([
+      { field: "language", value: "French", source: "customer", status: "confirmed" },
+    ]);
+    expect((await profile())[0]!.recordedAt).toBeInstanceOf(Date);
+  });
+
+  it("leaves an unverified statement claimed", async () => {
+    const { profile } = await closed(
+      [{ field: "address", value: "1 High St", line: 1 }],
+      [{ author: "customer", verified: false }],
+    );
+
+    expect(await profile()).toMatchObject([
+      { field: "address", value: "1 High St", status: "claimed" },
+    ]);
+  });
+
+  it("lets no owner or Representative line make a value confirmed, whatever its row says", async () => {
+    const { profile } = await closed(
+      [
+        { field: "language", value: "German", line: 1 },
+        { field: "address", value: "2 Low St", line: 2 },
+      ],
+      [
+        { author: "owner", verified: true },
+        { author: "representative", verified: true },
+      ],
+    );
+
+    expect(await profile()).toMatchObject([
+      { field: "language", status: "claimed", source: "owner" },
+      { field: "address", status: "claimed", source: "representative" },
+    ]);
+  });
+
+  it("keeps a value claimed when the verified line it cites doesn't say it", async () => {
+    const { profile } = await closed(
+      [{ field: "address", value: "Evil St", line: 1 }],
+      [{ author: "customer", verified: true, text: "Hello there" }],
+    );
+
+    expect(await profile()).toMatchObject([{ field: "address", status: "claimed" }]);
+  });
+
+  it("gives each value the status of its own cited line", async () => {
+    const { profile } = await closed(
+      [
+        { field: "language", value: "French", line: 1 },
+        { field: "address", value: "3 Mid St", line: 2 },
+      ],
+      [
+        { author: "customer", verified: true },
+        { author: "customer", verified: false },
+      ],
+    );
+
+    const values = await profile();
+    expect(values.find((each) => each.field === "language")?.status).toBe("confirmed");
+    expect(values.find((each) => each.field === "address")?.status).toBe("claimed");
+  });
+
+  it("drops an operation citing a line that doesn't exist or naming a field that doesn't, and keeps the summary", async () => {
+    const { rpc, customer, profile } = await closed(
+      [
+        { field: "language", value: "French", line: 9 },
+        { field: "shoe_size", value: "42", line: 1 },
+        { field: "name", value: "Ada", line: 1 },
+      ],
+      [{ author: "customer", verified: true }],
+    );
+
+    expect(await profile()).toMatchObject([{ field: "name", value: "Ada" }]);
+    expect(await profile()).toHaveLength(1);
+    expect(await rpc.representative.customerSummaryList({ id: customer.id })).toMatchObject([
+      { text: "A summary." },
+    ]);
+  });
+
+  it("writes an owner's own field by its name, and ignores a reply it can't read", async () => {
+    const world = await instance({
+      pass: [
+        reply({ field: "Favourite colour", value: "Green", line: 1 }),
+        () => round(text(`Another.\n${profileOperationsMarker}\nnot json`)),
+      ],
+    });
+    const field = await world.rpc.representative.profileFieldAdd({ name: "Favourite colour" });
+    await world.say("Hello");
+    const [thread] = await world.rpc.representative.threadList({ id: world.id });
+    await setLines(thread!.id, [{ author: "customer", verified: true }]);
+    world.passTime(threadIdleMs);
+    await world.passesEnded();
+    const customer = await world.customerOf();
+    expect(await profileOf(world.rpc, customer.id)).toMatchObject([
+      { field: field.id, value: "Green", status: "confirmed" },
+    ]);
+
+    await world.say("Hi again", "+15550002");
+    const other = await world.customerOf("+15550002");
+    world.passTime(threadIdleMs);
+    await expect
+      .poll(async () => {
+        world.passTime(60_000);
+        return world.rpc.representative.customerSummaryList({ id: other.id });
+      }, poll)
+      .toMatchObject([{ text: "Another." }]);
+    expect(await profileOf(world.rpc, other.id)).toEqual([]);
+  });
+
+  it("doesn't overwrite a confirmed owner value, nor a confirmed value with a claimed one", async () => {
+    const world = await instance({
+      pass: [
+        reply(
+          { field: "language", value: "Klingon", line: 1 },
+          { field: "address", value: "Unverified St", line: 2 },
+          { field: "name", value: "Eve", line: 1 },
+        ),
+      ],
+    });
+    await world.say("Hello");
+    const customer = await world.customerOf();
+    await world.rpc.representative.customerProfileSet({
+      id: customer.id,
+      field: "language",
+      value: "English",
+    });
+    await world.rpc.representative.customerRename({ id: customer.id, name: "Ada" });
+    const [thread] = await world.rpc.representative.threadList({ id: world.id });
+    await setLines(thread!.id, [
+      { author: "customer", verified: true },
+      { author: "customer", verified: false },
+    ]);
+    world.passTime(threadIdleMs);
+    await world.passesEnded();
+
+    const values = await profileOf(world.rpc, customer.id);
+    expect(values.find((each) => each.field === "language")).toMatchObject({
+      value: "English",
+      source: "owner",
+    });
+    expect(values.find((each) => each.field === "name")).toMatchObject({
+      value: "Ada",
+      source: "owner",
+    });
+    expect(values.find((each) => each.field === "address")).toMatchObject({
+      value: "Unverified St",
+      status: "claimed",
+    });
+  });
+
+  it("gives a Representative's Turn no tool that writes memory", async () => {
+    const { say, fake } = await instance();
+    await say("Remember that I like tea.");
+
+    const tools = fake.calls.flatMap((call) => (call.tools ?? []).map((tool) => tool.name));
+    expect(tools.length).toBeGreaterThan(0);
+    expect(tools.filter((name) => /memory|profile|remember|customer/i.test(name))).toEqual([]);
+  });
+});
 
 const passSpend = (userId: string) =>
   getTestDb()

@@ -235,6 +235,12 @@ function CustomerSummaries({ id }: { id: string }) {
   );
 }
 
+const profileSourceKeys = {
+  owner: "representative.customers.profileSourceOwner",
+  customer: "representative.customers.profileSourceCustomer",
+  representative: "representative.customers.profileSourceRepresentative",
+} as const;
+
 /** Where a profile value came from, whether it is confirmed, and when it was recorded. */
 function ProfileValueMeta({ value }: { value: ProfileValueView | undefined }) {
   const { t } = useI18n();
@@ -242,11 +248,7 @@ function ProfileValueMeta({ value }: { value: ProfileValueView | undefined }) {
   return (
     <p data-status={value.status} className="text-xs text-muted-foreground">
       {t("representative.customers.profileMeta", {
-        source: t(
-          value.source === "owner"
-            ? "representative.customers.profileSourceOwner"
-            : "representative.customers.profileSourceCustomer",
-        ),
+        source: t(profileSourceKeys[value.source]),
         status: t(
           value.status === "confirmed"
             ? "representative.customers.profileConfirmed"

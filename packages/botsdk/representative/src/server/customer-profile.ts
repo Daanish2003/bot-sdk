@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
+import { z } from "zod";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { isUniqueViolation } from "@botsdk/bot/lib/unique-violation";
@@ -10,9 +11,15 @@ import {
   type FixedProfileField,
   fixedProfileFields,
   type ProfileFieldView,
+  type ProfileSource,
+  maxProfileValueLength,
   type ProfileValueView,
 } from "../shared/contract";
-import { representativeProfileField, representativeProfileValue } from "./db/schema";
+import {
+  representativeProfileField,
+  representativeProfileValue,
+  representativeThreadMessage,
+} from "./db/schema";
 
 /*
  * A Customer's typed profile (ticket #1280): the fixed fields and the owner's own, each value with
@@ -195,4 +202,123 @@ export function exportProfileFields(tx: Transaction, userId: string) {
 
 export async function deleteProfileFields(tx: Transaction, userId: string): Promise<void> {
   await tx.delete(representativeProfileField).where(eq(representativeProfileField.userId, userId));
+}
+
+/** What the pass proposed for one profile value: a field by name, its value, and the line it cites. */
+export type ProfileOperation = { field: string; value: string; line: number };
+
+const profileOperation = z.object({
+  field: z.string(),
+  value: z.string(),
+  line: z.number().int(),
+});
+
+/** The most operations one thread's reply can carry; the rest are dropped. */
+const maxPassOperations = 20;
+
+/** Reads the Model's JSON array of operations. A reply that isn't one, and any entry that isn't one, gives nothing. */
+export function parseProfileOperations(text: string): ProfileOperation[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text.trim().replace(/^```(?:json)?\s*|\s*```$/g, ""));
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed.slice(0, maxPassOperations).flatMap((entry) => {
+    const result = profileOperation.safeParse(entry);
+    return result.success ? [result.data] : [];
+  });
+}
+
+/**
+ * Writes what the pass proposed, under the thread's lock, which the caller holds. Code decides every
+ * value's status, not the Model: `confirmed` only if the line it cites has a Customer as its author
+ * that message was verified, and it says the value (a row's `verified` means something else on an owner's, and is true by
+ * default). A line that isn't in the thread, or a field that isn't there, drops
+ * the operation. A `confirmed` owner value is never overwritten, nor any `confirmed` value by a `claimed` one.
+ */
+export async function writePassValues(
+  tx: Transaction,
+  {
+    userId,
+    customerId,
+    threadId,
+    now,
+    operations,
+  }: {
+    userId: string;
+    customerId: string;
+    threadId: string;
+    now: Date;
+    operations: ProfileOperation[];
+  },
+) {
+  if (operations.length === 0) return;
+  const own = await tx
+    .select({ id: representativeProfileField.id, name: representativeProfileField.name })
+    .from(representativeProfileField)
+    .where(eq(representativeProfileField.userId, userId))
+    .for("share");
+  const lines = await tx
+    .select({
+      position: representativeThreadMessage.position,
+      author: representativeThreadMessage.author,
+      verified: representativeThreadMessage.verified,
+      text: representativeThreadMessage.text,
+    })
+    .from(representativeThreadMessage)
+    .where(
+      and(
+        eq(representativeThreadMessage.threadId, threadId),
+        inArray(representativeThreadMessage.author, ["customer", "representative", "owner"]),
+      ),
+    );
+  for (const operation of operations) {
+    const name = operation.field.trim().toLowerCase();
+    const fixed = fixedProfileFields.find((each) => each === name.replaceAll(" ", "_"));
+    const ownField = fixed ? undefined : own.find((each) => each.name.toLowerCase() === name);
+    const line = lines.find((each) => each.position === operation.line);
+    const value = operation.value.replaceAll("\0", "").trim().slice(0, maxProfileValueLength);
+    if ((!fixed && !ownField) || !line || !value) continue;
+    // The Model chooses the line it cites, so the line must also say the value: a verified line can't vouch for a value it doesn't hold.
+    // The query above keeps only these three authors, which are the sources a line can give.
+    const says = line.text.toLowerCase().includes(value.toLowerCase());
+    const status = line.author === "customer" && line.verified && says ? "confirmed" : "claimed";
+    const column = fixed
+      ? representativeProfileValue.fixedField
+      : representativeProfileValue.fieldId;
+    const key = fixed ?? ownField!.id;
+    const [existing] = await tx
+      .select({
+        source: representativeProfileValue.source,
+        status: representativeProfileValue.status,
+      })
+      .from(representativeProfileValue)
+      .where(and(eq(representativeProfileValue.customerId, customerId), eq(column, key)))
+      // Held, because another thread of this Customer or the owner may be writing it too.
+      .for("update");
+    if (existing?.status === "confirmed" && (existing.source === "owner" || status === "claimed")) {
+      continue;
+    }
+    const written = {
+      value,
+      source: line.author as ProfileSource,
+      status,
+      recordedAt: now,
+    } as const;
+    await tx
+      .insert(representativeProfileValue)
+      .values({
+        id: uuidv7(),
+        userId,
+        customerId,
+        ...(fixed ? { fixedField: fixed } : { fieldId: key }),
+        ...written,
+      })
+      .onConflictDoUpdate({
+        target: [representativeProfileValue.customerId, column],
+        set: written,
+      });
+  }
 }
