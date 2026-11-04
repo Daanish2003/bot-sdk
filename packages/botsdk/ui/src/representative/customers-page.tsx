@@ -1,4 +1,12 @@
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useState } from "react";
@@ -13,6 +21,7 @@ import {
   useCustomerMerges,
   useCustomerSummaries,
   useCustomers,
+  useDeleteCustomer,
   useMergeCustomer,
   useProfileFields,
   useRefreshRepresentatives,
@@ -133,6 +142,106 @@ function MergeInto({
         {t("representative.customers.merge")}
       </Button>
     </div>
+  );
+}
+
+/** The names of everyone merged into a Customer, by the merges that stand, however many steps away. */
+function mergedInto(merges: CustomerMergeView[], id: string): Array<string | null> {
+  return merges
+    .filter((each) => each.survivor.id === id && !each.undoneAt)
+    .flatMap((each) => [each.absorbed.name, ...mergedInto(merges, each.absorbed.id)]);
+}
+
+/** Delete, which first says what goes and what stays. */
+function DeleteCustomer({
+  customer,
+  label,
+  merged,
+}: {
+  customer: CustomerView;
+  label: string;
+  /** Undefined until the merges have loaded, when Delete can't yet say who goes. */
+  merged: Array<string | null> | undefined;
+}) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const [open, setOpen] = useState(false);
+  const remove = useDeleteCustomer({
+    onSuccess: async () => {
+      setOpen(false);
+      await refresh();
+      toast.success(t("representative.customers.deleted", { name: label }));
+    },
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  const goes = [
+    t("representative.customers.deleteGoesIdentities", {
+      identities: customer.identities.map((identity) => identity.externalId).join(", "),
+    }),
+    t("representative.customers.deleteGoesMemory"),
+    t("representative.customers.deleteGoesThreads"),
+    t("representative.customers.deleteGoesHandOffs"),
+    t("representative.customers.deleteGoesJobs"),
+    t("representative.customers.deleteGoesElsewhere"),
+    ...(merged && merged.length > 0
+      ? [
+          t("representative.customers.deleteGoesMerged", {
+            names: merged.map((name) => name ?? t("representative.customers.unnamed")).join(", "),
+          }),
+        ]
+      : []),
+  ];
+  return (
+    <>
+      <Button
+        variant="destructive"
+        size="sm"
+        aria-label={t("representative.customers.deleteOf", { name: label })}
+        disabled={!merged}
+        onClick={() => setOpen(true)}
+      >
+        {t("representative.customers.delete")}
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("representative.customers.deleteTitle", { name: label })}</DialogTitle>
+            <DialogDescription>{t("representative.customers.deleteIntro")}</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3 text-sm">
+            <section aria-label={t("representative.customers.deleteGoes")}>
+              <h3 className="font-medium">{t("representative.customers.deleteGoes")}</h3>
+              <ul className="list-disc pl-5 text-muted-foreground">
+                {goes.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </section>
+            <section aria-label={t("representative.customers.deleteStays")}>
+              <h3 className="font-medium">{t("representative.customers.deleteStays")}</h3>
+              <ul className="list-disc pl-5 text-muted-foreground">
+                <li>{t("representative.customers.deleteStaysSpend")}</li>
+                <li>{t("representative.customers.deleteStaysJobRecords")}</li>
+              </ul>
+            </section>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              {t("representative.customers.deleteCancel")}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={remove.isPending}
+              onClick={() => remove.mutate({ id: customer.id })}
+            >
+              {t("representative.customers.deleteConfirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -366,10 +475,12 @@ function CustomerCard({
   customer,
   others,
   fields,
+  merges,
 }: {
   customer: CustomerView;
   others: CustomerView[];
   fields: ProfileFieldView[];
+  merges: CustomerMergeView[] | undefined;
 }) {
   const i18n = useI18n();
   const { t } = i18n;
@@ -426,6 +537,11 @@ function CustomerCard({
         >
           {blockText}
         </Button>
+        <DeleteCustomer
+          customer={customer}
+          label={label}
+          merged={merges && mergedInto(merges, customer.id)}
+        />
       </div>
       <ProfileValueMeta value={nameValue} />
       {customer.blocked && (
@@ -662,6 +778,7 @@ export function CustomersPage() {
             customer={customer}
             others={all.filter((other) => other.id !== customer.id)}
             fields={fields}
+            merges={merges.data}
           />
         ))}
       </ul>

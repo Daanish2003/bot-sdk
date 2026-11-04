@@ -18,6 +18,9 @@ export const threadExpiryMs = 365 * 24 * 60 * 60_000;
 
 export const threadExpiryJobName = "representative.thread-expiry";
 
+/** The key a thread's expiry is queued under. */
+export const threadExpiryKey = (threadId: string) => `${threadExpiryJobName}:${threadId}`;
+
 const payload = z.object({ threadId: z.uuid() });
 
 /** Deletes the thread if it is closed; nothing once it is gone, or open again. */
@@ -47,7 +50,7 @@ export async function queueThreadExpiry(
   threadId: string,
   closedAt: Date,
 ) {
-  const key = `${threadExpiryJobName}:${threadId}`;
+  const key = threadExpiryKey(threadId);
   await jobs.cancelIn(tx, key);
   await jobs.enqueueIn(
     tx,

@@ -204,6 +204,13 @@ export function useMergeCustomer(
   return useMutation(useRepresentative().customerMerge.mutationOptions(options));
 }
 
+/** Deletes a Customer for good (`representative.customerDelete`). */
+export function useDeleteCustomer(
+  options?: ProcedureMutationOptions<Representative["customerDelete"]>,
+) {
+  return useMutation(useRepresentative().customerDelete.mutationOptions(options));
+}
+
 /** What the pass wrote for a Customer's closed threads (`representative.customerSummaryList`). */
 export function useCustomerSummaries(id: string) {
   return useQuery(useRepresentative().customerSummaryList.queryOptions({ input: { id } }));

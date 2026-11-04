@@ -619,6 +619,11 @@ export const representativeContract = {
    * Representative. Refused while either is blocked. It verifies nobody, and can be undone.
    */
   customerMerge: oc.input(customerMergeInput).output(type<CustomerView>()),
+  /**
+   * Hard-deletes a Customer and everyone merged into them, with their identities, memory, threads and
+   * hand-off contact details, and cancels their queued jobs. Spend stays. It can't be undone.
+   */
+  customerDelete: oc.input(idInput),
   /** What the pass wrote for a Customer's closed threads, newest first, skips too. */
   customerSummaryList: oc.input(idInput).output(type<CustomerSummaryView[]>()),
   /** The owner's merges of Customers, newest first, undone ones too. */

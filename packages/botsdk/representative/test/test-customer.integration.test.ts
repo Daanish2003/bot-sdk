@@ -760,6 +760,7 @@ describe("who can reach a Turn", () => {
       "create",
       "customerAddIdentity",
       "customerCreate",
+      "customerDelete",
       "customerList",
       "customerMerge",
       "customerMergeList",

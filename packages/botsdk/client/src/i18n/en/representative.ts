@@ -195,6 +195,29 @@ export const representativeMessages = {
   "representative.customers.externalIdOf": ({ name }: { name: string }) => `Identity of ${name}`,
   "representative.customers.block": "Block",
   "representative.customers.unblock": "Unblock",
+  "representative.customers.delete": "Delete",
+  "representative.customers.deleteOf": ({ name }: { name: string }) => `Delete ${name}`,
+  "representative.customers.deleteTitle": ({ name }: { name: string }) => `Delete ${name}?`,
+  "representative.customers.deleteIntro": "This deletes them for good. It can't be undone.",
+  "representative.customers.deleteGoes": "What goes",
+  "representative.customers.deleteGoesIdentities": ({ identities }: { identities: string }) =>
+    `Their record and identities: ${identities}`,
+  "representative.customers.deleteGoesMemory": "Their profile values and summaries",
+  "representative.customers.deleteGoesThreads": "Their threads and every message in them",
+  "representative.customers.deleteGoesHandOffs": "How to reach them about work handed to your Bot",
+  "representative.customers.deleteGoesJobs": "Their queued Turns and other waiting work",
+  "representative.customers.deleteGoesElsewhere":
+    "What they said on another Customer's thread after a merge was undone, and undone merges that name them",
+  "representative.customers.deleteGoesMerged": ({ names }: { names: string }) =>
+    `Everyone merged into them, and all of the above for each: ${names}`,
+  "representative.customers.deleteStays": "What stays",
+  "representative.customers.deleteStaysSpend":
+    "Your spend records, which don't say who they were for",
+  "representative.customers.deleteStaysJobRecords":
+    "Records of past Model calls, which can quote them, until they expire within 30 days",
+  "representative.customers.deleteCancel": "Cancel",
+  "representative.customers.deleteConfirm": "Delete for good",
+  "representative.customers.deleted": ({ name }: { name: string }) => `Deleted ${name}`,
   "representative.customers.verified": "Verified",
   "representative.customers.unverified": "Not verified",
   "representative.customers.blockedBadge": "Blocked",

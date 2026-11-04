@@ -98,7 +98,7 @@ type StandingMerge = {
 };
 
 /** The owner's merges that stand, which make each survivor's tree of Customers. */
-const standingMergesOf = (db: Db, userId: string): Promise<StandingMerge[]> =>
+export const standingMergesOf = (db: Db, userId: string): Promise<StandingMerge[]> =>
   db
     .select({
       absorbedId: representativeCustomerMerge.absorbedCustomerId,
@@ -116,7 +116,7 @@ const standingMergesOf = (db: Db, userId: string): Promise<StandingMerge[]> =>
     );
 
 /** A Customer and everyone merged into it, by the merges that stand, however many steps away. */
-function memberIds(merges: StandingMerge[], customerId: string): string[] {
+export function memberIds(merges: StandingMerge[], customerId: string): string[] {
   const absorbed = merges.filter((each) => each.survivorId === customerId);
   return [customerId, ...absorbed.flatMap((each) => memberIds(merges, each.absorbedId))];
 }

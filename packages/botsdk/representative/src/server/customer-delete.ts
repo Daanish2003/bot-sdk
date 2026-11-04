@@ -1,0 +1,245 @@
+import { and, desc, eq, inArray, isNotNull, notInArray, or, type SQL } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
+
+import type { FeatureContext } from "@botsdk/bot/feature";
+import type { Transaction } from "@botsdk/bot/plugin";
+import { holdCustomers, isMergedAway } from "./customer-merge";
+import { memberIds, standingMergesOf } from "./customer-profile";
+import { holdIdentities } from "./customer-proof";
+import { customerSummaryKey } from "./customer-summary";
+import type { Heard } from "./customers";
+import {
+  representativeCustomer,
+  representativeCustomerIdentity,
+  representativeCustomerMerge,
+  representativeCustomerSummary,
+  representativeHandOff,
+  representativeThread,
+  representativeThreadMessage,
+} from "./db/schema";
+import { threadExpiryKey } from "./expiry";
+import { customerNotFound } from "./owner-customers";
+
+/*
+ * Deleting a Customer (ticket #1287, spec #1170, ADR 0035): a hard delete, of them and everyone merged
+ * into them, whose rows hold values the survivor reads. Foreign keys take most of it. What they can't
+ * reach is here: queued jobs, the merge history that stores ids in JSON, and what an undone merge left
+ * of this person on the other Customer's thread. Spend rows stay: they name no Customer. A job's
+ * Checkpoints stay too, which is the limit ADR 0035 documents.
+ */
+
+type Context = Pick<FeatureContext, "db" | "jobs">;
+
+/**
+ * Holds the owner's Customer and everyone merged into them, and returns their ids. A merge moving as
+ * this waits is seen on the next read, and locking what it added late can at worst fail this delete on
+ * a deadlock, which changes nothing.
+ */
+async function holdCustomerAndMerged(tx: Transaction, userId: string, id: string) {
+  const held = new Set<string>();
+  for (let next = [id]; ;) {
+    const rows = await holdCustomers(tx, next);
+    if (!held.has(id) && rows[0]?.userId !== userId) throw customerNotFound();
+    for (const row of rows) held.add(row.id);
+    if (await isMergedAway(tx, id)) throw customerNotFound();
+    const members = memberIds(await standingMergesOf(tx, userId), id);
+    if (members.every((each) => held.has(each))) return members;
+    next = members.filter((each) => !held.has(each));
+  }
+}
+
+const isAt = (channel: AnyPgColumn, externalId: AnyPgColumn, addresses: Heard[]): SQL =>
+  or(...addresses.map((each) => and(eq(channel, each.channel), eq(externalId, each.externalId))))!;
+
+/** A deleted thread's work: a queued Turn and expiry never run, and a running Turn stops at its fence. */
+async function cancelThreadJobs(
+  tx: Transaction,
+  { jobs }: Context,
+  thread: { id: string; turnId: string | null },
+) {
+  if (thread.turnId) await jobs.cancelIn(tx, thread.turnId);
+  await jobs.cancelIn(tx, threadExpiryKey(thread.id));
+}
+
+/**
+ * A merge that was undone can leave this person's words on another Customer's thread, since nothing
+ * moved back but the thread and identities that the merge moved. Later merges can have taken that
+ * thread further, so it is found by their address, across the owner's other Customers. Those words, and
+ * any summary made from them or pass about to make one, go; so does a hand-off from them, whose
+ * Assignment is returned for redaction. The other Customer's own words stay, and a thread with none
+ * left goes. Returns the threads it removed, and those Assignments.
+ */
+async function removeFromOtherThreads(
+  tx: Transaction,
+  context: Context,
+  userId: string,
+  customerIds: string[],
+  addresses: Heard[],
+): Promise<{ threadIds: string[]; assignmentIds: string[] }> {
+  if (addresses.length === 0) return { threadIds: [], assignmentIds: [] };
+  const thread = representativeThread;
+  const message = representativeThreadMessage;
+  const isTheirs = isAt(message.channel, message.externalId, addresses);
+  const others = tx
+    .select({ id: representativeCustomer.id })
+    .from(representativeCustomer)
+    .where(
+      and(
+        eq(representativeCustomer.userId, userId),
+        notInArray(representativeCustomer.id, customerIds),
+      ),
+    );
+  const touched = await tx
+    .selectDistinct({
+      id: thread.id,
+      turnId: thread.turnId,
+      lastChannel: thread.lastChannel,
+      lastExternalId: thread.lastExternalId,
+    })
+    .from(thread)
+    .innerJoin(message, eq(message.threadId, thread.id))
+    .where(and(inArray(thread.customerId, others), isTheirs));
+  const threadIds: string[] = [];
+  for (const each of touched) {
+    const { id, lastChannel, lastExternalId } = each;
+    await tx.select({ id: thread.id }).from(thread).where(eq(thread.id, id)).for("update");
+    await tx.delete(message).where(and(eq(message.threadId, id), isTheirs));
+    await context.jobs.cancelIn(tx, customerSummaryKey(id));
+    await tx
+      .delete(representativeCustomerSummary)
+      .where(eq(representativeCustomerSummary.threadId, id));
+    const [newest] = await tx
+      .select({ channel: message.channel, externalId: message.externalId })
+      .from(message)
+      .where(eq(message.threadId, id))
+      .orderBy(desc(message.position))
+      .limit(1);
+    if (!newest) {
+      await cancelThreadJobs(tx, context, each);
+      await tx.delete(thread).where(eq(thread.id, id));
+      threadIds.push(id);
+    } else if (
+      addresses.some((one) => one.channel === lastChannel && one.externalId === lastExternalId)
+    ) {
+      await tx
+        .update(thread)
+        .set({ lastChannel: newest.channel, lastExternalId: newest.externalId })
+        .where(eq(thread.id, id));
+    }
+  }
+  const handOff = representativeHandOff;
+  const handOffs = await tx
+    .delete(handOff)
+    .where(
+      and(
+        inArray(handOff.customerId, others),
+        isAt(handOff.channel, handOff.externalId, addresses),
+      ),
+    )
+    .returning({ assignmentId: handOff.assignmentId });
+  return { threadIds, assignmentIds: handOffs.map((row) => row.assignmentId) };
+}
+
+/**
+ * The mirror of the above: an undo can leave these Customers holding a hand-off that came from another
+ * Customer's address, on a thread that moved back. It is theirs, so it goes to them rather than with
+ * this delete, and its result still reaches them.
+ */
+async function giveBackHandOffs(tx: Transaction, userId: string, customerIds: string[]) {
+  const handOff = representativeHandOff;
+  const identity = representativeCustomerIdentity;
+  const heldForOthers = await tx
+    .select({ assignmentId: handOff.assignmentId, customerId: identity.customerId })
+    .from(handOff)
+    .innerJoin(
+      identity,
+      and(
+        eq(identity.userId, userId),
+        eq(identity.channel, handOff.channel),
+        eq(identity.externalId, handOff.externalId),
+      ),
+    )
+    .where(
+      and(inArray(handOff.customerId, customerIds), notInArray(identity.customerId, customerIds)),
+    );
+  for (const { assignmentId, customerId } of heldForOthers) {
+    await tx.update(handOff).set({ customerId }).where(eq(handOff.assignmentId, assignmentId));
+  }
+}
+
+/**
+ * Hard-deletes the owner's Customer and everyone merged into them, and returns the Assignments their
+ * hand-offs named, which nothing else can find once the hand-offs have gone: their text is still in the
+ * Assignment and the Bot's Conversation, for #1288 to redact. A message waiting on these rows finds no
+ * identity afterwards, and comes from a stranger. Queued Turns, passes and expiries are cancelled. A
+ * running Turn's writes are refused by its fence, and a thread's idle check, whose key holds its due
+ * date, and a hand-off's result both run and find nothing.
+ */
+export async function deleteCustomer(
+  context: Context,
+  userId: string,
+  id: string,
+): Promise<{ assignmentIds: string[] }> {
+  return context.db.transaction(async (tx) => {
+    const customerIds = await holdCustomerAndMerged(tx, userId, id);
+    const identity = representativeCustomerIdentity;
+    const identities = await tx
+      .select({ id: identity.id, channel: identity.channel, externalId: identity.externalId })
+      .from(identity)
+      .where(inArray(identity.customerId, customerIds));
+    await holdIdentities(
+      tx,
+      identities.map((each) => each.id),
+    );
+    const threads = await tx
+      .select({ id: representativeThread.id, turnId: representativeThread.turnId })
+      .from(representativeThread)
+      .where(inArray(representativeThread.customerId, customerIds))
+      .for("update");
+    for (const thread of threads) {
+      await cancelThreadJobs(tx, context, thread);
+      await context.jobs.cancelIn(tx, customerSummaryKey(thread.id));
+    }
+
+    const merge = representativeCustomerMerge;
+    const undone = await tx
+      .select()
+      .from(merge)
+      .where(and(eq(merge.userId, userId), isNotNull(merge.undoneAt)));
+    const fromOthers = await removeFromOtherThreads(tx, context, userId, customerIds, identities);
+    await giveBackHandOffs(tx, userId, customerIds);
+    const handOffs = await tx
+      .select({ assignmentId: representativeHandOff.assignmentId })
+      .from(representativeHandOff)
+      .where(inArray(representativeHandOff.customerId, customerIds));
+    const assignmentIds = [...handOffs.map((row) => row.assignmentId), ...fromOthers.assignmentIds];
+
+    // A merge of these Customers goes with them. An undone one of someone else's can still hold their
+    // ids in JSON, from when they had been merged into one of its two.
+    const gone = new Set([
+      ...identities.map((each) => each.id),
+      ...threads.map((each) => each.id),
+      ...fromOthers.threadIds,
+      ...assignmentIds,
+    ]);
+    const holdingThem = undone.filter((row) =>
+      [
+        ...row.identityIds,
+        ...row.threadIds,
+        ...row.handOffIds,
+        ...row.movedHolds.flatMap((hold) => [hold.closedThreadId, hold.survivingThreadId]),
+      ].some((each) => gone.has(each)),
+    );
+    if (holdingThem.length > 0) {
+      await tx.delete(merge).where(
+        inArray(
+          merge.id,
+          holdingThem.map((row) => row.id),
+        ),
+      );
+    }
+
+    await tx.delete(representativeCustomer).where(inArray(representativeCustomer.id, customerIds));
+    return { assignmentIds };
+  });
+}

@@ -85,6 +85,46 @@ test("an owner defines a profile field, and sets and corrects a Customer's value
   await expect(heating).toHaveCount(0);
 });
 
+test("an owner sees what goes, then deletes a Customer and those merged into them", async ({
+  page,
+}) => {
+  await signInAsSeededUser(page);
+  await page.goto("/customers");
+  const add = async (name: string, externalId: string) => {
+    await page.getByLabel("Name", { exact: true }).fill(name);
+    await page.getByLabel("Channel", { exact: true }).fill("sms");
+    await page.getByLabel("Identity on that Channel").fill(externalId);
+    await page.getByRole("button", { name: "Add Customer" }).click();
+    await expect(page.getByLabel(`Name of ${name}`)).toBeVisible();
+  };
+  const emilNumber = `+1555${randomUUID().slice(0, 8)}`;
+  await add("Dora", `+1555${randomUUID().slice(0, 8)}`);
+  await add("Emil", emilNumber);
+  await add("Fay", `+1555${randomUUID().slice(0, 8)}`);
+  await page.getByLabel("Merge Dora into").selectOption({ label: `Emil · ${emilNumber}` });
+  await page.getByRole("button", { name: "Merge Dora", exact: true }).click();
+  await expect(page.getByLabel("Name of Dora")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Delete Emil" }).click();
+  const dialog = page.getByRole("dialog");
+  const goes = dialog.getByRole("region", { name: "What goes" });
+  await expect(goes).toContainText("Their profile values and summaries");
+  await expect(goes).toContainText("Their threads and every message in them");
+  await expect(goes).toContainText("Dora");
+  await expect(dialog.getByRole("region", { name: "What stays" })).toContainText("spend records");
+
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByLabel("Name of Emil")).toBeVisible();
+
+  await page.getByRole("button", { name: "Delete Emil" }).click();
+  await page.getByRole("button", { name: "Delete for good" }).click();
+  await expect(page.getByLabel("Name of Emil")).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByLabel("Name of Fay")).toBeVisible();
+  await expect(page.getByLabel("Name of Emil")).toHaveCount(0);
+  await expect(page.locator("[data-merge]")).toHaveCount(0);
+});
+
 test("an owner adds a Customer, edits identities, and blocks and unblocks one", async ({
   page,
 }) => {

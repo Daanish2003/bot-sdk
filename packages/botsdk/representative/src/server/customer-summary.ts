@@ -33,6 +33,9 @@ import { type ProfileOperation, parseProfileOperations, writePassValues } from "
 
 export const customerSummaryJobName = "representative.customer-summary";
 
+/** The key a thread's pass is queued under. */
+export const customerSummaryKey = (threadId: string) => `${customerSummaryJobName}:${threadId}`;
+
 /** What opens the pass's prompt, so a test's fake Model can tell its call from a Turn's. */
 export const customerSummaryMarker = "You summarize one closed thread of messages";
 
@@ -251,7 +254,7 @@ export async function afterThreadClose(
     tx,
     customerSummaryJob,
     { threadId },
-    { idempotencyKey: `${customerSummaryJobName}:${threadId}` },
+    { idempotencyKey: customerSummaryKey(threadId) },
   );
 }
 

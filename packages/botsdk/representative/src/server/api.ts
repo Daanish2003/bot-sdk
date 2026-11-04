@@ -30,6 +30,7 @@ import { addFact, deleteFact, editFact, listFactLog, listFacts } from "./facts";
 import { dismissGap, gapToFact, listGaps } from "./gaps";
 import { approveFactProposal, declineFactProposal, listFactProposals } from "./fact-proposals";
 import { listMerges, mergeCustomers, undoMerge } from "./customer-merge";
+import { deleteCustomer } from "./customer-delete";
 import { listCustomerSummaries } from "./customer-summary";
 import {
   addProfileField,
@@ -185,6 +186,10 @@ export function representativeApi(
 
     customerMerge: async ({ userId, ...rest }: WithUser<typeof customerMergeInput>) =>
       mergeCustomers(context, userId, parseInput(customerMergeInput, rest)),
+
+    customerDelete: async ({ userId, ...rest }: WithUser<typeof idInput>) => {
+      await deleteCustomer(context, userId, parseInput(idInput, rest).id);
+    },
 
     customerSummaryList: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
       listCustomerSummaries(context, userId, parseInput(idInput, rest).id),
