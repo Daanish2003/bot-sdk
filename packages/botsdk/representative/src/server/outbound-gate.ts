@@ -57,6 +57,8 @@ const rulesOf: Record<OutboundKind, readonly GateRule[]> = {
   proof: ["blocked", "optedOut", "channel"],
   // The words that tell a Customer their opt-out worked: the rule that drops the rest can't drop it.
   opt_out_confirmation: ["blocked", "channel"],
+  // Safety wins: only a block stops it, and a Channel that can't deliver it.
+  emergency_script: ["blocked", "channel"],
   // All a reply passes but these: the owner's word settles them for a draft, as for a released
   // message, and the note is code's, which isn't what the caps count.
   holding_note: gateOrder.filter((rule) => rule !== "topic" && rule !== "caps"),
@@ -686,12 +688,12 @@ export const customerDeliveryJob = (channel: CustomerChannel) =>
         )
         .where(eq(decision.id, decisionId));
       if (!row) return;
-      // The confirmation of an opt-out is the one message an opted-out identity is sent.
+      // The confirmation of an opt-out and the emergency script are all an opted-out identity is sent.
       const stopped = row.blockedAt
         ? notDelivered.blocked
         : !row.identityId
           ? notDelivered.moved
-          : row.optedOutAt && row.kind !== "opt_out_confirmation"
+          : row.optedOutAt && row.kind !== "opt_out_confirmation" && row.kind !== "emergency_script"
             ? notDelivered.optedOut
             : null;
       if (stopped) {

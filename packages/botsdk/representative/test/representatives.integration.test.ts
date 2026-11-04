@@ -107,6 +107,8 @@ describe("creating and editing a Representative", () => {
       tools: ["reply"],
       model: "openai:gpt-6-luna",
       tests: [],
+      emergencyText: "If this is an emergency, call your local emergency number",
+      emergencyKeywords: [],
     });
   });
 

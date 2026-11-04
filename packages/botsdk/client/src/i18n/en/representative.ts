@@ -51,6 +51,12 @@ export const representativeMessages = {
   "representative.jobText": "Job text",
   "representative.jobTextPlaceholder":
     "What should this Representative do, and how should it sound?",
+  "representative.emergencyText": "Emergency message",
+  "representative.emergencyTextHelp":
+    "Sent word for word when a Customer may be in an emergency, past drafts, caps, quiet hours, your hold on a thread and opt-outs. You're alerted at once.",
+  "representative.emergencyKeywords": "Emergency keywords",
+  "representative.emergencyKeywordsHelp":
+    "One word or phrase on each line. A message that says one gets the emergency message with no Model call. With none, only the Representative can set it off.",
   "representative.tools": "Tools",
   "representative.toolReply": "Reply to the Customer",
   "representative.toolHandToBot": "Hand off to the Bot",
@@ -144,6 +150,8 @@ export const representativeMessages = {
   "representative.diffNew": "No live Release yet, so everything here is new.",
   "representative.diffField.jobText": "Job text",
   "representative.diffField.model": "Model",
+  "representative.diffField.emergencyText": "Emergency message",
+  "representative.diffField.emergencyKeywords": "Emergency keywords",
   "representative.diffField.switch": "Switch",
   "representative.diffField.skill": "Skill",
   "representative.diffField.tool": "Tool",

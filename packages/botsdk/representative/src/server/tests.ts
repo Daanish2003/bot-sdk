@@ -10,6 +10,7 @@ import {
   maxReleaseDocumentChars,
   type TestResultView,
   type TestStatus,
+  normalizedRelease,
 } from "../shared/contract";
 import { representative, representativeTestResult } from "./db/schema";
 import { DocumentGone, type DocumentText, readDocuments } from "./documents";
@@ -33,9 +34,9 @@ type TestPayload = z.infer<typeof payload>;
 
 type Db = FeatureContext["db"] | Transaction;
 
-/** The draft as stored: a draft written before test conversations or documents has none. */
+/** The draft as stored: a draft written before test conversations, documents or the emergency script has none. */
 export const normalizedDraft = (draft: Draft): Draft => ({
-  ...draft,
+  ...normalizedRelease(draft),
   tests: draft.tests ?? [],
   documents: draft.documents ?? [],
 });

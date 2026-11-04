@@ -104,6 +104,12 @@ export const testConversationSchema = z.object({
 });
 export type TestConversation = z.output<typeof testConversationSchema>;
 
+/** What a Customer in an emergency is sent until the owner says otherwise, on a new draft and an older Release. */
+export const defaultEmergencyText = "If this is an emergency, call your local emergency number";
+const maxEmergencyTextLength = 1_000;
+const maxEmergencyKeywords = 50;
+const maxEmergencyKeywordLength = 100;
+
 /** What the owner writes: the part of a Release that is theirs to edit. */
 export const draftSchema = z.object({
   /** What the Representative is told to do. */
@@ -121,6 +127,12 @@ export const draftSchema = z.object({
   model: storable(z.string().trim().min(1).max(200)).nullable(),
   /** Scripted test conversations, run on the draft and pinned in the Release. */
   tests: z.array(testConversationSchema).max(maxTestConversations),
+  /** The emergency script's fixed text. */
+  emergencyText: storable(z.string().trim().min(1).max(maxEmergencyTextLength)),
+  /** What sets the script off when a Customer says it, as whole words. */
+  emergencyKeywords: z
+    .array(storable(z.string().trim().min(1).max(maxEmergencyKeywordLength)))
+    .max(maxEmergencyKeywords),
 });
 
 /**
@@ -160,6 +172,17 @@ export type DocumentSnapshot = {
 export type ReleaseContent = Omit<Draft, "documents"> & {
   documentSnapshot: DocumentSnapshot | null;
 };
+
+/** A Release as stored: one approved before the emergency script has the default text and no keywords. */
+export const normalizedRelease = <
+  Content extends Pick<ReleaseContent, "emergencyText" | "emergencyKeywords">,
+>(
+  content: Content,
+): Content => ({
+  ...content,
+  emergencyText: content.emergencyText ?? defaultEmergencyText,
+  emergencyKeywords: content.emergencyKeywords ?? [],
+});
 
 export type ReleaseSummary = {
   id: string;
@@ -255,9 +278,19 @@ export type RepresentativeView = RepresentativeSummary & {
  * text, and null where that side has none (a Skill or switch only one side holds, a first Release).
  */
 export type DraftChange = {
-  field: "jobText" | "switch" | "skill" | "tool" | "model" | "test" | "document";
+  field:
+    | "jobText"
+    | "switch"
+    | "skill"
+    | "tool"
+    | "model"
+    | "test"
+    | "document"
+    | "emergencyText"
+    | "emergencyKeywords";
   /**
-   * The switch, Skill, tool, test or document the change is about; null for the job text and Model,
+   * The switch, Skill, tool, test or document the change is about; null for the job text, Model and
+   * emergency script,
    * and for Skills, tests or documents put in another order, whose sides are then their names in
    * order.
    */

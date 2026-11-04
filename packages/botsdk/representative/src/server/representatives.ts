@@ -8,11 +8,13 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { bot, botAssignment, message } from "@botsdk/bot/storage";
 import type { Transaction } from "@botsdk/bot/plugin";
 import {
+  defaultEmergencyText,
   documentChars,
   type Draft,
   type DraftChange,
   type DraftDiff,
   maxReleaseDocumentChars,
+  normalizedRelease,
   type PendingApproval,
   type ReleaseContent,
   type ReleaseView,
@@ -67,6 +69,8 @@ export const emptyDraft = (): Draft => ({
   model: null,
   tests: [],
   documents: [],
+  emergencyText: defaultEmergencyText,
+  emergencyKeywords: [],
 });
 
 const notFound = () =>
@@ -152,7 +156,7 @@ async function view(
     ...summaryOf(row, live?.number ?? null),
     draft: row.draft,
     approval: waiting && { botId: waiting.botId, expiresAt: waiting.expiresAt },
-    liveRelease: live && content ? { ...live, ...content } : null,
+    liveRelease: live && content ? { ...live, content: normalizedRelease(content.content) } : null,
     releases,
     ...(await testStateOf(db, row)),
   };
@@ -704,6 +708,8 @@ export function draftChanges(draft: Draft, live: ReleaseContent | null): DraftCh
   };
   add("jobText", null, live?.jobText, draft.jobText);
   add("model", null, live?.model, draft.model);
+  add("emergencyText", null, live?.emergencyText, draft.emergencyText);
+  add("emergencyKeywords", null, live?.emergencyKeywords, draft.emergencyKeywords);
   const switches = [...Object.keys(live?.switches ?? {}), ...Object.keys(draft.switches)];
   for (const name of [...new Set(switches)].sort()) {
     add("switch", name, live?.switches[name], draft.switches[name]);
@@ -775,7 +781,7 @@ export async function diffDraft({ db }: Context, userId: string, id: string): Pr
     : [];
   return {
     liveReleaseNumber: live?.number ?? null,
-    changes: draftChanges(row.draft, live?.content ?? null),
+    changes: draftChanges(row.draft, live ? normalizedRelease(live.content) : null),
   };
 }
 

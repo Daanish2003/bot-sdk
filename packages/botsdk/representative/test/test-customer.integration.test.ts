@@ -285,14 +285,15 @@ describe("what a Turn may call", () => {
     await testCustomerTurn(deps, { representativeId: none, message: "Hi" });
 
     expect(toolNames(fake.calls[0])?.sort()).toEqual([
+      "flag_emergency",
       "flag_opt_out",
       "hand_to_bot",
       "read_customer_work",
       "reply",
     ]);
     // Offered on every Turn, whatever the Release lists (ticket #1302).
-    expect(toolNames(fake.calls[1])).toEqual(["reply", "flag_opt_out"]);
-    expect(toolNames(fake.calls[2]) ?? []).toEqual(["flag_opt_out"]);
+    expect(toolNames(fake.calls[1])).toEqual(["reply", "flag_opt_out", "flag_emergency"]);
+    expect(toolNames(fake.calls[2]) ?? []).toEqual(["flag_opt_out", "flag_emergency"]);
   });
 
   it("gives a Release that names a tool off the list nothing for it", async () => {
@@ -309,7 +310,7 @@ describe("what a Turn may call", () => {
 
     await testCustomerTurn(deps, { representativeId: id, message: "Hi" });
 
-    expect(toolNames(fake.calls[0])).toEqual(["reply", "flag_opt_out"]);
+    expect(toolNames(fake.calls[0])).toEqual(["reply", "flag_opt_out", "flag_emergency"]);
   });
 
   it("makes a Skill procedure text that adds no tool", async () => {
@@ -322,7 +323,7 @@ describe("what a Turn may call", () => {
     await testCustomerTurn(deps, { representativeId: id, message: "Hi" });
 
     expect(promptOf(fake.calls[0])).toContain("Refunds: ask for the order number first.");
-    expect(toolNames(fake.calls[0])).toEqual(["reply", "flag_opt_out"]);
+    expect(toolNames(fake.calls[0])).toEqual(["reply", "flag_opt_out", "flag_emergency"]);
   });
 
   it("gives the Model no way to name a Customer, and takes none it tries", async () => {
