@@ -13,6 +13,8 @@ import {
   useRepresentatives,
 } from "@botsdk/representative/react";
 
+import { LimitWarning } from "./limit-warning";
+
 /** The form that creates a Representative, reporting to one of the owner's Bots or to the owner. */
 function NewRepresentativeForm() {
   const i18n = useI18n();
@@ -89,6 +91,7 @@ export function RepresentativesPage() {
         <h1 className="text-xl font-semibold">{t("representative.title")}</h1>
         <p className="text-sm text-muted-foreground">{t("representative.intro")}</p>
       </div>
+      <LimitWarning />
       <section className="space-y-2">
         <h2 className="text-sm font-medium">{t("representative.new")}</h2>
         <NewRepresentativeForm />

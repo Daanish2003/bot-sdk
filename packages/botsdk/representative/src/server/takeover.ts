@@ -233,12 +233,15 @@ export async function sendAsOwner(
       text,
       now: context.clock(),
     });
+    if (decided !== "send") return decided;
     // What waited to go where this just went is out of date; what waited for another address isn't.
-    if (decided === "send") {
-      const to = { channel: thread.lastChannel, externalId: thread.lastExternalId };
-      await replaceHeld(tx, id, context.clock(), { ...to, verified: false });
-    }
-    if (decided !== "send" || thread.waitingFrom === null) return decided;
+    const to = { channel: thread.lastChannel, externalId: thread.lastExternalId };
+    await replaceHeld(tx, id, context.clock(), { ...to, verified: false });
+    await tx
+      .update(representativeThread)
+      .set({ leftForOwnerAt: null })
+      .where(eq(representativeThread.id, id));
+    if (thread.waitingFrom === null) return decided;
     const message = representativeThreadMessage;
     const [elsewhere] = await tx
       .select({ position: min(message.position) })

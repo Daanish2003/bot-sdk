@@ -18,7 +18,12 @@ import { catchCode, customerProofLeadsTo, mayHoldCode } from "./customer-proof";
 import { type GateRefusal, passGate, storeAndDeliver } from "./outbound-gate";
 import { afterDraftHeld, replaceHeld } from "./reply-drafts";
 import { type ChannelProof, judgeSender } from "./verification";
-import { codeHandOffKind, type ReplySource, type StoredReplyKind } from "../shared/replies";
+import {
+  codeHandOffKind,
+  limitNoteKind,
+  type ReplySource,
+  type StoredReplyKind,
+} from "../shared/replies";
 
 /*
  * Customers and their threads (ticket #1249). A message finds or makes its Customer by identity
@@ -236,6 +241,7 @@ export async function receiveMessage(
     verified,
     proofRule: proof?.rule,
     ...heard,
+    createdAt: now,
   });
   // What the gate held is stale now: the Customer has written since.
   await replaceHeld(tx, threadId, now, { ...heard, verified });
@@ -398,7 +404,12 @@ export async function storeReply(
   now: Date,
 ) {
   const decision = await passGate(tx, {
-    kind: replyKind === codeHandOffKind ? "code_hand_off" : "reply",
+    kind:
+      replyKind === codeHandOffKind
+        ? "code_hand_off"
+        : replyKind === limitNoteKind
+          ? "limit_note"
+          : "reply",
     threadId,
     to: heard,
     now,

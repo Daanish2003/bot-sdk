@@ -190,6 +190,10 @@ _Avoid_: Verdict, audit entry
 A message the Outbound gate stored rather than sent, which isn't in its thread and hasn't reached the Customer.
 _Avoid_: Queued message, pending message
 
+**Limit note**:
+The one fixed message a Customer gets when a limit stops a Representative from answering their thread, with no model call: "Our team has your message and will reply". What they said stays owed. Once the limit lifts, what is under 24 hours old gets a Turn and what is older is left for the owner.
+_Avoid_: Quota message, drop notice
+
 **Reply draft**:
 A Representative's reply the Outbound gate held because its topic isn't one the user lets go out by itself. It waits for the user to approve, edit or reject it, and the Customer gets one fixed holding note meanwhile. A new Customer message replaces it, so what is out of date can't be approved. It isn't a Release's working draft.
 _Avoid_: Pending reply, suggestion

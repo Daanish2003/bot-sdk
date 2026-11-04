@@ -165,6 +165,41 @@ export async function queueWaitingTurn(services: Services, tx: Transaction, thre
   await startTurn(services, tx, threadId, batchClosesAt(now, now));
 }
 
+/** How old a message that waited through a limit may be and still get an automatic answer. */
+export const limitAnswerMs = 24 * 60 * 60_000;
+
+/**
+ * What of the messages waiting from `waitingFrom` is still young enough to be answered after a limit:
+ * the position of the oldest that is, or null. What is older is left for the owner (ticket #1309).
+ */
+export async function leaveOldMessages(
+  tx: Transaction,
+  threadId: string,
+  waitingFrom: number,
+  now: Date,
+) {
+  const message = representativeThreadMessage;
+  const [fresh] = await tx
+    .select({ position: min(message.position) })
+    .from(message)
+    .where(
+      and(
+        eq(message.threadId, threadId),
+        inArray(message.author, ["customer", "bot"]),
+        gte(message.position, waitingFrom),
+        gte(message.createdAt, new Date(now.getTime() - limitAnswerMs)),
+      ),
+    );
+  const position = fresh?.position ?? null;
+  if (position !== waitingFrom) {
+    await tx
+      .update(representativeThread)
+      .set({ leftForOwnerAt: now })
+      .where(eq(representativeThread.id, threadId));
+  }
+  return position;
+}
+
 /**
  * Where the batch starting at `rows`' first closes: at the row that breaks it, or at the end of the
  * thread when none does. Sizes are in bytes, which a message's length in a Turn's read never exceeds.
@@ -198,9 +233,10 @@ function closeBatch(
  * the next Turn. What it returns is what a replay goes by: a place in the thread, not who or what was
  * said, since user delete doesn't reach a Checkpoint. Null, running no Turn, when the thread has gone,
  * another Turn holds it, or nothing is left for a Turn to answer: nothing waits any more, the Customer
- * is blocked, or the Representative no longer holds the thread. What waited then gets no Turn.
+ * is blocked, or the Representative no longer holds the thread. What waited then gets no Turn. On a
+ * thread at a limit, what has grown too old to answer is left out, whether or not this Turn gets past it.
  */
-export async function beginTurn(tx: Transaction, threadId: string, turnId: string) {
+export async function beginTurn(tx: Transaction, threadId: string, turnId: string, now: Date) {
   const [thread] = await tx
     .select({
       customerId: representativeThread.customerId,
@@ -208,6 +244,7 @@ export async function beginTurn(tx: Transaction, threadId: string, turnId: strin
       messageCount: representativeThread.messageCount,
       waitingFrom: representativeThread.waitingFrom,
       state: representativeThread.state,
+      limitNotedAt: representativeThread.limitNotedAt,
       blockedAt: representativeCustomer.blockedAt,
     })
     .from(representativeThread)
@@ -219,8 +256,13 @@ export async function beginTurn(tx: Transaction, threadId: string, turnId: strin
     .for("update", { of: representativeThread });
   if (!thread) return null;
   const inThread = eq(representativeThread.id, threadId);
-  const { customerId, representativeId, messageCount, waitingFrom, state, blockedAt } = thread;
-  if (waitingFrom === null || blockedAt || state !== "representative") {
+  const { customerId, representativeId, messageCount, state, limitNotedAt, blockedAt } = thread;
+  const stopped = thread.waitingFrom === null || blockedAt || state !== "representative";
+  const waitingFrom =
+    !stopped && limitNotedAt
+      ? await leaveOldMessages(tx, threadId, thread.waitingFrom!, now)
+      : thread.waitingFrom;
+  if (stopped || waitingFrom === null) {
     await tx
       .update(representativeThread)
       .set({ turnId: null, waitingFrom: null, waitingSince: null })
