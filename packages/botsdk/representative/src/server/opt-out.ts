@@ -121,12 +121,18 @@ export async function optOut(
   },
 ) {
   if (!(await markOptedOut(tx, userId, heard, source, now))) return false;
+  // The thread's row, so a draft a concurrent reply is writing is seen (or waits) before it is replaced.
+  await tx
+    .select({ id: representativeThread.id })
+    .from(representativeThread)
+    .where(eq(representativeThread.id, threadId))
+    .for("update");
   // Nothing waiting for this sender can go any more, a draft the owner could approve included.
   await replaceHeld(tx, threadId, now, { ...heard, verified });
   // Nothing waiting on this thread gets a Turn: its reply could not be sent.
   await tx
     .update(representativeThread)
-    .set({ waitingFrom: null, waitingSince: null })
+    .set({ waitingFrom: null, waitingSince: null, turnFrom: null })
     .where(eq(representativeThread.id, threadId));
   const decision = await passGate(tx, {
     kind: "opt_out_confirmation",

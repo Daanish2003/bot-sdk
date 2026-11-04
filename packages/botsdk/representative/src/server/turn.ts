@@ -716,6 +716,7 @@ export function turnTools(turn: Turn) {
             .from(representative)
             .where(eq(representative.id, representativeId))
             .for("key share");
+          fresh = false;
           if (await holdThreadCustomer(tx, thread.threadId)) {
             fresh = await optOut(job, tx, {
               userId,
