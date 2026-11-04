@@ -259,7 +259,7 @@ describe("a hand-off replayed after a crash", () => {
     expect(toolResults(fake)).toEqual([{ handedOff: true }]);
   });
 
-  it("repeats only the Model call when a stalled attempt reaches the Model after its lease went", async () => {
+  it("makes no Model call for a stalled attempt, whose cap check (#1310) finds its lease gone", async () => {
     const { fake, deps, botId, leaseLost, turnEnds } = await queuedHandOff([
       handsOff(),
       quiet(),
@@ -271,8 +271,9 @@ describe("a hand-off replayed after a crash", () => {
 
     await turnEnds();
 
-    // The stalled attempt's call saves nothing, so the next attempt makes it again; the tool replays.
-    expect(fake.calls).toHaveLength(3);
+    // The check before each Model call is a Checkpoint, which a lost lease refuses: the stalled attempt
+    // never reaches the Model, and the next one makes the call; the tool replays.
+    expect(fake.calls).toHaveLength(2);
     await expectOneHandOff(botId);
     expect(toolResults(fake)).toEqual([{ handedOff: true }]);
   });

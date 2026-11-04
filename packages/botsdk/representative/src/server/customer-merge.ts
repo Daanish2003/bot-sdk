@@ -3,6 +3,7 @@ import { and, desc, eq, inArray, isNull, ne, not, or, sql } from "drizzle-orm";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
+import type { ViaChannel } from "./outbound-gate";
 import { rpcError } from "@botsdk/bot/rpc-error";
 import type { CustomerMergeView } from "../shared/contract";
 import { nameIn, profilesOf } from "./customer-profile";
@@ -32,7 +33,7 @@ import { queueThreadExpiry } from "./expiry";
  * row stays behind with nothing on it, and only undoing brings it back.
  */
 
-type Services = Pick<FeatureContext, "clock" | "jobs">;
+type Services = Pick<FeatureContext, "clock" | "jobs"> & ViaChannel;
 type Context = Services & Pick<FeatureContext, "db">;
 
 const merge = representativeCustomerMerge;

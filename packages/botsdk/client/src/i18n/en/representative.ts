@@ -28,6 +28,18 @@ export const representativeMessages = {
   "representative.maxPerDay": "Per Customer per day",
   "representative.saveCaps": "Save caps",
   "representative.capsSaved": "Caps saved",
+  "representative.spending": "Spending caps",
+  "representative.spendingHelp":
+    "The most this Representative may cost. At a cap, a Customer gets a fixed note and you are paged. Raising a cap lifts it. Money is in US dollars, where a price is known.",
+  "representative.threadCalls": "Model calls per thread",
+  "representative.threadUsd": "Dollars per thread",
+  "representative.customerCalls": "Model calls per Customer per day",
+  "representative.customerUsd": "Dollars per Customer per day",
+  "representative.strangerCalls": "Model calls per unverified Customer per day",
+  "representative.strangerUsd": "Dollars per unverified Customer per day",
+  "representative.monthUsd": "Dollars per month, all Customers",
+  "representative.saveSpending": "Save spending caps",
+  "representative.spendingSaved": "Spending caps saved",
   "representative.quietHours": "Quiet hours",
   "representative.quietHoursHelp":
     "A message the business starts, such as a follow-up, is held until the quiet hours end. A direct reply to a Customer who just wrote goes at any hour. The Customer's time zone is used when known, otherwise the business's.",
@@ -39,6 +51,8 @@ export const representativeMessages = {
   "representative.none": "No Representatives yet.",
   "representative.limitWarning": ({ percent }: { percent: number }) =>
     `You've used ${percent}% of your Quota. At 100%, a Representative on the Host's credentials gives Customers a fixed note instead of an answer until it lifts.`,
+  "representative.monthWarning": ({ percent }: { percent: number }) =>
+    `This Representative has used ${percent}% of its monthly spending cap. At 100%, Customers get a fixed note instead of an answer until next month or until you raise the cap.`,
   "representative.back": "All Representatives",
   "representative.live": ({ number }: { number: number }) => `Live: Release ${number}`,
   "representative.noRelease": "No Release yet",

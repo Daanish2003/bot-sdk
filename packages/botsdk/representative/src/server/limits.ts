@@ -6,7 +6,7 @@ import type { Transaction } from "@botsdk/bot/plugin";
 import { limitNoteKind } from "../shared/replies";
 import { type Heard, storeReply } from "./customers";
 import { representativeThread } from "./db/schema";
-import { holdForRules, type GateRefusal } from "./outbound-gate";
+import { holdForRules, type GateRefusal, type ViaChannel } from "./outbound-gate";
 import { leaveOldMessages, queueWaitingTurn } from "./thread-turns";
 
 /*
@@ -25,6 +25,22 @@ const limitPages = {
   quota_spent: {
     title: "Your Quota is spent",
     text: "Your Representative can't answer Customers until your Quota lifts. Each has a note saying your team will reply. When it lifts, messages under 24 hours old are answered automatically, and older ones are left for you.",
+  },
+  thread_cap: {
+    title: "A conversation reached its spending cap",
+    text: "A conversation used all the model calls or money you allow it. Each Customer it held back has a note saying your team will reply. When it lifts, messages under 24 hours old are answered automatically, and older ones are left for you.",
+  },
+  customer_cap: {
+    title: "A Customer reached the daily spending cap",
+    text: "A Customer used all the model calls or money you allow one in a day. Each Customer it held back has a note saying your team will reply. When it lifts, messages under 24 hours old are answered automatically, and older ones are left for you.",
+  },
+  stranger_cap: {
+    title: "An unverified Customer reached the daily spending cap",
+    text: "A Customer whose identity wasn't checked used all the model calls or money you allow one in a day. Each Customer it held back has a note saying your team will reply. When it lifts, messages under 24 hours old are answered automatically, and older ones are left for you.",
+  },
+  month_cap: {
+    title: "Your Representative reached its monthly spending cap",
+    text: "Your Representative spent all you allow it this month, which keeps your Quota for your own Bots. Each Customer it held back has a note saying your team will reply. When it lifts, messages under 24 hours old are answered automatically, and older ones are left for you.",
   },
 };
 export type LimitCause = keyof typeof limitPages;
@@ -55,12 +71,41 @@ export async function queueLimitCheck(
 }
 
 /**
+ * Looks again now at every thread of `representativeId` at a limit, in `tx`: the owner raised a cap,
+ * which may have lifted it. Their hourly chains go on as they were.
+ */
+export async function checkLimitsNow(
+  { jobs }: Pick<FeatureContext, "jobs">,
+  tx: Transaction,
+  representativeId: string,
+  now: Date,
+) {
+  const limited = await tx
+    .select({ id: representativeThread.id })
+    .from(representativeThread)
+    .where(
+      and(
+        eq(representativeThread.representativeId, representativeId),
+        isNotNull(representativeThread.limitNotedAt),
+      ),
+    );
+  for (const { id } of limited) {
+    await jobs.enqueueIn(
+      tx,
+      { name: limitCheckJobName, payload: limitCheckPayload },
+      { threadId: id },
+      { idempotencyKey: `${limitCheckJobName}:${id}:raised:${now.getTime()}`, runAfter: now },
+    );
+  }
+}
+
+/**
  * Turn `turnId` found `cause`'s limit reached before any model call. Its batch goes back to waiting,
  * with no Turn on the way, and the sender it answers gets the note through the Outbound gate, if the
  * thread hasn't had one at this limit. A thread that has left this Turn gets nothing.
  */
 export async function reachLimit(
-  services: Pick<FeatureContext<"pages">, "jobs" | "pages">,
+  services: Pick<FeatureContext<"pages">, "jobs" | "pages"> & ViaChannel,
   tx: Transaction,
   {
     userId,

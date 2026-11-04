@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { noCustomerChannel } from "../src/server/customer-proof";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { saveCredentials } from "@botsdk/bot/models/internal";
@@ -438,7 +439,7 @@ describe("a blocked Customer", () => {
     const sendAnother = () =>
       getTestDb().transaction((tx) =>
         storeReply(
-          feature.context,
+          { ...feature.context, channel: noCustomerChannel },
           tx,
           { threadId: line!.id, upTo: 1, heard: line!.lastHeard, verified: false },
           { text: "Still here", sources: [autoSource], topic: "general" },

@@ -83,6 +83,15 @@ describe("creating and editing a Representative", () => {
         enabled: false,
         liveReleaseNumber: null,
         caps: { maxInARow: 5, maxPerDay: 20 },
+        spendingCaps: {
+          threadCalls: 30,
+          threadMicros: 500_000,
+          customerCalls: 60,
+          customerMicros: 2_000_000,
+          strangerCalls: 20,
+          strangerMicros: 500_000,
+          monthMicros: 50_000_000,
+        },
         quietHours: { startHour: 21, endHour: 8, timeZone: "UTC" },
       },
     ]);

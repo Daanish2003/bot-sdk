@@ -18,7 +18,7 @@ import { nameIn, profilesOf } from "./customer-profile";
 import { catchCode, customerProofLeadsTo, mayHoldCode } from "./customer-proof";
 import { saysKeyword, sendEmergencyScript, stopForScript } from "./emergency-script";
 import { liftOptOut, keywordIn, optOut } from "./opt-out";
-import { type GateRefusal, passGate, storeAndDeliver } from "./outbound-gate";
+import { type GateRefusal, passGate, storeAndDeliver, type ViaChannel } from "./outbound-gate";
 import { afterDraftHeld, replaceHeld } from "./reply-drafts";
 import { type ChannelProof, judgeSender } from "./verification";
 import { normalizedRelease } from "../shared/contract";
@@ -168,7 +168,7 @@ export async function receiveMessage(
     text,
     now,
   }: {
-    services: Pick<FeatureContext<"pages">, "clock" | "jobs" | "keyring" | "pages">;
+    services: Pick<FeatureContext<"pages">, "clock" | "jobs" | "keyring" | "pages"> & ViaChannel;
     representativeId: string;
     heard: Heard;
     proof: ChannelProof | undefined;
@@ -430,7 +430,7 @@ export async function holdThreadCustomer(tx: Transaction, threadId: string) {
 
 /** What the Model hears of a reply the gate held: the owner has it, and sending it again changes nothing. */
 const heldNote =
-  "Your reply was held, because the Outbound gate holds it (a cap on messages to this Customer, or quiet hours), so nothing was sent now. The owner sends or drops it, or it goes when quiet hours end. Do not send it again.";
+  "Your reply was held, because the Outbound gate holds it (a cap on messages to this Customer, quiet hours, or the Channel's limits), so nothing was sent now. The owner sends or drops it, or, if quiet hours held it, it goes when they end. Do not send it again.";
 
 /**
  * Passes a reply through the Outbound gate, addressed to the sender its Turn answers, and if the gate
@@ -438,7 +438,7 @@ const heldNote =
  * during a verified Turn mustn't get that Turn's reply. `upTo` is the last message its Turn read.
  */
 export async function storeReply(
-  services: Pick<FeatureContext<"pages">, "jobs" | "pages">,
+  services: Pick<FeatureContext<"pages">, "jobs" | "pages"> & ViaChannel,
   tx: Transaction,
   {
     threadId,
@@ -477,6 +477,7 @@ export async function storeReply(
     pages: services.pages,
     jobs: services.jobs,
     businessStarted,
+    channel: services.channel,
     content: { text, verified, replyKind, sources, topic },
   });
   if (decision?.rule === draftRule) {

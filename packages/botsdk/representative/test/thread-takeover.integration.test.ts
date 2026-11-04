@@ -1,4 +1,5 @@
 import type { AnyTextAdapter } from "@tanstack/ai";
+import { noCustomerChannel } from "../src/server/customer-proof";
 import { eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
@@ -152,13 +153,16 @@ async function serving(rounds: Round[], held?: Promise<void>) {
       message: string,
       sender: { proof?: { rule: "sameIdentity" }; externalId?: string } = {},
     ) =>
-      (await receiveCustomerMessage(feature.context, {
-        representativeId: id,
-        channel: fakeChannel,
-        externalId: number,
-        message,
-        ...sender,
-      }))!,
+      (await receiveCustomerMessage(
+        { ...feature.context, channel: noCustomerChannel },
+        {
+          representativeId: id,
+          channel: fakeChannel,
+          externalId: number,
+          message,
+          ...sender,
+        },
+      ))!,
     takeOver: async () => rpc.representative.threadTakeOver({ id: (await thread()).id }),
     handBack: async () => rpc.representative.threadHandBack({ id: (await thread()).id }),
     say: async (text: string) => rpc.representative.threadSend({ id: (await thread()).id, text }),

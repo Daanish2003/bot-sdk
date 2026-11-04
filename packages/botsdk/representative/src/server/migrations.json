@@ -106,5 +106,9 @@
   {
     "name": "20261104193039_representative_opt_out",
     "sql": "ALTER TABLE \"botsdk\".\"representative_customer_identity\" ADD COLUMN \"opted_out_at\" timestamp;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_customer_identity\" ADD COLUMN \"opt_out_source\" text;"
+  },
+  {
+    "name": "20261104204429_spending_caps",
+    "sql": "CREATE TABLE \"botsdk\".\"representative_turn\" (\n\t\"id\" uuid PRIMARY KEY,\n\t\"thread_id\" uuid NOT NULL,\n\t\"representative_id\" uuid NOT NULL,\n\t\"created_at\" timestamp DEFAULT now() NOT NULL\n);\n--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative\" ADD COLUMN \"spending_caps\" jsonb DEFAULT '{\"threadCalls\":30,\"threadMicros\":500000,\"customerCalls\":60,\"customerMicros\":2000000,\"strangerCalls\":20,\"strangerMicros\":500000,\"monthMicros\":50000000}' NOT NULL;--> statement-breakpoint\nCREATE INDEX \"representative_turn_thread_idx\" ON \"botsdk\".\"representative_turn\" (\"thread_id\");--> statement-breakpoint\nCREATE INDEX \"representative_turn_representative_idx\" ON \"botsdk\".\"representative_turn\" (\"representative_id\");--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_turn\" ADD CONSTRAINT \"representative_turn_thread_id_representative_thread_id_fkey\" FOREIGN KEY (\"thread_id\") REFERENCES \"botsdk\".\"representative_thread\"(\"id\") ON DELETE CASCADE;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_turn\" ADD CONSTRAINT \"representative_turn_representative_id_representative_id_fkey\" FOREIGN KEY (\"representative_id\") REFERENCES \"botsdk\".\"representative\"(\"id\") ON DELETE CASCADE;"
   }
 ]

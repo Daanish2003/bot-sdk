@@ -10,6 +10,7 @@ import type { Transaction } from "@botsdk/bot/plugin";
 import {
   defaultEmergencyText,
   documentChars,
+  defaultSpendingCaps,
   type Draft,
   type DraftChange,
   type DraftDiff,
@@ -21,6 +22,7 @@ import {
   type RepresentativeSummary,
   type RepresentativeView,
   representativeTools,
+  type SpendingCaps,
 } from "../shared/contract";
 import {
   representative,
@@ -38,6 +40,8 @@ import {
   readableText,
   snapshotOf,
 } from "./documents";
+import { checkLimitsNow } from "./limits";
+import { monthUsedPercent } from "./spending";
 import { botFieldsHash, draftHash } from "./test-checks";
 import { normalizedDraft, representativeTestJob, testStateOf } from "./tests";
 import { isAssignmentEnded } from "./turn";
@@ -152,12 +156,14 @@ async function view(
     : [];
   const live = releases.find((release) => release.id === row.liveReleaseId);
   const waiting = waitingApproval(row.pendingApproval, now);
+  const summary = summaryOf(row, live?.number ?? null);
   return {
-    ...summaryOf(row, live?.number ?? null),
+    ...summary,
     draft: row.draft,
     approval: waiting && { botId: waiting.botId, expiresAt: waiting.expiresAt },
     liveRelease: live && content ? { ...live, content: normalizedRelease(content.content) } : null,
     releases,
+    monthUsedPercent: await monthUsedPercent(db, row.id, summary.spendingCaps, now),
     ...(await testStateOf(db, row)),
   };
 }
@@ -170,6 +176,7 @@ function summaryOf(row: Row, liveReleaseNumber: number | null): RepresentativeSu
     enabled: row.enabled,
     liveReleaseNumber,
     caps: { maxInARow: row.maxInARow, maxPerDay: row.maxPerDay },
+    spendingCaps: { ...defaultSpendingCaps, ...row.spendingCaps },
     quietHours: {
       startHour: row.quietStartHour,
       endHour: row.quietEndHour,
@@ -351,6 +358,31 @@ export async function setCaps(
       .set({ maxInARow, maxPerDay, updatedAt: clock() })
       .where(eq(representative.id, id))
       .returning();
+    return view(tx, updated!, clock());
+  });
+}
+
+/**
+ * Edits what the Representative may cost; a cap left out stays. A raise looks again at every thread
+ * held at a limit, which it may have lifted.
+ */
+export async function setSpendingCaps(
+  { db, clock, jobs }: JobsContext,
+  userId: string,
+  { id, ...edits }: { id: string } & Partial<SpendingCaps>,
+): Promise<RepresentativeView> {
+  return db.transaction(async (tx) => {
+    const row = await ownedRow(tx, userId, id, true);
+    const spendingCaps = { ...defaultSpendingCaps, ...row.spendingCaps };
+    for (const [name, value] of Object.entries(edits)) {
+      if (value !== undefined) spendingCaps[name as keyof SpendingCaps] = value;
+    }
+    const [updated] = await tx
+      .update(representative)
+      .set({ spendingCaps, updatedAt: clock() })
+      .where(eq(representative.id, id))
+      .returning();
+    await checkLimitsNow({ jobs }, tx, id, clock());
     return view(tx, updated!, clock());
   });
 }

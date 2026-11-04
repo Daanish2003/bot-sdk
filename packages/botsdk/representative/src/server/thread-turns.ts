@@ -5,6 +5,7 @@ import { batchLongestMs, batchQuietMs } from "@botsdk/bot/bot/triggers";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
+import type { ViaChannel } from "./outbound-gate";
 import { job } from "@botsdk/bot/storage";
 import { maxThreadMessageLength, noNul } from "../shared/contract";
 import {
@@ -18,6 +19,7 @@ import {
   representativeCustomer,
   representativeThread,
   representativeThreadMessage,
+  representativeTurn,
 } from "./db/schema";
 import { queueIdleCheck } from "./idle";
 import { waitingAfterAbort } from "./takeover";
@@ -91,7 +93,7 @@ export type CustomerMessage = z.infer<typeof customerMessage>;
  * Customer entry point in the private `@ai-chat/test-support` package does.
  */
 export async function receiveCustomerMessage(
-  services: Services & Pick<FeatureContext<"pages">, "keyring" | "pages">,
+  services: Services & Pick<FeatureContext<"pages">, "keyring" | "pages"> & ViaChannel,
   given: CustomerMessage,
 ) {
   const { representativeId, channel, externalId, proof, message } = customerMessage.parse(given);
@@ -307,6 +309,11 @@ export async function beginTurn(tx: Transaction, threadId: string, turnId: strin
         : { waitingFrom: null, waitingSince: null }),
     })
     .where(inThread);
+  // Kept for what its model calls cost (ticket #1310); a retried Turn is the same row.
+  await tx
+    .insert(representativeTurn)
+    .values({ id: turnId, threadId, representativeId })
+    .onConflictDoNothing();
   return {
     customerId,
     representativeId,

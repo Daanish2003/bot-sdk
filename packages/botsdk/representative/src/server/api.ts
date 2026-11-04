@@ -24,6 +24,7 @@ import {
   rollbackInput,
   setBotInput,
   setCapsInput,
+  setSpendingCapsInput,
   setQuietHoursInput,
   setEnabledInput,
   threadSendInput,
@@ -70,10 +71,12 @@ import {
   setBot,
   setCaps,
   setEnabled,
+  setSpendingCaps,
   setQuietHours,
   updateDraft,
   uploadDocument,
 } from "./representatives";
+import { type CustomerChannel, noCustomerChannel } from "./customer-proof";
 import { dropHeldMessage, sendHeldMessage } from "./held-messages";
 import {
   approveReplyDraft,
@@ -92,12 +95,12 @@ import { addTopic, listTopics, removeTopic, setTopicMode } from "./topics";
 
 /** The `representative` namespace over the feature's context. */
 export function representativeApi(
-  context: FeatureContext<
-    "assignments" | "factApprovals" | "models" | "releaseApprovals" | "threads"
-  >,
+  base: FeatureContext<"assignments" | "factApprovals" | "models" | "releaseApprovals" | "threads">,
   convertDocument?: ConvertDocument,
   knowledgeFiles?: KnowledgeFiles,
+  customerChannel: CustomerChannel = noCustomerChannel,
 ) {
+  const context = { ...base, channel: customerChannel };
   return {
     list: async ({ userId }: { userId: string }) => listRepresentatives(context, userId),
 
@@ -161,6 +164,8 @@ export function representativeApi(
     setCaps: async ({ userId, ...rest }: WithUser<typeof setCapsInput>) =>
       setCaps(context, userId, parseInput(setCapsInput, rest)),
 
+    setSpendingCaps: async ({ userId, ...rest }: WithUser<typeof setSpendingCapsInput>) =>
+      setSpendingCaps(context, userId, parseInput(setSpendingCapsInput, rest)),
     setQuietHours: async ({ userId, ...rest }: WithUser<typeof setQuietHoursInput>) =>
       setQuietHours(context, userId, parseInput(setQuietHoursInput, rest)),
 

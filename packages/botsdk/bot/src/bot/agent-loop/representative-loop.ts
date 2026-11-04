@@ -44,6 +44,11 @@ export type RepresentativeLoopOptions = {
   stepLimit: number;
   /** The wall-clock limit from `startedAt`. */
   timeLimitMs: number;
+  /**
+   * Asked in its own Checkpoint before each model call, a replay getting the recorded answer: true ends
+   * the loop there, and the call never starts. A feature's own limit, such as a spending cap.
+   */
+  stopBefore?: (tx: Transaction) => Promise<boolean>;
   /** The note that gets a Step ending in plain text one more Step, as in `LoopOptions`. */
   plainTextReminder?: string;
   /**
@@ -57,6 +62,8 @@ export type RepresentativeLoopOptions = {
 
 /** What a played Representative loop came to. */
 export type RepresentativeLoopResult = Omit<LoopResult, "failure" | "overBudget"> & {
+  /** `stopBefore` ended the loop before a model call. */
+  capped: boolean;
   /** The owner's Quota was spent before the loop started: no model call was made. */
   quotaSpent: boolean;
 };
@@ -88,6 +95,7 @@ export function representativeLoopService(deps: BotSdkContext): RepresentativeLo
   return {
     run: async (job, options) => {
       const { userId, representativeId, customerId, model } = options.representative;
+      const { stopBefore } = options;
       if ("botId" in options.representative || !representativeId || !customerId) {
         throw new PermanentJobError(
           "The Representative loop runs only a Representative's identity",
@@ -101,6 +109,7 @@ export function representativeLoopService(deps: BotSdkContext): RepresentativeLo
       if (!mayRun) {
         return {
           quotaSpent: true,
+          capped: false,
           timedOut: false,
           stepLimit: false,
           stopped: false,
@@ -111,11 +120,7 @@ export function representativeLoopService(deps: BotSdkContext): RepresentativeLo
           lastInput: undefined,
         };
       }
-      const {
-        failure,
-        overBudget: _overBudget,
-        ...played
-      } = await runLoop(deps, job, {
+      const { failure, overBudget, ...played } = await runLoop(deps, job, {
         owner: { userId, representativeId, customerId, model },
         sourceId: options.sourceId,
         input: options.input,
@@ -124,6 +129,11 @@ export function representativeLoopService(deps: BotSdkContext): RepresentativeLo
         timeLimitMs: options.timeLimitMs,
         plainTextReminder: options.plainTextReminder,
         attempt: job.signal,
+        budget: stopBefore && {
+          check: async (tx) => ({ stop: await stopBefore(tx) }),
+          afterCheck: async () => {},
+          spend: async () => {},
+        },
         setup: async ({ liveActivity, liveRequest, signal }) => {
           const { tools, systemPrompts, ended, newest } = await options.setup({
             liveActivity,
@@ -136,7 +146,7 @@ export function representativeLoopService(deps: BotSdkContext): RepresentativeLo
       });
       job.signal.throwIfAborted();
       if (failure !== undefined) throw failure;
-      return { ...played, quotaSpent: false };
+      return { ...played, quotaSpent: false, capped: overBudget };
     },
   };
 }

@@ -31,6 +31,7 @@ export {
   type TopicView,
   correctableFixedFields,
   maxOutboundCap,
+  type SpendingCaps,
   maxProfileFieldNameLength,
   maxProfileValueLength,
   type ProfileFieldView,

@@ -1,4 +1,5 @@
 import type { AnyTextAdapter } from "@tanstack/ai";
+import { noCustomerChannel } from "../src/server/customer-proof";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -139,7 +140,7 @@ async function instance(rounds: Round[], tools: string[] = ["reply"]) {
       const thread = await threadId();
       return getTestDb().transaction((tx) =>
         storeReply(
-          feature.context,
+          { ...feature.context, channel: noCustomerChannel },
           tx,
           {
             threadId: thread,

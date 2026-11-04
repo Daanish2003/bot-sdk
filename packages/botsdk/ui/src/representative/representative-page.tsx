@@ -19,6 +19,7 @@ import {
   useRunTests,
   useSetRepresentativeBot,
   useSetRepresentativeCaps,
+  useSetRepresentativeSpendingCaps,
   useSetRepresentativeQuietHours,
   useSetRepresentativeEnabled,
   useUpdateDraft,
@@ -479,6 +480,76 @@ function QuietHoursForm({ representative }: { representative: RepresentativeView
   );
 }
 
+const microsPerDollar = 1_000_000;
+
+/** The caps on what the Representative may cost, which the owner edits outside any Release (ticket #1310). */
+function SpendingCapsForm({ representative }: { representative: RepresentativeView }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const caps = representative.spendingCaps;
+  const save = useSetRepresentativeSpendingCaps({
+    onSuccess: async () => {
+      await refresh();
+      toast.success(t("representative.spendingSaved"));
+    },
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  const fields = [
+    ["threadCalls", "representative.threadCalls", "calls"],
+    ["threadMicros", "representative.threadUsd", "usd"],
+    ["customerCalls", "representative.customerCalls", "calls"],
+    ["customerMicros", "representative.customerUsd", "usd"],
+    ["strangerCalls", "representative.strangerCalls", "calls"],
+    ["strangerMicros", "representative.strangerUsd", "usd"],
+    ["monthMicros", "representative.monthUsd", "usd"],
+  ] as const;
+  return (
+    <form
+      data-representative-spending=""
+      className="space-y-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        save.mutate({
+          id: representative.id,
+          ...Object.fromEntries(
+            fields.map(([name, , unit]) => [
+              name,
+              unit === "usd"
+                ? Math.round(Number(form.get(name)) * microsPerDollar)
+                : Number(form.get(name)),
+            ]),
+          ),
+        });
+      }}
+    >
+      <h2 className="text-sm font-medium">{t("representative.spending")}</h2>
+      <p className="text-xs text-muted-foreground">{t("representative.spendingHelp")}</p>
+      <div className="flex flex-wrap items-end gap-3">
+        {fields.map(([name, label, unit]) => (
+          <div key={name} className="space-y-1">
+            <Label htmlFor={`representative-${name}`}>{t(label)}</Label>
+            <Input
+              id={`representative-${name}`}
+              name={name}
+              type="number"
+              min={unit === "usd" ? 0.01 : 1}
+              step={unit === "usd" ? 0.01 : 1}
+              defaultValue={unit === "usd" ? caps[name] / microsPerDollar : caps[name]}
+              required
+              className="w-28"
+            />
+          </div>
+        ))}
+        <Button type="submit" variant="outline" size="sm" disabled={save.isPending}>
+          {t("representative.saveSpending")}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 /** A Bot's draft waiting for the owner: the Approve button above says yes, this says no. */
 function WaitingApproval({ representative }: { representative: RepresentativeView }) {
   const i18n = useI18n();
@@ -556,7 +627,7 @@ export function RepresentativePage({ id }: { id: string }) {
             : t("representative.live", { number: representative.liveReleaseNumber })}
         </p>
       </div>
-      <LimitWarning />
+      <LimitWarning monthUsedPercent={representative.monthUsedPercent} />
       <BotChooser representative={representative} />
       <div className="flex items-center gap-2">
         <Checkbox
@@ -570,6 +641,7 @@ export function RepresentativePage({ id }: { id: string }) {
         <Label htmlFor="representative-enabled">{t("representative.switch")}</Label>
       </div>
       <CapsForm representative={representative} />
+      <SpendingCapsForm representative={representative} />
       <QuietHoursForm representative={representative} />
       <WaitingApproval representative={representative} />
       {/* Keyed by the draft's fields, so a draft changed elsewhere reloads the form. A document uploaded leaves the form's edits alone. */}

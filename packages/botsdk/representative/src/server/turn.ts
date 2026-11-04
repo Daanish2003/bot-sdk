@@ -1,6 +1,6 @@
 import { type AnyServerTool, toolDefinition } from "@tanstack/ai";
 import { ORPCError } from "@orpc/contract";
-import { and, count, eq, gt, isNotNull, max } from "drizzle-orm";
+import { and, count, eq, gt, inArray, isNotNull, max } from "drizzle-orm";
 import { z } from "zod";
 
 import { defaultModelFor } from "@botsdk/client/models/models";
@@ -31,6 +31,7 @@ import {
 } from "./customer-proof";
 import { recordMovedHandOff } from "./customer-merge";
 import { memoryPrompt, noMemory, readCustomerMemory, type CustomerMemory } from "./customer-memory";
+import { capReached } from "./spending";
 import { type CustomerWork, quotable, readCustomerWork } from "./customer-work";
 import { deliverHandOffResult } from "./hand-off-result";
 import {
@@ -230,13 +231,14 @@ export const limitCheckJob = defineJob<z.infer<typeof limitCheckPayload>, TurnSe
       limitedThread(tx, threadId),
     );
     if (!limited) return;
+    const now = await job.now();
     const lifted = await job.step("representative_limit_quota", async () => {
       const start = await readStart(job, limited.representativeId);
       if (!start) return false;
       const call = await job.models.resolveModelCall(start.userId, start.model);
-      return !call || (await call.meter.mayRun()).ok;
+      if (call && !(await call.meter.mayRun()).ok) return false;
+      return (await capReached(job.db, threadId, now)) === null;
     });
-    const now = await job.now();
     await job.step("representative_limit_settle", (tx) =>
       settleLimit(job, tx, threadId, lifted, now),
     );
@@ -259,6 +261,15 @@ async function reportingBot(
   const [row] = await (lock ? query.for("key share") : query);
   return row?.botId ?? null;
 }
+
+/** What the gate needs of a Turn: its jobs, its Pages and the Channel its Customer is reached by. */
+const gating = (job: JobContext<TurnServices>, thread: LiveThread) => ({
+  jobs: job.jobs,
+  pages: job.pages,
+  clock: job.clock,
+  keyring: job.keyring,
+  channel: thread.channel,
+});
 
 type LiveThread = {
   threadId: string;
@@ -443,7 +454,7 @@ async function handOffInCode(
   const botId = await reportingBot(tx, representativeId, true);
   const customerId = await holdThreadCustomer(tx, thread.threadId);
   const stored = await storeReply(
-    job,
+    gating(job, thread),
     tx,
     thread,
     { text: handOffMessage, sources: [] },
@@ -578,7 +589,7 @@ export function turnTools(turn: Turn) {
         if ("error" in checked) return refuse(tx, checked);
         if (thread) {
           const stored = await storeReply(
-            job,
+            gating(job, thread),
             tx,
             thread,
             { ...checked, topic: storableLabel(topic) },
@@ -728,7 +739,14 @@ export function turnTools(turn: Turn) {
         outgoing =
           thread === null
             ? null
-            : await requestProof(tx, { keyring: job.keyring, userId, thread, claimed, now });
+            : await requestProof(tx, {
+                keyring: job.keyring,
+                userId,
+                thread,
+                claimed,
+                now,
+                channel: thread.channel,
+              });
         if (thread?.verified && !claimed) return alreadyVerifiedAnswer;
         return thread && !thread.proofRule ? noProofAnswer : proofAnswer;
       });
@@ -766,7 +784,7 @@ export function turnTools(turn: Turn) {
             .for("key share");
           fresh = false;
           if (await holdThreadCustomer(tx, thread.threadId)) {
-            fresh = await optOut(job, tx, {
+            fresh = await optOut(gating(job, thread), tx, {
               userId,
               threadId: thread.threadId,
               heard: thread.heard,
@@ -1021,6 +1039,11 @@ export async function playLoop(
     startedAt,
     stepLimit: turnStepLimit,
     timeLimitMs: turnTimeLimitMs,
+    // A test conversation counts toward no cap.
+    stopBefore:
+      "thread" in on
+        ? async (tx) => (await capReached(tx, on.thread.threadId, job.clock())) !== null
+        : undefined,
     plainTextReminder,
     setup: async (kit) => {
       const tools: Record<string, AnyServerTool> = turnTools({
@@ -1144,19 +1167,41 @@ export function representativeTurnJob(
             content: normalizedRelease(content),
             documents: await readDocuments(job.db, content.documentSnapshot?.documents ?? []),
           });
+          // A cap ended it before a model call: nothing went wrong, and the Customer is told.
           // A failed job, not a succeeded one, and no retry: a Step may already have replied.
-          if (played.error !== undefined) {
+          if (played.error !== undefined && !played.capped) {
             throw new PermanentJobError(`Representative Turn ${turnId} failed: ${played.error}`);
           }
-          if (played.quotaSpent) {
+          // A cap reached after the Turn has answered this batch (or opted the Customer out, whose confirmation is a note) is a plain end: a note would follow the
+          // answer, and the batch waiting again would be answered twice when the cap lifts.
+          const answered =
+            played.capped &&
+            (await job.step("representative_answered", async (tx) => {
+              const [row] = await tx
+                .select({ n: count() })
+                .from(representativeThreadMessage)
+                .where(
+                  and(
+                    eq(representativeThreadMessage.threadId, threadId),
+                    inArray(representativeThreadMessage.author, ["representative", "note"]),
+                    gt(representativeThreadMessage.position, upTo),
+                  ),
+                );
+              return (row?.n ?? 0) > 0;
+            }));
+          if ((played.quotaSpent || played.capped) && !answered) {
             const now = await job.now();
-            await job.step("representative_at_limit", (tx) =>
-              reachLimit(job, tx, {
+            await job.step("representative_at_limit", async (tx) =>
+              reachLimit(gating(job, thread), tx, {
                 userId,
                 representativeId,
                 turnId,
                 thread,
-                cause: "quota_spent",
+                // The cap again, as the owner's raise since would have lifted it. Rare, and a Page for
+                // a limit that has lifted costs nothing.
+                cause: played.quotaSpent
+                  ? "quota_spent"
+                  : ((await capReached(tx, threadId, now)) ?? "thread_cap"),
                 now,
               }),
             );

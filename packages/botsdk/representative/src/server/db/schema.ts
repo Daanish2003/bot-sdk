@@ -14,6 +14,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 import { bot, botAssignment, botsdkSchema } from "@botsdk/bot/storage";
+import { defaultSpendingCaps } from "../../shared/contract";
 import type { ChannelProofRule } from "../verification";
 import type { ReplySource, StoredReplyKind } from "../../shared/replies";
 import type {
@@ -26,6 +27,7 @@ import type {
   ProfileSource,
   ProfileStatus,
   ReleaseContent,
+  SpendingCaps,
   TestCheck,
   TestResultStatus,
   TranscriptEntry,
@@ -52,6 +54,14 @@ export const representative = botsdkSchema.table(
      */
     maxInARow: integer("max_in_a_row").notNull().default(5),
     maxPerDay: integer("max_per_day").notNull().default(20),
+    /**
+     * What the Representative may cost (ticket #1310): model calls and money per thread, per Customer
+     * per day, per unverified Customer per day, and money per month. The owner's to edit, in no Release.
+     */
+    spendingCaps: jsonb("spending_caps")
+      .$type<SpendingCaps>()
+      .notNull()
+      .default(defaultSpendingCaps),
     /**
      * Quiet hours (ticket #1303), the owner's to edit and in no Release: the Outbound gate holds what the
      * business starts from `quietStartHour` to `quietEndHour` (0 to 23, wrapping past midnight) in the
@@ -405,6 +415,29 @@ export const representativeThread = botsdkSchema.table(
       .where(sql`${table.state} <> 'closed'`),
     index("representative_thread_customer_idx").on(table.customerId),
     index("representative_thread_representative_idx").on(table.representativeId),
+  ],
+);
+
+/**
+ * A Representative Turn, kept for what it costs (ticket #1310): `id` is the Turn's id, which its usage
+ * rows hold as their source id. It finds its Customer through its thread, so it follows a merge, and
+ * goes with its thread or Representative.
+ */
+export const representativeTurn = botsdkSchema.table(
+  "representative_turn",
+  {
+    id: uuid("id").primaryKey(),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references((): AnyPgColumn => representativeThread.id, { onDelete: "cascade" }),
+    representativeId: uuid("representative_id")
+      .notNull()
+      .references((): AnyPgColumn => representative.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("representative_turn_thread_idx").on(table.threadId),
+    index("representative_turn_representative_idx").on(table.representativeId),
   ],
 );
 
