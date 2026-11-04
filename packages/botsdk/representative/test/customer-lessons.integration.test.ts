@@ -221,6 +221,35 @@ describe("a lesson from a closed thread", () => {
   });
 
   it.each([
+    ["Bob Absorbed asked for a quote", "name"],
+    ["Visit 7 Absorbed Row for the boiler", "address"],
+    ["Message bobhandle again about it", "identity"],
+  ] as const)(
+    "is refused when it holds a value of a Customer merged in: %s",
+    async (value, kind) => {
+      const world = await instance(replying(JSON.stringify({ ...lesson, value })));
+      await world.closeThread(async () => {
+        const { rpc } = world;
+        const bob = await rpc.representative.customerCreate({
+          channel: "sms",
+          externalId: kind === "identity" ? "bobhandle" : "+15550002",
+          name: "Bob Absorbed",
+        });
+        await rpc.representative.customerProfileSet({
+          id: bob.id,
+          field: "address",
+          value: "7 Absorbed Row",
+        });
+        const ada = (await rpc.representative.customerList()).find((each) =>
+          each.identities.some((identity) => identity.externalId === "+15550001"),
+        )!;
+        await rpc.representative.customerMerge({ id: bob.id, intoId: ada.id });
+      });
+      expect(await world.rpc.representative.factProposals()).toEqual([]);
+    },
+  );
+
+  it.each([
     ["only part of another word", "Customers affirm they want a quote first.", 1],
     ["a whole word", "Customers want a firm quote first.", 0],
   ])("reads a Customer value that is %s", async (_name, value, proposals) => {

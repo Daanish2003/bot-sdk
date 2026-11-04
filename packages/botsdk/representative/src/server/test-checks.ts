@@ -130,7 +130,9 @@ const describeSource = (
     ? `the fact ${source.key}`
     : source.type === "document"
       ? `the document ${source.name}`
-      : "a Bot's result";
+      : source.type === "memory"
+        ? "the Customer's memory"
+        : "a Bot's result";
 
 /**
  * Whether the Turn handed off: a `hand_to_bot` call answered so, a refusal not counting, or a `reply`

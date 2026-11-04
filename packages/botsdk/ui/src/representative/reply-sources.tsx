@@ -30,10 +30,12 @@ export function ReplySources({ reply }: { reply: ReplyProof }) {
                       name: source.name,
                       quote: source.quote,
                     })
-                  : t("representative.replySourceAssignment", {
-                      id: source.assignmentId,
-                      quote: source.quote,
-                    })}
+                  : source.type === "memory"
+                    ? t("representative.replySourceMemory", { quote: source.quote })
+                    : t("representative.replySourceAssignment", {
+                        id: source.assignmentId,
+                        quote: source.quote,
+                      })}
             </li>
           ))}
         </ul>

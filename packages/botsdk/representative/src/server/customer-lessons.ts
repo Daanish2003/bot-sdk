@@ -1,4 +1,4 @@
-import { and, eq, lte, sql } from "drizzle-orm";
+import { and, eq, inArray, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { approvalExpiryMs } from "@botsdk/client/bot/review";
@@ -10,8 +10,8 @@ import {
   representativeCustomerIdentity,
   representativeFact,
   representativeFactProposal,
-  representativeProfileValue,
 } from "./db/schema";
+import { knownValuesOf } from "./customer-profile";
 import { fieldsOf, logged } from "./facts";
 
 /*
@@ -92,21 +92,12 @@ export async function proposeLesson(
     lesson,
   }: { userId: string; customerId: string; now: Date; lesson: Lesson },
 ) {
-  const profile = await tx
-    .select({ value: representativeProfileValue.value })
-    .from(representativeProfileValue)
-    .where(eq(representativeProfileValue.customerId, customerId));
+  const known = await knownValuesOf(tx, userId, customerId);
   const addresses = await tx
     .select({ value: representativeCustomerIdentity.externalId })
     .from(representativeCustomerIdentity)
-    .where(eq(representativeCustomerIdentity.customerId, customerId));
-  if (
-    identifiesCustomer(
-      lesson,
-      [...profile, ...addresses].map(({ value }) => value),
-    )
-  )
-    return;
+    .where(inArray(representativeCustomerIdentity.customerId, known.customerIds));
+  if (identifiesCustomer(lesson, [...known.values, ...addresses.map(({ value }) => value)])) return;
 
   const proposal = representativeFactProposal;
   // The same lock a Bot's proposal takes, so two proposals for one key go one at a time.

@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "a8962e14-d4e7-4138-9322-571c9ab8dcfa",
+  "id": "6b9ab363-f404-4bfc-809a-50540b223fa9",
   "prevIds": ["fe6f6afc-6b14-419b-a597-01c9926150d5"],
   "ddl": [
     {
@@ -520,6 +520,19 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
+      "default": "'[]'",
+      "generated": null,
+      "identity": null,
+      "name": "hand_off_ids",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_customer_merge"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
@@ -986,7 +999,7 @@
     {
       "type": "uuid",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -1038,7 +1051,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
