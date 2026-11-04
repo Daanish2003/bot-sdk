@@ -1,4 +1,5 @@
-import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, exists, isNotNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { untrustedBlock } from "@botsdk/bot/bot/routines";
@@ -7,6 +8,7 @@ import type { ProfileStatus } from "../shared/contract";
 import { combinedProfilesOf } from "./customer-profile";
 import {
   representativeCustomerIdentity,
+  representativeCustomerMerge,
   representativeCustomerSummary,
   representativeProfileField,
   representativeThread,
@@ -33,9 +35,11 @@ type Db = FeatureContext["db"] | Transaction;
 
 /**
  * `customerId`'s profile and newest summaries, read for `userId`. The profile takes in everyone merged
- * into them. A summary of a thread holding words from an address that isn't one of the Customer's now
- * is left out: a merge that stood when the thread closed, or stands no longer, can put another person's
- * words in it. A merge that stands has moved the identities here, so its own threads all count.
+ * into them. A merge that stands has moved the identities here, so its own threads all count. A summary
+ * of a thread holding an address that isn't one of the Customer's now can hold another person's words,
+ * and is left out when that address is another Customer's, when the thread holds a second address, or
+ * when a merge of this Customer's was undone, as that merge can have put them there. Otherwise the
+ * address is the Customer's own, since corrected, and the summary counts.
  */
 export async function readCustomerMemory(
   db: Db,
@@ -51,6 +55,23 @@ export async function readCustomerMemory(
   const summary = representativeCustomerSummary;
   const message = representativeThreadMessage;
   const identity = representativeCustomerIdentity;
+  const merge = representativeCustomerMerge;
+  const otherMessage = alias(message, "other_message");
+  const atThisAddress = sql`${identity.channel} = ${message.channel} and ${identity.externalId} = ${message.externalId}`;
+  const theirs = sql`exists (select 1 from ${identity} where ${identity.customerId} = ${customerId} and ${atThisAddress})`;
+  const someoneElses = sql`exists (select 1 from ${identity} where ${identity.userId} = ${userId} and ${atThisAddress})`;
+  const secondAddress = exists(
+    db
+      .select({ one: sql`1` })
+      .from(otherMessage)
+      .where(
+        and(
+          eq(otherMessage.threadId, message.threadId),
+          sql`(${otherMessage.channel}, ${otherMessage.externalId}) is distinct from (${message.channel}, ${message.externalId})`,
+        ),
+      ),
+  );
+  const undoneMerge = sql`exists (select 1 from ${merge} where ${merge.userId} = ${userId} and ${merge.undoneAt} is not null and (${merge.survivorCustomerId} = ${customerId} or ${merge.absorbedCustomerId} = ${customerId}))`;
   const summaries = await db
     .select({ text: summary.text })
     .from(summary)
@@ -60,7 +81,7 @@ export async function readCustomerMemory(
         eq(summary.userId, userId),
         eq(representativeThread.customerId, customerId),
         isNotNull(summary.text),
-        sql`not exists (select 1 from ${message} where ${message.threadId} = ${summary.threadId} and not exists (select 1 from ${identity} where ${identity.customerId} = ${customerId} and ${identity.channel} = ${message.channel} and ${identity.externalId} = ${message.externalId}))`,
+        sql`not exists (select 1 from ${message} where ${message.threadId} = ${summary.threadId} and not ${theirs} and (${someoneElses} or ${secondAddress} or ${undoneMerge}))`,
       ),
     )
     .orderBy(desc(summary.createdAt), desc(summary.id))

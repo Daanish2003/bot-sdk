@@ -559,6 +559,41 @@ describe("a survivor's summaries after a merge", () => {
   });
 });
 
+const summarised = async (
+  world: Awaited<ReturnType<typeof instance>>,
+  customerId: string,
+  summary: string,
+  createdAt: Date,
+  sender?: string,
+) => {
+  const threadId = uuidv7();
+  await getTestDb().insert(representativeThread).values({
+    id: threadId,
+    customerId,
+    representativeId: world.id,
+    state: "closed",
+    lastChannel: fakeChannel,
+    lastExternalId: ada,
+    messageCount: 0,
+  });
+  if (sender) {
+    await getTestDb().insert(representativeThreadMessage).values({
+      id: uuidv7(),
+      threadId,
+      position: 1,
+      author: "customer",
+      verified: true,
+      channel: fakeChannel,
+      externalId: sender,
+      text: "Words",
+    });
+  }
+  await getTestDb()
+    .insert(representativeCustomerSummary)
+    .values({ id: uuidv7(), threadId, userId: world.user.id, text: summary, createdAt });
+  return threadId;
+};
+
 describe("a survivor's Turn after a merge", () => {
   it("reads the combined profile, with nothing of what the owner cleared, and each its own after undo", async () => {
     const { rpc, customer, seed, merge, undoLatest, promptFor } = await instance();
@@ -588,40 +623,6 @@ describe("a survivor's Turn after a merge", () => {
     expect(bobAlone).toContain("German");
     expect(bobAlone).not.toContain("Claimed Ada");
   });
-
-  const summarised = async (
-    world: Awaited<ReturnType<typeof instance>>,
-    customerId: string,
-    summary: string,
-    createdAt: Date,
-    sender?: string,
-  ) => {
-    const threadId = uuidv7();
-    await getTestDb().insert(representativeThread).values({
-      id: threadId,
-      customerId,
-      representativeId: world.id,
-      state: "closed",
-      lastChannel: fakeChannel,
-      lastExternalId: ada,
-      messageCount: 0,
-    });
-    if (sender) {
-      await getTestDb().insert(representativeThreadMessage).values({
-        id: uuidv7(),
-        threadId,
-        position: 1,
-        author: "customer",
-        verified: true,
-        channel: fakeChannel,
-        externalId: sender,
-        text: "Words",
-      });
-    }
-    await getTestDb()
-      .insert(representativeCustomerSummary)
-      .values({ id: uuidv7(), threadId, userId: world.user.id, text: summary, createdAt });
-  };
 
   it("reads the 5 newest summaries across both Customers' threads, and each its own after undo", async () => {
     const world = await instance();
@@ -670,6 +671,109 @@ describe("a survivor's Turn after a merge", () => {
     expect(await world.promptFor(bob)).not.toContain("memo-both");
     const summaries = await world.rpc.representative.customerSummaryList({ id: first.id });
     expect(summaries.map((each) => each.text)).toContain("memo-both");
+  });
+});
+
+describe("a summary whose thread is at an address the Customer no longer has", () => {
+  const corrected = "+15550077";
+
+  const correct = async (
+    world: Awaited<ReturnType<typeof instance>>,
+    customerId: string,
+    from: string,
+    to: string,
+  ) => {
+    const found = (await world.rpc.representative.customerList()).find(
+      (each) => each.id === customerId,
+    )!;
+    await world.rpc.representative.customerUpdateIdentity({
+      id: customerId,
+      identityId: found.identities.find((each) => each.externalId === from)!.id,
+      channel: fakeChannel,
+      externalId: to,
+    });
+  };
+
+  it("still reaches a Turn after the owner corrects that address", async () => {
+    const world = await instance();
+    const first = await world.customer(ada);
+    await summarised(world, first.id, "memo-before-the-typo", ago(1), ada);
+
+    await correct(world, first.id, ada, corrected);
+
+    expect(await world.promptFor(corrected)).toContain("memo-before-the-typo");
+  });
+
+  it("stays out once another Customer has that address", async () => {
+    const world = await instance();
+    const first = await world.customer(ada);
+    const second = await world.customer(bob);
+    await summarised(world, first.id, "memo-before-the-typo", ago(1), ada);
+
+    await correct(world, first.id, ada, corrected);
+    await world.rpc.representative.customerAddIdentity({
+      id: second.id,
+      channel: fakeChannel,
+      externalId: ada,
+    });
+
+    expect(await world.promptFor(corrected)).not.toContain("memo-before-the-typo");
+  });
+
+  /** The summary of a thread the absorbed Bob alone spoke on, begun while the merge stood. */
+  async function onlyBobSpokeDuringMerge(world: Awaited<ReturnType<typeof instance>>) {
+    const first = await world.customer(ada);
+    const second = await world.customer(bob);
+    await world.passTime(threadIdleMs);
+    await world.merge(second.id, first.id);
+    await world.say("Bob here", bob);
+    const open = await world.openThread(bob);
+    await world.passTime(threadIdleMs);
+    await getTestDb()
+      .update(representativeCustomerSummary)
+      .set({ text: "memo-bob-alone" })
+      .where(eq(representativeCustomerSummary.threadId, open.id));
+    expect(await world.promptFor(ada)).toContain("memo-bob-alone");
+    await world.undoLatest();
+    return { first, second };
+  }
+
+  it("stays out after an undo, when only the other person spoke on it", async () => {
+    const world = await instance();
+    await onlyBobSpokeDuringMerge(world);
+
+    expect(await world.promptFor(ada)).not.toContain("memo-bob-alone");
+  });
+
+  it("stays out after an undo even once the other person's address is corrected", async () => {
+    const world = await instance();
+    const { second } = await onlyBobSpokeDuringMerge(world);
+
+    await correct(world, second.id, bob, corrected);
+
+    expect(await world.promptFor(ada)).not.toContain("memo-bob-alone");
+  });
+
+  it("stays out for both people's words, once the other person's address is corrected", async () => {
+    const world = await instance();
+    const first = await world.customer(ada);
+    const second = await world.customer(bob);
+    const mixed = await summarised(world, first.id, "memo-both", ago(1), ada);
+    await getTestDb().insert(representativeThreadMessage).values({
+      id: uuidv7(),
+      threadId: mixed,
+      position: 2,
+      author: "customer",
+      channel: fakeChannel,
+      externalId: bob,
+      text: "Bob's words",
+    });
+    await world.merge(second.id, first.id);
+    await world.undoLatest();
+
+    await correct(world, second.id, bob, corrected);
+
+    expect(await world.promptFor(ada)).not.toContain("memo-both");
   });
 });
 
