@@ -3,11 +3,22 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { assignmentEnded, defineFeature, defineJob, type FeatureContext } from "@botsdk/bot";
+import { sendToUserToolName } from "@botsdk/bot/bot/context";
+import { isTurnCall } from "@ai-chat/test-support/bot-turns";
 import { receive } from "@botsdk/bot/bot/triggers";
 import { conversationChannel } from "@botsdk/bot/chat/conversation-events";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { createMemoryPubSub } from "@botsdk/bot/chat/pubsub";
-import { bot, botTurn, computer, conversation, job, message, usage } from "@botsdk/bot/storage";
+import {
+  bot,
+  botAssignment,
+  botTurn,
+  computer,
+  conversation,
+  job,
+  message,
+  usage,
+} from "@botsdk/bot/storage";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { ComputerProvider } from "@botsdk/bot/computer/internal";
 import type { HostProvider } from "@botsdk/bot/models/internal";
@@ -1176,6 +1187,86 @@ describe("a Turn on an untrusted Assignment", () => {
       await expect.poll(async () => (await statuses(ada)).length, poll).toBe(2);
       await expect.poll(() => statuses(ada), poll).toEqual(["complete", "complete"]);
       expect(await statuses(bea)).toEqual(["complete"]);
+      await settle();
+
+      expect(await passJobs()).toHaveLength(0);
+    },
+    timeout,
+  );
+
+  /** A round per call, chosen by what the call is: a Turn's by `turnRound`, a pass's by `ops()`. */
+  const dispatch = (turnRound: (call: TextOptions) => ReturnType<typeof round>) =>
+    Array.from(
+      { length: 12 },
+      () => (call: TextOptions) => (isTurnCall(call) ? turnRound(call) : ops()),
+    );
+
+  it(
+    "runs a pass with the Bot's lines for a Turn on a trusted Assignment",
+    async () => {
+      const { client, botIds, fake } = await botsWith(
+        dispatch((call) => {
+          const read = JSON.stringify(call.messages);
+          if (call.messages.some((entry) => entry.role === "tool")) return round();
+          return read.includes("Your name: Bea")
+            ? round(toolCall({ name: sendToUserToolName, input: { text: "BEA-SAID-THIS" } }))
+            : round(
+                runs("assign_work", {
+                  bot: "Bea",
+                  title: "Trusted job",
+                  instructions: "TRUSTED-INSTRUCTIONS",
+                }),
+              );
+        }),
+        { names: ["Ada", "Bea"] },
+      );
+      const [ada, bea] = botIds as [string, string];
+
+      await send(client, ada, "Ask Bea to do it");
+      await expect
+        .poll(
+          () =>
+            fake.calls.filter(
+              (call) =>
+                !isTurnCall(call) &&
+                userTextOf(call).includes("TRUSTED-INSTRUCTIONS") &&
+                userTextOf(call).includes("BEA-SAID-THIS"),
+            ).length,
+          poll,
+        )
+        .toBe(1);
+      expect(await statuses(bea)).toEqual(["complete"]);
+    },
+    timeout,
+  );
+
+  it(
+    "runs no pass for a Check-in Turn that finishes the Assignment",
+    async () => {
+      const made = assigner();
+      const { deps, user, botIds } = await botsWith(
+        dispatch((call) =>
+          JSON.stringify(call.messages).includes("Come back to it.") &&
+          !call.messages.some((entry) => entry.role === "tool")
+            ? round(
+                runs("finish_assignment", {
+                  id: assignmentIdIn(call),
+                  status: "done",
+                  outcome: "OUTCOME-WITH-DETAILS",
+                }),
+              )
+            : round(),
+        ),
+        { features: [made.feature] },
+      );
+      const [ada] = botIds as [string];
+
+      await made.create(user.id, ada);
+      await expect.poll(() => statuses(ada), poll).toEqual(["complete"]);
+      await checkIn(deps, ada);
+      await expect.poll(() => statuses(ada), poll).toEqual(["complete", "complete"]);
+      const [assignment] = await getTestDb().select().from(botAssignment);
+      expect(assignment?.status).toBe("done");
       await settle();
 
       expect(await passJobs()).toHaveLength(0);
