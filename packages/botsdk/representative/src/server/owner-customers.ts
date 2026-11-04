@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 
 import { endedAssignmentStatuses } from "@botsdk/client/bot/assignment";
 import { botAssignment } from "@botsdk/bot/storage";
@@ -21,6 +21,7 @@ import {
   representativeCustomer,
   representativeCustomerIdentity,
   representativeHandOff,
+  draftRule,
   representativeHeldMessage,
   representativeOutboundDecision,
   representativeThread,
@@ -535,10 +536,33 @@ export async function getThread(
       })),
     );
   const { identities, name } = await readCustomer(context, userId, row.customerId);
+  const held = await db
+    .select({
+      id: representativeHeldMessage.id,
+      text: representativeHeldMessage.text,
+      rule: representativeOutboundDecision.rule,
+      channel: representativeOutboundDecision.channel,
+      externalId: representativeOutboundDecision.externalId,
+      createdAt: representativeHeldMessage.createdAt,
+    })
+    .from(representativeHeldMessage)
+    .innerJoin(
+      representativeOutboundDecision,
+      eq(representativeOutboundDecision.id, representativeHeldMessage.decisionId),
+    )
+    .where(
+      and(
+        eq(representativeHeldMessage.threadId, threadId),
+        isNull(representativeHeldMessage.resolution),
+        ne(representativeOutboundDecision.rule, draftRule),
+      ),
+    )
+    .orderBy(asc(representativeHeldMessage.id));
   return {
     ...summary(row, name),
     representativeId: row.representativeId,
     identities,
     messages,
+    held,
   };
 }

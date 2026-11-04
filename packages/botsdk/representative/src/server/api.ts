@@ -22,6 +22,7 @@ import {
   replyDraftEditInput,
   rollbackInput,
   setBotInput,
+  setCapsInput,
   setEnabledInput,
   threadSendInput,
   topicAddInput,
@@ -63,10 +64,12 @@ import {
   rollbackRelease,
   runTests,
   setBot,
+  setCaps,
   setEnabled,
   updateDraft,
   uploadDocument,
 } from "./representatives";
+import { dropHeldMessage, sendHeldMessage } from "./held-messages";
 import {
   approveReplyDraft,
   editReplyDraft,
@@ -149,6 +152,9 @@ export function representativeApi(
       const { id, enabled } = parseInput(setEnabledInput, rest);
       return setEnabled(context, userId, id, enabled);
     },
+
+    setCaps: async ({ userId, ...rest }: WithUser<typeof setCapsInput>) =>
+      setCaps(context, userId, parseInput(setCapsInput, rest)),
 
     setBot: async ({ userId, ...rest }: WithUser<typeof setBotInput>) => {
       const { id, botId } = parseInput(setBotInput, rest);
@@ -247,6 +253,12 @@ export function representativeApi(
 
     threadHandBack: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
       handBackThread(context, userId, parseInput(idInput, rest).id),
+
+    threadHeldSend: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      sendHeldMessage(context, userId, parseInput(idInput, rest).id),
+
+    threadHeldDrop: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      dropHeldMessage(context, userId, parseInput(idInput, rest).id),
 
     threadSend: async ({ userId, ...rest }: WithUser<typeof threadSendInput>) =>
       sendAsOwner(context, userId, parseInput(threadSendInput, rest)),

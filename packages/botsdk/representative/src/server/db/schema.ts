@@ -45,6 +45,12 @@ export const representative = botsdkSchema.table(
     botId: uuid("bot_id").references((): AnyPgColumn => bot.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     enabled: boolean("enabled").notNull().default(false),
+    /**
+     * The Outbound gate's caps on what it sends a Customer (ticket #1304), the owner's to edit and in no
+     * Release: messages in a row with no Customer reply, and messages in a rolling day.
+     */
+    maxInARow: integer("max_in_a_row").notNull().default(5),
+    maxPerDay: integer("max_per_day").notNull().default(20),
     /** The Release new Turns use. No foreign key: the two tables point at each other. Null until the first approval. */
     liveReleaseId: uuid("live_release_id"),
     draft: jsonb("draft").$type<Draft>().notNull(),
@@ -574,11 +580,15 @@ export const representativeFactProposal = botsdkSchema.table(
   ],
 );
 
-/** Which message passed the Outbound gate, which says what rules it passes. */
+/**
+ * Which message passed the Outbound gate, which says what rules it passes. `released` is a held message
+ * the owner sent (ticket #1304): the Representative's own, so it counts against the day's cap.
+ */
 export type OutboundKind =
   | "reply"
   | "code_hand_off"
   | "owner"
+  | "released"
   | "takeover_note"
   | "proof"
   | "holding_note"
@@ -618,6 +628,9 @@ export const representativeOutboundDecision = botsdkSchema.table(
     index("representative_outbound_decision_message_idx").on(table.messageId),
   ],
 );
+
+/** The gate rule that holds a Reply draft, which the owner answers apart from any other held message. */
+export const draftRule = "topic";
 
 /**
  * What became of a held message: the owner approved it, sent it with their edit or rejected it, a

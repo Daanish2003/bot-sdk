@@ -86,6 +86,7 @@ export function representativeFeature(
       "assignments",
       "factApprovals",
       "models",
+      "pages",
       "releaseApprovals",
       "representativeLoop",
       "threads",

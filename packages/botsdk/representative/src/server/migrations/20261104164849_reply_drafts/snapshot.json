@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "5e1a761c-8b37-43c9-96ba-141071efbc90",
-  "prevIds": ["946fb570-8cdb-4add-9483-8183ce9d331c"],
+  "id": "2e973103-017a-4598-84c0-8039e3675c7e",
+  "prevIds": ["d6c620ee-6628-42bb-8bfd-d52a08218715"],
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -191,6 +191,32 @@
       "generated": null,
       "identity": null,
       "name": "enabled",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "5",
+      "generated": null,
+      "identity": null,
+      "name": "max_in_a_row",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "20",
+      "generated": null,
+      "identity": null,
+      "name": "max_per_day",
       "entityType": "columns",
       "schema": "botsdk",
       "table": "representative"

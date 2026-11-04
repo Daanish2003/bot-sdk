@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
+import { page } from "@botsdk/bot/storage";
 import { exportUserData } from "@botsdk/bot/user-data";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
@@ -575,7 +576,10 @@ describe("a draft whose Turn's fence rolled it back", () => {
         throw new Error("fenced");
       })
       .catch(() => {});
-    await logRefusals(getTestDb(), refusals);
+    const feature = world.deps.parts.features.find(
+      ({ feature }) => feature.id === "representative",
+    )!;
+    await logRefusals(feature.context, refusals);
 
     expect((await world.decisions()).at(-1)).toEqual(["reply", "hold", "topic"]);
     expect(await world.outcomes()).toEqual([["Too late.", "cancelled"]]);
@@ -808,5 +812,74 @@ describe("a label the tool couldn't store", () => {
 
     expect(await world.drafts()).toMatchObject([{ text: "You owe nothing.", topic: null }]);
     await expect.poll(world.got, poll).toEqual([holdingNote]);
+  });
+});
+
+describe("a draft beside what the caps hold", () => {
+  const pagesOf = (world: World) =>
+    getTestDb().select().from(page).where(eq(page.userId, world.user.id));
+
+  it("Pages nobody, and can't be sent or dropped as a held message", async () => {
+    const { world, draftId } = await oneDraft();
+
+    expect(await pagesOf(world)).toEqual([]);
+    const thread = await world.rpc.representative.threadGet({ id: await world.threadId() });
+    expect(thread.held).toEqual([]);
+    for (const answer of [
+      world.rpc.representative.threadHeldSend({ id: draftId }),
+      world.rpc.representative.threadHeldDrop({ id: draftId }),
+    ]) {
+      await expect(answer).rejects.toSatisfy(
+        (error) => refusalCode(error) === "error.heldMessageNotFound",
+      );
+    }
+    expect(await world.outcomes()).toEqual([["You owe nothing.", null]]);
+  });
+
+  it("once answered, can't go out as a held message", async () => {
+    const { world, draftId } = await oneDraft();
+    await world.rpc.representative.replyDraftReject({ id: draftId });
+
+    await expect(world.rpc.representative.threadHeldSend({ id: draftId })).rejects.toSatisfy(
+      (error) => refusalCode(error) === "error.heldMessageNotFound",
+    );
+
+    expect(world.got()).toEqual([holdingNote]);
+  });
+
+  it("once answered, doesn't stop the Page for what a cap holds", async () => {
+    const { world, draftId } = await oneDraft([
+      replies("First.", "general"),
+      replies("Second.", "general"),
+      quiet(),
+    ]);
+    await world.rpc.representative.replyDraftReject({ id: draftId });
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 1 });
+
+    await world.hears("Anything else?");
+
+    expect((await world.outcomes()).at(-1)).toEqual(["Second.", null]);
+    expect(await pagesOf(world)).toHaveLength(1);
+  });
+
+  it("goes when the owner approves it at a cap, and counts against the day", async () => {
+    const world = await instance([
+      replies("First.", "general"),
+      replies("You owe nothing.", "billing"),
+      quiet(),
+      replies("Third.", "general"),
+      quiet(),
+    ]);
+    await world.hears("What do I owe?");
+    const [draft] = await world.drafts();
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 1 });
+
+    await world.rpc.representative.replyDraftApprove({ id: draft!.id });
+
+    expect((await world.decisions()).at(-1)).toEqual(["reply_draft", "send", "passed"]);
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 100, maxPerDay: 2 });
+    await world.hears("Thanks");
+    expect((await world.outcomes()).at(-1)).toEqual(["Third.", null]);
+    expect((await world.decisions()).at(-1)).toEqual(["reply", "hold", "caps"]);
   });
 });

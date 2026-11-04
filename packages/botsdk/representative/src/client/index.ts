@@ -30,6 +30,7 @@ export {
   type ReplyDraftView,
   type TopicView,
   correctableFixedFields,
+  maxOutboundCap,
   maxProfileFieldNameLength,
   maxProfileValueLength,
   type ProfileFieldView,

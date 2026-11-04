@@ -30,10 +30,11 @@ type Context = Pick<FeatureContext, "db" | "clock" | "jobs">;
 /** What a Customer gets when the owner takes their thread over. */
 export const takeoverNote = "A person has joined this conversation and will reply from here.";
 
-const threadClosed = () => rpcError("CONFLICT", "error.threadClosed", "This thread has closed");
+export const threadClosed = () =>
+  rpcError("CONFLICT", "error.threadClosed", "This thread has closed");
 const threadNotHeld = () =>
   rpcError("CONFLICT", "error.threadNotHeld", "Take over this thread to write in it");
-const customerBlocked = () =>
+export const customerBlocked = () =>
   rpcError(
     "CONFLICT",
     "error.customerBlocked",
@@ -82,7 +83,7 @@ export async function tryLockThread(tx: Transaction, userId: string, threadId: s
 }
 
 /** Holds one of the owner's threads, or says it isn't theirs. */
-async function lockThread(tx: Transaction, userId: string, threadId: string) {
+export async function lockThread(tx: Transaction, userId: string, threadId: string) {
   const thread = await tryLockThread(tx, userId, threadId);
   if (!thread) throw threadNotFound();
   return thread;

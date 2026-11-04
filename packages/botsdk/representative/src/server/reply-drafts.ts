@@ -7,6 +7,7 @@ import type { ReplyDraftView } from "../shared/contract";
 import { nameIn, profilesOf } from "./customer-profile";
 import type { Heard } from "./customers";
 import {
+  draftRule,
   type HeldResolution,
   representative,
   representativeHeldMessage,
@@ -33,9 +34,6 @@ const held = representativeHeldMessage;
 const decision = representativeOutboundDecision;
 const message = representativeThreadMessage;
 const thread = representativeThread;
-
-/** Which of the gate's rules holds a Reply draft, as opposed to any other held message. */
-const draftRule = "topic";
 
 /** The most drafts the owner's list shows at once; answering the oldest brings the next. */
 const replyDraftListLimit = 200;
@@ -259,7 +257,7 @@ const resolve = (
  * Sends the owner's Reply draft through the gate. Words they changed are theirs, resting on nothing
  * the Representative's did. Refused, and still waiting, when the gate drops it: it can go once what
  * stopped it has lifted. One the gate holds for another rule has had its answer, and waits as that
- * rule's held message.
+ * rule's held message. The caps aren't such a rule: the owner has just said to send it.
  */
 async function sendDraft(context: Context, userId: string, id: string, words?: string) {
   const dropped = await context.db.transaction(async (tx) => {

@@ -110,6 +110,13 @@ export function useSetRepresentativeEnabled(
   return useMutation(useRepresentative().setEnabled.mutationOptions(options));
 }
 
+/** Edits the caps on what the Outbound gate sends a Customer (`representative.setCaps`). */
+export function useSetRepresentativeCaps(
+  options?: ProcedureMutationOptions<Representative["setCaps"]>,
+) {
+  return useMutation(useRepresentative().setCaps.mutationOptions(options));
+}
+
 /** Chooses the Bot a Representative reports to (`representative.setBot`). */
 export function useSetRepresentativeBot(
   options?: ProcedureMutationOptions<Representative["setBot"]>,

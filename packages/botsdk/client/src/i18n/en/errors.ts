@@ -32,6 +32,7 @@ export const errorMessages = {
   "error.profileFieldTaken": "You already have a profile field of that name.",
   "error.threadNotFound": "Thread not found",
   "error.threadClosed": "This thread has closed",
+  "error.heldMessageNotFound": "Held message not found",
   "error.threadNotHeld": "Take over this thread to write in it",
   "error.customerBlocked": "This Customer is blocked, so nothing is sent to them",
   "error.customerIdentityTaken": "One of your Customers already has that identity.",
