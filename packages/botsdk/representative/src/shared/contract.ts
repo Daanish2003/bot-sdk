@@ -574,7 +574,9 @@ export const maxOutboundCap = 1_000;
 const capField = z.number().int().min(1).max(maxOutboundCap);
 export const setCapsInput = z
   .object({ id: z.uuid(), maxInARow: capField.optional(), maxPerDay: capField.optional() })
-  .refine(({ maxInARow, maxPerDay }) => maxInARow !== undefined || maxPerDay !== undefined);
+  .refine(({ maxInARow, maxPerDay }) => maxInARow !== undefined || maxPerDay !== undefined, {
+    message: "Give at least one cap",
+  });
 export const setEnabledInput = z.object({ id: z.uuid(), enabled: z.boolean() });
 export const setBotInput = z.object({ id: z.uuid(), botId: z.uuid() });
 

@@ -46,6 +46,7 @@ const rulesOf: Record<OutboundKind, readonly GateRule[]> = {
   reply: gateOrder,
   code_hand_off: ["held", "blocked", "optedOut", "on", "channel"],
   owner: ["blocked", "optedOut", "channel"],
+  released: ["blocked", "optedOut", "channel"],
   takeover_note: ["blocked", "optedOut", "channel"],
   proof: ["blocked", "optedOut", "channel"],
 };
@@ -218,7 +219,7 @@ async function sentCounts(tx: Transaction, threadId: string, customerId: string,
     .where(
       and(
         eq(representativeThread.customerId, customerId),
-        inArray(decision.kind, ["reply", "code_hand_off"]),
+        inArray(decision.kind, ["reply", "code_hand_off", "released"]),
         eq(decision.outcome, "send"),
         gt(decision.createdAt, sql`${new Date(now.getTime() - dayMs).toISOString()}::timestamp`),
       ),
@@ -307,7 +308,16 @@ export async function passGate(
         },
       }),
   };
-  if (outcome === "hold") {
+  // One Page until the owner has dealt with what is held: a Model that keeps replying isn't a new alarm.
+  const [waiting] =
+    outcome === "hold"
+      ? await tx
+          .select({ id: representativeHeldMessage.id })
+          .from(representativeHeldMessage)
+          .where(eq(representativeHeldMessage.threadId, threadId))
+          .limit(1)
+      : [];
+  if (outcome === "hold" && !waiting) {
     written.page = {
       userId: row.userId,
       cause: heldCause,

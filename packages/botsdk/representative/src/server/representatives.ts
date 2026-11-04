@@ -339,7 +339,7 @@ export async function setCaps(
     await ownedRow(tx, userId, id, true);
     const [updated] = await tx
       .update(representative)
-      .set({ maxInARow, maxPerDay, updatedAt: new Date() })
+      .set({ maxInARow, maxPerDay, updatedAt: clock() })
       .where(eq(representative.id, id))
       .returning();
     return view(tx, updated!, clock());

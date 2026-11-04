@@ -580,8 +580,17 @@ export const representativeFactProposal = botsdkSchema.table(
   ],
 );
 
-/** Which message passed the Outbound gate, which says what rules it passes. */
-export type OutboundKind = "reply" | "code_hand_off" | "owner" | "takeover_note" | "proof";
+/**
+ * Which message passed the Outbound gate, which says what rules it passes. `released` is a held message
+ * the owner sent (ticket #1304): the Representative's own, so it counts against the day's cap.
+ */
+export type OutboundKind =
+  | "reply"
+  | "code_hand_off"
+  | "owner"
+  | "released"
+  | "takeover_note"
+  | "proof";
 
 export type GateOutcome = "send" | "hold" | "drop";
 

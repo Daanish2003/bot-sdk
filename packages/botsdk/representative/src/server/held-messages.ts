@@ -75,13 +75,14 @@ export async function sendHeldMessage(context: Context, userId: string, heldId: 
     const now = context.clock();
     const { channel, externalId } = message;
     const decided = await passGate(tx, {
-      kind: "owner",
+      kind: "released",
       threadId: found,
       to: { channel, externalId },
       now,
       content: { text: message.text, verified: message.verified },
     });
-    if (decided?.outcome !== "send") return { blocked: true as const, threadId: found };
+    if (!decided) throw heldNotFound();
+    if (decided.outcome !== "send") return { blocked: true as const, threadId: found };
     const [updated] = await tx
       .update(representativeThread)
       .set({

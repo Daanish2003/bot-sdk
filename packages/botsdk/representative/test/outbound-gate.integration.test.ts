@@ -669,6 +669,31 @@ describe("the outbound caps", () => {
     ]);
   });
 
+  it("Pages once for the messages held on a thread while the owner has not dealt with them", async () => {
+    const world = await instance([quiet()]);
+    await heard(world);
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 1 });
+
+    await times(4, () => anotherReply(world));
+
+    expect(await held()).toHaveLength(3);
+    expect(await pages()).toHaveLength(1);
+  });
+
+  it("counts a held message the owner sent against the day", async () => {
+    const world = await instance([quiet()]);
+    await heard(world);
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 1, maxPerDay: 3 });
+    await times(2, () => anotherReply(world));
+    const [message] = (await world.rpc.representative.threadGet({ id: await world.threadId() }))
+      .held;
+    await world.rpc.representative.threadHeldSend({ id: message!.id });
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 100 });
+
+    expect(await anotherReply(world)).toEqual({ sent: true });
+    expect(await anotherReply(world)).toMatchObject({ error: expect.stringContaining("held") });
+  });
+
   it("starts the run again when the Customer replies", async () => {
     const world = await instance([quiet(), quiet()]);
     await heard(world);
@@ -738,7 +763,7 @@ describe("the outbound caps", () => {
     ).toEqual([
       ["reply", "send", "passed"],
       ["reply", "hold", "caps"],
-      ["owner", "send", "passed"],
+      ["released", "send", "passed"],
     ]);
   });
 
