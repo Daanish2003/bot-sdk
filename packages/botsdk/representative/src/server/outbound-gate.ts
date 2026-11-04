@@ -49,12 +49,16 @@ const rulesOf: Record<OutboundKind, readonly GateRule[]> = {
   released: ["blocked", "optedOut", "channel"],
   takeover_note: ["blocked", "optedOut", "channel"],
   proof: ["blocked", "optedOut", "channel"],
+  // The words that tell a Customer their opt-out worked: the rule that drops the rest can't drop it.
+  opt_out_confirmation: ["blocked", "channel"],
 };
 
 /** What the rules read of a message's thread. */
 type GateFacts = {
   threadState: string;
   blockedAt: Date | null;
+  /** When the identity the message goes to opted out; null when it hasn't. */
+  optedOutAt: Date | null;
   enabled: boolean;
   /** Messages the Representative has sent since the Customer last wrote on this thread. */
   sentInARow: number;
@@ -74,6 +78,7 @@ export type GateCheck = (facts: GateFacts) => Exclude<GateOutcome, "send"> | nul
 export const liveChecks: Partial<Record<GateRule, GateCheck>> = {
   held: ({ threadState }) => (threadState === "representative" ? null : "drop"),
   blocked: ({ blockedAt }) => (blockedAt === null ? null : "drop"),
+  optedOut: ({ optedOutAt }) => (optedOutAt === null ? null : "drop"),
   on: ({ enabled }) => (enabled ? null : "drop"),
   caps: ({ sentInARow, sentToday, maxInARow, maxPerDay }) =>
     sentInARow >= maxInARow || sentToday >= maxPerDay ? "hold" : null,
@@ -261,9 +266,20 @@ export async function passGate(
     .select({ blockedAt: representativeCustomer.blockedAt })
     .from(representativeCustomer)
     .where(eq(representativeCustomer.id, outgoing.customerId ?? row.customerId));
+  const [identity] = await tx
+    .select({ optedOutAt: representativeCustomerIdentity.optedOutAt })
+    .from(representativeCustomerIdentity)
+    .where(
+      and(
+        eq(representativeCustomerIdentity.userId, row.userId),
+        eq(representativeCustomerIdentity.channel, to.channel),
+        eq(representativeCustomerIdentity.externalId, to.externalId),
+      ),
+    );
   const facts: GateFacts = {
     ...row,
     blockedAt: customer?.blockedAt ?? null,
+    optedOutAt: identity?.optedOutAt ?? null,
     ...(rules.includes("caps")
       ? await sentCounts(tx, threadId, row.customerId, now)
       : { sentInARow: 0, sentToday: 0 }),
@@ -398,7 +414,12 @@ export async function deliverMessage(
 }
 
 /** Why a message the gate passed never went, as the log says it. */
-const notDelivered = { failed: "delivery_failed", blocked: "blocked", moved: "address_changed" };
+const notDelivered = {
+  failed: "delivery_failed",
+  blocked: "blocked",
+  optedOut: "optedOut",
+  moved: "address_changed",
+};
 
 /** Logs that the message `decisionId` passed didn't go after all. */
 async function logNotDelivered(
@@ -420,8 +441,8 @@ async function logNotDelivered(
 
 /**
  * Sends what the gate passed. A throw is the runner's to retry, so this can run well after the
- * decision: a Customer blocked since gets nothing, and neither does an address no longer theirs,
- * which may be someone else's. A thread deleted since sends nothing.
+ * decision: a Customer blocked or opted out since gets nothing, and neither does an address no longer
+ * theirs, which may be someone else's. A thread deleted since sends nothing.
  */
 export const customerDeliveryJob = (channel: CustomerChannel) =>
   defineJob<z.infer<typeof deliveryPayload>>({
@@ -433,9 +454,11 @@ export const customerDeliveryJob = (channel: CustomerChannel) =>
         .select({
           channel: decision.channel,
           externalId: decision.externalId,
+          kind: decision.kind,
           text: representativeThreadMessage.text,
           blockedAt: representativeCustomer.blockedAt,
           identityId: representativeCustomerIdentity.id,
+          optedOutAt: representativeCustomerIdentity.optedOutAt,
         })
         .from(decision)
         .innerJoin(
@@ -457,11 +480,14 @@ export const customerDeliveryJob = (channel: CustomerChannel) =>
         )
         .where(eq(decision.id, decisionId));
       if (!row) return;
+      // The confirmation of an opt-out is the one message an opted-out identity is sent.
       const stopped = row.blockedAt
         ? notDelivered.blocked
-        : row.identityId
-          ? null
-          : notDelivered.moved;
+        : !row.identityId
+          ? notDelivered.moved
+          : row.optedOutAt && row.kind !== "opt_out_confirmation"
+            ? notDelivered.optedOut
+            : null;
       if (stopped) {
         await logNotDelivered(job.db, decisionId, stopped, job.clock());
         return;

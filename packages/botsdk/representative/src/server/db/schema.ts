@@ -21,6 +21,7 @@ import type {
   Draft,
   FactType,
   FixedProfileField,
+  OptOutSource,
   PendingApproval,
   ProfileSource,
   ProfileStatus,
@@ -251,6 +252,10 @@ export const representativeCustomerIdentity = botsdkSchema.table(
     lapsedAt: timestamp("lapsed_at"),
     /** Until when a passed code or signed link vouches for its messages; null when none has. */
     provenUntil: timestamp("proven_until"),
+    /** When they opted out of hearing from the business (ticket #1302); null when they haven't, or have come back. */
+    optedOutAt: timestamp("opted_out_at"),
+    /** How they opted out: a Channel's keyword, or a Representative's flag; null with `optedOutAt`. */
+    optOutSource: text("opt_out_source").$type<OptOutSource>(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
@@ -590,7 +595,8 @@ export type OutboundKind =
   | "owner"
   | "released"
   | "takeover_note"
-  | "proof";
+  | "proof"
+  | "opt_out_confirmation";
 
 export type GateOutcome = "send" | "hold" | "drop";
 

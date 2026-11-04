@@ -35,6 +35,7 @@ export const errorMessages = {
   "error.heldMessageNotFound": "Held message not found",
   "error.threadNotHeld": "Take over this thread to write in it",
   "error.customerBlocked": "This Customer is blocked, so nothing is sent to them",
+  "error.customerOptedOut": "This Customer opted out, so nothing is sent to them",
   "error.customerIdentityTaken": "One of your Customers already has that identity.",
   "error.factNotFound": "Fact not found",
   "error.factKeyTaken": "You already have a fact with that key.",

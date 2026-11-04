@@ -22,6 +22,7 @@ export const representativeTools = [
   "hand_to_bot",
   "verify_customer",
   "read_customer_work",
+  "flag_opt_out",
 ] as const;
 export type RepresentativeTool = (typeof representativeTools)[number];
 
@@ -264,12 +265,17 @@ export type DraftDiff = {
   changes: DraftChange[];
 };
 
-/** One way of reaching a Customer: a Channel, that Channel's id for them, and whether it is verified now. */
+/** How an identity opted out of hearing from the business: a Channel's keyword, or a Representative's flag. */
+export type OptOutSource = "keyword" | "representative";
+
+/** One way of reaching a Customer: a Channel, that Channel's id for them, whether it is verified now, and whether they opted out of it. */
 export type CustomerIdentityView = {
   id: string;
   channel: string;
   externalId: string;
   verified: boolean;
+  /** Set once they opted out, and until they say START or the owner clears it: nothing is sent to them. */
+  optedOut: { source: OptOutSource; at: Date } | null;
 };
 
 /** The profile fields every Customer has: the name, which has its own path, and these. */
@@ -423,6 +429,7 @@ export const customerUpdateIdentityInput = z.object({
   externalId: externalIdField,
 });
 export const customerSetBlockedInput = z.object({ id: z.uuid(), blocked: z.boolean() });
+export const customerClearOptOutInput = z.object({ id: z.uuid(), identityId: z.uuid() });
 export const customerMergeInput = z.object({ id: z.uuid(), intoId: z.uuid() });
 export const customerRenameInput = z.object({
   id: z.uuid(),
@@ -648,6 +655,8 @@ export const representativeContract = {
   customerUpdateIdentity: oc.input(customerUpdateIdentityInput).output(type<CustomerView>()),
   /** Blocks or unblocks a Customer: a blocked one's message is kept for the owner and answered by no one. */
   customerSetBlocked: oc.input(customerSetBlockedInput).output(type<CustomerView>()),
+  /** Clears an identity's opt-out, as its Customer's START does: the business may write to it again. */
+  customerClearOptOut: oc.input(customerClearOptOutInput).output(type<CustomerView>()),
   /**
    * Merges Customer `id` into `intoId`, whose thread goes on where both have one open with a
    * Representative. Refused while either is blocked. It verifies nobody, and can be undone.

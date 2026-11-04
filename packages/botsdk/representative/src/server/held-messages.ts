@@ -13,7 +13,7 @@ import {
 } from "./db/schema";
 import { deliverMessage, dropHeld, passGate } from "./outbound-gate";
 import { getThread } from "./owner-customers";
-import { customerBlocked, lockThread, threadClosed } from "./takeover";
+import { lockThread, refusedByGate, threadClosed } from "./takeover";
 
 /*
  * What the owner does with a message the Outbound gate held (ticket #1304): send it or drop it. Only a
@@ -82,7 +82,9 @@ export async function sendHeldMessage(context: Context, userId: string, heldId: 
       content: { text: message.text, verified: message.verified },
     });
     if (!decided) throw heldNotFound();
-    if (decided.outcome !== "send") return { blocked: true as const, threadId: found };
+    if (decided.outcome !== "send") {
+      return { blocked: true as const, rule: decided.rule, threadId: found };
+    }
     const [updated] = await tx
       .update(representativeThread)
       .set({
@@ -109,7 +111,7 @@ export async function sendHeldMessage(context: Context, userId: string, heldId: 
     return { blocked: false as const, threadId: found };
   });
   // After the commit, so the decision stays in the log.
-  if (sent.blocked) throw customerBlocked();
+  if (sent.blocked) throw refusedByGate(sent.rule);
   return getThread(context, userId, sent.threadId);
 }
 

@@ -40,6 +40,16 @@ export const customerBlocked = () =>
     "error.customerBlocked",
     "This Customer is blocked, so nothing is sent to them",
   );
+const customerOptedOut = () =>
+  rpcError(
+    "CONFLICT",
+    "error.customerOptedOut",
+    "This Customer opted out, so nothing is sent to them",
+  );
+
+/** Why the owner's message didn't go, from the rule that stopped it. */
+export const refusedByGate = (rule: string) =>
+  rule === "optedOut" ? customerOptedOut() : customerBlocked();
 
 /**
  * Holds one of the owner's threads, or null when it isn't theirs or doesn't exist. Its Customer's
@@ -142,7 +152,9 @@ async function sendToCustomer(
     now,
     content: { text, verified },
   });
-  if (decision?.outcome !== "send") return decision?.outcome ?? "drop";
+  if (decision?.outcome !== "send") {
+    return { outcome: decision?.outcome ?? "drop", rule: decision?.rule ?? "blocked" };
+  }
   const [updated] = await tx
     .update(representativeThread)
     .set({ messageCount: sql`${representativeThread.messageCount} + 1`, ...activeAt(now) })
@@ -160,7 +172,7 @@ async function sendToCustomer(
     verified,
   });
   await deliverMessage(services, tx, decision.id, messageId);
-  return decision.outcome;
+  return { outcome: decision.outcome, rule: decision.rule };
 }
 
 /**
@@ -226,7 +238,7 @@ export async function sendAsOwner(
       text,
       now: context.clock(),
     });
-    if (decided !== "send" || thread.waitingFrom === null) return decided;
+    if (decided.outcome !== "send" || thread.waitingFrom === null) return decided;
     const message = representativeThreadMessage;
     const [elsewhere] = await tx
       .select({ position: min(message.position) })
@@ -258,7 +270,7 @@ export async function sendAsOwner(
     return decided;
   });
   // After the commit, so the decision stays in the log.
-  if (outcome !== "send") throw customerBlocked();
+  if (outcome.outcome !== "send") throw refusedByGate(outcome.rule);
   return getThread(context, userId, id);
 }
 

@@ -90,5 +90,9 @@
   {
     "name": "20261104152349_outbound_caps",
     "sql": "ALTER TABLE \"botsdk\".\"representative\" ADD COLUMN \"max_in_a_row\" integer DEFAULT 5 NOT NULL;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative\" ADD COLUMN \"max_per_day\" integer DEFAULT 20 NOT NULL;"
+  },
+  {
+    "name": "20261104163411_representative_opt_out",
+    "sql": "ALTER TABLE \"botsdk\".\"representative_customer_identity\" ADD COLUMN \"opted_out_at\" timestamp;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_customer_identity\" ADD COLUMN \"opt_out_source\" text;"
   }
 ]
