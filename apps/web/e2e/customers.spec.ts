@@ -147,9 +147,11 @@ test("an owner merges two Customers and undoes the merge", async ({ page }) => {
   await page.getByLabel("Merge Bob into").selectOption({ label: "Ada · +15550001" });
   await page.getByRole("button", { name: "Merge Bob" }).click();
 
-  await expect(page.getByLabel("Name of Bob")).toHaveCount(0);
+  // Both names are confirmed, so the survivor reads the newest; the merge row keeps each one's own.
+  await expect(page.getByLabel("Name of Ada")).toHaveCount(0);
+  await expect(page.getByLabel("Name of Bob")).toHaveValue("Bob");
   await expect(page.locator("[data-customer]")).toHaveCount(1);
-  await expect(page.getByLabel("Identity of Ada", { exact: true })).toHaveCount(2);
+  await expect(page.getByLabel("Identity of Bob", { exact: true })).toHaveCount(2);
   await expect(page.locator("[data-merge]")).toContainText("Bob into Ada");
   await page.reload();
   await expect(page.locator("[data-customer]")).toHaveCount(1);
@@ -157,6 +159,8 @@ test("an owner merges two Customers and undoes the merge", async ({ page }) => {
   await page.getByRole("button", { name: "Undo merging Bob into Ada" }).click();
 
   await expect(page.locator("[data-customer]")).toHaveCount(2);
+  await expect(page.getByLabel("Name of Ada")).toHaveValue("Ada");
+  await expect(page.getByLabel("Name of Bob")).toHaveValue("Bob");
   await expect(page.getByLabel("Identity of Bob", { exact: true })).toHaveValue("+15550002");
   await expect(page.getByLabel("Identity of Ada", { exact: true })).toHaveValue("+15550001");
   await expect(page.locator("[data-merge]")).toContainText("Undone");
