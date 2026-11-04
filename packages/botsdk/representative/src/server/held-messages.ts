@@ -1,5 +1,5 @@
 import { ORPCError } from "@orpc/contract";
-import { and, eq, isNull, ne } from "drizzle-orm";
+import { and, asc, eq, isNull, ne } from "drizzle-orm";
 import type { z } from "zod";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
@@ -23,7 +23,9 @@ import {
   storeAndDeliver,
   type ViaChannel,
 } from "./outbound-gate";
-import { getThread } from "./owner-customers";
+import type { InboxHeldView, OwnerInbox } from "../shared/contract";
+import { combinedProfilesOf, nameIn } from "./customer-profile";
+import { getThread, listRunningThreads } from "./owner-customers";
 import type { CustomerChannel } from "./customer-proof";
 import { lockThread, refusedByGate, threadClosed } from "./takeover";
 
@@ -230,4 +232,76 @@ export async function dropHeldMessage(context: Context, userId: string, heldId: 
     return found;
   });
   return getThread(context, userId, threadId);
+}
+
+/** The most held messages the inbox lists at once; answering the oldest brings the next. */
+const heldListLimit = 200;
+
+/**
+ * What the owner's inbox shows besides their Reply drafts and Pages (ticket #1313): every message
+ * the gate held for them, oldest first, and the threads their Representatives are running, each with
+ * the Representative it belongs to.
+ */
+export async function ownerInbox(
+  context: Pick<FeatureContext, "db" | "clock">,
+  userId: string,
+): Promise<OwnerInbox> {
+  const { db } = context;
+  const names = new Map(
+    (
+      await db
+        .select({ id: representative.id, name: representative.name })
+        .from(representative)
+        .where(eq(representative.userId, userId))
+    ).map(({ id, name }) => [id, name]),
+  );
+  const rows = await db
+    .select({
+      id: representativeHeldMessage.id,
+      text: representativeHeldMessage.text,
+      rule: representativeOutboundDecision.rule,
+      channel: representativeOutboundDecision.channel,
+      externalId: representativeOutboundDecision.externalId,
+      createdAt: representativeHeldMessage.createdAt,
+      threadId: representativeHeldMessage.threadId,
+      representativeId: representativeThread.representativeId,
+      customerId: representativeThread.customerId,
+    })
+    .from(representativeHeldMessage)
+    .innerJoin(
+      representativeOutboundDecision,
+      eq(representativeOutboundDecision.id, representativeHeldMessage.decisionId),
+    )
+    .innerJoin(
+      representativeThread,
+      eq(representativeThread.id, representativeHeldMessage.threadId),
+    )
+    .innerJoin(
+      representative,
+      and(
+        eq(representative.id, representativeThread.representativeId),
+        eq(representative.userId, userId),
+      ),
+    )
+    .where(
+      and(
+        isNull(representativeHeldMessage.resolution),
+        ne(representativeOutboundDecision.rule, draftRule),
+      ),
+    )
+    .orderBy(asc(representativeHeldMessage.id))
+    .limit(heldListLimit);
+  const profiles = await combinedProfilesOf(db, userId, [
+    ...new Set(rows.map((row) => row.customerId)),
+  ]);
+  const held: InboxHeldView[] = rows.map(({ customerId, ...row }) => ({
+    ...row,
+    representativeName: names.get(row.representativeId) ?? "",
+    customerName: nameIn(profiles.get(customerId)),
+  }));
+  const running = (await listRunningThreads(context, userId)).map((thread) => ({
+    ...thread,
+    representativeName: names.get(thread.representativeId) ?? "",
+  }));
+  return { held, running };
 }

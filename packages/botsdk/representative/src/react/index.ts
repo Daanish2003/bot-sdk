@@ -391,6 +391,25 @@ export function useRejectReplyDraft(
   return useMutation(useRepresentative().replyDraftReject.mutationOptions(options));
 }
 
+/** The messages the gate held and the threads Representatives are running (`representative.inbox`). */
+export function useOwnerInbox() {
+  return useQuery(useRepresentative().inbox.queryOptions());
+}
+
+/** Sends a message the gate held (`representative.threadHeldSend`). */
+export function useSendHeldMessage(
+  options?: ProcedureMutationOptions<Representative["threadHeldSend"]>,
+) {
+  return useMutation(useRepresentative().threadHeldSend.mutationOptions(options));
+}
+
+/** Drops a message the gate held (`representative.threadHeldDrop`). */
+export function useDropHeldMessage(
+  options?: ProcedureMutationOptions<Representative["threadHeldDrop"]>,
+) {
+  return useMutation(useRepresentative().threadHeldDrop.mutationOptions(options));
+}
+
 /** The owner's own message on a thread they hold (`representative.threadSend`). */
 export function useSendThreadMessage(
   options?: ProcedureMutationOptions<Representative["threadSend"]>,
