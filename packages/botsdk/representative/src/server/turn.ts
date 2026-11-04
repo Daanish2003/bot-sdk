@@ -27,12 +27,14 @@ import {
   requestProof,
   type SentProof,
 } from "./customer-proof";
+import { recordMovedHandOff } from "./customer-merge";
 import { memoryPrompt, noMemory, readCustomerMemory, type CustomerMemory } from "./customer-memory";
 import { type CustomerWork, quotable, readCustomerWork } from "./customer-work";
 import { deliverHandOffResult } from "./hand-off-result";
 import { type Heard, readSender, readThread, storeReply, type ThreadEntry } from "./customers";
 import {
   representative,
+  representativeCustomer,
   representativeHandOff,
   representativeRelease,
   representativeThread,
@@ -272,6 +274,29 @@ const replySource = z.union([
   }),
 ]);
 
+/**
+ * A thread's Customer, its row held until the end of `tx`, so that no merge moves the thread and its
+ * hand-offs before this one commits. A merge holds that row as it moves them, so a read that waited on
+ * one reads again.
+ */
+async function holdThreadCustomer(tx: Transaction, threadId: string) {
+  let held: string | null = null;
+  for (;;) {
+    const [thread] = await tx
+      .select({ customerId: representativeThread.customerId })
+      .from(representativeThread)
+      .where(eq(representativeThread.id, threadId));
+    if (!thread) return null;
+    if (thread.customerId === held) return held;
+    held = thread.customerId;
+    await tx
+      .select({ id: representativeCustomer.id })
+      .from(representativeCustomer)
+      .where(eq(representativeCustomer.id, held))
+      .for("key share");
+  }
+}
+
 /** Opens an Assignment for `botId` from `liveThread`, in `tx`. An `ORPCError` says the Bot can't take it. */
 async function openHandOff(
   { job, userId, name, representativeId }: HandOffTurn,
@@ -289,19 +314,16 @@ async function openHandOff(
     instructions: `From Representative "${name}".${liveThread.verified ? "" : unverifiedHandOff}\n\n${instructions}`,
     job: handOffEndedJob,
   });
-  const [thread] = await tx
-    .select({ customerId: representativeThread.customerId })
-    .from(representativeThread)
-    .where(eq(representativeThread.id, liveThread.threadId));
   await tx.insert(representativeHandOff).values({
     assignmentId: created.id,
     representativeId,
     threadId: liveThread.threadId,
-    customerId: thread?.customerId ?? null,
+    customerId: await holdThreadCustomer(tx, liveThread.threadId),
     channel: liveThread.heard.channel,
     externalId: liveThread.heard.externalId,
     verified: liveThread.verified,
   });
+  await recordMovedHandOff(tx, liveThread.threadId, created.id);
   return { ...created, botId };
 }
 

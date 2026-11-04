@@ -4,11 +4,11 @@ import type { FeatureContext } from "@botsdk/bot/feature";
 import { untrustedBlock } from "@botsdk/bot/bot/routines";
 import type { Transaction } from "@botsdk/bot/plugin";
 import type { ProfileStatus } from "../shared/contract";
+import { combinedProfilesOf } from "./customer-profile";
 import {
   representativeCustomerIdentity,
   representativeCustomerSummary,
   representativeProfileField,
-  representativeProfileValue,
   representativeThread,
   representativeThreadMessage,
 } from "./db/schema";
@@ -32,27 +32,22 @@ export const noMemory: CustomerMemory = { profile: [], summaries: [] };
 type Db = FeatureContext["db"] | Transaction;
 
 /**
- * `customerId`'s profile and newest summaries, read for `userId`. A summary of a thread holding words
- * from an address that isn't one of the Customer's now is left out: a merge that stood when the thread
- * closed, or stands no longer, can put another person's words in it.
+ * `customerId`'s profile and newest summaries, read for `userId`. The profile takes in everyone merged
+ * into them. A summary of a thread holding words from an address that isn't one of the Customer's now
+ * is left out: a merge that stood when the thread closed, or stands no longer, can put another person's
+ * words in it. A merge that stands has moved the identities here, so its own threads all count.
  */
 export async function readCustomerMemory(
   db: Db,
   userId: string,
   customerId: string,
 ): Promise<CustomerMemory> {
-  const value = representativeProfileValue;
-  const profile = await db
-    .select({
-      fixedField: value.fixedField,
-      fieldName: representativeProfileField.name,
-      value: value.value,
-      status: value.status,
-    })
-    .from(value)
-    .leftJoin(representativeProfileField, eq(representativeProfileField.id, value.fieldId))
-    .where(and(eq(value.userId, userId), eq(value.customerId, customerId)))
-    .orderBy(value.recordedAt, value.id);
+  const combined = await combinedProfilesOf(db, userId, [customerId]);
+  const fields = await db
+    .select({ id: representativeProfileField.id, name: representativeProfileField.name })
+    .from(representativeProfileField)
+    .where(eq(representativeProfileField.userId, userId));
+  const nameOf = (field: string) => fields.find((each) => each.id === field)?.name ?? field;
   const summary = representativeCustomerSummary;
   const message = representativeThreadMessage;
   const identity = representativeCustomerIdentity;
@@ -71,8 +66,8 @@ export async function readCustomerMemory(
     .orderBy(desc(summary.createdAt), desc(summary.id))
     .limit(memorySummaries);
   return {
-    profile: profile.map((row) => ({
-      label: (row.fixedField ?? row.fieldName)!.replaceAll("_", " "),
+    profile: combined.get(customerId)!.map((row) => ({
+      label: nameOf(row.field).replaceAll("_", " "),
       value: row.value,
       status: row.status,
     })),
