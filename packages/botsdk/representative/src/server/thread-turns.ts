@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, gte, inArray, min, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, isNotNull, min, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { batchLongestMs, batchQuietMs } from "@botsdk/bot/bot/triggers";
@@ -9,6 +9,7 @@ import { job } from "@botsdk/bot/storage";
 import { maxThreadMessageLength, noNul } from "../shared/contract";
 import { receiveMessage, threadPromptChars, threadPromptLimit } from "./customers";
 import {
+  representative,
   representativeCustomer,
   representativeThread,
   representativeThreadMessage,
@@ -288,4 +289,60 @@ export async function endTurn(
     .update(representativeThread)
     .set({ turnId: null })
     .where(eq(representativeThread.id, threadId));
+}
+
+/** The owner of the thread, or null once it has gone. */
+export async function threadOwner(tx: Transaction, threadId: string) {
+  const [row] = await tx
+    .select({ userId: representative.userId })
+    .from(representativeThread)
+    .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
+    .where(eq(representativeThread.id, threadId));
+  return row?.userId ?? null;
+}
+
+/**
+ * Lets Turn `turnId` go without running, because its owner is Banned (ticket #1299): the thread holds
+ * no Turn, and what waited on it stays marked as waiting, for the next Customer message after the
+ * Ban. Nothing starts a Turn meanwhile, which `endTurn` would.
+ */
+export async function dropBannedTurn(tx: Transaction, threadId: string, turnId: string) {
+  await tx
+    .update(representativeThread)
+    .set({ turnId: null })
+    .where(and(eq(representativeThread.id, threadId), eq(representativeThread.turnId, turnId)));
+}
+
+/**
+ * A Ban on `userId`: every Turn on their threads is cancelled, a running one too, and the threads
+ * hold none. What a begun Turn hadn't answered goes back to waiting, as when the owner takes a
+ * thread over.
+ */
+export async function stopUserTurns(
+  { db, clock, jobs }: Pick<Services, "db" | "clock" | "jobs">,
+  userId: string,
+) {
+  await db.transaction(async (tx) => {
+    const thread = representativeThread;
+    const held = await tx
+      .select({
+        id: thread.id,
+        turnId: thread.turnId,
+        turnFrom: thread.turnFrom,
+        waitingFrom: thread.waitingFrom,
+      })
+      .from(thread)
+      .innerJoin(representative, eq(representative.id, thread.representativeId))
+      .where(and(eq(representative.userId, userId), isNotNull(thread.turnId)))
+      .for("update", { of: thread });
+    const now = clock();
+    for (const { id, turnId, turnFrom, waitingFrom } of held) {
+      await jobs.cancelIn(tx, turnId!);
+      const waiting = turnFrom === null ? waitingFrom : Math.min(waitingFrom ?? turnFrom, turnFrom);
+      await tx
+        .update(thread)
+        .set({ turnId: null, waitingFrom: waiting, waitingSince: waiting === null ? null : now })
+        .where(eq(thread.id, id));
+    }
+  });
 }
