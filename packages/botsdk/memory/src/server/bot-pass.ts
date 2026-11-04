@@ -114,7 +114,7 @@ export const botMemoryPassJob = defineJob<PassPayload, PassContext>({
  * - `all`: as before.
  */
 async function passScope(
-  db: Database,
+  db: Database | Transaction,
   turn: { id: string; botId: string; startedAt: Date },
 ): Promise<"skip" | "user" | "all"> {
   const triggers = await db
@@ -124,9 +124,7 @@ async function passScope(
   const untrusted = triggers.filter((each) => each.channel === untrustedAssignmentChannel);
   if (untrusted.length > 0) return untrusted.length === triggers.length ? "skip" : "user";
   const sources = new Set(triggers.map((each) => each.source));
-  const followsOn =
-    (sources.has("check_in") || sources.has("helper") || sources.has("approval")) &&
-    !sources.has("user");
+  const followsOn = sources.has("check_in") || sources.has("helper") || sources.has("approval");
   if (!followsOn) return "all";
   const [held] = await db
     .select({ id: botAssignment.id })
@@ -140,7 +138,8 @@ async function passScope(
       ),
     )
     .limit(1);
-  return held ? "skip" : "all";
+  if (!held) return "all";
+  return sources.has("user") ? "user" : "skip";
 }
 
 /**
