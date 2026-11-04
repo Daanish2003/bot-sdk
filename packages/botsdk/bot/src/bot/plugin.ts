@@ -12,6 +12,7 @@ import {
 } from "./routines";
 import {
   deliveryJob,
+  pageDeliveryJob,
   deleteUserUploads,
   sentFileResponse,
   screenshotsConversationDelete,
@@ -43,6 +44,7 @@ import { conversationsApi } from "./conversations-api";
 import { roomsApi } from "./rooms-api";
 import { screensApi } from "./screens-api";
 import { notificationsApi } from "./notifications-api";
+import { exportPages, pagesApi } from "./pages-api";
 import { rulesApi } from "./rules-api";
 import { triggersApi } from "./triggers-api";
 import { secretsApi } from "./secrets-api";
@@ -62,6 +64,7 @@ export const botJobs = [
   botHelperJob,
   helperStoppedJob,
   deliveryJob,
+  pageDeliveryJob,
   approvalExpiryJob,
   assignmentRedactionJob,
 ];
@@ -139,6 +142,7 @@ export function bot({ reviewModel, neverAllowed = [] }: BotOptions = {}): BotPlu
       sdk.reviews = reviewsApi(sdk);
       sdk.rules = rulesApi(sdk);
       sdk.notifications = notificationsApi(sdk);
+      sdk.pages = pagesApi(sdk);
     },
     // Repairs a Routine whose chain of fires broke, now and then hourly (#578).
     start: startRoutineReconcile,
@@ -194,6 +198,7 @@ export function bot({ reviewModel, neverAllowed = [] }: BotOptions = {}): BotPlu
     exportUser: async (_sdk, userId, tx) => ({
       ...(await exportBots(tx, userId)),
       assignments: await exportAssignments(tx, userId),
+      pages: await exportPages(tx, userId),
     }),
     // The user's Secrets are encrypted under the keyring too (ADR 0010).
     rotateKeys: rotateSecretKeys,

@@ -689,6 +689,26 @@ ALTER TYPE "botsdk"."usage_kind" ADD VALUE 'customer_memory';
 insert into botsdk.__migrations (feature, migration) values ('core', '20261104053029_customer_memory_usage');
 commit;
 
+-- core/20261104135900_pages
+begin;
+CREATE TYPE "botsdk"."page_urgency" AS ENUM('routine', 'emergency');--> statement-breakpoint
+CREATE TABLE "botsdk"."page" (
+	"id" uuid PRIMARY KEY,
+	"user_id" text NOT NULL,
+	"cause" text NOT NULL,
+	"urgency" "botsdk"."page_urgency" NOT NULL,
+	"title" text NOT NULL,
+	"text" text NOT NULL,
+	"path" text NOT NULL,
+	"created_at" timestamp NOT NULL,
+	"acknowledged_at" timestamp
+);
+--> statement-breakpoint
+CREATE INDEX "page_user_id_created_at_idx" ON "botsdk"."page" ("user_id","created_at");
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261104135900_pages');
+commit;
+
 -- notes/0001_note
 begin;
 create table botsdk.test_note (id text primary key, bot_id uuid references botsdk.bot(id) on delete cascade)

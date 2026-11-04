@@ -147,6 +147,7 @@ const coreTables = [
   "model_settings",
   "notification_settings",
   "push_subscription",
+  "page",
   "secret",
   "usage",
   "user_credentials",
@@ -189,6 +190,7 @@ describe("chat.migrate()", () => {
       "message_role",
       "message_status",
       "notification_route",
+      "page_urgency",
       "usage_kind",
     ]);
 
@@ -216,6 +218,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261102174501_demonic_marrow" },
       { feature: "core", migration: "20261102190646_curly_steve_rogers" },
       { feature: "core", migration: "20261104053029_customer_memory_usage" },
+      { feature: "core", migration: "20261104135900_pages" },
     ]);
     // Images and PDFs are already compressed, so the bytes are kept out of line uncompressed.
     expect(
@@ -274,6 +277,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261102174501_demonic_marrow" },
       { feature: "core", migration: "20261102190646_curly_steve_rogers" },
       { feature: "core", migration: "20261104053029_customer_memory_usage" },
+      { feature: "core", migration: "20261104135900_pages" },
     ]);
     expect(
       await rows(url, "update botsdk.bot_review set state = 'pending' returning state, expires_at"),
@@ -478,6 +482,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261102174501_demonic_marrow" },
       { feature: "core", migration: "20261102190646_curly_steve_rogers" },
       { feature: "core", migration: "20261104053029_customer_memory_usage" },
+      { feature: "core", migration: "20261104135900_pages" },
       { feature: "notes", migration: "0001_note" },
       { feature: "mcp", migration: "20261026182927_mcp_baseline" },
     ]);
@@ -517,6 +522,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261102174501_demonic_marrow" },
       { feature: "core", migration: "20261102190646_curly_steve_rogers" },
       { feature: "core", migration: "20261104053029_customer_memory_usage" },
+      { feature: "core", migration: "20261104135900_pages" },
       { feature: "notes", migration: "0001_note" },
       { feature: "notes", migration: "0002_note_text" },
     ]);
@@ -660,6 +666,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261102174501_demonic_marrow" },
       { feature: "core", migration: "20261102190646_curly_steve_rogers" },
       { feature: "core", migration: "20261104053029_customer_memory_usage" },
+      { feature: "core", migration: "20261104135900_pages" },
       { feature: "notes", migration: "0001_note" },
     ]);
   });

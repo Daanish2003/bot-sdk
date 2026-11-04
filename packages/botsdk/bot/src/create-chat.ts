@@ -47,6 +47,7 @@ import type { HelpersApi } from "./bot/helpers-api";
 import type { ReviewsApi } from "./bot/reviews-api";
 import type { RulesApi } from "./bot/rules-api";
 import type { NotificationsApi } from "./bot/notifications-api";
+import { type PagesApi, pagesService } from "./bot/pages-api";
 import { channel, createChannels, noChannels } from "./bot/channels";
 import { hintChanged } from "./bot/conversation";
 import type { ChannelAdapter, ChannelApi } from "./channel/internal";
@@ -219,6 +220,8 @@ export type BotSdk = {
   rules: RulesApi;
   /** The core's notification settings (spec #1024): Quiet hours and where Messages go. */
   notifications: NotificationsApi;
+  /** The core's Pages (ticket #1300): the user's unacknowledged alerts, and acknowledging them. */
+  pages: PagesApi;
   /** The core's Channels (spec #871): the inbound handler of each adapter in the channels slot. */
   channels: ChannelApi;
   /**
@@ -301,6 +304,7 @@ export type GivenContext = Partial<
     | "reviews"
     | "rules"
     | "notifications"
+    | "pages"
     | "channels"
   > & {
     /** A runner built by the test seam, in place of one over the runner slot's Executor. */
@@ -368,6 +372,7 @@ export function buildBotSdk(
     "representativeLoop",
     "releaseApprovals",
     "factApprovals",
+    "pages",
     ...(options.computer ? ["computer"] : []),
   ]);
   const ids = new Set<string>();
@@ -413,6 +418,7 @@ export function buildBotSdk(
   const representativeLoop = representativeLoopService(sdk);
   const releaseApprovals = releaseApprovalsService(sdk);
   const factApprovals = factApprovalsService(sdk);
+  const pages = pagesService(sdk);
   const enabled = features.map((feature) =>
     enableFeature(
       sdk,
@@ -422,6 +428,7 @@ export function buildBotSdk(
       representativeLoop,
       releaseApprovals,
       factApprovals,
+      pages,
     ),
   );
   const plugins = [...core, ...enabled.map(featurePlugin)];
@@ -457,6 +464,7 @@ export function buildBotSdk(
     reviews: sdk.reviews,
     rules: sdk.rules,
     notifications: sdk.notifications,
+    pages: sdk.pages,
     channels: sdk.channels,
     migrate: () => migrateSchema(options.database, featureMigrations(features)),
     start: async () => {
@@ -629,6 +637,7 @@ function buildContext(
       subscribe: true,
       unsubscribe: true,
     }),
+    pages: botsStub<PagesApi>({ list: true, acknowledge: true }),
   };
 }
 

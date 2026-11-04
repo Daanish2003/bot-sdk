@@ -11,6 +11,7 @@ export {
 } from "./email";
 export {
   emailBody,
+  pageEmailBody,
   type FileBytes,
   fitsInOneEmail,
   headerText,
@@ -18,7 +19,7 @@ export {
   namedAddress,
   replySubject,
 } from "./email-out";
-export { approveOption, denyOption, messagingBody, otherOption } from "./messaging-out";
+export { appLink, approveOption, denyOption, messagingBody, otherOption } from "./messaging-out";
 export {
   CredentialsRejectedError,
   isMessagingAdapter,
@@ -43,6 +44,8 @@ export {
   type LinkedIdentitiesApi,
   deliveryPayload,
   type DeliveryPayload,
+  type PageDelivery,
+  pageDeliveryPayload,
 } from "./plugin";
 export {
   type PushNotification,

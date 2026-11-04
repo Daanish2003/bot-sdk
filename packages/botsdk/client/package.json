@@ -22,6 +22,7 @@
     "./bot/linked-identity": "./src/bot/linked-identity.ts",
     "./bot/mentions": "./src/bot/mentions.ts",
     "./bot/notifications": "./src/bot/notifications.ts",
+    "./bot/pages": "./src/bot/pages.ts",
     "./bot/reaction": "./src/bot/reaction.ts",
     "./bot/review": "./src/bot/review.ts",
     "./bot/rich-control": "./src/bot/rich-control.ts",

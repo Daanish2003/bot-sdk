@@ -1,0 +1,134 @@
+import { type PageRow, pageIdInput, type PageUrgency } from "@botsdk/client/bot/pages";
+import { oneLine } from "@botsdk/client/message-format";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+
+import { uuidv7 } from "../lib/uuidv7";
+import type { BotSdkContext, Transaction } from "../plugin";
+import { parseInput, rpcError, type WithUser } from "../rpc-error";
+import { page } from "../storage";
+
+/*
+ * Pages (ticket #1300, ADR 0029's amendment): a direct alert to the owner outside the app. A feature
+ * raises one through the `pages` core service, and the owner reads and acknowledges it through the
+ * `pages` namespace. Raising one needs no Conversation, makes no model call and never looks at the
+ * Quota, so it still goes out when the Quota is what went wrong.
+ */
+
+/** What a feature's `needs: ["pages"]` gives it. */
+export type PagesService = {
+  /**
+   * Raises a Page for `userId`, in the caller's transaction, so it goes out only if that commits.
+   * It goes at once to web push and the user's Linked identities, then to email after 10 minutes if
+   * it is still not acknowledged.
+   */
+  send: (
+    tx: Transaction,
+    input: {
+      userId: string;
+      /** What raised it, such as `assignment_overdue`, kept on the Page. */
+      cause: string;
+      urgency: PageUrgency;
+      /** A push's title and an email's subject: its first line, cut to 120 characters. */
+      title: string;
+      /** Markdown, as a Bot Message's text is, cut to 2,000 characters. */
+      text: string;
+      /** Where in the Host app it leads, from the root: anything else throws. */
+      path: string;
+    },
+  ) => Promise<{ id: string }>;
+};
+
+/**
+ * The longest a Page's title and text are. Cut rather than refused, so a long name can't stop an
+ * alert. Short enough for a push's small payload, and for one message on a messaging Channel: a Page
+ * is never split, so a failed send never leaves part of one out for the retry to repeat.
+ */
+const maxTitleLength = 120;
+const maxTextLength = 2000;
+
+const cut = (text: string, length: number) =>
+  text.length > length ? `${text.slice(0, length - 1)}…` : text;
+
+/** The `pages` service. */
+export function pagesService(deps: BotSdkContext): PagesService {
+  return {
+    send: async (tx, { userId, title, text, path, ...input }) => {
+      // Channels put it straight after the app's URL, where anything else could change the host.
+      if (!path.startsWith("/")) throw new Error(`A Page's path must be from the app's root`);
+      const id = uuidv7();
+      await tx.insert(page).values({
+        id,
+        userId,
+        ...input,
+        title: cut(oneLine(title), maxTitleLength),
+        text: cut(text, maxTextLength),
+        path,
+        createdAt: deps.clock(),
+      });
+      await deps.channels.pageIn(tx, { id, userId });
+      return { id };
+    },
+  };
+}
+
+/** The most Pages the list shows. */
+const maxListed = 50;
+
+/** The `pages` namespace over the core context. */
+export function pagesApi(sdk: BotSdkContext) {
+  return {
+    /** The user's Pages they haven't acknowledged, newest first. */
+    list: async ({ userId }: { userId: string }): Promise<PageRow[]> =>
+      sdk.db
+        .select({
+          id: page.id,
+          cause: page.cause,
+          urgency: page.urgency,
+          title: page.title,
+          text: page.text,
+          path: page.path,
+          createdAt: page.createdAt,
+        })
+        .from(page)
+        .where(and(eq(page.userId, userId), isNull(page.acknowledgedAt)))
+        .orderBy(desc(page.createdAt), desc(page.id))
+        .limit(maxListed),
+
+    /**
+     * Acknowledges the user's Page, which stops whatever it hasn't sent yet. Repeating it changes
+     * nothing; another user's Page is NOT_FOUND.
+     */
+    acknowledge: async ({ userId, ...rest }: WithUser<typeof pageIdInput>): Promise<void> => {
+      const { id } = parseInput(pageIdInput, rest);
+      const [row] = await sdk.db
+        .update(page)
+        .set({
+          acknowledgedAt: sql`coalesce(${page.acknowledgedAt}, ${sql.param(sdk.clock(), page.acknowledgedAt)})`,
+        })
+        .where(and(eq(page.id, id), eq(page.userId, userId)))
+        .returning({ id: page.id });
+      if (!row) throw rpcError("NOT_FOUND", "error.pageNotFound", "Page not found");
+    },
+  };
+}
+
+/** The `pages` namespace's domain methods. */
+export type PagesApi = ReturnType<typeof pagesApi>;
+
+/** The user's Pages in their export, oldest first, acknowledged or not. */
+export async function exportPages(tx: Transaction, userId: string) {
+  return tx
+    .select({
+      id: page.id,
+      cause: page.cause,
+      urgency: page.urgency,
+      title: page.title,
+      text: page.text,
+      path: page.path,
+      createdAt: page.createdAt,
+      acknowledgedAt: page.acknowledgedAt,
+    })
+    .from(page)
+    .where(eq(page.userId, userId))
+    .orderBy(asc(page.createdAt), asc(page.id));
+}
