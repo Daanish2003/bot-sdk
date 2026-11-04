@@ -22,7 +22,6 @@ export const representativeTools = [
   "hand_to_bot",
   "verify_customer",
   "read_customer_work",
-  "flag_opt_out",
 ] as const;
 export type RepresentativeTool = (typeof representativeTools)[number];
 

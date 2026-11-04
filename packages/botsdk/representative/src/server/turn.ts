@@ -406,6 +406,12 @@ async function handOffAtEnd(turn: HandOffTurn) {
   return handedOff;
 }
 
+/**
+ * The tool every customer-facing Turn has, whatever its Release lists: a Customer asking not to be
+ * contacted is heard on every Release, so it is on no draft's list and no Release can leave it out.
+ */
+const alwaysOnTool = "flag_opt_out";
+
 /** The code-defined tools, by the name a Release lists them under. None takes a Customer's id. */
 export function turnTools(turn: Turn) {
   const {
@@ -628,8 +634,8 @@ export function turnTools(turn: Turn) {
       }
       return answer;
     }),
-    flag_opt_out: toolDefinition({
-      name: "flag_opt_out",
+    [alwaysOnTool]: toolDefinition({
+      name: alwaysOnTool,
       description:
         'Opt the Customer out of hearing from the business, when they have asked not to be contacted in words a keyword wouldn\'t catch, such as "please stop texting me". Takes nothing: code knows who the Customer is. It takes effect at once: nothing more is sent to them, and they get one fixed confirmation. Send no reply after it.',
       inputSchema: z.object({}),
@@ -667,7 +673,7 @@ export function turnTools(turn: Turn) {
         };
       });
     }),
-  } satisfies Record<RepresentativeTool, AnyServerTool>;
+  } satisfies Record<RepresentativeTool | typeof alwaysOnTool, AnyServerTool>;
 }
 
 const documentLabel = (name: string) =>
@@ -853,19 +859,20 @@ export async function playLoop(
     setup: async (kit) => {
       const tools: Record<string, AnyServerTool> = turnTools({ ...turn, kit, documents, memory });
       // By name, so a name off the code-defined list gives nothing.
-      const listed = content.tools.flatMap((tool): AnyServerTool[] =>
-        Object.hasOwn(tools, tool)
-          ? [
-              {
-                ...tools[tool]!,
-                // A call the same Step made after the hand-off that ended the Turn.
-                execute: async (args: unknown, context?: unknown) =>
-                  isOver(progress)
-                    ? { error: turnOverRefusal }
-                    : tools[tool]!.execute!(args, context as never),
-              },
-            ]
-          : [],
+      const listed = [...new Set<string>([...content.tools, alwaysOnTool])].flatMap(
+        (tool): AnyServerTool[] =>
+          Object.hasOwn(tools, tool)
+            ? [
+                {
+                  ...tools[tool]!,
+                  // A call the same Step made after the hand-off that ended the Turn.
+                  execute: async (args: unknown, context?: unknown) =>
+                    isOver(progress)
+                      ? { error: turnOverRefusal }
+                      : tools[tool]!.execute!(args, context as never),
+                },
+              ]
+            : [],
       );
       const systemPrompts = systemPromptsOf(content, documents);
       if (!test) return { systemPrompts, ended: () => isOver(progress), tools: listed };

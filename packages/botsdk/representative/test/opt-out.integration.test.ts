@@ -271,17 +271,17 @@ describe("START and the owner's clearing", () => {
 });
 
 describe("a Representative's flag", () => {
-  it("takes effect at once, for the rest of the Turn, with one confirmation", async () => {
-    const world = await instance(
-      [
-        round(toolCall({ name: "flag_opt_out", input: {}, id: "flag" })),
-        replies("Sorry to see you go."),
-        quiet(),
-      ],
-      ["reply", "flag_opt_out"],
-    );
+  it("is offered on a Release that lists only reply, and takes effect at once, with one confirmation", async () => {
+    const world = await instance([
+      round(toolCall({ name: "flag_opt_out", input: {}, id: "flag" })),
+      replies("Sorry to see you go."),
+      quiet(),
+    ]);
 
     await world.hears("Please stop texting me");
+
+    const offered = (world.entered[0] as { tools?: { name: string }[] }).tools?.map((t) => t.name);
+    expect(offered).toContain("flag_opt_out");
 
     expect(await identity(world)).toMatchObject({ optedOut: { source: "representative" } });
     await expect.poll(world.got, poll).toEqual([confirmation]);
