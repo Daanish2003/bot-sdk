@@ -164,13 +164,15 @@ async function serving(
       for (let tries = 0; tries < 40; tries += 1) if (!(await runNext())) return;
       throw new Error("The jobs never ran out");
     },
-    send: async (message: string) =>
-      receiveCustomerMessage(feature.context, {
+    send: async (message: string) => {
+      await promoteAutoTopic(id);
+      return receiveCustomerMessage(feature.context, {
         representativeId: id,
         channel: fakeChannel,
         externalId: number,
         message,
-      }),
+      });
+    },
   };
 }
 

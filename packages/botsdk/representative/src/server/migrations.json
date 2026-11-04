@@ -102,5 +102,9 @@
   {
     "name": "20261104191319_quiet_hours",
     "sql": "ALTER TABLE \"botsdk\".\"representative\" ADD COLUMN \"quiet_start_hour\" integer DEFAULT 21 NOT NULL;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative\" ADD COLUMN \"quiet_end_hour\" integer DEFAULT 8 NOT NULL;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative\" ADD COLUMN \"business_time_zone\" text DEFAULT 'UTC' NOT NULL;"
+  },
+  {
+    "name": "20261104193039_representative_opt_out",
+    "sql": "ALTER TABLE \"botsdk\".\"representative_customer_identity\" ADD COLUMN \"opted_out_at\" timestamp;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_customer_identity\" ADD COLUMN \"opt_out_source\" text;"
   }
 ]

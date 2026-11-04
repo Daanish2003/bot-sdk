@@ -278,6 +278,12 @@ export const representativeMessages = {
   "representative.customers.deleted": ({ name }: { name: string }) => `Deleted ${name}`,
   "representative.customers.verified": "Verified",
   "representative.customers.unverified": "Not verified",
+  "representative.customers.optedOut": ({ source, date }: { source: string; date: string }) =>
+    `Opted out (${source}) on ${date}. Nothing is sent to this identity.`,
+  "representative.customers.optOutKeyword": "their keyword",
+  "representative.customers.optOutRepresentative": "a Representative's flag",
+  "representative.customers.clearOptOut": "Clear opt-out",
+  "representative.customers.optOutCleared": "Opt-out cleared",
   "representative.customers.blockedBadge": "Blocked",
   "representative.customers.blockedHelp":
     "A blocked Customer's message is kept for you. It runs no model, gets no reply and opens no Assignment.",

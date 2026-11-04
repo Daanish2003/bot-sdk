@@ -211,6 +211,13 @@ export function useSetCustomerBlocked(
   return useMutation(useRepresentative().customerSetBlocked.mutationOptions(options));
 }
 
+/** Clears an identity's opt-out (`representative.customerClearOptOut`). */
+export function useClearOptOut(
+  options?: ProcedureMutationOptions<Representative["customerClearOptOut"]>,
+) {
+  return useMutation(useRepresentative().customerClearOptOut.mutationOptions(options));
+}
+
 /** Merges one Customer into another (`representative.customerMerge`). */
 export function useMergeCustomer(
   options?: ProcedureMutationOptions<Representative["customerMerge"]>,

@@ -18,6 +18,7 @@ import { storeReply } from "../src/server/customers";
 import {
   representative,
   representativeCustomer,
+  representativeCustomerIdentity,
   representativeHeldMessage,
   representativeOutboundDecision,
   representativeProfileValue,
@@ -1043,6 +1044,40 @@ describe("quiet hours", () => {
       ]);
     expect(await held()).toEqual([]);
     expect(world.got()).toEqual([]);
+  });
+
+  it("keeps a held message from an opted-out Customer when quiet hours end", async () => {
+    const world = await instance([quiet()], undefined, night);
+    await heard(world);
+    await anotherReply(world, night, true);
+    // An opt-out that landed after the hold, as a race would leave it.
+    await getTestDb()
+      .update(representativeCustomerIdentity)
+      .set({ optedOutAt: night, optOutSource: "keyword" });
+
+    pass(world, 9 * hour);
+
+    await expect
+      .poll(() => outcomes(world), poll)
+      .toEqual([
+        ["reply", "hold", "quietHours"],
+        ["released", "drop", "optedOut"],
+      ]);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(world.got()).toEqual([]);
+  });
+
+  it("leaves nothing to release when the Customer says STOP during quiet hours", async () => {
+    const world = await instance([quiet()], undefined, night);
+    await heard(world);
+    await anotherReply(world, night, true);
+
+    await world.hears("STOP");
+    pass(world, 9 * hour);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(await held()).toEqual([]);
+    expect(world.got()).not.toContain("Still here");
   });
 
   it("holds what the caps stop when quiet hours end, and Pages once", async () => {

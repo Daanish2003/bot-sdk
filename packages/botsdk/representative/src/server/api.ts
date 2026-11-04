@@ -6,6 +6,7 @@ import {
   customerCreateInput,
   customerMergeInput,
   customerRenameInput,
+  customerClearOptOutInput,
   customerSetBlockedInput,
   factAddInput,
   factEditInput,
@@ -51,6 +52,7 @@ import {
   listThreads,
   renameCustomer,
   setProfileValue,
+  clearOptOut,
   setBlocked,
   updateIdentity,
 } from "./owner-customers";
@@ -204,6 +206,9 @@ export function representativeApi(
       const { id, blocked } = parseInput(customerSetBlockedInput, rest);
       return setBlocked(context, userId, id, blocked, context.clock());
     },
+
+    customerClearOptOut: async ({ userId, ...rest }: WithUser<typeof customerClearOptOutInput>) =>
+      clearOptOut(context, userId, parseInput(customerClearOptOutInput, rest)),
 
     customerMerge: async ({ userId, ...rest }: WithUser<typeof customerMergeInput>) =>
       mergeCustomers(context, userId, parseInput(customerMergeInput, rest)),
