@@ -404,7 +404,7 @@ export async function holdThreadCustomer(tx: Transaction, threadId: string) {
 
 /** What the Model hears of a reply the gate held: the owner has it, and sending it again changes nothing. */
 const heldNote =
-  "Your reply was held, because the Outbound gate holds it (a cap on messages to this Customer, or quiet hours), so nothing was sent now. The owner sends or drops it, or it goes when quiet hours end. Do not send it again.";
+  "Your reply was held, because the Outbound gate holds it (a cap on messages to this Customer, quiet hours, or the Channel's limits), so nothing was sent now. The owner sends or drops it, or, if quiet hours held it, it goes when they end. Do not send it again.";
 
 /**
  * Passes a reply through the Outbound gate, addressed to the sender its Turn answers, and if the gate

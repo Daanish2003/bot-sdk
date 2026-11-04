@@ -1294,6 +1294,23 @@ describe("a Channel's limits", () => {
     expect(await held()).toHaveLength(1);
   });
 
+  it("holds what the business started again by morning on a Channel that can't start a chat", async () => {
+    const night = new Date("2026-11-04T23:00:00Z");
+    const world = await instance([quiet()], undefined, night, { canStartConversation: false });
+    await heard(world);
+    await anotherReply(world, night, true);
+
+    world.timer.advance(9 * hour);
+    world.timer.tick();
+    await expect.poll(async () => (await outcomes(world)).length, poll).toBe(2);
+
+    expect(await outcomes(world)).toEqual([
+      ["hold", "quietHours"],
+      ["hold", "channel"],
+    ]);
+    expect(world.got()).toEqual([]);
+  });
+
   it("lets the owner send a held message, or drop it", async () => {
     const world = await instance([quiet()], undefined, new Date(), { maxLength: 9 });
     await heard(world);

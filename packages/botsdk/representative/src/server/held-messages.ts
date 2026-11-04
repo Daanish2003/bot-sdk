@@ -137,6 +137,8 @@ async function releaseHeld(
       now,
       pages: context.pages,
       reach: byItself ? channel?.reach?.(channelId) : undefined,
+      // Only a business-started message is held for quiet hours, so it is one still.
+      businessStarted: byItself && message.rule === "quietHours",
       // Going by itself it also passes what the owner's own send needn't: the switch, the caps and the topic's mode.
       // Held again it leaves the one held row, and Pages unless others already wait.
       ...(byItself
