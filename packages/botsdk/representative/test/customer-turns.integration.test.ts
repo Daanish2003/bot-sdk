@@ -437,8 +437,30 @@ describe("quick messages over what a Turn reads", () => {
   });
 
   it("wait for the next Turn when they would pass its messages", async () => {
-    const { fake, timer, runDue, send } = await serving([quiet(), quiet()]);
-    for (let at = 0; at <= threadPromptLimit; at++) await send(`Message ${at}.`);
+    const { fake, timer, runDue, send, threadRows } = await serving([quiet(), quiet()]);
+    await send("Message 0.");
+    // One sender can say only so much in an hour (the inbound limit), so most are written, long ago.
+    const [thread] = await threadRows();
+    await getTestDb()
+      .insert(representativeThreadMessage)
+      .values(
+        Array.from({ length: threadPromptLimit - 1 }, (_, index) => ({
+          id: uuidv7(),
+          threadId: thread!.id,
+          position: index + 2,
+          author: "customer" as const,
+          channel: "fake",
+          externalId,
+          text: `Message ${index + 1}.`,
+          verified: false,
+          createdAt: new Date(timer.clock.now().getTime() - 2 * 60 * 60_000),
+        })),
+      );
+    await getTestDb()
+      .update(representativeThread)
+      .set({ messageCount: threadPromptLimit })
+      .where(eq(representativeThread.id, thread!.id));
+    await send(`Message ${threadPromptLimit}.`);
 
     timer.advance(500);
     expect(await runDue()).toBe(true);

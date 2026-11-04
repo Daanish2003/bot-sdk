@@ -17,6 +17,7 @@ import { holdCustomers } from "./customer-merge";
 import { nameIn, profilesOf } from "./customer-profile";
 import { catchCode, customerProofLeadsTo, mayHoldCode } from "./customer-proof";
 import { saysKeyword, sendEmergencyScript, stopForScript } from "./emergency-script";
+import { overInboundLimit } from "./inbound-limit";
 import { liftOptOut, keywordIn, optOut } from "./opt-out";
 import { type GateRefusal, passGate, storeAndDeliver, type ViaChannel } from "./outbound-gate";
 import { afterDraftHeld, replaceHeld } from "./reply-drafts";
@@ -156,7 +157,8 @@ async function judgeMessage(
  * #1256), so no model or prompt ever reads it. One that says a keyword of the live Release sets off
  * its emergency script at once (ticket #1308): it gets no Turn and a running one stops, as the owner
  * has been Paged and the Customer told what to do, and it reaches them through an owner's hold, an
- * opt-out or a Representative switched off.
+ * opt-out or a Representative switched off. One over the identity's inbound limit is logged and
+ * stored nowhere (ticket #1311), unless it is a keyword or an emergency: `{ limited: true }`.
  */
 export async function receiveMessage(
   tx: Transaction,
@@ -168,7 +170,8 @@ export async function receiveMessage(
     text,
     now,
   }: {
-    services: Pick<FeatureContext<"pages">, "clock" | "jobs" | "keyring" | "pages"> & ViaChannel;
+    services: Pick<FeatureContext<"pages">, "clock" | "jobs" | "keyring" | "logger" | "pages"> &
+      ViaChannel;
     representativeId: string;
     heard: Heard;
     proof: ChannelProof | undefined;
@@ -182,6 +185,20 @@ export async function receiveMessage(
     .where(eq(representative.id, representativeId))
     .for("key share");
   if (!owner) return null;
+  // Over the inbound limit, a message is logged and kept nowhere. What opts out or back in, and what
+  // reports an emergency, is exempt, so a limit never stops a Customer doing either (ticket #1311).
+  // On what they said, not what is stored: a code in the message mustn't hide an emergency.
+  const script = await scriptSaidIn(tx, owner.releaseId, text);
+  if (
+    keywordIn(heard.channel, text) === null &&
+    script === null &&
+    (await overInboundLimit(tx, owner.userId, heard, now))
+  ) {
+    services.logger.error(
+      `Inbound limit: a message from ${heard.channel} ${heard.externalId} was not processed`,
+    );
+    return { limited: true as const };
+  }
   const { identityId, customerId: heldCustomerId } = await holdSender(
     tx,
     owner.userId,
@@ -215,8 +232,6 @@ export async function receiveMessage(
     .for("update");
   const wasOptedOut = heardIdentity?.optedOutAt != null;
   const keyword = stored === text ? keywordIn(heard.channel, text) : null;
-  // On what they said, not what is stored: a code in the message mustn't hide an emergency.
-  const script = await scriptSaidIn(tx, owner.releaseId, text);
   const kept = blocked || wasOptedOut || keyword === "stop" || script !== null;
   const [thread] = await tx
     .insert(representativeThread)
