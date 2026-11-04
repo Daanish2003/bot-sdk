@@ -75,6 +75,7 @@ export async function reachLimit(
     turnId: string;
     thread: {
       threadId: string;
+      upTo: number;
       heard: Heard;
       verified: boolean;
       releaseId: string;

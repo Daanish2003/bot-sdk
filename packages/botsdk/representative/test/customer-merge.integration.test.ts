@@ -235,7 +235,7 @@ describe("an owner merging two Customers", () => {
         round(
           toolCall({
             name: "reply",
-            input: { text: "From the closed thread", kind: "small_talk" },
+            input: { topic: "general", text: "From the closed thread", kind: "small_talk" },
           }),
         ),
         quiet(),

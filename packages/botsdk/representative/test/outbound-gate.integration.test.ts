@@ -23,6 +23,7 @@ import {
   representativeThread,
   representativeThreadMessage,
 } from "../src/server/db/schema";
+import { page } from "@botsdk/bot/storage";
 import { liveChecks, passGate } from "../src/server/outbound-gate";
 import { representativeFeature } from "../src/server/plugin";
 import { handOffMessage } from "../src/server/replies";
@@ -45,10 +46,10 @@ type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 const quiet = () => round();
 const replies = (text: string) =>
-  round(toolCall({ name: "reply", input: { text, kind: "small_talk" } }));
+  round(toolCall({ name: "reply", input: { topic: "general", text, kind: "small_talk" } }));
 /** A reply no source backs: code refuses it. */
 const guesses = (text: string) =>
-  round(toolCall({ name: "reply", input: { text, kind: "answer" } }));
+  round(toolCall({ name: "reply", input: { topic: "general", text, kind: "answer" } }));
 
 const runners: JobRunner[] = [];
 afterEach(async () => {
@@ -168,17 +169,17 @@ type Heard = { channel: string; externalId: string };
 const heard = (world: World) => world.hears("Hello");
 
 /** The Representative's reply, as the tool stores it, from a Turn still running. */
-const anotherReply = async ({ deps, threadId }: World) => {
+const anotherReply = async ({ deps, threadId }: World, now = new Date()) => {
   const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
   const id = await threadId();
   return getTestDb().transaction((tx) =>
     storeReply(
       feature.context,
       tx,
-      { threadId: id, heard: { channel: "fake", externalId: number }, verified: false },
-      { text: "Still here", sources: [] },
+      { threadId: id, upTo: 1, heard: { channel: "fake", externalId: number }, verified: false },
+      { text: "Still here", sources: [], topic: "general" },
       "small_talk",
-      new Date(),
+      now,
     ),
   );
 };
@@ -633,6 +634,195 @@ describe("the owner's export", () => {
 
     expect(exported.representative.outboundDecisions).toMatchObject([
       { kind: "reply", outcome: "send", rule: "passed" },
+    ]);
+  });
+});
+
+describe("the outbound caps", () => {
+  const pages = () => getTestDb().select().from(page);
+  const held = () => getTestDb().select().from(representativeHeldMessage);
+  const times = async (count: number, send: () => Promise<unknown>) => {
+    for (let each = 0; each < count; each += 1) await send();
+  };
+
+  it("holds the sixth message in a row and Pages the owner", async () => {
+    const world = await instance([quiet()]);
+    await heard(world);
+
+    await times(5, () => anotherReply(world));
+    const sixth = await anotherReply(world);
+
+    expect(sixth).toMatchObject({ error: expect.stringContaining("held") });
+    await expect.poll(() => world.got().length, poll).toBe(5);
+    expect((await world.decisions()).map(({ outcome, rule }) => [outcome, rule])).toEqual([
+      ...Array.from({ length: 5 }, () => ["send", "passed"]),
+      ["hold", "caps"],
+    ]);
+    expect(await held()).toMatchObject([{ text: "Still here" }]);
+    expect(await pages()).toMatchObject([
+      {
+        userId: world.user.id,
+        cause: "outbound_held",
+        urgency: "routine",
+        path: `/representatives/${world.id}`,
+      },
+    ]);
+  });
+
+  it("Pages once for the messages held on a thread while the owner has not dealt with them", async () => {
+    const world = await instance([quiet()]);
+    await heard(world);
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 1 });
+
+    await times(4, () => anotherReply(world));
+
+    expect(await held()).toHaveLength(3);
+    expect(await pages()).toHaveLength(1);
+  });
+
+  it("counts a held message the owner sent against the day", async () => {
+    const world = await instance([quiet()]);
+    await heard(world);
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 1, maxPerDay: 3 });
+    await times(2, () => anotherReply(world));
+    const [message] = (await world.rpc.representative.threadGet({ id: await world.threadId() }))
+      .held;
+    await world.rpc.representative.threadHeldSend({ id: message!.id });
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 100 });
+
+    expect(await anotherReply(world)).toEqual({ sent: true });
+    expect(await anotherReply(world)).toMatchObject({ error: expect.stringContaining("held") });
+  });
+
+  it("starts the run again when the Customer replies", async () => {
+    const world = await instance([quiet(), quiet()]);
+    await heard(world);
+    await times(5, () => anotherReply(world));
+
+    await world.hears("Are you there?");
+    await times(5, () => anotherReply(world));
+
+    expect(await held()).toEqual([]);
+    expect(await pages()).toEqual([]);
+    await anotherReply(world);
+    expect(await held()).toHaveLength(1);
+  });
+
+  it("holds the twenty-first message in a day and Pages the owner, until the day has passed", async () => {
+    const world = await instance([quiet()]);
+    await heard(world);
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 100 });
+
+    await times(20, () => anotherReply(world));
+    await anotherReply(world);
+
+    expect((await world.decisions()).at(-1)).toMatchObject({ outcome: "hold", rule: "caps" });
+    expect(await pages()).toHaveLength(1);
+    const later = new Date(Date.now() + 25 * 60 * 60 * 1000);
+    expect(await anotherReply(world, later)).toEqual({ sent: true });
+  });
+
+  it("applies the caps the owner edits, and shows them", async () => {
+    const world = await instance([quiet()]);
+    await heard(world);
+    expect((await world.rpc.representative.get({ id: world.id })).caps).toEqual({
+      maxInARow: 5,
+      maxPerDay: 20,
+    });
+
+    const edited = await world.rpc.representative.setCaps({ id: world.id, maxInARow: 2 });
+    await times(3, () => anotherReply(world));
+
+    expect(edited.caps).toEqual({ maxInARow: 2, maxPerDay: 20 });
+    expect(await held()).toHaveLength(1);
+    await expect(
+      world.rpc.representative.setCaps({ id: world.id, maxPerDay: 0 }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const stranger = chatRpc({ user: await insertUser(), deps: world.deps });
+    await expect(
+      stranger.representative.setCaps({ id: world.id, maxPerDay: 3 }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("sends a held message when the owner says so, and logs it", async () => {
+    const world = await instance([quiet()]);
+    await heard(world);
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 1 });
+    await times(2, () => anotherReply(world));
+    const id = await world.threadId();
+    const [message] = (await world.rpc.representative.threadGet({ id })).held;
+
+    const view = await world.rpc.representative.threadHeldSend({ id: message!.id });
+
+    await expect.poll(() => world.got(), poll).toEqual(["Still here", "Still here"]);
+    expect(view.held).toEqual([]);
+    expect(view.messages.filter(({ author }) => author === "representative")).toHaveLength(2);
+    expect(await held()).toEqual([]);
+    expect(
+      (await world.decisions()).map(({ kind, outcome, rule }) => [kind, outcome, rule]),
+    ).toEqual([
+      ["reply", "send", "passed"],
+      ["reply", "hold", "caps"],
+      ["released", "send", "passed"],
+    ]);
+  });
+
+  it("drops a held message when the owner says so, and logs it", async () => {
+    const world = await instance([quiet()]);
+    await heard(world);
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 1 });
+    await times(2, () => anotherReply(world));
+    const id = await world.threadId();
+    const [message] = (await world.rpc.representative.threadGet({ id })).held;
+
+    const view = await world.rpc.representative.threadHeldDrop({ id: message!.id });
+
+    expect(view.held).toEqual([]);
+    expect(await held()).toEqual([]);
+    expect(
+      (await world.decisions()).map(({ kind, outcome, rule }) => [kind, outcome, rule]),
+    ).toEqual([
+      ["reply", "send", "passed"],
+      ["reply", "hold", "caps"],
+      ["owner", "drop", "owner_dropped"],
+    ]);
+    await expect(
+      world.rpc.representative.threadHeldDrop({ id: message!.id }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect.poll(() => world.got(), poll).toEqual(["Still here"]);
+  });
+
+  it("keeps a held message the owner cannot send to a Customer blocked since, and logs why", async () => {
+    const world = await instance([quiet()]);
+    await heard(world);
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 1 });
+    await times(2, () => anotherReply(world));
+    const [line] = await world.rpc.representative.threadList({ id: world.id });
+    const [message] = (await world.rpc.representative.threadGet({ id: line!.id })).held;
+    await world.rpc.representative.customerSetBlocked({ id: line!.customer.id, blocked: true });
+
+    await expect(world.rpc.representative.threadHeldSend({ id: message!.id })).rejects.toThrow(
+      "blocked",
+    );
+
+    expect((await world.decisions()).at(-1)).toMatchObject({ outcome: "drop", rule: "blocked" });
+    expect(await held()).toHaveLength(1);
+  });
+
+  it("replaces a held message with a new Customer message, and logs that", async () => {
+    const world = await instance([quiet(), quiet()]);
+    await heard(world);
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 1 });
+    await times(2, () => anotherReply(world));
+    expect(await held()).toHaveLength(1);
+
+    await world.hears("Hello again");
+
+    expect(await held()).toEqual([]);
+    expect((await world.decisions()).map(({ outcome, rule }) => [outcome, rule])).toEqual([
+      ["send", "passed"],
+      ["hold", "caps"],
+      ["drop", "replaced"],
     ]);
   });
 });

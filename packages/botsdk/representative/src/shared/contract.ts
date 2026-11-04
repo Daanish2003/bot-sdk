@@ -178,7 +178,12 @@ export type RepresentativeSummary = {
   enabled: boolean;
   /** The number of the live Release, or null before the first approval. */
   liveReleaseNumber: number | null;
+  /** What the Outbound gate holds a Customer to, in messages (ticket #1304). */
+  caps: OutboundCaps;
 };
+
+/** The most the Outbound gate lets a Representative send one Customer: in a row with no reply, and in a rolling day. */
+export type OutboundCaps = { maxInARow: number; maxPerDay: number };
 
 /** One line of a test conversation's transcript. */
 export type TranscriptEntry = {
@@ -367,16 +372,66 @@ export type ThreadMessageView = {
   createdAt: Date;
 };
 
+/** A message the Outbound gate held (ticket #1304), which the owner sends or drops. Not in the transcript. */
+export type HeldMessageView = {
+  id: string;
+  text: string;
+  /** The rule that held it, such as `caps`. */
+  rule: string;
+  /** Where it would go. */
+  channel: string;
+  externalId: string;
+  createdAt: Date;
+};
+
 export type ThreadView = ThreadSummary & {
   representativeId: string;
   /** The Customer's identities, each with whether it is verified. */
   identities: CustomerIdentityView[];
   /** Oldest first. */
   messages: ThreadMessageView[];
+  /** What the gate has held on this thread, oldest first. */
+  held: HeldMessageView[];
 };
 
 /** The longest one thread message may be, whoever wrote it. */
 export const maxThreadMessageLength = 60_000;
+
+export const maxFactTopicLength = 100;
+
+/** One of the owner's topics: `auto` replies on it go out by themselves, and all start at `draft`. */
+export type TopicView = {
+  id: string;
+  name: string;
+  mode: "draft" | "auto";
+  createdAt: Date;
+};
+
+export const topicAddInput = z.object({
+  name: storable(z.string().trim().min(1).max(maxFactTopicLength)),
+});
+
+/** A Representative's reply waiting for the owner, which the Customer hasn't seen. */
+export type ReplyDraftView = {
+  id: string;
+  threadId: string;
+  representativeId: string;
+  customerName: string | null;
+  /** Where it goes if the owner sends it. */
+  to: { channel: string; externalId: string };
+  /** Whether the Turn it belongs to was for a verified sender. */
+  verified: boolean;
+  text: string;
+  /** The topic the Representative labelled it with, which may not be one of the owner's; null with none. */
+  topic: string | null;
+  reply: ReplyProof;
+  createdAt: Date;
+};
+
+export const replyDraftEditInput = z.object({
+  id: z.uuid(),
+  text: storable(z.string().trim().min(1).max(maxThreadMessageLength)),
+});
 
 export const threadSendInput = z.object({
   id: z.uuid(),
@@ -468,7 +523,6 @@ export type FactProposalView = {
   expiresAt: Date;
 };
 
-export const maxFactTopicLength = 100;
 const factFields = {
   type: z.enum(factTypes),
   topic: storable(z.string().trim().min(1).max(maxFactTopicLength)),
@@ -551,6 +605,13 @@ export const documentPickInput = z.object({
   path: storable(z.string().min(1).max(1_000)),
 });
 export const documentRemoveInput = z.object({ id: z.uuid(), documentId: z.uuid() });
+export const maxOutboundCap = 1_000;
+const capField = z.number().int().min(1).max(maxOutboundCap);
+export const setCapsInput = z
+  .object({ id: z.uuid(), maxInARow: capField.optional(), maxPerDay: capField.optional() })
+  .refine(({ maxInARow, maxPerDay }) => maxInARow !== undefined || maxPerDay !== undefined, {
+    message: "Give at least one cap",
+  });
 export const setEnabledInput = z.object({ id: z.uuid(), enabled: z.boolean() });
 export const setBotInput = z.object({ id: z.uuid(), botId: z.uuid() });
 
@@ -596,6 +657,8 @@ export const representativeContract = {
   rollback: oc.input(rollbackInput).output(type<RepresentativeView>()),
   /** Switches the Representative on or off, with no new Release. */
   setEnabled: oc.input(setEnabledInput).output(type<RepresentativeView>()),
+  /** Edits the caps on what the Outbound gate sends a Customer; a cap left out stays. No new Release. */
+  setCaps: oc.input(setCapsInput).output(type<RepresentativeView>()),
   /** Chooses which of the owner's Bots it reports to; its open Assignments move to that Bot. */
   setBot: oc.input(setBotInput).output(type<RepresentativeView>()),
   /** The owner's Customers, oldest first. */
@@ -670,6 +733,24 @@ export const representativeContract = {
   threadHandBack: oc.input(idInput).output(type<ThreadView>()),
   /** The owner's own message to the Customer, on a thread they hold. */
   threadSend: oc.input(threadSendInput).output(type<ThreadView>()),
+  /** The owner's topics, oldest first. They are shared by every Representative. */
+  topicList: oc.output(type<TopicView[]>()),
+  /** Adds a topic, at `draft`. Refused when the owner has that name already, ignoring case. */
+  topicAdd: oc.input(topicAddInput).output(type<TopicView>()),
+  /** Removes a topic: a reply labelled with it waits for the owner, as for any unknown topic. */
+  topicRemove: oc.input(idInput).output(type<void>()),
+  /** The Representatives' replies waiting for the owner, on threads they don't hold, oldest first. */
+  replyDraftList: oc.output(type<ReplyDraftView[]>()),
+  /** Sends a Reply draft through the Outbound gate. Refused, and still waiting, when the gate drops it. */
+  replyDraftApprove: oc.input(idInput).output(type<void>()),
+  /** Sends the owner's edit of a Reply draft through the Outbound gate, recording that it was edited. */
+  replyDraftEdit: oc.input(replyDraftEditInput).output(type<void>()),
+  /** Rejects a Reply draft: nothing is sent. */
+  replyDraftReject: oc.input(idInput).output(type<void>()),
+  /** Sends a message the gate held, as the owner's own, if the gate still passes it. Logged. */
+  threadHeldSend: oc.input(idInput).output(type<ThreadView>()),
+  /** Drops a message the gate held, which the Customer never gets. Logged. */
+  threadHeldDrop: oc.input(idInput).output(type<ThreadView>()),
 };
 
 export type RepresentativeContract = typeof representativeContract;

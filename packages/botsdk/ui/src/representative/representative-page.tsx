@@ -18,12 +18,14 @@ import {
   useRollbackRelease,
   useRunTests,
   useSetRepresentativeBot,
+  useSetRepresentativeCaps,
   useSetRepresentativeEnabled,
   useUpdateDraft,
 } from "@botsdk/representative/react";
 import {
   canonicalJson,
   type Draft,
+  maxOutboundCap,
   type RepresentativeTool,
   type RepresentativeView,
   representativeTools,
@@ -32,6 +34,7 @@ import {
 import { ModelPicker } from "../models/shell/model-picker";
 import { LimitWarning } from "./limit-warning";
 import { DraftDocuments, documentsOverCap, useDocumentChanges } from "./representative-documents";
+import { ReplyDrafts } from "./reply-drafts";
 import { RepresentativeThreads } from "./representative-threads";
 import { TestConversationsEditor, TestResults } from "./representative-tests";
 
@@ -301,6 +304,70 @@ function BotChooser({ representative }: { representative: RepresentativeView }) 
   );
 }
 
+/** The caps on what the Outbound gate sends one Customer, which the owner edits outside any Release. */
+function CapsForm({ representative }: { representative: RepresentativeView }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const { maxInARow, maxPerDay } = representative.caps;
+  const setCaps = useSetRepresentativeCaps({
+    onSuccess: async () => {
+      await refresh();
+      toast.success(t("representative.capsSaved"));
+    },
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  return (
+    <form
+      data-representative-caps=""
+      className="space-y-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        setCaps.mutate({
+          id: representative.id,
+          maxInARow: Number(form.get("maxInARow")),
+          maxPerDay: Number(form.get("maxPerDay")),
+        });
+      }}
+    >
+      <h2 className="text-sm font-medium">{t("representative.caps")}</h2>
+      <p className="text-xs text-muted-foreground">{t("representative.capsHelp")}</p>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <Label htmlFor="representative-max-in-a-row">{t("representative.maxInARow")}</Label>
+          <Input
+            id="representative-max-in-a-row"
+            name="maxInARow"
+            type="number"
+            min={1}
+            max={maxOutboundCap}
+            defaultValue={maxInARow}
+            required
+            className="w-28"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="representative-max-per-day">{t("representative.maxPerDay")}</Label>
+          <Input
+            id="representative-max-per-day"
+            name="maxPerDay"
+            type="number"
+            min={1}
+            max={maxOutboundCap}
+            defaultValue={maxPerDay}
+            required
+            className="w-28"
+          />
+        </div>
+        <Button type="submit" variant="outline" size="sm" disabled={setCaps.isPending}>
+          {t("representative.saveCaps")}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 /** A Bot's draft waiting for the owner: the Approve button above says yes, this says no. */
 function WaitingApproval({ representative }: { representative: RepresentativeView }) {
   const i18n = useI18n();
@@ -391,6 +458,7 @@ export function RepresentativePage({ id }: { id: string }) {
         />
         <Label htmlFor="representative-enabled">{t("representative.switch")}</Label>
       </div>
+      <CapsForm representative={representative} />
       <WaitingApproval representative={representative} />
       {/* Keyed by the draft's fields, so a draft changed elsewhere reloads the form. A document uploaded leaves the form's edits alone. */}
       <DraftEditor
@@ -398,6 +466,7 @@ export function RepresentativePage({ id }: { id: string }) {
         representative={representative}
       />
       <DraftDiff id={id} />
+      <ReplyDrafts id={id} />
       <RepresentativeThreads id={id} />
       <section className="space-y-2">
         <h2 className="text-sm font-medium">{t("representative.releases")}</h2>

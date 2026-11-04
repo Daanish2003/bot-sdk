@@ -194,6 +194,14 @@ _Avoid_: Queued message, pending message
 The one fixed message a Customer gets when a limit stops a Representative from answering their thread, with no model call: "Our team has your message and will reply". What they said stays owed. Once the limit lifts, what is under 24 hours old gets a Turn and what is older is left for the owner.
 _Avoid_: Quota message, drop notice
 
+**Reply draft**:
+A Representative's reply the Outbound gate held because its topic isn't one the user lets go out by itself. It waits for the user to approve, edit or reject it, and the Customer gets one fixed holding note meanwhile. A new Customer message replaces it, so what is out of date can't be approved. It isn't a Release's working draft.
+_Avoid_: Pending reply, suggestion
+
+**Topic**:
+A subject of the user's business that a Representative labels each reply with. Each is `draft` or `auto`, all start at `draft`, and a label the user doesn't have counts as `draft`.
+_Avoid_: Category, intent
+
 **Page**:
 A direct alert that reaches the user outside the app when something needs them, such as an emergency or a stalled Assignment. It goes to web push and their Linked identities, then to email if nobody has acknowledged it, and acknowledging stops whatever is left.
 _Avoid_: Notification, ticket, alert

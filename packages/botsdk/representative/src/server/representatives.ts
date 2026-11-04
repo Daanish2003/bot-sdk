@@ -165,6 +165,7 @@ function summaryOf(row: Row, liveReleaseNumber: number | null): RepresentativeSu
     botId: row.botId,
     enabled: row.enabled,
     liveReleaseNumber,
+    caps: { maxInARow: row.maxInARow, maxPerDay: row.maxPerDay },
   };
 }
 
@@ -322,6 +323,23 @@ export async function setEnabled(
     const [updated] = await tx
       .update(representative)
       .set({ enabled, updatedAt: new Date() })
+      .where(eq(representative.id, id))
+      .returning();
+    return view(tx, updated!, clock());
+  });
+}
+
+/** Edits the caps the Outbound gate holds this Representative to; a cap left out stays. */
+export async function setCaps(
+  { db, clock }: Context,
+  userId: string,
+  { id, maxInARow, maxPerDay }: { id: string; maxInARow?: number; maxPerDay?: number },
+): Promise<RepresentativeView> {
+  return db.transaction(async (tx) => {
+    await ownedRow(tx, userId, id, true);
+    const [updated] = await tx
+      .update(representative)
+      .set({ maxInARow, maxPerDay, updatedAt: clock() })
       .where(eq(representative.id, id))
       .returning();
     return view(tx, updated!, clock());

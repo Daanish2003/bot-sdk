@@ -34,6 +34,7 @@ const cites = (name: string, quote: string) =>
     toolCall({
       name: "reply",
       input: {
+        topic: "general",
         text: "Here you go.",
         kind: "answer",
         sources: [{ type: "document", name, quote }],

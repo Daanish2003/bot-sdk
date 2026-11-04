@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 
 import { endedAssignmentStatuses } from "@botsdk/client/bot/assignment";
 import { botAssignment } from "@botsdk/bot/storage";
@@ -21,6 +21,8 @@ import {
   representativeCustomer,
   representativeCustomerIdentity,
   representativeHandOff,
+  draftRule,
+  representativeHeldMessage,
   representativeOutboundDecision,
   representativeThread,
   representativeThreadMessage,
@@ -32,6 +34,7 @@ import { combinedProfilesOf, nameIn, setOwnerValue } from "./customer-profile";
 import { voidProofs } from "./customer-proof";
 import { grouped } from "./customers";
 import { lastMessageQuery } from "./last-message";
+import { heldWaitingQuery } from "./reply-drafts";
 import { isVerified } from "./verification";
 
 /*
@@ -66,9 +69,10 @@ const identityTaken = () =>
  * Customer who is owed nothing else is waiting on the Bot while an Assignment handed off from the
  * thread is open (ticket #1254), and the Bot's result waits on the owner, if they hold the thread, as
  * a Customer's message does. When the last word is code's fixed hand-off message (ticket #1261), and
- * no Bot is working on it, someone owes the Customer what it promised, and that is the owner. What
- * waits at a limit waits on the owner, as no Turn can answer it, and so does what a limit left for
- * them, once nothing else is under way (ticket #1309).
+ * no Bot is working on it, someone owes the Customer what it promised, and that is the owner. So is
+ * a message the gate held, once no Turn is on the way that could replace it. What waits at a limit
+ * waits on the owner, as no Turn can answer it, and so does what a limit left for them, once nothing
+ * else is under way (ticket #1309).
  */
 export function waitingOn(
   state: ThreadState,
@@ -79,6 +83,7 @@ export function waitingOn(
   codeHandedOff = false,
   atLimit = false,
   leftForOwner = false,
+  heldWaiting = false,
 ): ThreadWaitingOn {
   if (state === "closed" || blocked) return null;
   const speaking = lastAuthor === "customer" || lastAuthor === "bot";
@@ -90,7 +95,7 @@ export function waitingOn(
   if (atLimit) return "owner";
   if (turnDue) return "representative";
   if (botWorking) return "bot";
-  if (codeHandedOff || leftForOwner) return "owner";
+  if (codeHandedOff || leftForOwner || heldWaiting) return "owner";
   return speaking ? null : "customer";
 }
 
@@ -325,6 +330,17 @@ export async function updateIdentity(
             sql`exists (select 1 from ${representativeThread} join ${representative} on ${representative.id} = ${representativeThread.representativeId} where ${representativeThread.id} = ${decision.threadId} and ${representativeThread.customerId} <> ${id} and ${representative.userId} = ${userId})`,
           ),
         );
+      // What waits for the owner goes where this Customer now is, as what the thread sends next does.
+      await tx
+        .update(decision)
+        .set({ channel, externalId })
+        .where(
+          and(
+            eq(decision.channel, held.channel),
+            eq(decision.externalId, held.externalId),
+            sql`exists (select 1 from ${representativeHeldMessage} join ${representativeThread} on ${representativeThread.id} = ${representativeHeldMessage.threadId} where ${representativeHeldMessage.decisionId} = ${decision.id} and ${representativeHeldMessage.resolution} is null and ${representativeThread.customerId} = ${id})`,
+          ),
+        );
       await tx
         .update(representativeThread)
         .set({ lastChannel: channel, lastExternalId: externalId })
@@ -399,6 +415,7 @@ type ThreadRow = {
   lastAuthor: ThreadAuthor | null;
   lastReplyKind: StoredReplyKind | null;
   botWorking: boolean;
+  heldWaiting: boolean;
 };
 
 /** Whether an Assignment handed off from the thread is still open. */
@@ -424,6 +441,7 @@ const threadColumns = {
   lastAuthor: sql<ThreadAuthor | null>`(${lastMessageQuery(representativeThreadMessage.author)})`,
   lastReplyKind: sql<StoredReplyKind | null>`(${lastMessageQuery(representativeThreadMessage.replyKind)})`,
   botWorking: sql<boolean>`${botWorkingQuery}`,
+  heldWaiting: sql<boolean>`${heldWaitingQuery}`,
 };
 
 function summary(row: ThreadRow, customerName: string | null): ThreadSummary {
@@ -446,6 +464,7 @@ function summary(row: ThreadRow, customerName: string | null): ThreadSummary {
       row.lastReplyKind === codeHandOffKind,
       row.limitNotedAt !== null && row.waitingFrom !== null,
       row.leftForOwnerAt !== null,
+      row.heldWaiting,
     ),
     messageCount: row.messageCount,
     updatedAt: row.updatedAt,
@@ -527,10 +546,33 @@ export async function getThread(
       })),
     );
   const { identities, name } = await readCustomer(context, userId, row.customerId);
+  const held = await db
+    .select({
+      id: representativeHeldMessage.id,
+      text: representativeHeldMessage.text,
+      rule: representativeOutboundDecision.rule,
+      channel: representativeOutboundDecision.channel,
+      externalId: representativeOutboundDecision.externalId,
+      createdAt: representativeHeldMessage.createdAt,
+    })
+    .from(representativeHeldMessage)
+    .innerJoin(
+      representativeOutboundDecision,
+      eq(representativeOutboundDecision.id, representativeHeldMessage.decisionId),
+    )
+    .where(
+      and(
+        eq(representativeHeldMessage.threadId, threadId),
+        isNull(representativeHeldMessage.resolution),
+        ne(representativeOutboundDecision.rule, draftRule),
+      ),
+    )
+    .orderBy(asc(representativeHeldMessage.id));
   return {
     ...summary(row, name),
     representativeId: row.representativeId,
     identities,
     messages,
+    held,
   };
 }

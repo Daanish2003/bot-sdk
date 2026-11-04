@@ -1,9 +1,14 @@
 import { batchLongestMs } from "@botsdk/bot/bot/triggers";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { claimJob, type inProcessRunner } from "@botsdk/bot/runner/internal";
+import { eq } from "drizzle-orm";
 import { expect } from "vitest";
 
 // By path, on purpose: the feature's package exports no way to start a Turn, and a test holds it to that.
+import {
+  representative,
+  representativeTopic,
+} from "../../botsdk/representative/src/server/db/schema";
 import { customerDeliveryJobName } from "../../botsdk/representative/src/server/outbound-gate";
 import { receiveCustomerMessage } from "../../botsdk/representative/src/server/thread-turns";
 
@@ -16,6 +21,25 @@ import { getTestDb } from "./test-database";
  * finds or makes the Customer and its thread. It lives in this private package, which no Host can
  * install. The feature's package exports nothing to start a Turn and no route or RPC reaches one.
  */
+
+/**
+ * The topic a test Customer's owner has promoted, so a test whose subject isn't Reply drafts labels a
+ * reply with it and sees it sent. Any other label, or none, is a draft, as for any owner.
+ */
+export const autoTopic = "general";
+
+/** Promotes `autoTopic` for the owner of `representativeId`. */
+export async function promoteAutoTopic(representativeId: string) {
+  const [owner] = await getTestDb()
+    .select({ userId: representative.userId })
+    .from(representative)
+    .where(eq(representative.id, representativeId));
+  if (!owner) return;
+  await getTestDb()
+    .insert(representativeTopic)
+    .values({ id: uuidv7(), userId: owner.userId, name: autoTopic, mode: "auto" })
+    .onConflictDoNothing();
+}
 
 /** The Channel a test Customer writes from by default. Nothing it sends reaches anything real. */
 export const fakeChannel = "fake";
@@ -65,6 +89,7 @@ async function sendTestCustomerMessage(
 ) {
   const feature = deps.parts.features.find(({ feature }) => feature.id === "representative");
   if (!feature) throw new Error("This test SDK has no representative feature");
+  await promoteAutoTopic(representativeId);
   const received = await receiveCustomerMessage(feature.context, {
     representativeId,
     channel,

@@ -112,11 +112,18 @@ const liveHandOversOf = (botId: string) =>
 
 describe("choosing the Bot a Representative reports to", () => {
   it("moves its open Assignments to the chosen Bot, each with a log row, and wakes the new Bot", async () => {
-    const { botFake, deps, rpc } = await instance([handsOff("First"), handsOff("Second"), quiet()]);
+    const { botFake, deps, rpc } = await instance([
+      handsOff("First"),
+      quiet(),
+      handsOff("Second"),
+      quiet(),
+    ]);
     const { id: first } = await rpc.bots.create({ name: "First", model: botModel });
     const { id: second } = await rpc.bots.create({ name: "Second", model: botModel });
     const id = await liveRepresentative(rpc, first);
+    // A Turn hands off once, so the two Assignments come from two Turns.
     await testCustomerTurn(deps, { representativeId: id, message: "Hi" });
+    await testCustomerTurn(deps, { representativeId: id, message: "Hi again" });
     const [done, open] = await assignmentsOf(first);
     // One has ended already: it stays where it was.
     await getTestDb()

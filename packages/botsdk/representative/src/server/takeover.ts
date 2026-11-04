@@ -1,7 +1,6 @@
 import { and, eq, gte, inArray, isNull, min, not, sql } from "drizzle-orm";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
-import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { rpcError } from "@botsdk/bot/rpc-error";
 import {
@@ -12,8 +11,9 @@ import {
   representativeThreadMessage,
   type ThreadAuthor,
 } from "./db/schema";
-import { deliverMessage, passGate } from "./outbound-gate";
+import { passGate, storeAndDeliver } from "./outbound-gate";
 import { getThread, threadNotFound } from "./owner-customers";
+import { replaceHeld, turnSender } from "./reply-drafts";
 import { queueWaitingTurn } from "./thread-turns";
 
 /*
@@ -30,10 +30,11 @@ type Context = Pick<FeatureContext, "db" | "clock" | "jobs">;
 /** What a Customer gets when the owner takes their thread over. */
 export const takeoverNote = "A person has joined this conversation and will reply from here.";
 
-const threadClosed = () => rpcError("CONFLICT", "error.threadClosed", "This thread has closed");
+export const threadClosed = () =>
+  rpcError("CONFLICT", "error.threadClosed", "This thread has closed");
 const threadNotHeld = () =>
   rpcError("CONFLICT", "error.threadNotHeld", "Take over this thread to write in it");
-const customerBlocked = () =>
+export const customerBlocked = () =>
   rpcError(
     "CONFLICT",
     "error.customerBlocked",
@@ -82,7 +83,7 @@ export async function tryLockThread(tx: Transaction, userId: string, threadId: s
 }
 
 /** Holds one of the owner's threads, or says it isn't theirs. */
-async function lockThread(tx: Transaction, userId: string, threadId: string) {
+export async function lockThread(tx: Transaction, userId: string, threadId: string) {
   const thread = await tryLockThread(tx, userId, threadId);
   if (!thread) throw threadNotFound();
   return thread;
@@ -142,24 +143,30 @@ async function sendToCustomer(
     content: { text, verified },
   });
   if (decision?.outcome !== "send") return decision?.outcome ?? "drop";
-  const [updated] = await tx
-    .update(representativeThread)
-    .set({ messageCount: sql`${representativeThread.messageCount} + 1`, ...activeAt(now) })
-    .where(eq(representativeThread.id, threadId))
-    .returning({ position: representativeThread.messageCount });
-  const messageId = uuidv7();
-  await tx.insert(message).values({
-    id: messageId,
-    threadId,
-    position: updated!.position,
-    author,
-    text,
-    channel,
-    externalId,
-    verified,
-  });
-  await deliverMessage(services, tx, decision.id, messageId);
+  await storeAndDeliver(
+    services,
+    tx,
+    decision.id,
+    { threadId, author, text, channel, externalId, verified },
+    now,
+  );
   return decision.outcome;
+}
+
+/**
+ * Where the thread's waiting mark goes back to when its Turn is aborted: a begun Turn with no reply
+ * yet moved the mark past its batch, so it goes back to where that batch starts.
+ */
+export function waitingAfterAbort(
+  thread: Pick<Thread, "turnId" | "turnFrom" | "waitingFrom">,
+  now: Date,
+) {
+  const unanswered = thread.turnId ? thread.turnFrom : null;
+  const waitingFrom =
+    unanswered === null
+      ? thread.waitingFrom
+      : Math.min(thread.waitingFrom ?? unanswered, unanswered);
+  return { waitingFrom, waitingSince: waitingFrom === null ? null : now };
 }
 
 /**
@@ -174,20 +181,21 @@ export async function holdThread(
   threadId: string,
   thread: Pick<Thread, "turnId" | "turnFrom" | "waitingFrom" | "lastChannel" | "lastExternalId">,
 ) {
-  if (thread.turnId) await jobs.cancelIn(tx, thread.turnId);
   const now = clock();
-  const unanswered = thread.turnId ? thread.turnFrom : null;
-  const waitingFrom =
-    unanswered === null
-      ? thread.waitingFrom
-      : Math.min(thread.waitingFrom ?? unanswered, unanswered);
+  if (thread.turnId) {
+    await jobs.cancelIn(tx, thread.turnId);
+    // What that Turn wrote and the gate held goes with it, as its batch waits again for a Turn after
+    // Hand back. A Turn with no batch left has answered it, and leaves nothing to answer again.
+    const sender =
+      thread.turnFrom === null ? null : await turnSender(tx, threadId, thread.turnFrom);
+    if (sender) await replaceHeld(tx, threadId, now, sender);
+  }
   await tx
     .update(representativeThread)
     .set({
       state: "owner",
       turnId: null,
-      waitingFrom,
-      waitingSince: waitingFrom === null ? null : now,
+      ...waitingAfterAbort(thread, now),
       ...activeAt(now),
     })
     .where(eq(representativeThread.id, threadId));
@@ -226,6 +234,9 @@ export async function sendAsOwner(
       now: context.clock(),
     });
     if (decided !== "send") return decided;
+    // What waited to go where this just went is out of date; what waited for another address isn't.
+    const to = { channel: thread.lastChannel, externalId: thread.lastExternalId };
+    await replaceHeld(tx, id, context.clock(), { ...to, verified: false });
     await tx
       .update(representativeThread)
       .set({ leftForOwnerAt: null })

@@ -9,13 +9,14 @@ import { job, usage } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { testCustomerTurn } from "@ai-chat/test-support/test-customer";
+import { promoteAutoTopic, testCustomerTurn } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { fakeMessagingAdapter } from "@botsdk/testing/fake-channel";
 import type { CustomerChannel } from "../src/server/customer-proof";
 import {
+  representative,
   representativeOutboundDecision,
   representativeThread,
   representativeThreadMessage,
@@ -54,6 +55,10 @@ const day = 24 * hour;
 const number = "+15550001";
 
 const replies = (text: string) =>
+  round(toolCall({ name: "reply", input: { text, kind: "small_talk", topic: "general" } }));
+
+/** A reply with no label, which the gate holds as a Reply draft. */
+const drafts = (text: string) =>
   round(toolCall({ name: "reply", input: { text, kind: "small_talk" } }));
 
 const runners: JobRunner[] = [];
@@ -122,6 +127,7 @@ async function atQuota(rounds: Parameters<typeof createFakeAdapter>[0]["rounds"]
   });
   await rpc.representative.approve({ id });
   await rpc.representative.setEnabled({ id, enabled: true });
+  await promoteAutoTopic(id);
   await getTestDb().insert(usage).values({
     id: uuidv7(),
     userId: user.id,
@@ -155,6 +161,8 @@ async function atQuota(rounds: Parameters<typeof createFakeAdapter>[0]["rounds"]
     breakQuota: (broken: boolean) => {
       quotaBroken = broken;
     },
+    setCaps: (caps: { maxInARow?: number; maxPerDay?: number }) =>
+      getTestDb().update(representative).set(caps).where(eq(representative.id, id)),
     featureContext: () =>
       deps.parts.features.find(({ feature }) => feature.id === "representative")!.context,
     /** A Customer's message, whose Turn runs to its end. */
@@ -375,7 +383,51 @@ describe("when the limit lifts", () => {
   });
 });
 
+describe("the note and the gate", () => {
+  it("goes out over a cap, and as a note, not as a draft", async () => {
+    const world = await atQuota();
+    await world.setCaps({ maxInARow: 0, maxPerDay: 0 });
+    await world.hears("Hello");
+
+    await delivered(world, 1);
+    expect(world.got()).toEqual([limitNote]);
+    expect(await world.decisions()).toEqual([
+      { kind: "limit_note", outcome: "send", rule: "passed" },
+    ]);
+  });
+
+  it("counts against no cap once the limit lifts", async () => {
+    const world = await atQuota([replies("Hello, how can I help?"), round()]);
+    await world.setCaps({ maxInARow: 1, maxPerDay: 1 });
+    await world.hears("Hello");
+    await delivered(world, 1);
+
+    world.lift();
+    world.pass(hour);
+    await world.settle(() => world.got().length === 2);
+
+    expect(world.got()).toEqual([limitNote, "Hello, how can I help?"]);
+  });
+});
+
 describe("the owner, at a limit", () => {
+  it("clears what is left for them by sending a draft in their own words", async () => {
+    const world = await atQuota([drafts("About the new one"), round()]);
+    await world.hears("The old one");
+    await delivered(world, 1);
+
+    world.lift();
+    world.timer.advance(25 * hour);
+    await world.hears("The new one");
+    await world.settle(async () => (await world.rpc.representative.replyDraftList()).length === 1);
+    const [draft] = await world.rpc.representative.replyDraftList();
+    expect((await world.thread()).waitingOn).toBe("owner");
+    await world.rpc.representative.replyDraftEdit({ id: draft!.id, text: "About both" });
+
+    await world.settle(() => world.got().includes("About both"));
+    await world.settle(async () => (await world.thread()).waitingOn === "customer");
+  });
+
   it("clears what is left for them by taking the thread over and answering", async () => {
     const world = await atQuota();
     await world.hears("Hello");
@@ -516,6 +568,7 @@ describe("the owner, at a limit", () => {
           turnId,
           thread: {
             threadId: id,
+            upTo: 1,
             heard: { channel: "fake", externalId: number },
             verified: false,
             releaseId: uuidv7(),

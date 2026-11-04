@@ -43,7 +43,12 @@ const cites = (text: string, assignmentId: string, quote: string) =>
   round(
     toolCall({
       name: "reply",
-      input: { text, kind: "answer", sources: [{ type: "assignment", assignmentId, quote }] },
+      input: {
+        topic: "general",
+        text,
+        kind: "answer",
+        sources: [{ type: "assignment", assignmentId, quote }],
+      },
     }),
   );
 

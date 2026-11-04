@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "517e30cc-4b51-4158-a0c5-06b33100cbb8",
-  "prevIds": ["946fb570-8cdb-4add-9483-8183ce9d331c"],
+  "id": "92ac9480-56c2-4d51-ba5f-ff994c6ac910",
+  "prevIds": ["2e973103-017a-4598-84c0-8039e3675c7e"],
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -120,6 +120,12 @@
     },
     {
       "isRlsEnabled": false,
+      "name": "representative_topic",
+      "entityType": "tables",
+      "schema": "botsdk"
+    },
+    {
+      "isRlsEnabled": false,
       "name": "representative_verification",
       "entityType": "tables",
       "schema": "botsdk"
@@ -185,6 +191,32 @@
       "generated": null,
       "identity": null,
       "name": "enabled",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "5",
+      "generated": null,
+      "identity": null,
+      "name": "max_in_a_row",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "20",
+      "generated": null,
+      "identity": null,
+      "name": "max_per_day",
       "entityType": "columns",
       "schema": "botsdk",
       "table": "representative"
@@ -1425,6 +1457,58 @@
       "table": "representative_held_message"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "topic",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_held_message"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "resolution",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_held_message"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "resolved_at",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_held_message"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "message_id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_held_message"
+    },
+    {
       "type": "timestamp",
       "typeSchema": null,
       "notNull": true,
@@ -2319,6 +2403,71 @@
       "name": "id",
       "entityType": "columns",
       "schema": "botsdk",
+      "table": "representative_topic"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_topic"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "name",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_topic"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'draft'",
+      "generated": null,
+      "identity": null,
+      "name": "mode",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_topic"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_topic"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "botsdk",
       "table": "representative_verification"
     },
     {
@@ -2996,6 +3145,34 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "lower(\"name\")",
+          "isExpression": true,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "representative_topic_name",
+      "entityType": "indexes",
+      "schema": "botsdk",
+      "table": "representative_topic"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "sender_identity_id",
           "isExpression": false,
           "asc": true,
@@ -3226,6 +3403,19 @@
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "representative_held_message_67Mn8IXnVNv3_fkey",
+      "entityType": "fks",
+      "schema": "botsdk",
+      "table": "representative_held_message"
+    },
+    {
+      "nameExplicit": false,
+      "columns": ["message_id"],
+      "schemaTo": "botsdk",
+      "tableTo": "representative_thread_message",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "representative_held_message_ibTr1D0dYPt4_fkey",
       "entityType": "fks",
       "schema": "botsdk",
       "table": "representative_held_message"
@@ -3523,6 +3713,14 @@
       "name": "representative_thread_message_pkey",
       "schema": "botsdk",
       "table": "representative_thread_message",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["id"],
+      "nameExplicit": false,
+      "name": "representative_topic_pkey",
+      "schema": "botsdk",
+      "table": "representative_topic",
       "entityType": "pks"
     },
     {
