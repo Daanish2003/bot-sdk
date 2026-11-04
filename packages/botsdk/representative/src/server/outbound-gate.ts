@@ -688,12 +688,12 @@ export const customerDeliveryJob = (channel: CustomerChannel) =>
         )
         .where(eq(decision.id, decisionId));
       if (!row) return;
-      // The confirmation of an opt-out and the emergency script are all an opted-out identity is sent.
+      // Only what passes the gate's opt-out rule is held to it: the rest is meant for them regardless.
       const stopped = row.blockedAt
         ? notDelivered.blocked
         : !row.identityId
           ? notDelivered.moved
-          : row.optedOutAt && row.kind !== "opt_out_confirmation" && row.kind !== "emergency_script"
+          : row.optedOutAt && rulesOf[row.kind].includes("optedOut")
             ? notDelivered.optedOut
             : null;
       if (stopped) {

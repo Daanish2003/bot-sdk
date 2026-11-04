@@ -294,8 +294,8 @@ type TurnProgress = {
   read: Map<string, string[]>;
 };
 
-/** The Turn has ended on a second refusal: no more tools run and no more Model calls follow. */
-const isOver = ({ refusals }: TurnProgress) => refusals > 1;
+/** The Turn has ended, on a second refusal or the emergency script: no more tools run and no more Model calls follow. */
+const isOver = ({ refusals, flaggedEmergency }: TurnProgress) => refusals > 1 || flaggedEmergency;
 
 /** Whether a tool's answer says `key`. One over the long-output limit comes back as its cut text. */
 const says = (answer: unknown, key: string) =>
@@ -480,7 +480,8 @@ async function handOffInCode(
  */
 async function handOffAtEnd(turn: HandOffTurn) {
   const { job, thread, progress } = turn;
-  if (progress.refusals !== 1) return false;
+  // The script is what the Customer is owed once it has gone.
+  if (progress.refusals !== 1 || progress.flaggedEmergency) return false;
   if (thread === null) return true;
   const now = await job.now();
   // Set only by a live write, afresh on each try of it.
@@ -793,8 +794,8 @@ export function turnTools(turn: Turn) {
     }).server(async (_input, context) => {
       const now = await job.now();
       const answer = await kit.liveActivity(emergencyTool, context?.toolCallId, async (tx) => {
-        // From the Turn's recorded answers, so a replay does the same. A test conversation reaches nothing.
-        if (thread !== null && !progress.flaggedEmergency) {
+        // A test conversation reaches nothing.
+        if (thread !== null) {
           // The Customer's row before the thread's, the order a merge and a delete take them in.
           await holdThreadCustomer(tx, thread.threadId);
           await sendEmergencyScript(job, tx, {
@@ -1038,7 +1039,7 @@ export async function playLoop(
                   ...tools[tool]!,
                   // A call the same Step made after the hand-off that ended the Turn.
                   execute: async (args: unknown, context?: unknown) =>
-                    isOver(progress)
+                    isOver(progress) && (tool !== emergencyTool || progress.flaggedEmergency)
                       ? { error: turnOverRefusal }
                       : tools[tool]!.execute!(args, context as never),
                 },

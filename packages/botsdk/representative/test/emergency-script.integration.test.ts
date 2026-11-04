@@ -14,10 +14,15 @@ import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { fakeMessagingAdapter, fakePushProvider } from "@botsdk/testing/fake-channel";
-import type { CustomerChannel } from "../src/server/customer-proof";
+import { type CustomerChannel, requestProof } from "../src/server/customer-proof";
 import { storeReply } from "../src/server/customers";
-import { representativeOutboundDecision, representativeRelease } from "../src/server/db/schema";
+import {
+  representativeOutboundDecision,
+  representativeRelease,
+  representativeThread,
+} from "../src/server/db/schema";
 import { liveChecks, passGate } from "../src/server/outbound-gate";
+import { saysKeyword } from "../src/server/emergency-script";
 import { representativeFeature } from "../src/server/plugin";
 
 /*
@@ -52,13 +57,18 @@ afterEach(async () => {
 });
 
 /** A running instance with an approved Release holding `keywords` and the fixed text. */
-async function instance(rounds: Round[], keywords: string[] = ["gas leak", "fire"]) {
+async function instance(
+  rounds: Round[],
+  keywords: string[] = ["gas leak", "fire"],
+  beforeModel?: () => Promise<void>,
+) {
   const fake = createFakeAdapter({ rounds });
   const entered: unknown[] = [];
   const adapter: AnyTextAdapter = {
     ...fake.adapter,
     chatStream: async function* (options) {
       entered.push(options);
+      await beforeModel?.();
       yield* fake.adapter.chatStream(options);
     },
   };
@@ -127,6 +137,7 @@ async function instance(rounds: Round[], keywords: string[] = ["gas leak", "fire
     push,
     rpc,
     id,
+    user,
     deps: world,
     threadId,
     to,
@@ -170,9 +181,7 @@ type World = Awaited<ReturnType<typeof instance>>;
 async function expectScriptSent(world: World) {
   await expect.poll(world.got, poll).toContain(script);
   expect(await world.decisions()).toContainEqual(["emergency_script", "send", "passed"]);
-  expect((await world.pages()).filter(({ urgency }) => urgency === "emergency")).toMatchObject([
-    { cause: "emergency_script" },
-  ]);
+  expect((await world.pages()).filter(({ urgency }) => urgency === "emergency")).toHaveLength(1);
 }
 
 describe("a keyword in the Release", () => {
@@ -200,7 +209,7 @@ describe("a keyword in the Release", () => {
     expect(await world.pages()).toEqual([]);
   });
 
-  it("takes along what waited for a Turn: the Model doesn't answer it after the script", async () => {
+  it("takes along what waited for a Turn: the Model doesn't answer it after the script, and the owner has it", async () => {
     const world = await instance([]);
     const { jobId } = await world.starts("Hello?");
 
@@ -209,10 +218,96 @@ describe("a keyword in the Release", () => {
     world.deps.timer.tick();
     await expect
       .poll(async () => (await world.deps.runner.status(jobId))?.status, poll)
-      .toBe("succeeded");
+      .toBe("cancelled");
 
     expect(world.entered).toEqual([]);
     await expectScriptSent(world);
+    const [waiting] = await world.rpc.representative.threadList({ id: world.id });
+    expect(waiting!.waitingOn).toBe("owner");
+  });
+
+  it("stops a Turn already running, whose reply would come after the safety text, and leaves its message for the owner", async () => {
+    let release = () => {};
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const world = await instance(
+      [
+        round(
+          toolCall({
+            name: "reply",
+            input: { text: "Refunds take 5 days", kind: "small_talk", topic: "general" },
+          }),
+        ),
+      ],
+      ["fire"],
+      () => released,
+    );
+    const { jobId } = await world.starts("Can I get a refund?");
+    world.deps.timer.advance(60_000);
+    world.deps.timer.tick();
+    await expect.poll(() => world.entered.length, poll).toBe(1);
+
+    await world.hears("there's a fire");
+    release();
+
+    await expect
+      .poll(async () => (await world.deps.runner.status(jobId))?.status, poll)
+      .toBe("cancelled");
+    await expectScriptSent(world);
+    expect(world.got()).toEqual([script]);
+    expect((await world.thread()).messages.map(({ author }) => author)).toEqual([
+      "customer",
+      "customer",
+      "note",
+    ]);
+    const [waiting] = await world.rpc.representative.threadList({ id: world.id });
+    expect(waiting!.waitingOn).toBe("owner");
+  });
+
+  it("leaves nothing marked for the owner when nothing else waited", async () => {
+    const world = await instance([]);
+
+    await world.hears("fire");
+
+    const [thread] = await world.rpc.representative.threadList({ id: world.id });
+    expect(thread!.waitingOn).not.toBe("owner");
+  });
+
+  it("is heard in a message that also holds a verification code", async () => {
+    const world = await instance([quiet()]);
+    await world.hears("Hello");
+    const threadId = await world.threadId();
+    const outgoing = await getTestDb().transaction((tx) =>
+      requestProof(tx, {
+        keyring: world.deps.keyring,
+        userId: world.user.id,
+        thread: { threadId, heard: world.to, verified: false, proofRule: "codeRoundTrip" },
+        claimed: null,
+        now: world.deps.timer.clock.now(),
+      }),
+    );
+
+    await world.hears(`${outgoing!.proof.secret} there's a fire, help`);
+
+    await expectScriptSent(world);
+    expect(JSON.stringify((await world.thread()).messages)).not.toContain(outgoing!.proof.secret);
+  });
+
+  it("sends the script each time, but Pages again only once the owner has acknowledged", async () => {
+    const world = await instance([]);
+
+    await world.hears("fire");
+    await world.hears("fire!");
+
+    await expect.poll(world.got, poll).toEqual([script, script]);
+    const pages = await world.pages();
+    expect(pages).toHaveLength(1);
+
+    await world.rpc.pages.acknowledge({ id: pages[0]!.id });
+    await world.hears("fire again");
+
+    await expect.poll(async () => (await world.pages()).length, poll).toBe(2);
   });
 
   it("overrides a topic the owner hasn't promoted", async () => {
@@ -344,8 +439,21 @@ describe("the emergency Page", () => {
 });
 
 describe("a Representative's flag", () => {
-  it("is offered on a Release that lists only reply, and sends the same text, once in a Turn", async () => {
-    const world = await instance([flags("first"), flags("second"), quiet()], []);
+  it("is offered on a Release that lists only reply, sends the same text once, and ends the Turn", async () => {
+    const world = await instance(
+      [
+        round(
+          toolCall({ name: "flag_emergency", input: {}, id: "first" }),
+          toolCall({ name: "flag_emergency", input: {}, id: "second" }),
+          toolCall({
+            name: "reply",
+            input: { text: "Go back in for your things", kind: "small_talk", topic: "general" },
+            id: "third",
+          }),
+        ),
+      ],
+      [],
+    );
 
     await world.hears("There's smoke coming from the stairs");
 
@@ -353,6 +461,56 @@ describe("a Representative's flag", () => {
     expect(offered).toContain("flag_emergency");
     await expectScriptSent(world);
     expect(world.got()).toEqual([script]);
+    // No more Model calls: the Customer has the script, and nothing else is said.
+    expect(world.entered).toHaveLength(1);
+  });
+
+  it("answers the batch, so nothing Turns it round again", async () => {
+    const world = await instance([flags(), quiet()], []);
+
+    await world.hears("There's smoke");
+    await expect.poll(world.got, poll).toEqual([script]);
+    const id = await world.threadId();
+    const [row] = await getTestDb()
+      .select({ turnFrom: representativeThread.turnFrom })
+      .from(representativeThread)
+      .where(eq(representativeThread.id, id));
+    expect(row!.turnFrom).toBeNull();
+    await world.rpc.representative.threadTakeOver({ id });
+    await world.rpc.representative.threadHandBack({ id });
+
+    expect(world.entered).toHaveLength(1);
+    expect(await world.pages()).toHaveLength(1);
+  });
+
+  it("still goes after a Turn has been ended by a second refusal in its Step", async () => {
+    const refused = { text: "Sorry", kind: "cant_confirm" };
+    const world = await instance(
+      [
+        round(
+          toolCall({ name: "reply", input: refused, id: "first" }),
+          toolCall({ name: "reply", input: refused, id: "second" }),
+          toolCall({ name: "flag_emergency", input: {}, id: "third" }),
+        ),
+      ],
+      [],
+    );
+
+    await world.hears("There's smoke");
+
+    await expect.poll(world.got, poll).toContain(script);
+  });
+});
+
+describe("what counts as saying a keyword", () => {
+  it.each([
+    ["self-harm", "thinking of self-harm", true],
+    ["c++ (help)", "need c++ (help) now", true],
+    ["café", "cafe\u0301 on fire", true],
+    ["आग", "आगे बढ़ो", false],
+    ["fire", "fired", false],
+  ])("%s in %s: %s", (keyword, text, said) => {
+    expect(saysKeyword([keyword], text)).toBe(said);
   });
 });
 

@@ -16,7 +16,7 @@ import {
 import { holdCustomers } from "./customer-merge";
 import { nameIn, profilesOf } from "./customer-profile";
 import { catchCode, customerProofLeadsTo, mayHoldCode } from "./customer-proof";
-import { saysKeyword, sendEmergencyScript } from "./emergency-script";
+import { saysKeyword, sendEmergencyScript, stopForScript } from "./emergency-script";
 import { liftOptOut, keywordIn, optOut } from "./opt-out";
 import { type GateRefusal, passGate, storeAndDeliver } from "./outbound-gate";
 import { afterDraftHeld, replaceHeld } from "./reply-drafts";
@@ -154,7 +154,7 @@ async function judgeMessage(
  * is an opted-out Customer's, and the one that opts them out (ticket #1302). A
  * message holding the sender's code is stored as a note of what became of the code instead (ticket
  * #1256), so no model or prompt ever reads it. One that says a keyword of the live Release sets off
- * its emergency script at once (ticket #1308): it and what waited with it get no Turn, as the owner
+ * its emergency script at once (ticket #1308): it gets no Turn and a running one stops, as the owner
  * has been Paged and the Customer told what to do, and it reaches them through an owner's hold, an
  * opt-out or a Representative switched off.
  */
@@ -215,7 +215,8 @@ export async function receiveMessage(
     .for("update");
   const wasOptedOut = heardIdentity?.optedOutAt != null;
   const keyword = stored === text ? keywordIn(heard.channel, text) : null;
-  const script = stored === text ? await scriptSaidIn(tx, owner.releaseId, text) : null;
+  // On what they said, not what is stored: a code in the message mustn't hide an emergency.
+  const script = await scriptSaidIn(tx, owner.releaseId, text);
   const kept = blocked || wasOptedOut || keyword === "stop" || script !== null;
   const [thread] = await tx
     .insert(representativeThread)
@@ -278,10 +279,7 @@ export async function receiveMessage(
     await liftOptOut(tx, owner.userId, heard);
   }
   if (script !== null) {
-    await tx
-      .update(representativeThread)
-      .set({ waitingFrom: null, waitingSince: null })
-      .where(eq(representativeThread.id, threadId));
+    if (!blocked) await stopForScript(services, tx, threadId, now);
     await sendEmergencyScript(services, tx, {
       threadId,
       heard,
