@@ -1,7 +1,6 @@
 import { and, eq, gte, inArray, isNull, min, not, sql } from "drizzle-orm";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
-import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { rpcError } from "@botsdk/bot/rpc-error";
 import {
@@ -12,8 +11,9 @@ import {
   representativeThreadMessage,
   type ThreadAuthor,
 } from "./db/schema";
-import { deliverMessage, passGate } from "./outbound-gate";
+import { passGate, storeAndDeliver } from "./outbound-gate";
 import { getThread, threadNotFound } from "./owner-customers";
+import { replaceHeld, turnSender } from "./reply-drafts";
 import { queueWaitingTurn } from "./thread-turns";
 
 /*
@@ -143,23 +143,13 @@ async function sendToCustomer(
     content: { text, verified },
   });
   if (decision?.outcome !== "send") return decision?.outcome ?? "drop";
-  const [updated] = await tx
-    .update(representativeThread)
-    .set({ messageCount: sql`${representativeThread.messageCount} + 1`, ...activeAt(now) })
-    .where(eq(representativeThread.id, threadId))
-    .returning({ position: representativeThread.messageCount });
-  const messageId = uuidv7();
-  await tx.insert(message).values({
-    id: messageId,
-    threadId,
-    position: updated!.position,
-    author,
-    text,
-    channel,
-    externalId,
-    verified,
-  });
-  await deliverMessage(services, tx, decision.id, messageId);
+  await storeAndDeliver(
+    services,
+    tx,
+    decision.id,
+    { threadId, author, text, channel, externalId, verified },
+    now,
+  );
   return decision.outcome;
 }
 
@@ -191,8 +181,15 @@ export async function holdThread(
   threadId: string,
   thread: Pick<Thread, "turnId" | "turnFrom" | "waitingFrom" | "lastChannel" | "lastExternalId">,
 ) {
-  if (thread.turnId) await jobs.cancelIn(tx, thread.turnId);
   const now = clock();
+  if (thread.turnId) {
+    await jobs.cancelIn(tx, thread.turnId);
+    // What that Turn wrote and the gate held goes with it, as its batch waits again for a Turn after
+    // Hand back. A Turn with no batch left has answered it, and leaves nothing to answer again.
+    const sender =
+      thread.turnFrom === null ? null : await turnSender(tx, threadId, thread.turnFrom);
+    if (sender) await replaceHeld(tx, threadId, now, sender);
+  }
   await tx
     .update(representativeThread)
     .set({
@@ -236,6 +233,11 @@ export async function sendAsOwner(
       text,
       now: context.clock(),
     });
+    // What waited to go where this just went is out of date; what waited for another address isn't.
+    if (decided === "send") {
+      const to = { channel: thread.lastChannel, externalId: thread.lastExternalId };
+      await replaceHeld(tx, id, context.clock(), { ...to, verified: false });
+    }
     if (decided !== "send" || thread.waitingFrom === null) return decided;
     const message = representativeThreadMessage;
     const [elsewhere] = await tx

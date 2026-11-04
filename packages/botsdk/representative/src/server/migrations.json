@@ -90,5 +90,9 @@
   {
     "name": "20261104152349_outbound_caps",
     "sql": "ALTER TABLE \"botsdk\".\"representative\" ADD COLUMN \"max_in_a_row\" integer DEFAULT 5 NOT NULL;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative\" ADD COLUMN \"max_per_day\" integer DEFAULT 20 NOT NULL;"
+  },
+  {
+    "name": "20261104164849_reply_drafts",
+    "sql": "CREATE TABLE \"botsdk\".\"representative_topic\" (\n\t\"id\" uuid PRIMARY KEY,\n\t\"user_id\" text NOT NULL,\n\t\"name\" text NOT NULL,\n\t\"mode\" text DEFAULT 'draft' NOT NULL,\n\t\"created_at\" timestamp DEFAULT now() NOT NULL\n);\n--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_held_message\" ADD COLUMN \"topic\" text;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_held_message\" ADD COLUMN \"resolution\" text;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_held_message\" ADD COLUMN \"resolved_at\" timestamp;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_held_message\" ADD COLUMN \"message_id\" uuid;--> statement-breakpoint\nCREATE UNIQUE INDEX \"representative_topic_name\" ON \"botsdk\".\"representative_topic\" (\"user_id\",lower(\"name\"));--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_held_message\" ADD CONSTRAINT \"representative_held_message_ibTr1D0dYPt4_fkey\" FOREIGN KEY (\"message_id\") REFERENCES \"botsdk\".\"representative_thread_message\"(\"id\") ON DELETE SET NULL;"
   }
 ]

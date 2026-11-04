@@ -4,6 +4,7 @@ import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import {
+  draftRule,
   representative,
   representativeCustomer,
   representativeCustomerIdentity,
@@ -14,7 +15,8 @@ import {
 import { holdCustomers } from "./customer-merge";
 import { nameIn, profilesOf } from "./customer-profile";
 import { catchCode, customerProofLeadsTo, mayHoldCode } from "./customer-proof";
-import { deliverMessage, dropHeld, type GateRefusal, passGate } from "./outbound-gate";
+import { type GateRefusal, passGate, storeAndDeliver } from "./outbound-gate";
+import { afterDraftHeld, replaceHeld } from "./reply-drafts";
 import { type ChannelProof, judgeSender } from "./verification";
 import { codeHandOffKind, type ReplySource, type StoredReplyKind } from "../shared/replies";
 
@@ -236,7 +238,7 @@ export async function receiveMessage(
     ...heard,
   });
   // What the gate held is stale now: the Customer has written since.
-  await dropHeld(tx, { threadId, kind: "reply", rule: "replaced", now });
+  await replaceHeld(tx, threadId, now, { ...heard, verified });
   // Position 1 is a thread's first message: it has just been opened.
   return { threadId, turnId, waitingSince, blocked, state, opened: position === 1 };
 }
@@ -371,25 +373,27 @@ const heldNote =
 /**
  * Passes a reply through the Outbound gate, addressed to the sender its Turn answers, and if the gate
  * sends it, stores it and sends it. Not to whoever was heard last: an unverified identity writing
- * during a verified Turn mustn't get that Turn's reply.
+ * during a verified Turn mustn't get that Turn's reply. `upTo` is the last message its Turn read.
  */
 export async function storeReply(
   services: Pick<FeatureContext<"pages">, "jobs" | "pages">,
   tx: Transaction,
   {
     threadId,
+    upTo,
     heard,
     verified,
     releaseId,
     refusals,
   }: {
     threadId: string;
+    upTo: number;
     heard: Heard;
     verified: boolean;
     releaseId?: string | null;
     refusals?: GateRefusal[];
   },
-  { text, sources }: { text: string; sources: ReplySource[] },
+  { text, sources, topic }: { text: string; sources: ReplySource[]; topic?: string },
   replyKind: StoredReplyKind,
   now: Date,
 ) {
@@ -401,36 +405,34 @@ export async function storeReply(
     releaseId,
     refusals,
     pages: services.pages,
-    content: { text, verified, replyKind, sources },
+    content: { text, verified, replyKind, sources, topic },
   });
+  if (decision?.rule === draftRule) {
+    await afterDraftHeld(
+      services,
+      tx,
+      { decisionId: decision.id, threadId, upTo, heard, verified, releaseId, refusals },
+      now,
+    );
+    return {
+      held: true,
+      note: "This reply is waiting for the owner and hasn't reached the Customer. Don't send it again.",
+    };
+  }
   if (decision?.outcome === "hold") return { error: heldNote };
   if (decision?.outcome !== "send")
     return {
       error:
         "This thread is gone or no longer yours to answer (it may be held by the owner, its Customer blocked, or you switched off), so nothing was sent.",
     };
-  const [thread] = await tx
-    .update(representativeThread)
-    .set({
-      messageCount: sql`${representativeThread.messageCount} + 1`,
-      turnFrom: null,
-      updatedAt: sql`greatest(${representativeThread.updatedAt}, ${now.toISOString()}::timestamp)`,
-    })
-    .where(eq(representativeThread.id, threadId))
-    .returning({ position: representativeThread.messageCount });
-  const messageId = uuidv7();
-  await tx.insert(representativeThreadMessage).values({
-    id: messageId,
-    threadId,
-    author: "representative",
-    text,
-    replyKind,
-    sources,
-    verified,
-    ...heard,
-    ...thread!,
-  });
-  await deliverMessage(services, tx, decision.id, messageId);
+  await storeAndDeliver(
+    services,
+    tx,
+    decision.id,
+    { threadId, author: "representative", text, replyKind, sources, verified, ...heard },
+    now,
+    { turnFrom: null },
+  );
   return { sent: true };
 }
 

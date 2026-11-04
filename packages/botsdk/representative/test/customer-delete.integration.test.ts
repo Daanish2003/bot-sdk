@@ -794,11 +794,19 @@ describe("deleting a Customer", () => {
           () => {
             gate = new Promise<void>((resolve) => (open = resolve));
             return round(
-              toolCall({ name: "reply", input: { text: "Hello there.", kind: "small_talk" } }),
+              toolCall({
+                name: "reply",
+                input: { topic: "general", text: "Hello there.", kind: "small_talk" },
+              }),
             );
           },
           () =>
-            round(toolCall({ name: "reply", input: { text: "One more.", kind: "small_talk" } })),
+            round(
+              toolCall({
+                name: "reply",
+                input: { topic: "general", text: "One more.", kind: "small_talk" },
+              }),
+            ),
           () => round(),
         ],
         held: () => gate,
@@ -849,7 +857,12 @@ describe("deleting a Customer", () => {
         turnRounds: [
           () => round(),
           () =>
-            round(toolCall({ name: "reply", input: { text: "Hello there.", kind: "small_talk" } })),
+            round(
+              toolCall({
+                name: "reply",
+                input: { topic: "general", text: "Hello there.", kind: "small_talk" },
+              }),
+            ),
         ],
         held: () => gate,
       });

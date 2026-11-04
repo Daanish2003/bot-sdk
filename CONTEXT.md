@@ -190,6 +190,14 @@ _Avoid_: Verdict, audit entry
 A message the Outbound gate stored rather than sent, which isn't in its thread and hasn't reached the Customer.
 _Avoid_: Queued message, pending message
 
+**Reply draft**:
+A Representative's reply the Outbound gate held because its topic isn't one the user lets go out by itself. It waits for the user to approve, edit or reject it, and the Customer gets one fixed holding note meanwhile. A new Customer message replaces it, so what is out of date can't be approved. It isn't a Release's working draft.
+_Avoid_: Pending reply, suggestion
+
+**Topic**:
+A subject of the user's business that a Representative labels each reply with. Each is `draft` or `auto`, all start at `draft`, and a label the user doesn't have counts as `draft`.
+_Avoid_: Category, intent
+
 **Page**:
 A direct alert that reaches the user outside the app when something needs them, such as an emergency or a stalled Assignment. It goes to web push and their Linked identities, then to email if nobody has acknowledged it, and acknowledging stops whatever is left.
 _Avoid_: Notification, ticket, alert

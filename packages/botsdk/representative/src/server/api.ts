@@ -19,11 +19,13 @@ import {
   documentRemoveInput,
   documentUploadInput,
   idInput,
+  replyDraftEditInput,
   rollbackInput,
   setBotInput,
   setCapsInput,
   setEnabledInput,
   threadSendInput,
+  topicAddInput,
   updateDraftInput,
 } from "../shared/contract";
 import { type ConvertDocument, type KnowledgeFiles, knowledgeChoices } from "./documents";
@@ -68,7 +70,14 @@ import {
   uploadDocument,
 } from "./representatives";
 import { dropHeldMessage, sendHeldMessage } from "./held-messages";
+import {
+  approveReplyDraft,
+  editReplyDraft,
+  listReplyDrafts,
+  rejectReplyDraft,
+} from "./reply-drafts";
 import { handBackThread, sendAsOwner, takeOverThread } from "./takeover";
+import { addTopic, listTopics, removeTopic } from "./topics";
 
 /*
  * The `representative` namespace's domain methods: what a Host calls in-process as
@@ -253,6 +262,27 @@ export function representativeApi(
 
     threadSend: async ({ userId, ...rest }: WithUser<typeof threadSendInput>) =>
       sendAsOwner(context, userId, parseInput(threadSendInput, rest)),
+
+    topicList: async ({ userId }: { userId: string }) => listTopics(context, userId),
+
+    topicAdd: async ({ userId, ...rest }: WithUser<typeof topicAddInput>) =>
+      addTopic(context, userId, parseInput(topicAddInput, rest).name),
+
+    topicRemove: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      removeTopic(context, userId, parseInput(idInput, rest).id),
+
+    replyDraftList: async ({ userId }: { userId: string }) => listReplyDrafts(context, userId),
+
+    replyDraftApprove: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      approveReplyDraft(context, userId, parseInput(idInput, rest).id),
+
+    replyDraftEdit: async ({ userId, ...rest }: WithUser<typeof replyDraftEditInput>) => {
+      const { id, text } = parseInput(replyDraftEditInput, rest);
+      return editReplyDraft(context, userId, id, text);
+    },
+
+    replyDraftReject: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      rejectReplyDraft(context, userId, parseInput(idInput, rest).id),
   };
 }
 

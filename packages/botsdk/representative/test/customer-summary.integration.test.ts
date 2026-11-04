@@ -342,7 +342,12 @@ describe("a closed thread's summary", () => {
 
   it("isn't written for a thread waiting on code's hand-off", async () => {
     const guess = () =>
-      round(toolCall({ name: "reply", input: { text: "It is 10 USD.", kind: "answer" } }));
+      round(
+        toolCall({
+          name: "reply",
+          input: { topic: "general", text: "It is 10 USD.", kind: "answer" },
+        }),
+      );
     const { rpc, id, say, passTime, passJobs, passCalls } = await instance({
       turnRounds: [guess(), guess()],
     });

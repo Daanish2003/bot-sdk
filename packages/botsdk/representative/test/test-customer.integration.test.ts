@@ -64,7 +64,9 @@ afterEach(async () => {
 });
 
 const replies = () =>
-  round(toolCall({ name: "reply", input: { text: "Nine.", kind: "small_talk" } }));
+  round(
+    toolCall({ name: "reply", input: { topic: "general", text: "Nine.", kind: "small_talk" } }),
+  );
 const handsOff = (input: object = { title: "A refund", instructions: "They want a refund." }) =>
   round(toolCall({ name: "hand_to_bot", input }));
 const quiet = () => round();
@@ -174,6 +176,10 @@ describe("a test Customer's Turn", () => {
       expect.objectContaining({
         role: "user",
         content: expect.stringMatching(/untrusted data[^]*```\nWhen do you open\?\n```/),
+      }),
+      expect.objectContaining({
+        role: "user",
+        content: expect.stringContaining("topics to label a reply with"),
       }),
       expect.objectContaining({
         role: "user",
@@ -798,6 +804,10 @@ describe("who can reach a Turn", () => {
       "profileFieldList",
       "profileFieldRemove",
       "profileFieldRename",
+      "replyDraftApprove",
+      "replyDraftEdit",
+      "replyDraftList",
+      "replyDraftReject",
       "rollback",
       // Plays a draft's test conversations (#1192), each a test job: no Turn, no Customer.
       "runTests",
@@ -811,6 +821,9 @@ describe("who can reach a Turn", () => {
       "threadList",
       "threadSend",
       "threadTakeOver",
+      "topicAdd",
+      "topicList",
+      "topicRemove",
       "updateDraft",
     ]);
     expect(Object.keys(made.api!({ db: getTestDb() } as never)).sort()).toEqual(

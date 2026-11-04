@@ -106,7 +106,12 @@ const threadsOf = async (deps: TestDeps, userId: string) =>
 describe("a thread's 7 idle days", () => {
   it("doesn't close while code's fixed message promises the Customer a follow-up, and the chain goes on", async () => {
     const guess = () =>
-      round(toolCall({ name: "reply", input: { text: "It is 10 USD.", kind: "answer" } }));
+      round(
+        toolCall({
+          name: "reply",
+          input: { topic: "general", text: "It is 10 USD.", kind: "answer" },
+        }),
+      );
     const { deps, user, say, passTime, idleChecks } = await instance([guess(), guess()]);
     await say("How much?");
     const state = async () => (await threadsOf(deps, user.id)).map((thread) => thread.state);
