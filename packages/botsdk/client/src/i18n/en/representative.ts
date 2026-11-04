@@ -209,7 +209,8 @@ export const representativeMessages = {
   "representative.customers.deleteGoesHandOffs": "How to reach them about work handed to your Bot",
   "representative.customers.deleteGoesJobs": "Their queued Turns and other waiting work",
   "representative.customers.deleteGoesElsewhere":
-    "What they said on another Customer's thread after a merge was undone, and undone merges that name them",
+    "Messages to or from their identities on other Customers' threads, which an undone merge can leave there. Those threads' summaries and hand-offs from them go too, and a thread with nothing left",
+  "representative.customers.deleteGoesMergeHistory": "Undone merges that hold any of this",
   "representative.customers.deleteGoesMerged": ({ names }: { names: string }) =>
     `Everyone merged into them, and all of the above for each: ${names}`,
   "representative.customers.deleteStays": "What stays",

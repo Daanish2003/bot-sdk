@@ -203,7 +203,7 @@ A Published fact the Customer memory pass proposes after a closed Customer threa
 _Avoid_: Insight
 
 **Customer summary**:
-The one summary of a closed Customer thread, part of Customer memory, linked to that thread's transcript. It finds its Customer through its thread, so it follows a Customer merge. Written once. A thread held by the user or waiting on a code hand-off has none, nor does one closed for holding two people's words when a merge was undone. When the pass can't write one, such as for a Release that names no Model, the skip is recorded.
+The one summary of a closed Customer thread, part of Customer memory, linked to that thread's transcript. It finds its Customer through its thread, so it follows a Customer merge. Written once. A thread held by the user or waiting on a code hand-off has none, nor does one closed for holding two people's words when a merge was undone, nor one a deleted Customer's messages were taken from. When the pass can't write one, such as for a Release that names no Model, the skip is recorded.
 _Avoid_: Summary (a Conversation's), thread summary
 
 **Customer merge**:

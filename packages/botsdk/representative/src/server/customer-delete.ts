@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, notInArray, or, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, notInArray, or, type SQL } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
@@ -144,7 +144,7 @@ async function removeFromOtherThreads(
 /**
  * The mirror of the above: an undo can leave these Customers holding a hand-off that came from another
  * Customer's address, on a thread that moved back. It is theirs, so it goes to them rather than with
- * this delete, and its result still reaches them.
+ * this delete. Its thread goes, so no reply is sent, and they read its result on a later verified Turn.
  */
 async function giveBackHandOffs(tx: Transaction, userId: string, customerIds: string[]) {
   const handOff = representativeHandOff;
@@ -203,10 +203,7 @@ export async function deleteCustomer(
     }
 
     const merge = representativeCustomerMerge;
-    const undone = await tx
-      .select()
-      .from(merge)
-      .where(and(eq(merge.userId, userId), isNotNull(merge.undoneAt)));
+    const merges = await tx.select().from(merge).where(eq(merge.userId, userId));
     const fromOthers = await removeFromOtherThreads(tx, context, userId, customerIds, identities);
     await giveBackHandOffs(tx, userId, customerIds);
     const handOffs = await tx
@@ -215,29 +212,39 @@ export async function deleteCustomer(
       .where(inArray(representativeHandOff.customerId, customerIds));
     const assignmentIds = [...handOffs.map((row) => row.assignmentId), ...fromOthers.assignmentIds];
 
-    // A merge of these Customers goes with them. An undone one of someone else's can still hold their
-    // ids in JSON, from when they had been merged into one of its two.
+    // A merge of these Customers goes with them. Another's can still hold their ids in JSON, from when
+    // they had been merged into one of its two: an undone one goes, as nothing can use it again, and
+    // one that stands stays without those ids, as the owner can still undo it.
     const gone = new Set([
       ...identities.map((each) => each.id),
       ...threads.map((each) => each.id),
       ...fromOthers.threadIds,
       ...assignmentIds,
     ]);
-    const holdingThem = undone.filter((row) =>
-      [
+    const kept = (ids: string[]) => ids.filter((each) => !gone.has(each));
+    for (const row of merges) {
+      const held = [
         ...row.identityIds,
         ...row.threadIds,
         ...row.handOffIds,
         ...row.movedHolds.flatMap((hold) => [hold.closedThreadId, hold.survivingThreadId]),
-      ].some((each) => gone.has(each)),
-    );
-    if (holdingThem.length > 0) {
-      await tx.delete(merge).where(
-        inArray(
-          merge.id,
-          holdingThem.map((row) => row.id),
-        ),
-      );
+      ];
+      if (!held.some((each) => gone.has(each))) continue;
+      if (row.undoneAt) {
+        await tx.delete(merge).where(eq(merge.id, row.id));
+        continue;
+      }
+      await tx
+        .update(merge)
+        .set({
+          identityIds: kept(row.identityIds),
+          threadIds: kept(row.threadIds),
+          handOffIds: kept(row.handOffIds),
+          movedHolds: row.movedHolds.filter(
+            (hold) => !gone.has(hold.closedThreadId) && !gone.has(hold.survivingThreadId),
+          ),
+        })
+        .where(eq(merge.id, row.id));
     }
 
     await tx.delete(representativeCustomer).where(inArray(representativeCustomer.id, customerIds));

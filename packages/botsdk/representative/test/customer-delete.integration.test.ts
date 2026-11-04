@@ -436,6 +436,42 @@ describe("deleting a Customer", () => {
     expect((await rpc.representative.customerList()).map((each) => each.id)).toEqual([ada.id]);
   });
 
+  it("strips what it removed from a merge that still stands, and the merge can still be undone", async () => {
+    const zedNumber = "+15550028";
+    const owner = await instance({ turnRounds: [() => round(), () => round(), handsOff] });
+    const { rpc, say, customerAt, settle } = owner;
+    await say("Ada speaks.", adaNumber);
+    await say("Bob speaks.", bobNumber);
+    await settle();
+    const [ada, bob] = [await customerAt(adaNumber), await customerAt(bobNumber)];
+    await rpc.representative.customerMerge({ id: bob.id, intoId: ada.id });
+    await say("Bob on Ada's thread.", bobNumber);
+    await settle();
+    const [first] = await rpc.representative.customerMergeList();
+    await rpc.representative.customerMergeUndo({ id: first!.id });
+    await say("Zed speaks.", zedNumber);
+    await settle();
+    const zed = await customerAt(zedNumber);
+    await rpc.representative.customerMerge({ id: ada.id, intoId: zed.id });
+    const [theirs] = await handOffsAt(bobNumber);
+    const standing = () =>
+      getTestDb()
+        .select()
+        .from(representativeCustomerMerge)
+        .where(eq(representativeCustomerMerge.absorbedCustomerId, ada.id));
+    expect((await standing())[0]!.handOffIds).toContain(theirs!.assignmentId);
+
+    await rpc.representative.customerDelete({ id: bob.id });
+
+    const [merge] = await standing();
+    expect(merge!.undoneAt).toBeNull();
+    expect(merge!.handOffIds).not.toContain(theirs!.assignmentId);
+    await rpc.representative.customerMergeUndo({ id: merge!.id });
+    expect((await rpc.representative.customerList()).map((each) => each.id).sort()).toEqual(
+      [ada.id, zed.id].sort(),
+    );
+  });
+
   it("removes a thread of another Customer's that held only their words", async () => {
     const owner = await instance();
     const { rpc, say, customerAt, settle } = owner;

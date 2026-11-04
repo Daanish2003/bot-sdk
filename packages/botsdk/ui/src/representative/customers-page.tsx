@@ -184,6 +184,7 @@ function DeleteCustomer({
     t("representative.customers.deleteGoesHandOffs"),
     t("representative.customers.deleteGoesJobs"),
     t("representative.customers.deleteGoesElsewhere"),
+    t("representative.customers.deleteGoesMergeHistory"),
     ...(merged && merged.length > 0
       ? [
           t("representative.customers.deleteGoesMerged", {

@@ -627,7 +627,9 @@ export const representativeContract = {
   customerMerge: oc.input(customerMergeInput).output(type<CustomerView>()),
   /**
    * Hard-deletes a Customer and everyone merged into them, with their identities, memory, threads and
-   * hand-off contact details, and cancels their queued jobs. Spend stays. It can't be undone.
+   * hand-off contact details, and cancels their queued jobs. Messages to or from their identities on
+   * other Customers' threads go too, with those threads' summaries, and a thread left empty. So do
+   * undone merges holding their ids. Spend stays. It can't be undone.
    */
   customerDelete: oc.input(idInput),
   /** What the pass wrote for a Customer's closed threads, newest first, skips too. */
