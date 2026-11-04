@@ -125,6 +125,11 @@ export async function optOut(
   },
 ) {
   if (!(await markOptedOut(tx, userId, heard, source, now))) return false;
+  // Nothing waiting on this thread gets a Turn: its reply could not be sent.
+  await tx
+    .update(representativeThread)
+    .set({ waitingFrom: null, waitingSince: null })
+    .where(eq(representativeThread.id, threadId));
   const decision = await passGate(tx, {
     kind: "opt_out_confirmation",
     threadId,

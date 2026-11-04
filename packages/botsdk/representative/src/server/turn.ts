@@ -636,6 +636,7 @@ export function turnTools(turn: Turn) {
     }).server(async (_input, context) => {
       const now = await job.now();
       return kit.liveActivity("flag_opt_out", context?.toolCallId, async (tx) => {
+        let fresh = true;
         // A test conversation reaches nothing, and is answered as a live Turn is.
         if (thread !== null) {
           // The Representative's row, then the Customer's and the identity's, and the thread's last:
@@ -646,7 +647,7 @@ export function turnTools(turn: Turn) {
             .where(eq(representative.id, representativeId))
             .for("key share");
           if (await holdThreadCustomer(tx, thread.threadId)) {
-            await optOut(job, tx, {
+            fresh = await optOut(job, tx, {
               userId,
               threadId: thread.threadId,
               heard: thread.heard,
@@ -660,7 +661,9 @@ export function turnTools(turn: Turn) {
         }
         return {
           optedOut: true,
-          note: "Nothing more can be sent to this Customer. They have been sent one fixed confirmation, so send no reply.",
+          note: fresh
+            ? "Nothing more can be sent to this Customer. They get one fixed confirmation, so send no reply."
+            : "This Customer had opted out already, and nothing more can be sent to them. Send no reply.",
         };
       });
     }),
