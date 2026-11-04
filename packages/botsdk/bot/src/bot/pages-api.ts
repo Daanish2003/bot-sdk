@@ -65,7 +65,7 @@ export function pagesService(deps: BotSdkContext): PagesService {
         path,
         createdAt: deps.clock(),
       });
-      await deps.channels.pageIn(tx, { id, userId });
+      await deps.channels.pageIn(tx, { id, userId, urgency: input.urgency });
       return { id };
     },
   };

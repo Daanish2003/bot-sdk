@@ -10,10 +10,11 @@ import { claimJob, inProcessRunner, type JobRunner } from "../../src/runner/inte
 import { bot, linkedIdentity, usage } from "../../src/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
+import { followSend } from "@ai-chat/test-support/follow-send";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
-import { createFakeAdapter } from "@botsdk/testing/fake-adapter";
+import { createFakeAdapter, round, text } from "@botsdk/testing/fake-adapter";
 import {
   fakeEmailProvider,
   fakeMessagingAdapter,
@@ -75,7 +76,7 @@ const alert = {
  */
 async function ownerWithPages({ quota }: { quota?: { budgetUsd: number } } = {}) {
   const timer = fakeJobClock(at);
-  const brain = createFakeAdapter({ rounds: [] });
+  const brain = createFakeAdapter({ rounds: [round(text("Hello"))] });
   const logged: string[] = [];
   const telegram = fakeMessagingAdapter({ id: "telegram" });
   const email = fakeEmailProvider();
@@ -141,9 +142,10 @@ async function ownerWithPages({ quota }: { quota?: { budgetUsd: number } } = {})
   const contextOf = (id: string) =>
     deps!.parts.features.find(({ feature }) => feature.id === id)!.context;
   const { pages } = contextOf("frontDesk") as FeatureContext<"pages">;
-  const page = (
-    input: Partial<typeof alert | { title: string; text: string; path: string }> = {},
-  ) => getTestDb().transaction((tx) => pages.send(tx, { userId: user.id, ...alert, ...input }));
+  const page = (input: Partial<Record<keyof typeof alert, string>> = {}) =>
+    getTestDb().transaction((tx) =>
+      pages.send(tx, { userId: user.id, ...alert, ...(input as Partial<typeof alert>) }),
+    );
   const runDue = async () => {
     for (;;) {
       const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: true });
@@ -361,6 +363,97 @@ describe("Pages", () => {
     await runDue();
 
     expect(email.sent[0]!.text).toContain("Replies to this address aren't read");
+  });
+
+  describe("outside the owner's hours", () => {
+    const hour = 60 * minute;
+    // 09:00 is inside these hours, which end at 12:00 UTC (the owner has written from no zone).
+    const hours = { start: "08:00", end: "12:00" };
+    const setHours = (client: Awaited<ReturnType<typeof ownerWithPages>>["client"]) =>
+      client.notifications.update({ quietHours: hours, urgent: null, other: null });
+
+    it("holds a routine Page until the hours end, then sends it", async () => {
+      const { page, runDue, timer, push, telegram, client } = await ownerWithPages();
+      await setHours(client);
+
+      await page();
+      await runDue();
+      timer.advance(3 * hour - 1);
+      await runDue();
+      expect(push.sent).toEqual([]);
+      expect(telegram.sends).toEqual([]);
+
+      timer.advance(1);
+      await runDue();
+      expect(push.sent).toHaveLength(1);
+      expect(telegram.sends).toHaveLength(1);
+    });
+
+    it("sends an emergency Page at once", async () => {
+      const { page, runDue, push, telegram, client } = await ownerWithPages();
+      await setHours(client);
+
+      await page({ urgency: "emergency" });
+      await runDue();
+
+      expect(push.sent).toHaveLength(1);
+      expect(telegram.sends).toHaveLength(1);
+    });
+
+    it("sends nothing for a waiting Page acknowledged before morning", async () => {
+      const { page, runDue, timer, push, telegram, email, client } = await ownerWithPages();
+      await setHours(client);
+
+      const { id } = await page();
+      await runDue();
+      timer.advance(2 * hour);
+      await client.pages.acknowledge({ id });
+      timer.advance(hour + 20 * minute);
+      await runDue();
+
+      expect(push.sent).toEqual([]);
+      expect(telegram.sends).toEqual([]);
+      expect(email.sent).toEqual([]);
+    });
+
+    it("starts the 10-minute email wait when the held Page goes out", async () => {
+      const { page, runDue, timer, email, push, client } = await ownerWithPages();
+      await setHours(client);
+
+      await page();
+      timer.advance(3 * hour);
+      await runDue();
+      expect(push.sent).toHaveLength(1);
+      expect(email.sent).toEqual([]);
+
+      timer.advance(10 * minute - 1);
+      await runDue();
+      expect(email.sent).toEqual([]);
+      timer.advance(1);
+      await runDue();
+      expect(email.sent).toHaveLength(1);
+    });
+
+    it("reads the hours in the zone the owner last wrote from", async () => {
+      const { page, runDue, timer, push, client, botId } = await ownerWithPages();
+      await setHours(client);
+      // 09:00 UTC is 14:00 in Karachi, outside the hours there: the Page goes at once.
+      const stream = await followSend(client, {
+        botId,
+        id: uuidv7(),
+        text: "Hi",
+        timeZone: "Asia/Karachi",
+      });
+      await stream.next();
+      await stream.return(undefined);
+      timer.advance(500);
+      await runDue();
+
+      await page();
+      await runDue();
+
+      expect(push.sent).toHaveLength(1);
+    });
   });
 
   it("tries the owner's next Bot on the platform when one can't reach the chat", async () => {

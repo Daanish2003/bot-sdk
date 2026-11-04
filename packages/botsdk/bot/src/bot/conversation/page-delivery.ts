@@ -1,3 +1,5 @@
+import type { PageUrgency } from "@botsdk/client/bot/pages";
+import { knownZone } from "@botsdk/client/bot/time-zone";
 import { and, asc, eq, sql } from "drizzle-orm";
 
 import {
@@ -15,8 +17,10 @@ import {
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { defineCoreJob, PermanentJobError } from "../../runner/internal";
 import { bot, channelAccount, linkedIdentity, page } from "../../storage";
+import { inQuietHours, notificationSettingsOf } from "../notifications-api";
 import { listenerAccount, markNeedsAttention } from "./channel-accounts";
 import { pushToDevices } from "./push-delivery";
+import { userTimeZone } from "./rooms";
 
 /*
  * How a Page leaves (ticket #1300): one job per way out, as a Bot Message's delivery has, so a retry
@@ -35,19 +39,43 @@ type PageChannels = {
   messaging: readonly MessagingAdapter[];
 };
 
-/** Queues Page `id`'s sends, in the transaction that raised it. A Channel the Host lacks has none. */
+const minuteMs = 60_000;
+
+/**
+ * When a routine Page raised at `now` may go out (ticket #1301): at once outside the owner's hours,
+ * else when they end, as the clock reads in the zone the owner last wrote from. The hours are the
+ * Quiet hours of their notification settings.
+ */
+async function releasedAt(tx: Transaction, userId: string, now: Date): Promise<Date> {
+  const { quietHours } = await notificationSettingsOf(tx, userId);
+  if (!quietHours) return now;
+  const zone = knownZone(await userTimeZone(tx, userId));
+  if (!inQuietHours(quietHours, now, zone)) return now;
+  // Quiet hours are whole minutes and never fill the day, so they end within 24 hours.
+  const minute = new Date(Math.floor(now.getTime() / minuteMs) * minuteMs);
+  while (inQuietHours(quietHours, minute, zone)) minute.setTime(minute.getTime() + minuteMs);
+  return minute;
+}
+
+/**
+ * Queues Page `id`'s sends, in the transaction that raised it. A Channel the Host lacks has none. A
+ * routine Page waits for the owner's hours to end, and its email wait starts when it goes out.
+ */
 export async function pageIn(
   deps: BotSdkContext,
   tx: Transaction,
   { email, push, messaging }: PageChannels,
-  { id, userId }: { id: string; userId: string },
+  { id, userId, urgency }: { id: string; userId: string; urgency: PageUrgency },
 ): Promise<void> {
+  const now = deps.clock();
+  const goesOut = urgency === "emergency" ? now : await releasedAt(tx, userId, now);
   const enqueue = (key: string, payload: PageDelivery, runAfter?: Date) =>
     deps.runner.enqueueIn(tx, pageJobName, payload, {
       idempotencyKey: `page:${id}:${key}`,
       ...(runAfter && { runAfter }),
     });
-  if (push) await enqueue("push", { via: "push", pageId: id });
+  const held = goesOut > now ? goesOut : undefined;
+  if (push) await enqueue("push", { via: "push", pageId: id }, held);
   if (messaging.length > 0) {
     const linked = await tx
       .select({ platform: linkedIdentity.platform })
@@ -55,12 +83,12 @@ export async function pageIn(
       .where(eq(linkedIdentity.userId, userId));
     for (const { platform } of linked) {
       if (messaging.some((adapter) => adapter.id === platform)) {
-        await enqueue(platform, { via: "messaging", pageId: id, platform });
+        await enqueue(platform, { via: "messaging", pageId: id, platform }, held);
       }
     }
   }
   if (email) {
-    const later = new Date(deps.clock().getTime() + pageEmailDelayMs);
+    const later = new Date(goesOut.getTime() + pageEmailDelayMs);
     await enqueue("email", { via: "email", pageId: id }, later);
   }
 }

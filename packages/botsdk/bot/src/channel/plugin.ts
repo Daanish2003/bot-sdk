@@ -1,5 +1,6 @@
 import type { ChannelAccountRow } from "@botsdk/client/bot/channel-account";
 import type { LinkCode, LinkedIdentityRow } from "@botsdk/client/bot/linked-identity";
+import type { PageUrgency } from "@botsdk/client/bot/pages";
 import { z } from "zod";
 
 import type { BotSdkPlugin, Transaction } from "../plugin";
@@ -115,9 +116,13 @@ export type ChannelApi = {
   sendDelivery: (payload: DeliveryPayload) => Promise<void>;
   /**
    * Queues a Page's sends in the caller's transaction (ticket #1300): web push and each of the
-   * user's Linked identities at once, email after 10 minutes. A Channel the Host lacks has none.
+   * user's Linked identities at once, email after 10 minutes. A routine Page outside the owner's hours
+   * waits for them to end (ticket #1301). A Channel the Host lacks has none.
    */
-  pageIn: (tx: Transaction, page: { id: string; userId: string }) => Promise<void>;
+  pageIn: (
+    tx: Transaction,
+    page: { id: string; userId: string; urgency: PageUrgency },
+  ) => Promise<void>;
   /** Sends one `page.deliver` job's Page on its Channel; the runner retries it when it throws. */
   sendPage: (payload: PageDelivery) => Promise<void>;
   /** The web push Channel's VAPID public key, or `null` when the Host gave no web push adapter. */
