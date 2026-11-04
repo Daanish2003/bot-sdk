@@ -221,7 +221,8 @@ export async function listFactProposals(
 /**
  * Answers the proposal `id`. It closes the card first, under its Conversation's lock, and only a card
  * that still waited lets the answer count: one expired or dropped by the Bot's reset can't change the
- * fact. A proposal whose card is past waiting is forgotten as it is refused.
+ * fact. A proposal whose card is past waiting is forgotten as it is refused. A lesson (no Bot) has no
+ * card: it counts while its own 7 days last, and answering it wakes no one.
  */
 async function answerProposal<Result>(
   { db, clock, jobs, factApprovals, threads }: ProposeContext,

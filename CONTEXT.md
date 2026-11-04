@@ -167,7 +167,7 @@ The documents a Release holds whole in a Representative's prompt, copied as text
 _Avoid_: Knowledge, excerpt, embedding
 
 **Published fact**:
-One typed piece of business information a Representative can state, such as a price or opening hours, quoted exactly and never reworded. It has a key (unique to the user), a type (text, money, hours, phone or url, each value checked against it), a topic and optional valid dates, outside which it is not in effect. Every Representative of the user shares them. It changes live, each add, edit and delete goes in a log with the old value, the new value and the time, and a change a Bot proposes needs the user's Approval.
+One typed piece of business information a Representative can state, such as a price or opening hours, quoted exactly and never reworded. It has a key (unique to the user), a type (text, money, hours, phone or url, each value checked against it), a topic and optional valid dates, outside which it is not in effect. Every Representative of the user shares them. It changes live, each add, edit and delete goes in a log with the old value, the new value and the time, and a change a Bot proposes, or a Lesson, needs the user's Approval.
 _Avoid_: Knowledge, FAQ
 
 **Gap**:
@@ -197,6 +197,10 @@ _Avoid_: CRM
 **Customer profile**:
 A Customer's typed details, kept in the database: the fixed fields (name, language, preferred Channel, address) plus fields the user defines for all their Customers. Each value has a source, a date and a status: `confirmed` if the user set it or a verified Customer said it, otherwise `claimed`. It's a Bot's **Profile** only in name, which is a file about the user.
 _Avoid_: Profile, on its own
+
+**Lesson**:
+A Published fact the Customer memory pass proposes after a closed Customer thread, with no identity in it: code refuses a phone or email shape and any known value of the thread's Customer. It reaches the user as an Approval on the Facts page only, with no Bot and no card in a Bot's Conversation, and answering it wakes no one. It never records which Customer or thread it came from. If approved it becomes a Published fact, logged as proposed by the pass.
+_Avoid_: Insight
 
 **Customer summary**:
 The one summary of a closed Customer thread, part of Customer memory, linked to that thread's transcript. It finds its Customer through its thread, so it follows a Customer merge. Written once. A thread held by the user or waiting on a code hand-off has none, nor does one closed for holding two people's words when a merge was undone. When the pass can't write one, such as for a Release that names no Model, the skip is recorded.
