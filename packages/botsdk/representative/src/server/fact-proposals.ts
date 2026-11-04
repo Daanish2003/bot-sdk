@@ -16,6 +16,7 @@ import {
 } from "../shared/contract";
 import { factTypes } from "../shared/facts";
 import { representativeFact, representativeFactProposal } from "./db/schema";
+import { lessonProposer } from "./customer-lessons";
 import { applyProposedFact, factOf, fieldsOf, logged } from "./facts";
 
 /** When the Bot was last reset: anything it asked before then, it has forgotten. */
@@ -197,7 +198,7 @@ export async function listFactProposals(
   const rows = await db
     .select({ row: proposal, botName: bot.name, current: representativeFact })
     .from(proposal)
-    .innerJoin(bot, eq(bot.id, proposal.botId))
+    .leftJoin(bot, eq(bot.id, proposal.botId))
     .leftJoin(
       representativeFact,
       and(eq(representativeFact.userId, proposal.userId), eq(representativeFact.key, proposal.key)),
@@ -208,7 +209,7 @@ export async function listFactProposals(
     id: row.id,
     key: row.key,
     botId: row.botId,
-    botName,
+    botName: botName ?? null,
     why: row.why,
     current: current && factOf(logged(current)),
     proposed: factOf(row.proposed),
@@ -230,7 +231,7 @@ async function answerProposal<Result>(
   apply: (
     tx: Transaction,
     row: typeof proposal.$inferSelect,
-    botName: string,
+    proposedBy: string,
     now: Date,
   ) => Promise<Result>,
 ): Promise<Result> {
@@ -238,13 +239,18 @@ async function answerProposal<Result>(
     const [found] = await tx
       .select({ row: proposal, botName: bot.name })
       .from(proposal)
-      .innerJoin(bot, eq(bot.id, proposal.botId))
+      .leftJoin(bot, eq(bot.id, proposal.botId))
       .where(and(eq(proposal.id, id), eq(proposal.userId, userId)))
       .for("update", { of: proposal });
     if (!found) return null;
     const { row, botName } = found;
     await tx.delete(proposal).where(eq(proposal.id, id));
     const now = clock();
+    // A lesson has no Bot, no card and no one to wake; past its 7 days it can no longer change the fact.
+    if (!row.botId || !row.cardId) {
+      if (row.expiresAt <= now) return { gone: null };
+      return { result: await apply(tx, row, lessonProposer, now), conversationId: null };
+    }
     // The reset's job drops it after the reset commits, maybe much later: until then it is as good as dropped.
     const reset = await lastResetOf(tx, row.botId);
     if (reset && row.postedAt <= reset) {
@@ -254,7 +260,7 @@ async function answerProposal<Result>(
     const answered = await factApprovals.answer(tx, { userId, id: row.cardId, answer });
     if (!answered) return null;
     return {
-      result: await apply(tx, row, botName, now),
+      result: await apply(tx, row, botName!, now),
       conversationId: answered.conversationId,
     };
   });
@@ -263,8 +269,10 @@ async function answerProposal<Result>(
     if (outcome.gone) await threads.hintChanged(outcome.gone);
     throw proposalGone();
   }
-  jobs.wake();
-  await threads.hintChanged(outcome.conversationId);
+  if (outcome.conversationId) {
+    jobs.wake();
+    await threads.hintChanged(outcome.conversationId);
+  }
   return outcome.result;
 }
 
@@ -302,7 +310,8 @@ export async function dropProposalsOfBot(
     const conversations = new Set<string>();
     for (const row of rows) {
       if (reset && row.postedAt > reset) continue;
-      const closed = await factApprovals.drop(tx, { userId, id: row.cardId });
+      // A Bot's proposal always has its card; only a lesson has none, and it has no Bot.
+      const closed = await factApprovals.drop(tx, { userId, id: row.cardId! });
       if (closed) conversations.add(closed.conversationId);
       await tx.delete(proposal).where(eq(proposal.id, row.id));
     }

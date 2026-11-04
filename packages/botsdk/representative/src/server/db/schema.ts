@@ -546,21 +546,21 @@ export const representativeGap = botsdkSchema.table(
  * A Bot's proposed Published fact, waiting for the owner (ticket #1264): the whole fact it would
  * become. It goes when answered, dropped or replaced, and one that expired stays only until the
  * owner's next proposal clears it, changing nothing meanwhile. One waits per key. It goes with its
- * Bot, whose card goes with the Conversation.
+ * Bot, whose card goes with the Conversation. A lesson from the Customer memory pass (ticket #1289)
+ * has no Bot and no card, and no link to the Customer or thread it came from.
  */
 export const representativeFactProposal = botsdkSchema.table(
   "representative_fact_proposal",
   {
     id: uuid("id").primaryKey(),
     userId: text("user_id").notNull(),
-    botId: uuid("bot_id")
-      .notNull()
-      .references((): AnyPgColumn => bot.id, { onDelete: "cascade" }),
+    /** Null for a lesson. */
+    botId: uuid("bot_id").references((): AnyPgColumn => bot.id, { onDelete: "cascade" }),
     key: text("key").notNull(),
     proposed: jsonb("proposed").$type<LoggedFact>().notNull(),
     why: text("why").notNull(),
-    /** The Approval's card in the Bot's Conversation. */
-    cardId: text("card_id").notNull(),
+    /** The Approval's card in the Bot's Conversation; null for a lesson. */
+    cardId: text("card_id"),
     /** The Turn and tool call that asked, so a replay after a crash asks only once. */
     call: text("call"),
     postedAt: timestamp("posted_at").notNull(),

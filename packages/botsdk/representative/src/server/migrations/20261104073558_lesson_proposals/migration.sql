@@ -1,0 +1,2 @@
+ALTER TABLE "botsdk"."representative_fact_proposal" ALTER COLUMN "bot_id" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "botsdk"."representative_fact_proposal" ALTER COLUMN "card_id" DROP NOT NULL;
