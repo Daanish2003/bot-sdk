@@ -187,9 +187,11 @@ export async function receiveMessage(
   if (!owner) return null;
   // Over the inbound limit, a message is logged and kept nowhere. What opts out or back in, and what
   // reports an emergency, is exempt, so a limit never stops a Customer doing either (ticket #1311).
+  // On what they said, not what is stored: a code in the message mustn't hide an emergency.
+  const script = await scriptSaidIn(tx, owner.releaseId, text);
   if (
     keywordIn(heard.channel, text) === null &&
-    (await scriptSaidIn(tx, owner.releaseId, text)) === null &&
+    script === null &&
     (await overInboundLimit(tx, owner.userId, heard, now))
   ) {
     services.logger.error(
@@ -230,8 +232,6 @@ export async function receiveMessage(
     .for("update");
   const wasOptedOut = heardIdentity?.optedOutAt != null;
   const keyword = stored === text ? keywordIn(heard.channel, text) : null;
-  // On what they said, not what is stored: a code in the message mustn't hide an emergency.
-  const script = await scriptSaidIn(tx, owner.releaseId, text);
   const kept = blocked || wasOptedOut || keyword === "stop" || script !== null;
   const [thread] = await tx
     .insert(representativeThread)
