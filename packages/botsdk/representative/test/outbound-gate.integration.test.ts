@@ -67,7 +67,7 @@ function opening() {
 }
 
 /** A running instance whose Customer channel sends through a fake messaging adapter. */
-async function instance(rounds: Round[], held?: Promise<void>) {
+async function instance(rounds: Round[], held?: Promise<void>, at = new Date()) {
   const fake = createFakeAdapter({ rounds });
   const entered: unknown[] = [];
   const adapter: AnyTextAdapter = {
@@ -95,7 +95,7 @@ async function instance(rounds: Round[], held?: Promise<void>) {
       await messaging.adapter.send(account, message, { fetch });
     },
   };
-  const timer = fakeJobClock(new Date());
+  const timer = fakeJobClock(at);
   let made: TestDeps | undefined;
   const jobs = inProcessRunner({
     db: getTestDb(),
@@ -169,14 +169,23 @@ type Heard = { channel: string; externalId: string };
 const heard = (world: World) => world.hears("Hello");
 
 /** The Representative's reply, as the tool stores it, from a Turn still running. */
-const anotherReply = async ({ deps, threadId }: World, now = new Date()) => {
+const anotherReply = async (
+  { deps, threadId }: World,
+  now = new Date(),
+  businessStarted = false,
+) => {
   const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
   const id = await threadId();
   return getTestDb().transaction((tx) =>
     storeReply(
       feature.context,
       tx,
-      { threadId: id, heard: { channel: "fake", externalId: number }, verified: false },
+      {
+        threadId: id,
+        heard: { channel: "fake", externalId: number },
+        verified: false,
+        businessStarted,
+      },
       { text: "Still here", sources: [] },
       "small_talk",
       now,
@@ -824,5 +833,165 @@ describe("the outbound caps", () => {
       ["hold", "caps"],
       ["drop", "replaced"],
     ]);
+  });
+});
+
+describe("quiet hours", () => {
+  /** 23:00 in UTC, the business's time zone until the owner sets another. */
+  const night = new Date("2026-11-04T23:00:00Z");
+  const held = () => getTestDb().select().from(representativeHeldMessage);
+  const outcomes = async (world: World) =>
+    (await world.decisions()).map(({ kind, outcome, rule }) => [kind, outcome, rule]);
+  /** Moves the fake clock on and lets the runner see it. */
+  const pass = (world: World, ms: number) => {
+    world.timer.advance(ms);
+    world.timer.tick();
+  };
+  const hour = 60 * 60 * 1000;
+  const setCustomerZone = async (world: World, value: string) => {
+    const [customer] = await world.rpc.representative.customerList();
+    await world.rpc.representative.customerProfileSet({
+      id: customer!.id,
+      field: "time_zone",
+      value,
+    });
+  };
+
+  it("holds what the business starts at night, and sends it when the quiet hours end", async () => {
+    const world = await instance([quiet()], undefined, night);
+    await heard(world);
+
+    const held = await anotherReply(world, night, true);
+
+    expect(held).toMatchObject({ error: expect.stringContaining("held") });
+    expect(world.got()).toEqual([]);
+    expect(await outcomes(world)).toEqual([["reply", "hold", "quietHours"]]);
+    // Quiet hours end by themselves: the owner isn't paged for them.
+    expect(await getTestDb().select().from(page)).toEqual([]);
+
+    pass(world, 9 * hour);
+    await expect.poll(world.got, poll).toEqual(["Still here"]);
+    // The held message sent later has a decision of its own.
+    expect(await outcomes(world)).toEqual([
+      ["reply", "hold", "quietHours"],
+      ["released", "send", "passed"],
+    ]);
+  });
+
+  it("holds the message until the quiet hours end, not a moment before", async () => {
+    const world = await instance([quiet()], undefined, night);
+    await heard(world);
+    await anotherReply(world, night, true);
+
+    // 07:00: an hour of quiet is left.
+    pass(world, 8 * hour);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(world.got()).toEqual([]);
+    pass(world, hour);
+    await expect.poll(world.got, poll).toEqual(["Still here"]);
+  });
+
+  it("sends a direct reply to a Customer who just wrote at any hour", async () => {
+    const world = await instance([replies("We open at nine."), quiet()], undefined, night);
+
+    await world.hears("When do you open?");
+
+    await expect.poll(world.got, poll).toEqual(["We open at nine."]);
+    expect(await outcomes(world)).toEqual([["reply", "send", "passed"]]);
+  });
+
+  it("drops a held message that a new Customer message replaced, and the log says so", async () => {
+    const world = await instance([quiet(), quiet()], undefined, night);
+    await heard(world);
+    await anotherReply(world, night, true);
+
+    await world.hears("Are you there?");
+    pass(world, 9 * hour);
+
+    expect(await held()).toEqual([]);
+    expect(await outcomes(world)).toEqual([
+      ["reply", "hold", "quietHours"],
+      ["reply", "drop", "replaced"],
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(world.got()).toEqual([]);
+  });
+
+  it("uses the Customer's time zone when it is known", async () => {
+    const world = await instance([quiet()], undefined, night);
+    await heard(world);
+    // 12:00 in Auckland: the business's UTC night isn't the Customer's.
+    await setCustomerZone(world, "Pacific/Auckland");
+
+    expect(await anotherReply(world, night, true)).toEqual({ sent: true });
+    expect(await outcomes(world)).toEqual([["reply", "send", "passed"]]);
+  });
+
+  it("holds by the Customer's night even when it is the business's day", async () => {
+    const world = await instance([quiet()], undefined, new Date("2026-11-04T12:00:00Z"));
+    await heard(world);
+    // 21:00 in Tokyo, while 12:00 in UTC is the business's day.
+    await setCustomerZone(world, "Asia/Tokyo");
+
+    expect(await anotherReply(world, world.timer.clock.now(), true)).toMatchObject({
+      error: expect.stringContaining("held"),
+    });
+  });
+
+  it("falls back to the business's time zone when the Customer's is unknown", async () => {
+    const world = await instance([quiet()], undefined, night);
+    await heard(world);
+    await world.rpc.representative.setQuietHours({
+      id: world.id,
+      startHour: 21,
+      endHour: 8,
+      timeZone: "Pacific/Auckland",
+    });
+
+    expect(await anotherReply(world, night, true)).toEqual({ sent: true });
+  });
+
+  it("lets the owner edit the hours and the business time zone, and shows them", async () => {
+    const world = await instance([quiet()], undefined, night);
+    await heard(world);
+    expect((await world.rpc.representative.get({ id: world.id })).quietHours).toEqual({
+      startHour: 21,
+      endHour: 8,
+      timeZone: "UTC",
+    });
+
+    const edited = await world.rpc.representative.setQuietHours({
+      id: world.id,
+      startHour: 0,
+      endHour: 6,
+      timeZone: "Europe/Paris",
+    });
+
+    expect(edited.quietHours).toEqual({ startHour: 0, endHour: 6, timeZone: "Europe/Paris" });
+    // 00:00 in Paris is 23:00 UTC the day before: the edited hours apply.
+    expect(await anotherReply(world, night, true)).toMatchObject({
+      error: expect.stringContaining("held"),
+    });
+    await expect(
+      world.rpc.representative.setQuietHours({
+        id: world.id,
+        startHour: 0,
+        endHour: 6,
+        timeZone: "Not/AZone",
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("leaves a message held for the owner who took the thread over", async () => {
+    const world = await instance([quiet()], undefined, night);
+    await heard(world);
+    await anotherReply(world, night, true);
+    await world.rpc.representative.threadTakeOver({ id: await world.threadId() });
+
+    pass(world, 9 * hour);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(world.got()).toEqual([takeoverNote]);
+    expect(await held()).toHaveLength(1);
   });
 });

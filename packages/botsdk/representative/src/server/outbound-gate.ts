@@ -7,6 +7,7 @@ import type { Transaction } from "@botsdk/bot/plugin";
 import { defineJob } from "@botsdk/bot/runner/internal";
 import type { ReplySource, StoredReplyKind } from "../shared/replies";
 import { type CustomerChannel } from "./customer-proof";
+import { combinedProfilesOf } from "./customer-profile";
 import { holdThreadCustomer } from "./customers";
 import {
   type GateOutcome,
@@ -19,6 +20,7 @@ import {
   representativeThread,
   representativeThreadMessage,
 } from "./db/schema";
+import { isQuiet, quietEndsAt, zoneOr } from "./quiet-hours";
 
 /*
  * The Outbound gate (ticket #1298): one code-owned check of every message to a Customer, in a fixed
@@ -63,6 +65,10 @@ type GateFacts = {
   /** The owner's caps on those two. */
   maxInARow: number;
   maxPerDay: number;
+  /** The message starts with the business: no new Customer message is being answered. */
+  businessStarted: boolean;
+  /** It is quiet hours where the Customer is, or where the business is when that is unknown. */
+  quiet: boolean;
 };
 
 /** The day the per-day cap counts over, up to the message's time. */
@@ -77,7 +83,11 @@ export const liveChecks: Partial<Record<GateRule, GateCheck>> = {
   on: ({ enabled }) => (enabled ? null : "drop"),
   caps: ({ sentInARow, sentToday, maxInARow, maxPerDay }) =>
     sentInARow >= maxInARow || sentToday >= maxPerDay ? "hold" : null,
+  quietHours: ({ businessStarted, quiet }) => (businessStarted && quiet ? "hold" : null),
 };
+
+/** The rule whose hold lets itself go: the message is sent when the quiet period ends. */
+const quietRule: GateRule = "quietHours";
 
 /** What a Page for a held message says raised it. */
 const heldCause = "outbound_held";
@@ -98,6 +108,10 @@ export type Outgoing = {
   refusals?: GateRefusal[];
   /** Pages the owner when the gate holds a message; without it nobody is told. */
   pages?: PagesService;
+  /** Sends a message held for quiet hours when they end; without it, the owner has to send it. */
+  jobs?: JobsService;
+  /** The message starts with the business, such as a relayed Bot result: quiet hours hold it. */
+  businessStarted?: boolean;
   /** What is held if the gate holds it. A proof has none: its secret is never stored. */
   content?: {
     text: string;
@@ -110,6 +124,7 @@ export type Outgoing = {
 export type GateDecision = { id: string; outcome: GateOutcome; rule: string };
 
 type PagesService = FeatureContext<"pages">["pages"];
+type JobsService = FeatureContext["jobs"];
 
 type DecisionRow = typeof representativeOutboundDecision.$inferInsert;
 type HeldRow = typeof representativeHeldMessage.$inferInsert;
@@ -120,12 +135,19 @@ export type GateRefusal = {
   held?: HeldRow;
   /** What to tell the owner when this is the first time it is written. */
   page?: Parameters<PagesService["send"]>[1];
+  /** When a held message goes by itself: the end of its quiet hours. */
+  releaseAt?: Date;
 };
+
+export const heldReleaseJobName = "representative.held-release";
+export const heldReleasePayload = z.object({ heldId: z.uuid() });
+const heldReleaseJob = { name: heldReleaseJobName, payload: heldReleasePayload };
 
 async function writeDecision(
   tx: Transaction,
-  { decision, held, page }: GateRefusal,
+  { decision, held, page, releaseAt }: GateRefusal,
   pages?: PagesService,
+  jobs?: JobsService,
 ) {
   const [written] = await tx
     .insert(representativeOutboundDecision)
@@ -133,6 +155,15 @@ async function writeDecision(
     .onConflictDoNothing()
     .returning({ id: representativeOutboundDecision.id });
   if (held) await tx.insert(representativeHeldMessage).values(held).onConflictDoNothing();
+  // Keyed by the held message: a Turn writes a refusal again when it ends, and one job is enough.
+  if (held && releaseAt && jobs) {
+    await jobs.enqueueIn(
+      tx,
+      heldReleaseJob,
+      { heldId: held.id },
+      { idempotencyKey: `${heldReleaseJobName}:${held.id}`, runAfter: releaseAt },
+    );
+  }
   // Once: a Turn writes a refusal again when it ends, and the owner isn't told twice.
   if (written && page && pages) await pages.send(tx, page);
 }
@@ -143,7 +174,7 @@ async function writeDecision(
  * is. A thread gone by then took its log with it.
  */
 export async function logRefusals(
-  { db, pages }: Pick<FeatureContext<"pages">, "db" | "pages">,
+  { db, pages, jobs }: Pick<FeatureContext<"pages">, "db" | "pages" | "jobs">,
   refusals: GateRefusal[],
 ) {
   for (const refusal of refusals) {
@@ -153,7 +184,7 @@ export async function logRefusals(
         .from(representativeThread)
         .where(eq(representativeThread.id, refusal.decision.threadId))
         .for("key share");
-      if (thread) await writeDecision(tx, refusal, pages);
+      if (thread) await writeDecision(tx, refusal, pages, jobs);
     });
   }
 }
@@ -252,6 +283,9 @@ export async function passGate(
       name: representative.name,
       maxInARow: representative.maxInARow,
       maxPerDay: representative.maxPerDay,
+      quietStartHour: representative.quietStartHour,
+      quietEndHour: representative.quietEndHour,
+      businessTimeZone: representative.businessTimeZone,
     })
     .from(representativeThread)
     .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
@@ -261,8 +295,23 @@ export async function passGate(
     .select({ blockedAt: representativeCustomer.blockedAt })
     .from(representativeCustomer)
     .where(eq(representativeCustomer.id, outgoing.customerId ?? row.customerId));
+  const businessStarted = outgoing.businessStarted ?? false;
+  // The Customer's time zone wins, the business's is used when it's unknown.
+  let timeZone = row.businessTimeZone;
+  if (rules.includes(quietRule) && businessStarted) {
+    const profile = await combinedProfilesOf(tx, row.userId, [
+      outgoing.customerId ?? row.customerId,
+    ]);
+    const zone = profile
+      .get(outgoing.customerId ?? row.customerId)
+      ?.find(({ field }) => field === "time_zone");
+    timeZone = zoneOr(zone?.value, row.businessTimeZone);
+  }
+  const period = { startHour: row.quietStartHour, endHour: row.quietEndHour };
   const facts: GateFacts = {
     ...row,
+    businessStarted,
+    quiet: isQuiet(now, timeZone, period),
     blockedAt: customer?.blockedAt ?? null,
     ...(rules.includes("caps")
       ? await sentCounts(tx, threadId, row.customerId, now)
@@ -294,6 +343,7 @@ export async function passGate(
       externalId: to.externalId,
       createdAt: now,
     },
+    ...(rule === quietRule && { releaseAt: quietEndsAt(now, timeZone, period) }),
     ...(outcome === "hold" &&
       content && {
         held: {
@@ -317,7 +367,8 @@ export async function passGate(
           .where(eq(representativeHeldMessage.threadId, threadId))
           .limit(1)
       : [];
-  if (outcome === "hold" && !waiting) {
+  // Quiet hours end by themselves: the owner is told of what waits for them, not of what waits for morning.
+  if (outcome === "hold" && !waiting && rule !== quietRule) {
     written.page = {
       userId: row.userId,
       cause: heldCause,
@@ -327,7 +378,7 @@ export async function passGate(
       path: `/representatives/${row.representativeId}`,
     };
   }
-  await writeDecision(tx, written, outgoing.pages);
+  await writeDecision(tx, written, outgoing.pages, outgoing.jobs);
   if (outcome !== "send") outgoing.refusals?.push(written);
   return { id, outcome, rule };
 }

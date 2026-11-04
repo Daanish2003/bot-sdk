@@ -35,6 +35,7 @@ import { dropProposalsOfBot, factProposalTools } from "./fact-proposals";
 import { deleteFacts, exportFacts } from "./facts";
 import { deleteGaps, exportGaps } from "./gaps";
 import representativeMigrations from "./migrations.json" with { type: "json" };
+import { heldReleaseJob } from "./held-messages";
 import { customerDeliveryJob, exportOutboundDecisions } from "./outbound-gate";
 import {
   deleteRepresentatives,
@@ -128,6 +129,7 @@ export function representativeFeature(
     jobs: [
       representativeTurnJob(options.concurrency, channel),
       customerDeliveryJob(channel),
+      heldReleaseJob,
       handOffEndedJob,
       representativeTestJob,
       threadIdleJob,

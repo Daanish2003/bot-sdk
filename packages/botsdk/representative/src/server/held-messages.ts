@@ -1,4 +1,6 @@
+import { ORPCError } from "@orpc/contract";
 import { and, eq, sql } from "drizzle-orm";
+import type { z } from "zod";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
@@ -11,14 +13,22 @@ import {
   representativeThread,
   representativeThreadMessage,
 } from "./db/schema";
-import { deliverMessage, dropHeld, passGate } from "./outbound-gate";
+import { defineJob } from "@botsdk/bot/runner/internal";
+import {
+  deliverMessage,
+  dropHeld,
+  heldReleaseJobName,
+  heldReleasePayload,
+  passGate,
+} from "./outbound-gate";
 import { getThread } from "./owner-customers";
 import { customerBlocked, lockThread, threadClosed } from "./takeover";
 
 /*
  * What the owner does with a message the Outbound gate held (ticket #1304): send it or drop it. Only a
- * quiet-hours hold lets itself go; one held by a cap or a Channel's rules waits here. Each is a
- * decision in the log, and a new Customer message drops what is held (`receiveMessage`).
+ * quiet-hours hold lets itself go (`heldReleaseJob`, ticket #1303); one held by a cap or a Channel's
+ * rules waits here. Each is a decision in the log, and a new Customer message drops what is held
+ * (`receiveMessage`).
  */
 
 type Context = Pick<FeatureContext, "db" | "clock" | "jobs">;
@@ -50,11 +60,25 @@ async function ownedHeld(tx: Transaction, userId: string, heldId: string) {
  * only as the Representative's: it need not be held.
  */
 export async function sendHeldMessage(context: Context, userId: string, heldId: string) {
-  const sent = await context.db.transaction(async (tx) => {
+  const sent = await releaseHeld(context, userId, heldId, false);
+  // After the commit, so the decision stays in the log.
+  if (sent.blocked) throw customerBlocked();
+  return getThread(context, userId, sent.threadId);
+}
+
+/**
+ * The send behind `sendHeldMessage`. `byItself` is a quiet-hours hold going when they end: the owner
+ * holding the thread since keeps it held for them, as nothing is sent while they hold it.
+ */
+async function releaseHeld(context: Context, userId: string, heldId: string, byItself: boolean) {
+  return context.db.transaction(async (tx) => {
     const found = await ownedHeld(tx, userId, heldId);
     if (!found) throw heldNotFound();
     const thread = await lockThread(tx, userId, found);
     if (thread.state === "closed") throw threadClosed();
+    if (byItself && thread.state !== "representative") {
+      return { blocked: false as const, threadId: found };
+    }
     // Read again under the thread's lock: another send or a new Customer message may have taken it.
     const held = representativeHeldMessage;
     const decision = representativeOutboundDecision;
@@ -108,10 +132,32 @@ export async function sendHeldMessage(context: Context, userId: string, heldId: 
     await deliverMessage(context, tx, decided.id, messageId);
     return { blocked: false as const, threadId: found };
   });
-  // After the commit, so the decision stays in the log.
-  if (sent.blocked) throw customerBlocked();
-  return getThread(context, userId, sent.threadId);
 }
+
+/**
+ * Sends a message held for quiet hours when they end, unless something has taken it since: the owner
+ * sent or dropped it, or a new Customer message replaced it, and then there is nothing to send. A
+ * Customer blocked since, or a closed thread, leaves it held for the owner to drop.
+ */
+export const heldReleaseJob = defineJob<z.infer<typeof heldReleasePayload>>({
+  name: heldReleaseJobName,
+  payload: heldReleasePayload,
+  run: async ({ heldId }, job) => {
+    const held = representativeHeldMessage;
+    const [row] = await job.db
+      .select({ userId: representative.userId })
+      .from(held)
+      .innerJoin(representativeThread, eq(representativeThread.id, held.threadId))
+      .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
+      .where(eq(held.id, heldId));
+    if (!row) return;
+    try {
+      await releaseHeld(job, row.userId, heldId, true);
+    } catch (error) {
+      if (!(error instanceof ORPCError)) throw error;
+    }
+  },
+});
 
 /** Drops the held message: the Customer never gets it. */
 export async function dropHeldMessage(context: Context, userId: string, heldId: string) {

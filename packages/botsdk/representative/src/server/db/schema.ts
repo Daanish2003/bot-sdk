@@ -51,6 +51,14 @@ export const representative = botsdkSchema.table(
      */
     maxInARow: integer("max_in_a_row").notNull().default(5),
     maxPerDay: integer("max_per_day").notNull().default(20),
+    /**
+     * Quiet hours (ticket #1303), the owner's to edit and in no Release: the Outbound gate holds what the
+     * business starts from `quietStartHour` to `quietEndHour` (0 to 23, wrapping past midnight) in the
+     * Customer's time zone, or else in `businessTimeZone`, an IANA name.
+     */
+    quietStartHour: integer("quiet_start_hour").notNull().default(21),
+    quietEndHour: integer("quiet_end_hour").notNull().default(8),
+    businessTimeZone: text("business_time_zone").notNull().default("UTC"),
     /** The Release new Turns use. No foreign key: the two tables point at each other. Null until the first approval. */
     liveReleaseId: uuid("live_release_id"),
     draft: jsonb("draft").$type<Draft>().notNull(),

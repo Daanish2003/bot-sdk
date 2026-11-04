@@ -90,5 +90,9 @@
   {
     "name": "20261104152349_outbound_caps",
     "sql": "ALTER TABLE \"botsdk\".\"representative\" ADD COLUMN \"max_in_a_row\" integer DEFAULT 5 NOT NULL;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative\" ADD COLUMN \"max_per_day\" integer DEFAULT 20 NOT NULL;"
+  },
+  {
+    "name": "20261104164148_quiet_hours",
+    "sql": "ALTER TABLE \"botsdk\".\"representative\" ADD COLUMN \"quiet_start_hour\" integer DEFAULT 21 NOT NULL;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative\" ADD COLUMN \"quiet_end_hour\" integer DEFAULT 8 NOT NULL;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative\" ADD COLUMN \"business_time_zone\" text DEFAULT 'UTC' NOT NULL;"
   }
 ]

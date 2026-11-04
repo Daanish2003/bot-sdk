@@ -166,6 +166,11 @@ function summaryOf(row: Row, liveReleaseNumber: number | null): RepresentativeSu
     enabled: row.enabled,
     liveReleaseNumber,
     caps: { maxInARow: row.maxInARow, maxPerDay: row.maxPerDay },
+    quietHours: {
+      startHour: row.quietStartHour,
+      endHour: row.quietEndHour,
+      timeZone: row.businessTimeZone,
+    },
   };
 }
 
@@ -340,6 +345,33 @@ export async function setCaps(
     const [updated] = await tx
       .update(representative)
       .set({ maxInARow, maxPerDay, updatedAt: clock() })
+      .where(eq(representative.id, id))
+      .returning();
+    return view(tx, updated!, clock());
+  });
+}
+
+/** Edits the hours the Outbound gate holds what the business starts, and the business's time zone. */
+export async function setQuietHours(
+  { db, clock }: Context,
+  userId: string,
+  {
+    id,
+    startHour,
+    endHour,
+    timeZone,
+  }: { id: string; startHour: number; endHour: number; timeZone: string },
+): Promise<RepresentativeView> {
+  return db.transaction(async (tx) => {
+    await ownedRow(tx, userId, id, true);
+    const [updated] = await tx
+      .update(representative)
+      .set({
+        quietStartHour: startHour,
+        quietEndHour: endHour,
+        businessTimeZone: timeZone,
+        updatedAt: new Date(),
+      })
       .where(eq(representative.id, id))
       .returning();
     return view(tx, updated!, clock());
