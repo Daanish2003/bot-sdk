@@ -6,7 +6,7 @@ import { saveCredentials } from "@botsdk/bot/models/internal";
 import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { testCustomerTurn } from "@ai-chat/test-support/test-customer";
+import { testCustomerTurn, approveDrafts, autoSource } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
@@ -307,6 +307,7 @@ describe("a reply citing memory", () => {
     });
 
     await ask(world, "What do you have on me?");
+    await approveDrafts(world.rpc);
 
     expect(await sent(world.id)).toEqual([
       {
@@ -365,6 +366,7 @@ describe("a reply citing memory", () => {
     });
 
     await ask(world, "Which number do you have?");
+    await approveDrafts(world.rpc);
 
     expect((await sent(world.id)).map((message) => message.text)).toEqual([
       "We will call you on +44 7700 900123.",
@@ -405,6 +407,7 @@ describe("a reply citing memory", () => {
     });
 
     await ask(world, "Where do you write to me?");
+    await approveDrafts(world.rpc);
 
     expect((await sent(world.id)).map((message) => message.text)).toEqual([
       `We will write to ${email} at ${address}.`,
@@ -417,7 +420,12 @@ describe("a reply citing memory", () => {
       round(
         toolCall({
           name: "reply",
-          input: { topic: "general", text: `You live at ${address}.`, kind: "small_talk" },
+          input: {
+            topic: "general",
+            sources: [autoSource],
+            text: `You live at ${address}.`,
+            kind: "small_talk",
+          },
         }),
       ),
       quiet(),
@@ -442,6 +450,7 @@ describe("a reply citing memory", () => {
           name: "reply",
           input: {
             topic: "general",
+            sources: [autoSource],
             text: "We will call you on +44 7700 900123.",
             kind: "small_talk",
           },
@@ -468,6 +477,7 @@ describe("a reply citing memory", () => {
     await claimedValue(world.user.id, ada.id, "telegram");
 
     await ask(world, "What do you remember about me?");
+    await approveDrafts(world.rpc);
 
     expect(await sent(world.id)).toEqual([
       {

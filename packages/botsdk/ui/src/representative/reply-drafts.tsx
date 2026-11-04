@@ -13,6 +13,7 @@ import {
   useRefreshRepresentatives,
   useRejectReplyDraft,
   useRemoveTopic,
+  useSetTopicMode,
   useReplyDrafts,
   useTopics,
 } from "@botsdk/representative/react";
@@ -115,11 +116,30 @@ function DraftRow({ draft }: { draft: ReplyDraftView }) {
 
 function TopicRow({ topic }: { topic: TopicView }) {
   const { t } = useI18n();
-  const remove = useRemoveTopic(useAfterAnswer());
+  const after = useAfterAnswer();
+  const remove = useRemoveTopic(after);
+  const setMode = useSetTopicMode(after);
+  const auto = topic.mode === "auto";
   return (
     <li data-topic-name={topic.name} className="flex items-center gap-3 px-4 py-2 text-sm">
       <span className="min-w-0 flex-1 break-words">{topic.name}</span>
+      {topic.promotionSuggested && (
+        <span data-promotion-suggested className="text-xs text-muted-foreground">
+          {t("representative.topics.suggested", { count: topic.approvedUnedited })}
+        </span>
+      )}
       <span className="text-xs text-muted-foreground">{topic.mode}</span>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={setMode.isPending}
+        aria-label={t(auto ? "representative.topics.demoteOf" : "representative.topics.promoteOf", {
+          name: topic.name,
+        })}
+        onClick={() => setMode.mutate({ id: topic.id, mode: auto ? "draft" : "auto" })}
+      >
+        {t(auto ? "representative.topics.demote" : "representative.topics.promote")}
+      </Button>
       <Button
         variant="outline"
         size="sm"

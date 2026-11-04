@@ -183,12 +183,20 @@ export const representativeMessages = {
   "representative.drafts.reject": "Reject",
   "representative.topics.title": "Topics",
   "representative.topics.intro":
-    "Your Representatives label each reply with a topic. All of them wait for your approval.",
+    "Your Representatives label each reply with a topic. A reply waits for your approval unless you let its topic send by itself.",
   "representative.topics.none": "No topics yet.",
   "representative.topics.nameLabel": "New topic",
   "representative.topics.add": "Add topic",
   "representative.topics.removeOf": ({ name }: { name: string }) => `Remove topic ${name}`,
   "representative.topics.remove": "Remove",
+  "representative.topics.suggested": ({ count }: { count: number }) =>
+    `${count} drafts approved unedited: ready to send by itself?`,
+  "representative.topics.promote": "Send by itself",
+  "representative.topics.promoteOf": ({ name }: { name: string }) =>
+    `Let replies on topic ${name} send without your approval`,
+  "representative.topics.demote": "Ask me first",
+  "representative.topics.demoteOf": ({ name }: { name: string }) =>
+    `Make replies on topic ${name} wait for your approval`,
   "representative.threadBot": "Result from the Bot, for the Customer",
   "representative.threadTakeOver": "Take over",
   "representative.threadHandBack": "Hand back",

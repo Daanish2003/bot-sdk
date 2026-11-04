@@ -8,6 +8,7 @@ import { inProcessRunner, type JobRunner, systemClock } from "@botsdk/bot/runner
 import { followSend } from "@ai-chat/test-support/follow-send";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { chatRpc } from "@ai-chat/test-support/sdk";
+import { autoSource } from "@ai-chat/test-support/test-customer";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
@@ -283,7 +284,12 @@ describe("the draft tool", () => {
           round(
             toolCall({
               name: "reply",
-              input: { topic: "general", text: "At nine.", kind: "small_talk" },
+              input: {
+                topic: "general",
+                sources: [autoSource],
+                text: "At nine.",
+                kind: "small_talk",
+              },
             }),
           ),
         ],
@@ -592,7 +598,12 @@ describe("the draft tool", () => {
           round(
             toolCall({
               name: "reply",
-              input: { topic: "general", text: "At ten.", kind: "small_talk" },
+              input: {
+                topic: "general",
+                sources: [autoSource],
+                text: "At ten.",
+                kind: "small_talk",
+              },
             }),
           ),
           quiet(),

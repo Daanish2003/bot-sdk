@@ -332,6 +332,13 @@ export function useAddTopic(options?: ProcedureMutationOptions<Representative["t
   return useMutation(useRepresentative().topicAdd.mutationOptions(options));
 }
 
+/** Promotes a topic to auto-send, or puts it back to draft (`representative.topicSetMode`). */
+export function useSetTopicMode(
+  options?: ProcedureMutationOptions<Representative["topicSetMode"]>,
+) {
+  return useMutation(useRepresentative().topicSetMode.mutationOptions(options));
+}
+
 /** Removes a topic (`representative.topicRemove`). */
 export function useRemoveTopic(options?: ProcedureMutationOptions<Representative["topicRemove"]>) {
   return useMutation(useRepresentative().topicRemove.mutationOptions(options));

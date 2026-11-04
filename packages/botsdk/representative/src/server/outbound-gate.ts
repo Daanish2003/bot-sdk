@@ -21,7 +21,7 @@ import {
   representativeThread,
   representativeThreadMessage,
 } from "./db/schema";
-import { modeOfLabel } from "./topics";
+import { modeOfLabel, sourcesBelongToLabel } from "./topics";
 
 /*
  * The Outbound gate (ticket #1298): one code-owned check of every message to a Customer, in a fixed
@@ -66,6 +66,8 @@ type GateFacts = {
   enabled: boolean;
   /** The owner's mode for the topic the message is labelled with; null for one they don't have. */
   topicMode: TopicMode | null;
+  /** Whether the reply rests on Published facts of that topic alone, and on at least one. */
+  sourcesOnTopic: boolean;
   /** Messages the Representative has sent since the Customer last wrote on this thread. */
   sentInARow: number;
   /** Messages the Representative has sent this Customer in the day up to now, on any thread. */
@@ -85,7 +87,8 @@ export const liveChecks: Partial<Record<GateRule, GateCheck>> = {
   held: ({ threadState }) => (threadState === "representative" ? null : "drop"),
   blocked: ({ blockedAt }) => (blockedAt === null ? null : "drop"),
   on: ({ enabled }) => (enabled ? null : "drop"),
-  topic: ({ topicMode }) => (topicMode === "auto" ? null : "hold"),
+  topic: ({ topicMode, sourcesOnTopic }) =>
+    topicMode === "auto" && sourcesOnTopic ? null : "hold",
   caps: ({ sentInARow, sentToday, maxInARow, maxPerDay }) =>
     sentInARow >= maxInARow || sentToday >= maxPerDay ? "hold" : null,
 };
@@ -280,6 +283,9 @@ export async function passGate(
     ...row,
     blockedAt: customer?.blockedAt ?? null,
     topicMode: rules.includes("topic") ? await modeOfLabel(tx, row.userId, content?.topic) : null,
+    sourcesOnTopic:
+      rules.includes("topic") &&
+      (await sourcesBelongToLabel(tx, row.userId, content?.topic, content?.sources)),
     ...(rules.includes("caps")
       ? await sentCounts(tx, threadId, row.customerId, now)
       : { sentInARow: 0, sentToday: 0 }),

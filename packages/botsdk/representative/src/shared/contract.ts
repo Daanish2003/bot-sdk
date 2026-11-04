@@ -404,8 +404,20 @@ export type TopicView = {
   id: string;
   name: string;
   mode: "draft" | "auto";
+  /** How many of its Reply drafts the owner approved without editing. */
+  approvedUnedited: number;
+  /** True while it is still `draft` and has that many approvals: a suggestion, never a change. */
+  promotionSuggested: boolean;
   createdAt: Date;
 };
+
+/** The unedited approvals after which a topic is suggested for promotion. */
+export const promotionSuggestedAt = 20;
+
+export const topicSetModeInput = z.object({
+  id: z.uuid(),
+  mode: z.enum(["draft", "auto"]),
+});
 
 export const topicAddInput = z.object({
   name: storable(z.string().trim().min(1).max(maxFactTopicLength)),
@@ -737,6 +749,8 @@ export const representativeContract = {
   topicList: oc.output(type<TopicView[]>()),
   /** Adds a topic, at `draft`. Refused when the owner has that name already, ignoring case. */
   topicAdd: oc.input(topicAddInput).output(type<TopicView>()),
+  /** Promotes a topic to `auto` or puts it back to `draft`. Only the owner can: no tool or Model output does. */
+  topicSetMode: oc.input(topicSetModeInput).output(type<TopicView>()),
   /** Removes a topic: a reply labelled with it waits for the owner, as for any unknown topic. */
   topicRemove: oc.input(idInput).output(type<void>()),
   /** The Representatives' replies waiting for the owner, on threads they don't hold, oldest first. */

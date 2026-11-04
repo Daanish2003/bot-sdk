@@ -8,7 +8,7 @@ import { deleteUserData, exportUserData } from "@botsdk/bot/user-data";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { testCustomerTurn } from "@ai-chat/test-support/test-customer";
+import { autoFact, testCustomerTurn } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, text } from "@botsdk/testing/fake-adapter";
@@ -34,6 +34,10 @@ vi.setConfig({ testTimeout: 30_000 });
 const model = "openai:gpt-6-luna";
 const poll = { timeout: 10_000 };
 const newline = String.fromCharCode(10);
+
+/** The keys of the owner's Published facts: the test Customer's owner has one of its own. */
+const factKeys = async (rpc: { representative: { factList: () => Promise<{ key: string }[]> } }) =>
+  (await rpc.representative.factList()).map(({ key }) => key);
 
 const runners: JobRunner[] = [];
 afterEach(async () => {
@@ -134,13 +138,13 @@ describe("a lesson from a closed thread", () => {
       current: null,
       proposed: { type: "text", topic: "Policies", value: lesson.value },
     });
-    expect(await rpc.representative.factList()).toEqual([]);
+    expect(await factKeys(rpc)).toEqual([autoFact.key]);
 
     await rpc.representative.factProposalApprove({ id: proposal!.id });
 
-    expect(await rpc.representative.factList()).toMatchObject([
-      { key: lesson.key, value: lesson.value },
-    ]);
+    expect(await rpc.representative.factList()).toMatchObject(
+      expect.arrayContaining([expect.objectContaining({ key: lesson.key, value: lesson.value })]),
+    );
     expect(await rpc.representative.factLog()).toMatchObject([
       { key: lesson.key, action: "add", proposedBy: "Customer memory pass" },
     ]);
@@ -158,7 +162,7 @@ describe("a lesson from a closed thread", () => {
     await rpc.representative.factProposalDecline({ id: proposal!.id });
 
     expect(await rpc.representative.factProposals()).toEqual([]);
-    expect(await rpc.representative.factList()).toEqual([]);
+    expect(await factKeys(rpc)).toEqual([autoFact.key]);
     expect(await botMessages()).toBe(before);
   });
 

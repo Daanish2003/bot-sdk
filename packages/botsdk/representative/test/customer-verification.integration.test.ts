@@ -15,6 +15,7 @@ import {
   startTestCustomerTurn,
   testCustomerTurn,
   type TestCustomerTurn,
+  autoSource,
 } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
@@ -74,7 +75,12 @@ afterEach(async () => {
 });
 
 const replies = (text = "Nine.") =>
-  round(toolCall({ name: "reply", input: { topic: "general", text, kind: "small_talk" } }));
+  round(
+    toolCall({
+      name: "reply",
+      input: { topic: "general", sources: [autoSource], text, kind: "small_talk" },
+    }),
+  );
 const quiet = () => round();
 
 const promptOf = (call: { messages: unknown } | undefined) => JSON.stringify(call?.messages ?? []);
@@ -577,7 +583,7 @@ describe("an unverified sender can still get help", () => {
       round(
         toolCall({
           name: "reply",
-          input: { topic: "general", text: "On it.", kind: "small_talk" },
+          input: { topic: "general", sources: [autoSource], text: "On it.", kind: "small_talk" },
         }),
         toolCall({
           name: "hand_to_bot",
