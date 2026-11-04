@@ -1,6 +1,6 @@
 import { type AnyServerTool, toolDefinition } from "@tanstack/ai";
 import { ORPCError } from "@orpc/contract";
-import { and, count, eq, gt, isNotNull, sql } from "drizzle-orm";
+import { and, count, eq, gt, isNotNull, max } from "drizzle-orm";
 import { z } from "zod";
 
 import { defaultModelFor } from "@botsdk/client/models/models";
@@ -297,18 +297,20 @@ const replySource = z.union([
  */
 async function handOffsInARow(tx: Transaction, threadId: string) {
   const message = representativeThreadMessage;
+  const inThread = eq(message.threadId, threadId);
+  const [lastCustomer] = await tx
+    .select({ position: max(message.position) })
+    .from(message)
+    .where(and(inThread, eq(message.author, "customer")));
   const [row] = await tx
     .select({ n: count() })
     .from(message)
     .where(
       and(
-        eq(message.threadId, threadId),
+        inThread,
         eq(message.author, "bot"),
         isNotNull(message.assignmentId),
-        gt(
-          message.position,
-          sql`coalesce((select max(position) from ${message} where thread_id = ${threadId} and author = 'customer'), 0)`,
-        ),
+        gt(message.position, lastCustomer?.position ?? 0),
       ),
     );
   return row!.n;

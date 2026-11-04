@@ -7,7 +7,12 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { job } from "@botsdk/bot/storage";
 import { maxThreadMessageLength, noNul } from "../shared/contract";
-import { receiveMessage, threadPromptChars, threadPromptLimit } from "./customers";
+import {
+  holdThreadCustomer,
+  receiveMessage,
+  threadPromptChars,
+  threadPromptLimit,
+} from "./customers";
 import {
   representative,
   representativeCustomer,
@@ -15,6 +20,7 @@ import {
   representativeThreadMessage,
 } from "./db/schema";
 import { queueIdleCheck } from "./idle";
+import { waitingAfterAbort } from "./takeover";
 import { channelProof } from "./verification";
 
 /*
@@ -316,33 +322,30 @@ export async function dropBannedTurn(tx: Transaction, threadId: string, turnId: 
 /**
  * A Ban on `userId`: every Turn on their threads is cancelled, a running one too, and the threads
  * hold none. What a begun Turn hadn't answered goes back to waiting, as when the owner takes a
- * thread over.
+ * thread over. One thread to a transaction, its Customer's row first, the order a merge and a delete
+ * take them in.
  */
 export async function stopUserTurns(
   { db, clock, jobs }: Pick<Services, "db" | "clock" | "jobs">,
   userId: string,
 ) {
-  await db.transaction(async (tx) => {
-    const thread = representativeThread;
-    const held = await tx
-      .select({
-        id: thread.id,
-        turnId: thread.turnId,
-        turnFrom: thread.turnFrom,
-        waitingFrom: thread.waitingFrom,
-      })
-      .from(thread)
-      .innerJoin(representative, eq(representative.id, thread.representativeId))
-      .where(and(eq(representative.userId, userId), isNotNull(thread.turnId)))
-      .for("update", { of: thread });
-    const now = clock();
-    for (const { id, turnId, turnFrom, waitingFrom } of held) {
-      await jobs.cancelIn(tx, turnId!);
-      const waiting = turnFrom === null ? waitingFrom : Math.min(waitingFrom ?? turnFrom, turnFrom);
+  const thread = representativeThread;
+  const held = await db
+    .select({ id: thread.id })
+    .from(thread)
+    .innerJoin(representative, eq(representative.id, thread.representativeId))
+    .where(and(eq(representative.userId, userId), isNotNull(thread.turnId)))
+    .orderBy(thread.id);
+  for (const { id } of held) {
+    await db.transaction(async (tx) => {
+      await holdThreadCustomer(tx, id);
+      const [now] = await tx.select().from(thread).where(eq(thread.id, id)).for("update");
+      if (!now?.turnId) return;
+      await jobs.cancelIn(tx, now.turnId);
       await tx
         .update(thread)
-        .set({ turnId: null, waitingFrom: waiting, waitingSince: waiting === null ? null : now })
+        .set({ turnId: null, ...waitingAfterAbort(now, clock()) })
         .where(eq(thread.id, id));
-    }
-  });
+    });
+  }
 }

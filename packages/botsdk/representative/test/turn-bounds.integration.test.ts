@@ -200,6 +200,24 @@ describe("a Representative's hand-off cap", () => {
   });
 });
 
+describe("a Representative's hand-off cap, with calls in one Model response", () => {
+  it("opens one Assignment when the Model calls hand_to_bot twice at once", async () => {
+    const { send, drain, botId } = await serving([
+      round(
+        toolCall({ name: "hand_to_bot", input: { title: "A refund", instructions: "One." } }),
+        toolCall({ name: "hand_to_bot", input: { title: "A refund", instructions: "Two." } }),
+      ),
+      quiet(),
+      quiet(),
+    ]);
+    await send("I want a refund");
+
+    await drain();
+
+    expect(await assignmentsOf(botId)).toHaveLength(1);
+  });
+});
+
 describe("the Bot and Representative loop", () => {
   it("stops at 3 hand-offs with no Customer message between them", async () => {
     const { fake, send, drain, botId } = await serving(handsOffAndEnds(4), {
