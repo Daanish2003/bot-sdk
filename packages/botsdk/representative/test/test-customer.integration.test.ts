@@ -764,6 +764,7 @@ describe("who can reach a Turn", () => {
       "customerMerge",
       "customerMergeList",
       "customerMergeUndo",
+      "customerProfileSet",
       "customerRename",
       "customerSetBlocked",
       "customerSummaryList",
@@ -788,6 +789,10 @@ describe("who can reach a Turn", () => {
       "knowledgeList",
       "knowledgeStatus",
       "list",
+      "profileFieldAdd",
+      "profileFieldList",
+      "profileFieldRemove",
+      "profileFieldRename",
       "rollback",
       // Plays a draft's test conversations (#1192), each a test job: no Turn, no Customer.
       "runTests",
