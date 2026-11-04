@@ -754,6 +754,17 @@ describe("a summary whose thread is at an address the Customer no longer has", (
     expect(await world.promptFor(ada)).not.toContain("memo-bob-alone");
   });
 
+  it("stays out after that Customer is merged into a third", async () => {
+    const world = await instance();
+    const { first, second } = await onlyBobSpokeDuringMerge(world);
+    await correct(world, second.id, bob, corrected);
+    const third = await world.customer("+15550066");
+
+    await world.merge(first.id, third.id);
+
+    expect(await world.promptFor(ada)).not.toContain("memo-bob-alone");
+  });
+
   it("stays out for both people's words, once the other person's address is corrected", async () => {
     const world = await instance();
     const first = await world.customer(ada);

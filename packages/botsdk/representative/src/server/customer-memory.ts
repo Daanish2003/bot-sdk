@@ -1,11 +1,11 @@
-import { and, desc, eq, exists, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, exists, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { untrustedBlock } from "@botsdk/bot/bot/routines";
 import type { Transaction } from "@botsdk/bot/plugin";
 import type { ProfileStatus } from "../shared/contract";
-import { combinedProfilesOf } from "./customer-profile";
+import { combinedProfilesOf, memberIds, standingMergesOf } from "./customer-profile";
 import {
   representativeCustomerIdentity,
   representativeCustomerMerge,
@@ -38,7 +38,8 @@ type Db = FeatureContext["db"] | Transaction;
  * into them. A merge that stands has moved the identities here, so its own threads all count. A summary
  * of a thread holding an address that isn't one of the Customer's now can hold another person's words,
  * and is left out when that address is another Customer's, when the thread holds a second address, or
- * when a merge of this Customer's was undone, as that merge can have put them there. Otherwise the
+ * when a merge of this Customer's, or of one merged into them, was undone, as that merge can have put
+ * them there. Otherwise the
  * address is the Customer's own, since corrected, and the summary counts.
  */
 export async function readCustomerMemory(
@@ -56,6 +57,7 @@ export async function readCustomerMemory(
   const message = representativeThreadMessage;
   const identity = representativeCustomerIdentity;
   const merge = representativeCustomerMerge;
+  const members = memberIds(await standingMergesOf(db, userId), customerId);
   const otherMessage = alias(message, "other_message");
   const atThisAddress = sql`${identity.channel} = ${message.channel} and ${identity.externalId} = ${message.externalId}`;
   const theirs = sql`exists (select 1 from ${identity} where ${identity.customerId} = ${customerId} and ${atThisAddress})`;
@@ -71,7 +73,21 @@ export async function readCustomerMemory(
         ),
       ),
   );
-  const undoneMerge = sql`exists (select 1 from ${merge} where ${merge.userId} = ${userId} and ${merge.undoneAt} is not null and (${merge.survivorCustomerId} = ${customerId} or ${merge.absorbedCustomerId} = ${customerId}))`;
+  const undoneMerge = exists(
+    db
+      .select({ one: sql`1` })
+      .from(merge)
+      .where(
+        and(
+          eq(merge.userId, userId),
+          isNotNull(merge.undoneAt),
+          or(
+            inArray(merge.survivorCustomerId, members),
+            inArray(merge.absorbedCustomerId, members),
+          ),
+        ),
+      ),
+  );
   const summaries = await db
     .select({ text: summary.text })
     .from(summary)
