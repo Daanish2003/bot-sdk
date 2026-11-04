@@ -14,7 +14,7 @@ import {
 import { holdCustomers } from "./customer-merge";
 import { nameIn, profilesOf } from "./customer-profile";
 import { catchCode, customerProofLeadsTo, mayHoldCode } from "./customer-proof";
-import { deliverMessage, passGate } from "./outbound-gate";
+import { deliverMessage, type GateRefusal, passGate } from "./outbound-gate";
 import { type ChannelProof, judgeSender } from "./verification";
 import { codeHandOffKind, type ReplySource, type StoredReplyKind } from "../shared/replies";
 
@@ -375,7 +375,14 @@ export async function storeReply(
     heard,
     verified,
     releaseId,
-  }: { threadId: string; heard: Heard; verified: boolean; releaseId?: string | null },
+    refusals,
+  }: {
+    threadId: string;
+    heard: Heard;
+    verified: boolean;
+    releaseId?: string | null;
+    refusals?: GateRefusal[];
+  },
   { text, sources }: { text: string; sources: ReplySource[] },
   replyKind: StoredReplyKind,
   now: Date,
@@ -386,6 +393,7 @@ export async function storeReply(
     to: heard,
     now,
     releaseId,
+    refusals,
     content: { text, verified, replyKind, sources },
   });
   if (decision?.outcome !== "send")

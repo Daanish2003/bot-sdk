@@ -25,6 +25,7 @@ CREATE TABLE "botsdk"."representative_outbound_decision" (
 CREATE INDEX "representative_held_message_thread_idx" ON "botsdk"."representative_held_message" ("thread_id");--> statement-breakpoint
 CREATE INDEX "representative_held_message_decision_idx" ON "botsdk"."representative_held_message" ("decision_id");--> statement-breakpoint
 CREATE INDEX "representative_outbound_decision_thread_idx" ON "botsdk"."representative_outbound_decision" ("thread_id","id");--> statement-breakpoint
+CREATE INDEX "representative_outbound_decision_message_idx" ON "botsdk"."representative_outbound_decision" ("message_id");--> statement-breakpoint
 ALTER TABLE "botsdk"."representative_held_message" ADD CONSTRAINT "representative_held_message_PxtN6KwsDPck_fkey" FOREIGN KEY ("decision_id") REFERENCES "botsdk"."representative_outbound_decision"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "botsdk"."representative_held_message" ADD CONSTRAINT "representative_held_message_67Mn8IXnVNv3_fkey" FOREIGN KEY ("thread_id") REFERENCES "botsdk"."representative_thread"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "botsdk"."representative_outbound_decision" ADD CONSTRAINT "representative_outbound_decision_aKCQN6beYYqp_fkey" FOREIGN KEY ("thread_id") REFERENCES "botsdk"."representative_thread"("id") ON DELETE CASCADE;--> statement-breakpoint

@@ -1,5 +1,5 @@
 import type { AnyTextAdapter } from "@tanstack/ai";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { saveCredentials } from "@botsdk/bot/models/internal";
@@ -17,14 +17,16 @@ import { type CustomerChannel, requestProof } from "../src/server/customer-proof
 import { storeReply } from "../src/server/customers";
 import {
   representative,
+  representativeCustomer,
   representativeHeldMessage,
   representativeOutboundDecision,
+  representativeThread,
   representativeThreadMessage,
 } from "../src/server/db/schema";
 import { liveChecks, passGate } from "../src/server/outbound-gate";
 import { representativeFeature } from "../src/server/plugin";
 import { handOffMessage } from "../src/server/replies";
-import { takeoverNote } from "../src/server/takeover";
+import { holdThread, takeoverNote } from "../src/server/takeover";
 
 /*
  * The Outbound gate (ticket #1298), through the Representative's real reply path: a fake Model on
@@ -143,11 +145,11 @@ async function instance(rounds: Round[], held?: Promise<void>) {
       testCustomerTurn(world, { representativeId: id, externalId: number, message, proof }),
     /** What reached the Customer, in the order the fake sent it. */
     got: () => messaging.delivered.map(({ part }) => part),
-    decisions: async () =>
+    decisions: async (thread?: string) =>
       getTestDb()
         .select()
         .from(representativeOutboundDecision)
-        .where(eq(representativeOutboundDecision.threadId, await threadId()))
+        .where(eq(representativeOutboundDecision.threadId, thread ?? (await threadId())))
         .orderBy(asc(representativeOutboundDecision.id)),
     liveRelease: async () => {
       const [row] = await getTestDb()
@@ -160,6 +162,7 @@ async function instance(rounds: Round[], held?: Promise<void>) {
 }
 
 type World = Awaited<ReturnType<typeof instance>>;
+type Heard = { channel: string; externalId: string };
 
 /** A Customer heard, on a thread with nothing sent on it yet. */
 const heard = (world: World) => world.hears("Hello");
@@ -235,6 +238,110 @@ describe("a Representative's reply", () => {
       }, poll)
       .toEqual(["We open at nine."]);
     expect(await world.decisions()).toHaveLength(1);
+  });
+
+  it("stops going when the Channel keeps failing, and the log says so", async () => {
+    const world = await instance([replies("We open at nine."), quiet()]);
+    world.messaging.counts.sendFailures = 10;
+
+    await world.hears("When do you open?");
+
+    await expect
+      .poll(async () => {
+        world.timer.advance(60_000);
+        world.timer.tick();
+        return (await world.decisions()).map(({ outcome, rule }) => [outcome, rule]);
+      }, poll)
+      .toEqual([
+        ["send", "passed"],
+        ["drop", "delivery_failed"],
+      ]);
+    expect(world.got()).toEqual([]);
+  });
+
+  it("doesn't go on its retry to a Customer blocked since", async () => {
+    const world = await instance([replies("We open at nine."), quiet()]);
+    world.messaging.counts.sendFailures = 1;
+    await world.hears("When do you open?");
+    await expect.poll(() => world.messaging.counts.sendFailures, poll).toBe(0);
+
+    const [line] = await world.rpc.representative.threadList({ id: world.id });
+    await world.rpc.representative.customerSetBlocked({ id: line!.customer.id, blocked: true });
+
+    await expect
+      .poll(async () => {
+        world.timer.advance(60_000);
+        world.timer.tick();
+        return (await world.decisions()).map(({ rule }) => rule);
+      }, poll)
+      .toEqual(["passed", "blocked"]);
+    expect(world.got()).toEqual([]);
+  });
+
+  it("doesn't go on its retry to an address the owner has corrected", async () => {
+    const world = await instance([replies("We open at nine."), quiet()]);
+    world.messaging.counts.sendFailures = 1;
+    await world.hears("When do you open?");
+    await expect.poll(() => world.messaging.counts.sendFailures, poll).toBe(0);
+
+    const [line] = await world.rpc.representative.threadList({ id: world.id });
+    const customer = await world.rpc.representative
+      .customerList()
+      .then((all) => all.find(({ id }) => id === line!.customer.id)!);
+    await world.rpc.representative.customerUpdateIdentity({
+      id: customer.id,
+      identityId: customer.identities[0]!.id,
+      channel: "fake",
+      externalId: "+15550999",
+    });
+
+    await expect
+      .poll(async () => {
+        world.timer.advance(60_000);
+        world.timer.tick();
+        return (await world.decisions()).map(({ rule }) => rule);
+      }, poll)
+      .toEqual(["passed", "address_changed"]);
+    expect(world.got()).toEqual([]);
+  });
+
+  it("logs why when a takeover lands during its own write, which the Turn's fence rolls back", async () => {
+    const held = opening();
+    const world = await instance([replies("Too late."), quiet()], held.opened);
+    const turn = world.hears("Hello");
+    await expect.poll(() => world.entered.length, poll).toBe(1);
+    const id = await world.threadId();
+
+    await getTestDb().transaction(async (tx) => {
+      const [thread] = await tx
+        .select()
+        .from(representativeThread)
+        .where(eq(representativeThread.id, id))
+        .for("update");
+      held.open();
+      // The reply's write has reached the thread's row, and waits for this takeover.
+      await expect
+        .poll(async () => {
+          const waiting = await getTestDb().execute(
+            sql`select 1 from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`,
+          );
+          return waiting.rows.length;
+        }, poll)
+        .toBeGreaterThan(0);
+      const feature = world.deps.parts.features.find(
+        (each) => each.feature.id === "representative",
+      )!;
+      await holdThread(feature.context, tx, id, thread!);
+    });
+    await turn.catch(() => {});
+
+    await expect
+      .poll(async () => (await world.decisions()).map(({ kind, rule }) => [kind, rule]), poll)
+      .toEqual([
+        ["takeover_note", "passed"],
+        ["reply", "held"],
+      ]);
+    await expect.poll(world.got, poll).toEqual([takeoverNote]);
   });
 
   it("is refused while the owner holds the thread, and the takeover note still goes", async () => {
@@ -354,31 +461,73 @@ describe("every send site", () => {
 });
 
 describe("a proof for a blocked Customer", () => {
+  const proofFor = (world: World, threadId: string, claimed: Heard | null = null) =>
+    getTestDb().transaction((tx) =>
+      requestProof(tx, {
+        keyring: ["a test secret"],
+        userId: world.user.id,
+        thread: {
+          threadId,
+          heard: { channel: "fake", externalId: number },
+          verified: false,
+          proofRule: claimed ? "selfAsserted" : "codeRoundTrip",
+        },
+        claimed,
+        now: world.timer.clock.now(),
+      }),
+    );
+
   it("doesn't go, and the decision says why", async () => {
     const world = await instance([quiet()]);
     await world.hears("Hello", { rule: "codeRoundTrip" });
     const [line] = await world.rpc.representative.threadList({ id: world.id });
     await world.rpc.representative.customerSetBlocked({ id: line!.customer.id, blocked: true });
 
-    const outgoing = await getTestDb().transaction((tx) =>
-      requestProof(tx, {
-        keyring: ["a test secret"],
-        userId: world.user.id,
-        thread: {
-          threadId: line!.id,
-          heard: { channel: "fake", externalId: number },
-          verified: false,
-          proofRule: "codeRoundTrip",
-        },
-        claimed: null,
-        now: world.timer.clock.now(),
-      }),
-    );
+    const outgoing = await proofFor(world, line!.id);
 
     expect(outgoing).toBeNull();
     expect(await world.decisions()).toMatchObject([
       { kind: "proof", outcome: "drop", rule: "blocked" },
     ]);
+  });
+
+  it("isn't made for a claim on a blocked Customer's address, and the decision says why", async () => {
+    const other = "+15550002";
+    const world = await instance([quiet(), quiet()]);
+    await world.hears("Hello");
+    const [line] = await world.rpc.representative.threadList({ id: world.id });
+    await testCustomerTurn(world.deps, {
+      representativeId: world.id,
+      externalId: other,
+      message: "Hi",
+    });
+    const lines = await world.rpc.representative.threadList({ id: world.id });
+    const blocked = lines.find(({ id }) => id !== line!.id)!;
+    await world.rpc.representative.customerSetBlocked({ id: blocked.customer.id, blocked: true });
+
+    const outgoing = await proofFor(world, line!.id, { channel: "fake", externalId: other });
+
+    expect(outgoing).toBeNull();
+    expect(await world.decisions(line!.id)).toMatchObject([
+      { kind: "proof", outcome: "drop", rule: "blocked", externalId: other },
+    ]);
+  });
+
+  it("doesn't go while a block is under way, and leaves no deadlock to wait for", async () => {
+    const world = await instance([quiet()]);
+    await world.hears("Hello", { rule: "codeRoundTrip" });
+    const [line] = await world.rpc.representative.threadList({ id: world.id });
+
+    const outgoing = await getTestDb().transaction(async (tx) => {
+      await tx
+        .update(representativeCustomer)
+        .set({ blockedAt: new Date() })
+        .where(eq(representativeCustomer.id, line!.customer.id));
+      return proofFor(world, line!.id);
+    });
+
+    expect(outgoing).toBeNull();
+    expect(world.got()).toEqual([]);
   });
 });
 

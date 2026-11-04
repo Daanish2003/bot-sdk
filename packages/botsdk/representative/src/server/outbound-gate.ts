@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
@@ -13,6 +13,7 @@ import {
   type OutboundKind,
   representative,
   representativeCustomer,
+  representativeCustomerIdentity,
   representativeHeldMessage,
   representativeOutboundDecision,
   representativeThread,
@@ -24,7 +25,7 @@ import {
  * order. The first rule that fails decides, and every decision is logged with its rule and Release,
  * in the transaction of the message's own write. A Model has no say in it. A message the gate sends
  * goes to the Channel by a job queued in that transaction, so it survives a crash and a Channel's
- * failure, and a replay of a Turn sends nothing twice.
+ * brief failure, and a replay of a Turn queues nothing twice.
  */
 
 /** The fixed order. A rule with no check yet (`liveChecks`) passes everything until its ticket adds one. */
@@ -77,6 +78,8 @@ export type Outgoing = {
   releaseId?: string | null;
   /** The Customer it reaches when that isn't the thread's: a proof can go to another's identity. */
   customerId?: string;
+  /** Where a Turn keeps what the gate refuses, for `logRefusals`. */
+  refusals?: GateRefusal[];
   /** What is held if the gate holds it. A proof has none: its secret is never stored. */
   content?: {
     text: string;
@@ -87,6 +90,35 @@ export type Outgoing = {
 };
 
 export type GateDecision = { id: string; outcome: GateOutcome; rule: string };
+
+type DecisionRow = typeof representativeOutboundDecision.$inferInsert;
+type HeldRow = typeof representativeHeldMessage.$inferInsert;
+
+/** A decision that sent nothing, as written: the same ids, so writing it twice leaves one. */
+export type GateRefusal = { decision: DecisionRow; held?: HeldRow };
+
+async function writeDecision(tx: Transaction, { decision, held }: GateRefusal) {
+  await tx.insert(representativeOutboundDecision).values(decision).onConflictDoNothing();
+  if (held) await tx.insert(representativeHeldMessage).values(held).onConflictDoNothing();
+}
+
+/**
+ * Writes what a Turn's gate refused, once the Turn has ended. A takeover or a block cancels the Turn,
+ * and its fence rolls back the transaction that logged the refusal; one that committed is left as it
+ * is. A thread gone by then took its log with it.
+ */
+export async function logRefusals(db: FeatureContext["db"], refusals: GateRefusal[]) {
+  for (const refusal of refusals) {
+    await db.transaction(async (tx) => {
+      const [thread] = await tx
+        .select({ id: representativeThread.id })
+        .from(representativeThread)
+        .where(eq(representativeThread.id, refusal.decision.threadId))
+        .for("key share");
+      if (thread) await writeDecision(tx, refusal);
+    });
+  }
+}
 
 /**
  * Takes the locks a rule on the thread needs, in the order the owner's changes take them: the
@@ -124,7 +156,7 @@ async function holdForRules(tx: Transaction, threadId: string) {
  * Decides what becomes of `outgoing` and logs it, in `tx`. A held message is stored here; a sent one
  * the caller stores in its thread, and then hands to `deliverMessage`. Null when the thread has gone,
  * so there's nothing to log it on and nothing is sent. The owner's paths hold the thread before this,
- * and a proof takes no lock here, since it runs under the holds on its identities.
+ * and a proof holds its Customer before it comes here.
  */
 export async function passGate(
   tx: Transaction,
@@ -164,29 +196,34 @@ export async function passGate(
   }
 
   const id = uuidv7();
-  await tx.insert(representativeOutboundDecision).values({
-    id,
-    threadId,
-    kind,
-    outcome,
-    rule,
-    releaseId: outgoing.releaseId ?? row.liveReleaseId,
-    channel: to.channel,
-    externalId: to.externalId,
-    createdAt: now,
-  });
-  if (outcome === "hold" && content) {
-    await tx.insert(representativeHeldMessage).values({
-      id: uuidv7(),
-      decisionId: id,
+  const written: GateRefusal = {
+    decision: {
+      id,
       threadId,
-      text: content.text,
-      verified: content.verified,
-      replyKind: content.replyKind,
-      sources: content.sources,
+      kind,
+      outcome,
+      rule,
+      releaseId: outgoing.releaseId ?? row.liveReleaseId,
+      channel: to.channel,
+      externalId: to.externalId,
       createdAt: now,
-    });
-  }
+    },
+    ...(outcome === "hold" &&
+      content && {
+        held: {
+          id: uuidv7(),
+          decisionId: id,
+          threadId,
+          text: content.text,
+          verified: content.verified,
+          replyKind: content.replyKind,
+          sources: content.sources,
+          createdAt: now,
+        },
+      }),
+  };
+  await writeDecision(tx, written);
+  if (outcome !== "send") outgoing.refusals?.push(written);
   return { id, outcome, rule };
 }
 
@@ -198,7 +235,8 @@ const deliveryJob = { name: customerDeliveryJobName, payload: deliveryPayload };
 
 /**
  * Sends the thread message `messageId` that decision `decisionId` passed, once `tx` commits. Each
- * message has its own job, so one the Channel fails can go after a later one on its retry.
+ * message has its own job, so one the Channel fails can go after a later one on its retry, and a
+ * worker lost just after a send sends it again. A message that never goes gets a decision saying so.
  */
 export async function deliverMessage(
   { jobs }: Pick<FeatureContext, "jobs">,
@@ -218,7 +256,32 @@ export async function deliverMessage(
   );
 }
 
-/** Sends what the gate passed. A throw is the runner's to retry; a thread deleted since sends nothing. */
+/** Why a message the gate passed never went, as the log says it. */
+const notDelivered = { failed: "delivery_failed", blocked: "blocked", moved: "address_changed" };
+
+/** Logs that the message `decisionId` passed didn't go after all. */
+async function logNotDelivered(
+  db: FeatureContext["db"],
+  decisionId: string,
+  rule: string,
+  now: Date,
+) {
+  await db.transaction(async (tx) => {
+    const [passed] = await tx
+      .select()
+      .from(representativeOutboundDecision)
+      .where(eq(representativeOutboundDecision.id, decisionId));
+    if (!passed) return;
+    const decision = { ...passed, id: uuidv7(), outcome: "drop" as const, rule, createdAt: now };
+    await writeDecision(tx, { decision });
+  });
+}
+
+/**
+ * Sends what the gate passed. A throw is the runner's to retry, so this can run well after the
+ * decision: a Customer blocked since gets nothing, and neither does an address no longer theirs,
+ * which may be someone else's. A thread deleted since sends nothing.
+ */
 export const customerDeliveryJob = (channel: CustomerChannel) =>
   defineJob<z.infer<typeof deliveryPayload>>({
     name: customerDeliveryJobName,
@@ -230,16 +293,42 @@ export const customerDeliveryJob = (channel: CustomerChannel) =>
           channel: decision.channel,
           externalId: decision.externalId,
           text: representativeThreadMessage.text,
+          blockedAt: representativeCustomer.blockedAt,
+          identityId: representativeCustomerIdentity.id,
         })
         .from(decision)
         .innerJoin(
           representativeThreadMessage,
           eq(representativeThreadMessage.id, decision.messageId),
         )
+        .innerJoin(representativeThread, eq(representativeThread.id, decision.threadId))
+        .innerJoin(
+          representativeCustomer,
+          eq(representativeCustomer.id, representativeThread.customerId),
+        )
+        .leftJoin(
+          representativeCustomerIdentity,
+          and(
+            eq(representativeCustomerIdentity.customerId, representativeThread.customerId),
+            eq(representativeCustomerIdentity.channel, decision.channel),
+            eq(representativeCustomerIdentity.externalId, decision.externalId),
+          ),
+        )
         .where(eq(decision.id, decisionId));
       if (!row) return;
+      const stopped = row.blockedAt
+        ? notDelivered.blocked
+        : row.identityId
+          ? null
+          : notDelivered.moved;
+      if (stopped) {
+        await logNotDelivered(job.db, decisionId, stopped, job.clock());
+        return;
+      }
       await channel.send({ channel: row.channel, externalId: row.externalId }, { text: row.text });
     },
+    onFailed: ({ decisionId }, _error, { db, clock }) =>
+      logNotDelivered(db, decisionId, notDelivered.failed, clock()),
   });
 
 /** Every decision on the threads of `userId`'s Representatives, with what each held. */

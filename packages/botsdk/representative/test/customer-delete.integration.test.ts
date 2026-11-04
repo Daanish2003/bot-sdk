@@ -545,6 +545,39 @@ describe("deleting a Customer", () => {
     expect(left).toEqual([]);
   });
 
+  it("takes a proof's decision at an address since corrected from another Customer's thread", async () => {
+    const { rpc, ada, carol } = await seeded();
+    const [carolThread] = await threadsOfCustomers([carol.id]);
+    const atAda = uuidv7();
+    await getTestDb().insert(representativeOutboundDecision).values({
+      id: atAda,
+      threadId: carolThread!.id,
+      kind: "proof",
+      outcome: "send",
+      rule: "passed",
+      channel: fakeChannel,
+      externalId: adaNumber,
+      createdAt: new Date(),
+    });
+    const listed = await rpc.representative.customerList();
+    const { identities } = listed.find(({ id }) => id === ada.id)!;
+    const identity = identities.find(({ externalId }) => externalId === adaNumber)!;
+    await rpc.representative.customerUpdateIdentity({
+      id: ada.id,
+      identityId: identity.id,
+      channel: fakeChannel,
+      externalId: "+15550998",
+    });
+
+    await rpc.representative.customerDelete({ id: ada.id });
+
+    const left = await getTestDb()
+      .select({ id: representativeOutboundDecision.id })
+      .from(representativeOutboundDecision)
+      .where(eq(representativeOutboundDecision.id, atAda));
+    expect(left).toEqual([]);
+  });
+
   it("finds their words on a thread that a later merge moved to someone else", async () => {
     const zedNumber = "+15550026";
     const { rpc, say, customerAt, settle } = await instance();

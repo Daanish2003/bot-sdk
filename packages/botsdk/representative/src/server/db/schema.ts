@@ -606,7 +606,10 @@ export const representativeOutboundDecision = botsdkSchema.table(
     }),
     createdAt: timestamp("created_at").notNull(),
   },
-  (table) => [index("representative_outbound_decision_thread_idx").on(table.threadId, table.id)],
+  (table) => [
+    index("representative_outbound_decision_thread_idx").on(table.threadId, table.id),
+    index("representative_outbound_decision_message_idx").on(table.messageId),
+  ],
 );
 
 /** A message the gate held: stored, not sent, and not in the thread until something sends it (ticket #1298). */

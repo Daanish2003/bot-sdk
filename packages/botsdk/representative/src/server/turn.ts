@@ -39,6 +39,7 @@ import {
   storeReply,
   type ThreadEntry,
 } from "./customers";
+import { type GateRefusal, logRefusals } from "./outbound-gate";
 import { representative, representativeHandOff, representativeRelease } from "./db/schema";
 import { logGap } from "./gaps";
 import { type DocumentText, readDocuments } from "./documents";
@@ -209,6 +210,8 @@ type LiveThread = {
   releaseId: string;
   /** Where this Turn's proofs go. */
   channel: CustomerChannel;
+  /** What the gate has refused this Turn, logged again when it ends, as its fence may roll it back. */
+  refusals: GateRefusal[];
 };
 
 /**
@@ -866,55 +869,63 @@ export function representativeTurnJob(
       );
       if (!begun) return;
       const { customerId, representativeId, upTo, senderAt, verified } = begun;
-      // Recorded: a replay after a crash stays on this Release and this owner.
-      const start = await job.step("representative_start", () => readStart(job, representativeId));
-      if (start) {
-        const { userId, name, model, content, releaseId } = start;
-        const sender = await readSender(job.db, threadId, senderAt, upTo);
-        const heard = sender && { channel: sender.channel, externalId: sender.externalId };
-        const entries = heard
-          ? await readThread(job.db, threadId, upTo, senderAt, verified ? null : heard)
-          : [];
-        // The owner was deleted since. Not a plain return: a replay has history left to read, and a
-        // workflow ending with some left over fails as nondeterministic.
-        if (!sender || !heard || entries.length === 0) {
-          throw new PermanentJobError(`Representative Turn ${turnId}: its thread has gone`);
-        }
-        const played = await playLoop(job, {
-          userId,
-          representativeId,
-          customerId,
-          name,
-          model,
-          sourceId: turnId,
-          on: {
-            thread: {
-              threadId,
-              heard,
-              verified,
-              proofRule: sender.proofRule,
-              releaseId,
-              channel: customerChannel,
+      const refusals: GateRefusal[] = [];
+      try {
+        // Recorded: a replay after a crash stays on this Release and this owner.
+        const start = await job.step("representative_start", () =>
+          readStart(job, representativeId),
+        );
+        if (start) {
+          const { userId, name, model, content, releaseId } = start;
+          const sender = await readSender(job.db, threadId, senderAt, upTo);
+          const heard = sender && { channel: sender.channel, externalId: sender.externalId };
+          const entries = heard
+            ? await readThread(job.db, threadId, upTo, senderAt, verified ? null : heard)
+            : [];
+          // The owner was deleted since. Not a plain return: a replay has history left to read, and a
+          // workflow ending with some left over fails as nondeterministic.
+          if (!sender || !heard || entries.length === 0) {
+            throw new PermanentJobError(`Representative Turn ${turnId}: its thread has gone`);
+          }
+          const played = await playLoop(job, {
+            userId,
+            representativeId,
+            customerId,
+            name,
+            model,
+            sourceId: turnId,
+            on: {
+              thread: {
+                threadId,
+                heard,
+                verified,
+                proofRule: sender.proofRule,
+                releaseId,
+                channel: customerChannel,
+                refusals,
+              },
             },
-          },
-          entries,
-          content,
-          documents: await readDocuments(job.db, content.documentSnapshot?.documents ?? []),
-        });
-        // A failed job, not a succeeded one, and no retry: a Step may already have replied.
-        if (played.error !== undefined) {
-          throw new PermanentJobError(`Representative Turn ${turnId} failed: ${played.error}`);
+            entries,
+            content,
+            documents: await readDocuments(job.db, content.documentSnapshot?.documents ?? []),
+          });
+          // A failed job, not a succeeded one, and no retry: a Step may already have replied.
+          if (played.error !== undefined) {
+            throw new PermanentJobError(`Representative Turn ${turnId} failed: ${played.error}`);
+          }
+          if (played.quotaSpent || played.timedOut || played.stepLimit) {
+            const why = played.quotaSpent
+              ? "the owner's Quota is spent"
+              : played.timedOut
+                ? "it ran out of time"
+                : "it used all its Steps";
+            job.logger.error(`Representative Turn ${turnId} ended early: ${why}`);
+          }
         }
-        if (played.quotaSpent || played.timedOut || played.stepLimit) {
-          const why = played.quotaSpent
-            ? "the owner's Quota is spent"
-            : played.timedOut
-              ? "it ran out of time"
-              : "it used all its Steps";
-          job.logger.error(`Representative Turn ${turnId} ended early: ${why}`);
-        }
+        await job.step("representative_turn_end", (tx) => endTurn(job, tx, threadId, turnId));
+      } finally {
+        await logRefusals(job.db, refusals);
       }
-      await job.step("representative_turn_end", (tx) => endTurn(job, tx, threadId, turnId));
     },
   });
 }

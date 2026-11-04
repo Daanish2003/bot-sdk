@@ -21,6 +21,7 @@ import {
   representativeCustomer,
   representativeCustomerIdentity,
   representativeHandOff,
+  representativeOutboundDecision,
   representativeThread,
   representativeThreadMessage,
   type ThreadAuthor,
@@ -304,6 +305,19 @@ export async function updateIdentity(
             eq(message.channel, held.channel),
             eq(message.externalId, held.externalId),
             sql`exists (select 1 from ${representativeThread} where ${representativeThread.id} = ${message.threadId} and ${representativeThread.customerId} = ${id} and ${representativeThread.state} <> 'closed' and ${message.position} >= ${representativeThread.waitingFrom})`,
+          ),
+        );
+      // A proof's decision on another Customer's thread names this address, so it follows the
+      // identity, and a delete of this Customer finds it. Their own threads' stay as they were sent.
+      const decision = representativeOutboundDecision;
+      await tx
+        .update(decision)
+        .set({ channel, externalId })
+        .where(
+          and(
+            eq(decision.channel, held.channel),
+            eq(decision.externalId, held.externalId),
+            sql`exists (select 1 from ${representativeThread} join ${representative} on ${representative.id} = ${representativeThread.representativeId} where ${representativeThread.id} = ${decision.threadId} and ${representativeThread.customerId} <> ${id} and ${representative.userId} = ${userId})`,
           ),
         );
       await tx
