@@ -44,7 +44,7 @@ import {
 import type { ConvertDocument, KnowledgeFiles } from "./documents";
 import { representativeTestJob } from "./tests";
 import { exportCustomerSummaries, customerSummaryJob } from "./customer-summary";
-import { handOffEndedJob, representativeTurnJob } from "./turn";
+import { handOffEndedJob, limitCheckJob, representativeTurnJob } from "./turn";
 
 export type RepresentativeOptions = {
   /**
@@ -84,6 +84,7 @@ export function representativeFeature(
       "assignments",
       "factApprovals",
       "models",
+      "pages",
       "releaseApprovals",
       "representativeLoop",
       "threads",
@@ -128,6 +129,7 @@ export function representativeFeature(
       representativeTurnJob(options.concurrency, channel),
       customerDeliveryJob(channel),
       handOffEndedJob,
+      limitCheckJob,
       representativeTestJob,
       threadIdleJob,
       threadExpiryJob,

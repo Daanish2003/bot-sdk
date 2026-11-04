@@ -225,7 +225,12 @@ export async function sendAsOwner(
       text,
       now: context.clock(),
     });
-    if (decided !== "send" || thread.waitingFrom === null) return decided;
+    if (decided !== "send") return decided;
+    await tx
+      .update(representativeThread)
+      .set({ leftForOwnerAt: null })
+      .where(eq(representativeThread.id, id));
+    if (thread.waitingFrom === null) return decided;
     const message = representativeThreadMessage;
     const [elsewhere] = await tx
       .select({ position: min(message.position) })

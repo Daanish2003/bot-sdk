@@ -39,6 +39,16 @@ import {
   storeReply,
   type ThreadEntry,
 } from "./customers";
+import {
+  keepLimitBatch,
+  limitCheckJobName,
+  limitCheckPayload,
+  limitedThread,
+  limitPassed,
+  queueLimitCheck,
+  reachLimit,
+  settleLimit,
+} from "./limits";
 import { type GateRefusal, logRefusals } from "./outbound-gate";
 import { representative, representativeHandOff, representativeRelease } from "./db/schema";
 import { logGap } from "./gaps";
@@ -69,7 +79,7 @@ import type { ChannelProofRule } from "./verification";
 export { representativeTurnJobName };
 
 export type TurnServices = FeatureContext<
-  "assignments" | "models" | "representativeLoop" | "threads"
+  "assignments" | "models" | "pages" | "representativeLoop" | "threads"
 >;
 
 const assignmentEndedCode = "error.assignmentEnded";
@@ -183,6 +193,31 @@ async function readStart({ db, models, logger }: TurnServices, representativeId:
   }
   return { ...row, model };
 }
+
+/** Looks again at a thread at a limit (ticket #1309), the same way a Turn checks its Quota. */
+export const limitCheckJob = defineJob<z.infer<typeof limitCheckPayload>, TurnServices>({
+  name: limitCheckJobName,
+  payload: limitCheckPayload,
+  // Its next link is queued only by a check that finishes, so a thread is never left with no chain.
+  onFailed: ({ threadId }, _error, services) =>
+    services.db.transaction((tx) => queueLimitCheck(services, tx, threadId, services.clock())),
+  run: async ({ threadId }, job) => {
+    const limited = await job.step("representative_limit_read", (tx) =>
+      limitedThread(tx, threadId),
+    );
+    if (!limited) return;
+    const lifted = await job.step("representative_limit_quota", async () => {
+      const start = await readStart(job, limited.representativeId);
+      if (!start) return false;
+      const call = await job.models.resolveModelCall(start.userId, start.model);
+      return !call || (await call.meter.mayRun()).ok;
+    });
+    const now = await job.now();
+    await job.step("representative_limit_settle", (tx) =>
+      settleLimit(job, tx, threadId, lifted, now),
+    );
+  },
+});
 
 /**
  * The Bot `representativeId` reports to right now, or null. With `lock`, it holds the Representative's
@@ -865,17 +900,20 @@ export function representativeTurnJob(
       services.db.transaction((tx) => endTurn(services, tx, threadId, turnId)),
     run: async ({ threadId, turnId }, job) => {
       const begun = await job.step("representative_turn_begin", (tx) =>
-        beginTurn(tx, threadId, turnId),
+        beginTurn(tx, threadId, turnId, job.clock()),
       );
       if (!begun) return;
       const { customerId, representativeId, upTo, senderAt, verified } = begun;
       const refusals: GateRefusal[] = [];
+      let limitPast = false;
+      let ranNoLoop = true;
       try {
         // Recorded: a replay after a crash stays on this Release and this owner.
         const start = await job.step("representative_start", () =>
           readStart(job, representativeId),
         );
         if (start) {
+          ranNoLoop = false;
           const { userId, name, model, content, releaseId } = start;
           const sender = await readSender(job.db, threadId, senderAt, upTo);
           const heard = sender && { channel: sender.channel, externalId: sender.externalId };
@@ -887,6 +925,15 @@ export function representativeTurnJob(
           if (!sender || !heard || entries.length === 0) {
             throw new PermanentJobError(`Representative Turn ${turnId}: its thread has gone`);
           }
+          const thread: LiveThread = {
+            threadId,
+            heard,
+            verified,
+            proofRule: sender.proofRule,
+            releaseId,
+            channel: customerChannel,
+            refusals,
+          };
           const played = await playLoop(job, {
             userId,
             representativeId,
@@ -894,17 +941,7 @@ export function representativeTurnJob(
             name,
             model,
             sourceId: turnId,
-            on: {
-              thread: {
-                threadId,
-                heard,
-                verified,
-                proofRule: sender.proofRule,
-                releaseId,
-                channel: customerChannel,
-                refusals,
-              },
-            },
+            on: { thread },
             entries,
             content,
             documents: await readDocuments(job.db, content.documentSnapshot?.documents ?? []),
@@ -913,16 +950,31 @@ export function representativeTurnJob(
           if (played.error !== undefined) {
             throw new PermanentJobError(`Representative Turn ${turnId} failed: ${played.error}`);
           }
-          if (played.quotaSpent || played.timedOut || played.stepLimit) {
-            const why = played.quotaSpent
-              ? "the owner's Quota is spent"
-              : played.timedOut
-                ? "it ran out of time"
-                : "it used all its Steps";
+          if (played.quotaSpent) {
+            const now = await job.now();
+            await job.step("representative_at_limit", (tx) =>
+              reachLimit(job, tx, {
+                userId,
+                representativeId,
+                turnId,
+                thread,
+                cause: "quota_spent",
+                now,
+              }),
+            );
+          } else {
+            limitPast = true;
+          }
+          if (played.timedOut || played.stepLimit) {
+            const why = played.timedOut ? "it ran out of time" : "it used all its Steps";
             job.logger.error(`Representative Turn ${turnId} ended early: ${why}`);
           }
         }
-        await job.step("representative_turn_end", (tx) => endTurn(job, tx, threadId, turnId));
+        await job.step("representative_turn_end", async (tx) => {
+          if (limitPast) await limitPassed(tx, threadId, turnId);
+          if (ranNoLoop) await keepLimitBatch(tx, threadId, turnId);
+          await endTurn(job, tx, threadId, turnId);
+        });
       } finally {
         await logRefusals(job.db, refusals);
       }

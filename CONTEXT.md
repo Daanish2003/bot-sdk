@@ -190,6 +190,10 @@ _Avoid_: Verdict, audit entry
 A message the Outbound gate stored rather than sent, which isn't in its thread and hasn't reached the Customer.
 _Avoid_: Queued message, pending message
 
+**Limit note**:
+The one fixed message a Customer gets when a limit stops a Representative from answering their thread, with no model call: "Our team has your message and will reply". What they said stays owed. Once the limit lifts, what is under 24 hours old gets a Turn and what is older is left for the owner.
+_Avoid_: Quota message, drop notice
+
 **Page**:
 A direct alert that reaches the user outside the app when something needs them, such as an emergency or a stalled Assignment. It goes to web push and their Linked identities, then to email if nobody has acknowledged it, and acknowledging stops whatever is left.
 _Avoid_: Notification, ticket, alert

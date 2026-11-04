@@ -1,6 +1,6 @@
 import { type PageRow, pageIdInput, type PageUrgency } from "@botsdk/client/bot/pages";
 import { oneLine } from "@botsdk/client/message-format";
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, sql } from "drizzle-orm";
 
 import { uuidv7 } from "../lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../plugin";
@@ -14,6 +14,19 @@ import { page } from "../storage";
  * Quota, so it still goes out when the Quota is what went wrong.
  */
 
+type PageInput = {
+  userId: string;
+  /** What raised it, such as `assignment_overdue`, kept on the Page. */
+  cause: string;
+  urgency: PageUrgency;
+  /** A push's title and an email's subject: its first line, cut to 120 characters. */
+  title: string;
+  /** Markdown, as a Bot Message's text is, cut to 2,000 characters. */
+  text: string;
+  /** Where in the Host app it leads, from the root: anything else throws. */
+  path: string;
+};
+
 /** What a feature's `needs: ["pages"]` gives it. */
 export type PagesService = {
   /**
@@ -21,21 +34,12 @@ export type PagesService = {
    * It goes at once to web push and the user's Linked identities, then to email after 10 minutes if
    * it is still not acknowledged.
    */
-  send: (
-    tx: Transaction,
-    input: {
-      userId: string;
-      /** What raised it, such as `assignment_overdue`, kept on the Page. */
-      cause: string;
-      urgency: PageUrgency;
-      /** A push's title and an email's subject: its first line, cut to 120 characters. */
-      title: string;
-      /** Markdown, as a Bot Message's text is, cut to 2,000 characters. */
-      text: string;
-      /** Where in the Host app it leads, from the root: anything else throws. */
-      path: string;
-    },
-  ) => Promise<{ id: string }>;
+  send: (tx: Transaction, input: PageInput) => Promise<{ id: string }>;
+  /**
+   * `send`, unless a Page of this cause went to `userId` in the last day, acknowledged or not: then
+   * null, and nothing goes. Sends racing for one cause wait for each other until `tx` ends.
+   */
+  sendDaily: (tx: Transaction, input: PageInput) => Promise<{ id: string } | null>;
 };
 
 /**
@@ -49,24 +53,40 @@ const maxTextLength = 2000;
 const cut = (text: string, length: number) =>
   text.length > length ? `${text.slice(0, length - 1)}…` : text;
 
+const dayMs = 24 * 60 * 60_000;
+
 /** The `pages` service. */
 export function pagesService(deps: BotSdkContext): PagesService {
+  const send: PagesService["send"] = async (tx, { userId, title, text, path, ...input }) => {
+    // Channels put it straight after the app's URL, where anything else could change the host.
+    if (!path.startsWith("/")) throw new Error(`A Page's path must be from the app's root`);
+    const id = uuidv7();
+    await tx.insert(page).values({
+      id,
+      userId,
+      ...input,
+      title: cut(oneLine(title), maxTitleLength),
+      text: cut(text, maxTextLength),
+      path,
+      createdAt: deps.clock(),
+    });
+    await deps.channels.pageIn(tx, { id, userId, urgency: input.urgency });
+    return { id };
+  };
   return {
-    send: async (tx, { userId, title, text, path, ...input }) => {
-      // Channels put it straight after the app's URL, where anything else could change the host.
-      if (!path.startsWith("/")) throw new Error(`A Page's path must be from the app's root`);
-      const id = uuidv7();
-      await tx.insert(page).values({
-        id,
-        userId,
-        ...input,
-        title: cut(oneLine(title), maxTitleLength),
-        text: cut(text, maxTextLength),
-        path,
-        createdAt: deps.clock(),
-      });
-      await deps.channels.pageIn(tx, { id, userId, urgency: input.urgency });
-      return { id };
+    send,
+    sendDaily: async (tx, input) => {
+      const { userId, cause } = input;
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`page:${userId}:${cause}`}, 0))`,
+      );
+      const since = new Date(deps.clock().getTime() - dayMs);
+      const [recent] = await tx
+        .select({ id: page.id })
+        .from(page)
+        .where(and(eq(page.userId, userId), eq(page.cause, cause), gt(page.createdAt, since)))
+        .limit(1);
+      return recent ? null : send(tx, input);
     },
   };
 }

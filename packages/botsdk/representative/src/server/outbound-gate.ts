@@ -45,6 +45,7 @@ export type GateRule = (typeof gateOrder)[number];
 const rulesOf: Record<OutboundKind, readonly GateRule[]> = {
   reply: gateOrder,
   code_hand_off: ["held", "blocked", "optedOut", "on", "channel"],
+  limit_note: ["held", "blocked", "optedOut", "on", "channel"],
   owner: ["blocked", "optedOut", "channel"],
   takeover_note: ["blocked", "optedOut", "channel"],
   proof: ["blocked", "optedOut", "channel"],
@@ -126,7 +127,7 @@ export async function logRefusals(db: FeatureContext["db"], refusals: GateRefusa
  * thread's. A switch-off, a block or a takeover then lands either before this decision or after this
  * transaction's message. False when the thread has gone.
  */
-async function holdForRules(tx: Transaction, threadId: string) {
+export async function holdForRules(tx: Transaction, threadId: string) {
   const [thread] = await tx
     .select({ representativeId: representativeThread.representativeId })
     .from(representativeThread)

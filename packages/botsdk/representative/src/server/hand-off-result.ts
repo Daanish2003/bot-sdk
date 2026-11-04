@@ -90,6 +90,7 @@ export async function deliverHandOffResult(
     heldForOwner: thread.state === "owner",
     assignmentId: ended.assignmentId,
     ...sender,
+    createdAt: now,
   });
   if (wakes) {
     await wakeTurn(services, tx, {

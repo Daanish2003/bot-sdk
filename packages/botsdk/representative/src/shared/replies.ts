@@ -13,8 +13,11 @@ export const sourceFreeKinds: readonly ReplyKind[] = ["small_talk", "handoff", "
 /** The fixed message code sends when it hands off (ticket #1261): no Model's kind, so none can claim it. */
 export const codeHandOffKind = "code_handoff";
 
+/** The fixed note a Customer gets at a limit (ticket #1309): no Model's kind either. */
+export const limitNoteKind = "limit_note";
+
 /** What a reply stored in a thread can be. */
-export type StoredReplyKind = ReplyKind | typeof codeHandOffKind;
+export type StoredReplyKind = ReplyKind | typeof codeHandOffKind | typeof limitNoteKind;
 
 /**
  * What an owner reads beside a reply (ticket #1262): its kind and the sources code checked. Code

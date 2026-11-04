@@ -5,6 +5,7 @@ const replyKindLabels: Record<string, string> = {
   handoff: "Says it was passed on",
   cant_confirm: "Says it can't confirm",
   code_handoff: "Code's fixed hand-off message",
+  limit_note: "Code's fixed note at a limit",
 };
 
 /** The Representative pages: the list, a Representative's draft, on/off and Releases (spec #1167). */
@@ -21,6 +22,8 @@ export const representativeMessages = {
     "Its hand-offs go to this Bot. Choosing another Bot moves its open hand-offs there. With none, it reports to you.",
   "representative.botChosen": "Reporting Bot changed",
   "representative.none": "No Representatives yet.",
+  "representative.limitWarning": ({ percent }: { percent: number }) =>
+    `You've used ${percent}% of your Quota. At 100%, a Representative on the Host's credentials gives Customers a fixed note instead of an answer until it lifts.`,
   "representative.back": "All Representatives",
   "representative.live": ({ number }: { number: number }) => `Live: Release ${number}`,
   "representative.noRelease": "No Release yet",
