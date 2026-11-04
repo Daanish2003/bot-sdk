@@ -6,6 +6,7 @@ import { maxThreadMessageLength } from "../shared/contract";
 import { isInEffect } from "../shared/facts";
 import { type ReplyKind, type ReplySource, sourceFreeKinds } from "../shared/replies";
 import type { ThreadEntry } from "./customers";
+import { type CustomerMemory, memoryHolds } from "./customer-memory";
 import type { DocumentText } from "./documents";
 import { representativeFact } from "./db/schema";
 
@@ -204,6 +205,7 @@ export async function checkReply(
     sources,
     entries,
     documents,
+    memory,
   }: {
     userId: string;
     now: Date;
@@ -214,6 +216,8 @@ export async function checkReply(
     entries: ThreadEntry[];
     /** The documents the Turn's Release pinned: a quote is checked against these and no other text. */
     documents: DocumentText[];
+    /** The verified Customer's memory this Turn read: a quote is checked against this and no other. */
+    memory: CustomerMemory;
   },
 ): Promise<CheckedReply | ReturnType<typeof refused>> {
   if (brokenKey(text)) {
@@ -272,6 +276,13 @@ export async function checkReply(
     if (!document.text.includes(source.quote)) {
       return refused(
         `document "${source.name.slice(0, 64)}" has no such exact quote. Quote it word for word, or don't state it.`,
+      );
+    }
+  }
+  for (const source of sources) {
+    if (source.type === "memory" && !memoryHolds(memory, source.quote)) {
+      return refused(
+        "this Customer's memory has no such exact quote. Quote what you were given word for word, or don't state it.",
       );
     }
   }

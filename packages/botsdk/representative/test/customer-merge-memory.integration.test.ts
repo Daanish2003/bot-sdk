@@ -110,6 +110,18 @@ async function instance() {
   });
   await rpc.representative.approve({ id });
   await rpc.representative.setEnabled({ id, enabled: true });
+  /** What a verified sender's Turn was told: the prompt of the Model call it makes. */
+  const promptFor = async (externalId: string) => {
+    const before = fake.calls.length;
+    await testCustomerTurn(Object.assign(deps, { timer }), {
+      representativeId: id,
+      message: "What do you know?",
+      externalId,
+      proof: { rule: "sameIdentity" },
+    });
+    const call = fake.calls.slice(before).find((each) => !isPassCall(each));
+    return JSON.stringify(call?.messages ?? []);
+  };
   const say = (message: string, externalId: string) =>
     testCustomerTurn(Object.assign(deps, { timer }), { representativeId: id, message, externalId });
   /** Every job due by the fake clock has ended. */
@@ -217,6 +229,7 @@ async function instance() {
     user,
     deps,
     rpc,
+    promptFor,
     pass,
     turns,
     say,
@@ -476,6 +489,120 @@ describe("a survivor's summaries after a merge", () => {
     await undoLatest();
     expect(await texts(first.id)).toEqual(["newest", "oldest"]);
     expect(await texts(second.id)).toEqual(["middle"]);
+  });
+});
+
+describe("a survivor's Turn after a merge", () => {
+  it("reads the combined profile, with nothing of what the owner cleared, and each its own after undo", async () => {
+    const { rpc, customer, seed, merge, undoLatest, promptFor } = await instance();
+    const first = await customer(ada);
+    const second = await customer(bob);
+    await seed(first.id, "name", "Claimed Ada", "claimed", ago(1));
+    await seed(second.id, "name", "Confirmed Bob", "confirmed", ago(5));
+    await seed(second.id, "address", "2 Low St", "confirmed", ago(5));
+    await seed(second.id, "language", "German", "confirmed", ago(5));
+    await merge(second.id, first.id);
+    await rpc.representative.customerProfileSet({ id: first.id, field: "language", value: "" });
+
+    const merged = await promptFor(ada);
+    expect(merged).toContain("Confirmed Bob");
+    expect(merged).toContain("2 Low St");
+    expect(merged).not.toContain("Claimed Ada");
+    expect(merged).not.toContain("German");
+    expect(merged).not.toContain(String.raw`language: \\\"\\\"`);
+
+    await undoLatest();
+    const adaAlone = await promptFor(ada);
+    expect(adaAlone).toContain("Claimed Ada");
+    expect(adaAlone).not.toContain("Confirmed Bob");
+    expect(adaAlone).not.toContain("2 Low St");
+    const bobAlone = await promptFor(bob);
+    expect(bobAlone).toContain("Confirmed Bob");
+    expect(bobAlone).toContain("German");
+    expect(bobAlone).not.toContain("Claimed Ada");
+  });
+
+  const summarised = async (
+    world: Awaited<ReturnType<typeof instance>>,
+    customerId: string,
+    summary: string,
+    createdAt: Date,
+    sender?: string,
+  ) => {
+    const threadId = uuidv7();
+    await getTestDb().insert(representativeThread).values({
+      id: threadId,
+      customerId,
+      representativeId: world.id,
+      state: "closed",
+      lastChannel: fakeChannel,
+      lastExternalId: ada,
+      messageCount: 0,
+    });
+    if (sender) {
+      await getTestDb().insert(representativeThreadMessage).values({
+        id: uuidv7(),
+        threadId,
+        position: 1,
+        author: "customer",
+        verified: true,
+        channel: fakeChannel,
+        externalId: sender,
+        text: "Words",
+      });
+    }
+    await getTestDb()
+      .insert(representativeCustomerSummary)
+      .values({ id: uuidv7(), threadId, userId: world.user.id, text: summary, createdAt });
+  };
+
+  it("reads the 5 newest summaries across both Customers' threads, and each its own after undo", async () => {
+    const world = await instance();
+    const first = await world.customer(ada);
+    const second = await world.customer(bob);
+    await summarised(world, first.id, "memo-a1", ago(1), ada);
+    await summarised(world, second.id, "memo-b2", ago(2), bob);
+    await summarised(world, first.id, "memo-a3", ago(3), ada);
+    await summarised(world, second.id, "memo-b4", ago(4), bob);
+    await summarised(world, first.id, "memo-a5", ago(5), ada);
+    await summarised(world, second.id, "memo-b6", ago(6), bob);
+    await world.merge(second.id, first.id);
+    // The thread the merge closed has its own summary by now, the newest of all.
+    await world.settle();
+
+    const merged = await world.promptFor(ada);
+    for (const memo of ["memo-a1", "memo-b2", "memo-a3", "memo-b4"]) {
+      expect(merged).toContain(memo);
+    }
+    expect(merged).not.toContain("memo-a5");
+    expect(merged).not.toContain("memo-b6");
+
+    await world.undoLatest();
+    const adaAlone = await world.promptFor(ada);
+    expect(adaAlone).toContain("memo-a1");
+    expect(adaAlone).toContain("memo-a5");
+    expect(adaAlone).not.toContain("memo-b2");
+    const bobAlone = await world.promptFor(bob);
+    expect(bobAlone).toContain("memo-b2");
+    expect(bobAlone).toContain("memo-b6");
+    expect(bobAlone).not.toContain("memo-a1");
+  });
+
+  it("counts a thread both spoke on while the merge stands, and leaves it out after undo", async () => {
+    const world = await instance();
+    const first = await world.customer(ada);
+    const second = await world.customer(bob);
+    await summarised(world, first.id, "memo-both", ago(1), bob);
+    expect(await world.promptFor(ada)).not.toContain("memo-both");
+
+    await world.merge(second.id, first.id);
+    expect(await world.promptFor(ada)).toContain("memo-both");
+
+    await world.undoLatest();
+    expect(await world.promptFor(ada)).not.toContain("memo-both");
+    expect(await world.promptFor(bob)).not.toContain("memo-both");
+    const summaries = await world.rpc.representative.customerSummaryList({ id: first.id });
+    expect(summaries.map((each) => each.text)).toContain("memo-both");
   });
 });
 
