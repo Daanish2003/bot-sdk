@@ -289,7 +289,7 @@ describe("the draft tool", () => {
 
     await expect.poll(() => made.customerFake.calls.length, poll).toBeGreaterThan(0);
     const sent = made.customerFake.calls[0]!.tools?.map((tool) => tool.name);
-    expect(sent).toEqual(["reply", "hand_to_bot", "read_customer_work"]);
+    expect(sent).toEqual(["reply", "hand_to_bot", "read_customer_work", "flag_opt_out"]);
     expect(JSON.stringify(made.customerFake.calls[0])).not.toContain("draft_representative");
   });
 
