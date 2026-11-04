@@ -19,6 +19,7 @@ import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter
 import type { AnyTextAdapter } from "@tanstack/ai";
 import { representativeCustomer, representativeThread } from "../src/server/db/schema";
 import { customerSummaryMarker } from "../src/server/customer-summary";
+import { noCustomerChannel } from "../src/server/customer-proof";
 import { representativeFeature } from "../src/server/plugin";
 
 /*
@@ -89,6 +90,7 @@ async function instance(rounds: Round[], held?: Promise<void>) {
       representativeFeature(
         {},
         {
+          ...noCustomerChannel,
           sendProof: async (to, proof) => {
             sent.push({ ...to, ...proof });
           },

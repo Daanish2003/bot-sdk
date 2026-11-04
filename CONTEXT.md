@@ -182,6 +182,14 @@ _Avoid_: Conversation, ticket, case
 The one set of checks every message to a Customer passes, which decides whether it's sent, held or dropped.
 _Avoid_: Filter, guardrail, moderation
 
+**Decision**:
+What the Outbound gate logged for one message: sent, held or dropped, with the rule that decided and the Release in effect.
+_Avoid_: Verdict, audit entry
+
+**Held message**:
+A message the Outbound gate stored rather than sent, which isn't in its thread and hasn't reached the Customer.
+_Avoid_: Queued message, pending message
+
 **Page**:
 A direct alert that reaches the user outside the app when something needs them, such as an emergency or a stalled Assignment. It goes to web push and their Linked identities, then to email if nobody has acknowledged it, and acknowledging stops whatever is left.
 _Avoid_: Notification, ticket, alert

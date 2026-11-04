@@ -14,6 +14,7 @@ import {
   representativeCustomerMerge,
   representativeCustomerSummary,
   representativeHandOff,
+  representativeOutboundDecision,
   representativeThread,
   representativeThreadMessage,
 } from "./db/schema";
@@ -125,8 +126,9 @@ async function settleThreadWait(
  * thread further, so it is found by their address, across the owner's other Customers. Those words, and
  * any summary made from them or pass about to make one, go; so does a hand-off from them, whose
  * Assignment is returned for redaction. The other Customer's own words stay, and a thread with none
- * left goes. One that stays stops waiting on them. Returns the threads it removed, and those
- * Assignments.
+ * left goes. One that stays stops waiting on them. Gate decisions at their address go too, what they
+ * held with them, as a proof can be addressed to them from any thread. Returns the threads it removed,
+ * and those Assignments.
  */
 async function removeFromOtherThreads(
   tx: Transaction,
@@ -194,6 +196,18 @@ async function removeFromOtherThreads(
         .where(eq(thread.id, id));
     }
   }
+  const decision = representativeOutboundDecision;
+  await tx
+    .delete(decision)
+    .where(
+      and(
+        inArray(
+          decision.threadId,
+          tx.select({ id: thread.id }).from(thread).where(inArray(thread.customerId, others)),
+        ),
+        isAt(decision.channel, decision.externalId, addresses),
+      ),
+    );
   const handOff = representativeHandOff;
   const handOffs = await tx
     .delete(handOff)

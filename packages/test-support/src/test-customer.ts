@@ -1,11 +1,14 @@
 import { batchLongestMs } from "@botsdk/bot/bot/triggers";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { claimJob, type inProcessRunner } from "@botsdk/bot/runner/internal";
 import { expect } from "vitest";
 
 // By path, on purpose: the feature's package exports no way to start a Turn, and a test holds it to that.
+import { customerDeliveryJobName } from "../../botsdk/representative/src/server/outbound-gate";
 import { receiveCustomerMessage } from "../../botsdk/representative/src/server/thread-turns";
 
 import type { TestDeps } from "./deps";
+import { getTestDb } from "./test-database";
 
 /*
  * The test Customer (spec #1167): the one way a Representative Turn starts until a later spec lets
@@ -32,6 +35,22 @@ export type TestCustomerTurn = {
     | { rule: "codeToRecord" }
     | { rule: "dmarc"; pass: boolean; policy: "none" | "quarantine" | "reject" };
 };
+
+/**
+ * Claims the next job for a test that claims jobs by hand, having run each Customer delivery due
+ * before it: a test scripting Turns isn't scripting what the gate sends between them.
+ */
+export async function claimPastDeliveries(
+  jobs: Pick<ReturnType<typeof inProcessRunner>, "runClaimed">,
+  now: Date,
+  options: Parameters<typeof claimJob>[2],
+) {
+  for (;;) {
+    const claimed = await claimJob(getTestDb(), now, options);
+    if (claimed?.name !== customerDeliveryJobName) return claimed;
+    await jobs.runClaimed(claimed, {});
+  }
+}
 
 /** Sends a stand-in Customer's message: its job, null when no Turn follows, as for a blocked Customer. */
 async function sendTestCustomerMessage(
