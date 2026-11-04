@@ -20,6 +20,7 @@ import {
   useSetRepresentativeBot,
   useSetRepresentativeCaps,
   useSetRepresentativeSpendingCaps,
+  useSetRepresentativeQuietHours,
   useSetRepresentativeEnabled,
   useUpdateDraft,
 } from "@botsdk/representative/react";
@@ -369,6 +370,83 @@ function CapsForm({ representative }: { representative: RepresentativeView }) {
   );
 }
 
+/** The hours the Outbound gate holds what the business starts, and the business's time zone: the owner's, in no Release. */
+function QuietHoursForm({ representative }: { representative: RepresentativeView }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const { startHour, endHour, timeZone } = representative.quietHours;
+  const setQuietHours = useSetRepresentativeQuietHours({
+    onSuccess: async () => {
+      await refresh();
+      toast.success(t("representative.quietHoursSaved"));
+    },
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  return (
+    <form
+      data-representative-quiet-hours=""
+      className="space-y-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        setQuietHours.mutate({
+          id: representative.id,
+          startHour: Number(form.get("startHour")),
+          endHour: Number(form.get("endHour")),
+          timeZone: String(form.get("timeZone")),
+        });
+      }}
+    >
+      <h2 className="text-sm font-medium">{t("representative.quietHours")}</h2>
+      <p className="text-xs text-muted-foreground">{t("representative.quietHoursHelp")}</p>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <Label htmlFor="representative-quiet-start">{t("representative.quietStart")}</Label>
+          <Input
+            id="representative-quiet-start"
+            name="startHour"
+            type="number"
+            min={0}
+            max={23}
+            defaultValue={startHour}
+            required
+            className="w-28"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="representative-quiet-end">{t("representative.quietEnd")}</Label>
+          <Input
+            id="representative-quiet-end"
+            name="endHour"
+            type="number"
+            min={0}
+            max={23}
+            defaultValue={endHour}
+            required
+            className="w-28"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="representative-business-time-zone">
+            {t("representative.businessTimeZone")}
+          </Label>
+          <Input
+            id="representative-business-time-zone"
+            name="timeZone"
+            defaultValue={timeZone}
+            required
+            className="w-48"
+          />
+        </div>
+        <Button type="submit" variant="outline" size="sm" disabled={setQuietHours.isPending}>
+          {t("representative.saveQuietHours")}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 const microsPerDollar = 1_000_000;
 
 /** The caps on what the Representative may cost, which the owner edits outside any Release (ticket #1310). */
@@ -531,6 +609,7 @@ export function RepresentativePage({ id }: { id: string }) {
       </div>
       <CapsForm representative={representative} />
       <SpendingCapsForm representative={representative} />
+      <QuietHoursForm representative={representative} />
       <WaitingApproval representative={representative} />
       {/* Keyed by the draft's fields, so a draft changed elsewhere reloads the form. A document uploaded leaves the form's edits alone. */}
       <DraftEditor

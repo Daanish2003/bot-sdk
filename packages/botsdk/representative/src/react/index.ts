@@ -124,6 +124,13 @@ export function useSetRepresentativeSpendingCaps(
   return useMutation(useRepresentative().setSpendingCaps.mutationOptions(options));
 }
 
+/** Edits the hours the Outbound gate holds what the business starts (`representative.setQuietHours`). */
+export function useSetRepresentativeQuietHours(
+  options?: ProcedureMutationOptions<Representative["setQuietHours"]>,
+) {
+  return useMutation(useRepresentative().setQuietHours.mutationOptions(options));
+}
+
 /** Chooses the Bot a Representative reports to (`representative.setBot`). */
 export function useSetRepresentativeBot(
   options?: ProcedureMutationOptions<Representative["setBot"]>,

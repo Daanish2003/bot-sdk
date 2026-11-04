@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "96ce6623-d40b-4225-925e-08687e8a51bf",
-  "prevIds": ["92ac9480-56c2-4d51-ba5f-ff994c6ac910"],
+  "id": "c3734ee9-86e4-48ee-b537-e79b13d68c2b",
+  "prevIds": ["b4213c31-996c-4c66-8353-c08f3bf96709"],
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -236,6 +236,45 @@
       "generated": null,
       "identity": null,
       "name": "spending_caps",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "21",
+      "generated": null,
+      "identity": null,
+      "name": "quiet_start_hour",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "8",
+      "generated": null,
+      "identity": null,
+      "name": "quiet_end_hour",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'UTC'",
+      "generated": null,
+      "identity": null,
+      "name": "business_time_zone",
       "entityType": "columns",
       "schema": "botsdk",
       "table": "representative"

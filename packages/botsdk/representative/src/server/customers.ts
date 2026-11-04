@@ -374,7 +374,7 @@ export async function holdThreadCustomer(tx: Transaction, threadId: string) {
 
 /** What the Model hears of a reply the gate held: the owner has it, and sending it again changes nothing. */
 const heldNote =
-  "Your reply was held for the owner to send or drop, because the Outbound gate holds it (a cap on messages to this Customer), so nothing was sent. Do not send it again.";
+  "Your reply was held, because the Outbound gate holds it (a cap on messages to this Customer, or quiet hours), so nothing was sent now. The owner sends or drops it, or it goes when quiet hours end. Do not send it again.";
 
 /**
  * Passes a reply through the Outbound gate, addressed to the sender its Turn answers, and if the gate
@@ -391,6 +391,7 @@ export async function storeReply(
     verified,
     releaseId,
     refusals,
+    businessStarted,
   }: {
     threadId: string;
     upTo: number;
@@ -398,6 +399,8 @@ export async function storeReply(
     verified: boolean;
     releaseId?: string | null;
     refusals?: GateRefusal[];
+    /** The Turn answers no new Customer message: quiet hours hold what it says. */
+    businessStarted?: boolean;
   },
   { text, sources, topic }: { text: string; sources: ReplySource[]; topic?: string },
   replyKind: StoredReplyKind,
@@ -416,6 +419,8 @@ export async function storeReply(
     releaseId,
     refusals,
     pages: services.pages,
+    jobs: services.jobs,
+    businessStarted,
     content: { text, verified, replyKind, sources, topic },
   });
   if (decision?.rule === draftRule) {

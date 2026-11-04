@@ -182,6 +182,8 @@ export type RepresentativeSummary = {
   caps: OutboundCaps;
   /** What the Representative may cost (ticket #1310). */
   spendingCaps: SpendingCaps;
+  /** When the Outbound gate holds what the business starts (ticket #1303). */
+  quietHours: QuietHours;
 };
 
 /** The most the Outbound gate lets a Representative send one Customer: in a row with no reply, and in a rolling day. */
@@ -211,6 +213,12 @@ export const defaultSpendingCaps: SpendingCaps = {
   strangerMicros: 500_000,
   monthMicros: 50_000_000,
 };
+
+/**
+ * The hours the Outbound gate holds what the business starts, from `startHour` to `endHour` (0 to 23,
+ * wrapping past midnight) in the Customer's time zone, or in `timeZone`, the business's, when theirs is unknown.
+ */
+export type QuietHours = { startHour: number; endHour: number; timeZone: string };
 
 /** One line of a test conversation's transcript. */
 export type TranscriptEntry = {
@@ -302,7 +310,12 @@ export type CustomerIdentityView = {
 };
 
 /** The profile fields every Customer has: the name, which has its own path, and these. */
-export const correctableFixedFields = ["language", "preferred_channel", "address"] as const;
+export const correctableFixedFields = [
+  "language",
+  "preferred_channel",
+  "address",
+  "time_zone",
+] as const;
 export const fixedProfileFields = ["name", ...correctableFixedFields] as const;
 export type FixedProfileField = (typeof fixedProfileFields)[number];
 /** Who a profile value came from: the owner who set it, or the author of the thread line the pass read it from. */
@@ -499,13 +512,18 @@ export const maxProfileValueLength = 1_000;
 const profileFieldName = storable(z.string().trim().min(1).max(maxProfileFieldNameLength));
 export const profileFieldAddInput = z.object({ name: profileFieldName });
 export const profileFieldRenameInput = z.object({ id: z.uuid(), name: profileFieldName });
-export const customerProfileSetInput = z.object({
-  id: z.uuid(),
-  /** A fixed field other than the name, which `customerRename` sets, or an own field's id. */
-  field: z.union([z.enum(correctableFixedFields), z.uuid()]),
-  /** An empty value clears it. */
-  value: storable(z.string().trim().max(maxProfileValueLength)),
-});
+export const customerProfileSetInput = z
+  .object({
+    id: z.uuid(),
+    /** A fixed field other than the name, which `customerRename` sets, or an own field's id. */
+    field: z.union([z.enum(correctableFixedFields), z.uuid()]),
+    /** An empty value clears it. */
+    value: storable(z.string().trim().max(maxProfileValueLength)),
+  })
+  .refine(({ field, value }) => field !== "time_zone" || value === "" || isTimeZone(value), {
+    message: "Not a time zone",
+    path: ["value"],
+  });
 
 /** The fields of a Published fact that don't name it, as stored or logged. */
 export type FactSnapshot = {
@@ -657,6 +675,22 @@ export const setSpendingCapsInput = z
   .refine(({ id: _id, ...caps }) => Object.values(caps).some((cap) => cap !== undefined), {
     message: "Give at least one cap",
   });
+/** Whether `name` is an IANA time zone this runtime knows. */
+export function isTimeZone(name: string) {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: name });
+    return true;
+  } catch {
+    return false;
+  }
+}
+const hourField = z.number().int().min(0).max(23);
+export const setQuietHoursInput = z.object({
+  id: z.uuid(),
+  startHour: hourField,
+  endHour: hourField,
+  timeZone: z.string().trim().max(100).refine(isTimeZone, "Not a time zone"),
+});
 export const setEnabledInput = z.object({ id: z.uuid(), enabled: z.boolean() });
 export const setBotInput = z.object({ id: z.uuid(), botId: z.uuid() });
 
@@ -706,6 +740,8 @@ export const representativeContract = {
   setCaps: oc.input(setCapsInput).output(type<RepresentativeView>()),
   /** Edits what the Representative may cost; a cap left out stays. No new Release, and a raise lifts a thread held at a limit. */
   setSpendingCaps: oc.input(setSpendingCapsInput).output(type<RepresentativeView>()),
+  /** Edits the hours the gate holds what the business starts, and the business's time zone. No new Release. */
+  setQuietHours: oc.input(setQuietHoursInput).output(type<RepresentativeView>()),
   /** Chooses which of the owner's Bots it reports to; its open Assignments move to that Bot. */
   setBot: oc.input(setBotInput).output(type<RepresentativeView>()),
   /** The owner's Customers, oldest first. */

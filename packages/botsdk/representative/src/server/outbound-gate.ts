@@ -7,6 +7,7 @@ import type { Transaction } from "@botsdk/bot/plugin";
 import { defineJob } from "@botsdk/bot/runner/internal";
 import { limitNoteKind, type ReplySource, type StoredReplyKind } from "../shared/replies";
 import { type CustomerChannel } from "./customer-proof";
+import { combinedProfilesOf } from "./customer-profile";
 import { holdThreadCustomer } from "./customers";
 import {
   draftRule,
@@ -21,6 +22,7 @@ import {
   representativeThread,
   representativeThreadMessage,
 } from "./db/schema";
+import { isQuiet, quietEndsAt, zoneOr } from "./quiet-hours";
 import { modeOfLabel } from "./topics";
 
 /*
@@ -73,6 +75,10 @@ type GateFacts = {
   /** The owner's caps on those two. */
   maxInARow: number;
   maxPerDay: number;
+  /** The message starts with the business: no new Customer message is being answered. */
+  businessStarted: boolean;
+  /** It is quiet hours where the Customer is, or where the business is when that is unknown. */
+  quiet: boolean;
 };
 
 /** The day the per-day cap counts over, up to the message's time. */
@@ -88,7 +94,11 @@ export const liveChecks: Partial<Record<GateRule, GateCheck>> = {
   topic: ({ topicMode }) => (topicMode === "auto" ? null : "hold"),
   caps: ({ sentInARow, sentToday, maxInARow, maxPerDay }) =>
     sentInARow >= maxInARow || sentToday >= maxPerDay ? "hold" : null,
+  quietHours: ({ businessStarted, quiet }) => (businessStarted && quiet ? "hold" : null),
 };
+
+/** The rule whose hold lets itself go: the message is sent when the quiet period ends. */
+const quietRule: GateRule = "quietHours";
 
 /** What a Page for a held message says raised it. */
 const heldCause = "outbound_held";
@@ -109,6 +119,15 @@ export type Outgoing = {
   refusals?: GateRefusal[];
   /** Pages the owner when the gate holds a message; without it nobody is told. */
   pages?: PagesService;
+  /** Sends a message held for quiet hours when they end; without it, the owner has to send it. */
+  jobs?: JobsService;
+  /** The message starts with the business, such as a relayed Bot result: quiet hours hold it. */
+  businessStarted?: boolean;
+  /**
+   * The id of the held message this is the automatic release of: it also passes `on`, `caps` and the topic, and
+   * holding it again writes no second held row. A Page for it counts the other held messages only.
+   */
+  releasing?: string;
   /** What is held if the gate holds it. A proof has none: its secret is never stored. */
   content?: {
     text: string;
@@ -123,6 +142,7 @@ export type Outgoing = {
 export type GateDecision = { id: string; outcome: GateOutcome; rule: string };
 
 type PagesService = FeatureContext<"pages">["pages"];
+type JobsService = FeatureContext["jobs"];
 
 type DecisionRow = typeof representativeOutboundDecision.$inferInsert;
 type HeldRow = typeof representativeHeldMessage.$inferInsert;
@@ -133,22 +153,46 @@ export type GateRefusal = {
   held?: HeldRow;
   /** What to tell the owner when this is the first time it is written. */
   page?: Parameters<PagesService["send"]>[1];
+  /** When a held message goes by itself: the end of its quiet hours. */
+  releaseAt?: Date;
 };
+
+export const heldReleaseJobName = "representative.held-release";
+export const heldReleasePayload = z.object({ heldId: z.uuid() });
+const heldReleaseJob = { name: heldReleaseJobName, payload: heldReleasePayload };
+
+/** Sends the held message `heldId` at `at`: one job for each time it is asked for. */
+export async function enqueueHeldRelease(
+  jobs: JobsService,
+  tx: Transaction,
+  heldId: string,
+  at: Date,
+) {
+  await jobs.enqueueIn(
+    tx,
+    heldReleaseJob,
+    { heldId },
+    { idempotencyKey: `${heldReleaseJobName}:${heldId}:${at.getTime()}`, runAfter: at },
+  );
+}
 
 async function writeDecision(
   tx: Transaction,
-  { decision, held, page }: GateRefusal,
+  { decision, held, page, releaseAt }: GateRefusal,
   pages?: PagesService,
+  jobs?: JobsService,
 ) {
   const [written] = await tx
     .insert(representativeOutboundDecision)
     .values(decision)
     .onConflictDoNothing()
     .returning({ id: representativeOutboundDecision.id });
-  // Only with its decision: written again, it mustn't bring back what has since been answered.
-  if (held && written) await tx.insert(representativeHeldMessage).values(held);
-  // Once: a Turn writes a refusal again when it ends, and the owner isn't told twice.
-  if (written && page && pages) await pages.send(tx, page);
+  // Only with its decision: written again, it mustn't bring back what has since been answered or
+  // dropped (a new Customer message), nor queue its release again.
+  if (!written) return;
+  if (held) await tx.insert(representativeHeldMessage).values(held);
+  if (held && releaseAt && jobs) await enqueueHeldRelease(jobs, tx, held.id, releaseAt);
+  if (page && pages) await pages.send(tx, page);
 }
 
 /**
@@ -157,7 +201,7 @@ async function writeDecision(
  * is. A thread gone by then took its log with it.
  */
 export async function logRefusals(
-  { db, pages }: Pick<FeatureContext<"pages">, "db" | "pages">,
+  { db, pages, jobs }: Pick<FeatureContext<"pages">, "db" | "pages" | "jobs">,
   refusals: GateRefusal[],
 ) {
   for (const refusal of refusals) {
@@ -167,7 +211,7 @@ export async function logRefusals(
         .from(representativeThread)
         .where(eq(representativeThread.id, refusal.decision.threadId))
         .for("key share");
-      if (thread) await writeDecision(tx, refusal, pages);
+      if (thread) await writeDecision(tx, refusal, pages, jobs);
     });
   }
 }
@@ -243,6 +287,44 @@ async function sentCounts(tx: Transaction, threadId: string, customerId: string,
 }
 
 /**
+ * The time zone a Customer's quiet hours are read in: theirs when the owner set it or a verified
+ * message of theirs said it, otherwise `fallback`, the business's. An unverified sender's claim of a
+ * daytime zone must not lift the quiet hours.
+ */
+async function customerZone(tx: Transaction, userId: string, customerId: string, fallback: string) {
+  const profile = await combinedProfilesOf(tx, userId, [customerId]);
+  const zone = profile
+    .get(customerId)
+    ?.find(
+      ({ field, status, source }) =>
+        field === "time_zone" && (status === "confirmed" || source === "owner"),
+    );
+  return zoneOr(zone?.value, fallback);
+}
+
+/**
+ * Whether it is quiet hours for the Customer of `threadId` at `now`, by the Representative's hours
+ * as they stand, and when they end.
+ */
+export async function quietAt(tx: Transaction, threadId: string, now: Date) {
+  const [row] = await tx
+    .select({
+      userId: representative.userId,
+      customerId: representativeThread.customerId,
+      startHour: representative.quietStartHour,
+      endHour: representative.quietEndHour,
+      businessTimeZone: representative.businessTimeZone,
+    })
+    .from(representativeThread)
+    .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
+    .where(eq(representativeThread.id, threadId));
+  if (!row) return null;
+  const timeZone = await customerZone(tx, row.userId, row.customerId, row.businessTimeZone);
+  const period = { startHour: row.startHour, endHour: row.endHour };
+  return { quiet: isQuiet(now, timeZone, period), endsAt: quietEndsAt(now, timeZone, period) };
+}
+
+/**
  * Decides what becomes of `outgoing` and logs it, in `tx`. A held message is stored here; a sent one
  * the caller stores in its thread, and then hands to `deliverMessage`. Null when the thread has gone,
  * so there's nothing to log it on and nothing is sent. The owner's paths hold the thread before this,
@@ -254,7 +336,9 @@ export async function passGate(
   checks: Partial<Record<GateRule, GateCheck>> = liveChecks,
 ): Promise<GateDecision | null> {
   const { kind, threadId, to, now, content } = outgoing;
-  const rules = rulesOf[kind];
+  const rules: readonly GateRule[] = outgoing.releasing
+    ? [...rulesOf[kind], "on", "caps", "topic"]
+    : rulesOf[kind];
   if (rules.includes("held") && !(await holdForRules(tx, threadId))) return null;
   const [row] = await tx
     .select({
@@ -267,6 +351,9 @@ export async function passGate(
       name: representative.name,
       maxInARow: representative.maxInARow,
       maxPerDay: representative.maxPerDay,
+      quietStartHour: representative.quietStartHour,
+      quietEndHour: representative.quietEndHour,
+      businessTimeZone: representative.businessTimeZone,
     })
     .from(representativeThread)
     .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
@@ -276,8 +363,22 @@ export async function passGate(
     .select({ blockedAt: representativeCustomer.blockedAt })
     .from(representativeCustomer)
     .where(eq(representativeCustomer.id, outgoing.customerId ?? row.customerId));
+  const businessStarted = outgoing.businessStarted ?? false;
+  // The Customer's time zone wins, the business's is used when it's unknown.
+  let timeZone = row.businessTimeZone;
+  if (rules.includes(quietRule) && businessStarted) {
+    timeZone = await customerZone(
+      tx,
+      row.userId,
+      outgoing.customerId ?? row.customerId,
+      row.businessTimeZone,
+    );
+  }
+  const period = { startHour: row.quietStartHour, endHour: row.quietEndHour };
   const facts: GateFacts = {
     ...row,
+    businessStarted,
+    quiet: isQuiet(now, timeZone, period),
     blockedAt: customer?.blockedAt ?? null,
     topicMode: rules.includes("topic") ? await modeOfLabel(tx, row.userId, content?.topic) : null,
     ...(rules.includes("caps")
@@ -310,8 +411,10 @@ export async function passGate(
       externalId: to.externalId,
       createdAt: now,
     },
+    ...(rule === quietRule && { releaseAt: quietEndsAt(now, timeZone, period) }),
     ...(outcome === "hold" &&
-      content && {
+      content &&
+      !outgoing.releasing && {
         held: {
           id: uuidv7(),
           decisionId: id,
@@ -327,7 +430,9 @@ export async function passGate(
   };
   // One Page until the owner has dealt with what is held: a Model that keeps replying isn't a new alarm.
   // A Reply draft pages nobody when it is written: the Customer has had their note, and it's expected.
-  const pageable = outcome === "hold" && rule !== draftRule;
+  // Nor do quiet hours: they end by themselves, so the owner is told of what waits for them, not for morning.
+  const pageable =
+    outcome === "hold" && (rule !== draftRule || !!outgoing.releasing) && rule !== quietRule;
   const [waiting] = pageable
     ? await tx
         .select({ id: representativeHeldMessage.id })
@@ -341,6 +446,7 @@ export async function passGate(
             eq(representativeHeldMessage.threadId, threadId),
             isNull(representativeHeldMessage.resolution),
             ne(representativeOutboundDecision.rule, draftRule),
+            outgoing.releasing ? ne(representativeHeldMessage.id, outgoing.releasing) : undefined,
           ),
         )
         .limit(1)
@@ -355,7 +461,7 @@ export async function passGate(
       path: `/representatives/${row.representativeId}`,
     };
   }
-  await writeDecision(tx, written, outgoing.pages);
+  await writeDecision(tx, written, outgoing.pages, outgoing.jobs);
   // Written again only if its Turn's fence rolled this back. A Turn stopped like that has no say over
   // what it wrote, so it waits for nobody, and there is nothing to tell the owner.
   if (outcome !== "send") {

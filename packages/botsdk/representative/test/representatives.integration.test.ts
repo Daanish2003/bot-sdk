@@ -92,6 +92,7 @@ describe("creating and editing a Representative", () => {
           strangerMicros: 500_000,
           monthMicros: 50_000_000,
         },
+        quietHours: { startHour: 21, endHour: 8, timeZone: "UTC" },
       },
     ]);
     expect(await (await another(deps)).rpc.representative.list()).toEqual([]);
