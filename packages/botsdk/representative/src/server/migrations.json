@@ -98,5 +98,9 @@
   {
     "name": "20261104174152_limit_note",
     "sql": "ALTER TABLE \"botsdk\".\"representative_thread\" ADD COLUMN \"limit_noted_at\" timestamp;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_thread\" ADD COLUMN \"left_for_owner_at\" timestamp;"
+  },
+  {
+    "name": "20261104191319_quiet_hours",
+    "sql": "ALTER TABLE \"botsdk\".\"representative\" ADD COLUMN \"quiet_start_hour\" integer DEFAULT 21 NOT NULL;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative\" ADD COLUMN \"quiet_end_hour\" integer DEFAULT 8 NOT NULL;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative\" ADD COLUMN \"business_time_zone\" text DEFAULT 'UTC' NOT NULL;"
   }
 ]

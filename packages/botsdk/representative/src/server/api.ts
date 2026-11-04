@@ -23,6 +23,7 @@ import {
   rollbackInput,
   setBotInput,
   setCapsInput,
+  setQuietHoursInput,
   setEnabledInput,
   threadSendInput,
   topicAddInput,
@@ -67,6 +68,7 @@ import {
   setBot,
   setCaps,
   setEnabled,
+  setQuietHours,
   updateDraft,
   uploadDocument,
 } from "./representatives";
@@ -156,6 +158,9 @@ export function representativeApi(
 
     setCaps: async ({ userId, ...rest }: WithUser<typeof setCapsInput>) =>
       setCaps(context, userId, parseInput(setCapsInput, rest)),
+
+    setQuietHours: async ({ userId, ...rest }: WithUser<typeof setQuietHoursInput>) =>
+      setQuietHours(context, userId, parseInput(setQuietHoursInput, rest)),
 
     setBot: async ({ userId, ...rest }: WithUser<typeof setBotInput>) => {
       const { id, botId } = parseInput(setBotInput, rest);

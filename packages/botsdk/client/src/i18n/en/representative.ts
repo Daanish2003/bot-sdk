@@ -28,6 +28,14 @@ export const representativeMessages = {
   "representative.maxPerDay": "Per Customer per day",
   "representative.saveCaps": "Save caps",
   "representative.capsSaved": "Caps saved",
+  "representative.quietHours": "Quiet hours",
+  "representative.quietHoursHelp":
+    "A message the business starts, such as a follow-up, is held until the quiet hours end. A direct reply to a Customer who just wrote goes at any hour. The Customer's time zone is used when known, otherwise the business's.",
+  "representative.quietStart": "From hour (0 to 23)",
+  "representative.quietEnd": "Until hour (0 to 23)",
+  "representative.businessTimeZone": "Business time zone",
+  "representative.saveQuietHours": "Save quiet hours",
+  "representative.quietHoursSaved": "Quiet hours saved",
   "representative.none": "No Representatives yet.",
   "representative.limitWarning": ({ percent }: { percent: number }) =>
     `You've used ${percent}% of your Quota. At 100%, a Representative on the Host's credentials gives Customers a fixed note instead of an answer until it lifts.`,
@@ -279,6 +287,7 @@ export const representativeMessages = {
   "representative.customers.profileLanguage": "Language",
   "representative.customers.profilePreferredChannel": "Preferred Channel",
   "representative.customers.profileAddress": "Address",
+  "representative.customers.profileTimeZone": "Time zone",
   "representative.customers.profileValueOf": ({ field, name }: { field: string; name: string }) =>
     `${field} of ${name}`,
   "representative.customers.profileSaveOf": ({ field, name }: { field: string; name: string }) =>

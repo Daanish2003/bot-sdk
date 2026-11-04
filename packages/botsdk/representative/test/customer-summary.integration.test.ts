@@ -593,6 +593,15 @@ describe("a closed thread's profile values (ticket #1282)", () => {
     ]);
   });
 
+  it("stores no time zone the gate couldn't read", async () => {
+    const { profile } = await closed(
+      [{ field: "time_zone", value: "Mars/Olympus", line: 1 }],
+      [{ author: "customer", verified: false }],
+    );
+
+    expect(await profile()).toEqual([]);
+  });
+
   it("lets no owner or Representative line make a value confirmed, whatever its row says", async () => {
     const { profile } = await closed(
       [

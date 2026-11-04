@@ -270,6 +270,8 @@ type LiveThread = {
   channel: CustomerChannel;
   /** What the gate has refused this Turn, logged again when it ends, as its fence may roll it back. */
   refusals: GateRefusal[];
+  /** No new Customer message is in this Turn's batch, such as a Bot's result to tell: the business starts it. */
+  businessStarted: boolean;
 };
 
 /**
@@ -1029,6 +1031,9 @@ export function representativeTurnJob(
             releaseId,
             channel: customerChannel,
             refusals,
+            businessStarted: !entries.some(
+              (entry) => entry.author === "customer" && !entry.earlier,
+            ),
           };
           const played = await playLoop(job, {
             userId,
