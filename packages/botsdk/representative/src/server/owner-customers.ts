@@ -27,6 +27,7 @@ import {
   type ThreadState,
 } from "./db/schema";
 import { isMergedAway, notMergedAway } from "./customer-merge";
+import { customerNameQuery, nameIn, profilesOf, setOwnerValue } from "./customer-profile";
 import { voidProofs } from "./customer-proof";
 import { grouped } from "./customers";
 import { lastMessageQuery } from "./last-message";
@@ -120,9 +121,15 @@ async function readCustomers(
     .orderBy(asc(representativeCustomerIdentity.createdAt), asc(representativeCustomerIdentity.id));
   const now = clock();
   const byCustomer = grouped(identities, (identity) => identity.customerId);
+  const profiles = await profilesOf(
+    db,
+    userId,
+    customers.map((customer) => customer.id),
+  );
   return customers.map((customer) => ({
     id: customer.id,
-    name: customer.name,
+    name: nameIn(profiles.get(customer.id)),
+    profile: profiles.get(customer.id) ?? [],
     blocked: customer.blockedAt !== null,
     createdAt: customer.createdAt,
     identities: (byCustomer.get(customer.id) ?? []).map(
@@ -153,7 +160,8 @@ export async function createCustomer(
 ) {
   const id = await context.db.transaction(async (tx) => {
     const customerId = uuidv7();
-    await tx.insert(representativeCustomer).values({ id: customerId, userId, name });
+    await tx.insert(representativeCustomer).values({ id: customerId, userId });
+    if (name) await setOwnerValue(tx, context.clock(), userId, customerId, "name", name);
     const made = await tx
       .insert(representativeCustomerIdentity)
       .values({ id: uuidv7(), userId, customerId, channel, externalId })
@@ -185,10 +193,20 @@ async function lockCustomer(tx: Transaction, userId: string, id: string) {
 export async function renameCustomer(context: Context, userId: string, id: string, name: string) {
   await context.db.transaction(async (tx) => {
     await lockCustomer(tx, userId, id);
-    await tx
-      .update(representativeCustomer)
-      .set({ name: name === "" ? null : name })
-      .where(eq(representativeCustomer.id, id));
+    await setOwnerValue(tx, context.clock(), userId, id, "name", name);
+  });
+  return readCustomer(context, userId, id);
+}
+
+/** Sets or, with an empty value, clears one value of a Customer's profile, as the owner's. */
+export async function setProfileValue(
+  context: Context,
+  userId: string,
+  { id, field, value }: { id: string; field: string; value: string },
+) {
+  await context.db.transaction(async (tx) => {
+    await lockCustomer(tx, userId, id);
+    await setOwnerValue(tx, context.clock(), userId, id, field, value);
   });
   return readCustomer(context, userId, id);
 }
@@ -372,7 +390,7 @@ const botWorkingQuery = sql`exists (select 1 from ${representativeHandOff} inner
 const threadColumns = {
   id: representativeThread.id,
   customerId: representativeThread.customerId,
-  customerName: representativeCustomer.name,
+  customerName: customerNameQuery(representativeThread.customerId),
   blockedAt: representativeCustomer.blockedAt,
   representativeId: representativeThread.representativeId,
   state: representativeThread.state,

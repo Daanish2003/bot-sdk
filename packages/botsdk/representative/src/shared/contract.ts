@@ -262,11 +262,34 @@ export type CustomerIdentityView = {
   verified: boolean;
 };
 
+/** The profile fields every Customer has: the name, which has its own path, and these. */
+export const correctableFixedFields = ["language", "preferred_channel", "address"] as const;
+export const fixedProfileFields = ["name", ...correctableFixedFields] as const;
+export type FixedProfileField = (typeof fixedProfileFields)[number];
+/** Who a profile value came from. */
+export type ProfileSource = "owner" | "customer";
+/** `confirmed` only if the owner set it or a verified Customer said it; `claimed` otherwise. */
+export type ProfileStatus = "claimed" | "confirmed";
+
+/** A field an owner defined for their Customers' profiles. */
+export type ProfileFieldView = { id: string; name: string };
+
+/** One value of a Customer's profile. */
+export type ProfileValueView = {
+  /** A fixed field, or the id of one the owner defined. */
+  field: string;
+  value: string;
+  source: ProfileSource;
+  status: ProfileStatus;
+  recordedAt: Date;
+};
+
 /** One of the owner's Customers, shared by all their Representatives. */
 export type CustomerView = {
   id: string;
-  /** What the owner calls them; null until they say. */
+  /** Their profile's name value; null until there is one. */
   name: string | null;
+  profile: ProfileValueView[];
   /** Whether the owner blocked them: a blocked Customer's message runs no Turn and gets no reply. */
   blocked: boolean;
   identities: CustomerIdentityView[];
@@ -365,6 +388,19 @@ export const customerMergeInput = z.object({ id: z.uuid(), intoId: z.uuid() });
 export const customerRenameInput = z.object({
   id: z.uuid(),
   name: storable(z.string().trim().max(maxCustomerNameLength)),
+});
+
+export const maxProfileFieldNameLength = 100;
+export const maxProfileValueLength = 1_000;
+const profileFieldName = storable(z.string().trim().min(1).max(maxProfileFieldNameLength));
+export const profileFieldAddInput = z.object({ name: profileFieldName });
+export const profileFieldRenameInput = z.object({ id: z.uuid(), name: profileFieldName });
+export const customerProfileSetInput = z.object({
+  id: z.uuid(),
+  /** A fixed field other than the name, which `customerRename` sets, or an own field's id. */
+  field: z.union([z.enum(correctableFixedFields), z.uuid()]),
+  /** An empty value clears it. */
+  value: storable(z.string().trim().max(maxProfileValueLength)),
 });
 
 /** The fields of a Published fact that don't name it, as stored or logged. */
@@ -547,6 +583,16 @@ export const representativeContract = {
   customerCreate: oc.input(customerCreateInput).output(type<CustomerView>()),
   /** Names a Customer, or clears the name with an empty one. */
   customerRename: oc.input(customerRenameInput).output(type<CustomerView>()),
+  /** Sets or, with an empty value, clears a Customer's profile value, as `confirmed` by the owner, today. */
+  customerProfileSet: oc.input(customerProfileSetInput).output(type<CustomerView>()),
+  /** The owner's own profile fields, oldest first. */
+  profileFieldList: oc.output(type<ProfileFieldView[]>()),
+  /** Adds a profile field. Refused when its name is a fixed field's or another of the owner's, ignoring case. */
+  profileFieldAdd: oc.input(profileFieldAddInput).output(type<ProfileFieldView>()),
+  /** Renames a profile field, refused as adding one is. Its values stay. */
+  profileFieldRename: oc.input(profileFieldRenameInput).output(type<ProfileFieldView>()),
+  /** Removes a profile field and every Customer's value of it. */
+  profileFieldRemove: oc.input(idInput),
   /** Gives a Customer another identity. Refused when the owner already has it, on this Customer or another. */
   customerAddIdentity: oc.input(customerAddIdentityInput).output(type<CustomerView>()),
   /** Corrects one identity. Refused when it would match another of the owner's identities. */

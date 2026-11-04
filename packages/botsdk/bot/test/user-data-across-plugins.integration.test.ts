@@ -37,6 +37,8 @@ import {
   representative as representativeTable,
   representativeCustomer,
   representativeCustomerIdentity,
+  representativeProfileField,
+  representativeProfileValue,
   representativeFact,
   representativeFactLog,
   representativeGap,
@@ -76,6 +78,8 @@ const userTables = [
   representativeTable,
   representativeCustomer,
   representativeCustomerIdentity,
+  representativeProfileField,
+  representativeProfileValue,
   representativeFact,
   representativeFactLog,
   representativeGap,
@@ -231,6 +235,21 @@ async function seedEverything(
   await getTestDb()
     .insert(representativeCustomerIdentity)
     .values({ id: uuidv7(), userId: user.id, customerId, channel: "fake", externalId: "+1" });
+  // An own profile field, and the Customer's value of it.
+  const profileFieldId = uuidv7();
+  await getTestDb()
+    .insert(representativeProfileField)
+    .values({ id: profileFieldId, userId: user.id, name: "Equipment" });
+  await getTestDb().insert(representativeProfileValue).values({
+    id: uuidv7(),
+    userId: user.id,
+    customerId,
+    fieldId: profileFieldId,
+    value: "Boiler",
+    source: "owner",
+    status: "confirmed",
+    recordedAt: new Date(),
+  });
   // A Published fact, and the log entry of adding it.
   const factAt = new Date("2026-06-01T09:00:00Z");
   const loggedFact = {
