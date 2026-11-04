@@ -53,17 +53,32 @@ export async function sendPushDelivery(
     .innerJoin(bot, authoredBy())
     .where(eq(message.id, messageId));
   if (!row) return;
+  const source = await notificationOf(deps.db, row);
+  await pushToDevices(deps, push, row.userId, {
+    title: source.title,
+    text: searchTextOf(row.parts),
+    url: `${push.appUrl}${source.path}`,
+    tag: messageId,
+  });
+}
+
+/**
+ * Pushes a notification to each of the user's devices, its `text` as one clean line. A device whose
+ * push service answers 404 or 410 is gone, so its subscription is deleted. Any other failure throws
+ * once every device was tried; a device pushed again gets the same `tag`, which replaces the
+ * notification it already shows.
+ */
+export async function pushToDevices(
+  deps: BotSdkContext,
+  push: WebPushChannel,
+  userId: string,
+  { text, ...rest }: Omit<PushNotification, "body"> & { text: string },
+): Promise<void> {
   const devices = await deps.db
     .select()
     .from(pushSubscription)
-    .where(eq(pushSubscription.userId, row.userId));
-  const source = await notificationOf(deps.db, row);
-  const notification: PushNotification = {
-    title: source.title,
-    body: bodyOf(searchTextOf(row.parts)),
-    url: `${push.appUrl}${source.path}`,
-    tag: messageId,
-  };
+    .where(eq(pushSubscription.userId, userId));
+  const notification: PushNotification = { ...rest, body: bodyOf(text) };
   const results = await Promise.allSettled(
     devices.map(async ({ endpoint, p256dh, auth }) => {
       const sent = await push.provider.send({ endpoint, keys: { p256dh, auth } }, notification, {

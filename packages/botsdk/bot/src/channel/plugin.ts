@@ -25,6 +25,15 @@ export const deliveryPayload = z.union([
 
 export type DeliveryPayload = z.infer<typeof deliveryPayload>;
 
+/** What a `page.deliver` job carries (ticket #1300): one Page and one Channel to send it on. */
+export const pageDeliveryPayload = z.discriminatedUnion("via", [
+  z.object({ via: z.literal("push"), pageId: z.uuid() }),
+  z.object({ via: z.literal("messaging"), pageId: z.uuid(), platform: z.string() }),
+  z.object({ via: z.literal("email"), pageId: z.uuid() }),
+]);
+
+export type PageDelivery = z.infer<typeof pageDeliveryPayload>;
+
 /**
  * A Channel adapter (spec #761): its wire format only. Email (spec #761), web push (spec #1024) and
  * the messaging adapters (spec #1044), one per platform.
@@ -104,6 +113,13 @@ export type ChannelApi = {
    * on a messaging Channel; the runner retries it when it throws.
    */
   sendDelivery: (payload: DeliveryPayload) => Promise<void>;
+  /**
+   * Queues a Page's sends in the caller's transaction (ticket #1300): web push and each of the
+   * user's Linked identities at once, email after 10 minutes. A Channel the Host lacks has none.
+   */
+  pageIn: (tx: Transaction, page: { id: string; userId: string }) => Promise<void>;
+  /** Sends one `page.deliver` job's Page on its Channel; the runner retries it when it throws. */
+  sendPage: (payload: PageDelivery) => Promise<void>;
   /** The web push Channel's VAPID public key, or `null` when the Host gave no web push adapter. */
   pushKey: () => string | null;
   /** The Channel accounts on the messaging Channels (spec #1044). */

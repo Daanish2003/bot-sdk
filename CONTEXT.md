@@ -183,7 +183,7 @@ The one set of checks every message to a Customer passes, which decides whether 
 _Avoid_: Filter, guardrail, moderation
 
 **Page**:
-A direct alert that reaches the user outside the app when something needs them, such as an emergency or a stalled Assignment, and repeats until acknowledged.
+A direct alert that reaches the user outside the app when something needs them, such as an emergency or a stalled Assignment. It goes to web push and their Linked identities, then to email if nobody has acknowledged it, and acknowledging stops whatever is left.
 _Avoid_: Notification, ticket, alert
 
 **Customer**:

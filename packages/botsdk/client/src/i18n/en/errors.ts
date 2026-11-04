@@ -8,6 +8,7 @@ export const errorMessages = {
   "error.conversationNotFound": "Conversation not found",
   "error.messageNotFound": "Message not found",
   "error.botNotFound": "Bot not found",
+  "error.pageNotFound": "Page not found",
   "error.botPaused": "Bot is paused. Resume to send.",
   "error.botPausedApproval": "Bot is paused. Resume to approve.",
   "error.roomNotFound": "Room not found",

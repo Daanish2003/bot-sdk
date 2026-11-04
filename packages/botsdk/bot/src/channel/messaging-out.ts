@@ -21,6 +21,12 @@ const list = (ordered: boolean, items: string[]): Block => ({
   items: items.map((item) => [line(item)]),
 });
 
+/** A paragraph that is one link into the app. */
+export const appLink = (lead: string, href: string): Block => ({
+  type: "paragraph",
+  children: [{ type: "link", href, children: [{ type: "text", text: lead }] }],
+});
+
 /**
  * One Bot Message as a messaging Channel's outbound Message (spec #1044, "How a Message shows on
  * Telegram"): its text, then its Rich control (`control`) reduced the way email reduces it. A choice is a numbered
@@ -42,13 +48,7 @@ export function messagingBody(
   let buttons: MessagingButtons | undefined;
   let sent: OutboundMessage["files"];
   const control = message.control;
-  const link = (lead: string): Block =>
-    appUrl
-      ? {
-          type: "paragraph",
-          children: [{ type: "link", href: appUrl, children: [{ type: "text", text: lead }] }],
-        }
-      : line(lead);
+  const link = (lead: string): Block => (appUrl ? appLink(lead, appUrl) : line(lead));
   switch (control?.kind) {
     case "choice":
       if (control.answer) break;

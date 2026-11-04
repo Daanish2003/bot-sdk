@@ -16,6 +16,7 @@ import {
   botSecret,
   customRule,
   notificationSettings,
+  page,
   pushSubscription,
   linkCode,
   linkedIdentity,
@@ -197,6 +198,17 @@ async function seedEverything(
       auth: "auth",
       createdAt: new Date(),
     });
+
+  await getTestDb().insert(page).values({
+    id: uuidv7(),
+    userId: user.id,
+    cause: "assignment_overdue",
+    urgency: "routine",
+    title: "An Assignment stalled",
+    text: "Your Bot has not finished.",
+    path: "/",
+    createdAt: new Date(),
+  });
 
   await getTestDb()
     .insert(linkedIdentity)
@@ -575,7 +587,7 @@ describe("exportUser across plugins", () => {
     );
 
     expect(exported.extra).toEqual({ savedPrompts: [] });
-    expect(exported.bot as BotExport).toEqual({ bots: [], rooms: [], assignments: [] });
+    expect(exported.bot as BotExport).toEqual({ bots: [], rooms: [], assignments: [], pages: [] });
     expect(exported).not.toHaveProperty("memory");
     expect(exported).not.toHaveProperty("savedPrompts");
   });
@@ -611,7 +623,7 @@ describe("sdk.users on a Host's instance", () => {
     const exported = await sdk.users.export({ userId: owner.id });
     expect(exported).toMatchObject({
       version: 2,
-      bot: { bots: [], rooms: [], assignments: [] },
+      bot: { bots: [], rooms: [], assignments: [], pages: [] },
       models: { imageModel: null },
       extra: { owner: owner.id },
     });

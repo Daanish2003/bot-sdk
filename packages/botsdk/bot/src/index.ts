@@ -21,6 +21,7 @@ export {
   type FeatureTurn,
 } from "./feature";
 export { assignmentEnded, type AssignmentEnded, type AssignmentsService } from "./bot/assignments";
+export type { PagesService } from "./bot/pages-api";
 export type {
   RepresentativeIdentity,
   RepresentativeLoopKit,
