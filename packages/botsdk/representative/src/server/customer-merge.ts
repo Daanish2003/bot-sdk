@@ -13,6 +13,7 @@ import {
   representativeCustomer,
   representativeCustomerIdentity,
   representativeCustomerMerge,
+  representativeHandOff,
   representativeThread,
   representativeThreadMessage,
   representativeVerification,
@@ -154,6 +155,12 @@ export async function absorbCustomer(
     }
   }
   await tx.update(thread).set({ customerId: survivorId }).where(eq(thread.customerId, absorbedId));
+  // Recorded by id, as a hand-off outlives its thread.
+  const handOffs = await tx
+    .update(representativeHandOff)
+    .set({ customerId: survivorId })
+    .where(eq(representativeHandOff.customerId, absorbedId))
+    .returning({ assignmentId: representativeHandOff.assignmentId });
   await tx.insert(merge).values({
     id: uuidv7(),
     userId,
@@ -162,6 +169,7 @@ export async function absorbCustomer(
     how,
     identityIds,
     threadIds: threads.map((row) => row.id),
+    handOffIds: handOffs.map((row) => row.assignmentId),
     movedHolds,
     createdAt: services.clock(),
   });
@@ -324,7 +332,8 @@ async function reopenHeldThreads(
  * both, since nothing says which of them it was meant for. What a code merge's sender proved by it
  * goes too, since the owner says they aren't that person, and a thread held only because of the
  * merge, with no Hand back since, goes back to its Representative. A survivor since merged away must
- * come back first. Doing it again changes nothing.
+ * come back first. Profile values never moved, and a summary follows its thread, so each Customer's
+ * memory is its own again with nothing more to do. Doing it again changes nothing.
  */
 export async function undoMerge(context: Context, userId: string, id: string) {
   const inScope = and(eq(merge.id, id), eq(merge.userId, userId));
@@ -372,6 +381,19 @@ export async function undoMerge(context: Context, userId: string, id: string) {
         and(
           inArray(representativeThread.id, found.threadIds),
           eq(representativeThread.customerId, survivorId),
+        ),
+      );
+    // What it moved, and what a moved thread has handed off since. Not a thread begun since's.
+    await tx
+      .update(representativeHandOff)
+      .set({ customerId: absorbedId })
+      .where(
+        and(
+          eq(representativeHandOff.customerId, survivorId),
+          or(
+            inArray(representativeHandOff.assignmentId, found.handOffIds),
+            inArray(representativeHandOff.threadId, found.threadIds),
+          ),
         ),
       );
     await reopenHeldThreads(context, tx, absorbedId, current.movedHolds);
@@ -481,6 +503,7 @@ export async function exportMerges(tx: Transaction, userId: string) {
       how: merge.how,
       identityIds: merge.identityIds,
       threadIds: merge.threadIds,
+      handOffIds: merge.handOffIds,
       movedHolds: merge.movedHolds,
       createdAt: merge.createdAt,
       undoneAt: merge.undoneAt,

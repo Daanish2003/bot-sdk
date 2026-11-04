@@ -203,7 +203,7 @@ The one summary of a closed Customer thread, part of Customer memory, linked to 
 _Avoid_: Summary (a Conversation's), thread summary
 
 **Customer merge**:
-Making two Customers one, which happens only when a sender passes a code sent to an identity on the other's record, or when the user does it by hand. The absorbed Customer's identities and threads move to the other, and where both have an open thread with a Representative, the absorbed one's closes. It is recorded, verifies nobody, and the user can undo it: each identity goes back, and a closed thread stays closed.
+Making two Customers one, which happens only when a sender passes a code sent to an identity on the other's record, or when the user does it by hand. The absorbed Customer's identities and threads move to the other, and where both have an open thread with a Representative, the absorbed one's closes. It is recorded, verifies nobody, and the user can undo it: each identity goes back, and a closed thread stays closed. Customer memory doesn't move: the survivor reads both profiles as one, summaries follow their threads, and a hand-off's Customer moves with the merge and back with its undo.
 _Avoid_: Link, dedupe
 
 **Verified identity**:

@@ -1,0 +1,612 @@
+import { eq } from "drizzle-orm";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
+import { job } from "@botsdk/bot/storage";
+import { exportUserData } from "@botsdk/bot/user-data";
+import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
+import { fakeJobClock } from "@ai-chat/test-support/jobs";
+import { chatRpc } from "@ai-chat/test-support/sdk";
+import { testCustomerTurn } from "@ai-chat/test-support/test-customer";
+import { getTestDb } from "@ai-chat/test-support/test-database";
+import { insertUser } from "@ai-chat/test-support/users";
+import { createFakeAdapter, round, text, toolCall } from "@botsdk/testing/fake-adapter";
+import type { TextOptions } from "@tanstack/ai";
+import { representative } from "../src";
+import type { FixedProfileField, ProfileStatus } from "../src/shared/contract";
+import {
+  representativeCustomerSummary,
+  representativeHandOff,
+  representativeProfileValue,
+  representativeThread,
+  representativeThreadMessage,
+} from "../src/server/db/schema";
+import { customerSummaryMarker, profileOperationsMarker } from "../src/server/customer-summary";
+import { threadExpiryMs } from "../src/server/expiry";
+import { threadIdleMs } from "../src/server/idle";
+
+/*
+ * Merging two Customers combines their memory, and undoing it puts it back (ticket #1286): a real
+ * runner on a fake clock over real Postgres, with a fake Model, read through the owner's API.
+ */
+
+vi.setConfig({ testTimeout: 30_000 });
+
+const model = "openai:gpt-6-luna";
+const botModel = "openai:gpt-5.4-mini";
+const poll = { timeout: 10_000 };
+const day = 24 * 60 * 60_000;
+const ada = "+15550001";
+const bob = "+15550002";
+const cat = "+15550003";
+const dan = "+15550004";
+
+const runners: JobRunner[] = [];
+afterEach(async () => {
+  for (const runner of runners.splice(0)) await runner.stop();
+});
+
+const isPassCall = (options: TextOptions) =>
+  JSON.stringify(options.systemPrompts ?? []).includes(customerSummaryMarker);
+
+type Operation = { field: string; value: string; line: number };
+
+const passReply = (operations: Operation[]) =>
+  round(text(`A summary.\n${profileOperationsMarker}\n${JSON.stringify(operations)}`));
+
+const handsOff = () =>
+  round(
+    toolCall({
+      name: "hand_to_bot",
+      input: { title: "A refund", instructions: "They want a refund." },
+    }),
+  );
+
+const ago = (days: number) => new Date(Date.now() - days * day);
+
+async function instance() {
+  const pass: Operation[][] = [];
+  const turns: Array<() => ReturnType<typeof round>> = [];
+  const fake = createFakeAdapter({
+    rounds: Array.from({ length: 60 }, () => (options: TextOptions) => {
+      if (isPassCall(options)) return passReply(pass.shift() ?? []);
+      return turns.shift()?.() ?? round();
+    }),
+  });
+  const botFake = createFakeAdapter({ rounds: Array.from({ length: 10 }, () => round()) });
+  const timer = fakeJobClock(new Date());
+  let deps: TestDeps | undefined;
+  const jobs = inProcessRunner({
+    db: getTestDb(),
+    logger: { error: () => {} },
+    clock: timer.clock,
+    drainMs: 50,
+    jobs: () => deps!.parts.jobs,
+  });
+  deps = createTestSdk({
+    jobs,
+    features: [representative()],
+    adapterFor: (id) => (id === botModel ? botFake.adapter : fake.adapter),
+    clock: timer.clock.now,
+    memory: false,
+  });
+  await jobs.start();
+  runners.push(jobs);
+  const user = await insertUser();
+  await saveCredentials(deps, user.id, {
+    service: "openai",
+    fields: { apiKey: "openai-test-key" },
+    hint: "…-key",
+    verified: true,
+  });
+  const rpc = chatRpc({ user, deps });
+  const { id: botId } = await rpc.bots.create({ name: "Clerk", model: botModel });
+  const { id } = await rpc.representative.create({ name: "Front desk", botId });
+  await rpc.representative.updateDraft({
+    id,
+    draft: { jobText: "Answer questions.", model, tools: ["reply", "hand_to_bot"] },
+  });
+  await rpc.representative.approve({ id });
+  await rpc.representative.setEnabled({ id, enabled: true });
+  const say = (message: string, externalId: string) =>
+    testCustomerTurn(Object.assign(deps, { timer }), { representativeId: id, message, externalId });
+  /** Every job due by the fake clock has ended. */
+  const settle = () =>
+    expect
+      .poll(async () => {
+        timer.tick();
+        const rows = await getTestDb()
+          .select({ status: job.status, runAfter: job.runAfter })
+          .from(job);
+        return rows.filter(
+          (row) => ["queued", "running"].includes(row.status) && row.runAfter <= timer.clock.now(),
+        ).length;
+      }, poll)
+      .toBe(0);
+  const passTime = async (ms: number) => {
+    timer.advance(ms);
+    await settle();
+  };
+  /** A Customer with this identity, who has written once. */
+  const customer = async (externalId: string) => {
+    await say("Hello", externalId);
+    return (await rpc.representative.customerList()).find((each) =>
+      each.identities.some((identity) => identity.externalId === externalId),
+    )!;
+  };
+  const seed = (
+    customerId: string,
+    field: FixedProfileField,
+    value: string,
+    status: ProfileStatus,
+    recordedAt: Date,
+  ) =>
+    getTestDb().insert(representativeProfileValue).values({
+      id: uuidv7(),
+      userId: user.id,
+      customerId,
+      fixedField: field,
+      value,
+      source: "customer",
+      status,
+      recordedAt,
+    });
+  /** The values the owner sees on a Customer, by field. */
+  const profile = async (customerId: string) => {
+    const found = (await rpc.representative.customerList()).find((each) => each.id === customerId)!;
+    return Object.fromEntries(found.profile.map((each) => [each.field, each.value]));
+  };
+  /** The rows a Customer holds itself, whatever is merged into it. */
+  const ownRows = async (customerId: string) => {
+    const rows = await getTestDb()
+      .select()
+      .from(representativeProfileValue)
+      .where(eq(representativeProfileValue.customerId, customerId));
+    return rows
+      .map(({ fixedField, fieldId, value, source, status, recordedAt }) => ({
+        field: fixedField ?? fieldId,
+        value,
+        source,
+        status,
+        recordedAt,
+      }))
+      .sort((one, other) => String(one.field).localeCompare(String(other.field)));
+  };
+  const merge = (absorbed: string, survivor: string) =>
+    rpc.representative.customerMerge({ id: absorbed, intoId: survivor });
+  const undoLatest = async () => {
+    const [latest] = (await rpc.representative.customerMergeList()).filter(
+      (each) => each.undoneAt === null,
+    );
+    return rpc.representative.customerMergeUndo({ id: latest!.id });
+  };
+  /** The open thread last heard from this address. */
+  const openThread = async (externalId: string) => {
+    const threads = await rpc.representative.threadList({ id });
+    return threads.find(
+      (each) => each.lastHeard.externalId === externalId && each.holder !== "closed",
+    )!;
+  };
+  /** Makes a thread's one line a verified Customer's. */
+  const verifiedLine = async (threadId: string, saying: string) => {
+    await getTestDb()
+      .delete(representativeThreadMessage)
+      .where(eq(representativeThreadMessage.threadId, threadId));
+    await getTestDb().insert(representativeThreadMessage).values({
+      id: uuidv7(),
+      threadId,
+      position: 1,
+      author: "customer",
+      verified: true,
+      channel: "test",
+      externalId: ada,
+      text: saying,
+    });
+  };
+  const handOffs = () =>
+    getTestDb()
+      .select({
+        threadId: representativeHandOff.threadId,
+        customerId: representativeHandOff.customerId,
+      })
+      .from(representativeHandOff);
+  return {
+    id,
+    user,
+    deps,
+    rpc,
+    pass,
+    turns,
+    say,
+    settle,
+    passTime,
+    customer,
+    seed,
+    profile,
+    ownRows,
+    merge,
+    undoLatest,
+    openThread,
+    verifiedLine,
+    handOffs,
+  };
+}
+
+describe("a survivor's profile after a merge", () => {
+  it("is the union of both, confirmed beating claimed, then the newest", async () => {
+    const { customer, seed, merge, profile } = await instance();
+    const first = await customer(ada);
+    const second = await customer(bob);
+    // Only one has it.
+    await seed(first.id, "preferred_channel", "sms", "claimed", ago(9));
+    await seed(second.id, "address", "1 High St", "claimed", ago(9));
+    // The older confirmed beats the newer claimed.
+    await seed(first.id, "name", "Claimed newest", "claimed", ago(1));
+    await seed(second.id, "name", "Confirmed older", "confirmed", ago(5));
+    // Both confirmed: the newest, here the absorbed one's.
+    await seed(first.id, "language", "French", "confirmed", ago(5));
+    await seed(second.id, "language", "German", "confirmed", ago(1));
+
+    const merged = await merge(second.id, first.id);
+
+    expect(merged.name).toBe("Confirmed older");
+    expect(await profile(first.id)).toEqual({
+      preferred_channel: "sms",
+      address: "1 High St",
+      name: "Confirmed older",
+      language: "German",
+    });
+  });
+
+  it("names the survivor on its threads by the union, and each Customer by its own in the merge list", async () => {
+    const { id, rpc, customer, seed, merge } = await instance();
+    const first = await customer(ada);
+    const second = await customer(bob);
+    await seed(second.id, "name", "Bob", "confirmed", ago(1));
+
+    await merge(second.id, first.id);
+
+    const threads = await rpc.representative.threadList({ id });
+    expect(threads.map((each) => each.customer.name)).toEqual(["Bob", "Bob"]);
+    const thread = await rpc.representative.threadGet({ id: threads[0]!.id });
+    expect(thread.customer.name).toBe("Bob");
+    const [listed] = await rpc.representative.customerMergeList();
+    expect(listed).toMatchObject({
+      survivor: { id: first.id, name: null },
+      absorbed: { id: second.id, name: "Bob" },
+    });
+  });
+
+  it("reads through a chain of merges, and a chain's undo gives back one link", async () => {
+    const { customer, seed, merge, profile, undoLatest } = await instance();
+    const first = await customer(ada);
+    const second = await customer(bob);
+    const third = await customer(cat);
+    await seed(first.id, "name", "Ada", "confirmed", ago(3));
+    await seed(second.id, "language", "German", "confirmed", ago(3));
+
+    await merge(first.id, second.id);
+    await merge(second.id, third.id);
+    expect(await profile(third.id)).toEqual({ name: "Ada", language: "German" });
+
+    await undoLatest();
+    expect(await profile(third.id)).toEqual({});
+    expect(await profile(second.id)).toEqual({ name: "Ada", language: "German" });
+  });
+});
+
+describe("undoing a merge", () => {
+  it("restores each Customer's own values exactly", async () => {
+    const { customer, seed, merge, undoLatest, ownRows, profile } = await instance();
+    const first = await customer(ada);
+    const second = await customer(bob);
+    await seed(first.id, "name", "Ada", "claimed", ago(2));
+    await seed(second.id, "name", "Bob", "confirmed", ago(4));
+    const before = [await ownRows(first.id), await ownRows(second.id)];
+
+    await merge(second.id, first.id);
+    expect(await profile(first.id)).toEqual({ name: "Bob" });
+    await undoLatest();
+
+    expect([await ownRows(first.id), await ownRows(second.id)]).toEqual(before);
+    expect(await profile(first.id)).toEqual({ name: "Ada" });
+    expect(await profile(second.id)).toEqual({ name: "Bob" });
+  });
+
+  it("keeps an owner's correction made during the merge with the survivor", async () => {
+    const { rpc, customer, seed, merge, undoLatest, profile } = await instance();
+    const first = await customer(ada);
+    const second = await customer(bob);
+    await seed(second.id, "name", "Bob", "confirmed", ago(4));
+    await merge(second.id, first.id);
+
+    await rpc.representative.customerRename({ id: first.id, name: "Robert" });
+    expect(await profile(first.id)).toEqual({ name: "Robert" });
+
+    await undoLatest();
+    expect(await profile(first.id)).toEqual({ name: "Robert" });
+    expect(await profile(second.id)).toEqual({ name: "Bob" });
+  });
+});
+
+describe("an owner clearing a value during a merge", () => {
+  it("stays cleared on the survivor, and is back only on the absorbed Customer after undo", async () => {
+    const { rpc, customer, seed, merge, undoLatest, profile } = await instance();
+    const first = await customer(ada);
+    const second = await customer(bob);
+    await seed(first.id, "address", "1 High St", "confirmed", ago(5));
+    await seed(second.id, "address", "2 Low St", "confirmed", ago(4));
+    await merge(second.id, first.id);
+
+    const cleared = await rpc.representative.customerProfileSet({
+      id: first.id,
+      field: "address",
+      value: "",
+    });
+
+    expect(cleared.profile).toEqual([]);
+    await undoLatest();
+    expect(await profile(first.id)).toEqual({});
+    expect(await profile(second.id)).toEqual({ address: "2 Low St" });
+  });
+
+  it("leaves no trace in the owner's export or the merge list's name", async () => {
+    const { deps, user, rpc, customer, seed, merge } = await instance();
+    const first = await customer(ada);
+    const second = await customer(bob);
+    await seed(first.id, "name", "Ada", "confirmed", ago(5));
+    await merge(second.id, first.id);
+
+    await rpc.representative.customerRename({ id: first.id, name: "" });
+
+    const [listed] = await rpc.representative.customerMergeList();
+    expect(listed!.survivor.name).toBeNull();
+    const exported = (await exportUserData(deps, user.id)) as unknown as {
+      representative: { customers: Array<{ id: string; name: string | null; profile: unknown[] }> };
+    };
+    const survivor = exported.representative.customers.find((each) => each.id === first.id);
+    expect(survivor).toMatchObject({ name: null, profile: [] });
+  });
+
+  it("lets a later pass learn the value again", async () => {
+    const {
+      rpc,
+      pass,
+      passTime,
+      settle,
+      customer,
+      seed,
+      merge,
+      profile,
+      openThread,
+      verifiedLine,
+    } = await instance();
+    const first = await customer(ada);
+    const second = await customer(bob);
+    await seed(second.id, "address", "2 Low St", "confirmed", ago(4));
+    await merge(second.id, first.id);
+    await settle();
+    await rpc.representative.customerProfileSet({ id: first.id, field: "address", value: "" });
+    expect(await profile(first.id)).toEqual({});
+
+    const open = await openThread(ada);
+    await verifiedLine(open.id, "I moved to 3 Mid St");
+    pass.push([{ field: "address", value: "3 Mid St", line: 1 }]);
+    await passTime(threadIdleMs);
+
+    expect(await profile(first.id)).toEqual({ address: "3 Mid St" });
+  });
+
+  it("hides only what it could see: not its survivor's own, nor a later merge's", async () => {
+    const { rpc, customer, seed, merge, profile, passTime } = await instance();
+    const first = await customer(ada);
+    const second = await customer(bob);
+    const third = await customer(cat);
+    const fourth = await customer(dan);
+    await seed(first.id, "address", "1 High St", "confirmed", ago(5));
+    await seed(third.id, "address", "3 Mid St", "claimed", ago(9));
+    await seed(fourth.id, "language", "Welsh", "claimed", ago(9));
+    await merge(first.id, second.id);
+    await rpc.representative.customerProfileSet({ id: second.id, field: "address", value: "" });
+    await rpc.representative.customerProfileSet({ id: second.id, field: "language", value: "" });
+    await passTime(60_000);
+
+    await merge(fourth.id, second.id);
+    expect(await profile(second.id)).toEqual({ language: "Welsh" });
+
+    await merge(second.id, third.id);
+    expect(await profile(third.id)).toEqual({ address: "3 Mid St", language: "Welsh" });
+  });
+});
+
+describe("a survivor's summaries after a merge", () => {
+  it("are chosen newest first across both Customers' threads, and go back on undo", async () => {
+    const { id, user, rpc, customer, merge, undoLatest } = await instance();
+    const first = await customer(ada);
+    const second = await customer(bob);
+    const insertSummary = async (customerId: string, summary: string, createdAt: Date) => {
+      const threadId = uuidv7();
+      await getTestDb().insert(representativeThread).values({
+        id: threadId,
+        customerId,
+        representativeId: id,
+        state: "closed",
+        lastChannel: "test",
+        lastExternalId: ada,
+        messageCount: 0,
+      });
+      await getTestDb()
+        .insert(representativeCustomerSummary)
+        .values({ id: uuidv7(), threadId, userId: user.id, text: summary, createdAt });
+    };
+    await insertSummary(first.id, "oldest", ago(9));
+    await insertSummary(second.id, "middle", ago(5));
+    await insertSummary(first.id, "newest", ago(1));
+    const texts = async (customerId: string) =>
+      (await rpc.representative.customerSummaryList({ id: customerId }))
+        .map((each) => each.text)
+        .filter((each) => each !== "A summary.");
+
+    await merge(second.id, first.id);
+    expect(await texts(first.id)).toEqual(["newest", "middle", "oldest"]);
+
+    await undoLatest();
+    expect(await texts(first.id)).toEqual(["newest", "oldest"]);
+    expect(await texts(second.id)).toEqual(["middle"]);
+  });
+});
+
+describe("a hand-off's Customer", () => {
+  it("moves on merge and back on undo", async () => {
+    const { turns, customer, merge, undoLatest, handOffs } = await instance();
+    const first = await customer(ada);
+    turns.push(handsOff);
+    const second = await customer(bob);
+    expect((await handOffs())[0]!.customerId).toBe(second.id);
+
+    await merge(second.id, first.id);
+    expect((await handOffs())[0]!.customerId).toBe(first.id);
+
+    await undoLatest();
+    expect((await handOffs())[0]!.customerId).toBe(second.id);
+  });
+
+  it("goes back from a moved thread that handed off during the merge", async () => {
+    const { turns, say, customer, merge, undoLatest, handOffs, passTime } = await instance();
+    const first = await customer(ada);
+    const second = await customer(bob);
+    // Both threads go idle, then Bob's alone opens again: it moves still open.
+    await passTime(threadIdleMs);
+    await say("Back again", bob);
+    await merge(second.id, first.id);
+
+    turns.push(handsOff);
+    await say("I want a refund", bob);
+    expect((await handOffs())[0]!.customerId).toBe(first.id);
+
+    await undoLatest();
+    expect((await handOffs())[0]!.customerId).toBe(second.id);
+  });
+
+  it("stays on the survivor from a thread begun since the merge", async () => {
+    const { turns, customer, say, merge, undoLatest, handOffs, passTime } = await instance();
+    const first = await customer(ada);
+    const second = await customer(bob);
+    await passTime(threadIdleMs);
+    await merge(second.id, first.id);
+
+    turns.push(handsOff);
+    await say("I want a refund", ada);
+    expect((await handOffs())[0]!.customerId).toBe(first.id);
+
+    await undoLatest();
+    expect((await handOffs())[0]!.customerId).toBe(first.id);
+  });
+
+  it("goes back even when its thread has expired since", async () => {
+    const { turns, customer, merge, undoLatest, passTime, handOffs } = await instance();
+    const first = await customer(ada);
+    turns.push(handsOff);
+    const second = await customer(bob);
+    await merge(second.id, first.id);
+    await passTime(threadExpiryMs);
+    expect(await handOffs()).toEqual([{ threadId: null, customerId: first.id }]);
+
+    await undoLatest();
+
+    expect(await handOffs()).toEqual([{ threadId: null, customerId: second.id }]);
+  });
+});
+
+describe("the pass on a thread that moved in a merge", () => {
+  it("writes to the Customer the thread came from, so undoing leaves the survivor without it", async () => {
+    const {
+      pass,
+      customer,
+      merge,
+      undoLatest,
+      settle,
+      openThread,
+      verifiedLine,
+      profile,
+      ownRows,
+    } = await instance();
+    const first = await customer(ada);
+    const second = await customer(bob);
+    const absorbed = await openThread(bob);
+    await verifiedLine(absorbed.id, "My address is 2 Low St");
+    pass.push([{ field: "address", value: "2 Low St", line: 1 }]);
+
+    // Both have an open thread, so this closes the absorbed one, and its pass runs on the merged Customer.
+    await merge(second.id, first.id);
+    await settle();
+
+    expect(await profile(first.id)).toEqual({ address: "2 Low St" });
+    expect(await ownRows(first.id)).toEqual([]);
+    await undoLatest();
+    expect(await profile(first.id)).toEqual({});
+    expect(await profile(second.id)).toEqual({ address: "2 Low St" });
+  });
+
+  it("goes back through a chain to the first Customer", async () => {
+    const {
+      pass,
+      say,
+      customer,
+      merge,
+      passTime,
+      settle,
+      openThread,
+      verifiedLine,
+      ownRows,
+      profile,
+    } = await instance();
+    const second = await customer(bob);
+    await passTime(threadIdleMs);
+    const first = await customer(ada);
+    const third = await customer(cat);
+    const moved = await openThread(ada);
+    await say("Hello", ada);
+    await verifiedLine(moved.id, "My address is 1 High St");
+    pass.push([{ field: "address", value: "1 High St", line: 1 }]);
+
+    // Bob has no open thread, so Ada's moves still open; Cat has one, so that second merge closes it.
+    await merge(first.id, second.id);
+    await merge(second.id, third.id);
+    await settle();
+
+    expect((await ownRows(first.id)).map((row) => row.value)).toEqual(["1 High St"]);
+    expect(await ownRows(third.id)).toEqual([]);
+    expect(await profile(third.id)).toEqual({ address: "1 High St" });
+  });
+
+  it("doesn't beat a value the owner set on either Customer", async () => {
+    const {
+      rpc,
+      pass,
+      customer,
+      merge,
+      passTime,
+      settle,
+      openThread,
+      verifiedLine,
+      profile,
+      ownRows,
+    } = await instance();
+    const first = await customer(ada);
+    const second = await customer(bob);
+    await rpc.representative.customerRename({ id: second.id, name: "Bob" });
+    await merge(second.id, first.id);
+    await settle();
+
+    const open = await openThread(ada);
+    await verifiedLine(open.id, "I am Eve");
+    pass.push([{ field: "name", value: "Eve", line: 1 }]);
+    await passTime(threadIdleMs);
+
+    expect(await profile(first.id)).toEqual({ name: "Bob" });
+    expect(await ownRows(first.id)).toEqual([]);
+  });
+});

@@ -22,7 +22,12 @@ import {
 } from "./db/schema";
 import { threadPromptChars, threadPromptLimit } from "./customers";
 import { readCustomer } from "./owner-customers";
-import { type ProfileOperation, parseProfileOperations, writePassValues } from "./customer-profile";
+import {
+  originalCustomerOf,
+  type ProfileOperation,
+  parseProfileOperations,
+  writePassValues,
+} from "./customer-profile";
 
 /*
  * Customer memory's pass (ticket #1279, ADR 0035): after a thread closes, a job on its Release's Model
@@ -206,7 +211,11 @@ async function recordOutcome(tx: Transaction, threadId: string, outcome: Outcome
   if (written && "operations" in outcome) {
     await writePassValues(tx, {
       userId: thread.userId,
-      customerId: thread.customerId,
+      // A merge moved the thread, not what it says: this way an undo leaves it with its Customer.
+      customerId: await originalCustomerOf(tx, thread.userId, {
+        id: threadId,
+        customerId: thread.customerId,
+      }),
       threadId,
       now,
       operations: outcome.operations,
