@@ -5,7 +5,7 @@ import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { defineJob } from "@botsdk/bot/runner/internal";
-import type { ReplySource, StoredReplyKind } from "../shared/replies";
+import { limitNoteKind, type ReplySource, type StoredReplyKind } from "../shared/replies";
 import { type CustomerChannel } from "./customer-proof";
 import { combinedProfilesOf } from "./customer-profile";
 import { holdThreadCustomer } from "./customers";
@@ -50,6 +50,7 @@ export type GateRule = (typeof gateOrder)[number];
 const rulesOf: Record<OutboundKind, readonly GateRule[]> = {
   reply: gateOrder,
   code_hand_off: ["held", "blocked", "optedOut", "on", "channel"],
+  limit_note: ["held", "blocked", "optedOut", "on", "channel"],
   owner: ["blocked", "optedOut", "channel"],
   released: ["blocked", "optedOut", "channel"],
   takeover_note: ["blocked", "optedOut", "channel"],
@@ -266,6 +267,7 @@ async function sentCounts(tx: Transaction, threadId: string, customerId: string,
         eq(message.threadId, threadId),
         eq(message.author, "representative"),
         gt(message.position, lastHeard?.position ?? 0),
+        sql`${message.replyKind} is distinct from ${limitNoteKind}`,
       ),
     );
   const decision = representativeOutboundDecision;

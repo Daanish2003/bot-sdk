@@ -33,6 +33,7 @@ import {
 } from "@botsdk/representative/client";
 
 import { ModelPicker } from "../models/shell/model-picker";
+import { LimitWarning } from "./limit-warning";
 import { DraftDocuments, documentsOverCap, useDocumentChanges } from "./representative-documents";
 import { ReplyDrafts } from "./reply-drafts";
 import { RepresentativeThreads } from "./representative-threads";
@@ -522,6 +523,7 @@ export function RepresentativePage({ id }: { id: string }) {
             : t("representative.live", { number: representative.liveReleaseNumber })}
         </p>
       </div>
+      <LimitWarning />
       <BotChooser representative={representative} />
       <div className="flex items-center gap-2">
         <Checkbox

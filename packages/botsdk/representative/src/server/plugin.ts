@@ -48,7 +48,7 @@ import { representativeTestJob } from "./tests";
 import { deleteTopics, exportTopics } from "./topics";
 import { exportCustomerSummaries, customerSummaryJob } from "./customer-summary";
 import { stopUserTurns } from "./thread-turns";
-import { handOffEndedJob, representativeTurnJob } from "./turn";
+import { handOffEndedJob, limitCheckJob, representativeTurnJob } from "./turn";
 
 export type RepresentativeOptions = {
   /**
@@ -136,6 +136,7 @@ export function representativeFeature(
       customerDeliveryJob(channel),
       heldReleaseJob,
       handOffEndedJob,
+      limitCheckJob,
       representativeTestJob,
       threadIdleJob,
       threadExpiryJob,

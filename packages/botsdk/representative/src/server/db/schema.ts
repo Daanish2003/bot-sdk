@@ -367,7 +367,9 @@ export type ThreadState = "representative" | "owner" | "closed";
  * `turnId` is the Turn that holds it, queued or running, and also its job's key. `waitingFrom` is the
  * position of the oldest message waiting for a Turn, and `waitingSince` when messages began to wait,
  * by the SDK's clock; both are null when none waits. While the owner holds the thread they mark what
- * a Turn answers after Hand back, unless the owner answers first.
+ * a Turn answers after Hand back, unless the owner answers first. `limitNotedAt` is set while the
+ * thread is at a limit, and says its note has gone (ticket #1309); `leftForOwnerAt` when the owner is
+ * owed an answer no Turn will give, as what waited through a limit grew too old, until they send one.
  */
 export const representativeThread = botsdkSchema.table(
   "representative_thread",
@@ -387,6 +389,8 @@ export const representativeThread = botsdkSchema.table(
     turnFrom: integer("turn_from"),
     waitingFrom: integer("waiting_from"),
     waitingSince: timestamp("waiting_since"),
+    limitNotedAt: timestamp("limit_noted_at"),
+    leftForOwnerAt: timestamp("left_for_owner_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -595,6 +599,7 @@ export const representativeFactProposal = botsdkSchema.table(
 export type OutboundKind =
   | "reply"
   | "code_hand_off"
+  | "limit_note"
   | "owner"
   | "released"
   | "takeover_note"
