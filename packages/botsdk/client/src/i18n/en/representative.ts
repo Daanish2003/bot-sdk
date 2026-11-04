@@ -199,6 +199,38 @@ export const representativeMessages = {
   "representative.customers.blockedHelp":
     "A blocked Customer's message is kept for you. It runs no model, gets no reply and opens no Assignment.",
   "representative.customers.saved": "Saved",
+  "representative.customers.profile": "Profile",
+  "representative.customers.profileSave": "Save",
+  "representative.customers.profileLanguage": "Language",
+  "representative.customers.profilePreferredChannel": "Preferred Channel",
+  "representative.customers.profileAddress": "Address",
+  "representative.customers.profileValueOf": ({ field, name }: { field: string; name: string }) =>
+    `${field} of ${name}`,
+  "representative.customers.profileSaveOf": ({ field, name }: { field: string; name: string }) =>
+    `Save ${field} of ${name}`,
+  "representative.customers.profileMeta": ({
+    source,
+    status,
+    date,
+  }: {
+    source: string;
+    status: string;
+    date: string;
+  }) => `${status} · from ${source} · ${date}`,
+  "representative.customers.profileSourceOwner": "you",
+  "representative.customers.profileSourceCustomer": "the Customer",
+  "representative.customers.profileConfirmed": "Confirmed",
+  "representative.customers.profileClaimed": "Claimed",
+  "representative.customers.fields": "Your profile fields",
+  "representative.customers.fieldsHelp":
+    "Every Customer's profile has these, beside name, language, preferred Channel and address. Removing a field removes its value from every Customer.",
+  "representative.customers.fieldNew": "New profile field",
+  "representative.customers.fieldAdd": "Add field",
+  "representative.customers.fieldNameOf": ({ name }: { name: string }) => `Field ${name}`,
+  "representative.customers.fieldRename": "Rename",
+  "representative.customers.fieldRenameOf": ({ name }: { name: string }) => `Rename field ${name}`,
+  "representative.customers.fieldRemove": "Remove",
+  "representative.customers.fieldRemoveOf": ({ name }: { name: string }) => `Remove field ${name}`,
   "representative.customers.mergeInto": ({ name }: { name: string }) => `Merge ${name} into`,
   "representative.customers.mergeChoose": "Choose a Customer",
   "representative.customers.merge": "Merge",

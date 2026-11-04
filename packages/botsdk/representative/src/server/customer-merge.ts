@@ -5,6 +5,7 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { rpcError } from "@botsdk/bot/rpc-error";
 import type { CustomerMergeView } from "../shared/contract";
+import { nameIn, profilesOf } from "./customer-profile";
 import { holdIdentities } from "./customer-proof";
 import {
   type CustomerMergeHow,
@@ -425,15 +426,11 @@ async function readMerges(
     .where(and(eq(merge.userId, userId), id ? eq(merge.id, id) : undefined))
     .orderBy(desc(merge.createdAt), desc(merge.id));
   if (rows.length === 0) return [];
-  const customers = await db
-    .select({ id: representativeCustomer.id, name: representativeCustomer.name })
-    .from(representativeCustomer)
-    .where(
-      inArray(
-        representativeCustomer.id,
-        rows.flatMap((row) => [row.survivorCustomerId, row.absorbedCustomerId]),
-      ),
-    );
+  const profiles = await profilesOf(
+    db,
+    userId,
+    rows.flatMap((row) => [row.survivorCustomerId, row.absorbedCustomerId]),
+  );
   const identities = await db
     .select({
       id: representativeCustomerIdentity.id,
@@ -452,7 +449,7 @@ async function readMerges(
     );
   const named = (customerId: string) => ({
     id: customerId,
-    name: customers.find((customer) => customer.id === customerId)?.name ?? null,
+    name: nameIn(profiles.get(customerId)),
   });
   return rows.map((row) => ({
     id: row.id,

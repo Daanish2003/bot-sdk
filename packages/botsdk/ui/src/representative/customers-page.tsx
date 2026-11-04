@@ -8,21 +8,31 @@ import { useI18n } from "@botsdk/react/provider";
 import { serverErrorText } from "@botsdk/react/rpc-error";
 import {
   useAddCustomerIdentity,
+  useAddProfileField,
   useCreateCustomer,
   useCustomerMerges,
   useCustomerSummaries,
   useCustomers,
   useMergeCustomer,
+  useProfileFields,
   useRefreshRepresentatives,
+  useRemoveProfileField,
   useRenameCustomer,
+  useRenameProfileField,
   useSetCustomerBlocked,
+  useSetCustomerProfileValue,
   useUndoCustomerMerge,
   useUpdateCustomerIdentity,
 } from "@botsdk/representative/react";
-import type {
-  CustomerMergeView,
-  CustomerSummaryView,
-  CustomerView,
+import {
+  correctableFixedFields,
+  type CustomerMergeView,
+  type CustomerSummaryView,
+  type CustomerView,
+  maxProfileFieldNameLength,
+  maxProfileValueLength,
+  type ProfileFieldView,
+  type ProfileValueView,
 } from "@botsdk/representative/client";
 
 import { Transcript } from "./representative-threads";
@@ -225,7 +235,140 @@ function CustomerSummaries({ id }: { id: string }) {
   );
 }
 
-function CustomerCard({ customer, others }: { customer: CustomerView; others: CustomerView[] }) {
+/** Where a profile value came from, whether it is confirmed, and when it was recorded. */
+function ProfileValueMeta({ value }: { value: ProfileValueView | undefined }) {
+  const { t } = useI18n();
+  if (!value) return null;
+  return (
+    <p data-status={value.status} className="text-xs text-muted-foreground">
+      {t("representative.customers.profileMeta", {
+        source: t(
+          value.source === "owner"
+            ? "representative.customers.profileSourceOwner"
+            : "representative.customers.profileSourceCustomer",
+        ),
+        status: t(
+          value.status === "confirmed"
+            ? "representative.customers.profileConfirmed"
+            : "representative.customers.profileClaimed",
+        ),
+        date: value.recordedAt.toLocaleDateString(),
+      })}
+    </p>
+  );
+}
+
+/** One field of a Customer's profile, with its value's meta. Saving it confirms it as the owner's. */
+function ProfileRow({
+  customerId,
+  field,
+  label,
+  who,
+  value,
+}: {
+  customerId: string;
+  field: string;
+  label: string;
+  who: string;
+  value: ProfileValueView | undefined;
+}) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const set = useSetCustomerProfileValue({
+    onSuccess: async () => {
+      await refresh();
+      toast.success(t("representative.customers.saved"));
+    },
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  const [text, setText] = useState(value?.value ?? "");
+  const unchanged = text.trim() === (value?.value ?? "") && value?.status !== "claimed";
+  return (
+    <form
+      data-profile-field={field}
+      className="space-y-1"
+      onSubmit={(event) => {
+        event.preventDefault();
+        set.mutate({ id: customerId, field, value: text });
+      }}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="w-32 truncate text-xs">{label}</span>
+        <Input
+          className="w-56"
+          aria-label={t("representative.customers.profileValueOf", { field: label, name: who })}
+          value={text}
+          maxLength={maxProfileValueLength}
+          onChange={(event) => setText(event.target.value)}
+        />
+        <Button
+          type="submit"
+          variant="outline"
+          size="sm"
+          disabled={set.isPending || unchanged}
+          aria-label={t("representative.customers.profileSaveOf", { field: label, name: who })}
+        >
+          {t("representative.customers.profileSave")}
+        </Button>
+      </div>
+      <ProfileValueMeta value={value} />
+    </form>
+  );
+}
+
+/** A Customer's profile, below the name: the other fixed fields, then the owner's own. */
+function ProfileSection({
+  customer,
+  label,
+  fields,
+}: {
+  customer: CustomerView;
+  label: string;
+  fields: ProfileFieldView[];
+}) {
+  const { t } = useI18n();
+  const fixedNames = {
+    language: t("representative.customers.profileLanguage"),
+    preferred_channel: t("representative.customers.profilePreferredChannel"),
+    address: t("representative.customers.profileAddress"),
+  };
+  const rows = [
+    ...correctableFixedFields.map((field) => ({ field, name: fixedNames[field] as string })),
+    ...fields.map(({ id, name }) => ({ field: id as string, name })),
+  ];
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-medium text-muted-foreground">
+        {t("representative.customers.profile")}
+      </h3>
+      {rows.map(({ field, name }) => {
+        const value = customer.profile.find((each) => each.field === field);
+        return (
+          <ProfileRow
+            // Keyed by what is stored, so a refetch after a save reloads the field.
+            key={`${field}:${value?.value ?? ""}`}
+            customerId={customer.id}
+            field={field}
+            label={name}
+            who={label}
+            value={value}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function CustomerCard({
+  customer,
+  others,
+  fields,
+}: {
+  customer: CustomerView;
+  others: CustomerView[];
+  fields: ProfileFieldView[];
+}) {
   const i18n = useI18n();
   const { t } = i18n;
   const refresh = useRefreshRepresentatives();
@@ -242,6 +385,7 @@ function CustomerCard({ customer, others }: { customer: CustomerView; others: Cu
   const block = useSetCustomerBlocked({ ...options, onSuccess: refresh });
   const [name, setName] = useState(customer.name ?? "");
   const label = customer.name ?? t("representative.customers.unnamed");
+  const nameValue = customer.profile.find((each) => each.field === "name");
   const blockText = t(
     customer.blocked ? "representative.customers.unblock" : "representative.customers.block",
   );
@@ -259,7 +403,10 @@ function CustomerCard({ customer, others }: { customer: CustomerView; others: Cu
         <Button
           variant="outline"
           size="sm"
-          disabled={rename.isPending || name.trim() === (customer.name ?? "")}
+          disabled={
+            rename.isPending ||
+            (name.trim() === (customer.name ?? "") && nameValue?.status !== "claimed")
+          }
           onClick={() => rename.mutate({ id: customer.id, name })}
         >
           {t("representative.customers.saveName")}
@@ -278,9 +425,11 @@ function CustomerCard({ customer, others }: { customer: CustomerView; others: Cu
           {blockText}
         </Button>
       </div>
+      <ProfileValueMeta value={nameValue} />
       {customer.blocked && (
         <p className="text-xs text-muted-foreground">{t("representative.customers.blockedHelp")}</p>
       )}
+      <ProfileSection customer={customer} label={label} fields={fields} />
       <div className="space-y-2">
         <h3 className="text-xs font-medium text-muted-foreground">
           {t("representative.customers.identities")}
@@ -320,6 +469,100 @@ function CustomerCard({ customer, others }: { customer: CustomerView; others: Cu
       <CustomerSummaries id={customer.id} />
       {others.length > 0 && <MergeInto customer={customer} label={label} others={others} />}
     </li>
+  );
+}
+
+/** One of the owner's own fields: renamed with a button, or removed with every Customer's value. */
+function ProfileFieldRow({ field }: { field: ProfileFieldView }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const options = {
+    onSuccess: () => refresh(),
+    onError: (error: unknown) => toast.error(serverErrorText(i18n, error)),
+  };
+  const rename = useRenameProfileField(options);
+  const remove = useRemoveProfileField(options);
+  const [name, setName] = useState(field.name);
+  return (
+    <li data-profile-field-row={field.name} className="flex flex-wrap items-center gap-2 p-3">
+      <Input
+        className="w-56"
+        aria-label={t("representative.customers.fieldNameOf", { name: field.name })}
+        value={name}
+        maxLength={maxProfileFieldNameLength}
+        onChange={(event) => setName(event.target.value)}
+      />
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={rename.isPending || name.trim() === "" || name.trim() === field.name}
+        aria-label={t("representative.customers.fieldRenameOf", { name: field.name })}
+        onClick={() => rename.mutate({ id: field.id, name })}
+      >
+        {t("representative.customers.fieldRename")}
+      </Button>
+      <Button
+        className="ml-auto"
+        variant="destructive"
+        size="sm"
+        disabled={remove.isPending}
+        aria-label={t("representative.customers.fieldRemoveOf", { name: field.name })}
+        onClick={() => remove.mutate({ id: field.id })}
+      >
+        {t("representative.customers.fieldRemove")}
+      </Button>
+    </li>
+  );
+}
+
+/** The fields the owner defined for all their Customers' profiles. */
+function ProfileFields({ fields }: { fields: ProfileFieldView[] }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const [name, setName] = useState("");
+  const add = useAddProfileField({
+    onSuccess: async () => {
+      await refresh();
+      setName("");
+    },
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  return (
+    <section className="space-y-2">
+      <h2 className="text-sm font-medium">{t("representative.customers.fields")}</h2>
+      <p className="text-sm text-muted-foreground">{t("representative.customers.fieldsHelp")}</p>
+      <form
+        className="flex flex-wrap items-center gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          add.mutate({ name });
+        }}
+      >
+        <Input
+          className="w-56"
+          aria-label={t("representative.customers.fieldNew")}
+          value={name}
+          maxLength={maxProfileFieldNameLength}
+          onChange={(event) => setName(event.target.value)}
+        />
+        <Button
+          type="submit"
+          variant="outline"
+          size="sm"
+          disabled={add.isPending || name.trim() === ""}
+        >
+          {t("representative.customers.fieldAdd")}
+        </Button>
+      </form>
+      <ul className="divide-y overflow-hidden rounded-xl border empty:hidden">
+        {fields.map((field) => (
+          // Keyed by what is stored, so a refetch after a save reloads the field.
+          <ProfileFieldRow key={`${field.id}:${field.name}`} field={field} />
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -394,6 +637,7 @@ export function CustomersPage() {
   const customers = useCustomers();
   const all = customers.data ?? [];
   const merges = useCustomerMerges();
+  const fields = useProfileFields().data ?? [];
   return (
     <main className="mx-auto w-full max-w-2xl space-y-6 p-6">
       <div className="space-y-1">
@@ -404,6 +648,7 @@ export function CustomersPage() {
         <h2 className="text-sm font-medium">{t("representative.customers.add")}</h2>
         <NewCustomerForm />
       </section>
+      <ProfileFields fields={fields} />
       {customers.data?.length === 0 && (
         <p className="text-sm text-muted-foreground">{t("representative.customers.none")}</p>
       )}
@@ -414,6 +659,7 @@ export function CustomersPage() {
             key={`${customer.id}:${customer.name ?? ""}`}
             customer={customer}
             others={all.filter((other) => other.id !== customer.id)}
+            fields={fields}
           />
         ))}
       </ul>

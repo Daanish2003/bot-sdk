@@ -27,6 +27,8 @@ export const errorMessages = {
     `You can have at most ${max} active rules. Delete one to add another.`,
   "error.representativeNotFound": "Representative not found",
   "error.customerNotFound": "Customer not found",
+  "error.profileFieldNotFound": "Profile field not found",
+  "error.profileFieldTaken": "You already have a profile field of that name.",
   "error.threadNotFound": "Thread not found",
   "error.threadClosed": "This thread has closed",
   "error.threadNotHeld": "Take over this thread to write in it",

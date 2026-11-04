@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "e4feb409-f3cb-4d28-b5ad-936f5246eded",
-  "prevIds": ["1382ef60-9dde-462e-aa22-f69c68f85210"],
+  "id": "9356c7a3-4ac5-4ef2-94da-7f69ece59b47",
+  "prevIds": ["7bce4531-47f6-4cd0-ad8e-f3b9782e5ead"],
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -67,6 +67,18 @@
     {
       "isRlsEnabled": false,
       "name": "representative_hand_off",
+      "entityType": "tables",
+      "schema": "botsdk"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "representative_profile_field",
+      "entityType": "tables",
+      "schema": "botsdk"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "representative_profile_value",
       "entityType": "tables",
       "schema": "botsdk"
     },
@@ -265,19 +277,6 @@
       "generated": null,
       "identity": null,
       "name": "user_id",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_customer"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "name",
       "entityType": "columns",
       "schema": "botsdk",
       "table": "representative_customer"
@@ -1307,6 +1306,175 @@
       "name": "id",
       "entityType": "columns",
       "schema": "botsdk",
+      "table": "representative_profile_field"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_profile_field"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "name",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_profile_field"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_profile_field"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_profile_value"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_profile_value"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "customer_id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_profile_value"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "fixed_field",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_profile_value"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "field_id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_profile_value"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "value",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_profile_value"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "source",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_profile_value"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "status",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_profile_value"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "recorded_at",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_profile_value"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "botsdk",
       "table": "representative_release"
     },
     {
@@ -2299,6 +2467,55 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "lower(\"name\")",
+          "isExpression": true,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "representative_profile_field_name",
+      "entityType": "indexes",
+      "schema": "botsdk",
+      "table": "representative_profile_field"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "field_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "representative_profile_value_field_idx",
+      "entityType": "indexes",
+      "schema": "botsdk",
+      "table": "representative_profile_value"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "customer_id",
           "isExpression": false,
           "asc": true,
@@ -2566,6 +2783,32 @@
     },
     {
       "nameExplicit": false,
+      "columns": ["customer_id"],
+      "schemaTo": "botsdk",
+      "tableTo": "representative_customer",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "representative_profile_value_ouIMP6uZgzKN_fkey",
+      "entityType": "fks",
+      "schema": "botsdk",
+      "table": "representative_profile_value"
+    },
+    {
+      "nameExplicit": false,
+      "columns": ["field_id"],
+      "schemaTo": "botsdk",
+      "tableTo": "representative_profile_field",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "representative_profile_value_G9g7W6UndZEp_fkey",
+      "entityType": "fks",
+      "schema": "botsdk",
+      "table": "representative_profile_value"
+    },
+    {
+      "nameExplicit": false,
       "columns": ["representative_id"],
       "schemaTo": "botsdk",
       "tableTo": "representative",
@@ -2746,6 +2989,22 @@
     {
       "columns": ["id"],
       "nameExplicit": false,
+      "name": "representative_profile_field_pkey",
+      "schema": "botsdk",
+      "table": "representative_profile_field",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["id"],
+      "nameExplicit": false,
+      "name": "representative_profile_value_pkey",
+      "schema": "botsdk",
+      "table": "representative_profile_value",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["id"],
+      "nameExplicit": false,
       "name": "representative_release_pkey",
       "schema": "botsdk",
       "table": "representative_release",
@@ -2812,6 +3071,24 @@
     },
     {
       "nameExplicit": true,
+      "columns": ["customer_id", "fixed_field"],
+      "nullsNotDistinct": false,
+      "name": "representative_profile_value_fixed",
+      "entityType": "uniques",
+      "schema": "botsdk",
+      "table": "representative_profile_value"
+    },
+    {
+      "nameExplicit": true,
+      "columns": ["customer_id", "field_id"],
+      "nullsNotDistinct": false,
+      "name": "representative_profile_value_field",
+      "entityType": "uniques",
+      "schema": "botsdk",
+      "table": "representative_profile_value"
+    },
+    {
+      "nameExplicit": true,
       "columns": ["representative_id", "number"],
       "nullsNotDistinct": false,
       "name": "representative_release_number",
@@ -2845,6 +3122,13 @@
       "schema": "botsdk",
       "table": "representative_customer_summary",
       "entityType": "uniques"
+    },
+    {
+      "value": "num_nonnulls(\"fixed_field\", \"field_id\") = 1",
+      "name": "representative_profile_value_one_field",
+      "entityType": "checks",
+      "schema": "botsdk",
+      "table": "representative_profile_value"
     }
   ],
   "renames": []

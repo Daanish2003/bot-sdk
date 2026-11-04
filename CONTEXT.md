@@ -191,8 +191,12 @@ A person who deals with a user's business through a Representative. A Customer i
 _Avoid_: Contact, end user, client
 
 **Customer memory**:
-What a user's business remembers of a Customer, across that user's Representatives and never beyond them: rows in Postgres, written only by a pass after a Customer thread closes, never by a Representative during a Turn. It is not a Bot's Memory, which is files on its Computer.
-_Avoid_: Customer profile (one part of it), CRM
+What a user's business remembers of a Customer, across that user's Representatives and never beyond them: rows in Postgres, written by a pass after a Customer thread closes or by the user, never by a Representative during a Turn. It is not a Bot's Memory, which is files on its Computer.
+_Avoid_: CRM
+
+**Customer profile**:
+A Customer's typed details, kept in the database: the fixed fields (name, language, preferred Channel, address) plus fields the user defines for all their Customers. Each value has a source, a date and a status: `confirmed` if the user set it or a verified Customer said it, otherwise `claimed`. It's a Bot's **Profile** only in name, which is a file about the user.
+_Avoid_: Profile, on its own
 
 **Customer summary**:
 The one summary of a closed Customer thread, part of Customer memory, linked to that thread's transcript. It finds its Customer through its thread, so it follows a Customer merge. Written once. A thread held by the user or waiting on a code hand-off has none, nor does one closed for holding two people's words when a merge was undone. When the pass can't write one, such as for a Release that names no Model, the skip is recorded.
