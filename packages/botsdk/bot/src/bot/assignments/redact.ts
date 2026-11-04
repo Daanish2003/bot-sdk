@@ -310,9 +310,15 @@ function redactedEntry(entry: ModelMessage): ModelMessage {
   };
 }
 
-/** A Turn's stored newest message without the notices of `ids` and without `copies`. */
+/**
+ * A Turn's stored newest message without the notices of `ids` and without `copies`. A notice is a
+ * line naming the Assignment and ending in its quoted title, and runs to the end of its message, as a
+ * Trigger's text comes last in one. A line that only names the Assignment is someone's own words.
+ */
 function redactedInput(input: ModelMessage[], ids: string[], copies: string[]): ModelMessage[] {
-  const notice = new RegExp(`(^|\\n)(?:Result of )?Assignment (${ids.join("|")}) [\\s\\S]*$`);
+  const notice = new RegExp(
+    `(^|\\n)(?:Result of )?Assignment (${ids.join("|")}) [^\\n]*: "(?:[^"\\\\\\n]|\\\\.)*"(?=\\n|$)[\\s\\S]*$`,
+  );
   const clean = (text: string) =>
     withoutCopies(text, copies).replace(notice, (match, lead: string, id: string) =>
       isRedactedCancelNotice(match.slice(lead.length))

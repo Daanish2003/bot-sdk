@@ -630,6 +630,71 @@ describe("deleting a Customer whose Assignment is still open", () => {
 });
 
 describe("what a Turn holds besides the Assignment it was on", () => {
+  it("keeps what follows a line naming the Assignment, when that line is no notice of it", async () => {
+    const owner = await serving({ turnRounds: [adaHandsOff, quiet], botRounds: [quiet] });
+    await owner.say("I'd like a refund.", adaNumber);
+    const db = getTestDb();
+    const [adaTurn] = await db.select().from(botTurn).where(eq(botTurn.botId, owner.botId));
+    const adaId = (await assignmentsOf([owner.botId]))[0]!.id;
+    const ownMessage = `About that:
+Assignment ${adaId} looks stuck.
+Also ask about ${ownerWords}.`;
+    await db
+      .update(botTurn)
+      .set({ input: [...adaTurn!.input!, { role: "user", content: ownMessage }] })
+      .where(eq(botTurn.id, adaTurn!.id));
+    const ada = await owner.customerAt(adaNumber);
+
+    await owner.rpc.representative.customerDelete({ id: ada.id });
+
+    const [turn] = await db.select().from(botTurn).where(eq(botTurn.id, adaTurn!.id));
+    expect(turn!.input!.at(-1)!.content).toBe(ownMessage);
+    expect(JSON.stringify(turn!.input)).not.toContain(adaWords);
+  });
+
+  it.each([
+    [
+      "an Assignment's",
+      (id: string) => `Assignment ${id} from Front desk: "A \\"${adaWords}\\" refund"`,
+    ],
+    [
+      "a result's",
+      (id: string) => `Result of Assignment ${id} from Clerk, done: "${adaWords} refund"`,
+    ],
+  ])(
+    "takes %s notice to its end, cut as a long one is, keeping what's before it",
+    async (_, heading) => {
+      const owner = await serving({ turnRounds: [adaHandsOff, quiet], botRounds: [quiet] });
+      await owner.say("I'd like a refund.", adaNumber);
+      const db = getTestDb();
+      const [adaTurn] = await db.select().from(botTurn).where(eq(botTurn.botId, owner.botId));
+      const adaId = (await assignmentsOf([owner.botId]))[0]!.id;
+      await db
+        .update(botTurn)
+        .set({
+          input: [
+            ...adaTurn!.input!,
+            {
+              role: "user",
+              content: `[The time]
+
+${heading(adaId)}
+What a cut left of ${adaWords}.`,
+            },
+          ],
+        })
+        .where(eq(botTurn.id, adaTurn!.id));
+      const ada = await owner.customerAt(adaNumber);
+
+      await owner.rpc.representative.customerDelete({ id: ada.id });
+
+      const [turn] = await db.select().from(botTurn).where(eq(botTurn.id, adaTurn!.id));
+      expect(turn!.input!.at(-1)!.content).toBe(`[The time]
+
+Assignment ${adaId}: "[Redacted]"`);
+    },
+  );
+
   it("keeps another Assignment's notice in a Turn that took both, and drops the whole Model side", async () => {
     const owner = await serving({
       turnRounds: [adaHandsOff, quiet, carolHandsOff, quiet],
