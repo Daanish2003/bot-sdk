@@ -12,7 +12,7 @@ import {
   representativeThread,
   representativeThreadMessage,
 } from "./db/schema";
-import { passGate, storeAndDeliver } from "./outbound-gate";
+import { holdForRules, passGate, storeAndDeliver } from "./outbound-gate";
 
 /*
  * Stalled work Pages the owner (ticket #1312). Three things leave a Customer waiting with nobody
@@ -83,46 +83,52 @@ export const assignmentDueJob = (channel: CustomerChannel) =>
           .innerJoin(representative, eq(representative.id, handOff.representativeId))
           .where(eq(handOff.assignmentId, assignmentId));
         if (!row) return;
+        // The thread's locks before the Assignment's row, the order a Customer's delete takes them in.
+        const hasThread = row.threadId && row.channel !== null && row.externalId !== null;
+        if (row.threadId && !(await holdForRules(tx, row.threadId))) row.threadId = null;
         const { marked } = await job.assignments.markOverdue(tx, {
           userId: row.userId,
           id: assignmentId,
         });
         if (!marked) return;
+        let told = false;
+        // A test conversation's hand-off has no thread, and a delivered one has lost it.
+        if (hasThread && row.threadId) {
+          const now = job.clock();
+          const to = { channel: row.channel!, externalId: row.externalId! };
+          const noted = await passGate(tx, {
+            kind: "stall_note",
+            threadId: row.threadId,
+            to,
+            now,
+            channel,
+            content: { text: stallNote, verified: row.verified ?? false },
+          });
+          if (noted?.outcome === "send") {
+            await storeAndDeliver(
+              job,
+              tx,
+              noted.id,
+              {
+                threadId: row.threadId,
+                author: "note",
+                text: stallNote,
+                verified: row.verified ?? false,
+                ...to,
+              },
+              now,
+            );
+            told = true;
+          }
+        }
         await job.pages.send(tx, {
           userId: row.userId,
           cause: assignmentOverdueCause,
           urgency: "routine",
           title: "Work for a Customer is overdue",
-          text: `An Assignment from ${row.name} is past its due time, and its Customer has been told the team is still working on it.`,
+          text: `An Assignment from ${row.name} is past its due time.${told ? " Its Customer has been told the team is still working on it." : " Its Customer has not been sent a note."}`,
           path: `/representatives/${row.representativeId}`,
         });
-        // A test conversation's hand-off has no thread, and a delivered one has lost it.
-        if (!row.threadId || row.channel === null || row.externalId === null) return;
-        const now = job.clock();
-        const to = { channel: row.channel, externalId: row.externalId };
-        // The gate takes the locks in its order; a thread that has gone has nobody to tell.
-        const noted = await passGate(tx, {
-          kind: "stall_note",
-          threadId: row.threadId,
-          to,
-          now,
-          channel,
-          content: { text: stallNote, verified: row.verified ?? false },
-        });
-        if (noted?.outcome !== "send") return;
-        await storeAndDeliver(
-          job,
-          tx,
-          noted.id,
-          {
-            threadId: row.threadId,
-            author: "note",
-            text: stallNote,
-            verified: row.verified ?? false,
-            ...to,
-          },
-          now,
-        );
       });
     },
   });

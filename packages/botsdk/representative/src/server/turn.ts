@@ -296,6 +296,8 @@ type TurnProgress = {
   refusals: number;
   /** A `hand_to_bot` call handed work off. */
   handedOff: boolean;
+  /** A `hand_to_bot` call with no Bot to go to Paged the owner: the end of the Turn needn't Page again. */
+  pagedNoBot: boolean;
   /** A test conversation's sent replies, by tool call. A live Turn stores them on its thread. */
   evidence: Map<string, ReplyEvidence>;
   /** The Assignments `read_customer_work` answered this Turn: the only ones a reply may quote beyond the thread. */
@@ -470,7 +472,7 @@ async function handOffInCode(
   // A Turn telling a Bot's result doesn't send the work round again: the owner has it from here.
   const relaying = entries.some((entry) => entry.author === "bot" && !entry.earlier);
   if (!botId) {
-    await pageNoBot(job, tx, { userId, representativeId, name });
+    if (!progress.pagedNoBot) await pageNoBot(job, tx, { userId, representativeId, name });
     return { handedOff: true };
   }
   if (progress.handedOff || relaying) return { handedOff: true };
@@ -668,6 +670,8 @@ export function turnTools(turn: Turn) {
         return { handedOff: true };
       });
       progress.handedOff ||= says(answer, "handedOff");
+      progress.pagedNoBot ||=
+        thread !== null && says(answer, "error") && answer.error === noBotRefusal;
       job.jobs.wake();
       if (made) await settleHandOff(turn, made);
       return answer;
@@ -991,6 +995,7 @@ export async function playLoop(
   const progress: TurnProgress = {
     refusals: 0,
     handedOff: false,
+    pagedNoBot: false,
     evidence: new Map(),
     read: new Map(),
   };

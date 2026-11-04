@@ -209,6 +209,9 @@ describe("an Assignment from a Representative that is overdue", () => {
     await world.wait(31 * minute);
 
     expect(await world.pages("assignment_overdue")).toHaveLength(1);
+    expect((await world.pages("assignment_overdue"))[0]!.text).toContain(
+      "has not been sent a note",
+    );
     expect(await world.notes()).toEqual([]);
   });
 });
@@ -288,6 +291,14 @@ describe("a hand-off from a Representative with no Bot", () => {
 
   it("Pages when code hands off at the end of a Turn", async () => {
     const world = await serving([refused(), refused(), quiet()], [quiet], false);
+    await world.send("What does it cost?");
+    await world.drain();
+
+    expect(await world.pages("hand_off_no_bot")).toHaveLength(1);
+  });
+
+  it("Pages once when the Model asks and code then hands off in the same Turn", async () => {
+    const world = await serving([handsOff(), refused(), refused(), quiet()], [quiet], false);
     await world.send("What does it cost?");
     await world.drain();
 
