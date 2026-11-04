@@ -663,7 +663,7 @@ describe("deleting a Customer", () => {
         userId: user.id,
         key: "refund-window",
         proposed: {
-          type: "policy",
+          type: "text",
           topic: "Refunds",
           value: "Within 30 days.",
           validFrom: null,
