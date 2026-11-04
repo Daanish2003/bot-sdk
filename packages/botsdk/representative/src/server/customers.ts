@@ -15,8 +15,8 @@ import {
 import { holdCustomers } from "./customer-merge";
 import { nameIn, profilesOf } from "./customer-profile";
 import { catchCode, customerProofLeadsTo, mayHoldCode } from "./customer-proof";
-import { dropHeld, type GateRefusal, passGate, storeAndDeliver } from "./outbound-gate";
-import { afterDraftHeld, replaceDrafts } from "./reply-drafts";
+import { type GateRefusal, passGate, storeAndDeliver } from "./outbound-gate";
+import { afterDraftHeld, replaceHeld } from "./reply-drafts";
 import { type ChannelProof, judgeSender } from "./verification";
 import { codeHandOffKind, type ReplySource, type StoredReplyKind } from "../shared/replies";
 
@@ -238,8 +238,7 @@ export async function receiveMessage(
     ...heard,
   });
   // What the gate held is stale now: the Customer has written since.
-  await dropHeld(tx, { threadId, kind: "reply", rule: "replaced", now });
-  await replaceDrafts(tx, threadId, now, { ...heard, verified });
+  await replaceHeld(tx, threadId, now, { ...heard, verified });
   // Position 1 is a thread's first message: it has just been opened.
   return { threadId, turnId, waitingSince, blocked, state, opened: position === 1 };
 }

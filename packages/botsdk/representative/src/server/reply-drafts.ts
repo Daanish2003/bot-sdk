@@ -15,7 +15,15 @@ import {
   representativeThread,
   representativeThreadMessage,
 } from "./db/schema";
-import { type GateRefusal, holdForRules, passGate, storeAndDeliver } from "./outbound-gate";
+import {
+  dropHeld,
+  type GateRefusal,
+  holdForRules,
+  outdatedBy,
+  passGate,
+  type Sender,
+  storeAndDeliver,
+} from "./outbound-gate";
 
 /*
  * Reply drafts (ticket #1306): a reply the Outbound gate's `topic` rule held, which goes only when
@@ -38,9 +46,6 @@ const thread = representativeThread;
 /** The most drafts the owner's list shows at once; answering the oldest brings the next. */
 const replyDraftListLimit = 200;
 
-/** Who sent a message: a verified one speaks for the Customer, and an unverified one for its address. */
-type Sender = Heard & { verified: boolean };
-
 const replyDraftNotFound = () =>
   rpcError("NOT_FOUND", "error.replyDraftNotFound", "Draft not found");
 const replyDraftGone = () =>
@@ -52,16 +57,15 @@ const replyDraftNotSent = () =>
     "This draft can't be sent now: the thread may be held or closed, the Customer blocked, or the Representative switched off",
   );
 
-/** Whether a Reply draft waits on the thread, for a query over threads. */
-export const draftWaitingQuery = sql`exists (select 1 from ${held} join ${decision} on ${decision.id} = ${held.decisionId} where ${held.threadId} = ${thread.id} and ${held.resolution} is null and ${decision.rule} = ${draftRule})`;
+/** Whether something the gate held waits on the thread, for a query over threads. */
+export const heldWaitingQuery = sql`exists (select 1 from ${held} where ${held.threadId} = ${thread.id} and ${held.resolution} is null)`;
 
 /**
- * Replaces the Reply drafts on the thread, whose row `tx` holds, that a newer word from `by` puts out
- * of date: those to that address and, if it is verified, those to any verified sender. An unverified
- * sender's draft at another address answers what nobody else was told, and no later Turn answers it.
- * With no `by`, all of them, on a thread closing.
+ * Replaces what waits on the thread, whose row `tx` holds, that a newer word from `by` puts out of
+ * date, whichever rule held it. With no `by`, all of it, on a thread closing.
  */
-export async function replaceDrafts(tx: Transaction, threadId: string, now: Date, by?: Sender) {
+export async function replaceHeld(tx: Transaction, threadId: string, now: Date, by?: Sender) {
+  await dropHeld(tx, { threadId, by, kind: "reply", rule: "replaced", now });
   const waiting = tx
     .select({ id: held.id })
     .from(held)
@@ -71,11 +75,7 @@ export async function replaceDrafts(tx: Transaction, threadId: string, now: Date
         eq(held.threadId, threadId),
         isNull(held.resolution),
         eq(decision.rule, draftRule),
-        by &&
-          or(
-            and(eq(decision.channel, by.channel), eq(decision.externalId, by.externalId)),
-            by.verified ? eq(held.verified, true) : undefined,
-          ),
+        by && outdatedBy(by),
       ),
     );
   await tx

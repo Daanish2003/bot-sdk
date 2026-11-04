@@ -883,3 +883,179 @@ describe("a draft beside what the caps hold", () => {
     expect((await world.decisions()).at(-1)).toEqual(["reply", "hold", "caps"]);
   });
 });
+
+describe("what a cap holds", () => {
+  const second = "+15550002";
+
+  const heldTexts = async (world: World) =>
+    (await world.rpc.representative.threadGet({ id: await world.threadId() })).held.map(
+      ({ text }) => text,
+    );
+
+  /** A Turn with its second reply held by a cap, stood at its next Model call. */
+  async function heldDuringATurn() {
+    const next = opening();
+    const calls = { made: 0 };
+    const world = await instance(
+      [replies("First.", "general"), replies("Second.", "general"), quiet()],
+      async () => {
+        calls.made += 1;
+        if (calls.made === 3) await next.opened;
+      },
+    );
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 1 });
+    await startTestCustomerTurn(world.deps, {
+      representativeId: world.id,
+      externalId: number,
+      message: "Hello",
+    });
+    world.deps.timer.advance(60_000);
+    world.deps.timer.tick();
+    await expect.poll(() => calls.made, poll).toBe(3);
+    return { world, next };
+  }
+
+  it("doesn't come back when its Turn ends, once the owner has dropped it", async () => {
+    const { world, next } = await heldDuringATurn();
+    const [message] = (await world.rpc.representative.threadGet({ id: await world.threadId() }))
+      .held;
+
+    await world.rpc.representative.threadHeldDrop({ id: message!.id });
+    next.open();
+
+    await expect
+      .poll(async () => {
+        const [line] = await world.rpc.representative.threadList({ id: world.id });
+        return line!.waitingOn;
+      }, poll)
+      .toBe("customer");
+    expect(await heldTexts(world)).toEqual([]);
+  });
+
+  it("goes with the Turn a takeover aborts, as that Turn's batch waits again", async () => {
+    // At the day's cap, so the Turn's only reply is held and its batch is still unanswered.
+    const next = opening();
+    const calls = { made: 0 };
+    const world = await instance(
+      [replies("First.", "general"), quiet(), replies("Second.", "general"), quiet()],
+      async () => {
+        calls.made += 1;
+        if (calls.made === 4) await next.opened;
+      },
+    );
+    await world.hears("Hello");
+    await world.rpc.representative.setCaps({ id: world.id, maxPerDay: 1 });
+    await startTestCustomerTurn(world.deps, {
+      representativeId: world.id,
+      externalId: number,
+      message: "Anything else?",
+    });
+    world.deps.timer.advance(60_000);
+    world.deps.timer.tick();
+    await expect.poll(() => calls.made, poll).toBe(4);
+    expect(await heldTexts(world)).toEqual(["Second."]);
+
+    await world.rpc.representative.threadTakeOver({ id: await world.threadId() });
+    next.open();
+
+    expect(await heldTexts(world)).toEqual([]);
+  });
+
+  it("never waits, nor Pages, when its Turn's fence rolled it back", async () => {
+    const world = await instance([replies("First.", "general"), quiet()]);
+    await world.hears("Hello");
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 1 });
+    const threadId = await world.threadId();
+    const refusals: GateRefusal[] = [];
+    const feature = world.deps.parts.features.find(
+      ({ feature }) => feature.id === "representative",
+    )!;
+
+    await getTestDb()
+      .transaction(async (tx) => {
+        await passGate(tx, {
+          kind: "reply",
+          threadId,
+          to: { channel: "fake", externalId: number },
+          now: world.timer.clock.now(),
+          refusals,
+          pages: feature.context.pages,
+          content: { text: "Too late.", verified: false, replyKind: "small_talk", sources: [] },
+        });
+        throw new Error("fenced");
+      })
+      .catch(() => {});
+    await logRefusals(feature.context, refusals);
+
+    expect((await world.decisions()).at(-1)).toEqual(["reply", "hold", "caps"]);
+    expect(await heldTexts(world)).toEqual([]);
+    expect(await getTestDb().select().from(page).where(eq(page.userId, world.user.id))).toEqual([]);
+  });
+
+  it("still waits after an unverified message from another address", async () => {
+    const world = await instance([
+      replies("First.", "general"),
+      replies("Second.", "general"),
+      quiet(),
+      quiet(),
+    ]);
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 1 });
+    await world.hears("Hello");
+    const [line] = await world.rpc.representative.threadList({ id: world.id });
+    await world.rpc.representative.customerAddIdentity({
+      id: line!.customer.id,
+      channel: "fake",
+      externalId: second,
+    });
+
+    await world.hears("And me?", undefined, second);
+
+    expect(await heldTexts(world)).toEqual(["Second."]);
+  });
+
+  it("goes with a thread a merge closes, and doesn't come back with an undo", async () => {
+    const world = await instance([
+      replies("First.", "general"),
+      replies("Second.", "general"),
+      quiet(),
+      quiet(),
+    ]);
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 1 });
+    await world.hears("Hello");
+    const [absorbed] = await world.rpc.representative.threadList({ id: world.id });
+    await world.hears("Hello", undefined, "+15550003");
+    const lines = await world.rpc.representative.threadList({ id: world.id });
+    const survivor = lines.find(({ customer }) => customer.id !== absorbed!.customer.id)!;
+
+    await world.rpc.representative.customerMerge({
+      id: absorbed!.customer.id,
+      intoId: survivor.customer.id,
+    });
+    const [merge] = await world.rpc.representative.customerMergeList();
+    await world.rpc.representative.customerMergeUndo({ id: merge!.id });
+
+    const { held } = await world.rpc.representative.threadGet({ id: absorbed!.id });
+    expect(held).toEqual([]);
+  });
+
+  it("keeps its thread open and waiting on the owner, who was told to send or drop it", async () => {
+    const world = await instance([
+      replies("First.", "general"),
+      replies("Second.", "general"),
+      quiet(),
+    ]);
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 1 });
+    await world.hears("Hello");
+    const [line] = await world.rpc.representative.threadList({ id: world.id });
+    expect(line!.waitingOn).toBe("owner");
+
+    world.timer.advance(threadIdleMs * 2);
+    world.timer.tick();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    const { held } = await world.rpc.representative.threadGet({ id: line!.id });
+    await expect(
+      world.rpc.representative.threadHeldSend({ id: held[0]!.id }),
+    ).resolves.toBeTruthy();
+  });
+});

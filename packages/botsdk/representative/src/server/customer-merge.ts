@@ -20,7 +20,7 @@ import {
 } from "./db/schema";
 import { queueIdleCheck } from "./idle";
 import { customerNotFound, readCustomer } from "./owner-customers";
-import { replaceDrafts } from "./reply-drafts";
+import { replaceHeld } from "./reply-drafts";
 import { holdThread, releaseThread } from "./takeover";
 import { afterThreadClose } from "./customer-summary";
 import { queueThreadExpiry } from "./expiry";
@@ -80,8 +80,8 @@ async function closeThread(
   thread: { id: string; turnId: string | null },
 ) {
   if (thread.turnId) await jobs.cancelIn(tx, thread.turnId);
-  // A closed thread can't send them, and an undo mustn't bring back what has since gone out of date.
-  await replaceDrafts(tx, thread.id, clock());
+  // A closed thread can't send what the gate held, and an undo mustn't bring it back out of date.
+  await replaceHeld(tx, thread.id, clock());
   await tx
     .update(representativeThread)
     .set({ state: "closed", turnId: null, waitingFrom: null, waitingSince: null })

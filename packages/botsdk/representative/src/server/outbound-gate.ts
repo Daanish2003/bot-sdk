@@ -1,4 +1,4 @@
-import { and, asc, count, eq, gt, inArray, isNull, max, ne, sql } from "drizzle-orm";
+import { and, asc, count, eq, gt, inArray, isNull, max, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
@@ -144,7 +144,8 @@ async function writeDecision(
     .values(decision)
     .onConflictDoNothing()
     .returning({ id: representativeOutboundDecision.id });
-  if (held) await tx.insert(representativeHeldMessage).values(held).onConflictDoNothing();
+  // Only with its decision: written again, it mustn't bring back what has since been answered.
+  if (held && written) await tx.insert(representativeHeldMessage).values(held);
   // Once: a Turn writes a refusal again when it ends, and the owner isn't told twice.
   if (written && page && pages) await pages.send(tx, page);
 }
@@ -353,34 +354,58 @@ export async function passGate(
     };
   }
   await writeDecision(tx, written, outgoing.pages);
-  // Written again only if its Turn's fence rolled this back, and a Turn stopped like that has no say
-  // over what it drafted.
+  // Written again only if its Turn's fence rolled this back. A Turn stopped like that has no say over
+  // what it wrote, so it waits for nobody, and there is nothing to tell the owner.
   if (outcome !== "send") {
     outgoing.refusals?.push({
-      ...written,
-      ...(written.held &&
-        rule === draftRule && {
-          held: { ...written.held, resolution: "cancelled", resolvedAt: now },
-        }),
+      decision: written.decision,
+      ...(written.held && {
+        held: { ...written.held, resolution: "cancelled", resolvedAt: now },
+      }),
     });
   }
   return { id, outcome, rule };
 }
 
+/** Who a word on a thread came from: a verified one speaks for the Customer, an unverified one for its address. */
+export type Sender = { channel: string; externalId: string; verified: boolean };
+
 /**
- * Drops the messages held on `threadId` (just `heldId` when given), each with a decision of its own
- * saying `rule`, and returns how many. The held message goes; its first decision stays in the log.
- * A Reply draft has its own answers, and stays (`reply-drafts`).
+ * Of what is held, for a query over held rows and their decisions, what a newer word from `by` puts
+ * out of date: what is to that address and, if it is verified, what is to any verified sender. An
+ * unverified sender's at another address answers what nobody else was told, and no later Turn does.
+ */
+export const outdatedBy = (by: Sender) =>
+  or(
+    and(
+      eq(representativeOutboundDecision.channel, by.channel),
+      eq(representativeOutboundDecision.externalId, by.externalId),
+    ),
+    by.verified ? eq(representativeHeldMessage.verified, true) : undefined,
+  );
+
+/**
+ * Drops the messages held on `threadId` (just `heldId` when given, and just what `by` outdates when
+ * given), each with a decision of its own saying `rule`, and returns how many. The held message goes;
+ * its first decision stays in the log. A Reply draft has its own answers, and stays (`reply-drafts`).
  */
 export async function dropHeld(
   tx: Transaction,
   {
     threadId,
     heldId,
+    by,
     kind,
     rule,
     now,
-  }: { threadId: string; heldId?: string; kind: OutboundKind; rule: string; now: Date },
+  }: {
+    threadId: string;
+    heldId?: string;
+    by?: Sender;
+    kind: OutboundKind;
+    rule: string;
+    now: Date;
+  },
 ) {
   const held = representativeHeldMessage;
   const decision = representativeOutboundDecision;
@@ -397,6 +422,7 @@ export async function dropHeld(
       and(
         eq(held.threadId, threadId),
         heldId ? eq(held.id, heldId) : undefined,
+        by && outdatedBy(by),
         isNull(held.resolution),
         ne(decision.rule, draftRule),
       ),

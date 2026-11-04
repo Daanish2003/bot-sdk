@@ -13,7 +13,7 @@ import {
 } from "./db/schema";
 import { passGate, storeAndDeliver } from "./outbound-gate";
 import { getThread, threadNotFound } from "./owner-customers";
-import { replaceDrafts, turnSender } from "./reply-drafts";
+import { replaceHeld, turnSender } from "./reply-drafts";
 import { queueWaitingTurn } from "./thread-turns";
 
 /*
@@ -168,11 +168,11 @@ export async function holdThread(
   const now = clock();
   if (thread.turnId) {
     await jobs.cancelIn(tx, thread.turnId);
-    // What that Turn drafted goes with it, as its batch waits again for a Turn after Hand back. A
-    // Turn with no batch left has answered it, and leaves nothing to answer again.
+    // What that Turn wrote and the gate held goes with it, as its batch waits again for a Turn after
+    // Hand back. A Turn with no batch left has answered it, and leaves nothing to answer again.
     const sender =
       thread.turnFrom === null ? null : await turnSender(tx, threadId, thread.turnFrom);
-    if (sender) await replaceDrafts(tx, threadId, now, sender);
+    if (sender) await replaceHeld(tx, threadId, now, sender);
   }
   const unanswered = thread.turnId ? thread.turnFrom : null;
   const waitingFrom =
@@ -226,7 +226,7 @@ export async function sendAsOwner(
     // What waited to go where this just went is out of date; what waited for another address isn't.
     if (decided === "send") {
       const to = { channel: thread.lastChannel, externalId: thread.lastExternalId };
-      await replaceDrafts(tx, id, context.clock(), { ...to, verified: false });
+      await replaceHeld(tx, id, context.clock(), { ...to, verified: false });
     }
     if (decided !== "send" || thread.waitingFrom === null) return decided;
     const message = representativeThreadMessage;
