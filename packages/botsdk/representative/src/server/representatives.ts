@@ -63,7 +63,7 @@ export const emptyDraft = (): Draft => ({
   jobText: "",
   switches: {},
   skills: [],
-  tools: ["reply", "hand_to_bot"],
+  tools: ["reply", "hand_to_bot", "read_customer_work"],
   model: null,
   tests: [],
   documents: [],
