@@ -370,6 +370,59 @@ describe("chat.migrate()", () => {
     );
   });
 
+  it("moves each Customer's name into their profile as a confirmed owner value, and drops the column (#1280)", async () => {
+    const url = await scratchDatabase("k1280_profile");
+    const before = (folder: string) =>
+      shippedMigrations(folder).filter(
+        (migration) => migration.name < "20261104053012_representative_customer_profile",
+      );
+    const core = before("../botsdk/bot/src");
+    const feature = before("../botsdk/representative/src/server");
+    await rows(url, "create schema botsdk; create extension if not exists pg_trgm");
+    for (const migration of [...core, ...feature]) await rows(url, migration.sql);
+    await rows(
+      url,
+      `create table botsdk.__migrations (
+         feature text not null, migration text not null,
+         applied_at timestamp with time zone not null default clock_timestamp(),
+         primary key (feature, migration));
+       insert into botsdk.__migrations (feature, migration) values
+         ${[
+           ...core.map((migration) => `('core', '${migration.name}')`),
+           ...feature.map((migration) => `('representative', '${migration.name}')`),
+         ].join(", ")};
+       insert into botsdk.representative_customer (id, user_id, name, created_at) values
+         ('01966b00-0000-7000-8000-000000000001', 'u1', 'Ada', '2026-03-04 05:06:07'),
+         ('01966b00-0000-7000-8000-000000000002', 'u1', null, '2026-03-04 05:06:07')`,
+    );
+
+    await chatFor(url, [representative()]).migrate();
+
+    expect(
+      await rows(
+        url,
+        "select user_id, customer_id, fixed_field, field_id, value, source, status, recorded_at from botsdk.representative_profile_value",
+      ),
+    ).toEqual([
+      {
+        user_id: "u1",
+        customer_id: "01966b00-0000-7000-8000-000000000001",
+        fixed_field: "name",
+        field_id: null,
+        value: "Ada",
+        source: "owner",
+        status: "confirmed",
+        recorded_at: new Date(2026, 2, 4, 5, 6, 7),
+      },
+    ]);
+    expect(
+      await rows(
+        url,
+        "select column_name from information_schema.columns where table_schema = 'botsdk' and table_name = 'representative_customer' and column_name = 'name'",
+      ),
+    ).toEqual([]);
+  });
+
   it("leaves a new database without the vector extension", async () => {
     const url = await scratchDatabase("k743_no_vector");
 

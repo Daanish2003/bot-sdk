@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -18,7 +19,10 @@ import type { ReplySource, StoredReplyKind } from "../../shared/replies";
 import type {
   Draft,
   FactType,
+  FixedProfileField,
   PendingApproval,
+  ProfileSource,
+  ProfileStatus,
   ReleaseContent,
   TestCheck,
   TestResultStatus,
@@ -160,13 +164,58 @@ export const representativeCustomer = botsdkSchema.table(
     id: uuid("id").primaryKey(),
     /** The owner: the Host's user id, with no foreign key, as everywhere in the `botsdk` schema. */
     userId: text("user_id").notNull(),
-    /** What the owner calls them; null until they say. */
-    name: text("name"),
     /** When the owner blocked them; null while not blocked. A blocked Customer's message runs no Turn. */
     blockedAt: timestamp("blocked_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [index("representative_customer_user_idx").on(table.userId, table.createdAt)],
+);
+
+/** A field an owner defines for all their Customers' profiles, beside the fixed ones. */
+export const representativeProfileField = botsdkSchema.table(
+  "representative_profile_field",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("representative_profile_field_name").on(table.userId, sql`lower(${table.name})`),
+  ],
+);
+
+/**
+ * One value of a Customer's profile: of a fixed field or of one the owner defined, never both. It
+ * says where it came from, whether it is `confirmed` or only `claimed`, and when it was recorded.
+ */
+export const representativeProfileValue = botsdkSchema.table(
+  "representative_profile_value",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => representativeCustomer.id, { onDelete: "cascade" }),
+    fixedField: text("fixed_field").$type<FixedProfileField>(),
+    fieldId: uuid("field_id").references(() => representativeProfileField.id, {
+      onDelete: "cascade",
+    }),
+    value: text("value").notNull(),
+    source: text("source").$type<ProfileSource>().notNull(),
+    status: text("status").$type<ProfileStatus>().notNull(),
+    /** From the SDK's clock, like a Published fact's times. */
+    recordedAt: timestamp("recorded_at").notNull(),
+  },
+  (table) => [
+    unique("representative_profile_value_fixed").on(table.customerId, table.fixedField),
+    unique("representative_profile_value_field").on(table.customerId, table.fieldId),
+    index("representative_profile_value_field_idx").on(table.fieldId),
+    check(
+      "representative_profile_value_one_field",
+      sql`num_nonnulls(${table.fixedField}, ${table.fieldId}) = 1`,
+    ),
+  ],
 );
 
 /**

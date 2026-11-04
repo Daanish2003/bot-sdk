@@ -12,6 +12,7 @@ import {
   type ThreadAuthor,
 } from "./db/schema";
 import { holdCustomers } from "./customer-merge";
+import { nameIn, profilesOf } from "./customer-profile";
 import { catchCode, customerProofLeadsTo, mayHoldCode } from "./customer-proof";
 import { type ChannelProof, judgeSender } from "./verification";
 import type { ReplySource, StoredReplyKind } from "../shared/replies";
@@ -410,13 +411,17 @@ export async function exportCustomers(tx: Transaction, userId: string) {
   const customers = await tx
     .select({
       id: representativeCustomer.id,
-      name: representativeCustomer.name,
       blockedAt: representativeCustomer.blockedAt,
       createdAt: representativeCustomer.createdAt,
     })
     .from(representativeCustomer)
     .where(eq(representativeCustomer.userId, userId))
     .orderBy(asc(representativeCustomer.createdAt), asc(representativeCustomer.id));
+  const profiles = await profilesOf(
+    tx,
+    userId,
+    customers.map((customer) => customer.id),
+  );
   const identities = grouped(
     await tx
       .select({
@@ -486,9 +491,10 @@ export async function exportCustomers(tx: Transaction, userId: string) {
       ),
     (row) => row.threadId,
   );
-  return customers.map(({ id, name, blockedAt, createdAt }) => ({
+  return customers.map(({ id, blockedAt, createdAt }) => ({
     id,
-    name,
+    name: nameIn(profiles.get(id)),
+    profile: profiles.get(id) ?? [],
     blockedAt,
     createdAt,
     identities: (identities.get(id) ?? []).map((row) => ({

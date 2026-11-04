@@ -14,6 +14,8 @@ import {
   representativeGap,
   representativeFactProposal,
   representativeHandOff,
+  representativeProfileField,
+  representativeProfileValue,
   representativeRelease,
   representativeTestResult,
   representativeThread,
@@ -22,6 +24,7 @@ import {
 } from "./db/schema";
 import { threadIdleJob } from "./idle";
 import { exportMerges } from "./customer-merge";
+import { deleteProfileFields, exportProfileFields } from "./customer-profile";
 import { type CustomerChannel, noCustomerChannel, proofLinkRoutes } from "./customer-proof";
 import { deleteCustomers, exportCustomers } from "./customers";
 import { dropProposalsOfBot, factProposalTools } from "./fact-proposals";
@@ -91,6 +94,8 @@ export function representativeFeature(
         representativeGap,
         representativeFactProposal,
         representativeHandOff,
+        representativeProfileField,
+        representativeProfileValue,
         representativeRelease,
         representativeTestResult,
         representativeThread,
@@ -123,6 +128,7 @@ export function representativeFeature(
           // this has passed it, no new Customer can appear behind the delete below.
           await deleteRepresentatives(tx, userId);
           await deleteCustomers(tx, userId);
+          await deleteProfileFields(tx, userId);
           await deleteFacts(tx, userId);
           await deleteGaps(tx, userId);
         },
@@ -131,6 +137,7 @@ export function representativeFeature(
         representatives: await exportRepresentatives(tx, userId),
         customers: await exportCustomers(tx, userId),
         customerMerges: await exportMerges(tx, userId),
+        profileFields: await exportProfileFields(tx, userId),
         ...(await exportFacts(tx, userId)),
         ...(await exportGaps(tx, userId)),
       }),

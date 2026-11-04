@@ -190,6 +190,10 @@ _Avoid_: Notification, ticket, alert
 A person who deals with a user's business through a Representative. A Customer isn't a user and never signs in to the app, and belongs to that one user's business.
 _Avoid_: Contact, end user, client
 
+**Customer profile**:
+A Customer's typed details, kept in the database: the fixed fields (name, language, preferred Channel, address) plus fields the user defines for all their Customers. Each value has a source, a date and a status: `confirmed` if the user set it or a verified Customer said it, otherwise `claimed`. It's a Bot's **Profile** only in name, which is a file about the user.
+_Avoid_: Profile, on its own
+
 **Customer merge**:
 Making two Customers one, which happens only when a sender passes a code sent to an identity on the other's record, or when the user does it by hand. The absorbed Customer's identities and threads move to the other, and where both have an open thread with a Representative, the absorbed one's closes. It is recorded, verifies nobody, and the user can undo it: each identity goes back, and a closed thread stays closed.
 _Avoid_: Link, dedupe

@@ -24,8 +24,12 @@ async function seedThread(
   try {
     const run = (text: string, values: unknown[]) => db.$client.query(text, values);
     await run(
-      "insert into botsdk.representative_customer (id, user_id, name, blocked_at) values ($1, $2, $3, $4)",
-      [customerId, userId, name, blocked ? new Date() : null],
+      "insert into botsdk.representative_customer (id, user_id, blocked_at) values ($1, $2, $3)",
+      [customerId, userId, blocked ? new Date() : null],
+    );
+    await run(
+      "insert into botsdk.representative_profile_value (id, user_id, customer_id, fixed_field, value, source, status, recorded_at) values ($1, $2, $3, 'name', $4, 'owner', 'confirmed', $5)",
+      [randomUUID(), userId, customerId, name, new Date()],
     );
     await run(
       "insert into botsdk.representative_customer_identity (id, user_id, customer_id, channel, external_id, verified_contact_at) values ($1, $2, $3, 'sms', $4, $5)",
@@ -45,6 +49,40 @@ async function seedThread(
     await db.$client.end();
   }
 }
+
+test("an owner defines a profile field, and sets and corrects a Customer's values", async ({
+  page,
+}) => {
+  await signInAsSeededUser(page);
+  await page.goto("/customers");
+
+  await page.getByLabel("Name", { exact: true }).fill("Grace");
+  await page.getByLabel("Channel", { exact: true }).fill("sms");
+  await page.getByLabel("Identity on that Channel").fill(`+1555${randomUUID().slice(0, 8)}`);
+  await page.getByRole("button", { name: "Add Customer" }).click();
+  const grace = page.locator("[data-customer]").filter({ has: page.getByLabel("Name of Grace") });
+  const today = await page.evaluate(() => new Date().toLocaleDateString());
+  await expect(grace).toContainText(`Confirmed · from you · ${today}`);
+
+  await page.getByLabel("New profile field").fill("Equipment");
+  await page.getByRole("button", { name: "Add field" }).click();
+  await grace.getByRole("textbox", { name: "Equipment of Grace" }).fill("Boiler");
+  await grace.getByRole("button", { name: "Save Equipment of Grace" }).click();
+  const value = grace.locator("form", {
+    has: page.getByRole("textbox", { name: "Equipment of Grace" }),
+  });
+  await expect(value).toContainText(`Confirmed · from you · ${today}`);
+
+  await page.getByRole("textbox", { name: "Field Equipment" }).fill("Heating");
+  await page.getByRole("button", { name: "Rename field Equipment" }).click();
+  const heating = grace.getByRole("textbox", { name: "Heating of Grace" });
+  await expect(heating).toHaveValue("Boiler");
+
+  await page.reload();
+  await expect(heating).toHaveValue("Boiler");
+  await page.getByRole("button", { name: "Remove field Heating" }).click();
+  await expect(heating).toHaveCount(0);
+});
 
 test("an owner adds a Customer, edits identities, and blocks and unblocks one", async ({
   page,
