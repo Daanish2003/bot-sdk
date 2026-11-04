@@ -8,7 +8,7 @@ import { botAssignment, job } from "@botsdk/bot/storage";
 import { createTestSdk } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { fakeChannel } from "@ai-chat/test-support/test-customer";
+import { fakeChannel, promoteAutoTopic } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
@@ -40,7 +40,7 @@ const handsOff = () =>
     }),
   );
 const replies = (text: string) =>
-  round(toolCall({ name: "reply", input: { text, kind: "small_talk" } }));
+  round(toolCall({ name: "reply", input: { topic: "general", text, kind: "small_talk" } }));
 
 const assignmentIdIn = (call: TextOptions) =>
   [
@@ -131,6 +131,7 @@ async function serving(
   await rpc.representative.approve({ id });
   await rpc.representative.setEnabled({ id, enabled: true });
   const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
+  await promoteAutoTopic(id);
   const runNext = async () => {
     timer.advance(1_000);
     const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: true });
