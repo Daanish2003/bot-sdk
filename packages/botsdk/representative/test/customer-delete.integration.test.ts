@@ -21,6 +21,8 @@ import {
   representativeCustomerIdentity,
   representativeCustomerMerge,
   representativeCustomerSummary,
+  representativeFactProposal,
+  representativeGap,
   representativeHandOff,
   representativeProfileValue,
   representativeThread,
@@ -611,6 +613,50 @@ describe("deleting a Customer", () => {
       "Customer not found",
     );
     expect((await rpc.representative.customerList()).map((each) => each.id)).toEqual([carol.id]);
+  });
+
+  it("keeps lesson proposals and Gaps, which hold no link to a Customer", async () => {
+    const { rpc, ada, user } = await seeded();
+    const now = new Date();
+    const lessonId = crypto.randomUUID();
+    const gapId = crypto.randomUUID();
+    await getTestDb()
+      .insert(representativeFactProposal)
+      .values({
+        id: lessonId,
+        userId: user.id,
+        key: "refund-window",
+        proposed: {
+          key: "refund-window",
+          type: "policy",
+          topic: "Refunds",
+          value: "Within 30 days.",
+        } as typeof representativeFactProposal.$inferInsert.proposed,
+        why: "Seen across your Customers' conversations.",
+        postedAt: now,
+        expiresAt: new Date(now.getTime() + 60_000),
+      });
+    await getTestDb().insert(representativeGap).values({
+      id: gapId,
+      userId: user.id,
+      question: "Do you refund after 30 days?",
+      normalized: "do you refund after 30 days",
+      firstAt: now,
+      lastAt: now,
+    });
+
+    await rpc.representative.customerDelete({ id: ada.id });
+
+    const lessons = await getTestDb()
+      .select({ id: representativeFactProposal.id, botId: representativeFactProposal.botId })
+      .from(representativeFactProposal)
+      .where(eq(representativeFactProposal.id, lessonId));
+    expect(lessons).toEqual([{ id: lessonId, botId: null }]);
+    const gaps = await getTestDb()
+      .select({ id: representativeGap.id })
+      .from(representativeGap)
+      .where(eq(representativeGap.id, gapId));
+    expect(gaps).toEqual([{ id: gapId }]);
   });
 
   it("refuses a Customer already merged away, and one already deleted", async () => {

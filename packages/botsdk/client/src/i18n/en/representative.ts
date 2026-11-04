@@ -215,6 +215,8 @@ export const representativeMessages = {
   "representative.customers.deleteStays": "What stays",
   "representative.customers.deleteStaysSpend":
     "Your spend records, which don't say who they were for",
+  "representative.customers.deleteStaysGaps":
+    "Gaps your Representatives logged, which can repeat what they asked and don't say who asked",
   "representative.customers.deleteStaysJobRecords":
     "Records of past Model calls, which can quote them, until they expire within 30 days",
   "representative.customers.deleteCancel": "Cancel",

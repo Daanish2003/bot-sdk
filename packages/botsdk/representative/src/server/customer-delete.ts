@@ -25,7 +25,8 @@ import { customerNotFound } from "./owner-customers";
  * into them, whose rows hold values the survivor reads. Foreign keys take most of it. What they can't
  * reach is here: queued jobs, the merge history that stores ids in JSON, and what an undone merge left
  * of this person on the other Customer's thread. Spend rows stay: they name no Customer. A job's
- * Checkpoints stay too, which is the limit ADR 0035 documents.
+ * Checkpoints and a Gap's question stay too, the limits ADR 0035 documents, and a lesson proposal
+ * names no Customer.
  */
 
 type Context = Pick<FeatureContext, "db" | "jobs">;

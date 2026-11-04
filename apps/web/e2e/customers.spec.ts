@@ -111,7 +111,9 @@ test("an owner sees what goes, then deletes a Customer and those merged into the
   await expect(goes).toContainText("Their profile values and summaries");
   await expect(goes).toContainText("Their threads and every message in them");
   await expect(goes).toContainText("Dora");
-  await expect(dialog.getByRole("region", { name: "What stays" })).toContainText("spend records");
+  const stays = dialog.getByRole("region", { name: "What stays" });
+  await expect(stays).toContainText("spend records");
+  await expect(stays).toContainText("Gaps");
 
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByLabel("Name of Emil")).toBeVisible();

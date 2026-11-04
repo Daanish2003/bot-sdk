@@ -222,6 +222,7 @@ function DeleteCustomer({
               <h3 className="font-medium">{t("representative.customers.deleteStays")}</h3>
               <ul className="list-disc pl-5 text-muted-foreground">
                 <li>{t("representative.customers.deleteStaysSpend")}</li>
+                <li>{t("representative.customers.deleteStaysGaps")}</li>
                 <li>{t("representative.customers.deleteStaysJobRecords")}</li>
               </ul>
             </section>
