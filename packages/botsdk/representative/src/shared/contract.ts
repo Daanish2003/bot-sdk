@@ -266,8 +266,8 @@ export type CustomerIdentityView = {
 export const correctableFixedFields = ["language", "preferred_channel", "address"] as const;
 export const fixedProfileFields = ["name", ...correctableFixedFields] as const;
 export type FixedProfileField = (typeof fixedProfileFields)[number];
-/** Who a profile value came from. */
-export type ProfileSource = "owner" | "customer";
+/** Who a profile value came from: the owner who set it, or the author of the thread line the pass read it from. */
+export type ProfileSource = "owner" | "customer" | "representative";
 /** `confirmed` only if the owner set it or a verified Customer said it; `claimed` otherwise. */
 export type ProfileStatus = "claimed" | "confirmed";
 

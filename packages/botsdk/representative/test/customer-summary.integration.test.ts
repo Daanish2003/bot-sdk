@@ -601,8 +601,8 @@ describe("a closed thread's profile values (ticket #1282)", () => {
     );
 
     expect(await profile()).toMatchObject([
-      { field: "language", status: "claimed" },
-      { field: "address", status: "claimed" },
+      { field: "language", status: "claimed", source: "owner" },
+      { field: "address", status: "claimed", source: "representative" },
     ]);
   });
 

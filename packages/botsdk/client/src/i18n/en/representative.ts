@@ -219,6 +219,7 @@ export const representativeMessages = {
   }) => `${status} · from ${source} · ${date}`,
   "representative.customers.profileSourceOwner": "you",
   "representative.customers.profileSourceCustomer": "the Customer",
+  "representative.customers.profileSourceRepresentative": "the Representative",
   "representative.customers.profileConfirmed": "Confirmed",
   "representative.customers.profileClaimed": "Claimed",
   "representative.customers.fields": "Your profile fields",

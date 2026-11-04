@@ -299,7 +299,7 @@ export async function writePassValues(
     if (existing?.status === "confirmed" && (existing.source === "owner" || status === "claimed")) {
       continue;
     }
-    const written = { value, source: "customer", status, recordedAt: now } as const;
+    const written = { value, source: line.author, status, recordedAt: now } as const;
     await tx
       .insert(representativeProfileValue)
       .values({
