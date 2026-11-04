@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import type { FeatureContext, PublicRoute } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import type { MessagingReach } from "@botsdk/bot/channel";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { absorbCustomer } from "./customer-merge";
 import { type GateRefusal, passGate } from "./outbound-gate";
@@ -42,6 +43,8 @@ export type Proof = { kind: "code" | "link"; secret: string };
 export type CustomerChannel = {
   send: (to: { channel: string; externalId: string }, message: { text: string }) => Promise<void>;
   sendProof: (to: { channel: string; externalId: string }, proof: Proof) => Promise<void>;
+  /** What the platform of `channel` limits, as its adapter declares it; left out, nothing is limited. */
+  reach?: (channel: string) => MessagingReach | undefined;
 };
 
 /** No real Channel reaches a Customer yet (spec #1172), so by default nothing goes anywhere. */

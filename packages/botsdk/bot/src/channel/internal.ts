@@ -28,6 +28,7 @@ export {
   type MessagingButtons,
   type MessagingCall,
   type MessagingFile,
+  type MessagingReach,
   MessagingFileTooLargeError,
   MessagingSendError,
   type MessagingUpdate,

@@ -136,7 +136,7 @@ export function representativeFeature(
       representativeTurnJob(options.concurrency, channel),
       customerDeliveryJob(channel),
       draftDueJob,
-      heldReleaseJob,
+      heldReleaseJob(channel),
       handOffEndedJob,
       limitCheckJob,
       representativeTestJob,

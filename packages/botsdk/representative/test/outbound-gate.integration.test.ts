@@ -2,6 +2,7 @@ import type { AnyTextAdapter } from "@tanstack/ai";
 import { asc, eq, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
+import type { MessagingReach } from "@botsdk/bot/channel";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { exportUserData } from "@botsdk/bot/user-data";
@@ -74,7 +75,12 @@ function opening() {
 }
 
 /** A running instance whose Customer channel sends through a fake messaging adapter. */
-async function instance(rounds: Round[], held?: Promise<void>, at = new Date()) {
+async function instance(
+  rounds: Round[],
+  held?: Promise<void>,
+  at = new Date(),
+  reach?: MessagingReach,
+) {
   const fake = createFakeAdapter({ rounds });
   const entered: unknown[] = [];
   const adapter: AnyTextAdapter = {
@@ -101,6 +107,7 @@ async function instance(rounds: Round[], held?: Promise<void>, at = new Date()) 
       const message = { chatId: to.externalId, text: proof.secret };
       await messaging.adapter.send(account, message, { fetch });
     },
+    reach: () => reach,
   };
   const timer = fakeJobClock(at);
   let made: TestDeps | undefined;
@@ -140,6 +147,7 @@ async function instance(rounds: Round[], held?: Promise<void>, at = new Date()) 
   const world = Object.assign(deps, { timer });
   const threadId = async () => (await rpc.representative.threadList({ id }))[0]!.id;
   return {
+    channel,
     messaging,
     entered,
     timer,
@@ -177,13 +185,13 @@ const heard = (world: World) => world.hears("Hello");
 
 /** The Representative's reply, as the tool stores it, from a Turn still running. */
 const anotherReply = async (
-  { deps, threadId }: World,
+  world: World,
   now = new Date(),
   businessStarted = false,
   topic = "general",
 ) => {
-  const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
-  const id = await threadId();
+  const feature = world.deps.parts.features.find(({ feature }) => feature.id === "representative")!;
+  const id = await world.threadId();
   return getTestDb().transaction((tx) =>
     storeReply(
       feature.context,
@@ -194,6 +202,7 @@ const anotherReply = async (
         heard: { channel: "fake", externalId: number },
         verified: false,
         businessStarted,
+        channel: world.channel,
       },
       { text: "Still here", sources: topic === "general" ? [autoSource] : [], topic },
       "small_talk",
@@ -1165,5 +1174,138 @@ describe("quiet hours", () => {
 
     expect(world.got()).toEqual([takeoverNote]);
     expect(await held()).toHaveLength(1);
+  });
+});
+
+describe("a Channel's limits", () => {
+  const hour = 60 * 60 * 1000;
+  const pages = () => getTestDb().select().from(page);
+  const held = () => getTestDb().select().from(representativeHeldMessage);
+  const outcomes = async (world: World) =>
+    (await world.decisions()).map(({ outcome, rule }) => [outcome, rule]);
+  const heldAndPaged = async (world: World) => {
+    expect(world.got()).toEqual([]);
+    expect(await held()).toMatchObject([{ text: "Still here" }]);
+    expect(await pages()).toMatchObject([{ userId: world.user.id, cause: "outbound_held" }]);
+  };
+
+  it("holds a reply outside the reply window and Pages the owner, by the clock", async () => {
+    const world = await instance([quiet()], undefined, new Date(), { replyWindowHours: 24 });
+    await heard(world);
+    const inside = new Date(Date.now() + 23 * hour);
+    const outside = new Date(Date.now() + 25 * hour);
+
+    await anotherReply(world, inside);
+    const late = await anotherReply(world, outside);
+
+    expect(late).toMatchObject({ error: expect.stringContaining("held") });
+    await expect.poll(() => world.got(), poll).toEqual(["Still here"]);
+    expect(await outcomes(world)).toEqual([
+      ["send", "passed"],
+      ["hold", "channel"],
+    ]);
+    expect(await held()).toHaveLength(1);
+    expect(await pages()).toMatchObject([{ cause: "outbound_held" }]);
+  });
+
+  it("holds what the business starts on a Channel that can't start a chat", async () => {
+    const world = await instance([quiet()], undefined, new Date(), {
+      canStartConversation: false,
+    });
+    await heard(world);
+
+    const started = await anotherReply(world, new Date(), true);
+
+    expect(started).toMatchObject({ error: expect.stringContaining("held") });
+    expect(await outcomes(world)).toEqual([["hold", "channel"]]);
+    await heldAndPaged(world);
+  });
+
+  it("still answers a Customer who just wrote on a Channel that can't start a chat", async () => {
+    const world = await instance([quiet()], undefined, new Date(), {
+      canStartConversation: false,
+    });
+    await heard(world);
+
+    await anotherReply(world);
+
+    await expect.poll(() => world.got(), poll).toEqual(["Still here"]);
+  });
+
+  it("holds a message over the Channel's longest", async () => {
+    const world = await instance([quiet()], undefined, new Date(), { maxLength: 9 });
+    await heard(world);
+
+    const long = await anotherReply(world);
+
+    expect(long).toMatchObject({ error: expect.stringContaining("held") });
+    expect(await outcomes(world)).toEqual([["hold", "channel"]]);
+    await heldAndPaged(world);
+  });
+
+  it("sends as before when the adapter declares nothing", async () => {
+    const world = await instance([quiet()]);
+    await heard(world);
+
+    await anotherReply(world, new Date(Date.now() + 1000 * hour), true);
+
+    await expect.poll(() => world.got(), poll).toEqual(["Still here"]);
+    expect(await outcomes(world)).toEqual([["send", "passed"]]);
+    expect(await pages()).toEqual([]);
+  });
+
+  it("doesn't send a held message to another identity of an unverified Customer", async () => {
+    const world = await instance([quiet()], undefined, new Date(), { replyWindowHours: 24 });
+    await heard(world);
+    const [customer] = await world.rpc.representative.customerList();
+    await world.rpc.representative.customerAddIdentity({
+      id: customer!.id,
+      channel: "fake",
+      externalId: "+15550002",
+    });
+
+    await anotherReply(world, new Date(Date.now() + 25 * hour));
+
+    expect(world.got()).toEqual([]);
+    const [decision] = await world.decisions();
+    expect(decision).toMatchObject({ outcome: "hold", rule: "channel", externalId: number });
+  });
+
+  it("holds a message held for quiet hours again when its window has closed by morning", async () => {
+    const night = new Date("2026-11-04T23:00:00Z");
+    const world = await instance([quiet()], undefined, night, { replyWindowHours: 8 });
+    await heard(world);
+    // The Customer wrote just now by the real clock; the business starts a reply at 23:00 the same day.
+    await getTestDb()
+      .update(representativeThreadMessage)
+      .set({ createdAt: new Date("2026-11-04T22:00:00Z") });
+    await anotherReply(world, night, true);
+
+    world.timer.advance(9 * hour);
+    world.timer.tick();
+    // By 07:00 it is 9 hours since the Customer wrote: out of the 8-hour window.
+    await expect.poll(async () => (await outcomes(world)).length, poll).toBe(2);
+
+    expect(await outcomes(world)).toEqual([
+      ["hold", "quietHours"],
+      ["hold", "channel"],
+    ]);
+    expect(world.got()).toEqual([]);
+    expect(await held()).toHaveLength(1);
+  });
+
+  it("lets the owner send a held message, or drop it", async () => {
+    const world = await instance([quiet()], undefined, new Date(), { maxLength: 9 });
+    await heard(world);
+    await anotherReply(world);
+    await anotherReply(world);
+    const id = await world.threadId();
+    const [first, second] = (await world.rpc.representative.threadGet({ id })).held;
+
+    await world.rpc.representative.threadHeldSend({ id: first!.id });
+    await world.rpc.representative.threadHeldDrop({ id: second!.id });
+
+    await expect.poll(() => world.got(), poll).toEqual(["Still here"]);
+    expect(await held()).toEqual([]);
   });
 });

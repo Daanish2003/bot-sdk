@@ -136,6 +136,20 @@ export type SendProgress = { parts: number; pieces?: number; sent: SentMessage }
 export type MessagingCall = { fetch: typeof fetch; signal?: AbortSignal };
 
 /**
+ * What a platform lets a business do, as optional data on its adapter (spec #1171). The Outbound gate
+ * holds a Customer message that breaks one. An adapter that declares none has no limits, and keeps
+ * splitting a long message itself.
+ */
+export type MessagingReach = {
+  /** False when the platform lets only the other side start a chat. Left out, it can. */
+  canStartConversation?: boolean;
+  /** How long after the Customer's last message the platform lets the business reply. Left out, forever. */
+  replyWindowHours?: number;
+  /** The most characters of one message the Outbound gate lets through. Left out, any length. */
+  maxLength?: number;
+};
+
+/**
  * A messaging adapter (spec #1044): the wire format of one messaging platform, such as Telegram,
  * as the `channels` slot takes it. It receives updates for one Channel account, sends one Message,
  * edits a sent Message's buttons, downloads one inbound file and checks credentials. The core keeps
@@ -143,7 +157,7 @@ export type MessagingCall = { fetch: typeof fetch; signal?: AbortSignal };
  * for the credentials throws `CredentialsRejectedError`; any other throw is retried, and a `send`
  * that fails after sending some parts throws `MessagingSendError` so the retry resumes after them.
  */
-export type MessagingAdapter<Field extends string = string> = {
+export type MessagingAdapter<Field extends string = string> = MessagingReach & {
   kind: "messaging";
   /** The platform, such as `telegram`: a Trigger and a Message from it record it as their Channel. */
   id: string;
