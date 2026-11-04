@@ -8,7 +8,7 @@ import { exportUserData } from "@botsdk/bot/user-data";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { testCustomerTurn } from "@ai-chat/test-support/test-customer";
+import { testCustomerTurn, autoSource } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
@@ -48,7 +48,12 @@ type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 const quiet = () => round();
 const replies = (text: string) =>
-  round(toolCall({ name: "reply", input: { topic: "general", text, kind: "small_talk" } }));
+  round(
+    toolCall({
+      name: "reply",
+      input: { topic: "general", sources: [autoSource], text, kind: "small_talk" },
+    }),
+  );
 /** A reply no source backs: code refuses it. */
 const guesses = (text: string) =>
   round(toolCall({ name: "reply", input: { topic: "general", text, kind: "answer" } }));
@@ -190,7 +195,7 @@ const anotherReply = async (
         verified: false,
         businessStarted,
       },
-      { text: "Still here", sources: [], topic },
+      { text: "Still here", sources: topic === "general" ? [autoSource] : [], topic },
       "small_talk",
       now,
     ),

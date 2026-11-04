@@ -28,6 +28,7 @@ import {
   setEnabledInput,
   threadSendInput,
   topicAddInput,
+  topicSetModeInput,
   updateDraftInput,
 } from "../shared/contract";
 import { type ConvertDocument, type KnowledgeFiles, knowledgeChoices } from "./documents";
@@ -81,7 +82,7 @@ import {
   rejectReplyDraft,
 } from "./reply-drafts";
 import { handBackThread, sendAsOwner, takeOverThread } from "./takeover";
-import { addTopic, listTopics, removeTopic } from "./topics";
+import { addTopic, listTopics, removeTopic, setTopicMode } from "./topics";
 
 /*
  * The `representative` namespace's domain methods: what a Host calls in-process as
@@ -277,6 +278,11 @@ export function representativeApi(
 
     topicAdd: async ({ userId, ...rest }: WithUser<typeof topicAddInput>) =>
       addTopic(context, userId, parseInput(topicAddInput, rest).name),
+
+    topicSetMode: async ({ userId, ...rest }: WithUser<typeof topicSetModeInput>) => {
+      const { id, mode } = parseInput(topicSetModeInput, rest);
+      return setTopicMode(context, userId, id, mode);
+    },
 
     topicRemove: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
       removeTopic(context, userId, parseInput(idInput, rest).id),

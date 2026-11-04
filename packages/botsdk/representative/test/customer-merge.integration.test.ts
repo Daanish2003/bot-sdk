@@ -12,6 +12,7 @@ import {
   startTestCustomerTurn,
   testCustomerTurn,
   type TestCustomerTurn,
+  autoSource,
 } from "@ai-chat/test-support/test-customer";
 import { insertUser } from "@ai-chat/test-support/users";
 import { getTestDb } from "@ai-chat/test-support/test-database";
@@ -235,7 +236,12 @@ describe("an owner merging two Customers", () => {
         round(
           toolCall({
             name: "reply",
-            input: { topic: "general", text: "From the closed thread", kind: "small_talk" },
+            input: {
+              topic: "general",
+              sources: [autoSource],
+              text: "From the closed thread",
+              kind: "small_talk",
+            },
           }),
         ),
         quiet(),

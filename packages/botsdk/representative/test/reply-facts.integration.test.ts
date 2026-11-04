@@ -9,7 +9,12 @@ import { exportUserData } from "@botsdk/bot/user-data";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { claimPastDeliveries, startTestCustomerTurn } from "@ai-chat/test-support/test-customer";
+import {
+  approveDrafts,
+  autoFact,
+  claimPastDeliveries,
+  startTestCustomerTurn,
+} from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
@@ -44,7 +49,7 @@ const replies = (input: object) =>
 const answers = (text: string, sources: object[] = [{ type: "fact", key: "price.haircut" }]) =>
   replies({ text, kind: "answer", sources });
 
-const price = { key: "price.haircut", type: "money", topic: "Prices", value: "45 USD" } as const;
+const price = { key: "price.haircut", type: "money", topic: "general", value: "45 USD" } as const;
 
 const priceEdit = (id: string, value: string) => ({
   id,
@@ -442,13 +447,15 @@ describe("a reply's kind and sources", () => {
   });
 
   it("takes small talk and a hand-off with no source", async () => {
-    const { turn, sent } = await serving([
+    const { turn, sent, rpc } = await serving([
       replies({ text: "Hello!", kind: "small_talk" }),
       replies({ text: "Someone will take this up.", kind: "handoff" }),
       quiet(),
     ]);
 
     await turn("Hi");
+    // Resting on nothing, each is a draft.
+    await approveDrafts(rpc);
 
     expect(await sent()).toEqual([
       { text: "Hello!", kind: "small_talk", sources: [] },
@@ -581,7 +588,7 @@ describe("the prompt", () => {
     await rpc.representative.factAdd({
       key: "price.old",
       type: "money",
-      topic: "Prices",
+      topic: "general",
       value: "99 USD",
       validUntil: new Date(timer.clock.now().getTime() + 1),
     });
@@ -643,16 +650,18 @@ describe("the prompt", () => {
     expect((await sent())[0]?.text).toBe("The last.");
   });
 
-  it("has no facts message with none in effect, and never another owner's", async () => {
+  it("lists only the owner's own facts, never another owner's", async () => {
     const other = await serving([quiet()]);
     await other.rpc.representative.factAdd(price);
     const { turn, fake } = await serving([quiet()]);
 
     await turn("Hello there");
 
-    // The Customer's message, the topics to label a reply with, then code's word on who sent it.
-    expect(promptOf(fake.calls[0])).toHaveLength(3);
-    expect(promptOf(fake.calls[0])[0]?.content).toContain("Hello there");
+    // The Customer's message, the facts (the test Customer's owner has one, on the promoted topic),
+    // the topics to label a reply with, then code's word on who sent it.
+    expect(promptOf(fake.calls[0])).toHaveLength(4);
+    expect(promptOf(fake.calls[0])[1]?.content).toContain("Hello there");
+    expect(JSON.stringify(fake.calls[0]?.messages)).toContain(autoFact.key);
     expect(JSON.stringify(fake.calls[0]?.messages)).not.toContain("45 USD");
   });
 });

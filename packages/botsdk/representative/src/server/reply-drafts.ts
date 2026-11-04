@@ -5,6 +5,7 @@ import type { Transaction } from "@botsdk/bot/plugin";
 import { rpcError } from "@botsdk/bot/rpc-error";
 import type { ReplyDraftView } from "../shared/contract";
 import { nameIn, profilesOf } from "./customer-profile";
+import { queueDraftDue } from "./draft-due";
 import type { Heard } from "./customers";
 import {
   draftRule,
@@ -192,6 +193,11 @@ export async function afterDraftHeld(
       .where(eq(held.decisionId, decisionId));
     return;
   }
+  const [draft] = await tx
+    .select({ id: held.id })
+    .from(held)
+    .where(eq(held.decisionId, decisionId));
+  if (draft) await queueDraftDue(services, tx, draft.id, now);
   if (await notedSinceCustomer(tx, threadId, heard)) return;
   const noted = await passGate(tx, {
     kind: "holding_note",

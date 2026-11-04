@@ -23,7 +23,7 @@ import {
   representativeThreadMessage,
 } from "./db/schema";
 import { isQuiet, quietEndsAt, zoneOr } from "./quiet-hours";
-import { modeOfLabel } from "./topics";
+import { modeOfLabel, sourcesBelongToLabel } from "./topics";
 
 /*
  * The Outbound gate (ticket #1298): one code-owned check of every message to a Customer, in a fixed
@@ -74,6 +74,8 @@ type GateFacts = {
   enabled: boolean;
   /** The owner's mode for the topic the message is labelled with; null for one they don't have. */
   topicMode: TopicMode | null;
+  /** Whether the reply rests on Published facts of that topic alone, and on at least one. */
+  sourcesOnTopic: boolean;
   /** Messages the Representative has sent since the Customer last wrote on this thread. */
   sentInARow: number;
   /** Messages the Representative has sent this Customer in the day up to now, on any thread. */
@@ -98,7 +100,8 @@ export const liveChecks: Partial<Record<GateRule, GateCheck>> = {
   blocked: ({ blockedAt }) => (blockedAt === null ? null : "drop"),
   optedOut: ({ optedOutAt }) => (optedOutAt === null ? null : "drop"),
   on: ({ enabled }) => (enabled ? null : "drop"),
-  topic: ({ topicMode }) => (topicMode === "auto" ? null : "hold"),
+  topic: ({ topicMode, sourcesOnTopic }) =>
+    topicMode === "auto" && sourcesOnTopic ? null : "hold",
   caps: ({ sentInARow, sentToday, maxInARow, maxPerDay }) =>
     sentInARow >= maxInARow || sentToday >= maxPerDay ? "hold" : null,
   quietHours: ({ businessStarted, quiet }) => (businessStarted && quiet ? "hold" : null),
@@ -392,13 +395,20 @@ export async function passGate(
     );
   }
   const period = { startHour: row.quietStartHour, endHour: row.quietEndHour };
+  const topicMode = rules.includes("topic")
+    ? await modeOfLabel(tx, row.userId, content?.topic)
+    : null;
   const facts: GateFacts = {
     ...row,
     businessStarted,
     quiet: isQuiet(now, timeZone, period),
     blockedAt: customer?.blockedAt ?? null,
+    topicMode,
+    // Only an auto topic can send, so only then does it matter.
+    sourcesOnTopic:
+      topicMode === "auto" &&
+      (await sourcesBelongToLabel(tx, row.userId, content?.topic, content?.sources)),
     optedOutAt: identity?.optedOutAt ?? null,
-    topicMode: rules.includes("topic") ? await modeOfLabel(tx, row.userId, content?.topic) : null,
     ...(rules.includes("caps")
       ? await sentCounts(tx, threadId, row.customerId, now)
       : { sentInARow: 0, sentToday: 0 }),

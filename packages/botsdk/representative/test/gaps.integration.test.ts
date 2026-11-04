@@ -8,7 +8,12 @@ import { deleteUserData, exportUserData } from "@botsdk/bot/user-data";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { claimPastDeliveries, startTestCustomerTurn } from "@ai-chat/test-support/test-customer";
+import {
+  approveDrafts,
+  autoFact,
+  claimPastDeliveries,
+  startTestCustomerTurn,
+} from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
@@ -38,7 +43,7 @@ const cantConfirm = (question: string, text = "I can't confirm that. Shall I han
 const answers = (text: string, key = "price.haircut") =>
   replies({ text, kind: "answer", sources: [{ type: "fact", key }] });
 
-const price = { key: "price.haircut", type: "money", topic: "Prices", value: "45 USD" } as const;
+const price = { key: "price.haircut", type: "money", topic: "general", value: "45 USD" } as const;
 const priceDates = { validFrom: null, validUntil: null };
 
 const runners: JobRunner[] = [];
@@ -143,6 +148,8 @@ describe("a reply that can't confirm", () => {
     const { rpc, id, turn, sent } = await owner();
 
     await turn();
+    // Resting on nothing, it is a draft.
+    await approveDrafts(rpc);
 
     expect(await sent()).toEqual([
       { text: "I can't confirm that. Shall I hand it off?", kind: "cant_confirm", sources: [] },
@@ -217,7 +224,9 @@ describe("a reply that can't confirm", () => {
       second.rpc.representative.gapToFact({ id: mine!.id, ...price, ...priceDates }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(await first.rpc.representative.gapList()).toHaveLength(1);
-    expect(await first.rpc.representative.factList()).toEqual([]);
+    expect((await first.rpc.representative.factList()).map(({ key }) => key)).toEqual([
+      autoFact.key,
+    ]);
   });
 
   it("keeps the question as the plain text it was, markup and all", async () => {
@@ -276,7 +285,7 @@ describe("turning a Gap into a fact", () => {
 
     expect(made).toMatchObject({ key: "price.haircut", value: "45 USD", inEffect: true });
     expect(await rpc.representative.gapList()).toEqual([]);
-    expect(await rpc.representative.factList()).toHaveLength(1);
+    expect(await rpc.representative.factList()).toHaveLength(2);
     const log = await rpc.representative.factLog();
     expect(log.map(({ key, action }) => ({ key, action }))).toEqual([
       { key: "price.haircut", action: "add" },
@@ -303,7 +312,7 @@ describe("turning a Gap into a fact", () => {
     await expect(
       rpc.representative.gapToFact({ id: gap!.id, ...price, ...priceDates, key: "price.beard" }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    expect(await rpc.representative.factList()).toHaveLength(1);
+    expect(await rpc.representative.factList()).toHaveLength(2);
   });
 });
 

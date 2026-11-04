@@ -8,7 +8,11 @@ import { botAssignment, job, jobEvent } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { claimPastDeliveries, startTestCustomerTurn } from "@ai-chat/test-support/test-customer";
+import {
+  claimPastDeliveries,
+  startTestCustomerTurn,
+  autoSource,
+} from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, text, toolCall } from "@botsdk/testing/fake-adapter";
@@ -40,7 +44,12 @@ const guess = (text: string) =>
   toolCall({ name: "reply", input: { topic: "general", text, kind: "answer" } });
 const guesses = (text: string) => round(guess(text));
 const greets = (text: string) =>
-  round(toolCall({ name: "reply", input: { topic: "general", text, kind: "small_talk" } }));
+  round(
+    toolCall({
+      name: "reply",
+      input: { topic: "general", sources: [autoSource], text, kind: "small_talk" },
+    }),
+  );
 const handsOff = () =>
   toolCall({
     name: "hand_to_bot",
@@ -322,7 +331,12 @@ describe("a second refusal", () => {
         handsOff(),
         toolCall({
           name: "reply",
-          input: { topic: "general", text: "One more thing.", kind: "small_talk" },
+          input: {
+            topic: "general",
+            sources: [autoSource],
+            text: "One more thing.",
+            kind: "small_talk",
+          },
         }),
       ),
     ]);
@@ -876,7 +890,7 @@ describe("what code takes for a typed value, from a fact", () => {
     await rpc.representative.factAdd({
       key: "price.x",
       type: "text",
-      topic: "Prices",
+      topic: "general",
       value: "$500 CAD",
     });
 

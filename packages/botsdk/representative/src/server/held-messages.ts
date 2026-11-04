@@ -138,6 +138,8 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
               text: message.text,
               verified: message.verified,
               topic: message.topic ?? undefined,
+              // The topic's mode alone isn't enough: its sources must belong to it.
+              sources: message.sources ?? undefined,
             },
           }
         : { content: { text: message.text, verified: message.verified } }),

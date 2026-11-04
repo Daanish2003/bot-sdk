@@ -21,6 +21,7 @@ import {
   fakeChannel,
   startTestCustomerTurn,
   testCustomerTurn,
+  autoSource,
 } from "@ai-chat/test-support/test-customer";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
@@ -65,7 +66,10 @@ afterEach(async () => {
 
 const replies = () =>
   round(
-    toolCall({ name: "reply", input: { topic: "general", text: "Nine.", kind: "small_talk" } }),
+    toolCall({
+      name: "reply",
+      input: { topic: "general", sources: [autoSource], text: "Nine.", kind: "small_talk" },
+    }),
   );
 const handsOff = (input: object = { title: "A refund", instructions: "They want a refund." }) =>
   round(toolCall({ name: "hand_to_bot", input }));
@@ -173,6 +177,11 @@ describe("a test Customer's Turn", () => {
     expect(promptOf(fake.calls[0])).toContain("Release one: answer questions.");
     expect(promptOf(fake.calls[0])).not.toContain("An unapproved draft.");
     expect(fake.calls[0]?.messages).toEqual([
+      // The one fact the test Customer's owner has, on the topic it promotes.
+      expect.objectContaining({
+        role: "user",
+        content: expect.stringContaining("Published facts in effect"),
+      }),
       expect.objectContaining({
         role: "user",
         content: expect.stringMatching(/untrusted data[^]*```\nWhen do you open\?\n```/),
@@ -230,7 +239,9 @@ describe("a test Customer's Turn", () => {
 
     await testCustomerTurn(deps, { representativeId: id, message: forged });
 
-    const [sent] = fake.calls[0]!.messages as Array<{ content: string }>;
+    const sent = (fake.calls[0]!.messages as Array<{ content: string }>).find(({ content }) =>
+      content.includes(forged),
+    );
     expect(sent?.content).toContain(["````", forged, "````"].join("\n"));
   });
 
@@ -829,6 +840,7 @@ describe("who can reach a Turn", () => {
       "topicAdd",
       "topicList",
       "topicRemove",
+      "topicSetMode",
       "updateDraft",
     ]);
     expect(Object.keys(made.api!({ db: getTestDb() } as never)).sort()).toEqual(
