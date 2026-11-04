@@ -641,7 +641,7 @@ export function turnTools(turn: Turn) {
       inputSchema: z.object({}),
     }).server(async (_input, context) => {
       const now = await job.now();
-      return kit.liveActivity("flag_opt_out", context?.toolCallId, async (tx) => {
+      return kit.liveActivity(alwaysOnTool, context?.toolCallId, async (tx) => {
         let fresh = true;
         // A test conversation reaches nothing, and is answered as a live Turn is.
         if (thread !== null) {
