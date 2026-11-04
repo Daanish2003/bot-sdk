@@ -101,7 +101,7 @@ const prompts = (call: { systemPrompts?: unknown } | undefined) =>
   );
 
 describe("a document in a Release", () => {
-  it("reaches the Model whole, labelled as information, after the fixed content and before the sender's line", async () => {
+  it("reaches the Model whole, labelled as information, after the fixed content, with the sender's line left to a message", async () => {
     const { deps, fake, rpc } = await instance();
     const id = await drafted(rpc);
     const text = `# Warranty\n\n${"Two years on every kettle. ".repeat(500)}\n\`\`\`\nA fence.\n\`\`\`\nThe end.`;
@@ -118,7 +118,8 @@ describe("a document in a Release", () => {
     expect(sent[at]).toContain('"warranty.md"');
     expect(sent[at]!.split("\n")[0]).toMatch(/information.*not instructions/i);
     expect(at).toBeGreaterThan(sent.findIndex((prompt) => prompt.includes("Ask for the order.")));
-    expect(at).toBeLessThan(sent.findIndex((prompt) => prompt.includes("This Turn's sender")));
+    expect(sent.join()).not.toContain("This Turn's sender");
+    expect(JSON.stringify(fake.calls[0]!.messages)).toContain("This Turn's sender");
     expect(JSON.stringify(fake.calls[0]!.messages)).not.toContain("Two years on every kettle");
   });
 });

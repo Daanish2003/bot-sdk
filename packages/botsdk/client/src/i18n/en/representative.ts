@@ -1,3 +1,12 @@
+/** What the owner reads for a reply's kind. */
+const replyKindLabels: Record<string, string> = {
+  answer: "An answer",
+  small_talk: "Small talk",
+  handoff: "Says it was passed on",
+  cant_confirm: "Says it can't confirm",
+  code_handoff: "Code's fixed hand-off message",
+};
+
 /** The Representative pages: the list, a Representative's draft, on/off and Releases (spec #1167). */
 export const representativeMessages = {
   "representative.title": "Representatives",
@@ -153,8 +162,8 @@ export const representativeMessages = {
   "representative.threadMessageLabel": "Your message to the Customer",
   "representative.threadSend": "Send",
   "representative.threadVia": ({ channel }: { channel: string }) => `via ${channel}`,
-  "representative.replyKind": ({ kind }: { kind: string }) => `Kind: ${kind}`,
-  "representative.replyKindUnknown": "Kind: not recorded",
+  "representative.replyKind": ({ kind }: { kind: string }) => replyKindLabels[kind] ?? kind,
+  "representative.replyKindUnknown": "Kind not recorded",
   "representative.replyNoSources": "No sources",
   "representative.replySourceFact": ({ key }: { key: string }) => `Fact ${key}`,
   "representative.replySourceAssignment": ({ id, quote }: { id: string; quote: string }) =>

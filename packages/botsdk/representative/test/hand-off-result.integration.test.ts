@@ -325,6 +325,7 @@ describe("a hand-off's result", () => {
       "I want a refund",
       "Your refund of 20 is on its way.",
       "One moment.",
+      handOffMessage,
     ]);
     const answers = (fake.calls.at(-1)!.messages as Array<{ role: string; content: unknown }>)
       .filter((message) => message.role === "tool")
@@ -572,7 +573,7 @@ describe("a hand-off's result", () => {
     expect(proofsSent[0]).toMatchObject({ channel: fakeChannel, kind: "code" });
     const turn = fake.calls.at(-2)!;
     expect(JSON.stringify(turn.messages)).toContain("Your refund of 20");
-    expect(JSON.stringify(turn.systemPrompts)).toContain("isn't verified");
+    expect(JSON.stringify(turn.messages)).toContain("isn't verified");
   });
 
   it("stays an unverified sender's when they pass a code while the Bot works", async () => {
@@ -599,7 +600,7 @@ describe("a hand-off's result", () => {
     expect(told.length).toBeGreaterThan(0);
     for (const call of told) {
       const inPrompt = JSON.stringify(call.messages);
-      const verifiedTurn = !JSON.stringify(call.systemPrompts).includes("isn't verified");
+      const verifiedTurn = !JSON.stringify(call.messages).includes("isn't verified");
       if (verifiedTurn) expect(inPrompt).toContain("for an unverified sender to be told");
     }
   });
@@ -610,9 +611,9 @@ describe("a hand-off's result", () => {
 
     await drain();
 
-    const system = JSON.stringify(fake.calls.at(-1)!.systemPrompts);
-    expect(system).toContain("is verified");
-    expect(system).not.toContain("isn't verified");
+    const standing = JSON.stringify(fake.calls.at(-1)!.messages);
+    expect(standing).toContain("is verified");
+    expect(standing).not.toContain("isn't verified");
   });
 
   it("goes to a verified Customer where they were last heard, and the Turn labels it as the Bot's", async () => {

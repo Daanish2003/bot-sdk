@@ -130,7 +130,7 @@ describe("a typed price, phone number or link", () => {
   it("is refused, with a fact holding a different value", async () => {
     const { fake, sent } = await turnWith([says("A haircut is $5.", "answer", [fact]), quiet()]);
 
-    expect(await sent()).toEqual([]);
+    expect((await sent()).map((message) => message.text)).toEqual([handOffMessage]);
     expect(answersIn(fake.calls[1])[0]).toMatch(refusal);
   });
 
@@ -140,14 +140,14 @@ describe("a typed price, phone number or link", () => {
       quiet(),
     ]);
 
-    expect(await sent()).toEqual([]);
+    expect((await sent()).map((message) => message.text)).toEqual([handOffMessage]);
     expect(answersIn(fake.calls[1])[0]).toMatch(refusal);
   });
 
   it("is refused in a small_talk reply", async () => {
     const { fake, sent } = await turnWith([says("Hi! Cuts are 5 dollars.", "small_talk"), quiet()]);
 
-    expect(await sent()).toEqual([]);
+    expect((await sent()).map((message) => message.text)).toEqual([handOffMessage]);
     expect(answersIn(fake.calls[1])[0]).toMatch(refusal);
   });
 
@@ -169,7 +169,7 @@ describe("a typed price, phone number or link", () => {
       quiet(),
     ]);
 
-    expect(await sent()).toEqual([]);
+    expect((await sent()).map((message) => message.text)).toEqual([handOffMessage]);
     expect(answersIn(fake.calls[1])[0]).toMatch(refusal);
   });
 
@@ -207,6 +207,7 @@ describe("a typed price, phone number or link", () => {
 
     expect((await sent()).map((message) => message.text)).toEqual([
       "A beard trim is $20, and you can call +1 555 010 0199.",
+      handOffMessage,
     ]);
     expect(answersIn(fake.calls[2]).at(-1)).toMatch(refusal);
   });
@@ -231,7 +232,7 @@ describe("a typed price, phone number or link", () => {
       "Is it $5? Call me on +1 555 010 0100.",
     );
 
-    expect(await sent()).toEqual([]);
+    expect((await sent()).map((message) => message.text)).toEqual([handOffMessage]);
     expect(answersIn(fake.calls[1])[0]).toMatch(refusal);
   });
 });

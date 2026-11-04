@@ -175,6 +175,10 @@ describe("a test Customer's Turn", () => {
         role: "user",
         content: expect.stringMatching(/untrusted data[^]*```\nWhen do you open\?\n```/),
       }),
+      expect.objectContaining({
+        role: "user",
+        content: expect.stringContaining("This Turn's sender"),
+      }),
     ]);
     expect(toolResultsIn(fake.calls[1])).toEqual([JSON.stringify({ sent: true })]);
     expect(computer.calls).toEqual([]);

@@ -190,7 +190,7 @@ export const representativeTestJob = defineJob<TestPayload, TurnServices>({
     });
     // The draft changed or a new run replaced it, so what this came to has nowhere to go.
     if (!(await current())) return;
-    const transcript = transcriptOf(conversation.message, played.transcript);
+    const transcript = transcriptOf(conversation.message, played.transcript, played.handedOffAtEnd);
     const reason = played.quotaSpent
       ? "The owner's Quota is spent"
       : played.error !== undefined
@@ -204,7 +204,7 @@ export const representativeTestJob = defineJob<TestPayload, TurnServices>({
       await write(job, resultId, { status: "error", error: reason, transcript });
       return;
     }
-    const checks = checkExpectations(conversation.expect, played.transcript);
+    const checks = checkExpectations(conversation.expect, played.transcript, played.handedOffAtEnd);
     await write(job, resultId, {
       status: checks.every((check) => check.passed) ? "passed" : "failed",
       error: null,

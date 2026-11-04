@@ -48,7 +48,15 @@ const proposal = representativeFactProposal;
 const proposalGone = () =>
   rpcError("CONFLICT", "error.factProposalGone", "That proposal is no longer waiting");
 
-const dateField = z.iso.date().nullable().optional();
+/**
+ * Null is what a strict tool schema makes the Model send for a field it means to leave alone, so null
+ * keeps the date just as leaving it out does, and clearing one has a word of its own.
+ */
+const clearDate = "none";
+const dateField = z
+  .union([z.iso.date(), z.literal(clearDate)])
+  .nullable()
+  .optional();
 
 const proposeFactDefinition = toolDefinition({
   name: proposeFactToolName,
@@ -64,9 +72,11 @@ const proposeFactDefinition = toolDefinition({
     value: z.string().refine(noNul),
     type: z.enum(factTypes).optional(),
     topic: z.string().refine(noNul).optional(),
-    validFrom: dateField.describe("The day it starts (UTC), as YYYY-MM-DD; null for always."),
+    validFrom: dateField.describe(
+      `The day it starts (UTC), as YYYY-MM-DD; "${clearDate}" for always; null or left out keeps what it is now.`,
+    ),
     validUntil: dateField.describe(
-      "The day it stops, from that day's start (UTC), as YYYY-MM-DD; null for never.",
+      `The day it stops, from that day's start (UTC), as YYYY-MM-DD; "${clearDate}" for never; null or left out keeps what it is now.`,
     ),
     /** What the card tells the user. */
     why: z
@@ -82,7 +92,11 @@ const proposeFactDefinition = toolDefinition({
 });
 
 const dateOf = (given: string | null | undefined, kept: Date | null) =>
-  given === undefined ? kept : given === null ? null : new Date(`${given}T00:00:00Z`);
+  given === undefined || given === null
+    ? kept
+    : given === clearDate
+      ? null
+      : new Date(`${given}T00:00:00Z`);
 
 async function proposeFact(
   { db, clock, jobs, factApprovals, threads }: ProposeContext,

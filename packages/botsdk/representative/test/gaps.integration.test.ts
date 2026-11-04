@@ -13,6 +13,7 @@ import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { representative } from "../src";
+import { handOffMessage } from "../src/server/replies";
 import { representativeThread, representativeThreadMessage } from "../src/server/db/schema";
 
 /*
@@ -157,7 +158,7 @@ describe("a reply that can't confirm", () => {
 
     await turn();
 
-    expect(await sent()).toEqual([]);
+    expect((await sent()).map((message) => message.text)).toEqual([handOffMessage]);
     expect(answersIn(fake.calls[1])[0]).toMatch(/question/);
     expect(await rpc.representative.gapList()).toEqual([]);
   });

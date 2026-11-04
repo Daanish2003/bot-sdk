@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 
+import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { maxThreadMessageLength } from "../shared/contract";
 import { isInEffect } from "../shared/facts";
@@ -39,14 +40,32 @@ export const insertValues = (text: string, values: Record<string, string>) =>
  * Model typed. A price written out in words is not caught.
  */
 const withScheme = /(?:[Hh][Tt][Tt][Pp][Ss]?:\/\/|[Ww][Ww][Ww]\.)[^\s<>"]+/;
+// Not a domain in an email address, on either side of its @: an address is none of the three.
 const bareDomain =
-  /\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|org|net|io|co|app|dev|info|biz|us|uk|ca|au|de|fr|eu|me|ai|xyz|shop|store|online|site)\b(?:\/[^\s<>"]*)?/;
+  /(?<!@[\w.-]*)\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|org|net|io|co|app|dev|info|biz|us|uk|ca|au|de|fr|eu|me|ai|xyz|shop|store|online|site)\b(?![\w.-]*@)(?:\/[^\s<>"]*)?/;
+/**
+ * ISO 4217 codes beyond the three the price pattern knows, capitals only, as a list and not any three
+ * capitals: "24 HRS" and "10 USB" are no prices.
+ */
+const currencyCodes =
+  "AED|AFN|AMD|ANG|AOA|ARS|AUD|AWG|AZN|BBD|BDT|BGN|BHD|BIF|BMD|BND|BRL|BSD|BTN|BWP|BYN|BZD|CAD|CDF|CHF|CLP|CNY|CRC|CVE|CZK|DJF|DKK|DOP|DZD|EGP|ERN|ETB|FJD|FKP|GHS|GIP|GMD|GNF|GTQ|GYD|HKD|HNL|HTG|HUF|IDR|ILS|INR|IQD|IRR|ISK|JMD|JOD|JPY|KES|KGS|KHR|KMF|KPW|KRW|KWD|KYD|KZT|LAK|LBP|LKR|LRD|LSL|LYD|MDL|MGA|MKD|MMK|MNT|MRU|MUR|MVR|MWK|MXN|MYR|MZN|NAD|NGN|NIO|NOK|NPR|NZD|OMR|PAB|PGK|PKR|PLN|PYG|QAR|RSD|RUB|RWF|SAR|SBD|SCR|SDG|SEK|SGD|SHP|SLE|SRD|SSP|STN|SVC|SYP|SZL|THB|TJS|TMT|TND|TTD|TWD|TZS|UAH|UGX|UYU|UZS|VES|VND|VUV|WST|XAF|XCD|XOF|XPF|YER|ZAR|ZMW|ZWG";
+/** The codes that also read as a word or a name, only after an amount: "TOP 10" is no price and "50 TRY" is. */
+const wordLikeCurrencyCodes = "ALL|BAM|BOB|COP|CUP|GEL|MAD|MOP|PEN|PHP|RON|SOS|TOP|TRY";
+const amount = String.raw`\d[\d,]*(?:\.\d+)?`;
+const phoneShape = /\+?\(?\d{1,4}\)?(?:[ .-]?\(?\d{2,4}\)?){2,5}/g;
 const typedShapes = [
   // An amount: a currency sign or code beside it, or a currency name after it.
   {
     name: "price",
     pattern:
-      /(?:[$€£¥]|\b(?:usd|eur|gbp)\s?)\s?\d[\d,]*(?:\.\d+)?|\b\d[\d,]*(?:\.\d+)?\s?(?:[$€£¥]|(?:usd|eur|gbp|dollars?|euros?|pounds?|cents?|bucks)\b)/gi,
+      /(?:\p{Sc}|\b(?:usd|eur|gbp)\s?)\s?\d[\d,]*(?:\.\d+)?|\b\d[\d,]*(?:\.\d+)?\s?(?:\p{Sc}|(?:usd|eur|gbp|dollars?|euros?|pounds?|cents?|bucks)\b)/giu,
+  },
+  {
+    name: "price",
+    pattern: new RegExp(
+      String.raw`\b(?:${currencyCodes})\s?${amount}(?!\w)|\b${amount}\s?(?:${currencyCodes}|${wordLikeCurrencyCodes})\b`,
+      "g",
+    ),
   },
   // A scheme or "www.", or a bare domain on a common lowercase top-level domain.
   {
@@ -54,7 +73,7 @@ const typedShapes = [
     pattern: new RegExp(`${withScheme.source}|${bareDomain.source}`, "g"),
   },
   // Groups of digits with the usual separators.
-  { name: "phone number", pattern: /\+?\(?\d{1,4}\)?(?:[ .-]?\(?\d{2,4}\)?){2,5}/g },
+  { name: "phone number", pattern: phoneShape },
 ];
 
 const digitsOf = (text: string) => text.replace(/\D/g, "");
@@ -65,7 +84,7 @@ function holds(held: string, value: string) {
   for (let at = held.indexOf(value); at !== -1; at = held.indexOf(value, at + 1)) {
     const before = held[at - 1] ?? " ";
     const after = held.slice(at + value.length, at + value.length + 2);
-    if (!/[\w$€£¥@.]/.test(before) && !/^(?:\w|[.,]\w)/.test(after)) return true;
+    if (!/[\w\p{Sc}@.]/u.test(before) && !/^(?:\w|[.,]\w)/.test(after)) return true;
   }
   return false;
 }
@@ -73,7 +92,7 @@ function holds(held: string, value: string) {
 /** The digits of each phone number in `text`; a date, or digits run together under ten, is not one. */
 function phonesIn(text: string) {
   const phones: string[] = [];
-  for (const [found] of text.matchAll(typedShapes[2]!.pattern)) {
+  for (const [found] of text.matchAll(phoneShape)) {
     const value = found.trim();
     const digits = digitsOf(value);
     if (digits.length < 7 || digits.length > 15) continue;
@@ -116,8 +135,8 @@ export const handOffMessage =
  * The facts of `userId`'s that are in effect at `now`, in a fixed order, as a Turn's prompt lists
  * them, up to `factsPromptChars`; `more` says some didn't fit.
  */
-export async function factsInEffect(tx: Transaction, userId: string, now: Date) {
-  const rows = await tx
+export async function factsInEffect(db: FeatureContext["db"], userId: string, now: Date) {
+  const rows = await db
     .select()
     .from(representativeFact)
     .where(eq(representativeFact.userId, userId))

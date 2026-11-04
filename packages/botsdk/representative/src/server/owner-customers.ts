@@ -1,4 +1,4 @@
-import { type AnyColumn, and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 
 import { endedAssignmentStatuses } from "@botsdk/client/bot/assignment";
 import { botAssignment } from "@botsdk/bot/storage";
@@ -29,6 +29,7 @@ import {
 import { isMergedAway, notMergedAway } from "./customer-merge";
 import { voidProofs } from "./customer-proof";
 import { grouped } from "./customers";
+import { lastMessageQuery } from "./idle";
 import { isVerified } from "./verification";
 
 /*
@@ -361,10 +362,6 @@ type ThreadRow = {
   lastReplyKind: StoredReplyKind | null;
   botWorking: boolean;
 };
-
-/** `column` of a thread's last message, a note aside. */
-const lastMessageQuery = (column: AnyColumn) =>
-  sql`select ${column} from ${representativeThreadMessage} where ${representativeThreadMessage.threadId} = ${representativeThread.id} and ${ne(representativeThreadMessage.author, "note")} order by ${representativeThreadMessage.position} desc limit 1`;
 
 /** Whether an Assignment handed off from the thread is still open. */
 const botWorkingQuery = sql`exists (select 1 from ${representativeHandOff} inner join ${botAssignment} on ${botAssignment.id} = ${representativeHandOff.assignmentId} where ${representativeHandOff.threadId} = ${representativeThread.id} and ${botAssignment.status} not in (${sql.join(

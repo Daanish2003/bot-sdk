@@ -9,17 +9,18 @@ import {
   type JobRunner,
   reapStaleJobs,
 } from "@botsdk/bot/runner/internal";
-import { botAssignment, job } from "@botsdk/bot/storage";
+import { botAssignment, job, jobEvent } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { startTestCustomerTurn } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
-import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
+import { createFakeAdapter, round, text, toolCall } from "@botsdk/testing/fake-adapter";
 import { representative } from "../src";
 import { representativeHandOff, representativeThread } from "../src/server/db/schema";
 import { handOffMessage } from "../src/server/replies";
+import { rules } from "../src/server/turn";
 import type { Draft, RepresentativeTool } from "../src/shared/contract";
 
 /*
@@ -579,5 +580,298 @@ describe("a second refusal in a test conversation", () => {
     const { result } = await played({}, false);
 
     expect(result.testStatus).toBe("passed");
+  });
+});
+
+describe("a Turn ending with a refusal outstanding", () => {
+  it.each([
+    ["goes quiet", [guesses("It is 10 USD."), quiet()], 2],
+    [
+      "writes plain text, and then nothing",
+      [guesses("It is 10 USD."), round(text("10 USD.")), quiet()],
+      3,
+    ],
+    [
+      "uses its last Step on it",
+      [...Array.from({ length: 9 }, () => greets("One moment.")), guesses("It is 10 USD.")],
+      10,
+    ],
+    ["hits a Model error", [guesses("It is 10 USD.")], 2],
+  ] as Array<[string, Round[], number]>)(
+    "hands off in code when the Model %s",
+    async (_name, rounds, calls) => {
+      const { turn, sent, assignments, fake, thread } = await serving(rounds);
+
+      await turn();
+
+      expect(textsOf(await sent()).at(-1)).toBe(handOffMessage);
+      expect(JSON.stringify(await sent())).not.toContain("10 USD");
+      expect(await assignments()).toHaveLength(1);
+      expect(fake.calls.length).toBeLessThanOrEqual(calls);
+      expect((await thread()).waitingOn).toBe("bot");
+    },
+  );
+
+  it("waits on the owner with no Bot", async () => {
+    const { turn, sent, thread } = await serving([guesses("It is 10 USD."), quiet()], {
+      noBot: true,
+    });
+
+    await turn();
+
+    expect(textsOf(await sent())).toEqual([handOffMessage]);
+    expect((await thread()).waitingOn).toBe("owner");
+  });
+
+  it("doesn't hand off once a reply has gone through since", async () => {
+    const { turn, sent, assignments } = await serving([
+      guesses("It is 10 USD."),
+      greets("Let me ask about that."),
+      quiet(),
+    ]);
+
+    await turn();
+
+    expect(textsOf(await sent())).toEqual(["Let me ask about that."]);
+    expect(await assignments()).toEqual([]);
+  });
+
+  it("opens no second Assignment on a Turn that already handed off, and still tells the Customer", async () => {
+    const { turn, sent, assignments } = await serving([
+      guesses("It is 10 USD."),
+      round(handsOff()),
+      quiet(),
+    ]);
+
+    await turn();
+
+    expect(textsOf(await sent())).toEqual([handOffMessage]);
+    expect(await assignments()).toHaveLength(1);
+  });
+
+  it("sends nothing on a thread that stopped being this Turn's", async () => {
+    const made = await serving([guesses("It is 10 USD."), quiet()], {
+      afterCall: async (call) => {
+        if (call === 2) {
+          await getTestDb()
+            .update(representativeThread)
+            .set({ state: "owner" })
+            .where(eq(representativeThread.id, (await made.thread()).id));
+        }
+      },
+    });
+
+    await made.turn();
+
+    expect(await made.sent()).toEqual([]);
+    expect(await made.assignments()).toEqual([]);
+  });
+
+  it("sends nothing on a thread the owner took over", async () => {
+    const made = await serving([guesses("It is 10 USD."), quiet()], {
+      afterCall: async (call) => {
+        if (call === 2) {
+          await made.rpc.representative.threadTakeOver({ id: (await made.thread()).id });
+        }
+      },
+    });
+
+    await made.turn();
+
+    expect(await made.sent()).toEqual([]);
+    expect(await made.assignments()).toEqual([]);
+  });
+
+  it("hands off once when a crash replays it", async () => {
+    let open!: () => void;
+    const opened = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    onTestFinished(() => open());
+    const { deps, send, sent, claim, timer, drain, leaseLost, assignments } = await serving([
+      guesses("It is 10 USD."),
+      quiet(),
+    ]);
+    let hinted = false;
+    const { threads } = deps.parts.features[0]!.context;
+    // Held after the hand-off's commit: this attempt goes no further until its lease has gone.
+    vi.spyOn(threads!, "hintChanged").mockImplementationOnce(async () => {
+      hinted = true;
+      await opened;
+    });
+    await send("How much?");
+    timer.advance(500);
+    await claim();
+    await expect.poll(() => hinted, poll).toBe(true);
+
+    await leaseLost();
+    open();
+    await drain();
+
+    expect(textsOf(await sent())).toEqual([handOffMessage]);
+    expect(await assignments()).toHaveLength(1);
+  });
+
+  it("counts as handed off in a test conversation, and reaches nothing real", async () => {
+    const { rpc, id, timer, claim, attemptsEnd, assignments } = await serving([
+      guesses("It is 10 USD."),
+      quiet(),
+    ]);
+    await rpc.representative.updateDraft({
+      id,
+      draft: {
+        tests: [
+          {
+            name: "A guess",
+            message: "How much?",
+            expect: [
+              { kind: "handed_off" },
+              { kind: "said", text: handOffMessage },
+              { kind: "not_said", text: "10 USD" },
+            ],
+          },
+        ],
+      },
+    });
+    await rpc.representative.runTests({ id });
+    timer.advance(500);
+    await claim({ overdue: true });
+    await attemptsEnd();
+
+    const { testStatus, tests } = await rpc.representative.get({ id });
+    expect(testStatus).toBe("passed");
+    expect(tests[0]?.transcript).toContainEqual({
+      role: "representative",
+      text: handOffMessage,
+      reply: { kind: "code_handoff", sources: [] },
+    });
+    expect(await assignments()).toEqual([]);
+  });
+});
+
+describe("a cant_confirm reply with no question", () => {
+  it("counts as a refusal, so a Model repeating it hands off", async () => {
+    const repeats = () =>
+      round(
+        toolCall({ name: "reply", input: { text: "I can't confirm that.", kind: "cant_confirm" } }),
+      );
+    const { turn, sent, fake } = await serving([repeats(), repeats(), repeats(), repeats()]);
+
+    await turn();
+
+    expect(textsOf(await sent())).toEqual([handOffMessage]);
+    expect(fake.calls).toHaveLength(2);
+  });
+});
+
+describe("the system rules", () => {
+  it("tell the Model how to cite a document, by name with an exact quote", () => {
+    expect(rules).toMatch(/document[^.]*name[^.]*exact quote/i);
+  });
+});
+
+describe("a test conversation's reply", () => {
+  it("is refused, not spilled, when what it cites is too long to read back", async () => {
+    const { rpc, id, timer, claim, attemptsEnd } = await serving([
+      round(
+        toolCall({
+          name: "reply",
+          input: {
+            text: "Here you go.",
+            kind: "answer",
+            sources: [{ type: "document", name: "terms.md", quote: "q".repeat(11_000) }],
+          },
+        }),
+      ),
+      quiet(),
+    ]);
+    await rpc.representative.documentUpload({
+      id,
+      file: new File(["q".repeat(12_000)], "terms.md"),
+    });
+    await rpc.representative.updateDraft({
+      id,
+      draft: {
+        tests: [{ name: "Terms", message: "Terms?", expect: [{ kind: "not_said", text: "zzz" }] }],
+      },
+    });
+    await rpc.representative.runTests({ id });
+    timer.advance(500);
+    await claim({ overdue: true });
+    await attemptsEnd();
+
+    const { tests } = await rpc.representative.get({ id });
+    expect(tests[0]?.status).not.toBe("error");
+    expect(JSON.stringify(tests[0]?.transcript)).toContain("too much");
+  });
+});
+
+describe("what code takes for a typed value", () => {
+  const says = async (text: string) => {
+    const { turn, sent } = await serving([greets(text), quiet()]);
+    await turn();
+    return textsOf(await sent());
+  };
+
+  it.each([
+    "I've sent a code to jane@gmail.com",
+    "Write to first.me@gmail.com or a.b@mail.example.co.uk",
+    "We have 24 HRS of cover, 10 USB ports and 3 PCS in stock.",
+    "TOP 10 tips, and TRY 3 of them.",
+    "All 5 of them.",
+  ])("lets through %s", async (text) => {
+    expect(await says(text)).toEqual([text]);
+  });
+
+  it.each([
+    "See gmail.com for it.",
+    "It costs 50 CAD.",
+    "It costs CHF 50.",
+    "It costs ₹4500.",
+    "It costs 1200 JPY.",
+    "It costs ₩9000.",
+    "It costs 500 TRY.",
+  ])("refuses %s", async (text) => {
+    expect(await says(text)).toEqual([handOffMessage]);
+  });
+});
+
+describe("a Turn's Checkpoints", () => {
+  it("hold no fact's value, which a user delete wouldn't reach", async () => {
+    const { rpc, turn, fake } = await serving([quiet()]);
+    await rpc.representative.factAdd({
+      key: "price.haircut",
+      type: "money",
+      topic: "Prices",
+      value: "45 USD",
+    });
+
+    await turn();
+
+    expect(JSON.stringify(fake.calls[0]?.messages)).toContain("45 USD");
+    const events = await getTestDb().select().from(jobEvent);
+    expect(JSON.stringify(events)).not.toContain("45 USD");
+  });
+});
+
+describe("who a Turn's sender is", () => {
+  it("leaves the system text the same for each sender, so documents cache across them", async () => {
+    const { deps, id, fake, timer, claim, attemptsEnd } = await serving([quiet(), quiet()]);
+    const run = async (externalId: string, proof?: { rule: "sameIdentity" }) => {
+      await startTestCustomerTurn(deps, { representativeId: id, externalId, message: "Hi", proof });
+      timer.advance(500);
+      await claim();
+      await attemptsEnd();
+    };
+
+    await run("+15550001");
+    await run("+15550002", { rule: "sameIdentity" });
+
+    const [first, second] = fake.calls;
+    expect(second?.systemPrompts).toEqual(first?.systemPrompts);
+    const lastOf = (call: typeof first) => JSON.stringify(call?.messages.at(-1)?.content);
+    expect(lastOf(first)).toContain("isn't verified");
+    expect(lastOf(second)).toContain("is verified");
+    expect(lastOf(second)).not.toContain("isn't verified");
   });
 });

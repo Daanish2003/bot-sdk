@@ -136,9 +136,11 @@ function handedOff(messages: ModelMessage[]) {
 export function checkExpectations(
   expectations: Expectation[],
   messages: ModelMessage[],
+  /** The Turn ended on a refusal nothing made good, so code handed off after these messages. */
+  handedOffAtEnd = false,
 ): TestCheck[] {
-  const sent = sentTexts(messages);
-  const handed = handedOff(messages);
+  const sent = [...sentTexts(messages), ...(handedOffAtEnd ? [handOffMessage] : [])];
+  const handed = handedOffAtEnd || handedOff(messages);
   const sources = citedSources(messages);
   const lowered = sent.map((text) => text.toLowerCase());
   return expectations.map((expectation): TestCheck => {
@@ -212,7 +214,11 @@ export function checkExpectations(
  * calls, as `sentTexts` reads it. Plain text is shown as not delivered, as the Customer would never
  * see it.
  */
-export function transcriptOf(customerMessage: string, messages: ModelMessage[]): TranscriptEntry[] {
+export function transcriptOf(
+  customerMessage: string,
+  messages: ModelMessage[],
+  handedOffAtEnd = false,
+): TranscriptEntry[] {
   const entries: TranscriptEntry[] = [{ role: "customer", text: customerMessage }];
   const sentCalls = new Set<string>();
   for (const message of messages) {
@@ -244,6 +250,13 @@ export function transcriptOf(customerMessage: string, messages: ModelMessage[]):
     } else if (!sentCalls.has(message.toolCallId ?? "")) {
       entries.push({ role: "tool", text: textOf(message.content) });
     }
+  }
+  if (handedOffAtEnd) {
+    entries.push({
+      role: "representative",
+      text: handOffMessage,
+      reply: { kind: codeHandOffKind, sources: [] },
+    });
   }
   return entries;
 }

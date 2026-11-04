@@ -415,6 +415,40 @@ describe("the proposal tool", () => {
     ]);
   });
 
+  it('keeps a date the Model sends as null, as a strict tool schema makes it, and clears one only on "none"', async () => {
+    const made = await instance([
+      proposes({ key: price.key, value: "50 USD", validFrom: null, validUntil: null }),
+      quiet(),
+    ]);
+    await made.rpc.representative.factAdd({
+      ...price,
+      validFrom: new Date("2020-01-01T00:00:00Z"),
+      validUntil: new Date("2030-01-01T00:00:00Z"),
+    });
+
+    await made.send("A new price");
+
+    const [kept] = await made.rpc.representative.factProposals();
+    expect(kept!.proposed).toMatchObject({
+      value: "50 USD",
+      validFrom: new Date("2020-01-01T00:00:00Z"),
+      validUntil: new Date("2030-01-01T00:00:00Z"),
+    });
+
+    await made.rpc.representative.factProposalDecline({ id: kept!.id });
+    made.script([
+      proposes({ key: price.key, value: "50 USD", validFrom: null, validUntil: "none" }),
+      quiet(),
+    ]);
+    await made.send("All year round now");
+
+    const [cleared] = await made.rpc.representative.factProposals();
+    expect(cleared!.proposed).toMatchObject({
+      validFrom: new Date("2020-01-01T00:00:00Z"),
+      validUntil: null,
+    });
+  });
+
   it("gives the same answer when a replay runs a call that already proposed", async () => {
     const made = await proposed();
     const asked = (made.botFake.calls.at(-1)?.messages ?? []).find(

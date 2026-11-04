@@ -19,7 +19,7 @@ import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { representative } from "../src";
-import { factsPromptChars } from "../src/server/replies";
+import { factsPromptChars, handOffMessage } from "../src/server/replies";
 import type { Expectation } from "../src/shared/contract";
 import {
   representativeCustomer,
@@ -290,7 +290,7 @@ describe("a reply quoting a fact by key", () => {
 
     await turn();
 
-    expect(await sent()).toEqual([]);
+    expect((await sent()).map((message) => message.text)).toEqual([handOffMessage]);
     const [answer] = answersIn(fake.calls[1]);
     expect(answer).toContain("price.beard");
     expect(answer).toContain("error");
@@ -313,16 +313,23 @@ describe("a reply quoting a fact by key", () => {
     });
 
     await turn();
-    expect(await sent()).toEqual([]);
+    expect((await sent()).map((message) => message.text)).toEqual([handOffMessage]);
     expect(answersIn(fake.calls[1])[0]).toMatch(/price\.haircut.*in effect/);
 
     timer.advance(2 * day);
     await turn("Now?");
-    expect(await sent()).toEqual([expect.objectContaining({ text: "It is 45 USD." })]);
+    expect((await sent()).map((message) => message.text)).toEqual([
+      handOffMessage,
+      "It is 45 USD.",
+    ]);
 
     timer.advance(2 * day);
     await turn("And now?");
-    expect(await sent()).toHaveLength(1);
+    expect((await sent()).map((message) => message.text)).toEqual([
+      handOffMessage,
+      "It is 45 USD.",
+      handOffMessage,
+    ]);
     expect(answersIn(fake.calls[5])[0]).toMatch(/price\.haircut.*in effect/);
   });
 
@@ -332,7 +339,7 @@ describe("a reply quoting a fact by key", () => {
 
     await turn();
 
-    expect(await sent()).toEqual([]);
+    expect((await sent()).map((message) => message.text)).toEqual([handOffMessage]);
     expect(answersIn(fake.calls[1])[0]).toContain("error");
   });
 
@@ -344,7 +351,7 @@ describe("a reply quoting a fact by key", () => {
 
       await turn();
 
-      expect(await sent()).toEqual([]);
+      expect((await sent()).map((message) => message.text)).toEqual([handOffMessage]);
       expect(answersIn(fake.calls[1])[0]).toContain("broken");
     },
   );
@@ -363,7 +370,7 @@ describe("a reply quoting a fact by key", () => {
 
     await turn();
 
-    expect(await sent()).toEqual([]);
+    expect((await sent()).map((message) => message.text)).toEqual([handOffMessage]);
     expect(answersIn(fake.calls[1])[0]).toMatch(/too long/);
   });
 });
@@ -399,7 +406,7 @@ describe("a reply's kind and sources", () => {
 
     await turn();
 
-    expect(await sent()).toEqual([]);
+    expect((await sent()).map((message) => message.text)).toEqual([handOffMessage]);
     expect(answersIn(fake.calls[1])[0]).toMatch(/source/);
   });
 
@@ -415,7 +422,7 @@ describe("a reply's kind and sources", () => {
 
     await turn();
 
-    expect(await sent()).toEqual([]);
+    expect((await sent()).map((message) => message.text)).toEqual([handOffMessage]);
     expect(answersIn(fake.calls[1])[0]).toContain("price.invented");
   });
 
@@ -432,7 +439,7 @@ describe("a reply's kind and sources", () => {
 
     await turn();
 
-    expect(await sent()).toEqual([]);
+    expect((await sent()).map((message) => message.text)).toEqual([handOffMessage]);
     expect(answersIn(fake.calls[1])[0]).toMatch(/price\.haircut.*in effect/);
   });
 
@@ -467,6 +474,7 @@ describe("a reply's kind and sources", () => {
 
     await turn("Hi");
 
+    // The tool never ran, so this is no refusal: nothing is outstanding and no one is handed off to.
     expect(await sent()).toEqual([]);
     expect(answersIn(fake.calls[1])[0]).toMatch(/validation failed/i);
   });
@@ -531,8 +539,8 @@ describe("a crash replay of a reply", () => {
 
     expect(await sent()).toEqual([expect.objectContaining({ text: "It is 45 USD." })]);
     expect(fake.calls.length).toBeGreaterThan(1);
-    // The replayed Turn's prompt stays the one it began with.
-    expect(JSON.stringify(promptOf(fake.calls.at(-1))[0])).toContain("45 USD");
+    // A Checkpoint holds no fact's value, so the replay's next call reads the facts as they are now.
+    expect(JSON.stringify(promptOf(fake.calls.at(-1))[0])).toContain("60 USD");
   });
 
   it("is refused again the same way, though the fact has come in since", async () => {
@@ -558,7 +566,7 @@ describe("a crash replay of a reply", () => {
     expect(await claim({ overdue: true })).toBe(true);
     await attemptsEnd();
 
-    expect(await sent()).toEqual([]);
+    expect((await sent()).map((message) => message.text)).toEqual([handOffMessage]);
   });
 });
 
@@ -644,7 +652,8 @@ describe("the prompt", () => {
 
     await turn("Hello there");
 
-    expect(promptOf(fake.calls[0])).toHaveLength(1);
+    // The Customer's message, then code's word on who sent it.
+    expect(promptOf(fake.calls[0])).toHaveLength(2);
     expect(promptOf(fake.calls[0])[0]?.content).toContain("Hello there");
     expect(JSON.stringify(fake.calls[0]?.messages)).not.toContain("45 USD");
   });
@@ -787,7 +796,7 @@ describe("a test conversation", () => {
   it("refuses as a live Turn does: a refused reply was never sent", async () => {
     const { result, fake } = await tested(
       [replies({ text: "It is {{price.beard}}.", kind: "answer" }), quiet()],
-      [{ kind: "replied" }],
+      [{ kind: "cited" }],
     );
 
     expect(result.status).toBe("failed");

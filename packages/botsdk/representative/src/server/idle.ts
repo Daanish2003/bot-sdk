@@ -1,15 +1,17 @@
-import { and, eq, lte, ne } from "drizzle-orm";
+import { type AnyColumn, and, eq, lte, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { defineJob } from "@botsdk/bot/runner/internal";
+import { codeHandOffKind, type StoredReplyKind } from "../shared/replies";
 import { pruneProofs } from "./customer-proof";
-import { representativeThread } from "./db/schema";
+import { representativeThread, representativeThreadMessage } from "./db/schema";
 
 /*
  * A thread its Representative holds closes after 7 idle days (ticket #1252); one the owner holds
- * never does (#1253). Recurring jobs aren't supported and a feature has no boot hook, so each thread
+ * never does (#1253), and nor does one whose last word is code's fixed message, which promises the
+ * Customer someone will follow up (#1261): it waits on whoever that is. Recurring jobs aren't supported and a feature has no boot hook, so each thread
  * keeps one delayed job: it re-checks the thread's last activity, closes it if it has been idle long
  * enough, and otherwise queues the next check for the day the idle time would be up. A held thread's
  * check looks again later, so the chain is still there after Hand back, which counts as activity.
@@ -19,6 +21,12 @@ import { representativeThread } from "./db/schema";
 export const threadIdleMs = 7 * 24 * 60 * 60_000;
 
 export const threadIdleJobName = "representative.thread-idle";
+
+/** `column` of a thread's last message, a note aside. */
+export const lastMessageQuery = (column: AnyColumn) =>
+  sql`select ${column} from ${representativeThreadMessage} where ${representativeThreadMessage.threadId} = ${representativeThread.id} and ${ne(representativeThreadMessage.author, "note")} order by ${representativeThreadMessage.position} desc limit 1`;
+
+const lastReplyKind = lastMessageQuery(representativeThreadMessage.replyKind);
 
 const threadIdlePayload = z.object({ threadId: z.uuid() });
 type ThreadIdlePayload = z.infer<typeof threadIdlePayload>;
@@ -47,19 +55,25 @@ export const threadIdleJob = defineJob<ThreadIdlePayload>({
             eq(representativeThread.id, threadId),
             eq(representativeThread.state, "representative"),
             lte(representativeThread.updatedAt, new Date(now.getTime() - threadIdleMs)),
+            sql`(${lastReplyKind}) is distinct from ${codeHandOffKind}`,
           ),
         )
         .returning({ id: representativeThread.id });
       if (closing.length > 0) return true;
       const [thread] = await tx
-        .select({ state: representativeThread.state, updatedAt: representativeThread.updatedAt })
+        .select({
+          state: representativeThread.state,
+          updatedAt: representativeThread.updatedAt,
+          lastReplyKind: sql<StoredReplyKind | null>`(${lastReplyKind})`,
+        })
         .from(representativeThread)
         .where(
           and(eq(representativeThread.id, threadId), ne(representativeThread.state, "closed")),
         );
       if (thread) {
         // A held thread's last activity may be long past, which would queue this same check again.
-        const from = thread.state === "owner" ? now : thread.updatedAt;
+        const held = thread.state === "owner" || thread.lastReplyKind === codeHandOffKind;
+        const from = held ? now : thread.updatedAt;
         await queueIdleCheck(job, tx, threadId, from);
       }
       return false;

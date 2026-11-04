@@ -11,6 +11,7 @@ import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { representative } from "../src";
+import { handOffMessage } from "../src/server/replies";
 import { representativeThread, representativeThreadMessage } from "../src/server/db/schema";
 import type { Expectation } from "../src/shared/contract";
 
@@ -168,7 +169,7 @@ describe("a reply citing a document quote", () => {
 
     await testCustomerTurn(deps, { representativeId: id, message: "Warranty?" });
 
-    expect(await sent()).toEqual([]);
+    expect((await sent()).map((message) => message.text)).toEqual([handOffMessage]);
     expect(answersIn(fake.calls[1])[0]).toMatch(/Nothing was sent.*warranty\.md.*exact quote/);
   });
 
@@ -212,7 +213,7 @@ describe("a reply citing a document quote", () => {
 
     await testCustomerTurn(deps, { representativeId: id, message: "Warranty?" });
 
-    expect(await sent()).toEqual([]);
+    expect((await sent()).map((message) => message.text)).toEqual([handOffMessage]);
     expect(answersIn(fake.calls[1])[0]).toMatch(/Nothing was sent/);
   });
 
@@ -282,7 +283,10 @@ describe("a test conversation citing a document quote", () => {
   });
 
   it("refuses an invented quote there too", async () => {
-    const { result, fake } = await tested([cites("warranty.md", "Ten years"), quiet()]);
+    const { result, fake } = await tested(
+      [cites("warranty.md", "Ten years"), quiet()],
+      [{ kind: "cited" }],
+    );
 
     expect(result.status).toBe("failed");
     expect(answersIn(fake.calls[1])[0]).toMatch(/Nothing was sent/);
