@@ -8,6 +8,11 @@ import {
   representativeCustomer,
   representativeCustomerIdentity,
   representativeCustomerMerge,
+  representativeDocument,
+  representativeFact,
+  representativeFactLog,
+  representativeGap,
+  representativeFactProposal,
   representativeHandOff,
   representativeRelease,
   representativeTestResult,
@@ -19,12 +24,16 @@ import { threadIdleJob } from "./idle";
 import { exportMerges } from "./customer-merge";
 import { type CustomerChannel, noCustomerChannel, proofLinkRoutes } from "./customer-proof";
 import { deleteCustomers, exportCustomers } from "./customers";
+import { dropProposalsOfBot, factProposalTools } from "./fact-proposals";
+import { deleteFacts, exportFacts } from "./facts";
+import { deleteGaps, exportGaps } from "./gaps";
 import representativeMigrations from "./migrations.json" with { type: "json" };
 import {
   deleteRepresentatives,
   dropApprovalsOfBot,
   exportRepresentatives,
 } from "./representatives";
+import type { ConvertDocument, KnowledgeFiles } from "./documents";
 import { representativeTestJob } from "./tests";
 import { handOffEndedJob, representativeTurnJob } from "./turn";
 
@@ -34,6 +43,19 @@ export type RepresentativeOptions = {
    * least arrivals per second × Turn length in seconds.
    */
   concurrency?: number;
+  /**
+   * Reads an uploaded PDF or DOCX as text, refusing what it can't, as `convertDocument` from
+   * `@botsdk/knowledge/convert` does with Knowledge's limits. Without it, documents upload as Markdown
+   * or plain text only. Asked of the Host because the feature has no Computer and no other use for
+   * the parsers.
+   */
+  convertDocument?: ConvertDocument;
+  /**
+   * Lets the owner pick Knowledge files for a draft: `sdk.knowledge`'s `list` and `read`, passed by a
+   * Host that has the Knowledge feature (and so a Computer). The Computer is used only while the owner
+   * picks. Without it the picker isn't offered and uploads still work.
+   */
+  knowledgeFiles?: KnowledgeFiles;
 };
 
 /**
@@ -49,13 +71,25 @@ export function representativeFeature(
 ) {
   return defineFeature({
     id: "representative",
-    needs: ["assignments", "models", "releaseApprovals", "representativeLoop", "threads"],
+    needs: [
+      "assignments",
+      "factApprovals",
+      "models",
+      "releaseApprovals",
+      "representativeLoop",
+      "threads",
+    ],
     schema: {
       tables: {
         representative,
         representativeCustomer,
         representativeCustomerIdentity,
         representativeCustomerMerge,
+        representativeDocument,
+        representativeFact,
+        representativeFactLog,
+        representativeGap,
+        representativeFactProposal,
         representativeHandOff,
         representativeRelease,
         representativeTestResult,
@@ -66,9 +100,15 @@ export function representativeFeature(
       migrations: representativeMigrations,
     },
     contract: representativeContract,
-    api: (context) => representativeApi(context),
-    tools: (turn, context) => botDraftTools(turn, context),
-    resetBot: (botId, userId, context) => dropApprovalsOfBot(context, botId, userId),
+    api: (context) => representativeApi(context, options.convertDocument, options.knowledgeFiles),
+    tools: (turn, context) => [
+      ...botDraftTools(turn, context),
+      ...factProposalTools(turn, context),
+    ],
+    resetBot: async (botId, userId, context) => {
+      await dropApprovalsOfBot(context, botId, userId);
+      await dropProposalsOfBot(context, botId, userId);
+    },
     publicRoutes: proofLinkRoutes,
     jobs: [
       representativeTurnJob(options.concurrency, channel),
@@ -83,12 +123,16 @@ export function representativeFeature(
           // this has passed it, no new Customer can appear behind the delete below.
           await deleteRepresentatives(tx, userId);
           await deleteCustomers(tx, userId);
+          await deleteFacts(tx, userId);
+          await deleteGaps(tx, userId);
         },
       },
       export: async (tx, userId) => ({
         representatives: await exportRepresentatives(tx, userId),
         customers: await exportCustomers(tx, userId),
         customerMerges: await exportMerges(tx, userId),
+        ...(await exportFacts(tx, userId)),
+        ...(await exportGaps(tx, userId)),
       }),
     },
   });

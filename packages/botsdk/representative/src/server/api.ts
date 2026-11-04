@@ -7,8 +7,14 @@ import {
   customerMergeInput,
   customerRenameInput,
   customerSetBlockedInput,
+  factAddInput,
+  factEditInput,
+  gapToFactInput,
   customerUpdateIdentityInput,
   createInput,
+  documentPickInput,
+  documentRemoveInput,
+  documentUploadInput,
   idInput,
   rollbackInput,
   setBotInput,
@@ -16,6 +22,10 @@ import {
   threadSendInput,
   updateDraftInput,
 } from "../shared/contract";
+import { type ConvertDocument, type KnowledgeFiles, knowledgeChoices } from "./documents";
+import { addFact, deleteFact, editFact, listFactLog, listFacts } from "./facts";
+import { dismissGap, gapToFact, listGaps } from "./gaps";
+import { approveFactProposal, declineFactProposal, listFactProposals } from "./fact-proposals";
 import { listMerges, mergeCustomers, undoMerge } from "./customer-merge";
 import {
   addIdentity,
@@ -34,11 +44,14 @@ import {
   diffDraft,
   getRepresentative,
   listRepresentatives,
+  pickKnowledgeDocument,
+  removeDocument,
   rollbackRelease,
   runTests,
   setBot,
   setEnabled,
   updateDraft,
+  uploadDocument,
 } from "./representatives";
 import { handBackThread, sendAsOwner, takeOverThread } from "./takeover";
 
@@ -50,7 +63,11 @@ import { handBackThread, sendAsOwner, takeOverThread } from "./takeover";
 
 /** The `representative` namespace over the feature's context. */
 export function representativeApi(
-  context: FeatureContext<"assignments" | "models" | "releaseApprovals" | "threads">,
+  context: FeatureContext<
+    "assignments" | "factApprovals" | "models" | "releaseApprovals" | "threads"
+  >,
+  convertDocument?: ConvertDocument,
+  knowledgeFiles?: KnowledgeFiles,
 ) {
   return {
     list: async ({ userId }: { userId: string }) => listRepresentatives(context, userId),
@@ -64,6 +81,28 @@ export function representativeApi(
     updateDraft: async ({ userId, ...rest }: WithUser<typeof updateDraftInput>) => {
       const { id, draft } = parseInput(updateDraftInput, rest);
       return updateDraft(context, userId, id, draft);
+    },
+
+    documentUpload: async ({ userId, ...rest }: WithUser<typeof documentUploadInput>) => {
+      const { id, file } = parseInput(documentUploadInput, rest);
+      return uploadDocument(context, userId, id, file, convertDocument);
+    },
+
+    /** Whether the owner can pick Knowledge files. Reads nothing, so it wakes no Computer. */
+    knowledgeStatus: () => ({ available: knowledgeFiles !== undefined }),
+
+    /** The Knowledge files the owner may pick, waking their Computer. */
+    knowledgeList: async ({ userId }: { userId: string }) =>
+      knowledgeChoices(knowledgeFiles, userId),
+
+    documentPick: async ({ userId, ...rest }: WithUser<typeof documentPickInput>) => {
+      const { id, path } = parseInput(documentPickInput, rest);
+      return pickKnowledgeDocument(context, userId, id, path, knowledgeFiles);
+    },
+
+    documentRemove: async ({ userId, ...rest }: WithUser<typeof documentRemoveInput>) => {
+      const { id, documentId } = parseInput(documentRemoveInput, rest);
+      return removeDocument(context, userId, id, documentId);
     },
 
     runTests: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
@@ -126,6 +165,34 @@ export function representativeApi(
 
     customerMergeUndo: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
       undoMerge(context, userId, parseInput(idInput, rest).id),
+
+    factList: async ({ userId }: { userId: string }) => listFacts(context, userId),
+
+    factAdd: async ({ userId, ...rest }: WithUser<typeof factAddInput>) =>
+      addFact(context, userId, parseInput(factAddInput, rest)),
+
+    factEdit: async ({ userId, ...rest }: WithUser<typeof factEditInput>) =>
+      editFact(context, userId, parseInput(factEditInput, rest)),
+
+    factDelete: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      deleteFact(context, userId, parseInput(idInput, rest).id),
+
+    factLog: async ({ userId }: { userId: string }) => listFactLog(context, userId),
+
+    gapList: async ({ userId }: { userId: string }) => listGaps(context, userId),
+
+    gapDismiss: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      dismissGap(context, userId, parseInput(idInput, rest).id),
+
+    gapToFact: async ({ userId, ...rest }: WithUser<typeof gapToFactInput>) =>
+      gapToFact(context, userId, parseInput(gapToFactInput, rest)),
+    factProposals: async ({ userId }: { userId: string }) => listFactProposals(context, userId),
+
+    factProposalApprove: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      approveFactProposal(context, userId, parseInput(idInput, rest).id),
+
+    factProposalDecline: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      declineFactProposal(context, userId, parseInput(idInput, rest).id),
 
     threadList: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
       listThreads(context, userId, parseInput(idInput, rest).id),

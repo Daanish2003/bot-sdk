@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { textPartSchema } from "../message-parts";
 import { demonstrationCardSchema } from "./demonstration";
+import { factApprovalSchema } from "./fact-approval";
 import { choiceControlSchema } from "./choice";
 import { filesControlSchema } from "./files";
 import { handoffSchema } from "./mentions";
@@ -34,6 +35,7 @@ export const richControlSchema = z.discriminatedUnion("kind", [
   reviewApprovalSchema,
   ruleApprovalSchema,
   releaseApprovalSchema,
+  factApprovalSchema,
   reservedControlSchema("draft"),
   reservedControlSchema("payment_approval"),
 ]);
@@ -50,14 +52,16 @@ export const isApproval = (kind: RichControlKind | undefined) =>
   kind === "routine_approval" ||
   kind === "review_approval" ||
   kind === "rule_approval" ||
-  kind === "release_approval";
+  kind === "release_approval" ||
+  kind === "fact_approval";
 
 /**
  * Whether a control of `kind` is an Approval a Channel can answer with a yes or no. A release
- * Approval is answered only on its Representative's page, where the diff is.
+ * Approval is answered only on its Representative's page, where the diff is, and a fact's only on
+ * the Facts page, where both values are.
  */
 export const isChannelAnswerable = (kind: RichControlKind | undefined) =>
-  isApproval(kind) && kind !== "release_approval";
+  isApproval(kind) && kind !== "release_approval" && kind !== "fact_approval";
 
 /**
  * The catalog as JSON Schema, for a Host's own app to render it. It can't carry the Zod checks

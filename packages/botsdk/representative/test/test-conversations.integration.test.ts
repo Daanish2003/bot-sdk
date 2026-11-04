@@ -40,7 +40,8 @@ afterEach(async () => {
   for (const runner of runners.splice(0)) await runner.stop();
 });
 
-const replies = (text: string) => round(toolCall({ name: "reply", input: { text } }));
+const replies = (text: string) =>
+  round(toolCall({ name: "reply", input: { text, kind: "small_talk" } }));
 const handsOff = () =>
   round(
     toolCall({
@@ -182,6 +183,36 @@ describe("writing test conversations", () => {
     await expect(
       rpc.representative.updateDraft({ id, draft: { tests: [{ ...opens, expect: [] }] } }),
     ).rejects.toThrow();
+  });
+
+  it("holds 20 paraphrase tests, runs them all and shows how many failed", async () => {
+    const paraphrases: Conversation[] = Array.from({ length: 20 }, (_, at) => ({
+      name: `Paraphrase ${at}`,
+      message: `Paraphrase #${String(at).padStart(2, "0")}#: when do you open?`,
+      expect: [{ kind: "said", text: "nine" }],
+    }));
+    const { rpc } = await instance(
+      Object.fromEntries(
+        paraphrases.map((test, at) => [
+          test.message.slice(0, 15),
+          [replies(at % 4 === 0 ? "Soon." : "We open at nine."), quiet()],
+        ]),
+      ),
+    );
+    const id = await draftWith(rpc, paraphrases);
+
+    await expect(
+      rpc.representative.updateDraft({
+        id,
+        draft: { tests: [...paraphrases, paraphrases[0]!] },
+      }),
+    ).rejects.toThrow();
+    await rpc.representative.runTests({ id });
+    const done = await finished(rpc, id);
+
+    expect(done.tests).toHaveLength(20);
+    expect(done.testStatus).toBe("failed");
+    expect(done.tests.filter((test) => test.status === "failed")).toHaveLength(5);
   });
 
   it("approves a draft with no test conversations as before: nothing can fail", async () => {
@@ -576,7 +607,7 @@ describe("the transcript the owner reads", () => {
       ]),
     ).toEqual([
       { role: "customer", text: "Hi" },
-      { role: "representative", text: "Hello." },
+      { role: "representative", text: "Hello.", reply: { kind: null, sources: [] } },
     ]);
   });
 

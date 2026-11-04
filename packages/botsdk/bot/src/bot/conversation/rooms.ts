@@ -357,7 +357,7 @@ export const authoredBy = () =>
  * How a Message of Bot `botId` (named `name`) in Conversation `conversationId` reaches the user
  * outside the app (spec #1055): the title of its notification and where it opens. In a 1:1 Conversation
  * that is the Bot's name and its page; in a Room, the Room and the Bot's names, and the Room. A
- * release Approval (`parts`) opens the page it names, the only place it is answered.
+ * release or fact Approval (`parts`) opens the page it names, the only place it is answered.
  */
 export async function notificationOf(
   db: Database | Transaction,
@@ -368,7 +368,8 @@ export async function notificationOf(
     parts,
   }: { botId: string; name: string; conversationId: string; parts?: MessageRow["parts"] },
 ): Promise<{ title: string; path: string; room: boolean }> {
-  const approval = parts && controlOf(parts, "release_approval");
+  const approval =
+    parts && (controlOf(parts, "release_approval") ?? controlOf(parts, "fact_approval"));
   if (approval) return { title: name, path: approval.path, room: false };
   const room = await roomNameOf(db, conversationId);
   return room === null

@@ -292,8 +292,8 @@ describe("what a code allows", () => {
 
     const turn = fake.calls.at(-1)!;
     expect(JSON.stringify(turn.messages)).not.toContain(code);
-    expect(JSON.stringify(turn.systemPrompts)).toContain("is verified");
-    expect(JSON.stringify(turn.systemPrompts)).not.toContain("isn't verified");
+    expect(JSON.stringify(turn.messages)).toContain("is verified");
+    expect(JSON.stringify(turn.messages)).not.toContain("isn't verified");
   });
 
   it("catches a code in another script's digits, and passes it", async () => {
@@ -563,10 +563,9 @@ describe("what a code allows", () => {
     expect((await standingOn(deps, user.id)).verifiedContactAt).toBeNull();
   });
 
-  it("tells the Model in its system text whether this Turn's sender is verified, which no message can forge", async () => {
+  it("tells the Model outside any fence whether this Turn's sender is verified, which no message can forge", async () => {
     const { deps, id, code, fake } = await codeSent([quiet(), quiet()]);
-    const systemOf = (call: unknown) =>
-      JSON.stringify((call as { systemPrompts: unknown }).systemPrompts);
+    const systemOf = (call: unknown) => JSON.stringify((call as { messages: unknown }).messages);
 
     expect(systemOf(fake.calls[0])).toContain("isn't verified");
     await testCustomerTurn(deps, sms(id, code));
@@ -876,7 +875,7 @@ describe("a code to an identity on record, from web chat", () => {
 
     await expect.poll(() => sent.length, { timeout: 10_000 }).toBe(1);
     expect(sent[0]).toMatchObject({ externalId: "+15550001", kind: "code" });
-    expect(JSON.stringify(fake.calls.at(-1)!.systemPrompts)).toContain("isn't verified");
+    expect(JSON.stringify(fake.calls.at(-1)!.messages)).toContain("isn't verified");
   });
 
   it("treats a bare code the same after a claim on record and one that isn't", async () => {
@@ -1039,7 +1038,7 @@ describe("a code to an identity on record, from web chat", () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     expect(answerIn(fake.calls[1])).toContain("on its way");
-    expect(JSON.stringify(fake.calls[0]?.systemPrompts)).toContain("isn't verified");
+    expect(JSON.stringify(fake.calls[0]?.messages)).toContain("isn't verified");
     expect(sent).toEqual([]);
   });
 });

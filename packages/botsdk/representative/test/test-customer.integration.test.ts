@@ -63,7 +63,8 @@ afterEach(async () => {
   for (const runner of runners.splice(0)) await runner.stop();
 });
 
-const replies = () => round(toolCall({ name: "reply", input: { text: "Nine." } }));
+const replies = () =>
+  round(toolCall({ name: "reply", input: { text: "Nine.", kind: "small_talk" } }));
 const handsOff = (input: object = { title: "A refund", instructions: "They want a refund." }) =>
   round(toolCall({ name: "hand_to_bot", input }));
 const quiet = () => round();
@@ -173,6 +174,10 @@ describe("a test Customer's Turn", () => {
       expect.objectContaining({
         role: "user",
         content: expect.stringMatching(/untrusted data[^]*```\nWhen do you open\?\n```/),
+      }),
+      expect.objectContaining({
+        role: "user",
+        content: expect.stringContaining("This Turn's sender"),
       }),
     ]);
     expect(toolResultsIn(fake.calls[1])).toEqual([JSON.stringify({ sent: true })]);
@@ -764,7 +769,23 @@ describe("who can reach a Turn", () => {
       "customerUpdateIdentity",
       "declineApproval",
       "diff",
+      "documentPick",
+      "documentRemove",
+      "documentUpload",
+      "factAdd",
+      "factDelete",
+      "factEdit",
+      "factList",
+      "factLog",
+      "factProposalApprove",
+      "factProposalDecline",
+      "factProposals",
+      "gapDismiss",
+      "gapList",
+      "gapToFact",
       "get",
+      "knowledgeList",
+      "knowledgeStatus",
       "list",
       "rollback",
       // Plays a draft's test conversations (#1192), each a test job: no Turn, no Customer.

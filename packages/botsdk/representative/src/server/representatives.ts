@@ -8,9 +8,11 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { bot, botAssignment, message } from "@botsdk/bot/storage";
 import type { Transaction } from "@botsdk/bot/plugin";
 import {
+  documentChars,
   type Draft,
   type DraftChange,
   type DraftDiff,
+  maxReleaseDocumentChars,
   type PendingApproval,
   type ReleaseContent,
   type ReleaseView,
@@ -24,7 +26,17 @@ import {
   representativeRelease,
   representativeTestResult,
 } from "./db/schema";
-import { draftHash } from "./test-checks";
+import {
+  chooseDocument,
+  type ConvertDocument,
+  dropDocument,
+  exportDocuments,
+  type KnowledgeFiles,
+  knowledgeText,
+  readableText,
+  snapshotOf,
+} from "./documents";
+import { botFieldsHash, draftHash } from "./test-checks";
 import { normalizedDraft, representativeTestJob, testStateOf } from "./tests";
 import { isAssignmentEnded } from "./turn";
 
@@ -54,6 +66,7 @@ export const emptyDraft = (): Draft => ({
   tools: ["reply", "hand_to_bot"],
   model: null,
   tests: [],
+  documents: [],
 });
 
 const notFound = () =>
@@ -223,6 +236,73 @@ export async function updateDraft(
   });
 }
 
+/**
+ * Adds a document to the draft: its text is read before any lock, as a PDF may take a while, then
+ * copied in with no Computer. Tests that ran on the draft as it was stop counting by its hash.
+ */
+export async function uploadDocument(
+  { db, clock }: Context,
+  userId: string,
+  id: string,
+  file: File,
+  convert?: ConvertDocument,
+): Promise<RepresentativeView> {
+  // Asked first, so nobody's file is read for a Representative that isn't theirs.
+  await ownedRow(db, userId, id);
+  const document = { name: file.name, text: await readableText(file, convert) };
+  return db.transaction(async (tx) => {
+    const row = await ownedRow(tx, userId, id, true);
+    return saveDocuments(tx, row, await chooseDocument(tx, row, document, clock()), clock());
+  });
+}
+
+/**
+ * Copies a Knowledge file's text into the draft, as an upload would. The Computer is asked before the
+ * transaction, so an unreachable one leaves the draft as it was and holds no row.
+ */
+export async function pickKnowledgeDocument(
+  { db, clock }: Context,
+  userId: string,
+  id: string,
+  path: string,
+  files: KnowledgeFiles | undefined,
+): Promise<RepresentativeView> {
+  // Asked first, so nobody's Computer is woken for a Representative that isn't theirs.
+  await ownedRow(db, userId, id);
+  const document = await knowledgeText(files, userId, path);
+  return db.transaction(async (tx) => {
+    const row = await ownedRow(tx, userId, id, true);
+    return saveDocuments(tx, row, await chooseDocument(tx, row, document, clock()), clock());
+  });
+}
+
+/** Takes a document out of the draft. A Release that holds it keeps it. */
+export async function removeDocument(
+  { db, clock }: Context,
+  userId: string,
+  id: string,
+  documentId: string,
+): Promise<RepresentativeView> {
+  return db.transaction(async (tx) => {
+    const row = await ownedRow(tx, userId, id, true);
+    return saveDocuments(tx, row, await dropDocument(tx, row, documentId), clock());
+  });
+}
+
+async function saveDocuments(
+  tx: Transaction,
+  row: Row,
+  documents: Draft["documents"],
+  now: Date,
+): Promise<RepresentativeView> {
+  const [updated] = await tx
+    .update(representative)
+    .set({ draft: { ...row.draft, documents }, updatedAt: now })
+    .where(eq(representative.id, row.id))
+    .returning();
+  return view(tx, updated!, now);
+}
+
 export async function setEnabled(
   { db, clock }: Context,
   userId: string,
@@ -366,7 +446,9 @@ export async function runTests(
  * The Representative's row is locked, so two approvals never take one number. A draft whose tests
  * have failed, or haven't finished for the draft as it is now, needs `overrideReason`, which is
  * kept with the Release. A Model the owner can't use is refused whatever the reason, as it would
- * end every Turn. A Bot's Approval waiting on the draft is answered, which wakes that Bot.
+ * end every Turn, and so are documents past the cap, which the owner must choose between. Approving
+ * reads no document: the draft's references are frozen, and their rows never change. A Bot's Approval
+ * waiting on the draft is answered, which wakes that Bot.
  */
 export async function approveDraft(
   { db, jobs, models, releaseApprovals, threads }: ApproveContext,
@@ -390,6 +472,15 @@ export async function approveDraft(
         "BAD_REQUEST",
         "error.representativeJobTextBlank",
         "A Release needs job text: write what the Representative should do",
+      );
+    }
+    const chars = documentChars(row.draft.documents);
+    if (chars > maxReleaseDocumentChars) {
+      throw rpcError(
+        "BAD_REQUEST",
+        "error.representativeDocumentsTooLong",
+        "The draft's documents are over the limit for a Release: remove some",
+        { chars, limit: maxReleaseDocumentChars },
       );
     }
     const { testStatus } = await testStateOf(tx, row);
@@ -417,6 +508,7 @@ export async function approveDraft(
         );
       }
     }
+    const { documents, ...fields } = row.draft;
     const [last] = await tx
       .select({ latest: max(representativeRelease.number) })
       .from(representativeRelease)
@@ -427,7 +519,7 @@ export async function approveDraft(
         id: uuidv7(),
         representativeId: id,
         number: (last?.latest ?? 0) + 1,
-        content: structuredClone({ ...row.draft, documentSnapshot: null }),
+        content: structuredClone({ ...fields, documentSnapshot: snapshotOf(documents) }),
         overrideReason: reason,
       })
       .returning();
@@ -442,7 +534,9 @@ export async function approveDraft(
         id: row.pendingApproval.id,
         answer: "approved",
         releaseNumber: release!.number,
-        edited: row.botDraftHash !== draftHash(row.draft),
+        edited:
+          row.botDraftHash !== botFieldsHash(row.draft) ||
+          row.pendingApproval.documentsHash !== snapshotOf(documents)?.hash,
       }));
     return {
       answered,
@@ -597,8 +691,15 @@ export function draftChanges(draft: Draft, live: ReleaseContent | null): DraftCh
     );
   }
   const testOrder = addNamed("test", keyed(live?.tests ?? []), keyed(draft.tests), (test) => test);
+  const documentOrder = addNamed(
+    "document",
+    keyed(live?.documentSnapshot?.documents ?? []),
+    keyed(draft.documents),
+    (document) => document && `${document.chars} characters (${document.hash.slice(0, 8)})`,
+  );
   skillOrder();
   testOrder();
+  documentOrder();
   return changes;
 }
 
@@ -688,6 +789,7 @@ export async function exportRepresentatives(tx: Transaction, userId: string) {
       enabled: row.enabled,
       liveReleaseId: row.liveReleaseId,
       draft: row.draft,
+      documents: await exportDocuments(tx, row.id),
       pendingApproval: row.pendingApproval,
       createdAt: row.createdAt,
       testResults: testResults.map(
@@ -713,6 +815,6 @@ export async function exportRepresentatives(tx: Transaction, userId: string) {
 }
 
 export async function deleteRepresentatives(tx: Transaction, userId: string): Promise<void> {
-  // The Releases go with them (their foreign key cascades).
+  // The Releases and the documents' text go with them (their foreign keys cascade).
   await tx.delete(representative).where(eq(representative.userId, userId));
 }

@@ -4,8 +4,15 @@ import { z } from "zod";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { defineJob } from "@botsdk/bot/runner/internal";
 import type { Transaction } from "@botsdk/bot/plugin";
-import type { Draft, TestResultView, TestStatus } from "../shared/contract";
+import {
+  type Draft,
+  documentChars,
+  maxReleaseDocumentChars,
+  type TestResultView,
+  type TestStatus,
+} from "../shared/contract";
 import { representative, representativeTestResult } from "./db/schema";
+import { DocumentGone, type DocumentText, readDocuments } from "./documents";
 import { checkExpectations, draftHash, transcriptOf } from "./test-checks";
 import { hostDefaultModel, playLoop, type TurnServices } from "./turn";
 
@@ -26,8 +33,12 @@ type TestPayload = z.infer<typeof payload>;
 
 type Db = FeatureContext["db"] | Transaction;
 
-/** The draft as stored: a draft written before test conversations has none. */
-export const normalizedDraft = (draft: Draft): Draft => ({ ...draft, tests: draft.tests ?? [] });
+/** The draft as stored: a draft written before test conversations or documents has none. */
+export const normalizedDraft = (draft: Draft): Draft => ({
+  ...draft,
+  tests: draft.tests ?? [],
+  documents: draft.documents ?? [],
+});
 
 /** Where `row`'s draft stands on its tests, and the results that count for it as it is now. */
 export async function testStateOf(
@@ -145,7 +156,26 @@ export const representativeTestJob = defineJob<TestPayload, TurnServices>({
       return;
     }
     const { userId, representativeId, name, draft, conversation, model } = start;
+    // It could never be approved, so it costs the owner nothing to find out what it would do.
+    if (documentChars(draft.documents) > maxReleaseDocumentChars) {
+      await write(job, resultId, {
+        status: "error",
+        error: "The draft's documents are over the limit for a Release",
+      });
+      return;
+    }
     const current = async () => (await currentResult(job, resultId)) !== null;
+    let documents: DocumentText[];
+    try {
+      documents = await readDocuments(job.db, draft.documents);
+    } catch (caught) {
+      if (!(caught instanceof DocumentGone)) throw caught;
+      await write(job, resultId, {
+        status: "error",
+        error: "A document of the draft changed while this waited",
+      });
+      return;
+    }
     const played = await playLoop(job, {
       userId,
       representativeId,
@@ -156,10 +186,11 @@ export const representativeTestJob = defineJob<TestPayload, TurnServices>({
       on: { test: { current } },
       entries: [{ author: "customer", text: conversation.message, verified: true }],
       content: draft,
+      documents,
     });
     // The draft changed or a new run replaced it, so what this came to has nowhere to go.
     if (!(await current())) return;
-    const transcript = transcriptOf(conversation.message, played.transcript);
+    const transcript = transcriptOf(conversation.message, played.transcript, played.testRun);
     const reason = played.quotaSpent
       ? "The owner's Quota is spent"
       : played.error !== undefined
@@ -173,7 +204,7 @@ export const representativeTestJob = defineJob<TestPayload, TurnServices>({
       await write(job, resultId, { status: "error", error: reason, transcript });
       return;
     }
-    const checks = checkExpectations(conversation.expect, played.transcript);
+    const checks = checkExpectations(conversation.expect, played.transcript, played.testRun);
     await write(job, resultId, {
       status: checks.every((check) => check.passed) ? "passed" : "failed",
       error: null,

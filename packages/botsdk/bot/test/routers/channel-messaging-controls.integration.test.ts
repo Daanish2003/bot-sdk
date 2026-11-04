@@ -538,6 +538,42 @@ describe("an Approval", () => {
     expect((await newest("release_approval")).control).not.toHaveProperty("answer");
   });
 
+  it("leaves a fact Approval to the Facts page: a link, no buttons, and no answer by yes", async () => {
+    const { post, write, fake, messages, newest, triggers } = await telegramBot([round()]);
+
+    await post("I propose a fact.", {
+      kind: "fact_approval",
+      key: "price.haircut",
+      path: "/facts",
+      expiresAt: new Date(at.getTime() + 60_000).toISOString(),
+    });
+
+    const sent = fake.sends.at(-1)!.message;
+    expect(sent.buttons).toBeUndefined();
+    expect(JSON.stringify(sent.control)).toContain(`${appUrl}/facts`);
+
+    await write("yes");
+    expect((await triggers()).at(-1)).toMatchObject({ source: "user" });
+    expect((await messages()).at(-1)).toMatchObject({ role: "user", text: "yes" });
+    expect((await newest("fact_approval")).control).not.toHaveProperty("answer");
+  });
+
+  it("doesn't take a yes after a waiting fact Approval as an answer to an older Approval", async () => {
+    const { client, botId, post, write, messages } = await telegramBot([...routining(), round()]);
+    await write("Brief me every weekday");
+    await post("I propose a fact.", {
+      kind: "fact_approval",
+      key: "price.haircut",
+      path: "/facts",
+      expiresAt: new Date(at.getTime() + 60_000).toISOString(),
+    });
+
+    await write("yes");
+
+    expect((await client.routines.list({ botId }))[0]).toMatchObject({ state: "pending" });
+    expect((await messages()).at(-1)).toMatchObject({ role: "user", text: "yes" });
+  });
+
   it("doesn't take a yes after a waiting release Approval as an answer to an older Approval", async () => {
     const { client, botId, post, write, messages } = await telegramBot([...routining(), round()]);
     await write("Brief me every weekday");

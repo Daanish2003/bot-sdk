@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+
 import { expect, test } from "@playwright/test";
 
 import { createBot, sendToBot, signInAsSeededUser, signInAsSeededUserWithModel } from "./helpers";
@@ -7,6 +9,11 @@ import {
   draftedRepresentativeWhy,
   draftRepresentativeMarker,
 } from "./support/fake-ollama";
+
+const knowledgeFixture = (name: string) =>
+  fileURLToPath(
+    new URL(`../../../packages/botsdk/knowledge/test/fixtures/${name}`, import.meta.url),
+  );
 
 test("an owner creates a Representative, approves a Release, edits the draft and switches it on", async ({
   page,
@@ -53,6 +60,49 @@ test("an owner creates a Representative, approves a Release, edits the draft and
   await expect(row).toContainText("Reports to: Ada");
   await expect(row).toContainText("Live: Release 1");
   await expect(row).toContainText("On");
+});
+
+test("an owner uploads documents to a draft, sees them in the diff, and the cap blocks approval", async ({
+  page,
+}) => {
+  await signInAsSeededUser(page);
+  await page.goto("/representatives");
+  await page.getByLabel("Name").fill("Documents desk");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(page).toHaveURL(/\/representatives\/[\w-]+$/);
+  await expect(page.getByText("No documents yet.")).toBeVisible();
+  await page.getByLabel("Job text").fill("Answer from the documents.");
+
+  const upload = (name: string, buffer: Buffer) =>
+    page.getByLabel("Document file").setInputFiles({ name, mimeType: "text/plain", buffer });
+
+  // An upload leaves the form's unsaved edits alone.
+  await upload("hours.md", Buffer.from("Open at nine."));
+  await expect(page.locator('[data-document="hours.md"]')).toContainText("13 characters");
+  await expect(page.getByLabel("Job text")).toHaveValue("Answer from the documents.");
+  await expect(page.locator('[data-change="document"]')).toContainText("hours.md");
+
+  // The Host passes the conversion: a PDF is read, and one with no text layer refused.
+  await page.getByLabel("Document file").setInputFiles(knowledgeFixture("sample-text.pdf"));
+  await expect(page.locator('[data-document="sample-text.pdf"]')).toBeVisible();
+  await page.getByLabel("Document file").setInputFiles(knowledgeFixture("sample-scanned.pdf"));
+  await expect(page.getByText("This PDF has no text to read").first()).toBeVisible();
+  await page.getByRole("button", { name: "Remove sample-text.pdf" }).click();
+  await expect(page.locator('[data-document="sample-text.pdf"]')).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Approve as a new Release" }).click();
+  await expect(page.getByText("Live: Release 1")).toBeVisible();
+  await expect(page.getByText("The draft matches the live Release.")).toBeVisible();
+
+  // Past the cap, the owner is told why, and Approve is held back.
+  await upload("long.md", Buffer.from("a".repeat(100_000)));
+  await expect(page.getByRole("alert").filter({ hasText: "can't be approved" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Approve as a new Release" })).toBeDisabled();
+  await page.getByRole("button", { name: "Remove long.md" }).click();
+  await expect(page.getByRole("button", { name: "Approve as a new Release" })).toBeEnabled();
+
+  await page.reload();
+  await expect(page.locator('[data-document="hours.md"]')).toBeVisible();
 });
 
 test("an owner can't open another owner's Representative", async ({ page, browser }) => {
@@ -192,7 +242,7 @@ test("failed tests block approval until the owner approves anyway with a reason"
   await page.getByRole("button", { name: "Run tests" }).click();
   await expect(page.locator('[data-test-result="failed"]')).toBeVisible();
   await expect(page.locator('[data-test-result="failed"]')).toHaveAttribute("open", "");
-  await expect(page.getByText("A test failed. Approving needs a reason.")).toBeVisible();
+  await expect(page.getByText("1 of 1 test failed. Approving needs a reason.")).toBeVisible();
 
   // Approve is refused, and Approve anyway needs a reason.
   await expect(page.getByRole("button", { name: "Approve as a new Release" })).toBeDisabled();

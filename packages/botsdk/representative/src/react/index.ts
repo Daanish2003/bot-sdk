@@ -45,6 +45,37 @@ export function useUpdateDraft(options?: ProcedureMutationOptions<Representative
   return useMutation(useRepresentative().updateDraft.mutationOptions(options));
 }
 
+/** Adds a document to the draft (`representative.documentUpload`). */
+export function useUploadDocument(
+  options?: ProcedureMutationOptions<Representative["documentUpload"]>,
+) {
+  return useMutation(useRepresentative().documentUpload.mutationOptions(options));
+}
+
+/** Whether Knowledge files can be picked (`representative.knowledgeStatus`). */
+export function useKnowledgeStatus() {
+  return useQuery(useRepresentative().knowledgeStatus.queryOptions());
+}
+
+/** The Knowledge files that can be picked, read only once `enabled` (`representative.knowledgeList`). */
+export function useKnowledgeChoices(enabled: boolean) {
+  return useQuery({ ...useRepresentative().knowledgeList.queryOptions(), enabled, retry: false });
+}
+
+/** Copies a Knowledge file into the draft (`representative.documentPick`). */
+export function usePickKnowledge(
+  options?: ProcedureMutationOptions<Representative["documentPick"]>,
+) {
+  return useMutation(useRepresentative().documentPick.mutationOptions(options));
+}
+
+/** Takes a document out of the draft (`representative.documentRemove`). */
+export function useRemoveDocument(
+  options?: ProcedureMutationOptions<Representative["documentRemove"]>,
+) {
+  return useMutation(useRepresentative().documentRemove.mutationOptions(options));
+}
+
 /** Approves the draft into a Release (`representative.approve`). */
 export function useApproveRelease(options?: ProcedureMutationOptions<Representative["approve"]>) {
   return useMutation(useRepresentative().approve.mutationOptions(options));
@@ -150,6 +181,69 @@ export function useUndoCustomerMerge(
   options?: ProcedureMutationOptions<Representative["customerMergeUndo"]>,
 ) {
   return useMutation(useRepresentative().customerMergeUndo.mutationOptions(options));
+}
+
+/** The owner's Published facts (`representative.factList`). */
+export function useFacts() {
+  return useQuery(useRepresentative().factList.queryOptions());
+}
+
+/** The log of changes to the owner's facts (`representative.factLog`). */
+export function useFactLog() {
+  return useQuery(useRepresentative().factLog.queryOptions());
+}
+
+/** Adds a fact (`representative.factAdd`). */
+export function useAddFact(options?: ProcedureMutationOptions<Representative["factAdd"]>) {
+  return useMutation(useRepresentative().factAdd.mutationOptions(options));
+}
+
+/** Edits a fact (`representative.factEdit`). */
+export function useEditFact(options?: ProcedureMutationOptions<Representative["factEdit"]>) {
+  return useMutation(useRepresentative().factEdit.mutationOptions(options));
+}
+
+/** The facts the owner's Bots have proposed that still wait (`representative.factProposals`). */
+export function useFactProposals() {
+  // Nothing tells this page a Bot proposed, and a card's link must find what it links to.
+  return useQuery({
+    ...useRepresentative().factProposals.queryOptions(),
+    refetchOnMount: "always",
+  });
+}
+
+/** Approves a Bot's proposed fact (`representative.factProposalApprove`). */
+export function useApproveFactProposal(
+  options?: ProcedureMutationOptions<Representative["factProposalApprove"]>,
+) {
+  return useMutation(useRepresentative().factProposalApprove.mutationOptions(options));
+}
+
+/** Declines a Bot's proposed fact (`representative.factProposalDecline`). */
+export function useDeclineFactProposal(
+  options?: ProcedureMutationOptions<Representative["factProposalDecline"]>,
+) {
+  return useMutation(useRepresentative().factProposalDecline.mutationOptions(options));
+}
+
+/** Deletes a fact (`representative.factDelete`). */
+export function useDeleteFact(options?: ProcedureMutationOptions<Representative["factDelete"]>) {
+  return useMutation(useRepresentative().factDelete.mutationOptions(options));
+}
+
+/** The owner's open Gaps (`representative.gapList`). */
+export function useGaps() {
+  return useQuery(useRepresentative().gapList.queryOptions());
+}
+
+/** Dismisses a Gap (`representative.gapDismiss`). */
+export function useDismissGap(options?: ProcedureMutationOptions<Representative["gapDismiss"]>) {
+  return useMutation(useRepresentative().gapDismiss.mutationOptions(options));
+}
+
+/** Turns a Gap into a fact, closing it (`representative.gapToFact`). */
+export function useGapToFact(options?: ProcedureMutationOptions<Representative["gapToFact"]>) {
+  return useMutation(useRepresentative().gapToFact.mutationOptions(options));
 }
 
 /** A Representative's Customer threads (`representative.threadList`). */

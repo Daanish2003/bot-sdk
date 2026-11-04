@@ -1,4 +1,5 @@
 import { approvalExpiryMs } from "@botsdk/client/bot/review";
+import type { FactApproval } from "@botsdk/client/bot/fact-approval";
 import type { ReleaseApproval } from "@botsdk/client/bot/release-approval";
 import { searchTextOf } from "@botsdk/client/message-parts";
 import { and, eq, inArray, isNull } from "drizzle-orm";
@@ -104,6 +105,36 @@ export async function deliverAnswersAfterPause(
   return delivered.length > 0;
 }
 
+/**
+ * Closes the link-only card `id` of `kind` with `answer`, under its Conversation's lock, if it still
+ * waits. Otherwise (answered, dropped, expired, or gone with its Bot) it stays as it is: null.
+ */
+export async function closeLinkCard<Kind extends "release_approval" | "fact_approval">(
+  deps: BotSdkContext,
+  tx: Transaction,
+  { userId, id }: { userId: string; id: string },
+  kind: Kind,
+  answer: "approved" | "declined" | "dropped",
+) {
+  const [owner] = await tx
+    .select({ botId: bot.id, conversationId: bot.conversationId })
+    .from(message)
+    .innerJoin(bot, eq(bot.conversationId, message.conversationId))
+    .where(and(eq(message.id, id), eq(bot.userId, userId)));
+  if (!owner) return null;
+  await lockConversation(tx, owner.conversationId);
+  const [row] = await tx.select({ parts: message.parts }).from(message).where(eq(message.id, id));
+  const card: ReleaseApproval | FactApproval | undefined = row && controlOf(row.parts, kind);
+  const now = deps.clock();
+  if (!row || !card || card.answer || new Date(card.expiresAt) <= now) return null;
+  await tx
+    .update(message)
+    .set({ parts: controlParts(searchTextOf(row.parts), { ...card, answer }, row.parts) })
+    .where(eq(message.id, id));
+  await recordBotChange(tx, owner, "message", id, now);
+  return { ...owner, card: card as Extract<ReleaseApproval | FactApproval, { kind: Kind }>, now };
+}
+
 /** What the Trigger wakes the Bot with. */
 function answerText(
   card: ReleaseApproval,
@@ -119,31 +150,6 @@ function answerText(
 
 /** The `releaseApprovals` service. */
 export function releaseApprovalsService(deps: BotSdkContext): ReleaseApprovalsService {
-  /** Closes card `id` with `answer`, under its Conversation's lock, if it still waits. */
-  const close = async (
-    tx: Transaction,
-    { userId, id }: { userId: string; id: string },
-    answer: NonNullable<ReleaseApproval["answer"]>,
-  ) => {
-    const [owner] = await tx
-      .select({ botId: bot.id, conversationId: bot.conversationId })
-      .from(message)
-      .innerJoin(bot, eq(bot.conversationId, message.conversationId))
-      .where(and(eq(message.id, id), eq(bot.userId, userId)));
-    if (!owner) return null;
-    await lockConversation(tx, owner.conversationId);
-    const [row] = await tx.select({ parts: message.parts }).from(message).where(eq(message.id, id));
-    const card = row && controlOf(row.parts, "release_approval");
-    const now = deps.clock();
-    if (!row || !card || card.answer || new Date(card.expiresAt) <= now) return null;
-    await tx
-      .update(message)
-      .set({ parts: controlParts(searchTextOf(row.parts), { ...card, answer }, row.parts) })
-      .where(eq(message.id, id));
-    await recordBotChange(tx, owner, "message", id, now);
-    return { ...owner, card, now };
-  };
-
   return {
     post: async (
       tx,
@@ -172,7 +178,7 @@ export function releaseApprovalsService(deps: BotSdkContext): ReleaseApprovalsSe
     },
 
     answer: async (tx, { answer, releaseNumber, edited, ...target }) => {
-      const closed = await close(tx, target, answer);
+      const closed = await closeLinkCard(deps, tx, target, "release_approval", answer);
       if (!closed) return null;
       await receive(deps, tx, {
         id: releaseApprovalTriggerId(target.id),
@@ -187,7 +193,7 @@ export function releaseApprovalsService(deps: BotSdkContext): ReleaseApprovalsSe
     },
 
     drop: async (tx, target) => {
-      const closed = await close(tx, target, "dropped");
+      const closed = await closeLinkCard(deps, tx, target, "release_approval", "dropped");
       return closed && { conversationId: closed.conversationId };
     },
   };

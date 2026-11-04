@@ -35,7 +35,8 @@ const number = "+15550001";
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 const quiet = () => round();
-const replies = (text: string) => round(toolCall({ name: "reply", input: { text } }));
+const replies = (text: string) =>
+  round(toolCall({ name: "reply", input: { text, kind: "small_talk" } }));
 
 /** A gate a test opens, which opens by itself when the test ends. */
 function gate() {

@@ -37,6 +37,10 @@ import {
   representative as representativeTable,
   representativeCustomer,
   representativeCustomerIdentity,
+  representativeFact,
+  representativeFactLog,
+  representativeGap,
+  representativeFactProposal,
   representativeRelease,
 } from "@botsdk/representative/server/db/schema";
 import { profilePath } from "@botsdk/memory/server/bot-memory";
@@ -72,6 +76,10 @@ const userTables = [
   representativeTable,
   representativeCustomer,
   representativeCustomerIdentity,
+  representativeFact,
+  representativeFactLog,
+  representativeGap,
+  representativeFactProposal,
 ].flatMap((value) => {
   if (!is(value, PgTable)) return [];
   const { name, columns } = getTableConfig(value);
@@ -223,6 +231,57 @@ async function seedEverything(
   await getTestDb()
     .insert(representativeCustomerIdentity)
     .values({ id: uuidv7(), userId: user.id, customerId, channel: "fake", externalId: "+1" });
+  // A Published fact, and the log entry of adding it.
+  const factAt = new Date("2026-06-01T09:00:00Z");
+  const loggedFact = {
+    type: "money",
+    topic: "Prices",
+    value: "45 USD",
+    validFrom: null,
+    validUntil: null,
+  } as const;
+  await getTestDb()
+    .insert(representativeFact)
+    .values({
+      id: uuidv7(),
+      userId: user.id,
+      key: "price.haircut",
+      ...loggedFact,
+      createdAt: factAt,
+      updatedAt: factAt,
+    });
+  await getTestDb().insert(representativeFactLog).values({
+    id: uuidv7(),
+    userId: user.id,
+    key: "price.haircut",
+    action: "add",
+    old: null,
+    new: loggedFact,
+    at: factAt,
+  });
+  // A Gap the owner has not closed.
+  await getTestDb().insert(representativeGap).values({
+    id: uuidv7(),
+    userId: user.id,
+    question: "Do you do weddings?",
+    normalized: "do you do weddings",
+    firstAt: factAt,
+    lastAt: factAt,
+  });
+  // A Bot's proposed change to the fact, waiting for the owner.
+  await getTestDb()
+    .insert(representativeFactProposal)
+    .values({
+      id: uuidv7(),
+      userId: user.id,
+      botId,
+      key: "price.haircut",
+      proposed: { ...loggedFact, value: "50 USD" },
+      why: "The price list changed.",
+      cardId: uuidv7(),
+      postedAt: factAt,
+      expiresAt: new Date(factAt.getTime() + 7 * 24 * 60 * 60 * 1000),
+    });
   // A Representative reporting to the Bot, with a Release.
   const representativeId = uuidv7();
   await getTestDb()
@@ -239,6 +298,7 @@ async function seedEverything(
         tools: ["reply"],
         model: null,
         tests: [],
+        documents: [],
       },
     });
   await getTestDb()

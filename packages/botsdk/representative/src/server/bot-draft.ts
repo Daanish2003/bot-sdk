@@ -7,6 +7,7 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { type Draft, draftSchema, noNul, type PendingApproval } from "../shared/contract";
 import { representative, representativeRelease } from "./db/schema";
+import { snapshotOf } from "./documents";
 import {
   emptyDraft,
   mergedDraft,
@@ -14,7 +15,7 @@ import {
   queueTests,
   waitingApproval,
 } from "./representatives";
-import { draftHash } from "./test-checks";
+import { botFieldsHash, draftHash } from "./test-checks";
 import { normalizedDraft, testStateOf } from "./tests";
 
 /*
@@ -83,23 +84,24 @@ const lockBotDrafts = (tx: Transaction, botId: string) =>
 
 /**
  * Whether the owner has no edit of their own in `draft` to lose: it is what a Bot last wrote, the
- * live Release's, or the empty one a new Representative starts with.
+ * live Release's, or the empty one a new Representative starts with. Documents don't count: a Bot
+ * can't choose them, and its draft keeps the owner's choice.
  */
 async function onlyTheBotEdited(
   tx: Transaction,
   row: Pick<typeof representative.$inferSelect, "botDraftHash" | "liveReleaseId">,
   draft: Draft,
 ) {
-  const hash = draftHash(draft);
+  const hash = botFieldsHash(draft);
   if (hash === row.botDraftHash) return true;
-  if (!row.liveReleaseId) return hash === draftHash(emptyDraft());
+  if (!row.liveReleaseId) return hash === botFieldsHash(emptyDraft());
   const [live] = await tx
     .select({ content: representativeRelease.content })
     .from(representativeRelease)
     .where(eq(representativeRelease.id, row.liveReleaseId));
   if (!live) return false;
-  const { documentSnapshot: _none, ...content } = live.content;
-  return hash === draftHash(normalizedDraft(content));
+  const { documentSnapshot: _pinned, ...content } = live.content;
+  return hash === botFieldsHash(normalizedDraft({ ...content, documents: [] }));
 }
 
 async function draftFromBot(
@@ -187,11 +189,12 @@ async function draftFromBot(
       botId,
       expiresAt: card.expiresAt.toISOString(),
       postedAt: now.toISOString(),
+      documentsHash: snapshotOf(draft.documents)?.hash,
       ...(call && { call }),
     };
     await tx
       .update(representative)
-      .set({ draft, pendingApproval, botDraftHash: draftHash(draft), updatedAt: now })
+      .set({ draft, pendingApproval, botDraftHash: botFieldsHash(draft), updatedAt: now })
       .where(eq(representative.id, id));
     // Asking again about the draft as it was needs no new run: its results still count.
     const known = unchanged && (await testStateOf(tx, { id, draft })).testStatus !== "notRun";

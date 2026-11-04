@@ -1,3 +1,12 @@
+/** What the owner reads for a reply's kind. */
+const replyKindLabels: Record<string, string> = {
+  answer: "An answer",
+  small_talk: "Small talk",
+  handoff: "Says it was passed on",
+  cant_confirm: "Says it can't confirm",
+  code_handoff: "Code's fixed hand-off message",
+};
+
 /** The Representative pages: the list, a Representative's draft, on/off and Releases (spec #1167). */
 export const representativeMessages = {
   "representative.title": "Representatives",
@@ -39,6 +48,25 @@ export const representativeMessages = {
   "representative.noReleases": "Nothing approved yet.",
   "representative.release": ({ number }: { number: number }) => `Release ${number}`,
   "representative.liveBadge": "Live",
+  "representative.documents": "Documents",
+  "representative.documentsHelp":
+    "Each document goes out whole in the Release, as information the Representative answers from. Markdown, text, PDF or DOCX. Changing them makes earlier test results stop counting.",
+  "representative.noDocuments": "No documents yet.",
+  "representative.documentChars": ({ chars }: { chars: string }) => `${chars} characters`,
+  "representative.documentsTotal": ({ chars, limit }: { chars: string; limit: string }) =>
+    `${chars} of ${limit} characters`,
+  "representative.documentsOverCap": ({ limit }: { limit: string }) =>
+    `This draft can't be approved: a Release holds at most ${limit} characters of documents. Remove some, so you choose what matters.`,
+  "representative.uploadDocument": "Upload a document",
+  "representative.uploadDocumentFile": "Document file",
+  "representative.removeDocument": "Remove",
+  "representative.pickKnowledge": "Choose from Knowledge",
+  "representative.pickKnowledgeHelp":
+    "A copy of the file's text is taken now. If you change the file later, choose it again to take in the change.",
+  "representative.pickKnowledgeLoading": "Reading your Knowledge…",
+  "representative.pickKnowledgeEmpty": "No files in Knowledge.",
+  "representative.pickKnowledgeUse": "Use",
+  "representative.pickKnowledgeClose": "Close",
   "representative.tests": "Test conversations",
   "representative.testsHelp":
     "Each conversation runs on the draft with its tools stubbed: nothing is sent and no Assignment is created. Code checks the expectations. Running them uses your Quota.",
@@ -57,11 +85,18 @@ export const representativeMessages = {
   "representative.expectNotHandedOff": "Does not hand off",
   "representative.expectSaid": "Says",
   "representative.expectNotSaid": "Does not say",
+  "representative.expectCited": "Cites a source",
+  "representative.citedSource": "Cited source",
+  "representative.citedAny": "Any source",
+  "representative.citedFact": "A fact",
+  "representative.citedDocument": "A document",
+  "representative.citedSourceName": "Source name",
   "representative.runTests": "Run tests",
   "representative.testResults": "Test results",
   "representative.testsNotRun": "The tests haven't run on this draft.",
   "representative.testsRunning": "Tests are running…",
-  "representative.testsFailed": "A test failed. Approving needs a reason.",
+  "representative.testsFailed": ({ failed, total }: { failed: number; total: number }) =>
+    `${failed} of ${total} ${total === 1 ? "test" : "tests"} failed. Approving needs a reason.`,
   "representative.testsPassed": "Every test passed.",
   "representative.testQueued": "Queued",
   "representative.testRunning": "Running",
@@ -93,6 +128,7 @@ export const representativeMessages = {
   "representative.diffField.skill": "Skill",
   "representative.diffField.tool": "Tool",
   "representative.diffField.test": "Test conversation",
+  "representative.diffField.document": "Document",
   "representative.diffBefore": "Live",
   "representative.diffAfter": "Draft",
   "representative.diffAbsent": "none",
@@ -126,6 +162,16 @@ export const representativeMessages = {
   "representative.threadMessageLabel": "Your message to the Customer",
   "representative.threadSend": "Send",
   "representative.threadVia": ({ channel }: { channel: string }) => `via ${channel}`,
+  "representative.replyKind": ({ kind }: { kind: string }) => replyKindLabels[kind] ?? kind,
+  "representative.replyKindUnknown": "Kind not recorded",
+  "representative.replyNoSources": "No sources",
+  "representative.replySourceFact": ({ key }: { key: string }) => `Fact ${key}`,
+  "representative.replySourceAssignment": ({ id, quote }: { id: string; quote: string }) =>
+    `Bot result of Assignment ${id}: "${quote}"`,
+  "representative.replySourceDocument": ({ name, quote }: { name: string; quote: string }) =>
+    `Document ${name}: "${quote}"`,
+  "representative.replySourcesNote":
+    "Code checked that each source exists. It did not check that the reply says it right. Code also refuses a price, phone number or link the Model typed, but a price written out in words is not caught.",
   "representative.threadBlocked": "Blocked: this Customer gets no reply.",
   "representative.customers.title": "Customers",
   "representative.customers.intro":
@@ -166,4 +212,55 @@ export const representativeMessages = {
   "representative.customers.mergeUndo": "Undo",
   "representative.customers.mergeUndoOf": ({ from, into }: { from: string; into: string }) =>
     `Undo merging ${from} into ${into}`,
+  "representative.facts.title": "Facts",
+  "representative.facts.intro":
+    "The exact details of your business: prices, hours, phone numbers and links. Your Representatives state them as written, and an edit applies at once with no Release. A fact valid until a date stops at the start of that day (UTC).",
+  "representative.facts.addTitle": "Add a fact",
+  "representative.facts.key": "Key",
+  "representative.facts.none": "No facts yet.",
+  "representative.facts.new": "new fact",
+  "representative.facts.add": "Add fact",
+  "representative.facts.save": "Save",
+  "representative.facts.saved": "Saved",
+  "representative.facts.delete": "Delete",
+  "representative.facts.notInEffect": "Not in effect",
+  "representative.facts.typeOf": ({ name }: { name: string }) => `Type of ${name}`,
+  "representative.facts.topicOf": ({ name }: { name: string }) => `Topic of ${name}`,
+  "representative.facts.valueOf": ({ name }: { name: string }) => `Value of ${name}`,
+  "representative.facts.fromOf": ({ name }: { name: string }) => `Valid from of ${name}`,
+  "representative.facts.untilOf": ({ name }: { name: string }) => `Valid until of ${name}`,
+  "representative.facts.deleteOf": ({ name }: { name: string }) => `Delete ${name}`,
+  "representative.facts.gapsTitle": "Gaps",
+  "representative.facts.gapsIntro":
+    "Questions your Representatives could not confirm from any fact. Turn one into a fact so the next Customer gets an answer, or dismiss it.",
+  "representative.facts.gapCount": ({ count }: { count: number }) =>
+    count === 1 ? "Asked once" : `Asked ${count} times`,
+  "representative.facts.gapDismiss": "Dismiss",
+  "representative.facts.gapDismissOf": ({ name }: { name: string }) => `Dismiss: ${name}`,
+  "representative.facts.gapToFact": "Turn into a fact",
+  "representative.facts.gapKeyOf": ({ name }: { name: string }) => `Key for: ${name}`,
+  "representative.facts.gapNewFact": "new fact from a gap",
+  "representative.facts.proposalsTitle": "Proposed by your Bots",
+  "representative.facts.proposalFrom": ({ name }: { name: string }) => `From ${name}`,
+  "representative.facts.proposalCurrent": "Current",
+  "representative.facts.proposalProposed": "Proposed",
+  "representative.facts.proposalNone": "No fact yet",
+  "representative.facts.proposalApprove": "Approve",
+  "representative.facts.proposalDecline": "Decline",
+  "representative.facts.proposalApproveOf": ({ name }: { name: string }) => `Approve ${name}`,
+  "representative.facts.proposalDeclineOf": ({ name }: { name: string }) => `Decline ${name}`,
+  "representative.facts.proposalExpires": ({ date }: { date: string }) => `Expires ${date}`,
+  "representative.facts.field.type": "Type",
+  "representative.facts.field.topic": "Topic",
+  "representative.facts.field.value": "Value",
+  "representative.facts.field.from": "Valid from",
+  "representative.facts.field.until": "Valid until",
+  "representative.facts.logProposedBy": ({ name }: { name: string }) =>
+    `proposed by ${name}, approved by you`,
+  "representative.facts.logTitle": "Changes",
+  "representative.facts.log.add": "Added",
+  "representative.facts.log.edit": "Edited",
+  "representative.facts.log.delete": "Deleted",
+  "representative.facts.logOld": ({ value }: { value: string }) => `was ${value}`,
+  "representative.facts.logNew": ({ value }: { value: string }) => `now ${value}`,
 };

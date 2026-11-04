@@ -11,10 +11,11 @@ import { chatRpc } from "@ai-chat/test-support/sdk";
 import { testCustomerTurn } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
-import { createFakeAdapter, round } from "@botsdk/testing/fake-adapter";
+import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { representative } from "../src";
 import { representativeTurnJobName } from "../src/server/thread-turns";
 import { threadIdleJobName, threadIdleMs } from "../src/server/idle";
+import { handOffMessage } from "../src/server/replies";
 
 /*
  * Threads close after 7 idle days (ticket #1252): a thread's own delayed job, run by a runner on a
@@ -46,8 +47,10 @@ afterEach(async () => {
 });
 
 /** A running feature instance whose runner's clock (starting at the real time, which the Turn's time limit reads) the test moves, with a Model that stays quiet. */
-async function instance() {
-  const fake = createFakeAdapter({ rounds: Array.from({ length: 20 }, () => round()) });
+async function instance(first: Parameters<typeof createFakeAdapter>[0]["rounds"] = []) {
+  const fake = createFakeAdapter({
+    rounds: [...first, ...Array.from({ length: 20 }, () => round())],
+  });
   const timer = fakeJobClock(new Date());
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({
@@ -101,6 +104,37 @@ const threadsOf = async (deps: TestDeps, userId: string) =>
   (await customersOf(deps, userId)).flatMap((customer) => customer.threads);
 
 describe("a thread's 7 idle days", () => {
+  it("doesn't close while code's fixed message promises the Customer a follow-up, and the chain goes on", async () => {
+    const guess = () =>
+      round(toolCall({ name: "reply", input: { text: "It is 10 USD.", kind: "answer" } }));
+    const { deps, user, say, passTime, idleChecks } = await instance([guess(), guess()]);
+    await say("How much?");
+    const state = async () => (await threadsOf(deps, user.id)).map((thread) => thread.state);
+    await expect
+      .poll(async () => (await threadsOf(deps, user.id))[0]?.messages.at(-1)?.text, poll)
+      .toBe(handOffMessage);
+
+    for (let week = 0; week < 3; week += 1) {
+      passTime(8 * day);
+      await expect
+        .poll(
+          async () => (await idleChecks()).filter((check) => check.status === "succeeded").length,
+          poll,
+        )
+        .toBe(week + 1);
+      expect(await state()).toEqual(["representative"]);
+    }
+    expect((await idleChecks()).some((check) => check.status === "queued")).toBe(true);
+
+    // The Customer writes again and is answered: it closes as any thread does.
+    await say("Hello?");
+    await expect
+      .poll(async () => (await threadsOf(deps, user.id))[0]?.messages.length, poll)
+      .toBe(3);
+    passTime(8 * day);
+    await expect.poll(state, poll).toEqual(["closed"]);
+  });
+
   it("closes a thread with no activity for 7 days", async () => {
     const { deps, user, say, passTime } = await instance();
     await say("Hello");

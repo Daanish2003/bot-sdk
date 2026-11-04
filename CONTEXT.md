@@ -65,7 +65,7 @@ A tool a Bot gets from one of its user's Connections. It is a Deferred tool, and
 _Avoid_: MCP tool, integration tool
 
 **Approval**:
-A user's yes or no to one tool call before it runs, to a new Routine, to a Custom Rule a Bot proposes, or to a Release a Bot drafted. A Bot asks for one for a tool call only when Auto-review blocks it: the call waits inside its Turn for 15 seconds, then stays pending while the Bot carries on. A later yes runs the call exactly as it was asked and wakes the Bot with its result; a later no wakes it too. A pending Approval expires after 7 days. A browser or desktop action on a Screen waits only the 15 seconds, and there silence counts as no. A Release's Approval is answered only on the Representative's page, where the diff is: its card in the Conversation is a link, no Channel offers an answer, and when it expires the draft stays and can still be approved there.
+A user's yes or no to one tool call before it runs, to a new Routine, to a Custom Rule a Bot proposes, to a Release a Bot drafted, or to a Published fact a Bot proposes. A Bot asks for one for a tool call only when Auto-review blocks it: the call waits inside its Turn for 15 seconds, then stays pending while the Bot carries on. A later yes runs the call exactly as it was asked and wakes the Bot with its result; a later no wakes it too. A pending Approval expires after 7 days. A browser or desktop action on a Screen waits only the 15 seconds, and there silence counts as no. A Release's Approval is answered only on the Representative's page, where the diff is: its card in the Conversation is a link, no Channel offers an answer, and when it expires the draft stays and can still be approved there. A Published fact's Approval is answered only on the Facts page, where the current and proposed values are side by side: its card is a link too, no Channel offers an answer, and when it expires the proposal can no longer change the fact.
 _Avoid_: Confirmation, consent, permission
 
 **Attachment**:
@@ -162,9 +162,17 @@ _Avoid_: Deployed agent, front desk, CSR, Agent
 One unchangeable version of a Representative that the user approved: what it's told to do, its tools, its documents and its tests. The user can go back to any earlier Release in one step. Published facts stay outside it and change live.
 _Avoid_: Version, deployment, publish
 
+**Document snapshot**:
+The documents a Release holds whole in a Representative's prompt, copied as text into the database when the user chooses each one for a draft, then frozen and hashed at approval. It is a published copy: changing a Knowledge file later changes nothing in it, and a Bot goes on working on the files, which stay the source of truth for Bots. A Release's documents hold at most 100,000 characters, and a draft past that can't be approved.
+_Avoid_: Knowledge, excerpt, embedding
+
 **Published fact**:
-One typed piece of business information a Representative can state, such as a price or opening hours, quoted exactly and never reworded. It changes live, and a change a Bot proposes needs the user's Approval.
+One typed piece of business information a Representative can state, such as a price or opening hours, quoted exactly and never reworded. It has a key (unique to the user), a type (text, money, hours, phone or url, each value checked against it), a topic and optional valid dates, outside which it is not in effect. Every Representative of the user shares them. It changes live, each add, edit and delete goes in a log with the old value, the new value and the time, and a change a Bot proposes needs the user's Approval.
 _Avoid_: Knowledge, FAQ
+
+**Gap**:
+A question a Representative could not confirm from any source, which it logs for the user after telling the Customer plainly that it can't confirm and offering a hand-off. It belongs to the user, records which Representative first logged it, and counts how often the same question (compared without case, spacing or punctuation) comes up. The user dismisses it or turns it into a Published fact, and either closes it: the same question asked again starts a new Gap. The Model wrote its wording, so only the user sees it, as plain text. A test conversation logs none.
+_Avoid_: Unanswered question, missing answer, ticket
 
 **Customer thread**:
 The one running exchange between a Customer and a Representative across Channels, held either by the Representative or by the user who took it over. It runs one Turn at a time: a message that arrives during a Turn waits for the next one, and quick messages batch into one Turn. While the Representative holds it, it closes when idle, and a later message starts a new one. Taking over aborts the running Turn and sends the Customer one fixed note, and no model call runs until the user hands it back, which is always explicit. A thread the user holds never closes by itself.

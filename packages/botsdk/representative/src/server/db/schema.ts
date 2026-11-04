@@ -14,8 +14,10 @@ import {
 
 import { bot, botAssignment, botsdkSchema } from "@botsdk/bot/storage";
 import type { ChannelProofRule } from "../verification";
+import type { ReplySource, StoredReplyKind } from "../../shared/replies";
 import type {
   Draft,
+  FactType,
   PendingApproval,
   ReleaseContent,
   TestCheck,
@@ -49,6 +51,28 @@ export const representative = botsdkSchema.table(
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
   (table) => [index("representative_user_idx").on(table.userId, table.createdAt)],
+);
+
+/**
+ * The text of a document chosen for a draft (ticket #1259). A row never changes: a new upload is a new
+ * row, and one goes only once neither the draft nor a Release refers to it. It goes with its
+ * Representative, which takes it out of the owner's account delete.
+ */
+export const representativeDocument = botsdkSchema.table(
+  "representative_document",
+  {
+    id: uuid("id").primaryKey(),
+    representativeId: uuid("representative_id")
+      .notNull()
+      .references((): AnyPgColumn => representative.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    text: text("text").notNull(),
+    /** SHA-256 of the text. */
+    hash: text("hash").notNull(),
+    chars: integer("chars").notNull(),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (table) => [index("representative_document_representative_idx").on(table.representativeId)],
 );
 
 /**
@@ -334,7 +358,136 @@ export const representativeThreadMessage = botsdkSchema.table(
     proofRule: text("proof_rule").$type<ChannelProofRule>(),
     /** A Bot's result that came while the owner held the thread: theirs to send, never a Turn's. */
     heldForOwner: boolean("held_for_owner").notNull().default(false),
+    /** A reply's kind (ticket #1260); null on every other message and on a reply stored before kinds. */
+    replyKind: text("reply_kind").$type<StoredReplyKind>(),
+    /** What a reply rests on, as code checked it, kept from the Customer; null as for `replyKind`. */
+    sources: jsonb("sources").$type<ReplySource[]>(),
+    /** The Assignment a Bot's result ended, which a reply relaying it cites. No foreign key: the result outlives it. */
+    assignmentId: uuid("assignment_id"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [unique("representative_thread_message_position").on(table.threadId, table.position)],
+);
+
+/**
+ * A Published fact (ticket #1258): one typed piece of the owner's business information, shared by
+ * every one of their Representatives and outside every Release, so an edit applies at once. `value`
+ * is in the stored form its type gives it. A key is unique per owner.
+ */
+export const representativeFact = botsdkSchema.table(
+  "representative_fact",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    key: text("key").notNull(),
+    type: text("type").$type<FactType>().notNull(),
+    topic: text("topic").notNull(),
+    value: text("value").notNull(),
+    /** From when it is in effect; null for always. */
+    validFrom: timestamp("valid_from"),
+    /** Until when, not including it; null for never. */
+    validUntil: timestamp("valid_until"),
+    /** From the SDK's clock, since which facts are in effect is counted on it. */
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (table) => [unique("representative_fact_key").on(table.userId, table.key)],
+);
+
+/** A fact as a log keeps it: JSON, so its dates are ISO strings. */
+export type LoggedFact = {
+  type: FactType;
+  topic: string;
+  value: string;
+  validFrom: string | null;
+  validUntil: string | null;
+};
+
+/** What a change did to a fact. */
+export type FactAction = "add" | "edit" | "delete";
+
+/**
+ * One add, edit or delete of a Published fact (ticket #1258). It holds the key and both sides of
+ * the change, with no foreign key, so it outlives the fact it records.
+ */
+export const representativeFactLog = botsdkSchema.table(
+  "representative_fact_log",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    key: text("key").notNull(),
+    action: text("action").$type<FactAction>().notNull(),
+    old: jsonb("old").$type<LoggedFact>(),
+    new: jsonb("new").$type<LoggedFact>(),
+    /** The Bot, by its name then, whose proposal the owner approved; null for the owner's own change. */
+    proposedBy: text("proposed_by"),
+    at: timestamp("at").notNull(),
+  },
+  (table) => [index("representative_fact_log_user_idx").on(table.userId, table.at)],
+);
+
+/** Where a Gap stands: `open` until the owner dismisses it or turns it into a fact. */
+export type GapStatus = "open" | "dismissed" | "answered";
+
+/**
+ * A Gap (ticket #1263): a question a Representative couldn't confirm from any source, which the
+ * owner can answer with a fact or dismiss. It belongs to the owner, and `representativeId` is the
+ * Representative that first logged it, cleared if that one is deleted. `question` is the Model's
+ * own wording, so it is untrusted and only ever shown to the owner as plain text. `normalized` is
+ * what the owner's open Gaps are deduplicated by, with `count` of how often it came up. A dismissed
+ * or answered one is never counted again: the same question then starts a new Gap.
+ */
+export const representativeGap = botsdkSchema.table(
+  "representative_gap",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    representativeId: uuid("representative_id").references((): AnyPgColumn => representative.id, {
+      onDelete: "set null",
+    }),
+    question: text("question").notNull(),
+    normalized: text("normalized").notNull(),
+    count: integer("count").notNull().default(1),
+    status: text("status").$type<GapStatus>().notNull().default("open"),
+    /** From the SDK's clock, like the facts' dates. */
+    firstAt: timestamp("first_at").notNull(),
+    lastAt: timestamp("last_at").notNull(),
+    closedAt: timestamp("closed_at"),
+  },
+  (table) => [
+    uniqueIndex("representative_gap_open_idx")
+      .on(table.userId, table.normalized)
+      .where(sql`${table.status} = 'open'`),
+    index("representative_gap_user_idx").on(table.userId, table.lastAt),
+  ],
+);
+
+/**
+ * A Bot's proposed Published fact, waiting for the owner (ticket #1264): the whole fact it would
+ * become. It goes when answered, dropped or replaced, and one that expired stays only until the
+ * owner's next proposal clears it, changing nothing meanwhile. One waits per key. It goes with its
+ * Bot, whose card goes with the Conversation.
+ */
+export const representativeFactProposal = botsdkSchema.table(
+  "representative_fact_proposal",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    botId: uuid("bot_id")
+      .notNull()
+      .references((): AnyPgColumn => bot.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    proposed: jsonb("proposed").$type<LoggedFact>().notNull(),
+    why: text("why").notNull(),
+    /** The Approval's card in the Bot's Conversation. */
+    cardId: text("card_id").notNull(),
+    /** The Turn and tool call that asked, so a replay after a crash asks only once. */
+    call: text("call"),
+    postedAt: timestamp("posted_at").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+  },
+  (table) => [
+    unique("representative_fact_proposal_key").on(table.userId, table.key),
+    index("representative_fact_proposal_bot_idx").on(table.botId),
+  ],
 );

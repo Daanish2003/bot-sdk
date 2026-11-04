@@ -12,8 +12,9 @@ import { fakeChannel } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
-import { representativeThread } from "../src/server/db/schema";
+import { representativeThread, representativeThreadMessage } from "../src/server/db/schema";
 import { representativeFeature } from "../src/server/plugin";
+import { handOffMessage } from "../src/server/replies";
 import { takeoverNote } from "../src/server/takeover";
 import { receiveCustomerMessage } from "../src/server/thread-turns";
 
@@ -41,7 +42,28 @@ const handsOff = () =>
       input: { title: "A refund", instructions: "They want a refund." },
     }),
   );
-const replies = (text: string) => round(toolCall({ name: "reply", input: { text } }));
+const replies = (text: string) =>
+  round(toolCall({ name: "reply", input: { text, kind: "small_talk" } }));
+
+/** Relays the Bot's result, citing the Assignment the prompt names, or `cited`, with `quote`. */
+const relays = (quote: string, cited?: string) => (call: TextOptions) =>
+  round(
+    toolCall({
+      name: "reply",
+      input: {
+        text: "Good news: your refund is on its way.",
+        kind: "answer",
+        sources: [
+          {
+            type: "assignment",
+            assignmentId:
+              cited ?? /Assignment ([0-9a-f-]{36}): cite/.exec(JSON.stringify(call.messages))![1],
+            quote,
+          },
+        ],
+      },
+    }),
+  );
 
 const assignmentIdIn = (call: TextOptions) =>
   /Assignment ([0-9a-f]{8}-[0-9a-f-]{27})/.exec(JSON.stringify(call.messages.slice(1)))![1]!;
@@ -259,6 +281,109 @@ describe("a hand-off's result", () => {
     expect(waitingOn).toBe("customer");
   });
 
+  it("is a source for the reply that tells it, by its Assignment and an exact quote", async () => {
+    const { send, drain, thread } = await serving([
+      handsOff(),
+      quiet(),
+      relays("refund of 20"),
+      quiet(),
+    ]);
+    await send("I want a refund");
+
+    await drain();
+
+    const { messages } = await thread();
+    expect(messages.at(-1)?.text).toBe("Good news: your refund is on its way.");
+    const [stored] = await getTestDb()
+      .select({
+        kind: representativeThreadMessage.replyKind,
+        sources: representativeThreadMessage.sources,
+      })
+      .from(representativeThreadMessage)
+      .where(eq(representativeThreadMessage.author, "representative"));
+    expect(stored).toEqual({
+      kind: "answer",
+      sources: [{ type: "assignment", assignmentId: expect.any(String), quote: "refund of 20" }],
+    });
+  });
+
+  it("refuses a quote the result doesn't hold, and an Assignment that isn't this Turn's", async () => {
+    const { send, drain, thread, fake } = await serving([
+      handsOff(),
+      quiet(),
+      relays("refund of 2000"),
+      // A reply that goes through in between, as two refusals in a row would hand off (#1261).
+      replies("One moment."),
+      relays("refund of 20", "019a0000-0000-7000-8000-000000000000"),
+      quiet(),
+    ]);
+    await send("I want a refund");
+
+    await drain();
+
+    expect(texts((await thread()).messages)).toEqual([
+      "I want a refund",
+      "Your refund of 20 is on its way.",
+      "One moment.",
+      handOffMessage,
+    ]);
+    const answers = (fake.calls.at(-1)!.messages as Array<{ role: string; content: unknown }>)
+      .filter((message) => message.role === "tool")
+      .map((message) => String(message.content));
+    expect(answers.at(-3)).toContain("exact quote");
+    expect(answers.at(-1)).toContain("019a0000-0000-7000-8000-000000000000");
+  });
+
+  it("waits on the owner when relaying it is refused twice, with no new Assignment", async () => {
+    const { send, drain, thread, fake, botId, botFake } = await serving([
+      handsOff(),
+      quiet(),
+      relays("refund of 2000"),
+      relays("refund of 3000"),
+    ]);
+    await send("I want a refund");
+
+    await drain();
+
+    const { messages, waitingOn } = await thread();
+    expect(texts(messages)).toEqual([
+      "I want a refund",
+      "Your refund of 20 is on its way.",
+      handOffMessage,
+    ]);
+    expect(waitingOn).toBe("owner");
+    expect(fake.calls).toHaveLength(4);
+    expect(botFake.calls).toHaveLength(2);
+    expect(
+      await getTestDb().select().from(botAssignment).where(eq(botAssignment.assignedBotId, botId)),
+    ).toHaveLength(1);
+  });
+
+  it("isn't a source once it is history: the owner held it", async () => {
+    let heldId = "";
+    const { send, runNext, drain, thread, fake, rpc } = await serving([
+      handsOff(),
+      quiet(),
+      (call: TextOptions) => relays("refund of 20", heldId)(call),
+      quiet(),
+    ]);
+    await send("I want a refund");
+    await runNext();
+    const { id } = await thread();
+    await rpc.representative.threadTakeOver({ id });
+    await drain();
+    await rpc.representative.threadHandBack({ id });
+    [{ id: heldId }] = (await getTestDb().select({ id: botAssignment.id }).from(botAssignment)) as [
+      { id: string },
+    ];
+    await send("Well?");
+    await drain();
+
+    expect(JSON.stringify(fake.calls.at(-2)?.messages)).not.toContain(": cite that");
+    expect(texts((await thread()).messages)).not.toContain("Good news: your refund is on its way.");
+    expect(JSON.stringify(fake.calls.at(-1)?.messages)).toContain("exact quote");
+  });
+
   it("shows the Bot as who a thread waits on while the Assignment is open", async () => {
     const { send, runNext, drain, thread } = await serving([
       handsOff(),
@@ -448,7 +573,7 @@ describe("a hand-off's result", () => {
     expect(proofsSent[0]).toMatchObject({ channel: fakeChannel, kind: "code" });
     const turn = fake.calls.at(-2)!;
     expect(JSON.stringify(turn.messages)).toContain("Your refund of 20");
-    expect(JSON.stringify(turn.systemPrompts)).toContain("isn't verified");
+    expect(JSON.stringify(turn.messages)).toContain("isn't verified");
   });
 
   it("stays an unverified sender's when they pass a code while the Bot works", async () => {
@@ -475,7 +600,7 @@ describe("a hand-off's result", () => {
     expect(told.length).toBeGreaterThan(0);
     for (const call of told) {
       const inPrompt = JSON.stringify(call.messages);
-      const verifiedTurn = !JSON.stringify(call.systemPrompts).includes("isn't verified");
+      const verifiedTurn = !JSON.stringify(call.messages).includes("isn't verified");
       if (verifiedTurn) expect(inPrompt).toContain("for an unverified sender to be told");
     }
   });
@@ -486,9 +611,9 @@ describe("a hand-off's result", () => {
 
     await drain();
 
-    const system = JSON.stringify(fake.calls.at(-1)!.systemPrompts);
-    expect(system).toContain("is verified");
-    expect(system).not.toContain("isn't verified");
+    const standing = JSON.stringify(fake.calls.at(-1)!.messages);
+    expect(standing).toContain("is verified");
+    expect(standing).not.toContain("isn't verified");
   });
 
   it("goes to a verified Customer where they were last heard, and the Turn labels it as the Bot's", async () => {
