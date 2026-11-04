@@ -371,6 +371,69 @@ describe("a reply citing memory", () => {
     ]);
   });
 
+  it("lets a house number and postcode, and an email address, held in memory pass when cited", async () => {
+    const address = "1200 5600 Main Street, 90210";
+    const email = "ada@example.com";
+    const world = await instance([
+      round(
+        toolCall({
+          name: "reply",
+          input: {
+            text: `We will write to ${email} at ${address}.`,
+            kind: "answer",
+            sources: [
+              { type: "memory", quote: address },
+              { type: "memory", quote: email },
+            ],
+          },
+        }),
+      ),
+      quiet(),
+    ]);
+    const ada = await customer(world.rpc);
+    const field = await world.rpc.representative.profileFieldAdd({ name: "Email" });
+    await world.rpc.representative.customerProfileSet({
+      id: ada.id,
+      field: "address",
+      value: address,
+    });
+    await world.rpc.representative.customerProfileSet({
+      id: ada.id,
+      field: field.id,
+      value: email,
+    });
+
+    await ask(world, "Where do you write to me?");
+
+    expect((await sent(world.id)).map((message) => message.text)).toEqual([
+      `We will write to ${email} at ${address}.`,
+    ]);
+  });
+
+  it("refuses that address when it is not cited", async () => {
+    const address = "1200 5600 Main Street, 90210";
+    const world = await instance([
+      round(
+        toolCall({
+          name: "reply",
+          input: { text: `You live at ${address}.`, kind: "small_talk" },
+        }),
+      ),
+      quiet(),
+    ]);
+    const ada = await customer(world.rpc);
+    await world.rpc.representative.customerProfileSet({
+      id: ada.id,
+      field: "address",
+      value: address,
+    });
+
+    await ask(world, "Where do I live?");
+
+    const answer = answersIn(world.fake.calls[1])[0];
+    expect(answer).toMatch(/Nothing was sent.*phone number you typed/);
+  });
+
   it("refuses the same number when it is not cited", async () => {
     const world = await instance([
       round(
