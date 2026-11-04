@@ -281,10 +281,20 @@ const passagesOf = (text: string) =>
 const withoutCopies = (text: string, copies: string[]) =>
   copies.reduce((left, copy) => left.split(copy).join(redactedText), text);
 
+/** A Model message's content with `clean` run over its text, whichever shape it has. */
+const cleanContent = (content: ModelMessage["content"], clean: (text: string) => string) =>
+  typeof content === "string"
+    ? clean(content)
+    : Array.isArray(content)
+      ? content.map((part) =>
+          part.type === "text" ? { ...part, content: clean(part.content) } : part,
+        )
+      : content;
+
 /** A Model message without `copies`, in what it says and what it called. */
 const entryWithoutCopies = (entry: ModelMessage, copies: string[]): ModelMessage => ({
   ...entry,
-  ...(typeof entry.content === "string" && { content: withoutCopies(entry.content, copies) }),
+  content: cleanContent(entry.content, (text) => withoutCopies(text, copies)),
   ...(entry.toolCalls && {
     toolCalls: entry.toolCalls.map((call) => ({
       ...call,
@@ -325,17 +335,7 @@ function redactedInput(input: ModelMessage[], ids: string[], copies: string[]): 
         ? match
         : `${lead}Assignment ${id}: "${redactedText}"`,
     );
-  return input.map((entry) => ({
-    ...entry,
-    content:
-      typeof entry.content === "string"
-        ? clean(entry.content)
-        : Array.isArray(entry.content)
-          ? entry.content.map((part) =>
-              part.type === "text" ? { ...part, content: clean(part.content) } : part,
-            )
-          : entry.content,
-  }));
+  return input.map((entry) => ({ ...entry, content: cleanContent(entry.content, clean) }));
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);

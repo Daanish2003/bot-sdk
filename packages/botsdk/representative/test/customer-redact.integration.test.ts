@@ -763,6 +763,38 @@ Assignment ${adaId}: "[Redacted]"`);
     expect(trigger?.text).toBe(carolNotice);
   });
 
+  it("cleans verbatim copies out of a multi-part entry in another Turn's record", async () => {
+    const owner = await serving({ turnRounds: [adaHandsOff, quiet], botRounds: [quiet, quiet] });
+    await owner.say("I'd like a refund.", adaNumber);
+    await owner.rpc.bots.send({ botId: owner.botId, id: uuidv7(), text: "Anything on?" });
+    await owner.drain();
+    const db = getTestDb();
+    const turns = await db
+      .select()
+      .from(botTurn)
+      .where(eq(botTurn.botId, owner.botId))
+      .orderBy(botTurn.startedAt);
+    const later = turns.at(-1)!;
+    const copy = `Ada at 12 ${adaWords} wants a refund.`;
+    await db
+      .update(botTurn)
+      .set({
+        transcript: [
+          ...(later.transcript ?? []),
+          { role: "user", content: [{ type: "text", content: `She said: ${copy} Noted.` }] },
+        ],
+      })
+      .where(eq(botTurn.id, later.id));
+    const ada = await owner.customerAt(adaNumber);
+
+    await owner.rpc.representative.customerDelete({ id: ada.id });
+
+    const [turn] = await db.select().from(botTurn).where(eq(botTurn.id, later.id));
+    expect(turn!.transcript!.at(-1)!.content).toEqual([
+      { type: "text", content: "She said: [Redacted] Noted." },
+    ]);
+  });
+
   it("redacts only the lines of a later Turn that read the Assignment", async () => {
     const owner = await serving({
       turnRounds: [adaHandsOff, quiet],
