@@ -37,7 +37,8 @@ export type UsageEvent = {
     | "warm"
     | "review"
     | "skill_draft"
-    | "representative";
+    | "representative"
+    | "customer_memory";
   /** The `"provider:model"` id, `"tavily"` for a web search, or the image model's id. */
   model: string;
   /** Every input token, cache reads and writes included. */

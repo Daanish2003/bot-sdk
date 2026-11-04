@@ -242,7 +242,10 @@ export async function canWork(
   }
 }
 
-/** Appends one row to an Assignment's log, in `tx`. It is never changed or removed afterwards. */
+/**
+ * Appends one row to an Assignment's log, in `tx`. It is never changed or removed afterwards, but for
+ * its note being redacted.
+ */
 export async function logStatus(
   tx: Transaction,
   row: Omit<typeof botAssignmentLog.$inferInsert, "id">,
@@ -1615,7 +1618,7 @@ async function lockWithDescendants(tx: Transaction, id: string, ids: string[]): 
  * it waits behind another Turn causes no more work, its Bot is told if a Turn had read it and
  * `tell` allows, and a feature that made it has its job queued. It returns whether it moved it.
  */
-async function moveToCancelled(
+export async function moveToCancelled(
   deps: BotSdkContext,
   tx: Transaction,
   row: {

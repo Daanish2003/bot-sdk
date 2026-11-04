@@ -10,7 +10,10 @@ import {
   factAddInput,
   factEditInput,
   gapToFactInput,
+  customerProfileSetInput,
   customerUpdateIdentityInput,
+  profileFieldAddInput,
+  profileFieldRenameInput,
   createInput,
   documentPickInput,
   documentRemoveInput,
@@ -27,6 +30,14 @@ import { addFact, deleteFact, editFact, listFactLog, listFacts } from "./facts";
 import { dismissGap, gapToFact, listGaps } from "./gaps";
 import { approveFactProposal, declineFactProposal, listFactProposals } from "./fact-proposals";
 import { listMerges, mergeCustomers, undoMerge } from "./customer-merge";
+import { deleteCustomer } from "./customer-delete";
+import { listCustomerSummaries } from "./customer-summary";
+import {
+  addProfileField,
+  listProfileFields,
+  removeProfileField,
+  renameProfileField,
+} from "./customer-profile";
 import {
   addIdentity,
   createCustomer,
@@ -34,6 +45,7 @@ import {
   listCustomers,
   listThreads,
   renameCustomer,
+  setProfileValue,
   setBlocked,
   updateIdentity,
 } from "./owner-customers";
@@ -144,6 +156,20 @@ export function representativeApi(
       return renameCustomer(context, userId, id, name);
     },
 
+    customerProfileSet: async ({ userId, ...rest }: WithUser<typeof customerProfileSetInput>) =>
+      setProfileValue(context, userId, parseInput(customerProfileSetInput, rest)),
+
+    profileFieldList: async ({ userId }: { userId: string }) => listProfileFields(context, userId),
+
+    profileFieldAdd: async ({ userId, ...rest }: WithUser<typeof profileFieldAddInput>) =>
+      addProfileField(context, userId, parseInput(profileFieldAddInput, rest).name),
+
+    profileFieldRename: async ({ userId, ...rest }: WithUser<typeof profileFieldRenameInput>) =>
+      renameProfileField(context, userId, parseInput(profileFieldRenameInput, rest)),
+
+    profileFieldRemove: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      removeProfileField(context, userId, parseInput(idInput, rest).id),
+
     customerAddIdentity: async ({ userId, ...rest }: WithUser<typeof customerAddIdentityInput>) =>
       addIdentity(context, userId, parseInput(customerAddIdentityInput, rest)),
 
@@ -160,6 +186,13 @@ export function representativeApi(
 
     customerMerge: async ({ userId, ...rest }: WithUser<typeof customerMergeInput>) =>
       mergeCustomers(context, userId, parseInput(customerMergeInput, rest)),
+
+    customerDelete: async ({ userId, ...rest }: WithUser<typeof idInput>) => {
+      await deleteCustomer(context, userId, parseInput(idInput, rest).id);
+    },
+
+    customerSummaryList: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      listCustomerSummaries(context, userId, parseInput(idInput, rest).id),
 
     customerMergeList: async ({ userId }: { userId: string }) => listMerges(context, userId),
 

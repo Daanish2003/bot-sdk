@@ -242,7 +242,7 @@ describe("the diff between a draft and the live Release", () => {
     const diff = await rpc.representative.diff({ id });
 
     expect(diff.liveReleaseNumber).toBeNull();
-    expect(diff.changes.map((change) => change.field)).toEqual(["jobText", "tool", "tool"]);
+    expect(diff.changes.map((change) => change.field)).toEqual(["jobText", "tool", "tool", "tool"]);
     // Before a first Release, the live side has none: not the text "null".
     expect(diff.changes[0]).toMatchObject({ before: null, after: JSON.stringify("Answer") });
   });

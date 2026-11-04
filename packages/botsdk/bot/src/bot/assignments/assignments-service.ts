@@ -19,6 +19,7 @@ import {
   moveAssignment,
   openAssignment,
 } from "./assignment";
+import { redactAssignments } from "./redact";
 
 /*
  * The `assignments` core service (ticket #1185, ADR 0029): how a feature hands work to a Bot, as a
@@ -54,6 +55,8 @@ const createInput = z.object({
 const assignmentInput = z.object({ id: z.uuid() });
 
 const moveInput = z.object({ id: z.uuid(), botId: z.uuid() });
+
+const redactInput = z.object({ ids: z.array(z.uuid()) });
 
 /** What a feature's `needs: ["assignments"]` gives it. */
 export type AssignmentsService = {
@@ -111,6 +114,20 @@ export type AssignmentsService = {
    * another feature made, is NOT_FOUND; a Bot whose Model can't run is CONFLICT.
    */
   move: (input: { userId: string; id: string; botId: string }) => Promise<void>;
+  /**
+   * Redacts the feature's own Assignments `ids` of this owner, as deleting whoever they came from
+   * needs (ticket #1288): their text and everything the Bot's records hold of it go, for the child
+   * Assignments too, and the Assignments stay as redacted records. One that hasn't ended is cancelled
+   * with its children, so no Bot waits on it. Any other id is ignored, and repeating it changes nothing.
+   *
+   * It runs in the caller's transaction and takes the locks of the Conversations it writes to, up
+   * front in id order, so any lock of the caller's that others take before a Conversation's comes
+   * first. The caller wakes the runner and hints `conversationIds` once `tx` commits.
+   */
+  redact: (
+    tx: Transaction,
+    input: { userId: string; ids: string[] },
+  ) => Promise<{ conversationIds: string[] }>;
 };
 
 const notFound = () => rpcError("NOT_FOUND", "error.assignmentNotFound", "Assignment not found");
@@ -245,6 +262,26 @@ export function assignmentsService(
       }
       deps.runner.wake();
       for (const conversationId of moved.woken) await hintChanged(deps, conversationId);
+    },
+
+    redact: async (tx, { userId, ...rest }) => {
+      const { ids } = parseInput(redactInput, rest);
+      const own = await tx
+        .select({ id: botAssignment.id })
+        .from(botAssignment)
+        .innerJoin(bot, eq(bot.id, botAssignment.assignedBotId))
+        .where(
+          and(
+            inArray(botAssignment.id, ids),
+            eq(botAssignment.assignerFeature, feature.id),
+            eq(bot.userId, userId),
+          ),
+        );
+      const conversationIds = await redactAssignments(deps, tx, {
+        userId,
+        ids: own.map((row) => row.id),
+      });
+      return { conversationIds };
     },
   };
 }

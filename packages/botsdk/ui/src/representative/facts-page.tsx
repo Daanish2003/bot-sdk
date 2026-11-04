@@ -343,7 +343,9 @@ function ProposalRow({ proposal }: { proposal: FactProposalView }) {
       <div className="flex flex-wrap items-baseline gap-2">
         <span className="font-mono text-sm font-medium">{proposal.key}</span>
         <span className="text-xs text-muted-foreground">
-          {t("representative.facts.proposalFrom", { name: proposal.botName })}
+          {proposal.botName === null
+            ? t("representative.facts.proposalLesson")
+            : t("representative.facts.proposalFrom", { name: proposal.botName })}
         </span>
         <span className="ml-auto text-xs text-muted-foreground">
           {t("representative.facts.proposalExpires", {

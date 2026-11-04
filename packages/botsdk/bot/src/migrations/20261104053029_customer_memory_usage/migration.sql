@@ -1,0 +1,1 @@
+ALTER TYPE "botsdk"."usage_kind" ADD VALUE 'customer_memory';

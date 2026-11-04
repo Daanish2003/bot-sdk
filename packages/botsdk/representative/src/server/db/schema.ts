@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -16,9 +17,13 @@ import { bot, botAssignment, botsdkSchema } from "@botsdk/bot/storage";
 import type { ChannelProofRule } from "../verification";
 import type { ReplySource, StoredReplyKind } from "../../shared/replies";
 import type {
+  CustomerSummarySkip,
   Draft,
   FactType,
+  FixedProfileField,
   PendingApproval,
+  ProfileSource,
+  ProfileStatus,
   ReleaseContent,
   TestCheck,
   TestResultStatus,
@@ -126,7 +131,9 @@ export const representativeTestResult = botsdkSchema.table(
  * can move the open ones. It goes with the Assignment, and with the Representative. From a Customer
  * thread (ticket #1254), `threadId` is the thread it belongs to, and `channel`, `externalId` and
  * `verified` are the sender and standing of the Turn that handed it off, so its result goes back to
- * that sender; all four are null for a test conversation. `threadId` is cleared if the thread goes.
+ * that sender; all four are null for a test conversation. `threadId` is cleared if the thread goes (it
+ * expires, ticket #1285). `customerId` is the thread's Customer when the hand-off is made and holds
+ * no text; the row goes with that Customer, so the Customer's delete still finds the Assignment.
  */
 export const representativeHandOff = botsdkSchema.table(
   "representative_hand_off",
@@ -143,10 +150,14 @@ export const representativeHandOff = botsdkSchema.table(
     channel: text("channel"),
     externalId: text("external_id"),
     verified: boolean("verified"),
+    customerId: uuid("customer_id").references((): AnyPgColumn => representativeCustomer.id, {
+      onDelete: "cascade",
+    }),
   },
   (table) => [
     index("representative_hand_off_representative_idx").on(table.representativeId),
     index("representative_hand_off_thread_idx").on(table.threadId),
+    index("representative_hand_off_customer_idx").on(table.customerId),
   ],
 );
 
@@ -160,13 +171,58 @@ export const representativeCustomer = botsdkSchema.table(
     id: uuid("id").primaryKey(),
     /** The owner: the Host's user id, with no foreign key, as everywhere in the `botsdk` schema. */
     userId: text("user_id").notNull(),
-    /** What the owner calls them; null until they say. */
-    name: text("name"),
     /** When the owner blocked them; null while not blocked. A blocked Customer's message runs no Turn. */
     blockedAt: timestamp("blocked_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [index("representative_customer_user_idx").on(table.userId, table.createdAt)],
+);
+
+/** A field an owner defines for all their Customers' profiles, beside the fixed ones. */
+export const representativeProfileField = botsdkSchema.table(
+  "representative_profile_field",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("representative_profile_field_name").on(table.userId, sql`lower(${table.name})`),
+  ],
+);
+
+/**
+ * One value of a Customer's profile: of a fixed field or of one the owner defined, never both. It
+ * says where it came from, whether it is `confirmed` or only `claimed`, and when it was recorded.
+ */
+export const representativeProfileValue = botsdkSchema.table(
+  "representative_profile_value",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => representativeCustomer.id, { onDelete: "cascade" }),
+    fixedField: text("fixed_field").$type<FixedProfileField>(),
+    fieldId: uuid("field_id").references(() => representativeProfileField.id, {
+      onDelete: "cascade",
+    }),
+    value: text("value").notNull(),
+    source: text("source").$type<ProfileSource>().notNull(),
+    status: text("status").$type<ProfileStatus>().notNull(),
+    /** From the SDK's clock, like a Published fact's times. */
+    recordedAt: timestamp("recorded_at").notNull(),
+  },
+  (table) => [
+    unique("representative_profile_value_fixed").on(table.customerId, table.fixedField),
+    unique("representative_profile_value_field").on(table.customerId, table.fieldId),
+    index("representative_profile_value_field_idx").on(table.fieldId),
+    check(
+      "representative_profile_value_one_field",
+      sql`num_nonnulls(${table.fixedField}, ${table.fieldId}) = 1`,
+    ),
+  ],
 );
 
 /**
@@ -236,6 +292,8 @@ export const representativeCustomerMerge = botsdkSchema.table(
     how: text("how").$type<CustomerMergeHow>().notNull(),
     identityIds: jsonb("identity_ids").$type<string[]>().notNull(),
     threadIds: jsonb("thread_ids").$type<string[]>().notNull(),
+    /** The hand-offs that go back with it, by Assignment, as a hand-off outlives its thread. */
+    handOffIds: jsonb("hand_off_ids").$type<string[]>().notNull().default([]),
     movedHolds: jsonb("moved_holds").$type<MovedHold[]>().notNull(),
     createdAt: timestamp("created_at").notNull(),
     undoneAt: timestamp("undone_at"),
@@ -332,6 +390,30 @@ export const representativeThread = botsdkSchema.table(
  * over, and a `bot` message is what the Bot finished a hand-off with, for the Customer (ticket #1254).
  */
 export type ThreadAuthor = "customer" | "representative" | "owner" | "note" | "bot";
+
+/**
+ * What the pass wrote when a Customer thread closed (ticket #1279): one row per thread, its summary
+ * or why there is none. It finds its Customer through its thread, so it follows a merge.
+ */
+export const representativeCustomerSummary = botsdkSchema.table(
+  "representative_customer_summary",
+  {
+    /** uuidv7, generated in app code. */
+    id: uuid("id").primaryKey(),
+    threadId: uuid("thread_id")
+      .notNull()
+      .unique("representative_customer_summary_thread")
+      .references((): AnyPgColumn => representativeThread.id, { onDelete: "cascade" }),
+    /** The Host's user id, with no foreign key, as everywhere in the `botsdk` schema. */
+    userId: text("user_id").notNull(),
+    /** Null when the pass was skipped. */
+    text: text("text"),
+    /** Why the pass wrote nothing; null on a summary. */
+    skipped: text("skipped").$type<CustomerSummarySkip>(),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (table) => [index("representative_customer_summary_user_idx").on(table.userId)],
+);
 
 /**
  * One message in a Customer thread: the feature's own row, not a core Message. `channel` and
@@ -466,21 +548,21 @@ export const representativeGap = botsdkSchema.table(
  * A Bot's proposed Published fact, waiting for the owner (ticket #1264): the whole fact it would
  * become. It goes when answered, dropped or replaced, and one that expired stays only until the
  * owner's next proposal clears it, changing nothing meanwhile. One waits per key. It goes with its
- * Bot, whose card goes with the Conversation.
+ * Bot, whose card goes with the Conversation. A lesson from the Customer memory pass (ticket #1289)
+ * has no Bot and no card, and no link to the Customer or thread it came from.
  */
 export const representativeFactProposal = botsdkSchema.table(
   "representative_fact_proposal",
   {
     id: uuid("id").primaryKey(),
     userId: text("user_id").notNull(),
-    botId: uuid("bot_id")
-      .notNull()
-      .references((): AnyPgColumn => bot.id, { onDelete: "cascade" }),
+    /** Null for a lesson. */
+    botId: uuid("bot_id").references((): AnyPgColumn => bot.id, { onDelete: "cascade" }),
     key: text("key").notNull(),
     proposed: jsonb("proposed").$type<LoggedFact>().notNull(),
     why: text("why").notNull(),
-    /** The Approval's card in the Bot's Conversation. */
-    cardId: text("card_id").notNull(),
+    /** The Approval's card in the Bot's Conversation; null for a lesson. */
+    cardId: text("card_id"),
     /** The Turn and tool call that asked, so a replay after a crash asks only once. */
     call: text("call"),
     postedAt: timestamp("posted_at").notNull(),

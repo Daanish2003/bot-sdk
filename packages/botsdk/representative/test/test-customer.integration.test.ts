@@ -278,7 +278,11 @@ describe("what a Turn may call", () => {
     await testCustomerTurn(deps, { representativeId: onlyReply, message: "Hi" });
     await testCustomerTurn(deps, { representativeId: none, message: "Hi" });
 
-    expect(toolNames(fake.calls[0])?.sort()).toEqual(["hand_to_bot", "reply"]);
+    expect(toolNames(fake.calls[0])?.sort()).toEqual([
+      "hand_to_bot",
+      "read_customer_work",
+      "reply",
+    ]);
     expect(toolNames(fake.calls[1])).toEqual(["reply"]);
     expect(toolNames(fake.calls[2]) ?? []).toEqual([]);
   });
@@ -760,12 +764,15 @@ describe("who can reach a Turn", () => {
       "create",
       "customerAddIdentity",
       "customerCreate",
+      "customerDelete",
       "customerList",
       "customerMerge",
       "customerMergeList",
       "customerMergeUndo",
+      "customerProfileSet",
       "customerRename",
       "customerSetBlocked",
+      "customerSummaryList",
       "customerUpdateIdentity",
       "declineApproval",
       "diff",
@@ -787,6 +794,10 @@ describe("who can reach a Turn", () => {
       "knowledgeList",
       "knowledgeStatus",
       "list",
+      "profileFieldAdd",
+      "profileFieldList",
+      "profileFieldRemove",
+      "profileFieldRename",
       "rollback",
       // Plays a draft's test conversations (#1192), each a test job: no Turn, no Customer.
       "runTests",

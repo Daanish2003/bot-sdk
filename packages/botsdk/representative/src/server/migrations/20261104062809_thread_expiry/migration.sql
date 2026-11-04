@@ -1,0 +1,4 @@
+ALTER TABLE "botsdk"."representative_hand_off" ADD COLUMN "customer_id" uuid;--> statement-breakpoint
+CREATE INDEX "representative_hand_off_customer_idx" ON "botsdk"."representative_hand_off" ("customer_id");--> statement-breakpoint
+ALTER TABLE "botsdk"."representative_hand_off" ADD CONSTRAINT "representative_hand_off_9J8R7bIiDYK1_fkey" FOREIGN KEY ("customer_id") REFERENCES "botsdk"."representative_customer"("id") ON DELETE CASCADE;--> statement-breakpoint
+UPDATE "botsdk"."representative_hand_off" SET "customer_id" = "t"."customer_id" FROM "botsdk"."representative_thread" AS "t" WHERE "representative_hand_off"."thread_id" = "t"."id";

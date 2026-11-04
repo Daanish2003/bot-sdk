@@ -27,6 +27,7 @@ import {
   type ThreadState,
 } from "./db/schema";
 import { isMergedAway, notMergedAway } from "./customer-merge";
+import { combinedProfilesOf, nameIn, setOwnerValue } from "./customer-profile";
 import { voidProofs } from "./customer-proof";
 import { grouped } from "./customers";
 import { lastMessageQuery } from "./last-message";
@@ -120,9 +121,15 @@ async function readCustomers(
     .orderBy(asc(representativeCustomerIdentity.createdAt), asc(representativeCustomerIdentity.id));
   const now = clock();
   const byCustomer = grouped(identities, (identity) => identity.customerId);
+  const profiles = await combinedProfilesOf(
+    db,
+    userId,
+    customers.map((customer) => customer.id),
+  );
   return customers.map((customer) => ({
     id: customer.id,
-    name: customer.name,
+    name: nameIn(profiles.get(customer.id)),
+    profile: profiles.get(customer.id) ?? [],
     blocked: customer.blockedAt !== null,
     createdAt: customer.createdAt,
     identities: (byCustomer.get(customer.id) ?? []).map(
@@ -153,7 +160,8 @@ export async function createCustomer(
 ) {
   const id = await context.db.transaction(async (tx) => {
     const customerId = uuidv7();
-    await tx.insert(representativeCustomer).values({ id: customerId, userId, name });
+    await tx.insert(representativeCustomer).values({ id: customerId, userId });
+    if (name) await setOwnerValue(tx, context.clock(), userId, customerId, "name", name);
     const made = await tx
       .insert(representativeCustomerIdentity)
       .values({ id: uuidv7(), userId, customerId, channel, externalId })
@@ -185,10 +193,20 @@ async function lockCustomer(tx: Transaction, userId: string, id: string) {
 export async function renameCustomer(context: Context, userId: string, id: string, name: string) {
   await context.db.transaction(async (tx) => {
     await lockCustomer(tx, userId, id);
-    await tx
-      .update(representativeCustomer)
-      .set({ name: name === "" ? null : name })
-      .where(eq(representativeCustomer.id, id));
+    await setOwnerValue(tx, context.clock(), userId, id, "name", name);
+  });
+  return readCustomer(context, userId, id);
+}
+
+/** Sets or, with an empty value, clears one value of a Customer's profile, as the owner's. */
+export async function setProfileValue(
+  context: Context,
+  userId: string,
+  { id, field, value }: { id: string; field: string; value: string },
+) {
+  await context.db.transaction(async (tx) => {
+    await lockCustomer(tx, userId, id);
+    await setOwnerValue(tx, context.clock(), userId, id, field, value);
   });
   return readCustomer(context, userId, id);
 }
@@ -348,7 +366,6 @@ export async function setBlocked(
 type ThreadRow = {
   id: string;
   customerId: string;
-  customerName: string | null;
   blockedAt: Date | null;
   representativeId: string;
   state: ThreadState;
@@ -372,7 +389,6 @@ const botWorkingQuery = sql`exists (select 1 from ${representativeHandOff} inner
 const threadColumns = {
   id: representativeThread.id,
   customerId: representativeThread.customerId,
-  customerName: representativeCustomer.name,
   blockedAt: representativeCustomer.blockedAt,
   representativeId: representativeThread.representativeId,
   state: representativeThread.state,
@@ -387,13 +403,13 @@ const threadColumns = {
   botWorking: sql<boolean>`${botWorkingQuery}`,
 };
 
-function summary(row: ThreadRow): ThreadSummary {
+function summary(row: ThreadRow, customerName: string | null): ThreadSummary {
   const holder: ThreadHolder = row.state;
   return {
     id: row.id,
     customer: {
       id: row.customerId,
-      name: row.customerName,
+      name: customerName,
       blocked: row.blockedAt !== null,
     },
     lastHeard: { channel: row.lastChannel, externalId: row.lastExternalId },
@@ -448,7 +464,10 @@ export async function listThreads(
   const rows = await threadRows(db, userId)
     .where(eq(representativeThread.representativeId, representativeId))
     .orderBy(desc(representativeThread.updatedAt), desc(representativeThread.id));
-  return rows.map(summary);
+  const profiles = await combinedProfilesOf(db, userId, [
+    ...new Set(rows.map((row) => row.customerId)),
+  ]);
+  return rows.map((row) => summary(row, nameIn(profiles.get(row.customerId))));
 }
 
 /** One thread of the owner's with its transcript, oldest first. */
@@ -482,9 +501,9 @@ export async function getThread(
           message.author === "representative" ? { kind: replyKind, sources: sources ?? [] } : null,
       })),
     );
-  const { identities } = await readCustomer(context, userId, row.customerId);
+  const { identities, name } = await readCustomer(context, userId, row.customerId);
   return {
-    ...summary(row),
+    ...summary(row, name),
     representativeId: row.representativeId,
     identities,
     messages,

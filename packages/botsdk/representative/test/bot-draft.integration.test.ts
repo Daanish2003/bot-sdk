@@ -207,7 +207,7 @@ describe("the draft tool", () => {
       model: customerModel,
       tests: [opens],
       // The Skill's words add no tool: the list is what any new draft starts with.
-      tools: ["reply", "hand_to_bot"],
+      tools: ["reply", "hand_to_bot", "read_customer_work"],
     });
   });
 
@@ -289,7 +289,7 @@ describe("the draft tool", () => {
 
     await expect.poll(() => made.customerFake.calls.length, poll).toBeGreaterThan(0);
     const sent = made.customerFake.calls[0]!.tools?.map((tool) => tool.name);
-    expect(sent).toEqual(["reply", "hand_to_bot"]);
+    expect(sent).toEqual(["reply", "hand_to_bot", "read_customer_work"]);
     expect(JSON.stringify(made.customerFake.calls[0])).not.toContain("draft_representative");
   });
 

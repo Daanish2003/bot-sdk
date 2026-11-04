@@ -37,7 +37,7 @@ import { demonstrationJobs, stopUserDemonstrations } from "./demonstrations";
 
 import { botPluginRouter } from "./routers";
 import { assignmentsApi } from "./assignments-api";
-import { exportAssignments } from "./assignments";
+import { assignmentRedactionJob, exportAssignments } from "./assignments";
 import { botsApi, type BotsApi } from "./bots-api";
 import { conversationsApi } from "./conversations-api";
 import { roomsApi } from "./rooms-api";
@@ -63,6 +63,7 @@ export const botJobs = [
   helperStoppedJob,
   deliveryJob,
   approvalExpiryJob,
+  assignmentRedactionJob,
 ];
 
 /**

@@ -125,7 +125,10 @@ export const botAssignment = botsdkSchema.table(
   ],
 );
 
-/** One append-only row of an Assignment's log: a status change, who made it, and in which Turn. */
+/**
+ * One append-only row of an Assignment's log, but for its note being redacted: a status change, who
+ * made it, and in which Turn.
+ */
 export const botAssignmentLog = botsdkSchema.table(
   "bot_assignment_log",
   {

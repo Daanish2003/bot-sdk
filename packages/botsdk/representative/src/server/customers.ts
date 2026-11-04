@@ -12,6 +12,7 @@ import {
   type ThreadAuthor,
 } from "./db/schema";
 import { holdCustomers } from "./customer-merge";
+import { nameIn, profilesOf } from "./customer-profile";
 import { catchCode, customerProofLeadsTo, mayHoldCode } from "./customer-proof";
 import { type ChannelProof, judgeSender } from "./verification";
 import type { ReplySource, StoredReplyKind } from "../shared/replies";
@@ -337,6 +338,30 @@ export async function readThread(
 }
 
 /**
+ * A thread's Customer, its row held until the end of `tx`, so that no merge moves the thread and its
+ * hand-offs before this one commits. A merge holds that row as it moves them, so a read that waited on
+ * one reads again. Null when the thread has gone. A Customer's lock comes before its thread's and a
+ * Conversation's, so call this before taking either.
+ */
+export async function holdThreadCustomer(tx: Transaction, threadId: string) {
+  let held: string | null = null;
+  for (;;) {
+    const [thread] = await tx
+      .select({ customerId: representativeThread.customerId })
+      .from(representativeThread)
+      .where(eq(representativeThread.id, threadId));
+    if (!thread) return null;
+    if (thread.customerId === held) return held;
+    held = thread.customerId;
+    await tx
+      .select({ id: representativeCustomer.id })
+      .from(representativeCustomer)
+      .where(eq(representativeCustomer.id, held))
+      .for("key share");
+  }
+}
+
+/**
  * Stores a reply as sent to the sender its Turn answers, if the Representative still holds the
  * thread. Not to whoever was heard last: an unverified identity writing during a verified Turn
  * mustn't get that Turn's reply.
@@ -410,13 +435,17 @@ export async function exportCustomers(tx: Transaction, userId: string) {
   const customers = await tx
     .select({
       id: representativeCustomer.id,
-      name: representativeCustomer.name,
       blockedAt: representativeCustomer.blockedAt,
       createdAt: representativeCustomer.createdAt,
     })
     .from(representativeCustomer)
     .where(eq(representativeCustomer.userId, userId))
     .orderBy(asc(representativeCustomer.createdAt), asc(representativeCustomer.id));
+  const profiles = await profilesOf(
+    tx,
+    userId,
+    customers.map((customer) => customer.id),
+  );
   const identities = grouped(
     await tx
       .select({
@@ -486,9 +515,10 @@ export async function exportCustomers(tx: Transaction, userId: string) {
       ),
     (row) => row.threadId,
   );
-  return customers.map(({ id, name, blockedAt, createdAt }) => ({
+  return customers.map(({ id, blockedAt, createdAt }) => ({
     id,
-    name,
+    name: nameIn(profiles.get(id)),
+    profile: profiles.get(id) ?? [],
     blockedAt,
     createdAt,
     identities: (identities.get(id) ?? []).map((row) => ({

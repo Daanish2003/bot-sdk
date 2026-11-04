@@ -14,6 +14,9 @@ ADR 0024 follows the lecture (slide 29): a blocked call waits 15 seconds inside 
 - **A late no wakes the Bot** too, so it doesn't go on assuming the call will run.
 - **A pending Approval expires after 7 days**, a constant in the SDK. Expiry shows in the thread and wakes no one.
 - **A pending Approval belongs to the Bot, not the Turn.** Stop during the 15-second wait still counts as no. A new Message during the wait ends the Turn but not the Approval, which goes pending: the user may not have seen it yet. After the wait, neither Stop nor a new Message touches it.
+
+  _Amended 2026-11-04 ([#1288](https://github.com/Daanish2003/bot-sdk/issues/1288), decided by the owner): one exception to an unanswered Approval staying pending. Deleting a Customer denies an open Approval from a Turn wholly on their Assignments, and from a Helper that Turn started, and redacts its call and its text, so no action runs for a deleted Customer. It wakes no one. Built the same way to serve that decision, and not itself put to the owner: a yes given before the delete is taken back while its job hasn't reached its start marker, and a call past that marker is redacted, stays allowed and wakes no one with its result. ADR 0035 says what else a delete redacts._
+
 - **A Helper's blocked call** goes pending the same way. Its stored call's result wakes the Bot, since the Helper has usually finished.
 - **Every browser or desktop action on a Screen** (a Computer-use Helper's acting calls, and the safety checks that always ask) keeps ADR 0024's strict 15 seconds with silence as no: a stored click on a live Screen means nothing days later. Pending covers shell commands and Connector tools.
 - **A Routine's Approval** is unchanged.

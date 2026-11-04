@@ -37,6 +37,8 @@ export const representativeMessages = {
   "representative.toolReply": "Reply to the Customer",
   "representative.toolHandToBot": "Hand off to the Bot",
   "representative.toolVerifyCustomer": "Send a Customer a code or link to prove who they are",
+  "representative.toolReadCustomerWork":
+    "Read the status of the Customer's own Assignments and what the Bot said for them",
   "representative.model": "Model",
   "representative.modelHelp": "With no Model chosen, it uses the Host's default.",
   "representative.modelUseDefault": "Use the default",
@@ -170,6 +172,8 @@ export const representativeMessages = {
     `Bot result of Assignment ${id}: "${quote}"`,
   "representative.replySourceDocument": ({ name, quote }: { name: string; quote: string }) =>
     `Document ${name}: "${quote}"`,
+  "representative.replySourceMemory": ({ quote }: { quote: string }) =>
+    `Customer memory: "${quote}"`,
   "representative.replySourcesNote":
     "Code checked that each source exists. It did not check that the reply says it right. Code also refuses a price, phone number or link the Model typed, but a price written out in words is not caught.",
   "representative.threadBlocked": "Blocked: this Customer gets no reply.",
@@ -193,16 +197,88 @@ export const representativeMessages = {
   "representative.customers.externalIdOf": ({ name }: { name: string }) => `Identity of ${name}`,
   "representative.customers.block": "Block",
   "representative.customers.unblock": "Unblock",
+  "representative.customers.delete": "Delete",
+  "representative.customers.deleteOf": ({ name }: { name: string }) => `Delete ${name}`,
+  "representative.customers.deleteTitle": ({ name }: { name: string }) => `Delete ${name}?`,
+  "representative.customers.deleteIntro": "This deletes them for good. It can't be undone.",
+  "representative.customers.deleteGoes": "What goes",
+  "representative.customers.deleteGoesIdentities": ({ identities }: { identities: string }) =>
+    `Their record and identities: ${identities}`,
+  "representative.customers.deleteGoesMemory": "Their profile values and summaries",
+  "representative.customers.deleteGoesThreads": "Their threads and every message in them",
+  "representative.customers.deleteGoesHandOffs": "How to reach them about work handed to your Bot",
+  "representative.customers.deleteGoesAssignments":
+    "The text of work they handed to your Bot, in its Assignments and its Conversation. The Assignments stay, redacted. Any still open is cancelled, and a call from that work still waiting for your Approval is denied",
+  "representative.customers.deleteGoesJobs": "Their queued Turns and other waiting work",
+  "representative.customers.deleteGoesElsewhere":
+    "Messages to or from their identities on other Customers' threads, which an undone merge can leave there. Those threads' summaries and hand-offs from them go too, and a thread with nothing left",
+  "representative.customers.deleteGoesMergeHistory": "Undone merges that hold any of this",
+  "representative.customers.deleteGoesMerged": ({ names }: { names: string }) =>
+    `Everyone merged into them, and all of the above for each: ${names}`,
+  "representative.customers.deleteStays": "What stays",
+  "representative.customers.deleteStaysSpend":
+    "Your spend records, which don't say who they were for",
+  "representative.customers.deleteStaysGaps":
+    "Gaps your Representatives logged, which can repeat what they asked and don't say who asked",
+  "representative.customers.deleteStaysJobRecords":
+    "Records of past Model calls, which can quote them, until they expire within 30 days",
+  "representative.customers.deleteStaysReworded":
+    "Anything your Bot put in its own words beyond the work itself, such as a Conversation summary",
+  "representative.customers.deleteStaysApprovals":
+    "A call still waiting for your Approval from a Bot Turn on other work as well, which can quote them and still runs if you allow it",
+  "representative.customers.deleteCancel": "Cancel",
+  "representative.customers.deleteConfirm": "Delete for good",
+  "representative.customers.deleted": ({ name }: { name: string }) => `Deleted ${name}`,
   "representative.customers.verified": "Verified",
   "representative.customers.unverified": "Not verified",
   "representative.customers.blockedBadge": "Blocked",
   "representative.customers.blockedHelp":
     "A blocked Customer's message is kept for you. It runs no model, gets no reply and opens no Assignment.",
   "representative.customers.saved": "Saved",
+  "representative.customers.profile": "Profile",
+  "representative.customers.profileSave": "Save",
+  "representative.customers.profileLanguage": "Language",
+  "representative.customers.profilePreferredChannel": "Preferred Channel",
+  "representative.customers.profileAddress": "Address",
+  "representative.customers.profileValueOf": ({ field, name }: { field: string; name: string }) =>
+    `${field} of ${name}`,
+  "representative.customers.profileSaveOf": ({ field, name }: { field: string; name: string }) =>
+    `Save ${field} of ${name}`,
+  "representative.customers.profileMeta": ({
+    source,
+    status,
+    date,
+  }: {
+    source: string;
+    status: string;
+    date: string;
+  }) => `${status} · from ${source} · ${date}`,
+  "representative.customers.profileSourceOwner": "you",
+  "representative.customers.profileSourceCustomer": "the Customer",
+  "representative.customers.profileSourceRepresentative": "the Representative",
+  "representative.customers.profileConfirmed": "Confirmed",
+  "representative.customers.profileClaimed": "Claimed",
+  "representative.customers.fields": "Your profile fields",
+  "representative.customers.fieldsHelp":
+    "Every Customer's profile has these, beside name, language, preferred Channel and address. Removing a field removes its value from every Customer.",
+  "representative.customers.fieldNew": "New profile field",
+  "representative.customers.fieldAdd": "Add field",
+  "representative.customers.fieldNameOf": ({ name }: { name: string }) => `Field ${name}`,
+  "representative.customers.fieldRename": "Rename",
+  "representative.customers.fieldRenameOf": ({ name }: { name: string }) => `Rename field ${name}`,
+  "representative.customers.fieldRemove": "Remove",
+  "representative.customers.fieldRemoveOf": ({ name }: { name: string }) => `Remove field ${name}`,
   "representative.customers.mergeInto": ({ name }: { name: string }) => `Merge ${name} into`,
   "representative.customers.mergeChoose": "Choose a Customer",
   "representative.customers.merge": "Merge",
   "representative.customers.mergeOf": ({ name }: { name: string }) => `Merge ${name}`,
+  "representative.customers.summaries": "Summaries of closed threads",
+  "representative.customers.summarySkipped.no_model":
+    "No summary: this Representative's Release names no Model.",
+  "representative.customers.summarySkipped.model_unavailable":
+    "No summary: the Model couldn't run when this thread closed.",
+  "representative.customers.summarySkipped.empty_reply": "No summary: the Model wrote nothing.",
+  "representative.customers.summarySkipped.model_failed": "No summary: the Model's calls failed.",
   "representative.customers.merges": "Merges",
   "representative.customers.mergeRow": ({ from, into }: { from: string; into: string }) =>
     `${from} into ${into}`,
@@ -240,7 +316,8 @@ export const representativeMessages = {
   "representative.facts.gapToFact": "Turn into a fact",
   "representative.facts.gapKeyOf": ({ name }: { name: string }) => `Key for: ${name}`,
   "representative.facts.gapNewFact": "new fact from a gap",
-  "representative.facts.proposalsTitle": "Proposed by your Bots",
+  "representative.facts.proposalsTitle": "Proposed for your facts",
+  "representative.facts.proposalLesson": "Lesson learned from your Customers",
   "representative.facts.proposalFrom": ({ name }: { name: string }) => `From ${name}`,
   "representative.facts.proposalCurrent": "Current",
   "representative.facts.proposalProposed": "Proposed",

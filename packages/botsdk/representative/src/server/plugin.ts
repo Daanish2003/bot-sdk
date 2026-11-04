@@ -14,14 +14,19 @@ import {
   representativeGap,
   representativeFactProposal,
   representativeHandOff,
+  representativeProfileField,
+  representativeProfileValue,
   representativeRelease,
   representativeTestResult,
   representativeThread,
   representativeThreadMessage,
+  representativeCustomerSummary,
   representativeVerification,
 } from "./db/schema";
+import { threadExpiryJob } from "./expiry";
 import { threadIdleJob } from "./idle";
 import { exportMerges } from "./customer-merge";
+import { deleteProfileFields, exportProfileFields } from "./customer-profile";
 import { type CustomerChannel, noCustomerChannel, proofLinkRoutes } from "./customer-proof";
 import { deleteCustomers, exportCustomers } from "./customers";
 import { dropProposalsOfBot, factProposalTools } from "./fact-proposals";
@@ -35,6 +40,7 @@ import {
 } from "./representatives";
 import type { ConvertDocument, KnowledgeFiles } from "./documents";
 import { representativeTestJob } from "./tests";
+import { exportCustomerSummaries, customerSummaryJob } from "./customer-summary";
 import { handOffEndedJob, representativeTurnJob } from "./turn";
 
 export type RepresentativeOptions = {
@@ -91,10 +97,13 @@ export function representativeFeature(
         representativeGap,
         representativeFactProposal,
         representativeHandOff,
+        representativeProfileField,
+        representativeProfileValue,
         representativeRelease,
         representativeTestResult,
         representativeThread,
         representativeThreadMessage,
+        representativeCustomerSummary,
         representativeVerification,
       },
       migrations: representativeMigrations,
@@ -115,6 +124,8 @@ export function representativeFeature(
       handOffEndedJob,
       representativeTestJob,
       threadIdleJob,
+      threadExpiryJob,
+      customerSummaryJob,
     ],
     userData: {
       delete: {
@@ -123,6 +134,7 @@ export function representativeFeature(
           // this has passed it, no new Customer can appear behind the delete below.
           await deleteRepresentatives(tx, userId);
           await deleteCustomers(tx, userId);
+          await deleteProfileFields(tx, userId);
           await deleteFacts(tx, userId);
           await deleteGaps(tx, userId);
         },
@@ -131,6 +143,8 @@ export function representativeFeature(
         representatives: await exportRepresentatives(tx, userId),
         customers: await exportCustomers(tx, userId),
         customerMerges: await exportMerges(tx, userId),
+        customerSummaries: await exportCustomerSummaries(tx, userId),
+        profileFields: await exportProfileFields(tx, userId),
         ...(await exportFacts(tx, userId)),
         ...(await exportGaps(tx, userId)),
       }),

@@ -17,7 +17,12 @@ export { factTypes, isInEffect, type FactType } from "./facts";
  * The tools a Representative may have: a code-defined list, so no draft can give one a shell or a
  * new power. Later specs add to it.
  */
-export const representativeTools = ["reply", "hand_to_bot", "verify_customer"] as const;
+export const representativeTools = [
+  "reply",
+  "hand_to_bot",
+  "verify_customer",
+  "read_customer_work",
+] as const;
 export type RepresentativeTool = (typeof representativeTools)[number];
 
 export const maxJobTextLength = 20_000;
@@ -262,11 +267,34 @@ export type CustomerIdentityView = {
   verified: boolean;
 };
 
+/** The profile fields every Customer has: the name, which has its own path, and these. */
+export const correctableFixedFields = ["language", "preferred_channel", "address"] as const;
+export const fixedProfileFields = ["name", ...correctableFixedFields] as const;
+export type FixedProfileField = (typeof fixedProfileFields)[number];
+/** Who a profile value came from: the owner who set it, or the author of the thread line the pass read it from. */
+export type ProfileSource = "owner" | "customer" | "representative";
+/** `confirmed` only if the owner set it or a verified Customer said it; `claimed` otherwise. */
+export type ProfileStatus = "claimed" | "confirmed";
+
+/** A field an owner defined for their Customers' profiles. */
+export type ProfileFieldView = { id: string; name: string };
+
+/** One value of a Customer's profile. */
+export type ProfileValueView = {
+  /** A fixed field, or the id of one the owner defined. */
+  field: string;
+  value: string;
+  source: ProfileSource;
+  status: ProfileStatus;
+  recordedAt: Date;
+};
+
 /** One of the owner's Customers, shared by all their Representatives. */
 export type CustomerView = {
   id: string;
-  /** What the owner calls them; null until they say. */
+  /** Their profile's name value; null until there is one. */
   name: string | null;
+  profile: ProfileValueView[];
   /** Whether the owner blocked them: a blocked Customer's message runs no Turn and gets no reply. */
   blocked: boolean;
   identities: CustomerIdentityView[];
@@ -284,6 +312,21 @@ export type CustomerMergeView = {
   identities: { channel: string; externalId: string }[];
   createdAt: Date;
   undoneAt: Date | null;
+};
+
+/** Why a closed thread has no summary: its Release names no Model, the Model can't run, it replied with nothing, or every try failed. */
+export type CustomerSummarySkip = "no_model" | "model_unavailable" | "empty_reply" | "model_failed";
+
+/** What the pass wrote for one of a Customer's closed threads. */
+export type CustomerSummaryView = {
+  id: string;
+  /** The thread it came from, whose transcript `threadGet` reads. */
+  threadId: string;
+  representative: { id: string; name: string };
+  /** Null when the pass was skipped. */
+  text: string | null;
+  skipped: CustomerSummarySkip | null;
+  createdAt: Date;
 };
 
 /** Who holds a Customer thread: its Representative, the owner who took it over, or no one once closed. */
@@ -367,6 +410,19 @@ export const customerRenameInput = z.object({
   name: storable(z.string().trim().max(maxCustomerNameLength)),
 });
 
+export const maxProfileFieldNameLength = 100;
+export const maxProfileValueLength = 1_000;
+const profileFieldName = storable(z.string().trim().min(1).max(maxProfileFieldNameLength));
+export const profileFieldAddInput = z.object({ name: profileFieldName });
+export const profileFieldRenameInput = z.object({ id: z.uuid(), name: profileFieldName });
+export const customerProfileSetInput = z.object({
+  id: z.uuid(),
+  /** A fixed field other than the name, which `customerRename` sets, or an own field's id. */
+  field: z.union([z.enum(correctableFixedFields), z.uuid()]),
+  /** An empty value clears it. */
+  value: storable(z.string().trim().max(maxProfileValueLength)),
+});
+
 /** The fields of a Published fact that don't name it, as stored or logged. */
 export type FactSnapshot = {
   type: FactType;
@@ -397,12 +453,13 @@ export type FactLogView = {
   at: Date;
 };
 
-/** A Bot's proposed fact waiting for the owner, with what it would replace. */
+/** A Bot's proposed fact, or a lesson from the Customer memory pass, waiting for the owner, with what it would replace. */
 export type FactProposalView = {
   id: string;
   key: string;
-  botId: string;
-  botName: string;
+  /** The Bot that proposed it; null for a lesson. */
+  botId: string | null;
+  botName: string | null;
   why: string;
   /** The fact as it is now; null when the key has none. */
   current: FactSnapshot | null;
@@ -547,6 +604,16 @@ export const representativeContract = {
   customerCreate: oc.input(customerCreateInput).output(type<CustomerView>()),
   /** Names a Customer, or clears the name with an empty one. */
   customerRename: oc.input(customerRenameInput).output(type<CustomerView>()),
+  /** Sets or, with an empty value, clears a Customer's profile value, as `confirmed` by the owner, today. */
+  customerProfileSet: oc.input(customerProfileSetInput).output(type<CustomerView>()),
+  /** The owner's own profile fields, oldest first. */
+  profileFieldList: oc.output(type<ProfileFieldView[]>()),
+  /** Adds a profile field. Refused when its name is a fixed field's or another of the owner's, ignoring case. */
+  profileFieldAdd: oc.input(profileFieldAddInput).output(type<ProfileFieldView>()),
+  /** Renames a profile field, refused as adding one is. Its values stay. */
+  profileFieldRename: oc.input(profileFieldRenameInput).output(type<ProfileFieldView>()),
+  /** Removes a profile field and every Customer's value of it. */
+  profileFieldRemove: oc.input(idInput),
   /** Gives a Customer another identity. Refused when the owner already has it, on this Customer or another. */
   customerAddIdentity: oc.input(customerAddIdentityInput).output(type<CustomerView>()),
   /** Corrects one identity. Refused when it would match another of the owner's identities. */
@@ -558,6 +625,15 @@ export const representativeContract = {
    * Representative. Refused while either is blocked. It verifies nobody, and can be undone.
    */
   customerMerge: oc.input(customerMergeInput).output(type<CustomerView>()),
+  /**
+   * Hard-deletes a Customer and everyone merged into them, with their identities, memory, threads and
+   * hand-off contact details, and cancels their queued jobs. Messages to or from their identities on
+   * other Customers' threads go too, with those threads' summaries, and a thread left empty. So do
+   * undone merges holding their ids. Spend stays. It can't be undone.
+   */
+  customerDelete: oc.input(idInput),
+  /** What the pass wrote for a Customer's closed threads, newest first, skips too. */
+  customerSummaryList: oc.input(idInput).output(type<CustomerSummaryView[]>()),
   /** The owner's merges of Customers, newest first, undone ones too. */
   customerMergeList: oc.output(type<CustomerMergeView[]>()),
   /** Undoes a merge: each identity goes back to its original Customer, and a closed thread stays closed. */
@@ -578,11 +654,11 @@ export const representativeContract = {
   gapDismiss: oc.input(idInput).output(type<GapView>()),
   /** Adds a fact and closes the Gap it answers, together. Refused when the owner has the key already. */
   gapToFact: oc.input(gapToFactInput).output(type<FactView>()),
-  /** The facts the owner's Bots have proposed that still wait for an answer, oldest first. */
+  /** The facts the owner's Bots have proposed, and the lessons, that still wait for an answer, oldest first. */
   factProposals: oc.output(type<FactProposalView[]>()),
-  /** Applies a Bot's proposed fact, logged as its proposal, and wakes the Bot. */
+  /** Applies a Bot's proposed fact or a lesson, logged as its proposal, and wakes the Bot (a lesson wakes no one). */
   factProposalApprove: oc.input(idInput).output(type<FactView>()),
-  /** Refuses a Bot's proposed fact, which changes nothing, and wakes the Bot. */
+  /** Refuses a Bot's proposed fact or a lesson, which changes nothing, and wakes the Bot (a lesson wakes no one). */
   factProposalDecline: oc.input(idInput).output(type<void>()),
   /** A Representative's Customer threads, the most recently active first. */
   threadList: oc.input(idInput).output(type<ThreadSummary[]>()),

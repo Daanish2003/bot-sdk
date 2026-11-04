@@ -12,7 +12,11 @@ import { fakeChannel } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
-import { representativeThread, representativeThreadMessage } from "../src/server/db/schema";
+import {
+  representativeHandOff,
+  representativeThread,
+  representativeThreadMessage,
+} from "../src/server/db/schema";
 import { representativeFeature } from "../src/server/plugin";
 import { handOffMessage } from "../src/server/replies";
 import { takeoverNote } from "../src/server/takeover";
@@ -245,6 +249,23 @@ describe("a hand-off's result", () => {
     expect(
       await getTestDb().select().from(botAssignment).where(eq(botAssignment.assignedBotId, botId)),
     ).toEqual([]);
+  });
+
+  it("keeps naming the Customer once the result is delivered", async () => {
+    const { send, drain, thread } = await serving([handsOff(), quiet(), quiet()]);
+    await send("I want a refund");
+
+    await drain();
+
+    const { customer } = await thread();
+    const rows = await getTestDb()
+      .select({
+        threadId: representativeHandOff.threadId,
+        customerId: representativeHandOff.customerId,
+      })
+      .from(representativeHandOff);
+    // Delivered once: the thread is cleared, the Customer is not.
+    expect(rows).toEqual([{ threadId: null, customerId: customer.id }]);
   });
 
   it("wakes a Turn that tells the Customer, where they were last heard", async () => {

@@ -37,11 +37,15 @@ import {
   representative as representativeTable,
   representativeCustomer,
   representativeCustomerIdentity,
+  representativeProfileField,
+  representativeProfileValue,
   representativeFact,
   representativeFactLog,
   representativeGap,
   representativeFactProposal,
   representativeRelease,
+  representativeThread,
+  representativeCustomerSummary,
 } from "@botsdk/representative/server/db/schema";
 import { profilePath } from "@botsdk/memory/server/bot-memory";
 import { memorySettings } from "@botsdk/memory/server/schema";
@@ -76,10 +80,13 @@ const userTables = [
   representativeTable,
   representativeCustomer,
   representativeCustomerIdentity,
+  representativeProfileField,
+  representativeProfileValue,
   representativeFact,
   representativeFactLog,
   representativeGap,
   representativeFactProposal,
+  representativeCustomerSummary,
 ].flatMap((value) => {
   if (!is(value, PgTable)) return [];
   const { name, columns } = getTableConfig(value);
@@ -231,6 +238,21 @@ async function seedEverything(
   await getTestDb()
     .insert(representativeCustomerIdentity)
     .values({ id: uuidv7(), userId: user.id, customerId, channel: "fake", externalId: "+1" });
+  // An own profile field, and the Customer's value of it.
+  const profileFieldId = uuidv7();
+  await getTestDb()
+    .insert(representativeProfileField)
+    .values({ id: profileFieldId, userId: user.id, name: "Equipment" });
+  await getTestDb().insert(representativeProfileValue).values({
+    id: uuidv7(),
+    userId: user.id,
+    customerId,
+    fieldId: profileFieldId,
+    value: "Boiler",
+    source: "owner",
+    status: "confirmed",
+    recordedAt: new Date(),
+  });
   // A Published fact, and the log entry of adding it.
   const factAt = new Date("2026-06-01T09:00:00Z");
   const loggedFact = {
@@ -317,6 +339,23 @@ async function seedEverything(
         tests: [],
       },
     });
+  // A closed thread of the Customer's, and its summary.
+  const threadId = uuidv7();
+  await getTestDb().insert(representativeThread).values({
+    id: threadId,
+    customerId,
+    representativeId,
+    state: "closed",
+    lastChannel: "fake",
+    lastExternalId: "+1",
+  });
+  await getTestDb().insert(representativeCustomerSummary).values({
+    id: uuidv7(),
+    threadId,
+    userId: user.id,
+    text: "Asked about prices.",
+    createdAt: factAt,
+  });
   await getTestDb()
     .insert(modelSettings)
     .values({ userId: user.id, imageModel: "openai:gpt-image-2" });

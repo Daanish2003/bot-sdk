@@ -143,6 +143,39 @@ export function useRenameCustomer(
   return useMutation(useRepresentative().customerRename.mutationOptions(options));
 }
 
+/** Sets or clears a Customer's profile value (`representative.customerProfileSet`). */
+export function useSetCustomerProfileValue(
+  options?: ProcedureMutationOptions<Representative["customerProfileSet"]>,
+) {
+  return useMutation(useRepresentative().customerProfileSet.mutationOptions(options));
+}
+
+/** The owner's own profile fields (`representative.profileFieldList`). */
+export function useProfileFields() {
+  return useQuery(useRepresentative().profileFieldList.queryOptions());
+}
+
+/** Adds a profile field (`representative.profileFieldAdd`). */
+export function useAddProfileField(
+  options?: ProcedureMutationOptions<Representative["profileFieldAdd"]>,
+) {
+  return useMutation(useRepresentative().profileFieldAdd.mutationOptions(options));
+}
+
+/** Renames a profile field (`representative.profileFieldRename`). */
+export function useRenameProfileField(
+  options?: ProcedureMutationOptions<Representative["profileFieldRename"]>,
+) {
+  return useMutation(useRepresentative().profileFieldRename.mutationOptions(options));
+}
+
+/** Removes a profile field and its values (`representative.profileFieldRemove`). */
+export function useRemoveProfileField(
+  options?: ProcedureMutationOptions<Representative["profileFieldRemove"]>,
+) {
+  return useMutation(useRepresentative().profileFieldRemove.mutationOptions(options));
+}
+
 /** Gives a Customer another identity (`representative.customerAddIdentity`). */
 export function useAddCustomerIdentity(
   options?: ProcedureMutationOptions<Representative["customerAddIdentity"]>,
@@ -169,6 +202,18 @@ export function useMergeCustomer(
   options?: ProcedureMutationOptions<Representative["customerMerge"]>,
 ) {
   return useMutation(useRepresentative().customerMerge.mutationOptions(options));
+}
+
+/** Deletes a Customer for good (`representative.customerDelete`). */
+export function useDeleteCustomer(
+  options?: ProcedureMutationOptions<Representative["customerDelete"]>,
+) {
+  return useMutation(useRepresentative().customerDelete.mutationOptions(options));
+}
+
+/** What the pass wrote for a Customer's closed threads (`representative.customerSummaryList`). */
+export function useCustomerSummaries(id: string) {
+  return useQuery(useRepresentative().customerSummaryList.queryOptions({ input: { id } }));
 }
 
 /** The owner's merges of Customers (`representative.customerMergeList`). */

@@ -11,6 +11,7 @@ export {
   closeWaitingReviews,
   decideReview,
   declineBotApprovals,
+  denyForDeletedCustomer,
   reopenUnstartedCalls,
   judge,
   listedReviews,

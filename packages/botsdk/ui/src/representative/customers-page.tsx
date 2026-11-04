@@ -1,4 +1,12 @@
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useState } from "react";
@@ -8,17 +16,35 @@ import { useI18n } from "@botsdk/react/provider";
 import { serverErrorText } from "@botsdk/react/rpc-error";
 import {
   useAddCustomerIdentity,
+  useAddProfileField,
   useCreateCustomer,
   useCustomerMerges,
+  useCustomerSummaries,
   useCustomers,
+  useDeleteCustomer,
   useMergeCustomer,
+  useProfileFields,
   useRefreshRepresentatives,
+  useRemoveProfileField,
   useRenameCustomer,
+  useRenameProfileField,
   useSetCustomerBlocked,
+  useSetCustomerProfileValue,
   useUndoCustomerMerge,
   useUpdateCustomerIdentity,
 } from "@botsdk/representative/react";
-import type { CustomerMergeView, CustomerView } from "@botsdk/representative/client";
+import {
+  correctableFixedFields,
+  type CustomerMergeView,
+  type CustomerSummaryView,
+  type CustomerView,
+  maxProfileFieldNameLength,
+  maxProfileValueLength,
+  type ProfileFieldView,
+  type ProfileValueView,
+} from "@botsdk/representative/client";
+
+import { Transcript } from "./representative-threads";
 
 type Identity = { channel: string; externalId: string };
 
@@ -119,6 +145,111 @@ function MergeInto({
   );
 }
 
+/** The names of everyone merged into a Customer, by the merges that stand, however many steps away. */
+function mergedInto(merges: CustomerMergeView[], id: string): Array<string | null> {
+  return merges
+    .filter((each) => each.survivor.id === id && !each.undoneAt)
+    .flatMap((each) => [each.absorbed.name, ...mergedInto(merges, each.absorbed.id)]);
+}
+
+/** Delete, which first says what goes and what stays. */
+function DeleteCustomer({
+  customer,
+  label,
+  merged,
+}: {
+  customer: CustomerView;
+  label: string;
+  /** Undefined until the merges have loaded, when Delete can't yet say who goes. */
+  merged: Array<string | null> | undefined;
+}) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const [open, setOpen] = useState(false);
+  const remove = useDeleteCustomer({
+    onSuccess: async () => {
+      setOpen(false);
+      await refresh();
+      toast.success(t("representative.customers.deleted", { name: label }));
+    },
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  const goes = [
+    t("representative.customers.deleteGoesIdentities", {
+      identities: customer.identities.map((identity) => identity.externalId).join(", "),
+    }),
+    t("representative.customers.deleteGoesMemory"),
+    t("representative.customers.deleteGoesThreads"),
+    t("representative.customers.deleteGoesHandOffs"),
+    t("representative.customers.deleteGoesAssignments"),
+    t("representative.customers.deleteGoesJobs"),
+    t("representative.customers.deleteGoesElsewhere"),
+    t("representative.customers.deleteGoesMergeHistory"),
+    ...(merged && merged.length > 0
+      ? [
+          t("representative.customers.deleteGoesMerged", {
+            names: merged.map((name) => name ?? t("representative.customers.unnamed")).join(", "),
+          }),
+        ]
+      : []),
+  ];
+  return (
+    <>
+      <Button
+        variant="destructive"
+        size="sm"
+        aria-label={t("representative.customers.deleteOf", { name: label })}
+        disabled={!merged}
+        onClick={() => setOpen(true)}
+      >
+        {t("representative.customers.delete")}
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("representative.customers.deleteTitle", { name: label })}</DialogTitle>
+            <DialogDescription>{t("representative.customers.deleteIntro")}</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3 text-sm">
+            <section aria-label={t("representative.customers.deleteGoes")}>
+              <h3 className="font-medium">{t("representative.customers.deleteGoes")}</h3>
+              <ul className="list-disc pl-5 text-muted-foreground">
+                {goes.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </section>
+            <section aria-label={t("representative.customers.deleteStays")}>
+              <h3 className="font-medium">{t("representative.customers.deleteStays")}</h3>
+              <ul className="list-disc pl-5 text-muted-foreground">
+                <li>{t("representative.customers.deleteStaysSpend")}</li>
+                <li>{t("representative.customers.deleteStaysGaps")}</li>
+                <li>{t("representative.customers.deleteStaysJobRecords")}</li>
+                <li>{t("representative.customers.deleteStaysReworded")}</li>
+                <li>{t("representative.customers.deleteStaysApprovals")}</li>
+              </ul>
+            </section>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              {t("representative.customers.deleteCancel")}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={remove.isPending}
+              onClick={() => remove.mutate({ id: customer.id })}
+            >
+              {t("representative.customers.deleteConfirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 /** One merge: what moved, who did it, and Undo while it stands. */
 function MergeRow({ merge }: { merge: CustomerMergeView }) {
   const i18n = useI18n();
@@ -165,7 +296,197 @@ function MergeRow({ merge }: { merge: CustomerMergeView }) {
   );
 }
 
-function CustomerCard({ customer, others }: { customer: CustomerView; others: CustomerView[] }) {
+/** One closed thread's summary, or why it has none, and its transcript on request. */
+function SummaryRow({ summary }: { summary: CustomerSummaryView }) {
+  const { t, locale } = useI18n();
+  const [open, setOpen] = useState(false);
+  const toggle = t(open ? "representative.threadClose" : "representative.threadOpen");
+  const when = new Date(summary.createdAt).toLocaleString(locale);
+  return (
+    <li data-summary={summary.id} className="rounded-md border">
+      <div className="space-y-1 p-3 text-sm">
+        <p className="text-xs text-muted-foreground">
+          {summary.representative.name} · {when}
+        </p>
+        {summary.text !== null ? (
+          <p className="whitespace-pre-wrap break-words">{summary.text}</p>
+        ) : (
+          <p className="text-muted-foreground">
+            {t(`representative.customers.summarySkipped.${summary.skipped!}`)}
+          </p>
+        )}
+        <Button
+          variant="outline"
+          size="sm"
+          aria-expanded={open}
+          aria-label={`${toggle} ${when}`}
+          onClick={() => setOpen(!open)}
+        >
+          {toggle}
+        </Button>
+      </div>
+      {open && <Transcript id={summary.threadId} />}
+    </li>
+  );
+}
+
+/** What the pass wrote for this Customer's closed threads, the newest first. */
+function CustomerSummaries({ id }: { id: string }) {
+  const { t } = useI18n();
+  const summaries = useCustomerSummaries(id);
+  if (!summaries.data?.length) return null;
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-medium text-muted-foreground">
+        {t("representative.customers.summaries")}
+      </h3>
+      <ul className="space-y-2">
+        {summaries.data.map((summary) => (
+          <SummaryRow key={summary.id} summary={summary} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+const profileSourceKeys = {
+  owner: "representative.customers.profileSourceOwner",
+  customer: "representative.customers.profileSourceCustomer",
+  representative: "representative.customers.profileSourceRepresentative",
+} as const;
+
+/** Where a profile value came from, whether it is confirmed, and when it was recorded. */
+function ProfileValueMeta({ value }: { value: ProfileValueView | undefined }) {
+  const { t } = useI18n();
+  if (!value) return null;
+  return (
+    <p data-status={value.status} className="text-xs text-muted-foreground">
+      {t("representative.customers.profileMeta", {
+        source: t(profileSourceKeys[value.source]),
+        status: t(
+          value.status === "confirmed"
+            ? "representative.customers.profileConfirmed"
+            : "representative.customers.profileClaimed",
+        ),
+        date: value.recordedAt.toLocaleDateString(),
+      })}
+    </p>
+  );
+}
+
+/** One field of a Customer's profile, with its value's meta. Saving it confirms it as the owner's. */
+function ProfileRow({
+  customerId,
+  field,
+  label,
+  who,
+  value,
+}: {
+  customerId: string;
+  field: string;
+  label: string;
+  who: string;
+  value: ProfileValueView | undefined;
+}) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const set = useSetCustomerProfileValue({
+    onSuccess: async () => {
+      await refresh();
+      toast.success(t("representative.customers.saved"));
+    },
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  const [text, setText] = useState(value?.value ?? "");
+  const unchanged = text.trim() === (value?.value ?? "") && value?.status !== "claimed";
+  return (
+    <form
+      data-profile-field={field}
+      className="space-y-1"
+      onSubmit={(event) => {
+        event.preventDefault();
+        set.mutate({ id: customerId, field, value: text });
+      }}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="w-32 truncate text-xs">{label}</span>
+        <Input
+          className="w-56"
+          aria-label={t("representative.customers.profileValueOf", { field: label, name: who })}
+          value={text}
+          maxLength={maxProfileValueLength}
+          onChange={(event) => setText(event.target.value)}
+        />
+        <Button
+          type="submit"
+          variant="outline"
+          size="sm"
+          disabled={set.isPending || unchanged}
+          aria-label={t("representative.customers.profileSaveOf", { field: label, name: who })}
+        >
+          {t("representative.customers.profileSave")}
+        </Button>
+      </div>
+      <ProfileValueMeta value={value} />
+    </form>
+  );
+}
+
+/** A Customer's profile, below the name: the other fixed fields, then the owner's own. */
+function ProfileSection({
+  customer,
+  label,
+  fields,
+}: {
+  customer: CustomerView;
+  label: string;
+  fields: ProfileFieldView[];
+}) {
+  const { t } = useI18n();
+  const fixedNames = {
+    language: t("representative.customers.profileLanguage"),
+    preferred_channel: t("representative.customers.profilePreferredChannel"),
+    address: t("representative.customers.profileAddress"),
+  };
+  const rows = [
+    ...correctableFixedFields.map((field) => ({ field, name: fixedNames[field] as string })),
+    ...fields.map(({ id, name }) => ({ field: id as string, name })),
+  ];
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-medium text-muted-foreground">
+        {t("representative.customers.profile")}
+      </h3>
+      {rows.map(({ field, name }) => {
+        const value = customer.profile.find((each) => each.field === field);
+        return (
+          <ProfileRow
+            // Keyed by what is stored, so a refetch after a save reloads the field.
+            key={`${field}:${value?.value ?? ""}`}
+            customerId={customer.id}
+            field={field}
+            label={name}
+            who={label}
+            value={value}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function CustomerCard({
+  customer,
+  others,
+  fields,
+  merges,
+}: {
+  customer: CustomerView;
+  others: CustomerView[];
+  fields: ProfileFieldView[];
+  merges: CustomerMergeView[] | undefined;
+}) {
   const i18n = useI18n();
   const { t } = i18n;
   const refresh = useRefreshRepresentatives();
@@ -182,6 +503,7 @@ function CustomerCard({ customer, others }: { customer: CustomerView; others: Cu
   const block = useSetCustomerBlocked({ ...options, onSuccess: refresh });
   const [name, setName] = useState(customer.name ?? "");
   const label = customer.name ?? t("representative.customers.unnamed");
+  const nameValue = customer.profile.find((each) => each.field === "name");
   const blockText = t(
     customer.blocked ? "representative.customers.unblock" : "representative.customers.block",
   );
@@ -199,7 +521,10 @@ function CustomerCard({ customer, others }: { customer: CustomerView; others: Cu
         <Button
           variant="outline"
           size="sm"
-          disabled={rename.isPending || name.trim() === (customer.name ?? "")}
+          disabled={
+            rename.isPending ||
+            (name.trim() === (customer.name ?? "") && nameValue?.status !== "claimed")
+          }
           onClick={() => rename.mutate({ id: customer.id, name })}
         >
           {t("representative.customers.saveName")}
@@ -217,10 +542,17 @@ function CustomerCard({ customer, others }: { customer: CustomerView; others: Cu
         >
           {blockText}
         </Button>
+        <DeleteCustomer
+          customer={customer}
+          label={label}
+          merged={merges && mergedInto(merges, customer.id)}
+        />
       </div>
+      <ProfileValueMeta value={nameValue} />
       {customer.blocked && (
         <p className="text-xs text-muted-foreground">{t("representative.customers.blockedHelp")}</p>
       )}
+      <ProfileSection customer={customer} label={label} fields={fields} />
       <div className="space-y-2">
         <h3 className="text-xs font-medium text-muted-foreground">
           {t("representative.customers.identities")}
@@ -257,8 +589,103 @@ function CustomerCard({ customer, others }: { customer: CustomerView; others: Cu
           onSubmit={(value) => add.mutate({ id: customer.id, ...value })}
         />
       </div>
+      <CustomerSummaries id={customer.id} />
       {others.length > 0 && <MergeInto customer={customer} label={label} others={others} />}
     </li>
+  );
+}
+
+/** One of the owner's own fields: renamed with a button, or removed with every Customer's value. */
+function ProfileFieldRow({ field }: { field: ProfileFieldView }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const options = {
+    onSuccess: () => refresh(),
+    onError: (error: unknown) => toast.error(serverErrorText(i18n, error)),
+  };
+  const rename = useRenameProfileField(options);
+  const remove = useRemoveProfileField(options);
+  const [name, setName] = useState(field.name);
+  return (
+    <li data-profile-field-row={field.name} className="flex flex-wrap items-center gap-2 p-3">
+      <Input
+        className="w-56"
+        aria-label={t("representative.customers.fieldNameOf", { name: field.name })}
+        value={name}
+        maxLength={maxProfileFieldNameLength}
+        onChange={(event) => setName(event.target.value)}
+      />
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={rename.isPending || name.trim() === "" || name.trim() === field.name}
+        aria-label={t("representative.customers.fieldRenameOf", { name: field.name })}
+        onClick={() => rename.mutate({ id: field.id, name })}
+      >
+        {t("representative.customers.fieldRename")}
+      </Button>
+      <Button
+        className="ml-auto"
+        variant="destructive"
+        size="sm"
+        disabled={remove.isPending}
+        aria-label={t("representative.customers.fieldRemoveOf", { name: field.name })}
+        onClick={() => remove.mutate({ id: field.id })}
+      >
+        {t("representative.customers.fieldRemove")}
+      </Button>
+    </li>
+  );
+}
+
+/** The fields the owner defined for all their Customers' profiles. */
+function ProfileFields({ fields }: { fields: ProfileFieldView[] }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const [name, setName] = useState("");
+  const add = useAddProfileField({
+    onSuccess: async () => {
+      await refresh();
+      setName("");
+    },
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  return (
+    <section className="space-y-2">
+      <h2 className="text-sm font-medium">{t("representative.customers.fields")}</h2>
+      <p className="text-sm text-muted-foreground">{t("representative.customers.fieldsHelp")}</p>
+      <form
+        className="flex flex-wrap items-center gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          add.mutate({ name });
+        }}
+      >
+        <Input
+          className="w-56"
+          aria-label={t("representative.customers.fieldNew")}
+          value={name}
+          maxLength={maxProfileFieldNameLength}
+          onChange={(event) => setName(event.target.value)}
+        />
+        <Button
+          type="submit"
+          variant="outline"
+          size="sm"
+          disabled={add.isPending || name.trim() === ""}
+        >
+          {t("representative.customers.fieldAdd")}
+        </Button>
+      </form>
+      <ul className="divide-y overflow-hidden rounded-xl border empty:hidden">
+        {fields.map((field) => (
+          // Keyed by what is stored, so a refetch after a save reloads the field.
+          <ProfileFieldRow key={`${field.id}:${field.name}`} field={field} />
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -333,6 +760,7 @@ export function CustomersPage() {
   const customers = useCustomers();
   const all = customers.data ?? [];
   const merges = useCustomerMerges();
+  const fields = useProfileFields().data ?? [];
   return (
     <main className="mx-auto w-full max-w-2xl space-y-6 p-6">
       <div className="space-y-1">
@@ -343,6 +771,7 @@ export function CustomersPage() {
         <h2 className="text-sm font-medium">{t("representative.customers.add")}</h2>
         <NewCustomerForm />
       </section>
+      <ProfileFields fields={fields} />
       {customers.data?.length === 0 && (
         <p className="text-sm text-muted-foreground">{t("representative.customers.none")}</p>
       )}
@@ -353,6 +782,8 @@ export function CustomersPage() {
             key={`${customer.id}:${customer.name ?? ""}`}
             customer={customer}
             others={all.filter((other) => other.id !== customer.id)}
+            fields={fields}
+            merges={merges.data}
           />
         ))}
       </ul>

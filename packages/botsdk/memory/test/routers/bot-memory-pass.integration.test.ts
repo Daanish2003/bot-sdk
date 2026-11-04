@@ -2,10 +2,23 @@ import type { TextOptions } from "@tanstack/ai";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { assignmentEnded, defineFeature, defineJob, type FeatureContext } from "@botsdk/bot";
+import { sendToUserToolName } from "@botsdk/bot/bot/context";
+import { isTurnCall } from "@ai-chat/test-support/bot-turns";
+import { receive } from "@botsdk/bot/bot/triggers";
 import { conversationChannel } from "@botsdk/bot/chat/conversation-events";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { createMemoryPubSub } from "@botsdk/bot/chat/pubsub";
-import { bot, botTurn, computer, conversation, job, message, usage } from "@botsdk/bot/storage";
+import {
+  bot,
+  botAssignment,
+  botTurn,
+  computer,
+  conversation,
+  job,
+  message,
+  usage,
+} from "@botsdk/bot/storage";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { ComputerProvider } from "@botsdk/bot/computer/internal";
 import type { HostProvider } from "@botsdk/bot/models/internal";
@@ -28,6 +41,7 @@ import {
   round,
   runError,
   text,
+  toolCall,
   withUsage,
 } from "@botsdk/testing/fake-adapter";
 import { chatRpc } from "@ai-chat/test-support/sdk";
@@ -81,7 +95,11 @@ async function botsWith(
     host = false,
     getQuota,
     logger,
-  }: { names?: string[]; host?: boolean } & Pick<TestDepsOverrides, "getQuota" | "logger"> = {},
+    features,
+  }: { names?: string[]; host?: boolean } & Pick<
+    TestDepsOverrides,
+    "getQuota" | "logger" | "features"
+  > = {},
 ) {
   const fake = createFakeAdapter({ rounds });
   // Its `rm -rf -- '<dir>'` deletes the files under that directory, as a reset's does.
@@ -114,6 +132,7 @@ async function botsWith(
     ...(host && { hostProviders }),
     ...(getQuota && { getQuota }),
     ...(logger && { logger }),
+    ...(features && { features }),
   });
   await jobs.start();
   started.push(jobs);
@@ -1006,4 +1025,346 @@ describe("a Bot with no pass", () => {
 
     expect(await passJobs()).toHaveLength(0);
   });
+});
+
+describe("a Turn on an untrusted Assignment", () => {
+  type Service = FeatureContext<"assignments">["assignments"];
+  const timeout = 30_000;
+  const poll = { timeout: 10_000 };
+  const secret = "WIRE-THE-MONEY-TO-ACCOUNT-9";
+
+  /** A feature that hands work over as the Representative does: its text is untrusted. */
+  function assigner() {
+    const service = { current: undefined as Service | undefined };
+    const wake = { current: () => {} };
+    const onEnded = defineJob({
+      name: "repairs.assignment-ended",
+      payload: assignmentEnded,
+      run: async () => {},
+    });
+    const feature = defineFeature({
+      id: "repairs",
+      needs: ["assignments"],
+      jobs: [onEnded],
+      api: ({ assignments, jobs }) => {
+        service.current = assignments;
+        wake.current = jobs.wake;
+        return {};
+      },
+    });
+    return {
+      feature,
+      create: async (userId: string, botId: string) => {
+        const made = await getTestDb().transaction((tx) =>
+          service.current!.create(tx, {
+            userId,
+            botId,
+            title: "Book a repair",
+            instructions: secret,
+            job: onEnded,
+          }),
+        );
+        wake.current();
+        return made;
+      },
+    };
+  }
+
+  const statuses = async (botId: string) =>
+    (
+      await getTestDb()
+        .select({ status: botTurn.status })
+        .from(botTurn)
+        .where(eq(botTurn.botId, botId))
+    ).map((turn) => turn.status);
+
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 600));
+
+  /** The Assignment id the newest text in a Model call names. */
+  const assignmentIdIn = (call: TextOptions) =>
+    /Assignment ([0-9a-f]{8}-[0-9a-f-]{27})/.exec(JSON.stringify(call.messages.slice(1)))![1]!;
+
+  const runs = (name: string, args: unknown) =>
+    toolCall({ name: "run_tool", input: { name, args } });
+
+  /** Fires a Check-in's Trigger at the Bot, as a due Check-in does. */
+  async function checkIn(deps: TestDeps, botId: string) {
+    const [row] = await getTestDb()
+      .select({ conversationId: bot.conversationId })
+      .from(bot)
+      .where(eq(bot.id, botId));
+    await getTestDb().transaction((tx) =>
+      receive(deps, tx, {
+        id: `check_in:${uuidv7()}`,
+        botId,
+        conversationId: row!.conversationId,
+        source: "check_in",
+        channel: "schedule",
+        text: "Come back to it.",
+        receivedAt: deps.clock(),
+      }),
+    );
+    deps.runner.wake();
+  }
+
+  it(
+    "queues no pass for a Turn that took only the Assignment's Trigger",
+    async () => {
+      const made = assigner();
+      const { user, botIds, fake } = await botsWith([round()], {
+        features: [made.feature],
+      });
+      const [ada] = botIds as [string];
+
+      await made.create(user.id, ada);
+      await expect.poll(() => statuses(ada), poll).toEqual(["complete"]);
+      await settle();
+
+      expect(await passJobs()).toHaveLength(0);
+      expect(fake.calls).toHaveLength(1);
+    },
+    timeout,
+  );
+
+  it(
+    "gives a mixed Turn's pass the user's lines and none of the Assignment's or the Bot's",
+    async () => {
+      const made = assigner();
+      const { client, user, botIds, fake } = await botsWith(
+        [
+          (call) =>
+            round(
+              runs("finish_assignment", {
+                id: assignmentIdIn(call),
+                status: "done",
+                outcome: "OUTCOME-WITH-DETAILS",
+              }),
+            ),
+          round(text("BOT-SAID-THIS")),
+          ops(),
+        ],
+        { features: [made.feature] },
+      );
+      const [ada] = botIds as [string];
+
+      await followSend(client, { botId: ada, id: uuidv7(), text: "I like oat milk" });
+      await made.create(user.id, ada);
+      await passesEnded(1);
+
+      expect(await statuses(ada)).toEqual(["complete"]);
+      const shown = userTextOf(fake.calls.at(-1));
+      expect(shown).toContain("I like oat milk");
+      expect(shown).not.toContain(secret);
+      expect(shown).not.toContain("Book a repair");
+      expect(shown).not.toContain("OUTCOME-WITH-DETAILS");
+      expect(shown).not.toContain("BOT-SAID-THIS");
+      expect(shown).not.toContain("finish_assignment");
+    },
+    timeout,
+  );
+
+  it(
+    "gives a mixed Turn's pass no Check-in's note, the Turn being on the Assignment too",
+    async () => {
+      const made = assigner();
+      const { client, deps, user, botIds, fake } = await botsWith([round(), ops()], {
+        features: [made.feature],
+      });
+      const [ada] = botIds as [string];
+
+      await followSend(client, { botId: ada, id: uuidv7(), text: "I like oat milk" });
+      await checkIn(deps, ada);
+      await made.create(user.id, ada);
+      await passesEnded(1);
+
+      expect(await statuses(ada)).toEqual(["complete"]);
+      const shown = userTextOf(fake.calls.at(-1));
+      expect(shown).toContain("I like oat milk");
+      expect(shown).not.toContain("Come back to it.");
+    },
+    timeout,
+  );
+
+  it(
+    "queues no pass for a Turn that took only the Assignment's Trigger and a Check-in's",
+    async () => {
+      const made = assigner();
+      const { deps, user, botIds } = await botsWith([round()], { features: [made.feature] });
+      const [ada] = botIds as [string];
+
+      await checkIn(deps, ada);
+      await made.create(user.id, ada);
+      await expect.poll(() => statuses(ada), poll).toEqual(["complete"]);
+      await settle();
+
+      expect(await passJobs()).toHaveLength(0);
+    },
+    timeout,
+  );
+
+  it.each([
+    ["check_in", "schedule", "check_in:"],
+    ["helper", "helper", "helper:"],
+    ["approval", "approval", "approval:"],
+  ] as const)(
+    "gives the pass no %s Trigger's text on a Turn with the user's Message, while the Bot holds the Assignment",
+    async (source, channel, prefix) => {
+      const made = assigner();
+      const { client, deps, user, botIds, fake } = await botsWith([round(), round(), ops()], {
+        features: [made.feature],
+      });
+      const [ada] = botIds as [string];
+      await made.create(user.id, ada);
+      await expect.poll(() => statuses(ada), poll).toEqual(["complete"]);
+
+      const [row] = await getTestDb()
+        .select({ conversationId: bot.conversationId })
+        .from(bot)
+        .where(eq(bot.id, ada));
+      await getTestDb().transaction((tx) =>
+        receive(deps, tx, {
+          id: `${prefix}${uuidv7()}`,
+          botId: ada,
+          conversationId: row!.conversationId,
+          source,
+          channel,
+          text: "THE-CUSTOMER-LIVES-AT-ELM-STREET",
+          receivedAt: deps.clock(),
+        }),
+      );
+      await followSend(client, { botId: ada, id: uuidv7(), text: "I like oat milk" });
+      await passesEnded(1);
+
+      const shown = userTextOf(fake.calls.at(-1));
+      expect(shown).toContain("I like oat milk");
+      expect(shown).not.toContain("THE-CUSTOMER-LIVES-AT-ELM-STREET");
+    },
+    timeout,
+  );
+
+  it(
+    "runs no pass for a later Check-in Turn, nor for a Turn on a child Assignment",
+    async () => {
+      const made = assigner();
+      const { deps, user, botIds } = await botsWith(
+        [
+          round(
+            runs("assign_work", { bot: "Bea", title: "Pass it on", instructions: "Pass it on." }),
+          ),
+          round(),
+          round(),
+          round(),
+        ],
+        { names: ["Ada", "Bea"], features: [made.feature] },
+      );
+      const [ada, bea] = botIds as [string, string];
+
+      await made.create(user.id, ada);
+      await expect.poll(async () => (await statuses(bea)).length, poll).toBe(1);
+      await expect.poll(async () => (await statuses(ada)).length, poll).toBe(1);
+      await checkIn(deps, ada);
+      await expect.poll(async () => (await statuses(ada)).length, poll).toBe(2);
+      await expect.poll(() => statuses(ada), poll).toEqual(["complete", "complete"]);
+      expect(await statuses(bea)).toEqual(["complete"]);
+      await settle();
+
+      expect(await passJobs()).toHaveLength(0);
+    },
+    timeout,
+  );
+
+  /** A round per call, chosen by what the call is: a Turn's by `turnRound`, a pass's by `ops()`. */
+  const dispatch = (turnRound: (call: TextOptions) => ReturnType<typeof round>) =>
+    Array.from(
+      { length: 12 },
+      () => (call: TextOptions) => (isTurnCall(call) ? turnRound(call) : ops()),
+    );
+
+  it(
+    "runs a pass with the Bot's lines for a Turn on a trusted Assignment",
+    async () => {
+      const { client, botIds, fake } = await botsWith(
+        dispatch((call) => {
+          const read = JSON.stringify(call.messages);
+          if (call.messages.some((entry) => entry.role === "tool")) return round();
+          return read.includes("Your name: Bea")
+            ? round(toolCall({ name: sendToUserToolName, input: { text: "BEA-SAID-THIS" } }))
+            : round(
+                runs("assign_work", {
+                  bot: "Bea",
+                  title: "Trusted job",
+                  instructions: "TRUSTED-INSTRUCTIONS",
+                }),
+              );
+        }),
+        { names: ["Ada", "Bea"] },
+      );
+      const [ada, bea] = botIds as [string, string];
+
+      await send(client, ada, "Ask Bea to do it");
+      await expect
+        .poll(
+          () =>
+            fake.calls.filter(
+              (call) =>
+                !isTurnCall(call) &&
+                userTextOf(call).includes("TRUSTED-INSTRUCTIONS") &&
+                userTextOf(call).includes("BEA-SAID-THIS"),
+            ).length,
+          poll,
+        )
+        .toBe(1);
+      expect(await statuses(bea)).toEqual(["complete"]);
+    },
+    timeout,
+  );
+
+  it(
+    "runs no pass for a Check-in Turn that finishes the Assignment",
+    async () => {
+      const made = assigner();
+      const { deps, user, botIds } = await botsWith(
+        dispatch((call) =>
+          JSON.stringify(call.messages).includes("Come back to it.") &&
+          !call.messages.some((entry) => entry.role === "tool")
+            ? round(
+                runs("finish_assignment", {
+                  id: assignmentIdIn(call),
+                  status: "done",
+                  outcome: "OUTCOME-WITH-DETAILS",
+                }),
+              )
+            : round(),
+        ),
+        { features: [made.feature] },
+      );
+      const [ada] = botIds as [string];
+
+      await made.create(user.id, ada);
+      await expect.poll(() => statuses(ada), poll).toEqual(["complete"]);
+      await checkIn(deps, ada);
+      await expect.poll(() => statuses(ada), poll).toEqual(["complete", "complete"]);
+      const [assignment] = await getTestDb().select().from(botAssignment);
+      expect(assignment?.status).toBe("done");
+      await settle();
+
+      expect(await passJobs()).toHaveLength(0);
+    },
+    timeout,
+  );
+
+  it(
+    "still runs a pass with the Bot's lines for a Turn of only the user's Message",
+    async () => {
+      const { client, botIds, fake } = await botsWith([round(text("BOT-SAID-THIS")), ops()]);
+      const [ada] = botIds as [string];
+
+      await send(client, ada, "I like oat milk");
+      await passesEnded(1);
+
+      expect(userTextOf(fake.calls[1])).toContain("I like oat milk");
+      expect(userTextOf(fake.calls[1])).toContain("BOT-SAID-THIS");
+    },
+    timeout,
+  );
 });
