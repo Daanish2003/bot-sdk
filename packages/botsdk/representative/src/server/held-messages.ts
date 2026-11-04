@@ -24,7 +24,7 @@ import {
   type ViaChannel,
 } from "./outbound-gate";
 import type { InboxHeldView, OwnerInbox } from "../shared/contract";
-import { profilesOf, nameIn } from "./customer-profile";
+import { combinedProfilesOf, nameIn } from "./customer-profile";
 import { getThread, listRunningThreads } from "./owner-customers";
 import type { CustomerChannel } from "./customer-proof";
 import { lockThread, refusedByGate, threadClosed } from "./takeover";
@@ -288,7 +288,9 @@ export async function ownerInbox(
     )
     .orderBy(asc(representativeHeldMessage.id))
     .limit(heldListLimit);
-  const profiles = await profilesOf(db, userId, [...new Set(rows.map((row) => row.customerId))]);
+  const profiles = await combinedProfilesOf(db, userId, [
+    ...new Set(rows.map((row) => row.customerId)),
+  ]);
   const held: InboxHeldView[] = rows.map(({ customerId, ...row }) => ({
     ...row,
     representativeName: names.get(row.representativeId) ?? "",

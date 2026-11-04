@@ -264,12 +264,12 @@ export function InboxPage() {
           {current === undefined ? (
             <p className="p-4 text-sm text-muted-foreground">{t("representative.inbox.choose")}</p>
           ) : current.kind === "page" ? (
-            <PageDetail page={current.page} onAnswered={pages.refresh} />
+            <PageDetail key={current.key} page={current.page} onAnswered={pages.refresh} />
           ) : current.kind === "held" ? (
-            <HeldDetail held={current.held} />
+            <HeldDetail key={current.key} held={current.held} />
           ) : (
             <ul>
-              <DraftRow draft={current.draft} />
+              <DraftRow key={current.key} draft={current.draft} />
             </ul>
           )}
         </div>
@@ -290,11 +290,11 @@ export function InboxPage() {
       </section>
       <section data-inbox-running className="space-y-2">
         <h2 className="text-sm font-medium">{t("representative.inbox.running")}</h2>
-        {inbox.data?.running.length === 0 ? (
+        {!inbox.data ? null : inbox.data.running.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("representative.inbox.runningNone")}</p>
         ) : (
           <ul className="divide-y overflow-hidden rounded-xl border">
-            {inbox.data?.running.map((thread) => (
+            {inbox.data.running.map((thread) => (
               <li
                 key={thread.id}
                 data-inbox-running-thread={thread.id}
