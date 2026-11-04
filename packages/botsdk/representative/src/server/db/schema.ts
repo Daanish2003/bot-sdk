@@ -45,6 +45,12 @@ export const representative = botsdkSchema.table(
     botId: uuid("bot_id").references((): AnyPgColumn => bot.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     enabled: boolean("enabled").notNull().default(false),
+    /**
+     * The Outbound gate's caps on what it sends a Customer (ticket #1304), the owner's to edit and in no
+     * Release: messages in a row with no Customer reply, and messages in a rolling day.
+     */
+    maxInARow: integer("max_in_a_row").notNull().default(5),
+    maxPerDay: integer("max_per_day").notNull().default(20),
     /** The Release new Turns use. No foreign key: the two tables point at each other. Null until the first approval. */
     liveReleaseId: uuid("live_release_id"),
     draft: jsonb("draft").$type<Draft>().notNull(),

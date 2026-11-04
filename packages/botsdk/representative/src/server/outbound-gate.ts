@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, count, eq, gt, inArray, max, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
@@ -55,7 +55,17 @@ type GateFacts = {
   threadState: string;
   blockedAt: Date | null;
   enabled: boolean;
+  /** Messages the Representative has sent since the Customer last wrote on this thread. */
+  sentInARow: number;
+  /** Messages the Representative has sent this Customer in the day up to now, on any thread. */
+  sentToday: number;
+  /** The owner's caps on those two. */
+  maxInARow: number;
+  maxPerDay: number;
 };
+
+/** The day the per-day cap counts over, up to the message's time. */
+const dayMs = 24 * 60 * 60 * 1000;
 
 export type GateCheck = (facts: GateFacts) => Exclude<GateOutcome, "send"> | null;
 
@@ -64,7 +74,12 @@ export const liveChecks: Partial<Record<GateRule, GateCheck>> = {
   held: ({ threadState }) => (threadState === "representative" ? null : "drop"),
   blocked: ({ blockedAt }) => (blockedAt === null ? null : "drop"),
   on: ({ enabled }) => (enabled ? null : "drop"),
+  caps: ({ sentInARow, sentToday, maxInARow, maxPerDay }) =>
+    sentInARow >= maxInARow || sentToday >= maxPerDay ? "hold" : null,
 };
+
+/** What a Page for a held message says raised it. */
+const heldCause = "outbound_held";
 
 /** What a decision's `rule` says when no rule stopped the message. */
 const passedRule = "passed";
@@ -80,6 +95,8 @@ export type Outgoing = {
   customerId?: string;
   /** Where a Turn keeps what the gate refuses, for `logRefusals`. */
   refusals?: GateRefusal[];
+  /** Pages the owner when the gate holds a message; without it nobody is told. */
+  pages?: PagesService;
   /** What is held if the gate holds it. A proof has none: its secret is never stored. */
   content?: {
     text: string;
@@ -91,15 +108,32 @@ export type Outgoing = {
 
 export type GateDecision = { id: string; outcome: GateOutcome; rule: string };
 
+type PagesService = FeatureContext<"pages">["pages"];
+
 type DecisionRow = typeof representativeOutboundDecision.$inferInsert;
 type HeldRow = typeof representativeHeldMessage.$inferInsert;
 
 /** A decision that sent nothing, as written: the same ids, so writing it twice leaves one. */
-export type GateRefusal = { decision: DecisionRow; held?: HeldRow };
+export type GateRefusal = {
+  decision: DecisionRow;
+  held?: HeldRow;
+  /** What to tell the owner when this is the first time it is written. */
+  page?: Parameters<PagesService["send"]>[1];
+};
 
-async function writeDecision(tx: Transaction, { decision, held }: GateRefusal) {
-  await tx.insert(representativeOutboundDecision).values(decision).onConflictDoNothing();
+async function writeDecision(
+  tx: Transaction,
+  { decision, held, page }: GateRefusal,
+  pages?: PagesService,
+) {
+  const [written] = await tx
+    .insert(representativeOutboundDecision)
+    .values(decision)
+    .onConflictDoNothing()
+    .returning({ id: representativeOutboundDecision.id });
   if (held) await tx.insert(representativeHeldMessage).values(held).onConflictDoNothing();
+  // Once: a Turn writes a refusal again when it ends, and the owner isn't told twice.
+  if (written && page && pages) await pages.send(tx, page);
 }
 
 /**
@@ -107,7 +141,10 @@ async function writeDecision(tx: Transaction, { decision, held }: GateRefusal) {
  * and its fence rolls back the transaction that logged the refusal; one that committed is left as it
  * is. A thread gone by then took its log with it.
  */
-export async function logRefusals(db: FeatureContext["db"], refusals: GateRefusal[]) {
+export async function logRefusals(
+  { db, pages }: Pick<FeatureContext<"pages">, "db" | "pages">,
+  refusals: GateRefusal[],
+) {
   for (const refusal of refusals) {
     await db.transaction(async (tx) => {
       const [thread] = await tx
@@ -115,7 +152,7 @@ export async function logRefusals(db: FeatureContext["db"], refusals: GateRefusa
         .from(representativeThread)
         .where(eq(representativeThread.id, refusal.decision.threadId))
         .for("key share");
-      if (thread) await writeDecision(tx, refusal);
+      if (thread) await writeDecision(tx, refusal, pages);
     });
   }
 }
@@ -153,6 +190,43 @@ async function holdForRules(tx: Transaction, threadId: string) {
 }
 
 /**
+ * What the caps count: the Representative's messages after the Customer's last on this thread, and the
+ * sends in the day before `now` to any thread of the Customer. A send is a decision that passed and
+ * went by a job; the thread's lock, which the caller holds, keeps the first count from racing.
+ */
+async function sentCounts(tx: Transaction, threadId: string, customerId: string, now: Date) {
+  const message = representativeThreadMessage;
+  const [lastHeard] = await tx
+    .select({ position: max(message.position) })
+    .from(message)
+    .where(and(eq(message.threadId, threadId), eq(message.author, "customer")));
+  const [inARow] = await tx
+    .select({ count: count() })
+    .from(message)
+    .where(
+      and(
+        eq(message.threadId, threadId),
+        eq(message.author, "representative"),
+        gt(message.position, lastHeard?.position ?? 0),
+      ),
+    );
+  const decision = representativeOutboundDecision;
+  const [today] = await tx
+    .select({ count: count() })
+    .from(decision)
+    .innerJoin(representativeThread, eq(representativeThread.id, decision.threadId))
+    .where(
+      and(
+        eq(representativeThread.customerId, customerId),
+        inArray(decision.kind, ["reply", "code_hand_off"]),
+        eq(decision.outcome, "send"),
+        gt(decision.createdAt, sql`${new Date(now.getTime() - dayMs).toISOString()}::timestamp`),
+      ),
+    );
+  return { sentInARow: inARow!.count, sentToday: today!.count };
+}
+
+/**
  * Decides what becomes of `outgoing` and logs it, in `tx`. A held message is stored here; a sent one
  * the caller stores in its thread, and then hands to `deliverMessage`. Null when the thread has gone,
  * so there's nothing to log it on and nothing is sent. The owner's paths hold the thread before this,
@@ -172,6 +246,11 @@ export async function passGate(
       customerId: representativeThread.customerId,
       enabled: representative.enabled,
       liveReleaseId: representative.liveReleaseId,
+      userId: representative.userId,
+      representativeId: representative.id,
+      name: representative.name,
+      maxInARow: representative.maxInARow,
+      maxPerDay: representative.maxPerDay,
     })
     .from(representativeThread)
     .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
@@ -181,7 +260,13 @@ export async function passGate(
     .select({ blockedAt: representativeCustomer.blockedAt })
     .from(representativeCustomer)
     .where(eq(representativeCustomer.id, outgoing.customerId ?? row.customerId));
-  const facts: GateFacts = { ...row, blockedAt: customer?.blockedAt ?? null };
+  const facts: GateFacts = {
+    ...row,
+    blockedAt: customer?.blockedAt ?? null,
+    ...(rules.includes("caps")
+      ? await sentCounts(tx, threadId, row.customerId, now)
+      : { sentInARow: 0, sentToday: 0 }),
+  };
 
   let outcome: GateOutcome = "send";
   let rule: string = passedRule;
@@ -222,9 +307,55 @@ export async function passGate(
         },
       }),
   };
-  await writeDecision(tx, written);
+  if (outcome === "hold") {
+    written.page = {
+      userId: row.userId,
+      cause: heldCause,
+      urgency: "routine",
+      title: "A message to a Customer is waiting for you",
+      text: `The Outbound gate held a message from ${row.name} to a Customer (rule: ${rule}). Open the thread to send or drop it.`,
+      path: `/representatives/${row.representativeId}`,
+    };
+  }
+  await writeDecision(tx, written, outgoing.pages);
   if (outcome !== "send") outgoing.refusals?.push(written);
   return { id, outcome, rule };
+}
+
+/**
+ * Drops the messages held on `threadId` (just `heldId` when given), each with a decision of its own
+ * saying `rule`, and returns how many. The held message goes; its first decision stays in the log.
+ */
+export async function dropHeld(
+  tx: Transaction,
+  {
+    threadId,
+    heldId,
+    kind,
+    rule,
+    now,
+  }: { threadId: string; heldId?: string; kind: OutboundKind; rule: string; now: Date },
+) {
+  const held = representativeHeldMessage;
+  const decision = representativeOutboundDecision;
+  const rows = await tx
+    .select({
+      id: held.id,
+      releaseId: decision.releaseId,
+      channel: decision.channel,
+      externalId: decision.externalId,
+    })
+    .from(held)
+    .innerJoin(decision, eq(decision.id, held.decisionId))
+    .where(and(eq(held.threadId, threadId), heldId ? eq(held.id, heldId) : undefined))
+    .for("update", { of: held });
+  for (const { id, ...to } of rows) {
+    await tx.delete(held).where(eq(held.id, id));
+    await writeDecision(tx, {
+      decision: { id: uuidv7(), threadId, kind, outcome: "drop", rule, createdAt: now, ...to },
+    });
+  }
+  return rows.length;
 }
 
 export const customerDeliveryJobName = "representative.customer-delivery";

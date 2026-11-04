@@ -14,7 +14,7 @@ import {
 import { holdCustomers } from "./customer-merge";
 import { nameIn, profilesOf } from "./customer-profile";
 import { catchCode, customerProofLeadsTo, mayHoldCode } from "./customer-proof";
-import { deliverMessage, type GateRefusal, passGate } from "./outbound-gate";
+import { deliverMessage, dropHeld, type GateRefusal, passGate } from "./outbound-gate";
 import { type ChannelProof, judgeSender } from "./verification";
 import { codeHandOffKind, type ReplySource, type StoredReplyKind } from "../shared/replies";
 
@@ -235,6 +235,8 @@ export async function receiveMessage(
     proofRule: proof?.rule,
     ...heard,
   });
+  // What the gate held is stale now: the Customer has written since.
+  await dropHeld(tx, { threadId, kind: "reply", rule: "replaced", now });
   // Position 1 is a thread's first message: it has just been opened.
   return { threadId, turnId, waitingSince, blocked, state, opened: position === 1 };
 }
@@ -362,13 +364,17 @@ export async function holdThreadCustomer(tx: Transaction, threadId: string) {
   }
 }
 
+/** What the Model hears of a reply the gate held: the owner has it, and sending it again changes nothing. */
+const heldNote =
+  "Your reply was held for the owner to send or drop, because the Outbound gate holds it (a cap on messages to this Customer), so nothing was sent. Do not send it again.";
+
 /**
  * Passes a reply through the Outbound gate, addressed to the sender its Turn answers, and if the gate
  * sends it, stores it and sends it. Not to whoever was heard last: an unverified identity writing
  * during a verified Turn mustn't get that Turn's reply.
  */
 export async function storeReply(
-  services: Pick<FeatureContext, "jobs">,
+  services: Pick<FeatureContext<"pages">, "jobs" | "pages">,
   tx: Transaction,
   {
     threadId,
@@ -394,8 +400,10 @@ export async function storeReply(
     now,
     releaseId,
     refusals,
+    pages: services.pages,
     content: { text, verified, replyKind, sources },
   });
+  if (decision?.outcome === "hold") return { error: heldNote };
   if (decision?.outcome !== "send")
     return {
       error:

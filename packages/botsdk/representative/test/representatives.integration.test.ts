@@ -76,7 +76,14 @@ describe("creating and editing a Representative", () => {
       },
     });
     expect(await rpc.representative.list()).toEqual([
-      { id: created.id, name: "Front desk", botId: null, enabled: false, liveReleaseNumber: null },
+      {
+        id: created.id,
+        name: "Front desk",
+        botId: null,
+        enabled: false,
+        liveReleaseNumber: null,
+        caps: { maxInARow: 5, maxPerDay: 20 },
+      },
     ]);
     expect(await (await another(deps)).rpc.representative.list()).toEqual([]);
   });

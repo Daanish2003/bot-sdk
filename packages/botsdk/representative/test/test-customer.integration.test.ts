@@ -802,9 +802,12 @@ describe("who can reach a Turn", () => {
       // Plays a draft's test conversations (#1192), each a test job: no Turn, no Customer.
       "runTests",
       "setBot",
+      "setCaps",
       "setEnabled",
       "threadGet",
       "threadHandBack",
+      "threadHeldDrop",
+      "threadHeldSend",
       "threadList",
       "threadSend",
       "threadTakeOver",

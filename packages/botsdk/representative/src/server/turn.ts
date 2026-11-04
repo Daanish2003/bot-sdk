@@ -69,7 +69,7 @@ import type { ChannelProofRule } from "./verification";
 export { representativeTurnJobName };
 
 export type TurnServices = FeatureContext<
-  "assignments" | "models" | "representativeLoop" | "threads"
+  "assignments" | "models" | "pages" | "representativeLoop" | "threads"
 >;
 
 const assignmentEndedCode = "error.assignmentEnded";
@@ -924,7 +924,7 @@ export function representativeTurnJob(
         }
         await job.step("representative_turn_end", (tx) => endTurn(job, tx, threadId, turnId));
       } finally {
-        await logRefusals(job.db, refusals);
+        await logRefusals(job, refusals);
       }
     },
   });

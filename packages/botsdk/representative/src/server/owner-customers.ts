@@ -23,6 +23,7 @@ import {
   representativeHandOff,
   representativeOutboundDecision,
   representativeThread,
+  representativeHeldMessage,
   representativeThreadMessage,
   type ThreadAuthor,
   type ThreadState,
@@ -516,10 +517,27 @@ export async function getThread(
       })),
     );
   const { identities, name } = await readCustomer(context, userId, row.customerId);
+  const held = await db
+    .select({
+      id: representativeHeldMessage.id,
+      text: representativeHeldMessage.text,
+      rule: representativeOutboundDecision.rule,
+      channel: representativeOutboundDecision.channel,
+      externalId: representativeOutboundDecision.externalId,
+      createdAt: representativeHeldMessage.createdAt,
+    })
+    .from(representativeHeldMessage)
+    .innerJoin(
+      representativeOutboundDecision,
+      eq(representativeOutboundDecision.id, representativeHeldMessage.decisionId),
+    )
+    .where(eq(representativeHeldMessage.threadId, threadId))
+    .orderBy(asc(representativeHeldMessage.id));
   return {
     ...summary(row, name),
     representativeId: row.representativeId,
     identities,
     messages,
+    held,
   };
 }
