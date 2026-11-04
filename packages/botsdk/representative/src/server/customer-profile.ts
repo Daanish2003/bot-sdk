@@ -11,6 +11,7 @@ import {
   type FixedProfileField,
   fixedProfileFields,
   type ProfileFieldView,
+  type ProfileSource,
   maxProfileValueLength,
   type ProfileValueView,
 } from "../shared/contract";
@@ -281,6 +282,7 @@ export async function writePassValues(
     const value = operation.value.replaceAll("\0", "").trim().slice(0, maxProfileValueLength);
     if ((!fixed && !ownField) || !line || !value) continue;
     // The Model chooses the line it cites, so the line must also say the value: a verified line can't vouch for a value it doesn't hold.
+    // The query above keeps only these three authors, which are the sources a line can give.
     const says = line.text.toLowerCase().includes(value.toLowerCase());
     const status = line.author === "customer" && line.verified && says ? "confirmed" : "claimed";
     const column = fixed
@@ -299,7 +301,12 @@ export async function writePassValues(
     if (existing?.status === "confirmed" && (existing.source === "owner" || status === "claimed")) {
       continue;
     }
-    const written = { value, source: line.author, status, recordedAt: now } as const;
+    const written = {
+      value,
+      source: line.author as ProfileSource,
+      status,
+      recordedAt: now,
+    } as const;
     await tx
       .insert(representativeProfileValue)
       .values({
