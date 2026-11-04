@@ -63,6 +63,9 @@ export function parseLesson(text: string): Lesson | null {
 const emailShape = /[^\s@]+@[^\s@]+\.[^\s@]+/;
 // Seven digits or more, with only the separators a number is written with between them.
 const phoneShape = /(?:\+?\d[\s().-]*){7,}/;
+// A date, unless more of a number stands on either side of it.
+const isoDate =
+  /(?<![\d+][\s().-]*)(?:19|20)\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])(?![\s().-]*\d)/g;
 
 const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -70,10 +73,22 @@ const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const mentions = (text: string, value: string) =>
   new RegExp(`(?<![\\p{L}\\p{N}])${escape(value)}(?![\\p{L}\\p{N}])`, "iu").test(text);
 
-/** Whether a lesson names or could reach a Customer: a phone or email shape, or a value `known` of theirs. */
+/**
+ * Whether a lesson names or could reach a Customer: a phone or email shape, or a value `known` of
+ * theirs. A date is no phone number, and nor is a `money` value, which its type holds to an amount and
+ * a currency.
+ */
 export function identifiesCustomer(lesson: Lesson, known: string[]) {
   const text = [lesson.key, lesson.topic, lesson.value, lesson.why].join("\n");
-  if (emailShape.test(text) || phoneShape.test(text)) return true;
+  const dialable = [
+    lesson.key,
+    lesson.topic,
+    lesson.type === "money" ? "" : lesson.value,
+    lesson.why,
+  ]
+    .join("\n")
+    .replace(isoDate, "");
+  if (emailShape.test(text) || phoneShape.test(dialable)) return true;
   return known.some((value) => value.trim() !== "" && mentions(text, value.trim()));
 }
 

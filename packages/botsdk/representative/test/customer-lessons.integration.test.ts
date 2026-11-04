@@ -53,8 +53,12 @@ const lesson = {
 /** What the pass replies with a lesson after its summary. */
 const replying = (tail: string) => () => round(text(`A summary.\n${lessonMarker}\n${tail}`));
 
-async function instance(pass: () => ReturnType<typeof round>) {
-  const reply = (options: TextOptions) => (isPassCall(options) ? pass() : round());
+async function instance(pass: () => ReturnType<typeof round>, prompts: string[] = []) {
+  const reply = (options: TextOptions) => {
+    if (!isPassCall(options)) return round();
+    prompts.push(JSON.stringify(options.systemPrompts ?? []));
+    return pass();
+  };
   const fake = createFakeAdapter({ rounds: Array.from({ length: 40 }, () => reply) });
   const timer = fakeJobClock(new Date());
   let deps: TestDeps | undefined;
@@ -191,6 +195,39 @@ describe("a lesson from a closed thread", () => {
     expect(
       await rpc.representative.customerSummaryList({ id: (await customerOf()).id }),
     ).toHaveLength(1);
+  });
+
+  it.each([
+    ["money", "1500000 USD"],
+    ["text", "We close on 2026-12-25 for the holiday."],
+  ])("isn't taken for a phone number: a %s of %s", async (type, value) => {
+    const { rpc, closeThread } = await instance(
+      replying(JSON.stringify({ ...lesson, type, value })),
+    );
+    await closeThread();
+    expect(await rpc.representative.factProposals()).toHaveLength(1);
+  });
+
+  it.each([
+    ["text", "It costs 1500000 USD."],
+    ["text", "Ring +1 2026-11-04 to book."],
+    ["text", "Ring 2026-11-04 55 to book."],
+    ["phone", "+15550100"],
+  ])("is still refused as a phone number: a %s of %s", async (type, value) => {
+    const { rpc, closeThread } = await instance(
+      replying(JSON.stringify({ ...lesson, type, value })),
+    );
+    await closeThread();
+    expect(await rpc.representative.factProposals()).toEqual([]);
+  });
+
+  it("is never offered as a phone number, which code would refuse", async () => {
+    const prompts: string[] = [];
+    const { closeThread } = await instance(() => round(), prompts);
+    await closeThread();
+    expect(prompts.join()).toContain(lessonMarker);
+    expect(prompts.join()).toContain('\\"money\\"');
+    expect(prompts.join()).not.toContain('\\"phone\\"');
   });
 
   it.each([

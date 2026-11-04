@@ -66,7 +66,7 @@ const summaryPrompt = (fieldNames: string[]) =>
       `The fields are: ${fieldNames.join(", ")}. Use no other field, and leave the array out when no line states one.`,
     ].join(" "),
     [
-      `Also, only if this thread teaches something worth stating to every Customer of this business, add a line holding exactly "${lessonMarker}" and after it one JSON object {"key": string, "type": "text" | "money" | "hours" | "phone" | "url", "topic": string, "value": string, "why": string}: a fact the business could publish, with why you propose it.`,
+      `Also, only if this thread teaches something worth stating to every Customer of this business, add a line holding exactly "${lessonMarker}" and after it one JSON object {"key": string, "type": "text" | "money" | "hours" | "url", "topic": string, "value": string, "why": string}: a fact the business could publish, with why you propose it.`,
       "A lesson holds nothing that identifies a Customer: no name, address, phone number, email or anything one said. Leave it out when you are unsure.",
     ].join(" "),
   ].join("\n\n");
