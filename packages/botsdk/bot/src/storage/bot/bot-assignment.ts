@@ -86,7 +86,7 @@ export const botAssignment = botsdkSchema.table(
     status: botAssignmentStatus("status").notNull(),
     /** What its Bot finished it with, set exactly when it is `done` or `failed`. */
     result: jsonb("result").$type<AssignmentResult>(),
-    /** Reserved: nothing sets it yet. Being overdue is a flag, never a status. */
+    /** When a feature flagged it overdue (`markOverdue`). Being overdue is a flag, never a status. */
     overdueAt: timestamp("overdue_at"),
     /**
      * The budget (#1184): how many model calls, and how much money where a price is known, may be

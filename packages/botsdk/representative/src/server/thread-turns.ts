@@ -6,6 +6,7 @@ import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import type { ViaChannel } from "./outbound-gate";
+import { queueOwnerWait } from "./stalled-work";
 import { job } from "@botsdk/bot/storage";
 import { maxThreadMessageLength, noNul } from "../shared/contract";
 import {
@@ -113,7 +114,10 @@ export async function receiveCustomerMessage(
     // Kept for the owner, and nothing more: no model call, no reply and no Assignment.
     if (kept) return { jobId: null };
     // It waits for the owner, or for Hand back: no model call runs while they hold the thread.
-    if (state === "owner") return { jobId: null };
+    if (state === "owner") {
+      await queueOwnerWait(services, tx, threadId, now);
+      return { jobId: null };
+    }
     return {
       jobId: await wakeTurn(services, tx, { threadId, turnId, waitingSince: waitingSince! }),
     };

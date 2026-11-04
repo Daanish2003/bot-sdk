@@ -825,6 +825,7 @@ describe("who can reach a Turn", () => {
       "rollback",
       // Plays a draft's test conversations (#1192), each a test job: no Turn, no Customer.
       "runTests",
+      "setAssignmentDue",
       "setBot",
       "setCaps",
       "setEnabled",

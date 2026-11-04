@@ -48,6 +48,7 @@ import { representativeTestJob } from "./tests";
 import { deleteTopics, exportTopics } from "./topics";
 import { exportCustomerSummaries, customerSummaryJob } from "./customer-summary";
 import { draftDueJob } from "./draft-due";
+import { assignmentDueJob, ownerWaitJob } from "./stalled-work";
 import { stopUserTurns } from "./thread-turns";
 import { handOffEndedJob, limitCheckJob, representativeTurnJob } from "./turn";
 
@@ -137,6 +138,8 @@ export function representativeFeature(
       representativeTurnJob(options.concurrency, channel),
       customerDeliveryJob(channel),
       draftDueJob,
+      assignmentDueJob(channel),
+      ownerWaitJob,
       heldReleaseJob(channel),
       handOffEndedJob,
       limitCheckJob,

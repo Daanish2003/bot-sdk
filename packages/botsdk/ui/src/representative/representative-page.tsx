@@ -17,6 +17,7 @@ import {
   useRepresentativeDetail,
   useRollbackRelease,
   useRunTests,
+  useSetRepresentativeAssignmentDue,
   useSetRepresentativeBot,
   useSetRepresentativeCaps,
   useSetRepresentativeSpendingCaps,
@@ -27,6 +28,7 @@ import {
 import {
   canonicalJson,
   type Draft,
+  maxAssignmentDueMinutes,
   maxOutboundCap,
   type RepresentativeTool,
   type RepresentativeView,
@@ -370,6 +372,54 @@ function CapsForm({ representative }: { representative: RepresentativeView }) {
   );
 }
 
+/** How long work the Representative hands to a Bot may run before it is overdue: the owner's, in no Release. */
+function AssignmentDueForm({ representative }: { representative: RepresentativeView }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const setDue = useSetRepresentativeAssignmentDue({
+    onSuccess: async () => {
+      await refresh();
+      toast.success(t("representative.assignmentDueSaved"));
+    },
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  return (
+    <form
+      data-representative-assignment-due=""
+      className="space-y-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        setDue.mutate({ id: representative.id, minutes: Number(form.get("minutes")) });
+      }}
+    >
+      <h2 className="text-sm font-medium">{t("representative.assignmentDue")}</h2>
+      <p className="text-xs text-muted-foreground">{t("representative.assignmentDueHelp")}</p>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <Label htmlFor="representative-assignment-due">
+            {t("representative.assignmentDueMinutes")}
+          </Label>
+          <Input
+            id="representative-assignment-due"
+            name="minutes"
+            type="number"
+            min={1}
+            max={maxAssignmentDueMinutes}
+            defaultValue={representative.assignmentDueMinutes}
+            required
+            className="w-28"
+          />
+        </div>
+        <Button type="submit" variant="outline" size="sm" disabled={setDue.isPending}>
+          {t("representative.saveAssignmentDue")}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 /** The hours the Outbound gate holds what the business starts, and the business's time zone: the owner's, in no Release. */
 function QuietHoursForm({ representative }: { representative: RepresentativeView }) {
   const i18n = useI18n();
@@ -610,6 +660,7 @@ export function RepresentativePage({ id }: { id: string }) {
       <CapsForm representative={representative} />
       <SpendingCapsForm representative={representative} />
       <QuietHoursForm representative={representative} />
+      <AssignmentDueForm representative={representative} />
       <WaitingApproval representative={representative} />
       {/* Keyed by the draft's fields, so a draft changed elsewhere reloads the form. A document uploaded leaves the form's edits alone. */}
       <DraftEditor

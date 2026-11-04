@@ -48,6 +48,12 @@ export const representativeMessages = {
   "representative.businessTimeZone": "Business time zone",
   "representative.saveQuietHours": "Save quiet hours",
   "representative.quietHoursSaved": "Quiet hours saved",
+  "representative.assignmentDue": "Work due time",
+  "representative.assignmentDueHelp":
+    "How long work it hands to a Bot may run. Past it, you are Paged and the Customer gets one note saying the team is still on it. It counts for hand-offs made after you save.",
+  "representative.assignmentDueMinutes": "Minutes",
+  "representative.saveAssignmentDue": "Save due time",
+  "representative.assignmentDueSaved": "Due time saved",
   "representative.none": "No Representatives yet.",
   "representative.limitWarning": ({ percent }: { percent: number }) =>
     `You've used ${percent}% of your Quota. At 100%, a Representative on the Host's credentials gives Customers a fixed note instead of an answer until it lifts.`,

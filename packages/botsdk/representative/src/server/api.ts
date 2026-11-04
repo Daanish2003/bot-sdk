@@ -22,6 +22,7 @@ import {
   idInput,
   replyDraftEditInput,
   rollbackInput,
+  setAssignmentDueInput,
   setBotInput,
   setCapsInput,
   setSpendingCapsInput,
@@ -68,6 +69,7 @@ import {
   removeDocument,
   rollbackRelease,
   runTests,
+  setAssignmentDue,
   setBot,
   setCaps,
   setEnabled,
@@ -168,6 +170,9 @@ export function representativeApi(
       setSpendingCaps(context, userId, parseInput(setSpendingCapsInput, rest)),
     setQuietHours: async ({ userId, ...rest }: WithUser<typeof setQuietHoursInput>) =>
       setQuietHours(context, userId, parseInput(setQuietHoursInput, rest)),
+
+    setAssignmentDue: async ({ userId, ...rest }: WithUser<typeof setAssignmentDueInput>) =>
+      setAssignmentDue(context, userId, parseInput(setAssignmentDueInput, rest)),
 
     setBot: async ({ userId, ...rest }: WithUser<typeof setBotInput>) => {
       const { id, botId } = parseInput(setBotInput, rest);

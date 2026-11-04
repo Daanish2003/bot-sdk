@@ -64,6 +64,8 @@ const rulesOf: Record<OutboundKind, readonly GateRule[]> = {
   reply: gateOrder,
   code_hand_off: ["held", "blocked", "optedOut", "on", "channel"],
   limit_note: ["held", "blocked", "optedOut", "on", "channel"],
+  // The fixed note for stalled work, which a Customer is owed only while the Representative holds the thread.
+  stall_note: ["held", "blocked", "optedOut", "on", "channel"],
   owner: ["blocked", "optedOut", "channel"],
   // The owner's send passes the Channel's limits: they chose to. A release by itself checks them again.
   released: ["blocked", "optedOut"],

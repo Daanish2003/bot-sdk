@@ -33,6 +33,7 @@ import { memoryPrompt, noMemory, readCustomerMemory, type CustomerMemory } from 
 import { capReached } from "./spending";
 import { type CustomerWork, quotable, readCustomerWork } from "./customer-work";
 import { deliverHandOffResult } from "./hand-off-result";
+import { pageNoBot, queueAssignmentDue } from "./stalled-work";
 import {
   type Heard,
   holdThreadCustomer,
@@ -409,6 +410,16 @@ async function openHandOff(
     externalId: liveThread.heard.externalId,
     verified: liveThread.verified,
   });
+  const [due] = await tx
+    .select({ minutes: representative.assignmentDueMinutes })
+    .from(representative)
+    .where(eq(representative.id, representativeId));
+  await queueAssignmentDue(
+    job,
+    tx,
+    created.id,
+    new Date(job.clock().getTime() + due!.minutes * 60_000),
+  );
   await recordMovedHandOff(tx, liveThread.threadId, created.id);
   return { ...created, botId };
 }
@@ -442,7 +453,7 @@ async function handOffInCode(
   tx: Transaction,
   now: Date,
 ): Promise<{ handedOff: boolean; made?: MadeHandOff }> {
-  const { job, representativeId, thread, entries, progress } = turn;
+  const { job, userId, name, representativeId, thread, entries, progress } = turn;
   if (thread === null) return { handedOff: true };
   // The row before the thread's and the Conversation's locks, the order the owner's changes take them in.
   const botId = await reportingBot(tx, representativeId, true);
@@ -458,7 +469,11 @@ async function handOffInCode(
   if ("error" in stored) return { handedOff: false };
   // A Turn telling a Bot's result doesn't send the work round again: the owner has it from here.
   const relaying = entries.some((entry) => entry.author === "bot" && !entry.earlier);
-  if (!botId || progress.handedOff || relaying) return { handedOff: true };
+  if (!botId) {
+    await pageNoBot(job, tx, { userId, representativeId, name });
+    return { handedOff: true };
+  }
+  if (progress.handedOff || relaying) return { handedOff: true };
   try {
     const made = await openHandOff(
       turn,
@@ -514,6 +529,7 @@ export function turnTools(turn: Turn) {
     job,
     kit,
     userId,
+    name,
     representativeId,
     customerId,
     thread,
@@ -628,7 +644,11 @@ export function turnTools(turn: Turn) {
         // The row before the Conversation's lock, the order the owner's changes take them in: the
         // hand-off's row needs a share of it, so waiting for that holding the lock could deadlock.
         const botId = await reportingBot(tx, representativeId, true);
-        if (!botId) return { error: noBotRefusal };
+        if (!botId) {
+          // A test conversation reaches no one, so it Pages no one.
+          if (thread !== null) await pageNoBot(job, tx, { userId, representativeId, name });
+          return { error: noBotRefusal };
+        }
         // From the Turn's recorded answers, so a replay refuses the same call.
         if (progress.handedOff) return { error: secondHandOffRefusal };
         // A test opens no Assignment: the Bot hears nothing.

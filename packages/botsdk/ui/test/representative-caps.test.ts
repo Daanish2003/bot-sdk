@@ -29,6 +29,8 @@ function fakeServer() {
   const saved: unknown[] = [];
   const savedSpending: unknown[] = [];
   const savedQuietHours: unknown[] = [];
+  const savedDue: unknown[] = [];
+  let assignmentDueMinutes = 30;
   let quietHours = { startHour: 21, endHour: 8, timeZone: "UTC" };
   const view = () =>
     ({
@@ -41,6 +43,7 @@ function fakeServer() {
       spendingCaps,
       monthUsedPercent: 0,
       quietHours,
+      assignmentDueMinutes,
       draft: { tools: [], skills: [], documents: [], tests: [] },
       approval: null,
       liveRelease: null,
@@ -67,6 +70,13 @@ function fakeServer() {
           caps = { ...caps, ...input };
           return view();
         }),
+      setAssignmentDue: os
+        .input(z.object({ id: z.string(), minutes: z.number() }))
+        .handler(({ input }) => {
+          savedDue.push(input);
+          assignmentDueMinutes = input.minutes;
+          return view();
+        }),
       setQuietHours: os
         .input(
           z.object({
@@ -88,7 +98,7 @@ function fakeServer() {
   const fetch = async (request: Request) =>
     (await handler.handle(request, { prefix: "/api/chat/rpc" })).response ??
     new Response(null, { status: 404 });
-  return { fetch, saved, savedSpending, savedQuietHours };
+  return { fetch, saved, savedSpending, savedQuietHours, savedDue };
 }
 
 describe("the caps form on the Representative page", () => {
@@ -172,5 +182,25 @@ describe("the quiet hours form on the Representative page", () => {
         { id, startHour: 22, endHour: 7, timeZone: "Europe/Paris" },
       ]),
     );
+  });
+});
+
+describe("the work due time form on the Representative page", () => {
+  it("shows the due time, and saving sends what the owner typed", async () => {
+    const server = fakeServer();
+    render(
+      providerFor(createElement(RepresentativePage, { id }), {
+        fetch: server.fetch,
+        features: [representativeClient()],
+        messages: {},
+      }),
+    );
+
+    const minutes = (await screen.findByLabelText("Minutes")) as HTMLInputElement;
+    expect(minutes.value).toBe("30");
+    fireEvent.change(minutes, { target: { value: "45" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save due time" }));
+
+    await waitFor(() => expect(server.savedDue).toEqual([{ id, minutes: 45 }]));
   });
 });

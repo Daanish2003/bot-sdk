@@ -178,6 +178,7 @@ function summaryOf(row: Row, liveReleaseNumber: number | null): RepresentativeSu
       endHour: row.quietEndHour,
       timeZone: row.businessTimeZone,
     },
+    assignmentDueMinutes: row.assignmentDueMinutes,
   };
 }
 
@@ -379,6 +380,23 @@ export async function setSpendingCaps(
       .where(eq(representative.id, id))
       .returning();
     await checkLimitsNow({ jobs }, tx, id, clock());
+    return view(tx, updated!, clock());
+  });
+}
+
+/** Edits how long an Assignment it hands to a Bot may run before it is overdue; it counts for hand-offs made after. */
+export async function setAssignmentDue(
+  { db, clock }: Context,
+  userId: string,
+  { id, minutes }: { id: string; minutes: number },
+): Promise<RepresentativeView> {
+  return db.transaction(async (tx) => {
+    await ownedRow(tx, userId, id, true);
+    const [updated] = await tx
+      .update(representative)
+      .set({ assignmentDueMinutes: minutes, updatedAt: clock() })
+      .where(eq(representative.id, id))
+      .returning();
     return view(tx, updated!, clock());
   });
 }

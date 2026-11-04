@@ -63,6 +63,11 @@ export const representative = botsdkSchema.table(
       .notNull()
       .default(defaultSpendingCaps),
     /**
+     * How long an Assignment it hands to a Bot may run before it is overdue (ticket #1312), in minutes.
+     * The owner's to edit, in no Release.
+     */
+    assignmentDueMinutes: integer("assignment_due_minutes").notNull().default(30),
+    /**
      * Quiet hours (ticket #1303), the owner's to edit and in no Release: the Outbound gate holds what the
      * business starts from `quietStartHour` to `quietEndHour` (0 to 23, wrapping past midnight) in the
      * Customer's time zone, or else in `businessTimeZone`, an IANA name.
@@ -638,6 +643,7 @@ export type OutboundKind =
   | "reply"
   | "code_hand_off"
   | "limit_note"
+  | "stall_note"
   | "owner"
   | "released"
   | "takeover_note"

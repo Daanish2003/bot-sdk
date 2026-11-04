@@ -184,6 +184,8 @@ export type RepresentativeSummary = {
   spendingCaps: SpendingCaps;
   /** When the Outbound gate holds what the business starts (ticket #1303). */
   quietHours: QuietHours;
+  /** Minutes an Assignment it hands to a Bot may run before it is overdue (ticket #1312). */
+  assignmentDueMinutes: number;
 };
 
 /** The most the Outbound gate lets a Representative send one Customer: in a row with no reply, and in a rolling day. */
@@ -709,6 +711,11 @@ export const setQuietHoursInput = z.object({
   endHour: hourField,
   timeZone: z.string().trim().max(100).refine(isTimeZone, "Not a time zone"),
 });
+export const maxAssignmentDueMinutes = 7 * 24 * 60;
+export const setAssignmentDueInput = z.object({
+  id: z.uuid(),
+  minutes: z.number().int().min(1).max(maxAssignmentDueMinutes),
+});
 export const setEnabledInput = z.object({ id: z.uuid(), enabled: z.boolean() });
 export const setBotInput = z.object({ id: z.uuid(), botId: z.uuid() });
 
@@ -760,6 +767,8 @@ export const representativeContract = {
   setSpendingCaps: oc.input(setSpendingCapsInput).output(type<RepresentativeView>()),
   /** Edits the hours the gate holds what the business starts, and the business's time zone. No new Release. */
   setQuietHours: oc.input(setQuietHoursInput).output(type<RepresentativeView>()),
+  /** Edits how many minutes an Assignment it hands to a Bot may run before it is overdue. No new Release. */
+  setAssignmentDue: oc.input(setAssignmentDueInput).output(type<RepresentativeView>()),
   /** Chooses which of the owner's Bots it reports to; its open Assignments move to that Bot. */
   setBot: oc.input(setBotInput).output(type<RepresentativeView>()),
   /** The owner's Customers, oldest first. */

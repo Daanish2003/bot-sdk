@@ -124,6 +124,13 @@ export function useSetRepresentativeSpendingCaps(
   return useMutation(useRepresentative().setSpendingCaps.mutationOptions(options));
 }
 
+/** Edits how long an Assignment it hands to a Bot may run before it is overdue (`representative.setAssignmentDue`). */
+export function useSetRepresentativeAssignmentDue(
+  options?: ProcedureMutationOptions<Representative["setAssignmentDue"]>,
+) {
+  return useMutation(useRepresentative().setAssignmentDue.mutationOptions(options));
+}
+
 /** Edits the hours the Outbound gate holds what the business starts (`representative.setQuietHours`). */
 export function useSetRepresentativeQuietHours(
   options?: ProcedureMutationOptions<Representative["setQuietHours"]>,

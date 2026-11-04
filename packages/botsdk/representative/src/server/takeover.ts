@@ -19,6 +19,7 @@ import {
   type ViaChannel,
 } from "./outbound-gate";
 import { getThread, threadNotFound } from "./owner-customers";
+import { queueOwnerWait } from "./stalled-work";
 import { replaceHeld, turnSender } from "./reply-drafts";
 import { queueWaitingTurn } from "./thread-turns";
 
@@ -229,6 +230,8 @@ export async function holdThread(
     text: takeoverNote,
     now,
   });
+  // A Customer who was waiting before the owner stepped in is still waiting.
+  await queueOwnerWait({ jobs }, tx, threadId, now);
 }
 
 /** Takes a thread over for the owner. Taking over a thread already held does nothing. */
