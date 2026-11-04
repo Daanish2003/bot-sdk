@@ -71,7 +71,7 @@ describe("creating and editing a Representative", () => {
         jobText: "",
         switches: {},
         skills: [],
-        tools: ["reply", "hand_to_bot"],
+        tools: ["reply", "hand_to_bot", "read_customer_work"],
         model: null,
       },
     });
@@ -118,7 +118,11 @@ describe("creating and editing a Representative", () => {
         draft: { tools: ["bash"] },
       }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    expect((await rpc.representative.get({ id })).draft.tools).toEqual(["reply", "hand_to_bot"]);
+    expect((await rpc.representative.get({ id })).draft.tools).toEqual([
+      "reply",
+      "hand_to_bot",
+      "read_customer_work",
+    ]);
   });
 
   it.each([
@@ -215,6 +219,25 @@ describe("the Bot a Representative reports to", () => {
 });
 
 describe("approving a draft into a Release", () => {
+  it("gives a new Representative's first Release the tools every Representative needs, read_customer_work among them", async () => {
+    const { deps, user, rpc } = await owner();
+    await saveCredentials(deps, user.id, {
+      service: "openai",
+      fields: { apiKey: "openai-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+    const { id } = await rpc.representative.create({ name: "Front desk" });
+    await rpc.representative.updateDraft({
+      id,
+      draft: { jobText: "Answer.", model: "openai:gpt-6-luna" },
+    });
+
+    const release = await rpc.representative.approve({ id });
+
+    expect(release.content.tools).toEqual(["reply", "hand_to_bot", "read_customer_work"]);
+  });
+
   it("makes a numbered Release that pins the draft and points the live Release at it", async () => {
     const { deps, user, rpc } = await owner();
     await saveCredentials(deps, user.id, {
@@ -297,7 +320,7 @@ describe("approving a draft into a Release", () => {
     expect(edited.liveRelease).toEqual(release);
     expect(edited.liveRelease?.content).toMatchObject({
       jobText: "Answer pricing questions",
-      tools: ["reply", "hand_to_bot"],
+      tools: ["reply", "hand_to_bot", "read_customer_work"],
       model: null,
     });
   });

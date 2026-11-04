@@ -724,7 +724,10 @@ describe("a closed thread's profile values (ticket #1282)", () => {
     const { say, fake } = await instance();
     await say("Remember that I like tea.");
 
-    const tools = fake.calls.flatMap((call) => (call.tools ?? []).map((tool) => tool.name));
+    // `read_customer_work` only reads, and live.
+    const tools = fake.calls
+      .flatMap((call) => (call.tools ?? []).map((tool) => tool.name))
+      .filter((name) => name !== "read_customer_work");
     expect(tools.length).toBeGreaterThan(0);
     expect(tools.filter((name) => /memory|profile|remember|customer/i.test(name))).toEqual([]);
   });

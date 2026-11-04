@@ -174,6 +174,22 @@ export async function combinedProfilesOf(db: Db, userId: string, customerIds: st
 }
 
 /**
+ * Every value held of a Customer as it stands today, and the Customers it is made of: its own and
+ * those merged into it, however many steps away, winners and losers alike, and what the survivor
+ * corrected too. A lesson is checked against all of it (ticket #1289). The Customers are returned so
+ * that the addresses a merge moved can be read as well.
+ */
+export async function knownValuesOf(db: Db, userId: string, customerId: string) {
+  const merges = await standingMergesOf(db, userId);
+  const members = memberIds(merges, survivorOf(merges, customerId));
+  const rows = await valueRowsOf(db, userId, members);
+  return {
+    customerIds: members,
+    values: rows.filter((row) => !isCleared(row)).map((row) => row.value),
+  };
+}
+
+/**
  * The Customer something a merge moved came from: where it goes back to when each merge that moved it
  * is undone. `moved` says whether a merge moved it.
  */

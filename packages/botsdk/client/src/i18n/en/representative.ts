@@ -37,6 +37,8 @@ export const representativeMessages = {
   "representative.toolReply": "Reply to the Customer",
   "representative.toolHandToBot": "Hand off to the Bot",
   "representative.toolVerifyCustomer": "Send a Customer a code or link to prove who they are",
+  "representative.toolReadCustomerWork":
+    "Read the status of the Customer's own Assignments and what the Bot said for them",
   "representative.model": "Model",
   "representative.modelHelp": "With no Model chosen, it uses the Host's default.",
   "representative.modelUseDefault": "Use the default",
@@ -305,7 +307,8 @@ export const representativeMessages = {
   "representative.facts.gapToFact": "Turn into a fact",
   "representative.facts.gapKeyOf": ({ name }: { name: string }) => `Key for: ${name}`,
   "representative.facts.gapNewFact": "new fact from a gap",
-  "representative.facts.proposalsTitle": "Proposed by your Bots",
+  "representative.facts.proposalsTitle": "Proposed for your facts",
+  "representative.facts.proposalLesson": "Lesson learned from your Customers",
   "representative.facts.proposalFrom": ({ name }: { name: string }) => `From ${name}`,
   "representative.facts.proposalCurrent": "Current",
   "representative.facts.proposalProposed": "Proposed",

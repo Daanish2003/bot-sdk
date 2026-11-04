@@ -2,9 +2,7 @@
   "version": "8",
   "dialect": "postgres",
   "id": "6b9ab363-f404-4bfc-809a-50540b223fa9",
-  "prevIds": [
-    "fe6f6afc-6b14-419b-a597-01c9926150d5"
-  ],
+  "prevIds": ["fe6f6afc-6b14-419b-a597-01c9926150d5"],
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -2689,14 +2687,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "bot_id"
-      ],
+      "columns": ["bot_id"],
       "schemaTo": "botsdk",
       "tableTo": "bot",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "name": "representative_bot_id_bot_id_fkey",
@@ -2706,14 +2700,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "customer_id"
-      ],
+      "columns": ["customer_id"],
       "schemaTo": "botsdk",
       "tableTo": "representative_customer",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "representative_customer_identity_V1wa8UJdIMn9_fkey",
@@ -2723,14 +2713,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "survivor_customer_id"
-      ],
+      "columns": ["survivor_customer_id"],
       "schemaTo": "botsdk",
       "tableTo": "representative_customer",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "representative_customer_merge_Mn1uoORUijTG_fkey",
@@ -2740,14 +2726,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "absorbed_customer_id"
-      ],
+      "columns": ["absorbed_customer_id"],
       "schemaTo": "botsdk",
       "tableTo": "representative_customer",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "representative_customer_merge_pVbHH0Xf5Itc_fkey",
@@ -2757,14 +2739,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "thread_id"
-      ],
+      "columns": ["thread_id"],
       "schemaTo": "botsdk",
       "tableTo": "representative_thread",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "representative_customer_summary_RvVjEVqrmHvt_fkey",
@@ -2774,14 +2752,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "representative_id"
-      ],
+      "columns": ["representative_id"],
       "schemaTo": "botsdk",
       "tableTo": "representative",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "representative_document_yOfvktNhvbC5_fkey",
@@ -2791,14 +2765,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "bot_id"
-      ],
+      "columns": ["bot_id"],
       "schemaTo": "botsdk",
       "tableTo": "bot",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "representative_fact_proposal_bot_id_bot_id_fkey",
@@ -2808,14 +2778,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "representative_id"
-      ],
+      "columns": ["representative_id"],
       "schemaTo": "botsdk",
       "tableTo": "representative",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "name": "representative_gap_representative_id_representative_id_fkey",
@@ -2825,14 +2791,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "assignment_id"
-      ],
+      "columns": ["assignment_id"],
       "schemaTo": "botsdk",
       "tableTo": "bot_assignment",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "representative_hand_off_assignment_id_bot_assignment_id_fkey",
@@ -2842,14 +2804,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "representative_id"
-      ],
+      "columns": ["representative_id"],
       "schemaTo": "botsdk",
       "tableTo": "representative",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "representative_hand_off_jlibJorNz5g3_fkey",
@@ -2859,14 +2817,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "thread_id"
-      ],
+      "columns": ["thread_id"],
       "schemaTo": "botsdk",
       "tableTo": "representative_thread",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "name": "representative_hand_off_thread_id_representative_thread_id_fkey",
@@ -2876,14 +2830,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "customer_id"
-      ],
+      "columns": ["customer_id"],
       "schemaTo": "botsdk",
       "tableTo": "representative_customer",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "representative_hand_off_9J8R7bIiDYK1_fkey",
@@ -2893,14 +2843,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "customer_id"
-      ],
+      "columns": ["customer_id"],
       "schemaTo": "botsdk",
       "tableTo": "representative_customer",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "representative_profile_value_ouIMP6uZgzKN_fkey",
@@ -2910,14 +2856,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "field_id"
-      ],
+      "columns": ["field_id"],
       "schemaTo": "botsdk",
       "tableTo": "representative_profile_field",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "representative_profile_value_G9g7W6UndZEp_fkey",
@@ -2927,14 +2869,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "representative_id"
-      ],
+      "columns": ["representative_id"],
       "schemaTo": "botsdk",
       "tableTo": "representative",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "representative_release_representative_id_representative_id_fkey",
@@ -2944,14 +2882,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "representative_id"
-      ],
+      "columns": ["representative_id"],
       "schemaTo": "botsdk",
       "tableTo": "representative",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "representative_test_result_enxpE5vSFupS_fkey",
@@ -2961,14 +2895,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "customer_id"
-      ],
+      "columns": ["customer_id"],
       "schemaTo": "botsdk",
       "tableTo": "representative_customer",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "representative_thread_n6pfi9Lo8t8k_fkey",
@@ -2978,14 +2908,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "representative_id"
-      ],
+      "columns": ["representative_id"],
       "schemaTo": "botsdk",
       "tableTo": "representative",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "representative_thread_representative_id_representative_id_fkey",
@@ -2995,14 +2921,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "thread_id"
-      ],
+      "columns": ["thread_id"],
       "schemaTo": "botsdk",
       "tableTo": "representative_thread",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "representative_thread_message_CLJcN0LqaT8Y_fkey",
@@ -3012,14 +2934,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "sender_identity_id"
-      ],
+      "columns": ["sender_identity_id"],
       "schemaTo": "botsdk",
       "tableTo": "representative_customer_identity",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "representative_verification_7Gh33xVIgHII_fkey",
@@ -3029,14 +2947,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "target_identity_id"
-      ],
+      "columns": ["target_identity_id"],
       "schemaTo": "botsdk",
       "tableTo": "representative_customer_identity",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "representative_verification_A3Cuu01hb7X4_fkey",
@@ -3045,9 +2959,7 @@
       "table": "representative_verification"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "representative_pkey",
       "schema": "botsdk",
@@ -3055,9 +2967,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "representative_customer_pkey",
       "schema": "botsdk",
@@ -3065,9 +2975,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "representative_customer_identity_pkey",
       "schema": "botsdk",
@@ -3075,9 +2983,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "representative_customer_merge_pkey",
       "schema": "botsdk",
@@ -3085,9 +2991,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "representative_customer_summary_pkey",
       "schema": "botsdk",
@@ -3095,9 +2999,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "representative_document_pkey",
       "schema": "botsdk",
@@ -3105,9 +3007,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "representative_fact_pkey",
       "schema": "botsdk",
@@ -3115,9 +3015,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "representative_fact_log_pkey",
       "schema": "botsdk",
@@ -3125,9 +3023,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "representative_fact_proposal_pkey",
       "schema": "botsdk",
@@ -3135,9 +3031,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "representative_gap_pkey",
       "schema": "botsdk",
@@ -3145,9 +3039,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "assignment_id"
-      ],
+      "columns": ["assignment_id"],
       "nameExplicit": false,
       "name": "representative_hand_off_pkey",
       "schema": "botsdk",
@@ -3155,9 +3047,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "representative_profile_field_pkey",
       "schema": "botsdk",
@@ -3165,9 +3055,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "representative_profile_value_pkey",
       "schema": "botsdk",
@@ -3175,9 +3063,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "representative_release_pkey",
       "schema": "botsdk",
@@ -3185,9 +3071,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "representative_test_result_pkey",
       "schema": "botsdk",
@@ -3195,9 +3079,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "representative_thread_pkey",
       "schema": "botsdk",
@@ -3205,9 +3087,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "representative_thread_message_pkey",
       "schema": "botsdk",
@@ -3215,9 +3095,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "representative_verification_pkey",
       "schema": "botsdk",
@@ -3226,11 +3104,7 @@
     },
     {
       "nameExplicit": true,
-      "columns": [
-        "user_id",
-        "channel",
-        "external_id"
-      ],
+      "columns": ["user_id", "channel", "external_id"],
       "nullsNotDistinct": false,
       "name": "representative_customer_identity_address",
       "entityType": "uniques",
@@ -3239,10 +3113,7 @@
     },
     {
       "nameExplicit": true,
-      "columns": [
-        "user_id",
-        "key"
-      ],
+      "columns": ["user_id", "key"],
       "nullsNotDistinct": false,
       "name": "representative_fact_key",
       "entityType": "uniques",
@@ -3251,10 +3122,7 @@
     },
     {
       "nameExplicit": true,
-      "columns": [
-        "user_id",
-        "key"
-      ],
+      "columns": ["user_id", "key"],
       "nullsNotDistinct": false,
       "name": "representative_fact_proposal_key",
       "entityType": "uniques",
@@ -3263,10 +3131,7 @@
     },
     {
       "nameExplicit": true,
-      "columns": [
-        "customer_id",
-        "fixed_field"
-      ],
+      "columns": ["customer_id", "fixed_field"],
       "nullsNotDistinct": false,
       "name": "representative_profile_value_fixed",
       "entityType": "uniques",
@@ -3275,10 +3140,7 @@
     },
     {
       "nameExplicit": true,
-      "columns": [
-        "customer_id",
-        "field_id"
-      ],
+      "columns": ["customer_id", "field_id"],
       "nullsNotDistinct": false,
       "name": "representative_profile_value_field",
       "entityType": "uniques",
@@ -3287,10 +3149,7 @@
     },
     {
       "nameExplicit": true,
-      "columns": [
-        "representative_id",
-        "number"
-      ],
+      "columns": ["representative_id", "number"],
       "nullsNotDistinct": false,
       "name": "representative_release_number",
       "entityType": "uniques",
@@ -3299,10 +3158,7 @@
     },
     {
       "nameExplicit": true,
-      "columns": [
-        "representative_id",
-        "position"
-      ],
+      "columns": ["representative_id", "position"],
       "nullsNotDistinct": false,
       "name": "representative_test_result_position",
       "entityType": "uniques",
@@ -3311,10 +3167,7 @@
     },
     {
       "nameExplicit": true,
-      "columns": [
-        "thread_id",
-        "position"
-      ],
+      "columns": ["thread_id", "position"],
       "nullsNotDistinct": false,
       "name": "representative_thread_message_position",
       "entityType": "uniques",
@@ -3323,9 +3176,7 @@
     },
     {
       "nameExplicit": true,
-      "columns": [
-        "thread_id"
-      ],
+      "columns": ["thread_id"],
       "nullsNotDistinct": false,
       "name": "representative_customer_summary_thread",
       "schema": "botsdk",

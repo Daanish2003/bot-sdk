@@ -23,6 +23,7 @@ import {
 import { threadPromptChars, threadPromptLimit } from "./customers";
 import { readCustomer } from "./owner-customers";
 import { type ProfileOperation, parseProfileOperations, writePassValues } from "./customer-profile";
+import { type Lesson, parseLesson, proposeLesson } from "./customer-lessons";
 
 /*
  * Customer memory's pass (ticket #1279, ADR 0035): after a thread closes, a job on its Release's Model
@@ -45,9 +46,14 @@ const summaryChars = 2_000;
 /** What opens the part of a reply that holds the profile operations, on a line of its own. */
 export const profileOperationsMarker = "PROFILE OPERATIONS";
 
+/** What opens the part of a reply that holds a lesson, on a line of its own. */
+export const lessonMarker = "LESSON";
+
 /**
  * Adapted from the Memory pass's prompt (ADR 0022): what it reads is data, and what it writes is plain.
- * The same reply carries the profile operations, which code checks and writes (ticket #1282).
+ * The same reply carries the profile operations, which code checks and writes (ticket #1282), and
+ * may carry one lesson, which code checks and the owner approves (ticket #1289). The two sections
+ * may come in either order, each after the summary.
  */
 const summaryPrompt = (fieldNames: string[]) =>
   [
@@ -58,6 +64,10 @@ const summaryPrompt = (fieldNames: string[]) =>
     [
       `Then, only if a line states a fact about the Customer for their profile, add a line holding exactly "${profileOperationsMarker}" and after it a JSON array of {"field": string, "value": string, "line": number}, where line is the number of the line that says it.`,
       `The fields are: ${fieldNames.join(", ")}. Use no other field, and leave the array out when no line states one.`,
+    ].join(" "),
+    [
+      `Also, only if this thread teaches something worth stating to every Customer of this business, add a line holding exactly "${lessonMarker}" and after it one JSON object {"key": string, "type": "text" | "money" | "hours" | "phone" | "url", "topic": string, "value": string, "why": string}: a fact the business could publish, with why you propose it.`,
+      "A lesson holds nothing that identifies a Customer: no name, address, phone number, email or anything one said. Leave it out when you are unsure.",
     ].join(" "),
   ].join("\n\n");
 
@@ -133,15 +143,38 @@ async function summarize(
   return result.text;
 }
 
-type Outcome = { text: string; operations: ProfileOperation[] } | { skipped: CustomerSummarySkip };
+type Outcome =
+  | { text: string; operations: ProfileOperation[]; lesson: Lesson | null }
+  | { skipped: CustomerSummarySkip };
 
-/** Splits a reply into its summary and the profile operations after the marker's last line; an unreadable tail gives none. */
+/**
+ * Splits a reply into its summary, which ends at the first section's marker, and the profile operations
+ * and lesson after theirs. A section runs from its marker's last line to the next marker; an unreadable
+ * one gives none.
+ */
 function splitReply(reply: string) {
-  const marker = new RegExp(`^${profileOperationsMarker}[ \t\r]*$`, "gm");
-  const at = [...reply.matchAll(marker)].at(-1);
-  if (!at) return { summary: reply, operations: [] };
-  const tail = reply.slice(at.index + at[0].length);
-  return { summary: reply.slice(0, at.index), operations: parseProfileOperations(tail) };
+  const marker = new RegExp(`^(${profileOperationsMarker}|${lessonMarker})[ \t\r]*$`, "gm");
+  const last = new Map<string, { start: number; end: number }>();
+  for (const found of reply.matchAll(marker)) {
+    last.set(found[1]!, { start: found.index, end: found.index + found[0].length });
+  }
+  const starts = [...last.values()].map(({ start }) => start).sort((a, b) => a - b);
+  if (starts.length === 0) return { summary: reply, operations: [], lesson: null };
+  const sectionOf = (name: string) => {
+    const at = last.get(name);
+    if (!at) return null;
+    return reply.slice(
+      at.end,
+      starts.find((start) => start > at.start),
+    );
+  };
+  const operations = sectionOf(profileOperationsMarker);
+  const lesson = sectionOf(lessonMarker);
+  return {
+    summary: reply.slice(0, starts[0]),
+    operations: operations === null ? [] : parseProfileOperations(operations),
+    lesson: lesson === null ? null : parseLesson(lesson),
+  };
 }
 
 /**
@@ -179,9 +212,9 @@ async function planSummary(services: SummaryServices, threadId: string): Promise
     .orderBy(asc(representativeProfileField.id));
   const fieldNames = [...fixedProfileFields, ...own.map(({ name }) => name)];
   const reply = await summarize(services, { threadId, userId, model }, call, lines, fieldNames);
-  const { summary, operations } = splitReply(reply);
+  const { summary, operations, lesson } = splitReply(reply);
   const text = summary.replaceAll("\0", "").trim().slice(0, summaryChars);
-  return text ? { text, operations } : { skipped: "empty_reply" };
+  return text ? { text, operations, lesson } : { skipped: "empty_reply" };
 }
 
 /** Stores what the pass came to, once. Under the thread's lock: a thread reopened or deleted meanwhile gets nothing. */
@@ -214,6 +247,14 @@ async function recordOutcome(tx: Transaction, threadId: string, outcome: Outcome
       now,
       operations: outcome.operations,
     });
+    if (outcome.lesson) {
+      await proposeLesson(tx, {
+        userId: thread.userId,
+        customerId: thread.customerId,
+        now,
+        lesson: outcome.lesson,
+      });
+    }
   }
 }
 
