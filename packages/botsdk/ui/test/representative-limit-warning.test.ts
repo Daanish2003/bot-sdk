@@ -11,7 +11,7 @@ import { providerFor } from "@ai-chat/test-support/fake-dictionary";
 afterEach(cleanup);
 
 /** A stand-in for `models.readQuota`, which says when the warning has had its answer. */
-function show(usedPercent: number | null) {
+function show(usedPercent: number | null, monthUsedPercent?: number) {
   let read = false;
   const handler = new RPCHandler({
     models: {
@@ -26,7 +26,7 @@ function show(usedPercent: number | null) {
   const fetch = async (request: Request) =>
     (await handler.handle(request, { prefix: "/api/chat/rpc" })).response ??
     new Response(null, { status: 404 });
-  render(providerFor(createElement(LimitWarning), { fetch, messages: {} }));
+  render(providerFor(createElement(LimitWarning, { monthUsedPercent }), { fetch, messages: {} }));
   return { wasRead: () => read };
 }
 
@@ -47,6 +47,24 @@ describe("the warning at a limit", () => {
 
   it.each([79, null])("says nothing at %s", async (usedPercent) => {
     const { wasRead } = show(usedPercent);
+
+    await waitFor(() => expect(wasRead()).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("warns of the monthly spending cap at 80% of it, and says so apart from the Quota", async () => {
+    const { wasRead } = show(10, 85);
+
+    const warning = await screen.findByRole("status");
+    await waitFor(() => expect(wasRead()).toBe(true));
+    expect(warning.textContent).toContain("85%");
+    expect(warning.textContent).toContain("monthly spending cap");
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+  });
+
+  it("says nothing of the monthly cap below 80% of it", async () => {
+    const { wasRead } = show(10, 79);
 
     await waitFor(() => expect(wasRead()).toBe(true));
     await new Promise((resolve) => setTimeout(resolve, 50));

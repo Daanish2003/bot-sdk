@@ -117,6 +117,13 @@ export function useSetRepresentativeCaps(
   return useMutation(useRepresentative().setCaps.mutationOptions(options));
 }
 
+/** Edits what a Representative may cost (`representative.setSpendingCaps`). */
+export function useSetRepresentativeSpendingCaps(
+  options?: ProcedureMutationOptions<Representative["setSpendingCaps"]>,
+) {
+  return useMutation(useRepresentative().setSpendingCaps.mutationOptions(options));
+}
+
 /** Chooses the Bot a Representative reports to (`representative.setBot`). */
 export function useSetRepresentativeBot(
   options?: ProcedureMutationOptions<Representative["setBot"]>,

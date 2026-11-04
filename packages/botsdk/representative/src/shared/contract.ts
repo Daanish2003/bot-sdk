@@ -180,10 +180,37 @@ export type RepresentativeSummary = {
   liveReleaseNumber: number | null;
   /** What the Outbound gate holds a Customer to, in messages (ticket #1304). */
   caps: OutboundCaps;
+  /** What the Representative may cost (ticket #1310). */
+  spendingCaps: SpendingCaps;
 };
 
 /** The most the Outbound gate lets a Representative send one Customer: in a row with no reply, and in a rolling day. */
 export type OutboundCaps = { maxInARow: number; maxPerDay: number };
+
+/**
+ * What a Representative may cost (ticket #1310): model calls and money, in millionths of a US dollar,
+ * per thread, per Customer in a rolling day, per unverified Customer in a rolling day, and money per
+ * calendar month for the Representative (its Turns and its Customer memory passes). Starting defaults.
+ */
+export type SpendingCaps = {
+  threadCalls: number;
+  threadMicros: number;
+  customerCalls: number;
+  customerMicros: number;
+  strangerCalls: number;
+  strangerMicros: number;
+  monthMicros: number;
+};
+
+export const defaultSpendingCaps: SpendingCaps = {
+  threadCalls: 30,
+  threadMicros: 500_000,
+  customerCalls: 60,
+  customerMicros: 2_000_000,
+  strangerCalls: 20,
+  strangerMicros: 500_000,
+  monthMicros: 50_000_000,
+};
 
 /** One line of a test conversation's transcript. */
 export type TranscriptEntry = {
@@ -238,6 +265,8 @@ export type RepresentativeView = RepresentativeSummary & {
   liveRelease: ReleaseView | null;
   releases: ReleaseSummary[];
   testStatus: TestStatus;
+  /** How much of the monthly spending cap this calendar month has used, 0 to 100 (ticket #1310). */
+  monthUsedPercent: number;
   /** The results that count for the draft as it is now: none once it has changed. */
   tests: TestResultView[];
 };
@@ -612,6 +641,22 @@ export const setCapsInput = z
   .refine(({ maxInARow, maxPerDay }) => maxInARow !== undefined || maxPerDay !== undefined, {
     message: "Give at least one cap",
   });
+const callCapField = z.number().int().min(1).max(1_000_000);
+const moneyCapField = z.number().int().min(1).max(1_000_000_000_000);
+export const setSpendingCapsInput = z
+  .object({
+    id: z.uuid(),
+    threadCalls: callCapField.optional(),
+    threadMicros: moneyCapField.optional(),
+    customerCalls: callCapField.optional(),
+    customerMicros: moneyCapField.optional(),
+    strangerCalls: callCapField.optional(),
+    strangerMicros: moneyCapField.optional(),
+    monthMicros: moneyCapField.optional(),
+  })
+  .refine(({ id: _id, ...caps }) => Object.values(caps).some((cap) => cap !== undefined), {
+    message: "Give at least one cap",
+  });
 export const setEnabledInput = z.object({ id: z.uuid(), enabled: z.boolean() });
 export const setBotInput = z.object({ id: z.uuid(), botId: z.uuid() });
 
@@ -659,6 +704,8 @@ export const representativeContract = {
   setEnabled: oc.input(setEnabledInput).output(type<RepresentativeView>()),
   /** Edits the caps on what the Outbound gate sends a Customer; a cap left out stays. No new Release. */
   setCaps: oc.input(setCapsInput).output(type<RepresentativeView>()),
+  /** Edits what the Representative may cost; a cap left out stays. No new Release, and a raise lifts a thread held at a limit. */
+  setSpendingCaps: oc.input(setSpendingCapsInput).output(type<RepresentativeView>()),
   /** Chooses which of the owner's Bots it reports to; its open Assignments move to that Bot. */
   setBot: oc.input(setBotInput).output(type<RepresentativeView>()),
   /** The owner's Customers, oldest first. */

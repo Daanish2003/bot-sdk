@@ -30,6 +30,7 @@ import {
 } from "./customer-proof";
 import { recordMovedHandOff } from "./customer-merge";
 import { memoryPrompt, noMemory, readCustomerMemory, type CustomerMemory } from "./customer-memory";
+import { capReached } from "./spending";
 import { type CustomerWork, quotable, readCustomerWork } from "./customer-work";
 import { deliverHandOffResult } from "./hand-off-result";
 import {
@@ -227,13 +228,14 @@ export const limitCheckJob = defineJob<z.infer<typeof limitCheckPayload>, TurnSe
       limitedThread(tx, threadId),
     );
     if (!limited) return;
+    const now = await job.now();
     const lifted = await job.step("representative_limit_quota", async () => {
       const start = await readStart(job, limited.representativeId);
       if (!start) return false;
       const call = await job.models.resolveModelCall(start.userId, start.model);
-      return !call || (await call.meter.mayRun()).ok;
+      if (call && !(await call.meter.mayRun()).ok) return false;
+      return (await capReached(job.db, threadId, now)) === null;
     });
-    const now = await job.now();
     await job.step("representative_limit_settle", (tx) =>
       settleLimit(job, tx, threadId, lifted, now),
     );
@@ -930,6 +932,11 @@ export async function playLoop(
     startedAt,
     stepLimit: turnStepLimit,
     timeLimitMs: turnTimeLimitMs,
+    // A test conversation counts toward no cap.
+    stopBefore:
+      "thread" in on
+        ? async (tx) => (await capReached(tx, on.thread.threadId, job.clock())) !== null
+        : undefined,
     plainTextReminder,
     setup: async (kit) => {
       const tools: Record<string, AnyServerTool> = turnTools({ ...turn, kit, documents, memory });
@@ -1042,19 +1049,24 @@ export function representativeTurnJob(
             content,
             documents: await readDocuments(job.db, content.documentSnapshot?.documents ?? []),
           });
+          // A cap ended it before a model call: nothing went wrong, and the Customer is told.
           // A failed job, not a succeeded one, and no retry: a Step may already have replied.
-          if (played.error !== undefined) {
+          if (played.error !== undefined && !played.capped) {
             throw new PermanentJobError(`Representative Turn ${turnId} failed: ${played.error}`);
           }
-          if (played.quotaSpent) {
+          if (played.quotaSpent || played.capped) {
             const now = await job.now();
-            await job.step("representative_at_limit", (tx) =>
+            await job.step("representative_at_limit", async (tx) =>
               reachLimit(job, tx, {
                 userId,
                 representativeId,
                 turnId,
                 thread,
-                cause: "quota_spent",
+                // The cap again, as the owner's raise since would have lifted it. Rare, and a Page for
+                // a limit that has lifted costs nothing.
+                cause: played.quotaSpent
+                  ? "quota_spent"
+                  : ((await capReached(tx, threadId, now)) ?? "thread_cap"),
                 now,
               }),
             );

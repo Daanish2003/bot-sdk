@@ -26,6 +26,22 @@ const limitPages = {
     title: "Your Quota is spent",
     text: "Your Representative can't answer Customers until your Quota lifts. Each has a note saying your team will reply. When it lifts, messages under 24 hours old are answered automatically, and older ones are left for you.",
   },
+  thread_cap: {
+    title: "A conversation reached its spending cap",
+    text: "A conversation used all the model calls or money you allow it. Each Customer it held back has a note saying your team will reply. When it lifts, messages under 24 hours old are answered automatically, and older ones are left for you.",
+  },
+  customer_cap: {
+    title: "A Customer reached the daily spending cap",
+    text: "A Customer used all the model calls or money you allow one in a day. Each Customer it held back has a note saying your team will reply. When it lifts, messages under 24 hours old are answered automatically, and older ones are left for you.",
+  },
+  stranger_cap: {
+    title: "An unverified Customer reached the daily spending cap",
+    text: "A Customer whose identity wasn't checked used all the model calls or money you allow one in a day. Each Customer it held back has a note saying your team will reply. When it lifts, messages under 24 hours old are answered automatically, and older ones are left for you.",
+  },
+  month_cap: {
+    title: "Your Representative reached its monthly spending cap",
+    text: "Your Representative spent all you allow it this month, which keeps your Quota for your own Bots. Each Customer it held back has a note saying your team will reply. When it lifts, messages under 24 hours old are answered automatically, and older ones are left for you.",
+  },
 };
 export type LimitCause = keyof typeof limitPages;
 
@@ -52,6 +68,35 @@ export async function queueLimitCheck(
     { threadId },
     { idempotencyKey: `${limitCheckJobName}:${threadId}:${dueAt.getTime()}`, runAfter: dueAt },
   );
+}
+
+/**
+ * Looks again now at every thread of `representativeId` at a limit, in `tx`: the owner raised a cap,
+ * which may have lifted it. Their hourly chains go on as they were.
+ */
+export async function checkLimitsNow(
+  { jobs }: Pick<FeatureContext, "jobs">,
+  tx: Transaction,
+  representativeId: string,
+  now: Date,
+) {
+  const limited = await tx
+    .select({ id: representativeThread.id })
+    .from(representativeThread)
+    .where(
+      and(
+        eq(representativeThread.representativeId, representativeId),
+        isNotNull(representativeThread.limitNotedAt),
+      ),
+    );
+  for (const { id } of limited) {
+    await jobs.enqueueIn(
+      tx,
+      { name: limitCheckJobName, payload: limitCheckPayload },
+      { threadId: id },
+      { idempotencyKey: `${limitCheckJobName}:${id}:raised:${now.getTime()}`, runAfter: now },
+    );
+  }
 }
 
 /**

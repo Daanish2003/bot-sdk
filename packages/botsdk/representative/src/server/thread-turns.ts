@@ -18,6 +18,7 @@ import {
   representativeCustomer,
   representativeThread,
   representativeThreadMessage,
+  representativeTurn,
 } from "./db/schema";
 import { queueIdleCheck } from "./idle";
 import { waitingAfterAbort } from "./takeover";
@@ -306,6 +307,11 @@ export async function beginTurn(tx: Transaction, threadId: string, turnId: strin
         : { waitingFrom: null, waitingSince: null }),
     })
     .where(inThread);
+  // Kept for what its model calls cost (ticket #1310); a retried Turn is the same row.
+  await tx
+    .insert(representativeTurn)
+    .values({ id: turnId, threadId, representativeId })
+    .onConflictDoNothing();
   return {
     customerId,
     representativeId,

@@ -562,6 +562,37 @@ describe("the representativeLoop service", () => {
   );
 
   it(
+    "ends before a model call the owner's check stops, and says so",
+    async () => {
+      const { fake, identity, inJob } = await representativeWith([
+        replies(),
+        round(text("Never.")),
+      ]);
+      let asked = 0;
+      let played: Awaited<ReturnType<Service["run"]>> | undefined;
+
+      const { error } = await inJob(async (job) => {
+        played = await job.representativeLoop.run(job, {
+          representative: identity(),
+          sourceId: uuidv7(),
+          input: [{ role: "user", content: "Hi" }],
+          startedAt: new Date(),
+          stepLimit: 5,
+          timeLimitMs: 20_000,
+          // The first model call is let through; the second is stopped.
+          stopBefore: async () => ++asked > 1,
+          setup: async () => ({ tools: [reply()], systemPrompts: [] }),
+        });
+      });
+
+      expect(error).toBeUndefined();
+      expect(played?.capped).toBe(true);
+      expect(fake.calls).toHaveLength(1);
+    },
+    timeout,
+  );
+
+  it(
     "refuses a Bot's identity before any model call",
     async () => {
       const { fake, user, inJob } = await representativeWith([round(text("Never."))]);

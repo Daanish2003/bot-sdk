@@ -17,7 +17,17 @@ const id = "0195c6a0-0000-7000-8000-000000000001";
 /** A stand-in for the server's `representative` procedures, keeping the caps it is given. */
 function fakeServer() {
   let caps = { maxInARow: 5, maxPerDay: 20 };
+  let spendingCaps = {
+    threadCalls: 30,
+    threadMicros: 500_000,
+    customerCalls: 60,
+    customerMicros: 2_000_000,
+    strangerCalls: 20,
+    strangerMicros: 500_000,
+    monthMicros: 50_000_000,
+  };
   const saved: unknown[] = [];
+  const savedSpending: unknown[] = [];
   const view = () =>
     ({
       id,
@@ -26,6 +36,8 @@ function fakeServer() {
       enabled: false,
       liveReleaseNumber: null,
       caps,
+      spendingCaps,
+      monthUsedPercent: 0,
       draft: { tools: [], skills: [], documents: [], tests: [] },
       approval: null,
       liveRelease: null,
@@ -38,6 +50,13 @@ function fakeServer() {
       get: os.handler(view),
       threadList: os.handler(() => []),
       diff: os.handler(() => ({ liveReleaseNumber: null, changes: [] })),
+      setSpendingCaps: os
+        .input(z.object({ id: z.string() }).catchall(z.number()))
+        .handler(({ input }) => {
+          savedSpending.push(input);
+          spendingCaps = { ...spendingCaps, ...input };
+          return view();
+        }),
       setCaps: os
         .input(z.object({ id: z.string(), maxInARow: z.number(), maxPerDay: z.number() }))
         .handler(({ input }) => {
@@ -51,7 +70,7 @@ function fakeServer() {
   const fetch = async (request: Request) =>
     (await handler.handle(request, { prefix: "/api/chat/rpc" })).response ??
     new Response(null, { status: 404 });
-  return { fetch, saved };
+  return { fetch, saved, savedSpending };
 }
 
 describe("the caps form on the Representative page", () => {
@@ -73,5 +92,39 @@ describe("the caps form on the Representative page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save caps" }));
 
     await waitFor(() => expect(server.saved).toEqual([{ id, maxInARow: 3, maxPerDay: 12 }]));
+  });
+
+  it("shows the spending caps in dollars, and saving sends them in micros", async () => {
+    const server = fakeServer();
+    render(
+      providerFor(createElement(RepresentativePage, { id }), {
+        fetch: server.fetch,
+        features: [representativeClient()],
+        messages: {},
+      }),
+    );
+
+    const perThread = (await screen.findByLabelText("Dollars per thread")) as HTMLInputElement;
+    const monthly = screen.getByLabelText("Dollars per month, all Customers") as HTMLInputElement;
+    const calls = screen.getByLabelText("Model calls per thread") as HTMLInputElement;
+    expect([perThread.value, monthly.value, calls.value]).toEqual(["0.5", "50", "30"]);
+    fireEvent.change(perThread, { target: { value: "0.75" } });
+    fireEvent.change(calls, { target: { value: "12" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save spending caps" }));
+
+    await waitFor(() =>
+      expect(server.savedSpending).toEqual([
+        {
+          id,
+          threadCalls: 12,
+          threadMicros: 750_000,
+          customerCalls: 60,
+          customerMicros: 2_000_000,
+          strangerCalls: 20,
+          strangerMicros: 500_000,
+          monthMicros: 50_000_000,
+        },
+      ]),
+    );
   });
 });

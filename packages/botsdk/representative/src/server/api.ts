@@ -23,6 +23,7 @@ import {
   rollbackInput,
   setBotInput,
   setCapsInput,
+  setSpendingCapsInput,
   setEnabledInput,
   threadSendInput,
   topicAddInput,
@@ -66,6 +67,7 @@ import {
   setBot,
   setCaps,
   setEnabled,
+  setSpendingCaps,
   updateDraft,
   uploadDocument,
 } from "./representatives";
@@ -155,6 +157,9 @@ export function representativeApi(
 
     setCaps: async ({ userId, ...rest }: WithUser<typeof setCapsInput>) =>
       setCaps(context, userId, parseInput(setCapsInput, rest)),
+
+    setSpendingCaps: async ({ userId, ...rest }: WithUser<typeof setSpendingCapsInput>) =>
+      setSpendingCaps(context, userId, parseInput(setSpendingCapsInput, rest)),
 
     setBot: async ({ userId, ...rest }: WithUser<typeof setBotInput>) => {
       const { id, botId } = parseInput(setBotInput, rest);

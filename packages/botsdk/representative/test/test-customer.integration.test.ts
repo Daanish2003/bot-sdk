@@ -814,6 +814,7 @@ describe("who can reach a Turn", () => {
       "setBot",
       "setCaps",
       "setEnabled",
+      "setSpendingCaps",
       "threadGet",
       "threadHandBack",
       "threadHeldDrop",
