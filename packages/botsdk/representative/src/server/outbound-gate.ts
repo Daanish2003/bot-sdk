@@ -1,4 +1,4 @@
-import { and, asc, count, eq, gt, inArray, max, sql } from "drizzle-orm";
+import { and, asc, count, eq, gt, inArray, max, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
@@ -112,6 +112,11 @@ export type Outgoing = {
   jobs?: JobsService;
   /** The message starts with the business, such as a relayed Bot result: quiet hours hold it. */
   businessStarted?: boolean;
+  /**
+   * The id of the held message this is the automatic release of: it also passes `on` and `caps`, and
+   * holding it again writes no second held row. A Page for it counts the other held messages only.
+   */
+  releasing?: string;
   /** What is held if the gate holds it. A proof has none: its secret is never stored. */
   content?: {
     text: string;
@@ -143,6 +148,21 @@ export const heldReleaseJobName = "representative.held-release";
 export const heldReleasePayload = z.object({ heldId: z.uuid() });
 const heldReleaseJob = { name: heldReleaseJobName, payload: heldReleasePayload };
 
+/** Sends the held message `heldId` at `at`: one job for each time it is asked for. */
+export async function enqueueHeldRelease(
+  jobs: JobsService,
+  tx: Transaction,
+  heldId: string,
+  at: Date,
+) {
+  await jobs.enqueueIn(
+    tx,
+    heldReleaseJob,
+    { heldId },
+    { idempotencyKey: `${heldReleaseJobName}:${heldId}:${at.getTime()}`, runAfter: at },
+  );
+}
+
 async function writeDecision(
   tx: Transaction,
   { decision, held, page, releaseAt }: GateRefusal,
@@ -154,18 +174,12 @@ async function writeDecision(
     .values(decision)
     .onConflictDoNothing()
     .returning({ id: representativeOutboundDecision.id });
+  // Only when the decision was written: a Turn writes its refusals again when it ends, and a held
+  // message the Customer's new message dropped meanwhile must not come back.
+  if (!written) return;
   if (held) await tx.insert(representativeHeldMessage).values(held).onConflictDoNothing();
-  // Keyed by the held message: a Turn writes a refusal again when it ends, and one job is enough.
-  if (held && releaseAt && jobs) {
-    await jobs.enqueueIn(
-      tx,
-      heldReleaseJob,
-      { heldId: held.id },
-      { idempotencyKey: `${heldReleaseJobName}:${held.id}`, runAfter: releaseAt },
-    );
-  }
-  // Once: a Turn writes a refusal again when it ends, and the owner isn't told twice.
-  if (written && page && pages) await pages.send(tx, page);
+  if (held && releaseAt && jobs) await enqueueHeldRelease(jobs, tx, held.id, releaseAt);
+  if (page && pages) await pages.send(tx, page);
 }
 
 /**
@@ -259,6 +273,44 @@ async function sentCounts(tx: Transaction, threadId: string, customerId: string,
 }
 
 /**
+ * The time zone a Customer's quiet hours are read in: theirs when the owner set it or a verified
+ * message of theirs said it, otherwise `fallback`, the business's. An unverified sender's claim of a
+ * daytime zone must not lift the quiet hours.
+ */
+async function customerZone(tx: Transaction, userId: string, customerId: string, fallback: string) {
+  const profile = await combinedProfilesOf(tx, userId, [customerId]);
+  const zone = profile
+    .get(customerId)
+    ?.find(
+      ({ field, status, source }) =>
+        field === "time_zone" && (status === "confirmed" || source === "owner"),
+    );
+  return zoneOr(zone?.value, fallback);
+}
+
+/**
+ * Whether it is quiet hours for the Customer of `threadId` at `now`, by the Representative's hours
+ * as they stand, and when they end.
+ */
+export async function quietAt(tx: Transaction, threadId: string, now: Date) {
+  const [row] = await tx
+    .select({
+      userId: representative.userId,
+      customerId: representativeThread.customerId,
+      startHour: representative.quietStartHour,
+      endHour: representative.quietEndHour,
+      businessTimeZone: representative.businessTimeZone,
+    })
+    .from(representativeThread)
+    .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
+    .where(eq(representativeThread.id, threadId));
+  if (!row) return null;
+  const timeZone = await customerZone(tx, row.userId, row.customerId, row.businessTimeZone);
+  const period = { startHour: row.startHour, endHour: row.endHour };
+  return { quiet: isQuiet(now, timeZone, period), endsAt: quietEndsAt(now, timeZone, period) };
+}
+
+/**
  * Decides what becomes of `outgoing` and logs it, in `tx`. A held message is stored here; a sent one
  * the caller stores in its thread, and then hands to `deliverMessage`. Null when the thread has gone,
  * so there's nothing to log it on and nothing is sent. The owner's paths hold the thread before this,
@@ -270,7 +322,9 @@ export async function passGate(
   checks: Partial<Record<GateRule, GateCheck>> = liveChecks,
 ): Promise<GateDecision | null> {
   const { kind, threadId, to, now, content } = outgoing;
-  const rules = rulesOf[kind];
+  const rules: readonly GateRule[] = outgoing.releasing
+    ? [...rulesOf[kind], "on", "caps"]
+    : rulesOf[kind];
   if (rules.includes("held") && !(await holdForRules(tx, threadId))) return null;
   const [row] = await tx
     .select({
@@ -299,13 +353,12 @@ export async function passGate(
   // The Customer's time zone wins, the business's is used when it's unknown.
   let timeZone = row.businessTimeZone;
   if (rules.includes(quietRule) && businessStarted) {
-    const profile = await combinedProfilesOf(tx, row.userId, [
+    timeZone = await customerZone(
+      tx,
+      row.userId,
       outgoing.customerId ?? row.customerId,
-    ]);
-    const zone = profile
-      .get(outgoing.customerId ?? row.customerId)
-      ?.find(({ field }) => field === "time_zone");
-    timeZone = zoneOr(zone?.value, row.businessTimeZone);
+      row.businessTimeZone,
+    );
   }
   const period = { startHour: row.quietStartHour, endHour: row.quietEndHour };
   const facts: GateFacts = {
@@ -364,7 +417,12 @@ export async function passGate(
       ? await tx
           .select({ id: representativeHeldMessage.id })
           .from(representativeHeldMessage)
-          .where(eq(representativeHeldMessage.threadId, threadId))
+          .where(
+            and(
+              eq(representativeHeldMessage.threadId, threadId),
+              outgoing.releasing ? ne(representativeHeldMessage.id, outgoing.releasing) : undefined,
+            ),
+          )
           .limit(1)
       : [];
   // Quiet hours end by themselves: the owner is told of what waits for them, not of what waits for morning.

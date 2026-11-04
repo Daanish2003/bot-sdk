@@ -17,9 +17,11 @@ import { defineJob } from "@botsdk/bot/runner/internal";
 import {
   deliverMessage,
   dropHeld,
+  enqueueHeldRelease,
   heldReleaseJobName,
   heldReleasePayload,
   passGate,
+  quietAt,
 } from "./outbound-gate";
 import { getThread } from "./owner-customers";
 import { customerBlocked, lockThread, threadClosed } from "./takeover";
@@ -31,7 +33,8 @@ import { customerBlocked, lockThread, threadClosed } from "./takeover";
  * (`receiveMessage`).
  */
 
-type Context = Pick<FeatureContext, "db" | "clock" | "jobs">;
+type Context = Pick<FeatureContext, "db" | "clock" | "jobs"> &
+  Partial<Pick<FeatureContext<"pages">, "pages">>;
 
 const heldNotFound = () =>
   rpcError("NOT_FOUND", "error.heldMessageNotFound", "Held message not found");
@@ -90,6 +93,7 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
         sources: held.sources,
         channel: decision.channel,
         externalId: decision.externalId,
+        rule: decision.rule,
       })
       .from(held)
       .innerJoin(decision, eq(decision.id, held.decisionId))
@@ -98,15 +102,35 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
     if (!message) throw heldNotFound();
     const now = context.clock();
     const { channel, externalId } = message;
+    if (byItself && message.rule === "quietHours") {
+      // The hours or the Customer's zone may have changed since: it goes when they end now.
+      const quiet = await quietAt(tx, found, now);
+      if (quiet?.quiet) {
+        await enqueueHeldRelease(context.jobs, tx, heldId, quiet.endsAt);
+        return { blocked: false as const, threadId: found };
+      }
+    }
     const decided = await passGate(tx, {
       kind: "released",
       threadId: found,
       to: { channel, externalId },
       now,
-      content: { text: message.text, verified: message.verified },
+      pages: context.pages,
+      // Going by itself it also passes what the owner's own send needn't: the switch and the caps.
+      // Held again it leaves the one held row, and Pages unless others already wait.
+      ...(byItself
+        ? { releasing: heldId }
+        : { content: { text: message.text, verified: message.verified } }),
     });
     if (!decided) throw heldNotFound();
-    if (decided.outcome !== "send") return { blocked: true as const, threadId: found };
+    if (byItself && decided.rule === "on") {
+      // Switched off: it is dropped, as the gate drops a reply.
+      await tx.delete(held).where(eq(held.id, heldId));
+      return { blocked: false as const, threadId: found };
+    }
+    if (decided.outcome !== "send") {
+      return { blocked: decided.outcome === "drop", threadId: found };
+    }
     const [updated] = await tx
       .update(representativeThread)
       .set({

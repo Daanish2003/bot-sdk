@@ -20,11 +20,12 @@ import {
   representativeCustomer,
   representativeHeldMessage,
   representativeOutboundDecision,
+  representativeProfileValue,
   representativeThread,
   representativeThreadMessage,
 } from "../src/server/db/schema";
 import { page } from "@botsdk/bot/storage";
-import { liveChecks, passGate } from "../src/server/outbound-gate";
+import { type GateRefusal, liveChecks, logRefusals, passGate } from "../src/server/outbound-gate";
 import { representativeFeature } from "../src/server/plugin";
 import { handOffMessage } from "../src/server/replies";
 import { holdThread, takeoverNote } from "../src/server/takeover";
@@ -980,6 +981,120 @@ describe("quiet hours", () => {
         timeZone: "Not/AZone",
       }),
     ).rejects.toThrow();
+  });
+
+  it("doesn't bring back a held message the Customer's new message dropped during the Turn", async () => {
+    const world = await instance([quiet(), quiet()], undefined, night);
+    await heard(world);
+    const feature = world.deps.parts.features.find(
+      ({ feature }) => feature.id === "representative",
+    )!;
+    const refusals: GateRefusal[] = [];
+    const threadId = await world.threadId();
+    await getTestDb().transaction((tx) =>
+      storeReply(
+        feature.context,
+        tx,
+        {
+          threadId,
+          heard: { channel: "fake", externalId: number },
+          verified: false,
+          businessStarted: true,
+          refusals,
+        },
+        { text: "Stale news", sources: [] },
+        "small_talk",
+        night,
+      ),
+    );
+    await world.hears("Are you there?");
+    expect(await held()).toEqual([]);
+
+    // The Turn ends and writes its refusals again.
+    await logRefusals(feature.context, refusals);
+    pass(world, 9 * hour);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(await held()).toEqual([]);
+    expect(world.got()).toEqual([]);
+  });
+
+  it("drops a held message once its Representative is switched off", async () => {
+    const world = await instance([quiet()], undefined, night);
+    await heard(world);
+    await anotherReply(world, night, true);
+    await world.rpc.representative.setEnabled({ id: world.id, enabled: false });
+
+    pass(world, 9 * hour);
+
+    await expect
+      .poll(() => outcomes(world), poll)
+      .toEqual([
+        ["reply", "hold", "quietHours"],
+        ["released", "drop", "on"],
+      ]);
+    expect(await held()).toEqual([]);
+    expect(world.got()).toEqual([]);
+  });
+
+  it("holds what the caps stop when quiet hours end, and Pages once", async () => {
+    const world = await instance([quiet()], undefined, night);
+    await heard(world);
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 1 });
+    await anotherReply(world, night, true);
+    await anotherReply(world, night, true);
+
+    pass(world, 9 * hour);
+
+    await expect.poll(world.got, poll).toEqual(["Still here"]);
+    await expect.poll(async () => (await outcomes(world)).length, poll).toBe(4);
+    expect(await held()).toHaveLength(1);
+    expect((await outcomes(world)).slice(2).sort()).toEqual([
+      ["released", "hold", "caps"],
+      ["released", "send", "passed"],
+    ]);
+    expect(await getTestDb().select().from(page)).toMatchObject([{ cause: "outbound_held" }]);
+  });
+
+  it("waits again when the owner has since extended the quiet hours", async () => {
+    const world = await instance([quiet()], undefined, night);
+    await heard(world);
+    await anotherReply(world, night, true);
+    await world.rpc.representative.setQuietHours({
+      id: world.id,
+      startHour: 21,
+      endHour: 10,
+      timeZone: "UTC",
+    });
+
+    // 08:00: the old end.
+    pass(world, 9 * hour);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(world.got()).toEqual([]);
+    expect(await held()).toHaveLength(1);
+
+    pass(world, 2 * hour);
+    await expect.poll(world.got, poll).toEqual(["Still here"]);
+  });
+
+  it("ignores a time zone an unverified sender claimed", async () => {
+    const world = await instance([quiet()], undefined, night);
+    await heard(world);
+    const [customer] = await world.rpc.representative.customerList();
+    await getTestDb().insert(representativeProfileValue).values({
+      id: crypto.randomUUID(),
+      userId: world.user.id,
+      customerId: customer!.id,
+      fixedField: "time_zone",
+      value: "Pacific/Auckland",
+      source: "customer",
+      status: "claimed",
+      recordedAt: night,
+    });
+
+    expect(await anotherReply(world, night, true)).toMatchObject({
+      error: expect.stringContaining("held"),
+    });
   });
 
   it("leaves a message held for the owner who took the thread over", async () => {
