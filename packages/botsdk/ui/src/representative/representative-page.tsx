@@ -455,10 +455,7 @@ export function RepresentativePage({ id }: { id: string }) {
         />
         <Label htmlFor="representative-enabled">{t("representative.switch")}</Label>
       </div>
-      <CapsForm
-        key={`${representative.caps.maxInARow}/${representative.caps.maxPerDay}`}
-        representative={representative}
-      />
+      <CapsForm representative={representative} />
       <WaitingApproval representative={representative} />
       {/* Keyed by the draft's fields, so a draft changed elsewhere reloads the form. A document uploaded leaves the form's edits alone. */}
       <DraftEditor
