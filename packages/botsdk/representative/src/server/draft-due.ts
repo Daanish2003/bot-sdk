@@ -15,7 +15,7 @@ import {
 /*
  * A Reply draft past its due time Pages the owner (ticket #1307). Each draft keeps one delayed job,
  * queued with it: when it runs, a draft the owner hasn't answered, on a thread the Representative
- * still holds, raises one Page. A thread the owner holds lists no draft, so there is nothing to
+ * still holds and that is switched on, raises one Page. A thread the owner holds lists no draft, so there is nothing to
  * wait on, and one answered, replaced or gone since needs no Page.
  */
 
@@ -72,6 +72,7 @@ export const draftDueJob = defineJob<z.infer<typeof draftDuePayload>, FeatureCon
             isNull(held.resolution),
             eq(representativeOutboundDecision.rule, draftRule),
             eq(representativeThread.state, "representative"),
+            eq(representative.enabled, true),
           ),
         );
       if (!draft) return;

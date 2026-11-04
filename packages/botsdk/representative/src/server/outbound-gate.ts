@@ -378,14 +378,18 @@ export async function passGate(
     );
   }
   const period = { startHour: row.quietStartHour, endHour: row.quietEndHour };
+  const topicMode = rules.includes("topic")
+    ? await modeOfLabel(tx, row.userId, content?.topic)
+    : null;
   const facts: GateFacts = {
     ...row,
     businessStarted,
     quiet: isQuiet(now, timeZone, period),
     blockedAt: customer?.blockedAt ?? null,
-    topicMode: rules.includes("topic") ? await modeOfLabel(tx, row.userId, content?.topic) : null,
+    topicMode,
+    // Only an auto topic can send, so only then does it matter.
     sourcesOnTopic:
-      rules.includes("topic") &&
+      topicMode === "auto" &&
       (await sourcesBelongToLabel(tx, row.userId, content?.topic, content?.sources)),
     ...(rules.includes("caps")
       ? await sentCounts(tx, threadId, row.customerId, now)
