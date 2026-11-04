@@ -51,8 +51,6 @@ const turnColumns = {
   id: botTurn.id,
   botId: botTurn.botId,
   conversationId: botTurn.conversationId,
-  input: botTurn.input,
-  transcript: botTurn.transcript,
   startedAt: botTurn.startedAt,
   endedAt: botTurn.endedAt,
 };
@@ -69,8 +67,8 @@ const wroteSince = (botIds: string[], since: Date) =>
     gte(message.createdAt, since),
   );
 
-/** What a set of Assignments reaches, read in `tx`. */
-async function scopeOf(tx: Transaction, userId: string, seeds: string[]) {
+/** The Assignments a set of Assignments reaches, and what else they reach short of Turns' records, read in `tx`. */
+async function assignmentsReached(tx: Transaction, userId: string, seeds: string[]) {
   const owned = await tx.select({ id: bot.id }).from(bot).where(eq(bot.userId, userId));
   const botIds = owned.map((row) => row.id);
   const ids = new Set(seeds);
@@ -187,7 +185,27 @@ async function scopeOf(tx: Transaction, userId: string, seeds: string[]) {
     .from(botAssignment)
     .innerJoin(bot, eq(bot.id, botAssignment.assignedBotId))
     .where(and(inArray(botAssignment.id, [...ids]), eq(bot.userId, userId)));
-  const idPattern = [...ids].join("|");
+  return {
+    botIds,
+    ids: [...ids],
+    checkIns: [...checkIns],
+    helpers: [...helpers],
+    reviews: [...reviews],
+    onTurns,
+    whollyOn,
+    triggers,
+    assignments,
+  };
+}
+
+/**
+ * What a set of Assignments reaches, read in `tx`, with no Turn's record: searching those is one thing,
+ * and loading them for every Turn the Bots have had since is another, which only `withTurnRecords` does.
+ */
+async function scopeOf(tx: Transaction, userId: string, seeds: string[]) {
+  const reached = await assignmentsReached(tx, userId, seeds);
+  const { botIds, ids, onTurns, triggers, assignments } = reached;
+  const idPattern = ids.join("|");
   const turns = await tx
     .select(turnColumns)
     .from(botTurn)
@@ -236,18 +254,33 @@ async function scopeOf(tx: Transaction, userId: string, seeds: string[]) {
     ),
   ];
   return {
-    ids: [...ids],
-    assignments,
-    triggers,
+    ...reached,
     turns: [...new Map([...turns, ...later].map((turn) => [turn.id, turn])).values()],
     since,
     onTurns: new Set(onTurns),
-    whollyOn,
-    checkIns: [...checkIns],
-    helpers: [...helpers],
-    reviews: [...reviews],
     botsInvolved,
     conversationIds,
+  };
+}
+
+/** `scope` with each Turn's record, which is what a redaction rewrites. */
+async function withTurnRecords(tx: Transaction, scope: Awaited<ReturnType<typeof scopeOf>>) {
+  const records = await tx
+    .select({ id: botTurn.id, input: botTurn.input, transcript: botTurn.transcript })
+    .from(botTurn)
+    .where(
+      inArray(
+        botTurn.id,
+        scope.turns.map((turn) => turn.id),
+      ),
+    );
+  const recordOf = new Map(records.map((row) => [row.id, row]));
+  return {
+    ...scope,
+    turns: scope.turns.flatMap((turn) => {
+      const record = recordOf.get(turn.id);
+      return record ? [{ ...turn, ...record }] : [];
+    }),
   };
 }
 
@@ -255,7 +288,7 @@ async function scopeOf(tx: Transaction, userId: string, seeds: string[]) {
 const assignmentOwnsTrigger = (id: string) =>
   checkInOfKey(id) === undefined && !id.startsWith("helper:") && !id.startsWith("approval:");
 
-type Scope = Awaited<ReturnType<typeof scopeOf>>;
+type Scope = Awaited<ReturnType<typeof withTurnRecords>>;
 
 type RecordChange = (
   conversationId: string,
@@ -354,7 +387,7 @@ export async function redactAssignments(
   { userId, ids: seeds }: { userId: string; ids: string[] },
 ): Promise<string[]> {
   if (seeds.length === 0) return [];
-  const beforeLocks = await scopeOf(tx, userId, seeds);
+  const beforeLocks = await assignmentsReached(tx, userId, seeds);
   if (beforeLocks.assignments.length === 0) return [];
   // Asks the Host, so before any Conversation's lock.
   const tellable = await botsThatCanWork(
@@ -363,7 +396,7 @@ export async function redactAssignments(
     beforeLocks.assignments.filter((row) => !isEndedAssignment(row.status)),
   );
   await lockConversationSet(tx, async (db) => (await scopeOf(db, userId, seeds)).conversationIds);
-  const scope = await scopeOf(tx, userId, seeds);
+  const scope = await withTurnRecords(tx, await scopeOf(tx, userId, seeds));
   const { ids, assignments, whollyOn } = scope;
   const now = deps.clock();
   const changed = new Set<string>();
