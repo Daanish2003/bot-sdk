@@ -1164,6 +1164,85 @@ describe("a Turn on an untrusted Assignment", () => {
   );
 
   it(
+    "gives a mixed Turn's pass no Check-in's note, the Turn being on the Assignment too",
+    async () => {
+      const made = assigner();
+      const { client, deps, user, botIds, fake } = await botsWith([round(), ops()], {
+        features: [made.feature],
+      });
+      const [ada] = botIds as [string];
+
+      await followSend(client, { botId: ada, id: uuidv7(), text: "I like oat milk" });
+      await checkIn(deps, ada);
+      await made.create(user.id, ada);
+      await passesEnded(1);
+
+      expect(await statuses(ada)).toEqual(["complete"]);
+      const shown = userTextOf(fake.calls.at(-1));
+      expect(shown).toContain("I like oat milk");
+      expect(shown).not.toContain("Come back to it.");
+    },
+    timeout,
+  );
+
+  it(
+    "queues no pass for a Turn that took only the Assignment's Trigger and a Check-in's",
+    async () => {
+      const made = assigner();
+      const { deps, user, botIds } = await botsWith([round()], { features: [made.feature] });
+      const [ada] = botIds as [string];
+
+      await checkIn(deps, ada);
+      await made.create(user.id, ada);
+      await expect.poll(() => statuses(ada), poll).toEqual(["complete"]);
+      await settle();
+
+      expect(await passJobs()).toHaveLength(0);
+    },
+    timeout,
+  );
+
+  it.each([
+    ["check_in", "schedule", "check_in:"],
+    ["helper", "helper", "helper:"],
+    ["approval", "approval", "approval:"],
+  ] as const)(
+    "gives the pass no %s Trigger's text on a Turn with the user's Message, while the Bot holds the Assignment",
+    async (source, channel, prefix) => {
+      const made = assigner();
+      const { client, deps, user, botIds, fake } = await botsWith([round(), round(), ops()], {
+        features: [made.feature],
+      });
+      const [ada] = botIds as [string];
+      await made.create(user.id, ada);
+      await expect.poll(() => statuses(ada), poll).toEqual(["complete"]);
+
+      const [row] = await getTestDb()
+        .select({ conversationId: bot.conversationId })
+        .from(bot)
+        .where(eq(bot.id, ada));
+      await getTestDb().transaction((tx) =>
+        receive(deps, tx, {
+          id: `${prefix}${uuidv7()}`,
+          botId: ada,
+          conversationId: row!.conversationId,
+          source,
+          channel,
+          text: "THE-CUSTOMER-LIVES-AT-ELM-STREET",
+          receivedAt: deps.clock(),
+        }),
+      );
+      await followSend(client, { botId: ada, id: uuidv7(), text: "I like oat milk" });
+      await passesEnded(1);
+
+      const shown = userTextOf(fake.calls.at(-1));
+      expect(shown).toContain("I like oat milk");
+      expect(shown).not.toContain("THE-CUSTOMER-LIVES-AT-ELM-STREET");
+    },
+    timeout,
+  );
+
+  it(
     "runs no pass for a later Check-in Turn, nor for a Turn on a child Assignment",
     async () => {
       const made = assigner();

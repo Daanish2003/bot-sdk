@@ -102,15 +102,23 @@ export const botMemoryPassJob = defineJob<PassPayload, PassContext>({
   run: (payload, context) => runBotMemoryPass(context, payload.turnId, context),
 });
 
+/** The Bot's own work coming back: it may be about any Assignment the Bot holds, untrusted ones too. */
+const followOnSources: readonly string[] = ["check_in", "helper", "approval"];
+
+/** Whether a Trigger is one the pass may read of a Turn that was on an untrusted Assignment. */
+const passMayRead = ({ source, channel }: { source: string; channel: string }) =>
+  channel !== untrustedAssignmentChannel && !followOnSources.includes(source);
+
 /**
  * What the pass may read of Turn `turnId`: Customer details must never reach a Bot's memory files,
  * where they can't be found or deleted (spec #1170). The rule keys on the untrusted Assignment
  * channel, so it covers any feature's Assignments and the children a Bot split off from them.
- * - `skip`: the Turn took only untrusted Assignment Triggers, or follows on from the Bot's own
+ * - `skip`: the Turn took only untrusted Assignment Triggers and the Bot's own work, or follows on from the Bot's own
  *   work (a Check-in, a Helper's report, an answered Approval) while it holds an untrusted
  *   Assignment that was not ended before the Turn started. No pass reads it.
  * - `user`: the Turn took such a Trigger beside others. The pass reads the user's lines and the
- *   trusted Triggers, and no line of the Bot's.
+ *   trusted Triggers, and no line of the Bot's and no Check-in, Helper or Approval Trigger, which
+ *   may be about that Assignment.
  * - `all`: as before.
  */
 async function passScope(
@@ -121,10 +129,10 @@ async function passScope(
     .select({ source: botTrigger.source, channel: botTrigger.channel })
     .from(botTrigger)
     .where(eq(botTrigger.turnId, turn.id));
-  const untrusted = triggers.filter((each) => each.channel === untrustedAssignmentChannel);
-  if (untrusted.length > 0) return untrusted.length === triggers.length ? "skip" : "user";
-  const sources = new Set(triggers.map((each) => each.source));
-  const followsOn = sources.has("check_in") || sources.has("helper") || sources.has("approval");
+  if (triggers.some((each) => each.channel === untrustedAssignmentChannel)) {
+    return triggers.some(passMayRead) ? "user" : "skip";
+  }
+  const followsOn = triggers.some((each) => followOnSources.includes(each.source));
   if (!followsOn) return "all";
   const [held] = await db
     .select({ id: botAssignment.id })
@@ -139,7 +147,7 @@ async function passScope(
     )
     .limit(1);
   if (!held) return "all";
-  return sources.has("user") ? "user" : "skip";
+  return triggers.some((each) => each.source === "user") ? "user" : "skip";
 }
 
 /**
@@ -508,7 +516,7 @@ async function turnTranscript(
   const cut = (text: string, limit = transcriptChars) =>
     text.length > limit ? `${text.slice(0, limit)}…` : text;
   const lines = inputs
-    .filter((input) => !(withoutUntrusted && input.channel === untrustedAssignmentChannel))
+    .filter((input) => !withoutUntrusted || passMayRead(input))
     .map((input) =>
       input.parts
         ? `User: ${cut(searchTextOf(input.parts))}`
