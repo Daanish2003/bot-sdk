@@ -45,6 +45,8 @@ import { holdThread, takeoverNote } from "../src/server/takeover";
 vi.setConfig({ testTimeout: 30_000 });
 
 const model = "openai:gpt-6-luna";
+/** A daytime in UTC, the business's time zone by default: a message the business starts is held in quiet hours, so such tests pin one rather than read the real hour. */
+const noon = new Date("2026-11-04T12:00:00Z");
 const silent = { error: () => {} };
 const poll = { timeout: 10_000 };
 const number = "+15550001";
@@ -1214,12 +1216,12 @@ describe("a Channel's limits", () => {
   });
 
   it("holds what the business starts on a Channel that can't start a chat", async () => {
-    const world = await instance([quiet()], undefined, new Date(), {
+    const world = await instance([quiet()], undefined, noon, {
       canStartConversation: false,
     });
     await heard(world);
 
-    const started = await anotherReply(world, new Date(), true);
+    const started = await anotherReply(world, noon, true);
 
     expect(started).toMatchObject({ error: expect.stringContaining("held") });
     expect(await outcomes(world)).toEqual([["hold", "channel"]]);
@@ -1252,7 +1254,7 @@ describe("a Channel's limits", () => {
     const world = await instance([quiet()]);
     await heard(world);
 
-    await anotherReply(world, new Date(Date.now() + 1000 * hour), true);
+    await anotherReply(world, noon, true);
 
     await expect.poll(() => world.got(), poll).toEqual(["Still here"]);
     expect(await outcomes(world)).toEqual([["send", "passed"]]);
