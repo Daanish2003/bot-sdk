@@ -7,7 +7,7 @@ import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { testCustomerTurn } from "@ai-chat/test-support/test-customer";
+import { autoSource, testCustomerTurn } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
@@ -37,7 +37,12 @@ type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 const quiet = () => round();
 const replies = (text: string) =>
-  round(toolCall({ name: "reply", input: { topic: "general", text, kind: "small_talk" } }));
+  round(
+    toolCall({
+      name: "reply",
+      input: { topic: "general", sources: [autoSource], text, kind: "small_talk" },
+    }),
+  );
 /** A reply with no topic: the gate holds it as a draft for the owner. */
 const drafts = (text: string) =>
   round(toolCall({ name: "reply", input: { text, kind: "small_talk" } }));
@@ -142,7 +147,7 @@ async function instance(rounds: Round[], tools: string[] = ["reply"]) {
             heard: { channel: "fake", externalId: number },
             verified: false,
           },
-          { text, sources: [], topic: "general" },
+          { text, sources: [autoSource], topic: "general" },
           "small_talk",
           new Date(),
         ),
