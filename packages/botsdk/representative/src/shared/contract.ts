@@ -453,12 +453,13 @@ export type FactLogView = {
   at: Date;
 };
 
-/** A Bot's proposed fact waiting for the owner, with what it would replace. */
+/** A Bot's proposed fact, or a lesson from the Customer memory pass, waiting for the owner, with what it would replace. */
 export type FactProposalView = {
   id: string;
   key: string;
-  botId: string;
-  botName: string;
+  /** The Bot that proposed it; null for a lesson. */
+  botId: string | null;
+  botName: string | null;
   why: string;
   /** The fact as it is now; null when the key has none. */
   current: FactSnapshot | null;
@@ -646,11 +647,11 @@ export const representativeContract = {
   gapDismiss: oc.input(idInput).output(type<GapView>()),
   /** Adds a fact and closes the Gap it answers, together. Refused when the owner has the key already. */
   gapToFact: oc.input(gapToFactInput).output(type<FactView>()),
-  /** The facts the owner's Bots have proposed that still wait for an answer, oldest first. */
+  /** The facts the owner's Bots have proposed, and the lessons, that still wait for an answer, oldest first. */
   factProposals: oc.output(type<FactProposalView[]>()),
-  /** Applies a Bot's proposed fact, logged as its proposal, and wakes the Bot. */
+  /** Applies a Bot's proposed fact or a lesson, logged as its proposal, and wakes the Bot (a lesson wakes no one). */
   factProposalApprove: oc.input(idInput).output(type<FactView>()),
-  /** Refuses a Bot's proposed fact, which changes nothing, and wakes the Bot. */
+  /** Refuses a Bot's proposed fact or a lesson, which changes nothing, and wakes the Bot (a lesson wakes no one). */
   factProposalDecline: oc.input(idInput).output(type<void>()),
   /** A Representative's Customer threads, the most recently active first. */
   threadList: oc.input(idInput).output(type<ThreadSummary[]>()),

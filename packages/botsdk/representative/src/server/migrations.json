@@ -78,5 +78,9 @@
   {
     "name": "20261104071312_customer_merge_hand_offs",
     "sql": "ALTER TABLE \"botsdk\".\"representative_customer_merge\" ADD COLUMN \"hand_off_ids\" jsonb DEFAULT '[]' NOT NULL;"
+  },
+  {
+    "name": "20261104080241_lesson_proposals",
+    "sql": "ALTER TABLE \"botsdk\".\"representative_fact_proposal\" ALTER COLUMN \"bot_id\" DROP NOT NULL;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_fact_proposal\" ALTER COLUMN \"card_id\" DROP NOT NULL;"
   }
 ]
