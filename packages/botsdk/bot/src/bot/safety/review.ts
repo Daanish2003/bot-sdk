@@ -7,7 +7,7 @@ import {
 import { searchTextOf } from "@botsdk/client/message-parts";
 import { sdkNeverAllowed } from "@botsdk/client/bot/rule";
 import { chat, EventType, type ModelMessage, type StreamChunk } from "@tanstack/ai";
-import { and, asc, desc, eq, inArray, notExists, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, notExists, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { bot, botHelper, botReview, botTrigger, job, jobEvent, message } from "../../storage";
@@ -33,6 +33,7 @@ import {
   hintChanged,
   noResetAfter,
   recordBotChange,
+  redactedText,
   reviewConversation,
   reviewOwnerOf,
 } from "../conversation";
@@ -701,6 +702,56 @@ export async function declineBotApprovals(
   for (const { id } of queued) await deps.runner.cancelIn(tx, approvedCallKey(id));
 }
 
+/**
+ * Denies Approvals `reviewIds` whose Customer was deleted (ticket #1288, ADR 0030's exception), in
+ * `tx`, which holds their Conversations' row locks: an open one and an allowed one whose job hasn't
+ * reached its start marker, so no action runs for them. A claimed job that reads its call after this
+ * finds nothing to run. A call past that marker may have run, so it stays allowed: a retry is
+ * cancelled, and one running finishes. Nothing wakes the Bot (`approved-call.ts`). Returns those it
+ * denied: the caller records their changes.
+ */
+export async function denyForDeletedCustomer(
+  deps: BotSdkContext,
+  tx: Transaction,
+  reviewIds: string[],
+  at: Date,
+): Promise<string[]> {
+  const open = await tx
+    .select({ id: botReview.id })
+    .from(botReview)
+    .where(and(inArray(botReview.id, reviewIds), inArray(botReview.state, ["waiting", "pending"])));
+  const called = await tx
+    .select({
+      id: botReview.id,
+      status: job.status,
+      started: sql<boolean>`exists (select 1 from ${jobEvent} where ${jobEvent.jobId} = ${job.id} and ${jobEvent.name} = ${approvedCallStartActivity})`,
+    })
+    .from(botReview)
+    .innerJoin(job, eq(job.idempotencyKey, sql`${approvedCallKey("")} || ${botReview.id}`))
+    .where(
+      and(
+        inArray(botReview.id, reviewIds),
+        eq(botReview.state, "allowed"),
+        inArray(job.status, ["queued", "running"]),
+      ),
+    )
+    // The job's row is locked, so no runner claims it before this commits.
+    .for("update", { of: job });
+  for (const { id } of open) await deps.runner.cancelIn(tx, approvalExpiryKey(id));
+  for (const { id, status } of called) {
+    if (status === "queued") await deps.runner.cancelIn(tx, approvedCallKey(id));
+  }
+  const denied = [
+    ...open.map((row) => row.id),
+    ...called.filter((row) => !row.started).map((row) => row.id),
+  ];
+  await tx
+    .update(botReview)
+    .set({ state: "denied", decidedAt: at })
+    .where(inArray(botReview.id, denied));
+  return denied;
+}
+
 /** Schedules the job that expires pending Approval `reviewId` at `expiresAt` (ADR 0030), in `tx`. */
 async function scheduleExpiry(
   deps: BotSdkContext,
@@ -1131,7 +1182,8 @@ export async function recordReviewOutput(
     const [row] = await tx
       .update(botReview)
       .set({ output })
-      .where(and(owned, eq(botReview.toolCallId, toolCallId)))
+      // A redacted Approval keeps no result: its call ran through a Customer's delete.
+      .where(and(owned, eq(botReview.toolCallId, toolCallId), ne(botReview.summary, redactedText)))
       .returning({ id: botReview.id });
     if (row) await recordBotChange(tx, source, "review", row.id, deps.clock());
     return row !== undefined;

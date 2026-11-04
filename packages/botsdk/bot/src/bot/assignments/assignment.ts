@@ -61,9 +61,6 @@ import type { AssignmentEnded } from "./assignments-service";
  * call finishes it, and a Turn ending never does; a feature that made one can cancel it.
  */
 
-/** What stands where a redacted Assignment's text was (`redactAssignments`). */
-export const redactedText = "[Redacted]";
-
 /** The Bot tool that hands work to another Bot. */
 export const assignWorkToolName = "assign_work";
 

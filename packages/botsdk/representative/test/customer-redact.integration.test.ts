@@ -1,6 +1,8 @@
 import { eq, inArray, like, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { controlParts } from "@botsdk/bot/bot/conversation";
+import { recordReviewOutput } from "@botsdk/bot/bot/safety";
 import { batchLongestMs } from "@botsdk/bot/bot/triggers";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { saveCredentials } from "@botsdk/bot/models/internal";
@@ -11,11 +13,13 @@ import {
   botAssignmentLog,
   botCheckIn,
   botHelper,
+  botReview,
   botSummary,
   botTrigger,
   botTurn,
   conversation,
   job,
+  jobEvent,
   message,
 } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
@@ -25,6 +29,7 @@ import { startTestCustomerTurn } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, text, toolCall } from "@botsdk/testing/fake-adapter";
+import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 import { representative } from "../src";
 import { representativeHandOff, representativeThread } from "../src/server/db/schema";
@@ -96,10 +101,12 @@ async function serving({
   turnRounds,
   botRounds,
   held,
+  onCommand,
 }: {
   turnRounds: Rounds;
   botRounds: Rounds;
   held?: Promise<void>;
+  onCommand?: NonNullable<Parameters<typeof fakeComputerProvider>[0]>["onCommand"];
 }) {
   const queue = (rounds: Rounds) =>
     createFakeAdapter({
@@ -119,6 +126,7 @@ async function serving({
       yield* botFake.adapter.chatStream(options);
     },
   };
+  const computerFake = fakeComputerProvider({ onCommand });
   const timer = fakeJobClock(new Date());
   let made: TestDeps | undefined;
   const jobs = inProcessRunner({
@@ -130,6 +138,7 @@ async function serving({
   });
   runners.push(jobs);
   const deps = createTestSdk({
+    computer: computerFake.provider,
     jobs,
     clock: timer.clock.now,
     features: [representative()],
@@ -145,8 +154,9 @@ async function serving({
     verified: true,
   });
   const rpc = chatRpc({ user, deps });
-  const { id: botId } = await rpc.bots.create({ name: "Clerk", model: botModel });
+  // In this order, so the Conversation written to first is not the one with the lowest id.
   const helper = await rpc.bots.create({ name: "Helper", model: botModel });
+  const { id: botId } = await rpc.bots.create({ name: "Clerk", model: botModel });
   const { id } = await rpc.representative.create({ name: "Front desk", botId });
   await rpc.representative.updateDraft({
     id,
@@ -176,6 +186,7 @@ async function serving({
     deps.parts.features.find(({ feature }) => feature.id === "representative")!.context;
   return {
     deps,
+    computerFake,
     jobs,
     timer,
     entered,
@@ -767,5 +778,387 @@ describe("what a Turn holds besides the Assignment it was on", () => {
       .from(botTrigger)
       .where(like(botTrigger.text, `%${adaWords}%`));
     expect(left).toEqual([]);
+  });
+});
+
+describe("an open Approval when a Customer is deleted", () => {
+  const command = `echo 12 ${adaWords}`;
+  const week = 7 * 24 * 60 * 60 * 1000;
+
+  /** A blocked call of Turn `turnId`, as its wait left it: `state` is how far it got. */
+  async function blockedCall(
+    owner: Awaited<ReturnType<typeof serving>>,
+    turnId: string,
+    state: "waiting" | "pending",
+  ) {
+    const now = owner.timer.clock.now();
+    const id = uuidv7();
+    await getTestDb()
+      .insert(botReview)
+      .values({
+        id,
+        botId: owner.botId,
+        turnId,
+        toolCallId: `call-${id}`,
+        tool: "shell",
+        input: { command },
+        summary: `Writes to ${adaWords}`,
+        verdict: "block",
+        reason: `Nobody asked to write to ${adaWords}`,
+        state,
+        deadline: new Date(now.getTime() + 15_000),
+        ...(state === "pending" && { expiresAt: new Date(now.getTime() + week) }),
+        createdAt: now,
+      });
+    return id;
+  }
+
+  const reviewOf = async (id: string) =>
+    (await getTestDb().select().from(botReview).where(eq(botReview.id, id)))[0]!;
+
+  const firstTurnOf = async (botId: string) =>
+    (
+      await getTestDb()
+        .select()
+        .from(botTurn)
+        .where(eq(botTurn.botId, botId))
+        .orderBy(botTurn.startedAt)
+        .limit(1)
+    )[0]!;
+
+  const runCommands = (owner: Awaited<ReturnType<typeof serving>>) =>
+    owner.computerFake.callsOf("run").map((call) => call.command);
+
+  it.each(["waiting", "pending"] as const)(
+    "denies a %s one from a Turn wholly on it, without its call or text, and a yes can't run it",
+    async (state) => {
+      const owner = await serving({ turnRounds: [adaHandsOff], botRounds: [quiet] });
+      await owner.say("I'd like a refund.", adaNumber);
+      const turn = await firstTurnOf(owner.botId);
+      const id = await blockedCall(owner, turn.id, state);
+      const ada = await owner.customerAt(adaNumber);
+
+      await owner.rpc.representative.customerDelete({ id: ada.id });
+
+      const review = await reviewOf(id);
+      expect(review.state).toBe("denied");
+      expect(review.decidedAt).toEqual(expect.any(Date));
+      expect(review.input).toEqual({});
+      expect(JSON.stringify(review)).not.toContain(adaWords);
+      expect(await owner.rpc.reviews.allow({ reviewId: id })).toMatchObject({
+        decided: false,
+        state: "denied",
+      });
+      await owner.drain();
+      expect(runCommands(owner)).toEqual([]);
+    },
+  );
+
+  it("takes back a yes whose call hasn't started", async () => {
+    const owner = await serving({ turnRounds: [adaHandsOff], botRounds: [quiet] });
+    await owner.say("I'd like a refund.", adaNumber);
+    const turn = await firstTurnOf(owner.botId);
+    const id = await blockedCall(owner, turn.id, "pending");
+    await owner.rpc.reviews.allow({ reviewId: id });
+    const ada = await owner.customerAt(adaNumber);
+
+    await owner.rpc.representative.customerDelete({ id: ada.id });
+    await owner.drain();
+
+    const review = await reviewOf(id);
+    expect(review.state).toBe("denied");
+    expect(review.input).toEqual({});
+    expect(runCommands(owner)).toEqual([]);
+  });
+
+  it("redacts the Trigger a call already run left", async () => {
+    const owner = await serving({ turnRounds: [adaHandsOff], botRounds: [quiet, quiet] });
+    await owner.say("I'd like a refund.", adaNumber);
+    const turn = await firstTurnOf(owner.botId);
+    const id = await blockedCall(owner, turn.id, "pending");
+    await owner.rpc.reviews.allow({ reviewId: id });
+    await owner.drain();
+    expect(runCommands(owner)).toEqual([command]);
+    expect(await records([owner.botId])).toContain("[Approval] The user approved");
+    const ada = await owner.customerAt(adaNumber);
+
+    await owner.rpc.representative.customerDelete({ id: ada.id });
+
+    expect(await records([owner.botId])).not.toContain(adaWords);
+    expect(JSON.stringify(await reviewOf(id))).not.toContain(adaWords);
+  });
+
+  const approvedJob = async (id: string) =>
+    (
+      await getTestDb()
+        .select()
+        .from(job)
+        .where(eq(job.idempotencyKey, `approved-call:${id}`))
+    )[0]!;
+
+  it("cancels a retry past its start marker, but doesn't call a call that may have run denied", async () => {
+    const owner = await serving({ turnRounds: [adaHandsOff], botRounds: [quiet] });
+    await owner.say("I'd like a refund.", adaNumber);
+    const turn = await firstTurnOf(owner.botId);
+    const id = await blockedCall(owner, turn.id, "pending");
+    await owner.rpc.reviews.allow({ reviewId: id });
+    const queued = await approvedJob(id);
+    await getTestDb()
+      .insert(jobEvent)
+      .values({ jobId: queued.id, seq: 1, kind: "activity", name: "call_start" });
+    const ada = await owner.customerAt(adaNumber);
+
+    await owner.rpc.representative.customerDelete({ id: ada.id });
+    await owner.drain();
+
+    const review = await reviewOf(id);
+    expect(review.state).toBe("allowed");
+    expect(review.input).toEqual({});
+    expect((await approvedJob(id)).status).toBe("cancelled");
+    expect(runCommands(owner)).toEqual([]);
+    expect(await records([owner.botId])).not.toContain("[Approval]");
+  });
+
+  it("denies a yes whose job is claimed but hasn't started, so it can't run with its call cleared", async () => {
+    const owner = await serving({ turnRounds: [adaHandsOff], botRounds: [quiet] });
+    await owner.say("I'd like a refund.", adaNumber);
+    const turn = await firstTurnOf(owner.botId);
+    const id = await blockedCall(owner, turn.id, "pending");
+    await owner.rpc.reviews.allow({ reviewId: id });
+    await getTestDb()
+      .update(job)
+      .set({ status: "running" })
+      .where(eq(job.idempotencyKey, `approved-call:${id}`));
+    const ada = await owner.customerAt(adaNumber);
+
+    await owner.rpc.representative.customerDelete({ id: ada.id });
+
+    expect((await reviewOf(id)).state).toBe("denied");
+  });
+
+  it("lets a call running through the delete finish, keeping no result and waking no one", async () => {
+    let release = () => {};
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const owner = await serving({
+      turnRounds: [adaHandsOff],
+      botRounds: [quiet, quiet],
+      onCommand: async () => {
+        await released;
+        return { exitCode: 0, stdout: `Wrote to ${adaWords}`, stderr: "" };
+      },
+    });
+    await owner.say("I'd like a refund.", adaNumber);
+    const turn = await firstTurnOf(owner.botId);
+    const id = await blockedCall(owner, turn.id, "pending");
+    await owner.rpc.reviews.allow({ reviewId: id });
+    const ada = await owner.customerAt(adaNumber);
+    const running = owner.drain();
+    await vi.waitFor(() => expect(runCommands(owner)).toEqual([command]), { timeout: 10_000 });
+
+    await owner.rpc.representative.customerDelete({ id: ada.id });
+    release();
+    await running;
+    await owner.drain();
+
+    const review = await reviewOf(id);
+    expect(review.output).toBeNull();
+    expect(JSON.stringify(review)).not.toContain(adaWords);
+    expect(await records([owner.botId])).not.toContain("[Approval]");
+    expect(await records([owner.botId])).not.toContain(adaWords);
+  });
+
+  it("keeps no output a call inside a Turn reports after the delete", async () => {
+    const owner = await serving({ turnRounds: [adaHandsOff], botRounds: [quiet] });
+    await owner.say("I'd like a refund.", adaNumber);
+    const turn = await firstTurnOf(owner.botId);
+    const id = await blockedCall(owner, turn.id, "waiting");
+    const ada = await owner.customerAt(adaNumber);
+
+    await owner.rpc.representative.customerDelete({ id: ada.id });
+    await recordReviewOutput(
+      owner.deps,
+      { turnId: turn.id, conversationId: turn.conversationId },
+      `call-${id}`,
+      { stdout: `Wrote to ${adaWords}` },
+    );
+
+    expect((await reviewOf(id)).output).toBeNull();
+  });
+
+  it("redacts the card of a Helper's Approval, which no Turn's time covers", async () => {
+    const owner = await serving({ turnRounds: [adaHandsOff], botRounds: [quiet] });
+    await owner.say("I'd like a refund.", adaNumber);
+    const turn = await firstTurnOf(owner.botId);
+    const db = getTestDb();
+    owner.timer.advance(60_000);
+    const now = owner.timer.clock.now();
+    const helperId = crypto.randomUUID();
+    await db.insert(botHelper).values({
+      id: helperId,
+      botId: owner.botId,
+      type: "general",
+      task: "Look it up.",
+      status: "running",
+      startedByTurnId: turn.id,
+      transcript: [],
+      startedAt: now,
+    });
+    const id = uuidv7();
+    const summary = "Posts a note about the caller's parcel.";
+    await db.insert(botReview).values({
+      id,
+      botId: owner.botId,
+      helperId,
+      toolCallId: `call-${id}`,
+      tool: "shell",
+      input: { command },
+      summary,
+      verdict: "block",
+      reason: "Nobody asked for it.",
+      state: "waiting",
+      deadline: new Date(now.getTime() + 15_000),
+      createdAt: now,
+    });
+    const messageId = uuidv7();
+    const [own] = await db
+      .select({ conversationId: bot.conversationId })
+      .from(bot)
+      .where(eq(bot.id, owner.botId));
+    await db.insert(message).values({
+      id: messageId,
+      conversationId: own!.conversationId,
+      role: "assistant",
+      authorBotId: owner.botId,
+      parts: controlParts(summary, { kind: "review_approval", reviewId: id }),
+      status: "complete",
+      createdAt: now,
+    });
+    const ada = await owner.customerAt(adaNumber);
+
+    await owner.rpc.representative.customerDelete({ id: ada.id });
+
+    expect((await reviewOf(id)).state).toBe("denied");
+    const [card] = await db.select().from(message).where(eq(message.id, messageId));
+    expect(JSON.stringify(card!.parts)).not.toContain(summary);
+    expect(JSON.stringify(card!.parts)).toContain("review_approval");
+  });
+
+  it("leaves one from a Turn on other work pending, and it still runs on a yes", async () => {
+    const turnRounds: Rounds = [adaHandsOff];
+    const owner = await serving({ turnRounds, botRounds: [quiet, quiet, quiet] });
+    await owner.say("I'd like a refund.", adaNumber);
+    turnRounds.push(carolHandsOff);
+    await owner.say("I'd like a refund too.", carolNumber);
+    const carolTurnId = (
+      await getTestDb()
+        .select({ turnId: botTrigger.turnId })
+        .from(botTrigger)
+        .where(like(botTrigger.text, `%${carolWords}%`))
+    )[0]!.turnId!;
+    const id = await blockedCall(owner, carolTurnId, "pending");
+    const before = await reviewOf(id);
+    const ada = await owner.customerAt(adaNumber);
+
+    await owner.rpc.representative.customerDelete({ id: ada.id });
+
+    expect(await reviewOf(id)).toEqual(before);
+    expect(await owner.rpc.reviews.allow({ reviewId: id })).toMatchObject({ decided: true });
+    await owner.drain();
+    expect(runCommands(owner)).toEqual([command]);
+  });
+
+  it("leaves a mixed Turn's pending, with its stored call, and it still runs on a yes", async () => {
+    const turnRounds: Rounds = [adaHandsOff];
+    const owner = await serving({ turnRounds, botRounds: [quiet, quiet, quiet] });
+    await owner.say("I'd like a refund.", adaNumber);
+    turnRounds.push(carolHandsOff);
+    await owner.say("I'd like a refund too.", carolNumber);
+    const db = getTestDb();
+    const turn = await firstTurnOf(owner.botId);
+    const carolId = (await assignmentsOf([owner.botId])).find((row) =>
+      row.title.includes(carolWords),
+    )!.id;
+    await db
+      .update(botTrigger)
+      .set({ turnId: turn.id })
+      .where(eq(botTrigger.id, `assignment:${carolId}`));
+    const id = await blockedCall(owner, turn.id, "pending");
+    const before = await reviewOf(id);
+    const ada = await owner.customerAt(adaNumber);
+
+    await owner.rpc.representative.customerDelete({ id: ada.id });
+
+    expect(await reviewOf(id)).toEqual(before);
+    const [after] = await db.select().from(botTurn).where(eq(botTurn.id, turn.id));
+    expect(JSON.stringify(after!.transcript)).not.toContain(adaWords);
+    expect(await owner.rpc.reviews.allow({ reviewId: id })).toMatchObject({ decided: true });
+    await owner.drain();
+    expect(runCommands(owner)).toEqual([command]);
+  });
+});
+
+describe("the order a delete takes its locks in", () => {
+  /** Whether a Conversation's row is free to lock right now, without waiting for it. */
+  const isFree = (id: string) =>
+    getTestDb().transaction(async (tx) => {
+      const rows = await tx
+        .select({ id: conversation.id })
+        .from(conversation)
+        .where(eq(conversation.id, id))
+        .for("update", { skipLocked: true });
+      return rows.length === 1;
+    });
+
+  it("waits on the lowest Conversation with the higher still free, then finishes", async () => {
+    const owner = await serving({
+      turnRounds: [adaHandsOff],
+      botRounds: [
+        () =>
+          round(
+            runs("assign_work", {
+              bot: "Helper",
+              title: `Parcel at ${adaWords}`,
+              instructions: `Collect from 12 ${adaWords}.`,
+            }),
+          ),
+        finished(`Collected at ${adaWords}.`),
+      ],
+    });
+    await owner.say("I'd like a refund.", adaNumber);
+    const botIds = [owner.botId, owner.helperId];
+    const owned = await getTestDb()
+      .select({ conversationId: bot.conversationId })
+      .from(bot)
+      .where(inArray(bot.id, botIds));
+    const [low, high] = owned.map((row) => row.conversationId).sort() as [string, string];
+    const ada = await owner.customerAt(adaNumber);
+
+    let release = () => {};
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let holderPid: number | undefined;
+    const holding = getTestDb().transaction(async (tx) => {
+      await tx.select().from(conversation).where(eq(conversation.id, low)).for("update");
+      const pids = await tx.execute(sql`select pg_backend_pid() as pid`);
+      holderPid = (pids.rows[0] as { pid: number }).pid;
+      await released;
+    });
+    await vi.waitFor(() => expect(holderPid).toBeDefined(), { timeout: 10_000 });
+
+    const deleting = owner.rpc.representative.customerDelete({ id: ada.id });
+    await vi.waitFor(
+      async () => {
+        const blocked = await getTestDb().execute(
+          sql`select pid from pg_stat_activity where ${holderPid}::int = any(pg_blocking_pids(pid))`,
+        );
+        expect(blocked.rows.length).toBeGreaterThan(0);
+      },
+      { timeout: 10_000 },
+    );
+
+    expect(await isFree(high)).toBe(true);
+    release();
+    await holding;
+    await deleting;
+    expect(await records(botIds)).not.toContain(adaWords);
   });
 });

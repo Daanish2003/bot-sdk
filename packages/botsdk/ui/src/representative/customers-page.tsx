@@ -227,6 +227,7 @@ function DeleteCustomer({
                 <li>{t("representative.customers.deleteStaysGaps")}</li>
                 <li>{t("representative.customers.deleteStaysJobRecords")}</li>
                 <li>{t("representative.customers.deleteStaysReworded")}</li>
+                <li>{t("representative.customers.deleteStaysApprovals")}</li>
               </ul>
             </section>
           </div>

@@ -91,6 +91,7 @@ export {
   newestBotModel,
   newestTimeZone,
   reactionsOf,
+  redactedText,
   setReaction,
   textParts,
   toBotMessage,

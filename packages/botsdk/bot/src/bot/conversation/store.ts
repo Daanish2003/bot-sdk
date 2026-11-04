@@ -58,6 +58,9 @@ export function textParts(text: string, timeZone?: string, urgent?: boolean): Bo
   };
 }
 
+/** What stands where a deleted Customer's text was (`redactAssignments`). */
+export const redactedText = "[Redacted]";
+
 /**
  * A Bot Message's stored parts with its Rich control (spec #761): the text as its `text` part, so
  * the Conversation reads it, then the control.

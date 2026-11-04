@@ -115,6 +115,7 @@ test("an owner sees what goes, then deletes a Customer and those merged into the
   const stays = dialog.getByRole("region", { name: "What stays" });
   await expect(stays).toContainText("spend records");
   await expect(stays).toContainText("Gaps");
+  await expect(stays).toContainText("still waiting for your Approval");
 
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByLabel("Name of Emil")).toBeVisible();

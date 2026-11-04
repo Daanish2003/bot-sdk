@@ -1,6 +1,6 @@
 import { isEndedAssignment } from "@botsdk/client/bot/assignment";
 import type { ModelMessage } from "@tanstack/ai";
-import { and, eq, gte, inArray, isNotNull, isNull, lte, notInArray, or, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, lte, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import type { BotSdkContext, Transaction } from "../../plugin";
@@ -20,9 +20,10 @@ import {
   message,
 } from "../../storage";
 import { midTurnNote, sha256 } from "../agent-loop";
-import { hintChanged, recordBotChange } from "../conversation";
+import { hintChanged, recordBotChange, redactedText, reviewOwnerOf } from "../conversation";
+import { approvalTriggerId, denyForDeletedCustomer } from "../safety";
 import { checkInKey, checkInOfKey, lockConversationSet } from "../triggers";
-import { assignmentTitleOf, botsThatCanWork, moveToCancelled, redactedText } from "./assignment";
+import { assignmentTitleOf, botsThatCanWork, moveToCancelled } from "./assignment";
 
 /*
  * Redacting Assignments by reference (ticket #1288, spec #1170, ADR 0029's amendment): when a Customer
@@ -35,7 +36,8 @@ import { assignmentTitleOf, botsThatCanWork, moveToCancelled, redactedText } fro
  * - the Bot's Messages of a Turn wholly on them;
  * - verbatim copies anywhere else in the Bot's Turns and Messages since, its Summaries and its Prompt
  *   starts;
- * - the Check-ins, Helpers and decided Approvals of a Turn wholly on them.
+ * - the Check-ins, Helpers and Approvals of a Turn wholly on them, the Triggers those Approvals
+ *   left, and any Approval of theirs still open, which is denied so that no action runs for them.
  * It rewrites old history, so the Bot's next call misses the Provider's cache once. A Turn running
  * through it writes its transcript at its end: `queueRedactionAfterTurn` catches that.
  */
@@ -74,6 +76,7 @@ async function scopeOf(tx: Transaction, userId: string, seeds: string[]) {
   const ids = new Set(seeds);
   const checkIns = new Set<string>();
   const helpers = new Set<string>();
+  const reviews = new Set<string>();
   let onTurns: string[] = [];
   let whollyOn = new Set<string>();
   let triggers: {
@@ -84,8 +87,8 @@ async function scopeOf(tx: Transaction, userId: string, seeds: string[]) {
     turnId: string | null;
   }[] = [];
   // Until nothing new turns up: what a Turn wholly on them set going can have Turns of its own.
-  for (let size = -1; size !== ids.size + checkIns.size + helpers.size;) {
-    size = ids.size + checkIns.size + helpers.size;
+  for (let size = -1; size !== ids.size + checkIns.size + helpers.size + reviews.size;) {
+    size = ids.size + checkIns.size + helpers.size + reviews.size;
     const children = await tx
       .select({ id: botAssignment.id })
       .from(botAssignment)
@@ -108,6 +111,7 @@ async function scopeOf(tx: Transaction, userId: string, seeds: string[]) {
             inArray(botTrigger.id, [
               ...[...checkIns].map(checkInKey),
               ...[...helpers].map(helperTriggerKey),
+              ...[...reviews].map(approvalTriggerId),
             ]),
           ),
         ),
@@ -158,6 +162,11 @@ async function scopeOf(tx: Transaction, userId: string, seeds: string[]) {
       .from(botHelper)
       .where(inArray(botHelper.startedByTurnId, wholly));
     for (const row of startedHelpers) helpers.add(row.id);
+    const raised = await tx
+      .select({ id: botReview.id })
+      .from(botReview)
+      .where(or(inArray(botReview.turnId, wholly), inArray(botReview.helperId, [...helpers])));
+    for (const row of raised) reviews.add(row.id);
   }
   const assignments = await tx
     .select({
@@ -236,14 +245,15 @@ async function scopeOf(tx: Transaction, userId: string, seeds: string[]) {
     whollyOn,
     checkIns: [...checkIns],
     helpers: [...helpers],
+    reviews: [...reviews],
     botsInvolved,
     conversationIds,
   };
 }
 
-/** Whether Trigger `id` is an Assignment's, rather than a Check-in's or a Helper's. */
+/** Whether Trigger `id` is an Assignment's, rather than a Check-in's, a Helper's or an Approval's. */
 const assignmentOwnsTrigger = (id: string) =>
-  checkInOfKey(id) === undefined && !id.startsWith("helper:");
+  checkInOfKey(id) === undefined && !id.startsWith("helper:") && !id.startsWith("approval:");
 
 type Scope = Awaited<ReturnType<typeof scopeOf>>;
 
@@ -526,7 +536,7 @@ export async function redactAssignments(
     await tx.update(botPromptStart).set({ sections }).where(eq(botPromptStart.id, row.id));
   }
 
-  await redactWhatTurnsStarted(tx, scope, change);
+  await redactWhatTurnsStarted(deps, tx, scope, change, now);
 
   // Last, so that its notice stays as the Bot should read it: it names the title, now redacted.
   for (const row of assignments) {
@@ -543,8 +553,14 @@ export async function redactAssignments(
   return [...changed];
 }
 
-/** What a Turn wholly on them set going: Check-ins, Helpers and its decided Approvals. */
-async function redactWhatTurnsStarted(tx: Transaction, scope: Scope, change: RecordChange) {
+/** What a Turn wholly on them set going: Check-ins, Helpers and its Approvals, an open one denied. */
+async function redactWhatTurnsStarted(
+  deps: BotSdkContext,
+  tx: Transaction,
+  scope: Scope,
+  change: RecordChange,
+  now: Date,
+) {
   const owners = await tx
     .select({ id: bot.id, conversationId: bot.conversationId })
     .from(bot)
@@ -588,22 +604,37 @@ async function redactWhatTurnsStarted(tx: Transaction, scope: Scope, change: Rec
         sql`${botHelperMessage.text} <> ${redactedText}`,
       ),
     );
-  // An Approval still open keeps its call: the user may yet allow it, and it runs as stored.
-  const reviews = await tx
+  const denied = await denyForDeletedCustomer(deps, tx, scope.reviews, now);
+  const cleared = await tx
     .update(botReview)
     .set({ input: {}, summary: redactedText, reason: redactedText, output: null })
+    .where(and(inArray(botReview.id, scope.reviews), sql`${botReview.summary} <> ${redactedText}`))
+    .returning({ id: botReview.id });
+  for (const id of new Set([...denied, ...cleared.map((row) => row.id)])) {
+    const asked = await reviewOwnerOf(tx, id);
+    if (asked) await change(asked.conversationId, "review", id);
+  }
+  // Each one's card in the thread holds its summary. A Helper's falls in no Turn's time, so by its id.
+  const cards = await tx
+    .select({ id: message.id, parts: message.parts, conversationId: message.conversationId })
+    .from(message)
     .where(
       and(
-        or(
-          inArray(botReview.turnId, [...scope.whollyOn]),
-          inArray(botReview.helperId, scope.helpers),
-        ),
-        or(isNull(botReview.state), inArray(botReview.state, ["allowed", "denied", "expired"])),
-        sql`${botReview.summary} <> ${redactedText}`,
+        inArray(message.conversationId, scope.conversationIds),
+        inArray(sql`${message.parts}->'parts'->1->'control'->>'reviewId'`, scope.reviews),
+        sql`${message.parts}->'parts'->0->>'text' <> ${redactedText}`,
       ),
-    )
-    .returning({ id: botReview.id, botId: botReview.botId });
-  for (const row of reviews) await change(conversationOf(row.botId), "review", row.id);
+    );
+  for (const card of cards) {
+    const parts = card.parts.parts.map((part) =>
+      part.type === "text" ? { ...part, text: redactedText } : part,
+    );
+    await tx
+      .update(message)
+      .set({ parts: { ...card.parts, parts } })
+      .where(eq(message.id, card.id));
+    await change(card.conversationId, "message", card.id);
+  }
 }
 
 const redactionJobName = "bot.assignment_redaction";
