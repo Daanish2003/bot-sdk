@@ -1,8 +1,9 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { saveCredentials } from "@botsdk/bot/models/internal";
+import type { Transaction } from "@botsdk/bot/plugin";
 import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { job } from "@botsdk/bot/storage";
 import { exportUserData } from "@botsdk/bot/user-data";
@@ -13,7 +14,7 @@ import { fakeChannel, testCustomerTurn } from "@ai-chat/test-support/test-custom
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, text, toolCall } from "@botsdk/testing/fake-adapter";
-import type { TextOptions } from "@tanstack/ai";
+import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 import { representative } from "../src";
 import type { FixedProfileField, ProfileStatus } from "../src/shared/contract";
 import {
@@ -23,6 +24,8 @@ import {
   representativeThread,
   representativeThreadMessage,
 } from "../src/server/db/schema";
+import { holdCustomers } from "../src/server/customer-merge";
+import { setOwnerValue } from "../src/server/customer-profile";
 import { customerSummaryMarker, profileOperationsMarker } from "../src/server/customer-summary";
 import { threadExpiryMs } from "../src/server/expiry";
 import { threadIdleMs } from "../src/server/idle";
@@ -66,8 +69,37 @@ const handsOff = () =>
 
 const ago = (days: number) => new Date(Date.now() - days * day);
 
+/** A transaction left open after `work` until `release`, and whether anyone waits on it. */
+async function inFlight(work: (tx: Transaction) => Promise<void>) {
+  let release = () => {};
+  const released = new Promise<void>((resolve) => (release = resolve));
+  let pid: number | undefined;
+  let ready = () => {};
+  const started = new Promise<void>((resolve) => (ready = resolve));
+  const done = getTestDb().transaction(async (tx) => {
+    await work(tx);
+    const pids = await tx.execute(sql`select pg_backend_pid() as pid`);
+    pid = (pids.rows[0] as { pid: number }).pid;
+    ready();
+    await released;
+  });
+  await started;
+  return {
+    done,
+    release,
+    isWaitedOn: async () => {
+      const blocked = await getTestDb().execute(
+        sql`select pid from pg_stat_activity where ${pid}::int = any(pg_blocking_pids(pid))`,
+      );
+      return blocked.rows.length > 0;
+    },
+  };
+}
+
 async function instance() {
   const pass: Operation[][] = [];
+  /** Runs as the pass calls its Model, when it holds nothing. */
+  const onPassCall: { current?: () => Promise<void> } = {};
   const turns: Array<() => ReturnType<typeof round>> = [];
   const fake = createFakeAdapter({
     rounds: Array.from({ length: 60 }, () => (options: TextOptions) => {
@@ -75,6 +107,13 @@ async function instance() {
       return turns.shift()?.() ?? round();
     }),
   });
+  const gated: AnyTextAdapter = {
+    ...(fake.adapter as AnyTextAdapter),
+    chatStream: async function* (options) {
+      if (isPassCall(options)) await onPassCall.current?.();
+      yield* fake.adapter.chatStream(options);
+    },
+  };
   const botFake = createFakeAdapter({ rounds: Array.from({ length: 10 }, () => round()) });
   const timer = fakeJobClock(new Date());
   let deps: TestDeps | undefined;
@@ -88,7 +127,7 @@ async function instance() {
   deps = createTestSdk({
     jobs,
     features: [representative()],
-    adapterFor: (id) => (id === botModel ? botFake.adapter : fake.adapter),
+    adapterFor: (id) => (id === botModel ? botFake.adapter : gated),
     clock: timer.clock.now,
     memory: false,
   });
@@ -229,6 +268,8 @@ async function instance() {
     user,
     deps,
     rpc,
+    timer,
+    onPassCall,
     promptFor,
     pass,
     turns,
@@ -853,5 +894,108 @@ describe("the pass on a thread that moved in a merge", () => {
 
     expect(await profile(first.id)).toEqual({ name: "Bob" });
     expect(await ownRows(first.id)).toEqual([]);
+  });
+});
+
+describe("the pass against a write still in flight", () => {
+  /** Holds `work` open across the pass's write, and returns once the pass has written. */
+  async function duringPass(
+    { onPassCall, timer, settle }: Awaited<ReturnType<typeof instance>>,
+    work: (tx: Transaction) => Promise<void>,
+    close: () => void | Promise<unknown>,
+  ) {
+    let open: Awaited<ReturnType<typeof inFlight>> | undefined;
+    onPassCall.current = async () => {
+      open = await inFlight(work);
+    };
+    await close();
+    try {
+      await vi.waitFor(
+        async () => {
+          timer.tick();
+          expect(await open?.isWaitedOn()).toBe(true);
+        },
+        { timeout: 10_000 },
+      );
+    } finally {
+      open?.release();
+      await open?.done;
+    }
+    await settle();
+  }
+
+  it("leaves a value the owner is setting on that Customer", async () => {
+    const context = await instance();
+    const { user, pass, customer, openThread, verifiedLine, ownRows, timer } = context;
+    const first = await customer(ada);
+    const open = await openThread(ada);
+    await verifiedLine(open.id, "My address is 9 Fake St");
+    pass.push([{ field: "address", value: "9 Fake St", line: 1 }]);
+
+    await duringPass(
+      context,
+      async (tx) => {
+        await holdCustomers(tx, [first.id]);
+        await setOwnerValue(tx, timer.clock.now(), user.id, first.id, "address", "1 High St");
+      },
+      () => timer.advance(threadIdleMs),
+    );
+
+    expect(await ownRows(first.id)).toMatchObject([
+      { field: "address", value: "1 High St", source: "owner", status: "confirmed" },
+    ]);
+  });
+
+  it("doesn't let a claim beat a confirmed value that another write is making", async () => {
+    const context = await instance();
+    const { user, pass, customer, openThread, verifiedLine, ownRows, timer } = context;
+    const first = await customer(ada);
+    const open = await openThread(ada);
+    await verifiedLine(open.id, "Send it wherever");
+    pass.push([{ field: "address", value: "9 Fake St", line: 1 }]);
+
+    await duringPass(
+      context,
+      async (tx) => {
+        await tx.insert(representativeProfileValue).values({
+          id: uuidv7(),
+          userId: user.id,
+          customerId: first.id,
+          fixedField: "address",
+          value: "1 High St",
+          source: "customer",
+          status: "confirmed",
+          recordedAt: timer.clock.now(),
+        });
+      },
+      () => timer.advance(threadIdleMs),
+    );
+
+    expect(await ownRows(first.id)).toMatchObject([
+      { field: "address", value: "1 High St", status: "confirmed" },
+    ]);
+  });
+
+  it("doesn't beat a value the owner is setting on the survivor, writing to the absorbed Customer", async () => {
+    const context = await instance();
+    const { user, pass, customer, merge, openThread, verifiedLine, ownRows, profile } = context;
+    const first = await customer(ada);
+    const second = await customer(bob);
+    const absorbed = await openThread(bob);
+    await verifiedLine(absorbed.id, "My address is 2 Low St", bob);
+    pass.push([{ field: "address", value: "2 Low St", line: 1 }]);
+
+    await duringPass(
+      context,
+      async (tx) => {
+        await holdCustomers(tx, [first.id]);
+        // Older than the pass's write, so that write would win the read were it let through.
+        await setOwnerValue(tx, ago(1), user.id, first.id, "address", "1 High St");
+      },
+      () => merge(second.id, first.id),
+    );
+
+    expect(await profile(first.id)).toEqual({ address: "1 High St" });
+    expect(await ownRows(second.id)).toEqual([]);
   });
 });

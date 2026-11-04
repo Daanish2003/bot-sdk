@@ -20,7 +20,7 @@ import {
   representativeCustomerSummary,
   representativeProfileField,
 } from "./db/schema";
-import { threadPromptChars, threadPromptLimit } from "./customers";
+import { holdThreadCustomer, threadPromptChars, threadPromptLimit } from "./customers";
 import { readCustomer } from "./owner-customers";
 import { type ProfileOperation, parseProfileOperations, writePassValues } from "./customer-profile";
 import { type Lesson, parseLesson, proposeLesson } from "./customer-lessons";
@@ -217,8 +217,13 @@ async function planSummary(services: SummaryServices, threadId: string): Promise
   return text ? { text, operations, lesson } : { skipped: "empty_reply" };
 }
 
-/** Stores what the pass came to, once. Under the thread's lock: a thread reopened or deleted meanwhile gets nothing. */
+/**
+ * Stores what the pass came to, once. Under the thread's lock: a thread reopened or deleted meanwhile
+ * gets nothing. Its Customer's row first, the order the owner's changes take them in, so that a value
+ * the owner is setting has committed before the pass reads what it can't beat.
+ */
 async function recordOutcome(tx: Transaction, threadId: string, outcome: Outcome, now: Date) {
+  await holdThreadCustomer(tx, threadId);
   const [thread] = await tx
     .select({ userId: representative.userId, customerId: representativeThread.customerId })
     .from(representativeThread)

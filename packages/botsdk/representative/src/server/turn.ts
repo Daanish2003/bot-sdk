@@ -31,14 +31,15 @@ import { recordMovedHandOff } from "./customer-merge";
 import { memoryPrompt, noMemory, readCustomerMemory, type CustomerMemory } from "./customer-memory";
 import { type CustomerWork, quotable, readCustomerWork } from "./customer-work";
 import { deliverHandOffResult } from "./hand-off-result";
-import { type Heard, readSender, readThread, storeReply, type ThreadEntry } from "./customers";
 import {
-  representative,
-  representativeCustomer,
-  representativeHandOff,
-  representativeRelease,
-  representativeThread,
-} from "./db/schema";
+  type Heard,
+  holdThreadCustomer,
+  readSender,
+  readThread,
+  storeReply,
+  type ThreadEntry,
+} from "./customers";
+import { representative, representativeHandOff, representativeRelease } from "./db/schema";
 import { logGap } from "./gaps";
 import { type DocumentText, readDocuments } from "./documents";
 import {
@@ -273,29 +274,6 @@ const replySource = z.union([
     quote: z.string().trim().min(1).max(maxThreadMessageLength).refine(noNul),
   }),
 ]);
-
-/**
- * A thread's Customer, its row held until the end of `tx`, so that no merge moves the thread and its
- * hand-offs before this one commits. A merge holds that row as it moves them, so a read that waited on
- * one reads again.
- */
-async function holdThreadCustomer(tx: Transaction, threadId: string) {
-  let held: string | null = null;
-  for (;;) {
-    const [thread] = await tx
-      .select({ customerId: representativeThread.customerId })
-      .from(representativeThread)
-      .where(eq(representativeThread.id, threadId));
-    if (!thread) return null;
-    if (thread.customerId === held) return held;
-    held = thread.customerId;
-    await tx
-      .select({ id: representativeCustomer.id })
-      .from(representativeCustomer)
-      .where(eq(representativeCustomer.id, held))
-      .for("key share");
-  }
-}
 
 /** Opens an Assignment for `botId` from `liveThread`, in `tx`. An `ORPCError` says the Bot can't take it. */
 async function openHandOff(

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, not, or, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
@@ -11,6 +11,7 @@ import {
   fixedProfileFields,
   type ProfileFieldView,
   type ProfileSource,
+  type ProfileStatus,
   maxProfileValueLength,
   type ProfileValueView,
 } from "../shared/contract";
@@ -336,6 +337,21 @@ export async function deleteProfileFields(tx: Transaction, userId: string): Prom
   await tx.delete(representativeProfileField).where(eq(representativeProfileField.userId, userId));
 }
 
+/**
+ * Which stored value a pass's write may replace, in one statement, so a row that committed after the
+ * pass last read still counts. A `confirmed` owner value stays, and any `confirmed` value against a
+ * claim. An owner's clearing is written over, except by a claim on a survivor: it would stop hiding
+ * what's merged in, which that claim might lose to.
+ */
+function passMayReplace(status: ProfileStatus, onSurvivor: boolean): SQL {
+  const value = representativeProfileValue;
+  const confirmed = eq(value.status, "confirmed");
+  if (status === "claimed") {
+    return onSurvivor ? not(confirmed) : or(eq(value.value, ""), not(confirmed))!;
+  }
+  return or(eq(value.value, ""), not(and(confirmed, eq(value.source, "owner"))!))!;
+}
+
 /** What the pass proposed for one profile value: a field by name, its value, and the line it cites. */
 export type ProfileOperation = { field: string; value: string; line: number };
 
@@ -364,7 +380,7 @@ export function parseProfileOperations(text: string): ProfileOperation[] {
 }
 
 /**
- * Writes what the pass proposed, under the thread's lock, which the caller holds. Code decides every
+ * Writes what the pass proposed, holding the thread and its Customer, as the caller does. Code decides every
  * value's status, not the Model: `confirmed` only if the line it cites has a Customer as its author
  * that message was verified, and it says the value (a row's `verified` means something else on an owner's, and is true by
  * default). A line that isn't in the thread, or a field that isn't there, drops
@@ -461,26 +477,6 @@ export async function writePassValues(
     ) {
       continue;
     }
-    const [existing] = await tx
-      .select({
-        value: representativeProfileValue.value,
-        source: representativeProfileValue.source,
-        status: representativeProfileValue.status,
-      })
-      .from(representativeProfileValue)
-      .where(and(eq(representativeProfileValue.customerId, valueCustomer), eq(column, key)))
-      // Held, because another thread of this Customer or the owner may be writing it too.
-      .for("update");
-    if (existing && isCleared(existing)) {
-      // Written over, the clearing would stop hiding what's merged in, which a claim might lose to.
-      if (status === "claimed" && merges.some((each) => each.survivorId === valueCustomer))
-        continue;
-    } else if (
-      existing?.status === "confirmed" &&
-      (existing.source === "owner" || status === "claimed")
-    ) {
-      continue;
-    }
     const written = {
       value,
       source: line.author as ProfileSource,
@@ -499,6 +495,11 @@ export async function writePassValues(
       .onConflictDoUpdate({
         target: [representativeProfileValue.customerId, column],
         set: written,
+        // Here and not read first: a row another thread of this Customer has yet to commit isn't seen.
+        setWhere: passMayReplace(
+          status,
+          merges.some((each) => each.survivorId === valueCustomer),
+        ),
       });
   }
 }
