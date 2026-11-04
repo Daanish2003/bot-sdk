@@ -93,7 +93,7 @@ export type CustomerMessage = z.infer<typeof customerMessage>;
  * Customer entry point in the private `@ai-chat/test-support` package does.
  */
 export async function receiveCustomerMessage(
-  services: Services & Pick<FeatureContext<"pages">, "keyring" | "pages"> & ViaChannel,
+  services: Services & Pick<FeatureContext<"pages">, "keyring" | "logger" | "pages"> & ViaChannel,
   given: CustomerMessage,
 ) {
   const { representativeId, channel, externalId, proof, message } = customerMessage.parse(given);
@@ -108,6 +108,8 @@ export async function receiveCustomerMessage(
       now,
     });
     if (!received) return null;
+    // Over the inbound limit: logged, and nothing stored or started.
+    if ("limited" in received) return { jobId: null };
     const { threadId, turnId, waitingSince, kept, state, opened } = received;
     // With the message, so a thread is never left without its closing job.
     if (opened) await queueIdleCheck(services, tx, threadId, now);

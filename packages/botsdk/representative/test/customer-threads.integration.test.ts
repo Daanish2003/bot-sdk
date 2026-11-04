@@ -463,6 +463,8 @@ describe("what the Turn reads", () => {
           externalId: "+15550001",
           text: `Filler ${index}`,
           verified: false,
+          // Older than the inbound limit's hour, which counts what an identity sent.
+          createdAt: new Date(Date.now() - 2 * 60 * 60_000),
         })),
       );
 
