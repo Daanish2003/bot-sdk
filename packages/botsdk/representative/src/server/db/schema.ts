@@ -573,3 +573,61 @@ export const representativeFactProposal = botsdkSchema.table(
     index("representative_fact_proposal_bot_idx").on(table.botId),
   ],
 );
+
+/** Which message passed the Outbound gate, which says what rules it passes. */
+export type OutboundKind = "reply" | "code_hand_off" | "owner" | "takeover_note" | "proof";
+
+export type GateOutcome = "send" | "hold" | "drop";
+
+/**
+ * One Outbound gate decision (ticket #1298): what was going where, what became of it, the rule that
+ * decided and the Release in effect. It holds no words: those are in the thread message it sent or
+ * the held message it kept. It goes with its thread, so a Customer's delete and a thread's expiry
+ * take it. A later rule, a real deployment's too, needs only its own name in `rule`.
+ */
+export const representativeOutboundDecision = botsdkSchema.table(
+  "representative_outbound_decision",
+  {
+    id: uuid("id").primaryKey(),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references((): AnyPgColumn => representativeThread.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<OutboundKind>().notNull(),
+    outcome: text("outcome").$type<GateOutcome>().notNull(),
+    /** The gate rule that decided, or `passed` when none stopped it. */
+    rule: text("rule").notNull(),
+    /** The Release of the Turn behind it, or else the live one. No foreign key: the log outlives a Release's row. */
+    releaseId: uuid("release_id"),
+    channel: text("channel").notNull(),
+    externalId: text("external_id").notNull(),
+    /** The thread message it sent; null for anything held or dropped, and for a proof, which is never stored. */
+    messageId: uuid("message_id").references((): AnyPgColumn => representativeThreadMessage.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (table) => [index("representative_outbound_decision_thread_idx").on(table.threadId, table.id)],
+);
+
+/** A message the gate held: stored, not sent, and not in the thread until something sends it (ticket #1298). */
+export const representativeHeldMessage = botsdkSchema.table(
+  "representative_held_message",
+  {
+    id: uuid("id").primaryKey(),
+    decisionId: uuid("decision_id")
+      .notNull()
+      .references((): AnyPgColumn => representativeOutboundDecision.id, { onDelete: "cascade" }),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references((): AnyPgColumn => representativeThread.id, { onDelete: "cascade" }),
+    text: text("text").notNull(),
+    verified: boolean("verified").notNull(),
+    replyKind: text("reply_kind").$type<StoredReplyKind>(),
+    sources: jsonb("sources").$type<ReplySource[]>(),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (table) => [
+    index("representative_held_message_thread_idx").on(table.threadId),
+    index("representative_held_message_decision_idx").on(table.decisionId),
+  ],
+);

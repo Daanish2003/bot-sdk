@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNotNull, lte, notExists, sql } from "drizzle-orm";
+import { and, asc, desc, eq, lte, sql } from "drizzle-orm";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
@@ -14,8 +14,9 @@ import {
 import { holdCustomers } from "./customer-merge";
 import { nameIn, profilesOf } from "./customer-profile";
 import { catchCode, customerProofLeadsTo, mayHoldCode } from "./customer-proof";
+import { deliverMessage, passGate } from "./outbound-gate";
 import { type ChannelProof, judgeSender } from "./verification";
-import type { ReplySource, StoredReplyKind } from "../shared/replies";
+import { codeHandOffKind, type ReplySource, type StoredReplyKind } from "../shared/replies";
 
 /*
  * Customers and their threads (ticket #1249). A message finds or makes its Customer by identity
@@ -362,17 +363,36 @@ export async function holdThreadCustomer(tx: Transaction, threadId: string) {
 }
 
 /**
- * Stores a reply as sent to the sender its Turn answers, if the Representative still holds the
- * thread. Not to whoever was heard last: an unverified identity writing during a verified Turn
- * mustn't get that Turn's reply.
+ * Passes a reply through the Outbound gate, addressed to the sender its Turn answers, and if the gate
+ * sends it, stores it and sends it. Not to whoever was heard last: an unverified identity writing
+ * during a verified Turn mustn't get that Turn's reply.
  */
 export async function storeReply(
+  services: Pick<FeatureContext, "jobs">,
   tx: Transaction,
-  { threadId, heard, verified }: { threadId: string; heard: Heard; verified: boolean },
+  {
+    threadId,
+    heard,
+    verified,
+    releaseId,
+  }: { threadId: string; heard: Heard; verified: boolean; releaseId?: string | null },
   { text, sources }: { text: string; sources: ReplySource[] },
   replyKind: StoredReplyKind,
   now: Date,
 ) {
+  const decision = await passGate(tx, {
+    kind: replyKind === codeHandOffKind ? "code_hand_off" : "reply",
+    threadId,
+    to: heard,
+    now,
+    releaseId,
+    content: { text, verified, replyKind, sources },
+  });
+  if (decision?.outcome !== "send")
+    return {
+      error:
+        "This thread is gone or no longer yours to answer (it may be held by the owner, its Customer blocked, or you switched off), so nothing was sent.",
+    };
   const [thread] = await tx
     .update(representativeThread)
     .set({
@@ -380,32 +400,11 @@ export async function storeReply(
       turnFrom: null,
       updatedAt: sql`greatest(${representativeThread.updatedAt}, ${now.toISOString()}::timestamp)`,
     })
-    .where(
-      and(
-        eq(representativeThread.id, threadId),
-        eq(representativeThread.state, "representative"),
-        // A Turn that began before the owner blocked this Customer sends nothing more.
-        notExists(
-          tx
-            .select({ one: sql`1` })
-            .from(representativeCustomer)
-            .where(
-              and(
-                eq(representativeCustomer.id, representativeThread.customerId),
-                isNotNull(representativeCustomer.blockedAt),
-              ),
-            ),
-        ),
-      ),
-    )
+    .where(eq(representativeThread.id, threadId))
     .returning({ position: representativeThread.messageCount });
-  if (!thread)
-    return {
-      error:
-        "This thread is gone or no longer yours to answer (it may be held by the owner, or its Customer blocked), so nothing was sent.",
-    };
+  const messageId = uuidv7();
   await tx.insert(representativeThreadMessage).values({
-    id: uuidv7(),
+    id: messageId,
     threadId,
     author: "representative",
     text,
@@ -413,8 +412,9 @@ export async function storeReply(
     sources,
     verified,
     ...heard,
-    ...thread,
+    ...thread!,
   });
+  await deliverMessage(services, tx, decision.id, messageId);
   return { sent: true };
 }
 

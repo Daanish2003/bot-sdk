@@ -25,6 +25,7 @@ import {
   representativeVerification,
 } from "../src/server/db/schema";
 import { customerSummaryMarker } from "../src/server/customer-summary";
+import { noCustomerChannel } from "../src/server/customer-proof";
 import { representativeFeature } from "../src/server/plugin";
 import { proofLastsMs } from "../src/server/verification";
 
@@ -97,6 +98,7 @@ async function instance(rounds: Round[], held?: Promise<void>, failing?: () => n
       representativeFeature(
         {},
         {
+          ...noCustomerChannel,
           sendProof:
             failing ??
             (async (to, proof) => {

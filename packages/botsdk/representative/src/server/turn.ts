@@ -162,6 +162,7 @@ async function readStart({ db, models, logger }: TurnServices, representativeId:
     .select({
       userId: representative.userId,
       name: representative.name,
+      releaseId: representativeRelease.id,
       content: representativeRelease.content,
     })
     .from(representative)
@@ -204,6 +205,8 @@ type LiveThread = {
   heard: Heard;
   verified: boolean;
   proofRule: ChannelProofRule | null;
+  /** The Release this Turn started on, which each of its gate decisions names. */
+  releaseId: string;
   /** Where this Turn's proofs go. */
   channel: CustomerChannel;
 };
@@ -345,6 +348,7 @@ async function handOffInCode(
   const botId = await reportingBot(tx, representativeId, true);
   const customerId = await holdThreadCustomer(tx, thread.threadId);
   const stored = await storeReply(
+    job,
     tx,
     thread,
     { text: handOffMessage, sources: [] },
@@ -462,9 +466,8 @@ export function turnTools(turn: Turn) {
           read: progress.read,
         });
         if ("error" in checked) return refuse(tx, checked);
-        // Stored as sent: nothing reaches a real Channel until the gate spec.
         if (thread) {
-          const stored = await storeReply(tx, thread, checked, kind, now);
+          const stored = await storeReply(job, tx, thread, checked, kind, now);
           // A test conversation logs no Gap. Logged with the reply, so a refused one logs none.
           if (kind === "cant_confirm" && question !== undefined && !("error" in stored)) {
             await logGap(tx, { userId, representativeId, question, now });
@@ -866,7 +869,7 @@ export function representativeTurnJob(
       // Recorded: a replay after a crash stays on this Release and this owner.
       const start = await job.step("representative_start", () => readStart(job, representativeId));
       if (start) {
-        const { userId, name, model, content } = start;
+        const { userId, name, model, content, releaseId } = start;
         const sender = await readSender(job.db, threadId, senderAt, upTo);
         const heard = sender && { channel: sender.channel, externalId: sender.externalId };
         const entries = heard
@@ -890,6 +893,7 @@ export function representativeTurnJob(
               heard,
               verified,
               proofRule: sender.proofRule,
+              releaseId,
               channel: customerChannel,
             },
           },

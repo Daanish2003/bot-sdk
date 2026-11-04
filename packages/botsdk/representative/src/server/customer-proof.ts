@@ -6,6 +6,7 @@ import type { FeatureContext, PublicRoute } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { absorbCustomer } from "./customer-merge";
+import { passGate } from "./outbound-gate";
 import {
   representativeCustomer,
   representativeCustomerIdentity,
@@ -37,13 +38,17 @@ const sendLimitWindowMs = 60 * 60_000;
 /** What a Channel is given to send: a code to read back, or the token of a link to open. */
 export type Proof = { kind: "code" | "link"; secret: string };
 
-/** Where proofs go; a Channel's Customer path supplies this. */
+/** How messages reach a Customer; a Channel's Customer path supplies this. A throw means it didn't go. */
 export type CustomerChannel = {
+  send: (to: { channel: string; externalId: string }, message: { text: string }) => Promise<void>;
   sendProof: (to: { channel: string; externalId: string }, proof: Proof) => Promise<void>;
 };
 
-/** No real Channel reaches a Customer yet (spec #1168), so by default a proof goes nowhere. */
-export const noCustomerChannel: CustomerChannel = { sendProof: async () => {} };
+/** No real Channel reaches a Customer yet (spec #1172), so by default nothing goes anywhere. */
+export const noCustomerChannel: CustomerChannel = {
+  send: async () => {},
+  sendProof: async () => {},
+};
 
 /** A proof on its way, with its address. */
 export type SentProof = { to: { channel: string; externalId: string }; proof: Proof };
@@ -180,7 +185,7 @@ export async function requestProof(
   {
     keyring,
     userId,
-    thread: { threadId, heard, verified, proofRule },
+    thread: { threadId, heard, verified, proofRule, releaseId },
     claimed,
     now,
   }: {
@@ -191,6 +196,7 @@ export async function requestProof(
       heard: { channel: string; externalId: string };
       verified: boolean;
       proofRule: ChannelProofRule | null;
+      releaseId?: string | null;
     };
     claimed: { channel: string; externalId: string } | null;
     now: Date;
@@ -206,7 +212,12 @@ export async function requestProof(
       eq(representativeCustomer.id, representativeThread.customerId),
     )
     .where(eq(representativeThread.id, threadId));
-  if (held?.state !== "representative" || held.blockedAt !== null) return null;
+  if (held?.state !== "representative") return null;
+  // The gate logs why a blocked Customer gets nothing.
+  if (held.blockedAt !== null) {
+    await passGate(tx, { kind: "proof", threadId, to: heard, now, releaseId });
+    return null;
+  }
   const before = await identityAt(tx, userId, heard);
   // The owner has corrected this address since the message came.
   if (!before) return null;
@@ -296,8 +307,18 @@ export async function requestProof(
     createdAt: now,
   });
   if (!target) return null;
+  const to = { channel: target.channel, externalId: target.externalId };
+  const decision = await passGate(tx, {
+    kind: "proof",
+    threadId,
+    to,
+    now,
+    releaseId,
+    customerId: target.id === sender.id ? sender.customerId : found?.customerId,
+  });
+  if (decision?.outcome !== "send") return null;
   return {
-    to: { channel: target.channel, externalId: target.externalId },
+    to,
     proof: isLink
       ? { kind: "link", secret: linkToken(keyring, id) }
       : { kind: "code", secret: code },

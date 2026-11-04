@@ -7,6 +7,7 @@ import { batchLongestMs } from "@botsdk/bot/bot/triggers";
 import { botAssignment, job, usage } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import {
   fakeChannel,
@@ -27,6 +28,8 @@ import {
   representativeCustomerSummary,
   representativeFactProposal,
   representativeGap,
+  representativeHeldMessage,
+  representativeOutboundDecision,
   representativeHandOff,
   representativeProfileValue,
   representativeThread,
@@ -517,6 +520,30 @@ describe("deleting a Customer", () => {
       );
     return rows.map((row) => row.text);
   };
+
+  it("takes a proof's decision at their address from another Customer's thread", async () => {
+    const { rpc, ada, carol } = await seeded();
+    const [carolThread] = await threadsOfCustomers([carol.id]);
+    const atAda = uuidv7();
+    await getTestDb().insert(representativeOutboundDecision).values({
+      id: atAda,
+      threadId: carolThread!.id,
+      kind: "proof",
+      outcome: "send",
+      rule: "passed",
+      channel: fakeChannel,
+      externalId: adaNumber,
+      createdAt: new Date(),
+    });
+
+    await rpc.representative.customerDelete({ id: ada.id });
+
+    const left = await getTestDb()
+      .select({ id: representativeOutboundDecision.id })
+      .from(representativeOutboundDecision)
+      .where(eq(representativeOutboundDecision.id, atAda));
+    expect(left).toEqual([]);
+  });
 
   it("finds their words on a thread that a later merge moved to someone else", async () => {
     const zedNumber = "+15550026";
@@ -1105,6 +1132,26 @@ describe("deleting a Customer", () => {
 describe("the completeness of a Customer's delete", () => {
   it("reaches every table a foreign key links to a Customer, and leaves no linked row behind", async () => {
     const { rpc, ada, bob } = await seeded();
+    const [adaThread] = await threadsOfCustomers([ada.id]);
+    const decisionId = uuidv7();
+    await getTestDb().insert(representativeOutboundDecision).values({
+      id: decisionId,
+      threadId: adaThread!.id,
+      kind: "reply",
+      outcome: "hold",
+      rule: "caps",
+      channel: fakeChannel,
+      externalId: adaNumber,
+      createdAt: new Date(),
+    });
+    await getTestDb().insert(representativeHeldMessage).values({
+      id: uuidv7(),
+      decisionId,
+      threadId: adaThread!.id,
+      text: "Held for Ada.",
+      verified: true,
+      createdAt: new Date(),
+    });
     const { reached, customerTable, edges } = await rowsLinkedTo([ada.id, bob.id]);
     // Every table a chain of foreign keys ties to a Customer must be seeded above, so a new one
     // can't pass unchecked.
@@ -1149,6 +1196,7 @@ describe("the completeness of a Customer's delete", () => {
       "representative_customer_merge.moved_holds",
       "representative_customer_merge.thread_ids",
       "representative_hand_off.external_id",
+      "representative_outbound_decision.external_id",
       "representative_thread.last_external_id",
       "representative_thread.turn_id",
       "representative_thread_message.assignment_id",

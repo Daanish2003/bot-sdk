@@ -14,6 +14,8 @@ import {
   representativeGap,
   representativeFactProposal,
   representativeHandOff,
+  representativeHeldMessage,
+  representativeOutboundDecision,
   representativeProfileField,
   representativeProfileValue,
   representativeRelease,
@@ -33,6 +35,7 @@ import { dropProposalsOfBot, factProposalTools } from "./fact-proposals";
 import { deleteFacts, exportFacts } from "./facts";
 import { deleteGaps, exportGaps } from "./gaps";
 import representativeMigrations from "./migrations.json" with { type: "json" };
+import { customerDeliveryJob, exportOutboundDecisions } from "./outbound-gate";
 import {
   deleteRepresentatives,
   dropApprovalsOfBot,
@@ -68,7 +71,7 @@ export type RepresentativeOptions = {
  * The `representative` feature (spec #1167): restricted agents that speak for the owner's
  * business, each served only through an approved, unchangeable Release. It has no Computer, and
  * Auto-review and Custom Rules, which belong to Bots, don't reach it. A Host turns it on with
- * `representative()` in `features`. `channel` is where proofs go: not an option a Host has, since no
+ * `representative()` in `features`. `channel` is how messages reach a Customer: not an option a Host has, since no
  * real Channel reaches a Customer until the specs for them, so `src/index.ts` doesn't pass it on.
  */
 export function representativeFeature(
@@ -97,6 +100,8 @@ export function representativeFeature(
         representativeGap,
         representativeFactProposal,
         representativeHandOff,
+        representativeHeldMessage,
+        representativeOutboundDecision,
         representativeProfileField,
         representativeProfileValue,
         representativeRelease,
@@ -121,6 +126,7 @@ export function representativeFeature(
     publicRoutes: proofLinkRoutes,
     jobs: [
       representativeTurnJob(options.concurrency, channel),
+      customerDeliveryJob(channel),
       handOffEndedJob,
       representativeTestJob,
       threadIdleJob,
@@ -143,6 +149,7 @@ export function representativeFeature(
         representatives: await exportRepresentatives(tx, userId),
         customers: await exportCustomers(tx, userId),
         customerMerges: await exportMerges(tx, userId),
+        outboundDecisions: await exportOutboundDecisions(tx, userId),
         customerSummaries: await exportCustomerSummaries(tx, userId),
         profileFields: await exportProfileFields(tx, userId),
         ...(await exportFacts(tx, userId)),

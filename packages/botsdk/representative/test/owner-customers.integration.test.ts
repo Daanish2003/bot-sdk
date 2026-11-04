@@ -429,9 +429,11 @@ describe("a blocked Customer", () => {
       externalId: "+15550001",
     });
     const [line] = await rpc.representative.threadList({ id });
+    const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
     const sendAnother = () =>
       getTestDb().transaction((tx) =>
         storeReply(
+          feature.context,
           tx,
           { threadId: line!.id, heard: line!.lastHeard, verified: false },
           { text: "Still here", sources: [] },

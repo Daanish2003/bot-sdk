@@ -145,7 +145,7 @@ export async function absorbCustomer(
     if (open.state !== "owner") await afterThreadClose(services, tx, open.id);
     if (open.state === "owner") {
       const caused = match.state === "representative";
-      if (caused) await holdThread(services, tx, match.id, { ...match, blockedAt: null });
+      if (caused) await holdThread(services, tx, match.id, match);
       movedHolds.push({
         closedThreadId: open.id,
         survivingThreadId: match.id,

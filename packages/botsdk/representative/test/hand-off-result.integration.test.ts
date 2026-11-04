@@ -17,6 +17,7 @@ import {
   representativeThread,
   representativeThreadMessage,
 } from "../src/server/db/schema";
+import { noCustomerChannel } from "../src/server/customer-proof";
 import { representativeFeature } from "../src/server/plugin";
 import { handOffMessage } from "../src/server/replies";
 import { takeoverNote } from "../src/server/takeover";
@@ -132,6 +133,7 @@ async function serving(
       representativeFeature(
         {},
         {
+          ...noCustomerChannel,
           sendProof: async (to, proof) => {
             proofsSent.push({ ...to, ...proof });
           },

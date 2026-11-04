@@ -3,18 +3,13 @@ import { and, eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { saveCredentials } from "@botsdk/bot/models/internal";
-import {
-  claimJob,
-  inProcessRunner,
-  type JobRunner,
-  reapStaleJobs,
-} from "@botsdk/bot/runner/internal";
+import { inProcessRunner, type JobRunner, reapStaleJobs } from "@botsdk/bot/runner/internal";
 import { job } from "@botsdk/bot/storage";
 import { exportUserData } from "@botsdk/bot/user-data";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { startTestCustomerTurn } from "@ai-chat/test-support/test-customer";
+import { claimPastDeliveries, startTestCustomerTurn } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
@@ -124,7 +119,9 @@ async function serving(rounds: Round[], { afterCall, before }: Options = {}) {
 
   const running: Array<Promise<void>> = [];
   const claim = async ({ overdue = false } = {}) => {
-    const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: !overdue });
+    const claimed = await claimPastDeliveries(jobs, timer.clock.now(), {
+      respectRunAfter: !overdue,
+    });
     if (!claimed) return false;
     running.push(jobs.runClaimed(claimed, {}));
     return true;
