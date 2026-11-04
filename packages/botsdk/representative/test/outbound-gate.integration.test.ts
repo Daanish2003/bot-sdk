@@ -13,7 +13,7 @@ import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { fakeMessagingAdapter } from "@botsdk/testing/fake-channel";
-import type { CustomerChannel } from "../src/server/customer-proof";
+import { type CustomerChannel, requestProof } from "../src/server/customer-proof";
 import { storeReply } from "../src/server/customers";
 import {
   representative,
@@ -350,6 +350,35 @@ describe("every send site", () => {
       { kind: "owner", outcome: "drop", rule: "blocked" },
     ]);
     expect(world.got()).toEqual([]);
+  });
+});
+
+describe("a proof for a blocked Customer", () => {
+  it("doesn't go, and the decision says why", async () => {
+    const world = await instance([quiet()]);
+    await world.hears("Hello", { rule: "codeRoundTrip" });
+    const [line] = await world.rpc.representative.threadList({ id: world.id });
+    await world.rpc.representative.customerSetBlocked({ id: line!.customer.id, blocked: true });
+
+    const outgoing = await getTestDb().transaction((tx) =>
+      requestProof(tx, {
+        keyring: ["a test secret"],
+        userId: world.user.id,
+        thread: {
+          threadId: line!.id,
+          heard: { channel: "fake", externalId: number },
+          verified: false,
+          proofRule: "codeRoundTrip",
+        },
+        claimed: null,
+        now: world.timer.clock.now(),
+      }),
+    );
+
+    expect(outgoing).toBeNull();
+    expect(await world.decisions()).toMatchObject([
+      { kind: "proof", outcome: "drop", rule: "blocked" },
+    ]);
   });
 });
 
