@@ -22,6 +22,7 @@ import {
   representativeTestResult,
   representativeThread,
   representativeThreadMessage,
+  representativeTopic,
   representativeCustomerSummary,
   representativeVerification,
 } from "./db/schema";
@@ -44,7 +45,9 @@ import {
 } from "./representatives";
 import type { ConvertDocument, KnowledgeFiles } from "./documents";
 import { representativeTestJob } from "./tests";
+import { deleteTopics, exportTopics } from "./topics";
 import { exportCustomerSummaries, customerSummaryJob } from "./customer-summary";
+import { stopUserTurns } from "./thread-turns";
 import { handOffEndedJob, representativeTurnJob } from "./turn";
 
 export type RepresentativeOptions = {
@@ -110,6 +113,7 @@ export function representativeFeature(
         representativeTestResult,
         representativeThread,
         representativeThreadMessage,
+        representativeTopic,
         representativeCustomerSummary,
         representativeVerification,
       },
@@ -125,6 +129,7 @@ export function representativeFeature(
       await dropApprovalsOfBot(context, botId, userId);
       await dropProposalsOfBot(context, botId, userId);
     },
+    stopTurns: (userId, context) => stopUserTurns(context, userId),
     publicRoutes: proofLinkRoutes,
     jobs: [
       representativeTurnJob(options.concurrency, channel),
@@ -146,6 +151,7 @@ export function representativeFeature(
           await deleteProfileFields(tx, userId);
           await deleteFacts(tx, userId);
           await deleteGaps(tx, userId);
+          await deleteTopics(tx, userId);
         },
       },
       export: async (tx, userId) => ({
@@ -157,6 +163,7 @@ export function representativeFeature(
         profileFields: await exportProfileFields(tx, userId),
         ...(await exportFacts(tx, userId)),
         ...(await exportGaps(tx, userId)),
+        topics: await exportTopics(tx, userId),
       }),
     },
   });

@@ -34,6 +34,7 @@ import {
 
 import { ModelPicker } from "../models/shell/model-picker";
 import { DraftDocuments, documentsOverCap, useDocumentChanges } from "./representative-documents";
+import { ReplyDrafts } from "./reply-drafts";
 import { RepresentativeThreads } from "./representative-threads";
 import { TestConversationsEditor, TestResults } from "./representative-tests";
 
@@ -542,6 +543,7 @@ export function RepresentativePage({ id }: { id: string }) {
         representative={representative}
       />
       <DraftDiff id={id} />
+      <ReplyDrafts id={id} />
       <RepresentativeThreads id={id} />
       <section className="space-y-2">
         <h2 className="text-sm font-medium">{t("representative.releases")}</h2>

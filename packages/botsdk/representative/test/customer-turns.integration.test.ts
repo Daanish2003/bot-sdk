@@ -44,7 +44,7 @@ type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 const quiet = () => round();
 const replies = (text: string) =>
-  round(toolCall({ name: "reply", input: { text, kind: "small_talk" } }));
+  round(toolCall({ name: "reply", input: { topic: "general", text, kind: "small_talk" } }));
 
 type Sender = Pick<TestCustomerTurn, "channel" | "externalId" | "proof">;
 const proven: Sender = { channel: "telegram", externalId: "7", proof: { rule: "sameIdentity" } };

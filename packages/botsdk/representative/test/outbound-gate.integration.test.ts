@@ -47,10 +47,10 @@ type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 const quiet = () => round();
 const replies = (text: string) =>
-  round(toolCall({ name: "reply", input: { text, kind: "small_talk" } }));
+  round(toolCall({ name: "reply", input: { topic: "general", text, kind: "small_talk" } }));
 /** A reply no source backs: code refuses it. */
 const guesses = (text: string) =>
-  round(toolCall({ name: "reply", input: { text, kind: "answer" } }));
+  round(toolCall({ name: "reply", input: { topic: "general", text, kind: "answer" } }));
 
 const runners: JobRunner[] = [];
 afterEach(async () => {
@@ -174,6 +174,7 @@ const anotherReply = async (
   { deps, threadId }: World,
   now = new Date(),
   businessStarted = false,
+  topic = "general",
 ) => {
   const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
   const id = await threadId();
@@ -183,11 +184,12 @@ const anotherReply = async (
       tx,
       {
         threadId: id,
+        upTo: 1,
         heard: { channel: "fake", externalId: number },
         verified: false,
         businessStarted,
       },
-      { text: "Still here", sources: [] },
+      { text: "Still here", sources: [], topic },
       "small_talk",
       now,
     ),
@@ -1053,6 +1055,20 @@ describe("quiet hours", () => {
       ["released", "hold", "caps"],
       ["released", "send", "passed"],
     ]);
+    expect(await getTestDb().select().from(page)).toMatchObject([{ cause: "outbound_held" }]);
+  });
+
+  it("leaves a held message for the owner when its topic is still a draft", async () => {
+    const world = await instance([quiet()], undefined, night);
+    await heard(world);
+    await anotherReply(world, night, true, "A new subject");
+
+    pass(world, 9 * hour);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(world.got()).toEqual([]);
+    expect(await held()).toHaveLength(1);
+    expect(await outcomes(world)).toContainEqual(["released", "hold", "topic"]);
     expect(await getTestDb().select().from(page)).toMatchObject([{ cause: "outbound_held" }]);
   });
 

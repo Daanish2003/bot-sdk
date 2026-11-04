@@ -9,12 +9,14 @@ import { pruneProofs } from "./customer-proof";
 import { lastMessageQuery } from "./last-message";
 import { representativeThread, representativeThreadMessage } from "./db/schema";
 import { afterThreadClose } from "./customer-summary";
+import { heldWaitingQuery } from "./reply-drafts";
 import { queueThreadExpiry } from "./expiry";
 
 /*
  * A thread its Representative holds closes after 7 idle days (ticket #1252); one the owner holds
  * never does (#1253), and nor does one whose last word is code's fixed message, which promises the
- * Customer someone will follow up (#1261): it waits on whoever that is. Recurring jobs aren't supported and a feature has no boot hook, so each thread
+ * Customer someone will follow up (#1261): it waits on whoever that is. A message the gate held
+ * holds a thread open the same way: the owner was told to answer it, and a thread that closed couldn't. Recurring jobs aren't supported and a feature has no boot hook, so each thread
  * keeps one delayed job: it re-checks the thread's last activity, closes it if it has been idle long
  * enough, and otherwise queues the next check for the day the idle time would be up. A held thread's
  * check looks again later, so the chain is still there after Hand back, which counts as activity.
@@ -55,6 +57,7 @@ export const threadIdleJob = defineJob<ThreadIdlePayload>({
             eq(representativeThread.state, "representative"),
             lte(representativeThread.updatedAt, new Date(now.getTime() - threadIdleMs)),
             sql`(${lastReplyKind}) is distinct from ${codeHandOffKind}`,
+            sql`not ${heldWaitingQuery}`,
           ),
         )
         .returning({ id: representativeThread.id });
@@ -68,6 +71,7 @@ export const threadIdleJob = defineJob<ThreadIdlePayload>({
           state: representativeThread.state,
           updatedAt: representativeThread.updatedAt,
           lastReplyKind: sql<StoredReplyKind | null>`(${lastReplyKind})`,
+          heldWaiting: sql<boolean>`${heldWaitingQuery}`,
         })
         .from(representativeThread)
         .where(
@@ -75,7 +79,10 @@ export const threadIdleJob = defineJob<ThreadIdlePayload>({
         );
       if (thread) {
         // A held thread's last activity may be long past, which would queue this same check again.
-        const held = thread.state === "owner" || thread.lastReplyKind === codeHandOffKind;
+        const held =
+          thread.state === "owner" ||
+          thread.lastReplyKind === codeHandOffKind ||
+          thread.heldWaiting;
         const from = held ? now : thread.updatedAt;
         await queueIdleCheck(job, tx, threadId, from);
       }

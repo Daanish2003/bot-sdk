@@ -1,27 +1,26 @@
 import { ORPCError } from "@orpc/contract";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import type { z } from "zod";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
-import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { rpcError } from "@botsdk/bot/rpc-error";
 import {
+  draftRule,
   representative,
   representativeHeldMessage,
   representativeOutboundDecision,
   representativeThread,
-  representativeThreadMessage,
 } from "./db/schema";
 import { defineJob } from "@botsdk/bot/runner/internal";
 import {
-  deliverMessage,
   dropHeld,
   enqueueHeldRelease,
   heldReleaseJobName,
   heldReleasePayload,
   passGate,
   quietAt,
+  storeAndDeliver,
 } from "./outbound-gate";
 import { getThread } from "./owner-customers";
 import { customerBlocked, lockThread, threadClosed } from "./takeover";
@@ -39,12 +38,19 @@ type Context = Pick<FeatureContext, "db" | "clock" | "jobs"> &
 const heldNotFound = () =>
   rpcError("NOT_FOUND", "error.heldMessageNotFound", "Held message not found");
 
-/** The held message `heldId` of one of `userId`'s threads, and the thread it is on; null when neither is theirs. */
+/**
+ * The held message `heldId` of one of `userId`'s threads, and the thread it is on; null when neither
+ * is theirs. Never a Reply draft, which the owner answers in `reply-drafts`, nor anything answered.
+ */
 async function ownedHeld(tx: Transaction, userId: string, heldId: string) {
   const held = representativeHeldMessage;
   const [row] = await tx
     .select({ threadId: held.threadId })
     .from(held)
+    .innerJoin(
+      representativeOutboundDecision,
+      eq(representativeOutboundDecision.id, held.decisionId),
+    )
     .innerJoin(representativeThread, eq(representativeThread.id, held.threadId))
     .innerJoin(
       representative,
@@ -53,7 +59,13 @@ async function ownedHeld(tx: Transaction, userId: string, heldId: string) {
         eq(representative.userId, userId),
       ),
     )
-    .where(eq(held.id, heldId));
+    .where(
+      and(
+        eq(held.id, heldId),
+        isNull(held.resolution),
+        ne(representativeOutboundDecision.rule, draftRule),
+      ),
+    );
   return row?.threadId ?? null;
 }
 
@@ -91,6 +103,7 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
         verified: held.verified,
         replyKind: held.replyKind,
         sources: held.sources,
+        topic: held.topic,
         channel: decision.channel,
         externalId: decision.externalId,
         rule: decision.rule,
@@ -116,10 +129,17 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
       to: { channel, externalId },
       now,
       pages: context.pages,
-      // Going by itself it also passes what the owner's own send needn't: the switch and the caps.
+      // Going by itself it also passes what the owner's own send needn't: the switch, the caps and the topic's mode.
       // Held again it leaves the one held row, and Pages unless others already wait.
       ...(byItself
-        ? { releasing: heldId }
+        ? {
+            releasing: heldId,
+            content: {
+              text: message.text,
+              verified: message.verified,
+              topic: message.topic ?? undefined,
+            },
+          }
         : { content: { text: message.text, verified: message.verified } }),
     });
     if (!decided) throw heldNotFound();
@@ -131,29 +151,23 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
     if (decided.outcome !== "send") {
       return { blocked: decided.outcome === "drop", threadId: found };
     }
-    const [updated] = await tx
-      .update(representativeThread)
-      .set({
-        messageCount: sql`${representativeThread.messageCount} + 1`,
-        updatedAt: sql`greatest(${representativeThread.updatedAt}, ${now.toISOString()}::timestamp)`,
-      })
-      .where(eq(representativeThread.id, found))
-      .returning({ position: representativeThread.messageCount });
-    const messageId = uuidv7();
-    await tx.insert(representativeThreadMessage).values({
-      id: messageId,
-      threadId: found,
-      position: updated!.position,
-      author: "representative",
-      text: message.text,
-      replyKind: message.replyKind,
-      sources: message.sources,
-      verified: message.verified,
-      channel,
-      externalId,
-    });
     await tx.delete(held).where(eq(held.id, heldId));
-    await deliverMessage(context, tx, decided.id, messageId);
+    await storeAndDeliver(
+      context,
+      tx,
+      decided.id,
+      {
+        threadId: found,
+        author: "representative",
+        text: message.text,
+        replyKind: message.replyKind,
+        sources: message.sources,
+        verified: message.verified,
+        channel,
+        externalId,
+      },
+      now,
+    );
     return { blocked: false as const, threadId: found };
   });
 }

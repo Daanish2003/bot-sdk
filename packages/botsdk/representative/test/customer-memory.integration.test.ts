@@ -38,7 +38,7 @@ const cites = (text: string, quote: string) =>
   round(
     toolCall({
       name: "reply",
-      input: { text, kind: "answer", sources: [{ type: "memory", quote }] },
+      input: { topic: "general", text, kind: "answer", sources: [{ type: "memory", quote }] },
     }),
   );
 
@@ -379,6 +379,7 @@ describe("a reply citing memory", () => {
         toolCall({
           name: "reply",
           input: {
+            topic: "general",
             text: `We will write to ${email} at ${address}.`,
             kind: "answer",
             sources: [
@@ -416,7 +417,7 @@ describe("a reply citing memory", () => {
       round(
         toolCall({
           name: "reply",
-          input: { text: `You live at ${address}.`, kind: "small_talk" },
+          input: { topic: "general", text: `You live at ${address}.`, kind: "small_talk" },
         }),
       ),
       quiet(),
@@ -439,7 +440,11 @@ describe("a reply citing memory", () => {
       round(
         toolCall({
           name: "reply",
-          input: { text: "We will call you on +44 7700 900123.", kind: "small_talk" },
+          input: {
+            topic: "general",
+            text: "We will call you on +44 7700 900123.",
+            kind: "small_talk",
+          },
         }),
       ),
       quiet(),
