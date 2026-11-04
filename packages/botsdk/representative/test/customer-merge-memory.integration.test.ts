@@ -9,7 +9,7 @@ import { exportUserData } from "@botsdk/bot/user-data";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { testCustomerTurn } from "@ai-chat/test-support/test-customer";
+import { fakeChannel, testCustomerTurn } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, text, toolCall } from "@botsdk/testing/fake-adapter";
@@ -190,7 +190,7 @@ async function instance() {
     )!;
   };
   /** Makes a thread's one line a verified Customer's. */
-  const verifiedLine = async (threadId: string, saying: string) => {
+  const verifiedLine = async (threadId: string, saying: string, sender = ada) => {
     await getTestDb()
       .delete(representativeThreadMessage)
       .where(eq(representativeThreadMessage.threadId, threadId));
@@ -200,8 +200,8 @@ async function instance() {
       position: 1,
       author: "customer",
       verified: true,
-      channel: "test",
-      externalId: ada,
+      channel: fakeChannel,
+      externalId: sender,
       text: saying,
     });
   };
@@ -399,6 +399,27 @@ describe("an owner clearing a value during a merge", () => {
     expect(await profile(first.id)).toEqual({ address: "3 Mid St" });
   });
 
+  it("keeps what it cleared hidden when a later pass only claims the field", async () => {
+    const { rpc, pass, passTime, settle, customer, seed, merge, profile, openThread } =
+      await instance();
+    const first = await customer(ada);
+    const second = await customer(bob);
+    await seed(second.id, "address", "2 Low St", "confirmed", ago(4));
+    await merge(second.id, first.id);
+    await settle();
+    await rpc.representative.customerProfileSet({ id: first.id, field: "address", value: "" });
+
+    const open = await openThread(ada);
+    await getTestDb()
+      .update(representativeThreadMessage)
+      .set({ text: "It is 3 Mid St", verified: false })
+      .where(eq(representativeThreadMessage.threadId, open.id));
+    pass.push([{ field: "address", value: "3 Mid St", line: 1 }]);
+    await passTime(threadIdleMs);
+
+    expect(await profile(first.id)).toEqual({});
+  });
+
   it("hides only what it could see: not its survivor's own, nor a later merge's", async () => {
     const { rpc, customer, seed, merge, profile, passTime } = await instance();
     const first = await customer(ada);
@@ -490,6 +511,24 @@ describe("a hand-off's Customer", () => {
     expect((await handOffs())[0]!.customerId).toBe(second.id);
   });
 
+  it("goes back from a moved thread that handed off during the merge, after the thread expired", async () => {
+    const { turns, say, customer, merge, undoLatest, handOffs, passTime } = await instance();
+    const first = await customer(ada);
+    const second = await customer(bob);
+    await passTime(threadIdleMs);
+    await say("Back again", bob);
+    await merge(second.id, first.id);
+    turns.push(handsOff);
+    await say("I want a refund", bob);
+
+    await passTime(threadIdleMs);
+    await passTime(threadExpiryMs);
+    expect(await handOffs()).toEqual([{ threadId: null, customerId: first.id }]);
+
+    await undoLatest();
+    expect(await handOffs()).toEqual([{ threadId: null, customerId: second.id }]);
+  });
+
   it("stays on the survivor from a thread begun since the merge", async () => {
     const { turns, customer, say, merge, undoLatest, handOffs, passTime } = await instance();
     const first = await customer(ada);
@@ -536,7 +575,7 @@ describe("the pass on a thread that moved in a merge", () => {
     const first = await customer(ada);
     const second = await customer(bob);
     const absorbed = await openThread(bob);
-    await verifiedLine(absorbed.id, "My address is 2 Low St");
+    await verifiedLine(absorbed.id, "My address is 2 Low St", bob);
     pass.push([{ field: "address", value: "2 Low St", line: 1 }]);
 
     // Both have an open thread, so this closes the absorbed one, and its pass runs on the merged Customer.
@@ -580,6 +619,59 @@ describe("the pass on a thread that moved in a merge", () => {
     expect((await ownRows(first.id)).map((row) => row.value)).toEqual(["1 High St"]);
     expect(await ownRows(third.id)).toEqual([]);
     expect(await profile(third.id)).toEqual({ address: "1 High St" });
+  });
+
+  it("writes a value to the Customer whose words it cites, on a thread both spoke on", async () => {
+    const { id, rpc, pass, customer, say, merge, undoLatest, passTime, verifiedLine, profile } =
+      await instance();
+    const first = await customer(ada);
+    const second = await customer(bob);
+    await merge(second.id, first.id);
+    await say("Bob here again", bob);
+    const open = (await rpc.representative.threadList({ id })).find(
+      (each) => each.holder !== "closed",
+    )!;
+    await verifiedLine(open.id, "My address is 2 Low St", bob);
+    pass.push([{ field: "address", value: "2 Low St", line: 1 }]);
+    await passTime(threadIdleMs);
+
+    expect(await profile(first.id)).toEqual({ address: "2 Low St" });
+    await undoLatest();
+    expect(await profile(first.id)).toEqual({});
+    expect(await profile(second.id)).toEqual({ address: "2 Low St" });
+  });
+
+  it("lets a verified line write over a claimed value that an owner's line gave", async () => {
+    const { pass, customer, say, passTime, openThread, profile, id, rpc } = await instance();
+    const first = await customer(ada);
+    const open = await openThread(ada);
+    await rpc.representative.threadTakeOver({ id: open.id });
+    await rpc.representative.threadSend({ id: open.id, text: "Their address is 1 High St" });
+    await rpc.representative.threadHandBack({ id: open.id });
+    const lines = await getTestDb()
+      .select({
+        position: representativeThreadMessage.position,
+        author: representativeThreadMessage.author,
+      })
+      .from(representativeThreadMessage)
+      .where(eq(representativeThreadMessage.threadId, open.id));
+    const ownerLine = lines.find((line) => line.author === "owner")!.position;
+    pass.push([{ field: "address", value: "1 High St", line: ownerLine }]);
+    await passTime(threadIdleMs);
+    expect(await profile(first.id)).toEqual({ address: "1 High St" });
+
+    await say("Hello", ada);
+    const next = (await rpc.representative.threadList({ id })).find(
+      (each) => each.holder !== "closed",
+    )!;
+    await getTestDb()
+      .update(representativeThreadMessage)
+      .set({ text: "I moved to 2 Low St", verified: true })
+      .where(eq(representativeThreadMessage.threadId, next.id));
+    pass.push([{ field: "address", value: "2 Low St", line: 1 }]);
+    await passTime(threadIdleMs);
+
+    expect(await profile(first.id)).toEqual({ address: "2 Low St" });
   });
 
   it("doesn't beat a value the owner set on either Customer", async () => {

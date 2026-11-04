@@ -14,7 +14,9 @@ import {
   maxProfileValueLength,
   type ProfileValueView,
 } from "../shared/contract";
+import { grouped } from "./customers";
 import {
+  representativeCustomerIdentity,
   representativeCustomerMerge,
   representativeProfileField,
   representativeProfileValue,
@@ -53,6 +55,9 @@ type ValueRow = typeof representativeProfileValue.$inferSelect;
 
 const fieldOf = (row: ValueRow) => (row.fixedField ?? row.fieldId)!;
 
+/** The row an owner's clearing leaves where a merge could bring the value back. It reads as nothing. */
+const isCleared = (row: { value: string }) => row.value === "";
+
 const viewOf = (row: ValueRow): ProfileValueView => ({
   field: fieldOf(row),
   value: row.value,
@@ -77,14 +82,11 @@ const valueRowsOf = (db: Db, userId: string, customerIds: string[]) =>
 /** Each Customer's own profile values, oldest first, whatever is merged into it. */
 export async function profilesOf(db: Db, userId: string, customerIds: string[]) {
   const rows = await valueRowsOf(db, userId, customerIds);
-  const byCustomer = new Map<string, ProfileValueView[]>();
-  for (const row of rows) {
-    if (row.value === "") continue;
-    const values = byCustomer.get(row.customerId);
-    if (values) values.push(viewOf(row));
-    else byCustomer.set(row.customerId, [viewOf(row)]);
-  }
-  return byCustomer;
+  const byCustomer = grouped(
+    rows.filter((row) => !isCleared(row)),
+    (row) => row.customerId,
+  );
+  return new Map([...byCustomer].map(([id, values]) => [id, values.map(viewOf)] as const));
 }
 
 type StandingMerge = {
@@ -92,6 +94,7 @@ type StandingMerge = {
   survivorId: string;
   mergedAt: Date;
   threadIds: string[];
+  identityIds: string[];
 };
 
 /** The owner's merges that stand, which make each survivor's tree of Customers. */
@@ -102,6 +105,7 @@ const standingMergesOf = (db: Db, userId: string): Promise<StandingMerge[]> =>
       survivorId: representativeCustomerMerge.survivorCustomerId,
       mergedAt: representativeCustomerMerge.createdAt,
       threadIds: representativeCustomerMerge.threadIds,
+      identityIds: representativeCustomerMerge.identityIds,
     })
     .from(representativeCustomerMerge)
     .where(
@@ -119,7 +123,8 @@ function memberIds(merges: StandingMerge[], customerId: string): string[] {
 
 /**
  * The values a Customer can read, its own first. A value it cleared hides what its absorbed Customers
- * hold of that field from before the clearing, unless they came in after it, and nothing above it.
+ * hold of that field from before the clearing, unless they were merged in after it. It hides nothing
+ * of a Customer this one was itself merged into.
  */
 function reachable(
   merges: StandingMerge[],
@@ -127,9 +132,7 @@ function reachable(
   customerId: string,
 ): ValueRow[] {
   const own = rows.get(customerId) ?? [];
-  const clearedAt = new Map(
-    own.filter((row) => row.value === "").map((row) => [fieldOf(row), row.recordedAt]),
-  );
+  const clearedAt = new Map(own.filter(isCleared).map((row) => [fieldOf(row), row.recordedAt]));
   const absorbed = merges
     .filter((each) => each.survivorId === customerId)
     .flatMap(({ absorbedId, mergedAt }) =>
@@ -138,7 +141,7 @@ function reachable(
         return !at || mergedAt > at || row.recordedAt > at;
       }),
     );
-  return [...own.filter((row) => row.value !== ""), ...absorbed];
+  return [...own.filter((row) => !isCleared(row)), ...absorbed];
 }
 
 /** One value per field: `confirmed` beats `claimed`, then the newest, then the first given. */
@@ -158,39 +161,29 @@ function winners(rows: ValueRow[]) {
 
 /**
  * What each of the owner's Customers named by `customerIds` reads as its profile, by Customer: its own
- * values and those of everyone merged into it, one per field, oldest first. Every read for a Customer
- * as it stands today comes here, the prompt's and the owner's.
+ * values and those of everyone merged into it, one per field, oldest first. It is the read for a
+ * Customer as it stands today, which the owner's view uses, and what a prompt should use too.
  */
 export async function combinedProfilesOf(db: Db, userId: string, customerIds: string[]) {
   const merges = await standingMergesOf(db, userId);
   const members = customerIds.flatMap((id) => memberIds(merges, id));
-  const rows = new Map<string, ValueRow[]>();
-  for (const row of await valueRowsOf(db, userId, members)) {
-    const held = rows.get(row.customerId);
-    if (held) held.push(row);
-    else rows.set(row.customerId, [row]);
-  }
+  const rows = grouped(await valueRowsOf(db, userId, members), (row) => row.customerId);
   return new Map(
     customerIds.map((id) => [id, winners(reachable(merges, rows, id)).map(viewOf)] as const),
   );
 }
 
 /**
- * The Customer a thread came from, where its values belong: the one it goes back to when each merge
- * that moved it is undone. Read under the thread's lock, which a merge or an undo moving it holds too.
+ * The Customer something a merge moved came from: where it goes back to when each merge that moved it
+ * is undone. `moved` says whether a merge moved it.
  */
-export async function originalCustomerOf(
-  tx: Transaction,
-  userId: string,
-  { id, customerId }: { id: string; customerId: string },
-) {
-  const merges = await standingMergesOf(tx, userId);
-  let original = customerId;
-  for (;;) {
-    const step = merges.find((each) => each.survivorId === original && each.threadIds.includes(id));
-    if (!step) return original;
-    original = step.absorbedId;
-  }
+function originalCustomerOf(
+  merges: StandingMerge[],
+  customerId: string,
+  moved: (merge: StandingMerge) => boolean,
+): string {
+  const step = merges.find((each) => each.survivorId === customerId && moved(each));
+  return step ? originalCustomerOf(merges, step.absorbedId, moved) : customerId;
 }
 
 /** The survivor a Customer has been merged into, however many steps up, or the Customer itself. */
@@ -229,17 +222,8 @@ export async function setOwnerValue(
   }
   const column = fixed ? representativeProfileValue.fixedField : representativeProfileValue.fieldId;
   if (value === "") {
-    const [merged] = await tx
-      .select({ id: representativeCustomerMerge.id })
-      .from(representativeCustomerMerge)
-      .where(
-        and(
-          eq(representativeCustomerMerge.survivorCustomerId, customerId),
-          isNull(representativeCustomerMerge.undoneAt),
-        ),
-      )
-      .limit(1);
-    if (!merged) {
+    const merges = await standingMergesOf(tx, userId);
+    if (!merges.some((each) => each.survivorId === customerId)) {
       await tx
         .delete(representativeProfileValue)
         .where(and(eq(representativeProfileValue.customerId, customerId), eq(column, field)));
@@ -369,8 +353,11 @@ export function parseProfileOperations(text: string): ProfileOperation[] {
  * that message was verified, and it says the value (a row's `verified` means something else on an owner's, and is true by
  * default). A line that isn't in the thread, or a field that isn't there, drops
  * the operation. A `confirmed` owner value is never overwritten, nor any `confirmed` value by a `claimed` one.
- * Nor can it be beaten through a merge: where the Customer's survivor reads the owner's value of a field,
- * the operation drops, since a newer `confirmed` value would otherwise win there.
+ *
+ * A merge moves threads and identities, not what was said, so each value goes where undoing would leave
+ * it: to the Customer the cited line's sender came from, or for a line with no such sender, the one the
+ * thread came from. An owner's `confirmed` value that the survivor reads can't be beaten through a merge
+ * either, and nor can a claim bring back what the owner cleared on a survivor.
  */
 export async function writePassValues(
   tx: Transaction,
@@ -400,6 +387,8 @@ export async function writePassValues(
       author: representativeThreadMessage.author,
       verified: representativeThreadMessage.verified,
       text: representativeThreadMessage.text,
+      channel: representativeThreadMessage.channel,
+      externalId: representativeThreadMessage.externalId,
     })
     .from(representativeThreadMessage)
     .where(
@@ -408,8 +397,19 @@ export async function writePassValues(
         inArray(representativeThreadMessage.author, ["customer", "representative", "owner"]),
       ),
     );
-  const survivorId = survivorOf(await standingMergesOf(tx, userId), customerId);
-  const read = (await combinedProfilesOf(tx, userId, [survivorId])).get(survivorId)!;
+  const merges = await standingMergesOf(tx, userId);
+  const threadHome = originalCustomerOf(merges, customerId, (each) =>
+    each.threadIds.includes(threadId),
+  );
+  const identities = await tx
+    .select({
+      id: representativeCustomerIdentity.id,
+      customerId: representativeCustomerIdentity.customerId,
+      channel: representativeCustomerIdentity.channel,
+      externalId: representativeCustomerIdentity.externalId,
+    })
+    .from(representativeCustomerIdentity)
+    .where(eq(representativeCustomerIdentity.userId, userId));
   for (const operation of operations) {
     const name = operation.field.trim().toLowerCase();
     const fixed = fixedProfileFields.find((each) => each === name.replaceAll(" ", "_"));
@@ -425,7 +425,26 @@ export async function writePassValues(
       ? representativeProfileValue.fixedField
       : representativeProfileValue.fieldId;
     const key = fixed ?? ownField!.id;
-    if (read.some((each) => each.field === key && each.source === "owner")) continue;
+    const sender =
+      line.author === "customer"
+        ? identities.find(
+            (each) => each.channel === line.channel && each.externalId === line.externalId,
+          )
+        : undefined;
+    const home = sender
+      ? originalCustomerOf(merges, sender.customerId, (each) =>
+          each.identityIds.includes(sender.id),
+        )
+      : threadHome;
+    const survivorId = survivorOf(merges, home);
+    const combined = (await combinedProfilesOf(tx, userId, [survivorId])).get(survivorId)!;
+    if (
+      combined.some(
+        (each) => each.field === key && each.source === "owner" && each.status === "confirmed",
+      )
+    ) {
+      continue;
+    }
     const [existing] = await tx
       .select({
         value: representativeProfileValue.value,
@@ -433,13 +452,14 @@ export async function writePassValues(
         status: representativeProfileValue.status,
       })
       .from(representativeProfileValue)
-      .where(and(eq(representativeProfileValue.customerId, customerId), eq(column, key)))
+      .where(and(eq(representativeProfileValue.customerId, home), eq(column, key)))
       // Held, because another thread of this Customer or the owner may be writing it too.
       .for("update");
-    if (
-      existing &&
-      existing.value !== "" &&
-      existing.status === "confirmed" &&
+    if (existing && isCleared(existing)) {
+      // Written over, the clearing would stop hiding what's merged in, which a claim might lose to.
+      if (status === "claimed" && merges.some((each) => each.survivorId === home)) continue;
+    } else if (
+      existing?.status === "confirmed" &&
       (existing.source === "owner" || status === "claimed")
     ) {
       continue;
@@ -455,7 +475,7 @@ export async function writePassValues(
       .values({
         id: uuidv7(),
         userId,
-        customerId,
+        customerId: home,
         ...(fixed ? { fixedField: fixed } : { fieldId: key }),
         ...written,
       })

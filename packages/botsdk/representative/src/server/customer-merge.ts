@@ -155,7 +155,7 @@ export async function absorbCustomer(
     }
   }
   await tx.update(thread).set({ customerId: survivorId }).where(eq(thread.customerId, absorbedId));
-  // Recorded by id, as a hand-off outlives its thread.
+  // Recorded by id, as a hand-off outlives its thread. One made since joins them: `recordMovedHandOff`.
   const handOffs = await tx
     .update(representativeHandOff)
     .set({ customerId: survivorId })
@@ -173,6 +173,19 @@ export async function absorbCustomer(
     movedHolds,
     createdAt: services.clock(),
   });
+}
+
+/**
+ * A new hand-off from a thread that merges moved goes back with those merges, even if its thread has
+ * expired by then. The caller holds the thread's Customer, so no merge or undo of it is under way.
+ */
+export async function recordMovedHandOff(tx: Transaction, threadId: string, assignmentId: string) {
+  await tx
+    .update(merge)
+    .set({ handOffIds: sql`${merge.handOffIds} || ${JSON.stringify([assignmentId])}::jsonb` })
+    .where(
+      and(isNull(merge.undoneAt), sql`${merge.threadIds} @> ${JSON.stringify([threadId])}::jsonb`),
+    );
 }
 
 /** Merges the owner's Customer `id` into `intoId`. Neither may be blocked: unblock first. */
@@ -344,7 +357,11 @@ export async function undoMerge(context: Context, userId: string, id: string) {
     const held = await holdCustomers(tx, [survivorId, absorbedId]);
     // Read under the locks: a Hand back can have changed its holds as this waited.
     const [current] = await tx
-      .select({ undoneAt: merge.undoneAt, movedHolds: merge.movedHolds })
+      .select({
+        undoneAt: merge.undoneAt,
+        movedHolds: merge.movedHolds,
+        handOffIds: merge.handOffIds,
+      })
       .from(merge)
       .where(inScope);
     if (!current || current.undoneAt) return;
@@ -383,17 +400,13 @@ export async function undoMerge(context: Context, userId: string, id: string) {
           eq(representativeThread.customerId, survivorId),
         ),
       );
-    // What it moved, and what a moved thread has handed off since. Not a thread begun since's.
     await tx
       .update(representativeHandOff)
       .set({ customerId: absorbedId })
       .where(
         and(
           eq(representativeHandOff.customerId, survivorId),
-          or(
-            inArray(representativeHandOff.assignmentId, found.handOffIds),
-            inArray(representativeHandOff.threadId, found.threadIds),
-          ),
+          inArray(representativeHandOff.assignmentId, current.handOffIds),
         ),
       );
     await reopenHeldThreads(context, tx, absorbedId, current.movedHolds);

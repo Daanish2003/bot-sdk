@@ -292,7 +292,7 @@ export const representativeCustomerMerge = botsdkSchema.table(
     how: text("how").$type<CustomerMergeHow>().notNull(),
     identityIds: jsonb("identity_ids").$type<string[]>().notNull(),
     threadIds: jsonb("thread_ids").$type<string[]>().notNull(),
-    /** The hand-offs it moved, by Assignment, as a hand-off outlives its thread. */
+    /** The hand-offs that go back with it, by Assignment, as a hand-off outlives its thread. */
     handOffIds: jsonb("hand_off_ids").$type<string[]>().notNull().default([]),
     movedHolds: jsonb("moved_holds").$type<MovedHold[]>().notNull(),
     createdAt: timestamp("created_at").notNull(),

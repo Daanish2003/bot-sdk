@@ -27,6 +27,7 @@ import {
   requestProof,
   type SentProof,
 } from "./customer-proof";
+import { recordMovedHandOff } from "./customer-merge";
 import { deliverHandOffResult } from "./hand-off-result";
 import { type Heard, readSender, readThread, storeReply, type ThreadEntry } from "./customers";
 import {
@@ -310,6 +311,7 @@ async function openHandOff(
     externalId: liveThread.heard.externalId,
     verified: liveThread.verified,
   });
+  await recordMovedHandOff(tx, liveThread.threadId, created.id);
   return { ...created, botId };
 }
 
