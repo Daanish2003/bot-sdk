@@ -5,6 +5,7 @@ const replyKindLabels: Record<string, string> = {
   handoff: "Says it was passed on",
   cant_confirm: "Says it can't confirm",
   code_handoff: "Code's fixed hand-off message",
+  limit_note: "Code's fixed note at a limit",
 };
 
 /** The Representative pages: the list, a Representative's draft, on/off and Releases (spec #1167). */
@@ -27,7 +28,17 @@ export const representativeMessages = {
   "representative.maxPerDay": "Per Customer per day",
   "representative.saveCaps": "Save caps",
   "representative.capsSaved": "Caps saved",
+  "representative.quietHours": "Quiet hours",
+  "representative.quietHoursHelp":
+    "A message the business starts, such as a follow-up, is held until the quiet hours end. A direct reply to a Customer who just wrote goes at any hour. The Customer's time zone is used when known, otherwise the business's.",
+  "representative.quietStart": "From hour (0 to 23)",
+  "representative.quietEnd": "Until hour (0 to 23)",
+  "representative.businessTimeZone": "Business time zone",
+  "representative.saveQuietHours": "Save quiet hours",
+  "representative.quietHoursSaved": "Quiet hours saved",
   "representative.none": "No Representatives yet.",
+  "representative.limitWarning": ({ percent }: { percent: number }) =>
+    `You've used ${percent}% of your Quota. At 100%, a Representative on the Host's credentials gives Customers a fixed note instead of an answer until it lifts.`,
   "representative.back": "All Representatives",
   "representative.live": ({ number }: { number: number }) => `Live: Release ${number}`,
   "representative.noRelease": "No Release yet",
@@ -274,6 +285,7 @@ export const representativeMessages = {
   "representative.customers.profileLanguage": "Language",
   "representative.customers.profilePreferredChannel": "Preferred Channel",
   "representative.customers.profileAddress": "Address",
+  "representative.customers.profileTimeZone": "Time zone",
   "representative.customers.profileValueOf": ({ field, name }: { field: string; name: string }) =>
     `${field} of ${name}`,
   "representative.customers.profileSaveOf": ({ field, name }: { field: string; name: string }) =>

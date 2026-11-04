@@ -96,7 +96,15 @@
     "sql": "CREATE TABLE \"botsdk\".\"representative_topic\" (\n\t\"id\" uuid PRIMARY KEY,\n\t\"user_id\" text NOT NULL,\n\t\"name\" text NOT NULL,\n\t\"mode\" text DEFAULT 'draft' NOT NULL,\n\t\"created_at\" timestamp DEFAULT now() NOT NULL\n);\n--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_held_message\" ADD COLUMN \"topic\" text;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_held_message\" ADD COLUMN \"resolution\" text;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_held_message\" ADD COLUMN \"resolved_at\" timestamp;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_held_message\" ADD COLUMN \"message_id\" uuid;--> statement-breakpoint\nCREATE UNIQUE INDEX \"representative_topic_name\" ON \"botsdk\".\"representative_topic\" (\"user_id\",lower(\"name\"));--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_held_message\" ADD CONSTRAINT \"representative_held_message_ibTr1D0dYPt4_fkey\" FOREIGN KEY (\"message_id\") REFERENCES \"botsdk\".\"representative_thread_message\"(\"id\") ON DELETE SET NULL;"
   },
   {
-    "name": "20261104174956_representative_opt_out",
+    "name": "20261104174152_limit_note",
+    "sql": "ALTER TABLE \"botsdk\".\"representative_thread\" ADD COLUMN \"limit_noted_at\" timestamp;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_thread\" ADD COLUMN \"left_for_owner_at\" timestamp;"
+  },
+  {
+    "name": "20261104191319_quiet_hours",
+    "sql": "ALTER TABLE \"botsdk\".\"representative\" ADD COLUMN \"quiet_start_hour\" integer DEFAULT 21 NOT NULL;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative\" ADD COLUMN \"quiet_end_hour\" integer DEFAULT 8 NOT NULL;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative\" ADD COLUMN \"business_time_zone\" text DEFAULT 'UTC' NOT NULL;"
+  },
+  {
+    "name": "20261104193039_representative_opt_out",
     "sql": "ALTER TABLE \"botsdk\".\"representative_customer_identity\" ADD COLUMN \"opted_out_at\" timestamp;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_customer_identity\" ADD COLUMN \"opt_out_source\" text;"
   }
 ]

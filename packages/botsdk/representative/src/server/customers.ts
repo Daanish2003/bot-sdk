@@ -19,7 +19,12 @@ import { liftOptOut, keywordIn, optOut } from "./opt-out";
 import { type GateRefusal, passGate, storeAndDeliver } from "./outbound-gate";
 import { afterDraftHeld, replaceHeld } from "./reply-drafts";
 import { type ChannelProof, judgeSender } from "./verification";
-import { codeHandOffKind, type ReplySource, type StoredReplyKind } from "../shared/replies";
+import {
+  codeHandOffKind,
+  limitNoteKind,
+  type ReplySource,
+  type StoredReplyKind,
+} from "../shared/replies";
 
 /*
  * Customers and their threads (ticket #1249). A message finds or makes its Customer by identity
@@ -248,6 +253,7 @@ export async function receiveMessage(
     verified,
     proofRule: proof?.rule,
     ...heard,
+    createdAt: now,
   });
   // What the gate held is stale now: the Customer has written since.
   await replaceHeld(tx, threadId, now, { ...heard, verified });
@@ -393,7 +399,7 @@ export async function holdThreadCustomer(tx: Transaction, threadId: string) {
 
 /** What the Model hears of a reply the gate held: the owner has it, and sending it again changes nothing. */
 const heldNote =
-  "Your reply was held for the owner to send or drop, because the Outbound gate holds it (a cap on messages to this Customer), so nothing was sent. Do not send it again.";
+  "Your reply was held, because the Outbound gate holds it (a cap on messages to this Customer, or quiet hours), so nothing was sent now. The owner sends or drops it, or it goes when quiet hours end. Do not send it again.";
 
 /**
  * Passes a reply through the Outbound gate, addressed to the sender its Turn answers, and if the gate
@@ -410,6 +416,7 @@ export async function storeReply(
     verified,
     releaseId,
     refusals,
+    businessStarted,
   }: {
     threadId: string;
     upTo: number;
@@ -417,19 +424,28 @@ export async function storeReply(
     verified: boolean;
     releaseId?: string | null;
     refusals?: GateRefusal[];
+    /** The Turn answers no new Customer message: quiet hours hold what it says. */
+    businessStarted?: boolean;
   },
   { text, sources, topic }: { text: string; sources: ReplySource[]; topic?: string },
   replyKind: StoredReplyKind,
   now: Date,
 ) {
   const decision = await passGate(tx, {
-    kind: replyKind === codeHandOffKind ? "code_hand_off" : "reply",
+    kind:
+      replyKind === codeHandOffKind
+        ? "code_hand_off"
+        : replyKind === limitNoteKind
+          ? "limit_note"
+          : "reply",
     threadId,
     to: heard,
     now,
     releaseId,
     refusals,
     pages: services.pages,
+    jobs: services.jobs,
+    businessStarted,
     content: { text, verified, replyKind, sources, topic },
   });
   if (decision?.rule === draftRule) {

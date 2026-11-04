@@ -70,7 +70,9 @@ const identityTaken = () =>
  * thread is open (ticket #1254), and the Bot's result waits on the owner, if they hold the thread, as
  * a Customer's message does. When the last word is code's fixed hand-off message (ticket #1261), and
  * no Bot is working on it, someone owes the Customer what it promised, and that is the owner. So is
- * a message the gate held, once no Turn is on the way that could replace it.
+ * a message the gate held, once no Turn is on the way that could replace it. What waits at a limit
+ * waits on the owner, as no Turn can answer it, and so does what a limit left for them, once nothing
+ * else is under way (ticket #1309).
  */
 export function waitingOn(
   state: ThreadState,
@@ -79,18 +81,21 @@ export function waitingOn(
   turnDue: boolean,
   botWorking = false,
   codeHandedOff = false,
+  atLimit = false,
+  leftForOwner = false,
   heldWaiting = false,
 ): ThreadWaitingOn {
   if (state === "closed" || blocked) return null;
   const speaking = lastAuthor === "customer" || lastAuthor === "bot";
   if (state === "owner") {
-    if (speaking || turnDue) return "owner";
+    if (speaking || turnDue || leftForOwner) return "owner";
     if (botWorking) return "bot";
     return codeHandedOff ? "owner" : "customer";
   }
+  if (atLimit) return "owner";
   if (turnDue) return "representative";
   if (botWorking) return "bot";
-  if (codeHandedOff || heldWaiting) return "owner";
+  if (codeHandedOff || leftForOwner || heldWaiting) return "owner";
   return speaking ? null : "customer";
 }
 
@@ -429,6 +434,8 @@ type ThreadRow = {
   messageCount: number;
   turnId: string | null;
   waitingFrom: number | null;
+  limitNotedAt: Date | null;
+  leftForOwnerAt: Date | null;
   updatedAt: Date;
   lastAuthor: ThreadAuthor | null;
   lastReplyKind: StoredReplyKind | null;
@@ -453,6 +460,8 @@ const threadColumns = {
   messageCount: representativeThread.messageCount,
   turnId: representativeThread.turnId,
   waitingFrom: representativeThread.waitingFrom,
+  limitNotedAt: representativeThread.limitNotedAt,
+  leftForOwnerAt: representativeThread.leftForOwnerAt,
   updatedAt: representativeThread.updatedAt,
   lastAuthor: sql<ThreadAuthor | null>`(${lastMessageQuery(representativeThreadMessage.author)})`,
   lastReplyKind: sql<StoredReplyKind | null>`(${lastMessageQuery(representativeThreadMessage.replyKind)})`,
@@ -478,6 +487,8 @@ function summary(row: ThreadRow, customerName: string | null): ThreadSummary {
       row.turnId !== null || row.waitingFrom !== null,
       row.botWorking,
       row.lastReplyKind === codeHandOffKind,
+      row.limitNotedAt !== null && row.waitingFrom !== null,
+      row.leftForOwnerAt !== null,
       row.heldWaiting,
     ),
     messageCount: row.messageCount,

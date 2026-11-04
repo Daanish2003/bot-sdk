@@ -103,6 +103,7 @@ async function serving(
   representativeRounds: Rounds,
   botRounds: Rounds = [refunded, quiet],
   held?: Promise<void>,
+  start = new Date(),
 ) {
   const fake = createFakeAdapter({ rounds: representativeRounds });
   const entered: unknown[] = [];
@@ -115,7 +116,7 @@ async function serving(
     },
   };
   const botFake = createFakeAdapter({ rounds: botRounds });
-  const timer = fakeJobClock(new Date());
+  const timer = fakeJobClock(start);
   const proofsSent: Array<{ channel: string; externalId: string; kind: string; secret: string }> =
     [];
   let made: ReturnType<typeof createTestSdk> | undefined;
@@ -304,6 +305,35 @@ describe("a hand-off's result", () => {
       "Your refund of 20 is on its way.",
     );
     expect(waitingOn).toBe("customer");
+  });
+
+  it("holds a result told at night, which the business starts, until the quiet hours end", async () => {
+    const night = new Date("2026-11-04T23:00:00Z");
+    const { send, drain, thread, timer } = await serving(
+      [handsOff(), quiet(), replies("Good news: your refund is on its way."), quiet()],
+      undefined,
+      undefined,
+      night,
+    );
+    await send("I want a refund");
+
+    await drain();
+
+    const held = await thread();
+    expect(held.held).toMatchObject([
+      { text: "Good news: your refund is on its way.", rule: "quietHours" },
+    ]);
+    expect(held.messages.map(({ author }) => author)).toEqual(["customer", "bot"]);
+    timer.advance(9 * 60 * 60 * 1000);
+
+    await drain();
+
+    const sent = await thread();
+    expect(sent.held).toEqual([]);
+    expect(sent.messages.at(-1)).toMatchObject({
+      author: "representative",
+      text: "Good news: your refund is on its way.",
+    });
   });
 
   it("is a source for the reply that tells it, by its Assignment and an exact quote", async () => {

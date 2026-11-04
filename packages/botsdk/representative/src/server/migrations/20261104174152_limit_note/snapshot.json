@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "7512ed99-8607-407f-8e84-25c5853efeb4",
+  "id": "92ac9480-56c2-4d51-ba5f-ff994c6ac910",
   "prevIds": ["2e973103-017a-4598-84c0-8039e3675c7e"],
   "ddl": [
     {
@@ -451,32 +451,6 @@
       "generated": null,
       "identity": null,
       "name": "proven_until",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_customer_identity"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "opted_out_at",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_customer_identity"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "opt_out_source",
       "entityType": "columns",
       "schema": "botsdk",
       "table": "representative_customer_identity"
@@ -2180,6 +2154,32 @@
       "generated": null,
       "identity": null,
       "name": "waiting_since",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_thread"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "limit_noted_at",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_thread"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "left_for_owner_at",
       "entityType": "columns",
       "schema": "botsdk",
       "table": "representative_thread"

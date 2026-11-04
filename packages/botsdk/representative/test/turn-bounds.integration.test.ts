@@ -131,6 +131,7 @@ async function serving(
   await rpc.representative.approve({ id });
   await rpc.representative.setEnabled({ id, enabled: true });
   const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
+  await promoteAutoTopic(id);
   const runNext = async () => {
     timer.advance(1_000);
     const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: true });

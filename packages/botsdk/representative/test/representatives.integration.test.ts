@@ -83,6 +83,7 @@ describe("creating and editing a Representative", () => {
         enabled: false,
         liveReleaseNumber: null,
         caps: { maxInARow: 5, maxPerDay: 20 },
+        quietHours: { startHour: 21, endHour: 8, timeZone: "UTC" },
       },
     ]);
     expect(await (await another(deps)).rpc.representative.list()).toEqual([]);

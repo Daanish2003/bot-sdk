@@ -18,6 +18,8 @@ const id = "0195c6a0-0000-7000-8000-000000000001";
 function fakeServer() {
   let caps = { maxInARow: 5, maxPerDay: 20 };
   const saved: unknown[] = [];
+  const savedQuietHours: unknown[] = [];
+  let quietHours = { startHour: 21, endHour: 8, timeZone: "UTC" };
   const view = () =>
     ({
       id,
@@ -26,6 +28,7 @@ function fakeServer() {
       enabled: false,
       liveReleaseNumber: null,
       caps,
+      quietHours,
       draft: { tools: [], skills: [], documents: [], tests: [] },
       approval: null,
       liveRelease: null,
@@ -45,13 +48,28 @@ function fakeServer() {
           caps = { ...caps, ...input };
           return view();
         }),
+      setQuietHours: os
+        .input(
+          z.object({
+            id: z.string(),
+            startHour: z.number(),
+            endHour: z.number(),
+            timeZone: z.string(),
+          }),
+        )
+        .handler(({ input }) => {
+          savedQuietHours.push(input);
+          const { id: _, ...hours } = input;
+          quietHours = hours;
+          return view();
+        }),
     },
     bots: { list: os.handler(() => []) },
   });
   const fetch = async (request: Request) =>
     (await handler.handle(request, { prefix: "/api/chat/rpc" })).response ??
     new Response(null, { status: 404 });
-  return { fetch, saved };
+  return { fetch, saved, savedQuietHours };
 }
 
 describe("the caps form on the Representative page", () => {
@@ -73,5 +91,33 @@ describe("the caps form on the Representative page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save caps" }));
 
     await waitFor(() => expect(server.saved).toEqual([{ id, maxInARow: 3, maxPerDay: 12 }]));
+  });
+});
+
+describe("the quiet hours form on the Representative page", () => {
+  it("shows the hours and the business time zone, and saving sends what the owner typed", async () => {
+    const server = fakeServer();
+    render(
+      providerFor(createElement(RepresentativePage, { id }), {
+        fetch: server.fetch,
+        features: [representativeClient()],
+        messages: {},
+      }),
+    );
+
+    const start = (await screen.findByLabelText("From hour (0 to 23)")) as HTMLInputElement;
+    const end = screen.getByLabelText("Until hour (0 to 23)") as HTMLInputElement;
+    const zone = screen.getByLabelText("Business time zone") as HTMLInputElement;
+    expect([start.value, end.value, zone.value]).toEqual(["21", "8", "UTC"]);
+    fireEvent.change(start, { target: { value: "22" } });
+    fireEvent.change(end, { target: { value: "7" } });
+    fireEvent.change(zone, { target: { value: "Europe/Paris" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save quiet hours" }));
+
+    await waitFor(() =>
+      expect(server.savedQuietHours).toEqual([
+        { id, startHour: 22, endHour: 7, timeZone: "Europe/Paris" },
+      ]),
+    );
   });
 });

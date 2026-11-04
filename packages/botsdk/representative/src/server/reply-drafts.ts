@@ -296,6 +296,10 @@ async function sendDraft(context: Context, userId: string, id: string, words?: s
             await answeredBatch(tx, threadId, { ...heard, verified }),
           )
         : null;
+    // Their own words are their answer to what a limit left for them (ticket #1309).
+    if (edited && messageId) {
+      await tx.update(thread).set({ leftForOwnerAt: null }).where(eq(thread.id, threadId));
+    }
     await resolve(tx, id, edited ? "edited" : "approved", now, messageId);
     return false;
   });

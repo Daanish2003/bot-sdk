@@ -449,6 +449,7 @@ function ProfileSection({
     language: t("representative.customers.profileLanguage"),
     preferred_channel: t("representative.customers.profilePreferredChannel"),
     address: t("representative.customers.profileAddress"),
+    time_zone: t("representative.customers.profileTimeZone"),
   };
   const rows = [
     ...correctableFixedFields.map((field) => ({ field, name: fixedNames[field] as string })),

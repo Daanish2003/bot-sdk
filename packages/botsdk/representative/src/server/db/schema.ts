@@ -52,6 +52,14 @@ export const representative = botsdkSchema.table(
      */
     maxInARow: integer("max_in_a_row").notNull().default(5),
     maxPerDay: integer("max_per_day").notNull().default(20),
+    /**
+     * Quiet hours (ticket #1303), the owner's to edit and in no Release: the Outbound gate holds what the
+     * business starts from `quietStartHour` to `quietEndHour` (0 to 23, wrapping past midnight) in the
+     * Customer's time zone, or else in `businessTimeZone`, an IANA name.
+     */
+    quietStartHour: integer("quiet_start_hour").notNull().default(21),
+    quietEndHour: integer("quiet_end_hour").notNull().default(8),
+    businessTimeZone: text("business_time_zone").notNull().default("UTC"),
     /** The Release new Turns use. No foreign key: the two tables point at each other. Null until the first approval. */
     liveReleaseId: uuid("live_release_id"),
     draft: jsonb("draft").$type<Draft>().notNull(),
@@ -364,7 +372,9 @@ export type ThreadState = "representative" | "owner" | "closed";
  * `turnId` is the Turn that holds it, queued or running, and also its job's key. `waitingFrom` is the
  * position of the oldest message waiting for a Turn, and `waitingSince` when messages began to wait,
  * by the SDK's clock; both are null when none waits. While the owner holds the thread they mark what
- * a Turn answers after Hand back, unless the owner answers first.
+ * a Turn answers after Hand back, unless the owner answers first. `limitNotedAt` is set while the
+ * thread is at a limit, and says its note has gone (ticket #1309); `leftForOwnerAt` when the owner is
+ * owed an answer no Turn will give, as what waited through a limit grew too old, until they send one.
  */
 export const representativeThread = botsdkSchema.table(
   "representative_thread",
@@ -384,6 +394,8 @@ export const representativeThread = botsdkSchema.table(
     turnFrom: integer("turn_from"),
     waitingFrom: integer("waiting_from"),
     waitingSince: timestamp("waiting_since"),
+    limitNotedAt: timestamp("limit_noted_at"),
+    leftForOwnerAt: timestamp("left_for_owner_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -592,6 +604,7 @@ export const representativeFactProposal = botsdkSchema.table(
 export type OutboundKind =
   | "reply"
   | "code_hand_off"
+  | "limit_note"
   | "owner"
   | "released"
   | "takeover_note"

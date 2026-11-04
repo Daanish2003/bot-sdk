@@ -237,6 +237,59 @@ describe("Pages", () => {
     expect(await client.pages.list()).toEqual([]);
   });
 
+  describe("once a day per cause", () => {
+    const daily = async ({ contextOf, user }: Awaited<ReturnType<typeof ownerWithPages>>) => {
+      const { pages } = contextOf("frontDesk") as FeatureContext<"pages">;
+      return (input: { cause?: string; userId?: string } = {}) =>
+        getTestDb().transaction((tx) =>
+          pages.sendDaily(tx, { userId: user.id, ...alert, ...input }),
+        );
+    };
+
+    it("raises a second Page of that cause only once a day has passed", async () => {
+      const owner = await ownerWithPages();
+      const send = await daily(owner);
+
+      expect(await send()).not.toBeNull();
+      expect(await send()).toBeNull();
+      owner.timer.advance(24 * 60 * minute - 1);
+      expect(await send()).toBeNull();
+      owner.timer.advance(1);
+      expect(await send()).not.toBeNull();
+
+      expect(await owner.client.pages.list()).toHaveLength(2);
+    });
+
+    it("keeps causes apart, and owners", async () => {
+      const owner = await ownerWithPages();
+      const send = await daily(owner);
+      const other = await insertUser();
+
+      expect(await send()).not.toBeNull();
+      expect(await send({ cause: "quota_spent" })).not.toBeNull();
+      expect(await send({ userId: other.id })).not.toBeNull();
+    });
+
+    it("counts one acknowledged, so acknowledging doesn't bring it back the same day", async () => {
+      const owner = await ownerWithPages();
+      const send = await daily(owner);
+
+      const raised = await send();
+      await owner.client.pages.acknowledge({ id: raised!.id });
+
+      expect(await send()).toBeNull();
+    });
+
+    it("raises one of two sent at once", async () => {
+      const owner = await ownerWithPages();
+      const send = await daily(owner);
+
+      const raised = await Promise.all([send(), send(), send()]);
+
+      expect(raised.filter(Boolean)).toHaveLength(1);
+    });
+  });
+
   it("sends nothing at all when acknowledged before its jobs run", async () => {
     const { page, runDue, push, telegram, client } = await ownerWithPages();
 
