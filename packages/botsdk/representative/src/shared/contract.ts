@@ -402,6 +402,42 @@ export type ThreadView = ThreadSummary & {
 /** The longest one thread message may be, whoever wrote it. */
 export const maxThreadMessageLength = 60_000;
 
+export const maxFactTopicLength = 100;
+
+/** One of the owner's topics: `auto` replies on it go out by themselves, and all start at `draft`. */
+export type TopicView = {
+  id: string;
+  name: string;
+  mode: "draft" | "auto";
+  createdAt: Date;
+};
+
+export const topicAddInput = z.object({
+  name: storable(z.string().trim().min(1).max(maxFactTopicLength)),
+});
+
+/** A Representative's reply waiting for the owner, which the Customer hasn't seen. */
+export type ReplyDraftView = {
+  id: string;
+  threadId: string;
+  representativeId: string;
+  customerName: string | null;
+  /** Where it goes if the owner sends it. */
+  to: { channel: string; externalId: string };
+  /** Whether the Turn it belongs to was for a verified sender. */
+  verified: boolean;
+  text: string;
+  /** The topic the Representative labelled it with, which may not be one of the owner's; null with none. */
+  topic: string | null;
+  reply: ReplyProof;
+  createdAt: Date;
+};
+
+export const replyDraftEditInput = z.object({
+  id: z.uuid(),
+  text: storable(z.string().trim().min(1).max(maxThreadMessageLength)),
+});
+
 export const threadSendInput = z.object({
   id: z.uuid(),
   text: storable(z.string().trim().min(1).max(maxThreadMessageLength)),
@@ -493,7 +529,6 @@ export type FactProposalView = {
   expiresAt: Date;
 };
 
-export const maxFactTopicLength = 100;
 const factFields = {
   type: z.enum(factTypes),
   topic: storable(z.string().trim().min(1).max(maxFactTopicLength)),
@@ -706,6 +741,20 @@ export const representativeContract = {
   threadHandBack: oc.input(idInput).output(type<ThreadView>()),
   /** The owner's own message to the Customer, on a thread they hold. */
   threadSend: oc.input(threadSendInput).output(type<ThreadView>()),
+  /** The owner's topics, oldest first. They are shared by every Representative. */
+  topicList: oc.output(type<TopicView[]>()),
+  /** Adds a topic, at `draft`. Refused when the owner has that name already, ignoring case. */
+  topicAdd: oc.input(topicAddInput).output(type<TopicView>()),
+  /** Removes a topic: a reply labelled with it waits for the owner, as for any unknown topic. */
+  topicRemove: oc.input(idInput).output(type<void>()),
+  /** The Representatives' replies waiting for the owner, on threads they don't hold, oldest first. */
+  replyDraftList: oc.output(type<ReplyDraftView[]>()),
+  /** Sends a Reply draft through the Outbound gate. Refused, and still waiting, when the gate drops it. */
+  replyDraftApprove: oc.input(idInput).output(type<void>()),
+  /** Sends the owner's edit of a Reply draft through the Outbound gate, recording that it was edited. */
+  replyDraftEdit: oc.input(replyDraftEditInput).output(type<void>()),
+  /** Rejects a Reply draft: nothing is sent. */
+  replyDraftReject: oc.input(idInput).output(type<void>()),
   /** Sends a message the gate held, as the owner's own, if the gate still passes it. Logged. */
   threadHeldSend: oc.input(idInput).output(type<ThreadView>()),
   /** Drops a message the gate held, which the Customer never gets. Logged. */

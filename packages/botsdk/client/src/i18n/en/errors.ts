@@ -40,6 +40,12 @@ export const errorMessages = {
   "error.factNotFound": "Fact not found",
   "error.factKeyTaken": "You already have a fact with that key.",
   "error.gapNotFound": "Gap not found",
+  "error.replyDraftNotFound": "Draft not found",
+  "error.replyDraftGone": "This draft is no longer waiting",
+  "error.replyDraftNotSent":
+    "This draft can't be sent now: the thread may be held or closed, the Customer blocked, or the Representative switched off",
+  "error.topicExists": "You already have this topic",
+  "error.topicNotFound": "Topic not found",
   "error.factProposalGone": "That proposal is no longer waiting.",
   "error.customerMergeSame": "A Customer can't merge into itself.",
   "error.customerMergeBlocked": "Unblock this Customer before merging.",

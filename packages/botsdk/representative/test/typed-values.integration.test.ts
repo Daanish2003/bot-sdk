@@ -28,7 +28,7 @@ type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 const quiet = () => round();
 const says = (text: string, kind: string, sources: object[] = []) =>
-  round(toolCall({ name: "reply", input: { text, kind, sources } }));
+  round(toolCall({ name: "reply", input: { topic: "general", text, kind, sources } }));
 
 const price = { key: "price.haircut", type: "money", topic: "Prices", value: "45 USD" } as const;
 

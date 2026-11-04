@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, gte, inArray, min, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, isNotNull, min, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { batchLongestMs, batchQuietMs } from "@botsdk/bot/bot/triggers";
@@ -7,13 +7,20 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { job } from "@botsdk/bot/storage";
 import { maxThreadMessageLength, noNul } from "../shared/contract";
-import { receiveMessage, threadPromptChars, threadPromptLimit } from "./customers";
 import {
+  holdThreadCustomer,
+  receiveMessage,
+  threadPromptChars,
+  threadPromptLimit,
+} from "./customers";
+import {
+  representative,
   representativeCustomer,
   representativeThread,
   representativeThreadMessage,
 } from "./db/schema";
 import { queueIdleCheck } from "./idle";
+import { waitingAfterAbort } from "./takeover";
 import { channelProof } from "./verification";
 
 /*
@@ -288,4 +295,57 @@ export async function endTurn(
     .update(representativeThread)
     .set({ turnId: null })
     .where(eq(representativeThread.id, threadId));
+}
+
+/** The owner of the thread, or null once it has gone. */
+export async function threadOwner(tx: Transaction, threadId: string) {
+  const [row] = await tx
+    .select({ userId: representative.userId })
+    .from(representativeThread)
+    .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
+    .where(eq(representativeThread.id, threadId));
+  return row?.userId ?? null;
+}
+
+/**
+ * Lets Turn `turnId` go without running, because its owner is Banned (ticket #1299): the thread holds
+ * no Turn, and what waited on it stays marked as waiting, for the next Customer message after the
+ * Ban. Nothing starts a Turn meanwhile, which `endTurn` would.
+ */
+export async function dropBannedTurn(tx: Transaction, threadId: string, turnId: string) {
+  await tx
+    .update(representativeThread)
+    .set({ turnId: null })
+    .where(and(eq(representativeThread.id, threadId), eq(representativeThread.turnId, turnId)));
+}
+
+/**
+ * A Ban on `userId`: every Turn on their threads is cancelled, a running one too, and the threads
+ * hold none. What a begun Turn hadn't answered goes back to waiting, as when the owner takes a
+ * thread over. One thread to a transaction, its Customer's row first, the order a merge and a delete
+ * take them in.
+ */
+export async function stopUserTurns(
+  { db, clock, jobs }: Pick<Services, "db" | "clock" | "jobs">,
+  userId: string,
+) {
+  const thread = representativeThread;
+  const held = await db
+    .select({ id: thread.id })
+    .from(thread)
+    .innerJoin(representative, eq(representative.id, thread.representativeId))
+    .where(and(eq(representative.userId, userId), isNotNull(thread.turnId)))
+    .orderBy(thread.id);
+  for (const { id } of held) {
+    await db.transaction(async (tx) => {
+      await holdThreadCustomer(tx, id);
+      const [now] = await tx.select().from(thread).where(eq(thread.id, id)).for("update");
+      if (!now?.turnId) return;
+      await jobs.cancelIn(tx, now.turnId);
+      await tx
+        .update(thread)
+        .set({ turnId: null, ...waitingAfterAbort(now, clock()) })
+        .where(eq(thread.id, id));
+    });
+  }
 }

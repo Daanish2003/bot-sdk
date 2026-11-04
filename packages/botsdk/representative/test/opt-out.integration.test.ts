@@ -14,6 +14,7 @@ import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter
 import { fakeMessagingAdapter } from "@botsdk/testing/fake-channel";
 import type { CustomerChannel } from "../src/server/customer-proof";
 import { storeReply } from "../src/server/customers";
+import { holdingNote } from "../src/server/reply-drafts";
 import { representativeOutboundDecision } from "../src/server/db/schema";
 import { representativeFeature } from "../src/server/plugin";
 
@@ -36,6 +37,9 @@ type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 const quiet = () => round();
 const replies = (text: string) =>
+  round(toolCall({ name: "reply", input: { topic: "general", text, kind: "small_talk" } }));
+/** A reply with no topic: the gate holds it as a draft for the owner. */
+const drafts = (text: string) =>
   round(toolCall({ name: "reply", input: { text, kind: "small_talk" } }));
 
 const runners: JobRunner[] = [];
@@ -132,8 +136,13 @@ async function instance(rounds: Round[], tools: string[] = ["reply"]) {
         storeReply(
           feature.context,
           tx,
-          { threadId: thread, heard: { channel: "fake", externalId: number }, verified: false },
-          { text, sources: [] },
+          {
+            threadId: thread,
+            upTo: 1,
+            heard: { channel: "fake", externalId: number },
+            verified: false,
+          },
+          { text, sources: [], topic: "general" },
           "small_talk",
           new Date(),
         ),
@@ -226,6 +235,32 @@ describe("a Customer's STOP", () => {
     expect(await identity(world)).toMatchObject({ optedOut: { source: "keyword" } });
     expect(world.got()).toEqual([]);
     expect((await world.decisions()).map(({ rule }) => rule)).toEqual(["blocked"]);
+  });
+});
+
+describe("a draft waiting for a Customer who opts out", () => {
+  it("is replaced by their STOP, so nothing is left that could send", async () => {
+    const world = await instance([drafts("Our hours are nine to five."), quiet()]);
+    await world.hears("When do you open?");
+    expect(await world.rpc.representative.replyDraftList()).toHaveLength(1);
+
+    await world.hears("STOP");
+
+    expect(await world.rpc.representative.replyDraftList()).toEqual([]);
+    await expect.poll(world.got, poll).toEqual([holdingNote, confirmation]);
+  });
+
+  it("is replaced by a Representative's flag too", async () => {
+    const world = await instance([
+      drafts("Our hours are nine to five."),
+      round(toolCall({ name: "flag_opt_out", input: {} })),
+      quiet(),
+    ]);
+
+    await world.hears("When do you open? And stop texting me.");
+
+    expect(await world.rpc.representative.replyDraftList()).toEqual([]);
+    await expect.poll(world.got, poll).toEqual([holdingNote, confirmation]);
   });
 });
 

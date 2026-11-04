@@ -596,7 +596,9 @@ export type OutboundKind =
   | "released"
   | "takeover_note"
   | "proof"
-  | "opt_out_confirmation";
+  | "opt_out_confirmation"
+  | "holding_note"
+  | "reply_draft";
 
 export type GateOutcome = "send" | "hold" | "drop";
 
@@ -633,7 +635,19 @@ export const representativeOutboundDecision = botsdkSchema.table(
   ],
 );
 
-/** A message the gate held: stored, not sent, and not in the thread until something sends it (ticket #1298). */
+/** The gate rule that holds a Reply draft, which the owner answers apart from any other held message. */
+export const draftRule = "topic";
+
+/**
+ * What became of a held message: the owner approved it, sent it with their edit or rejected it, a
+ * newer word on the thread replaced it, or the Turn that wrote it was rolled back. Null while it waits.
+ */
+export type HeldResolution = "approved" | "edited" | "rejected" | "replaced" | "cancelled";
+
+/**
+ * A message the gate held: stored, not sent, and not in the thread until something sends it (ticket
+ * #1298). One held by the `topic` rule is a Reply draft (ticket #1306).
+ */
 export const representativeHeldMessage = botsdkSchema.table(
   "representative_held_message",
   {
@@ -648,10 +662,37 @@ export const representativeHeldMessage = botsdkSchema.table(
     verified: boolean("verified").notNull(),
     replyKind: text("reply_kind").$type<StoredReplyKind>(),
     sources: jsonb("sources").$type<ReplySource[]>(),
+    /** The topic its reply was labelled with, as the Model wrote it; null with no label. */
+    topic: text("topic"),
+    resolution: text("resolution").$type<HeldResolution>(),
+    resolvedAt: timestamp("resolved_at"),
+    /** The thread message that sent it, which holds any edit; this row keeps what was first written. */
+    messageId: uuid("message_id").references((): AnyPgColumn => representativeThreadMessage.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at").notNull(),
   },
   (table) => [
     index("representative_held_message_thread_idx").on(table.threadId),
     index("representative_held_message_decision_idx").on(table.decisionId),
   ],
+);
+
+/** Whether a reply on a topic waits for the owner or goes out by itself. */
+export type TopicMode = "draft" | "auto";
+
+/**
+ * One of the owner's topics (ticket #1306), which a Representative labels each reply with. All start
+ * at `draft`, and a name the owner doesn't have counts as one. Shared by all their Representatives.
+ */
+export const representativeTopic = botsdkSchema.table(
+  "representative_topic",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    name: text("name").notNull(),
+    mode: text("mode").$type<TopicMode>().notNull().default("draft"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("representative_topic_name").on(table.userId, sql`lower(${table.name})`)],
 );

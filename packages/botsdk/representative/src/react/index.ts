@@ -329,6 +329,47 @@ export function useHandBackThread(
   return useMutation(useRepresentative().threadHandBack.mutationOptions(options));
 }
 
+/** The owner's topics (`representative.topicList`). */
+export function useTopics() {
+  return useQuery(useRepresentative().topicList.queryOptions());
+}
+
+/** Adds a topic (`representative.topicAdd`). */
+export function useAddTopic(options?: ProcedureMutationOptions<Representative["topicAdd"]>) {
+  return useMutation(useRepresentative().topicAdd.mutationOptions(options));
+}
+
+/** Removes a topic (`representative.topicRemove`). */
+export function useRemoveTopic(options?: ProcedureMutationOptions<Representative["topicRemove"]>) {
+  return useMutation(useRepresentative().topicRemove.mutationOptions(options));
+}
+
+/** The replies waiting for the owner (`representative.replyDraftList`). */
+export function useReplyDrafts() {
+  return useQuery(useRepresentative().replyDraftList.queryOptions());
+}
+
+/** Sends a Reply draft (`representative.replyDraftApprove`). */
+export function useApproveReplyDraft(
+  options?: ProcedureMutationOptions<Representative["replyDraftApprove"]>,
+) {
+  return useMutation(useRepresentative().replyDraftApprove.mutationOptions(options));
+}
+
+/** Sends the owner's edit of a Reply draft (`representative.replyDraftEdit`). */
+export function useEditReplyDraft(
+  options?: ProcedureMutationOptions<Representative["replyDraftEdit"]>,
+) {
+  return useMutation(useRepresentative().replyDraftEdit.mutationOptions(options));
+}
+
+/** Rejects a Reply draft (`representative.replyDraftReject`). */
+export function useRejectReplyDraft(
+  options?: ProcedureMutationOptions<Representative["replyDraftReject"]>,
+) {
+  return useMutation(useRepresentative().replyDraftReject.mutationOptions(options));
+}
+
 /** The owner's own message on a thread they hold (`representative.threadSend`). */
 export function useSendThreadMessage(
   options?: ProcedureMutationOptions<Representative["threadSend"]>,

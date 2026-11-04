@@ -1,6 +1,7 @@
 import { screensPath, screenViewPath } from "@botsdk/client/bot/helper";
 
 import { deleteBlobsBestEffort } from "../storage";
+import { enabledFeatures } from "../feature";
 import type { BotSdkPlugin, Route } from "../plugin";
 
 import {
@@ -122,6 +123,12 @@ export function bot({ reviewModel, neverAllowed = [] }: BotOptions = {}): BotPlu
         stopTurns: async ({ userId }) => {
           // The Turns first, so none starts a Helper after its Helpers are stopped.
           await stopUserTurns(sdk, userId);
+          // One feature failing leaves the Helpers and Demonstrations stopped, and is logged.
+          for (const { feature, context } of enabledFeatures(sdk)) {
+            await feature.stopTurns?.(userId, context).catch((caught: unknown) => {
+              sdk.logger.error(`Feature ${feature.id} didn't stop a Banned user's Turns`, caught);
+            });
+          }
           await stopUserHelpers(sdk, userId);
           await stopUserDemonstrations(sdk, userId);
         },

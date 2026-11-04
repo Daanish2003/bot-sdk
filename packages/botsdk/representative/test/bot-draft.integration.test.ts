@@ -280,7 +280,12 @@ describe("the draft tool", () => {
       ],
       {
         customerRounds: [
-          round(toolCall({ name: "reply", input: { text: "At nine.", kind: "small_talk" } })),
+          round(
+            toolCall({
+              name: "reply",
+              input: { topic: "general", text: "At nine.", kind: "small_talk" },
+            }),
+          ),
         ],
       },
     );
@@ -584,7 +589,12 @@ describe("the draft tool", () => {
       ],
       {
         customerRounds: [
-          round(toolCall({ name: "reply", input: { text: "At ten.", kind: "small_talk" } })),
+          round(
+            toolCall({
+              name: "reply",
+              input: { topic: "general", text: "At ten.", kind: "small_talk" },
+            }),
+          ),
           quiet(),
         ],
       },
@@ -776,7 +786,10 @@ describe("the release Approval", () => {
       {
         customerRounds: [
           round(
-            toolCall({ name: "reply", input: { text: "We open at nine.", kind: "small_talk" } }),
+            toolCall({
+              name: "reply",
+              input: { topic: "general", text: "We open at nine.", kind: "small_talk" },
+            }),
           ),
           quiet(),
         ],

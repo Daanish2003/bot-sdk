@@ -1,15 +1,11 @@
-import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull } from "drizzle-orm";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
-import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import type { OptOutSource } from "../shared/contract";
-import {
-  representativeCustomerIdentity,
-  representativeThread,
-  representativeThreadMessage,
-} from "./db/schema";
-import { deliverMessage, type GateRefusal, passGate } from "./outbound-gate";
+import { representativeCustomerIdentity, representativeThread } from "./db/schema";
+import { type GateRefusal, passGate, storeAndDeliver } from "./outbound-gate";
+import { replaceHeld } from "./reply-drafts";
 
 /*
  * A Customer opts out and comes back (ticket #1302). An opt-out belongs to an identity, with how it
@@ -125,6 +121,8 @@ export async function optOut(
   },
 ) {
   if (!(await markOptedOut(tx, userId, heard, source, now))) return false;
+  // Nothing waiting for this sender can go any more, a draft the owner could approve included.
+  await replaceHeld(tx, threadId, now, { ...heard, verified });
   // Nothing waiting on this thread gets a Turn: its reply could not be sent.
   await tx
     .update(representativeThread)
@@ -140,24 +138,12 @@ export async function optOut(
     content: { text: optOutConfirmation, verified },
   });
   if (decision?.outcome !== "send") return true;
-  const [updated] = await tx
-    .update(representativeThread)
-    .set({
-      messageCount: sql`${representativeThread.messageCount} + 1`,
-      updatedAt: sql`greatest(${representativeThread.updatedAt}, ${now.toISOString()}::timestamp)`,
-    })
-    .where(eq(representativeThread.id, threadId))
-    .returning({ position: representativeThread.messageCount });
-  const messageId = uuidv7();
-  await tx.insert(representativeThreadMessage).values({
-    id: messageId,
-    threadId,
-    position: updated!.position,
-    author: "note",
-    text: optOutConfirmation,
-    verified,
-    ...heard,
-  });
-  await deliverMessage(services, tx, decision.id, messageId);
+  await storeAndDeliver(
+    services,
+    tx,
+    decision.id,
+    { threadId, author: "note", text: optOutConfirmation, verified, ...heard },
+    now,
+  );
   return true;
 }
