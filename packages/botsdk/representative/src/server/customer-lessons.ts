@@ -67,6 +67,8 @@ const phoneShape = /(?:\+?\d[\s().-]*){7,}/;
 const isoDate =
   /(?<![\d+][\s().-]*)(?:19|20)\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])(?![\s().-]*\d)/g;
 
+const digitsOf = (value: string) => value.replace(/\D/g, "");
+
 const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Whether `value` stands in `text` as a whole word or phrase, whatever its case. */
@@ -75,20 +77,16 @@ const mentions = (text: string, value: string) =>
 
 /**
  * Whether a lesson names or could reach a Customer: a phone or email shape, or a value `known` of
- * theirs. A date is no phone number, and nor is a `money` value, which its type holds to an amount and
- * a currency.
+ * theirs. A date is no phone number. Nor is a `money` value, which its type holds to an amount and a
+ * currency, unless its digits are a number of theirs.
  */
 export function identifiesCustomer(lesson: Lesson, known: string[]) {
-  const text = [lesson.key, lesson.topic, lesson.value, lesson.why].join("\n");
-  const dialable = [
-    lesson.key,
-    lesson.topic,
-    lesson.type === "money" ? "" : lesson.value,
-    lesson.why,
-  ]
-    .join("\n")
-    .replace(isoDate, "");
+  const around = [lesson.key, lesson.topic, lesson.why].join("\n");
+  const text = `${around}\n${lesson.value}`;
+  const dialable = (lesson.type === "money" ? around : text).replace(isoDate, "");
   if (emailShape.test(text) || phoneShape.test(dialable)) return true;
+  const amount = lesson.type === "money" ? digitsOf(lesson.value) : "";
+  if (amount.length >= 7 && known.some((value) => digitsOf(value).includes(amount))) return true;
   return known.some((value) => value.trim() !== "" && mentions(text, value.trim()));
 }
 

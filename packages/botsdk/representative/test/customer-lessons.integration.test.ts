@@ -213,6 +213,7 @@ describe("a lesson from a closed thread", () => {
     ["text", "Ring +1 2026-11-04 to book."],
     ["text", "Ring 2026-11-04 55 to book."],
     ["phone", "+15550100"],
+    ["money", "15550001 USD"],
   ])("is still refused as a phone number: a %s of %s", async (type, value) => {
     const { rpc, closeThread } = await instance(
       replying(JSON.stringify({ ...lesson, type, value })),
