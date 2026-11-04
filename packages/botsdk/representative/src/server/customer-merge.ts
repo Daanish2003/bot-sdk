@@ -19,6 +19,7 @@ import {
 import { queueIdleCheck } from "./idle";
 import { customerNotFound, readCustomer } from "./owner-customers";
 import { holdThread, releaseThread } from "./takeover";
+import { afterThreadClose } from "./customer-summary";
 
 /*
  * Two Customers become one only by proof or by the owner (ticket #1257), and each merge is recorded
@@ -65,7 +66,10 @@ export async function holdCustomers(tx: Transaction, ids: string[]) {
   return held;
 }
 
-/** Ends a thread's Turn and closes it. What waited in it stays in it, for the owner to read. */
+/**
+ * Ends a thread's Turn and closes it. What waited in it stays in it, for the owner to read. Queueing
+ * its summary is the caller's: a thread closed for holding two people's words has none.
+ */
 async function closeThread(
   { jobs }: Services,
   tx: Transaction,
@@ -133,6 +137,8 @@ export async function absorbCustomer(
     const match = surviving.find((each) => each.representativeId === open.representativeId);
     if (!match) continue;
     await closeThread(services, tx, open);
+    // One the owner held gets no summary: undoing this reopens it, held, with its words still to come.
+    if (open.state !== "owner") await afterThreadClose(services, tx, open.id);
     if (open.state === "owner") {
       const caused = match.state === "representative";
       if (caused) await holdThread(services, tx, match.id, { ...match, blockedAt: null });
@@ -201,7 +207,8 @@ type Addresses = Awaited<ReturnType<typeof addressesOf>>;
  * merge, the other person's, even if the owner has corrected it since. Going on would read them into
  * this one's prompt, and could send to the wrong person. The owner's hold outlives a thread closed
  * this way, on a new empty one, unless the merge alone made it (`mergeHeld`): the next message waits
- * for them as it would have.
+ * for them as it would have. It gets no summary: that would put the other person's words in this
+ * one's memory.
  */
 async function closeMixedThreads(
   services: Services,

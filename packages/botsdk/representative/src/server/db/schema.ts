@@ -16,6 +16,7 @@ import { bot, botAssignment, botsdkSchema } from "@botsdk/bot/storage";
 import type { ChannelProofRule } from "../verification";
 import type { ReplySource, StoredReplyKind } from "../../shared/replies";
 import type {
+  CustomerSummarySkip,
   Draft,
   FactType,
   PendingApproval,
@@ -332,6 +333,30 @@ export const representativeThread = botsdkSchema.table(
  * over, and a `bot` message is what the Bot finished a hand-off with, for the Customer (ticket #1254).
  */
 export type ThreadAuthor = "customer" | "representative" | "owner" | "note" | "bot";
+
+/**
+ * What the pass wrote when a Customer thread closed (ticket #1279): one row per thread, its summary
+ * or why there is none. It finds its Customer through its thread, so it follows a merge.
+ */
+export const representativeCustomerSummary = botsdkSchema.table(
+  "representative_customer_summary",
+  {
+    /** uuidv7, generated in app code. */
+    id: uuid("id").primaryKey(),
+    threadId: uuid("thread_id")
+      .notNull()
+      .unique("representative_customer_summary_thread")
+      .references((): AnyPgColumn => representativeThread.id, { onDelete: "cascade" }),
+    /** The Host's user id, with no foreign key, as everywhere in the `botsdk` schema. */
+    userId: text("user_id").notNull(),
+    /** Null when the pass was skipped. */
+    text: text("text"),
+    /** Why the pass wrote nothing; null on a summary. */
+    skipped: text("skipped").$type<CustomerSummarySkip>(),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (table) => [index("representative_customer_summary_user_idx").on(table.userId)],
+);
 
 /**
  * One message in a Customer thread: the feature's own row, not a core Message. `channel` and

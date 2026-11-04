@@ -89,7 +89,7 @@ function ThreadActions({ thread }: { thread: ThreadSummary }) {
 }
 
 /** One thread's transcript, oldest first, each message under who wrote it and where it went. */
-function Transcript({ id }: { id: string }) {
+export function Transcript({ id }: { id: string }) {
   const { t, locale } = useI18n();
   const thread = useThread(id);
   if (!thread.data) return null;

@@ -286,6 +286,21 @@ export type CustomerMergeView = {
   undoneAt: Date | null;
 };
 
+/** Why a closed thread has no summary: its Release names no Model, the Model can't run, it replied with nothing, or every try failed. */
+export type CustomerSummarySkip = "no_model" | "model_unavailable" | "empty_reply" | "model_failed";
+
+/** What the pass wrote for one of a Customer's closed threads. */
+export type CustomerSummaryView = {
+  id: string;
+  /** The thread it came from, whose transcript `threadGet` reads. */
+  threadId: string;
+  representative: { id: string; name: string };
+  /** Null when the pass was skipped. */
+  text: string | null;
+  skipped: CustomerSummarySkip | null;
+  createdAt: Date;
+};
+
 /** Who holds a Customer thread: its Representative, the owner who took it over, or no one once closed. */
 export type ThreadHolder = "representative" | "owner" | "closed";
 
@@ -558,6 +573,8 @@ export const representativeContract = {
    * Representative. Refused while either is blocked. It verifies nobody, and can be undone.
    */
   customerMerge: oc.input(customerMergeInput).output(type<CustomerView>()),
+  /** What the pass wrote for a Customer's closed threads, newest first, skips too. */
+  customerSummaryList: oc.input(idInput).output(type<CustomerSummaryView[]>()),
   /** The owner's merges of Customers, newest first, undone ones too. */
   customerMergeList: oc.output(type<CustomerMergeView[]>()),
   /** Undoes a merge: each identity goes back to its original Customer, and a closed thread stays closed. */

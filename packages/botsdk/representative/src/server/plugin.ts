@@ -18,6 +18,7 @@ import {
   representativeTestResult,
   representativeThread,
   representativeThreadMessage,
+  representativeCustomerSummary,
   representativeVerification,
 } from "./db/schema";
 import { threadIdleJob } from "./idle";
@@ -35,6 +36,7 @@ import {
 } from "./representatives";
 import type { ConvertDocument, KnowledgeFiles } from "./documents";
 import { representativeTestJob } from "./tests";
+import { exportCustomerSummaries, customerSummaryJob } from "./customer-summary";
 import { handOffEndedJob, representativeTurnJob } from "./turn";
 
 export type RepresentativeOptions = {
@@ -95,6 +97,7 @@ export function representativeFeature(
         representativeTestResult,
         representativeThread,
         representativeThreadMessage,
+        representativeCustomerSummary,
         representativeVerification,
       },
       migrations: representativeMigrations,
@@ -115,6 +118,7 @@ export function representativeFeature(
       handOffEndedJob,
       representativeTestJob,
       threadIdleJob,
+      customerSummaryJob,
     ],
     userData: {
       delete: {
@@ -131,6 +135,7 @@ export function representativeFeature(
         representatives: await exportRepresentatives(tx, userId),
         customers: await exportCustomers(tx, userId),
         customerMerges: await exportMerges(tx, userId),
+        customerSummaries: await exportCustomerSummaries(tx, userId),
         ...(await exportFacts(tx, userId)),
         ...(await exportGaps(tx, userId)),
       }),

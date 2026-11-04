@@ -15,6 +15,8 @@ export function representativeClient(): RepresentativeFeatureClient {
 export {
   type CustomerIdentityView,
   type CustomerMergeView,
+  type CustomerSummarySkip,
+  type CustomerSummaryView,
   type CustomerView,
   type DocumentRef,
   type DocumentSnapshot,

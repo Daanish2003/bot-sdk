@@ -203,6 +203,13 @@ export const representativeMessages = {
   "representative.customers.mergeChoose": "Choose a Customer",
   "representative.customers.merge": "Merge",
   "representative.customers.mergeOf": ({ name }: { name: string }) => `Merge ${name}`,
+  "representative.customers.summaries": "Summaries of closed threads",
+  "representative.customers.summarySkipped.no_model":
+    "No summary: this Representative's Release names no Model.",
+  "representative.customers.summarySkipped.model_unavailable":
+    "No summary: the Model couldn't run when this thread closed.",
+  "representative.customers.summarySkipped.empty_reply": "No summary: the Model wrote nothing.",
+  "representative.customers.summarySkipped.model_failed": "No summary: the Model's calls failed.",
   "representative.customers.merges": "Merges",
   "representative.customers.mergeRow": ({ from, into }: { from: string; into: string }) =>
     `${from} into ${into}`,

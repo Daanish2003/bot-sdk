@@ -82,5 +82,9 @@
   {
     "name": "20261102190646_curly_steve_rogers",
     "sql": "ALTER TYPE \"botsdk\".\"usage_kind\" ADD VALUE 'representative';"
+  },
+  {
+    "name": "20261104053029_customer_memory_usage",
+    "sql": "ALTER TYPE \"botsdk\".\"usage_kind\" ADD VALUE 'customer_memory';"
   }
 ]

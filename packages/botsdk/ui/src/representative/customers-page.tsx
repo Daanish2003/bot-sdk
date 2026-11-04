@@ -10,6 +10,7 @@ import {
   useAddCustomerIdentity,
   useCreateCustomer,
   useCustomerMerges,
+  useCustomerSummaries,
   useCustomers,
   useMergeCustomer,
   useRefreshRepresentatives,
@@ -18,7 +19,13 @@ import {
   useUndoCustomerMerge,
   useUpdateCustomerIdentity,
 } from "@botsdk/representative/react";
-import type { CustomerMergeView, CustomerView } from "@botsdk/representative/client";
+import type {
+  CustomerMergeView,
+  CustomerSummaryView,
+  CustomerView,
+} from "@botsdk/representative/client";
+
+import { Transcript } from "./representative-threads";
 
 type Identity = { channel: string; externalId: string };
 
@@ -165,6 +172,59 @@ function MergeRow({ merge }: { merge: CustomerMergeView }) {
   );
 }
 
+/** One closed thread's summary, or why it has none, and its transcript on request. */
+function SummaryRow({ summary }: { summary: CustomerSummaryView }) {
+  const { t, locale } = useI18n();
+  const [open, setOpen] = useState(false);
+  const toggle = t(open ? "representative.threadClose" : "representative.threadOpen");
+  const when = new Date(summary.createdAt).toLocaleString(locale);
+  return (
+    <li data-summary={summary.id} className="rounded-md border">
+      <div className="space-y-1 p-3 text-sm">
+        <p className="text-xs text-muted-foreground">
+          {summary.representative.name} · {when}
+        </p>
+        {summary.text !== null ? (
+          <p className="whitespace-pre-wrap break-words">{summary.text}</p>
+        ) : (
+          <p className="text-muted-foreground">
+            {t(`representative.customers.summarySkipped.${summary.skipped!}`)}
+          </p>
+        )}
+        <Button
+          variant="outline"
+          size="sm"
+          aria-expanded={open}
+          aria-label={`${toggle} ${when}`}
+          onClick={() => setOpen(!open)}
+        >
+          {toggle}
+        </Button>
+      </div>
+      {open && <Transcript id={summary.threadId} />}
+    </li>
+  );
+}
+
+/** What the pass wrote for this Customer's closed threads, the newest first. */
+function CustomerSummaries({ id }: { id: string }) {
+  const { t } = useI18n();
+  const summaries = useCustomerSummaries(id);
+  if (!summaries.data?.length) return null;
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-medium text-muted-foreground">
+        {t("representative.customers.summaries")}
+      </h3>
+      <ul className="space-y-2">
+        {summaries.data.map((summary) => (
+          <SummaryRow key={summary.id} summary={summary} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function CustomerCard({ customer, others }: { customer: CustomerView; others: CustomerView[] }) {
   const i18n = useI18n();
   const { t } = i18n;
@@ -257,6 +317,7 @@ function CustomerCard({ customer, others }: { customer: CustomerView; others: Cu
           onSubmit={(value) => add.mutate({ id: customer.id, ...value })}
         />
       </div>
+      <CustomerSummaries id={customer.id} />
       {others.length > 0 && <MergeInto customer={customer} label={label} others={others} />}
     </li>
   );

@@ -42,6 +42,8 @@ import {
   representativeGap,
   representativeFactProposal,
   representativeRelease,
+  representativeThread,
+  representativeCustomerSummary,
 } from "@botsdk/representative/server/db/schema";
 import { profilePath } from "@botsdk/memory/server/bot-memory";
 import { memorySettings } from "@botsdk/memory/server/schema";
@@ -80,6 +82,7 @@ const userTables = [
   representativeFactLog,
   representativeGap,
   representativeFactProposal,
+  representativeCustomerSummary,
 ].flatMap((value) => {
   if (!is(value, PgTable)) return [];
   const { name, columns } = getTableConfig(value);
@@ -317,6 +320,23 @@ async function seedEverything(
         tests: [],
       },
     });
+  // A closed thread of the Customer's, and its summary.
+  const threadId = uuidv7();
+  await getTestDb().insert(representativeThread).values({
+    id: threadId,
+    customerId,
+    representativeId,
+    state: "closed",
+    lastChannel: "fake",
+    lastExternalId: "+1",
+  });
+  await getTestDb().insert(representativeCustomerSummary).values({
+    id: uuidv7(),
+    threadId,
+    userId: user.id,
+    text: "Asked about prices.",
+    createdAt: factAt,
+  });
   await getTestDb()
     .insert(modelSettings)
     .values({ userId: user.id, imageModel: "openai:gpt-image-2" });

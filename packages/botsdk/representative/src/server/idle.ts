@@ -8,6 +8,7 @@ import { codeHandOffKind, type StoredReplyKind } from "../shared/replies";
 import { pruneProofs } from "./customer-proof";
 import { lastMessageQuery } from "./last-message";
 import { representativeThread, representativeThreadMessage } from "./db/schema";
+import { afterThreadClose } from "./customer-summary";
 
 /*
  * A thread its Representative holds closes after 7 idle days (ticket #1252); one the owner holds
@@ -56,7 +57,10 @@ export const threadIdleJob = defineJob<ThreadIdlePayload>({
           ),
         )
         .returning({ id: representativeThread.id });
-      if (closing.length > 0) return true;
+      if (closing.length > 0) {
+        await afterThreadClose(job, tx, threadId);
+        return true;
+      }
       const [thread] = await tx
         .select({
           state: representativeThread.state,

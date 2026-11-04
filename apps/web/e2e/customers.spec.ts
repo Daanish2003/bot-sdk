@@ -44,6 +44,7 @@ async function seedThread(
   } finally {
     await db.$client.end();
   }
+  return threadId;
 }
 
 test("an owner adds a Customer, edits identities, and blocks and unblocks one", async ({
@@ -122,6 +123,44 @@ test("an owner merges two Customers and undoes the merge", async ({ page }) => {
   await expect(page.getByLabel("Identity of Ada", { exact: true })).toHaveValue("+15550001");
   await expect(page.locator("[data-merge]")).toContainText("Undone");
   await expect(page.getByRole("button", { name: "Undo merging Bob into Ada" })).toHaveCount(0);
+});
+
+test("an owner reads a closed thread's summary and follows it to the transcript", async ({
+  page,
+}) => {
+  const owner = await signInAsSeededUser(page);
+  await page.goto("/representatives");
+  await page.getByLabel("Name").fill("Reception");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(page).toHaveURL(/\/representatives\/[\w-]+$/);
+  const representativeId = page.url().split("/").pop()!;
+
+  const threadId = await seedThread(owner.id, representativeId, {
+    name: "Lin",
+    blocked: false,
+    messages: [["customer", "When do you open?"]],
+  });
+  const db = createDb({ DATABASE_URL: e2eDatabaseUrl() });
+  try {
+    await db.$client.query(
+      "update botsdk.representative_thread set state = 'closed' where id = $1",
+      [threadId],
+    );
+    await db.$client.query(
+      "insert into botsdk.representative_customer_summary (id, thread_id, user_id, text, created_at) values ($1, $2, $3, 'Asked when we open.', now())",
+      [randomUUID(), threadId, owner.id],
+    );
+  } finally {
+    await db.$client.end();
+  }
+
+  await page.goto("/customers");
+  const summary = page.locator("[data-summary]");
+  await expect(summary).toContainText("Asked when we open.");
+  await expect(summary).toContainText("Reception");
+  await expect(summary).not.toContainText("When do you open?");
+  await summary.getByRole("button", { name: /^Read/ }).click();
+  await expect(summary).toContainText("When do you open?");
 });
 
 test("an owner takes over a thread, writes to the Customer and hands it back", async ({ page }) => {

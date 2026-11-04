@@ -190,6 +190,14 @@ _Avoid_: Notification, ticket, alert
 A person who deals with a user's business through a Representative. A Customer isn't a user and never signs in to the app, and belongs to that one user's business.
 _Avoid_: Contact, end user, client
 
+**Customer memory**:
+What a user's business remembers of a Customer, across that user's Representatives and never beyond them: rows in Postgres, written only by a pass after a Customer thread closes, never by a Representative during a Turn. It is not a Bot's Memory, which is files on its Computer.
+_Avoid_: Customer profile (one part of it), CRM
+
+**Customer summary**:
+The one summary of a closed Customer thread, part of Customer memory, linked to that thread's transcript. It finds its Customer through its thread, so it follows a Customer merge. Written once. A thread held by the user or waiting on a code hand-off has none, nor does one closed for holding two people's words when a merge was undone. When the pass can't write one, such as for a Release that names no Model, the skip is recorded.
+_Avoid_: Summary (a Conversation's), thread summary
+
 **Customer merge**:
 Making two Customers one, which happens only when a sender passes a code sent to an identity on the other's record, or when the user does it by hand. The absorbed Customer's identities and threads move to the other, and where both have an open thread with a Representative, the absorbed one's closes. It is recorded, verifies nobody, and the user can undo it: each identity goes back, and a closed thread stays closed.
 _Avoid_: Link, dedupe

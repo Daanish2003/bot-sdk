@@ -171,6 +171,11 @@ export function useMergeCustomer(
   return useMutation(useRepresentative().customerMerge.mutationOptions(options));
 }
 
+/** What the pass wrote for a Customer's closed threads (`representative.customerSummaryList`). */
+export function useCustomerSummaries(id: string) {
+  return useQuery(useRepresentative().customerSummaryList.queryOptions({ input: { id } }));
+}
+
 /** The owner's merges of Customers (`representative.customerMergeList`). */
 export function useCustomerMerges() {
   return useQuery(useRepresentative().customerMergeList.queryOptions());

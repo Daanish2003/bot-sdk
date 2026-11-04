@@ -18,6 +18,7 @@ import { getTestDb } from "@ai-chat/test-support/test-database";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import type { AnyTextAdapter } from "@tanstack/ai";
 import { representativeCustomer, representativeThread } from "../src/server/db/schema";
+import { customerSummaryMarker } from "../src/server/customer-summary";
 import { representativeFeature } from "../src/server/plugin";
 
 /*
@@ -62,6 +63,11 @@ async function instance(rounds: Round[], held?: Promise<void>) {
   const adapter: AnyTextAdapter = {
     ...fake.adapter,
     chatStream: async function* (options) {
+      // The pass after a close isn't what these tests script: it hears nothing and writes nothing.
+      if (JSON.stringify(options.systemPrompts).includes(customerSummaryMarker)) {
+        yield* round();
+        return;
+      }
       entered.push(options);
       await held;
       yield* fake.adapter.chatStream(options);

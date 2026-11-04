@@ -682,6 +682,13 @@ ALTER TYPE "botsdk"."usage_kind" ADD VALUE 'representative';
 insert into botsdk.__migrations (feature, migration) values ('core', '20261102190646_curly_steve_rogers');
 commit;
 
+-- core/20261104053029_customer_memory_usage
+begin;
+ALTER TYPE "botsdk"."usage_kind" ADD VALUE 'customer_memory';
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261104053029_customer_memory_usage');
+commit;
+
 -- notes/0001_note
 begin;
 create table botsdk.test_note (id text primary key, bot_id uuid references botsdk.bot(id) on delete cascade)
