@@ -700,7 +700,7 @@ describe("deleting a Customer", () => {
       expect(owner.entered).toHaveLength(calls);
     });
 
-    it("leaves the queued Turn when what's left still waits for it, moving where the wait starts", async () => {
+    it("gives what's left a new Turn when it still waits, moving where the wait starts", async () => {
       const owner = await instance({ turnRounds: [() => round(), handsOff] });
       await twoAddresses(owner);
       await owner.say("I want a refund.", adaNumber);
@@ -718,11 +718,69 @@ describe("deleting a Customer", () => {
       await owner.rpc.representative.customerDelete({ id: bob.id });
 
       const after = await threadOf(ada.id);
-      expect(after.turnId).toBe(before.turnId);
+      expect(after.turnId).not.toBeNull();
       expect(after.waitingFrom).toBe(before.waitingFrom! + 1);
       expect(after.waitingSince).not.toBeNull();
       await owner.settle(batchLongestMs);
       expect(owner.entered).toHaveLength(calls + 1);
+    });
+
+    it("cancels a Turn that has replied to them, so it sends nothing more, and answers what still waits", async () => {
+      let gate: Promise<void> | undefined;
+      let open = () => {};
+      const owner = await instance({
+        turnRounds: [
+          () => round(),
+          () => {
+            gate = new Promise<void>((resolve) => (open = resolve));
+            return round(
+              toolCall({ name: "reply", input: { text: "Hello there.", kind: "small_talk" } }),
+            );
+          },
+          () =>
+            round(toolCall({ name: "reply", input: { text: "One more.", kind: "small_talk" } })),
+          () => round(),
+        ],
+        held: () => gate,
+      });
+      const { deps, id, rpc, customerAt, entered, timer } = owner;
+      await twoAddresses(owner);
+      const ada = await customerAt(zed);
+      const first = await threadOf(ada.id);
+      const seen = entered.length;
+      await startTestCustomerTurn(deps, {
+        representativeId: id,
+        message: "Hello from Ada.",
+        externalId: adaNumber,
+      });
+      timer.advance(batchLongestMs);
+      await vi.waitFor(() => {
+        timer.tick();
+        expect(entered).toHaveLength(seen + 2);
+      }, poll);
+      const replied = await threadOf(ada.id);
+      expect(replied.turnFrom).toBeNull();
+      await startTestCustomerTurn(deps, {
+        representativeId: id,
+        message: "Still there?",
+        externalId: zed,
+      });
+      const { bob } = await addressPassedOn(owner);
+
+      await rpc.representative.customerDelete({ id: bob.id });
+
+      const after = await threadOf(ada.id);
+      expect(after.turnId).not.toBe(replied.turnId);
+      gate = undefined;
+      open();
+      await owner.settle(batchLongestMs);
+      const left = await getTestDb()
+        .select({ text: representativeThreadMessage.text })
+        .from(representativeThreadMessage)
+        .where(eq(representativeThreadMessage.threadId, first.id));
+      expect(left.map((row) => row.text)).not.toContain("One more.");
+      expect(left.map((row) => row.text)).toContain("Still there?");
+      expect(entered).toHaveLength(seen + 3);
     });
 
     it("cancels a Turn already on their words, and sends nothing", async () => {

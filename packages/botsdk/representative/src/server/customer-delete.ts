@@ -68,9 +68,10 @@ async function cancelThreadJobs(
 
 /**
  * What was waiting on `thread`, whose row `tx` holds, after someone's messages left it: the wait starts
- * at what's left, or ends. A Turn on their batch goes, and so does a queued one with nothing left to
- * answer, which would otherwise find nothing where its wait began. Any other Turn carries on, and a
- * Turn taken off what's still waiting gives way to a new one.
+ * at what's left, or ends. A Turn on their batch goes. So does one with no batch: a queued one would
+ * find nothing where its wait began, and one past its first reply can't be told apart from it and may
+ * have been answering them. A Turn on someone else's batch carries on, and what still waits gets a new
+ * Turn in place of one that went.
  */
 async function settleThreadWait(
   tx: Transaction,
@@ -105,7 +106,7 @@ async function settleThreadWait(
           .select({ position: message.position })
           .from(message)
           .where(and(eq(message.threadId, id), eq(message.position, turnFrom)));
-  const turnGoes = turnId !== null && (turnFrom === null ? waiting === null : !batch);
+  const turnGoes = turnId !== null && !batch;
   if (turnGoes) await context.jobs.cancelIn(tx, turnId);
   await tx
     .update(representativeThread)
