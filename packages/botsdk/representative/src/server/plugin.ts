@@ -23,6 +23,7 @@ import {
   representativeCustomerSummary,
   representativeVerification,
 } from "./db/schema";
+import { threadExpiryJob } from "./expiry";
 import { threadIdleJob } from "./idle";
 import { exportMerges } from "./customer-merge";
 import { deleteProfileFields, exportProfileFields } from "./customer-profile";
@@ -123,6 +124,7 @@ export function representativeFeature(
       handOffEndedJob,
       representativeTestJob,
       threadIdleJob,
+      threadExpiryJob,
       customerSummaryJob,
     ],
     userData: {

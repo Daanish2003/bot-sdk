@@ -29,7 +29,12 @@ import {
 } from "./customer-proof";
 import { deliverHandOffResult } from "./hand-off-result";
 import { type Heard, readSender, readThread, storeReply, type ThreadEntry } from "./customers";
-import { representative, representativeHandOff, representativeRelease } from "./db/schema";
+import {
+  representative,
+  representativeHandOff,
+  representativeRelease,
+  representativeThread,
+} from "./db/schema";
 import { logGap } from "./gaps";
 import { type DocumentText, readDocuments } from "./documents";
 import {
@@ -272,10 +277,15 @@ async function openHandOff(
     instructions: `From Representative "${name}".${liveThread.verified ? "" : unverifiedHandOff}\n\n${instructions}`,
     job: handOffEndedJob,
   });
+  const [thread] = await tx
+    .select({ customerId: representativeThread.customerId })
+    .from(representativeThread)
+    .where(eq(representativeThread.id, liveThread.threadId));
   await tx.insert(representativeHandOff).values({
     assignmentId: created.id,
     representativeId,
     threadId: liveThread.threadId,
+    customerId: thread?.customerId ?? null,
     channel: liveThread.heard.channel,
     externalId: liveThread.heard.externalId,
     verified: liveThread.verified,

@@ -131,7 +131,9 @@ export const representativeTestResult = botsdkSchema.table(
  * can move the open ones. It goes with the Assignment, and with the Representative. From a Customer
  * thread (ticket #1254), `threadId` is the thread it belongs to, and `channel`, `externalId` and
  * `verified` are the sender and standing of the Turn that handed it off, so its result goes back to
- * that sender; all four are null for a test conversation. `threadId` is cleared if the thread goes.
+ * that sender; all four are null for a test conversation. `threadId` is cleared if the thread goes (it
+ * expires, ticket #1285). `customerId` is the thread's Customer when the hand-off is made and holds
+ * no text; the row goes with that Customer, so the Customer's delete still finds the Assignment.
  */
 export const representativeHandOff = botsdkSchema.table(
   "representative_hand_off",
@@ -148,10 +150,14 @@ export const representativeHandOff = botsdkSchema.table(
     channel: text("channel"),
     externalId: text("external_id"),
     verified: boolean("verified"),
+    customerId: uuid("customer_id").references((): AnyPgColumn => representativeCustomer.id, {
+      onDelete: "cascade",
+    }),
   },
   (table) => [
     index("representative_hand_off_representative_idx").on(table.representativeId),
     index("representative_hand_off_thread_idx").on(table.threadId),
+    index("representative_hand_off_customer_idx").on(table.customerId),
   ],
 );
 

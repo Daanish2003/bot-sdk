@@ -21,6 +21,7 @@ import { queueIdleCheck } from "./idle";
 import { customerNotFound, readCustomer } from "./owner-customers";
 import { holdThread, releaseThread } from "./takeover";
 import { afterThreadClose } from "./customer-summary";
+import { queueThreadExpiry } from "./expiry";
 
 /*
  * Two Customers become one only by proof or by the owner (ticket #1257), and each merge is recorded
@@ -138,6 +139,7 @@ export async function absorbCustomer(
     const match = surviving.find((each) => each.representativeId === open.representativeId);
     if (!match) continue;
     await closeThread(services, tx, open);
+    await queueThreadExpiry(services, tx, open.id, services.clock());
     // One the owner held gets no summary: undoing this reopens it, held, with its words still to come.
     if (open.state !== "owner") await afterThreadClose(services, tx, open.id);
     if (open.state === "owner") {
@@ -254,6 +256,7 @@ async function closeMixedThreads(
   for (const { threadId } of mixed) {
     const closing = open.find((row) => row.id === threadId)!;
     await closeThread(services, tx, closing);
+    await queueThreadExpiry(services, tx, closing.id, services.clock());
     if (closing.state !== "owner" || mergeHeld.includes(closing.id)) continue;
     const heard =
       own.find(
