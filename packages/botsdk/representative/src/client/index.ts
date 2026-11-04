@@ -28,6 +28,7 @@ export {
   type FactView,
   type GapView,
   correctableFixedFields,
+  maxOutboundCap,
   maxProfileFieldNameLength,
   maxProfileValueLength,
   type ProfileFieldView,

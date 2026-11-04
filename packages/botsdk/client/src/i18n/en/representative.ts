@@ -20,6 +20,13 @@ export const representativeMessages = {
   "representative.reportsToHelp":
     "Its hand-offs go to this Bot. Choosing another Bot moves its open hand-offs there. With none, it reports to you.",
   "representative.botChosen": "Reporting Bot changed",
+  "representative.caps": "Message caps",
+  "representative.capsHelp":
+    "The most this Representative sends one Customer. A message over a cap is held for you and you are paged.",
+  "representative.maxInARow": "In a row with no reply",
+  "representative.maxPerDay": "Per Customer per day",
+  "representative.saveCaps": "Save caps",
+  "representative.capsSaved": "Caps saved",
   "representative.none": "No Representatives yet.",
   "representative.back": "All Representatives",
   "representative.live": ({ number }: { number: number }) => `Live: Release ${number}`,
