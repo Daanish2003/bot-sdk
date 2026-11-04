@@ -106,7 +106,7 @@ async function settleThreadWait(
           .select({ position: message.position })
           .from(message)
           .where(and(eq(message.threadId, id), eq(message.position, turnFrom)));
-  const turnGoes = turnId !== null && !batch;
+  const turnGoes = turnId !== null && batch === undefined;
   if (turnGoes) await context.jobs.cancelIn(tx, turnId);
   await tx
     .update(representativeThread)
