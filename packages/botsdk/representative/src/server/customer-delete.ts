@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, notInArray, or, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, min, notInArray, or, type SQL } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
@@ -19,6 +19,7 @@ import {
 } from "./db/schema";
 import { threadExpiryKey } from "./expiry";
 import { customerNotFound } from "./owner-customers";
+import { queueWaitingTurn } from "./thread-turns";
 
 /*
  * Deleting a Customer (ticket #1287, spec #1170, ADR 0035): a hard delete, of them and everyone merged
@@ -31,7 +32,7 @@ import { customerNotFound } from "./owner-customers";
 
 type Context = Pick<
   FeatureContext<"assignments" | "threads">,
-  "db" | "jobs" | "assignments" | "threads"
+  "db" | "clock" | "jobs" | "assignments" | "threads"
 >;
 
 /**
@@ -66,12 +67,65 @@ async function cancelThreadJobs(
 }
 
 /**
+ * What was waiting on `thread`, whose row `tx` holds, after someone's messages left it: the wait starts
+ * at what's left, or ends. A Turn on their batch goes, and so does a queued one with nothing left to
+ * answer, which would otherwise find nothing where its wait began. Any other Turn carries on, and a
+ * Turn taken off what's still waiting gives way to a new one.
+ */
+async function settleThreadWait(
+  tx: Transaction,
+  context: Context,
+  thread: {
+    id: string;
+    turnId: string | null;
+    turnFrom: number | null;
+    waitingFrom: number | null;
+  },
+) {
+  const message = representativeThreadMessage;
+  const { id, turnId, turnFrom, waitingFrom } = thread;
+  const [next] =
+    waitingFrom === null
+      ? []
+      : await tx
+          .select({ position: min(message.position) })
+          .from(message)
+          .where(
+            and(
+              eq(message.threadId, id),
+              inArray(message.author, ["customer", "bot"]),
+              gte(message.position, waitingFrom),
+            ),
+          );
+  const waiting = next?.position ?? null;
+  const [batch] =
+    turnFrom === null
+      ? []
+      : await tx
+          .select({ position: message.position })
+          .from(message)
+          .where(and(eq(message.threadId, id), eq(message.position, turnFrom)));
+  const turnGoes = turnId !== null && (turnFrom === null ? waiting === null : !batch);
+  if (turnGoes) await context.jobs.cancelIn(tx, turnId);
+  await tx
+    .update(representativeThread)
+    .set({
+      waitingFrom: waiting,
+      ...(waiting === null && { waitingSince: null }),
+      ...(turnGoes && { turnId: null, turnFrom: null }),
+    })
+    .where(eq(representativeThread.id, id));
+  if (turnGoes && waiting !== null) await queueWaitingTurn(context, tx, id);
+}
+
+/**
  * A merge that was undone can leave this person's words on another Customer's thread, since nothing
  * moved back but the thread and identities that the merge moved. Later merges can have taken that
  * thread further, so it is found by their address, across the owner's other Customers. Those words, and
  * any summary made from them or pass about to make one, go; so does a hand-off from them, whose
  * Assignment is returned for redaction. The other Customer's own words stay, and a thread with none
- * left goes. Returns the threads it removed, and those Assignments.
+ * left goes. One that stays stops waiting on them. Returns the threads it removed, and those
+ * Assignments.
  */
 async function removeFromOtherThreads(
   tx: Transaction,
@@ -94,19 +148,26 @@ async function removeFromOtherThreads(
       ),
     );
   const touched = await tx
-    .selectDistinct({
-      id: thread.id,
-      turnId: thread.turnId,
-      lastChannel: thread.lastChannel,
-      lastExternalId: thread.lastExternalId,
-    })
+    .selectDistinct({ id: thread.id })
     .from(thread)
     .innerJoin(message, eq(message.threadId, thread.id))
     .where(and(inArray(thread.customerId, others), isTheirs));
   const threadIds: string[] = [];
-  for (const each of touched) {
-    const { id, lastChannel, lastExternalId } = each;
-    await tx.select({ id: thread.id }).from(thread).where(eq(thread.id, id)).for("update");
+  for (const { id } of touched) {
+    const [each] = await tx
+      .select({
+        id: thread.id,
+        turnId: thread.turnId,
+        turnFrom: thread.turnFrom,
+        waitingFrom: thread.waitingFrom,
+        lastChannel: thread.lastChannel,
+        lastExternalId: thread.lastExternalId,
+      })
+      .from(thread)
+      .where(eq(thread.id, id))
+      .for("update");
+    if (!each) continue;
+    const { lastChannel, lastExternalId } = each;
     await tx.delete(message).where(and(eq(message.threadId, id), isTheirs));
     await context.jobs.cancelIn(tx, customerSummaryKey(id));
     await tx
@@ -122,9 +183,10 @@ async function removeFromOtherThreads(
       await cancelThreadJobs(tx, context, each);
       await tx.delete(thread).where(eq(thread.id, id));
       threadIds.push(id);
-    } else if (
-      addresses.some((one) => one.channel === lastChannel && one.externalId === lastExternalId)
-    ) {
+      continue;
+    }
+    await settleThreadWait(tx, context, each);
+    if (addresses.some((one) => one.channel === lastChannel && one.externalId === lastExternalId)) {
       await tx
         .update(thread)
         .set({ lastChannel: newest.channel, lastExternalId: newest.externalId })

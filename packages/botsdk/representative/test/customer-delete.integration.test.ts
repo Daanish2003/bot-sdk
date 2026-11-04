@@ -8,7 +8,11 @@ import { botAssignment, job, usage } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { testCustomerTurn, startTestCustomerTurn } from "@ai-chat/test-support/test-customer";
+import {
+  fakeChannel,
+  testCustomerTurn,
+  startTestCustomerTurn,
+} from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, text, toolCall } from "@botsdk/testing/fake-adapter";
@@ -81,7 +85,7 @@ async function instance({
 }: {
   turnRounds?: Array<() => ReturnType<typeof round>>;
   started?: boolean;
-  held?: Promise<void>;
+  held?: Promise<void> | (() => Promise<void> | undefined);
 } = {}) {
   const turns = [...turnRounds];
   const fake = createFakeAdapter({
@@ -95,7 +99,7 @@ async function instance({
     ...(fake.adapter as AnyTextAdapter),
     chatStream: async function* (options) {
       entered.push(options);
-      await held;
+      await (typeof held === "function" ? held() : held);
       yield* fake.adapter.chatStream(options);
     },
   };
@@ -600,6 +604,170 @@ describe("deleting a Customer", () => {
     await rpc.representative.customerDelete({ id: bob.id });
 
     expect(await passStatus()).toEqual(["cancelled"]);
+  });
+
+  describe("what a thread of another Customer's waited on from them", () => {
+    const zed = "+15550009";
+    const newAddress = "+15550008";
+
+    /** Ada on her open thread, from two addresses, the first answered. */
+    async function twoAddresses(owner: Awaited<ReturnType<typeof instance>>) {
+      await owner.say("From zed.", zed);
+      await owner.settle();
+      const ada = await owner.customerAt(zed);
+      await owner.rpc.representative.customerAddIdentity({
+        id: ada.id,
+        channel: fakeChannel,
+        externalId: adaNumber,
+      });
+    }
+
+    /**
+     * The owner corrects Ada's second address and gives the old one to Bob. What Ada said at it stays
+     * on her open thread, at an address that's now Bob's.
+     */
+    async function addressPassedOn(owner: Awaited<ReturnType<typeof instance>>) {
+      const { rpc, customerAt } = owner;
+      const ada = await customerAt(zed);
+      await rpc.representative.customerUpdateIdentity({
+        id: ada.id,
+        identityId: ada.identities.find((each) => each.externalId === adaNumber)!.id,
+        channel: fakeChannel,
+        externalId: newAddress,
+      });
+      await startTestCustomerTurn(owner.deps, {
+        representativeId: owner.id,
+        message: "Bob speaks.",
+        externalId: bobNumber,
+      });
+      const bob = await customerAt(bobNumber);
+      await rpc.representative.customerAddIdentity({
+        id: bob.id,
+        channel: fakeChannel,
+        externalId: adaNumber,
+      });
+      return { ada, bob };
+    }
+
+    const threadOf = async (customerId: string) => (await threadsOfCustomers([customerId]))[0]!;
+
+    /** A hand-off's result on Ada's thread, addressed to the unverified sender it came from. */
+    async function resultWaiting(owner: Awaited<ReturnType<typeof instance>>) {
+      const [handOff] = await handOffsAt(adaNumber);
+      await owner.context().db.transaction((tx) =>
+        deliverHandOffResult(owner.context(), tx, {
+          assignmentId: handOff!.assignmentId,
+          userId: owner.user.id,
+          botId: owner.botId,
+          status: "done",
+          result: { outcome: "Done.", forCustomer: "Your refund is on its way." },
+        }),
+      );
+    }
+
+    const turnStatuses = async (threadId: string) =>
+      (
+        await getTestDb()
+          .select({ status: job.status })
+          .from(job)
+          .where(
+            and(
+              eq(job.name, "representative.turn"),
+              sql`${job.payload}->>'threadId' = ${threadId}`,
+            ),
+          )
+          .orderBy(job.createdAt)
+      ).map((row) => row.status);
+
+    it("clears the wait and cancels the queued Turn when nothing else waits", async () => {
+      const owner = await instance({ turnRounds: [() => round(), handsOff] });
+      await twoAddresses(owner);
+      await owner.say("I want a refund.", adaNumber);
+      await owner.settle();
+      const { ada, bob } = await addressPassedOn(owner);
+      await resultWaiting(owner);
+      const before = await threadOf(ada.id);
+      expect(before.waitingFrom).not.toBeNull();
+      expect(before.turnId).not.toBeNull();
+      const calls = owner.entered.length;
+
+      await owner.rpc.representative.customerDelete({ id: bob.id });
+
+      const after = await threadOf(ada.id);
+      expect(after).toMatchObject({ waitingFrom: null, waitingSince: null, turnId: null });
+      expect((await turnStatuses(after.id)).at(-1)).toBe("cancelled");
+      await owner.settle(batchLongestMs);
+      expect(owner.entered).toHaveLength(calls);
+    });
+
+    it("leaves the queued Turn when what's left still waits for it, moving where the wait starts", async () => {
+      const owner = await instance({ turnRounds: [() => round(), handsOff] });
+      await twoAddresses(owner);
+      await owner.say("I want a refund.", adaNumber);
+      await owner.settle();
+      const { ada, bob } = await addressPassedOn(owner);
+      await resultWaiting(owner);
+      await startTestCustomerTurn(owner.deps, {
+        representativeId: owner.id,
+        message: "Still there?",
+        externalId: zed,
+      });
+      const before = await threadOf(ada.id);
+      const calls = owner.entered.length;
+
+      await owner.rpc.representative.customerDelete({ id: bob.id });
+
+      const after = await threadOf(ada.id);
+      expect(after.turnId).toBe(before.turnId);
+      expect(after.waitingFrom).toBe(before.waitingFrom! + 1);
+      expect(after.waitingSince).not.toBeNull();
+      await owner.settle(batchLongestMs);
+      expect(owner.entered).toHaveLength(calls + 1);
+    });
+
+    it("cancels a Turn already on their words, and sends nothing", async () => {
+      let gate: Promise<void> | undefined;
+      const owner = await instance({
+        turnRounds: [
+          () => round(),
+          () =>
+            round(toolCall({ name: "reply", input: { text: "Hello there.", kind: "small_talk" } })),
+        ],
+        held: () => gate,
+      });
+      const { deps, id, rpc, customerAt, entered, timer } = owner;
+      await twoAddresses(owner);
+      const ada = await customerAt(zed);
+      const first = await threadOf(ada.id);
+      let open = () => {};
+      gate = new Promise<void>((resolve) => (open = resolve));
+      const seen = entered.length;
+      await startTestCustomerTurn(deps, {
+        representativeId: id,
+        message: "Hello from Ada.",
+        externalId: adaNumber,
+      });
+      timer.advance(batchLongestMs);
+      await vi.waitFor(() => {
+        timer.tick();
+        expect(entered).toHaveLength(seen + 1);
+      }, poll);
+      const { bob } = await addressPassedOn(owner);
+
+      await rpc.representative.customerDelete({ id: bob.id });
+
+      const after = await threadOf(ada.id);
+      expect(after).toMatchObject({ turnId: null, turnFrom: null });
+      expect((await turnStatuses(first.id)).at(-1)).toBe("cancelled");
+      open();
+      await owner.settle();
+      expect(entered).toHaveLength(seen + 1);
+      const left = await getTestDb()
+        .select({ text: representativeThreadMessage.text })
+        .from(representativeThreadMessage)
+        .where(eq(representativeThreadMessage.threadId, first.id));
+      expect(left.map((row) => row.text)).toEqual(["From zed."]);
+    });
   });
 
   it("keeps a hand-off an undo left with them that came from another Customer's address", async () => {
