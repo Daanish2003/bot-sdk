@@ -24,6 +24,7 @@ import {
 import { threadIdleMs } from "../src/server/idle";
 import { type GateRefusal, logRefusals, passGate } from "../src/server/outbound-gate";
 import { representativeFeature } from "../src/server/plugin";
+import { draftDueMs } from "../src/server/draft-due";
 import { holdingNote } from "../src/server/reply-drafts";
 
 /*
@@ -43,8 +44,8 @@ const number = "+15550001";
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 const quiet = () => round();
-const replies = (text: string, topic?: string) =>
-  round(toolCall({ name: "reply", input: { text, kind: "small_talk", topic } }));
+const replies = (text: string, topic?: string, sources?: object[]) =>
+  round(toolCall({ name: "reply", input: { text, kind: "small_talk", topic, sources } }));
 
 const runners: JobRunner[] = [];
 afterEach(async () => {
@@ -121,6 +122,7 @@ async function instance(rounds: Round[], held?: Promise<void> | (() => Promise<v
   });
   await rpc.representative.approve({ id });
   await rpc.representative.setEnabled({ id, enabled: true });
+  await rpc.representative.factAdd(generalFact);
   const world = Object.assign(deps, { timer });
   const threadId = async () => (await rpc.representative.threadList({ id }))[0]!.id;
   return {
@@ -172,6 +174,10 @@ async function oneDraft(rounds: Round[] = []) {
   await expect.poll(world.got, poll).toEqual([holdingNote]);
   return { world, draftId: draft!.id };
 }
+
+/** A Published fact on the topic the test Customer's owner has promoted, which a reply there cites. */
+const generalFact = { key: "greeting", type: "text", topic: "General", value: "Hello" } as const;
+const generalSource = { type: "fact", key: generalFact.key };
 
 const refusalCode = (error: unknown) => (error as { data?: { code?: string } }).data?.code;
 
@@ -253,7 +259,7 @@ describe("a reply on a draft topic", () => {
   });
 
   it("is sent when the owner has promoted its topic, whatever the case of the label", async () => {
-    const world = await instance([replies("Hi.", "GENERAL"), quiet()]);
+    const world = await instance([replies("Hi.", "GENERAL", [generalSource]), quiet()]);
 
     await world.hears("Hello");
 
@@ -849,8 +855,8 @@ describe("a draft beside what the caps hold", () => {
 
   it("once answered, doesn't stop the Page for what a cap holds", async () => {
     const { world, draftId } = await oneDraft([
-      replies("First.", "general"),
-      replies("Second.", "general"),
+      replies("First.", "general", [generalSource]),
+      replies("Second.", "general", [generalSource]),
       quiet(),
     ]);
     await world.rpc.representative.replyDraftReject({ id: draftId });
@@ -864,10 +870,10 @@ describe("a draft beside what the caps hold", () => {
 
   it("goes when the owner approves it at a cap, and counts against the day", async () => {
     const world = await instance([
-      replies("First.", "general"),
+      replies("First.", "general", [generalSource]),
       replies("You owe nothing.", "billing"),
       quiet(),
-      replies("Third.", "general"),
+      replies("Third.", "general", [generalSource]),
       quiet(),
     ]);
     await world.hears("What do I owe?");
@@ -897,7 +903,11 @@ describe("what a cap holds", () => {
     const next = opening();
     const calls = { made: 0 };
     const world = await instance(
-      [replies("First.", "general"), replies("Second.", "general"), quiet()],
+      [
+        replies("First.", "general", [generalSource]),
+        replies("Second.", "general", [generalSource]),
+        quiet(),
+      ],
       async () => {
         calls.made += 1;
         if (calls.made === 3) await next.opened;
@@ -937,7 +947,12 @@ describe("what a cap holds", () => {
     const next = opening();
     const calls = { made: 0 };
     const world = await instance(
-      [replies("First.", "general"), quiet(), replies("Second.", "general"), quiet()],
+      [
+        replies("First.", "general", [generalSource]),
+        quiet(),
+        replies("Second.", "general", [generalSource]),
+        quiet(),
+      ],
       async () => {
         calls.made += 1;
         if (calls.made === 4) await next.opened;
@@ -962,7 +977,7 @@ describe("what a cap holds", () => {
   });
 
   it("never waits, nor Pages, when its Turn's fence rolled it back", async () => {
-    const world = await instance([replies("First.", "general"), quiet()]);
+    const world = await instance([replies("First.", "general", [generalSource]), quiet()]);
     await world.hears("Hello");
     await world.rpc.representative.setCaps({ id: world.id, maxInARow: 1 });
     const threadId = await world.threadId();
@@ -994,8 +1009,8 @@ describe("what a cap holds", () => {
 
   it("still waits after an unverified message from another address", async () => {
     const world = await instance([
-      replies("First.", "general"),
-      replies("Second.", "general"),
+      replies("First.", "general", [generalSource]),
+      replies("Second.", "general", [generalSource]),
       quiet(),
       quiet(),
     ]);
@@ -1015,8 +1030,8 @@ describe("what a cap holds", () => {
 
   it("goes with a thread a merge closes, and doesn't come back with an undo", async () => {
     const world = await instance([
-      replies("First.", "general"),
-      replies("Second.", "general"),
+      replies("First.", "general", [generalSource]),
+      replies("Second.", "general", [generalSource]),
       quiet(),
       quiet(),
     ]);
@@ -1040,8 +1055,8 @@ describe("what a cap holds", () => {
 
   it("keeps its thread open and waiting on the owner, who was told to send or drop it", async () => {
     const world = await instance([
-      replies("First.", "general"),
-      replies("Second.", "general"),
+      replies("First.", "general", [generalSource]),
+      replies("Second.", "general", [generalSource]),
       quiet(),
     ]);
     await world.rpc.representative.setCaps({ id: world.id, maxInARow: 1 });
@@ -1057,5 +1072,187 @@ describe("what a cap holds", () => {
     await expect(
       world.rpc.representative.threadHeldSend({ id: held[0]!.id }),
     ).resolves.toBeTruthy();
+  });
+});
+
+/** The owner's `Hours` topic promoted to auto-send, with a fact on it and one on `Prices`. */
+async function promotedHours(rounds: Round[]) {
+  const world = await instance(rounds);
+  const { rpc } = world;
+  await rpc.representative.factAdd({ key: "hours", type: "text", topic: "Hours", value: "9 to 5" });
+  await rpc.representative.factAdd({
+    key: "tax",
+    type: "text",
+    topic: "Prices",
+    value: "Included",
+  });
+  const { id } = await rpc.representative.topicAdd({ name: "Hours" });
+  await rpc.representative.topicSetMode({ id, mode: "auto" });
+  return { ...world, topicId: id };
+}
+
+const hours = { type: "fact", key: "hours" };
+const tax = { type: "fact", key: "tax" };
+const answersOn = (sources: object[], topic = "hours") =>
+  round(
+    toolCall({ name: "reply", input: { text: "We are open.", kind: "answer", topic, sources } }),
+  );
+
+describe("a reply on an auto topic", () => {
+  it("is sent when every source is a fact of that topic", async () => {
+    const world = await promotedHours([answersOn([hours]), quiet()]);
+
+    await world.hears("When are you open?");
+
+    await expect.poll(world.got, poll).toEqual(["We are open."]);
+    expect(await world.decisions()).toEqual([["reply", "send", "passed"]]);
+  });
+
+  it("is a draft when a source is a fact of another topic", async () => {
+    for (const sources of [[tax], [hours, tax]]) {
+      const world = await promotedHours([answersOn(sources), quiet()]);
+
+      await world.hears("When are you open?");
+
+      await expect.poll(world.got, poll).toEqual([holdingNote]);
+      expect(await world.decisions()).toEqual([
+        ["reply", "hold", "topic"],
+        ["holding_note", "send", "passed"],
+      ]);
+    }
+  });
+
+  it("is a draft when it has no sources, whatever the kind", async () => {
+    const world = await promotedHours([replies("Hi there.", "Hours"), quiet()]);
+
+    await world.hears("Hello");
+
+    await expect.poll(world.got, poll).toEqual([holdingNote]);
+    expect(await world.decisions()).toEqual([
+      ["reply", "hold", "topic"],
+      ["holding_note", "send", "passed"],
+    ]);
+  });
+
+  it("is a draft when a source is a document, an Assignment's result or the Customer's memory", async () => {
+    const world = await promotedHours([quiet()]);
+    await world.hears("Hello");
+    const threadId = await world.threadId();
+    const content = (sources: object[]) => ({
+      text: "We are open.",
+      verified: true,
+      replyKind: "answer" as const,
+      topic: "Hours",
+      sources: sources as never,
+    });
+    const decide = (sources: object[]) =>
+      getTestDb().transaction((tx) =>
+        passGate(tx, {
+          kind: "reply",
+          threadId,
+          to: { channel: "fake", externalId: number },
+          now: world.timer.clock.now(),
+          content: content(sources),
+        }),
+      );
+
+    expect(await decide([hours])).toMatchObject({ outcome: "send" });
+    for (const source of [
+      { type: "document", name: "menu", quote: "9 to 5" },
+      { type: "assignment", assignmentId: crypto.randomUUID(), quote: "9 to 5" },
+      { type: "memory", quote: "9 to 5" },
+    ]) {
+      expect(await decide([hours, source])).toMatchObject({ outcome: "hold", rule: "topic" });
+    }
+  });
+});
+
+describe("promoting a topic", () => {
+  it("is the owner's action alone: another owner can't, and a Model's label changes nothing", async () => {
+    const world = await instance([replies("Hi.", "Hours", [generalSource]), quiet()]);
+    const { id } = await world.rpc.representative.topicAdd({ name: "Hours" });
+    const other = chatRpc({ user: await insertUser(), deps: world.deps });
+
+    await expect(other.representative.topicSetMode({ id, mode: "auto" })).rejects.toSatisfy(
+      (error) => refusalCode(error) === "error.topicNotFound",
+    );
+    await world.hears("Hello");
+    await expect.poll(world.got, poll).toEqual([holdingNote]);
+
+    const topics = await world.rpc.representative.topicList();
+    expect(topics.find(({ name }) => name === "Hours")).toMatchObject({ mode: "draft" });
+  });
+
+  it("can be undone by the owner, and the topic waits for them again", async () => {
+    const world = await promotedHours([answersOn([hours]), quiet()]);
+    await world.rpc.representative.topicSetMode({ id: world.topicId, mode: "draft" });
+
+    await world.hears("When are you open?");
+
+    await expect.poll(world.got, poll).toEqual([holdingNote]);
+  });
+});
+
+describe("suggesting a promotion", () => {
+  it("shows after the twentieth unedited approval, and the topic stays draft", async () => {
+    const turns = 21;
+    const world = await instance(
+      Array.from({ length: turns }, () => [replies("It is fine.", "billing"), quiet()]).flat(),
+    );
+    await world.rpc.representative.topicAdd({ name: "Billing" });
+    const suggestion = async () => (await world.rpc.representative.topicList())[0]!;
+    const next = async (index: number, answer: (id: string) => Promise<unknown>) => {
+      // Each its own Customer: one gets at most 20 messages a day.
+      await world.hears(`Question ${index}`, undefined, `+155500${index}`);
+      await expect.poll(async () => (await world.drafts()).length, poll).toBe(1);
+      await answer((await world.drafts())[0]!.id);
+      await expect.poll(async () => (await world.drafts()).length, poll).toBe(0);
+    };
+
+    // An edited approval isn't counted.
+    await next(0, (id) => world.rpc.representative.replyDraftEdit({ id, text: "Edited." }));
+    for (let index = 1; index < 20; index += 1) {
+      await next(index, (id) => world.rpc.representative.replyDraftApprove({ id }));
+    }
+    expect(await suggestion()).toMatchObject({ approvedUnedited: 19, promotionSuggested: false });
+
+    await next(20, (id) => world.rpc.representative.replyDraftApprove({ id }));
+
+    expect(await suggestion()).toMatchObject({
+      mode: "draft",
+      approvedUnedited: 20,
+      promotionSuggested: true,
+    });
+  });
+});
+
+describe("a draft past its due time", () => {
+  const pages = () => getTestDb().select().from(page);
+  const settle = async (world: World, ms: number) => {
+    world.timer.advance(ms);
+    world.timer.tick();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  };
+
+  it("Pages the owner once, and not before", async () => {
+    const { world } = await oneDraft();
+
+    await settle(world, draftDueMs - 60_000);
+    expect(await pages()).toEqual([]);
+
+    await settle(world, 120_000);
+    await expect.poll(async () => (await pages()).length, poll).toBe(1);
+    expect(await pages()).toMatchObject([
+      { userId: world.user.id, cause: "reply_draft_due", urgency: "routine" },
+    ]);
+  });
+
+  it("Pages nobody once the owner has answered it", async () => {
+    const { world, draftId } = await oneDraft();
+    await world.rpc.representative.replyDraftReject({ id: draftId });
+
+    await settle(world, draftDueMs * 2);
+
+    expect(await pages()).toEqual([]);
   });
 });

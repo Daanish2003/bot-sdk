@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "c3734ee9-86e4-48ee-b537-e79b13d68c2b",
+  "id": "dc1d215e-e48d-429e-bc86-632481fc4584",
   "prevIds": ["b4213c31-996c-4c66-8353-c08f3bf96709"],
   "ddl": [
     {
@@ -126,12 +126,6 @@
     },
     {
       "isRlsEnabled": false,
-      "name": "representative_turn",
-      "entityType": "tables",
-      "schema": "botsdk"
-    },
-    {
-      "isRlsEnabled": false,
       "name": "representative_verification",
       "entityType": "tables",
       "schema": "botsdk"
@@ -223,19 +217,6 @@
       "generated": null,
       "identity": null,
       "name": "max_per_day",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "'{\"threadCalls\":30,\"threadMicros\":500000,\"customerCalls\":60,\"customerMicros\":2000000,\"strangerCalls\":20,\"strangerMicros\":500000,\"monthMicros\":50000000}'",
-      "generated": null,
-      "identity": null,
-      "name": "spending_caps",
       "entityType": "columns",
       "schema": "botsdk",
       "table": "representative"
@@ -509,6 +490,32 @@
       "generated": null,
       "identity": null,
       "name": "proven_until",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_customer_identity"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "opted_out_at",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_customer_identity"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "opt_out_source",
       "entityType": "columns",
       "schema": "botsdk",
       "table": "representative_customer_identity"
@@ -2526,58 +2533,6 @@
       "name": "id",
       "entityType": "columns",
       "schema": "botsdk",
-      "table": "representative_turn"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "thread_id",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_turn"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "representative_id",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_turn"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_turn"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "botsdk",
       "table": "representative_verification"
     },
     {
@@ -3283,48 +3238,6 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "thread_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "representative_turn_thread_idx",
-      "entityType": "indexes",
-      "schema": "botsdk",
-      "table": "representative_turn"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "representative_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "representative_turn_representative_idx",
-      "entityType": "indexes",
-      "schema": "botsdk",
-      "table": "representative_turn"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
           "value": "sender_identity_id",
           "isExpression": false,
           "asc": true,
@@ -3691,32 +3604,6 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["thread_id"],
-      "schemaTo": "botsdk",
-      "tableTo": "representative_thread",
-      "columnsTo": ["id"],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "representative_turn_thread_id_representative_thread_id_fkey",
-      "entityType": "fks",
-      "schema": "botsdk",
-      "table": "representative_turn"
-    },
-    {
-      "nameExplicit": false,
-      "columns": ["representative_id"],
-      "schemaTo": "botsdk",
-      "tableTo": "representative",
-      "columnsTo": ["id"],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "representative_turn_representative_id_representative_id_fkey",
-      "entityType": "fks",
-      "schema": "botsdk",
-      "table": "representative_turn"
-    },
-    {
-      "nameExplicit": false,
       "columns": ["sender_identity_id"],
       "schemaTo": "botsdk",
       "tableTo": "representative_customer_identity",
@@ -3899,14 +3786,6 @@
       "name": "representative_topic_pkey",
       "schema": "botsdk",
       "table": "representative_topic",
-      "entityType": "pks"
-    },
-    {
-      "columns": ["id"],
-      "nameExplicit": false,
-      "name": "representative_turn_pkey",
-      "schema": "botsdk",
-      "table": "representative_turn",
       "entityType": "pks"
     },
     {

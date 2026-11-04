@@ -6,6 +6,7 @@ import {
   customerCreateInput,
   customerMergeInput,
   customerRenameInput,
+  customerClearOptOutInput,
   customerSetBlockedInput,
   factAddInput,
   factEditInput,
@@ -28,6 +29,7 @@ import {
   setEnabledInput,
   threadSendInput,
   topicAddInput,
+  topicSetModeInput,
   updateDraftInput,
 } from "../shared/contract";
 import { type ConvertDocument, type KnowledgeFiles, knowledgeChoices } from "./documents";
@@ -51,6 +53,7 @@ import {
   listThreads,
   renameCustomer,
   setProfileValue,
+  clearOptOut,
   setBlocked,
   updateIdentity,
 } from "./owner-customers";
@@ -81,7 +84,7 @@ import {
   rejectReplyDraft,
 } from "./reply-drafts";
 import { handBackThread, sendAsOwner, takeOverThread } from "./takeover";
-import { addTopic, listTopics, removeTopic } from "./topics";
+import { addTopic, listTopics, removeTopic, setTopicMode } from "./topics";
 
 /*
  * The `representative` namespace's domain methods: what a Host calls in-process as
@@ -208,6 +211,9 @@ export function representativeApi(
       return setBlocked(context, userId, id, blocked, context.clock());
     },
 
+    customerClearOptOut: async ({ userId, ...rest }: WithUser<typeof customerClearOptOutInput>) =>
+      clearOptOut(context, userId, parseInput(customerClearOptOutInput, rest)),
+
     customerMerge: async ({ userId, ...rest }: WithUser<typeof customerMergeInput>) =>
       mergeCustomers(context, userId, parseInput(customerMergeInput, rest)),
 
@@ -276,6 +282,11 @@ export function representativeApi(
 
     topicAdd: async ({ userId, ...rest }: WithUser<typeof topicAddInput>) =>
       addTopic(context, userId, parseInput(topicAddInput, rest).name),
+
+    topicSetMode: async ({ userId, ...rest }: WithUser<typeof topicSetModeInput>) => {
+      const { id, mode } = parseInput(topicSetModeInput, rest);
+      return setTopicMode(context, userId, id, mode);
+    },
 
     topicRemove: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
       removeTopic(context, userId, parseInput(idInput, rest).id),

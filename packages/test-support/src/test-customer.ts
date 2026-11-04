@@ -7,6 +7,7 @@ import { expect } from "vitest";
 // By path, on purpose: the feature's package exports no way to start a Turn, and a test holds it to that.
 import {
   representative,
+  representativeFact,
   representativeTopic,
 } from "../../botsdk/representative/src/server/db/schema";
 import { customerDeliveryJobName } from "../../botsdk/representative/src/server/outbound-gate";
@@ -28,7 +29,14 @@ import { getTestDb } from "./test-database";
  */
 export const autoTopic = "general";
 
-/** Promotes `autoTopic` for the owner of `representativeId`. */
+/**
+ * The Published fact on `autoTopic` that `autoSource` cites. A reply goes out by itself only when
+ * every source is a fact of its topic, and has at least one, so such a test cites it.
+ */
+export const autoFact = { key: "general.note", type: "text", value: "Noted" } as const;
+export const autoSource = { type: "fact", key: autoFact.key } as const;
+
+/** Promotes `autoTopic` for the owner of `representativeId`, with the fact its replies cite. */
 export async function promoteAutoTopic(representativeId: string) {
   const [owner] = await getTestDb()
     .select({ userId: representative.userId })
@@ -38,6 +46,18 @@ export async function promoteAutoTopic(representativeId: string) {
   await getTestDb()
     .insert(representativeTopic)
     .values({ id: uuidv7(), userId: owner.userId, name: autoTopic, mode: "auto" })
+    .onConflictDoNothing();
+  const now = new Date();
+  await getTestDb()
+    .insert(representativeFact)
+    .values({
+      id: uuidv7(),
+      userId: owner.userId,
+      ...autoFact,
+      topic: autoTopic,
+      createdAt: now,
+      updatedAt: now,
+    })
     .onConflictDoNothing();
 }
 
@@ -135,4 +155,19 @@ export async function testCustomerTurn(
   const ended = await deps.runner.status(started.jobId);
   expect(ended?.status, ended?.lastError ?? undefined).toBe("succeeded");
   return started;
+}
+
+/**
+ * Approves every Reply draft the owner has waiting, as the owner would. A reply resting on a document,
+ * a Bot's result or memory, or on nothing, is always a draft, so a test of what it sends approves it.
+ */
+export async function approveDrafts(rpc: {
+  representative: {
+    replyDraftList: () => Promise<{ id: string }[]>;
+    replyDraftApprove: (input: { id: string }) => Promise<unknown>;
+  };
+}) {
+  for (const { id } of await rpc.representative.replyDraftList()) {
+    await rpc.representative.replyDraftApprove({ id });
+  }
 }

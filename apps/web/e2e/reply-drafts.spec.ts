@@ -102,6 +102,14 @@ test("an owner approves, edits and rejects the replies waiting for them", async 
   await page.getByRole("button", { name: "Add topic" }).click();
   const topic = page.locator('[data-topic-name="Refunds"]');
   await expect(topic).toContainText("draft");
+  await page
+    .getByRole("button", { name: "Let replies on topic Refunds send without your approval" })
+    .click();
+  await expect(topic).toContainText("auto");
+  await page
+    .getByRole("button", { name: "Make replies on topic Refunds wait for your approval" })
+    .click();
+  await expect(topic).toContainText("draft");
   await page.reload();
   await page.getByRole("button", { name: "Remove topic Refunds" }).click();
   await expect(topic).toHaveCount(0);

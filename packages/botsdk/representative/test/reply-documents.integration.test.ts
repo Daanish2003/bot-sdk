@@ -6,7 +6,11 @@ import { saveCredentials } from "@botsdk/bot/models/internal";
 import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { startTestCustomerTurn, testCustomerTurn } from "@ai-chat/test-support/test-customer";
+import {
+  approveDrafts,
+  startTestCustomerTurn,
+  testCustomerTurn,
+} from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
@@ -131,6 +135,7 @@ describe("a reply citing a document quote", () => {
     await rpc.representative.setEnabled({ id, enabled: true });
 
     await testCustomerTurn(deps, { representativeId: id, message: "Warranty?" });
+    await approveDrafts(rpc);
 
     expect(await sent()).toEqual([
       {
@@ -150,6 +155,7 @@ describe("a reply citing a document quote", () => {
     await rpc.representative.setEnabled({ id, enabled: true });
 
     await testCustomerTurn(deps, { representativeId: id, message: "Warranty?" });
+    await approveDrafts(rpc);
 
     const [summary] = await rpc.representative.threadList({ id });
     const { messages } = await rpc.representative.threadGet({ id: summary!.id });
@@ -193,6 +199,7 @@ describe("a reply citing a document quote", () => {
     await upload("draft-only.md", "Only in the draft.");
 
     await testCustomerTurn(deps, { representativeId: id, message: "Warranty?" });
+    await approveDrafts(rpc);
 
     expect(answersIn(fake.calls[1])[0]).toMatch(/Nothing was sent.*warranty\.md/);
     expect(answersIn(fake.calls[3])[2]).toMatch(/Nothing was sent.*draft-only\.md/);
@@ -245,6 +252,7 @@ describe("a reply citing a document quote", () => {
     await expect
       .poll(async () => (await deps.runner.status(running.jobId))?.status, poll)
       .toBe("succeeded");
+    await approveDrafts(rpc);
 
     // It started on the second Release: its warranty quote is refused, its returns quote goes through.
     expect(answersIn(fake.calls[1])[0]).toMatch(/Nothing was sent/);

@@ -15,6 +15,7 @@ import {
 import { holdCustomers } from "./customer-merge";
 import { nameIn, profilesOf } from "./customer-profile";
 import { catchCode, customerProofLeadsTo, mayHoldCode } from "./customer-proof";
+import { liftOptOut, keywordIn, optOut } from "./opt-out";
 import { type GateRefusal, passGate, storeAndDeliver } from "./outbound-gate";
 import { afterDraftHeld, replaceHeld } from "./reply-drafts";
 import { type ChannelProof, judgeSender } from "./verification";
@@ -146,7 +147,8 @@ async function judgeMessage(
  * Representative doesn't exist. It holds that row, so the owner's delete, which removes
  * Representatives before Customers, can't leave a Customer behind. It also holds the thread's row
  * until `tx` ends, so what it returns of the thread's Turn stays true for the caller. A blocked
- * Customer's message is stored all the same, for the owner (ticket #1251), and waits for no Turn. A
+ * Customer's message is stored all the same, for the owner (ticket #1251), and waits for no Turn; so
+ * is an opted-out Customer's, and the one that opts them out (ticket #1302). A
  * message holding the sender's code is stored as a note of what became of the code instead (ticket
  * #1256), so no model or prompt ever reads it.
  */
@@ -198,6 +200,16 @@ export async function receiveMessage(
   const customerId = stored === text ? heldCustomerId : await customerOfIdentity(tx, identityId);
   // A blocked Customer's messages renew nothing, so the lapse runs on through a block.
   const verified = !blocked && (await judgeMessage(tx, identityId, proof, now));
+  // An opted-out Customer's, and the one that opts them out, are kept for the owner and answered by no one.
+  const [heardIdentity] = await tx
+    .select({ optedOutAt: representativeCustomerIdentity.optedOutAt })
+    .from(representativeCustomerIdentity)
+    .where(eq(representativeCustomerIdentity.id, identityId))
+    // Before the thread's row, the order a Representative's flag takes them in.
+    .for("update");
+  const wasOptedOut = heardIdentity?.optedOutAt != null;
+  const keyword = stored === text ? keywordIn(heard.channel, text) : null;
+  const kept = blocked || wasOptedOut || keyword === "stop";
   const [thread] = await tx
     .insert(representativeThread)
     .values({
@@ -207,7 +219,7 @@ export async function receiveMessage(
       lastChannel: heard.channel,
       lastExternalId: heard.externalId,
       messageCount: 1,
-      ...(!blocked && { waitingFrom: 1, waitingSince: now }),
+      ...(!kept && { waitingFrom: 1, waitingSince: now }),
       createdAt: now,
       updatedAt: now,
     })
@@ -217,7 +229,7 @@ export async function receiveMessage(
       set: {
         ...(verified && { lastChannel: heard.channel, lastExternalId: heard.externalId }),
         messageCount: sql`${representativeThread.messageCount} + 1`,
-        ...(!blocked && {
+        ...(!kept && {
           waitingFrom: sql`coalesce(${representativeThread.waitingFrom}, ${representativeThread.messageCount} + 1)`,
           waitingSince: sql`coalesce(${representativeThread.waitingSince}, ${now.toISOString()}::timestamp)`,
         }),
@@ -245,8 +257,21 @@ export async function receiveMessage(
   });
   // What the gate held is stale now: the Customer has written since.
   await replaceHeld(tx, threadId, now, { ...heard, verified });
+  // After the thread's row is held, so a gate that decides after this commits sees it.
+  if (keyword === "stop") {
+    await optOut(services, tx, {
+      userId: owner.userId,
+      threadId,
+      heard,
+      verified,
+      source: "keyword",
+      now,
+    });
+  } else if (keyword === "start" && wasOptedOut) {
+    await liftOptOut(tx, owner.userId, heard);
+  }
   // Position 1 is a thread's first message: it has just been opened.
-  return { threadId, turnId, waitingSince, blocked, state, opened: position === 1 };
+  return { threadId, turnId, waitingSince, kept, state, opened: position === 1 };
 }
 
 /**
@@ -439,7 +464,7 @@ export async function storeReply(
   if (decision?.outcome !== "send")
     return {
       error:
-        "This thread is gone or no longer yours to answer (it may be held by the owner, its Customer blocked, or you switched off), so nothing was sent.",
+        "This thread is gone or no longer yours to answer (it may be held by the owner, its Customer blocked or opted out, or you switched off), so nothing was sent.",
     };
   await storeAndDeliver(
     services,
@@ -489,6 +514,8 @@ export async function exportCustomers(tx: Transaction, userId: string) {
         verifiedContactAt: representativeCustomerIdentity.verifiedContactAt,
         lapsedAt: representativeCustomerIdentity.lapsedAt,
         provenUntil: representativeCustomerIdentity.provenUntil,
+        optedOutAt: representativeCustomerIdentity.optedOutAt,
+        optOutSource: representativeCustomerIdentity.optOutSource,
         createdAt: representativeCustomerIdentity.createdAt,
       })
       .from(representativeCustomerIdentity)
@@ -561,6 +588,8 @@ export async function exportCustomers(tx: Transaction, userId: string) {
       verifiedContactAt: row.verifiedContactAt,
       lapsedAt: row.lapsedAt,
       provenUntil: row.provenUntil,
+      optedOutAt: row.optedOutAt,
+      optOutSource: row.optOutSource,
       createdAt: row.createdAt,
     })),
     threads: (threads.get(id) ?? []).map((thread) => ({

@@ -47,6 +47,7 @@ import type { ConvertDocument, KnowledgeFiles } from "./documents";
 import { representativeTestJob } from "./tests";
 import { deleteTopics, exportTopics } from "./topics";
 import { exportCustomerSummaries, customerSummaryJob } from "./customer-summary";
+import { draftDueJob } from "./draft-due";
 import { stopUserTurns } from "./thread-turns";
 import { handOffEndedJob, limitCheckJob, representativeTurnJob } from "./turn";
 
@@ -134,6 +135,7 @@ export function representativeFeature(
     jobs: [
       representativeTurnJob(options.concurrency, channel),
       customerDeliveryJob(channel),
+      draftDueJob,
       heldReleaseJob,
       handOffEndedJob,
       limitCheckJob,

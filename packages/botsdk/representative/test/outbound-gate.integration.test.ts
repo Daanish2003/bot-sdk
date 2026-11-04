@@ -8,7 +8,7 @@ import { exportUserData } from "@botsdk/bot/user-data";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { testCustomerTurn } from "@ai-chat/test-support/test-customer";
+import { testCustomerTurn, autoSource } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
@@ -18,6 +18,7 @@ import { storeReply } from "../src/server/customers";
 import {
   representative,
   representativeCustomer,
+  representativeCustomerIdentity,
   representativeHeldMessage,
   representativeOutboundDecision,
   representativeProfileValue,
@@ -47,7 +48,12 @@ type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 const quiet = () => round();
 const replies = (text: string) =>
-  round(toolCall({ name: "reply", input: { topic: "general", text, kind: "small_talk" } }));
+  round(
+    toolCall({
+      name: "reply",
+      input: { topic: "general", sources: [autoSource], text, kind: "small_talk" },
+    }),
+  );
 /** A reply no source backs: code refuses it. */
 const guesses = (text: string) =>
   round(toolCall({ name: "reply", input: { topic: "general", text, kind: "answer" } }));
@@ -189,7 +195,7 @@ const anotherReply = async (
         verified: false,
         businessStarted,
       },
-      { text: "Still here", sources: [], topic },
+      { text: "Still here", sources: topic === "general" ? [autoSource] : [], topic },
       "small_talk",
       now,
     ),
@@ -1038,6 +1044,40 @@ describe("quiet hours", () => {
       ]);
     expect(await held()).toEqual([]);
     expect(world.got()).toEqual([]);
+  });
+
+  it("keeps a held message from an opted-out Customer when quiet hours end", async () => {
+    const world = await instance([quiet()], undefined, night);
+    await heard(world);
+    await anotherReply(world, night, true);
+    // An opt-out that landed after the hold, as a race would leave it.
+    await getTestDb()
+      .update(representativeCustomerIdentity)
+      .set({ optedOutAt: night, optOutSource: "keyword" });
+
+    pass(world, 9 * hour);
+
+    await expect
+      .poll(() => outcomes(world), poll)
+      .toEqual([
+        ["reply", "hold", "quietHours"],
+        ["released", "drop", "optedOut"],
+      ]);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(world.got()).toEqual([]);
+  });
+
+  it("leaves nothing to release when the Customer says STOP during quiet hours", async () => {
+    const world = await instance([quiet()], undefined, night);
+    await heard(world);
+    await anotherReply(world, night, true);
+
+    await world.hears("STOP");
+    pass(world, 9 * hour);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(await held()).toEqual([]);
+    expect(world.got()).not.toContain("Still here");
   });
 
   it("holds what the caps stop when quiet hours end, and Pages once", async () => {

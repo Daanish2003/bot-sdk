@@ -144,11 +144,12 @@ async function readCustomers(
     blocked: customer.blockedAt !== null,
     createdAt: customer.createdAt,
     identities: (byCustomer.get(customer.id) ?? []).map(
-      ({ id, channel, externalId, verifiedContactAt }) => ({
+      ({ id, channel, externalId, verifiedContactAt, optedOutAt, optOutSource }) => ({
         id,
         channel,
         externalId,
         verified: isVerified({ verifiedContactAt }, now),
+        optedOut: optedOutAt && optOutSource ? { source: optOutSource, at: optedOutAt } : null,
       }),
     ),
   }));
@@ -291,6 +292,9 @@ export async function updateIdentity(
           verifiedContactAt: sql`case when ${sameAddress} then ${representativeCustomerIdentity.verifiedContactAt} end`,
           lapsedAt: sql`case when ${sameAddress} then ${representativeCustomerIdentity.lapsedAt} end`,
           provenUntil: sql`case when ${sameAddress} then ${representativeCustomerIdentity.provenUntil} end`,
+          // Another address is another person's to say: their STOP was to the old one.
+          optedOutAt: sql`case when ${sameAddress} then ${representativeCustomerIdentity.optedOutAt} end`,
+          optOutSource: sql`case when ${sameAddress} then ${representativeCustomerIdentity.optOutSource} end`,
         })
         .where(
           and(
@@ -394,6 +398,27 @@ export async function setBlocked(
         .set({ turnId: null, waitingFrom: null, waitingSince: null })
         .where(eq(representativeThread.customerId, id));
     }
+  });
+  return readCustomer(context, userId, id);
+}
+
+/** Clears the opt-out of one identity of a Customer of the owner's, as that Customer's START would. */
+export async function clearOptOut(
+  context: Context,
+  userId: string,
+  { id, identityId }: { id: string; identityId: string },
+) {
+  await context.db.transaction(async (tx) => {
+    await lockCustomer(tx, userId, id);
+    const identity = representativeCustomerIdentity;
+    const found = await tx
+      .update(identity)
+      .set({ optedOutAt: null, optOutSource: null })
+      .where(
+        and(eq(identity.id, identityId), eq(identity.customerId, id), eq(identity.userId, userId)),
+      )
+      .returning({ id: identity.id });
+    if (found.length === 0) throw customerNotFound();
   });
   return readCustomer(context, userId, id);
 }

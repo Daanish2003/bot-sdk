@@ -23,7 +23,7 @@ import {
   storeAndDeliver,
 } from "./outbound-gate";
 import { getThread } from "./owner-customers";
-import { customerBlocked, lockThread, threadClosed } from "./takeover";
+import { lockThread, refusedByGate, threadClosed } from "./takeover";
 
 /*
  * What the owner does with a message the Outbound gate held (ticket #1304): send it or drop it. Only a
@@ -77,7 +77,7 @@ async function ownedHeld(tx: Transaction, userId: string, heldId: string) {
 export async function sendHeldMessage(context: Context, userId: string, heldId: string) {
   const sent = await releaseHeld(context, userId, heldId, false);
   // After the commit, so the decision stays in the log.
-  if (sent.blocked) throw customerBlocked();
+  if (sent.blocked) throw refusedByGate(sent.rule);
   return getThread(context, userId, sent.threadId);
 }
 
@@ -138,6 +138,8 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
               text: message.text,
               verified: message.verified,
               topic: message.topic ?? undefined,
+              // The topic's mode alone isn't enough: its sources must belong to it.
+              sources: message.sources ?? undefined,
             },
           }
         : { content: { text: message.text, verified: message.verified } }),
@@ -148,8 +150,11 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
       await tx.delete(held).where(eq(held.id, heldId));
       return { blocked: false as const, threadId: found };
     }
+    if (decided.outcome === "drop") {
+      return { blocked: true as const, rule: decided.rule, threadId: found };
+    }
     if (decided.outcome !== "send") {
-      return { blocked: decided.outcome === "drop", threadId: found };
+      return { blocked: false as const, threadId: found };
     }
     await tx.delete(held).where(eq(held.id, heldId));
     await storeAndDeliver(

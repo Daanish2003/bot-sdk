@@ -86,7 +86,7 @@ export type CustomerMessage = z.infer<typeof customerMessage>;
  * Takes a Customer's message: stores it on its thread, and has a Turn answer it. Null when the
  * Representative doesn't exist and nothing was stored. Otherwise `jobId` is the job of the Turn now
  * holding the thread, which a later Turn follows if it has already begun, or null when the message
- * is kept with no Turn: a blocked Customer's, or one on a thread the owner holds.
+ * is kept with no Turn: a blocked or opted-out Customer's, or one on a thread the owner holds.
  * No route, RPC or API method reaches this: until a later spec lets real Customers in, only the test
  * Customer entry point in the private `@ai-chat/test-support` package does.
  */
@@ -106,11 +106,11 @@ export async function receiveCustomerMessage(
       now,
     });
     if (!received) return null;
-    const { threadId, turnId, waitingSince, blocked, state, opened } = received;
+    const { threadId, turnId, waitingSince, kept, state, opened } = received;
     // With the message, so a thread is never left without its closing job.
     if (opened) await queueIdleCheck(services, tx, threadId, now);
     // Kept for the owner, and nothing more: no model call, no reply and no Assignment.
-    if (blocked) return { jobId: null };
+    if (kept) return { jobId: null };
     // It waits for the owner, or for Hand back: no model call runs while they hold the thread.
     if (state === "owner") return { jobId: null };
     return {

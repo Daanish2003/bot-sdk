@@ -9,7 +9,11 @@ import { usage } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { promoteAutoTopic, testCustomerTurn } from "@ai-chat/test-support/test-customer";
+import {
+  autoSource,
+  promoteAutoTopic,
+  testCustomerTurn,
+} from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
@@ -54,7 +58,12 @@ const day = 24 * hour;
 const number = "+15550001";
 
 const replies = (text: string) =>
-  round(toolCall({ name: "reply", input: { text, kind: "small_talk", topic: "general" } }));
+  round(
+    toolCall({
+      name: "reply",
+      input: { text, kind: "small_talk", topic: "general", sources: [autoSource] },
+    }),
+  );
 
 const runners: JobRunner[] = [];
 afterEach(async () => {
@@ -274,6 +283,20 @@ describe("the thread cap", () => {
     expect(world.entered).toHaveLength(1);
     expect(world.got()).toEqual([limitNote]);
     expect(await world.pages()).toEqual(["thread_cap"]);
+  });
+
+  it("ends a Turn that opted the Customer out without a limit note or a Page", async () => {
+    const world = await instance([round(toolCall({ name: "flag_opt_out", input: {} })), round()]);
+    await world.setCaps({ threadCalls: 1 });
+
+    await world.hears("Please stop texting me");
+
+    await delivered(world, 1);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(world.got()).toHaveLength(1);
+    expect(world.got()).not.toContain(limitNote);
+    expect(world.entered).toHaveLength(1);
+    expect(await world.pages()).toEqual([]);
   });
 
   it("ends a Turn that has already answered without a note, so a lift sends no second answer", async () => {

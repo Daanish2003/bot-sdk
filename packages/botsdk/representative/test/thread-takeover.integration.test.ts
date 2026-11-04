@@ -12,6 +12,7 @@ import {
   claimPastDeliveries,
   fakeChannel,
   promoteAutoTopic,
+  autoSource,
 } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
@@ -40,7 +41,12 @@ type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 const quiet = () => round();
 const replies = (text: string) =>
-  round(toolCall({ name: "reply", input: { topic: "general", text, kind: "small_talk" } }));
+  round(
+    toolCall({
+      name: "reply",
+      input: { topic: "general", sources: [autoSource], text, kind: "small_talk" },
+    }),
+  );
 
 /** A gate a test opens, which opens by itself when the test ends. */
 function gate() {

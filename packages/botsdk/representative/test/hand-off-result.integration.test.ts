@@ -8,7 +8,12 @@ import { botAssignment, job } from "@botsdk/bot/storage";
 import { createTestSdk } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { fakeChannel, promoteAutoTopic } from "@ai-chat/test-support/test-customer";
+import {
+  approveDrafts,
+  fakeChannel,
+  promoteAutoTopic,
+  autoSource,
+} from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
@@ -48,7 +53,12 @@ const handsOff = () =>
     }),
   );
 const replies = (text: string) =>
-  round(toolCall({ name: "reply", input: { topic: "general", text, kind: "small_talk" } }));
+  round(
+    toolCall({
+      name: "reply",
+      input: { topic: "general", sources: [autoSource], text, kind: "small_talk" },
+    }),
+  );
 
 /** Relays the Bot's result, citing the Assignment the prompt names, or `cited`, with `quote`. */
 const relays = (quote: string, cited?: string) => (call: TextOptions) =>
@@ -337,7 +347,7 @@ describe("a hand-off's result", () => {
   });
 
   it("is a source for the reply that tells it, by its Assignment and an exact quote", async () => {
-    const { send, drain, thread } = await serving([
+    const { send, drain, thread, rpc } = await serving([
       handsOff(),
       quiet(),
       relays("refund of 20"),
@@ -346,6 +356,7 @@ describe("a hand-off's result", () => {
     await send("I want a refund");
 
     await drain();
+    await approveDrafts(rpc);
 
     const { messages } = await thread();
     expect(messages.at(-1)?.text).toBe("Good news: your refund is on its way.");

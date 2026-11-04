@@ -218,6 +218,13 @@ export function useSetCustomerBlocked(
   return useMutation(useRepresentative().customerSetBlocked.mutationOptions(options));
 }
 
+/** Clears an identity's opt-out (`representative.customerClearOptOut`). */
+export function useClearOptOut(
+  options?: ProcedureMutationOptions<Representative["customerClearOptOut"]>,
+) {
+  return useMutation(useRepresentative().customerClearOptOut.mutationOptions(options));
+}
+
 /** Merges one Customer into another (`representative.customerMerge`). */
 export function useMergeCustomer(
   options?: ProcedureMutationOptions<Representative["customerMerge"]>,
@@ -344,6 +351,13 @@ export function useTopics() {
 /** Adds a topic (`representative.topicAdd`). */
 export function useAddTopic(options?: ProcedureMutationOptions<Representative["topicAdd"]>) {
   return useMutation(useRepresentative().topicAdd.mutationOptions(options));
+}
+
+/** Promotes a topic to auto-send, or puts it back to draft (`representative.topicSetMode`). */
+export function useSetTopicMode(
+  options?: ProcedureMutationOptions<Representative["topicSetMode"]>,
+) {
+  return useMutation(useRepresentative().topicSetMode.mutationOptions(options));
 }
 
 /** Removes a topic (`representative.topicRemove`). */

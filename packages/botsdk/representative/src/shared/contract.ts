@@ -301,12 +301,17 @@ export type DraftDiff = {
   changes: DraftChange[];
 };
 
-/** One way of reaching a Customer: a Channel, that Channel's id for them, and whether it is verified now. */
+/** How an identity opted out of hearing from the business: a Channel's keyword, or a Representative's flag. */
+export type OptOutSource = "keyword" | "representative";
+
+/** One way of reaching a Customer: a Channel, that Channel's id for them, whether it is verified now, and whether they opted out of it. */
 export type CustomerIdentityView = {
   id: string;
   channel: string;
   externalId: string;
   verified: boolean;
+  /** Set once they opted out, and until they say START or the owner clears it: nothing is sent to them. */
+  optedOut: { source: OptOutSource; at: Date } | null;
 };
 
 /** The profile fields every Customer has: the name, which has its own path, and these. */
@@ -446,8 +451,20 @@ export type TopicView = {
   id: string;
   name: string;
   mode: "draft" | "auto";
+  /** How many of its Reply drafts the owner approved without editing. */
+  approvedUnedited: number;
+  /** True while it is still `draft` and has that many approvals: a suggestion, never a change. */
+  promotionSuggested: boolean;
   createdAt: Date;
 };
+
+/** The unedited approvals after which a topic is suggested for promotion. */
+export const promotionSuggestedAt = 20;
+
+export const topicSetModeInput = z.object({
+  id: z.uuid(),
+  mode: z.enum(["draft", "auto"]),
+});
 
 export const topicAddInput = z.object({
   name: storable(z.string().trim().min(1).max(maxFactTopicLength)),
@@ -501,6 +518,7 @@ export const customerUpdateIdentityInput = z.object({
   externalId: externalIdField,
 });
 export const customerSetBlockedInput = z.object({ id: z.uuid(), blocked: z.boolean() });
+export const customerClearOptOutInput = z.object({ id: z.uuid(), identityId: z.uuid() });
 export const customerMergeInput = z.object({ id: z.uuid(), intoId: z.uuid() });
 export const customerRenameInput = z.object({
   id: z.uuid(),
@@ -766,6 +784,8 @@ export const representativeContract = {
   customerUpdateIdentity: oc.input(customerUpdateIdentityInput).output(type<CustomerView>()),
   /** Blocks or unblocks a Customer: a blocked one's message is kept for the owner and answered by no one. */
   customerSetBlocked: oc.input(customerSetBlockedInput).output(type<CustomerView>()),
+  /** Clears an identity's opt-out, as its Customer's START does: the business may write to it again. */
+  customerClearOptOut: oc.input(customerClearOptOutInput).output(type<CustomerView>()),
   /**
    * Merges Customer `id` into `intoId`, whose thread goes on where both have one open with a
    * Representative. Refused while either is blocked. It verifies nobody, and can be undone.
@@ -820,6 +840,8 @@ export const representativeContract = {
   topicList: oc.output(type<TopicView[]>()),
   /** Adds a topic, at `draft`. Refused when the owner has that name already, ignoring case. */
   topicAdd: oc.input(topicAddInput).output(type<TopicView>()),
+  /** Promotes a topic to `auto` or puts it back to `draft`. Only the owner can: no tool or Model output does. */
+  topicSetMode: oc.input(topicSetModeInput).output(type<TopicView>()),
   /** Removes a topic: a reply labelled with it waits for the owner, as for any unknown topic. */
   topicRemove: oc.input(idInput).output(type<void>()),
   /** The Representatives' replies waiting for the owner, on threads they don't hold, oldest first. */

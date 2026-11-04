@@ -8,7 +8,7 @@ import { botAssignment, job } from "@botsdk/bot/storage";
 import { createTestSdk } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { fakeChannel, promoteAutoTopic } from "@ai-chat/test-support/test-customer";
+import { fakeChannel, promoteAutoTopic, autoSource } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
@@ -40,7 +40,12 @@ const handsOff = () =>
     }),
   );
 const replies = (text: string) =>
-  round(toolCall({ name: "reply", input: { topic: "general", text, kind: "small_talk" } }));
+  round(
+    toolCall({
+      name: "reply",
+      input: { topic: "general", sources: [autoSource], text, kind: "small_talk" },
+    }),
+  );
 
 const assignmentIdIn = (call: TextOptions) =>
   [
@@ -159,13 +164,15 @@ async function serving(
       for (let tries = 0; tries < 40; tries += 1) if (!(await runNext())) return;
       throw new Error("The jobs never ran out");
     },
-    send: async (message: string) =>
-      receiveCustomerMessage(feature.context, {
+    send: async (message: string) => {
+      await promoteAutoTopic(id);
+      return receiveCustomerMessage(feature.context, {
         representativeId: id,
         channel: fakeChannel,
         externalId: number,
         message,
-      }),
+      });
+    },
   };
 }
 

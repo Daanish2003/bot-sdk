@@ -1,10 +1,11 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import type { AssignmentEnded } from "@botsdk/bot";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import {
+  representativeCustomerIdentity,
   representativeHandOff,
   representativeThread,
   representativeThreadMessage,
@@ -57,7 +58,18 @@ export async function deliverHandOffResult(
   if (!thread) return;
   const now = services.clock();
   const nowSql = sql`${now.toISOString()}::timestamp`;
-  const wakes = thread.state === "representative" && !thread.blockedAt;
+  const [identity] = await tx
+    .select({ optedOutAt: representativeCustomerIdentity.optedOutAt })
+    .from(representativeCustomerIdentity)
+    .where(
+      and(
+        eq(representativeCustomerIdentity.userId, ended.userId),
+        eq(representativeCustomerIdentity.channel, handOff.channel),
+        eq(representativeCustomerIdentity.externalId, handOff.externalId),
+      ),
+    );
+  // A blocked or opted-out Customer is sent nothing, so no Turn is woken for them.
+  const wakes = thread.state === "representative" && !thread.blockedAt && !identity?.optedOutAt;
   const [updated] = await tx
     .update(representativeThread)
     .set({
