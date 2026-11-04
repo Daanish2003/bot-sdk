@@ -206,6 +206,7 @@ export async function checkReply(
     entries,
     documents,
     memory,
+    read,
   }: {
     userId: string;
     now: Date;
@@ -218,6 +219,8 @@ export async function checkReply(
     documents: DocumentText[];
     /** The verified Customer's memory this Turn read: a quote is checked against this and no other. */
     memory: CustomerMemory;
+    /** What `read_customer_work` answered this Turn, by Assignment: a quote may come from it too. */
+    read: Map<string, string[]>;
   },
 ): Promise<CheckedReply | ReturnType<typeof refused>> {
   if (brokenKey(text)) {
@@ -252,13 +255,14 @@ export async function checkReply(
   }
   for (const source of sources) {
     if (source.type !== "assignment") continue;
-    const told = entries.some(
-      (entry) =>
-        entry.author === "bot" &&
-        !entry.earlier &&
-        entry.assignmentId === source.assignmentId &&
-        entry.text.includes(source.quote),
-    );
+    const told =
+      entries.some(
+        (entry) =>
+          entry.author === "bot" &&
+          !entry.earlier &&
+          entry.assignmentId === source.assignmentId &&
+          entry.text.includes(source.quote),
+      ) || read.get(source.assignmentId)?.some((text) => text.includes(source.quote));
     if (!told) {
       return refused(
         `no result of Assignment "${source.assignmentId}" that this Turn is to tell has that exact quote.`,

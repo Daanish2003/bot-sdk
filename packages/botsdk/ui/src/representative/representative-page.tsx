@@ -38,6 +38,7 @@ const toolKeys = {
   reply: "representative.toolReply",
   hand_to_bot: "representative.toolHandToBot",
   verify_customer: "representative.toolVerifyCustomer",
+  read_customer_work: "representative.toolReadCustomerWork",
 } as const satisfies Record<RepresentativeTool, string>;
 
 /** The draft's fields that Save draft saves: its documents change on their own. */
