@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { defineJob } from "@botsdk/bot/runner/internal";
-import type { CustomerChannel } from "./customer-proof";
+import type { ChannelOf } from "./customer-proof";
 import {
   representative,
   representativeCustomer,
@@ -62,8 +62,11 @@ export async function queueAssignmentDue(
  * Paged, and the Customer gets the holding note through the Outbound gate, if the Representative still
  * holds the thread. The flag is set once, so the Page and the note go once.
  */
-export const assignmentDueJob = (channel: CustomerChannel) =>
-  defineJob<z.infer<typeof assignmentDuePayload>, FeatureContext<"assignments" | "pages">>({
+export const assignmentDueJob = (channelOf: ChannelOf) =>
+  defineJob<
+    z.infer<typeof assignmentDuePayload>,
+    FeatureContext<"assignments" | "channelAccounts" | "pages">
+  >({
     name: assignmentDueJobName,
     payload: assignmentDuePayload,
     run: async ({ assignmentId }, job) => {
@@ -101,7 +104,7 @@ export const assignmentDueJob = (channel: CustomerChannel) =>
             threadId: row.threadId,
             to,
             now,
-            channel,
+            channel: channelOf(job),
             // The business speaks unprompted: quiet hours hold it until they end.
             businessStarted: true,
             jobs: job.jobs,

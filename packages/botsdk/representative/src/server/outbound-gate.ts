@@ -8,7 +8,7 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { defineJob } from "@botsdk/bot/runner/internal";
 import { limitNoteKind, type ReplySource, type StoredReplyKind } from "../shared/replies";
-import { type CustomerChannel } from "./customer-proof";
+import { type ChannelOf, type CustomerChannel } from "./customer-proof";
 import { combinedProfilesOf } from "./customer-profile";
 import { holdThreadCustomer } from "./customers";
 import {
@@ -785,10 +785,11 @@ async function logNotDelivered(
  * decision: a Customer blocked or opted out since gets nothing, and neither does an address no longer
  * theirs, which may be someone else's. A thread deleted since sends nothing.
  */
-export const customerDeliveryJob = (channel: CustomerChannel) =>
-  defineJob<z.infer<typeof deliveryPayload>>({
+export const customerDeliveryJob = (channelOf: ChannelOf, concurrency: number) =>
+  defineJob<z.infer<typeof deliveryPayload>, FeatureContext<"channelAccounts">>({
     name: customerDeliveryJobName,
     payload: deliveryPayload,
+    concurrency,
     run: async ({ decisionId }, job) => {
       const decision = representativeOutboundDecision;
       const [row] = await job.db
@@ -796,6 +797,7 @@ export const customerDeliveryJob = (channel: CustomerChannel) =>
           channel: decision.channel,
           externalId: decision.externalId,
           kind: decision.kind,
+          representativeId: representativeThread.representativeId,
           text: representativeThreadMessage.text,
           blockedAt: representativeCustomer.blockedAt,
           identityId: representativeCustomerIdentity.id,
@@ -833,7 +835,11 @@ export const customerDeliveryJob = (channel: CustomerChannel) =>
         await logNotDelivered(job.db, decisionId, stopped, job.clock());
         return;
       }
-      await channel.send({ channel: row.channel, externalId: row.externalId }, { text: row.text });
+      await channelOf(job).send(
+        { channel: row.channel, externalId: row.externalId },
+        { text: row.text },
+        { representativeId: row.representativeId },
+      );
     },
     onFailed: ({ decisionId }, _error, { db, clock }) =>
       logNotDelivered(db, decisionId, notDelivered.failed, clock()),

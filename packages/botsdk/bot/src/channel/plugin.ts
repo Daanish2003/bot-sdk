@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import type { BotSdkPlugin, Transaction } from "../plugin";
 import type { EmailChannel, InboundMail } from "./email";
-import type { MessagingAdapter } from "./messaging";
+import type { MessagingAdapter, MessagingReach } from "./messaging";
 import type { WebPushChannel } from "./push";
 
 /**
@@ -145,6 +145,10 @@ export type ChannelApi = {
    * reaches it through its `channelAccounts` service.
    */
   saveHeldAccount: (input: HeldAccountInput) => Promise<ChannelAccountRow>;
+  /** Sends `message` through account `id`, which a feature holds. See `ChannelAccountsService`. */
+  sendHeld: (id: string, message: { chatId: string; text: string }) => Promise<void>;
+  /** What the messaging adapter of `platform` limits, or undefined when the Host has no such adapter. */
+  reach: (platform: string) => MessagingReach | undefined;
   /** The user's Linked identities on the messaging Channels (spec #1044). */
   identities: LinkedIdentitiesApi;
 };

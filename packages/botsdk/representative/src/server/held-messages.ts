@@ -28,7 +28,7 @@ import { answersCustomer } from "../shared/replies";
 import { combinedProfilesOf, nameIn } from "./customer-profile";
 import { getThread, listRunningThreads } from "./owner-customers";
 import { replyDraftsTruncated, settleLeftForOwner } from "./reply-drafts";
-import type { CustomerChannel } from "./customer-proof";
+import type { ChannelOf } from "./customer-proof";
 import { lockThread, refusedByGate, threadClosed } from "./takeover";
 
 /*
@@ -204,10 +204,11 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
  * sent or dropped it, or a new Customer message replaced it, and then there is nothing to send. A
  * Customer blocked since, or a closed thread, leaves it held for the owner to drop.
  */
-export const heldReleaseJob = (channel: CustomerChannel) =>
-  defineJob<z.infer<typeof heldReleasePayload>>({
+export const heldReleaseJob = (channelOf: ChannelOf, concurrency: number) =>
+  defineJob<z.infer<typeof heldReleasePayload>, FeatureContext<"channelAccounts">>({
     name: heldReleaseJobName,
     payload: heldReleasePayload,
+    concurrency,
     run: async ({ heldId }, job) => {
       const held = representativeHeldMessage;
       const [row] = await job.db
@@ -218,7 +219,7 @@ export const heldReleaseJob = (channel: CustomerChannel) =>
         .where(eq(held.id, heldId));
       if (!row) return;
       try {
-        await releaseHeld({ ...job, channel }, row.userId, heldId, true);
+        await releaseHeld({ ...job, channel: channelOf(job) }, row.userId, heldId, true);
       } catch (error) {
         if (!(error instanceof ORPCError)) throw error;
       }

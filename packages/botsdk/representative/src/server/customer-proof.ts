@@ -41,13 +41,23 @@ export type Proof = { kind: "code" | "link"; secret: string };
 
 /** How messages reach a Customer; a Channel's Customer path supplies this. A throw means it didn't go. */
 export type CustomerChannel = {
-  send: (to: { channel: string; externalId: string }, message: { text: string }) => Promise<void>;
+  send: (
+    to: { channel: string; externalId: string },
+    message: { text: string },
+    /** The Representative whose thread it's on, whose account it goes through. */
+    via: { representativeId: string },
+  ) => Promise<void>;
   sendProof: (to: { channel: string; externalId: string }, proof: Proof) => Promise<void>;
   /** What the platform of `channel` limits, as its adapter declares it; left out, nothing is limited. */
   reach?: (channel: string) => MessagingReach | undefined;
 };
 
-/** No real Channel reaches a Customer yet (spec #1172), so by default nothing goes anywhere. */
+/** The Channel of whatever `context` a job or the API runs with. */
+export type ChannelOf = (
+  context: Pick<FeatureContext<"channelAccounts">, "db" | "channelAccounts">,
+) => CustomerChannel;
+
+/** A Channel that reaches nobody, for what a test Customer sends. */
 export const noCustomerChannel: CustomerChannel = {
   send: async () => {},
   sendProof: async () => {},

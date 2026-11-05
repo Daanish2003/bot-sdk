@@ -133,13 +133,22 @@ async function holderOwner(sdk: BotSdkContext, tx: Transaction, id: string) {
   return null;
 }
 
+/** The enabled feature that names itself as holding account `id`, or null when none does. */
+export async function featureHolding(sdk: BotSdkContext, id: string) {
+  return sdk.db.transaction(async (tx) => {
+    for (const enabled of sdk.parts.features) {
+      if (await enabled.feature.channelAccountOwner?.(tx, id, enabled.context)) return enabled;
+    }
+    return null;
+  });
+}
+
 /** Whether an account's messages have someone to reach: its Bot, or an enabled feature's holder. */
 export async function hasHolder(
   sdk: BotSdkContext,
   { id, botId }: Pick<AccountRow, "id" | "botId">,
 ): Promise<boolean> {
-  if (botId !== null) return true;
-  return sdk.db.transaction(async (tx) => (await holderOwner(sdk, tx, id)) !== null);
+  return botId !== null || (await featureHolding(sdk, id)) !== null;
 }
 
 /**

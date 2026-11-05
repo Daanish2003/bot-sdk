@@ -93,8 +93,8 @@ export type CustomerMessage = z.infer<typeof customerMessage>;
  * holding the thread, which a later Turn follows if it has already begun, or null when the message
  * is kept with no Turn: a blocked or opted-out Customer's, one that set off the emergency script, or
  * one on a thread the owner holds.
- * No route, RPC or API method reaches this: until a later spec lets real Customers in, only the test
- * Customer entry point in the private `@ai-chat/test-support` package does.
+ * No route, RPC or API method reaches this: the core's stranger hook does (`strangers.ts`), and the
+ * test Customer entry point in the private `@ai-chat/test-support` package.
  */
 export async function receiveCustomerMessage(
   services: Services & Pick<FeatureContext<"pages">, "keyring" | "logger" | "pages"> & ViaChannel,
