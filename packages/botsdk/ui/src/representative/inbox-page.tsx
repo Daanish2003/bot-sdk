@@ -34,6 +34,10 @@ type Item =
   | { key: string; kind: "draft"; draft: ReplyDraftView }
   | { key: string; kind: "held"; held: InboxHeldView };
 
+const heldRules = ["caps", "quietHours", "channel", "topicAtRelease"] as const;
+const isHeldRule = (rule: string): rule is (typeof heldRules)[number] =>
+  (heldRules as readonly string[]).includes(rule);
+
 const whoOf = (name: string | null, to: { channel: string; externalId: string }) =>
   name ?? `${to.channel}: ${to.externalId}`;
 
@@ -106,7 +110,11 @@ function HeldDetail({ held }: { held: InboxHeldView }) {
       <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
         <span>{t("representative.drafts.to", { who: whoOf(held.customerName, held) })}</span>
         <span>{t("representative.inbox.from", { name: held.representativeName })}</span>
-        <span>{t("representative.inbox.heldBy", { rule: held.rule })}</span>
+        <span>
+          {isHeldRule(held.rule)
+            ? t(`representative.inbox.heldRule.${held.rule}`)
+            : t("representative.inbox.heldBy", { rule: held.rule })}
+        </span>
       </div>
       <p className="text-sm text-muted-foreground">{t("representative.inbox.heldIntro")}</p>
       {/* The Model wrote it: React shows it as text, never as markup. */}
@@ -259,6 +267,11 @@ export function InboxPage() {
               ))}
             </ul>
           )}
+          {(inbox.data?.truncated.held || inbox.data?.truncated.drafts) && (
+            <p className="text-xs text-muted-foreground">
+              {t("representative.inbox.queueTruncated")}
+            </p>
+          )}
         </div>
         <div className="rounded-xl border" data-inbox-detail-pane>
           {current === undefined ? (
@@ -318,6 +331,11 @@ export function InboxPage() {
               </li>
             ))}
           </ul>
+        )}
+        {inbox.data?.truncated.running && (
+          <p className="text-xs text-muted-foreground">
+            {t("representative.inbox.runningTruncated")}
+          </p>
         )}
       </section>
     </main>

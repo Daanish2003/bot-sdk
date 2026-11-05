@@ -229,6 +229,14 @@ export const representativeMessages = {
   "representative.inbox.page": "Page",
   "representative.inbox.from": ({ name }: { name: string }) => `From ${name}`,
   "representative.inbox.heldBy": ({ rule }: { rule: string }) => `Held by the rule: ${rule}`,
+  "representative.inbox.heldRule.caps": "Held by your limits on how much it may send",
+  "representative.inbox.heldRule.quietHours": "Held for quiet hours",
+  "representative.inbox.heldRule.channel": "Held by the Channel's limits",
+  "representative.inbox.heldRule.topicAtRelease":
+    "Held by its topic, which you haven't let send by itself",
+  "representative.inbox.queueTruncated":
+    "There is more than this list shows. Answer the oldest to see the next.",
+  "representative.inbox.runningTruncated": "Showing the most recently active threads.",
   "representative.inbox.heldIntro":
     "The Customer hasn't got this. Send it as your own message, or drop it.",
   "representative.inbox.send": "Send",
