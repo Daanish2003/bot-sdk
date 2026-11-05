@@ -5,7 +5,7 @@ import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { channelAccount } from "@botsdk/bot/storage";
 import { representative, representativeChannelAccount } from "./db/schema";
-import { ownedRow } from "./representatives";
+import { requireOwned } from "./representatives";
 
 /*
  * The Channel accounts a Representative holds (ticket #1331, ADR 0033). The core stores and encrypts
@@ -29,14 +29,14 @@ export async function connectChannelAccount(
   },
 ): Promise<ChannelAccountRow> {
   const { userId, representativeId, platform, credentials } = input;
-  await ownedRow(db, userId, representativeId);
+  await requireOwned(db, userId, representativeId);
   return channelAccounts.save({
     userId,
     platform,
     credentials,
     hold: async (tx, channelAccountId) => {
       // Locked, so a delete of the Representative can't pass this and leave the account behind.
-      await ownedRow(tx, userId, representativeId, true);
+      await requireOwned(tx, userId, representativeId, true);
       await tx
         .insert(representativeChannelAccount)
         .values({ channelAccountId, representativeId })
@@ -64,7 +64,7 @@ export async function listChannelAccounts(
   userId: string,
   representativeId: string,
 ) {
-  await ownedRow(db, userId, representativeId);
+  await requireOwned(db, userId, representativeId);
   return db
     .select(heldColumns)
     .from(representativeChannelAccount)
@@ -104,7 +104,12 @@ export async function removeHeldAccounts(
     .from(representative)
     .where(eq(representative.userId, userId))
     .for("update");
-  const ids = (await heldBy(tx, userId)).map((row) => row.id);
+  const rows = await tx
+    .select({ id: representativeChannelAccount.channelAccountId })
+    .from(representativeChannelAccount)
+    .innerJoin(representative, eq(representative.id, representativeChannelAccount.representativeId))
+    .where(eq(representative.userId, userId));
+  const ids = rows.map((row) => row.id);
   await channelAccounts.removeIn(tx, ids);
   return ids;
 }

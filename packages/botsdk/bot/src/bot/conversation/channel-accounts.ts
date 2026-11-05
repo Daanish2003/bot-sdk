@@ -24,14 +24,17 @@ import { findBot } from "./store";
 
 type AccountRow = typeof channelAccount.$inferSelect;
 
+/** What binds an account's credentials: its platform and Bot, or, held by a feature, its own id. */
+type AccountKey = Pick<AccountRow, "id" | "botId" | "platform">;
+
 /**
- * The keyring options of an account's credentials, bound to its platform and its Bot, or, held by a
- * feature, its own id: the core can't read who a feature's holder is.
+ * The keyring options of an account's credentials. A held account binds to its own id, as the core
+ * can't read who a feature's holder is.
  */
-const encryption = (sdk: BotSdkContext, botOrAccountId: string, platform: string) => ({
+const encryption = (sdk: BotSdkContext, { id, botId, platform }: AccountKey) => ({
   secrets: sdk.keyring,
   kind: "channel" as const,
-  context: `${botOrAccountId}:${platform}`,
+  context: `${botId ?? id}:${platform}`,
 });
 
 /** The messaging adapter of `platform`, or NOT_FOUND. */
@@ -149,6 +152,46 @@ async function accountOfPlatformBot(
 }
 
 /**
+ * Writes the account at `key`, active, with `credentials` encrypted. A Bot's existing account on the
+ * platform takes the new platform bot; a held one keeps its own row and id, which its credentials bind to.
+ */
+async function writeAccount(
+  sdk: BotSdkContext,
+  tx: Transaction,
+  key: AccountKey,
+  checked: { platformBotId: string; handle: string },
+  credentials: Record<string, string>,
+) {
+  const now = sdk.clock();
+  const encrypted = encryptCredentials(credentials, encryption(sdk, key));
+  const [saved] = await tx
+    .insert(channelAccount)
+    .values({
+      ...key,
+      platformBotId: checked.platformBotId,
+      handle: checked.handle,
+      encrypted,
+      status: "active",
+      reason: null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: key.botId ? [channelAccount.botId, channelAccount.platform] : channelAccount.id,
+      set: {
+        platformBotId: checked.platformBotId,
+        handle: checked.handle,
+        encrypted,
+        status: "active",
+        reason: null,
+        updatedAt: now,
+      },
+    })
+    .returning();
+  return saved!;
+}
+
+/**
  * Runs `write`, once more on a clash: a save of the same platform bot raced it, and the row that
  * save wrote is there to move or refuse.
  */
@@ -181,9 +224,6 @@ export async function saveChannelAccount(
   await ownBot(sdk, adapters, userId, botId);
   const adapter = adapterOf(adapters, platform);
   const { credentials, checked } = await acceptedCredentials(sdk, adapter, given);
-
-  const encrypted = encryptCredentials(credentials, encryption(sdk, botId, platform));
-  const now = sdk.clock();
   return retryingClash(() =>
     sdk.db.transaction(async (tx) => {
       const changed: string[] = [];
@@ -194,33 +234,14 @@ export async function saveChannelAccount(
         await tx.delete(channelAccount).where(eq(channelAccount.id, elsewhere.id));
         changed.push(elsewhere.id);
       }
-      const [saved] = await tx
-        .insert(channelAccount)
-        .values({
-          id: uuidv7(),
-          botId,
-          platform,
-          platformBotId: checked.platformBotId,
-          handle: checked.handle,
-          encrypted,
-          status: "active",
-          reason: null,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: [channelAccount.botId, channelAccount.platform],
-          set: {
-            platformBotId: checked.platformBotId,
-            handle: checked.handle,
-            encrypted,
-            status: "active",
-            reason: null,
-            updatedAt: now,
-          },
-        })
-        .returning();
-      changed.push(saved!.id);
+      const saved = await writeAccount(
+        sdk,
+        tx,
+        { id: uuidv7(), botId, platform },
+        checked,
+        credentials,
+      );
+      changed.push(saved.id);
       return { row: rowOf(adapter, saved), changed };
     }),
   );
@@ -239,7 +260,6 @@ export async function saveHeldChannelAccount(
 ): Promise<{ row: ChannelAccountRow; changed: string[] }> {
   const adapter = adapterOf(adapters, platform);
   const { credentials, checked } = await acceptedCredentials(sdk, adapter, given);
-  const now = sdk.clock();
   return retryingClash(() =>
     sdk.db.transaction(async (tx) => {
       const changed: string[] = [];
@@ -250,32 +270,13 @@ export async function saveHeldChannelAccount(
         changed.push(elsewhere.id);
       }
       const id = elsewhere && !elsewhere.botId ? elsewhere.id : uuidv7();
-      const encrypted = encryptCredentials(credentials, encryption(sdk, id, platform));
-      const [saved] = await tx
-        .insert(channelAccount)
-        .values({
-          id,
-          botId: null,
-          platform,
-          platformBotId: checked.platformBotId,
-          handle: checked.handle,
-          encrypted,
-          status: "active",
-          reason: null,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: channelAccount.id,
-          set: {
-            handle: checked.handle,
-            encrypted,
-            status: "active",
-            reason: null,
-            updatedAt: now,
-          },
-        })
-        .returning();
+      const saved = await writeAccount(
+        sdk,
+        tx,
+        { id, botId: null, platform },
+        checked,
+        credentials,
+      );
       await hold(tx, id);
       changed.push(id);
       return { row: rowOf(adapter, saved), changed };
@@ -344,10 +345,7 @@ export async function channelAccountIdsOf(
 export async function listenerAccount(sdk: BotSdkContext, id: string) {
   const [row] = await sdk.db.select().from(channelAccount).where(eq(channelAccount.id, id));
   if (!row) return null;
-  const decrypted = decryptCredentials(
-    row.encrypted,
-    encryption(sdk, row.botId ?? row.id, row.platform),
-  );
+  const decrypted = decryptCredentials(row.encrypted, encryption(sdk, row));
   const account: MessagingAccount | null = decrypted.ok
     ? {
         id: row.id,
@@ -393,7 +391,7 @@ async function rotateOnce(sdk: BotSdkContext, batchSize: number) {
       .orderBy(asc(channelAccount.id))
       .limit(batchSize);
     for (const row of rows) {
-      const options = encryption(sdk, row.botId ?? row.id, row.platform);
+      const options = encryption(sdk, row);
       const decrypted = decryptCredentials(row.encrypted, options);
       if (!decrypted.ok) {
         result.unreadable += 1;
