@@ -13,7 +13,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-import { bot, botAssignment, botsdkSchema } from "@botsdk/bot/storage";
+import { bot, botAssignment, botsdkSchema, channelAccount } from "@botsdk/bot/storage";
 import { defaultSpendingCaps } from "../../shared/contract";
 import type { ChannelProofRule } from "../verification";
 import type { ReplySource, StoredReplyKind } from "../../shared/replies";
@@ -750,4 +750,24 @@ export const representativeTopic = botsdkSchema.table(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [uniqueIndex("representative_topic_name").on(table.userId, sql`lower(${table.name})`)],
+);
+
+/**
+ * A Channel account a Representative holds (ticket #1331, ADR 0033), kept here because a feature adds
+ * no column to a core table. Triggers in this table's migration refuse an account with no holder or
+ * two, so deleting a Representative deletes its accounts first. One Representative holds any number.
+ */
+export const representativeChannelAccount = botsdkSchema.table(
+  "representative_channel_account",
+  {
+    channelAccountId: uuid("channel_account_id")
+      .primaryKey()
+      .references((): AnyPgColumn => channelAccount.id, { onDelete: "cascade" }),
+    representativeId: uuid("representative_id")
+      .notNull()
+      .references((): AnyPgColumn => representative.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    index("representative_channel_account_representative_id_idx").on(table.representativeId),
+  ],
 );

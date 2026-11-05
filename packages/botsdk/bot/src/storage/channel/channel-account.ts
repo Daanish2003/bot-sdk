@@ -11,18 +11,18 @@ export const channelAccountStatus = botsdkSchema.enum("channel_account_status", 
 ]);
 
 /**
- * A Channel account (spec #1044, ADR 0033): the platform bot one Bot is on a messaging Channel,
- * made by the user on that platform and added with its credentials. One per Bot and platform, and
- * one platform bot is on one Bot only. Deleting the Bot deletes it.
+ * A Channel account (spec #1044, ADR 0033): the platform bot one holder is on a messaging Channel,
+ * made by the user on that platform and added with its credentials. Its holder is one Bot, or one
+ * Representative, whose feature keeps that link in its own table. A Bot holds one per platform, and
+ * one platform bot is on one holder only. Deleting the Bot deletes it.
  */
 export const channelAccount = botsdkSchema.table(
   "channel_account",
   {
     /** uuidv7, generated in app code. */
     id: uuid("id").primaryKey(),
-    botId: uuid("bot_id")
-      .notNull()
-      .references((): AnyPgColumn => bot.id, { onDelete: "cascade" }),
+    /** The Bot that holds it; null when a feature holds it (ticket #1331). */
+    botId: uuid("bot_id").references((): AnyPgColumn => bot.id, { onDelete: "cascade" }),
     /** The messaging adapter's id, such as `telegram`. */
     platform: text("platform").notNull(),
     /** The platform's id of the platform bot (Telegram's bot user id). */

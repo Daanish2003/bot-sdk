@@ -46,8 +46,8 @@ export class MessagingFileTooLargeError extends Error {
 export type MessagingAccount<Field extends string = string> = {
   /** The Channel account's id. */
   id: string;
-  /** The Bot it belongs to. */
-  botId: string;
+  /** The Bot that holds it; null when a feature holds it (ticket #1331). */
+  botId: string | null;
   /** The platform's id of the platform bot. */
   platformBotId: string;
   /** The platform bot's display handle, such as `@ada_bot`. */

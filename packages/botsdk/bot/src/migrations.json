@@ -90,5 +90,9 @@
   {
     "name": "20261104135900_pages",
     "sql": "CREATE TYPE \"botsdk\".\"page_urgency\" AS ENUM('routine', 'emergency');--> statement-breakpoint\nCREATE TABLE \"botsdk\".\"page\" (\n\t\"id\" uuid PRIMARY KEY,\n\t\"user_id\" text NOT NULL,\n\t\"cause\" text NOT NULL,\n\t\"urgency\" \"botsdk\".\"page_urgency\" NOT NULL,\n\t\"title\" text NOT NULL,\n\t\"text\" text NOT NULL,\n\t\"path\" text NOT NULL,\n\t\"created_at\" timestamp NOT NULL,\n\t\"acknowledged_at\" timestamp\n);\n--> statement-breakpoint\nCREATE INDEX \"page_user_id_created_at_idx\" ON \"botsdk\".\"page\" (\"user_id\",\"created_at\");"
+  },
+  {
+    "name": "20261105120135_channel_account_optional_bot",
+    "sql": "ALTER TABLE \"botsdk\".\"channel_account\" ALTER COLUMN \"bot_id\" DROP NOT NULL;"
   }
 ]

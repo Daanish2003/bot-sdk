@@ -126,13 +126,27 @@ async function requireOwnedBot(db: Context["db"], userId: string, botId: string)
   if (!owned) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
 }
 
+const isOwned = (userId: string, id: string) =>
+  and(eq(representative.id, id), eq(representative.userId, userId));
+
+/** Throws NOT_FOUND unless the user has Representative `id`; with `lock`, holds its row until `db` ends. */
+export async function requireOwned(
+  db: Context["db"] | Transaction,
+  userId: string,
+  id: string,
+  lock = false,
+) {
+  const query = db
+    .select({ id: representative.id })
+    .from(representative)
+    .where(isOwned(userId, id));
+  const [row] = await (lock ? query.for("update") : query);
+  if (!row) throw notFound();
+}
+
 /** The owner's row, or a not-found that is the same for a row that doesn't exist and another owner's. */
 async function ownedRow(db: Context["db"] | Transaction, userId: string, id: string, lock = false) {
-  const query = db
-    .select()
-    .from(representative)
-    .where(and(eq(representative.id, id), eq(representative.userId, userId)))
-    .limit(1);
+  const query = db.select().from(representative).where(isOwned(userId, id)).limit(1);
   const [row] = await (lock ? query.for("update") : query);
   if (!row) throw notFound();
   return { ...row, draft: normalizedDraft(row.draft) };

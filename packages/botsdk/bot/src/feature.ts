@@ -22,6 +22,7 @@ import type { BotSdkContext, BotSdkPlugin, Route, Transaction } from "./plugin";
 import { requireAuth } from "./procedures";
 import type { RepresentativeLoopService } from "./bot/agent-loop";
 import type { AssignmentsService } from "./bot/assignments";
+import type { ChannelAccountsService } from "./bot/channels";
 import type { PagesService } from "./bot/pages-api";
 import type { FactApprovalsService, ReleaseApprovalsService } from "./bot/safety";
 import type { ComputerApi } from "./computer/internal";
@@ -37,6 +38,7 @@ import type { EnqueueOptions, JobDefinition } from "./runner/internal";
 /** The core services a feature may declare in `needs`. */
 export type CoreService =
   | "assignments"
+  | "channelAccounts"
   | "computer"
   | "factApprovals"
   | "models"
@@ -50,6 +52,7 @@ export type ThreadsService = { hintChanged: (conversationId: string) => Promise<
 
 type Services = {
   assignments: AssignmentsService;
+  channelAccounts: ChannelAccountsService;
   computer: ComputerApi;
   models: ModelsApi;
   pages: PagesService;
@@ -339,6 +342,17 @@ export type FeatureDefinition<
    */
   stopTurns?: (userId: string, context: FeatureContext<Needs>) => Promise<void>;
   /**
+   * The user whose holder of Channel account `id` the feature keeps, or null when it isn't the feature's
+   * (ticket #1331). Saving an account reads it, in the save's transaction, so the account moves only
+   * between one user's holders. A move between two features' holders isn't built: one feature holds
+   * accounts today.
+   */
+  channelAccountOwner?: (
+    tx: Transaction,
+    id: string,
+    context: FeatureContext<Needs>,
+  ) => Promise<string | null>;
+  /**
    * What the Turn changed of the feature, read from its transcript as the Turn ends (stopped and
    * lost ones too, from what they recorded), with no reads or writes: the core stores it on the
    * Turn. A throw is logged and stores none of the feature's changes.
@@ -485,6 +499,7 @@ const coreTableNames = new Set(
 
 const serviceNames: Record<CoreService, string> = {
   assignments: "the Assignments",
+  channelAccounts: "the Channel accounts",
   computer: "the Computer",
   factApprovals: "the fact Approvals",
   models: "the Models",
@@ -581,6 +596,7 @@ export function enableFeature(
   releaseApprovals: ReleaseApprovalsService,
   factApprovals: FactApprovalsService,
   pages: PagesService,
+  channelAccounts: ChannelAccountsService,
 ): EnabledFeature {
   const needs = feature.needs ?? [];
   const context: FeatureContext<CoreService> = {
@@ -591,6 +607,7 @@ export function enableFeature(
     ...(needs.includes("releaseApprovals") && { releaseApprovals }),
     ...(needs.includes("factApprovals") && { factApprovals }),
     ...(needs.includes("pages") && { pages }),
+    ...(needs.includes("channelAccounts") && { channelAccounts }),
   };
   return {
     feature,

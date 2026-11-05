@@ -1,0 +1,1 @@
+ALTER TABLE "botsdk"."channel_account" ALTER COLUMN "bot_id" DROP NOT NULL;
