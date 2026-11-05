@@ -169,6 +169,16 @@ const messagesOf = async (deps: TestDeps, userId: string, externalId: string) =>
     .find((customer) => customer.identities.some((each) => each.externalId === externalId))!
     .threads.flatMap((thread) => thread.messages);
 
+/**
+ * The same 32 bytes in other text: a SHA-256 in base64url has 2 unused bits in its last character, so
+ * the next character of the alphabet decodes the same.
+ */
+const otherSpelling = (signature: string) => {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const next = alphabet[alphabet.indexOf(signature.at(-1)!) + 1]!;
+  return `${signature.slice(0, -1)}${next}`;
+};
+
 const sms = (id: string, message: string): TestCustomerTurn => ({
   representativeId: id,
   channel: "sms",
@@ -403,6 +413,19 @@ describe("what a code allows", () => {
     await blocker;
 
     expect(await asked).toBeNull();
+  });
+
+  it("passes only the stored hash as it was written, not another spelling of its bytes", async () => {
+    const { deps, id, user, code } = await codeSent([quiet()]);
+    const [row] = await getTestDb().select().from(representativeVerification);
+    await getTestDb()
+      .update(representativeVerification)
+      .set({ codeHash: otherSpelling(row!.codeHash!) })
+      .where(eq(representativeVerification.id, row!.id));
+
+    await testCustomerTurn(deps, sms(id, code));
+
+    expect((await standingOn(deps, user.id)).verifiedContactAt).toBeNull();
   });
 
   it("stores only a hash of a code", async () => {
@@ -1245,6 +1268,18 @@ describe("a signed link on email", () => {
 
     expect((await post(deps, token)).status).toBe(200);
     expect(await verifiedAt(deps, user.id)).not.toBeNull();
+  });
+
+  it("refuses another spelling of a link's signature, and the link itself still works", async () => {
+    const { deps, user, token } = await linkSent();
+    const [id, signature] = token.split(".") as [string, string];
+
+    for (const spelling of [otherSpelling(signature), `${signature}!`, `${signature}=`]) {
+      expect((await post(deps, `${id}.${spelling}`)).status).toBe(410);
+    }
+    expect(await verifiedAt(deps, user.id)).toBeNull();
+
+    expect((await post(deps, token)).status).toBe(200);
   });
 
   it("verifies once", async () => {
