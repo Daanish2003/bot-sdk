@@ -21,6 +21,7 @@ import { createFakeAdapter, round, text, toolCall } from "@botsdk/testing/fake-a
 import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 import { representative } from "../src";
 import { deleteCustomer } from "../src/server/customer-delete";
+import { codeHandOffKind, limitNoteKind, type StoredReplyKind } from "../src/shared/replies";
 import { afterThreadClose, customerSummaryMarker } from "../src/server/customer-summary";
 import {
   representativeCustomer,
@@ -397,7 +398,7 @@ describe("deleting a Customer", () => {
 
   describe("what an undone merge left of them was owed", () => {
     /** Ada's thread with Bob's words on it, a limit and the owner's list owing them from `waitingFrom`. */
-    async function owed(adaIsAnswered: boolean, waitingFrom: number) {
+    async function owed(adaIsAnswered: boolean, waitingFrom: number, between?: StoredReplyKind) {
       const answer = () =>
         round(
           toolCall({
@@ -421,6 +422,30 @@ describe("deleting a Customer", () => {
       await settle(threadIdleMs);
       const shared = (await threadsOfCustomers([ada.id])).find((row) => row.state === "closed")!;
       const noted = new Date();
+      if (between) {
+        // Code's fixed words between Ada's question and Bob's, in the place they would have had.
+        await getTestDb()
+          .update(representativeThreadMessage)
+          .set({ position: 3 })
+          .where(
+            and(
+              eq(representativeThreadMessage.threadId, shared.id),
+              eq(representativeThreadMessage.position, 2),
+            ),
+          );
+        await getTestDb().insert(representativeThreadMessage).values({
+          id: uuidv7(),
+          threadId: shared.id,
+          position: 2,
+          author: "representative",
+          text: "Fixed words",
+          replyKind: between,
+          verified: false,
+          channel: fakeChannel,
+          externalId: adaNumber,
+          createdAt: noted,
+        });
+      }
       await getTestDb()
         .update(representativeThread)
         .set({ waitingFrom, limitNotedAt: noted, leftForOwnerAt: noted })
@@ -439,6 +464,14 @@ describe("deleting a Customer", () => {
       expect(row.limitNotedAt).toBeNull();
       expect(row.leftForOwnerAt).toBeNull();
     });
+
+    it.each<StoredReplyKind>([limitNoteKind, codeHandOffKind])(
+      "keeps what is left for the owner when only a %s came after someone else's question",
+      async (kind) => {
+        const row = await owed(false, 3, kind);
+        expect(row.leftForOwnerAt).not.toBeNull();
+      },
+    );
 
     it("keeps both while someone else's words are still owed", async () => {
       const row = await owed(false, 1);

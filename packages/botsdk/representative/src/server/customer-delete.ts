@@ -1,10 +1,24 @@
-import { and, desc, eq, gt, gte, inArray, max, min, notInArray, or, type SQL } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  max,
+  min,
+  notInArray,
+  or,
+  type SQL,
+} from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { holdCustomers, isMergedAway } from "./customer-merge";
 import { memberIds, standingMergesOf } from "./customer-profile";
+import { fixedReplyKinds } from "../shared/replies";
 import { holdIdentities } from "./customer-proof";
 import { customerSummaryKey } from "./customer-summary";
 import type { Heard } from "./customers";
@@ -109,12 +123,19 @@ async function settleThreadWait(
           .where(and(eq(message.threadId, id), eq(message.position, turnFrom)));
   const turnGoes = turnId !== null && batch === undefined;
   if (turnGoes) await context.jobs.cancelIn(tx, turnId);
-  // What a limit left for the owner is owed still if anyone's words have had no answer since. A note at
-  // a limit is owed only while something waits.
+  // What a limit left for the owner is owed still if anyone's words have had no answer since. Code's
+  // fixed words are no answer: each only says someone will reply. A note at a limit is owed only while
+  // something waits.
   const [answered] = await tx
     .select({ position: max(message.position) })
     .from(message)
-    .where(and(eq(message.threadId, id), inArray(message.author, ["representative", "owner"])));
+    .where(
+      and(
+        eq(message.threadId, id),
+        inArray(message.author, ["representative", "owner"]),
+        or(isNull(message.replyKind), notInArray(message.replyKind, [...fixedReplyKinds])),
+      ),
+    );
   const unanswered = await tx
     .select({ position: message.position })
     .from(message)
