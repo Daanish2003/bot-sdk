@@ -98,6 +98,12 @@ export async function removeHeldAccounts(
   tx: Transaction,
   userId: string,
 ): Promise<string[]> {
+  // Their rows first: a connect waits on them, so none adds an account this would miss.
+  await tx
+    .select({ id: representative.id })
+    .from(representative)
+    .where(eq(representative.userId, userId))
+    .for("update");
   const ids = (await heldBy(tx, userId)).map((row) => row.id);
   await channelAccounts.removeIn(tx, ids);
   return ids;

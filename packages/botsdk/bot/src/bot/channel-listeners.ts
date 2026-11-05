@@ -71,6 +71,7 @@ export function channelListeners(
   timing: ListenerTiming = defaultTiming,
 ) {
   const listening = adapters.filter((adapter) => adapter.listen);
+  const holding = () => sdk.parts.features.some(({ feature }) => feature.channelAccountOwner);
   const running = new Map<string, Listener>();
   let session: pg.PoolClient | null = null;
   let started = false;
@@ -218,7 +219,9 @@ export function channelListeners(
       // No key of the keyring reads the credentials: only saving them again fixes it.
       await markNeedsAttention(sdk, id, found.version, "The saved credentials can't be read");
     }
-    const account = found?.status === "active" && adapter ? found.account : null;
+    // A held account with no enabled feature to hold it has nobody for its messages to reach.
+    const heard = found?.account?.botId != null || holding();
+    const account = found?.status === "active" && adapter && heard ? found.account : null;
     const current = running.get(id);
     if (current && (!account || current.version !== found!.version)) await halt(id);
     if (!account || !adapter || running.has(id)) return;

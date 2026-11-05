@@ -1,4 +1,8 @@
-import { channelAccountInput, saveChannelAccountInput } from "@botsdk/client/bot/channel-account";
+import {
+  channelAccountInput,
+  saveChannelAccountInput,
+  saveHeldChannelAccountInput,
+} from "@botsdk/client/bot/channel-account";
 import { botInput } from "@botsdk/client/bot/contract";
 import { unlinkIdentityInput } from "@botsdk/client/bot/linked-identity";
 
@@ -103,7 +107,12 @@ export function createChannels(sdk: BotSdkContext, options: ChannelOptions): Cha
       },
     },
     saveHeldAccount: async (input) => {
-      const { row, changed } = await saveHeldChannelAccount(sdk, messaging, input);
+      const { platform, credentials } = parseInput(saveHeldChannelAccountInput, input);
+      const { row, changed } = await saveHeldChannelAccount(sdk, messaging, {
+        ...input,
+        platform,
+        credentials,
+      });
       await accountsChanged(sdk, changed);
       return row;
     },

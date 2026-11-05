@@ -343,8 +343,9 @@ export type FeatureDefinition<
   stopTurns?: (userId: string, context: FeatureContext<Needs>) => Promise<void>;
   /**
    * The user whose holder of Channel account `id` the feature keeps, or null when it isn't the feature's
-   * (ticket #1331). Saving an account under a Bot or another feature's holder reads it, in the save's
-   * transaction, to move the account only between one user's holders.
+   * (ticket #1331). Saving an account reads it, in the save's transaction, so the account moves only
+   * between one user's holders. A move between two features' holders isn't built: one feature holds
+   * accounts today.
    */
   channelAccountOwner?: (
     tx: Transaction,

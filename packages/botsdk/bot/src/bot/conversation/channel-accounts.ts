@@ -95,7 +95,7 @@ const takenError = () =>
   rpcError(
     "CONFLICT",
     "error.channelAccountTaken",
-    "That platform bot is already connected to someone else's Bot",
+    "That platform bot is already connected to someone else",
   );
 
 /** Only the fields `adapter` takes, each given, once the platform accepts them; else BAD_REQUEST. */

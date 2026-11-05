@@ -201,6 +201,9 @@ describe("connecting an account to a Representative", () => {
     await expect(connect(context, user.id, representativeId, "9:revoked")).rejects.toMatchObject({
       data: { code: "error.channelCredentialsRejected" },
     });
+    await expect(
+      connect(context, user.id, representativeId, "1:" + "a".repeat(5000)),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(await getTestDb().select().from(channelAccount)).toEqual([]);
   });
 
@@ -367,6 +370,19 @@ describe("connecting an account to a Representative", () => {
     expect(await listChannelAccounts(context, user.id, representativeId)).toMatchObject([
       { status: "needs_attention", reason: "The saved credentials can't be read" },
     ]);
+  });
+
+  it("isn't listened to by an instance with no feature to hold it", async () => {
+    const { deps, fake, context } = sdkWith();
+    const { user, representativeId } = await anOwner(deps);
+    await connect(context, user.id, representativeId, "1:a");
+    const bare = createTestSdk({ channels: [fake.adapter], keyEncryptionSecrets: [keyA] });
+    const part = bare.parts.all.find((one) => one.id === "channel")!;
+
+    await part.start!(bare);
+    started.push({ part, deps: bare });
+
+    expect(fake.listening.size).toBe(0);
   });
 
   it("drops what reaches a held account, with no reply", async () => {
