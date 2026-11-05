@@ -21,10 +21,10 @@ import type { TestDeps } from "./deps";
 import { getTestDb } from "./test-database";
 
 /*
- * The test Customer (spec #1167): the one way a Representative Turn starts until a later spec lets
- * real Customers in. It sends as a Customer does (#1249), from an identity on a fake Channel, which
- * finds or makes the Customer and its thread. It lives in this private package, which no Host can
- * install. The feature's package exports nothing to start a Turn and no route or RPC reaches one.
+ * The test Customer (spec #1167): a Representative Turn started with no Channel in front of it. It
+ * sends as a Customer does (#1249), from an identity on a fake Channel, which finds or makes the
+ * Customer and its thread. It lives in this private package, which no Host can install. The feature's
+ * package exports nothing to start a Turn, and only a web chat visitor's route reaches one (#1336).
  */
 
 /**

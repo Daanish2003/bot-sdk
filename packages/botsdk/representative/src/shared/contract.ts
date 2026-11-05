@@ -777,6 +777,18 @@ export const setAssignmentDueInput = z.object({
 export const setEnabledInput = z.object({ id: z.uuid(), enabled: z.boolean() });
 export const setBotInput = z.object({ id: z.uuid(), botId: z.uuid() });
 
+/** What a web chat visitor reads with their session token. */
+export const webChatReadInput = z.strictObject({ token: z.string() });
+
+/** What a web chat visitor sends: text and nothing else, so no value of theirs can name a blob (#1200). */
+export const webChatSendInput = z.strictObject({
+  token: z.string(),
+  text: storable(z.string().trim().min(1).max(maxThreadMessageLength)),
+});
+
+/** A message as a web chat visitor reads it: nothing of who wrote it for the business, or why. */
+export type WebChatMessage = { id: string; from: "customer" | "business"; text: string };
+
 /** A widget key's state. A disabled key stays disabled: only rotating gives a live key again. */
 export type WidgetKeyStatus = "live" | "disabled";
 

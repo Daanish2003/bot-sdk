@@ -827,9 +827,9 @@ describe("a code to an identity on record, from web chat", () => {
   it("gets through when two senders claim each other at the same moment", async () => {
     const { deps } = await instance([quiet(), quiet()]);
     const { user, id } = await owner(deps);
-    const heard = (externalId: string) => ({ channel: "web", externalId });
-    await testCustomerTurn(deps, { ...web(id, "Hi"), externalId: "session-a" });
-    await testCustomerTurn(deps, { ...web(id, "Hi"), externalId: "session-b" });
+    const heard = (externalId: string) => ({ channel: "chat", externalId });
+    await testCustomerTurn(deps, { ...web(id, "Hi"), channel: "chat", externalId: "session-a" });
+    await testCustomerTurn(deps, { ...web(id, "Hi"), channel: "chat", externalId: "session-b" });
     const customers = await customersOf(deps, user.id);
     const threadOf = (externalId: string) =>
       customers.find((customer) =>

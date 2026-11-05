@@ -776,7 +776,7 @@ describe("a Turn replayed after its owner was deleted", () => {
 });
 
 describe("who can reach a Turn", () => {
-  it("has no way in from the package, the owner's API or a route", () => {
+  it("has no way in from the package or the owner's API, and one route, a web chat visitor's", () => {
     const made = representative();
 
     expect(Object.keys(packageRoot)).toEqual(["representative"]);
@@ -863,12 +863,14 @@ describe("who can reach a Turn", () => {
       Object.keys(representativeContract).sort(),
     );
     expect(made.routes ?? []).toEqual([]);
-    // Served with no signed-in user: a signed link's page (#1256) and web chat's session start
-    // (#1333). Neither starts a Turn.
+    // Served with no signed-in user: a signed link's page (#1256), web chat's session start (#1333),
+    // and a visitor's send and read (#1336). Only send starts a Turn, as that session's Customer.
     expect((made.publicRoutes ?? []).map((route) => `${route.method} ${route.path}`)).toEqual([
       "GET /representative/verify/:token",
       "POST /representative/verify/:token",
       "POST /representative/widget/:key/session",
+      "POST /representative/widget/send",
+      "POST /representative/widget/read",
     ]);
   });
 });

@@ -7,7 +7,7 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { rpcError } from "@botsdk/bot/rpc-error";
 import type { Transaction } from "@botsdk/bot/plugin";
 import type { WidgetKeyView } from "../shared/contract";
-import { signed, signedByKeyring } from "./customer-proof";
+import { signed, signedByKeyring, webChatChannel } from "./customer-proof";
 import type { Heard } from "./customers";
 import { representativeWidgetKey } from "./db/schema";
 import { ownedRow } from "./representatives";
@@ -21,9 +21,6 @@ import { ownedRow } from "./representatives";
  * Reading a token checks its key is still the live one. Rotating changes the key, and disabling is
  * final for that key, so either ends all its sessions for good.
  */
-
-/** The Channel a web chat visitor writes from. */
-export const webChatChannel = "web";
 
 /** How long a session lasts, fixed. A visitor after that starts a new session, as a new identity. */
 export const widgetSessionLastsMs = 24 * 60 * 60_000;
@@ -165,6 +162,12 @@ export async function readWidgetSession(
   };
 }
 
+/** On what a visitor's page reads: any page may read it, and nobody's should be cached. */
+export const widgetResponseHeaders = {
+  "access-control-allow-origin": "*",
+  "cache-control": "no-store",
+};
+
 /**
  * The same whatever was wrong, so the route says nothing about which keys exist or what they allow.
  * Any page can read it, so a widget can say a chat can't start. Telling a visitor their chat has
@@ -173,10 +176,7 @@ export async function readWidgetSession(
 const refused = () =>
   Response.json(
     { code: "error.widgetSessionRefused", params: {} },
-    {
-      status: 403,
-      headers: { "access-control-allow-origin": "*", "cache-control": "no-store" },
-    },
+    { status: 403, headers: widgetResponseHeaders },
   );
 
 /**
