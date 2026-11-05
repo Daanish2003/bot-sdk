@@ -96,7 +96,7 @@ function idempotencyKeyOf(headers: Headers): string | null | typeof tooLong {
 }
 
 /** The body as text, or `null` once it is over `limit` bytes. */
-async function readBody(request: Request, limit: number): Promise<string | null> {
+export async function readBody(request: Request, limit: number): Promise<string | null> {
   if (Number(request.headers.get("Content-Length") ?? 0) > limit) return null;
   if (!request.body) return "";
   const chunks: Uint8Array[] = [];

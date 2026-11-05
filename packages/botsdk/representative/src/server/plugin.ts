@@ -26,6 +26,7 @@ import {
   representativeTopic,
   representativeCustomerSummary,
   representativeVerification,
+  representativeWidgetKey,
 } from "./db/schema";
 import {
   exportHeldAccounts,
@@ -58,6 +59,8 @@ import { exportCustomerSummaries, customerSummaryJob } from "./customer-summary"
 import { draftDueJob } from "./draft-due";
 import { assignmentDueJob, ownerWaitJob } from "./stalled-work";
 import { stopUserTurns } from "./thread-turns";
+import { webChatRoutes, withWebChat } from "./web-chat";
+import { type WidgetSessionCheck, widgetSessionRoutes } from "./widget-key";
 import { handOffEndedJob, limitCheckJob, representativeTurnJob } from "./turn";
 
 export type RepresentativeOptions = {
@@ -85,6 +88,13 @@ export type RepresentativeOptions = {
    * picks. Without it the picker isn't offered and uploads still work.
    */
   knowledgeFiles?: KnowledgeFiles;
+  /**
+   * Checks each web chat session start request before a session is given: a request it returns false
+   * for, or throws on, gets the same refusal as a wrong origin, and a throw is logged. This is where a
+   * Host filters public traffic, with the service it chooses (Turnstile, hCaptcha, its own). The SDK
+   * ships none, so without this every request from an allowed origin on a live key starts a session.
+   */
+  widgetSessionCheck?: WidgetSessionCheck;
 };
 
 /**
@@ -92,14 +102,14 @@ export type RepresentativeOptions = {
  * business, each served only through an approved, unchangeable Release. It has no Computer, and
  * Auto-review and Custom Rules, which belong to Bots, don't reach it. A Host turns it on with
  * `representative()` in `features`. Messages reach a Customer through the Channel accounts the
- * Representatives hold; `channel` replaces that for a test, and isn't an option a Host has, so
- * `src/index.ts` doesn't pass it on.
+ * Representatives hold, and web chat's visitors by the thread itself; `channel` replaces the accounts
+ * for a test, and isn't an option a Host has, so `src/index.ts` doesn't pass it on.
  */
 export function representativeFeature(
   options: RepresentativeOptions = {},
   channel?: CustomerChannel,
 ) {
-  const channelOf: ChannelOf = (context) => channel ?? heldAccountChannel(context);
+  const channelOf: ChannelOf = (context) => withWebChat(channel ?? heldAccountChannel(context));
   const { deliveryConcurrency = 20 } = options;
   return defineFeature({
     id: "representative",
@@ -137,6 +147,7 @@ export function representativeFeature(
         representativeTopic,
         representativeCustomerSummary,
         representativeVerification,
+        representativeWidgetKey,
       },
       migrations: representativeMigrations,
     },
@@ -160,7 +171,11 @@ export function representativeFeature(
     channelAccountOwner: (tx, id) => ownerOfHeldAccount(tx, id),
     onStranger: (message, context) =>
       receiveStranger({ ...context, channel: channelOf(context) }, message),
-    publicRoutes: proofLinkRoutes,
+    publicRoutes: [
+      ...proofLinkRoutes,
+      ...widgetSessionRoutes(options.widgetSessionCheck),
+      ...webChatRoutes(channelOf),
+    ],
     jobs: [
       representativeTurnJob(options.concurrency, channelOf),
       customerDeliveryJob(channelOf, deliveryConcurrency),

@@ -95,8 +95,9 @@ export type CustomerMessage = z.infer<typeof customerMessage>;
  * holding the thread, which a later Turn follows if it has already begun, or null when the message
  * is kept with no Turn: a blocked or opted-out Customer's, one that set off the emergency script, or
  * one on a thread the owner holds.
- * No route, RPC or API method reaches this: the core's stranger hook does (`strangers.ts`), and the
- * test Customer entry point in the private `@ai-chat/test-support` package.
+ * No RPC or API method reaches this. The core's stranger hook does (`strangers.ts`), a web chat
+ * visitor's send route does (ticket #1336), and so does the test Customer entry point in the private
+ * `@ai-chat/test-support` package.
  */
 export async function receiveCustomerMessage(
   services: Services & Pick<FeatureContext<"pages">, "keyring" | "logger" | "pages"> & ViaChannel,
@@ -117,7 +118,7 @@ export async function receiveCustomerMessage(
     });
     if (!received) return null;
     // Over the inbound limit: logged, and nothing stored or started.
-    if ("limited" in received) return { jobId: null };
+    if ("limited" in received) return { jobId: null, limited: true };
     const { threadId, turnId, waitingSince, kept, state, opened } = received;
     // With the message, so a thread is never left without its closing job.
     if (opened) await queueIdleCheck(services, tx, threadId, now);

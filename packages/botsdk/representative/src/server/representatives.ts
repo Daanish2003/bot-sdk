@@ -29,6 +29,7 @@ import {
   representativeHandOff,
   representativeRelease,
   representativeTestResult,
+  representativeWidgetKey,
 } from "./db/schema";
 import {
   chooseDocument,
@@ -145,7 +146,12 @@ export async function requireOwned(
 }
 
 /** The owner's row, or a not-found that is the same for a row that doesn't exist and another owner's. */
-async function ownedRow(db: Context["db"] | Transaction, userId: string, id: string, lock = false) {
+export async function ownedRow(
+  db: Context["db"] | Transaction,
+  userId: string,
+  id: string,
+  lock = false,
+) {
   const query = db.select().from(representative).where(isOwned(userId, id)).limit(1);
   const [row] = await (lock ? query.for("update") : query);
   if (!row) throw notFound();
@@ -930,6 +936,14 @@ export async function exportRepresentatives(tx: Transaction, userId: string) {
       .from(representativeTestResult)
       .where(eq(representativeTestResult.representativeId, row.id))
       .orderBy(asc(representativeTestResult.position));
+    const [widgetKey] = await tx
+      .select({
+        key: representativeWidgetKey.key,
+        allowedOrigins: representativeWidgetKey.allowedOrigins,
+        status: representativeWidgetKey.status,
+      })
+      .from(representativeWidgetKey)
+      .where(eq(representativeWidgetKey.representativeId, row.id));
     exported.push({
       id: row.id,
       name: row.name,
@@ -938,6 +952,7 @@ export async function exportRepresentatives(tx: Transaction, userId: string) {
       liveReleaseId: row.liveReleaseId,
       draft: row.draft,
       documents: await exportDocuments(tx, row.id),
+      widgetKey: widgetKey ?? null,
       pendingApproval: row.pendingApproval,
       createdAt: row.createdAt,
       testResults: testResults.map(
@@ -963,6 +978,6 @@ export async function exportRepresentatives(tx: Transaction, userId: string) {
 }
 
 export async function deleteRepresentatives(tx: Transaction, userId: string): Promise<void> {
-  // The Releases and the documents' text go with them (their foreign keys cascade).
+  // The Releases, the documents' text and the widget key go with them (their foreign keys cascade).
   await tx.delete(representative).where(eq(representative.userId, userId));
 }

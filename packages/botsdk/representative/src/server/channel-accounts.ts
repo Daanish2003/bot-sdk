@@ -4,7 +4,7 @@ import type { ChannelAccountRow } from "@botsdk/client/bot/channel-account";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { channelAccount } from "@botsdk/bot/storage";
-import type { ChannelOf } from "./customer-proof";
+import { type ChannelOf, webChatChannel } from "./customer-proof";
 import { representative, representativeChannelAccount } from "./db/schema";
 import { requireOwned } from "./representatives";
 
@@ -86,7 +86,7 @@ export const heldAccountChannel: ChannelOf = ({ db, channelAccounts, logger }) =
     { representativeId, channelAccountId, resume },
   ) => {
     if (!channelAccounts.reach(channel)) {
-      if (channel !== "web")
+      if (channel !== webChatChannel)
         logger.error(`A Customer's message wasn't sent: no ${channel} adapter`);
       return;
     }

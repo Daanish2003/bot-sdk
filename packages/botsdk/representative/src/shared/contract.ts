@@ -777,6 +777,60 @@ export const setAssignmentDueInput = z.object({
 export const setEnabledInput = z.object({ id: z.uuid(), enabled: z.boolean() });
 export const setBotInput = z.object({ id: z.uuid(), botId: z.uuid() });
 
+/** What a web chat visitor reads with their session token. */
+export const webChatReadInput = z.strictObject({ token: z.string() });
+
+/** What a web chat visitor sends: text and nothing else, so no value of theirs can name a blob (#1200). */
+export const webChatSendInput = z.strictObject({
+  token: z.string(),
+  text: storable(z.string().trim().min(1).max(maxThreadMessageLength)),
+});
+
+/** A message as a web chat visitor reads it: nothing of who wrote it for the business, or why. */
+export type WebChatMessage = { id: string; from: "customer" | "business"; text: string };
+
+/** A widget key's state. A disabled key stays disabled: only rotating gives a live key again. */
+export type WidgetKeyStatus = "live" | "disabled";
+
+/** A Representative's public widget key, as its owner sees it (ticket #1333). */
+export type WidgetKeyView = {
+  key: string;
+  allowedOrigins: string[];
+  status: WidgetKeyStatus;
+};
+
+export const maxWidgetOrigins = 50;
+/** Whether `value` is only a scheme, host and port, which is all a browser's `Origin` header says. */
+const isWebOrigin = (value: string) => {
+  if (!/^https?:\/\/[^/?#\\@*\s]+\/?$/i.test(value)) return false;
+  try {
+    // The parsed host too: encoded or mapped characters can become one no browser would send. Its
+    // length caps the origin's, so the server's second parse of this schema's output also passes.
+    const host = new URL(value).hostname;
+    return (
+      host.length <= 253 &&
+      !host.includes("*") &&
+      host
+        .replace(/\.$/, "")
+        .split(".")
+        .every((label) => label.length >= 1 && label.length <= 63)
+    );
+  } catch {
+    return false;
+  }
+};
+/** One allowed origin, stored as the browser will send it. */
+export const widgetOrigin = z
+  .string()
+  .trim()
+  .max(300)
+  .refine(isWebOrigin, "Not an origin")
+  .transform((value) => new URL(value).origin);
+export const widgetKeySetOriginsInput = z.object({
+  id: z.uuid(),
+  origins: z.array(widgetOrigin).max(maxWidgetOrigins),
+});
+
 export const representativeContract = {
   /** The owner's Representatives, oldest first. */
   list: oc.output(type<RepresentativeSummary[]>()),
@@ -829,6 +883,16 @@ export const representativeContract = {
   setAssignmentDue: oc.input(setAssignmentDueInput).output(type<RepresentativeView>()),
   /** Chooses which of the owner's Bots it reports to; its open Assignments move to that Bot. */
   setBot: oc.input(setBotInput).output(type<RepresentativeView>()),
+  /** The Representative's public widget key; null until the owner creates one. */
+  widgetKeyGet: oc.input(idInput).output(type<WidgetKeyView | null>()),
+  /** Creates its one widget key, live and allowing no origin yet. Refused when it has one. */
+  widgetKeyCreate: oc.input(idInput).output(type<WidgetKeyView>()),
+  /** Replaces the origins allowed to start a session. Running sessions go on. */
+  widgetKeySetOrigins: oc.input(widgetKeySetOriginsInput).output(type<WidgetKeyView>()),
+  /** Gives it a new live key, keeping its origins. The old key and all its sessions end. */
+  widgetKeyRotate: oc.input(idInput).output(type<WidgetKeyView>()),
+  /** Disables the key and ends all its sessions. Only rotating gives a live key again. */
+  widgetKeyDisable: oc.input(idInput).output(type<WidgetKeyView>()),
   /** The owner's Customers, oldest first. */
   customerList: oc.output(type<CustomerView[]>()),
   /** Adds a Customer by hand, with its first identity. Refused when the owner already has that identity. */

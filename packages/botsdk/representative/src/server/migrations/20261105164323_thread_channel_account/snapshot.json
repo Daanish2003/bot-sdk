@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "bf9a785d-ff50-4143-b1a5-27e22c44e752",
-  "prevIds": ["258c2f07-9a5c-47f3-981d-f2196b808166"],
+  "id": "5770f752-7705-4307-a3c6-29e28081672e",
+  "prevIds": ["ca10a9d6-58f4-4a9d-be11-4923c6322e7d"],
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -139,6 +139,12 @@
     {
       "isRlsEnabled": false,
       "name": "representative_verification",
+      "entityType": "tables",
+      "schema": "botsdk"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "representative_widget_key",
       "entityType": "tables",
       "schema": "botsdk"
     },
@@ -2782,6 +2788,84 @@
       "table": "representative_verification"
     },
     {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "representative_id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_widget_key"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "key",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_widget_key"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "allowed_origins",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_widget_key"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "status",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_widget_key"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_widget_key"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_widget_key"
+    },
+    {
       "nameExplicit": true,
       "columns": [
         {
@@ -3920,6 +4004,19 @@
       "table": "representative_verification"
     },
     {
+      "nameExplicit": false,
+      "columns": ["representative_id"],
+      "schemaTo": "botsdk",
+      "tableTo": "representative",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "representative_widget_key_6YFlOIXhvyOK_fkey",
+      "entityType": "fks",
+      "schema": "botsdk",
+      "table": "representative_widget_key"
+    },
+    {
       "columns": ["id"],
       "nameExplicit": false,
       "name": "representative_pkey",
@@ -4104,6 +4201,14 @@
       "entityType": "pks"
     },
     {
+      "columns": ["representative_id"],
+      "nameExplicit": false,
+      "name": "representative_widget_key_pkey",
+      "schema": "botsdk",
+      "table": "representative_widget_key",
+      "entityType": "pks"
+    },
+    {
       "nameExplicit": true,
       "columns": ["user_id", "channel", "external_id"],
       "nullsNotDistinct": false,
@@ -4185,11 +4290,27 @@
       "entityType": "uniques"
     },
     {
+      "nameExplicit": true,
+      "columns": ["key"],
+      "nullsNotDistinct": false,
+      "name": "representative_widget_key_key",
+      "schema": "botsdk",
+      "table": "representative_widget_key",
+      "entityType": "uniques"
+    },
+    {
       "value": "num_nonnulls(\"fixed_field\", \"field_id\") = 1",
       "name": "representative_profile_value_one_field",
       "entityType": "checks",
       "schema": "botsdk",
       "table": "representative_profile_value"
+    },
+    {
+      "value": "\"status\" in ('live', 'disabled')",
+      "name": "representative_widget_key_status",
+      "entityType": "checks",
+      "schema": "botsdk",
+      "table": "representative_widget_key"
     }
   ],
   "renames": []

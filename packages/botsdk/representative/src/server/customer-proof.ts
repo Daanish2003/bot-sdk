@@ -36,6 +36,9 @@ const maxCodeAttempts = 5;
 const sendLimit = 5;
 const sendLimitWindowMs = 60 * 60_000;
 
+/** The Channel a web chat visitor writes from. Nothing can send to it: they read their thread. */
+export const webChatChannel = "web";
+
 /** What a Channel is given to send: a code to read back, or the token of a link to open. */
 export type Proof = { kind: "code" | "link"; secret: string };
 
@@ -101,31 +104,37 @@ const proofKey = (secret: string) => {
   return key;
 };
 
-const signed = (secret: string, purpose: "code" | "link", value: string) =>
-  createHmac("sha256", proofKey(secret)).update(`${purpose}:${value}`).digest();
+type SignedPurpose = "code" | "link" | "widgetSession";
 
-/** Whether `actual` is `value`'s keyed hash under any secret of the keyring. */
-const signedByKeyring = (
+export const signed = (secret: string, purpose: SignedPurpose, value: string) =>
+  createHmac("sha256", proofKey(secret)).update(`${purpose}:${value}`).digest("base64url");
+
+/**
+ * Whether `actual` is `value`'s keyed hash, in base64url, under any secret of the keyring. It compares
+ * the text: decoding it first would let other strings pass as the same bytes.
+ */
+export const signedByKeyring = (
   keyring: readonly string[],
-  purpose: "code" | "link",
+  purpose: SignedPurpose,
   value: string,
-  actual: Buffer,
-) =>
-  keyring.some((secret) => {
-    const expected = signed(secret, purpose, value);
-    return expected.length === actual.length && timingSafeEqual(expected, actual);
+  actual: string,
+) => {
+  const given = Buffer.from(actual);
+  return keyring.some((secret) => {
+    const expected = Buffer.from(signed(secret, purpose, value));
+    return expected.length === given.length && timingSafeEqual(expected, given);
   });
+};
 
 const hashCode = (keyring: readonly string[], id: string, code: string) =>
-  signed(keyring[0]!, "code", `${id}:${code}`).toString("base64url");
+  signed(keyring[0]!, "code", `${id}:${code}`);
 
 /** Whether `code` is what the row's hash was made from, under any secret of the keyring. */
 const isTheCode = (keyring: readonly string[], id: string, code: string, hash: string | null) =>
-  hash !== null &&
-  signedByKeyring(keyring, "code", `${id}:${code}`, Buffer.from(hash, "base64url"));
+  hash !== null && signedByKeyring(keyring, "code", `${id}:${code}`, hash);
 
 const linkToken = (keyring: readonly string[], id: string) =>
-  `${id}.${signed(keyring[0]!, "link", id).toString("base64url")}`;
+  `${id}.${signed(keyring[0]!, "link", id)}`;
 
 /** Whether a code can still be passed. */
 const isLive = (row: { usedAt: Date | null; expiresAt: Date; attempts: number }, now: Date) =>
@@ -255,6 +264,7 @@ export async function requestProof(
     target = { id: sender.id, ...heard };
   } else if (
     claimed &&
+    claimed.channel !== webChatChannel &&
     claim &&
     found?.id === claim.id &&
     found.id !== sender.id &&
@@ -652,7 +662,7 @@ export async function openProofLink(
   const [rawId, signature, extra] = token.split(".");
   const id = z.uuid().safeParse(rawId);
   if (!id.success || signature === undefined || extra !== undefined) return false;
-  if (!signedByKeyring(keyring, "link", id.data, Buffer.from(signature, "base64url"))) return false;
+  if (!signedByKeyring(keyring, "link", id.data, signature)) return false;
   const now = clock();
   return db.transaction(async (tx) => {
     const [row] = await tx

@@ -37,6 +37,7 @@ import {
 
 import { ModelPicker } from "../models/shell/model-picker";
 import { LimitWarning } from "./limit-warning";
+import { WidgetKeySection } from "./widget-key-section";
 import { DraftDocuments, documentsOverCap, useDocumentChanges } from "./representative-documents";
 import { ReplyDrafts } from "./reply-drafts";
 import { RepresentativeThreads } from "./representative-threads";
@@ -694,6 +695,7 @@ export function RepresentativePage({ id }: { id: string }) {
       <SpendingCapsForm representative={representative} />
       <QuietHoursForm representative={representative} />
       <AssignmentDueForm representative={representative} />
+      <WidgetKeySection key={id} id={id} />
       <WaitingApproval representative={representative} />
       {/* Keyed by the draft's fields, so a draft changed elsewhere reloads the form. A document uploaded leaves the form's edits alone. */}
       <DraftEditor
