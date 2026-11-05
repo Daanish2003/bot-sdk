@@ -621,7 +621,8 @@ describe("an owner undoing a merge", () => {
       .select({ waitingFrom: representativeThread.waitingFrom })
       .from(representativeThread)
       .where(eq(representativeThread.id, bobThread.id));
-    expect(row?.waitingFrom).toBe(3);
+    // After Bob's words, code's hand-off for the quiet Turn on them, and the takeover note.
+    expect(row?.waitingFrom).toBe(4);
     expect(await rpc.representative.threadGet({ id: bobThread.id })).toMatchObject({
       holder: "owner",
       waitingOn: "owner",
@@ -827,7 +828,10 @@ describe("a code merging a new identity's Customer", () => {
     const { messages } = await rpc.representative.threadGet({
       id: (await threadsOf(rpc, id)).find((each) => each.holder !== "closed")!.id,
     });
-    expect(messages.at(-1)).toMatchObject({ text: "Who am I?", verified: false });
+    expect(messages.findLast(({ author }) => author === "customer")).toMatchObject({
+      text: "Who am I?",
+      verified: false,
+    });
   });
 
   it("merges nothing and exposes nothing on a claim alone", async () => {
@@ -941,7 +945,7 @@ describe("a code merging a new identity's Customer", () => {
     const { messages } = await rpc.representative.threadGet({
       id: (await threadsOf(rpc, id))[0]!.id,
     });
-    expect(messages.at(-1)!.text).toBe("123456");
+    expect(messages.findLast(({ author }) => author === "customer")!.text).toBe("123456");
   });
 
   it("sends a verified sender nothing for an identity of their own Customer", async () => {
@@ -1080,8 +1084,8 @@ describe("a code merging a new identity's Customer", () => {
     const { messages } = await rpc.representative.threadGet({
       id: (await threadsOf(rpc, id))[0]!.id,
     });
-    expect(messages.at(-1)!.text).toContain("can't be used now");
-    expect(messages.at(-1)!.verified).toBe(false);
+    const voided = messages.find(({ text }) => text.includes("can't be used now"));
+    expect(voided!.verified).toBe(false);
   });
 
   it("voids the code when the identity it went to has since been blocked", async () => {

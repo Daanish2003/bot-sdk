@@ -1,5 +1,5 @@
 import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { saveCredentials } from "@botsdk/bot/models/internal";
@@ -379,6 +379,7 @@ describe("a hand-off's result", () => {
     const { messages, waitingOn } = await thread();
     expect(messages).toEqual([
       expect.objectContaining({ author: "customer", text: "I want a refund" }),
+      expect.objectContaining({ author: "representative", text: handOffMessage }),
       expect.objectContaining({
         author: "bot",
         text: "Your refund of 20 is on its way.",
@@ -415,7 +416,11 @@ describe("a hand-off's result", () => {
     expect(held.held).toMatchObject([
       { text: "Good news: your refund is on its way.", rule: "quietHours" },
     ]);
-    expect(held.messages.map(({ author }) => author)).toEqual(["customer", "bot"]);
+    expect(held.messages.map(({ author }) => author)).toEqual([
+      "customer",
+      "representative",
+      "bot",
+    ]);
     timer.advance(9 * 60 * 60 * 1000);
 
     await drain();
@@ -448,7 +453,8 @@ describe("a hand-off's result", () => {
         sources: representativeThreadMessage.sources,
       })
       .from(representativeThreadMessage)
-      .where(eq(representativeThreadMessage.author, "representative"));
+      .where(eq(representativeThreadMessage.author, "representative"))
+      .orderBy(desc(representativeThreadMessage.position));
     expect(stored).toEqual({
       kind: "answer",
       sources: [{ type: "assignment", assignmentId: expect.any(String), quote: "refund of 20" }],
@@ -471,6 +477,7 @@ describe("a hand-off's result", () => {
 
     expect(texts((await thread()).messages)).toEqual([
       "I want a refund",
+      handOffMessage,
       "Your refund of 20 is on its way.",
       "One moment.",
       handOffMessage,
@@ -496,6 +503,7 @@ describe("a hand-off's result", () => {
     const { messages, waitingOn } = await thread();
     expect(texts(messages)).toEqual([
       "I want a refund",
+      handOffMessage,
       "Your refund of 20 is on its way.",
       handOffMessage,
     ]);
@@ -559,7 +567,7 @@ describe("a hand-off's result", () => {
     await drain();
 
     expect(fake.calls).toHaveLength(2);
-    expect(texts((await thread()).messages)).toEqual(["I want a refund"]);
+    expect(texts((await thread()).messages)).toEqual(["I want a refund", handOffMessage]);
     const [assignment] = await getTestDb().select().from(botAssignment);
     expect(assignment).toMatchObject({ status: "done" });
   });
@@ -575,6 +583,7 @@ describe("a hand-off's result", () => {
     const held = await thread();
     expect(texts(held.messages)).toEqual([
       "I want a refund",
+      handOffMessage,
       takeoverNote,
       "Your refund of 20 is on its way.",
     ]);
@@ -667,7 +676,11 @@ describe("a hand-off's result", () => {
     await drain();
 
     const { messages, waitingOn } = await thread();
-    expect(texts(messages)).toEqual(["I want a refund", "Your refund of 20 is on its way."]);
+    expect(texts(messages)).toEqual([
+      "I want a refund",
+      handOffMessage,
+      "Your refund of 20 is on its way.",
+    ]);
     expect(waitingOn).toBeNull();
     expect(fake.calls).toHaveLength(2);
     expect(await turnsOf(id)).toBe(1);
@@ -684,6 +697,7 @@ describe("a hand-off's result", () => {
 
     expect(texts((await thread()).messages)).toEqual([
       "I want a refund",
+      handOffMessage,
       "Your refund of 20 is on its way.",
     ]);
     expect(fake.calls).toHaveLength(2);
@@ -702,7 +716,7 @@ describe("a hand-off's result", () => {
     await drain();
 
     const { messages } = await thread();
-    expect(messages.map((message) => message.verified)).toEqual([false, false, false]);
+    expect(messages.map((message) => message.verified)).toEqual([false, false, false, false]);
     expect(JSON.stringify(fake.calls.at(-1)!.messages)).toContain("Your refund of 20");
   });
 
@@ -776,8 +790,8 @@ describe("a hand-off's result", () => {
     await drain();
 
     const { messages } = await thread();
-    expect(messages.map((message) => message.verified)).toEqual([true, true, true]);
-    expect(messages[2]).toMatchObject({ author: "representative", channel: fakeChannel });
+    expect(messages.map((message) => message.verified)).toEqual([true, true, true, true]);
+    expect(messages[3]).toMatchObject({ author: "representative", channel: fakeChannel });
     expect(JSON.stringify(fake.calls.at(-1)!.messages)).toContain("written by the Bot");
   });
 });

@@ -457,7 +457,7 @@ describe("what the Turn reads", () => {
         Array.from({ length: 100 }, (_, index) => ({
           id: uuidv7(),
           threadId: thread.id,
-          position: index + 2,
+          position: index + 3,
           author: "customer" as const,
           channel: fakeChannel,
           externalId: "+15550001",
@@ -470,7 +470,7 @@ describe("what the Turn reads", () => {
 
     await getTestDb()
       .update(representativeThread)
-      .set({ messageCount: 101 })
+      .set({ messageCount: 102 })
       .where(eq(representativeThread.id, thread.id));
 
     await testCustomerTurn(deps, { ...turn, message: "The last" });

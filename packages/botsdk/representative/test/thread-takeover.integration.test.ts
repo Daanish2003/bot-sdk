@@ -363,8 +363,12 @@ describe("nothing but the owner's Hand back", () => {
   });
 
   it("can't reopen a closed thread", async () => {
-    const { pass, send, takeOver, handBack, say, thread } = await serving([quiet()]);
+    const { pass, send, takeOver, handBack, say, thread } = await serving([
+      replies("Hi."),
+      quiet(),
+    ]);
     await send("Hello");
+    await pass(1_000); // its Turn answers, and the idle days run from there
     await pass(threadIdleMs);
     const { holder, messageCount } = await thread();
     expect(holder).toBe("closed");
@@ -535,7 +539,7 @@ describe("after handing back", () => {
     expect(prompted).not.toContain("From the second address");
   });
 
-  it("leaves a batch a Turn chose silence on alone, when the next Turn hadn't begun", async () => {
+  it("leaves a batch a Turn ended on alone, when the next Turn hadn't begun", async () => {
     const { timer, send, takeOver, runDue, thread } = await serving([quiet()]);
     await send("Nothing to say to this");
     timer.advance(500);
@@ -549,7 +553,8 @@ describe("after handing back", () => {
       .select({ waitingFrom: representativeThread.waitingFrom })
       .from(representativeThread)
       .where(eq(representativeThread.id, id));
-    expect(row?.waitingFrom).toBe(2);
+    // "Next", after code's hand-off for the Turn that said nothing.
+    expect(row?.waitingFrom).toBe(3);
   });
 
   it("an aborted Turn gives back only its own batch, not what was settled before it", async () => {

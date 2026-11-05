@@ -13,6 +13,7 @@ import { chatRpc } from "@ai-chat/test-support/sdk";
 import {
   fakeChannel,
   startTestCustomerTurn,
+  testCustomerHeard,
   testCustomerTurn,
   type TestCustomerTurn,
   autoSource,
@@ -217,7 +218,7 @@ describe("a Channel's rule", () => {
     const { user, id } = await ownerWithRepresentative(deps);
     const arrived = timer.clock.now();
 
-    await testCustomerTurn(deps, {
+    await testCustomerHeard(deps, {
       representativeId: id,
       channel: "telegram",
       externalId: "7",
@@ -630,7 +631,7 @@ describe("what the owner sees", () => {
   it("shows each identity's verified state on the Customers page and the thread, until it lapses", async () => {
     const { deps, timer } = await instance([quiet()]);
     const { user, rpc, id } = await ownerWithRepresentative(deps);
-    await testCustomerTurn(deps, {
+    await testCustomerHeard(deps, {
       representativeId: id,
       channel: "telegram",
       externalId: "7",
