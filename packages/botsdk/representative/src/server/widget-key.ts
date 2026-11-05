@@ -10,6 +10,7 @@ import type { WidgetKeyView } from "../shared/contract";
 import { signed, signedByKeyring, webChatChannel } from "./customer-proof";
 import type { Heard } from "./customers";
 import { representativeWidgetKey } from "./db/schema";
+import { limitSessionStart, type ClientIp } from "./web-chat-limits";
 import { ownedRow } from "./representatives";
 
 /*
@@ -171,6 +172,20 @@ export const widgetResponseHeaders = {
   "cache-control": "no-store",
 };
 
+/** A visitor's page reads the refusal, and the seconds to wait, whatever site it is on. */
+export const tooManyRequests = (retryAfter: number) =>
+  Response.json(
+    { code: "error.tooManyRequests", params: {} },
+    {
+      status: 429,
+      headers: {
+        ...widgetResponseHeaders,
+        "access-control-expose-headers": "Retry-After",
+        "retry-after": String(retryAfter),
+      },
+    },
+  );
+
 /**
  * The same whatever was wrong, so the route says nothing about which keys exist or what they allow.
  * Any page can read it, so a widget can say a chat can't start. Telling a visitor their chat has
@@ -207,11 +222,17 @@ async function admitted(
  * runs only for a request a live key and an allowed origin already accept, so its service isn't
  * called for the rest.
  */
-export const widgetSessionRoutes = (check?: WidgetSessionCheck): PublicRoute[] => [
+export const widgetSessionRoutes = (
+  check?: WidgetSessionCheck,
+  clientIp?: ClientIp,
+): PublicRoute<"counters">[] => [
   {
     method: "POST",
     path: "/representative/widget/:key/session",
     handle: async (request, { context, params }) => {
+      // First, so a flood costs no key lookup and never reaches the Host's check.
+      const waitFor = await limitSessionStart(context, request, clientIp);
+      if (waitFor !== null) return tooManyRequests(waitFor);
       const origin = request.headers.get("origin");
       if (origin === null) return refused();
       const row = await rowOfKey(context, params.key ?? "");
