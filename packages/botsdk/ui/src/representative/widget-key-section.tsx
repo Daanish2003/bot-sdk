@@ -18,12 +18,12 @@ import { serverErrorText } from "@botsdk/react/rpc-error";
 import {
   useCreateWidgetKey,
   useDisableWidgetKey,
-  useRefreshWidgetKey,
   useRotateWidgetKey,
   useSetWidgetKeyOrigins,
+  useStoreWidgetKey,
   useWidgetKey,
 } from "@botsdk/representative/react";
-import { maxWidgetOrigins, widgetOrigin } from "@botsdk/representative/client";
+import { maxWidgetOrigins, widgetOrigin, type WidgetKeyView } from "@botsdk/representative/client";
 
 /** A button that asks first, for a change that ends every session of the key. */
 function ConfirmedButton({
@@ -81,11 +81,11 @@ function ConfirmedButton({
 export function WidgetKeySection({ id }: { id: string }) {
   const i18n = useI18n();
   const { t } = i18n;
-  const refresh = useRefreshWidgetKey(id);
+  const store = useStoreWidgetKey(id);
   const widgetKey = useWidgetKey(id);
   const done = (saved?: string) => ({
-    onSuccess: async () => {
-      await refresh();
+    onSuccess: (view: WidgetKeyView) => {
+      store(view);
       if (saved) toast.success(saved);
     },
     onError: (error: Error) => toast.error(serverErrorText(i18n, error)),
@@ -96,8 +96,8 @@ export function WidgetKeySection({ id }: { id: string }) {
   const savedOrigins = done(t("representative.widgetKeyOriginsSaved"));
   const setOrigins = useSetWidgetKeyOrigins({
     ...savedOrigins,
-    onSuccess: async () => {
-      await savedOrigins.onSuccess();
+    onSuccess: (view: WidgetKeyView) => {
+      savedOrigins.onSuccess(view);
       setTyped(null);
     },
   });

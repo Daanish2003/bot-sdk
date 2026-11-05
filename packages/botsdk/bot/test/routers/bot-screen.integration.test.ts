@@ -13,6 +13,7 @@ import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter
 import { fakeNovnc } from "@ai-chat/test-support/fake-novnc";
 import { chatRpc, createTestChat } from "@ai-chat/test-support/sdk";
 import { createScreenSocketOver } from "../../src/over";
+import { otherSpelling } from "@ai-chat/test-support/signatures";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { fakeComputerProvider, type FakeCommandRun } from "@botsdk/testing/fake-computer-provider";
@@ -676,15 +677,11 @@ describe("the live view's proxy", () => {
     const handler = screenHandlerOf(deps);
     const forged = `${token.slice(0, -2)}${token.at(-2) === "A" ? "B" : "A"}${token.slice(-1)}`;
 
-    // The same signature bytes in other text: its last character has 2 unused bits.
-    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    const respelled = `${token.slice(0, -1)}${alphabet[alphabet.indexOf(token.at(-1)!) + 1]}`;
-
     const refused = [
       await handler(pageRequest("/api/chat/screens/vnc.html")),
       await handler(pageRequest(url.replace(token, "not-a-token"))),
       await handler(pageRequest(url.replace(token, forged))),
-      await handler(pageRequest(url.replace(token, respelled))),
+      await handler(pageRequest(url.replace(token, otherSpelling(token)))),
     ];
     // Ten minutes on, the link has expired.
     offset.ms = 11 * minuteMs;

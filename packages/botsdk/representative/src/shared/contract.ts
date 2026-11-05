@@ -789,8 +789,15 @@ export type WidgetKeyView = {
 
 export const maxWidgetOrigins = 50;
 /** Whether `value` is only a scheme, host and port, which is all a browser's `Origin` header says. */
-const isWebOrigin = (value: string) =>
-  /^https?:\/\/[^/?#\\@*\s]+\/?$/i.test(value) && URL.canParse(value);
+const isWebOrigin = (value: string) => {
+  if (!/^https?:\/\/[^/?#\\@*\s]+\/?$/i.test(value)) return false;
+  try {
+    // The parsed host too: encoded or mapped characters can become a host no browser would send.
+    return /^(\[[0-9a-f:.]+\]|[a-z0-9_-]+(\.[a-z0-9_-]+)*\.?)$/.test(new URL(value).hostname);
+  } catch {
+    return false;
+  }
+};
 /** One allowed origin, stored as the browser will send it. */
 export const widgetOrigin = z
   .string()

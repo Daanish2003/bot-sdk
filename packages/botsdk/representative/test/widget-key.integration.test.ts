@@ -167,6 +167,11 @@ describe("the owner's widget key", () => {
     "https://shop.example/page",
     "https://shop.example?a=1",
     "https://*.example",
+    "https://%2a.example",
+    "https://\uff0a.example",
+    "https://\u00ad.example",
+    "https://.",
+    "https://a..example",
     "ftp://shop.example",
     "https://user@shop.example",
     "null",
@@ -302,7 +307,7 @@ describe("starting a web chat session", () => {
 
     const refused = await start(url, key);
     expect(refused.status).toBe(403);
-    // The page can read why, so its widget can say the chat has ended.
+    // A page on any site can read the refusal.
     expect(refused.headers.get("access-control-allow-origin")).toBe("*");
     expect(await refused.json()).toEqual({ code: "error.widgetSessionRefused", params: {} });
     expect((await start(url, rotated.key)).status).toBe(200);
@@ -313,14 +318,19 @@ describe("starting a web chat session", () => {
     const { rpc, id, key } = await ownerWithKey(deps);
 
     await rpc.representative.widgetKeyDisable({ id });
-    const refused = await start(url, key);
-    expect(refused.status).toBe(403);
     // Nothing tells a disabled key from one that never existed, whichever origin asks.
-    const unknown = await start(url, "no-such-key");
-    expect(refused.headers.get("access-control-allow-origin")).toBe(
-      unknown.headers.get("access-control-allow-origin"),
-    );
-    expect(await refused.json()).toEqual(await unknown.json());
+    const answer = async (response: Response) => ({
+      status: response.status,
+      allowOrigin: response.headers.get("access-control-allow-origin"),
+      cacheControl: response.headers.get("cache-control"),
+      vary: response.headers.get("vary"),
+      body: await response.json(),
+    });
+    for (const origin of [shop, "https://evil.example", null]) {
+      const refused = await answer(await start(url, key, origin));
+      expect(refused.status).toBe(403);
+      expect(refused).toEqual(await answer(await start(url, "no-such-key", origin)));
+    }
 
     const rotated = await rpc.representative.widgetKeyRotate({ id });
     expect((await start(url, key)).status).toBe(403);

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { type ProcedureMutationOptions, useOrpc } from "@botsdk/react/provider";
-import type { RepresentativeContract } from "../shared/contract";
+import type { RepresentativeContract, WidgetKeyView } from "../shared/contract";
 
 /*
  * The `representative` feature's hooks: TanStack Query over its procedures, for a UI inside a
@@ -143,14 +143,12 @@ export function useWidgetKey(id: string) {
   return useQuery(useRepresentative().widgetKeyGet.queryOptions({ input: { id } }));
 }
 
-/** Refetches a Representative's widget key, the one thing its mutations change. */
-export function useRefreshWidgetKey(id: string) {
+/** Shows the widget key a mutation returned, so what's on screen can't lag behind what it did. */
+export function useStoreWidgetKey(id: string) {
   const representative = useRepresentative();
   const queryClient = useQueryClient();
-  return () =>
-    queryClient.invalidateQueries({
-      queryKey: representative.widgetKeyGet.queryKey({ input: { id } }),
-    });
+  return (view: WidgetKeyView) =>
+    queryClient.setQueryData(representative.widgetKeyGet.queryKey({ input: { id } }), view);
 }
 
 /** Creates a Representative's widget key (`representative.widgetKeyCreate`). */

@@ -167,14 +167,15 @@ export async function readWidgetSession(
 
 /**
  * The same whatever was wrong, so the route says nothing about which keys exist or what they allow.
- * Any page can read it, so a widget on a rotated or disabled key can say the chat has ended.
+ * Any page can read it, so a widget can say a chat can't start. Telling a visitor their chat has
+ * ended is for the routes that read a session.
  */
 const refused = () =>
   Response.json(
     { code: "error.widgetSessionRefused", params: {} },
     {
       status: 403,
-      headers: { "access-control-allow-origin": "*", "cache-control": "no-store", vary: "Origin" },
+      headers: { "access-control-allow-origin": "*", "cache-control": "no-store" },
     },
   );
 
