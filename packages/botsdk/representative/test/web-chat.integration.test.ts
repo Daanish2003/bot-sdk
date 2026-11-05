@@ -86,13 +86,30 @@ async function world(
   const timer = fakeJobClock(new Date("2026-11-05T12:00:00Z"));
   const fake = createFakeAdapter({ rounds });
   const ban = { on: false };
+  /** While `held` is set, a delivery job waits on it before it starts. */
+  const delivery: { held: Promise<void> | null } = { held: null };
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({
     db: getTestDb(),
     logger: { error: () => {} },
     drainMs: 50,
     clock: timer.clock,
-    jobs: () => deps!.parts.jobs,
+    jobs: () => {
+      const table = new Map(deps!.parts.jobs);
+      const entry = table.get(customerDeliveryJobName)!;
+      const { run } = entry.definition;
+      table.set(customerDeliveryJobName, {
+        ...entry,
+        definition: {
+          ...entry.definition,
+          run: async (payload, context) => {
+            await delivery.held;
+            return run(payload, context);
+          },
+        },
+      });
+      return table;
+    },
   });
   deps = createTestSdk({
     jobs,
@@ -200,6 +217,7 @@ async function world(
   return {
     threadOf,
     ban,
+    delivery,
     deps,
     fake,
     user,
@@ -251,6 +269,10 @@ describe("a visitor with a session token", () => {
     await rpc.representative.threadTakeOver({ id: thread.id });
     await rpc.representative.threadSend({ id: thread.id, text: "We found your order." });
 
+    // Once its delivery has run.
+    await expect
+      .poll(async () => (await read(token)).at(-1)?.text, poll)
+      .toBe("We found your order.");
     const after = await read(token);
     expect(after.slice(0, 2)).toEqual(before);
     expect(after.at(-1)).toMatchObject({ from: "business", text: "We found your order." });
@@ -371,7 +393,7 @@ describe("what a visitor reads", () => {
 
     const [waiting] = await rpc.representative.replyDraftList();
     await rpc.representative.replyDraftApprove({ id: waiting!.id });
-    expect((await said(token)).at(-1)).toEqual(["business", draft]);
+    await expect.poll(async () => (await said(token)).at(-1), poll).toEqual(["business", draft]);
   });
 
   it("doesn't hold what a cap held", async () => {
@@ -438,6 +460,28 @@ describe("what a visitor reads", () => {
       .insert(representativeOutboundDecision)
       .values({ ...passed!, id: uuidv7(), outcome: "drop", rule: "blocked" });
 
+    expect(await said(token)).toEqual([["customer", "Hello"]]);
+  });
+
+  it("holds a reply only once it's delivered, and never one delivery stops", async () => {
+    const { startSession, send, said, dueTurn, delivery, rpc } = await world([answers(), round()]);
+    let deliver!: () => void;
+    delivery.held = new Promise((resolve) => {
+      deliver = resolve;
+    });
+    const token = await startSession();
+    await send(token, "Hello");
+    dueTurn();
+    await expect.poll(() => decisionsOf("send"), poll).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(await said(token)).toEqual([["customer", "Hello"]]);
+
+    // Blocked after the gate passed the reply and before its delivery ran.
+    const [customer] = await rpc.representative.customerList();
+    await rpc.representative.customerSetBlocked({ id: customer!.id, blocked: true });
+    deliver();
+
+    await delivered();
     expect(await said(token)).toEqual([["customer", "Hello"]]);
   });
 

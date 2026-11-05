@@ -712,8 +712,13 @@ export const representativeOutboundDecision = botsdkSchema.table(
     messageId: uuid("message_id").references((): AnyPgColumn => representativeThreadMessage.id, {
       onDelete: "set null",
     }),
-    /** What a failed send got out and the account it used, so its retry sends only the rest there. */
-    sentOn: jsonb("sent_on").$type<{ channelAccountId: string | null; progress: SendProgress }>(),
+    /**
+     * The account a send used and what it got out: a failed send's `progress`, so its retry sends only
+     * the rest there, or `delivered` once all of it went. A web chat visitor reads only what was.
+     */
+    sentOn: jsonb("sent_on").$type<
+      { channelAccountId: string | null } & ({ progress: SendProgress } | { delivered: true })
+    >(),
     createdAt: timestamp("created_at").notNull(),
   },
   (table) => [

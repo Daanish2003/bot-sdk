@@ -856,7 +856,7 @@ export const customerDeliveryJob = (channelOf: ChannelOf, concurrency: number) =
           {
             representativeId: row.representativeId,
             channelAccountId,
-            resume: row.sentOn?.progress ?? null,
+            resume: row.sentOn && "progress" in row.sentOn ? row.sentOn.progress : null,
           },
         );
       } catch (error) {
@@ -874,6 +874,11 @@ export const customerDeliveryJob = (channelOf: ChannelOf, concurrency: number) =
         }
         throw error;
       }
+      // What a web chat visitor reads, so it shows only once nothing has stopped it.
+      await job.db
+        .update(decision)
+        .set({ sentOn: { channelAccountId, delivered: true } })
+        .where(eq(decision.id, decisionId));
       hintVisitor(job, row);
     },
     onFailed: ({ decisionId }, _error, job) =>
