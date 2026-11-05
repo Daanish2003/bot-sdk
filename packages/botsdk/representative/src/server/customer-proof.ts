@@ -4,8 +4,10 @@ import { z } from "zod";
 
 import type { FeatureContext, PublicRoute } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import type { MessagingReach } from "@botsdk/bot/channel";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { absorbCustomer } from "./customer-merge";
+import { type GateRefusal, passGate, type ViaChannel } from "./outbound-gate";
 import {
   representativeCustomer,
   representativeCustomerIdentity,
@@ -37,13 +39,19 @@ const sendLimitWindowMs = 60 * 60_000;
 /** What a Channel is given to send: a code to read back, or the token of a link to open. */
 export type Proof = { kind: "code" | "link"; secret: string };
 
-/** Where proofs go; a Channel's Customer path supplies this. */
+/** How messages reach a Customer; a Channel's Customer path supplies this. A throw means it didn't go. */
 export type CustomerChannel = {
+  send: (to: { channel: string; externalId: string }, message: { text: string }) => Promise<void>;
   sendProof: (to: { channel: string; externalId: string }, proof: Proof) => Promise<void>;
+  /** What the platform of `channel` limits, as its adapter declares it; left out, nothing is limited. */
+  reach?: (channel: string) => MessagingReach | undefined;
 };
 
-/** No real Channel reaches a Customer yet (spec #1168), so by default a proof goes nowhere. */
-export const noCustomerChannel: CustomerChannel = { sendProof: async () => {} };
+/** No real Channel reaches a Customer yet (spec #1172), so by default nothing goes anywhere. */
+export const noCustomerChannel: CustomerChannel = {
+  send: async () => {},
+  sendProof: async () => {},
+};
 
 /** A proof on its way, with its address. */
 export type SentProof = { to: { channel: string; externalId: string }; proof: Proof };
@@ -180,9 +188,10 @@ export async function requestProof(
   {
     keyring,
     userId,
-    thread: { threadId, heard, verified, proofRule },
+    thread: { threadId, heard, verified, proofRule, releaseId, refusals },
     claimed,
     now,
+    channel,
   }: {
     keyring: readonly string[];
     userId: string;
@@ -191,22 +200,21 @@ export async function requestProof(
       heard: { channel: string; externalId: string };
       verified: boolean;
       proofRule: ChannelProofRule | null;
+      releaseId?: string | null;
+      refusals?: GateRefusal[];
     };
     claimed: { channel: string; externalId: string } | null;
     now: Date;
+    channel: Pick<CustomerChannel, "reach">;
   },
 ): Promise<SentProof | null> {
   if (!proofRule || (verified && !claimed)) return null;
   // As for a reply: a Turn that began before the owner took over or blocked sends nothing more.
   const [held] = await tx
-    .select({ state: representativeThread.state, blockedAt: representativeCustomer.blockedAt })
+    .select({ state: representativeThread.state })
     .from(representativeThread)
-    .innerJoin(
-      representativeCustomer,
-      eq(representativeCustomer.id, representativeThread.customerId),
-    )
     .where(eq(representativeThread.id, threadId));
-  if (held?.state !== "representative" || held.blockedAt !== null) return null;
+  if (held?.state !== "representative") return null;
   const before = await identityAt(tx, userId, heard);
   // The owner has corrected this address since the message came.
   if (!before) return null;
@@ -214,7 +222,12 @@ export async function requestProof(
   await holdIdentities(tx, [before.id, ...(claim ? [claim.id] : [])]);
   // Read again under the hold: either may have changed while waiting for it.
   const sender = await identityAt(tx, userId, heard);
-  if (sender?.id !== before.id || sender.blockedAt !== null) return null;
+  if (sender?.id !== before.id) return null;
+  // The gate logs why a blocked Customer gets nothing.
+  if (sender.blockedAt !== null) {
+    await passGate(tx, { kind: "proof", threadId, to: heard, now, releaseId, refusals, channel });
+    return null;
+  }
   // They passed a code while this Turn ran.
   if (!verified && sender.provenUntil !== null && now < sender.provenUntil) return null;
   const found = claimed && claim ? await identityAt(tx, userId, claimed) : undefined;
@@ -228,7 +241,6 @@ export async function requestProof(
     claim &&
     found?.id === claim.id &&
     found.id !== sender.id &&
-    found.blockedAt === null &&
     !hasLapsed(found, now) &&
     (found.customerId === sender.customerId
       ? !verified
@@ -266,6 +278,32 @@ export async function requestProof(
         ),
       );
     if (sentToTarget.length >= sendLimit) target = null;
+  }
+
+  // Before a code is made: one the gate refuses goes to nobody, as one with no target does.
+  if (target) {
+    const customerId = target.id === sender.id ? sender.customerId : found!.customerId;
+    // So a block lands before the gate reads it or after this commits. Not waited for: the owner's
+    // changes hold a Customer and then its identities, and these are held already. With one under way
+    // nothing goes, and the Customer asks again.
+    const [customer] = await tx
+      .select({ id: representativeCustomer.id })
+      .from(representativeCustomer)
+      .where(eq(representativeCustomer.id, customerId))
+      .for("share", { skipLocked: true });
+    const decision =
+      customer &&
+      (await passGate(tx, {
+        kind: "proof",
+        threadId,
+        to: { channel: target.channel, externalId: target.externalId },
+        now,
+        releaseId,
+        refusals,
+        customerId,
+        channel,
+      }));
+    if (decision?.outcome !== "send") target = null;
   }
 
   if (!target) {
@@ -366,7 +404,7 @@ export async function customerProofLeadsTo(tx: Transaction, identityId: string, 
   return newest?.kind === "code" && isLive(newest, now) ? newest.customerId : undefined;
 }
 
-type MergeServices = Pick<FeatureContext, "clock" | "jobs" | "keyring">;
+type MergeServices = Pick<FeatureContext, "clock" | "jobs" | "keyring"> & ViaChannel;
 
 /**
  * Merges the sender's Customer into that of the identity their code went to, when that is another:

@@ -6,6 +6,7 @@ import {
   customerCreateInput,
   customerMergeInput,
   customerRenameInput,
+  customerClearOptOutInput,
   customerSetBlockedInput,
   factAddInput,
   factEditInput,
@@ -19,10 +20,17 @@ import {
   documentRemoveInput,
   documentUploadInput,
   idInput,
+  replyDraftEditInput,
   rollbackInput,
+  setAssignmentDueInput,
   setBotInput,
+  setCapsInput,
+  setSpendingCapsInput,
+  setQuietHoursInput,
   setEnabledInput,
   threadSendInput,
+  topicAddInput,
+  topicSetModeInput,
   updateDraftInput,
 } from "../shared/contract";
 import { type ConvertDocument, type KnowledgeFiles, knowledgeChoices } from "./documents";
@@ -46,6 +54,7 @@ import {
   listThreads,
   renameCustomer,
   setProfileValue,
+  clearOptOut,
   setBlocked,
   updateIdentity,
 } from "./owner-customers";
@@ -60,12 +69,25 @@ import {
   removeDocument,
   rollbackRelease,
   runTests,
+  setAssignmentDue,
   setBot,
+  setCaps,
   setEnabled,
+  setSpendingCaps,
+  setQuietHours,
   updateDraft,
   uploadDocument,
 } from "./representatives";
+import { type CustomerChannel, noCustomerChannel } from "./customer-proof";
+import { dropHeldMessage, ownerInbox, sendHeldMessage } from "./held-messages";
+import {
+  approveReplyDraft,
+  editReplyDraft,
+  listReplyDrafts,
+  rejectReplyDraft,
+} from "./reply-drafts";
 import { handBackThread, sendAsOwner, takeOverThread } from "./takeover";
+import { addTopic, listTopics, removeTopic, setTopicMode } from "./topics";
 
 /*
  * The `representative` namespace's domain methods: what a Host calls in-process as
@@ -75,12 +97,12 @@ import { handBackThread, sendAsOwner, takeOverThread } from "./takeover";
 
 /** The `representative` namespace over the feature's context. */
 export function representativeApi(
-  context: FeatureContext<
-    "assignments" | "factApprovals" | "models" | "releaseApprovals" | "threads"
-  >,
+  base: FeatureContext<"assignments" | "factApprovals" | "models" | "releaseApprovals" | "threads">,
   convertDocument?: ConvertDocument,
   knowledgeFiles?: KnowledgeFiles,
+  customerChannel: CustomerChannel = noCustomerChannel,
 ) {
+  const context = { ...base, channel: customerChannel };
   return {
     list: async ({ userId }: { userId: string }) => listRepresentatives(context, userId),
 
@@ -141,6 +163,17 @@ export function representativeApi(
       return setEnabled(context, userId, id, enabled);
     },
 
+    setCaps: async ({ userId, ...rest }: WithUser<typeof setCapsInput>) =>
+      setCaps(context, userId, parseInput(setCapsInput, rest)),
+
+    setSpendingCaps: async ({ userId, ...rest }: WithUser<typeof setSpendingCapsInput>) =>
+      setSpendingCaps(context, userId, parseInput(setSpendingCapsInput, rest)),
+    setQuietHours: async ({ userId, ...rest }: WithUser<typeof setQuietHoursInput>) =>
+      setQuietHours(context, userId, parseInput(setQuietHoursInput, rest)),
+
+    setAssignmentDue: async ({ userId, ...rest }: WithUser<typeof setAssignmentDueInput>) =>
+      setAssignmentDue(context, userId, parseInput(setAssignmentDueInput, rest)),
+
     setBot: async ({ userId, ...rest }: WithUser<typeof setBotInput>) => {
       const { id, botId } = parseInput(setBotInput, rest);
       return setBot(context, userId, id, botId);
@@ -183,6 +216,9 @@ export function representativeApi(
       const { id, blocked } = parseInput(customerSetBlockedInput, rest);
       return setBlocked(context, userId, id, blocked, context.clock());
     },
+
+    customerClearOptOut: async ({ userId, ...rest }: WithUser<typeof customerClearOptOutInput>) =>
+      clearOptOut(context, userId, parseInput(customerClearOptOutInput, rest)),
 
     customerMerge: async ({ userId, ...rest }: WithUser<typeof customerMergeInput>) =>
       mergeCustomers(context, userId, parseInput(customerMergeInput, rest)),
@@ -239,8 +275,42 @@ export function representativeApi(
     threadHandBack: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
       handBackThread(context, userId, parseInput(idInput, rest).id),
 
+    inbox: async ({ userId }: { userId: string }) => ownerInbox(context, userId),
+
+    threadHeldSend: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      sendHeldMessage(context, userId, parseInput(idInput, rest).id),
+
+    threadHeldDrop: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      dropHeldMessage(context, userId, parseInput(idInput, rest).id),
+
     threadSend: async ({ userId, ...rest }: WithUser<typeof threadSendInput>) =>
       sendAsOwner(context, userId, parseInput(threadSendInput, rest)),
+
+    topicList: async ({ userId }: { userId: string }) => listTopics(context, userId),
+
+    topicAdd: async ({ userId, ...rest }: WithUser<typeof topicAddInput>) =>
+      addTopic(context, userId, parseInput(topicAddInput, rest).name),
+
+    topicSetMode: async ({ userId, ...rest }: WithUser<typeof topicSetModeInput>) => {
+      const { id, mode } = parseInput(topicSetModeInput, rest);
+      return setTopicMode(context, userId, id, mode);
+    },
+
+    topicRemove: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      removeTopic(context, userId, parseInput(idInput, rest).id),
+
+    replyDraftList: async ({ userId }: { userId: string }) => listReplyDrafts(context, userId),
+
+    replyDraftApprove: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      approveReplyDraft(context, userId, parseInput(idInput, rest).id),
+
+    replyDraftEdit: async ({ userId, ...rest }: WithUser<typeof replyDraftEditInput>) => {
+      const { id, text } = parseInput(replyDraftEditInput, rest);
+      return editReplyDraft(context, userId, id, text);
+    },
+
+    replyDraftReject: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      rejectReplyDraft(context, userId, parseInput(idInput, rest).id),
   };
 }
 

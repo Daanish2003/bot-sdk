@@ -104,6 +104,12 @@ export const testConversationSchema = z.object({
 });
 export type TestConversation = z.output<typeof testConversationSchema>;
 
+/** What a Customer in an emergency is sent until the owner says otherwise, on a new draft and an older Release. */
+export const defaultEmergencyText = "If this is an emergency, call your local emergency number";
+const maxEmergencyTextLength = 1_000;
+const maxEmergencyKeywords = 50;
+const maxEmergencyKeywordLength = 100;
+
 /** What the owner writes: the part of a Release that is theirs to edit. */
 export const draftSchema = z.object({
   /** What the Representative is told to do. */
@@ -121,6 +127,12 @@ export const draftSchema = z.object({
   model: storable(z.string().trim().min(1).max(200)).nullable(),
   /** Scripted test conversations, run on the draft and pinned in the Release. */
   tests: z.array(testConversationSchema).max(maxTestConversations),
+  /** The emergency script's fixed text. */
+  emergencyText: storable(z.string().trim().min(1).max(maxEmergencyTextLength)),
+  /** What sets the script off when a Customer says it, as whole words. */
+  emergencyKeywords: z
+    .array(storable(z.string().trim().min(1).max(maxEmergencyKeywordLength)))
+    .max(maxEmergencyKeywords),
 });
 
 /**
@@ -161,6 +173,17 @@ export type ReleaseContent = Omit<Draft, "documents"> & {
   documentSnapshot: DocumentSnapshot | null;
 };
 
+/** A Release as stored: one approved before the emergency script has the default text and no keywords. */
+export const normalizedRelease = <
+  Content extends Pick<ReleaseContent, "emergencyText" | "emergencyKeywords">,
+>(
+  content: Content,
+): Content => ({
+  ...content,
+  emergencyText: content.emergencyText ?? defaultEmergencyText,
+  emergencyKeywords: content.emergencyKeywords ?? [],
+});
+
 export type ReleaseSummary = {
   id: string;
   number: number;
@@ -178,7 +201,49 @@ export type RepresentativeSummary = {
   enabled: boolean;
   /** The number of the live Release, or null before the first approval. */
   liveReleaseNumber: number | null;
+  /** What the Outbound gate holds a Customer to, in messages (ticket #1304). */
+  caps: OutboundCaps;
+  /** What the Representative may cost (ticket #1310). */
+  spendingCaps: SpendingCaps;
+  /** When the Outbound gate holds what the business starts (ticket #1303). */
+  quietHours: QuietHours;
+  /** Minutes an Assignment it hands to a Bot may run before it is overdue (ticket #1312). */
+  assignmentDueMinutes: number;
 };
+
+/** The most the Outbound gate lets a Representative send one Customer: in a row with no reply, and in a rolling day. */
+export type OutboundCaps = { maxInARow: number; maxPerDay: number };
+
+/**
+ * What a Representative may cost (ticket #1310): model calls and money, in millionths of a US dollar,
+ * per thread, per Customer in a rolling day, per unverified Customer in a rolling day, and money per
+ * calendar month for the Representative (its Turns and its Customer memory passes). Starting defaults.
+ */
+export type SpendingCaps = {
+  threadCalls: number;
+  threadMicros: number;
+  customerCalls: number;
+  customerMicros: number;
+  strangerCalls: number;
+  strangerMicros: number;
+  monthMicros: number;
+};
+
+export const defaultSpendingCaps: SpendingCaps = {
+  threadCalls: 30,
+  threadMicros: 500_000,
+  customerCalls: 60,
+  customerMicros: 2_000_000,
+  strangerCalls: 20,
+  strangerMicros: 500_000,
+  monthMicros: 50_000_000,
+};
+
+/**
+ * The hours the Outbound gate holds what the business starts, from `startHour` to `endHour` (0 to 23,
+ * wrapping past midnight) in the Customer's time zone, or in `timeZone`, the business's, when theirs is unknown.
+ */
+export type QuietHours = { startHour: number; endHour: number; timeZone: string };
 
 /** One line of a test conversation's transcript. */
 export type TranscriptEntry = {
@@ -233,6 +298,8 @@ export type RepresentativeView = RepresentativeSummary & {
   liveRelease: ReleaseView | null;
   releases: ReleaseSummary[];
   testStatus: TestStatus;
+  /** How much of the monthly spending cap this calendar month has used, 0 to 100 (ticket #1310). */
+  monthUsedPercent: number;
   /** The results that count for the draft as it is now: none once it has changed. */
   tests: TestResultView[];
 };
@@ -242,9 +309,19 @@ export type RepresentativeView = RepresentativeSummary & {
  * text, and null where that side has none (a Skill or switch only one side holds, a first Release).
  */
 export type DraftChange = {
-  field: "jobText" | "switch" | "skill" | "tool" | "model" | "test" | "document";
+  field:
+    | "jobText"
+    | "switch"
+    | "skill"
+    | "tool"
+    | "model"
+    | "test"
+    | "document"
+    | "emergencyText"
+    | "emergencyKeywords";
   /**
-   * The switch, Skill, tool, test or document the change is about; null for the job text and Model,
+   * The switch, Skill, tool, test or document the change is about; null for the job text, Model and
+   * emergency script,
    * and for Skills, tests or documents put in another order, whose sides are then their names in
    * order.
    */
@@ -259,16 +336,26 @@ export type DraftDiff = {
   changes: DraftChange[];
 };
 
-/** One way of reaching a Customer: a Channel, that Channel's id for them, and whether it is verified now. */
+/** How an identity opted out of hearing from the business: a Channel's keyword, or a Representative's flag. */
+export type OptOutSource = "keyword" | "representative";
+
+/** One way of reaching a Customer: a Channel, that Channel's id for them, whether it is verified now, and whether they opted out of it. */
 export type CustomerIdentityView = {
   id: string;
   channel: string;
   externalId: string;
   verified: boolean;
+  /** Set once they opted out, and until they say START or the owner clears it: nothing is sent to them. */
+  optedOut: { source: OptOutSource; at: Date } | null;
 };
 
 /** The profile fields every Customer has: the name, which has its own path, and these. */
-export const correctableFixedFields = ["language", "preferred_channel", "address"] as const;
+export const correctableFixedFields = [
+  "language",
+  "preferred_channel",
+  "address",
+  "time_zone",
+] as const;
 export const fixedProfileFields = ["name", ...correctableFixedFields] as const;
 export type FixedProfileField = (typeof fixedProfileFields)[number];
 /** Who a profile value came from: the owner who set it, or the author of the thread line the pass read it from. */
@@ -367,16 +454,103 @@ export type ThreadMessageView = {
   createdAt: Date;
 };
 
+/** A message the Outbound gate held (ticket #1304), which the owner sends or drops. Not in the transcript. */
+export type HeldMessageView = {
+  id: string;
+  text: string;
+  /** The rule that held it, such as `caps`. */
+  rule: string;
+  /** Where it would go. */
+  channel: string;
+  externalId: string;
+  createdAt: Date;
+};
+
+/** A held message on the owner-wide inbox (ticket #1313): who it is for, and where to read its thread. */
+export type InboxHeldView = HeldMessageView & {
+  threadId: string;
+  representativeId: string;
+  representativeName: string;
+  customerName: string | null;
+};
+
+/** A thread a Representative is running without the owner (ticket #1313), with whose it is. */
+export type InboxThreadView = ThreadSummary & {
+  representativeId: string;
+  representativeName: string;
+};
+
+/**
+ * What the owner's inbox needs beyond their Reply drafts and Pages (ticket #1313): the messages the
+ * Outbound gate held, and the threads their Representatives hold, across all of them. `truncated` says
+ * which of the owner's lists, the drafts' too, has more than it shows.
+ */
+export type OwnerInbox = {
+  held: InboxHeldView[];
+  running: InboxThreadView[];
+  truncated: { held: boolean; drafts: boolean; running: boolean };
+};
+
 export type ThreadView = ThreadSummary & {
   representativeId: string;
   /** The Customer's identities, each with whether it is verified. */
   identities: CustomerIdentityView[];
   /** Oldest first. */
   messages: ThreadMessageView[];
+  /** What the gate has held on this thread, oldest first. */
+  held: HeldMessageView[];
 };
 
 /** The longest one thread message may be, whoever wrote it. */
 export const maxThreadMessageLength = 60_000;
+
+export const maxFactTopicLength = 100;
+
+/** One of the owner's topics: `auto` replies on it go out by themselves, and all start at `draft`. */
+export type TopicView = {
+  id: string;
+  name: string;
+  mode: "draft" | "auto";
+  /** How many of its Reply drafts the owner approved without editing. */
+  approvedUnedited: number;
+  /** True while it is still `draft` and has that many approvals: a suggestion, never a change. */
+  promotionSuggested: boolean;
+  createdAt: Date;
+};
+
+/** The unedited approvals after which a topic is suggested for promotion. */
+export const promotionSuggestedAt = 20;
+
+export const topicSetModeInput = z.object({
+  id: z.uuid(),
+  mode: z.enum(["draft", "auto"]),
+});
+
+export const topicAddInput = z.object({
+  name: storable(z.string().trim().min(1).max(maxFactTopicLength)),
+});
+
+/** A Representative's reply waiting for the owner, which the Customer hasn't seen. */
+export type ReplyDraftView = {
+  id: string;
+  threadId: string;
+  representativeId: string;
+  customerName: string | null;
+  /** Where it goes if the owner sends it. */
+  to: { channel: string; externalId: string };
+  /** Whether the Turn it belongs to was for a verified sender. */
+  verified: boolean;
+  text: string;
+  /** The topic the Representative labelled it with, which may not be one of the owner's; null with none. */
+  topic: string | null;
+  reply: ReplyProof;
+  createdAt: Date;
+};
+
+export const replyDraftEditInput = z.object({
+  id: z.uuid(),
+  text: storable(z.string().trim().min(1).max(maxThreadMessageLength)),
+});
 
 export const threadSendInput = z.object({
   id: z.uuid(),
@@ -404,6 +578,7 @@ export const customerUpdateIdentityInput = z.object({
   externalId: externalIdField,
 });
 export const customerSetBlockedInput = z.object({ id: z.uuid(), blocked: z.boolean() });
+export const customerClearOptOutInput = z.object({ id: z.uuid(), identityId: z.uuid() });
 export const customerMergeInput = z.object({ id: z.uuid(), intoId: z.uuid() });
 export const customerRenameInput = z.object({
   id: z.uuid(),
@@ -415,13 +590,18 @@ export const maxProfileValueLength = 1_000;
 const profileFieldName = storable(z.string().trim().min(1).max(maxProfileFieldNameLength));
 export const profileFieldAddInput = z.object({ name: profileFieldName });
 export const profileFieldRenameInput = z.object({ id: z.uuid(), name: profileFieldName });
-export const customerProfileSetInput = z.object({
-  id: z.uuid(),
-  /** A fixed field other than the name, which `customerRename` sets, or an own field's id. */
-  field: z.union([z.enum(correctableFixedFields), z.uuid()]),
-  /** An empty value clears it. */
-  value: storable(z.string().trim().max(maxProfileValueLength)),
-});
+export const customerProfileSetInput = z
+  .object({
+    id: z.uuid(),
+    /** A fixed field other than the name, which `customerRename` sets, or an own field's id. */
+    field: z.union([z.enum(correctableFixedFields), z.uuid()]),
+    /** An empty value clears it. */
+    value: storable(z.string().trim().max(maxProfileValueLength)),
+  })
+  .refine(({ field, value }) => field !== "time_zone" || value === "" || isTimeZone(value), {
+    message: "Not a time zone",
+    path: ["value"],
+  });
 
 /** The fields of a Published fact that don't name it, as stored or logged. */
 export type FactSnapshot = {
@@ -468,7 +648,6 @@ export type FactProposalView = {
   expiresAt: Date;
 };
 
-export const maxFactTopicLength = 100;
 const factFields = {
   type: z.enum(factTypes),
   topic: storable(z.string().trim().min(1).max(maxFactTopicLength)),
@@ -551,6 +730,50 @@ export const documentPickInput = z.object({
   path: storable(z.string().min(1).max(1_000)),
 });
 export const documentRemoveInput = z.object({ id: z.uuid(), documentId: z.uuid() });
+export const maxOutboundCap = 1_000;
+const capField = z.number().int().min(1).max(maxOutboundCap);
+export const setCapsInput = z
+  .object({ id: z.uuid(), maxInARow: capField.optional(), maxPerDay: capField.optional() })
+  .refine(({ maxInARow, maxPerDay }) => maxInARow !== undefined || maxPerDay !== undefined, {
+    message: "Give at least one cap",
+  });
+const callCapField = z.number().int().min(1).max(1_000_000);
+const moneyCapField = z.number().int().min(1).max(1_000_000_000_000);
+export const setSpendingCapsInput = z
+  .object({
+    id: z.uuid(),
+    threadCalls: callCapField.optional(),
+    threadMicros: moneyCapField.optional(),
+    customerCalls: callCapField.optional(),
+    customerMicros: moneyCapField.optional(),
+    strangerCalls: callCapField.optional(),
+    strangerMicros: moneyCapField.optional(),
+    monthMicros: moneyCapField.optional(),
+  })
+  .refine(({ id: _id, ...caps }) => Object.values(caps).some((cap) => cap !== undefined), {
+    message: "Give at least one cap",
+  });
+/** Whether `name` is an IANA time zone this runtime knows. */
+export function isTimeZone(name: string) {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: name });
+    return true;
+  } catch {
+    return false;
+  }
+}
+const hourField = z.number().int().min(0).max(23);
+export const setQuietHoursInput = z.object({
+  id: z.uuid(),
+  startHour: hourField,
+  endHour: hourField,
+  timeZone: z.string().trim().max(100).refine(isTimeZone, "Not a time zone"),
+});
+export const maxAssignmentDueMinutes = 7 * 24 * 60;
+export const setAssignmentDueInput = z.object({
+  id: z.uuid(),
+  minutes: z.number().int().min(1).max(maxAssignmentDueMinutes),
+});
 export const setEnabledInput = z.object({ id: z.uuid(), enabled: z.boolean() });
 export const setBotInput = z.object({ id: z.uuid(), botId: z.uuid() });
 
@@ -596,6 +819,14 @@ export const representativeContract = {
   rollback: oc.input(rollbackInput).output(type<RepresentativeView>()),
   /** Switches the Representative on or off, with no new Release. */
   setEnabled: oc.input(setEnabledInput).output(type<RepresentativeView>()),
+  /** Edits the caps on what the Outbound gate sends a Customer; a cap left out stays. No new Release. */
+  setCaps: oc.input(setCapsInput).output(type<RepresentativeView>()),
+  /** Edits what the Representative may cost; a cap left out stays. No new Release, and a raise lifts a thread held at a limit. */
+  setSpendingCaps: oc.input(setSpendingCapsInput).output(type<RepresentativeView>()),
+  /** Edits the hours the gate holds what the business starts, and the business's time zone. No new Release. */
+  setQuietHours: oc.input(setQuietHoursInput).output(type<RepresentativeView>()),
+  /** Edits how many minutes an Assignment it hands to a Bot may run before it is overdue. No new Release. */
+  setAssignmentDue: oc.input(setAssignmentDueInput).output(type<RepresentativeView>()),
   /** Chooses which of the owner's Bots it reports to; its open Assignments move to that Bot. */
   setBot: oc.input(setBotInput).output(type<RepresentativeView>()),
   /** The owner's Customers, oldest first. */
@@ -620,6 +851,8 @@ export const representativeContract = {
   customerUpdateIdentity: oc.input(customerUpdateIdentityInput).output(type<CustomerView>()),
   /** Blocks or unblocks a Customer: a blocked one's message is kept for the owner and answered by no one. */
   customerSetBlocked: oc.input(customerSetBlockedInput).output(type<CustomerView>()),
+  /** Clears an identity's opt-out, as its Customer's START does: the business may write to it again. */
+  customerClearOptOut: oc.input(customerClearOptOutInput).output(type<CustomerView>()),
   /**
    * Merges Customer `id` into `intoId`, whose thread goes on where both have one open with a
    * Representative. Refused while either is blocked. It verifies nobody, and can be undone.
@@ -670,6 +903,28 @@ export const representativeContract = {
   threadHandBack: oc.input(idInput).output(type<ThreadView>()),
   /** The owner's own message to the Customer, on a thread they hold. */
   threadSend: oc.input(threadSendInput).output(type<ThreadView>()),
+  /** The owner's topics, oldest first. They are shared by every Representative. */
+  topicList: oc.output(type<TopicView[]>()),
+  /** Adds a topic, at `draft`. Refused when the owner has that name already, ignoring case. */
+  topicAdd: oc.input(topicAddInput).output(type<TopicView>()),
+  /** Promotes a topic to `auto` or puts it back to `draft`. Only the owner can: no tool or Model output does. */
+  topicSetMode: oc.input(topicSetModeInput).output(type<TopicView>()),
+  /** Removes a topic: a reply labelled with it waits for the owner, as for any unknown topic. */
+  topicRemove: oc.input(idInput).output(type<void>()),
+  /** The Representatives' replies waiting for the owner, on threads they don't hold, oldest first. */
+  replyDraftList: oc.output(type<ReplyDraftView[]>()),
+  /** Sends a Reply draft through the Outbound gate. Refused, and still waiting, when the gate drops it. */
+  replyDraftApprove: oc.input(idInput).output(type<void>()),
+  /** Sends the owner's edit of a Reply draft through the Outbound gate, recording that it was edited. */
+  replyDraftEdit: oc.input(replyDraftEditInput).output(type<void>()),
+  /** Rejects a Reply draft: nothing is sent. */
+  replyDraftReject: oc.input(idInput).output(type<void>()),
+  /** The messages the gate held and the threads Representatives are running, across all the owner's Representatives (ticket #1313). */
+  inbox: oc.output(type<OwnerInbox>()),
+  /** Sends a message the gate held, as the owner's own, if the gate still passes it. Logged. */
+  threadHeldSend: oc.input(idInput).output(type<ThreadView>()),
+  /** Drops a message the gate held, which the Customer never gets. Logged. */
+  threadHeldDrop: oc.input(idInput).output(type<ThreadView>()),
 };
 
 export type RepresentativeContract = typeof representativeContract;

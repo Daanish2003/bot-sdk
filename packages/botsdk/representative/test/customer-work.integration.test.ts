@@ -7,7 +7,7 @@ import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { botAssignment } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { testCustomerTurn } from "@ai-chat/test-support/test-customer";
+import { approveDrafts, testCustomerTurn } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
@@ -43,7 +43,12 @@ const cites = (text: string, assignmentId: string, quote: string) =>
   round(
     toolCall({
       name: "reply",
-      input: { text, kind: "answer", sources: [{ type: "assignment", assignmentId, quote }] },
+      input: {
+        topic: "general",
+        text,
+        kind: "answer",
+        sources: [{ type: "assignment", assignmentId, quote }],
+      },
     }),
   );
 
@@ -317,6 +322,7 @@ describe("a reply citing work", () => {
     });
 
     await ask(world, "Where is my refund?");
+    await approveDrafts(world.rpc);
 
     expect(await sent(world.id)).toEqual([
       {

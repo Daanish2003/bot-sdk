@@ -16,6 +16,7 @@ import {
   botSecret,
   customRule,
   notificationSettings,
+  page,
   pushSubscription,
   linkCode,
   linkedIdentity,
@@ -42,6 +43,7 @@ import {
   representativeFact,
   representativeFactLog,
   representativeGap,
+  representativeTopic,
   representativeFactProposal,
   representativeRelease,
   representativeThread,
@@ -85,6 +87,7 @@ const userTables = [
   representativeFact,
   representativeFactLog,
   representativeGap,
+  representativeTopic,
   representativeFactProposal,
   representativeCustomerSummary,
 ].flatMap((value) => {
@@ -198,6 +201,17 @@ async function seedEverything(
       createdAt: new Date(),
     });
 
+  await getTestDb().insert(page).values({
+    id: uuidv7(),
+    userId: user.id,
+    cause: "assignment_overdue",
+    urgency: "routine",
+    title: "An Assignment stalled",
+    text: "Your Bot has not finished.",
+    path: "/",
+    createdAt: new Date(),
+  });
+
   await getTestDb()
     .insert(linkedIdentity)
     .values({
@@ -281,6 +295,12 @@ async function seedEverything(
     new: loggedFact,
     at: factAt,
   });
+  // A topic of the owner's.
+  await getTestDb().insert(representativeTopic).values({
+    id: uuidv7(),
+    userId: user.id,
+    name: "Billing",
+  });
   // A Gap the owner has not closed.
   await getTestDb().insert(representativeGap).values({
     id: uuidv7(),
@@ -321,6 +341,8 @@ async function seedEverything(
         model: null,
         tests: [],
         documents: [],
+        emergencyText: "Call your local emergency number",
+        emergencyKeywords: [],
       },
     });
   await getTestDb()
@@ -336,6 +358,8 @@ async function seedEverything(
         tools: ["reply"],
         model: null,
         documentSnapshot: null,
+        emergencyText: "Call your local emergency number",
+        emergencyKeywords: [],
         tests: [],
       },
     });
@@ -575,7 +599,7 @@ describe("exportUser across plugins", () => {
     );
 
     expect(exported.extra).toEqual({ savedPrompts: [] });
-    expect(exported.bot as BotExport).toEqual({ bots: [], rooms: [], assignments: [] });
+    expect(exported.bot as BotExport).toEqual({ bots: [], rooms: [], assignments: [], pages: [] });
     expect(exported).not.toHaveProperty("memory");
     expect(exported).not.toHaveProperty("savedPrompts");
   });
@@ -611,7 +635,7 @@ describe("sdk.users on a Host's instance", () => {
     const exported = await sdk.users.export({ userId: owner.id });
     expect(exported).toMatchObject({
       version: 2,
-      bot: { bots: [], rooms: [], assignments: [] },
+      bot: { bots: [], rooms: [], assignments: [], pages: [] },
       models: { imageModel: null },
       extra: { owner: owner.id },
     });

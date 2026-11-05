@@ -14,6 +14,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 import { bot, botAssignment, botsdkSchema } from "@botsdk/bot/storage";
+import { defaultSpendingCaps } from "../../shared/contract";
 import type { ChannelProofRule } from "../verification";
 import type { ReplySource, StoredReplyKind } from "../../shared/replies";
 import type {
@@ -21,10 +22,12 @@ import type {
   Draft,
   FactType,
   FixedProfileField,
+  OptOutSource,
   PendingApproval,
   ProfileSource,
   ProfileStatus,
   ReleaseContent,
+  SpendingCaps,
   TestCheck,
   TestResultStatus,
   TranscriptEntry,
@@ -45,6 +48,33 @@ export const representative = botsdkSchema.table(
     botId: uuid("bot_id").references((): AnyPgColumn => bot.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     enabled: boolean("enabled").notNull().default(false),
+    /**
+     * The Outbound gate's caps on what it sends a Customer (ticket #1304), the owner's to edit and in no
+     * Release: messages in a row with no Customer reply, and messages in a rolling day.
+     */
+    maxInARow: integer("max_in_a_row").notNull().default(5),
+    maxPerDay: integer("max_per_day").notNull().default(20),
+    /**
+     * What the Representative may cost (ticket #1310): model calls and money per thread, per Customer
+     * per day, per unverified Customer per day, and money per month. The owner's to edit, in no Release.
+     */
+    spendingCaps: jsonb("spending_caps")
+      .$type<SpendingCaps>()
+      .notNull()
+      .default(defaultSpendingCaps),
+    /**
+     * How long an Assignment it hands to a Bot may run before it is overdue (ticket #1312), in minutes.
+     * The owner's to edit, in no Release.
+     */
+    assignmentDueMinutes: integer("assignment_due_minutes").notNull().default(30),
+    /**
+     * Quiet hours (ticket #1303), the owner's to edit and in no Release: the Outbound gate holds what the
+     * business starts from `quietStartHour` to `quietEndHour` (0 to 23, wrapping past midnight) in the
+     * Customer's time zone, or else in `businessTimeZone`, an IANA name.
+     */
+    quietStartHour: integer("quiet_start_hour").notNull().default(21),
+    quietEndHour: integer("quiet_end_hour").notNull().default(8),
+    businessTimeZone: text("business_time_zone").notNull().default("UTC"),
     /** The Release new Turns use. No foreign key: the two tables point at each other. Null until the first approval. */
     liveReleaseId: uuid("live_release_id"),
     draft: jsonb("draft").$type<Draft>().notNull(),
@@ -245,6 +275,10 @@ export const representativeCustomerIdentity = botsdkSchema.table(
     lapsedAt: timestamp("lapsed_at"),
     /** Until when a passed code or signed link vouches for its messages; null when none has. */
     provenUntil: timestamp("proven_until"),
+    /** When they opted out of hearing from the business (ticket #1302); null when they haven't, or have come back. */
+    optedOutAt: timestamp("opted_out_at"),
+    /** How they opted out: a Channel's keyword, or a Representative's flag; null with `optedOutAt`. */
+    optOutSource: text("opt_out_source").$type<OptOutSource>(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
@@ -353,7 +387,9 @@ export type ThreadState = "representative" | "owner" | "closed";
  * `turnId` is the Turn that holds it, queued or running, and also its job's key. `waitingFrom` is the
  * position of the oldest message waiting for a Turn, and `waitingSince` when messages began to wait,
  * by the SDK's clock; both are null when none waits. While the owner holds the thread they mark what
- * a Turn answers after Hand back, unless the owner answers first.
+ * a Turn answers after Hand back, unless the owner answers first. `limitNotedAt` is set while the
+ * thread is at a limit, and says its note has gone (ticket #1309); `leftForOwnerAt` when the owner is
+ * owed an answer no Turn will give, as what waited through a limit grew too old, until they send one.
  */
 export const representativeThread = botsdkSchema.table(
   "representative_thread",
@@ -373,6 +409,8 @@ export const representativeThread = botsdkSchema.table(
     turnFrom: integer("turn_from"),
     waitingFrom: integer("waiting_from"),
     waitingSince: timestamp("waiting_since"),
+    limitNotedAt: timestamp("limit_noted_at"),
+    leftForOwnerAt: timestamp("left_for_owner_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -382,6 +420,29 @@ export const representativeThread = botsdkSchema.table(
       .where(sql`${table.state} <> 'closed'`),
     index("representative_thread_customer_idx").on(table.customerId),
     index("representative_thread_representative_idx").on(table.representativeId),
+  ],
+);
+
+/**
+ * A Representative Turn, kept for what it costs (ticket #1310): `id` is the Turn's id, which its usage
+ * rows hold as their source id. It finds its Customer through its thread, so it follows a merge, and
+ * goes with its thread or Representative.
+ */
+export const representativeTurn = botsdkSchema.table(
+  "representative_turn",
+  {
+    id: uuid("id").primaryKey(),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references((): AnyPgColumn => representativeThread.id, { onDelete: "cascade" }),
+    representativeId: uuid("representative_id")
+      .notNull()
+      .references((): AnyPgColumn => representative.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("representative_turn_thread_idx").on(table.threadId),
+    index("representative_turn_representative_idx").on(table.representativeId),
   ],
 );
 
@@ -572,4 +633,120 @@ export const representativeFactProposal = botsdkSchema.table(
     unique("representative_fact_proposal_key").on(table.userId, table.key),
     index("representative_fact_proposal_bot_idx").on(table.botId),
   ],
+);
+
+/**
+ * Which message passed the Outbound gate, which says what rules it passes. `released` is a held message
+ * the owner sent (ticket #1304): the Representative's own, so it counts against the day's cap.
+ */
+export type OutboundKind =
+  | "reply"
+  | "code_hand_off"
+  | "limit_note"
+  | "stall_note"
+  | "owner"
+  | "released"
+  | "takeover_note"
+  | "proof"
+  | "opt_out_confirmation"
+  | "holding_note"
+  | "reply_draft"
+  | "emergency_script"
+  | "emergency_script_released";
+
+export type GateOutcome = "send" | "hold" | "drop";
+
+/**
+ * One Outbound gate decision (ticket #1298): what was going where, what became of it, the rule that
+ * decided and the Release in effect. It holds no words: those are in the thread message it sent or
+ * the held message it kept. It goes with its thread, so a Customer's delete and a thread's expiry
+ * take it. A later rule, a real deployment's too, needs only its own name in `rule`.
+ */
+export const representativeOutboundDecision = botsdkSchema.table(
+  "representative_outbound_decision",
+  {
+    id: uuid("id").primaryKey(),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references((): AnyPgColumn => representativeThread.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<OutboundKind>().notNull(),
+    outcome: text("outcome").$type<GateOutcome>().notNull(),
+    /** The gate rule that decided, or `passed` when none stopped it. */
+    rule: text("rule").notNull(),
+    /** The Release of the Turn behind it, or else the live one. No foreign key: the log outlives a Release's row. */
+    releaseId: uuid("release_id"),
+    channel: text("channel").notNull(),
+    externalId: text("external_id").notNull(),
+    /** The thread message it sent; null for anything held or dropped, and for a proof, which is never stored. */
+    messageId: uuid("message_id").references((): AnyPgColumn => representativeThreadMessage.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (table) => [
+    index("representative_outbound_decision_thread_idx").on(table.threadId, table.id),
+    index("representative_outbound_decision_message_idx").on(table.messageId),
+  ],
+);
+
+/** The gate rule that holds a Reply draft, which the owner answers apart from any other held message. */
+export const draftRule = "topic";
+
+/**
+ * What became of a held message: the owner approved it, sent it with their edit or rejected it, a
+ * newer word on the thread replaced it, or the Turn that wrote it was rolled back. Null while it waits.
+ */
+export type HeldResolution = "approved" | "edited" | "rejected" | "replaced" | "cancelled";
+
+/**
+ * A message the gate held: stored, not sent, and not in the thread until something sends it (ticket
+ * #1298). One held by the `topic` rule is a Reply draft (ticket #1306).
+ */
+export const representativeHeldMessage = botsdkSchema.table(
+  "representative_held_message",
+  {
+    id: uuid("id").primaryKey(),
+    decisionId: uuid("decision_id")
+      .notNull()
+      .references((): AnyPgColumn => representativeOutboundDecision.id, { onDelete: "cascade" }),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references((): AnyPgColumn => representativeThread.id, { onDelete: "cascade" }),
+    text: text("text").notNull(),
+    verified: boolean("verified").notNull(),
+    replyKind: text("reply_kind").$type<StoredReplyKind>(),
+    sources: jsonb("sources").$type<ReplySource[]>(),
+    /** The topic its reply was labelled with, as the Model wrote it; null with no label. */
+    topic: text("topic"),
+    resolution: text("resolution").$type<HeldResolution>(),
+    resolvedAt: timestamp("resolved_at"),
+    /** The thread message that sent it, which holds any edit; this row keeps what was first written. */
+    messageId: uuid("message_id").references((): AnyPgColumn => representativeThreadMessage.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (table) => [
+    index("representative_held_message_thread_idx").on(table.threadId),
+    index("representative_held_message_decision_idx").on(table.decisionId),
+  ],
+);
+
+/** Whether a reply on a topic waits for the owner or goes out by itself. */
+export type TopicMode = "draft" | "auto";
+
+/**
+ * One of the owner's topics (ticket #1306), which a Representative labels each reply with. All start
+ * at `draft`, and a name the owner doesn't have counts as one. Shared by all their Representatives.
+ */
+export const representativeTopic = botsdkSchema.table(
+  "representative_topic",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    name: text("name").notNull(),
+    mode: text("mode").$type<TopicMode>().notNull().default("draft"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("representative_topic_name").on(table.userId, sql`lower(${table.name})`)],
 );

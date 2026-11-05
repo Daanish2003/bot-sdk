@@ -1,12 +1,14 @@
-import { and, asc, desc, eq, isNotNull, lte, notExists, sql } from "drizzle-orm";
+import { and, asc, desc, eq, lt, lte, sql } from "drizzle-orm";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import {
+  draftRule,
   representative,
   representativeCustomer,
   representativeCustomerIdentity,
+  representativeRelease,
   representativeThread,
   representativeThreadMessage,
   type ThreadAuthor,
@@ -14,8 +16,20 @@ import {
 import { holdCustomers } from "./customer-merge";
 import { nameIn, profilesOf } from "./customer-profile";
 import { catchCode, customerProofLeadsTo, mayHoldCode } from "./customer-proof";
+import { saysKeyword, sendEmergencyScript, stopForScript } from "./emergency-script";
+import { overInboundLimit } from "./inbound-limit";
+import { liftOptOut, keywordIn, optOut } from "./opt-out";
+import { type GateRefusal, passGate, storeAndDeliver, type ViaChannel } from "./outbound-gate";
+import { afterDraftHeld, replaceHeld } from "./reply-drafts";
 import { type ChannelProof, judgeSender } from "./verification";
-import type { ReplySource, StoredReplyKind } from "../shared/replies";
+import { normalizedRelease } from "../shared/contract";
+import {
+  codeHandOffKind,
+  limitNoteKind,
+  answersCustomer,
+  type ReplySource,
+  type StoredReplyKind,
+} from "../shared/replies";
 
 /*
  * Customers and their threads (ticket #1249). A message finds or makes its Customer by identity
@@ -138,9 +152,14 @@ async function judgeMessage(
  * Representative doesn't exist. It holds that row, so the owner's delete, which removes
  * Representatives before Customers, can't leave a Customer behind. It also holds the thread's row
  * until `tx` ends, so what it returns of the thread's Turn stays true for the caller. A blocked
- * Customer's message is stored all the same, for the owner (ticket #1251), and waits for no Turn. A
+ * Customer's message is stored all the same, for the owner (ticket #1251), and waits for no Turn; so
+ * is an opted-out Customer's, and the one that opts them out (ticket #1302). A
  * message holding the sender's code is stored as a note of what became of the code instead (ticket
- * #1256), so no model or prompt ever reads it.
+ * #1256), so no model or prompt ever reads it. One that says a keyword of the live Release sets off
+ * its emergency script at once (ticket #1308): it gets no Turn and a running one stops, as the owner
+ * has been Paged and the Customer told what to do, and it reaches them through an owner's hold, an
+ * opt-out or a Representative switched off. One over the identity's inbound limit is logged and
+ * stored nowhere (ticket #1311), unless it is a keyword or an emergency: `{ limited: true }`.
  */
 export async function receiveMessage(
   tx: Transaction,
@@ -152,7 +171,8 @@ export async function receiveMessage(
     text,
     now,
   }: {
-    services: Pick<FeatureContext, "clock" | "jobs" | "keyring">;
+    services: Pick<FeatureContext<"pages">, "clock" | "jobs" | "keyring" | "logger" | "pages"> &
+      ViaChannel;
     representativeId: string;
     heard: Heard;
     proof: ChannelProof | undefined;
@@ -161,11 +181,25 @@ export async function receiveMessage(
   },
 ) {
   const [owner] = await tx
-    .select({ userId: representative.userId })
+    .select({ userId: representative.userId, releaseId: representative.liveReleaseId })
     .from(representative)
     .where(eq(representative.id, representativeId))
     .for("key share");
   if (!owner) return null;
+  // Over the inbound limit, a message is logged and kept nowhere. What opts out or back in, and what
+  // reports an emergency, is exempt, so a limit never stops a Customer doing either (ticket #1311).
+  // On what they said, not what is stored: a code in the message mustn't hide an emergency.
+  const script = await scriptSaidIn(tx, owner.releaseId, text);
+  if (
+    keywordIn(heard.channel, text) === null &&
+    script === null &&
+    (await overInboundLimit(tx, owner.userId, heard, now))
+  ) {
+    services.logger.error(
+      `Inbound limit: a message from ${heard.channel} ${heard.externalId} was not processed`,
+    );
+    return { limited: true as const };
+  }
   const { identityId, customerId: heldCustomerId } = await holdSender(
     tx,
     owner.userId,
@@ -190,6 +224,16 @@ export async function receiveMessage(
   const customerId = stored === text ? heldCustomerId : await customerOfIdentity(tx, identityId);
   // A blocked Customer's messages renew nothing, so the lapse runs on through a block.
   const verified = !blocked && (await judgeMessage(tx, identityId, proof, now));
+  // An opted-out Customer's, and the one that opts them out, are kept for the owner and answered by no one.
+  const [heardIdentity] = await tx
+    .select({ optedOutAt: representativeCustomerIdentity.optedOutAt })
+    .from(representativeCustomerIdentity)
+    .where(eq(representativeCustomerIdentity.id, identityId))
+    // Before the thread's row, the order a Representative's flag takes them in.
+    .for("update");
+  const wasOptedOut = heardIdentity?.optedOutAt != null;
+  const keyword = stored === text ? keywordIn(heard.channel, text) : null;
+  const kept = blocked || wasOptedOut || keyword === "stop" || script !== null;
   const [thread] = await tx
     .insert(representativeThread)
     .values({
@@ -199,7 +243,7 @@ export async function receiveMessage(
       lastChannel: heard.channel,
       lastExternalId: heard.externalId,
       messageCount: 1,
-      ...(!blocked && { waitingFrom: 1, waitingSince: now }),
+      ...(!kept && { waitingFrom: 1, waitingSince: now }),
       createdAt: now,
       updatedAt: now,
     })
@@ -209,7 +253,7 @@ export async function receiveMessage(
       set: {
         ...(verified && { lastChannel: heard.channel, lastExternalId: heard.externalId }),
         messageCount: sql`${representativeThread.messageCount} + 1`,
-        ...(!blocked && {
+        ...(!kept && {
           waitingFrom: sql`coalesce(${representativeThread.waitingFrom}, ${representativeThread.messageCount} + 1)`,
           waitingSince: sql`coalesce(${representativeThread.waitingSince}, ${now.toISOString()}::timestamp)`,
         }),
@@ -233,9 +277,49 @@ export async function receiveMessage(
     verified,
     proofRule: proof?.rule,
     ...heard,
+    createdAt: now,
   });
+  // What the gate held is stale now: the Customer has written since. An opt-out says nothing a Turn
+  // will answer, and drops what it reaches itself.
+  if (keyword !== "stop") await replaceHeld(tx, threadId, now, { ...heard, verified });
+  // After the thread's row is held, so a gate that decides after this commits sees it.
+  if (keyword === "stop") {
+    await optOut(services, tx, {
+      userId: owner.userId,
+      threadId,
+      heard,
+      verified,
+      source: "keyword",
+      now,
+    });
+  } else if (keyword === "start" && wasOptedOut) {
+    await liftOptOut(tx, owner.userId, heard);
+  }
+  if (script !== null) {
+    if (!blocked) await stopForScript(services, tx, threadId, now);
+    await sendEmergencyScript(services, tx, {
+      threadId,
+      heard,
+      verified,
+      text: script,
+      now,
+      releaseId: owner.releaseId,
+    });
+  }
   // Position 1 is a thread's first message: it has just been opened.
-  return { threadId, turnId, waitingSince, blocked, state, opened: position === 1 };
+  return { threadId, turnId, waitingSince, kept, state, opened: position === 1 };
+}
+
+/** The emergency script of Release `releaseId` when `text` says one of its keywords, else null. */
+async function scriptSaidIn(tx: Transaction, releaseId: string | null, text: string) {
+  if (!releaseId) return null;
+  const [release] = await tx
+    .select({ content: representativeRelease.content })
+    .from(representativeRelease)
+    .where(eq(representativeRelease.id, releaseId));
+  if (!release) return null;
+  const { emergencyKeywords, emergencyText } = normalizedRelease(release.content);
+  return saysKeyword(emergencyKeywords, text) ? emergencyText : null;
 }
 
 /**
@@ -361,60 +445,102 @@ export async function holdThreadCustomer(tx: Transaction, threadId: string) {
   }
 }
 
+/** What the Model hears of a reply the gate held: the owner has it, and sending it again changes nothing. */
+export const heldNote =
+  "Your reply was held, because the Outbound gate holds it (a cap on messages to this Customer, quiet hours, or the Channel's limits), so nothing was sent now. The owner sends or drops it, or, if quiet hours held it, it goes when they end. Do not send it again.";
+
 /**
- * Stores a reply as sent to the sender its Turn answers, if the Representative still holds the
- * thread. Not to whoever was heard last: an unverified identity writing during a verified Turn
- * mustn't get that Turn's reply.
+ * Passes a reply through the Outbound gate, addressed to the sender its Turn answers, and if the gate
+ * sends it, stores it and sends it. Not to whoever was heard last: an unverified identity writing
+ * during a verified Turn mustn't get that Turn's reply. `upTo` is the last message its Turn read.
  */
 export async function storeReply(
+  services: Pick<FeatureContext<"pages">, "jobs" | "pages"> & ViaChannel,
   tx: Transaction,
-  { threadId, heard, verified }: { threadId: string; heard: Heard; verified: boolean },
-  { text, sources }: { text: string; sources: ReplySource[] },
+  {
+    threadId,
+    upTo,
+    heard,
+    verified,
+    releaseId,
+    refusals,
+    businessStarted,
+  }: {
+    threadId: string;
+    upTo: number;
+    heard: Heard;
+    verified: boolean;
+    releaseId?: string | null;
+    refusals?: GateRefusal[];
+    /** The Turn answers no new Customer message: quiet hours hold what it says. */
+    businessStarted?: boolean;
+  },
+  { text, sources, topic }: { text: string; sources: ReplySource[]; topic?: string },
   replyKind: StoredReplyKind,
   now: Date,
 ) {
-  const [thread] = await tx
-    .update(representativeThread)
-    .set({
-      messageCount: sql`${representativeThread.messageCount} + 1`,
-      turnFrom: null,
-      updatedAt: sql`greatest(${representativeThread.updatedAt}, ${now.toISOString()}::timestamp)`,
-    })
-    .where(
-      and(
-        eq(representativeThread.id, threadId),
-        eq(representativeThread.state, "representative"),
-        // A Turn that began before the owner blocked this Customer sends nothing more.
-        notExists(
-          tx
-            .select({ one: sql`1` })
-            .from(representativeCustomer)
-            .where(
-              and(
-                eq(representativeCustomer.id, representativeThread.customerId),
-                isNotNull(representativeCustomer.blockedAt),
-              ),
-            ),
-        ),
-      ),
-    )
-    .returning({ position: representativeThread.messageCount });
-  if (!thread)
+  const decision = await passGate(tx, {
+    kind:
+      replyKind === codeHandOffKind
+        ? "code_hand_off"
+        : replyKind === limitNoteKind
+          ? "limit_note"
+          : "reply",
+    threadId,
+    to: heard,
+    now,
+    releaseId,
+    refusals,
+    pages: services.pages,
+    jobs: services.jobs,
+    businessStarted,
+    channel: services.channel,
+    content: { text, verified, replyKind, sources, topic },
+  });
+  if (decision?.rule === draftRule) {
+    await afterDraftHeld(
+      services,
+      tx,
+      { decisionId: decision.id, threadId, upTo, heard, verified, releaseId, refusals },
+      now,
+    );
+    return {
+      held: true,
+      note: "This reply is waiting for the owner and hasn't reached the Customer. Don't send it again.",
+    };
+  }
+  if (decision?.outcome === "hold") return { error: heldNote };
+  if (decision?.outcome !== "send")
     return {
       error:
-        "This thread is gone or no longer yours to answer (it may be held by the owner, or its Customer blocked), so nothing was sent.",
+        "This thread is gone or no longer yours to answer (it may be held by the owner, its Customer blocked or opted out, or you switched off), so nothing was sent.",
     };
-  await tx.insert(representativeThreadMessage).values({
-    id: uuidv7(),
-    threadId,
-    author: "representative",
-    text,
-    replyKind,
-    sources,
-    verified,
-    ...heard,
-    ...thread,
-  });
+  await storeAndDeliver(
+    services,
+    tx,
+    decision.id,
+    { threadId, author: "representative", text, replyKind, sources, verified, ...heard },
+    now,
+    { turnFrom: null },
+  );
+  // A reply to what came after a limit left something for the owner answers that too, as the owner's
+  // send does. A reply to what was already there when it was left doesn't, nor does a fixed note.
+  if (answersCustomer(replyKind)) {
+    const message = representativeThreadMessage;
+    const answered = tx
+      .select({ createdAt: message.createdAt })
+      .from(message)
+      .where(and(eq(message.threadId, threadId), eq(message.position, upTo)));
+    await tx
+      .update(representativeThread)
+      .set({ leftForOwnerAt: null })
+      .where(
+        and(
+          eq(representativeThread.id, threadId),
+          lt(representativeThread.leftForOwnerAt, answered),
+        ),
+      );
+  }
   return { sent: true };
 }
 
@@ -455,6 +581,8 @@ export async function exportCustomers(tx: Transaction, userId: string) {
         verifiedContactAt: representativeCustomerIdentity.verifiedContactAt,
         lapsedAt: representativeCustomerIdentity.lapsedAt,
         provenUntil: representativeCustomerIdentity.provenUntil,
+        optedOutAt: representativeCustomerIdentity.optedOutAt,
+        optOutSource: representativeCustomerIdentity.optOutSource,
         createdAt: representativeCustomerIdentity.createdAt,
       })
       .from(representativeCustomerIdentity)
@@ -527,6 +655,8 @@ export async function exportCustomers(tx: Transaction, userId: string) {
       verifiedContactAt: row.verifiedContactAt,
       lapsedAt: row.lapsedAt,
       provenUntil: row.provenUntil,
+      optedOutAt: row.optedOutAt,
+      optOutSource: row.optOutSource,
       createdAt: row.createdAt,
     })),
     threads: (threads.get(id) ?? []).map((thread) => ({

@@ -8,6 +8,7 @@ import { inProcessRunner, type JobRunner, systemClock } from "@botsdk/bot/runner
 import { followSend } from "@ai-chat/test-support/follow-send";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { chatRpc } from "@ai-chat/test-support/sdk";
+import { autoSource } from "@ai-chat/test-support/test-customer";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
@@ -280,7 +281,17 @@ describe("the draft tool", () => {
       ],
       {
         customerRounds: [
-          round(toolCall({ name: "reply", input: { text: "At nine.", kind: "small_talk" } })),
+          round(
+            toolCall({
+              name: "reply",
+              input: {
+                topic: "general",
+                sources: [autoSource],
+                text: "At nine.",
+                kind: "small_talk",
+              },
+            }),
+          ),
         ],
       },
     );
@@ -289,7 +300,13 @@ describe("the draft tool", () => {
 
     await expect.poll(() => made.customerFake.calls.length, poll).toBeGreaterThan(0);
     const sent = made.customerFake.calls[0]!.tools?.map((tool) => tool.name);
-    expect(sent).toEqual(["reply", "hand_to_bot", "read_customer_work"]);
+    expect(sent).toEqual([
+      "reply",
+      "hand_to_bot",
+      "read_customer_work",
+      "flag_opt_out",
+      "flag_emergency",
+    ]);
     expect(JSON.stringify(made.customerFake.calls[0])).not.toContain("draft_representative");
   });
 
@@ -584,7 +601,17 @@ describe("the draft tool", () => {
       ],
       {
         customerRounds: [
-          round(toolCall({ name: "reply", input: { text: "At ten.", kind: "small_talk" } })),
+          round(
+            toolCall({
+              name: "reply",
+              input: {
+                topic: "general",
+                sources: [autoSource],
+                text: "At ten.",
+                kind: "small_talk",
+              },
+            }),
+          ),
           quiet(),
         ],
       },
@@ -776,7 +803,10 @@ describe("the release Approval", () => {
       {
         customerRounds: [
           round(
-            toolCall({ name: "reply", input: { text: "We open at nine.", kind: "small_talk" } }),
+            toolCall({
+              name: "reply",
+              input: { topic: "general", text: "We open at nine.", kind: "small_talk" },
+            }),
           ),
           quiet(),
         ],

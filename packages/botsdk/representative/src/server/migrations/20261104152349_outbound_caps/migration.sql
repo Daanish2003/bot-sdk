@@ -1,0 +1,2 @@
+ALTER TABLE "botsdk"."representative" ADD COLUMN "max_in_a_row" integer DEFAULT 5 NOT NULL;--> statement-breakpoint
+ALTER TABLE "botsdk"."representative" ADD COLUMN "max_per_day" integer DEFAULT 20 NOT NULL;

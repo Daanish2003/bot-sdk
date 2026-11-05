@@ -200,6 +200,8 @@ async function planSummary(services: SummaryServices, threadId: string): Promise
   if (!thread || thread.summaryId) return null;
   const lines = await linesOf(db, threadId);
   if (lines.length === 0) return null;
+  // A Ban stops what spends for the owner: their Model isn't theirs to call while it lasts.
+  if (await services.isUserBlocked(thread.userId)) return { skipped: "model_unavailable" };
   const model = thread.content?.model;
   if (!model) return { skipped: "no_model" };
   const call = await models.resolveModelCall(thread.userId, model);

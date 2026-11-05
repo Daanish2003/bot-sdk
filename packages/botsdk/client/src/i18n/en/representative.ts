@@ -5,6 +5,7 @@ const replyKindLabels: Record<string, string> = {
   handoff: "Says it was passed on",
   cant_confirm: "Says it can't confirm",
   code_handoff: "Code's fixed hand-off message",
+  limit_note: "Code's fixed note at a limit",
 };
 
 /** The Representative pages: the list, a Representative's draft, on/off and Releases (spec #1167). */
@@ -20,7 +21,44 @@ export const representativeMessages = {
   "representative.reportsToHelp":
     "Its hand-offs go to this Bot. Choosing another Bot moves its open hand-offs there. With none, it reports to you.",
   "representative.botChosen": "Reporting Bot changed",
+  "representative.caps": "Message caps",
+  "representative.capsHelp":
+    "The most this Representative sends one Customer. A message over a cap is held for you and you are paged.",
+  "representative.maxInARow": "In a row with no reply",
+  "representative.maxPerDay": "Per Customer per day",
+  "representative.saveCaps": "Save caps",
+  "representative.capsSaved": "Caps saved",
+  "representative.spending": "Spending caps",
+  "representative.spendingHelp":
+    "The most this Representative may cost. At a cap, a Customer gets a fixed note and you are paged. Raising a cap lifts it. Money is in US dollars, where a price is known.",
+  "representative.threadCalls": "Model calls per thread",
+  "representative.threadUsd": "Dollars per thread",
+  "representative.customerCalls": "Model calls per Customer per day",
+  "representative.customerUsd": "Dollars per Customer per day",
+  "representative.strangerCalls": "Model calls per unverified Customer per day",
+  "representative.strangerUsd": "Dollars per unverified Customer per day",
+  "representative.monthUsd": "Dollars per month, all Customers",
+  "representative.saveSpending": "Save spending caps",
+  "representative.spendingSaved": "Spending caps saved",
+  "representative.quietHours": "Quiet hours",
+  "representative.quietHoursHelp":
+    "A message the business starts, such as a follow-up, is held until the quiet hours end. A direct reply to a Customer who just wrote goes at any hour. The Customer's time zone is used when known, otherwise the business's.",
+  "representative.quietStart": "From hour (0 to 23)",
+  "representative.quietEnd": "Until hour (0 to 23)",
+  "representative.businessTimeZone": "Business time zone",
+  "representative.saveQuietHours": "Save quiet hours",
+  "representative.quietHoursSaved": "Quiet hours saved",
+  "representative.assignmentDue": "Work due time",
+  "representative.assignmentDueHelp":
+    "How long work it hands to a Bot may run. Past it, you are Paged and the Customer gets one note saying the team is still on it. It counts for hand-offs made after you save.",
+  "representative.assignmentDueMinutes": "Minutes",
+  "representative.saveAssignmentDue": "Save due time",
+  "representative.assignmentDueSaved": "Due time saved",
   "representative.none": "No Representatives yet.",
+  "representative.limitWarning": ({ percent }: { percent: number }) =>
+    `You've used ${percent}% of your Quota. At 100%, a Representative on the Host's credentials gives Customers a fixed note instead of an answer until it lifts.`,
+  "representative.monthWarning": ({ percent }: { percent: number }) =>
+    `This Representative has used ${percent}% of its monthly spending cap. At 100%, Customers get a fixed note instead of an answer until next month or until you raise the cap.`,
   "representative.back": "All Representatives",
   "representative.live": ({ number }: { number: number }) => `Live: Release ${number}`,
   "representative.noRelease": "No Release yet",
@@ -33,6 +71,12 @@ export const representativeMessages = {
   "representative.jobText": "Job text",
   "representative.jobTextPlaceholder":
     "What should this Representative do, and how should it sound?",
+  "representative.emergencyText": "Emergency message",
+  "representative.emergencyTextHelp":
+    "Sent word for word when a Customer may be in an emergency, past drafts, caps, quiet hours, your hold on a thread and opt-outs. You're alerted at once.",
+  "representative.emergencyKeywords": "Emergency keywords",
+  "representative.emergencyKeywordsHelp":
+    "One word or phrase on each line. A message that says one gets the emergency message with no Model call. With none, only the Representative can set it off.",
   "representative.tools": "Tools",
   "representative.toolReply": "Reply to the Customer",
   "representative.toolHandToBot": "Hand off to the Bot",
@@ -126,6 +170,8 @@ export const representativeMessages = {
   "representative.diffNew": "No live Release yet, so everything here is new.",
   "representative.diffField.jobText": "Job text",
   "representative.diffField.model": "Model",
+  "representative.diffField.emergencyText": "Emergency message",
+  "representative.diffField.emergencyKeywords": "Emergency keywords",
   "representative.diffField.switch": "Switch",
   "representative.diffField.skill": "Skill",
   "representative.diffField.tool": "Tool",
@@ -157,7 +203,66 @@ export const representativeMessages = {
   "representative.threadCustomer": "Customer",
   "representative.threadReply": "Representative",
   "representative.threadOwner": "You",
-  "representative.threadNote": "Note sent when you took over",
+  "representative.threadNote": "Fixed note sent",
+  "representative.drafts.title": "Replies waiting for you",
+  "representative.drafts.intro":
+    "These haven't reached the Customer, who has a note saying someone will reply. A new message from them replaces what waits here.",
+  "representative.drafts.none": "No replies are waiting.",
+  "representative.drafts.to": ({ who }: { who: string }) => `To ${who}`,
+  "representative.drafts.topic": ({ topic }: { topic: string }) => `Topic: ${topic}`,
+  "representative.drafts.noTopic": "No topic",
+  "representative.drafts.approve": "Approve and send",
+  "representative.drafts.edit": "Edit",
+  "representative.drafts.sendEdited": "Send edited",
+  "representative.drafts.cancelEdit": "Cancel",
+  "representative.drafts.editLabel": "Your edit of this reply",
+  "representative.drafts.reject": "Reject",
+  "representative.inbox.title": "Inbox",
+  "representative.inbox.intro":
+    "Everything that needs you, across all your Representatives. Emergencies come first.",
+  "representative.inbox.queue": "Needs you",
+  "representative.inbox.empty": "Nothing needs you.",
+  "representative.inbox.choose": "Choose something from the list to read it here.",
+  "representative.inbox.emergency": "Emergency",
+  "representative.inbox.draft": "Draft",
+  "representative.inbox.held": "Held",
+  "representative.inbox.page": "Page",
+  "representative.inbox.from": ({ name }: { name: string }) => `From ${name}`,
+  "representative.inbox.heldBy": ({ rule }: { rule: string }) => `Held by the rule: ${rule}`,
+  "representative.inbox.heldRule.caps": "Held by your limits on how much it may send",
+  "representative.inbox.heldRule.quietHours": "Held for quiet hours",
+  "representative.inbox.heldRule.channel": "Held by the Channel's limits",
+  "representative.inbox.heldRule.topicAtRelease":
+    "Held by its topic, which you haven't let send by itself",
+  "representative.inbox.queueTruncated":
+    "There is more than this list shows. Answer the oldest to see the next.",
+  "representative.inbox.runningTruncated": "Showing the most recently active threads.",
+  "representative.inbox.heldIntro":
+    "The Customer hasn't got this. Send it as your own message, or drop it.",
+  "representative.inbox.send": "Send",
+  "representative.inbox.drop": "Drop",
+  "representative.inbox.openPage": "Open",
+  "representative.inbox.representatives": "Representatives",
+  "representative.inbox.switchOf": ({ name }: { name: string }) => `Serving: ${name}`,
+  "representative.inbox.running": "Running without you",
+  "representative.inbox.runningNone": "No thread is running without you.",
+  "representative.inbox.openThreads": "Open threads",
+  "representative.topics.title": "Topics",
+  "representative.topics.intro":
+    "Your Representatives label each reply with a topic. A reply waits for your approval unless you let its topic send by itself.",
+  "representative.topics.none": "No topics yet.",
+  "representative.topics.nameLabel": "New topic",
+  "representative.topics.add": "Add topic",
+  "representative.topics.removeOf": ({ name }: { name: string }) => `Remove topic ${name}`,
+  "representative.topics.remove": "Remove",
+  "representative.topics.suggested": ({ count }: { count: number }) =>
+    `${count} drafts approved unedited: ready to send by itself?`,
+  "representative.topics.promote": "Send by itself",
+  "representative.topics.promoteOf": ({ name }: { name: string }) =>
+    `Let replies on topic ${name} send without your approval`,
+  "representative.topics.demote": "Ask me first",
+  "representative.topics.demoteOf": ({ name }: { name: string }) =>
+    `Make replies on topic ${name} wait for your approval`,
   "representative.threadBot": "Result from the Bot, for the Customer",
   "representative.threadTakeOver": "Take over",
   "representative.threadHandBack": "Hand back",
@@ -231,6 +336,12 @@ export const representativeMessages = {
   "representative.customers.deleted": ({ name }: { name: string }) => `Deleted ${name}`,
   "representative.customers.verified": "Verified",
   "representative.customers.unverified": "Not verified",
+  "representative.customers.optedOut": ({ source, date }: { source: string; date: string }) =>
+    `Opted out (${source}) on ${date}. Nothing is sent to this identity.`,
+  "representative.customers.optOutKeyword": "their keyword",
+  "representative.customers.optOutRepresentative": "a Representative's flag",
+  "representative.customers.clearOptOut": "Clear opt-out",
+  "representative.customers.optOutCleared": "Opt-out cleared",
   "representative.customers.blockedBadge": "Blocked",
   "representative.customers.blockedHelp":
     "A blocked Customer's message is kept for you. It runs no model, gets no reply and opens no Assignment.",
@@ -240,6 +351,7 @@ export const representativeMessages = {
   "representative.customers.profileLanguage": "Language",
   "representative.customers.profilePreferredChannel": "Preferred Channel",
   "representative.customers.profileAddress": "Address",
+  "representative.customers.profileTimeZone": "Time zone",
   "representative.customers.profileValueOf": ({ field, name }: { field: string; name: string }) =>
     `${field} of ${name}`,
   "representative.customers.profileSaveOf": ({ field, name }: { field: string; name: string }) =>

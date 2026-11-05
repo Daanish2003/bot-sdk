@@ -63,6 +63,7 @@
     "./settings/export-data-button": "./src/settings/export-data-button.tsx",
     "./settings/linked-identities-section": "./src/settings/linked-identities-section.tsx",
     "./settings/notifications-section": "./src/settings/notifications-section.tsx",
+    "./settings/pages-section": "./src/settings/pages-section.tsx",
     "./settings/rules-page": "./src/settings/rules-page.tsx",
     "./skills": "./src/skills/index.ts",
     "./skills/bot-skill-chip": "./src/skills/bot-skill-chip.tsx",

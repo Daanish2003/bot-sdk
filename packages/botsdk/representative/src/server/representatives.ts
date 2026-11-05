@@ -8,17 +8,21 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { bot, botAssignment, message } from "@botsdk/bot/storage";
 import type { Transaction } from "@botsdk/bot/plugin";
 import {
+  defaultEmergencyText,
   documentChars,
+  defaultSpendingCaps,
   type Draft,
   type DraftChange,
   type DraftDiff,
   maxReleaseDocumentChars,
+  normalizedRelease,
   type PendingApproval,
   type ReleaseContent,
   type ReleaseView,
   type RepresentativeSummary,
   type RepresentativeView,
   representativeTools,
+  type SpendingCaps,
 } from "../shared/contract";
 import {
   representative,
@@ -36,8 +40,15 @@ import {
   readableText,
   snapshotOf,
 } from "./documents";
+import { checkLimitsNow } from "./limits";
+import { monthUsedPercent } from "./spending";
 import { botFieldsHash, draftHash } from "./test-checks";
-import { normalizedDraft, representativeTestJob, testStateOf } from "./tests";
+import {
+  normalizedDraft,
+  representativeTestJob,
+  representativeTestKey,
+  testStateOf,
+} from "./tests";
 import { isAssignmentEnded } from "./turn";
 
 type Context = Pick<FeatureContext, "db" | "clock">;
@@ -67,6 +78,8 @@ export const emptyDraft = (): Draft => ({
   model: null,
   tests: [],
   documents: [],
+  emergencyText: defaultEmergencyText,
+  emergencyKeywords: [],
 });
 
 const notFound = () =>
@@ -148,12 +161,14 @@ async function view(
     : [];
   const live = releases.find((release) => release.id === row.liveReleaseId);
   const waiting = waitingApproval(row.pendingApproval, now);
+  const summary = summaryOf(row, live?.number ?? null);
   return {
-    ...summaryOf(row, live?.number ?? null),
+    ...summary,
     draft: row.draft,
     approval: waiting && { botId: waiting.botId, expiresAt: waiting.expiresAt },
-    liveRelease: live && content ? { ...live, ...content } : null,
+    liveRelease: live && content ? { ...live, content: normalizedRelease(content.content) } : null,
     releases,
+    monthUsedPercent: await monthUsedPercent(db, row.id, summary.spendingCaps, now),
     ...(await testStateOf(db, row)),
   };
 }
@@ -165,6 +180,14 @@ function summaryOf(row: Row, liveReleaseNumber: number | null): RepresentativeSu
     botId: row.botId,
     enabled: row.enabled,
     liveReleaseNumber,
+    caps: { maxInARow: row.maxInARow, maxPerDay: row.maxPerDay },
+    spendingCaps: { ...defaultSpendingCaps, ...row.spendingCaps },
+    quietHours: {
+      startHour: row.quietStartHour,
+      endHour: row.quietEndHour,
+      timeZone: row.businessTimeZone,
+    },
+    assignmentDueMinutes: row.assignmentDueMinutes,
   };
 }
 
@@ -328,6 +351,92 @@ export async function setEnabled(
   });
 }
 
+/** Edits the caps the Outbound gate holds this Representative to; a cap left out stays. */
+export async function setCaps(
+  { db, clock }: Context,
+  userId: string,
+  { id, maxInARow, maxPerDay }: { id: string; maxInARow?: number; maxPerDay?: number },
+): Promise<RepresentativeView> {
+  return db.transaction(async (tx) => {
+    await ownedRow(tx, userId, id, true);
+    const [updated] = await tx
+      .update(representative)
+      .set({ maxInARow, maxPerDay, updatedAt: clock() })
+      .where(eq(representative.id, id))
+      .returning();
+    return view(tx, updated!, clock());
+  });
+}
+
+/**
+ * Edits what the Representative may cost; a cap left out stays. A raise looks again at every thread
+ * held at a limit, which it may have lifted.
+ */
+export async function setSpendingCaps(
+  { db, clock, jobs }: JobsContext,
+  userId: string,
+  { id, ...edits }: { id: string } & Partial<SpendingCaps>,
+): Promise<RepresentativeView> {
+  return db.transaction(async (tx) => {
+    const row = await ownedRow(tx, userId, id, true);
+    const spendingCaps = { ...defaultSpendingCaps, ...row.spendingCaps };
+    for (const [name, value] of Object.entries(edits)) {
+      if (value !== undefined) spendingCaps[name as keyof SpendingCaps] = value;
+    }
+    const [updated] = await tx
+      .update(representative)
+      .set({ spendingCaps, updatedAt: clock() })
+      .where(eq(representative.id, id))
+      .returning();
+    await checkLimitsNow({ jobs }, tx, id, clock());
+    return view(tx, updated!, clock());
+  });
+}
+
+/** Edits how long an Assignment it hands to a Bot may run before it is overdue; it counts for hand-offs made after. */
+export async function setAssignmentDue(
+  { db, clock }: Context,
+  userId: string,
+  { id, minutes }: { id: string; minutes: number },
+): Promise<RepresentativeView> {
+  return db.transaction(async (tx) => {
+    await ownedRow(tx, userId, id, true);
+    const [updated] = await tx
+      .update(representative)
+      .set({ assignmentDueMinutes: minutes, updatedAt: clock() })
+      .where(eq(representative.id, id))
+      .returning();
+    return view(tx, updated!, clock());
+  });
+}
+
+/** Edits the hours the Outbound gate holds what the business starts, and the business's time zone. */
+export async function setQuietHours(
+  { db, clock }: Context,
+  userId: string,
+  {
+    id,
+    startHour,
+    endHour,
+    timeZone,
+  }: { id: string; startHour: number; endHour: number; timeZone: string },
+): Promise<RepresentativeView> {
+  return db.transaction(async (tx) => {
+    await ownedRow(tx, userId, id, true);
+    const [updated] = await tx
+      .update(representative)
+      .set({
+        quietStartHour: startHour,
+        quietEndHour: endHour,
+        businessTimeZone: timeZone,
+        updatedAt: new Date(),
+      })
+      .where(eq(representative.id, id))
+      .returning();
+    return view(tx, updated!, clock());
+  });
+}
+
 /** Moves the Representative's open hand-offs that aren't on `botId` to it, one by one, and stops at a refusal. */
 async function moveHandOffs(
   { db, assignments }: Pick<MoveContext, "db" | "assignments">,
@@ -422,7 +531,12 @@ export async function queueTests(
       transcript: [],
       checks: [],
     });
-    await jobs.enqueueIn(tx, representativeTestJob, { resultId });
+    await jobs.enqueueIn(
+      tx,
+      representativeTestJob,
+      { resultId },
+      { idempotencyKey: representativeTestKey(resultId) },
+    );
   }
 }
 
@@ -654,6 +768,8 @@ export function draftChanges(draft: Draft, live: ReleaseContent | null): DraftCh
   };
   add("jobText", null, live?.jobText, draft.jobText);
   add("model", null, live?.model, draft.model);
+  add("emergencyText", null, live?.emergencyText, draft.emergencyText);
+  add("emergencyKeywords", null, live?.emergencyKeywords, draft.emergencyKeywords);
   const switches = [...Object.keys(live?.switches ?? {}), ...Object.keys(draft.switches)];
   for (const name of [...new Set(switches)].sort()) {
     add("switch", name, live?.switches[name], draft.switches[name]);
@@ -725,7 +841,7 @@ export async function diffDraft({ db }: Context, userId: string, id: string): Pr
     : [];
   return {
     liveReleaseNumber: live?.number ?? null,
-    changes: draftChanges(row.draft, live?.content ?? null),
+    changes: draftChanges(row.draft, live ? normalizedRelease(live.content) : null),
   };
 }
 

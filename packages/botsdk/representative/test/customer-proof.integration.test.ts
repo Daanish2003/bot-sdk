@@ -25,6 +25,7 @@ import {
   representativeVerification,
 } from "../src/server/db/schema";
 import { customerSummaryMarker } from "../src/server/customer-summary";
+import { noCustomerChannel } from "../src/server/customer-proof";
 import { representativeFeature } from "../src/server/plugin";
 import { proofLastsMs } from "../src/server/verification";
 
@@ -97,6 +98,7 @@ async function instance(rounds: Round[], held?: Promise<void>, failing?: () => n
       representativeFeature(
         {},
         {
+          ...noCustomerChannel,
           sendProof:
             failing ??
             (async (to, proof) => {
@@ -331,6 +333,7 @@ describe("what a code allows", () => {
     const proof = await getTestDb().transaction((tx) =>
       requestProof(tx, {
         keyring: ["a-test-secret"],
+        channel: noCustomerChannel,
         userId: user.id,
         thread: {
           threadId: customer!.threads[0]!.id,
@@ -367,6 +370,7 @@ describe("what a code allows", () => {
     const asked = getTestDb().transaction((tx) =>
       requestProof(tx, {
         keyring: ["a-test-secret"],
+        channel: noCustomerChannel,
         userId: user.id,
         thread: {
           threadId: customer!.threads[0]!.id,
@@ -817,6 +821,7 @@ describe("a code to an identity on record, from web chat", () => {
       getTestDb().transaction((tx) =>
         requestProof(tx, {
           keyring: ["a-test-secret"],
+          channel: noCustomerChannel,
           userId: user.id,
           thread: {
             threadId: threadOf(sender),

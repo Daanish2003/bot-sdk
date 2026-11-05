@@ -1,14 +1,20 @@
 import type { AnyTextAdapter } from "@tanstack/ai";
+import { noCustomerChannel } from "../src/server/customer-proof";
 import { eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { saveCredentials } from "@botsdk/bot/models/internal";
-import { claimJob, inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
+import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { job } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { fakeChannel } from "@ai-chat/test-support/test-customer";
+import {
+  claimPastDeliveries,
+  fakeChannel,
+  promoteAutoTopic,
+  autoSource,
+} from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
@@ -36,7 +42,12 @@ type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 const quiet = () => round();
 const replies = (text: string) =>
-  round(toolCall({ name: "reply", input: { text, kind: "small_talk" } }));
+  round(
+    toolCall({
+      name: "reply",
+      input: { topic: "general", sources: [autoSource], text, kind: "small_talk" },
+    }),
+  );
 
 /** A gate a test opens, which opens by itself when the test ends. */
 function gate() {
@@ -104,9 +115,10 @@ async function serving(rounds: Round[], held?: Promise<void>) {
   await rpc.representative.setEnabled({ id, enabled: true });
 
   const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
+  await promoteAutoTopic(id);
   const running: Array<Promise<void>> = [];
   const claim = async () => {
-    const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: true });
+    const claimed = await claimPastDeliveries(jobs, timer.clock.now(), { respectRunAfter: true });
     if (!claimed) return false;
     running.push(jobs.runClaimed(claimed, {}));
     return true;
@@ -141,13 +153,16 @@ async function serving(rounds: Round[], held?: Promise<void>) {
       message: string,
       sender: { proof?: { rule: "sameIdentity" }; externalId?: string } = {},
     ) =>
-      (await receiveCustomerMessage(feature.context, {
-        representativeId: id,
-        channel: fakeChannel,
-        externalId: number,
-        message,
-        ...sender,
-      }))!,
+      (await receiveCustomerMessage(
+        { ...feature.context, channel: noCustomerChannel },
+        {
+          representativeId: id,
+          channel: fakeChannel,
+          externalId: number,
+          message,
+          ...sender,
+        },
+      ))!,
     takeOver: async () => rpc.representative.threadTakeOver({ id: (await thread()).id }),
     handBack: async () => rpc.representative.threadHandBack({ id: (await thread()).id }),
     say: async (text: string) => rpc.representative.threadSend({ id: (await thread()).id, text }),

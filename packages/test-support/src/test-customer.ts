@@ -1,11 +1,21 @@
 import { batchLongestMs } from "@botsdk/bot/bot/triggers";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { claimJob, type inProcessRunner } from "@botsdk/bot/runner/internal";
+import { eq } from "drizzle-orm";
 import { expect } from "vitest";
 
 // By path, on purpose: the feature's package exports no way to start a Turn, and a test holds it to that.
+import {
+  representative,
+  representativeFact,
+  representativeTopic,
+} from "../../botsdk/representative/src/server/db/schema";
+import { noCustomerChannel } from "../../botsdk/representative/src/server/customer-proof";
+import { customerDeliveryJobName } from "../../botsdk/representative/src/server/outbound-gate";
 import { receiveCustomerMessage } from "../../botsdk/representative/src/server/thread-turns";
 
 import type { TestDeps } from "./deps";
+import { getTestDb } from "./test-database";
 
 /*
  * The test Customer (spec #1167): the one way a Representative Turn starts until a later spec lets
@@ -13,6 +23,44 @@ import type { TestDeps } from "./deps";
  * finds or makes the Customer and its thread. It lives in this private package, which no Host can
  * install. The feature's package exports nothing to start a Turn and no route or RPC reaches one.
  */
+
+/**
+ * The topic a test Customer's owner has promoted, so a test whose subject isn't Reply drafts labels a
+ * reply with it and sees it sent. Any other label, or none, is a draft, as for any owner.
+ */
+export const autoTopic = "general";
+
+/**
+ * The Published fact on `autoTopic` that `autoSource` cites. A reply goes out by itself only when
+ * every source is a fact of its topic, and has at least one, so such a test cites it.
+ */
+export const autoFact = { key: "general.note", type: "text", value: "Noted" } as const;
+export const autoSource = { type: "fact", key: autoFact.key } as const;
+
+/** Promotes `autoTopic` for the owner of `representativeId`, with the fact its replies cite. */
+export async function promoteAutoTopic(representativeId: string) {
+  const [owner] = await getTestDb()
+    .select({ userId: representative.userId })
+    .from(representative)
+    .where(eq(representative.id, representativeId));
+  if (!owner) return;
+  await getTestDb()
+    .insert(representativeTopic)
+    .values({ id: uuidv7(), userId: owner.userId, name: autoTopic, mode: "auto" })
+    .onConflictDoNothing();
+  const now = new Date();
+  await getTestDb()
+    .insert(representativeFact)
+    .values({
+      id: uuidv7(),
+      userId: owner.userId,
+      ...autoFact,
+      topic: autoTopic,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing();
+}
 
 /** The Channel a test Customer writes from by default. Nothing it sends reaches anything real. */
 export const fakeChannel = "fake";
@@ -33,6 +81,22 @@ export type TestCustomerTurn = {
     | { rule: "dmarc"; pass: boolean; policy: "none" | "quarantine" | "reject" };
 };
 
+/**
+ * Claims the next job for a test that claims jobs by hand, having run each Customer delivery due
+ * before it: a test scripting Turns isn't scripting what the gate sends between them.
+ */
+export async function claimPastDeliveries(
+  jobs: Pick<ReturnType<typeof inProcessRunner>, "runClaimed">,
+  now: Date,
+  options: Parameters<typeof claimJob>[2],
+) {
+  for (;;) {
+    const claimed = await claimJob(getTestDb(), now, options);
+    if (claimed?.name !== customerDeliveryJobName) return claimed;
+    await jobs.runClaimed(claimed, {});
+  }
+}
+
 /** Sends a stand-in Customer's message: its job, null when no Turn follows, as for a blocked Customer. */
 async function sendTestCustomerMessage(
   deps: Pick<TestDeps, "parts">,
@@ -46,13 +110,18 @@ async function sendTestCustomerMessage(
 ) {
   const feature = deps.parts.features.find(({ feature }) => feature.id === "representative");
   if (!feature) throw new Error("This test SDK has no representative feature");
-  const received = await receiveCustomerMessage(feature.context, {
-    representativeId,
-    channel,
-    externalId,
-    proof,
-    message,
-  });
+  await promoteAutoTopic(representativeId);
+  const received = await receiveCustomerMessage(
+    // The stand-in Customer reaches no real Channel, so its opt-out confirmation meets no limits.
+    { ...feature.context, channel: noCustomerChannel },
+    {
+      representativeId,
+      channel,
+      externalId,
+      proof,
+      message,
+    },
+  );
   if (!received) throw new Error(`No Representative ${representativeId}`);
   return { channel, externalId, jobId: received.jobId };
 }
@@ -91,4 +160,19 @@ export async function testCustomerTurn(
   const ended = await deps.runner.status(started.jobId);
   expect(ended?.status, ended?.lastError ?? undefined).toBe("succeeded");
   return started;
+}
+
+/**
+ * Approves every Reply draft the owner has waiting, as the owner would. A reply resting on a document,
+ * a Bot's result or memory, or on nothing, is always a draft, so a test of what it sends approves it.
+ */
+export async function approveDrafts(rpc: {
+  representative: {
+    replyDraftList: () => Promise<{ id: string }[]>;
+    replyDraftApprove: (input: { id: string }) => Promise<unknown>;
+  };
+}) {
+  for (const { id } of await rpc.representative.replyDraftList()) {
+    await rpc.representative.replyDraftApprove({ id });
+  }
 }

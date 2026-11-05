@@ -19,6 +19,7 @@ import {
   pushEndpointInput,
   pushSubscriptionSchema,
 } from "./notifications";
+import { pageIdInput, type PageRow } from "./pages";
 import { emojiSchema } from "./reaction";
 import type { BotReview, ReviewApprovalState } from "./review";
 import { type BotRoutine, routineScheduleSchema } from "./routine";
@@ -529,6 +530,17 @@ const notifications = {
 };
 
 /**
+ * The user's Pages (ticket #1300): direct alerts that reached them outside the app, until
+ * acknowledged.
+ */
+const pages = {
+  /** The Pages the user hasn't acknowledged, newest first. */
+  list: oc.output(type<PageRow[]>()),
+  /** Acknowledges the user's Page, which stops whatever it hasn't sent yet. */
+  acknowledge: oc.input(pageIdInput).output(type<void>()),
+};
+
+/**
  * The user's Secrets (spec #691), shared by all their Bots. A value goes in through `save` and
  * never comes out: `list` returns names and dates only.
  */
@@ -621,6 +633,7 @@ export const botContract = {
   reviews,
   rules,
   notifications,
+  pages,
   secrets,
   demonstrations,
   computer,

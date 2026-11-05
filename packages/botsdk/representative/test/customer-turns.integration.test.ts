@@ -4,17 +4,17 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 
 
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { saveCredentials } from "@botsdk/bot/models/internal";
-import {
-  claimJob,
-  inProcessRunner,
-  type JobRunner,
-  reapStaleJobs,
-} from "@botsdk/bot/runner/internal";
+import { inProcessRunner, type JobRunner, reapStaleJobs } from "@botsdk/bot/runner/internal";
 import { job } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { startTestCustomerTurn, type TestCustomerTurn } from "@ai-chat/test-support/test-customer";
+import {
+  claimPastDeliveries,
+  startTestCustomerTurn,
+  type TestCustomerTurn,
+  autoSource,
+} from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, runError, toolCall } from "@botsdk/testing/fake-adapter";
@@ -45,7 +45,12 @@ type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 const quiet = () => round();
 const replies = (text: string) =>
-  round(toolCall({ name: "reply", input: { text, kind: "small_talk" } }));
+  round(
+    toolCall({
+      name: "reply",
+      input: { topic: "general", sources: [autoSource], text, kind: "small_talk" },
+    }),
+  );
 
 type Sender = Pick<TestCustomerTurn, "channel" | "externalId" | "proof">;
 const proven: Sender = { channel: "telegram", externalId: "7", proof: { rule: "sameIdentity" } };
@@ -120,7 +125,9 @@ async function serving(rounds: Round[], held?: Promise<void>) {
   const running: Array<Promise<void>> = [];
   /** Claims the next job due, or any queued one with `overdue`, and starts its attempt: whether it could. */
   const claim = async ({ overdue = false } = {}) => {
-    const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: !overdue });
+    const claimed = await claimPastDeliveries(jobs, timer.clock.now(), {
+      respectRunAfter: !overdue,
+    });
     if (!claimed) return false;
     running.push(jobs.runClaimed(claimed, {}));
     return true;
@@ -430,8 +437,30 @@ describe("quick messages over what a Turn reads", () => {
   });
 
   it("wait for the next Turn when they would pass its messages", async () => {
-    const { fake, timer, runDue, send } = await serving([quiet(), quiet()]);
-    for (let at = 0; at <= threadPromptLimit; at++) await send(`Message ${at}.`);
+    const { fake, timer, runDue, send, threadRows } = await serving([quiet(), quiet()]);
+    await send("Message 0.");
+    // One sender can say only so much in an hour (the inbound limit), so most are written, long ago.
+    const [thread] = await threadRows();
+    await getTestDb()
+      .insert(representativeThreadMessage)
+      .values(
+        Array.from({ length: threadPromptLimit - 1 }, (_, index) => ({
+          id: uuidv7(),
+          threadId: thread!.id,
+          position: index + 2,
+          author: "customer" as const,
+          channel: "fake",
+          externalId,
+          text: `Message ${index + 1}.`,
+          verified: false,
+          createdAt: new Date(timer.clock.now().getTime() - 2 * 60 * 60_000),
+        })),
+      );
+    await getTestDb()
+      .update(representativeThread)
+      .set({ messageCount: threadPromptLimit })
+      .where(eq(representativeThread.id, thread!.id));
+    await send(`Message ${threadPromptLimit}.`);
 
     timer.advance(500);
     expect(await runDue()).toBe(true);

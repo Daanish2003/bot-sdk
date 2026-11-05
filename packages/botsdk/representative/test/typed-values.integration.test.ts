@@ -6,7 +6,7 @@ import { saveCredentials } from "@botsdk/bot/models/internal";
 import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { testCustomerTurn } from "@ai-chat/test-support/test-customer";
+import { approveDrafts, autoSource, testCustomerTurn } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
@@ -27,10 +27,10 @@ const silent = { error: () => {} };
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 const quiet = () => round();
-const says = (text: string, kind: string, sources: object[] = []) =>
-  round(toolCall({ name: "reply", input: { text, kind, sources } }));
+const says = (text: string, kind: string, sources: object[] = [autoSource]) =>
+  round(toolCall({ name: "reply", input: { topic: "general", text, kind, sources } }));
 
-const price = { key: "price.haircut", type: "money", topic: "Prices", value: "45 USD" } as const;
+const price = { key: "price.haircut", type: "money", topic: "general", value: "45 USD" } as const;
 
 const runners: JobRunner[] = [];
 afterEach(async () => {
@@ -121,6 +121,8 @@ async function turnWith(rounds: Round[], message = "How much?") {
   await made.rpc.representative.approve({ id: made.id });
   await made.rpc.representative.setEnabled({ id: made.id, enabled: true });
   await testCustomerTurn(made.deps, { representativeId: made.id, message });
+  // A reply resting on a document is a draft; approving what is waiting sends it.
+  await approveDrafts(made.rpc);
   return made;
 }
 
@@ -205,9 +207,10 @@ describe("a typed price, phone number or link", () => {
       quiet(),
     ]);
 
+    // The first, a draft, is sent when approved after the Turn, so it comes after the hand-off.
     expect((await sent()).map((message) => message.text)).toEqual([
-      "A beard trim is $20, and you can call +1 555 010 0199.",
       handOffMessage,
+      "A beard trim is $20, and you can call +1 555 010 0199.",
     ]);
     expect(answersIn(fake.calls[2]).at(-1)).toMatch(refusal);
   });

@@ -1,0 +1,1 @@
+ALTER TABLE "botsdk"."representative" ADD COLUMN "assignment_due_minutes" integer DEFAULT 30 NOT NULL;

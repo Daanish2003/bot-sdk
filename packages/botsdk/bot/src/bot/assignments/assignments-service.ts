@@ -1,5 +1,5 @@
 import type { AssignmentResult, AssignmentStatus } from "@botsdk/client/bot/assignment";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import type { AnyFeature } from "../../feature";
@@ -114,6 +114,16 @@ export type AssignmentsService = {
    * another feature made, is NOT_FOUND; a Bot whose Model can't run is CONFLICT.
    */
   move: (input: { userId: string; id: string; botId: string }) => Promise<void>;
+  /**
+   * Flags one of the feature's own Assignments overdue, in the caller's transaction: sets its
+   * `overdueAt` to now. It's a flag, never a status, so the work goes on. `marked` is false when
+   * it had ended, was already flagged, or isn't this owner's or this feature's, so only the first
+   * call for an Assignment that is still open gets true.
+   */
+  markOverdue: (
+    tx: Transaction,
+    input: { userId: string; id: string },
+  ) => Promise<{ marked: boolean }>;
   /**
    * Redacts the feature's own Assignments `ids` of this owner, as deleting whoever they came from
    * needs (ticket #1288): their text and everything the Bot's records hold of it go, for the child
@@ -262,6 +272,26 @@ export function assignmentsService(
       }
       deps.runner.wake();
       for (const conversationId of moved.woken) await hintChanged(deps, conversationId);
+    },
+
+    markOverdue: async (tx, { userId, ...rest }) => {
+      const { id } = parseInput(assignmentInput, rest);
+      const [marked] = await tx
+        .update(botAssignment)
+        .set({ overdueAt: deps.clock() })
+        .from(bot)
+        .where(
+          and(
+            eq(bot.id, botAssignment.assignedBotId),
+            eq(bot.userId, userId),
+            eq(botAssignment.id, id),
+            eq(botAssignment.assignerFeature, feature.id),
+            isNull(botAssignment.overdueAt),
+            isNull(botAssignment.endedAt),
+          ),
+        )
+        .returning({ id: botAssignment.id });
+      return { marked: marked !== undefined };
     },
 
     redact: async (tx, { userId, ...rest }) => {

@@ -18,6 +18,7 @@ export {
   listLinkedIdentities,
   unlinkIdentity,
 } from "./linked-identities";
+export { pageDeliveryJob, pageIn, sendPage } from "./page-delivery";
 export {
   deliverIn,
   deliveryJob,

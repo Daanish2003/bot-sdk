@@ -110,6 +110,34 @@ export function useSetRepresentativeEnabled(
   return useMutation(useRepresentative().setEnabled.mutationOptions(options));
 }
 
+/** Edits the caps on what the Outbound gate sends a Customer (`representative.setCaps`). */
+export function useSetRepresentativeCaps(
+  options?: ProcedureMutationOptions<Representative["setCaps"]>,
+) {
+  return useMutation(useRepresentative().setCaps.mutationOptions(options));
+}
+
+/** Edits what a Representative may cost (`representative.setSpendingCaps`). */
+export function useSetRepresentativeSpendingCaps(
+  options?: ProcedureMutationOptions<Representative["setSpendingCaps"]>,
+) {
+  return useMutation(useRepresentative().setSpendingCaps.mutationOptions(options));
+}
+
+/** Edits how long an Assignment it hands to a Bot may run before it is overdue (`representative.setAssignmentDue`). */
+export function useSetRepresentativeAssignmentDue(
+  options?: ProcedureMutationOptions<Representative["setAssignmentDue"]>,
+) {
+  return useMutation(useRepresentative().setAssignmentDue.mutationOptions(options));
+}
+
+/** Edits the hours the Outbound gate holds what the business starts (`representative.setQuietHours`). */
+export function useSetRepresentativeQuietHours(
+  options?: ProcedureMutationOptions<Representative["setQuietHours"]>,
+) {
+  return useMutation(useRepresentative().setQuietHours.mutationOptions(options));
+}
+
 /** Chooses the Bot a Representative reports to (`representative.setBot`). */
 export function useSetRepresentativeBot(
   options?: ProcedureMutationOptions<Representative["setBot"]>,
@@ -195,6 +223,13 @@ export function useSetCustomerBlocked(
   options?: ProcedureMutationOptions<Representative["customerSetBlocked"]>,
 ) {
   return useMutation(useRepresentative().customerSetBlocked.mutationOptions(options));
+}
+
+/** Clears an identity's opt-out (`representative.customerClearOptOut`). */
+export function useClearOptOut(
+  options?: ProcedureMutationOptions<Representative["customerClearOptOut"]>,
+) {
+  return useMutation(useRepresentative().customerClearOptOut.mutationOptions(options));
 }
 
 /** Merges one Customer into another (`representative.customerMerge`). */
@@ -313,6 +348,73 @@ export function useHandBackThread(
   options?: ProcedureMutationOptions<Representative["threadHandBack"]>,
 ) {
   return useMutation(useRepresentative().threadHandBack.mutationOptions(options));
+}
+
+/** The owner's topics (`representative.topicList`). */
+export function useTopics() {
+  return useQuery(useRepresentative().topicList.queryOptions());
+}
+
+/** Adds a topic (`representative.topicAdd`). */
+export function useAddTopic(options?: ProcedureMutationOptions<Representative["topicAdd"]>) {
+  return useMutation(useRepresentative().topicAdd.mutationOptions(options));
+}
+
+/** Promotes a topic to auto-send, or puts it back to draft (`representative.topicSetMode`). */
+export function useSetTopicMode(
+  options?: ProcedureMutationOptions<Representative["topicSetMode"]>,
+) {
+  return useMutation(useRepresentative().topicSetMode.mutationOptions(options));
+}
+
+/** Removes a topic (`representative.topicRemove`). */
+export function useRemoveTopic(options?: ProcedureMutationOptions<Representative["topicRemove"]>) {
+  return useMutation(useRepresentative().topicRemove.mutationOptions(options));
+}
+
+/** The replies waiting for the owner (`representative.replyDraftList`). */
+export function useReplyDrafts() {
+  return useQuery(useRepresentative().replyDraftList.queryOptions());
+}
+
+/** Sends a Reply draft (`representative.replyDraftApprove`). */
+export function useApproveReplyDraft(
+  options?: ProcedureMutationOptions<Representative["replyDraftApprove"]>,
+) {
+  return useMutation(useRepresentative().replyDraftApprove.mutationOptions(options));
+}
+
+/** Sends the owner's edit of a Reply draft (`representative.replyDraftEdit`). */
+export function useEditReplyDraft(
+  options?: ProcedureMutationOptions<Representative["replyDraftEdit"]>,
+) {
+  return useMutation(useRepresentative().replyDraftEdit.mutationOptions(options));
+}
+
+/** Rejects a Reply draft (`representative.replyDraftReject`). */
+export function useRejectReplyDraft(
+  options?: ProcedureMutationOptions<Representative["replyDraftReject"]>,
+) {
+  return useMutation(useRepresentative().replyDraftReject.mutationOptions(options));
+}
+
+/** The messages the gate held and the threads Representatives are running (`representative.inbox`). */
+export function useOwnerInbox() {
+  return useQuery(useRepresentative().inbox.queryOptions());
+}
+
+/** Sends a message the gate held (`representative.threadHeldSend`). */
+export function useSendHeldMessage(
+  options?: ProcedureMutationOptions<Representative["threadHeldSend"]>,
+) {
+  return useMutation(useRepresentative().threadHeldSend.mutationOptions(options));
+}
+
+/** Drops a message the gate held (`representative.threadHeldDrop`). */
+export function useDropHeldMessage(
+  options?: ProcedureMutationOptions<Representative["threadHeldDrop"]>,
+) {
+  return useMutation(useRepresentative().threadHeldDrop.mutationOptions(options));
 }
 
 /** The owner's own message on a thread they hold (`representative.threadSend`). */

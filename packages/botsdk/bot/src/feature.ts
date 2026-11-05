@@ -22,6 +22,7 @@ import type { BotSdkContext, BotSdkPlugin, Route, Transaction } from "./plugin";
 import { requireAuth } from "./procedures";
 import type { RepresentativeLoopService } from "./bot/agent-loop";
 import type { AssignmentsService } from "./bot/assignments";
+import type { PagesService } from "./bot/pages-api";
 import type { FactApprovalsService, ReleaseApprovalsService } from "./bot/safety";
 import type { ComputerApi } from "./computer/internal";
 import type { ModelsApi } from "./models/internal";
@@ -39,6 +40,7 @@ export type CoreService =
   | "computer"
   | "factApprovals"
   | "models"
+  | "pages"
   | "releaseApprovals"
   | "representativeLoop"
   | "threads";
@@ -50,6 +52,7 @@ type Services = {
   assignments: AssignmentsService;
   computer: ComputerApi;
   models: ModelsApi;
+  pages: PagesService;
   factApprovals: FactApprovalsService;
   releaseApprovals: ReleaseApprovalsService;
   representativeLoop: RepresentativeLoopService;
@@ -67,6 +70,8 @@ export type FeatureContext<Needs extends CoreService = never> = {
   fetchAllowHosts: BotSdkContext["fetchAllowHosts"];
   /** The keyring (ADR 0010) a feature encrypts its secrets under: the first encrypts, every entry decrypts. */
   keyring: BotSdkContext["keyring"];
+  /** Whether the Host has Banned the user: no Turn of a feature starts while it does (ticket #1299). */
+  isUserBlocked: BotSdkContext["isUserBlocked"];
   /** The runner's jobs: queue one of the feature's `jobs` in the caller's transaction. */
   jobs: {
     enqueueIn: <P>(
@@ -329,6 +334,11 @@ export type FeatureDefinition<
    */
   resetBot?: (botId: string, userId: string, context: FeatureContext<Needs>) => Promise<void>;
   /**
+   * Stops the feature's own running Turns of user `userId`, as a Ban stops a Bot's (ticket #1299): the
+   * Host's `stopTurns` calls it. It must leave nothing running, and may be called with none.
+   */
+  stopTurns?: (userId: string, context: FeatureContext<Needs>) => Promise<void>;
+  /**
    * What the Turn changed of the feature, read from its transcript as the Turn ends (stopped and
    * lost ones too, from what they recorded), with no reads or writes: the core stores it on the
    * Turn. A throw is logged and stores none of the feature's changes.
@@ -457,6 +467,7 @@ const instanceKeys: Record<keyof BotSdk, true> = {
   reviews: true,
   rules: true,
   notifications: true,
+  pages: true,
   channels: true,
   migrate: true,
   start: true,
@@ -477,6 +488,7 @@ const serviceNames: Record<CoreService, string> = {
   computer: "the Computer",
   factApprovals: "the fact Approvals",
   models: "the Models",
+  pages: "the Pages",
   releaseApprovals: "the release Approvals",
   representativeLoop: "the Representative loop",
   threads: "the Conversation threads",
@@ -568,6 +580,7 @@ export function enableFeature(
   representativeLoop: RepresentativeLoopService,
   releaseApprovals: ReleaseApprovalsService,
   factApprovals: FactApprovalsService,
+  pages: PagesService,
 ): EnabledFeature {
   const needs = feature.needs ?? [];
   const context: FeatureContext<CoreService> = {
@@ -577,6 +590,7 @@ export function enableFeature(
     ...(needs.includes("representativeLoop") && { representativeLoop }),
     ...(needs.includes("releaseApprovals") && { releaseApprovals }),
     ...(needs.includes("factApprovals") && { factApprovals }),
+    ...(needs.includes("pages") && { pages }),
   };
   return {
     feature,
@@ -601,6 +615,7 @@ export function contextOf(
     fetch: sdk.fetch,
     fetchAllowHosts: sdk.fetchAllowHosts,
     keyring: sdk.keyring,
+    isUserBlocked: sdk.isUserBlocked,
     jobs: {
       enqueueIn: (tx, job, payload, options) =>
         sdk.runner.enqueueIn(tx, job.name, payload, options),

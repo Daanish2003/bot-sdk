@@ -23,10 +23,12 @@ import {
   issueLinkCode,
   listChannelAccounts,
   listLinkedIdentities,
+  pageIn,
   removeChannelAccount,
   rotateChannelAccountKeys,
   saveChannelAccount,
   sendDelivery,
+  sendPage,
   setMessagingPlatforms,
   unlinkIdentity,
 } from "./conversation";
@@ -80,6 +82,9 @@ export function createChannels(sdk: BotSdkContext, options: ChannelOptions): Cha
     sendDelivery: async (payload) => {
       await sendDelivery(sdk, { email, push, messaging }, verifiedEmail, payload, appUrl);
     },
+    pageIn: (tx, page) => pageIn(sdk, tx, { email, push, messaging }, page),
+    sendPage: (payload) =>
+      sendPage(sdk, { email, push, messaging }, verifiedEmail, appUrl, payload),
     pushKey: () => push?.provider.publicKey ?? null,
     accounts: {
       list: ({ userId, ...rest }) =>

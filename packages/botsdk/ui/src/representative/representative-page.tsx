@@ -17,20 +17,28 @@ import {
   useRepresentativeDetail,
   useRollbackRelease,
   useRunTests,
+  useSetRepresentativeAssignmentDue,
   useSetRepresentativeBot,
+  useSetRepresentativeCaps,
+  useSetRepresentativeSpendingCaps,
+  useSetRepresentativeQuietHours,
   useSetRepresentativeEnabled,
   useUpdateDraft,
 } from "@botsdk/representative/react";
 import {
   canonicalJson,
   type Draft,
+  maxAssignmentDueMinutes,
+  maxOutboundCap,
   type RepresentativeTool,
   type RepresentativeView,
   representativeTools,
 } from "@botsdk/representative/client";
 
 import { ModelPicker } from "../models/shell/model-picker";
+import { LimitWarning } from "./limit-warning";
 import { DraftDocuments, documentsOverCap, useDocumentChanges } from "./representative-documents";
+import { ReplyDrafts } from "./reply-drafts";
 import { RepresentativeThreads } from "./representative-threads";
 import { TestConversationsEditor, TestResults } from "./representative-tests";
 
@@ -78,6 +86,8 @@ function DraftEditor({ representative }: { representative: RepresentativeView })
   const usableModels = models.data?.models ?? [];
   const modelListed = usableModels.some((model) => model.id === draft.model);
   const [reason, setReason] = useState("");
+  // As typed, so a new line can be started: the draft holds only what is on a line.
+  const [keywordLines, setKeywordLines] = useState(draft.emergencyKeywords.join("\n"));
   const documentChanges = useDocumentChanges();
   const busy = save.isPending || approve.isPending || run.isPending || documentChanges.pending;
   const body = { id: representative.id, draft };
@@ -104,6 +114,37 @@ function DraftEditor({ representative }: { representative: RepresentativeView })
           placeholder={t("representative.jobTextPlaceholder")}
           onChange={(event) => setDraft({ ...draft, jobText: event.target.value })}
         />
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor="representative-emergency-text">{t("representative.emergencyText")}</Label>
+        <Textarea
+          id="representative-emergency-text"
+          rows={2}
+          value={draft.emergencyText}
+          onChange={(event) => setDraft({ ...draft, emergencyText: event.target.value })}
+        />
+        <p className="text-xs text-muted-foreground">{t("representative.emergencyTextHelp")}</p>
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor="representative-emergency-keywords">
+          {t("representative.emergencyKeywords")}
+        </Label>
+        <Textarea
+          id="representative-emergency-keywords"
+          rows={3}
+          value={keywordLines}
+          onChange={(event) => {
+            setKeywordLines(event.target.value);
+            setDraft({
+              ...draft,
+              emergencyKeywords: event.target.value
+                .split("\n")
+                .map((line) => line.trim())
+                .filter((line) => line !== ""),
+            });
+          }}
+        />
+        <p className="text-xs text-muted-foreground">{t("representative.emergencyKeywordsHelp")}</p>
       </div>
       <fieldset className="space-y-2">
         <legend className="text-sm font-medium">{t("representative.tools")}</legend>
@@ -300,6 +341,265 @@ function BotChooser({ representative }: { representative: RepresentativeView }) 
   );
 }
 
+/** The caps on what the Outbound gate sends one Customer, which the owner edits outside any Release. */
+function CapsForm({ representative }: { representative: RepresentativeView }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const { maxInARow, maxPerDay } = representative.caps;
+  const setCaps = useSetRepresentativeCaps({
+    onSuccess: async () => {
+      await refresh();
+      toast.success(t("representative.capsSaved"));
+    },
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  return (
+    <form
+      data-representative-caps=""
+      className="space-y-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        setCaps.mutate({
+          id: representative.id,
+          maxInARow: Number(form.get("maxInARow")),
+          maxPerDay: Number(form.get("maxPerDay")),
+        });
+      }}
+    >
+      <h2 className="text-sm font-medium">{t("representative.caps")}</h2>
+      <p className="text-xs text-muted-foreground">{t("representative.capsHelp")}</p>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <Label htmlFor="representative-max-in-a-row">{t("representative.maxInARow")}</Label>
+          <Input
+            id="representative-max-in-a-row"
+            name="maxInARow"
+            type="number"
+            min={1}
+            max={maxOutboundCap}
+            defaultValue={maxInARow}
+            required
+            className="w-28"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="representative-max-per-day">{t("representative.maxPerDay")}</Label>
+          <Input
+            id="representative-max-per-day"
+            name="maxPerDay"
+            type="number"
+            min={1}
+            max={maxOutboundCap}
+            defaultValue={maxPerDay}
+            required
+            className="w-28"
+          />
+        </div>
+        <Button type="submit" variant="outline" size="sm" disabled={setCaps.isPending}>
+          {t("representative.saveCaps")}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/** How long work the Representative hands to a Bot may run before it is overdue: the owner's, in no Release. */
+function AssignmentDueForm({ representative }: { representative: RepresentativeView }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const setDue = useSetRepresentativeAssignmentDue({
+    onSuccess: async () => {
+      await refresh();
+      toast.success(t("representative.assignmentDueSaved"));
+    },
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  return (
+    <form
+      data-representative-assignment-due=""
+      className="space-y-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        setDue.mutate({ id: representative.id, minutes: Number(form.get("minutes")) });
+      }}
+    >
+      <h2 className="text-sm font-medium">{t("representative.assignmentDue")}</h2>
+      <p className="text-xs text-muted-foreground">{t("representative.assignmentDueHelp")}</p>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <Label htmlFor="representative-assignment-due">
+            {t("representative.assignmentDueMinutes")}
+          </Label>
+          <Input
+            id="representative-assignment-due"
+            name="minutes"
+            type="number"
+            min={1}
+            max={maxAssignmentDueMinutes}
+            defaultValue={representative.assignmentDueMinutes}
+            required
+            className="w-28"
+          />
+        </div>
+        <Button type="submit" variant="outline" size="sm" disabled={setDue.isPending}>
+          {t("representative.saveAssignmentDue")}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/** The hours the Outbound gate holds what the business starts, and the business's time zone: the owner's, in no Release. */
+function QuietHoursForm({ representative }: { representative: RepresentativeView }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const { startHour, endHour, timeZone } = representative.quietHours;
+  const setQuietHours = useSetRepresentativeQuietHours({
+    onSuccess: async () => {
+      await refresh();
+      toast.success(t("representative.quietHoursSaved"));
+    },
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  return (
+    <form
+      data-representative-quiet-hours=""
+      className="space-y-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        setQuietHours.mutate({
+          id: representative.id,
+          startHour: Number(form.get("startHour")),
+          endHour: Number(form.get("endHour")),
+          timeZone: String(form.get("timeZone")),
+        });
+      }}
+    >
+      <h2 className="text-sm font-medium">{t("representative.quietHours")}</h2>
+      <p className="text-xs text-muted-foreground">{t("representative.quietHoursHelp")}</p>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <Label htmlFor="representative-quiet-start">{t("representative.quietStart")}</Label>
+          <Input
+            id="representative-quiet-start"
+            name="startHour"
+            type="number"
+            min={0}
+            max={23}
+            defaultValue={startHour}
+            required
+            className="w-28"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="representative-quiet-end">{t("representative.quietEnd")}</Label>
+          <Input
+            id="representative-quiet-end"
+            name="endHour"
+            type="number"
+            min={0}
+            max={23}
+            defaultValue={endHour}
+            required
+            className="w-28"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="representative-business-time-zone">
+            {t("representative.businessTimeZone")}
+          </Label>
+          <Input
+            id="representative-business-time-zone"
+            name="timeZone"
+            defaultValue={timeZone}
+            required
+            className="w-48"
+          />
+        </div>
+        <Button type="submit" variant="outline" size="sm" disabled={setQuietHours.isPending}>
+          {t("representative.saveQuietHours")}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+const microsPerDollar = 1_000_000;
+
+/** The caps on what the Representative may cost, which the owner edits outside any Release (ticket #1310). */
+function SpendingCapsForm({ representative }: { representative: RepresentativeView }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const refresh = useRefreshRepresentatives();
+  const caps = representative.spendingCaps;
+  const save = useSetRepresentativeSpendingCaps({
+    onSuccess: async () => {
+      await refresh();
+      toast.success(t("representative.spendingSaved"));
+    },
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  const fields = [
+    ["threadCalls", "representative.threadCalls", "calls"],
+    ["threadMicros", "representative.threadUsd", "usd"],
+    ["customerCalls", "representative.customerCalls", "calls"],
+    ["customerMicros", "representative.customerUsd", "usd"],
+    ["strangerCalls", "representative.strangerCalls", "calls"],
+    ["strangerMicros", "representative.strangerUsd", "usd"],
+    ["monthMicros", "representative.monthUsd", "usd"],
+  ] as const;
+  return (
+    <form
+      data-representative-spending=""
+      className="space-y-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        save.mutate({
+          id: representative.id,
+          ...Object.fromEntries(
+            fields.map(([name, , unit]) => [
+              name,
+              unit === "usd"
+                ? Math.round(Number(form.get(name)) * microsPerDollar)
+                : Number(form.get(name)),
+            ]),
+          ),
+        });
+      }}
+    >
+      <h2 className="text-sm font-medium">{t("representative.spending")}</h2>
+      <p className="text-xs text-muted-foreground">{t("representative.spendingHelp")}</p>
+      <div className="flex flex-wrap items-end gap-3">
+        {fields.map(([name, label, unit]) => (
+          <div key={name} className="space-y-1">
+            <Label htmlFor={`representative-${name}`}>{t(label)}</Label>
+            <Input
+              id={`representative-${name}`}
+              name={name}
+              type="number"
+              min={unit === "usd" ? 0.01 : 1}
+              step={unit === "usd" ? 0.01 : 1}
+              defaultValue={unit === "usd" ? caps[name] / microsPerDollar : caps[name]}
+              required
+              className="w-28"
+            />
+          </div>
+        ))}
+        <Button type="submit" variant="outline" size="sm" disabled={save.isPending}>
+          {t("representative.saveSpending")}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 /** A Bot's draft waiting for the owner: the Approve button above says yes, this says no. */
 function WaitingApproval({ representative }: { representative: RepresentativeView }) {
   const i18n = useI18n();
@@ -377,6 +677,7 @@ export function RepresentativePage({ id }: { id: string }) {
             : t("representative.live", { number: representative.liveReleaseNumber })}
         </p>
       </div>
+      <LimitWarning monthUsedPercent={representative.monthUsedPercent} />
       <BotChooser representative={representative} />
       <div className="flex items-center gap-2">
         <Checkbox
@@ -389,6 +690,10 @@ export function RepresentativePage({ id }: { id: string }) {
         />
         <Label htmlFor="representative-enabled">{t("representative.switch")}</Label>
       </div>
+      <CapsForm representative={representative} />
+      <SpendingCapsForm representative={representative} />
+      <QuietHoursForm representative={representative} />
+      <AssignmentDueForm representative={representative} />
       <WaitingApproval representative={representative} />
       {/* Keyed by the draft's fields, so a draft changed elsewhere reloads the form. A document uploaded leaves the form's edits alone. */}
       <DraftEditor
@@ -396,6 +701,7 @@ export function RepresentativePage({ id }: { id: string }) {
         representative={representative}
       />
       <DraftDiff id={id} />
+      <ReplyDrafts id={id} />
       <RepresentativeThreads id={id} />
       <section className="space-y-2">
         <h2 className="text-sm font-medium">{t("representative.releases")}</h2>

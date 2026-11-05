@@ -3,17 +3,16 @@ import { eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { saveCredentials } from "@botsdk/bot/models/internal";
-import {
-  claimJob,
-  inProcessRunner,
-  type JobRunner,
-  reapStaleJobs,
-} from "@botsdk/bot/runner/internal";
+import { inProcessRunner, type JobRunner, reapStaleJobs } from "@botsdk/bot/runner/internal";
 import { botAssignment, job, jobEvent } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { startTestCustomerTurn } from "@ai-chat/test-support/test-customer";
+import {
+  claimPastDeliveries,
+  startTestCustomerTurn,
+  autoSource,
+} from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, text, toolCall } from "@botsdk/testing/fake-adapter";
@@ -41,10 +40,16 @@ type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 const quiet = () => round();
 /** A reply no source backs: code refuses it. */
-const guess = (text: string) => toolCall({ name: "reply", input: { text, kind: "answer" } });
+const guess = (text: string) =>
+  toolCall({ name: "reply", input: { topic: "general", text, kind: "answer" } });
 const guesses = (text: string) => round(guess(text));
 const greets = (text: string) =>
-  round(toolCall({ name: "reply", input: { text, kind: "small_talk" } }));
+  round(
+    toolCall({
+      name: "reply",
+      input: { topic: "general", sources: [autoSource], text, kind: "small_talk" },
+    }),
+  );
 const handsOff = () =>
   toolCall({
     name: "hand_to_bot",
@@ -124,7 +129,9 @@ async function serving(rounds: Round[], { noBot, tools, afterCall, before }: Opt
 
   const running: Array<Promise<void>> = [];
   const claim = async ({ overdue = false } = {}) => {
-    const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: !overdue });
+    const claimed = await claimPastDeliveries(jobs, timer.clock.now(), {
+      respectRunAfter: !overdue,
+    });
     if (!claimed) return false;
     running.push(jobs.runClaimed(claimed, {}));
     return true;
@@ -247,6 +254,7 @@ describe("a second refusal", () => {
         toolCall({
           name: "reply",
           input: {
+            topic: "general",
             text: "It is 10 USD.",
             kind: "answer",
             sources: [{ type: "document", name: "prices.md", quote: "10 USD" }],
@@ -321,7 +329,15 @@ describe("a second refusal", () => {
         guess("It is 10 USD."),
         guess("It is 12 USD."),
         handsOff(),
-        toolCall({ name: "reply", input: { text: "One more thing.", kind: "small_talk" } }),
+        toolCall({
+          name: "reply",
+          input: {
+            topic: "general",
+            sources: [autoSource],
+            text: "One more thing.",
+            kind: "small_talk",
+          },
+        }),
       ),
     ]);
 
@@ -549,7 +565,11 @@ describe("a second refusal in a test conversation", () => {
       round(
         toolCall({
           name: "reply",
-          input: { text: keys.map((key) => `{{${key}}}`).join(" "), kind: "answer" },
+          input: {
+            topic: "general",
+            text: keys.map((key) => `{{${key}}}`).join(" "),
+            kind: "answer",
+          },
         }),
       ),
       quiet(),
@@ -763,7 +783,10 @@ describe("a cant_confirm reply with no question", () => {
   it("counts as a refusal, so a Model repeating it hands off", async () => {
     const repeats = () =>
       round(
-        toolCall({ name: "reply", input: { text: "I can't confirm that.", kind: "cant_confirm" } }),
+        toolCall({
+          name: "reply",
+          input: { topic: "general", text: "I can't confirm that.", kind: "cant_confirm" },
+        }),
       );
     const { turn, sent, fake } = await serving([repeats(), repeats(), repeats(), repeats()]);
 
@@ -787,6 +810,7 @@ describe("a test conversation's reply", () => {
         toolCall({
           name: "reply",
           input: {
+            topic: "general",
             text: "Here you go.",
             kind: "answer",
             sources: [{ type: "document", name: "terms.md", quote: "q".repeat(11_000) }],
@@ -855,13 +879,18 @@ describe("what code takes for a typed value", () => {
 describe("what code takes for a typed value, from a fact", () => {
   it("lets a fact's value through whole, a sign and a code together", async () => {
     const { rpc, turn, sent } = await serving([
-      round(toolCall({ name: "reply", input: { text: "It is {{price.x}}.", kind: "answer" } })),
+      round(
+        toolCall({
+          name: "reply",
+          input: { topic: "general", text: "It is {{price.x}}.", kind: "answer" },
+        }),
+      ),
       quiet(),
     ]);
     await rpc.representative.factAdd({
       key: "price.x",
       type: "text",
-      topic: "Prices",
+      topic: "general",
       value: "$500 CAD",
     });
 
@@ -875,7 +904,10 @@ describe("a Turn's Checkpoints", () => {
   it("hold no fact's value from a test conversation's reply either, which still reads it", async () => {
     const { rpc, id, timer, claim, attemptsEnd } = await serving([
       round(
-        toolCall({ name: "reply", input: { text: "It is {{price.haircut}}.", kind: "answer" } }),
+        toolCall({
+          name: "reply",
+          input: { topic: "general", text: "It is {{price.haircut}}.", kind: "answer" },
+        }),
       ),
       quiet(),
     ]);

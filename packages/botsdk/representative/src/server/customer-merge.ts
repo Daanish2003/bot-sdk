@@ -3,6 +3,7 @@ import { and, desc, eq, inArray, isNull, ne, not, or, sql } from "drizzle-orm";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
+import type { ViaChannel } from "./outbound-gate";
 import { rpcError } from "@botsdk/bot/rpc-error";
 import type { CustomerMergeView } from "../shared/contract";
 import { nameIn, profilesOf } from "./customer-profile";
@@ -20,6 +21,7 @@ import {
 } from "./db/schema";
 import { queueIdleCheck } from "./idle";
 import { customerNotFound, readCustomer } from "./owner-customers";
+import { replaceHeld } from "./reply-drafts";
 import { holdThread, releaseThread } from "./takeover";
 import { afterThreadClose } from "./customer-summary";
 import { queueThreadExpiry } from "./expiry";
@@ -31,7 +33,7 @@ import { queueThreadExpiry } from "./expiry";
  * row stays behind with nothing on it, and only undoing brings it back.
  */
 
-type Services = Pick<FeatureContext, "clock" | "jobs">;
+type Services = Pick<FeatureContext, "clock" | "jobs"> & ViaChannel;
 type Context = Services & Pick<FeatureContext, "db">;
 
 const merge = representativeCustomerMerge;
@@ -74,11 +76,13 @@ export async function holdCustomers(tx: Transaction, ids: string[]) {
  * its summary is the caller's: a thread closed for holding two people's words has none.
  */
 async function closeThread(
-  { jobs }: Services,
+  { jobs, clock }: Services,
   tx: Transaction,
   thread: { id: string; turnId: string | null },
 ) {
   if (thread.turnId) await jobs.cancelIn(tx, thread.turnId);
+  // A closed thread can't send what the gate held, and an undo mustn't bring it back out of date.
+  await replaceHeld(tx, thread.id, clock());
   await tx
     .update(representativeThread)
     .set({ state: "closed", turnId: null, waitingFrom: null, waitingSince: null })
@@ -145,7 +149,7 @@ export async function absorbCustomer(
     if (open.state !== "owner") await afterThreadClose(services, tx, open.id);
     if (open.state === "owner") {
       const caused = match.state === "representative";
-      if (caused) await holdThread(services, tx, match.id, { ...match, blockedAt: null });
+      if (caused) await holdThread(services, tx, match.id, match);
       movedHolds.push({
         closedThreadId: open.id,
         survivingThreadId: match.id,

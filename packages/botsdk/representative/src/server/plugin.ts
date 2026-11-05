@@ -14,12 +14,15 @@ import {
   representativeGap,
   representativeFactProposal,
   representativeHandOff,
+  representativeHeldMessage,
+  representativeOutboundDecision,
   representativeProfileField,
   representativeProfileValue,
   representativeRelease,
   representativeTestResult,
   representativeThread,
   representativeThreadMessage,
+  representativeTopic,
   representativeCustomerSummary,
   representativeVerification,
 } from "./db/schema";
@@ -33,6 +36,8 @@ import { dropProposalsOfBot, factProposalTools } from "./fact-proposals";
 import { deleteFacts, exportFacts } from "./facts";
 import { deleteGaps, exportGaps } from "./gaps";
 import representativeMigrations from "./migrations.json" with { type: "json" };
+import { heldReleaseJob } from "./held-messages";
+import { customerDeliveryJob, exportOutboundDecisions } from "./outbound-gate";
 import {
   deleteRepresentatives,
   dropApprovalsOfBot,
@@ -40,8 +45,12 @@ import {
 } from "./representatives";
 import type { ConvertDocument, KnowledgeFiles } from "./documents";
 import { representativeTestJob } from "./tests";
+import { deleteTopics, exportTopics } from "./topics";
 import { exportCustomerSummaries, customerSummaryJob } from "./customer-summary";
-import { handOffEndedJob, representativeTurnJob } from "./turn";
+import { draftDueJob } from "./draft-due";
+import { assignmentDueJob, ownerWaitJob } from "./stalled-work";
+import { stopUserTurns } from "./thread-turns";
+import { handOffEndedJob, limitCheckJob, representativeTurnJob } from "./turn";
 
 export type RepresentativeOptions = {
   /**
@@ -68,7 +77,7 @@ export type RepresentativeOptions = {
  * The `representative` feature (spec #1167): restricted agents that speak for the owner's
  * business, each served only through an approved, unchangeable Release. It has no Computer, and
  * Auto-review and Custom Rules, which belong to Bots, don't reach it. A Host turns it on with
- * `representative()` in `features`. `channel` is where proofs go: not an option a Host has, since no
+ * `representative()` in `features`. `channel` is how messages reach a Customer: not an option a Host has, since no
  * real Channel reaches a Customer until the specs for them, so `src/index.ts` doesn't pass it on.
  */
 export function representativeFeature(
@@ -81,6 +90,7 @@ export function representativeFeature(
       "assignments",
       "factApprovals",
       "models",
+      "pages",
       "releaseApprovals",
       "representativeLoop",
       "threads",
@@ -97,19 +107,23 @@ export function representativeFeature(
         representativeGap,
         representativeFactProposal,
         representativeHandOff,
+        representativeHeldMessage,
+        representativeOutboundDecision,
         representativeProfileField,
         representativeProfileValue,
         representativeRelease,
         representativeTestResult,
         representativeThread,
         representativeThreadMessage,
+        representativeTopic,
         representativeCustomerSummary,
         representativeVerification,
       },
       migrations: representativeMigrations,
     },
     contract: representativeContract,
-    api: (context) => representativeApi(context, options.convertDocument, options.knowledgeFiles),
+    api: (context) =>
+      representativeApi(context, options.convertDocument, options.knowledgeFiles, channel),
     tools: (turn, context) => [
       ...botDraftTools(turn, context),
       ...factProposalTools(turn, context),
@@ -118,10 +132,17 @@ export function representativeFeature(
       await dropApprovalsOfBot(context, botId, userId);
       await dropProposalsOfBot(context, botId, userId);
     },
+    stopTurns: (userId, context) => stopUserTurns(context, userId),
     publicRoutes: proofLinkRoutes,
     jobs: [
       representativeTurnJob(options.concurrency, channel),
+      customerDeliveryJob(channel),
+      draftDueJob,
+      assignmentDueJob(channel),
+      ownerWaitJob,
+      heldReleaseJob(channel),
       handOffEndedJob,
+      limitCheckJob,
       representativeTestJob,
       threadIdleJob,
       threadExpiryJob,
@@ -137,16 +158,19 @@ export function representativeFeature(
           await deleteProfileFields(tx, userId);
           await deleteFacts(tx, userId);
           await deleteGaps(tx, userId);
+          await deleteTopics(tx, userId);
         },
       },
       export: async (tx, userId) => ({
         representatives: await exportRepresentatives(tx, userId),
         customers: await exportCustomers(tx, userId),
         customerMerges: await exportMerges(tx, userId),
+        outboundDecisions: await exportOutboundDecisions(tx, userId),
         customerSummaries: await exportCustomerSummaries(tx, userId),
         profileFields: await exportProfileFields(tx, userId),
         ...(await exportFacts(tx, userId)),
         ...(await exportGaps(tx, userId)),
+        topics: await exportTopics(tx, userId),
       }),
     },
   });

@@ -182,8 +182,32 @@ _Avoid_: Conversation, ticket, case
 The one set of checks every message to a Customer passes, which decides whether it's sent, held or dropped.
 _Avoid_: Filter, guardrail, moderation
 
+**Decision**:
+What the Outbound gate logged for one message: sent, held or dropped, with the rule that decided and the Release in effect.
+_Avoid_: Verdict, audit entry
+
+**Held message**:
+A message the Outbound gate stored rather than sent, which isn't in its thread and hasn't reached the Customer.
+_Avoid_: Queued message, pending message
+
+**Limit note**:
+The one fixed message a Customer gets when a limit stops a Representative from answering their thread, with no model call: "Our team has your message and will reply". What they said stays owed. Once the limit lifts, what is under 24 hours old gets a Turn and what is older is left for the owner.
+_Avoid_: Quota message, drop notice
+
+**Reply draft**:
+A Representative's reply the Outbound gate held because its topic isn't one the user lets go out by itself. It waits for the user to approve, edit or reject it, and the Customer gets one fixed holding note meanwhile. A new Customer message replaces it, so what is out of date can't be approved. It isn't a Release's working draft.
+_Avoid_: Pending reply, suggestion
+
+**Topic**:
+A subject of the user's business that a Representative labels each reply with. Each is `draft` or `auto`, all start at `draft`, and a label the user doesn't have counts as `draft`.
+_Avoid_: Category, intent
+
+**Emergency script**:
+The fixed safety text in a Release, sent word for word with no model call when a Customer says one of that Release's keywords or a Representative flags an emergency. It skips drafts, caps, quiet hours, the user's hold on the thread and a switched-off Representative, reaches an opted-out Customer, and Pages the user at once. Only a blocked Customer gets nothing.
+_Avoid_: Crisis message, safety reply
+
 **Page**:
-A direct alert that reaches the user outside the app when something needs them, such as an emergency or a stalled Assignment, and repeats until acknowledged.
+A direct alert that reaches the user outside the app when something needs them, such as an emergency or a stalled Assignment. It goes to web push and their Linked identities, then to email if nobody has acknowledged it, and acknowledging stops whatever is left.
 _Avoid_: Notification, ticket, alert
 
 **Customer**:

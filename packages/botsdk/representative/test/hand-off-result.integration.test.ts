@@ -8,18 +8,27 @@ import { botAssignment, job } from "@botsdk/bot/storage";
 import { createTestSdk } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { fakeChannel } from "@ai-chat/test-support/test-customer";
+import {
+  approveDrafts,
+  fakeChannel,
+  promoteAutoTopic,
+  autoSource,
+} from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import {
+  representativeCustomerIdentity,
   representativeHandOff,
+  representativeHeldMessage,
   representativeThread,
   representativeThreadMessage,
 } from "../src/server/db/schema";
+import { noCustomerChannel } from "../src/server/customer-proof";
 import { representativeFeature } from "../src/server/plugin";
 import { handOffMessage } from "../src/server/replies";
 import { takeoverNote } from "../src/server/takeover";
+import { beginTurn } from "../src/server/thread-turns";
 import { receiveCustomerMessage } from "../src/server/thread-turns";
 
 /*
@@ -33,6 +42,8 @@ vi.setConfig({ testTimeout: 30_000 });
 
 const model = "openai:gpt-6-luna";
 const botModel = "openai:gpt-5.4-mini";
+/** A daytime in UTC, the business's time zone by default: the business starts nothing in quiet hours, so tests that run on a clock pin one rather than read the real hour. */
+const noon = new Date("2026-11-04T12:00:00Z");
 const silent = { error: () => {} };
 const number = "+15550001";
 
@@ -47,7 +58,12 @@ const handsOff = () =>
     }),
   );
 const replies = (text: string) =>
-  round(toolCall({ name: "reply", input: { text, kind: "small_talk" } }));
+  round(
+    toolCall({
+      name: "reply",
+      input: { topic: "general", sources: [autoSource], text, kind: "small_talk" },
+    }),
+  );
 
 /** Relays the Bot's result, citing the Assignment the prompt names, or `cited`, with `quote`. */
 const relays = (quote: string, cited?: string) => (call: TextOptions) =>
@@ -55,6 +71,7 @@ const relays = (quote: string, cited?: string) => (call: TextOptions) =>
     toolCall({
       name: "reply",
       input: {
+        topic: "general",
         text: "Good news: your refund is on its way.",
         kind: "answer",
         sources: [
@@ -101,6 +118,7 @@ async function serving(
   representativeRounds: Rounds,
   botRounds: Rounds = [refunded, quiet],
   held?: Promise<void>,
+  start = noon,
 ) {
   const fake = createFakeAdapter({ rounds: representativeRounds });
   const entered: unknown[] = [];
@@ -113,7 +131,7 @@ async function serving(
     },
   };
   const botFake = createFakeAdapter({ rounds: botRounds });
-  const timer = fakeJobClock(new Date());
+  const timer = fakeJobClock(start);
   const proofsSent: Array<{ channel: string; externalId: string; kind: string; secret: string }> =
     [];
   let made: ReturnType<typeof createTestSdk> | undefined;
@@ -132,6 +150,7 @@ async function serving(
       representativeFeature(
         {},
         {
+          ...noCustomerChannel,
           sendProof: async (to, proof) => {
             proofsSent.push({ ...to, ...proof });
           },
@@ -163,6 +182,7 @@ async function serving(
   await rpc.representative.approve({ id });
   await rpc.representative.setEnabled({ id, enabled: true });
   const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
+  await promoteAutoTopic(id);
   const thread = async () => {
     const [summary] = await rpc.representative.threadList({ id });
     return rpc.representative.threadGet({ id: summary!.id });
@@ -192,13 +212,16 @@ async function serving(
       throw new Error("The jobs never ran out");
     },
     send: async (message: string, proof?: { rule: "sameIdentity" | "codeRoundTrip" }) =>
-      receiveCustomerMessage(feature.context, {
-        representativeId: id,
-        channel: fakeChannel,
-        externalId: number,
-        message,
-        proof,
-      }),
+      receiveCustomerMessage(
+        { ...feature.context, channel: noCustomerChannel },
+        {
+          representativeId: id,
+          channel: fakeChannel,
+          externalId: number,
+          message,
+          proof,
+        },
+      ),
   };
 }
 
@@ -214,6 +237,80 @@ const turnsOf = async (threadId: string) =>
   ).length;
 
 const texts = (messages: Array<{ text: string }>) => messages.map((message) => message.text);
+
+describe("a verified Customer's result, after they moved", () => {
+  const elsewhere = "+15550009";
+
+  /** A verified Customer's Turn handed off, they have moved since, and `optedOut` has opted out. */
+  async function moved(optedOut: string) {
+    const world = await serving([handsOff(), quiet(), quiet()]);
+    await world.send("I want a refund", { rule: "sameIdentity" });
+    await world.runNext();
+    const { id, customer } = await world.thread();
+    await world.rpc.representative.customerAddIdentity({
+      id: customer.id,
+      channel: fakeChannel,
+      externalId: elsewhere,
+    });
+    await getTestDb()
+      .update(representativeThread)
+      .set({ lastExternalId: elsewhere })
+      .where(eq(representativeThread.id, id));
+    await getTestDb()
+      .update(representativeCustomerIdentity)
+      .set({ optedOutAt: noon })
+      .where(
+        and(
+          eq(representativeCustomerIdentity.customerId, customer.id),
+          eq(representativeCustomerIdentity.externalId, optedOut),
+        ),
+      );
+    await world.drain();
+    return { world, id };
+  }
+
+  it("wakes a Turn though the address they handed off from has opted out: it goes where they are", async () => {
+    const { id } = await moved(number);
+    expect(await turnsOf(id)).toBe(2);
+  });
+
+  it("wakes none when it is the address they are at now that has opted out", async () => {
+    const { id } = await moved(elsewhere);
+    expect(await turnsOf(id)).toBe(1);
+  });
+});
+
+describe("a takeover as a Turn tells a Bot's result", () => {
+  it("leaves the draft an earlier Turn wrote for an earlier question, whose batch isn't waiting", async () => {
+    const drafted = round(
+      toolCall({ name: "reply", input: { text: "About your bill", kind: "small_talk" } }),
+    );
+    const { send, runNext, thread, rpc, timer } = await serving([drafted, handsOff(), quiet()]);
+    await send("I want a refund");
+    // Up to the Bot's result on the thread, with the Turn that tells it queued and not run.
+    for (let tries = 0; tries < 30; tries += 1) {
+      await runNext();
+      if ((await thread()).messages.some((message) => message.author === "bot")) break;
+    }
+    const { id } = await thread();
+    const [row] = await getTestDb()
+      .select({ turnId: representativeThread.turnId })
+      .from(representativeThread)
+      .where(eq(representativeThread.id, id));
+    await getTestDb().transaction((tx) => beginTurn(tx, id, row!.turnId!, timer.clock.now()));
+
+    await rpc.representative.threadTakeOver({ id });
+
+    const held = await getTestDb()
+      .select({
+        text: representativeHeldMessage.text,
+        resolution: representativeHeldMessage.resolution,
+      })
+      .from(representativeHeldMessage)
+      .where(eq(representativeHeldMessage.threadId, id));
+    expect(held).toEqual([{ text: "About your bill", resolution: null }]);
+  });
+});
 
 describe("a hand-off's result", () => {
   it("isn't made by a Turn whose Customer the owner blocks during its Model call", async () => {
@@ -302,8 +399,37 @@ describe("a hand-off's result", () => {
     expect(waitingOn).toBe("customer");
   });
 
+  it("holds a result told at night, which the business starts, until the quiet hours end", async () => {
+    const night = new Date("2026-11-04T23:00:00Z");
+    const { send, drain, thread, timer } = await serving(
+      [handsOff(), quiet(), replies("Good news: your refund is on its way."), quiet()],
+      undefined,
+      undefined,
+      night,
+    );
+    await send("I want a refund");
+
+    await drain();
+
+    const held = await thread();
+    expect(held.held).toMatchObject([
+      { text: "Good news: your refund is on its way.", rule: "quietHours" },
+    ]);
+    expect(held.messages.map(({ author }) => author)).toEqual(["customer", "bot"]);
+    timer.advance(9 * 60 * 60 * 1000);
+
+    await drain();
+
+    const sent = await thread();
+    expect(sent.held).toEqual([]);
+    expect(sent.messages.at(-1)).toMatchObject({
+      author: "representative",
+      text: "Good news: your refund is on its way.",
+    });
+  });
+
   it("is a source for the reply that tells it, by its Assignment and an exact quote", async () => {
-    const { send, drain, thread } = await serving([
+    const { send, drain, thread, rpc } = await serving([
       handsOff(),
       quiet(),
       relays("refund of 20"),
@@ -312,6 +438,7 @@ describe("a hand-off's result", () => {
     await send("I want a refund");
 
     await drain();
+    await approveDrafts(rpc);
 
     const { messages } = await thread();
     expect(messages.at(-1)?.text).toBe("Good news: your refund is on its way.");

@@ -96,6 +96,8 @@ async function instance({
   });
   await rpc.representative.approve({ id });
   await rpc.representative.setEnabled({ id, enabled: true });
+  // No quiet hours: a hand-off's overdue note is the business speaking unprompted, and the real clock may be night.
+  await rpc.representative.setQuietHours({ id, startHour: 0, endHour: 0, timeZone: "UTC" });
   const say = (message: string, externalId = "+15550001") =>
     testCustomerTurn(Object.assign(deps, { timer }), { representativeId: id, message, externalId });
   /** Moves the clock and fires the runner's timers. */
@@ -147,7 +149,11 @@ async function instance({
         return turns.length > 0 && turns.every((turn) => turn.status === "succeeded");
       }, poll)
       .toBe(true);
-    passTime(threadIdleMs);
+    // A hand-off's Assignment that nobody ends is overdue at 30 minutes, and the note it sends is
+    // activity: let that come due on time, not after the idle days.
+    passTime(31 * 60_000);
+    await settle();
+    passTime(threadIdleMs + 60_000);
     await expect
       .poll(async () => {
         passTime(1_000);

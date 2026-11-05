@@ -48,6 +48,11 @@ const day = 24 * 60 * 60_000;
 
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
+const ban = { on: false };
+afterEach(() => {
+  ban.on = false;
+});
+
 const runners: JobRunner[] = [];
 afterEach(async () => {
   for (const runner of runners.splice(0)) await runner.stop();
@@ -89,6 +94,7 @@ async function instance({
     features: [representative()],
     adapterFor: () => fake.adapter,
     clock: timer.clock.now,
+    users: { isBlocked: async () => ban.on },
     memory: false,
   });
   await jobs.start();
@@ -342,7 +348,12 @@ describe("a closed thread's summary", () => {
 
   it("isn't written for a thread waiting on code's hand-off", async () => {
     const guess = () =>
-      round(toolCall({ name: "reply", input: { text: "It is 10 USD.", kind: "answer" } }));
+      round(
+        toolCall({
+          name: "reply",
+          input: { topic: "general", text: "It is 10 USD.", kind: "answer" },
+        }),
+      );
     const { rpc, id, say, passTime, passJobs, passCalls } = await instance({
       turnRounds: [guess(), guess()],
     });
@@ -387,6 +398,21 @@ describe("a closed thread's summary", () => {
     const { rpc, say, passTime, customerOf, passCalls, passesEnded, user } = await instance();
     await say("Hello");
     await getTestDb().delete(userCredentials).where(eq(userCredentials.userId, user.id));
+
+    passTime(threadIdleMs);
+    await passesEnded();
+
+    const customer = await customerOf();
+    expect(await rpc.representative.customerSummaryList({ id: customer.id })).toMatchObject([
+      { text: null, skipped: "model_unavailable" },
+    ]);
+    expect(passCalls()).toEqual([]);
+  });
+
+  it("makes no Model call during the owner's Ban, and records a skip", async () => {
+    const { rpc, say, passTime, customerOf, passCalls, passesEnded } = await instance();
+    await say("Hello");
+    ban.on = true;
 
     passTime(threadIdleMs);
     await passesEnded();
@@ -586,6 +612,15 @@ describe("a closed thread's profile values (ticket #1282)", () => {
     expect(await profile()).toMatchObject([
       { field: "address", value: "1 High St", status: "claimed" },
     ]);
+  });
+
+  it("stores no time zone the gate couldn't read", async () => {
+    const { profile } = await closed(
+      [{ field: "time_zone", value: "Mars/Olympus", line: 1 }],
+      [{ author: "customer", verified: false }],
+    );
+
+    expect(await profile()).toEqual([]);
   });
 
   it("lets no owner or Representative line make a value confirmed, whatever its row says", async () => {

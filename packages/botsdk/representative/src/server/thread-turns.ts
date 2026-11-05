@@ -1,19 +1,32 @@
-import { and, asc, eq, gt, gte, inArray, min, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, isNotNull, min, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { batchLongestMs, batchQuietMs } from "@botsdk/bot/bot/triggers";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
+import type { ViaChannel } from "./outbound-gate";
+import { queueOwnerWait } from "./stalled-work";
 import { job } from "@botsdk/bot/storage";
 import { maxThreadMessageLength, noNul } from "../shared/contract";
-import { receiveMessage, threadPromptChars, threadPromptLimit } from "./customers";
 import {
+  holdThreadCustomer,
+  receiveMessage,
+  threadPromptChars,
+  threadPromptLimit,
+} from "./customers";
+import {
+  representative,
   representativeCustomer,
   representativeThread,
+  representativeTestResult,
   representativeThreadMessage,
+  representativeTurn,
 } from "./db/schema";
 import { queueIdleCheck } from "./idle";
+import { replaceTurnHeld } from "./reply-drafts";
+import { representativeTestKey, testBanned } from "./tests";
+import { waitingAfterAbort } from "./takeover";
 import { channelProof } from "./verification";
 
 /*
@@ -78,12 +91,13 @@ export type CustomerMessage = z.infer<typeof customerMessage>;
  * Takes a Customer's message: stores it on its thread, and has a Turn answer it. Null when the
  * Representative doesn't exist and nothing was stored. Otherwise `jobId` is the job of the Turn now
  * holding the thread, which a later Turn follows if it has already begun, or null when the message
- * is kept with no Turn: a blocked Customer's, or one on a thread the owner holds.
+ * is kept with no Turn: a blocked or opted-out Customer's, one that set off the emergency script, or
+ * one on a thread the owner holds.
  * No route, RPC or API method reaches this: until a later spec lets real Customers in, only the test
  * Customer entry point in the private `@ai-chat/test-support` package does.
  */
 export async function receiveCustomerMessage(
-  services: Services & Pick<FeatureContext, "keyring">,
+  services: Services & Pick<FeatureContext<"pages">, "keyring" | "logger" | "pages"> & ViaChannel,
   given: CustomerMessage,
 ) {
   const { representativeId, channel, externalId, proof, message } = customerMessage.parse(given);
@@ -98,13 +112,18 @@ export async function receiveCustomerMessage(
       now,
     });
     if (!received) return null;
-    const { threadId, turnId, waitingSince, blocked, state, opened } = received;
+    // Over the inbound limit: logged, and nothing stored or started.
+    if ("limited" in received) return { jobId: null };
+    const { threadId, turnId, waitingSince, kept, state, opened } = received;
     // With the message, so a thread is never left without its closing job.
     if (opened) await queueIdleCheck(services, tx, threadId, now);
     // Kept for the owner, and nothing more: no model call, no reply and no Assignment.
-    if (blocked) return { jobId: null };
+    if (kept) return { jobId: null };
     // It waits for the owner, or for Hand back: no model call runs while they hold the thread.
-    if (state === "owner") return { jobId: null };
+    if (state === "owner") {
+      await queueOwnerWait(services, tx, threadId, now);
+      return { jobId: null };
+    }
     return {
       jobId: await wakeTurn(services, tx, { threadId, turnId, waitingSince: waitingSince! }),
     };
@@ -158,6 +177,41 @@ export async function queueWaitingTurn(services: Services, tx: Transaction, thre
   await startTurn(services, tx, threadId, batchClosesAt(now, now));
 }
 
+/** How old a message that waited through a limit may be and still get an automatic answer. */
+export const limitAnswerMs = 24 * 60 * 60_000;
+
+/**
+ * What of the messages waiting from `waitingFrom` is still young enough to be answered after a limit:
+ * the position of the oldest that is, or null. What is older is left for the owner (ticket #1309).
+ */
+export async function leaveOldMessages(
+  tx: Transaction,
+  threadId: string,
+  waitingFrom: number,
+  now: Date,
+) {
+  const message = representativeThreadMessage;
+  const [fresh] = await tx
+    .select({ position: min(message.position) })
+    .from(message)
+    .where(
+      and(
+        eq(message.threadId, threadId),
+        inArray(message.author, ["customer", "bot"]),
+        gte(message.position, waitingFrom),
+        gte(message.createdAt, new Date(now.getTime() - limitAnswerMs)),
+      ),
+    );
+  const position = fresh?.position ?? null;
+  if (position !== waitingFrom) {
+    await tx
+      .update(representativeThread)
+      .set({ leftForOwnerAt: now })
+      .where(eq(representativeThread.id, threadId));
+  }
+  return position;
+}
+
 /**
  * Where the batch starting at `rows`' first closes: at the row that breaks it, or at the end of the
  * thread when none does. Sizes are in bytes, which a message's length in a Turn's read never exceeds.
@@ -191,9 +245,10 @@ function closeBatch(
  * the next Turn. What it returns is what a replay goes by: a place in the thread, not who or what was
  * said, since user delete doesn't reach a Checkpoint. Null, running no Turn, when the thread has gone,
  * another Turn holds it, or nothing is left for a Turn to answer: nothing waits any more, the Customer
- * is blocked, or the Representative no longer holds the thread. What waited then gets no Turn.
+ * is blocked, or the Representative no longer holds the thread. What waited then gets no Turn. On a
+ * thread at a limit, what has grown too old to answer is left out, whether or not this Turn gets past it.
  */
-export async function beginTurn(tx: Transaction, threadId: string, turnId: string) {
+export async function beginTurn(tx: Transaction, threadId: string, turnId: string, now: Date) {
   const [thread] = await tx
     .select({
       customerId: representativeThread.customerId,
@@ -201,6 +256,7 @@ export async function beginTurn(tx: Transaction, threadId: string, turnId: strin
       messageCount: representativeThread.messageCount,
       waitingFrom: representativeThread.waitingFrom,
       state: representativeThread.state,
+      limitNotedAt: representativeThread.limitNotedAt,
       blockedAt: representativeCustomer.blockedAt,
     })
     .from(representativeThread)
@@ -212,8 +268,13 @@ export async function beginTurn(tx: Transaction, threadId: string, turnId: strin
     .for("update", { of: representativeThread });
   if (!thread) return null;
   const inThread = eq(representativeThread.id, threadId);
-  const { customerId, representativeId, messageCount, waitingFrom, state, blockedAt } = thread;
-  if (waitingFrom === null || blockedAt || state !== "representative") {
+  const { customerId, representativeId, messageCount, state, limitNotedAt, blockedAt } = thread;
+  const stopped = thread.waitingFrom === null || blockedAt || state !== "representative";
+  const waitingFrom =
+    !stopped && limitNotedAt
+      ? await leaveOldMessages(tx, threadId, thread.waitingFrom!, now)
+      : thread.waitingFrom;
+  if (stopped || waitingFrom === null) {
     await tx
       .update(representativeThread)
       .set({ turnId: null, waitingFrom: null, waitingSince: null })
@@ -257,6 +318,11 @@ export async function beginTurn(tx: Transaction, threadId: string, turnId: strin
         : { waitingFrom: null, waitingSince: null }),
     })
     .where(inThread);
+  // Kept for what its model calls cost (ticket #1310); a retried Turn is the same row.
+  await tx
+    .insert(representativeTurn)
+    .values({ id: turnId, threadId, representativeId })
+    .onConflictDoNothing();
   return {
     customerId,
     representativeId,
@@ -288,4 +354,71 @@ export async function endTurn(
     .update(representativeThread)
     .set({ turnId: null })
     .where(eq(representativeThread.id, threadId));
+}
+
+/** The owner of the thread, or null once it has gone. */
+export async function threadOwner(tx: Transaction, threadId: string) {
+  const [row] = await tx
+    .select({ userId: representative.userId })
+    .from(representativeThread)
+    .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
+    .where(eq(representativeThread.id, threadId));
+  return row?.userId ?? null;
+}
+
+/**
+ * Lets Turn `turnId` go without running, because its owner is Banned (ticket #1299): the thread holds
+ * no Turn, and what waited on it stays marked as waiting, for the next Customer message after the
+ * Ban. Nothing starts a Turn meanwhile, which `endTurn` would.
+ */
+export async function dropBannedTurn(tx: Transaction, threadId: string, turnId: string) {
+  await tx
+    .update(representativeThread)
+    .set({ turnId: null })
+    .where(and(eq(representativeThread.id, threadId), eq(representativeThread.turnId, turnId)));
+}
+
+/**
+ * A Ban on `userId`: every Turn on their threads is cancelled, a running one too, and the threads
+ * hold none. What a begun Turn hadn't answered goes back to waiting, as when the owner takes a
+ * thread over. One thread to a transaction, its Customer's row first, the order a merge and a delete
+ * take them in. Their test conversations stop too: a Ban applies to what spends for them.
+ */
+export async function stopUserTurns(
+  { db, clock, jobs }: Pick<Services, "db" | "clock" | "jobs">,
+  userId: string,
+) {
+  const thread = representativeThread;
+  const held = await db
+    .select({ id: thread.id })
+    .from(thread)
+    .innerJoin(representative, eq(representative.id, thread.representativeId))
+    .where(and(eq(representative.userId, userId), isNotNull(thread.turnId)))
+    .orderBy(thread.id);
+  for (const { id } of held) {
+    await db.transaction(async (tx) => {
+      await holdThreadCustomer(tx, id);
+      const [now] = await tx.select().from(thread).where(eq(thread.id, id)).for("update");
+      if (!now?.turnId) return;
+      await jobs.cancelIn(tx, now.turnId);
+      await replaceTurnHeld(tx, id, { turnId: now.turnId, turnFrom: now.turnFrom }, clock());
+      await tx
+        .update(thread)
+        .set({ turnId: null, ...waitingAfterAbort(now, clock()) })
+        .where(eq(thread.id, id));
+    });
+  }
+  const result = representativeTestResult;
+  await db.transaction(async (tx) => {
+    const unfinished = await tx
+      .select({ id: result.id })
+      .from(result)
+      .innerJoin(representative, eq(representative.id, result.representativeId))
+      .where(and(eq(representative.userId, userId), inArray(result.status, ["queued", "running"])))
+      .for("update", { of: result });
+    for (const { id } of unfinished) {
+      await jobs.cancelIn(tx, representativeTestKey(id));
+      await tx.update(result).set({ status: "error", error: testBanned }).where(eq(result.id, id));
+    }
+  });
 }

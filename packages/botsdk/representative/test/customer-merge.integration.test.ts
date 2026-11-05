@@ -12,6 +12,7 @@ import {
   startTestCustomerTurn,
   testCustomerTurn,
   type TestCustomerTurn,
+  autoSource,
 } from "@ai-chat/test-support/test-customer";
 import { insertUser } from "@ai-chat/test-support/users";
 import { getTestDb } from "@ai-chat/test-support/test-database";
@@ -19,6 +20,7 @@ import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter
 import type { AnyTextAdapter } from "@tanstack/ai";
 import { representativeCustomer, representativeThread } from "../src/server/db/schema";
 import { customerSummaryMarker } from "../src/server/customer-summary";
+import { noCustomerChannel } from "../src/server/customer-proof";
 import { representativeFeature } from "../src/server/plugin";
 
 /*
@@ -89,6 +91,7 @@ async function instance(rounds: Round[], held?: Promise<void>) {
       representativeFeature(
         {},
         {
+          ...noCustomerChannel,
           sendProof: async (to, proof) => {
             sent.push({ ...to, ...proof });
           },
@@ -233,7 +236,12 @@ describe("an owner merging two Customers", () => {
         round(
           toolCall({
             name: "reply",
-            input: { text: "From the closed thread", kind: "small_talk" },
+            input: {
+              topic: "general",
+              sources: [autoSource],
+              text: "From the closed thread",
+              kind: "small_talk",
+            },
           }),
         ),
         quiet(),

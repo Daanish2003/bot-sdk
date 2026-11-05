@@ -7,11 +7,13 @@ import { batchLongestMs } from "@botsdk/bot/bot/triggers";
 import { botAssignment, job, usage } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import {
   fakeChannel,
   testCustomerTurn,
   startTestCustomerTurn,
+  autoSource,
 } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
@@ -19,6 +21,7 @@ import { createFakeAdapter, round, text, toolCall } from "@botsdk/testing/fake-a
 import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 import { representative } from "../src";
 import { deleteCustomer } from "../src/server/customer-delete";
+import { codeHandOffKind, limitNoteKind, type StoredReplyKind } from "../src/shared/replies";
 import { afterThreadClose, customerSummaryMarker } from "../src/server/customer-summary";
 import {
   representativeCustomer,
@@ -27,6 +30,8 @@ import {
   representativeCustomerSummary,
   representativeFactProposal,
   representativeGap,
+  representativeHeldMessage,
+  representativeOutboundDecision,
   representativeHandOff,
   representativeProfileValue,
   representativeThread,
@@ -391,6 +396,91 @@ describe("deleting a Customer", () => {
     expect(JSON.stringify(left)).not.toContain(goes.identities[0]!.id);
   });
 
+  describe("what an undone merge left of them was owed", () => {
+    /** Ada's thread with Bob's words on it, a limit and the owner's list owing them from `waitingFrom`. */
+    async function owed(adaIsAnswered: boolean, waitingFrom: number, between?: StoredReplyKind) {
+      const answer = () =>
+        round(
+          toolCall({
+            name: "reply",
+            input: { text: "Hello.", kind: "small_talk", topic: "general", sources: [autoSource] },
+          }),
+        );
+      const owner = await instance({
+        turnRounds: [adaIsAnswered ? answer : () => round(), () => round(), () => round()],
+      });
+      const { rpc, say, customerAt, settle } = owner;
+      await say("Ada speaks.", adaNumber);
+      await say("Bob speaks.", bobNumber);
+      await settle();
+      const [ada, bob] = [await customerAt(adaNumber), await customerAt(bobNumber)];
+      await rpc.representative.customerMerge({ id: bob.id, intoId: ada.id });
+      await say("Bob on Ada's thread.", bobNumber);
+      await settle();
+      const [merge] = await rpc.representative.customerMergeList();
+      await rpc.representative.customerMergeUndo({ id: merge!.id });
+      await settle(threadIdleMs);
+      const shared = (await threadsOfCustomers([ada.id])).find((row) => row.state === "closed")!;
+      const noted = new Date();
+      if (between) {
+        // Code's fixed words between Ada's question and Bob's, in the place they would have had.
+        await getTestDb()
+          .update(representativeThreadMessage)
+          .set({ position: 3 })
+          .where(
+            and(
+              eq(representativeThreadMessage.threadId, shared.id),
+              eq(representativeThreadMessage.position, 2),
+            ),
+          );
+        await getTestDb().insert(representativeThreadMessage).values({
+          id: uuidv7(),
+          threadId: shared.id,
+          position: 2,
+          author: "representative",
+          text: "Fixed words",
+          replyKind: between,
+          verified: false,
+          channel: fakeChannel,
+          externalId: adaNumber,
+          createdAt: noted,
+        });
+      }
+      await getTestDb()
+        .update(representativeThread)
+        .set({ waitingFrom, limitNotedAt: noted, leftForOwnerAt: noted })
+        .where(eq(representativeThread.id, shared.id));
+      await deleteCustomer(owner.context(), owner.user.id, bob.id);
+      const [row] = await getTestDb()
+        .select()
+        .from(representativeThread)
+        .where(eq(representativeThread.id, shared.id));
+      return row!;
+    }
+
+    it("clears what a limit left on the thread, when nothing else is owed", async () => {
+      const row = await owed(true, 3);
+      expect(row.waitingFrom).toBeNull();
+      expect(row.limitNotedAt).toBeNull();
+      expect(row.leftForOwnerAt).toBeNull();
+    });
+
+    it.each<StoredReplyKind>([limitNoteKind, codeHandOffKind])(
+      "keeps what is left for the owner when only a %s came after someone else's question",
+      async (kind) => {
+        const row = await owed(false, 3, kind);
+        expect(row.leftForOwnerAt).not.toBeNull();
+      },
+    );
+
+    it("keeps both while someone else's words are still owed", async () => {
+      const row = await owed(false, 1);
+      expect(row.waitingFrom).toBe(1);
+      expect(row.limitNotedAt).not.toBeNull();
+      expect(row.leftForOwnerAt).not.toBeNull();
+    });
+  });
+
   it("removes what an undone merge left of them on another Customer's thread, and nothing of theirs", async () => {
     const owner = await instance({ turnRounds: [() => round(), () => round(), handsOff] });
     const { rpc, say, customerAt, settle } = owner;
@@ -517,6 +607,63 @@ describe("deleting a Customer", () => {
       );
     return rows.map((row) => row.text);
   };
+
+  it("takes a proof's decision at their address from another Customer's thread", async () => {
+    const { rpc, ada, carol } = await seeded();
+    const [carolThread] = await threadsOfCustomers([carol.id]);
+    const atAda = uuidv7();
+    await getTestDb().insert(representativeOutboundDecision).values({
+      id: atAda,
+      threadId: carolThread!.id,
+      kind: "proof",
+      outcome: "send",
+      rule: "passed",
+      channel: fakeChannel,
+      externalId: adaNumber,
+      createdAt: new Date(),
+    });
+
+    await rpc.representative.customerDelete({ id: ada.id });
+
+    const left = await getTestDb()
+      .select({ id: representativeOutboundDecision.id })
+      .from(representativeOutboundDecision)
+      .where(eq(representativeOutboundDecision.id, atAda));
+    expect(left).toEqual([]);
+  });
+
+  it("takes a proof's decision at an address since corrected from another Customer's thread", async () => {
+    const { rpc, ada, carol } = await seeded();
+    const [carolThread] = await threadsOfCustomers([carol.id]);
+    const atAda = uuidv7();
+    await getTestDb().insert(representativeOutboundDecision).values({
+      id: atAda,
+      threadId: carolThread!.id,
+      kind: "proof",
+      outcome: "send",
+      rule: "passed",
+      channel: fakeChannel,
+      externalId: adaNumber,
+      createdAt: new Date(),
+    });
+    const listed = await rpc.representative.customerList();
+    const { identities } = listed.find(({ id }) => id === ada.id)!;
+    const identity = identities.find(({ externalId }) => externalId === adaNumber)!;
+    await rpc.representative.customerUpdateIdentity({
+      id: ada.id,
+      identityId: identity.id,
+      channel: fakeChannel,
+      externalId: "+15550998",
+    });
+
+    await rpc.representative.customerDelete({ id: ada.id });
+
+    const left = await getTestDb()
+      .select({ id: representativeOutboundDecision.id })
+      .from(representativeOutboundDecision)
+      .where(eq(representativeOutboundDecision.id, atAda));
+    expect(left).toEqual([]);
+  });
 
   it("finds their words on a thread that a later merge moved to someone else", async () => {
     const zedNumber = "+15550026";
@@ -734,11 +881,29 @@ describe("deleting a Customer", () => {
           () => {
             gate = new Promise<void>((resolve) => (open = resolve));
             return round(
-              toolCall({ name: "reply", input: { text: "Hello there.", kind: "small_talk" } }),
+              toolCall({
+                name: "reply",
+                input: {
+                  topic: "general",
+                  sources: [autoSource],
+                  text: "Hello there.",
+                  kind: "small_talk",
+                },
+              }),
             );
           },
           () =>
-            round(toolCall({ name: "reply", input: { text: "One more.", kind: "small_talk" } })),
+            round(
+              toolCall({
+                name: "reply",
+                input: {
+                  topic: "general",
+                  sources: [autoSource],
+                  text: "One more.",
+                  kind: "small_talk",
+                },
+              }),
+            ),
           () => round(),
         ],
         held: () => gate,
@@ -789,7 +954,17 @@ describe("deleting a Customer", () => {
         turnRounds: [
           () => round(),
           () =>
-            round(toolCall({ name: "reply", input: { text: "Hello there.", kind: "small_talk" } })),
+            round(
+              toolCall({
+                name: "reply",
+                input: {
+                  topic: "general",
+                  sources: [autoSource],
+                  text: "Hello there.",
+                  kind: "small_talk",
+                },
+              }),
+            ),
         ],
         held: () => gate,
       });
@@ -1105,6 +1280,26 @@ describe("deleting a Customer", () => {
 describe("the completeness of a Customer's delete", () => {
   it("reaches every table a foreign key links to a Customer, and leaves no linked row behind", async () => {
     const { rpc, ada, bob } = await seeded();
+    const [adaThread] = await threadsOfCustomers([ada.id]);
+    const decisionId = uuidv7();
+    await getTestDb().insert(representativeOutboundDecision).values({
+      id: decisionId,
+      threadId: adaThread!.id,
+      kind: "reply",
+      outcome: "hold",
+      rule: "caps",
+      channel: fakeChannel,
+      externalId: adaNumber,
+      createdAt: new Date(),
+    });
+    await getTestDb().insert(representativeHeldMessage).values({
+      id: uuidv7(),
+      decisionId,
+      threadId: adaThread!.id,
+      text: "Held for Ada.",
+      verified: true,
+      createdAt: new Date(),
+    });
     const { reached, customerTable, edges } = await rowsLinkedTo([ada.id, bob.id]);
     // Every table a chain of foreign keys ties to a Customer must be seeded above, so a new one
     // can't pass unchecked.
@@ -1149,6 +1344,7 @@ describe("the completeness of a Customer's delete", () => {
       "representative_customer_merge.moved_holds",
       "representative_customer_merge.thread_ids",
       "representative_hand_off.external_id",
+      "representative_outbound_decision.external_id",
       "representative_thread.last_external_id",
       "representative_thread.turn_id",
       "representative_thread_message.assignment_id",

@@ -17,6 +17,7 @@ import { serverErrorText } from "@botsdk/react/rpc-error";
 import {
   useAddCustomerIdentity,
   useAddProfileField,
+  useClearOptOut,
   useCreateCustomer,
   useCustomerMerges,
   useCustomerSummaries,
@@ -448,6 +449,7 @@ function ProfileSection({
     language: t("representative.customers.profileLanguage"),
     preferred_channel: t("representative.customers.profilePreferredChannel"),
     address: t("representative.customers.profileAddress"),
+    time_zone: t("representative.customers.profileTimeZone"),
   };
   const rows = [
     ...correctableFixedFields.map((field) => ({ field, name: fixedNames[field] as string })),
@@ -501,6 +503,13 @@ function CustomerCard({
   const update = useUpdateCustomerIdentity(options);
   const add = useAddCustomerIdentity(options);
   const block = useSetCustomerBlocked({ ...options, onSuccess: refresh });
+  const clearOptOut = useClearOptOut({
+    ...options,
+    onSuccess: async () => {
+      await refresh();
+      toast.success(t("representative.customers.optOutCleared"));
+    },
+  });
   const [name, setName] = useState(customer.name ?? "");
   const label = customer.name ?? t("representative.customers.unnamed");
   const nameValue = customer.profile.find((each) => each.field === "name");
@@ -577,6 +586,29 @@ function CustomerCard({
                   : "representative.customers.unverified",
               )}
             </p>
+            {identity.optedOut && (
+              <div data-opted-out={identity.optedOut.source} className="flex items-center gap-2">
+                <p className="text-xs text-muted-foreground">
+                  {t("representative.customers.optedOut", {
+                    source: t(
+                      identity.optedOut.source === "keyword"
+                        ? "representative.customers.optOutKeyword"
+                        : "representative.customers.optOutRepresentative",
+                    ),
+                    date: new Date(identity.optedOut.at).toLocaleString(i18n.locale),
+                  })}
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={clearOptOut.isPending}
+                  aria-label={`${t("representative.customers.clearOptOut")} ${identity.externalId}`}
+                  onClick={() => clearOptOut.mutate({ id: customer.id, identityId: identity.id })}
+                >
+                  {t("representative.customers.clearOptOut")}
+                </Button>
+              </div>
+            )}
           </div>
         ))}
         <IdentityFields

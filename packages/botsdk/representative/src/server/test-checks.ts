@@ -4,6 +4,7 @@ import type { ModelMessage } from "@tanstack/ai";
 
 import {
   canonicalJson,
+  defaultEmergencyText,
   type Draft,
   type Expectation,
   type TestCheck,
@@ -28,15 +29,16 @@ export const sha256 = (text: string) => createHash("sha256").update(text).digest
 /**
  * Identifies a draft's content: a result counts only while the draft hashes as it did when it ran.
  * Documents count by name and text, so the same file uploaded again changes nothing, and a draft with
- * none hashes as one written before documents did.
+ * none hashes as one written before documents did. So does one on the default emergency script.
  */
-export const draftHash = ({ documents, ...fields }: Draft) =>
+export const draftHash = ({ documents, emergencyText, emergencyKeywords, ...fields }: Draft) =>
   sha256(
-    canonicalJson(
-      documents.length === 0
-        ? fields
-        : { ...fields, documents: documents.map(({ name, hash }) => [name, hash]) },
-    ),
+    canonicalJson({
+      ...fields,
+      ...(documents.length > 0 && { documents: documents.map(({ name, hash }) => [name, hash]) }),
+      ...(emergencyText !== defaultEmergencyText && { emergencyText }),
+      ...(emergencyKeywords.length > 0 && { emergencyKeywords }),
+    }),
   );
 
 /**

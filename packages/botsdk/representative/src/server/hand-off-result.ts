@@ -1,10 +1,11 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import type { AssignmentEnded } from "@botsdk/bot";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import {
+  representativeCustomerIdentity,
   representativeHandOff,
   representativeThread,
   representativeThreadMessage,
@@ -57,7 +58,23 @@ export async function deliverHandOffResult(
   if (!thread) return;
   const now = services.clock();
   const nowSql = sql`${now.toISOString()}::timestamp`;
-  const wakes = thread.state === "representative" && !thread.blockedAt;
+  // A verified Turn's Customer is where they were last heard from verified, which they may have
+  // moved since; an unverified one's is that sender, whom nothing moves.
+  const sender = handOff.verified
+    ? { channel: thread.lastChannel, externalId: thread.lastExternalId }
+    : { channel: handOff.channel, externalId: handOff.externalId };
+  const [identity] = await tx
+    .select({ optedOutAt: representativeCustomerIdentity.optedOutAt })
+    .from(representativeCustomerIdentity)
+    .where(
+      and(
+        eq(representativeCustomerIdentity.userId, ended.userId),
+        eq(representativeCustomerIdentity.channel, sender.channel),
+        eq(representativeCustomerIdentity.externalId, sender.externalId),
+      ),
+    );
+  // A blocked or opted-out Customer is sent nothing, so no Turn is woken for them.
+  const wakes = thread.state === "representative" && !thread.blockedAt && !identity?.optedOutAt;
   const [updated] = await tx
     .update(representativeThread)
     .set({
@@ -75,11 +92,6 @@ export async function deliverHandOffResult(
       position: representativeThread.messageCount,
       waitingSince: representativeThread.waitingSince,
     });
-  // A verified Turn's Customer is where they were last heard from verified, which they may have
-  // moved since; an unverified one's is that sender, whom nothing moves.
-  const sender = handOff.verified
-    ? { channel: thread.lastChannel, externalId: thread.lastExternalId }
-    : { channel: handOff.channel, externalId: handOff.externalId };
   await tx.insert(representativeThreadMessage).values({
     id: uuidv7(),
     threadId,
@@ -90,6 +102,7 @@ export async function deliverHandOffResult(
     heldForOwner: thread.state === "owner",
     assignmentId: ended.assignmentId,
     ...sender,
+    createdAt: now,
   });
   if (wakes) {
     await wakeTurn(services, tx, {
