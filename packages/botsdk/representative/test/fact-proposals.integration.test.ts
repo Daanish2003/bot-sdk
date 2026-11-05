@@ -472,4 +472,30 @@ describe("the proposal tool", () => {
       error: expect.stringContaining("already waits"),
     });
   });
+  it.each(["approved", "declined"] as const)(
+    "gives the same answer when a replay runs a call whose card the owner %s",
+    async (answer) => {
+      const made = await proposed();
+      const asked = (made.botFake.calls.at(-1)?.messages ?? []).find(
+        (message) => message.role === "assistant" && message.toolCalls?.length,
+      );
+      const toolCallId = asked!.toolCalls![0]!.id;
+      const { context } = made.deps.parts.features[0]!;
+      const [taken] = await getTestDb()
+        .select({ id: botTurn.id })
+        .from(botTurn)
+        .where(eq(botTurn.botId, made.botId));
+      const turn = { id: taken!.id, botId: made.botId, userId: made.user.id };
+      const [tool] = factProposalTools(turn as never, context as never);
+      const input = { key: price.key, value: "50 USD", why: "The price list changed." };
+      await (answer === "approved"
+        ? made.rpc.representative.factProposalApprove({ id: made.proposal.id })
+        : made.rpc.representative.factProposalDecline({ id: made.proposal.id }));
+
+      expect(await tool!.execute!(input, { toolCallId } as never)).toHaveProperty("saved");
+
+      expect(await cardsOf(made)).toHaveLength(1);
+      expect(await made.rpc.representative.factProposals()).toEqual([]);
+    },
+  );
 });

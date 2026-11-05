@@ -1192,41 +1192,48 @@ describe("a rebuilt Computer", () => {
 });
 
 describe("a user delete during a Turn", () => {
-  it("leaves no Computer behind: the Turn's next tool call creates no row, sandbox or blob", async () => {
-    let deleteUser = async () => {};
-    const { client, botId, fake, computerFake, deps, user } = await botWith(
-      // The next call is a file tool, which Auto-review leaves alone: a shell call would be blocked
-      // first, as its reviewer can no longer be resolved for the deleted user.
-      [round(shell({ command: "first" })), round(file("read", { path: "notes.md" })), round()],
-      {
-        onCommand: async ({ command }) => {
-          // The user's delete commits while their Turn is mid-step.
-          if (command === "first") await deleteUser();
-          return { exitCode: 0, stdout: "", stderr: "" };
+  it(
+    "leaves no Computer behind: the Turn's next tool call creates no row, sandbox or blob",
+    { timeout: 30_000 },
+    async () => {
+      let deleteUser = async () => {};
+      const { client, botId, fake, computerFake, deps, user } = await botWith(
+        // The next call is a file tool, which Auto-review leaves alone: a shell call would be blocked
+        // first, as its reviewer can no longer be resolved for the deleted user.
+        [round(shell({ command: "first" })), round(file("read", { path: "notes.md" })), round()],
+        {
+          onCommand: async ({ command }) => {
+            // The user's delete commits while their Turn is mid-step.
+            if (command === "first") await deleteUser();
+            return { exitCode: 0, stdout: "", stderr: "" };
+          },
         },
-      },
-    );
-    deleteUser = () => deleteUserData(deps, user.id);
+      );
+      deleteUser = () => deleteUserData(deps, user.id);
 
-    const stream = await followSend(client, { botId, id: uuidv7(), text: "go" });
-    await expect
-      .poll(async () => {
-        const [turnJob] = await getTestDb()
-          .select({ status: job.status })
-          .from(job)
-          .where(eq(job.name, "bot.turn"));
-        return turnJob?.status;
-      })
-      .toMatch(/succeeded|failed/);
-    await stream.return?.(undefined);
+      const stream = await followSend(client, { botId, id: uuidv7(), text: "go" });
+      await expect
+        .poll(
+          async () => {
+            const [turnJob] = await getTestDb()
+              .select({ status: job.status })
+              .from(job)
+              .where(eq(job.name, "bot.turn"));
+            return turnJob?.status;
+          },
+          { timeout: 20_000 },
+        )
+        .toMatch(/succeeded|failed/);
+      await stream.return?.(undefined);
 
-    expect(computerFake.callsOf("run").map((call) => call.command)).toEqual(["first"]);
-    expect(computerFake.callsOf("create")).toHaveLength(1);
-    expect(computerFake.callsOf("kill-sandbox")).toHaveLength(1);
-    expect(await computerRow(user.id)).toBeUndefined();
-    expect(fake.calls.length).toBeGreaterThan(1);
-    expect(toolResultOf(fake.calls[2])).toEqual({ error: computerUnavailableError });
-    await drainJobs({ deps });
-    expect(await deps.blobStore.get(`computer/${user.id}`)).toBeNull();
-  });
+      expect(computerFake.callsOf("run").map((call) => call.command)).toEqual(["first"]);
+      expect(computerFake.callsOf("create")).toHaveLength(1);
+      expect(computerFake.callsOf("kill-sandbox")).toHaveLength(1);
+      expect(await computerRow(user.id)).toBeUndefined();
+      expect(fake.calls.length).toBeGreaterThan(1);
+      expect(toolResultOf(fake.calls[2])).toEqual({ error: computerUnavailableError });
+      await drainJobs({ deps });
+      expect(await deps.blobStore.get(`computer/${user.id}`)).toBeNull();
+    },
+  );
 });

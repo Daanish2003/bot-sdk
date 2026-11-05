@@ -15,7 +15,7 @@ import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 import { fakeReviewer } from "@botsdk/testing/fake-reviewer";
 import { botTurn, message } from "@botsdk/bot/storage";
 import { getTestDb } from "@ai-chat/test-support/test-database";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { representative } from "../src";
 import { botDraftTools } from "../src/server/bot-draft";
 import type { TestConversation } from "../src/shared/contract";
@@ -570,6 +570,77 @@ describe("the draft tool", () => {
       error: expect.stringContaining("waiting"),
     });
   });
+
+  it.each(["approved", "declined"] as const)(
+    "gives the same answer when a replay runs a call whose new Representative the owner %s",
+    async (answer) => {
+      const made = await drafted();
+      const view = await onlyRepresentative(made);
+      const asked = (made.botFake.calls.at(-1)?.messages ?? []).find(
+        (message) => message.role === "assistant" && message.toolCalls?.length,
+      );
+      const toolCallId = asked!.toolCalls![0]!.id;
+      const { context } = made.deps.parts.features[0]!;
+      const [taken] = await getTestDb()
+        .select({ id: botTurn.id })
+        .from(botTurn)
+        .where(eq(botTurn.botId, made.botId));
+      const turn = { id: taken!.id, botId: made.botId, userId: made.user.id };
+      const [tool] = botDraftTools(turn as never, context as never);
+      const input = { name: "Front desk", jobText: "Answer questions.", why: "Customers ask." };
+      await (answer === "approved"
+        ? made.rpc.representative.approve({ id: view.id })
+        : made.rpc.representative.declineApproval({ id: view.id }));
+
+      expect(await tool!.execute!(input, { toolCallId } as never)).toMatchObject({
+        saved: expect.any(String),
+        representativeId: view.id,
+      });
+
+      expect(await made.rpc.representative.list()).toHaveLength(1);
+      expect(await cardsOf(made)).toHaveLength(1);
+    },
+  );
+
+  it.each(["approved", "declined"] as const)(
+    "gives the same answer when a replay runs a call whose change the owner %s",
+    async (answer) => {
+      const made = await drafted();
+      const { id } = await onlyRepresentative(made);
+      await made.rpc.representative.declineApproval({ id });
+      made.script([drafts({ representativeId: id, jobText: "Answer kindly." }), quiet()]);
+      await made.send("Be kinder");
+      const asked = (made.botFake.calls.at(-1)?.messages ?? []).findLast(
+        (message) => message.role === "assistant" && message.toolCalls?.length,
+      );
+      const toolCallId = asked!.toolCalls![0]!.id;
+      const { context } = made.deps.parts.features[0]!;
+      const [taken] = await getTestDb()
+        .select({ id: botTurn.id })
+        .from(botTurn)
+        .where(eq(botTurn.botId, made.botId))
+        .orderBy(desc(botTurn.startedAt))
+        .limit(1);
+      const turn = { id: taken!.id, botId: made.botId, userId: made.user.id };
+      const [tool] = botDraftTools(turn as never, context as never);
+      const input = {
+        representativeId: id,
+        jobText: "Answer kindly.",
+        why: "Customers ask about hours.",
+      };
+      await (answer === "approved"
+        ? made.rpc.representative.approve({ id })
+        : made.rpc.representative.declineApproval({ id }));
+      const cards = (await cardsOf(made)).length;
+
+      expect(await tool!.execute!(input, { toolCallId } as never)).toMatchObject({
+        saved: expect.any(String),
+        representativeId: id,
+      });
+
+      expect(await cardsOf(made)).toHaveLength(cards);
+    },
+  );
 
   it("refuses a NUL in what it writes, in its input schema", async () => {
     const made = await instance([]);
