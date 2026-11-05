@@ -479,7 +479,7 @@ describe("chat.migrate()", () => {
     const pool = new Pool({ connectionString: url });
     try {
       const found = await listenerAccount(
-        { db: databaseOf(pool), keyring: keyEncryptionSecrets } as unknown as BotSdkContext,
+        { db: databaseOf({ pool }), keyring: keyEncryptionSecrets } as unknown as BotSdkContext,
         accountId,
       );
       expect(found?.account).toMatchObject({ botId, credentials: { token: "1:a" } });
