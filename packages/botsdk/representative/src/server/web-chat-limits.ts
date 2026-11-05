@@ -35,27 +35,34 @@ async function hitOn({ counters }: Counting, rule: Window, key: string): Promise
 }
 
 /**
- * Counts a session start against its IP. A Host that gave no `clientIp` has no IP to count, so the
- * start isn't limited here.
+ * Counts a hit against the request's IP under `prefix`. A Host that gave no `clientIp` has no IP to
+ * count, so the hit isn't limited here. The IP is trimmed, lowercased and cut to 64 characters, so a
+ * long or oddly cased value neither bloats the counters nor counts as a new address.
  */
-export async function limitSessionStart(
+async function limitByIp(
   context: Counting,
   request: Request,
   clientIp: ClientIp | undefined,
+  rule: Window,
+  prefix: string,
 ) {
-  const ip = clientIp?.(request);
-  return ip ? hitOn(context, webChatLimits.sessionStartsPerIp, `web-chat:start:ip:${ip}`) : null;
+  const ip = clientIp?.(request)?.trim().toLowerCase().slice(0, 64);
+  return ip ? hitOn(context, rule, `${prefix}:${ip}`) : null;
 }
 
-/** Counts a send against its IP, if the Host gave one. Cheap, so it runs before the session is read. */
-export async function limitSendByIp(
+/** Counts a session start against its IP. */
+export const limitSessionStart = (
   context: Counting,
   request: Request,
   clientIp: ClientIp | undefined,
-) {
-  const ip = clientIp?.(request);
-  return ip ? hitOn(context, webChatLimits.sendsPerIp, `web-chat:send:ip:${ip}`) : null;
-}
+) => limitByIp(context, request, clientIp, webChatLimits.sessionStartsPerIp, "web-chat:start:ip");
+
+/** Counts a send against its IP. Cheap, so it runs before the session is read. */
+export const limitSendByIp = (
+  context: Counting,
+  request: Request,
+  clientIp: ClientIp | undefined,
+) => limitByIp(context, request, clientIp, webChatLimits.sendsPerIp, "web-chat:send:ip");
 
 /** Counts a send against its session, which is its identity. */
 export const limitSendBySession = (context: Counting, identity: string) =>
