@@ -27,8 +27,14 @@ export async function startShopSite(): Promise<{ origin: string; server: Server 
       response.end();
       return;
     }
-    response.setHeader("content-type", `${type}; charset=utf-8`);
-    response.end(await readFile(publicFile(path.slice(1))));
+    try {
+      const file = await readFile(publicFile(path.slice(1)));
+      response.setHeader("content-type", `${type}; charset=utf-8`);
+      response.end(file);
+    } catch {
+      response.statusCode = 500;
+      response.end();
+    }
   });
   await new Promise<void>((resolve) => server.listen(0, resolve));
   return { origin: `http://localhost:${(server.address() as AddressInfo).port}`, server };

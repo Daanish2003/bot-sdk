@@ -95,17 +95,20 @@
   /* The session. */
   let token = null;
   let following = 0;
+  let stream = null;
 
-  const post = (path, body) =>
+  const post = (path, body, signal) =>
     // A string body goes as text/plain, which a browser sends across origins with no preflight.
     fetch(api + "/" + path, {
       method: "POST",
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal,
     });
 
   const end = () => {
     token = null;
     following++;
+    if (stream) stream.abort();
     saveToken(null);
     setUsable(false);
     restart.hidden = false;
@@ -141,11 +144,14 @@
   /** Re-reads on every hint, and reconnects when the connection drops. */
   async function follow() {
     const turn = ++following;
+    if (stream) stream.abort();
+    const mine = new AbortController();
+    stream = mine;
     const own = token;
     let wait = 1000;
     while (turn === following) {
       try {
-        const response = await post("stream", { token: own });
+        const response = await post("stream", { token: own }, mine.signal);
         if (turn !== following) return;
         if (response.status === 401) return end();
         if (response.status === 429) {
@@ -156,8 +162,11 @@
           wait = 1000;
           const decoder = new TextDecoder();
           let pending = "";
-          for await (const chunk of response.body) {
-            pending += decoder.decode(chunk, { stream: true });
+          const reader = response.body.getReader();
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            pending += decoder.decode(value, { stream: true });
             const lines = pending.split("\n");
             pending = lines.pop();
             for (const line of lines) {
@@ -228,7 +237,10 @@
       // The page can't tell whether it arrived, and a send is not retried by itself.
       say("Couldn't tell if that was sent. Check the chat before you send it again.");
     }
-    if (token) setUsable(true);
+    if (token) {
+      setUsable(true);
+      field.focus();
+    }
     await refresh();
   });
   restart.addEventListener("click", () => {
