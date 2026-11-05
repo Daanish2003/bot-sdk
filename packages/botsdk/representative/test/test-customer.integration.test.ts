@@ -60,9 +60,10 @@ type Options = {
 };
 
 const runners: JobRunner[] = [];
-afterEach(async () => {
+const stopRunners = async () => {
   for (const runner of runners.splice(0)) await runner.stop();
-});
+};
+afterEach(stopRunners);
 
 const replies = () =>
   round(
@@ -527,22 +528,28 @@ describe("the concurrency setting", () => {
         concurrency,
         held,
       });
-      const id = await liveRepresentative(rpc);
-      const jobs = [
-        await startTestCustomerTurn(deps, { representativeId: id, message: "One" }),
-        await startTestCustomerTurn(deps, { representativeId: id, message: "Two" }),
-      ];
-      await expect.poll(() => entered.length, poll).toBe(seen);
-      // Held long enough for another Turn to have started if the budget had room.
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      expect(entered).toHaveLength(seen);
-      release();
-      for (const { jobId } of jobs) {
-        await expect
-          .poll(async () => (await deps.runner.status(jobId))?.status, poll)
-          .toBe("succeeded");
+      try {
+        const id = await liveRepresentative(rpc);
+        const jobs = [
+          await startTestCustomerTurn(deps, { representativeId: id, message: "One" }),
+          await startTestCustomerTurn(deps, { representativeId: id, message: "Two" }),
+        ];
+        await expect.poll(() => entered.length, poll).toBe(seen);
+        // Held long enough for another Turn to have started if the budget had room.
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        expect(entered).toHaveLength(seen);
+        release();
+        for (const { jobId } of jobs) {
+          await expect
+            .poll(async () => (await deps.runner.status(jobId))?.status, poll)
+            .toBe("succeeded");
+        }
+        expect(fake.calls).toHaveLength(2);
+      } finally {
+        // The next instance's Turns must not be claimed by this runner, still polling.
+        release();
+        await stopRunners();
       }
-      expect(fake.calls).toHaveLength(2);
     };
 
     await waiting(1, 1);
