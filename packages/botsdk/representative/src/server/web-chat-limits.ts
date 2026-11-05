@@ -36,12 +36,44 @@ async function hitOn({ counters }: Counting, rule: Window, key: string): Promise
   return count <= rule.limit ? null : Math.max(1, Math.ceil(resetMs / 1000));
 }
 
+/** The eight 16-bit groups of an IPv6 address, or null for anything else. */
+function ipv6Groups(address: string): number[] | null {
+  let host: string;
+  try {
+    // URL parsing checks the address and writes it one way, with any IPv4 tail as hex groups.
+    host = new URL(`http://[${address.replace(/^\[|\]$/g, "")}]/`).hostname.slice(1, -1);
+  } catch {
+    return null;
+  }
+  const [head = "", tail] = host.split("::");
+  const groups = (part: string) =>
+    part ? part.split(":").map((group) => parseInt(group, 16)) : [];
+  const front = groups(head);
+  if (tail === undefined) return front;
+  const back = groups(tail);
+  return [...front, ...Array<number>(8 - front.length - back.length).fill(0), ...back];
+}
+
 /**
- * The IP the Host says a request came from, if it says. Trimmed, lowercased and cut to 64 characters,
- * so a long or oddly cased value neither bloats what counts it nor counts as a new address.
+ * The IP the Host says a request came from, as the key it counts under, if the Host says. An IPv4
+ * address mapped into IPv6 is that IPv4 address, and an IPv6 address counts by its /64, which one
+ * subscriber holds whole, so a second spelling or another address of the same block is no new client.
+ * Anything else is trimmed, lowercased and cut to 64 characters, so it can't bloat what counts it.
  */
-export const clientIpOf = (request: Request, clientIp: ClientIp | undefined) =>
-  clientIp?.(request)?.trim().toLowerCase().slice(0, 64);
+export function clientIpOf(request: Request, clientIp: ClientIp | undefined) {
+  const ip = clientIp?.(request)?.trim().toLowerCase();
+  if (!ip) return ip;
+  const groups = ip.includes(":") ? ipv6Groups(ip) : null;
+  if (!groups) return ip.slice(0, 64);
+  if (groups.slice(0, 5).every((group) => group === 0) && groups[5] === 0xffff) {
+    const [high = 0, low = 0] = groups.slice(6);
+    return [high >> 8, high & 0xff, low >> 8, low & 0xff].join(".");
+  }
+  return `${groups
+    .slice(0, 4)
+    .map((group) => group.toString(16))
+    .join(":")}::/64`;
+}
 
 /**
  * Counts a hit against the request's IP under `prefix`. A Host that gave no `clientIp` has no IP to

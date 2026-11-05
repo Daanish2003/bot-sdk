@@ -187,6 +187,18 @@ describe("web chat limits", () => {
     expect((await start("3.3.3.3")).status).toBe(200);
   });
 
+  it("counts every spelling of one address, and one IPv6 /64, as one IP", async () => {
+    const { start } = await world({ clientIp: byHeader });
+    const spellings = ["2.2.2.2", "::ffff:2.2.2.2", "2001:db8::1", "2001:DB8:0:0::2"];
+    for (let started = 0; started < webChatLimits.sessionStartsPerIp.limit; started += 1) {
+      expect((await start(spellings[started % 2]!)).status).toBe(200);
+      expect((await start(spellings[2 + (started % 2)]!)).status).toBe(200);
+    }
+
+    expect((await start("::FFFF:0202:0202")).status).toBe(429);
+    expect((await start("2001:db8:0:0:ffff::9")).status).toBe(429);
+  });
+
   it("refuses sends over the IP's limit across different sessions", async () => {
     const { token, send } = await world({ clientIp: byHeader });
     // One session per send, so only the IP's count can refuse.
