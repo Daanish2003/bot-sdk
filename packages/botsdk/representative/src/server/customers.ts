@@ -21,6 +21,7 @@ import { overInboundLimit } from "./inbound-limit";
 import { liftOptOut, keywordIn, optOut } from "./opt-out";
 import { type GateRefusal, passGate, storeAndDeliver, type ViaChannel } from "./outbound-gate";
 import { afterDraftHeld, replaceHeld } from "./reply-drafts";
+import { sendUnavailableNotice } from "./unavailable-notice";
 import { type ChannelProof, judgeSender } from "./verification";
 import { normalizedRelease } from "../shared/contract";
 import {
@@ -181,7 +182,11 @@ export async function receiveMessage(
   },
 ) {
   const [owner] = await tx
-    .select({ userId: representative.userId, releaseId: representative.liveReleaseId })
+    .select({
+      userId: representative.userId,
+      releaseId: representative.liveReleaseId,
+      enabled: representative.enabled,
+    })
     .from(representative)
     .where(eq(representative.id, representativeId))
     .for("key share");
@@ -305,6 +310,17 @@ export async function receiveMessage(
       now,
       releaseId: owner.releaseId,
     });
+  }
+  // Nobody can answer: switched off or with no approved Release. The emergency script, which a Release
+  // that exists sends, says all there is to say. A blocked or opted-out Customer is told nothing, and a
+  // code is answered by the proof flow.
+  if (
+    !kept &&
+    stored === text &&
+    state === "representative" &&
+    (!owner.enabled || !owner.releaseId)
+  ) {
+    await sendUnavailableNotice(services, tx, { threadId, heard, verified, now });
   }
   // Position 1 is a thread's first message: it has just been opened.
   return { threadId, turnId, waitingSince, kept, state, opened: position === 1 };
