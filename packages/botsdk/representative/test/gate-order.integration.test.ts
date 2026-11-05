@@ -13,6 +13,7 @@ import { chatRpc } from "@ai-chat/test-support/sdk";
 import {
   autoSource,
   promoteAutoTopic,
+  testCustomerHeard,
   testCustomerTurn,
 } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
@@ -267,8 +268,12 @@ async function reply(
 
 /** A Customer heard, and nothing sent on its thread yet. */
 async function heardWorld(options?: Parameters<typeof instance>[1]) {
-  const world = await instance([quiet()], options);
-  await world.hears("Hello");
+  const world = await instance([], options);
+  await testCustomerHeard(world.deps, {
+    representativeId: world.id,
+    externalId: number,
+    message: "Hello",
+  });
   return world;
 }
 
@@ -632,10 +637,12 @@ describe("no path sends without a decision", () => {
       proof: { rule: "codeRoundTrip" },
     });
 
-    await expect.poll(() => world.messaging.sends.length, poll).toBe(1);
+    // The proof, and code's hand-off: the Turn said nothing else to them.
+    await expect.poll(() => world.messaging.sends.length, poll).toBe(2);
     const decisions = await world.decisions();
     expect(decisions.filter(({ kind }) => kind === "proof")).toMatchObject([{ outcome: "send" }]);
-    expect(JSON.stringify(decisions)).not.toContain(world.messaging.sends[0]!.message.text);
+    const secret = world.messaging.sends.find(({ message }) => message.text !== handOffMessage);
+    expect(JSON.stringify(decisions)).not.toContain(secret!.message.text);
   });
 
   it("holds a message that a rule stops, stored and not sent, with its decision", async () => {
