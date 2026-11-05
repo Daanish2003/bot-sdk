@@ -115,7 +115,7 @@ async function settleThreadWait(
     .select({ position: max(message.position) })
     .from(message)
     .where(and(eq(message.threadId, id), inArray(message.author, ["representative", "owner"])));
-  const [unanswered] = await tx
+  const unanswered = await tx
     .select({ position: message.position })
     .from(message)
     .where(
@@ -131,7 +131,7 @@ async function settleThreadWait(
     .set({
       waitingFrom: waiting,
       ...(waiting === null && { waitingSince: null, limitNotedAt: null }),
-      ...(!unanswered && { leftForOwnerAt: null }),
+      ...(unanswered.length === 0 && { leftForOwnerAt: null }),
       ...(turnGoes && { turnId: null, turnFrom: null }),
     })
     .where(eq(representativeThread.id, id));
