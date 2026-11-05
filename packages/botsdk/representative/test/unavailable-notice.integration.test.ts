@@ -149,7 +149,7 @@ describe("a switched-off Representative", () => {
     expect((await world.thread()).messages).toHaveLength(3);
   });
 
-  it("sends a blocked Customer nothing, and logs why", async () => {
+  it("sends a blocked Customer nothing, and logs no notice", async () => {
     const world = await instance();
     await world.hears("Hi");
     const { customer } = await world.thread();
@@ -160,12 +160,14 @@ describe("a switched-off Representative", () => {
 
     await world.hears("Hello again");
 
-    expect(await world.decisions()).toContainEqual(["unavailable_notice", "drop", "blocked"]);
+    expect(await world.decisions()).not.toContainEqual(
+      expect.arrayContaining(["unavailable_notice"]),
+    );
     expect(world.sent).not.toContain(unavailableNotice);
     expect(world.fake.calls).toEqual([]);
   });
 
-  it("sends an opted-out Customer nothing, and logs why", async () => {
+  it("sends an opted-out Customer nothing, and logs no notice", async () => {
     const world = await instance();
     await world.hears("STOP");
     await world.rpc.representative.setEnabled({ id: world.id, enabled: false });
@@ -178,7 +180,9 @@ describe("a switched-off Representative", () => {
     await world.hears("Hello again");
 
     expect(world.sent).not.toContain(unavailableNotice);
-    expect(await world.decisions()).toContainEqual(["unavailable_notice", "drop", "optedOut"]);
+    expect(await world.decisions()).not.toContainEqual(
+      expect.arrayContaining(["unavailable_notice"]),
+    );
   });
 
   it("still sends the emergency script, and not the notice, for an emergency keyword", async () => {

@@ -18,10 +18,10 @@ import { nameIn, profilesOf } from "./customer-profile";
 import { catchCode, customerProofLeadsTo, mayHoldCode } from "./customer-proof";
 import { saysKeyword, sendEmergencyScript, stopForScript } from "./emergency-script";
 import { overInboundLimit } from "./inbound-limit";
-import { sendUnavailableNotice } from "./unavailable-notice";
 import { liftOptOut, keywordIn, optOut } from "./opt-out";
 import { type GateRefusal, passGate, storeAndDeliver, type ViaChannel } from "./outbound-gate";
 import { afterDraftHeld, replaceHeld } from "./reply-drafts";
+import { sendUnavailableNotice } from "./unavailable-notice";
 import { type ChannelProof, judgeSender } from "./verification";
 import { normalizedRelease } from "../shared/contract";
 import {
@@ -312,10 +312,12 @@ export async function receiveMessage(
     });
   }
   // Nobody can answer: switched off or with no approved Release. The emergency script, which a Release
-  // that exists sends, says all there is to say.
+  // that exists sends, says all there is to say. A blocked or opted-out Customer is told nothing, and a
+  // code is answered by the proof flow.
   if (
     script === null &&
-    keyword !== "stop" &&
+    !kept &&
+    stored === text &&
     state === "representative" &&
     (!owner.enabled || !owner.releaseId)
   ) {

@@ -451,8 +451,13 @@ describe("a keyword in the Release", () => {
       message: "fire",
     });
 
-    // The Customer hears no script, as there is none; they get the notice for nobody to answer.
-    expect(world.got()).not.toContain(script);
+    // There is no script to send: the Customer gets the notice for nobody to answer instead.
+    expect(
+      await getTestDb()
+        .select()
+        .from(representativeOutboundDecision)
+        .where(eq(representativeOutboundDecision.kind, "emergency_script")),
+    ).toEqual([]);
     expect(await world.pages()).toEqual([]);
   });
 });
