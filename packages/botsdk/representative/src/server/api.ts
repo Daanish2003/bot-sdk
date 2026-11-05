@@ -79,7 +79,7 @@ import {
   uploadDocument,
 } from "./representatives";
 import { type CustomerChannel, noCustomerChannel } from "./customer-proof";
-import { dropHeldMessage, sendHeldMessage } from "./held-messages";
+import { dropHeldMessage, ownerInbox, sendHeldMessage } from "./held-messages";
 import {
   approveReplyDraft,
   editReplyDraft,
@@ -274,6 +274,8 @@ export function representativeApi(
 
     threadHandBack: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
       handBackThread(context, userId, parseInput(idInput, rest).id),
+
+    inbox: async ({ userId }: { userId: string }) => ownerInbox(context, userId),
 
     threadHeldSend: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
       sendHeldMessage(context, userId, parseInput(idInput, rest).id),

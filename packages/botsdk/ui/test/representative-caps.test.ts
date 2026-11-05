@@ -27,6 +27,7 @@ function fakeServer() {
     monthMicros: 50_000_000,
   };
   const saved: unknown[] = [];
+  const savedDrafts: Record<string, unknown>[] = [];
   const savedSpending: unknown[] = [];
   const savedQuietHours: unknown[] = [];
   const savedDue: unknown[] = [];
@@ -44,7 +45,14 @@ function fakeServer() {
       monthUsedPercent: 0,
       quietHours,
       assignmentDueMinutes,
-      draft: { tools: [], skills: [], documents: [], tests: [] },
+      draft: {
+        tools: [],
+        skills: [],
+        documents: [],
+        tests: [],
+        emergencyText: "Call 112.",
+        emergencyKeywords: ["fire"],
+      },
       approval: null,
       liveRelease: null,
       releases: [],
@@ -56,6 +64,12 @@ function fakeServer() {
       get: os.handler(view),
       threadList: os.handler(() => []),
       diff: os.handler(() => ({ liveReleaseNumber: null, changes: [] })),
+      updateDraft: os
+        .input(z.object({ id: z.string(), draft: z.record(z.string(), z.unknown()) }))
+        .handler(({ input }) => {
+          savedDrafts.push(input.draft);
+          return view();
+        }),
       setSpendingCaps: os
         .input(z.object({ id: z.string() }).catchall(z.number()))
         .handler(({ input }) => {
@@ -98,8 +112,35 @@ function fakeServer() {
   const fetch = async (request: Request) =>
     (await handler.handle(request, { prefix: "/api/chat/rpc" })).response ??
     new Response(null, { status: 404 });
-  return { fetch, saved, savedSpending, savedQuietHours, savedDue };
+  return { fetch, saved, savedDrafts, savedSpending, savedQuietHours, savedDue };
 }
+
+describe("the emergency script on the Representative page's draft", () => {
+  it("shows its text and keywords, and saving sends what the owner typed, a keyword to a line", async () => {
+    const server = fakeServer();
+    render(
+      providerFor(createElement(RepresentativePage, { id }), {
+        fetch: server.fetch,
+        features: [representativeClient()],
+        messages: {},
+      }),
+    );
+
+    const text = (await screen.findByLabelText("Emergency message")) as HTMLTextAreaElement;
+    const keywords = screen.getByLabelText("Emergency keywords") as HTMLTextAreaElement;
+    expect([text.value, keywords.value]).toEqual(["Call 112.", "fire"]);
+    fireEvent.change(text, { target: { value: "Dial 999." } });
+    fireEvent.change(keywords, { target: { value: "fire\n gas leak \n\n" } });
+    expect(keywords.value).toBe("fire\n gas leak \n\n");
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() =>
+      expect(server.savedDrafts).toMatchObject([
+        { emergencyText: "Dial 999.", emergencyKeywords: ["fire", "gas leak"] },
+      ]),
+    );
+  });
+});
 
 describe("the caps form on the Representative page", () => {
   it("shows the caps, and saving sends what the owner typed", async () => {

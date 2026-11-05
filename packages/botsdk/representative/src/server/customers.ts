@@ -8,6 +8,7 @@ import {
   representative,
   representativeCustomer,
   representativeCustomerIdentity,
+  representativeRelease,
   representativeThread,
   representativeThreadMessage,
   type ThreadAuthor,
@@ -15,10 +16,13 @@ import {
 import { holdCustomers } from "./customer-merge";
 import { nameIn, profilesOf } from "./customer-profile";
 import { catchCode, customerProofLeadsTo, mayHoldCode } from "./customer-proof";
+import { saysKeyword, sendEmergencyScript, stopForScript } from "./emergency-script";
+import { overInboundLimit } from "./inbound-limit";
 import { liftOptOut, keywordIn, optOut } from "./opt-out";
 import { type GateRefusal, passGate, storeAndDeliver, type ViaChannel } from "./outbound-gate";
 import { afterDraftHeld, replaceHeld } from "./reply-drafts";
 import { type ChannelProof, judgeSender } from "./verification";
+import { normalizedRelease } from "../shared/contract";
 import {
   codeHandOffKind,
   limitNoteKind,
@@ -150,7 +154,11 @@ async function judgeMessage(
  * Customer's message is stored all the same, for the owner (ticket #1251), and waits for no Turn; so
  * is an opted-out Customer's, and the one that opts them out (ticket #1302). A
  * message holding the sender's code is stored as a note of what became of the code instead (ticket
- * #1256), so no model or prompt ever reads it.
+ * #1256), so no model or prompt ever reads it. One that says a keyword of the live Release sets off
+ * its emergency script at once (ticket #1308): it gets no Turn and a running one stops, as the owner
+ * has been Paged and the Customer told what to do, and it reaches them through an owner's hold, an
+ * opt-out or a Representative switched off. One over the identity's inbound limit is logged and
+ * stored nowhere (ticket #1311), unless it is a keyword or an emergency: `{ limited: true }`.
  */
 export async function receiveMessage(
   tx: Transaction,
@@ -162,7 +170,8 @@ export async function receiveMessage(
     text,
     now,
   }: {
-    services: Pick<FeatureContext, "clock" | "jobs" | "keyring"> & ViaChannel;
+    services: Pick<FeatureContext<"pages">, "clock" | "jobs" | "keyring" | "logger" | "pages"> &
+      ViaChannel;
     representativeId: string;
     heard: Heard;
     proof: ChannelProof | undefined;
@@ -171,11 +180,25 @@ export async function receiveMessage(
   },
 ) {
   const [owner] = await tx
-    .select({ userId: representative.userId })
+    .select({ userId: representative.userId, releaseId: representative.liveReleaseId })
     .from(representative)
     .where(eq(representative.id, representativeId))
     .for("key share");
   if (!owner) return null;
+  // Over the inbound limit, a message is logged and kept nowhere. What opts out or back in, and what
+  // reports an emergency, is exempt, so a limit never stops a Customer doing either (ticket #1311).
+  // On what they said, not what is stored: a code in the message mustn't hide an emergency.
+  const script = await scriptSaidIn(tx, owner.releaseId, text);
+  if (
+    keywordIn(heard.channel, text) === null &&
+    script === null &&
+    (await overInboundLimit(tx, owner.userId, heard, now))
+  ) {
+    services.logger.error(
+      `Inbound limit: a message from ${heard.channel} ${heard.externalId} was not processed`,
+    );
+    return { limited: true as const };
+  }
   const { identityId, customerId: heldCustomerId } = await holdSender(
     tx,
     owner.userId,
@@ -209,7 +232,7 @@ export async function receiveMessage(
     .for("update");
   const wasOptedOut = heardIdentity?.optedOutAt != null;
   const keyword = stored === text ? keywordIn(heard.channel, text) : null;
-  const kept = blocked || wasOptedOut || keyword === "stop";
+  const kept = blocked || wasOptedOut || keyword === "stop" || script !== null;
   const [thread] = await tx
     .insert(representativeThread)
     .values({
@@ -270,8 +293,31 @@ export async function receiveMessage(
   } else if (keyword === "start" && wasOptedOut) {
     await liftOptOut(tx, owner.userId, heard);
   }
+  if (script !== null) {
+    if (!blocked) await stopForScript(services, tx, threadId, now);
+    await sendEmergencyScript(services, tx, {
+      threadId,
+      heard,
+      verified,
+      text: script,
+      now,
+      releaseId: owner.releaseId,
+    });
+  }
   // Position 1 is a thread's first message: it has just been opened.
   return { threadId, turnId, waitingSince, kept, state, opened: position === 1 };
+}
+
+/** The emergency script of Release `releaseId` when `text` says one of its keywords, else null. */
+async function scriptSaidIn(tx: Transaction, releaseId: string | null, text: string) {
+  if (!releaseId) return null;
+  const [release] = await tx
+    .select({ content: representativeRelease.content })
+    .from(representativeRelease)
+    .where(eq(representativeRelease.id, releaseId));
+  if (!release) return null;
+  const { emergencyKeywords, emergencyText } = normalizedRelease(release.content);
+  return saysKeyword(emergencyKeywords, text) ? emergencyText : null;
 }
 
 /**

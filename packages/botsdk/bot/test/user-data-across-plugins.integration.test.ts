@@ -341,6 +341,8 @@ async function seedEverything(
         model: null,
         tests: [],
         documents: [],
+        emergencyText: "Call your local emergency number",
+        emergencyKeywords: [],
       },
     });
   await getTestDb()
@@ -356,6 +358,8 @@ async function seedEverything(
         tools: ["reply"],
         model: null,
         documentSnapshot: null,
+        emergencyText: "Call your local emergency number",
+        emergencyKeywords: [],
         tests: [],
       },
     });

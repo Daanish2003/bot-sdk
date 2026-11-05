@@ -184,7 +184,15 @@ describe("the diff between a draft and the live Release", () => {
 
   it("shows a changed test conversation by name, and ignores one both sides hold alike", () => {
     // Test conversations arrive on the draft with the test spec; the diff compares them by name.
-    const base = { jobText: "x", switches: {}, skills: [], tools: [], model: null };
+    const base = {
+      emergencyText: "Call 112",
+      emergencyKeywords: [],
+      jobText: "x",
+      switches: {},
+      skills: [],
+      tools: [],
+      model: null,
+    };
     const kept = { name: "Greets", turns: ["Hi"] };
     const live = {
       ...base,
@@ -213,7 +221,15 @@ describe("the diff between a draft and the live Release", () => {
   });
 
   it("shows a repeated Skill name without hiding a change", () => {
-    const base = { jobText: "x", switches: {}, tools: [], model: null, tests: [] };
+    const base = {
+      emergencyText: "Call 112",
+      emergencyKeywords: [],
+      jobText: "x",
+      switches: {},
+      tools: [],
+      model: null,
+      tests: [],
+    };
     const live = {
       ...base,
       documentSnapshot: null,
@@ -242,13 +258,28 @@ describe("the diff between a draft and the live Release", () => {
     const diff = await rpc.representative.diff({ id });
 
     expect(diff.liveReleaseNumber).toBeNull();
-    expect(diff.changes.map((change) => change.field)).toEqual(["jobText", "tool", "tool", "tool"]);
+    expect(diff.changes.map((change) => change.field)).toEqual([
+      "jobText",
+      "emergencyText",
+      "emergencyKeywords",
+      "tool",
+      "tool",
+      "tool",
+    ]);
     // Before a first Release, the live side has none: not the text "null".
     expect(diff.changes[0]).toMatchObject({ before: null, after: JSON.stringify("Answer") });
   });
 
   it("shows a Model chosen where the live Release named none, and the reverse, as none", () => {
-    const base = { jobText: "x", switches: {}, skills: [], tools: [], tests: [] };
+    const base = {
+      emergencyText: "Call 112",
+      emergencyKeywords: [],
+      jobText: "x",
+      switches: {},
+      skills: [],
+      tools: [],
+      tests: [],
+    };
     const live = { ...base, model: null, documentSnapshot: null };
     const draft = { ...base, model, documents: [] };
 
@@ -264,7 +295,15 @@ describe("the diff between a draft and the live Release", () => {
   });
 
   it("keeps a repeated name's key from colliding with a real name", () => {
-    const base = { jobText: "x", switches: {}, tools: [], model: null, tests: [] };
+    const base = {
+      emergencyText: "Call 112",
+      emergencyKeywords: [],
+      jobText: "x",
+      switches: {},
+      tools: [],
+      model: null,
+      tests: [],
+    };
     const skills = [
       { name: "A", text: "1" },
       { name: "A", text: "2" },
@@ -288,7 +327,14 @@ describe("the diff between a draft and the live Release", () => {
   });
 
   it("shows Skills and test conversations put in another order", () => {
-    const base = { jobText: "x", switches: {}, tools: [], model: null };
+    const base = {
+      emergencyText: "Call 112",
+      emergencyKeywords: [],
+      jobText: "x",
+      switches: {},
+      tools: [],
+      model: null,
+    };
     const first = { name: "First", text: "1" };
     const second = { name: "Second", text: "2" };
     const test = (name: string) => ({
@@ -319,7 +365,15 @@ describe("the diff between a draft and the live Release", () => {
   });
 
   it("shows no order change when a Skill is only added or removed", () => {
-    const base = { jobText: "x", switches: {}, tools: [], model: null, tests: [] };
+    const base = {
+      emergencyText: "Call 112",
+      emergencyKeywords: [],
+      jobText: "x",
+      switches: {},
+      tools: [],
+      model: null,
+      tests: [],
+    };
     const first = { name: "First", text: "1" };
     const second = { name: "Second", text: "2" };
 

@@ -86,6 +86,8 @@ function DraftEditor({ representative }: { representative: RepresentativeView })
   const usableModels = models.data?.models ?? [];
   const modelListed = usableModels.some((model) => model.id === draft.model);
   const [reason, setReason] = useState("");
+  // As typed, so a new line can be started: the draft holds only what is on a line.
+  const [keywordLines, setKeywordLines] = useState(draft.emergencyKeywords.join("\n"));
   const documentChanges = useDocumentChanges();
   const busy = save.isPending || approve.isPending || run.isPending || documentChanges.pending;
   const body = { id: representative.id, draft };
@@ -112,6 +114,37 @@ function DraftEditor({ representative }: { representative: RepresentativeView })
           placeholder={t("representative.jobTextPlaceholder")}
           onChange={(event) => setDraft({ ...draft, jobText: event.target.value })}
         />
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor="representative-emergency-text">{t("representative.emergencyText")}</Label>
+        <Textarea
+          id="representative-emergency-text"
+          rows={2}
+          value={draft.emergencyText}
+          onChange={(event) => setDraft({ ...draft, emergencyText: event.target.value })}
+        />
+        <p className="text-xs text-muted-foreground">{t("representative.emergencyTextHelp")}</p>
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor="representative-emergency-keywords">
+          {t("representative.emergencyKeywords")}
+        </Label>
+        <Textarea
+          id="representative-emergency-keywords"
+          rows={3}
+          value={keywordLines}
+          onChange={(event) => {
+            setKeywordLines(event.target.value);
+            setDraft({
+              ...draft,
+              emergencyKeywords: event.target.value
+                .split("\n")
+                .map((line) => line.trim())
+                .filter((line) => line !== ""),
+            });
+          }}
+        />
+        <p className="text-xs text-muted-foreground">{t("representative.emergencyKeywordsHelp")}</p>
       </div>
       <fieldset className="space-y-2">
         <legend className="text-sm font-medium">{t("representative.tools")}</legend>

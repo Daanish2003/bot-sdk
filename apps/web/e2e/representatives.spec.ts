@@ -177,8 +177,10 @@ test("an owner reviews the diff against the live Release and rolls back to an ea
   await expect(diff.getByText("The draft matches the live Release.")).toBeVisible();
   await page.getByLabel("Job text").fill("Answer anything, politely.");
   await page.getByRole("checkbox", { name: "Hand off to the Bot" }).click();
+  await page.getByLabel("Emergency keywords").fill("gas leak");
   await page.getByRole("button", { name: "Save draft" }).click();
   await expect(diff.locator('[data-change="jobText"]')).toContainText("Answer anything, politely.");
+  await expect(diff.locator('[data-change="emergencyKeywords"]')).toContainText("gas leak");
   await expect(diff.locator('[data-change="tool"]')).toContainText("hand_to_bot");
   await expect(diff.locator('[data-change="model"]')).toHaveCount(0);
 

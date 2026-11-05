@@ -202,6 +202,10 @@ _Avoid_: Pending reply, suggestion
 A subject of the user's business that a Representative labels each reply with. Each is `draft` or `auto`, all start at `draft`, and a label the user doesn't have counts as `draft`.
 _Avoid_: Category, intent
 
+**Emergency script**:
+The fixed safety text in a Release, sent word for word with no model call when a Customer says one of that Release's keywords or a Representative flags an emergency. It skips drafts, caps, quiet hours, the user's hold on the thread and a switched-off Representative, reaches an opted-out Customer, and Pages the user at once. Only a blocked Customer gets nothing.
+_Avoid_: Crisis message, safety reply
+
 **Page**:
 A direct alert that reaches the user outside the app when something needs them, such as an emergency or a stalled Assignment. It goes to web push and their Linked identities, then to email if nobody has acknowledged it, and acknowledging stops whatever is left.
 _Avoid_: Notification, ticket, alert

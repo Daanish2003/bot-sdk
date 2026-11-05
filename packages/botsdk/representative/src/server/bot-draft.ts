@@ -5,7 +5,13 @@ import { z } from "zod";
 import type { FeatureContext, FeatureTurn } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
-import { type Draft, draftSchema, noNul, type PendingApproval } from "../shared/contract";
+import {
+  type Draft,
+  draftSchema,
+  noNul,
+  normalizedRelease,
+  type PendingApproval,
+} from "../shared/contract";
 import { representative, representativeRelease } from "./db/schema";
 import { snapshotOf } from "./documents";
 import {
@@ -100,7 +106,7 @@ async function onlyTheBotEdited(
     .from(representativeRelease)
     .where(eq(representativeRelease.id, row.liveReleaseId));
   if (!live) return false;
-  const { documentSnapshot: _pinned, ...content } = live.content;
+  const { documentSnapshot: _pinned, ...content } = normalizedRelease(live.content);
   return hash === botFieldsHash(normalizedDraft({ ...content, documents: [] }));
 }
 
