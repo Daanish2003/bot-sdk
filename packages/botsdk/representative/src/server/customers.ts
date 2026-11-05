@@ -26,6 +26,7 @@ import { normalizedRelease } from "../shared/contract";
 import {
   codeHandOffKind,
   limitNoteKind,
+  answersCustomer,
   type ReplySource,
   type StoredReplyKind,
 } from "../shared/replies";
@@ -524,7 +525,7 @@ export async function storeReply(
   );
   // A reply to what came after a limit left something for the owner answers that too, as the owner's
   // send does. A reply to what was already there when it was left doesn't, nor does a fixed note.
-  if (replyKind !== codeHandOffKind && replyKind !== limitNoteKind) {
+  if (answersCustomer(replyKind)) {
     const message = representativeThreadMessage;
     const answered = tx
       .select({ createdAt: message.createdAt })

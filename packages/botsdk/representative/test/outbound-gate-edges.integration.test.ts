@@ -23,6 +23,7 @@ import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter
 import { fakeMessagingAdapter } from "@botsdk/testing/fake-channel";
 import type { CustomerChannel } from "../src/server/customer-proof";
 import {
+  type OutboundKind,
   representative,
   representativeCustomer,
   representativeHeldMessage,
@@ -32,6 +33,7 @@ import {
 import { threadIdleMs } from "../src/server/idle";
 import { limitNote } from "../src/server/limits";
 import { representativeFeature } from "../src/server/plugin";
+import { codeHandOffKind, type StoredReplyKind } from "../src/shared/replies";
 
 /*
  * What the Outbound gate's rules meet at their edges (the #1171 branch review): a Turn stopped holding
@@ -403,6 +405,58 @@ describe("what is left for the owner", () => {
     const { world, held } = await heldAndLeft();
     await world.rpc.representative.threadHeldDrop({ id: held.id });
     expect((await world.row()).leftForOwnerAt).toBeNull();
+  });
+
+  describe("beside a held message that answers nothing", () => {
+    /** A question left for the owner, and on the same thread what the gate held of `kind`. */
+    async function leftBeside(kind: OutboundKind, replyKind: StoredReplyKind | null) {
+      const world = await instance([quiet()]);
+      await world.hears("A question");
+      await leaveForOwner(world);
+      const now = world.timer.clock.now();
+      const threadId = await world.threadId();
+      const decisionId = uuidv7();
+      await getTestDb().insert(representativeOutboundDecision).values({
+        id: decisionId,
+        threadId,
+        kind,
+        outcome: "hold",
+        rule: "channel",
+        channel: fakeChannel,
+        externalId: first,
+        createdAt: now,
+      });
+      const id = uuidv7();
+      await getTestDb().insert(representativeHeldMessage).values({
+        id,
+        decisionId,
+        threadId,
+        text: "Not an answer",
+        verified: false,
+        replyKind,
+        createdAt: now,
+      });
+      return { world, id };
+    }
+
+    const kinds = [
+      ["an emergency script", "emergency_script", null],
+      ["a stall note", "stall_note", null],
+      ["a stall note held again on its way out", "released", null],
+      ["code's hand-off", "code_hand_off", codeHandOffKind],
+    ] as const;
+
+    it.each(kinds)("stays when the owner sends %s", async (_name, kind, replyKind) => {
+      const { world, id } = await leftBeside(kind, replyKind);
+      await world.rpc.representative.threadHeldSend({ id });
+      expect((await world.row()).leftForOwnerAt).not.toBeNull();
+    });
+
+    it.each(kinds)("stays when the owner drops %s", async (_name, kind, replyKind) => {
+      const { world, id } = await leftBeside(kind, replyKind);
+      await world.rpc.representative.threadHeldDrop({ id });
+      expect((await world.row()).leftForOwnerAt).not.toBeNull();
+    });
   });
 
   it("is answered by a later Turn's reply to a newer message", async () => {

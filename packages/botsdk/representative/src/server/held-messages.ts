@@ -24,6 +24,7 @@ import {
   type ViaChannel,
 } from "./outbound-gate";
 import type { InboxHeldView, OwnerInbox } from "../shared/contract";
+import { answersCustomer } from "../shared/replies";
 import { combinedProfilesOf, nameIn } from "./customer-profile";
 import { getThread, listRunningThreads } from "./owner-customers";
 import { replyDraftsTruncated, settleLeftForOwner } from "./reply-drafts";
@@ -174,7 +175,8 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
     if (decided.outcome !== "send") {
       return { blocked: false as const, threadId: found };
     }
-    if (!byItself) await settleLeftForOwner(tx, found);
+    // Only an answer settles what a limit left: the question is still owed after a script or a note.
+    if (!byItself && answersCustomer(message.replyKind)) await settleLeftForOwner(tx, found);
     await tx.delete(held).where(eq(held.id, heldId));
     await storeAndDeliver(
       context,
@@ -230,6 +232,10 @@ export async function dropHeldMessage(context: Context, userId: string, heldId: 
     if (!found) throw heldNotFound();
     // The thread's lock first, the order a Customer's message takes it in.
     await lockThread(tx, userId, found);
+    const [message] = await tx
+      .select({ replyKind: representativeHeldMessage.replyKind })
+      .from(representativeHeldMessage)
+      .where(eq(representativeHeldMessage.id, heldId));
     const dropped = await dropHeld(tx, {
       threadId: found,
       heldId,
@@ -238,7 +244,8 @@ export async function dropHeldMessage(context: Context, userId: string, heldId: 
       now: context.clock(),
     });
     if (dropped === 0) throw heldNotFound();
-    await settleLeftForOwner(tx, found);
+    // Dropping a reply is the owner's word on the thread. Dropping a script or a note isn't.
+    if (answersCustomer(message?.replyKind ?? null)) await settleLeftForOwner(tx, found);
     return found;
   });
   return getThread(context, userId, threadId);
