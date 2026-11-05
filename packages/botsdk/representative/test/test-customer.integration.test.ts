@@ -60,9 +60,10 @@ type Options = {
 };
 
 const runners: JobRunner[] = [];
-afterEach(async () => {
+const stopRunners = async () => {
   for (const runner of runners.splice(0)) await runner.stop();
-});
+};
+afterEach(stopRunners);
 
 const replies = () =>
   round(
@@ -543,6 +544,8 @@ describe("the concurrency setting", () => {
           .toBe("succeeded");
       }
       expect(fake.calls).toHaveLength(2);
+      // The next instance's Turns must not be claimed by this runner, still polling.
+      await stopRunners();
     };
 
     await waiting(1, 1);
