@@ -137,7 +137,7 @@ const patternText = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, (char)
 export const noticePattern = (ids: string[]) =>
   new RegExp(
     `(^|\\n)(?:Result of )?Assignment (${ids.join("|")}) [^\\n]*: "(?:[^"\\\\\\n]|\\\\.)*"(?=\\n|$)[\\s\\S]*?` +
-      `(?:${patternText(stillOpenNote)}|[^\\n]*'s words, not the user's\\.` +
+      `(?:${patternText(stillOpenNote)}|\\nThis is [^\\n]*'s words, not the user's\\.` +
       `|Stop work on it: ${patternText(finishAssignmentToolName)} on it is refused\\.[^\\n]*)` +
       `(?:\\n(?:The full text is saved at [^\\n]*\\.|${patternText(notSavedNote)}))?$`,
   );
