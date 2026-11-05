@@ -30,7 +30,6 @@ import {
   representativeVerification,
 } from "../src/server/db/schema";
 import { inboundLimit } from "../src/server/inbound-limit";
-import { heldAccountChannel } from "../src/server/channel-accounts";
 import { representativeFeature } from "../src/server/plugin";
 import { holdingNote } from "../src/server/reply-drafts";
 import { unavailableNotice } from "../src/server/unavailable-notice";
@@ -578,21 +577,5 @@ describe("web chat as a Channel", () => {
     await channel.send({ channel: "web", externalId: "a" }, { text: "Hi" }, via);
     await channel.send({ channel: "sms", externalId: "b" }, { text: "Hi" }, via);
     expect(sent).toEqual([["sms", via]]);
-  });
-
-  it("logs nothing for a web chat message, though no adapter serves it", async () => {
-    const error = vi.fn();
-    const channel = withWebChat(
-      heldAccountChannel({
-        db: getTestDb(),
-        channelAccounts: { reach: () => undefined } as never,
-        logger: { error } as never,
-      }),
-    );
-    const via = { representativeId: "r", channelAccountId: null, resume: null };
-    await channel.send({ channel: "web", externalId: "a" }, { text: "Hi" }, via);
-    expect(error).not.toHaveBeenCalled();
-    await channel.send({ channel: "sms", externalId: "b" }, { text: "Hi" }, via);
-    expect(error).toHaveBeenCalledOnce();
   });
 });

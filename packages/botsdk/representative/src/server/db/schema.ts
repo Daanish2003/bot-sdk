@@ -712,8 +712,8 @@ export const representativeOutboundDecision = botsdkSchema.table(
     messageId: uuid("message_id").references((): AnyPgColumn => representativeThreadMessage.id, {
       onDelete: "set null",
     }),
-    /** What a failed send got out, so its retry sends only the parts after it. */
-    sentOn: jsonb("sent_on").$type<SendProgress>(),
+    /** What a failed send got out and the account it used, so its retry sends only the rest there. */
+    sentOn: jsonb("sent_on").$type<{ channelAccountId: string | null; progress: SendProgress }>(),
     createdAt: timestamp("created_at").notNull(),
   },
   (table) => [

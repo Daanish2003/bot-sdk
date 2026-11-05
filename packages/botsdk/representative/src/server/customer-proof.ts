@@ -64,7 +64,7 @@ export type CustomerChannel = {
 
 /** The Channel of whatever `context` a job or the API runs with. */
 export type ChannelOf = (
-  context: Pick<FeatureContext<"channelAccounts">, "db" | "channelAccounts" | "logger">,
+  context: Pick<FeatureContext<"channelAccounts">, "db" | "channelAccounts">,
 ) => CustomerChannel;
 
 /** A Channel that reaches nobody, for what a test Customer sends. */

@@ -15,13 +15,16 @@ import { asc } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { connectChannelAccount } from "../src/server/channel-accounts";
+import { noCustomerChannel } from "../src/server/customer-proof";
 import {
   representativeCustomerIdentity,
   representativeOutboundDecision,
+  representativeThread,
   representativeThreadMessage,
 } from "../src/server/db/schema";
 import { customerDeliveryJobName, heldReleaseJobName } from "../src/server/outbound-gate";
 import { representativeFeature, type RepresentativeOptions } from "../src/server/plugin";
+import { receiveCustomerMessage } from "../src/server/thread-turns";
 import { unavailableNotice } from "../src/server/unavailable-notice";
 
 /*
@@ -158,6 +161,11 @@ const messages = () =>
     .from(representativeThreadMessage)
     .orderBy(asc(representativeThreadMessage.position));
 
+const sentOn = async () => {
+  const rows = await getTestDb().select().from(representativeOutboundDecision);
+  return rows.find((row) => row.sentOn)?.sentOn ?? null;
+};
+
 const identities = () =>
   getTestDb()
     .select({
@@ -237,17 +245,139 @@ describe("a stranger on a Representative's account", () => {
     expect(channel.delivered.map(({ part }) => part)).toEqual(["Hello", " ther", "e."]);
   });
 
-  it("is dropped while the owner is Banned: nothing is stored or sent", async () => {
-    const { ban, channel, fake, representativeOn, hears } = await world();
+  it("is kept while the owner is Banned, with no Turn and nothing sent", async () => {
+    const { ban, channel, fake, timer, representativeOn, hears } = await world();
     await representativeOn("1:a");
     ban.on = true;
 
     await hears("@bot_1", { text: "Hi" });
 
-    expect(await identities()).toEqual([]);
-    expect(await messages()).toEqual([]);
+    await expect.poll(async () => (await messages()).length, poll).toBe(1);
+    await expect
+      .poll(async () => {
+        timer.tick();
+        const [thread] = await getTestDb().select().from(representativeThread);
+        return thread?.turnId ?? null;
+      }, poll)
+      .toBeNull();
     expect(channel.sends).toEqual([]);
     expect(fake.calls).toEqual([]);
+  });
+
+  it("still takes an opt-out while the owner is Banned, and confirms it", async () => {
+    const { ban, channel, representativeOn, hears } = await world();
+    await representativeOn("1:a");
+    ban.on = true;
+
+    await hears("@bot_1", { text: "STOP" });
+
+    await expect
+      .poll(async () => {
+        const [identity] = await getTestDb().select().from(representativeCustomerIdentity);
+        return identity?.optedOutAt ?? null;
+      }, poll)
+      .not.toBeNull();
+    await expect.poll(() => channel.sends.length, poll).toBe(1);
+  });
+
+  it("sends no more of a reply once the owner is Banned", async () => {
+    const { ban, channel, timer, representativeOn, hears } = await world(["Hello there."]);
+    await representativeOn("1:a");
+    channel.parts.maxText = 5;
+    channel.parts.failAt = 1;
+
+    await hears("@bot_1", { text: "Hi" });
+    await expect.poll(sentOn, poll).not.toBeNull();
+    ban.on = true;
+
+    await expect
+      .poll(() => {
+        timer.advance(60_000);
+        timer.tick();
+        return decisions();
+      }, poll)
+      .toContainEqual(["reply", "drop", "owner_banned"]);
+    expect(channel.delivered.map(({ part }) => part)).toEqual(["Hello"]);
+  });
+
+  it("keeps the parts of a reply on one account, wherever the Customer writes next", async () => {
+    const { channel, context, timer, user, representativeOn, hears } = await world([
+      "Hello there.",
+    ]);
+    const id = await representativeOn("1:a");
+    await connectChannelAccount(context, {
+      userId: user.id,
+      representativeId: id,
+      platform: channel.adapter.id,
+      credentials: { token: "2:b" },
+    });
+    channel.parts.maxText = 5;
+    channel.parts.failAt = 1;
+
+    await hears("@bot_2", { text: "Hi" });
+    await expect.poll(sentOn, poll).not.toBeNull();
+    const accounts = await getTestDb().select().from(channelAccount);
+    const other = accounts.find(({ handle }) => handle === "@bot_1")!;
+    await getTestDb().update(representativeThread).set({ channelAccountId: other.id });
+
+    await expect
+      .poll(() => {
+        timer.advance(60_000);
+        timer.tick();
+        return channel.delivered.map(({ part }) => part).join("");
+      }, poll)
+      .toContain("e.");
+    expect(new Set(channel.sends.map(({ account }) => account.handle))).toEqual(
+      new Set(["@bot_2"]),
+    );
+  });
+
+  it("forgets the account when the owner corrects the address", async () => {
+    const { channel, rpc, representativeOn, hears } = await world(["Hello."]);
+    await representativeOn("1:a");
+    await hears("@bot_1", { text: "Hi" });
+    await expect.poll(() => channel.sends.length, poll).toBe(1);
+    const [identity] = await getTestDb().select().from(representativeCustomerIdentity);
+
+    await rpc.representative.customerUpdateIdentity({
+      id: identity!.customerId,
+      identityId: identity!.id,
+      channel: identity!.channel,
+      externalId: "999",
+    });
+
+    const [thread] = await getTestDb().select().from(representativeThread);
+    expect(thread).toMatchObject({ lastExternalId: "999", channelAccountId: null });
+  });
+
+  it("isn't moved to another account by a sender it can't verify", async () => {
+    const { channel, context, user, representativeOn, hears } = await world(["Hello."]);
+    const id = await representativeOn("1:a");
+    await connectChannelAccount(context, {
+      userId: user.id,
+      representativeId: id,
+      platform: channel.adapter.id,
+      credentials: { token: "2:b" },
+    });
+    await hears("@bot_2", { text: "Hi" });
+    await expect.poll(() => channel.sends.length, poll).toBe(1);
+    const accounts = await getTestDb().select().from(channelAccount);
+    const account = (handle: string) => accounts.find((row) => row.handle === handle)!.id;
+    const [thread] = await getTestDb().select().from(representativeThread);
+
+    await receiveCustomerMessage(
+      { ...context, channel: noCustomerChannel },
+      {
+        representativeId: id,
+        channel: thread!.lastChannel,
+        externalId: thread!.lastExternalId,
+        channelAccountId: account("@bot_1"),
+        message: "Answer me here instead",
+      },
+    );
+
+    const [after] = await getTestDb().select().from(representativeThread);
+    expect(after!.channelAccountId).toBe(account("@bot_2"));
   });
 
   it("is told so when nobody can answer, and no Model is called", async () => {

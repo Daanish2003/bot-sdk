@@ -760,6 +760,7 @@ const notDelivered = {
   blocked: "blocked",
   optedOut: "optedOut",
   moved: "address_changed",
+  banned: "owner_banned",
 };
 
 /** Logs that the message `decisionId` passed didn't go after all. */
@@ -783,7 +784,8 @@ async function logNotDelivered(
 /**
  * Sends what the gate passed. A throw is the runner's to retry, so this can run well after the
  * decision: a Customer blocked or opted out since gets nothing, and neither does an address no longer
- * theirs, which may be someone else's. A thread deleted since sends nothing.
+ * theirs, which may be someone else's. During the owner's Ban their line says only what is meant for a
+ * Customer regardless. A thread deleted since sends nothing.
  */
 export const customerDeliveryJob = (channelOf: ChannelOf, concurrency: number) =>
   defineJob<z.infer<typeof deliveryPayload>, FeatureContext<"channelAccounts">>({
@@ -798,6 +800,7 @@ export const customerDeliveryJob = (channelOf: ChannelOf, concurrency: number) =
           externalId: decision.externalId,
           kind: decision.kind,
           representativeId: representativeThread.representativeId,
+          userId: representative.userId,
           channelAccountId: representativeThread.channelAccountId,
           sentOn: decision.sentOn,
           text: representativeThreadMessage.text,
@@ -811,6 +814,7 @@ export const customerDeliveryJob = (channelOf: ChannelOf, concurrency: number) =
           eq(representativeThreadMessage.id, decision.messageId),
         )
         .innerJoin(representativeThread, eq(representativeThread.id, decision.threadId))
+        .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
         .innerJoin(
           representativeCustomer,
           eq(representativeCustomer.id, representativeThread.customerId),
@@ -826,25 +830,30 @@ export const customerDeliveryJob = (channelOf: ChannelOf, concurrency: number) =
         .where(eq(decision.id, decisionId));
       if (!row) return;
       // Only what passes the gate's opt-out rule is held to it: the rest is meant for them regardless.
+      const optional = rulesOf[row.kind].includes("optedOut");
       const stopped = row.blockedAt
         ? notDelivered.blocked
         : !row.identityId
           ? notDelivered.moved
-          : row.optedOutAt && rulesOf[row.kind].includes("optedOut")
+          : row.optedOutAt && optional
             ? notDelivered.optedOut
-            : null;
+            : optional && (await job.isUserBlocked(row.userId))
+              ? notDelivered.banned
+              : null;
       if (stopped) {
         await logNotDelivered(job.db, decisionId, stopped, job.clock());
         return;
       }
+      // The parts of one message stay together, wherever the Customer has written since.
+      const channelAccountId = row.sentOn ? row.sentOn.channelAccountId : row.channelAccountId;
       try {
         await channelOf(job).send(
           { channel: row.channel, externalId: row.externalId },
           { text: row.text },
           {
             representativeId: row.representativeId,
-            channelAccountId: row.channelAccountId,
-            resume: row.sentOn,
+            channelAccountId,
+            resume: row.sentOn?.progress ?? null,
           },
         );
       } catch (error) {
@@ -852,8 +861,11 @@ export const customerDeliveryJob = (channelOf: ChannelOf, concurrency: number) =
           // Without it, the retry sends the parts already sent again.
           await job.db
             .update(decision)
-            .set({ sentOn: error.progress })
-            .where(eq(decision.id, decisionId));
+            .set({ sentOn: { channelAccountId, progress: error.progress } })
+            .where(eq(decision.id, decisionId))
+            .catch((saving: unknown) =>
+              job.logger.error("Saving a send's progress failed", saving),
+            );
         }
         throw error;
       }

@@ -1,7 +1,7 @@
-import type { FeatureContext, StrangerMessage } from "@botsdk/bot/feature";
+import type { StrangerMessage } from "@botsdk/bot/feature";
 import { eq } from "drizzle-orm";
 
-import { representative, representativeChannelAccount } from "./db/schema";
+import { representativeChannelAccount } from "./db/schema";
 import { maxThreadMessageLength } from "../shared/contract";
 import { receiveCustomerMessage } from "./thread-turns";
 
@@ -20,24 +20,17 @@ function textOf({ text, files }: StrangerMessage) {
   return [text.trim(), note].filter(Boolean).join("\n\n").slice(0, maxThreadMessageLength);
 }
 
-/**
- * Takes the core's inbound message as a Customer's, for the Representative holding its account. During
- * the owner's Ban it's dropped, as a message to their Bot is, so their line says nothing to anyone.
- */
+/** Takes the core's inbound message as a Customer's, for the Representative holding its account. */
 export async function receiveStranger(
-  services: Parameters<typeof receiveCustomerMessage>[0] & Pick<FeatureContext, "isUserBlocked">,
+  services: Parameters<typeof receiveCustomerMessage>[0],
   message: StrangerMessage,
 ) {
   const [held] = await services.db
-    .select({
-      representativeId: representativeChannelAccount.representativeId,
-      userId: representative.userId,
-    })
+    .select({ representativeId: representativeChannelAccount.representativeId })
     .from(representativeChannelAccount)
-    .innerJoin(representative, eq(representative.id, representativeChannelAccount.representativeId))
     .where(eq(representativeChannelAccount.channelAccountId, message.account.id));
   const text = textOf(message);
-  if (!held || !text || (await services.isUserBlocked(held.userId))) return;
+  if (!held || !text) return;
   await receiveCustomerMessage(services, {
     representativeId: held.representativeId,
     channel: message.channel,

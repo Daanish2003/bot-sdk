@@ -4,7 +4,7 @@ import type { ChannelAccountRow } from "@botsdk/client/bot/channel-account";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { channelAccount } from "@botsdk/bot/storage";
-import { type ChannelOf, webChatChannel } from "./customer-proof";
+import type { ChannelOf } from "./customer-proof";
 import { representative, representativeChannelAccount } from "./db/schema";
 import { requireOwned } from "./representatives";
 
@@ -74,22 +74,16 @@ export async function listChannelAccounts(
 
 /**
  * How messages reach a Customer through the accounts Representatives hold: the gate's delivery goes
- * through the Representative's account on the Channel, and the gate reads that adapter's limits. A
- * Channel the Host has no adapter for has nothing to send through: web chat's visitors read the thread.
+ * through the Representative's account on the Channel, and the gate reads that adapter's limits.
  * Proofs go nowhere until SMS (#1174) and email (#1176) word them.
  */
-export const heldAccountChannel: ChannelOf = ({ db, channelAccounts, logger }) => ({
+export const heldAccountChannel: ChannelOf = ({ db, channelAccounts }) => ({
   reach: (channel) => channelAccounts.reach(channel),
   send: async (
     { channel, externalId },
     { text },
     { representativeId, channelAccountId, resume },
   ) => {
-    if (!channelAccounts.reach(channel)) {
-      if (channel !== webChatChannel)
-        logger.error(`A Customer's message wasn't sent: no ${channel} adapter`);
-      return;
-    }
     const accounts = await db
       .select({ id: channelAccount.id })
       .from(representativeChannelAccount)
@@ -113,7 +107,8 @@ export const heldAccountChannel: ChannelOf = ({ db, channelAccounts, logger }) =
     await channelAccounts.send(account.id, {
       chatId: externalId,
       text,
-      ...(resume && { resume }),
+      // Another account's chat has none of the parts, so it gets them all.
+      ...(resume && (channelAccountId === null || account.id === channelAccountId) && { resume }),
     });
   },
   sendProof: async () => {},

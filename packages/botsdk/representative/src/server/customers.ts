@@ -260,8 +260,11 @@ export async function receiveMessage(
       target: [representativeThread.customerId, representativeThread.representativeId],
       targetWhere: sql`state <> 'closed'`,
       set: {
-        ...(verified && { lastChannel: heard.channel, lastExternalId: heard.externalId }),
-        ...(channelAccountId && { channelAccountId }),
+        ...(verified && {
+          lastChannel: heard.channel,
+          lastExternalId: heard.externalId,
+          ...(channelAccountId && { channelAccountId }),
+        }),
         messageCount: sql`${representativeThread.messageCount} + 1`,
         ...(!kept && {
           waitingFrom: sql`coalesce(${representativeThread.waitingFrom}, ${representativeThread.messageCount} + 1)`,

@@ -231,7 +231,12 @@ async function removeFromOtherThreads(
     if (addresses.some((one) => one.channel === lastChannel && one.externalId === lastExternalId)) {
       await tx
         .update(thread)
-        .set({ lastChannel: newest.channel, lastExternalId: newest.externalId })
+        // Which account that address wrote to isn't kept, so the oldest answers until it writes again.
+        .set({
+          lastChannel: newest.channel,
+          lastExternalId: newest.externalId,
+          channelAccountId: null,
+        })
         .where(eq(thread.id, id));
     }
   }
