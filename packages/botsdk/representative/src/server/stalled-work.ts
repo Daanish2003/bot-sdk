@@ -91,7 +91,7 @@ export const assignmentDueJob = (channel: CustomerChannel) =>
           id: assignmentId,
         });
         if (!marked) return;
-        let told = false;
+        let told: "sent" | "held" | "no" = "no";
         // A test conversation's hand-off has no thread, and a delivered one has lost it.
         if (hasThread && row.threadId) {
           const now = job.clock();
@@ -102,6 +102,9 @@ export const assignmentDueJob = (channel: CustomerChannel) =>
             to,
             now,
             channel,
+            // The business speaks unprompted: quiet hours hold it until they end.
+            businessStarted: true,
+            jobs: job.jobs,
             content: { text: stallNote, verified: row.verified ?? false },
           });
           if (noted?.outcome === "send") {
@@ -118,7 +121,9 @@ export const assignmentDueJob = (channel: CustomerChannel) =>
               },
               now,
             );
-            told = true;
+            told = "sent";
+          } else if (noted?.outcome === "hold") {
+            told = "held";
           }
         }
         await job.pages.send(tx, {
@@ -126,7 +131,7 @@ export const assignmentDueJob = (channel: CustomerChannel) =>
           cause: assignmentOverdueCause,
           urgency: "routine",
           title: "Work for a Customer is overdue",
-          text: `An Assignment from ${row.name} is past its due time.${told ? " Its Customer has been told the team is still working on it." : " Its Customer has not been sent a note."}`,
+          text: `An Assignment from ${row.name} is past its due time.${told === "sent" ? " Its Customer has been told the team is still working on it." : told === "held" ? " Its Customer's note is held, not sent: quiet hours. Send or drop it from the thread." : " Its Customer has not been sent a note."}`,
           path: `/representatives/${row.representativeId}`,
         });
       });

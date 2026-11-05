@@ -65,7 +65,8 @@ const rulesOf: Record<OutboundKind, readonly GateRule[]> = {
   code_hand_off: ["held", "blocked", "optedOut", "on", "channel"],
   limit_note: ["held", "blocked", "optedOut", "on", "channel"],
   // The fixed note for stalled work, which a Customer is owed only while the Representative holds the thread.
-  stall_note: ["held", "blocked", "optedOut", "on", "channel"],
+  // The business speaks unprompted, after a silence, so quiet hours hold it until they end.
+  stall_note: ["held", "blocked", "optedOut", "on", "quietHours", "channel"],
   owner: ["blocked", "optedOut", "channel"],
   // The owner's send passes the Channel's limits: they chose to. A release by itself checks them again.
   released: ["blocked", "optedOut"],
@@ -77,9 +78,11 @@ const rulesOf: Record<OutboundKind, readonly GateRule[]> = {
   emergency_script: ["blocked", "channel"],
   // That held script when the owner sends it. Still safety text, so an opt-out doesn't stop it, and they chose to pass the Channel's limits.
   emergency_script_released: ["blocked"],
-  // All a reply passes but these: the owner's word settles them for a draft, as for a released
-  // message, and the note is code's, which isn't what the caps count.
-  holding_note: gateOrder.filter((rule) => rule !== "topic" && rule !== "caps"),
+  // The draft's holding note answers a Customer who just wrote, so quiet hours don't apply. It passes
+  // all a reply does but the topic and the caps: the owner's word settles a draft, and the note is code's.
+  holding_note: gateOrder.filter(
+    (rule) => rule !== "topic" && rule !== "caps" && rule !== "quietHours",
+  ),
   reply_draft: gateOrder.filter((rule) => rule !== "topic" && rule !== "caps"),
 };
 

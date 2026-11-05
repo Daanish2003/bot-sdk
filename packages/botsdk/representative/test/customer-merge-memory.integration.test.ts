@@ -149,6 +149,8 @@ async function instance() {
   });
   await rpc.representative.approve({ id });
   await rpc.representative.setEnabled({ id, enabled: true });
+  // No quiet hours: a hand-off's overdue note is the business speaking unprompted, and the real clock may be night.
+  await rpc.representative.setQuietHours({ id, startHour: 0, endHour: 0, timeZone: "UTC" });
   /** What a verified sender's Turn was told: the prompt of the Model call it makes. */
   const promptFor = async (externalId: string) => {
     const before = fake.calls.length;
@@ -830,7 +832,9 @@ describe("a hand-off's Customer", () => {
     turns.push(handsOff);
     await say("I want a refund", bob);
 
-    await passTime(threadIdleMs);
+    // The hand-off's overdue note comes due on time, before the idle days.
+    await passTime(31 * 60_000);
+    await passTime(threadIdleMs + 60_000);
     await passTime(threadExpiryMs);
     expect(await handOffs()).toEqual([{ threadId: null, customerId: first.id }]);
 

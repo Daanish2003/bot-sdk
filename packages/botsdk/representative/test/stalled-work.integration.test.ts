@@ -11,6 +11,7 @@ import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { noCustomerChannel } from "../src/server/customer-proof";
+import { representativeHeldMessage } from "../src/server/db/schema";
 import { representativeFeature } from "../src/server/plugin";
 import { stallNote } from "../src/server/stalled-work";
 import { receiveCustomerMessage } from "../src/server/thread-turns";
@@ -68,10 +69,15 @@ afterEach(async () => {
   for (const runner of runners.splice(0)) await runner.stop();
 });
 
-async function serving(representativeRounds: Rounds, botRounds: Rounds = [quiet], withBot = true) {
+async function serving(
+  representativeRounds: Rounds,
+  botRounds: Rounds = [quiet],
+  withBot = true,
+  start = new Date("2026-11-04T10:00:00Z"),
+) {
   const fake = createFakeAdapter({ rounds: representativeRounds });
   const botFake = createFakeAdapter({ rounds: botRounds });
-  const timer = fakeJobClock(new Date("2026-11-04T10:00:00Z"));
+  const timer = fakeJobClock(start);
   let made: ReturnType<typeof createTestSdk> | undefined;
   const jobs = inProcessRunner({
     db: getTestDb(),
@@ -198,6 +204,27 @@ describe("an Assignment from a Representative that is overdue", () => {
 
     expect((await world.assignment()).overdueAt).not.toBeNull();
     expect(await world.pages("assignment_overdue")).toHaveLength(1);
+  });
+
+  it("holds the Customer's note at night, and tells the owner so", async () => {
+    const world = await serving(
+      [handsOff(), quiet()],
+      [quiet],
+      true,
+      new Date("2026-11-04T21:30:00Z"),
+    );
+    await world.send("I want a refund");
+    await world.drain();
+
+    await world.wait(31 * minute);
+
+    // The owner is Paged at once; the Customer is not woken at night, and the note waits as a held message.
+    const [page] = await world.pages("assignment_overdue");
+    expect(page!.text).toContain("held, not sent");
+    expect(await world.notes()).toEqual([]);
+    expect(await getTestDb().select().from(representativeHeldMessage)).toMatchObject([
+      { text: stallNote },
+    ]);
   });
 
   it("Pages the owner but sends nothing on a thread the owner holds", async () => {

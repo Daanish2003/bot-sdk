@@ -372,7 +372,11 @@ describe("what each message passes", () => {
       kind: "limit_note",
       passes: ["held", "blocked", "optedOut", "on", "channel"],
     },
-    // Quiet hours can't be tried here: the stall note (#1312) isn't on this base and shares the kind.
+    // The business speaking unprompted, after a silence: quiet hours hold it.
+    "the stall holding note": {
+      kind: "stall_note",
+      passes: ["held", "blocked", "optedOut", "on", "quietHours", "channel"],
+    },
     "the draft holding note": {
       kind: "holding_note",
       passes: ["held", "blocked", "optedOut", "on", "channel"],
@@ -393,9 +397,7 @@ describe("what each message passes", () => {
   it.each(Object.entries(table))("%s passes exactly the rules it lists", async (_name, row) => {
     const world = await heardWorld();
     const threadId = await world.threadId();
-    const tried =
-      row.kind === "holding_note" ? order.filter((rule) => rule !== "quietHours") : order;
-    for (const rule of tried) {
+    for (const rule of order) {
       // Each rule alone, on a fresh set of rows.
       await db().delete(representativeOutboundDecision);
       await db()
