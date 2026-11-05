@@ -1,6 +1,7 @@
 import { batchLongestMs } from "@botsdk/bot/bot/triggers";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { claimJob, type inProcessRunner } from "@botsdk/bot/runner/internal";
+import { job } from "@botsdk/bot/storage";
 import { eq } from "drizzle-orm";
 import { expect } from "vitest";
 
@@ -8,6 +9,7 @@ import { expect } from "vitest";
 import {
   representative,
   representativeFact,
+  representativeThread,
   representativeTopic,
 } from "../../botsdk/representative/src/server/db/schema";
 import { noCustomerChannel } from "../../botsdk/representative/src/server/customer-proof";
@@ -160,6 +162,28 @@ export async function testCustomerTurn(
   const ended = await deps.runner.status(started.jobId);
   expect(ended?.status, ended?.lastError ?? undefined).toBe("succeeded");
   return started;
+}
+
+/**
+ * A stand-in Customer heard, with nothing sent on their thread and no Turn holding it: the start of a
+ * test whose subject is what comes after. No Turn runs, since one with no reply would hand off. It
+ * needs a runner whose clock doesn't move before this returns, as that is what makes a Turn due.
+ */
+export async function testCustomerHeard(deps: Pick<TestDeps, "parts">, turn: TestCustomerTurn) {
+  const { jobId, ...sent } = await startTestCustomerTurn(deps, turn);
+  const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
+  await getTestDb().transaction(async (tx) => {
+    const [row] = await tx
+      .select({ payload: job.payload, turnId: job.idempotencyKey })
+      .from(job)
+      .where(eq(job.id, jobId));
+    await feature.context.jobs.cancelIn(tx, row!.turnId!);
+    await tx
+      .update(representativeThread)
+      .set({ turnId: null, waitingFrom: null, waitingSince: null })
+      .where(eq(representativeThread.id, (row!.payload as { threadId: string }).threadId));
+  });
+  return sent;
 }
 
 /**
