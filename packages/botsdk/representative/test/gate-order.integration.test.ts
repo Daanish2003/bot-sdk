@@ -637,12 +637,10 @@ describe("no path sends without a decision", () => {
       proof: { rule: "codeRoundTrip" },
     });
 
-    // The proof, and code's hand-off: the Turn said nothing else to them.
-    await expect.poll(() => world.messaging.sends.length, poll).toBe(2);
+    await expect.poll(() => world.messaging.sends.length, poll).toBe(1);
     const decisions = await world.decisions();
     expect(decisions.filter(({ kind }) => kind === "proof")).toMatchObject([{ outcome: "send" }]);
-    const secret = world.messaging.sends.find(({ message }) => message.text !== handOffMessage);
-    expect(JSON.stringify(decisions)).not.toContain(secret!.message.text);
+    expect(JSON.stringify(decisions)).not.toContain(world.messaging.sends[0]!.message.text);
   });
 
   it("holds a message that a rule stops, stored and not sent, with its decision", async () => {

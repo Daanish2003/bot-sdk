@@ -1,3 +1,4 @@
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { AnyTextAdapter } from "@tanstack/ai";
 import { eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
@@ -17,12 +18,18 @@ import {
   claimPastDeliveries,
   startTestCustomerTurn,
   autoSource,
+  fakeChannel,
 } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, runError, text, toolCall } from "@botsdk/testing/fake-adapter";
 import { representative } from "../src";
-import { representativeHandOff, representativeThread } from "../src/server/db/schema";
+import {
+  representativeHandOff,
+  representativeHeldMessage,
+  representativeOutboundDecision,
+  representativeThread,
+} from "../src/server/db/schema";
 import { handOffMessage } from "../src/server/replies";
 import { rules, turnStepLimit, turnTimeLimitMs } from "../src/server/turn";
 import type { Draft, RepresentativeTool } from "../src/shared/contract";
@@ -1042,6 +1049,66 @@ describe("a Turn ending with no reply and no refusal", () => {
       expect(await sent()).toEqual([]);
       expect(await assignments()).toEqual([]);
       expect(await turnHolder((await thread()).id)).toBeNull();
+    });
+
+    it("still hands off when all that waits is another job's note, not this Turn's word", async () => {
+      const { deps, turn, sent, drain, thread } = await serving([]);
+      const { representativeLoop } = deps.parts.features[0]!.context;
+      vi.spyOn(representativeLoop!, "run").mockImplementation(async () => {
+        const threadId = (await thread()).id;
+        const decisionId = uuidv7();
+        await getTestDb().transaction(async (tx) => {
+          await tx.insert(representativeOutboundDecision).values({
+            id: decisionId,
+            threadId,
+            kind: "stall_note",
+            outcome: "hold",
+            rule: "quietHours",
+            channel: fakeChannel,
+            externalId: "+15550001",
+            createdAt: new Date(),
+          });
+          await tx.insert(representativeHeldMessage).values({
+            id: uuidv7(),
+            decisionId,
+            threadId,
+            text: "Still working on it.",
+            verified: false,
+            createdAt: new Date(),
+          });
+        });
+        throw new Error("The database went away");
+      });
+
+      await turn();
+      await drain();
+
+      expect(textsOf(await sent())).toEqual([handOffMessage]);
+    });
+
+    it("keeps what it took owed on a thread at a limit, for when the limit lifts", async () => {
+      const { deps, turn, sent, drain, thread } = await serving([]);
+      const { representativeLoop } = deps.parts.features[0]!.context;
+      vi.spyOn(representativeLoop!, "run").mockImplementation(async () => {
+        await getTestDb()
+          .update(representativeThread)
+          .set({ limitNotedAt: new Date() })
+          .where(eq(representativeThread.id, (await thread()).id));
+        throw new Error("The database went away");
+      });
+
+      await turn();
+      await drain();
+
+      expect(await sent()).toEqual([]);
+      const [row] = await getTestDb()
+        .select({
+          turnId: representativeThread.turnId,
+          waitingFrom: representativeThread.waitingFrom,
+        })
+        .from(representativeThread)
+        .where(eq(representativeThread.id, (await thread()).id));
+      expect(row).toEqual({ turnId: null, waitingFrom: 1 });
     });
 
     it("sends nothing on a thread the owner took over", async () => {

@@ -62,6 +62,7 @@ import {
   representativeHandOff,
   representativeRelease,
   representativeHeldMessage,
+  representativeOutboundDecision,
   representativeThread,
   representativeThreadMessage,
 } from "./db/schema";
@@ -522,29 +523,40 @@ async function handOffInCode(
 /**
  * Whether Turn `turnId` still holds the thread with nothing having gone to the Customer. From what's
  * stored, as a failed job has nothing else: its first reply or note clears `turnFrom`, code's hand-off
- * too, and what the gate held for it is an answer waiting. One its fence rolled back and logged
- * `cancelled` never waited for anyone. A Turn that hasn't begun left its batch waiting for the next.
+ * too, a proof it sent has them answering that, and a reply the gate held for it is an answer waiting.
+ * One its fence rolled back and logged `cancelled` never waited for anyone. A Turn that hasn't begun
+ * left its batch waiting for the next.
  */
 async function turnSentNothing(tx: Transaction, { threadId, turnId }: LiveThread) {
   const [thread] = await tx
     .select({ turnFrom: representativeThread.turnFrom })
     .from(representativeThread)
-    .where(and(eq(representativeThread.id, threadId), eq(representativeThread.turnId, turnId)));
+    .where(and(eq(representativeThread.id, threadId), eq(representativeThread.turnId, turnId)))
+    .for("update");
   if (thread?.turnFrom == null) return false;
+  const decision = representativeOutboundDecision;
   const held = representativeHeldMessage;
-  const [waiting] = await tx
-    .select({ id: held.id })
-    .from(held)
+  const [told] = await tx
+    .select({ id: decision.id })
+    .from(decision)
+    .leftJoin(held, eq(held.decisionId, decision.id))
     .where(
       and(
-        eq(held.threadId, threadId),
-        // A Turn's id is made before anything it writes.
-        gt(held.id, turnId),
-        or(isNull(held.resolution), ne(held.resolution, "cancelled")),
+        eq(decision.threadId, threadId),
+        // A Turn's id is made before anything it writes. Other work's notes aren't this Turn's word.
+        gt(decision.id, turnId),
+        or(
+          and(eq(decision.kind, "proof"), eq(decision.outcome, "send")),
+          and(
+            eq(decision.kind, "reply"),
+            isNotNull(held.id),
+            or(isNull(held.resolution), ne(held.resolution, "cancelled")),
+          ),
+        ),
       ),
     )
     .limit(1);
-  return !waiting;
+  return !told;
 }
 
 /**
@@ -579,15 +591,18 @@ async function handOffAtEnd(turn: Omit<HandOffTurn, "job"> & Pick<Turn, "job">, 
   return handedOff;
 }
 
-/** A Turn's hand-off from what's stored, when its loop never ran or its job has failed: nothing of it is in memory. */
+/**
+ * A Turn's hand-off from what's stored, in `tx`, when its loop never ran or its job has failed: nothing
+ * of it is in memory. What it made is for `settleStoredHandOff`, once `tx` has committed.
+ */
 async function handOffFromStore(
   services: TurnServices,
+  tx: Transaction,
   channel: CustomerChannel,
   threadId: string,
   turnId: string,
 ) {
-  const { db, jobs, clock } = services;
-  const [row] = await db
+  const [row] = await tx
     .select({
       turnFrom: representativeThread.turnFrom,
       waitingFrom: representativeThread.waitingFrom,
@@ -614,12 +629,14 @@ async function handOffFromStore(
   const { turnFrom, customerId, representativeId, userId, name, releaseId } = row;
   // The batch closed before the first message waiting: a Turn's own replies past it read as earlier.
   const upTo = row.waitingFrom === null ? row.messageCount : row.waitingFrom - 1;
-  const sender = await readSender(db, threadId, turnFrom, upTo);
+  const sender = await readSender(tx, threadId, turnFrom, upTo);
   if (!sender) return;
   const { verified, channel: heardOn, externalId } = sender;
   const heard = { channel: heardOn, externalId };
-  const entries = await readThread(db, threadId, upTo, turnFrom, verified ? null : heard);
-  const [handOff] = await db
+  const entries = await readThread(tx, threadId, upTo, turnFrom, verified ? null : heard);
+  // Its thread has gone, as the job itself would find.
+  if (entries.length === 0) return;
+  const [handOff] = await tx
     .select({ id: representativeHandOff.assignmentId })
     .from(representativeHandOff)
     .where(
@@ -652,16 +669,15 @@ async function handOffFromStore(
     entries,
     progress: { ...newProgress(), handedOff: handOff !== undefined },
   };
-  const now = clock();
-  let made: MadeHandOff | undefined;
-  await db.transaction(async (tx) => {
-    made = undefined;
-    if (await turnSentNothing(tx, thread)) made = (await handOffInCode(turn, tx, now)).made;
-  });
-  if (made) {
-    jobs.wake();
-    await settleHandOff(turn, made);
-  }
+  if (!(await turnSentNothing(tx, thread))) return;
+  const { made } = await handOffInCode(turn, tx, services.clock());
+  return made && { turn, made };
+}
+
+async function settleStoredHandOff(stored: Awaited<ReturnType<typeof handOffFromStore>>) {
+  if (!stored) return;
+  stored.turn.job.jobs.wake();
+  await settleHandOff(stored.turn, stored.made);
 }
 
 /**
@@ -1265,11 +1281,19 @@ export function representativeTurnJob(
     onFailed: async ({ threadId, turnId }, _error, services) => {
       // Apart: this often runs because the database failed, and the thread is released regardless.
       try {
-        await handOffFromStore(services, customerChannel, threadId, turnId);
+        await settleStoredHandOff(
+          await services.db.transaction((tx) =>
+            handOffFromStore(services, tx, customerChannel, threadId, turnId),
+          ),
+        );
       } catch (error) {
         services.logger.error(`Representative Turn ${turnId}: no hand-off`, error);
       }
-      await services.db.transaction((tx) => endTurn(services, tx, threadId, turnId));
+      await services.db.transaction(async (tx) => {
+        // A thread at a limit was told someone will reply, so what this Turn took stays owed.
+        await keepLimitBatch(tx, threadId, turnId);
+        await endTurn(services, tx, threadId, turnId);
+      });
     },
     run: async ({ threadId, turnId }, job) => {
       // No Turn starts during a Ban (ticket #1299). Recorded, so a replay goes the way this one did.
@@ -1393,9 +1417,12 @@ export function representativeTurnJob(
             job.logger.error(`Representative Turn ${turnId} ended early: ${why}`);
           }
         } else {
-          await job.step("representative_no_start_hand_off", () =>
-            handOffFromStore(job, customerChannel, threadId, turnId),
-          );
+          // Set only by a live write, afresh on each try of it.
+          let stored: Awaited<ReturnType<typeof handOffFromStore>>;
+          await job.step("representative_no_start_hand_off", async (tx) => {
+            stored = await handOffFromStore(job, tx, customerChannel, threadId, turnId);
+          });
+          await settleStoredHandOff(stored);
         }
         await job.step("representative_turn_end", async (tx) => {
           if (limitPast) await limitPassed(tx, threadId, turnId);

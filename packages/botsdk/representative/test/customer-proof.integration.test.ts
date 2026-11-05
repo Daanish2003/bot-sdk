@@ -10,7 +10,6 @@ import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc, createTestChat } from "@ai-chat/test-support/sdk";
 import {
-  answers,
   startTestCustomerTurn,
   testCustomerTurn,
   type TestCustomerTurn,
@@ -253,8 +252,8 @@ describe("a code round trip on SMS", () => {
 });
 describe("what a code allows", () => {
   /** A Customer on SMS who has been sent a code. */
-  async function codeSent(extra: Round[], afterAsking: Round = quiet()) {
-    const started = await instance([verifies(), afterAsking, ...extra]);
+  async function codeSent(extra: Round[]) {
+    const started = await instance([verifies(), quiet(), ...extra]);
     const account = await owner(started.deps);
     await testCustomerTurn(started.deps, sms(account.id, "Hi"));
     await expect.poll(() => started.sent.length).toBe(1);
@@ -264,7 +263,7 @@ describe("what a code allows", () => {
   const wrongTo = (code: string) => (code === "000000" ? "000001" : "000000");
 
   it("leaves no record of a proof once the thread closes idle", async () => {
-    const { timer } = await codeSent([quiet()], answers());
+    const { timer } = await codeSent([]);
     expect(await getTestDb().select().from(representativeVerification)).toHaveLength(1);
 
     timer.advance(7 * 24 * 60 * minute);

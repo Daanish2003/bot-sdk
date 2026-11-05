@@ -328,7 +328,7 @@ async function scriptSaidIn(tx: Transaction, releaseId: string | null, text: str
  * Undefined once the thread has gone.
  */
 export async function readSender(
-  db: FeatureContext["db"],
+  db: FeatureContext["db"] | Transaction,
   threadId: string,
   position: number,
   upTo: number,
@@ -368,7 +368,7 @@ export async function readSender(
  * number or a recycled one is that identity too.
  */
 export async function readThread(
-  db: FeatureContext["db"],
+  db: FeatureContext["db"] | Transaction,
   threadId: string,
   upTo: number,
   batchFrom: number,

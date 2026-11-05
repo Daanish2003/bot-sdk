@@ -472,13 +472,12 @@ describe("every send site", () => {
   it("leaves a decision for a proof, which holds no secret", async () => {
     const world = await instance([
       round(toolCall({ name: "verify_customer", input: {}, id: "verify" })),
-      replies("Check your messages."),
       quiet(),
     ]);
 
     await world.hears("Prove me", { rule: "codeRoundTrip" });
 
-    await expect.poll(() => world.messaging.sends.length, poll).toBe(2);
+    await expect.poll(() => world.messaging.sends.length, poll).toBe(1);
     const [decision] = await world.decisions();
     expect(decision).toMatchObject({
       kind: "proof",
@@ -489,9 +488,7 @@ describe("every send site", () => {
       externalId: number,
       messageId: null,
     });
-    const secret = world.messaging.sends.find(
-      ({ message }) => message.text !== "Check your messages.",
-    )!.message.text;
+    const secret = world.messaging.sends[0]!.message.text;
     expect(JSON.stringify(decision)).not.toContain(secret);
   });
 
