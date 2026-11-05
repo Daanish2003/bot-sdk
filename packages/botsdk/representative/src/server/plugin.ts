@@ -53,7 +53,7 @@ import { exportCustomerSummaries, customerSummaryJob } from "./customer-summary"
 import { draftDueJob } from "./draft-due";
 import { assignmentDueJob, ownerWaitJob } from "./stalled-work";
 import { stopUserTurns } from "./thread-turns";
-import { widgetSessionRoutes } from "./widget-key";
+import { type WidgetSessionCheck, widgetSessionRoutes } from "./widget-key";
 import { handOffEndedJob, limitCheckJob, representativeTurnJob } from "./turn";
 
 export type RepresentativeOptions = {
@@ -75,6 +75,13 @@ export type RepresentativeOptions = {
    * picks. Without it the picker isn't offered and uploads still work.
    */
   knowledgeFiles?: KnowledgeFiles;
+  /**
+   * Checks each web chat session start request before a session is given: a request it returns false
+   * for, or throws on, gets the same refusal as a wrong origin, and a throw is logged. This is where a
+   * Host filters public traffic, with the service it chooses (Turnstile, hCaptcha, its own). The SDK
+   * ships none, so without this every request from an allowed origin on a live key starts a session.
+   */
+  widgetSessionCheck?: WidgetSessionCheck;
 };
 
 /**
@@ -141,7 +148,7 @@ export function representativeFeature(
     },
     stopTurns: (userId, context) => stopUserTurns(context, userId),
     channelAccountOwner: (tx, id) => ownerOfHeldAccount(tx, id),
-    publicRoutes: [...proofLinkRoutes, ...widgetSessionRoutes],
+    publicRoutes: [...proofLinkRoutes, ...widgetSessionRoutes(options.widgetSessionCheck)],
     jobs: [
       representativeTurnJob(options.concurrency, channel),
       customerDeliveryJob(channel),
