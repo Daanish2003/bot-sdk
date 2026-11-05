@@ -3,7 +3,12 @@ import { eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { saveCredentials } from "@botsdk/bot/models/internal";
-import { inProcessRunner, type JobRunner, reapStaleJobs } from "@botsdk/bot/runner/internal";
+import {
+  inProcessRunner,
+  type JobRunner,
+  PermanentJobError,
+  reapStaleJobs,
+} from "@botsdk/bot/runner/internal";
 import { botAssignment, job, jobEvent } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
@@ -15,11 +20,11 @@ import {
 } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
-import { createFakeAdapter, round, text, toolCall } from "@botsdk/testing/fake-adapter";
+import { createFakeAdapter, round, runError, text, toolCall } from "@botsdk/testing/fake-adapter";
 import { representative } from "../src";
 import { representativeHandOff, representativeThread } from "../src/server/db/schema";
 import { handOffMessage } from "../src/server/replies";
-import { rules } from "../src/server/turn";
+import { rules, turnStepLimit, turnTimeLimitMs } from "../src/server/turn";
 import type { Draft, RepresentativeTool } from "../src/shared/contract";
 
 /*
@@ -284,7 +289,7 @@ describe("a second refusal", () => {
 
   it("with no Bot opens nothing, tells the Customer, and shows it waits on the owner", async () => {
     const { turn, sent, thread, rpc, fake } = await serving(
-      [guesses("It is 10 USD."), guesses("It is 12 USD."), quiet(), quiet()],
+      [guesses("It is 10 USD."), guesses("It is 12 USD."), greets("Yes?"), quiet()],
       { noBot: true },
     );
 
@@ -306,7 +311,7 @@ describe("a second refusal", () => {
 
     // The Customer writing again is a new Turn's to answer, not the owner's.
     await turn("Hello?");
-    expect((await thread()).waitingOn).toBe(null);
+    expect((await thread()).waitingOn).not.toBe("owner");
   });
 
   it("opens no second Assignment on a Turn that already handed off", async () => {
@@ -779,6 +784,293 @@ describe("a Turn ending with a refusal outstanding", () => {
   });
 });
 
+describe("a Turn ending with no reply and no refusal", () => {
+  const noKind = () =>
+    round(toolCall({ name: "reply", input: { topic: "general", text: "It is free." } }));
+  const reads = () => round(toolCall({ name: "read_customer_work", input: {} }));
+
+  /** Fails every attempt of the Turn's job where its loop runs, after playing the loop with `playFirst`. */
+  const loopThrows = (deps: TestDeps, playFirst = false) => {
+    const { representativeLoop } = deps.parts.features[0]!.context;
+    const real = representativeLoop!.run;
+    return vi.spyOn(representativeLoop!, "run").mockImplementation(async (job, options) => {
+      if (playFirst) await real(job, options);
+      throw new Error("The database went away");
+    });
+  };
+
+  const turnHolder = async (threadId: string) => {
+    const [row] = await getTestDb()
+      .select({ turnId: representativeThread.turnId })
+      .from(representativeThread)
+      .where(eq(representativeThread.id, threadId));
+    return row?.turnId;
+  };
+
+  it.each([
+    ["goes quiet", () => [quiet()]],
+    ["writes plain text, and then nothing", () => [round(text("It is free.")), quiet()]],
+    ["hits a Model error", () => [round(runError("The Provider is down"))]],
+    [
+      "repeats a reply with no kind until its Steps run out",
+      () => Array.from({ length: 12 }, noKind),
+    ],
+    ["hands off itself and then says nothing", () => [round(handsOff()), quiet()]],
+  ] as Array<[string, () => Round[]]>)(
+    "sends one hand-off when the Model %s",
+    async (_name, rounds) => {
+      const { turn, sent, assignments, fake, thread, drain } = await serving(rounds());
+
+      await turn();
+      await drain();
+
+      expect(textsOf(await sent())).toEqual([handOffMessage]);
+      expect(await assignments()).toHaveLength(1);
+      expect(fake.calls.length).toBeLessThanOrEqual(turnStepLimit);
+      expect(await turnHolder((await thread()).id)).toBeNull();
+    },
+  );
+
+  it("sends one hand-off when the Turn times out", async () => {
+    const made = await serving([reads(), greets("Never sent: it ran out of time.")], {
+      before: async (call) => {
+        if (call === 1) made.timer.advance(turnTimeLimitMs + 1);
+      },
+    });
+
+    await made.turn();
+    await made.drain();
+
+    expect(textsOf(await made.sent())).toEqual([handOffMessage]);
+    expect(await made.assignments()).toHaveLength(1);
+  });
+
+  it("sends one hand-off when no Model can run it", async () => {
+    const { deps, rpc, id, turn, sent, assignments, thread, fake } = await serving([]);
+    await rpc.representative.updateDraft({ id, draft: { model: null } });
+    await rpc.representative.approve({ id });
+    const { models } = deps.parts.features[0]!.context;
+    vi.spyOn(models, "listAvailableModels").mockResolvedValue({ models: [] } as never);
+
+    await turn();
+
+    expect(textsOf(await sent())).toEqual([handOffMessage]);
+    expect(await assignments()).toHaveLength(1);
+    expect(fake.calls).toEqual([]);
+    expect(await turnHolder((await thread()).id)).toBeNull();
+  });
+
+  it("says nothing from a Representative switched off before its Turn", async () => {
+    const { rpc, id, send, timer, claim, attemptsEnd, sent, assignments } = await serving([]);
+    await send("How much?");
+    await rpc.representative.setEnabled({ id, enabled: false });
+    timer.advance(500);
+    await claim();
+    await attemptsEnd();
+
+    expect(await sent()).toEqual([]);
+    expect(await assignments()).toEqual([]);
+  });
+
+  it("sends one hand-off with no Bot, leaving the thread with the owner", async () => {
+    const { turn, sent, thread } = await serving([quiet()], { noBot: true });
+
+    await turn();
+
+    expect(textsOf(await sent())).toEqual([handOffMessage]);
+    expect((await thread()).waitingOn).toBe("owner");
+  });
+
+  it("sends the hand-off once when a crash replays the Turn", async () => {
+    let open!: () => void;
+    const opened = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    onTestFinished(() => open());
+    const { deps, send, sent, claim, timer, drain, leaseLost, assignments } = await serving([
+      quiet(),
+    ]);
+    let hinted = false;
+    const { threads } = deps.parts.features[0]!.context;
+    // Held after the hand-off's commit: this attempt goes no further until its lease has gone.
+    vi.spyOn(threads!, "hintChanged").mockImplementationOnce(async () => {
+      hinted = true;
+      await opened;
+    });
+    await send("How much?");
+    timer.advance(500);
+    await claim();
+    await expect.poll(() => hinted, poll).toBe(true);
+
+    await leaseLost();
+    open();
+    await drain();
+
+    expect(textsOf(await sent())).toEqual([handOffMessage]);
+    expect(await assignments()).toHaveLength(1);
+  });
+
+  it("sends no hand-off after a reply, when the Model then errors", async () => {
+    const { turn, sent, assignments, drain } = await serving([
+      greets("Let me look."),
+      round(runError("The Provider is down")),
+    ]);
+
+    await turn();
+    await drain();
+
+    expect(textsOf(await sent())).toEqual(["Let me look."]);
+    expect(await assignments()).toEqual([]);
+  });
+
+  it("sends no hand-off after a reply, when the Model then goes quiet", async () => {
+    const { turn, sent, assignments } = await serving([greets("Let me look."), quiet()]);
+
+    await turn();
+
+    expect(textsOf(await sent())).toEqual(["Let me look."]);
+    expect(await assignments()).toEqual([]);
+  });
+
+  it("sends nothing more on a reply waiting for the owner", async () => {
+    const { turn, sent, assignments, drain, thread } = await serving([
+      round(
+        toolCall({
+          name: "reply",
+          input: {
+            topic: "unlisted topic",
+            sources: [autoSource],
+            text: "Hi.",
+            kind: "small_talk",
+          },
+        }),
+      ),
+      round(runError("The Provider is down")),
+    ]);
+
+    await turn();
+    await drain();
+
+    expect(await sent()).toEqual([]);
+    expect(textsOf((await thread()).messages)).not.toContain(handOffMessage);
+    expect(await assignments()).toEqual([]);
+  });
+
+  it("leaves a test conversation reading as the silence it was", async () => {
+    const { rpc, id, timer, claim, attemptsEnd, assignments } = await serving([quiet()]);
+    await rpc.representative.updateDraft({
+      id,
+      draft: {
+        tests: [
+          {
+            name: "Silence",
+            message: "How much?",
+            expect: [{ kind: "replied" }],
+          },
+        ],
+      },
+    });
+    await rpc.representative.runTests({ id });
+    timer.advance(500);
+    await claim({ overdue: true });
+    await attemptsEnd();
+
+    expect((await rpc.representative.get({ id })).testStatus).toBe("failed");
+    expect(await assignments()).toEqual([]);
+  });
+
+  describe("because its job failed", () => {
+    it("sends one hand-off when it throws until its retries run out, and releases the thread", async () => {
+      const { deps, turn, sent, assignments, drain, thread } = await serving([]);
+      const thrown = loopThrows(deps);
+
+      await turn();
+      await drain();
+
+      expect(thrown.mock.calls.length).toBeGreaterThan(1);
+      expect(textsOf(await sent())).toEqual([handOffMessage]);
+      expect(await assignments()).toHaveLength(1);
+      expect(await turnHolder((await thread()).id)).toBeNull();
+    });
+
+    it("opens no second Assignment on a Turn that handed off before it threw", async () => {
+      const { deps, turn, sent, assignments, drain } = await serving([round(handsOff()), quiet()]);
+      loopThrows(deps, true);
+
+      await turn();
+      await drain();
+
+      expect(textsOf(await sent())).toEqual([handOffMessage]);
+      expect(await assignments()).toHaveLength(1);
+    });
+
+    it("sends no hand-off on a Turn that replied before it threw", async () => {
+      const { deps, turn, sent, assignments, drain, thread } = await serving([
+        greets("Let me look."),
+        quiet(),
+      ]);
+      loopThrows(deps, true);
+
+      await turn();
+      await drain();
+
+      expect(textsOf(await sent())).toEqual(["Let me look."]);
+      expect(await assignments()).toEqual([]);
+      expect(await turnHolder((await thread()).id)).toBeNull();
+    });
+
+    it("sends nothing on a thread the owner took over", async () => {
+      const { deps, turn, sent, drain, thread, rpc } = await serving([]);
+      const { representativeLoop } = deps.parts.features[0]!.context;
+      vi.spyOn(representativeLoop!, "run").mockImplementation(async () => {
+        await rpc.representative.threadTakeOver({ id: (await thread()).id });
+        throw new Error("The database went away");
+      });
+
+      await turn();
+      await drain();
+
+      expect(await sent()).toEqual([]);
+    });
+
+    it("still releases the thread when the hand-off itself fails", async () => {
+      const { deps, turn, sent, drain, thread } = await serving([]);
+      loopThrows(deps);
+      const { assignments } = deps.parts.features[0]!.context;
+      vi.spyOn(assignments!, "create").mockRejectedValue(new Error("The database went away"));
+
+      await turn();
+      await drain();
+
+      expect(await sent()).toEqual([]);
+      expect(await turnHolder((await thread()).id)).toBeNull();
+    });
+
+    it("leaves what waited to the next Turn, which ends with its own", async () => {
+      const { deps, send, claim, timer, attemptsEnd, sent, drain, fake } = await serving([quiet()]);
+      const { representativeLoop } = deps.parts.features[0]!.context;
+      let first = true;
+      const real = representativeLoop!.run;
+      vi.spyOn(representativeLoop!, "run").mockImplementation(async (job, options) => {
+        if (!first) return real(job, options);
+        first = false;
+        await send("Second");
+        throw new PermanentJobError("The database went away");
+      });
+
+      await send("First");
+      timer.advance(500);
+      await claim();
+      await attemptsEnd();
+      timer.advance(10_000);
+      await drain();
+
+      // One for each Turn: the first failed, and the one after it said nothing.
+      expect(textsOf(await sent())).toEqual([handOffMessage, handOffMessage]);
+      expect(fake.calls).toHaveLength(1);
+    });
+  });
+});
 describe("a cant_confirm reply with no question", () => {
   it("counts as a refusal, so a Model repeating it hands off", async () => {
     const repeats = () =>
@@ -951,7 +1243,9 @@ describe("a Turn's Checkpoints", () => {
 
 describe("who a Turn's sender is", () => {
   it("leaves the system text the same for each sender, so documents cache across them", async () => {
-    const { deps, id, fake, timer, claim, attemptsEnd } = await serving([quiet(), quiet()]);
+    const { deps, id, fake, timer, claim, attemptsEnd } = await serving([quiet(), quiet()], {
+      noBot: true,
+    });
     const run = async (externalId: string, proof?: { rule: "sameIdentity" }) => {
       await startTestCustomerTurn(deps, { representativeId: id, externalId, message: "Hi", proof });
       timer.advance(500);

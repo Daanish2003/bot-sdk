@@ -1,6 +1,6 @@
 import { type AnyServerTool, toolDefinition } from "@tanstack/ai";
 import { ORPCError } from "@orpc/contract";
-import { and, count, eq, gt, inArray, isNotNull, isNull, max } from "drizzle-orm";
+import { and, count, eq, gt, inArray, isNotNull, isNull, max, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { defaultModelFor } from "@botsdk/client/models/models";
@@ -62,6 +62,7 @@ import {
   representativeHandOff,
   representativeRelease,
   representativeHeldMessage,
+  representativeThread,
   representativeThreadMessage,
 } from "./db/schema";
 import { logGap } from "./gaps";
@@ -141,7 +142,7 @@ export const rules =
   "name with an exact quote from it, or the memory of a verified Customer with an exact quote from it. A key you write in the text counts as a source. Code refuses " +
   "a reply it can't check, sends nothing, and tells you why. You get one retry: a second refusal " +
   "in a row ends the Turn, and so does ending it with a refusal not made good, and code tells the " +
-  "Customer it has been passed on.\n\n" +
+  "Customer it has been passed on. Code tells them the same if a Turn ends with nothing sent to them.\n\n" +
   "Each reply also has a topic: pick the one it's about from the topics a note from the system lists, " +
   "or give your own short label if none fits. Unless the owner has chosen to let that topic go out " +
   "by itself, a reply waits for the owner, the Customer gets a fixed note meanwhile, and you're told.\n\n" +
@@ -180,7 +181,7 @@ const turnOverRefusal = "This Turn has handed off and ended, so this did nothing
 
 const codeHandOffTitle = "A Customer's question couldn't be answered";
 const codeHandOffNote =
-  "Code refused the Representative's reply to this Customer, for what it rested on, and no reply made it good, so code told the Customer someone will follow up. Find out what they need, and finish with what they should be told.";
+  "The Representative's Turn ended with no reply to this Customer that code could send, so code told the Customer someone will follow up. Find out what they need, and finish with what they should be told.";
 const codeHandOffMessages = 3;
 /** So the messages stay within what an Assignment takes in bytes, at three a character, with their fences. */
 const codeHandOffMessageLength = 3_000;
@@ -266,7 +267,7 @@ async function reportingBot(
 }
 
 /** What the gate needs of a Turn: its jobs, its Pages and the Channel its Customer is reached by. */
-const gating = (job: JobContext<TurnServices>, thread: LiveThread) => ({
+const gating = (job: TurnServices, thread: LiveThread) => ({
   jobs: job.jobs,
   pages: job.pages,
   clock: job.clock,
@@ -276,6 +277,8 @@ const gating = (job: JobContext<TurnServices>, thread: LiveThread) => ({
 
 type LiveThread = {
   threadId: string;
+  /** The Turn answering it. */
+  turnId: string;
   heard: Heard;
   verified: boolean;
   proofRule: ChannelProofRule | null;
@@ -310,6 +313,15 @@ type TurnProgress = {
   read: Map<string, string[]>;
 };
 
+const newProgress = (): TurnProgress => ({
+  refusals: 0,
+  handedOff: false,
+  pagedNoBot: false,
+  flaggedEmergency: false,
+  evidence: new Map(),
+  read: new Map(),
+});
+
 /** The Turn has ended, on a second refusal or the emergency script: no more tools run and no more Model calls follow. */
 const isOver = ({ refusals, flaggedEmergency }: TurnProgress) => refusals > 1 || flaggedEmergency;
 
@@ -340,7 +352,10 @@ type Turn = {
   emergencyText: string;
 };
 
-type HandOffTurn = Omit<Turn, "kit" | "documents" | "memory" | "emergencyText">;
+type HandOffTurn = Omit<Turn, "job" | "kit" | "documents" | "memory" | "emergencyText"> & {
+  /** Only what a job and its `onFailed` both have. */
+  job: TurnServices;
+};
 
 /** Where a reply's information came from. A plain union: OpenAI's strict tools refuse the `oneOf` a discriminated one becomes. */
 const replySource = z.union([
@@ -505,19 +520,54 @@ async function handOffInCode(
 }
 
 /**
- * A Turn whose loop ended, however it ended, on a refusal nothing made good: a first refusal has had its
- * retry, and the Customer is owed a word. Says whether code handed off. One step, so a replay does it
- * once, and the same check of the thread as a reply's, so nothing goes on a thread the owner took.
+ * Whether Turn `turnId` still holds the thread with nothing having gone to the Customer. From what's
+ * stored, as a failed job has nothing else: its first reply or note clears `turnFrom`, code's hand-off
+ * too, and what the gate held for it is an answer waiting. One its fence rolled back and logged
+ * `cancelled` never waited for anyone. A Turn that hasn't begun left its batch waiting for the next.
  */
-async function handOffAtEnd(turn: HandOffTurn) {
+async function turnSentNothing(tx: Transaction, { threadId, turnId }: LiveThread) {
+  const [thread] = await tx
+    .select({ turnFrom: representativeThread.turnFrom })
+    .from(representativeThread)
+    .where(and(eq(representativeThread.id, threadId), eq(representativeThread.turnId, turnId)));
+  if (thread?.turnFrom == null) return false;
+  const held = representativeHeldMessage;
+  const [waiting] = await tx
+    .select({ id: held.id })
+    .from(held)
+    .where(
+      and(
+        eq(held.threadId, threadId),
+        // A Turn's id is made before anything it writes.
+        gt(held.id, turnId),
+        or(isNull(held.resolution), ne(held.resolution, "cancelled")),
+      ),
+    )
+    .limit(1);
+  return !waiting;
+}
+
+/**
+ * The Customer's word at the end of a Turn whose loop has ended, however it ended: one sent nothing,
+ * or left a refusal nothing made good, which has had its retry. Says whether code handed off. One
+ * step, so a replay does it once, and the same check of the thread as a reply's, so nothing goes on a
+ * thread the owner took.
+ */
+async function handOffAtEnd(turn: Omit<HandOffTurn, "job"> & Pick<Turn, "job">, atLimit: boolean) {
   const { job, thread, progress } = turn;
-  // The script is what the Customer is owed once it has gone.
-  if (progress.refusals !== 1 || progress.flaggedEmergency) return false;
-  if (thread === null) return true;
+  // Code has dealt with these already: its hand-off on a second refusal, or the script.
+  if (isOver(progress)) return false;
+  const refusalLeft = progress.refusals === 1;
+  // A limit's note tells them instead.
+  if (atLimit && !refusalLeft) return false;
+  // A test conversation has no Customer, and its checks read what the Model itself did.
+  if (thread === null) return refusalLeft;
   const now = await job.now();
   // Set only by a live write, afresh on each try of it.
   let made: MadeHandOff | undefined;
-  const handedOff = await job.step("representative_refused_end", async (tx) => {
+  const handedOff = await job.step("representative_end_hand_off", async (tx) => {
+    made = undefined;
+    if (!refusalLeft && !(await turnSentNothing(tx, thread))) return false;
     const ending = await handOffInCode(turn, tx, now);
     made = ending.made;
     return ending.handedOff;
@@ -527,6 +577,91 @@ async function handOffAtEnd(turn: HandOffTurn) {
     await settleHandOff(turn, made);
   }
   return handedOff;
+}
+
+/** A Turn's hand-off from what's stored, when its loop never ran or its job has failed: nothing of it is in memory. */
+async function handOffFromStore(
+  services: TurnServices,
+  channel: CustomerChannel,
+  threadId: string,
+  turnId: string,
+) {
+  const { db, jobs, clock } = services;
+  const [row] = await db
+    .select({
+      turnFrom: representativeThread.turnFrom,
+      waitingFrom: representativeThread.waitingFrom,
+      messageCount: representativeThread.messageCount,
+      limitNotedAt: representativeThread.limitNotedAt,
+      customerId: representativeThread.customerId,
+      representativeId: representative.id,
+      userId: representative.userId,
+      name: representative.name,
+      releaseId: representative.liveReleaseId,
+    })
+    .from(representativeThread)
+    .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
+    .where(
+      and(
+        eq(representativeThread.id, threadId),
+        eq(representativeThread.turnId, turnId),
+        // Switched off, it says nothing, and the gate would only log so.
+        eq(representative.enabled, true),
+      ),
+    );
+  // A thread at a limit has had its note, and what it waits for comes when the limit lifts.
+  if (!row?.releaseId || row.turnFrom === null || row.limitNotedAt) return;
+  const { turnFrom, customerId, representativeId, userId, name, releaseId } = row;
+  // The batch closed before the first message waiting: a Turn's own replies past it read as earlier.
+  const upTo = row.waitingFrom === null ? row.messageCount : row.waitingFrom - 1;
+  const sender = await readSender(db, threadId, turnFrom, upTo);
+  if (!sender) return;
+  const { verified, channel: heardOn, externalId } = sender;
+  const heard = { channel: heardOn, externalId };
+  const entries = await readThread(db, threadId, upTo, turnFrom, verified ? null : heard);
+  const [handOff] = await db
+    .select({ id: representativeHandOff.assignmentId })
+    .from(representativeHandOff)
+    .where(
+      and(
+        eq(representativeHandOff.threadId, threadId),
+        gt(representativeHandOff.assignmentId, turnId),
+      ),
+    )
+    .limit(1);
+  const thread: LiveThread = {
+    threadId,
+    turnId,
+    upTo,
+    heard,
+    verified,
+    proofRule: sender.proofRule,
+    // The live one: which the Turn started on is in its Checkpoints.
+    releaseId,
+    channel,
+    refusals: [],
+    businessStarted: !entries.some((entry) => entry.author === "customer" && !entry.earlier),
+  };
+  const turn: HandOffTurn = {
+    job: services,
+    userId,
+    name,
+    representativeId,
+    customerId,
+    thread,
+    entries,
+    progress: { ...newProgress(), handedOff: handOff !== undefined },
+  };
+  const now = clock();
+  let made: MadeHandOff | undefined;
+  await db.transaction(async (tx) => {
+    made = undefined;
+    if (await turnSentNothing(tx, thread)) made = (await handOffInCode(turn, tx, now)).made;
+  });
+  if (made) {
+    jobs.wake();
+    await settleHandOff(turn, made);
+  }
 }
 
 /**
@@ -1036,14 +1171,7 @@ export async function playLoop(
   // Turn reads memory, and only their Customer's: code sets the id.
   const verified = "thread" in on && on.thread.verified;
   const memory = verified ? await readCustomerMemory(job.db, userId, customerId) : noMemory;
-  const progress: TurnProgress = {
-    refusals: 0,
-    handedOff: false,
-    pagedNoBot: false,
-    flaggedEmergency: false,
-    evidence: new Map(),
-    read: new Map(),
-  };
+  const progress = newProgress();
   const turn = {
     job,
     userId,
@@ -1117,7 +1245,10 @@ export async function playLoop(
   // Before anything reads how the loop ended: a Model error fails the job, and the Customer still hears.
   return {
     ...played,
-    testRun: { handedOffAtEnd: await handOffAtEnd(turn), evidence: progress.evidence },
+    testRun: {
+      handedOffAtEnd: await handOffAtEnd(turn, played.capped || played.quotaSpent),
+      evidence: progress.evidence,
+    },
   };
 }
 
@@ -1131,8 +1262,15 @@ export function representativeTurnJob(
     payload: turnJobPayload,
     concurrency,
     // Thrown out of `run`, so its last Checkpoint never ran: what waited still gets its Turn.
-    onFailed: ({ threadId, turnId }, _error, services) =>
-      services.db.transaction((tx) => endTurn(services, tx, threadId, turnId)),
+    onFailed: async ({ threadId, turnId }, _error, services) => {
+      // Apart: this often runs because the database failed, and the thread is released regardless.
+      try {
+        await handOffFromStore(services, customerChannel, threadId, turnId);
+      } catch (error) {
+        services.logger.error(`Representative Turn ${turnId}: no hand-off`, error);
+      }
+      await services.db.transaction((tx) => endTurn(services, tx, threadId, turnId));
+    },
     run: async ({ threadId, turnId }, job) => {
       // No Turn starts during a Ban (ticket #1299). Recorded, so a replay goes the way this one did.
       const banned = await job.step("representative_turn_ban", async (tx) => {
@@ -1171,6 +1309,7 @@ export function representativeTurnJob(
           }
           const thread: LiveThread = {
             threadId,
+            turnId,
             upTo,
             heard,
             verified,
@@ -1253,6 +1392,10 @@ export function representativeTurnJob(
             const why = played.timedOut ? "it ran out of time" : "it used all its Steps";
             job.logger.error(`Representative Turn ${turnId} ended early: ${why}`);
           }
+        } else {
+          await job.step("representative_no_start_hand_off", () =>
+            handOffFromStore(job, customerChannel, threadId, turnId),
+          );
         }
         await job.step("representative_turn_end", async (tx) => {
           if (limitPast) await limitPassed(tx, threadId, turnId);

@@ -335,7 +335,11 @@ export async function readSender(
 ) {
   const message = representativeThreadMessage;
   const [sender] = await db
-    .select({ channel: message.channel, externalId: message.externalId })
+    .select({
+      channel: message.channel,
+      externalId: message.externalId,
+      verified: message.verified,
+    })
     .from(message)
     .where(and(eq(message.threadId, threadId), eq(message.position, position)));
   if (!sender) return undefined;
