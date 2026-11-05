@@ -695,7 +695,7 @@ export function RepresentativePage({ id }: { id: string }) {
       <SpendingCapsForm representative={representative} />
       <QuietHoursForm representative={representative} />
       <AssignmentDueForm representative={representative} />
-      <WidgetKeySection id={id} />
+      <WidgetKeySection key={id} id={id} />
       <WaitingApproval representative={representative} />
       {/* Keyed by the draft's fields, so a draft changed elsewhere reloads the form. A document uploaded leaves the form's edits alone. */}
       <DraftEditor

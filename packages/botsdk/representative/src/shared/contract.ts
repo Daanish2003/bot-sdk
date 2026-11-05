@@ -789,34 +789,18 @@ export type WidgetKeyView = {
 
 export const maxWidgetOrigins = 50;
 /** Whether `value` is only a scheme, host and port, which is all a browser's `Origin` header says. */
-export function isWebOrigin(value: string) {
-  try {
-    const url = new URL(value);
-    return (
-      (url.protocol === "https:" || url.protocol === "http:") &&
-      !url.hostname.includes("*") &&
-      !url.username &&
-      !url.password &&
-      url.pathname === "/" &&
-      !url.search &&
-      !url.hash
-    );
-  } catch {
-    return false;
-  }
-}
+const isWebOrigin = (value: string) =>
+  /^https?:\/\/[^/?#\\@*\s]+\/?$/i.test(value) && URL.canParse(value);
+/** One allowed origin, stored as the browser will send it. */
+export const widgetOrigin = z
+  .string()
+  .trim()
+  .max(300)
+  .refine(isWebOrigin, "Not an origin")
+  .transform((value) => new URL(value).origin);
 export const widgetKeySetOriginsInput = z.object({
   id: z.uuid(),
-  origins: z
-    .array(
-      z
-        .string()
-        .trim()
-        .max(300)
-        .refine(isWebOrigin, "Not an origin")
-        .transform((value) => new URL(value).origin),
-    )
-    .max(maxWidgetOrigins),
+  origins: z.array(widgetOrigin).max(maxWidgetOrigins),
 });
 
 export const representativeContract = {

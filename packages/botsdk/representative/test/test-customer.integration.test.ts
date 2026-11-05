@@ -863,10 +863,12 @@ describe("who can reach a Turn", () => {
       Object.keys(representativeContract).sort(),
     );
     expect(made.routes ?? []).toEqual([]);
-    // The one thing served with no signed-in user is a signed link's page (#1256): it starts no Turn.
+    // Served with no signed-in user: a signed link's page (#1256) and web chat's session start
+    // (#1333). Neither starts a Turn.
     expect((made.publicRoutes ?? []).map((route) => `${route.method} ${route.path}`)).toEqual([
       "GET /representative/verify/:token",
       "POST /representative/verify/:token",
+      "POST /representative/widget/:key/session",
     ]);
   });
 });

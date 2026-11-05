@@ -170,6 +170,13 @@ describe("the owner's widget key", () => {
     "ftp://shop.example",
     "https://user@shop.example",
     "null",
+    "https://shop.example/foo/..",
+    "https://shop.example?",
+    "https://shop.example#",
+    "https://:@shop.example",
+    "https:shop.example",
+    "https:\\\\shop.example",
+    "https://shop.example:99999",
   ])("refuses %s as an origin", async (origin) => {
     const { deps } = await serve();
     const { rpc, id } = await ownerWithKey(deps);
@@ -268,7 +275,7 @@ describe("starting a web chat session", () => {
     for (const origin of ["https://evil.example", "http://shop.example", "null", null]) {
       const refused = await start(url, key, origin);
       expect(refused.status).toBe(403);
-      expect(refused.headers.get("access-control-allow-origin")).toBeNull();
+      expect(refused.headers.get("access-control-allow-origin")).toBe("*");
       expect(await refused.json()).toEqual(body);
     }
   });
@@ -293,7 +300,11 @@ describe("starting a web chat session", () => {
 
     const rotated = await rpc.representative.widgetKeyRotate({ id });
 
-    expect((await start(url, key)).status).toBe(403);
+    const refused = await start(url, key);
+    expect(refused.status).toBe(403);
+    // The page can read why, so its widget can say the chat has ended.
+    expect(refused.headers.get("access-control-allow-origin")).toBe("*");
+    expect(await refused.json()).toEqual({ code: "error.widgetSessionRefused", params: {} });
     expect((await start(url, rotated.key)).status).toBe(200);
   });
 
@@ -304,11 +315,12 @@ describe("starting a web chat session", () => {
     await rpc.representative.widgetKeyDisable({ id });
     const refused = await start(url, key);
     expect(refused.status).toBe(403);
-    // Its own site's widget can read that, to say the chat has ended; another site's can't.
-    expect(refused.headers.get("access-control-allow-origin")).toBe(shop);
-    const elsewhere = await start(url, key, "https://evil.example");
-    expect(elsewhere.status).toBe(403);
-    expect(elsewhere.headers.get("access-control-allow-origin")).toBeNull();
+    // Nothing tells a disabled key from one that never existed, whichever origin asks.
+    const unknown = await start(url, "no-such-key");
+    expect(refused.headers.get("access-control-allow-origin")).toBe(
+      unknown.headers.get("access-control-allow-origin"),
+    );
+    expect(await refused.json()).toEqual(await unknown.json());
 
     const rotated = await rpc.representative.widgetKeyRotate({ id });
     expect((await start(url, key)).status).toBe(403);

@@ -62,9 +62,10 @@ function mintViewToken(sdk: BotSdkContext, { holder, userId }: Omit<View, "expir
 function verifyViewToken(sdk: BotSdkContext, token: string): View | null {
   const [payload, signed, ...rest] = token.split(".");
   if (!payload || !signed || rest.length > 0) return null;
-  const given = Buffer.from(signed, "base64url");
+  // Compares the text: decoding it first would let other strings pass as the same bytes.
+  const given = Buffer.from(signed);
   const valid = sdk.keyring.some((secret) => {
-    const expected = signature(secret, payload);
+    const expected = Buffer.from(signature(secret, payload).toString("base64url"));
     return expected.length === given.length && timingSafeEqual(expected, given);
   });
   if (!valid) return null;

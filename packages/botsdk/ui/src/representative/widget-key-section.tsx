@@ -23,7 +23,7 @@ import {
   useSetWidgetKeyOrigins,
   useWidgetKey,
 } from "@botsdk/representative/react";
-import { isWebOrigin } from "@botsdk/representative/client";
+import { maxWidgetOrigins, widgetOrigin } from "@botsdk/representative/client";
 
 /** A button that asks first, for a change that ends every session of the key. */
 function ConfirmedButton({
@@ -104,7 +104,7 @@ export function WidgetKeySection({ id }: { id: string }) {
   const rotate = useRotateWidgetKey(done(t("representative.widgetKeyRotated")));
   const disable = useDisableWidgetKey(done(t("representative.widgetKeyDisabledToast")));
 
-  if (widgetKey.isError) {
+  if (widgetKey.data === undefined && widgetKey.isError) {
     return <p className="text-sm text-destructive">{t("representative.widgetKeyLoadFailed")}</p>;
   }
   if (widgetKey.data === undefined) return null;
@@ -141,7 +141,11 @@ export function WidgetKeySection({ id }: { id: string }) {
                 .split("\n")
                 .map((line) => line.trim())
                 .filter(Boolean);
-              const invalid = origins.find((origin) => !isWebOrigin(origin));
+              if (origins.length > maxWidgetOrigins) {
+                toast.error(t("representative.widgetKeyTooManyOrigins", { max: maxWidgetOrigins }));
+                return;
+              }
+              const invalid = origins.find((origin) => !widgetOrigin.safeParse(origin).success);
               if (invalid !== undefined) {
                 toast.error(t("representative.widgetKeyOriginInvalid", { origin: invalid }));
                 return;
@@ -158,7 +162,11 @@ export function WidgetKeySection({ id }: { id: string }) {
                 name="origins"
                 rows={3}
                 value={typed ?? key.allowedOrigins.join("\n")}
-                onChange={(event) => setTyped(event.target.value)}
+                readOnly={setOrigins.isPending}
+                onChange={(event) => {
+                  const text = event.target.value;
+                  setTyped(text === key.allowedOrigins.join("\n") ? null : text);
+                }}
               />
               <p className="text-xs text-muted-foreground">
                 {t("representative.widgetKeyOriginsHelp")}

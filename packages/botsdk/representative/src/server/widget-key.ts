@@ -132,7 +132,7 @@ const sessionToken = (
   expiresAt: Date,
 ) => {
   const value = `${key}.${identity}.${expiresAt.getTime()}`;
-  return `${value}.${signed(keyring[0]!, "widgetSession", value).toString("base64url")}`;
+  return `${value}.${signed(keyring[0]!, "widgetSession", value)}`;
 };
 
 /** A session its token still vouches for. */
@@ -167,18 +167,14 @@ export async function readWidgetSession(
 
 /**
  * The same whatever was wrong, so the route says nothing about which keys exist or what they allow.
- * Only a page on the key's own list can read it, so its widget can say the chat has ended.
+ * Any page can read it, so a widget on a rotated or disabled key can say the chat has ended.
  */
-const refused = (readableBy?: string) =>
+const refused = () =>
   Response.json(
     { code: "error.widgetSessionRefused", params: {} },
     {
       status: 403,
-      headers: {
-        ...(readableBy && { "access-control-allow-origin": readableBy }),
-        "cache-control": "no-store",
-        vary: "Origin",
-      },
+      headers: { "access-control-allow-origin": "*", "cache-control": "no-store", vary: "Origin" },
     },
   );
 
@@ -195,8 +191,7 @@ export const widgetSessionRoutes: PublicRoute[] = [
       const origin = request.headers.get("origin");
       if (origin === null) return refused();
       const row = await rowOfKey(context, params.key ?? "");
-      if (!row?.allowedOrigins.includes(origin)) return refused();
-      if (row.status !== "live") return refused(origin);
+      if (row?.status !== "live" || !row.allowedOrigins.includes(origin)) return refused();
       const expiresAt = new Date(context.clock().getTime() + widgetSessionLastsMs);
       return Response.json(
         { token: sessionToken(context.keyring, row.key, uuidv7(), expiresAt), expiresAt },

@@ -87,7 +87,7 @@ const proofKey = (secret: string) => {
 type SignedPurpose = "code" | "link" | "widgetSession";
 
 export const signed = (secret: string, purpose: SignedPurpose, value: string) =>
-  createHmac("sha256", proofKey(secret)).update(`${purpose}:${value}`).digest();
+  createHmac("sha256", proofKey(secret)).update(`${purpose}:${value}`).digest("base64url");
 
 /**
  * Whether `actual` is `value`'s keyed hash, in base64url, under any secret of the keyring. It compares
@@ -101,20 +101,20 @@ export const signedByKeyring = (
 ) => {
   const given = Buffer.from(actual);
   return keyring.some((secret) => {
-    const expected = Buffer.from(signed(secret, purpose, value).toString("base64url"));
+    const expected = Buffer.from(signed(secret, purpose, value));
     return expected.length === given.length && timingSafeEqual(expected, given);
   });
 };
 
 const hashCode = (keyring: readonly string[], id: string, code: string) =>
-  signed(keyring[0]!, "code", `${id}:${code}`).toString("base64url");
+  signed(keyring[0]!, "code", `${id}:${code}`);
 
 /** Whether `code` is what the row's hash was made from, under any secret of the keyring. */
 const isTheCode = (keyring: readonly string[], id: string, code: string, hash: string | null) =>
   hash !== null && signedByKeyring(keyring, "code", `${id}:${code}`, hash);
 
 const linkToken = (keyring: readonly string[], id: string) =>
-  `${id}.${signed(keyring[0]!, "link", id).toString("base64url")}`;
+  `${id}.${signed(keyring[0]!, "link", id)}`;
 
 /** Whether a code can still be passed. */
 const isLive = (row: { usedAt: Date | null; expiresAt: Date; attempts: number }, now: Date) =>

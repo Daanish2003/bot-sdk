@@ -676,16 +676,21 @@ describe("the live view's proxy", () => {
     const handler = screenHandlerOf(deps);
     const forged = `${token.slice(0, -2)}${token.at(-2) === "A" ? "B" : "A"}${token.slice(-1)}`;
 
+    // The same signature bytes in other text: its last character has 2 unused bits.
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const respelled = `${token.slice(0, -1)}${alphabet[alphabet.indexOf(token.at(-1)!) + 1]}`;
+
     const refused = [
       await handler(pageRequest("/api/chat/screens/vnc.html")),
       await handler(pageRequest(url.replace(token, "not-a-token"))),
       await handler(pageRequest(url.replace(token, forged))),
+      await handler(pageRequest(url.replace(token, respelled))),
     ];
     // Ten minutes on, the link has expired.
     offset.ms = 11 * minuteMs;
     refused.push(await handler(pageRequest(url)));
 
-    expect(refused.map((response) => response.status)).toEqual([403, 403, 403, 403]);
+    expect(refused.map((response) => response.status)).toEqual([403, 403, 403, 403, 403]);
     await expect(screenSocketOf(deps).upgrade(socketRequest(url))).rejects.toMatchObject({
       status: 403,
     });

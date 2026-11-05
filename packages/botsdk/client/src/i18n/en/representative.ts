@@ -63,6 +63,8 @@ export const representativeMessages = {
   "representative.widgetKeyOriginsSaved": "Allowed sites saved",
   "representative.widgetKeyCancel": "Cancel",
   "representative.widgetKeyLoadFailed": "The web chat key couldn't be loaded. Try again.",
+  "representative.widgetKeyTooManyOrigins": ({ max }: { max: number }) =>
+    `List at most ${max} sites.`,
   "representative.widgetKeyOriginInvalid": ({ origin }: { origin: string }) =>
     `"${origin}" isn't a site's origin. Write it like https://www.example.com, with no path.`,
   "representative.widgetKeyRotate": "Rotate key",
