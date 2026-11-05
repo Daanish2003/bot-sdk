@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 
 import type { ChannelAccountRow } from "@botsdk/client/bot/channel-account";
 import type { FeatureContext } from "@botsdk/bot/feature";
@@ -34,9 +34,9 @@ export async function connectChannelAccount(
     userId,
     platform,
     credentials,
+    // Locked, so a delete of the Representative can't pass this and leave the account behind.
+    lock: (tx) => requireOwned(tx, userId, representativeId, true),
     hold: async (tx, channelAccountId) => {
-      // Locked, so a delete of the Representative can't pass this and leave the account behind.
-      await requireOwned(tx, userId, representativeId, true);
       await tx
         .insert(representativeChannelAccount)
         .values({ channelAccountId, representativeId })
@@ -48,16 +48,6 @@ export async function connectChannelAccount(
   });
 }
 
-/** The columns of a held account the owner sees: never the credentials. */
-const heldColumns = {
-  id: channelAccount.id,
-  platform: channelAccount.platform,
-  handle: channelAccount.handle,
-  status: channelAccount.status,
-  reason: channelAccount.reason,
-  createdAt: channelAccount.createdAt,
-};
-
 /** The Channel accounts the owner's Representative holds, oldest first. */
 export async function listChannelAccounts(
   { db }: Pick<Context, "db">,
@@ -65,8 +55,16 @@ export async function listChannelAccounts(
   representativeId: string,
 ) {
   await requireOwned(db, userId, representativeId);
+  // Columns are picked one by one, so the encrypted credentials can't leak.
   return db
-    .select(heldColumns)
+    .select({
+      id: channelAccount.id,
+      platform: channelAccount.platform,
+      handle: channelAccount.handle,
+      status: channelAccount.status,
+      reason: channelAccount.reason,
+      createdAt: channelAccount.createdAt,
+    })
     .from(representativeChannelAccount)
     .innerJoin(channelAccount, eq(channelAccount.id, representativeChannelAccount.channelAccountId))
     .where(eq(representativeChannelAccount.representativeId, representativeId))
@@ -83,15 +81,6 @@ export async function ownerOfHeldAccount(tx: Transaction, id: string): Promise<s
   return row?.userId ?? null;
 }
 
-const heldBy = (tx: Transaction, userId: string) =>
-  tx
-    .select({ ...heldColumns, representativeId: representativeChannelAccount.representativeId })
-    .from(representativeChannelAccount)
-    .innerJoin(channelAccount, eq(channelAccount.id, representativeChannelAccount.channelAccountId))
-    .innerJoin(representative, eq(representative.id, representativeChannelAccount.representativeId))
-    .where(eq(representative.userId, userId))
-    .orderBy(asc(channelAccount.id));
-
 /** Deletes the Channel accounts of the user's Representatives, and returns their ids for the listeners. */
 export async function removeHeldAccounts(
   { channelAccounts }: Pick<Context, "channelAccounts">,
@@ -99,7 +88,7 @@ export async function removeHeldAccounts(
   userId: string,
 ): Promise<string[]> {
   // Their rows first: a connect waits on them, so none adds an account this would miss.
-  await tx
+  const representatives = await tx
     .select({ id: representative.id })
     .from(representative)
     .where(eq(representative.userId, userId))
@@ -107,8 +96,12 @@ export async function removeHeldAccounts(
   const rows = await tx
     .select({ id: representativeChannelAccount.channelAccountId })
     .from(representativeChannelAccount)
-    .innerJoin(representative, eq(representative.id, representativeChannelAccount.representativeId))
-    .where(eq(representative.userId, userId));
+    .where(
+      inArray(
+        representativeChannelAccount.representativeId,
+        representatives.map((row) => row.id),
+      ),
+    );
   const ids = rows.map((row) => row.id);
   await channelAccounts.removeIn(tx, ids);
   return ids;
@@ -116,12 +109,17 @@ export async function removeHeldAccounts(
 
 /** The accounts of the user's Representatives for their export: never the credentials. */
 export async function exportHeldAccounts(tx: Transaction, userId: string) {
-  const rows = await heldBy(tx, userId);
-  return rows.map(({ representativeId, platform, handle, status, createdAt }) => ({
-    representativeId,
-    platform,
-    handle,
-    status,
-    createdAt,
-  }));
+  return tx
+    .select({
+      representativeId: representativeChannelAccount.representativeId,
+      platform: channelAccount.platform,
+      handle: channelAccount.handle,
+      status: channelAccount.status,
+      createdAt: channelAccount.createdAt,
+    })
+    .from(representativeChannelAccount)
+    .innerJoin(channelAccount, eq(channelAccount.id, representativeChannelAccount.channelAccountId))
+    .innerJoin(representative, eq(representative.id, representativeChannelAccount.representativeId))
+    .where(eq(representative.userId, userId))
+    .orderBy(asc(channelAccount.id));
 }

@@ -23,9 +23,6 @@ export const saveChannelAccountInput = channelAccountInput.extend({
   credentials: z.record(z.string().max(100), z.string().trim().min(1).max(4096)),
 });
 
-/** Adds or fixes a Channel account a feature holds (ticket #1331): the same, with no Bot. */
-export const saveHeldChannelAccountInput = saveChannelAccountInput.omit({ botId: true });
-
 /**
  * One messaging platform the Host offers, and the Bot's Channel account there, if any. Its
  * credentials never come back.

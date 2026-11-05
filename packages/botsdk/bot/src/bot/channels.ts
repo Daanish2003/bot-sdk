@@ -1,8 +1,4 @@
-import {
-  channelAccountInput,
-  saveChannelAccountInput,
-  saveHeldChannelAccountInput,
-} from "@botsdk/client/bot/channel-account";
+import { channelAccountInput, saveChannelAccountInput } from "@botsdk/client/bot/channel-account";
 import { botInput } from "@botsdk/client/bot/contract";
 import { unlinkIdentityInput } from "@botsdk/client/bot/linked-identity";
 
@@ -107,11 +103,9 @@ export function createChannels(sdk: BotSdkContext, options: ChannelOptions): Cha
       },
     },
     saveHeldAccount: async (input) => {
-      const { platform, credentials } = parseInput(saveHeldChannelAccountInput, input);
       const { row, changed } = await saveHeldChannelAccount(sdk, messaging, {
         ...input,
-        platform,
-        credentials,
+        ...parseInput(saveHeldChannelAccountInput, input),
       });
       await accountsChanged(sdk, changed);
       return row;
@@ -151,6 +145,9 @@ export const channelAccountsService = (sdk: BotSdkContext): ChannelAccountsServi
   removeIn: removeHeldChannelAccounts,
   changed: (ids) => accountsChanged(sdk, ids),
 });
+
+/** Adds or fixes a Channel account a feature holds (ticket #1331): a Bot's save, with no Bot. */
+const saveHeldChannelAccountInput = saveChannelAccountInput.omit({ botId: true });
 
 /**
  * The Channels besides web (spec #761) that the user talks to their Bots on, each an adapter, as

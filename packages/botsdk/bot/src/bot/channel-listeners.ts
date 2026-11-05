@@ -6,7 +6,12 @@ import {
   type MessagingAccount,
   type MessagingAdapter,
 } from "../channel/internal";
-import { activeChannelAccountIds, listenerAccount, markNeedsAttention } from "./conversation";
+import {
+  activeChannelAccountIds,
+  hasHolder,
+  listenerAccount,
+  markNeedsAttention,
+} from "./conversation";
 import { receiveMessaging } from "./turn";
 
 /*
@@ -71,7 +76,6 @@ export function channelListeners(
   timing: ListenerTiming = defaultTiming,
 ) {
   const listening = adapters.filter((adapter) => adapter.listen);
-  const holding = () => sdk.parts.features.some(({ feature }) => feature.channelAccountOwner);
   const running = new Map<string, Listener>();
   let session: pg.PoolClient | null = null;
   let started = false;
@@ -214,14 +218,16 @@ export function channelListeners(
   async function reconcile(id: string) {
     if (!started) return;
     const found = await listenerAccount(sdk, id);
-    const adapter = found && listening.find((candidate) => candidate.id === found.platform);
+    // A held account with no enabled feature to hold it has nobody for its messages to reach.
+    const adapter =
+      found && (await hasHolder(sdk, { id, botId: found.botId }))
+        ? listening.find((candidate) => candidate.id === found.platform)
+        : undefined;
     if (found?.status === "active" && adapter && !found.account) {
       // No key of the keyring reads the credentials: only saving them again fixes it.
       await markNeedsAttention(sdk, id, found.version, "The saved credentials can't be read");
     }
-    // A held account with no enabled feature to hold it has nobody for its messages to reach.
-    const heard = found?.account?.botId != null || holding();
-    const account = found?.status === "active" && adapter && heard ? found.account : null;
+    const account = found?.status === "active" && adapter ? found.account : null;
     const current = running.get(id);
     if (current && (!account || current.version !== found!.version)) await halt(id);
     if (!account || !adapter || running.has(id)) return;

@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "@botsdk/bot/create-chat";
@@ -15,7 +15,7 @@ import { getTestDb, testDatabaseUrl } from "@ai-chat/test-support/test-database"
 import { insertUser } from "@ai-chat/test-support/users";
 import { fakeMessagingAdapter } from "@botsdk/testing/fake-channel";
 import { connectChannelAccount, listChannelAccounts } from "../src/server/channel-accounts";
-import { representativeChannelAccount } from "../src/server/db/schema";
+import { representative, representativeChannelAccount } from "../src/server/db/schema";
 import { representativeFeature } from "../src/server/plugin";
 
 /*
@@ -151,6 +151,7 @@ describe("an account's holder", () => {
         userId: user.id,
         platform: "fake",
         credentials: { token: "1:a" },
+        lock: async () => {},
         hold: async () => {},
       }),
     ).rejects.toMatchObject(refused);
@@ -376,13 +377,16 @@ describe("connecting an account to a Representative", () => {
     const { deps, fake, context } = sdkWith();
     const { user, representativeId } = await anOwner(deps);
     await connect(context, user.id, representativeId, "1:a");
-    const bare = createTestSdk({ channels: [fake.adapter], keyEncryptionSecrets: [keyA] });
+    // Another keyring, too: what it can't read isn't its to mark.
+    const bare = createTestSdk({ channels: [fake.adapter], keyEncryptionSecrets: [keyB] });
     const part = bare.parts.all.find((one) => one.id === "channel")!;
 
     await part.start!(bare);
     started.push({ part, deps: bare });
 
     expect(fake.listening.size).toBe(0);
+    const [row] = await getTestDb().select().from(channelAccount);
+    expect(row).toMatchObject({ status: "active", reason: null });
   });
 
   it("drops what reaches a held account, with no reply", async () => {
@@ -394,6 +398,38 @@ describe("connecting an account to a Representative", () => {
     await fake.deliver("@bot_1", { text: "hello" });
 
     expect(fake.sends).toEqual([]);
+  });
+
+  it("waits for a delete's lock on the Representative before it locks the account", async () => {
+    const { deps, context } = sdkWith();
+    const { user, representativeId } = await anOwner(deps);
+    await connect(context, user.id, representativeId, "1:a");
+    const [held] = await getTestDb().select({ id: channelAccount.id }).from(channelAccount);
+
+    let saving: Promise<unknown> | undefined;
+    await getTestDb().transaction(async (tx) => {
+      await tx
+        .select({ id: representative.id })
+        .from(representative)
+        .where(eq(representative.id, representativeId))
+        .for("update");
+      saving = connect(context, user.id, representativeId, "1:b");
+      await expect
+        .poll(async () => {
+          const { rows } = await getTestDb().execute(
+            sql`select 1 from pg_stat_activity
+                 where datname = current_database() and wait_event_type = 'Lock'
+                   and query ilike '%"representative"%for update%'`,
+          );
+          return rows.length;
+        }, poll)
+        .toBeGreaterThan(0);
+      // A connect that held the account here, waiting on the Representative, would deadlock a delete.
+      await tx.select().from(channelAccount).where(eq(channelAccount.id, held!.id)).for("update", {
+        noWait: true,
+      });
+    });
+    await saving;
   });
 
   it("goes with the owner: deleted with its listener stopped, exported with no credentials", async () => {

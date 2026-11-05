@@ -69,6 +69,8 @@ export type HeldAccountInput = {
   userId: string;
   platform: string;
   credentials: Record<string, string>;
+  /** Locks the feature's holder, first in the save's transaction: before any account's row. */
+  lock: (tx: Transaction) => Promise<void>;
   /** Records the feature's holder of account `id`, in the save's transaction. */
   hold: (tx: Transaction, id: string) => Promise<void>;
 };

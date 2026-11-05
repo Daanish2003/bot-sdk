@@ -4,6 +4,7 @@ export {
   activeChannelAccountIds,
   channelAccountIdsOf,
   listChannelAccounts,
+  hasHolder,
   listenerAccount,
   markNeedsAttention,
   removeChannelAccount,

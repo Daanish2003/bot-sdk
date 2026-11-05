@@ -124,6 +124,24 @@ async function acceptedCredentials(
   return { credentials, checked };
 }
 
+/** The user an enabled feature names as holding account `id`, or null when none does. */
+async function holderOwner(sdk: BotSdkContext, tx: Transaction, id: string) {
+  for (const { feature, context } of sdk.parts.features) {
+    const userId = await feature.channelAccountOwner?.(tx, id, context);
+    if (userId) return userId;
+  }
+  return null;
+}
+
+/** Whether an account's messages have someone to reach: its Bot, or an enabled feature's holder. */
+export async function hasHolder(
+  sdk: BotSdkContext,
+  { id, botId }: Pick<AccountRow, "id" | "botId">,
+): Promise<boolean> {
+  if (botId !== null) return true;
+  return sdk.db.transaction(async (tx) => (await holderOwner(sdk, tx, id)) !== null);
+}
+
 /**
  * The account already on this platform bot, locked, and the user whose it is: a Bot's user, or the
  * one the feature holding it names. No enabled feature naming one leaves `userId` null.
@@ -144,11 +162,7 @@ async function accountOfPlatformBot(
     .for("update", { of: channelAccount });
   if (!found) return undefined;
   if (found.userId !== null) return found;
-  for (const { feature, context } of sdk.parts.features) {
-    const userId = await feature.channelAccountOwner?.(tx, found.id, context);
-    if (userId) return { ...found, userId };
-  }
-  return found;
+  return { ...found, userId: await holderOwner(sdk, tx, found.id) };
 }
 
 /**
@@ -256,12 +270,13 @@ export async function saveChannelAccount(
 export async function saveHeldChannelAccount(
   sdk: BotSdkContext,
   adapters: readonly MessagingAdapter[],
-  { userId, platform, credentials: given, hold }: HeldAccountInput,
+  { userId, platform, credentials: given, lock, hold }: HeldAccountInput,
 ): Promise<{ row: ChannelAccountRow; changed: string[] }> {
   const adapter = adapterOf(adapters, platform);
   const { credentials, checked } = await acceptedCredentials(sdk, adapter, given);
   return retryingClash(() =>
     sdk.db.transaction(async (tx) => {
+      await lock(tx);
       const changed: string[] = [];
       const elsewhere = await accountOfPlatformBot(sdk, tx, platform, checked.platformBotId);
       if (elsewhere && elsewhere.userId !== userId) throw takenError();
@@ -357,6 +372,7 @@ export async function listenerAccount(sdk: BotSdkContext, id: string) {
     : null;
   return {
     account,
+    botId: row.botId,
     platform: row.platform,
     status: row.status,
     version: row.encrypted,
