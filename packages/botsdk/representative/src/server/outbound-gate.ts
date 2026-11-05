@@ -780,7 +780,7 @@ async function logNotDelivered(
     await writeDecision(tx, { decision });
     return passed;
   });
-  if (dropped) await hintVisitor(services, dropped);
+  if (dropped) hintVisitor(services, dropped);
 }
 
 /**
@@ -838,7 +838,7 @@ export const customerDeliveryJob = (channel: CustomerChannel) =>
       }
       const to = { channel: row.channel, externalId: row.externalId };
       await channel.send(to, { text: row.text });
-      await hintVisitor(job, to);
+      hintVisitor(job, to);
     },
     onFailed: ({ decisionId }, _error, job) =>
       logNotDelivered(job, decisionId, notDelivered.failed, job.clock()),

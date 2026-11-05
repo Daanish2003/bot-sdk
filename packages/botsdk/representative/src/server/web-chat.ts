@@ -141,20 +141,37 @@ async function readMessages(
 }
 
 /**
- * How often an open stream checks its session and pings. Nothing announces a session's end, whether
+ * How often an open stream pings and checks its session. Nothing announces a session's end, whether
  * its time ran out or its key was rotated, disabled or deleted: this notices, with no hint to lose.
  */
 export const sessionCheckMs = 25_000;
 
+/** The most streams one session holds open in a process: a few tabs, and a reconnect or two. */
+export const maxStreamsPerSession = 5;
+
+const openStreams = new Map<string, number>();
+
 const streamText = new TextEncoder();
 
-/** The stream of the session `token` opens, until the session ends or `signal` aborts. */
+/**
+ * The stream of the session `token` opens, until the session ends or `signal` aborts. A failed
+ * subscribe throws: the page sees a failed connection, and connects again.
+ */
 async function sessionStream(
   context: Pick<FeatureContext<"pubsub">, "db" | "keyring" | "clock" | "logger" | "pubsub">,
   token: string,
-  { heard }: WidgetSession,
+  { heard: { externalId } }: WidgetSession,
   signal: AbortSignal,
 ) {
+  const opened = openStreams.get(externalId) ?? 0;
+  if (opened >= maxStreamsPerSession) return refusal("error.tooManyRequests", 429);
+  openStreams.set(externalId, opened + 1);
+  const release = () => {
+    const left = openStreams.get(externalId)! - 1;
+    if (left > 0) openStreams.set(externalId, left);
+    else openStreams.delete(externalId);
+  };
+
   let controller!: ReadableStreamDefaultController<Uint8Array>;
   let open = true;
   const write = (chunk: string) => {
@@ -167,20 +184,31 @@ async function sessionStream(
     },
     cancel: () => finish(),
   });
-  const unsubscribe = await context.pubsub.subscribe(visitorChannel(heard.externalId), () =>
-    say({ type: "changed" }),
-  );
+  let unsubscribe: () => Promise<void>;
+  try {
+    unsubscribe = await context.pubsub.subscribe(visitorChannel(externalId), () =>
+      say({ type: "changed" }),
+    );
+  } catch (caught) {
+    release();
+    throw caught;
+  }
+  let checking = false;
   const check = async () => {
+    // Whatever the check finds, so a slow database doesn't get a good connection cut as idle.
+    write(": ping\n\n");
+    if (checking) return;
+    checking = true;
     try {
-      const session = await readWidgetSession(context, token);
-      if (session) return write(": ping\n\n");
-      if (!open) return;
-      say({ type: "ended", code: "error.widgetSessionEnded" });
-      finish();
-      controller.close();
+      if (!(await readWidgetSession(context, token)) && open) {
+        say({ type: "ended", code: "error.widgetSessionEnded" });
+        close();
+      }
     } catch (caught) {
       // The next check asks again: a database that's down hasn't ended anyone's session.
       context.logger.error("Checking a web chat stream's session failed", caught);
+    } finally {
+      checking = false;
     }
   };
   const checks = setInterval(() => void check(), sessionCheckMs);
@@ -188,13 +216,20 @@ async function sessionStream(
     if (!open) return;
     open = false;
     clearInterval(checks);
-    signal.removeEventListener("abort", finish);
+    signal.removeEventListener("abort", close);
+    release();
     unsubscribe().catch((caught: unknown) => {
       context.logger.error("Ending a web chat stream's subscription failed", caught);
     });
   };
-  if (signal.aborted) finish();
-  else signal.addEventListener("abort", finish, { once: true });
+  /** Ends the body too, which whatever is reading it is waiting on. */
+  const close = () => {
+    if (!open) return;
+    finish();
+    controller.close();
+  };
+  if (signal.aborted) close();
+  else signal.addEventListener("abort", close, { once: true });
   // After subscribing, so what changed before this is re-read, and what changes after it is hinted.
   say({ type: "changed" });
   return new Response(stream, {
@@ -224,7 +259,7 @@ export const webChatRoutes = (channel: CustomerChannel): PublicRoute<"pages" | "
       if (!received) return ended();
       // Stored nowhere, so a page that heard nothing else would wait for a reply that isn't coming.
       if ("limited" in received) return refusal("error.tooManyRequests", 429);
-      await hintVisitor(context, session.heard);
+      hintVisitor(context, session.heard);
       return answer({}, 202);
     },
   },

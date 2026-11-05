@@ -37,7 +37,7 @@ import { customerDeliveryJobName } from "../src/server/outbound-gate";
 import { holdingNote } from "../src/server/reply-drafts";
 import { unavailableNotice } from "../src/server/unavailable-notice";
 import { representativeTurnJobName } from "../src/server/thread-turns";
-import { sessionCheckMs, withWebChat } from "../src/server/web-chat";
+import { maxStreamsPerSession, sessionCheckMs, withWebChat } from "../src/server/web-chat";
 import { widgetSessionLastsMs } from "../src/server/widget-key";
 import type { WebChatMessage, WebChatStreamEvent } from "../src/shared/contract";
 
@@ -95,14 +95,11 @@ async function world(
   await jobs.start();
   runners.push(jobs);
   const user = await insertUser();
-  const server = createServer(
-    toNodeHandler(
-      createHttpHandlerOver(deps, {
-        basePath,
-        getUser: (request) => (request.headers.get("cookie") === cookie ? user : null),
-      }),
-    ),
-  );
+  const handler = createHttpHandlerOver(deps, {
+    basePath,
+    getUser: (request) => (request.headers.get("cookie") === cookie ? user : null),
+  });
+  const server = createServer(toNodeHandler(handler));
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}${basePath}`;
@@ -206,6 +203,7 @@ async function world(
     dueTurn,
     openStream,
     jobs,
+    handler,
   };
 }
 
@@ -756,6 +754,102 @@ describe("a visitor's stream", () => {
       await expect.poll(() => stream.events, poll).toEqual([changed, ended]);
       await expect.poll(() => stream.seen.closed, poll).toBe(true);
     });
+  });
+
+  it("pings on when a check can't reach the database, which hasn't ended the session", async () => {
+    const { startSession, openStream, deps } = await world();
+    const token = await startSession();
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const stream = await openStream(token);
+    await expect.poll(() => stream.events, poll).toEqual([changed]);
+    const broken = vi.spyOn(deps.db, "select").mockImplementationOnce(() => {
+      throw new Error("The database is away");
+    });
+
+    vi.advanceTimersByTime(sessionCheckMs);
+
+    await expect.poll(() => stream.seen.raw, poll).toContain(": ping");
+    expect(broken).toHaveBeenCalled();
+    expect(stream.events).toEqual([changed]);
+    expect(stream.seen.closed).toBe(false);
+  });
+
+  it("is limited per session, and frees its place when the page goes", async () => {
+    const { startSession, post, openStream } = await world();
+    const token = await startSession();
+    const open = [];
+    for (let at = 0; at < maxStreamsPerSession; at++) open.push(await openStream(token));
+
+    const refused = await post("stream", { token });
+    expect(refused.status).toBe(429);
+    expect(refused.headers.get("access-control-allow-origin")).toBe("*");
+    expect(await refused.json()).toEqual({ code: "error.tooManyRequests", params: {} });
+    // Another session has its own.
+    await openStream(await startSession());
+
+    open[0]!.stop();
+
+    await expect
+      .poll(async () => {
+        const again = await post("stream", { token });
+        await again.body?.cancel();
+        return again.status;
+      }, poll)
+      .toBe(200);
+  });
+
+  it("ends its body when the request aborts, which a Host's server is waiting on", async () => {
+    const { startSession, url, handler } = await world();
+    const token = await startSession();
+    const stop = new AbortController();
+    const response = await handler(
+      new Request(`${url}/representative/widget/stream`, {
+        method: "POST",
+        body: JSON.stringify({ token }),
+        signal: stop.signal,
+      }),
+    );
+    const reader = response.body!.getReader();
+    expect((await reader.read()).done).toBe(false);
+
+    stop.abort();
+
+    expect((await reader.read()).done).toBe(true);
+  });
+
+  it("leaves a send answered while a publish waits on a Redis that's away", async () => {
+    const pubsub = createMemoryPubSub();
+    const { startSession, send } = await world([], noCustomerChannel, {
+      subscribe: (channel, handler) => pubsub.subscribe(channel, handler),
+      publish: () => new Promise(() => {}),
+    });
+
+    await send(await startSession(), "Hello");
+  });
+
+  it("hints when the owner undoes a merge, which can take words from this session", async () => {
+    const { startSession, send, said, openStream, rpc } = await world();
+    const older = await startSession();
+    await send(older, "The older thread");
+    const visitor = await startSession();
+    await send(visitor, "Before the merge");
+    const customers = await rpc.representative.customerList();
+    const identity = visitor.split(".")[1];
+    const mine = customers.find(({ identities }) =>
+      identities.some(({ externalId }) => externalId === identity),
+    )!;
+    const other = customers.find(({ id }) => id !== mine.id)!;
+    await rpc.representative.customerMerge({ id: mine.id, intoId: other.id });
+    await send(visitor, "After the merge");
+    expect((await said(visitor)).flat()).toContain("After the merge");
+    const stream = await openStream(visitor);
+    await expect.poll(() => stream.events, poll).toEqual([changed]);
+    const [merge] = await rpc.representative.customerMergeList();
+
+    await rpc.representative.customerMergeUndo({ id: merge!.id });
+
+    await expect.poll(() => stream.events, poll).toEqual([changed, changed]);
+    expect((await said(visitor)).flat()).not.toContain("After the merge");
   });
 
   it("makes no visible change for a message the gate held", async () => {

@@ -25,6 +25,7 @@ import { replaceHeld } from "./reply-drafts";
 import { holdThread, releaseThread } from "./takeover";
 import { afterThreadClose } from "./customer-summary";
 import { queueThreadExpiry } from "./expiry";
+import { hintVisitor } from "./visitor-hints";
 
 /*
  * Two Customers become one only by proof or by the owner (ticket #1257), and each merge is recorded
@@ -352,9 +353,13 @@ async function reopenHeldThreads(
  * come back first. Profile values never moved, and a summary follows its thread, so each Customer's
  * memory is its own again with nothing more to do. Doing it again changes nothing.
  */
-export async function undoMerge(context: Context, userId: string, id: string) {
+export async function undoMerge(
+  context: Context & Pick<FeatureContext<"pubsub">, "logger" | "pubsub">,
+  userId: string,
+  id: string,
+) {
   const inScope = and(eq(merge.id, id), eq(merge.userId, userId));
-  await context.db.transaction(async (tx) => {
+  const parted = await context.db.transaction(async (tx) => {
     const [found] = await tx.select().from(merge).where(inScope);
     if (!found) throw mergeNotFound();
     const { survivorCustomerId: survivorId, absorbedCustomerId: absorbedId } = found;
@@ -368,7 +373,7 @@ export async function undoMerge(context: Context, userId: string, id: string) {
       })
       .from(merge)
       .where(inScope);
-    if (!current || current.undoneAt) return;
+    if (!current || current.undoneAt) return [];
     if (await isMergedAway(tx, survivorId)) {
       throw rpcError(
         "CONFLICT",
@@ -451,7 +456,10 @@ export async function undoMerge(context: Context, userId: string, id: string) {
         .where(eq(representativeCustomer.id, absorbedId));
     }
     await tx.update(merge).set({ undoneAt: context.clock() }).where(eq(merge.id, id));
+    return [...returned, ...kept];
   });
+  // Each session reads only its own Customer's threads, so one on either side can read less now.
+  for (const address of parted) hintVisitor(context, address);
   const [view] = await readMerges(context, userId, id);
   return view!;
 }

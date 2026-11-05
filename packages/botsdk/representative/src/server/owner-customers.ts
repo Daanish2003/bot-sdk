@@ -362,8 +362,8 @@ export async function updateIdentity(
   });
   // The session at either address reads a different thread now.
   if (moved) {
-    await hintVisitor(context, moved);
-    await hintVisitor(context, { channel, externalId });
+    hintVisitor(context, moved);
+    hintVisitor(context, { channel, externalId });
   }
   return readCustomer(context, userId, id);
 }

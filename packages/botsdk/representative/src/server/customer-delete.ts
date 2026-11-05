@@ -376,7 +376,7 @@ export async function deleteCustomer(
     return { assignmentIds, conversationIds, identities };
   });
   context.jobs.wake();
-  for (const identity of done.identities) await hintVisitor(context, identity);
+  for (const identity of done.identities) hintVisitor(context, identity);
   for (const conversationId of done.conversationIds) {
     await context.threads.hintChanged(conversationId);
   }
