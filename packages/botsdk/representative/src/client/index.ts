@@ -52,6 +52,7 @@ export {
   type RepresentativeSummary,
   type RepresentativeTool,
   type RepresentativeView,
+  type WidgetKeyView,
   type TestCheck,
   type TestConversation,
   type TestResultStatus,

@@ -777,6 +777,41 @@ export const setAssignmentDueInput = z.object({
 export const setEnabledInput = z.object({ id: z.uuid(), enabled: z.boolean() });
 export const setBotInput = z.object({ id: z.uuid(), botId: z.uuid() });
 
+/** A Representative's public widget key, as its owner sees it (ticket #1333). */
+export type WidgetKeyView = {
+  key: string;
+  allowedOrigins: string[];
+  status: "live" | "disabled";
+};
+
+export const maxWidgetOrigins = 50;
+/** Whether `value` is only a scheme, host and port, which is all a browser's `Origin` header says. */
+function isWebOrigin(value: string) {
+  try {
+    const url = new URL(value);
+    return (
+      (url.protocol === "https:" || url.protocol === "http:") &&
+      !url.hostname.includes("*") &&
+      value.replace(/\/$/, "").toLowerCase() === url.origin.toLowerCase()
+    );
+  } catch {
+    return false;
+  }
+}
+export const widgetKeySetOriginsInput = z.object({
+  id: z.uuid(),
+  origins: z
+    .array(
+      z
+        .string()
+        .trim()
+        .max(300)
+        .refine(isWebOrigin, "Not an origin")
+        .transform((value) => new URL(value).origin),
+    )
+    .max(maxWidgetOrigins),
+});
+
 export const representativeContract = {
   /** The owner's Representatives, oldest first. */
   list: oc.output(type<RepresentativeSummary[]>()),
@@ -829,6 +864,16 @@ export const representativeContract = {
   setAssignmentDue: oc.input(setAssignmentDueInput).output(type<RepresentativeView>()),
   /** Chooses which of the owner's Bots it reports to; its open Assignments move to that Bot. */
   setBot: oc.input(setBotInput).output(type<RepresentativeView>()),
+  /** The Representative's public widget key; null until the owner creates one. */
+  widgetKeyGet: oc.input(idInput).output(type<WidgetKeyView | null>()),
+  /** Creates its one widget key, live and allowing no origin yet. Refused when it has one. */
+  widgetKeyCreate: oc.input(idInput).output(type<WidgetKeyView>()),
+  /** Replaces the origins allowed to start a session. Running sessions go on. */
+  widgetKeySetOrigins: oc.input(widgetKeySetOriginsInput).output(type<WidgetKeyView>()),
+  /** Gives it a new live key, keeping its origins. The old key and all its sessions end. */
+  widgetKeyRotate: oc.input(idInput).output(type<WidgetKeyView>()),
+  /** Disables the key and ends all its sessions. Only rotating gives a live key again. */
+  widgetKeyDisable: oc.input(idInput).output(type<WidgetKeyView>()),
   /** The owner's Customers, oldest first. */
   customerList: oc.output(type<CustomerView[]>()),
   /** Adds a Customer by hand, with its first identity. Refused when the owner already has that identity. */

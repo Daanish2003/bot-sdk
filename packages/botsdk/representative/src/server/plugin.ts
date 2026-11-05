@@ -25,6 +25,7 @@ import {
   representativeTopic,
   representativeCustomerSummary,
   representativeVerification,
+  representativeWidgetKey,
 } from "./db/schema";
 import { threadExpiryJob } from "./expiry";
 import { threadIdleJob } from "./idle";
@@ -50,6 +51,7 @@ import { exportCustomerSummaries, customerSummaryJob } from "./customer-summary"
 import { draftDueJob } from "./draft-due";
 import { assignmentDueJob, ownerWaitJob } from "./stalled-work";
 import { stopUserTurns } from "./thread-turns";
+import { widgetSessionRoutes } from "./widget-key";
 import { handOffEndedJob, limitCheckJob, representativeTurnJob } from "./turn";
 
 export type RepresentativeOptions = {
@@ -118,6 +120,7 @@ export function representativeFeature(
         representativeTopic,
         representativeCustomerSummary,
         representativeVerification,
+        representativeWidgetKey,
       },
       migrations: representativeMigrations,
     },
@@ -133,7 +136,7 @@ export function representativeFeature(
       await dropProposalsOfBot(context, botId, userId);
     },
     stopTurns: (userId, context) => stopUserTurns(context, userId),
-    publicRoutes: proofLinkRoutes,
+    publicRoutes: [...proofLinkRoutes, ...widgetSessionRoutes],
     jobs: [
       representativeTurnJob(options.concurrency, channel),
       customerDeliveryJob(channel),

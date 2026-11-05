@@ -853,6 +853,11 @@ describe("who can reach a Turn", () => {
       "topicRemove",
       "topicSetMode",
       "updateDraft",
+      "widgetKeyCreate",
+      "widgetKeyDisable",
+      "widgetKeyGet",
+      "widgetKeyRotate",
+      "widgetKeySetOrigins",
     ]);
     expect(Object.keys(made.api!({ db: getTestDb() } as never)).sort()).toEqual(
       Object.keys(representativeContract).sort(),

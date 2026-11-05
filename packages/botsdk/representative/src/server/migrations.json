@@ -114,5 +114,9 @@
   {
     "name": "20261104211740_assignment_due",
     "sql": "ALTER TABLE \"botsdk\".\"representative\" ADD COLUMN \"assignment_due_minutes\" integer DEFAULT 30 NOT NULL;"
+  },
+  {
+    "name": "20261105120408_representative_widget_key",
+    "sql": "CREATE TABLE \"botsdk\".\"representative_widget_key\" (\n\t\"representative_id\" uuid PRIMARY KEY,\n\t\"key\" text NOT NULL CONSTRAINT \"representative_widget_key_key\" UNIQUE,\n\t\"allowed_origins\" jsonb NOT NULL,\n\t\"status\" text NOT NULL,\n\t\"created_at\" timestamp DEFAULT now() NOT NULL,\n\t\"updated_at\" timestamp DEFAULT now() NOT NULL,\n\tCONSTRAINT \"representative_widget_key_status\" CHECK (\"status\" in ('live', 'disabled'))\n);\n--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_widget_key\" ADD CONSTRAINT \"representative_widget_key_6YFlOIXhvyOK_fkey\" FOREIGN KEY (\"representative_id\") REFERENCES \"botsdk\".\"representative\"(\"id\") ON DELETE CASCADE;"
   }
 ]

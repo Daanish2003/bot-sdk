@@ -138,6 +138,39 @@ export function useSetRepresentativeQuietHours(
   return useMutation(useRepresentative().setQuietHours.mutationOptions(options));
 }
 
+/** A Representative's public widget key, null until created (`representative.widgetKeyGet`). */
+export function useWidgetKey(id: string) {
+  return useQuery(useRepresentative().widgetKeyGet.queryOptions({ input: { id } }));
+}
+
+/** Creates a Representative's widget key (`representative.widgetKeyCreate`). */
+export function useCreateWidgetKey(
+  options?: ProcedureMutationOptions<Representative["widgetKeyCreate"]>,
+) {
+  return useMutation(useRepresentative().widgetKeyCreate.mutationOptions(options));
+}
+
+/** Replaces a widget key's allowed origins (`representative.widgetKeySetOrigins`). */
+export function useSetWidgetKeyOrigins(
+  options?: ProcedureMutationOptions<Representative["widgetKeySetOrigins"]>,
+) {
+  return useMutation(useRepresentative().widgetKeySetOrigins.mutationOptions(options));
+}
+
+/** Gives a widget key a new value, ending its sessions (`representative.widgetKeyRotate`). */
+export function useRotateWidgetKey(
+  options?: ProcedureMutationOptions<Representative["widgetKeyRotate"]>,
+) {
+  return useMutation(useRepresentative().widgetKeyRotate.mutationOptions(options));
+}
+
+/** Disables a widget key, ending its sessions (`representative.widgetKeyDisable`). */
+export function useDisableWidgetKey(
+  options?: ProcedureMutationOptions<Representative["widgetKeyDisable"]>,
+) {
+  return useMutation(useRepresentative().widgetKeyDisable.mutationOptions(options));
+}
+
 /** Chooses the Bot a Representative reports to (`representative.setBot`). */
 export function useSetRepresentativeBot(
   options?: ProcedureMutationOptions<Representative["setBot"]>,

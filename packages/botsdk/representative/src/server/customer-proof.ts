@@ -84,13 +84,15 @@ const proofKey = (secret: string) => {
   return key;
 };
 
-const signed = (secret: string, purpose: "code" | "link", value: string) =>
+type SignedPurpose = "code" | "link" | "widgetSession";
+
+export const signed = (secret: string, purpose: SignedPurpose, value: string) =>
   createHmac("sha256", proofKey(secret)).update(`${purpose}:${value}`).digest();
 
 /** Whether `actual` is `value`'s keyed hash under any secret of the keyring. */
-const signedByKeyring = (
+export const signedByKeyring = (
   keyring: readonly string[],
-  purpose: "code" | "link",
+  purpose: SignedPurpose,
   value: string,
   actual: Buffer,
 ) =>

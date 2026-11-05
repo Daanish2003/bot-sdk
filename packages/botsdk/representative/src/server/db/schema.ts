@@ -306,6 +306,32 @@ export type MovedHold = {
   waitingFrom: number | null;
 };
 
+/** A widget key's state. A disabled key stays disabled: only rotating gives a live key again. */
+export type WidgetKeyStatus = "live" | "disabled";
+
+/**
+ * A Representative's one public widget key (ticket #1333), which web chat sessions start with. It sits
+ * in a page, so it's no secret; what limits it is its allowed origins. It has no Channel account row,
+ * having no credentials or listener, and its one holder is its Representative.
+ */
+export const representativeWidgetKey = botsdkSchema.table(
+  "representative_widget_key",
+  {
+    representativeId: uuid("representative_id")
+      .primaryKey()
+      .references((): AnyPgColumn => representative.id, { onDelete: "cascade" }),
+    key: text("key").notNull().unique("representative_widget_key_key"),
+    /** Exact origins, as a browser's `Origin` header says them. None allows nobody. */
+    allowedOrigins: jsonb("allowed_origins").$type<string[]>().notNull(),
+    status: text("status").$type<WidgetKeyStatus>().notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    check("representative_widget_key_status", sql`${table.status} in ('live', 'disabled')`),
+  ],
+);
+
 /**
  * One merge of a Customer into another (ticket #1257), kept once undone. The absorbed Customer's row
  * stays, with no identities or threads, so that undoing gives each back to it: `identityIds` and

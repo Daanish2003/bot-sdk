@@ -27,6 +27,9 @@ export const errorMessages = {
   "error.customRuleLimit": ({ max }: { max: number }) =>
     `You can have at most ${max} active rules. Delete one to add another.`,
   "error.representativeNotFound": "Representative not found",
+  "error.widgetKeyNotFound": "This Representative has no widget key yet.",
+  "error.widgetKeyTaken": "This Representative already has a widget key.",
+  "error.widgetSessionRefused": "This chat can't be started from here.",
   "error.customerNotFound": "Customer not found",
   "error.profileFieldNotFound": "Profile field not found",
   "error.profileFieldTaken": "You already have a profile field of that name.",
