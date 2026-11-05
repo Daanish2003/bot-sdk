@@ -231,6 +231,18 @@ export function wideReply(): string {
 }
 
 /**
+ * A web chat visitor's message with this marker makes the fake Model answer it with the Representative's
+ * `reply` tool (ticket #1340): `representativeReply`, or `hostileRepresentativeReply` when the message
+ * also holds `hostileMarker`. The reply cites `general.note` on topic `general`, which the test makes an
+ * auto topic with that fact, so it goes out with no owner approval.
+ */
+export const replyMarker = "[reply]";
+export const hostileMarker = "[hostile]";
+export const representativeReply = "We open at nine.";
+export const hostileRepresentativeReply =
+  '<img src=x onerror="window.pwnedByModel = 1"><script>window.pwnedByModel = 2</script>';
+
+/**
  * Reply word by word, this far apart. A prompt with `slowMarker` gets `slowReply`, 40 s of it, so
  * only a Stop ends its Turn within a test's wait.
  */
@@ -338,6 +350,20 @@ export function startFakeOllama(port: number): Promise<Server> {
                 ? longCodeReply
                 : botReply;
         calls(sendToUserToolName, { text: file ? fileReply(file) : reply, endTurn: true });
+        return;
+      }
+      // A Representative's Turn ends its prompt with system notes, so the visitor's words are in an earlier message.
+      const turnText = messages
+        .filter((message) => message.role === "user")
+        .map((message) => message.content)
+        .join(String.fromCharCode(10));
+      if (stream && !answering && offers("reply") && turnText.includes(replyMarker)) {
+        calls("reply", {
+          topic: "general",
+          sources: [{ type: "fact", key: "general.note" }],
+          text: turnText.includes(hostileMarker) ? hostileRepresentativeReply : representativeReply,
+          kind: "small_talk",
+        });
         return;
       }
       if (stream && !answering && offers(runToolName) && prompt.includes(mcpMarker)) {
