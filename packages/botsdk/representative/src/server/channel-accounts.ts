@@ -1,9 +1,10 @@
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 
 import type { ChannelAccountRow } from "@botsdk/client/bot/channel-account";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { channelAccount } from "@botsdk/bot/storage";
+import type { ChannelOf } from "./customer-proof";
 import { representative, representativeChannelAccount } from "./db/schema";
 import { requireOwned } from "./representatives";
 
@@ -70,6 +71,48 @@ export async function listChannelAccounts(
     .where(eq(representativeChannelAccount.representativeId, representativeId))
     .orderBy(asc(channelAccount.id));
 }
+
+/**
+ * How messages reach a Customer through the accounts Representatives hold: the gate's delivery goes
+ * through the Representative's account on the Channel, and the gate reads that adapter's limits.
+ * Proofs go nowhere until SMS (#1174) and email (#1176) word them.
+ */
+export const heldAccountChannel: ChannelOf = ({ db, channelAccounts }) => ({
+  reach: (channel) => channelAccounts.reach(channel),
+  send: async (
+    { channel, externalId },
+    { text },
+    { representativeId, channelAccountId, resume },
+  ) => {
+    const accounts = await db
+      .select({ id: channelAccount.id })
+      .from(representativeChannelAccount)
+      .innerJoin(
+        channelAccount,
+        eq(channelAccount.id, representativeChannelAccount.channelAccountId),
+      )
+      .where(
+        and(
+          eq(representativeChannelAccount.representativeId, representativeId),
+          eq(channelAccount.platform, channel),
+          eq(channelAccount.status, "active"),
+        ),
+      )
+      .orderBy(asc(channelAccount.id));
+    // The one they wrote to, or the oldest once that one has gone.
+    const account = accounts.find(({ id }) => id === channelAccountId) ?? accounts[0];
+    // Thrown, so the runner retries in case it comes back, and the decision log says if it never does.
+    if (!account) throw new Error(`The Representative has no active ${channel} account`);
+    // A private chat's id is its user's, as for a Bot's Linked identity.
+    await channelAccounts.send(account.id, {
+      chatId: externalId,
+      text,
+      // Another account's chat has none of the parts, so it gets them all.
+      ...(resume && (channelAccountId === null || account.id === channelAccountId) && { resume }),
+    });
+  },
+  sendProof: async () => {},
+});
 
 /** The user whose Representative holds Channel account `id`, or null when none does. */
 export async function ownerOfHeldAccount(tx: Transaction, id: string): Promise<string | null> {

@@ -24,8 +24,10 @@ import type { RepresentativeLoopService } from "./bot/agent-loop";
 import type { AssignmentsService } from "./bot/assignments";
 import type { ChannelAccountsService } from "./bot/channels";
 import type { PubSub } from "./chat/pubsub";
+import type { MessagingFile } from "./channel/internal";
 import type { PagesService } from "./bot/pages-api";
 import type { FactApprovalsService, ReleaseApprovalsService } from "./bot/safety";
+import type { CounterStore } from "./chat/counters";
 import type { ComputerApi } from "./computer/internal";
 import type { ModelsApi } from "./models/internal";
 import type { EnqueueOptions, JobDefinition } from "./runner/internal";
@@ -41,6 +43,7 @@ export type CoreService =
   | "assignments"
   | "channelAccounts"
   | "computer"
+  | "counters"
   | "factApprovals"
   | "models"
   | "pages"
@@ -56,6 +59,7 @@ type Services = {
   assignments: AssignmentsService;
   channelAccounts: ChannelAccountsService;
   computer: ComputerApi;
+  counters: CounterStore;
   models: ModelsApi;
   pages: PagesService;
   pubsub: PubSub;
@@ -126,6 +130,20 @@ export type PublicRoute<Needs extends CoreService = never> = {
       basePath: string;
     },
   ) => Promise<Response>;
+};
+
+/** An inbound message on a Channel account a feature holds, as its `onStranger` gets it. */
+export type StrangerMessage = {
+  /** The platform it came on, such as `telegram`. */
+  channel: string;
+  /** The Channel account it reached. */
+  account: { id: string; handle: string };
+  /** Who sent it, and `verified`: whether the platform authenticates senders, so this can't be spoofed. */
+  sender: { id: string; handle: string; workspace?: string; verified: boolean };
+  /** The text or caption, as the sender wrote it; empty for a file alone or a press. */
+  text: string;
+  /** What's attached, as the platform describes it: nothing has been downloaded. */
+  files: readonly MessagingFile[];
 };
 
 /** The Turn a feature's `tools` and `afterTurn` are called for. */
@@ -356,6 +374,14 @@ export type FeatureDefinition<
     context: FeatureContext<Needs>,
   ) => Promise<string | null>;
   /**
+   * Takes an inbound message on a Channel account the feature holds (`channelAccountOwner`), ahead of
+   * the Linked identity check: everyone there is a stranger to the core, and link codes do nothing. The
+   * feature decides what it becomes; the core starts no Bot Conversation and no Turn. The core has
+   * already dropped a resent update and anything not from a private chat. A throw is logged and the
+   * update is dropped.
+   */
+  onStranger?: (message: StrangerMessage, context: FeatureContext<Needs>) => Promise<void>;
+  /**
    * What the Turn changed of the feature, read from its transcript as the Turn ends (stopped and
    * lost ones too, from what they recorded), with no reads or writes: the core stores it on the
    * Turn. A throw is logged and stores none of the feature's changes.
@@ -504,6 +530,7 @@ const serviceNames: Record<CoreService, string> = {
   assignments: "the Assignments",
   channelAccounts: "the Channel accounts",
   computer: "the Computer",
+  counters: "the rate limit counters",
   factApprovals: "the fact Approvals",
   models: "the Models",
   pages: "the Pages",
@@ -649,6 +676,7 @@ export function contextOf(
   return {
     ...base,
     ...(needs.includes("computer") && { computer: sdk.computer }),
+    ...(needs.includes("counters") && { counters: sdk.counters }),
     ...(needs.includes("models") && { models: sdk.models }),
     ...(needs.includes("pubsub") && { pubsub: sdk.pubsub }),
     ...(needs.includes("threads") && { threads }),

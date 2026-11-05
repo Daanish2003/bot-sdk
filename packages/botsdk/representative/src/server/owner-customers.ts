@@ -348,7 +348,7 @@ export async function updateIdentity(
         );
       await tx
         .update(representativeThread)
-        .set({ lastChannel: channel, lastExternalId: externalId })
+        .set({ lastChannel: channel, lastExternalId: externalId, channelAccountId: null })
         .where(
           and(
             eq(representativeThread.customerId, id),

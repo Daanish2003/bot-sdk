@@ -4,6 +4,7 @@ export {
   activeChannelAccountIds,
   channelAccountIdsOf,
   listChannelAccounts,
+  featureHolding,
   hasHolder,
   listenerAccount,
   markNeedsAttention,

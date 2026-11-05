@@ -122,5 +122,9 @@
   {
     "name": "20261105152622_representative_widget_key",
     "sql": "CREATE TABLE \"botsdk\".\"representative_widget_key\" (\n\t\"representative_id\" uuid PRIMARY KEY,\n\t\"key\" text NOT NULL CONSTRAINT \"representative_widget_key_key\" UNIQUE,\n\t\"allowed_origins\" jsonb NOT NULL,\n\t\"status\" text NOT NULL,\n\t\"created_at\" timestamp DEFAULT now() NOT NULL,\n\t\"updated_at\" timestamp DEFAULT now() NOT NULL,\n\tCONSTRAINT \"representative_widget_key_status\" CHECK (\"status\" in ('live', 'disabled'))\n);\n--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_widget_key\" ADD CONSTRAINT \"representative_widget_key_6YFlOIXhvyOK_fkey\" FOREIGN KEY (\"representative_id\") REFERENCES \"botsdk\".\"representative\"(\"id\") ON DELETE CASCADE;"
+  },
+  {
+    "name": "20261105164323_thread_channel_account",
+    "sql": "ALTER TABLE \"botsdk\".\"representative_outbound_decision\" ADD COLUMN \"sent_on\" jsonb;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_thread\" ADD COLUMN \"channel_account_id\" uuid;--> statement-breakpoint\nCREATE INDEX \"representative_thread_channel_account_idx\" ON \"botsdk\".\"representative_thread\" (\"channel_account_id\");--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_thread\" ADD CONSTRAINT \"representative_thread_bseS0b32iFZM_fkey\" FOREIGN KEY (\"channel_account_id\") REFERENCES \"botsdk\".\"channel_account\"(\"id\") ON DELETE SET NULL;"
   }
 ]

@@ -22,6 +22,7 @@ import {
 import { codeHandOffKind, replyKinds } from "../shared/replies";
 import {
   alreadyVerifiedAnswer,
+  type ChannelOf,
   type CustomerChannel,
   noCustomerChannel,
   noProofAnswer,
@@ -97,7 +98,7 @@ import type { ChannelProofRule } from "./verification";
 export { representativeTurnJobName };
 
 export type TurnServices = FeatureContext<
-  "assignments" | "models" | "pages" | "representativeLoop" | "threads"
+  "assignments" | "channelAccounts" | "models" | "pages" | "representativeLoop" | "threads"
 >;
 
 const assignmentEndedCode = "error.assignmentEnded";
@@ -1275,7 +1276,7 @@ export async function playLoop(
 /** The Representative Turn's job, at `concurrency` at once per process. */
 export function representativeTurnJob(
   concurrency = defaultTurnConcurrency,
-  customerChannel: CustomerChannel = noCustomerChannel,
+  channelOf: ChannelOf = () => noCustomerChannel,
 ) {
   return defineJob<TurnJobPayload, TurnServices>({
     name: representativeTurnJobName,
@@ -1287,7 +1288,7 @@ export function representativeTurnJob(
       try {
         await settleStoredHandOff(
           await services.db.transaction((tx) =>
-            handOffFromStore(services, tx, customerChannel, threadId, turnId),
+            handOffFromStore(services, tx, channelOf(services), threadId, turnId),
           ),
         );
       } catch (error) {
@@ -1343,7 +1344,7 @@ export function representativeTurnJob(
             verified,
             proofRule: sender.proofRule,
             releaseId,
-            channel: customerChannel,
+            channel: channelOf(job),
             refusals,
             businessStarted: !entries.some(
               (entry) => entry.author === "customer" && !entry.earlier,
@@ -1424,7 +1425,7 @@ export function representativeTurnJob(
           // Set only by a live write, afresh on each try of it.
           let stored: Awaited<ReturnType<typeof handOffFromStore>>;
           await job.step("representative_no_start_hand_off", async (tx) => {
-            stored = await handOffFromStore(job, tx, customerChannel, threadId, turnId);
+            stored = await handOffFromStore(job, tx, channelOf(job), threadId, turnId);
           });
           await settleStoredHandOff(stored);
         }

@@ -375,6 +375,7 @@ export function buildBotSdk(
     "pages",
     "channelAccounts",
     "pubsub",
+    "counters",
     ...(options.computer ? ["computer"] : []),
   ]);
   const ids = new Set<string>();

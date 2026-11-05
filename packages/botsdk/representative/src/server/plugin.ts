@@ -28,14 +28,20 @@ import {
   representativeVerification,
   representativeWidgetKey,
 } from "./db/schema";
-import { exportHeldAccounts, ownerOfHeldAccount, removeHeldAccounts } from "./channel-accounts";
+import {
+  exportHeldAccounts,
+  heldAccountChannel,
+  ownerOfHeldAccount,
+  removeHeldAccounts,
+} from "./channel-accounts";
 import { threadExpiryJob } from "./expiry";
 import { threadIdleJob } from "./idle";
 import { exportMerges } from "./customer-merge";
 import { deleteProfileFields, exportProfileFields } from "./customer-profile";
-import { type CustomerChannel, noCustomerChannel, proofLinkRoutes } from "./customer-proof";
+import { type ChannelOf, type CustomerChannel, proofLinkRoutes } from "./customer-proof";
 import { deleteCustomers, exportCustomers } from "./customers";
 import { dropProposalsOfBot, factProposalTools } from "./fact-proposals";
+import { receiveStranger } from "./strangers";
 import { deleteFacts, exportFacts } from "./facts";
 import { deleteGaps, exportGaps } from "./gaps";
 import representativeMigrations from "./migrations.json" with { type: "json" };
@@ -53,6 +59,7 @@ import { exportCustomerSummaries, customerSummaryJob } from "./customer-summary"
 import { draftDueJob } from "./draft-due";
 import { assignmentDueJob, ownerWaitJob } from "./stalled-work";
 import { stopUserTurns } from "./thread-turns";
+import type { ClientIp } from "./web-chat-limits";
 import { webChatRoutes, withWebChat } from "./web-chat";
 import { type WidgetSessionCheck, widgetSessionRoutes } from "./widget-key";
 import { handOffEndedJob, limitCheckJob, representativeTurnJob } from "./turn";
@@ -63,6 +70,12 @@ export type RepresentativeOptions = {
    * least arrivals per second × Turn length in seconds.
    */
   concurrency?: number;
+  /**
+   * At most this many messages go to Customers at once in one process, and as many held messages are
+   * released, each in a budget of its own, so Customers don't queue behind the shared default of 2. 20
+   * by default. Size it to at least messages per second × the seconds a platform takes to accept one.
+   */
+  deliveryConcurrency?: number;
   /**
    * Reads an uploaded PDF or DOCX as text, refusing what it can't, as `convertDocument` from
    * `@botsdk/knowledge/convert` does with Knowledge's limits. Without it, documents upload as Markdown
@@ -83,25 +96,39 @@ export type RepresentativeOptions = {
    * ships none, so without this every request from an allowed origin on a live key starts a session.
    */
   widgetSessionCheck?: WidgetSessionCheck;
+  /**
+   * Says which IP a web chat request came from, so session starts and sends are limited per IP: 10
+   * sessions per 10 minutes and 30 messages per minute for each. Return the socket's address, or the
+   * header your own proxy sets (`x-real-ip`, say). The SDK reads no forwarded header by default,
+   * since anyone can send one and so choose which IP is counted. Left out, or returning nothing for a
+   * request, no per-IP limit applies to it: sessions are still limited to 10 messages per minute
+   * each, but a program can start sessions without end. Set it when the widget is public. It also
+   * caps the live-reply streams one IP holds open in a process, at 50; left out, only each session's
+   * own cap of 5 applies.
+   */
+  clientIp?: ClientIp;
 };
 
 /**
  * The `representative` feature (spec #1167): restricted agents that speak for the owner's
  * business, each served only through an approved, unchangeable Release. It has no Computer, and
  * Auto-review and Custom Rules, which belong to Bots, don't reach it. A Host turns it on with
- * `representative()` in `features`. `customerChannel` is how messages reach a Customer: not an option a Host has, since no
- * real Channel reaches a Customer until the specs for them, so `src/index.ts` doesn't pass it on.
+ * `representative()` in `features`. Messages reach a Customer through the Channel accounts the
+ * Representatives hold, and web chat's visitors by the thread itself; `channel` replaces the accounts
+ * for a test, and isn't an option a Host has, so `src/index.ts` doesn't pass it on.
  */
 export function representativeFeature(
   options: RepresentativeOptions = {},
-  customerChannel: CustomerChannel = noCustomerChannel,
+  channel?: CustomerChannel,
 ) {
-  const channel = withWebChat(customerChannel);
+  const channelOf: ChannelOf = (context) => withWebChat(channel ?? heldAccountChannel(context));
+  const { deliveryConcurrency = 20 } = options;
   return defineFeature({
     id: "representative",
     needs: [
       "assignments",
       "channelAccounts",
+      "counters",
       "factApprovals",
       "models",
       "pages",
@@ -140,7 +167,12 @@ export function representativeFeature(
     },
     contract: representativeContract,
     api: (context) =>
-      representativeApi(context, options.convertDocument, options.knowledgeFiles, channel),
+      representativeApi(
+        context,
+        options.convertDocument,
+        options.knowledgeFiles,
+        channelOf(context),
+      ),
     tools: (turn, context) => [
       ...botDraftTools(turn, context),
       ...factProposalTools(turn, context),
@@ -151,18 +183,20 @@ export function representativeFeature(
     },
     stopTurns: (userId, context) => stopUserTurns(context, userId),
     channelAccountOwner: (tx, id) => ownerOfHeldAccount(tx, id),
+    onStranger: (message, context) =>
+      receiveStranger({ ...context, channel: channelOf(context) }, message),
     publicRoutes: [
       ...proofLinkRoutes,
-      ...widgetSessionRoutes(options.widgetSessionCheck),
-      ...webChatRoutes(channel),
+      ...widgetSessionRoutes(options.widgetSessionCheck, options.clientIp),
+      ...webChatRoutes(channelOf, options.clientIp),
     ],
     jobs: [
-      representativeTurnJob(options.concurrency, channel),
-      customerDeliveryJob(channel),
+      representativeTurnJob(options.concurrency, channelOf),
+      customerDeliveryJob(channelOf, deliveryConcurrency),
       draftDueJob,
-      assignmentDueJob(channel),
+      assignmentDueJob(channelOf),
       ownerWaitJob,
-      heldReleaseJob(channel),
+      heldReleaseJob(channelOf, deliveryConcurrency),
       handOffEndedJob,
       limitCheckJob,
       representativeTestJob,

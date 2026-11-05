@@ -13,6 +13,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+import type { SendProgress } from "@botsdk/bot/channel";
 import { bot, botAssignment, botsdkSchema, channelAccount } from "@botsdk/bot/storage";
 import { defaultSpendingCaps } from "../../shared/contract";
 import type { ChannelProofRule } from "../verification";
@@ -428,6 +429,10 @@ export const representativeThread = botsdkSchema.table(
     state: text("state").$type<ThreadState>().notNull().default("representative"),
     lastChannel: text("last_channel").notNull(),
     lastExternalId: text("last_external_id").notNull(),
+    /** The held Channel account the Customer last wrote to, which replies go through. */
+    channelAccountId: uuid("channel_account_id").references((): AnyPgColumn => channelAccount.id, {
+      onDelete: "set null",
+    }),
     messageCount: integer("message_count").notNull().default(0),
     turnId: uuid("turn_id"),
     turnFrom: integer("turn_from"),
@@ -444,6 +449,7 @@ export const representativeThread = botsdkSchema.table(
       .where(sql`${table.state} <> 'closed'`),
     index("representative_thread_customer_idx").on(table.customerId),
     index("representative_thread_representative_idx").on(table.representativeId),
+    index("representative_thread_channel_account_idx").on(table.channelAccountId),
   ],
 );
 
@@ -706,6 +712,8 @@ export const representativeOutboundDecision = botsdkSchema.table(
     messageId: uuid("message_id").references((): AnyPgColumn => representativeThreadMessage.id, {
       onDelete: "set null",
     }),
+    /** What a failed send got out and the account it used, so its retry sends only the rest there. */
+    sentOn: jsonb("sent_on").$type<{ channelAccountId: string | null; progress: SendProgress }>(),
     createdAt: timestamp("created_at").notNull(),
   },
   (table) => [

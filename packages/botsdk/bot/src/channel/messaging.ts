@@ -161,6 +161,11 @@ export type MessagingAdapter<Field extends string = string> = MessagingReach & {
   kind: "messaging";
   /** The platform, such as `telegram`: a Trigger and a Message from it record it as their Channel. */
   id: string;
+  /**
+   * True when the platform authenticates each sender, so `sender.id` can't be spoofed. A Customer on
+   * an account a feature holds is taken as verified only then. Left out, senders can be spoofed.
+   */
+  verifiesSender?: boolean;
   /** The credentials a Channel account takes, by field name, such as `["token"]`. */
   credentialFields: readonly Field[];
   /** The platform's file limits, in bytes: what `download` can fetch, and what `send` can send. */

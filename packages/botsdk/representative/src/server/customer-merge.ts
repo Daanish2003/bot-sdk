@@ -256,6 +256,7 @@ async function closeMixedThreads(
       representativeId: thread.representativeId,
       lastChannel: thread.lastChannel,
       lastExternalId: thread.lastExternalId,
+      channelAccountId: thread.channelAccountId,
     })
     .from(thread)
     .where(and(eq(thread.customerId, customerId), ne(thread.state, "closed")))
@@ -284,11 +285,11 @@ async function closeMixedThreads(
     await closeThread(services, tx, closing);
     await queueThreadExpiry(services, tx, closing.id, services.clock());
     if (closing.state !== "owner" || mergeHeld.includes(closing.id)) continue;
-    const heard =
-      own.find(
-        ({ channel, externalId }) =>
-          channel === closing.lastChannel && externalId === closing.lastExternalId,
-      ) ?? own[0]!;
+    const same = own.find(
+      ({ channel, externalId }) =>
+        channel === closing.lastChannel && externalId === closing.lastExternalId,
+    );
+    const heard = same ?? own[0]!;
     const now = services.clock();
     const id = uuidv7();
     await tx.insert(thread).values({
@@ -298,6 +299,7 @@ async function closeMixedThreads(
       state: "owner",
       lastChannel: heard.channel,
       lastExternalId: heard.externalId,
+      channelAccountId: same ? closing.channelAccountId : null,
       messageCount: 0,
       createdAt: now,
       updatedAt: now,

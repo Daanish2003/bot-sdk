@@ -1,14 +1,14 @@
 import { and, asc, count, eq, gt, gte, inArray, isNull, max, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import type { MessagingReach } from "@botsdk/bot/channel";
+import { type MessagingReach, MessagingSendError } from "@botsdk/bot/channel";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { rpcError } from "@botsdk/bot/rpc-error";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { defineJob } from "@botsdk/bot/runner/internal";
 import { limitNoteKind, type ReplySource, type StoredReplyKind } from "../shared/replies";
-import { type CustomerChannel } from "./customer-proof";
+import { type ChannelOf, type CustomerChannel } from "./customer-proof";
 import { combinedProfilesOf } from "./customer-profile";
 import { holdThreadCustomer } from "./customers";
 import {
@@ -761,6 +761,7 @@ const notDelivered = {
   blocked: "blocked",
   optedOut: "optedOut",
   moved: "address_changed",
+  banned: "owner_banned",
 };
 
 /** Logs that the message `decisionId` passed didn't go after all, so a web chat session stops reading it. */
@@ -786,12 +787,14 @@ async function logNotDelivered(
 /**
  * Sends what the gate passed. A throw is the runner's to retry, so this can run well after the
  * decision: a Customer blocked or opted out since gets nothing, and neither does an address no longer
- * theirs, which may be someone else's. A thread deleted since sends nothing.
+ * theirs, which may be someone else's. During the owner's Ban their line says only what is meant for a
+ * Customer regardless. A thread deleted since sends nothing.
  */
-export const customerDeliveryJob = (channel: CustomerChannel) =>
-  defineJob<z.infer<typeof deliveryPayload>, FeatureContext<"pubsub">>({
+export const customerDeliveryJob = (channelOf: ChannelOf, concurrency: number) =>
+  defineJob<z.infer<typeof deliveryPayload>, FeatureContext<"channelAccounts" | "pubsub">>({
     name: customerDeliveryJobName,
     payload: deliveryPayload,
+    concurrency,
     run: async ({ decisionId }, job) => {
       const decision = representativeOutboundDecision;
       const [row] = await job.db
@@ -799,6 +802,10 @@ export const customerDeliveryJob = (channel: CustomerChannel) =>
           channel: decision.channel,
           externalId: decision.externalId,
           kind: decision.kind,
+          representativeId: representativeThread.representativeId,
+          userId: representative.userId,
+          channelAccountId: representativeThread.channelAccountId,
+          sentOn: decision.sentOn,
           text: representativeThreadMessage.text,
           blockedAt: representativeCustomer.blockedAt,
           identityId: representativeCustomerIdentity.id,
@@ -810,6 +817,7 @@ export const customerDeliveryJob = (channel: CustomerChannel) =>
           eq(representativeThreadMessage.id, decision.messageId),
         )
         .innerJoin(representativeThread, eq(representativeThread.id, decision.threadId))
+        .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
         .innerJoin(
           representativeCustomer,
           eq(representativeCustomer.id, representativeThread.customerId),
@@ -825,20 +833,46 @@ export const customerDeliveryJob = (channel: CustomerChannel) =>
         .where(eq(decision.id, decisionId));
       if (!row) return;
       // Only what passes the gate's opt-out rule is held to it: the rest is meant for them regardless.
+      const optional = rulesOf[row.kind].includes("optedOut");
       const stopped = row.blockedAt
         ? notDelivered.blocked
         : !row.identityId
           ? notDelivered.moved
-          : row.optedOutAt && rulesOf[row.kind].includes("optedOut")
+          : row.optedOutAt && optional
             ? notDelivered.optedOut
-            : null;
+            : optional && (await job.isUserBlocked(row.userId))
+              ? notDelivered.banned
+              : null;
       if (stopped) {
         await logNotDelivered(job, decisionId, stopped, job.clock());
         return;
       }
-      const to = { channel: row.channel, externalId: row.externalId };
-      await channel.send(to, { text: row.text });
-      hintVisitor(job, to);
+      // The parts of one message stay together, wherever the Customer has written since.
+      const channelAccountId = row.sentOn ? row.sentOn.channelAccountId : row.channelAccountId;
+      try {
+        await channelOf(job).send(
+          { channel: row.channel, externalId: row.externalId },
+          { text: row.text },
+          {
+            representativeId: row.representativeId,
+            channelAccountId,
+            resume: row.sentOn?.progress ?? null,
+          },
+        );
+      } catch (error) {
+        if (error instanceof MessagingSendError) {
+          // Without it, the retry sends the parts already sent again.
+          await job.db
+            .update(decision)
+            .set({ sentOn: { channelAccountId, progress: error.progress } })
+            .where(eq(decision.id, decisionId))
+            .catch((saving: unknown) =>
+              job.logger.error("Saving a send's progress failed", saving),
+            );
+        }
+        throw error;
+      }
+      hintVisitor(job, row);
     },
     onFailed: ({ decisionId }, _error, job) =>
       logNotDelivered(job, decisionId, notDelivered.failed, job.clock()),

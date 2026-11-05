@@ -9,7 +9,7 @@ import {
   type WebChatMessage,
   type WebChatStreamEvent,
 } from "../shared/contract";
-import { type CustomerChannel, webChatChannel } from "./customer-proof";
+import { type ChannelOf, type CustomerChannel, webChatChannel } from "./customer-proof";
 import {
   representative,
   representativeCustomerIdentity,
@@ -19,7 +19,13 @@ import {
 } from "./db/schema";
 import { receiveCustomerMessage } from "./thread-turns";
 import { hintVisitor, visitorChannel } from "./visitor-hints";
-import { readWidgetSession, widgetResponseHeaders, type WidgetSession } from "./widget-key";
+import { clientIpOf, limitSendByIp, limitSendBySession, type ClientIp } from "./web-chat-limits";
+import {
+  readWidgetSession,
+  tooManyRequests,
+  widgetResponseHeaders,
+  type WidgetSession,
+} from "./widget-key";
 
 /*
  * A web chat visitor sends and reads with their session token, and no signed-in user (ticket #1336).
@@ -45,8 +51,8 @@ const readLimit = 200;
  * start a conversation.
  */
 export const withWebChat = (channel: CustomerChannel): CustomerChannel => ({
-  send: async (to, message) => {
-    if (to.channel !== webChatChannel) await channel.send(to, message);
+  send: async (to, message, via) => {
+    if (to.channel !== webChatChannel) await channel.send(to, message, via);
   },
   sendProof: async (to, proof) => {
     if (to.channel !== webChatChannel) await channel.sendProof(to, proof);
@@ -149,7 +155,28 @@ export const sessionCheckMs = 25_000;
 /** The most streams one session holds open in a process: a few tabs, and a reconnect or two. */
 export const maxStreamsPerSession = 5;
 
+/**
+ * The most streams one IP holds open in a process, across its sessions. A stream holds its place for
+ * up to a day, so the limit on starting sessions alone would let an IP gather thousands.
+ */
+export const maxStreamsPerIp = 50;
+
+/** What a page refused a stream is told to wait: a place frees whenever another stream ends. */
+const streamRetrySeconds = 30;
+
 const openStreams = new Map<string, number>();
+
+/** Takes one of `most` places under `key`, and returns how to give it back, or null with none left. */
+function takeStream(key: string, most: number) {
+  const opened = openStreams.get(key) ?? 0;
+  if (opened >= most) return null;
+  openStreams.set(key, opened + 1);
+  return () => {
+    const left = openStreams.get(key)! - 1;
+    if (left > 0) openStreams.set(key, left);
+    else openStreams.delete(key);
+  };
+}
 
 const streamText = new TextEncoder();
 
@@ -162,14 +189,18 @@ async function sessionStream(
   token: string,
   { heard: { externalId } }: WidgetSession,
   signal: AbortSignal,
+  ip: string | null | undefined,
 ) {
-  const opened = openStreams.get(externalId) ?? 0;
-  if (opened >= maxStreamsPerSession) return refusal("error.tooManyRequests", 429);
-  openStreams.set(externalId, opened + 1);
+  const sessionPlace = takeStream(`session:${externalId}`, maxStreamsPerSession);
+  if (!sessionPlace) return tooManyRequests(streamRetrySeconds);
+  const ipPlace = ip ? takeStream(`ip:${ip}`, maxStreamsPerIp) : () => {};
+  if (!ipPlace) {
+    sessionPlace();
+    return tooManyRequests(streamRetrySeconds);
+  }
   const release = () => {
-    const left = openStreams.get(externalId)! - 1;
-    if (left > 0) openStreams.set(externalId, left);
-    else openStreams.delete(externalId);
+    sessionPlace();
+    ipPlace();
   };
 
   let controller!: ReadableStreamDefaultController<Uint8Array>;
@@ -237,18 +268,26 @@ async function sessionStream(
   });
 }
 
-/** The routes of a visitor with a session, sending by way of `channel`. */
-export const webChatRoutes = (channel: CustomerChannel): PublicRoute<"pages" | "pubsub">[] => [
+/** The routes of a visitor with a session, sending by way of `channelOf`'s Channel. */
+export const webChatRoutes = (
+  channelOf: ChannelOf,
+  clientIp?: ClientIp,
+): PublicRoute<"channelAccounts" | "counters" | "pages" | "pubsub">[] => [
   {
     method: "POST",
     path: "/representative/widget/send",
     handle: async (request, { context }) => {
+      // The limits come before the inbound limit's scan of the owner's messages, so these bound it.
+      const ipWait = await limitSendByIp(context, request, clientIp);
+      if (ipWait !== null) return tooManyRequests(ipWait);
       const body = await parsedBody(request, webChatSendInput);
       if (!body) return invalid();
       const session = await readWidgetSession(context, body.token);
       if (!session) return ended();
+      const sessionWait = await limitSendBySession(context, session.heard.externalId);
+      if (sessionWait !== null) return tooManyRequests(sessionWait);
       const received = await receiveCustomerMessage(
-        { ...context, channel },
+        { ...context, channel: channelOf(context) },
         {
           representativeId: session.representativeId,
           ...session.heard,
@@ -282,7 +321,13 @@ export const webChatRoutes = (channel: CustomerChannel): PublicRoute<"pages" | "
       if (!body) return invalid();
       const session = await readWidgetSession(context, body.token);
       if (!session) return ended();
-      return sessionStream(context, body.token, session, request.signal);
+      return sessionStream(
+        context,
+        body.token,
+        session,
+        request.signal,
+        clientIpOf(request, clientIp),
+      );
     },
   },
 ];

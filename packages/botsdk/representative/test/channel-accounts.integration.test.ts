@@ -389,17 +389,6 @@ describe("connecting an account to a Representative", () => {
     expect(row).toMatchObject({ status: "active", reason: null });
   });
 
-  it("drops what reaches a held account, with no reply", async () => {
-    const { deps, fake, context, startListeners } = sdkWith();
-    const { user, representativeId } = await anOwner(deps);
-    await connect(context, user.id, representativeId, "1:a");
-    await startListeners();
-
-    await fake.deliver("@bot_1", { text: "hello" });
-
-    expect(fake.sends).toEqual([]);
-  });
-
   it("waits for a delete's lock on the Representative before it locks the account", async () => {
     const { deps, context } = sdkWith();
     const { user, representativeId } = await anOwner(deps);

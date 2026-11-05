@@ -75,6 +75,7 @@ export function telegram({
   return {
     kind: "messaging",
     id: "telegram",
+    verifiesSender: true,
     credentialFields: ["token"],
     limits,
 

@@ -168,6 +168,7 @@ export async function receiveMessage(
     services,
     representativeId,
     heard,
+    channelAccountId,
     proof,
     text,
     now,
@@ -176,6 +177,8 @@ export async function receiveMessage(
       ViaChannel;
     representativeId: string;
     heard: Heard;
+    /** The held Channel account it came to, which replies go through. */
+    channelAccountId?: string;
     proof: ChannelProof | undefined;
     text: string;
     now: Date;
@@ -247,6 +250,7 @@ export async function receiveMessage(
       representativeId,
       lastChannel: heard.channel,
       lastExternalId: heard.externalId,
+      channelAccountId,
       messageCount: 1,
       ...(!kept && { waitingFrom: 1, waitingSince: now }),
       createdAt: now,
@@ -256,7 +260,11 @@ export async function receiveMessage(
       target: [representativeThread.customerId, representativeThread.representativeId],
       targetWhere: sql`state <> 'closed'`,
       set: {
-        ...(verified && { lastChannel: heard.channel, lastExternalId: heard.externalId }),
+        ...(verified && {
+          lastChannel: heard.channel,
+          lastExternalId: heard.externalId,
+          ...(channelAccountId && { channelAccountId }),
+        }),
         messageCount: sql`${representativeThread.messageCount} + 1`,
         ...(!kept && {
           waitingFrom: sql`coalesce(${representativeThread.waitingFrom}, ${representativeThread.messageCount} + 1)`,

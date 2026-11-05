@@ -44,6 +44,7 @@ import {
 } from "../src/server/outbound-gate";
 import { representativeFeature } from "../src/server/plugin";
 import { handOffMessage } from "../src/server/replies";
+import { ownerWaitCause } from "../src/server/stalled-work";
 import { holdThread, takeoverNote } from "../src/server/takeover";
 
 /*
@@ -1419,7 +1420,8 @@ describe("a Channel's limits", () => {
     expect(await held()).toEqual([]);
     expect(world.got()).not.toContain("It's me.");
     expect((await outcomes(world)).at(-1)).toEqual(["drop", "channel"]);
-    expect(await pages()).toEqual([]);
+    // Takeover's own wait, due by now, is another matter: it pages whenever the runner next wakes.
+    expect((await pages()).filter(({ cause }) => cause !== ownerWaitCause)).toEqual([]);
   });
 
   it("drops a holding note the Channel's limits stop, and the draft still waits", async () => {

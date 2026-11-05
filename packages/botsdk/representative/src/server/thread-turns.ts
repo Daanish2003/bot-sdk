@@ -81,6 +81,8 @@ const customerMessage = z.object({
   /** Who sent it. The Customer's id is code's, from this identity: a Model never names one. */
   channel: z.string().min(1).max(64).refine(noNul),
   externalId: z.string().min(1).max(512).refine(noNul),
+  /** The held Channel account it came to, if it came to one. */
+  channelAccountId: z.uuid().optional(),
   /** What the Channel's Customer path says of the sender; a Channel with no rule says nothing. */
   proof: channelProof.optional(),
   message: z.string().min(1).max(maxThreadMessageLength).refine(noNul),
@@ -93,20 +95,23 @@ export type CustomerMessage = z.infer<typeof customerMessage>;
  * holding the thread, which a later Turn follows if it has already begun, or null when the message
  * is kept with no Turn: a blocked or opted-out Customer's, one that set off the emergency script, or
  * one on a thread the owner holds.
- * No RPC or API method reaches this. A web chat visitor's send route does (ticket #1336), and so does
- * the test Customer entry point in the private `@ai-chat/test-support` package.
+ * No RPC or API method reaches this. The core's stranger hook does (`strangers.ts`), a web chat
+ * visitor's send route does (ticket #1336), and so does the test Customer entry point in the private
+ * `@ai-chat/test-support` package.
  */
 export async function receiveCustomerMessage(
   services: Services & Pick<FeatureContext<"pages">, "keyring" | "logger" | "pages"> & ViaChannel,
   given: CustomerMessage,
 ) {
-  const { representativeId, channel, externalId, proof, message } = customerMessage.parse(given);
+  const { representativeId, channel, externalId, channelAccountId, proof, message } =
+    customerMessage.parse(given);
   return services.db.transaction(async (tx) => {
     const now = services.clock();
     const received = await receiveMessage(tx, {
       services,
       representativeId,
       heard: { channel, externalId },
+      channelAccountId,
       proof,
       text: message,
       now,
