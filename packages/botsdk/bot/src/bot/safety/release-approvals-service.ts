@@ -43,6 +43,8 @@ export type ReleaseApprovalsService = {
       why: string;
       /** The Turn that asked, for the Channel it goes out on. */
       turnId: string;
+      /** The tool call that asked, which a replay of it finds the card by, answered or not. */
+      call?: string;
     },
   ) => Promise<{ id: string; conversationId: string; expiresAt: Date }>;
   /**
@@ -153,7 +155,7 @@ export function releaseApprovalsService(deps: BotSdkContext): ReleaseApprovalsSe
   return {
     post: async (
       tx,
-      { userId, botId, representativeId, representativeName, path, why, turnId },
+      { userId, botId, representativeId, representativeName, path, why, turnId, call },
     ) => {
       const [owner] = await tx
         .select({ botId: bot.id, conversationId: bot.conversationId })
@@ -170,6 +172,7 @@ export function releaseApprovalsService(deps: BotSdkContext): ReleaseApprovalsSe
           representativeName,
           path,
           expiresAt: expiresAt.toISOString(),
+          ...(call && { call }),
         }),
         createdAt: now,
         turnId,
