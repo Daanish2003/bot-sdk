@@ -131,7 +131,7 @@ export const assignmentDueJob = (channel: CustomerChannel) =>
           cause: assignmentOverdueCause,
           urgency: "routine",
           title: "Work for a Customer is overdue",
-          text: `An Assignment from ${row.name} is past its due time.${told === "sent" ? " Its Customer has been told the team is still working on it." : told === "held" ? " Its Customer's note is held, not sent: quiet hours. Send or drop it from the thread." : " Its Customer has not been sent a note."}`,
+          text: `An Assignment from ${row.name} is past its due time.${told === "sent" ? " Its Customer has been told the team is still working on it." : told === "held" ? " Its Customer's note is held for quiet hours and goes by itself when they end." : " Its Customer has not been sent a note."}`,
           path: `/representatives/${row.representativeId}`,
         });
       });

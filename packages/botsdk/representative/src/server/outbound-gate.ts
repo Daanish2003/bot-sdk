@@ -196,6 +196,8 @@ export type Outgoing = {
    * holding it again writes no second held row. A Page for it counts the other held messages only.
    */
   releasing?: string;
+  /** With `releasing`: the kind of the decision that held it. It adds only the rules that kind lists, so the topic is a reply's and not a fixed note's. */
+  heldKind?: OutboundKind;
   /** What is held if the gate holds it. A proof has none: its secret is never stored. */
   content?: {
     text: string;
@@ -427,7 +429,12 @@ export async function passGate(
 ): Promise<GateDecision | null> {
   const { kind, threadId, to, now, content } = outgoing;
   const rules: readonly GateRule[] = outgoing.releasing
-    ? [...rulesOf[kind], "on", "caps", "channel", "topic"]
+    ? [
+        ...rulesOf[kind],
+        ...(["on", "caps", "channel", "topic"] as const).filter((rule) =>
+          rulesOf[outgoing.heldKind ?? "reply"].includes(rule),
+        ),
+      ]
     : rulesOf[kind];
   if (rules.includes("held") && !(await holdForRules(tx, threadId))) return null;
   const [row] = await tx

@@ -145,6 +145,7 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
       ...(byItself
         ? {
             releasing: heldId,
+            heldKind: message.heldKind,
             content: {
               text: message.text,
               verified: message.verified,

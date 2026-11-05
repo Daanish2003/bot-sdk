@@ -220,11 +220,31 @@ describe("an Assignment from a Representative that is overdue", () => {
 
     // The owner is Paged at once; the Customer is not woken at night, and the note waits as a held message.
     const [page] = await world.pages("assignment_overdue");
-    expect(page!.text).toContain("held, not sent");
+    expect(page!.text).toContain("goes by itself when they end");
     expect(await world.notes()).toEqual([]);
     expect(await getTestDb().select().from(representativeHeldMessage)).toMatchObject([
       { text: stallNote },
     ]);
+  });
+
+  it("sends the held note by itself in the morning, and does not Page the owner again", async () => {
+    const world = await serving(
+      [handsOff(), quiet()],
+      [quiet],
+      true,
+      new Date("2026-11-04T21:30:00Z"),
+    );
+    await world.send("I want a refund");
+    await world.drain();
+    await world.wait(31 * minute);
+    expect(await world.notes()).toEqual([]);
+
+    await world.wait(11 * 60 * minute);
+
+    expect(await world.notes()).toHaveLength(1);
+    expect(await getTestDb().select().from(representativeHeldMessage)).toEqual([]);
+    expect(await world.pages("assignment_overdue")).toHaveLength(1);
+    expect(await world.pages("outbound_held")).toEqual([]);
   });
 
   it("Pages the owner but sends nothing on a thread the owner holds", async () => {
