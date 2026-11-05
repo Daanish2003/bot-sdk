@@ -5,7 +5,7 @@ import { isLiveListProvider, parseModelId } from "@botsdk/client/models/models";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { rpcError } from "@botsdk/bot/rpc-error";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
-import { bot, botAssignment, message } from "@botsdk/bot/storage";
+import { bot, botAssignment } from "@botsdk/bot/storage";
 import type { Transaction } from "@botsdk/bot/plugin";
 import {
   defaultEmergencyText,
@@ -40,6 +40,7 @@ import {
   readableText,
   snapshotOf,
 } from "./documents";
+import { lastResetOf } from "./reset-window";
 import { checkLimitsNow } from "./limits";
 import { monthUsedPercent } from "./spending";
 import { botFieldsHash, draftHash } from "./test-checks";
@@ -575,7 +576,7 @@ export async function approveDraft(
   if (asked.model !== null && !(await modelUsable(models, userId, asked.model))) {
     throw modelUnavailable(asked.model);
   }
-  const { result, answered } = await db.transaction(async (tx) => {
+  const { result, answered, dropped } = await db.transaction(async (tx) => {
     const row = await ownedRow(tx, userId, id, true);
     // Saved since the question above: it wasn't asked about this one.
     if (row.draft.model !== asked.model && row.draft.model !== null) {
@@ -641,8 +642,13 @@ export async function approveDraft(
       .update(representative)
       .set({ liveReleaseId: release!.id, pendingApproval: null, updatedAt: new Date() })
       .where(eq(representative.id, id));
+    // A Bot reset since it asked has forgotten the card: drop it, and wake no one.
+    const forgotten = row.pendingApproval && (await forgottenByReset(tx, row.pendingApproval));
+    const dropped =
+      forgotten && (await releaseApprovals.drop(tx, { userId, id: row.pendingApproval!.id }));
     const answered =
       row.pendingApproval &&
+      !forgotten &&
       (await releaseApprovals.answer(tx, {
         userId,
         id: row.pendingApproval.id,
@@ -654,6 +660,7 @@ export async function approveDraft(
       }));
     return {
       answered,
+      dropped,
       result: {
         id: release!.id,
         number: release!.number,
@@ -666,8 +673,18 @@ export async function approveDraft(
   if (answered) {
     jobs.wake();
     await threads.hintChanged(answered.conversationId);
-  }
+  } else if (dropped) await threads.hintChanged(dropped.conversationId);
   return result;
+}
+
+/**
+ * Whether the Bot has been reset since it asked: the reset's job drops the card after the reset
+ * commits, maybe much later, and until then it is as good as dropped. A card with no `postedAt`
+ * counts as dropped, as in `dropApprovalsOfBot`.
+ */
+async function forgottenByReset(tx: Transaction, approval: PendingApproval) {
+  const reset = await lastResetOf(tx, approval.botId);
+  return reset !== null && (!approval.postedAt || new Date(approval.postedAt) <= reset);
 }
 
 /**
@@ -680,22 +697,27 @@ export async function declineApproval(
   userId: string,
   id: string,
 ): Promise<RepresentativeView> {
-  const { result, answered } = await db.transaction(async (tx) => {
+  const { result, answered, dropped } = await db.transaction(async (tx) => {
     const row = await ownedRow(tx, userId, id, true);
     const now = clock();
-    const waiting = waitingApproval(row.pendingApproval, now);
+    // The Bot has forgotten a card from before its reset: drop it and refuse, as for one not waiting.
+    const forgotten = row.pendingApproval && (await forgottenByReset(tx, row.pendingApproval));
+    const dropped =
+      forgotten && (await releaseApprovals.drop(tx, { userId, id: row.pendingApproval!.id }));
+    const waiting = forgotten ? null : waitingApproval(row.pendingApproval, now);
     const answered =
       waiting &&
       (await releaseApprovals.answer(tx, { userId, id: waiting.id, answer: "declined" }));
-    if (!answered && !row.pendingApproval) return { answered, result: null };
+    if (!answered && !row.pendingApproval) return { answered, dropped, result: null };
     const [updated] = await tx
       .update(representative)
       .set({ pendingApproval: null, updatedAt: now })
       .where(eq(representative.id, id))
       .returning();
-    return { answered, result: await view(tx, updated!, now) };
+    return { answered, dropped, result: await view(tx, updated!, now) };
   });
   if (!answered || !result) {
+    if (dropped) await threads.hintChanged(dropped.conversationId);
     throw rpcError(
       "CONFLICT",
       "error.representativeNoApproval",
@@ -728,15 +750,11 @@ export async function dropApprovalsOfBot(
         ),
       )
       .for("update");
-    const [mark] = await tx
-      .select({ at: max(message.createdAt) })
-      .from(message)
-      .innerJoin(bot, eq(bot.conversationId, message.conversationId))
-      .where(and(eq(bot.id, botId), eq(message.role, "reset")));
+    const reset = await lastResetOf(tx, botId);
     const conversations = new Set<string>();
     for (const row of rows) {
       const { postedAt } = row.pendingApproval!;
-      if (mark?.at && postedAt && new Date(postedAt) > mark.at) continue;
+      if (reset && postedAt && new Date(postedAt) > reset) continue;
       const closed = await releaseApprovals.drop(tx, { userId, id: row.pendingApproval!.id });
       if (closed) conversations.add(closed.conversationId);
       await tx

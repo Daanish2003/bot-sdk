@@ -33,6 +33,8 @@ export {
   helperStepLimit,
   helperTimeLimitMs,
   lockScreen,
+  openHeldScreen,
+  ScreenHolderEndedError,
   screensInUseError,
   startHelperToolName,
   todoList,

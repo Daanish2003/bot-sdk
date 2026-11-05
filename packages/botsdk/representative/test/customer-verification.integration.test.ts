@@ -13,6 +13,7 @@ import { chatRpc } from "@ai-chat/test-support/sdk";
 import {
   fakeChannel,
   startTestCustomerTurn,
+  testCustomerHeard,
   testCustomerTurn,
   type TestCustomerTurn,
   autoSource,
@@ -22,6 +23,7 @@ import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import type { AnyTextAdapter } from "@tanstack/ai";
 import { representative } from "../src";
+import { customerSummaryMarker } from "../src/server/customer-summary";
 import {
   representativeCustomer,
   representativeCustomerIdentity,
@@ -93,6 +95,11 @@ async function instance(rounds: Round[], held?: Promise<void>) {
   const adapter: AnyTextAdapter = {
     ...fake.adapter,
     chatStream: async function* (options) {
+      // The summary pass after a close isn't what these tests script: it gets an empty reply, so it uses no round.
+      if (JSON.stringify(options.systemPrompts).includes(customerSummaryMarker)) {
+        yield* round();
+        return;
+      }
       entered.push(options);
       await held;
       yield* fake.adapter.chatStream(options);
@@ -211,7 +218,7 @@ describe("a Channel's rule", () => {
     const { user, id } = await ownerWithRepresentative(deps);
     const arrived = timer.clock.now();
 
-    await testCustomerTurn(deps, {
+    await testCustomerHeard(deps, {
       representativeId: id,
       channel: "telegram",
       externalId: "7",
@@ -624,7 +631,7 @@ describe("what the owner sees", () => {
   it("shows each identity's verified state on the Customers page and the thread, until it lapses", async () => {
     const { deps, timer } = await instance([quiet()]);
     const { user, rpc, id } = await ownerWithRepresentative(deps);
-    await testCustomerTurn(deps, {
+    await testCustomerHeard(deps, {
       representativeId: id,
       channel: "telegram",
       externalId: "7",

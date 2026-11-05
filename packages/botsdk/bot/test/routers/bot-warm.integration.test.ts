@@ -1,16 +1,31 @@
 import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { createAnthropicChat } from "@tanstack/ai-anthropic";
-import { asc, eq, inArray } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
+import pg from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { bot as botTable, botPromptStart, botTurn, usage } from "../../src/storage";
+import {
+  databaseOf,
+  bot as botTable,
+  botPromptStart,
+  botSummary,
+  botTurn,
+  message,
+  usage,
+} from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner, systemClock, claimJob } from "../../src/runner/internal";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "@ai-chat/test-support/deps";
-import { createFakeAdapter, round, text, withUsage } from "@botsdk/testing/fake-adapter";
+import {
+  createFakeAdapter,
+  type FakeAdapter,
+  round,
+  text,
+  withUsage,
+} from "@botsdk/testing/fake-adapter";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { getTestDb } from "@ai-chat/test-support/test-database";
+import { getTestDb, testDatabaseUrl } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { followSend } from "@ai-chat/test-support/follow-send";
 
@@ -32,11 +47,13 @@ async function botWith(
     linked = false,
     adapterFor,
     logger = silent,
+    hostProviders,
+    getQuota,
   }: {
     linked?: boolean;
     adapterFor?: TestDepsOverrides["adapterFor"];
     logger?: TestDepsOverrides["logger"];
-  } = {},
+  } & Pick<TestDepsOverrides, "hostProviders" | "getQuota"> = {},
 ) {
   const fake = createFakeAdapter({ rounds });
   let deps: TestDeps | undefined;
@@ -53,11 +70,13 @@ async function botWith(
     logger,
     adapterFor: adapterFor ?? (() => fake.adapter),
     ...(linked && { linkedCredentials: async () => ({ apiKey: "plan-token" }) }),
+    ...(hostProviders && { hostProviders }),
+    ...(getQuota && { getQuota }),
   });
   await jobs.start();
   started.push(jobs);
   const user = await insertUser();
-  if (!linked) {
+  if (!linked && !hostProviders) {
     await saveCredentials(deps, user.id, {
       service: modelId.split(":")[0]!,
       fields: { apiKey: "test-key" },
@@ -152,6 +171,62 @@ const warmReplies: [string, Record<string, unknown>][] = [
     },
   ],
 ];
+
+/** A wait a test holds open: it knows once something reached it, and lets that go on. */
+function hold() {
+  const reached = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  return {
+    reached: reached.promise,
+    release: () => gate.resolve(),
+    wait: () => {
+      reached.resolve();
+      return gate.promise;
+    },
+  };
+}
+
+/** Holds the Model call at `index` (from 0), which keeps its scripted round, until released. */
+function holdModelCall(fake: FakeAdapter, index: number) {
+  const held = hold();
+  const play = fake.adapter.chatStream;
+  fake.adapter.chatStream = async function* (options: TextOptions) {
+    const iterator = play(options)[Symbol.asyncIterator]();
+    const mine = fake.calls.length;
+    const first = iterator.next();
+    if (mine === index) await held.wait();
+    for (let next = await first; !next.done; next = await iterator.next()) yield next.value;
+  } as typeof fake.adapter.chatStream;
+  return held;
+}
+
+/** Takes, and at once gives back, an exclusive lock on every table a warm reads or writes. */
+const lockWarmTables = () =>
+  getTestDb().transaction(async (tx) => {
+    await tx.execute(sql.raw("set local lock_timeout = '2s'"));
+    await tx.execute(
+      sql`lock table ${usage}, ${botPromptStart}, ${botSummary}, ${botTurn}, ${botTable}, ${message} in access exclusive mode`,
+    );
+  });
+
+/** Whether an exclusive lock on `usage` is queued, in this test's database. */
+const lockQueuedOnUsage = async () => {
+  const { rows } = await getTestDb().execute<{ queued: boolean }>(
+    sql`select exists (select 1 from pg_locks where not granted and relation = 'botsdk.usage'::regclass and database = (select oid from pg_database where datname = current_database())) as queued`,
+  );
+  return rows[0]?.queued === true;
+};
+
+/**
+ * Whether any session holds the Bot's warm lock. A pooled connection can take its own lock again, so
+ * a lock never let go wouldn't show as a later warm skipping.
+ */
+const warmLockHeld = async (botId: string) => {
+  const { rows } = await getTestDb().execute<{ held: boolean }>(
+    sql`select exists (select 1 from pg_locks where locktype = 'advisory' and granted and database = (select oid from pg_database where datname = current_database()) and ((classid::bigint << 32) | objid::bigint) = hashtextextended(${`warm:${botId}`}, 0)) as held`,
+  );
+  return rows[0]?.held === true;
+};
 
 describe("bot.warm", () => {
   // The real adapter, so its own checks of the request run, over a stubbed `fetch`.
@@ -444,5 +519,274 @@ describe("bot.warm", () => {
     await expect(other.bots.warm({ botId })).rejects.toMatchObject({ code: "NOT_FOUND" });
 
     expect(await usageKinds(user.id)).toEqual(["turn"]);
+  });
+});
+
+describe("a warm holds no transaction across its Model call", () => {
+  const timeout = 30_000;
+  const hostProviders: NonNullable<TestDepsOverrides["hostProviders"]> = [
+    {
+      provider: "anthropic",
+      credentials: { apiKey: "sk-host-secret-never-stored" },
+      models: [
+        {
+          modelId: "claude-sonnet-5-5",
+          maxOutputTokens: 512,
+          inputUsdPerMillion: 3,
+          outputUsdPerMillion: 15,
+        },
+      ],
+    },
+  ];
+
+  it("lets an exclusive lock through while it waits on its Model", { timeout }, async () => {
+    const { fake, user, client, botId } = await botWith(
+      [round(), warmRound()],
+      "anthropic:claude-sonnet-5-5",
+    );
+    await send(client, botId, "hi");
+    await ageCalls(user.id, 56);
+    const held = holdModelCall(fake, 1);
+
+    const warm = client.bots.warm({ botId });
+    await held.reached;
+    try {
+      await lockWarmTables();
+    } finally {
+      held.release();
+    }
+
+    expect(await warm).toEqual({ warmed: true });
+    expect(await usageKinds(user.id)).toEqual(["turn", "warm"]);
+  });
+
+  // The hang itself, with no Model call to wait for: a Quota check reads `usage` on another
+  // connection, behind an exclusive lock that waits for whatever already read `usage`.
+  it(
+    "never hangs an exclusive lock queued while its Quota check is on the way",
+    { timeout },
+    async () => {
+      const held = hold();
+      let holding = false;
+      const { fake, user, client, botId } = await botWith(
+        [round(), warmRound()],
+        "anthropic:claude-sonnet-5-5",
+        {
+          hostProviders,
+          getQuota: async () => {
+            if (holding) await held.wait();
+            return { budgetUsd: 100, window: "month" };
+          },
+        },
+      );
+      await send(client, botId, "hi");
+      await ageCalls(user.id, 56);
+      holding = true;
+
+      const warm = client.bots.warm({ botId });
+      await held.reached;
+      let settled = false;
+      const lock = getTestDb()
+        .transaction(async (tx) => {
+          await tx.execute(sql.raw("set local lock_timeout = '2s'"));
+          await tx.execute(sql`lock table ${usage} in access exclusive mode`);
+        })
+        .finally(() => {
+          settled = true;
+        });
+      try {
+        await expect.poll(async () => settled || (await lockQueuedOnUsage())).toBe(true);
+      } finally {
+        held.release();
+      }
+
+      await lock;
+      expect(await warm).toEqual({ warmed: true });
+      expect(fake.calls).toHaveLength(2);
+    },
+  );
+
+  it("runs one warm at a time, while its Model call waits and after", { timeout }, async () => {
+    const { fake, user, client, botId } = await botWith(
+      [round(), warmRound(), warmRound()],
+      "anthropic:claude-sonnet-5-5",
+    );
+    await send(client, botId, "hi");
+    await ageCalls(user.id, 56);
+    const held = holdModelCall(fake, 1);
+
+    const first = client.bots.warm({ botId });
+    await held.reached;
+    expect(await warmLockHeld(botId)).toBe(true);
+    expect(await client.bots.warm({ botId })).toEqual({ warmed: false, skipped: "still_warm" });
+    held.release();
+    expect(await first).toEqual({ warmed: true });
+    expect(await warmLockHeld(botId)).toBe(false);
+
+    // Sees the first warm's row.
+    expect(await client.bots.warm({ botId })).toEqual({ warmed: false, skipped: "still_warm" });
+    expect(fake.calls).toHaveLength(2);
+    expect(await usageKinds(user.id)).toEqual(["turn", "warm"]);
+  });
+
+  it("skips, seeing the row, when another warm ended while it got ready", { timeout }, async () => {
+    const preparing = hold();
+    let holding = false;
+    const { fake, user, client, botId } = await botWith(
+      [round(), warmRound(), warmRound()],
+      "anthropic:claude-sonnet-5-5",
+      {
+        hostProviders,
+        getQuota: async () => {
+          if (holding) await preparing.wait();
+          return { budgetUsd: 100, window: "month" };
+        },
+      },
+    );
+    await send(client, botId, "hi");
+    await ageCalls(user.id, 56);
+    const inCall = holdModelCall(fake, 1);
+
+    const first = client.bots.warm({ botId });
+    await inCall.reached;
+    holding = true;
+    const second = client.bots.warm({ botId });
+    await preparing.reached;
+    inCall.release();
+    expect(await first).toEqual({ warmed: true });
+    preparing.release();
+
+    expect(await second).toEqual({ warmed: false, skipped: "still_warm" });
+    expect(fake.calls).toHaveLength(2);
+    expect(await usageKinds(user.id)).toEqual(["turn", "warm"]);
+  });
+
+  /** A cold Bot with a Host Model whose next Quota read waits, as a warm gets ready. */
+  async function warmHeldGettingReady() {
+    const preparing = hold();
+    let holding = false;
+    const made = await botWith([round(), warmRound()], "anthropic:claude-sonnet-5-5", {
+      hostProviders,
+      getQuota: async () => {
+        if (holding) await preparing.wait();
+        return { budgetUsd: 100, window: "month" };
+      },
+    });
+    await send(made.client, made.botId, "hi");
+    await ageCalls(made.user.id, 56);
+    holding = true;
+    return { ...made, preparing };
+  }
+
+  it("skips when a Turn started while it got ready", { timeout }, async () => {
+    const { fake, client, botId, preparing } = await warmHeldGettingReady();
+
+    const warm = client.bots.warm({ botId });
+    await preparing.reached;
+    await getTestDb().update(botTurn).set({ status: "running" }).where(eq(botTurn.botId, botId));
+    preparing.release();
+
+    expect(await warm).toEqual({ warmed: false, skipped: "running" });
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  it("makes no call when a new Prompt start arrived while it got ready", { timeout }, async () => {
+    const { fake, client, botId, preparing } = await warmHeldGettingReady();
+
+    const warm = client.bots.warm({ botId });
+    await preparing.reached;
+    const [start] = await getTestDb()
+      .select()
+      .from(botPromptStart)
+      .where(eq(botPromptStart.botId, botId));
+    await getTestDb()
+      .insert(botPromptStart)
+      .values({ ...start!, id: uuidv7(), builtAt: new Date() });
+    preparing.release();
+
+    expect(await warm).toEqual({ warmed: false, skipped: "still_warm" });
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  // Warms holding every connection of a pool must not each wait for one more.
+  it("needs no second connection while it holds its lock", { timeout }, async () => {
+    const { fake, user, client, botId } = await botWith(
+      [round(), warmRound()],
+      "anthropic:claude-sonnet-5-5",
+    );
+    await send(client, botId, "hi");
+    await ageCalls(user.id, 56);
+    const pool = new pg.Pool({ connectionString: testDatabaseUrl, max: 1 });
+    try {
+      const small = createTestSdk({
+        memory: false,
+        logger: silent,
+        db: databaseOf({ pool }),
+        adapterFor: () => fake.adapter,
+      });
+
+      const warmed = await Promise.race([
+        chatRpc({ user, deps: small }).bots.warm({ botId }),
+        new Promise((resolve) => setTimeout(() => resolve("stuck"), 10_000)),
+      ]);
+
+      expect(warmed).toEqual({ warmed: true });
+      expect(await usageKinds(user.id)).toEqual(["turn", "warm"]);
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it(
+    "warms on, logging it, when its lock's connection dies during the call",
+    { timeout },
+    async () => {
+      const errors: unknown[][] = [];
+      const { fake, user, client, botId } = await botWith(
+        [round(), warmRound()],
+        "anthropic:claude-sonnet-5-5",
+        { logger: { error: (...args: unknown[]) => errors.push(args) } },
+      );
+      await send(client, botId, "hi");
+      await ageCalls(user.id, 56);
+      const held = holdModelCall(fake, 1);
+
+      const warm = client.bots.warm({ botId });
+      await held.reached;
+      try {
+        await getTestDb().execute(
+          sql`select pg_terminate_backend(pid) from pg_locks where locktype = 'advisory' and granted and database = (select oid from pg_database where datname = current_database()) and ((classid::bigint << 32) | objid::bigint) = hashtextextended(${`warm:${botId}`}, 0)`,
+        );
+        await expect.poll(() => errors.length).toBeGreaterThan(0);
+      } finally {
+        held.release();
+      }
+
+      expect(await warm).toEqual({ warmed: true });
+      expect(await warmLockHeld(botId)).toBe(false);
+      // The call is billed, so its row goes through the pool instead.
+      expect(await usageKinds(user.id)).toEqual(["turn", "warm"]);
+    },
+  );
+
+  it("lets the next warm run after a failed call, which records nothing", { timeout }, async () => {
+    const { fake, user, client, botId } = await botWith(
+      [round(), warmRound()],
+      "anthropic:claude-sonnet-5-5",
+    );
+    await send(client, botId, "hi");
+    await ageCalls(user.id, 56);
+    const play = fake.adapter.chatStream;
+    fake.adapter.chatStream = () => {
+      throw new Error("the Provider is down");
+    };
+
+    expect(await client.bots.warm({ botId })).toEqual({ warmed: false, skipped: "unavailable" });
+    expect(await usageKinds(user.id)).toEqual(["turn"]);
+    expect(await warmLockHeld(botId)).toBe(false);
+
+    fake.adapter.chatStream = play;
+    expect(await client.bots.warm({ botId })).toEqual({ warmed: true });
+    expect(await usageKinds(user.id)).toEqual(["turn", "warm"]);
   });
 });

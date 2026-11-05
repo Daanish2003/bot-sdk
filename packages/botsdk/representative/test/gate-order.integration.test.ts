@@ -13,6 +13,7 @@ import { chatRpc } from "@ai-chat/test-support/sdk";
 import {
   autoSource,
   promoteAutoTopic,
+  testCustomerHeard,
   testCustomerTurn,
 } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
@@ -267,8 +268,12 @@ async function reply(
 
 /** A Customer heard, and nothing sent on its thread yet. */
 async function heardWorld(options?: Parameters<typeof instance>[1]) {
-  const world = await instance([quiet()], options);
-  await world.hears("Hello");
+  const world = await instance([], options);
+  await testCustomerHeard(world.deps, {
+    representativeId: world.id,
+    externalId: number,
+    message: "Hello",
+  });
   return world;
 }
 

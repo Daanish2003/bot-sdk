@@ -7,7 +7,11 @@ import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { exportUserData } from "@botsdk/bot/user-data";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { testCustomerTurn, autoSource } from "@ai-chat/test-support/test-customer";
+import {
+  testCustomerHeard,
+  testCustomerTurn,
+  autoSource,
+} from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
@@ -429,7 +433,7 @@ describe("a blocked Customer", () => {
   it("stops a Turn that began before the block from sending more, and keeps the first block's time", async () => {
     const { deps } = await instance([quiet()]);
     const { rpc, id } = await owner(deps);
-    await testCustomerTurn(deps, {
+    await testCustomerHeard(deps, {
       representativeId: id,
       message: "Hello",
       externalId: "+15550001",

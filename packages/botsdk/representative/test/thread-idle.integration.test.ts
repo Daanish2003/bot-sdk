@@ -8,7 +8,7 @@ import { exportUserData } from "@botsdk/bot/user-data";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { testCustomerTurn } from "@ai-chat/test-support/test-customer";
+import { answersOnce, testCustomerTurn } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
@@ -46,10 +46,10 @@ afterEach(async () => {
   for (const runner of runners.splice(0)) await runner.stop();
 });
 
-/** A running feature instance whose runner's clock (starting at the real time, which the Turn's time limit reads) the test moves, with a Model that stays quiet. */
+/** A running feature instance whose runner's clock (starting at the real time, which the Turn's time limit reads) the test moves, with a Model that answers each Turn. */
 async function instance(first: Parameters<typeof createFakeAdapter>[0]["rounds"] = []) {
   const fake = createFakeAdapter({
-    rounds: [...first, ...Array.from({ length: 20 }, () => round())],
+    rounds: [...first, ...Array.from({ length: 20 }, () => answersOnce)],
   });
   const timer = fakeJobClock(new Date());
   let deps: TestDeps | undefined;
@@ -135,7 +135,7 @@ describe("a thread's 7 idle days", () => {
     await say("Hello?");
     await expect
       .poll(async () => (await threadsOf(deps, user.id))[0]?.messages.length, poll)
-      .toBe(3);
+      .toBe(4);
     passTime(8 * day);
     await expect.poll(state, poll).toEqual(["closed"]);
   });
@@ -159,8 +159,8 @@ describe("a thread's 7 idle days", () => {
     await say("Hello");
 
     passTime(6 * day);
-    const spoke = timer.clock.now().getTime();
     await say("Still there?");
+    const spoke = timer.clock.now().getTime();
     passTime(day);
 
     // The check at day 7 found activity at day 6 and queued the next one for 7 days after it.
@@ -220,7 +220,7 @@ describe("a thread's 7 idle days", () => {
     expect(customers).toHaveLength(1);
     const threads = customers[0]!.threads;
     expect(threads.map((thread) => thread.state)).toEqual(["closed", "representative"]);
-    expect(threads[0]?.messages.map((message) => message.text)).toEqual(["First thread"]);
-    expect(threads[1]?.messages.map((message) => message.text)).toEqual(["Back again"]);
+    expect(threads[0]?.messages.map((message) => message.text)).toEqual(["First thread", "Noted."]);
+    expect(threads[1]?.messages.map((message) => message.text)).toEqual(["Back again", "Noted."]);
   });
 });

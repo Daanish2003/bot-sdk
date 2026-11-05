@@ -328,14 +328,18 @@ async function scriptSaidIn(tx: Transaction, releaseId: string | null, text: str
  * Undefined once the thread has gone.
  */
 export async function readSender(
-  db: FeatureContext["db"],
+  db: FeatureContext["db"] | Transaction,
   threadId: string,
   position: number,
   upTo: number,
 ) {
   const message = representativeThreadMessage;
   const [sender] = await db
-    .select({ channel: message.channel, externalId: message.externalId })
+    .select({
+      channel: message.channel,
+      externalId: message.externalId,
+      verified: message.verified,
+    })
     .from(message)
     .where(and(eq(message.threadId, threadId), eq(message.position, position)));
   if (!sender) return undefined;
@@ -364,7 +368,7 @@ export async function readSender(
  * number or a recycled one is that identity too.
  */
 export async function readThread(
-  db: FeatureContext["db"],
+  db: FeatureContext["db"] | Transaction,
   threadId: string,
   upTo: number,
   batchFrom: number,

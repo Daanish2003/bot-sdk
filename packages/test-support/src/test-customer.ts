@@ -1,6 +1,8 @@
 import { batchLongestMs } from "@botsdk/bot/bot/triggers";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { claimJob, type inProcessRunner } from "@botsdk/bot/runner/internal";
+import { job } from "@botsdk/bot/storage";
+import { round, toolCall } from "@botsdk/testing/fake-adapter";
 import { eq } from "drizzle-orm";
 import { expect } from "vitest";
 
@@ -8,6 +10,7 @@ import { expect } from "vitest";
 import {
   representative,
   representativeFact,
+  representativeThread,
   representativeTopic,
 } from "../../botsdk/representative/src/server/db/schema";
 import { noCustomerChannel } from "../../botsdk/representative/src/server/customer-proof";
@@ -36,6 +39,24 @@ export const autoTopic = "general";
  */
 export const autoFact = { key: "general.note", type: "text", value: "Noted" } as const;
 export const autoSource = { type: "fact", key: autoFact.key } as const;
+
+/**
+ * A Model's round for a Turn a test only needs to have run: it answers the Customer, and stops once it
+ * has. A Turn that stops without answering ends with code's hand-off, which leaves its thread open.
+ */
+export function answersOnce(options: { messages: unknown }) {
+  const last = (options.messages as Array<{ role: string }>).at(-1);
+  return last?.role === "tool" ? round() : answers();
+}
+
+/** The Model's round that answers the Customer, whatever the Turn did before it. */
+export const answers = () =>
+  round(
+    toolCall({
+      name: "reply",
+      input: { topic: "general", sources: [autoSource], text: "Noted.", kind: "small_talk" },
+    }),
+  );
 
 /** Promotes `autoTopic` for the owner of `representativeId`, with the fact its replies cite. */
 export async function promoteAutoTopic(representativeId: string) {
@@ -160,6 +181,28 @@ export async function testCustomerTurn(
   const ended = await deps.runner.status(started.jobId);
   expect(ended?.status, ended?.lastError ?? undefined).toBe("succeeded");
   return started;
+}
+
+/**
+ * A stand-in Customer heard, with nothing sent on their thread and no Turn holding it: the start of a
+ * test whose subject is what comes after. No Turn runs, since one with no reply would hand off. It
+ * needs a runner whose clock doesn't move before this returns, as that is what makes a Turn due.
+ */
+export async function testCustomerHeard(deps: Pick<TestDeps, "parts">, turn: TestCustomerTurn) {
+  const { jobId, ...sent } = await startTestCustomerTurn(deps, turn);
+  const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
+  await getTestDb().transaction(async (tx) => {
+    const [row] = await tx
+      .select({ payload: job.payload, turnId: job.idempotencyKey })
+      .from(job)
+      .where(eq(job.id, jobId));
+    await feature.context.jobs.cancelIn(tx, row!.turnId!);
+    await tx
+      .update(representativeThread)
+      .set({ turnId: null, waitingFrom: null, waitingSince: null })
+      .where(eq(representativeThread.id, (row!.payload as { threadId: string }).threadId));
+  });
+  return sent;
 }
 
 /**

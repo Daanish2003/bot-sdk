@@ -10,7 +10,10 @@ import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import {
+  answers,
+  answersOnce,
   fakeChannel,
+  testCustomerHeard,
   testCustomerTurn,
   startTestCustomerTurn,
   autoSource,
@@ -96,7 +99,7 @@ async function instance({
   const fake = createFakeAdapter({
     rounds: Array.from({ length: 40 }, () => (options: TextOptions) => {
       if (isPassCall(options)) return round(text("Asked about hours."));
-      return turns.shift()?.() ?? round();
+      return turns.shift()?.() ?? answersOnce(options);
     }),
   });
   const entered: unknown[] = [];
@@ -149,6 +152,9 @@ async function instance({
       message,
       externalId,
     });
+  /** The Customer is heard, and no Turn is left to answer them. */
+  const heard = (message: string, externalId: string) =>
+    testCustomerHeard(deps!, { representativeId: id, message, externalId });
   const customerAt = async (externalId: string) => {
     const customers = await rpc.representative.customerList();
     return customers.find((each) => each.identities.some((i) => i.externalId === externalId))!;
@@ -170,7 +176,21 @@ async function instance({
   };
   const context = () =>
     deps!.parts.features.find(({ feature }) => feature.id === "representative")!.context;
-  return { deps, jobs, timer, entered, botId, user, rpc, id, say, customerAt, settle, context };
+  return {
+    deps,
+    jobs,
+    timer,
+    entered,
+    botId,
+    user,
+    rpc,
+    id,
+    say,
+    heard,
+    customerAt,
+    settle,
+    context,
+  };
 }
 
 const tables = (ids: string[]) =>
@@ -406,16 +426,14 @@ describe("deleting a Customer", () => {
             input: { text: "Hello.", kind: "small_talk", topic: "general", sources: [autoSource] },
           }),
         );
-      const owner = await instance({
-        turnRounds: [adaIsAnswered ? answer : () => round(), () => round(), () => round()],
-      });
-      const { rpc, say, customerAt, settle } = owner;
-      await say("Ada speaks.", adaNumber);
-      await say("Bob speaks.", bobNumber);
+      const owner = await instance({ turnRounds: [answer, () => round()] });
+      const { rpc, say, heard, customerAt, settle } = owner;
+      await (adaIsAnswered ? say : heard)("Ada speaks.", adaNumber);
+      await heard("Bob speaks.", bobNumber);
       await settle();
       const [ada, bob] = [await customerAt(adaNumber), await customerAt(bobNumber)];
       await rpc.representative.customerMerge({ id: bob.id, intoId: ada.id });
-      await say("Bob on Ada's thread.", bobNumber);
+      await heard("Bob on Ada's thread.", bobNumber);
       await settle();
       const [merge] = await rpc.representative.customerMergeList();
       await rpc.representative.customerMergeUndo({ id: merge!.id });
@@ -482,10 +500,10 @@ describe("deleting a Customer", () => {
   });
 
   it("removes what an undone merge left of them on another Customer's thread, and nothing of theirs", async () => {
-    const owner = await instance({ turnRounds: [() => round(), () => round(), handsOff] });
-    const { rpc, say, customerAt, settle } = owner;
-    await say("Ada speaks.", adaNumber);
-    await say("Bob speaks.", bobNumber);
+    const owner = await instance({ turnRounds: [handsOff, answers, () => round()] });
+    const { rpc, say, heard, customerAt, settle } = owner;
+    await heard("Ada speaks.", adaNumber);
+    await heard("Bob speaks.", bobNumber);
     await settle();
     const [ada, bob] = [await customerAt(adaNumber), await customerAt(bobNumber)];
     await rpc.representative.customerMerge({ id: bob.id, intoId: ada.id });
@@ -532,10 +550,10 @@ describe("deleting a Customer", () => {
 
   it("strips what it removed from a merge that still stands, and the merge can still be undone", async () => {
     const zedNumber = "+15550028";
-    const owner = await instance({ turnRounds: [() => round(), () => round(), handsOff] });
-    const { rpc, say, customerAt, settle } = owner;
-    await say("Ada speaks.", adaNumber);
-    await say("Bob speaks.", bobNumber);
+    const owner = await instance({ turnRounds: [handsOff, answers, () => round()] });
+    const { rpc, say, heard, customerAt, settle } = owner;
+    await heard("Ada speaks.", adaNumber);
+    await heard("Bob speaks.", bobNumber);
     await settle();
     const [ada, bob] = [await customerAt(adaNumber), await customerAt(bobNumber)];
     await rpc.representative.customerMerge({ id: bob.id, intoId: ada.id });
@@ -759,7 +777,7 @@ describe("deleting a Customer", () => {
 
     /** Ada on her open thread, from two addresses, the first answered. */
     async function twoAddresses(owner: Awaited<ReturnType<typeof instance>>) {
-      await owner.say("From zed.", zed);
+      await owner.heard("From zed.", zed);
       await owner.settle();
       const ada = await owner.customerAt(zed);
       await owner.rpc.representative.customerAddIdentity({
@@ -827,7 +845,7 @@ describe("deleting a Customer", () => {
       ).map((row) => row.status);
 
     it("clears the wait and cancels the queued Turn when nothing else waits", async () => {
-      const owner = await instance({ turnRounds: [() => round(), handsOff] });
+      const owner = await instance({ turnRounds: [handsOff] });
       await twoAddresses(owner);
       await owner.say("I want a refund.", adaNumber);
       await owner.settle();
@@ -848,7 +866,9 @@ describe("deleting a Customer", () => {
     });
 
     it("gives what's left a new Turn when it still waits, moving where the wait starts", async () => {
-      const owner = await instance({ turnRounds: [() => round(), handsOff] });
+      const owner = await instance({
+        turnRounds: [handsOff, answers, () => round(), () => round()],
+      });
       await twoAddresses(owner);
       await owner.say("I want a refund.", adaNumber);
       await owner.settle();
@@ -877,7 +897,6 @@ describe("deleting a Customer", () => {
       let open = () => {};
       const owner = await instance({
         turnRounds: [
-          () => round(),
           () => {
             gate = new Promise<void>((resolve) => (open = resolve));
             return round(
@@ -952,7 +971,6 @@ describe("deleting a Customer", () => {
       let gate: Promise<void> | undefined;
       const owner = await instance({
         turnRounds: [
-          () => round(),
           () =>
             round(
               toolCall({
@@ -1220,11 +1238,11 @@ describe("deleting a Customer", () => {
   });
 
   it("treats a new message from their old identity as a stranger's", async () => {
-    const { rpc, ada, say, customerAt, settle } = await seeded();
+    const { rpc, ada, heard, customerAt, settle } = await seeded();
     const before = (await rpc.representative.customerList()).length;
 
     await rpc.representative.customerDelete({ id: ada.id });
-    await say("Hello again.", adaNumber);
+    await heard("Hello again.", adaNumber);
     await settle();
 
     const stranger = await customerAt(adaNumber);

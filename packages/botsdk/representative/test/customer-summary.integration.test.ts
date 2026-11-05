@@ -9,7 +9,7 @@ import { deleteUserData, exportUserData } from "@botsdk/bot/user-data";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { testCustomerTurn } from "@ai-chat/test-support/test-customer";
+import { answersOnce, testCustomerTurn } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import {
@@ -76,7 +76,7 @@ async function instance({
   const reply: Round = (options) => {
     if (isPassCall(options)) return (passRounds.shift() ?? pass.at(-1)!)();
     const next = turns.shift();
-    if (!next) return round();
+    if (!next) return answersOnce(options);
     return typeof next === "function" ? next(options) : next;
   };
   const fake = createFakeAdapter({ rounds: Array.from({ length: 40 }, () => reply) });

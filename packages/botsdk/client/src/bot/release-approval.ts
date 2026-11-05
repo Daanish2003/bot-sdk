@@ -13,6 +13,8 @@ export const releaseApprovalSchema = z.object({
   /** Where the Host shows the Representative's page: what a Channel's link opens. */
   path: z.string(),
   expiresAt: z.string(),
+  /** The tool call that posted it, so a replay of that call finds its card whether or not it was answered. */
+  call: z.string().optional(),
   answer: z.enum(["approved", "declined", "dropped"]).optional(),
 });
 

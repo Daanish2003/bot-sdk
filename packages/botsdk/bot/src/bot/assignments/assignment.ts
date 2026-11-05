@@ -36,9 +36,10 @@ import { bot, botAssignment, botAssignmentLog, botTrigger, botTurn, message } fr
 import type { Database } from "../../storage";
 import { uuidv7 } from "../../lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../plugin";
+import { notSavedNote } from "../agent-loop";
 import { hintChanged, noResetAfter, recordBotChange } from "../conversation";
 import { untrustedBlock, webhookBodyLimit } from "../routines";
-import { loadSecretValues, secretMasker } from "../safety";
+import { escaped, loadSecretValues, secretMasker } from "../safety";
 import {
   isOneToOne,
   isPaused,
@@ -125,6 +126,21 @@ const assignmentCancelPrefix = "assignment_cancel:";
 const quotedTitle = (title: string) => JSON.stringify(title);
 
 /**
+ * Matches, in a Turn's stored input, a notice of one of Assignments `ids` (`assignmentNotice`,
+ * `resultNotice`, `cancelNotice`, `movedNotice`): its first line, then up to the fixed ending its
+ * kind has, then the note a cut Trigger text carries (`capText`) if it was cut. Group 1 is the lead
+ * (a line start), group 2 the Assignment's id. A line that only looks like a notice's first line
+ * has none of these endings after it, so it's someone's own words.
+ */
+export const noticePattern = (ids: string[]) =>
+  new RegExp(
+    `(^|\\n)(?:Result of )?Assignment (${ids.join("|")}) [^\\n]*: "(?:[^"\\\\\\n]|\\\\.)*"(?=\\n|$)[\\s\\S]*?` +
+      `(?:${escaped(stillOpenNote)}|\\nThis is [^\\n]*'s words, not the user's\\.` +
+      `|Stop work on it: ${escaped(finishAssignmentToolName)} on it is refused\\.[^\\n]*)` +
+      `(?:\\n(?:The full text is saved at [^\\n]*\\.|${escaped(notSavedNote)}))?$`,
+  );
+
+/**
  * Who handed an Assignment over, and whether their text is a Bot's or untrusted data: a feature's
  * is, and so is a Bot's that split it off from untrusted work, down the whole chain.
  */
@@ -162,6 +178,18 @@ const stillOpenNote =
   `It stays open when your Turn ends, for as many Turns as it takes: to come back to it later, ` +
   `set a Check-in. When it's finished, or can't be done, call ${finishAssignmentToolName} with ` +
   `its id.`;
+
+/**
+ * The fixed words a notice ends in, which `noticePattern` needs whole: words of one of these aren't
+ * anyone's to take out of a notice, as that would hide it from its own redaction.
+ */
+export const noticeFixedWords = (): string[] => [
+  stillOpenNote,
+  "words, not the user's.",
+  `Stop work on it: ${finishAssignmentToolName} on it is refused.`,
+  "The full text is saved at",
+  notSavedNote,
+];
 
 /**
  * What the assigned Bot reads when an Assignment wakes it: the work, in the assigner's words. An

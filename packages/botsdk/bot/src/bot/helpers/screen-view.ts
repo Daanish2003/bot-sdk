@@ -16,6 +16,7 @@ import {
 } from "../../computer/internal";
 import { computerOf } from "../agent-loop";
 import { helperStoppedError } from "./hand-off";
+import { openHeldScreen, ScreenHolderEndedError } from "./helper";
 
 /**
  * How long a live-view link opens the Screen (#597): a page and its socket must start within it,
@@ -123,6 +124,12 @@ async function heldScreen(
   return { slot: row.screen, botId: row.botId };
 }
 
+/** What a link to a holder that ended is refused with. */
+const endedError = (holder: ScreenHolder) =>
+  "demonstrationId" in holder
+    ? rpcError("CONFLICT", "error.demonstrationEnded", demonstrationEndedError)
+    : rpcError("CONFLICT", "error.helperStopped", helperStoppedError);
+
 /** `heldScreen`, with its refusals as the router's errors. */
 async function ownedScreen(sdk: BotSdkContext, userId: string, holder: ScreenHolder) {
   const screen = await heldScreen(sdk, userId, holder);
@@ -130,15 +137,10 @@ async function ownedScreen(sdk: BotSdkContext, userId: string, holder: ScreenHol
     if (screen === "not-found") {
       throw rpcError("NOT_FOUND", "error.demonstrationNotFound", "Demonstration not found");
     }
-    if (screen === "stopped") {
-      throw rpcError("CONFLICT", "error.demonstrationEnded", demonstrationEndedError);
-    }
-    return screen;
-  }
-  if (screen === "not-found") {
+  } else if (screen === "not-found") {
     throw rpcError("NOT_FOUND", "error.helperNotFound", "Helper not found");
   }
-  if (screen === "stopped") throw rpcError("CONFLICT", "error.helperStopped", helperStoppedError);
+  if (screen === "stopped") throw endedError(holder);
   return screen;
 }
 
@@ -181,8 +183,14 @@ export async function screenView(
     if (!(caught instanceof ComputerOperationError && caught.cause instanceof ScreenNotOpenError)) {
       throw caught;
     }
-    await computer.openScreen(slot, botId);
-    if ("demonstrationId" in holder) await computer.setScreenControl(slot, "control");
+    const id = "demonstrationId" in holder ? holder.demonstrationId : holder.helperId;
+    // It ended since `ownedScreen` looked.
+    const control = "demonstrationId" in holder ? "control" : undefined;
+    await openHeldScreen(sdk, { id, userId, slot }, botId, computer, control).catch(
+      (refused: unknown) => {
+        throw refused instanceof ScreenHolderEndedError ? endedError(holder) : refused;
+      },
+    );
     return computer.screenUrls(slot);
   });
   // The proxy goes on from these, not an address from before a reopen.

@@ -43,12 +43,12 @@ export class BrowserSession {
   private browser: Browser | undefined;
   private current: Page | undefined;
   readonly slot: number;
-  private readonly profileKey: string;
+  private readonly openScreen: (computer: ComputerHandle) => Promise<void>;
 
   // Not parameter properties: the hand-run evals load this file in Node's strip-only mode.
-  constructor(slot: number, profileKey: string) {
+  constructor(slot: number, openScreen: (computer: ComputerHandle) => Promise<void>) {
     this.slot = slot;
-    this.profileKey = profileKey;
+    this.openScreen = openScreen;
   }
 
   /** Connects to the Screen's Chrome, opening the Screen first when it isn't open. */
@@ -59,7 +59,7 @@ export class BrowserSession {
       this.browser = await this.connect(computer);
     } catch {
       // Not open, or its Chrome is gone (a rebuilt or restarted sandbox): open it afresh.
-      await computer.openScreen(this.slot, this.profileKey);
+      await this.openScreen(computer);
       try {
         this.browser = await this.connect(computer);
       } catch (caught) {

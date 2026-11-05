@@ -56,6 +56,7 @@ export {
 export { deleteSecret, listSecrets, rotateSecretKeys, saveSecret } from "./secret";
 export {
   type DecryptedSecrets,
+  escaped,
   loadSecretValues,
   maskedFormsOf,
   maskResult,

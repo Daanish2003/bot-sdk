@@ -6,7 +6,7 @@ import type { ComputerHandle } from "../../src/computer/internal";
 
 describe("BrowserSession.act", () => {
   it("reports an action that happened as done, even when the page can't be read after it", async () => {
-    const session = new BrowserSession(1, "bot");
+    const session = new BrowserSession(1, async () => {});
     vi.spyOn(session, "open").mockResolvedValue();
     // The click navigated, so the old page's context is gone as the snapshot reads it.
     const page = {

@@ -13,9 +13,9 @@ import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 import { fakeReviewer } from "@botsdk/testing/fake-reviewer";
-import { botTurn, message } from "@botsdk/bot/storage";
+import { botTrigger, botTurn, message } from "@botsdk/bot/storage";
 import { getTestDb } from "@ai-chat/test-support/test-database";
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { representative } from "../src";
 import { botDraftTools } from "../src/server/bot-draft";
 import type { TestConversation } from "../src/shared/contract";
@@ -152,6 +152,13 @@ const wakes = ({ botFake }: Instance) => [
     ),
   ),
 ];
+
+/** The Triggers an answer to the Bot's Approval queued for it; with the runner stopped, wakes() can't show them. */
+const approvalTriggers = ({ botId }: Instance) =>
+  getTestDb()
+    .select({ id: botTrigger.id })
+    .from(botTrigger)
+    .where(and(eq(botTrigger.botId, botId), eq(botTrigger.source, "approval")));
 
 /** An instance whose Bot has drafted one Representative, and it waits for the owner's answer. */
 async function drafted(rounds: Round[] = [], options?: Parameters<typeof instance>[1]) {
@@ -571,6 +578,77 @@ describe("the draft tool", () => {
     });
   });
 
+  it.each(["approved", "declined"] as const)(
+    "gives the same answer when a replay runs a call whose new Representative the owner %s",
+    async (answer) => {
+      const made = await drafted();
+      const view = await onlyRepresentative(made);
+      const asked = (made.botFake.calls.at(-1)?.messages ?? []).find(
+        (message) => message.role === "assistant" && message.toolCalls?.length,
+      );
+      const toolCallId = asked!.toolCalls![0]!.id;
+      const { context } = made.deps.parts.features[0]!;
+      const [taken] = await getTestDb()
+        .select({ id: botTurn.id })
+        .from(botTurn)
+        .where(eq(botTurn.botId, made.botId));
+      const turn = { id: taken!.id, botId: made.botId, userId: made.user.id };
+      const [tool] = botDraftTools(turn as never, context as never);
+      const input = { name: "Front desk", jobText: "Answer questions.", why: "Customers ask." };
+      await (answer === "approved"
+        ? made.rpc.representative.approve({ id: view.id })
+        : made.rpc.representative.declineApproval({ id: view.id }));
+
+      expect(await tool!.execute!(input, { toolCallId } as never)).toMatchObject({
+        saved: expect.any(String),
+        representativeId: view.id,
+      });
+
+      expect(await made.rpc.representative.list()).toHaveLength(1);
+      expect(await cardsOf(made)).toHaveLength(1);
+    },
+  );
+
+  it.each(["approved", "declined"] as const)(
+    "gives the same answer when a replay runs a call whose change the owner %s",
+    async (answer) => {
+      const made = await drafted();
+      const { id } = await onlyRepresentative(made);
+      await made.rpc.representative.declineApproval({ id });
+      made.script([drafts({ representativeId: id, jobText: "Answer kindly." }), quiet()]);
+      await made.send("Be kinder");
+      const asked = (made.botFake.calls.at(-1)?.messages ?? []).findLast(
+        (message) => message.role === "assistant" && message.toolCalls?.length,
+      );
+      const toolCallId = asked!.toolCalls![0]!.id;
+      const { context } = made.deps.parts.features[0]!;
+      const [taken] = await getTestDb()
+        .select({ id: botTurn.id })
+        .from(botTurn)
+        .where(eq(botTurn.botId, made.botId))
+        .orderBy(desc(botTurn.startedAt))
+        .limit(1);
+      const turn = { id: taken!.id, botId: made.botId, userId: made.user.id };
+      const [tool] = botDraftTools(turn as never, context as never);
+      const input = {
+        representativeId: id,
+        jobText: "Answer kindly.",
+        why: "Customers ask about hours.",
+      };
+      await (answer === "approved"
+        ? made.rpc.representative.approve({ id })
+        : made.rpc.representative.declineApproval({ id }));
+      const cards = (await cardsOf(made)).length;
+
+      expect(await tool!.execute!(input, { toolCallId } as never)).toMatchObject({
+        saved: expect.any(String),
+        representativeId: id,
+      });
+
+      expect(await cardsOf(made)).toHaveLength(cards);
+    },
+  );
+
   it("refuses a NUL in what it writes, in its input schema", async () => {
     const made = await instance([]);
     const { context } = made.deps.parts.features[0]!;
@@ -888,6 +966,50 @@ describe("the release Approval", () => {
     await made.rpc.representative.approve({ id });
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(wakes(made)).toHaveLength(1);
+  });
+
+  it("drops the card of a pre-reset draft when answered before the reset's job has run", async () => {
+    const approving = await drafted();
+    const { id } = await onlyRepresentative(approving);
+    await runners.at(-1)!.stop();
+    await approving.rpc.bots.reset({ botId: approving.botId, name: "Ada" });
+
+    // Approve still makes the Release, but the card is dropped, not answered, and no one is woken.
+    const release = await approving.rpc.representative.approve({ id });
+    expect(release.number).toBe(1);
+    expect((await approving.rpc.representative.get({ id })).approval).toBeNull();
+    expect((await cardsOf(approving)).at(-1)!.control).toMatchObject({ answer: "dropped" });
+    expect(await approvalTriggers(approving)).toEqual([]);
+  });
+
+  it("refuses a decline of a pre-reset draft's card before the reset's job has run, and drops it", async () => {
+    const made = await drafted();
+    const { id } = await onlyRepresentative(made);
+    await runners.at(-1)!.stop();
+    await made.rpc.bots.reset({ botId: made.botId, name: "Ada" });
+
+    await expect(made.rpc.representative.declineApproval({ id })).rejects.toThrow();
+
+    expect((await made.rpc.representative.get({ id })).approval).toBeNull();
+    expect((await cardsOf(made)).at(-1)!.control).toMatchObject({ answer: "dropped" });
+    expect(await approvalTriggers(made)).toEqual([]);
+  });
+
+  it("answers a card posted after the reset normally, with the reset's job not yet run", async () => {
+    const made = await drafted();
+    const { id } = await onlyRepresentative(made);
+    await made.rpc.bots.reset({ botId: made.botId, name: "Ada" });
+    await expect
+      .poll(async () => (await made.rpc.representative.get({ id })).approval, poll)
+      .toBeNull();
+    made.script([drafts({ representativeId: id, jobText: "After the reset." }), quiet()]);
+    await made.send("Change it");
+    await runners.at(-1)!.stop();
+
+    await made.rpc.representative.declineApproval({ id });
+
+    expect((await cardsOf(made)).at(-1)!.control).toMatchObject({ answer: "declined" });
+    expect(await approvalTriggers(made)).toHaveLength(1);
   });
 
   it("leaves a card posted after the reset alone when the reset's job gets to it late", async () => {

@@ -833,14 +833,15 @@ describe("a draft beside what the caps hold", () => {
     expect(await pagesOf(world)).toEqual([]);
     const thread = await world.rpc.representative.threadGet({ id: await world.threadId() });
     expect(thread.held).toEqual([]);
-    for (const answer of [
-      world.rpc.representative.threadHeldSend({ id: draftId }),
-      world.rpc.representative.threadHeldDrop({ id: draftId }),
+    for (const act of [
+      () => world.rpc.representative.threadHeldSend({ id: draftId }),
+      () => world.rpc.representative.threadHeldDrop({ id: draftId }),
     ]) {
-      await expect(answer).rejects.toSatisfy(
+      await expect(act()).rejects.toSatisfy(
         (error) => refusalCode(error) === "error.heldMessageNotFound",
       );
     }
+    expect(await world.drafts()).toHaveLength(1);
     expect(await world.outcomes()).toEqual([["You owe nothing.", null]]);
   });
 

@@ -9,7 +9,11 @@ import { exportUserData } from "@botsdk/bot/user-data";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { testCustomerTurn, autoSource } from "@ai-chat/test-support/test-customer";
+import {
+  testCustomerTurn,
+  autoSource,
+  testCustomerHeard,
+} from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
@@ -171,6 +175,9 @@ async function instance(
     /** A Customer's message on the fake Channel, answered by a Turn that runs to its end. */
     hears: (message: string, proof?: { rule: "codeRoundTrip" }) =>
       testCustomerTurn(world, { representativeId: id, externalId: number, message, proof }),
+    /** A Customer's message on the fake Channel, with no Turn run and nothing sent. */
+    heard: (message: string, proof?: { rule: "codeRoundTrip" }) =>
+      testCustomerHeard(world, { representativeId: id, externalId: number, message, proof }),
     /** What reached the Customer, in the order the fake sent it. */
     got: () => messaging.delivered.map(({ part }) => part),
     decisions: async (thread?: string) =>
@@ -193,7 +200,8 @@ type World = Awaited<ReturnType<typeof instance>>;
 type Heard = { channel: string; externalId: string };
 
 /** A Customer heard, on a thread with nothing sent on it yet. */
-const heard = (world: World) => world.hears("Hello");
+const heard = (world: World, message = "Hello", proof?: { rule: "codeRoundTrip" }) =>
+  world.heard(message, proof);
 
 /** The Representative's reply, as the tool stores it, from a Turn still running. */
 const anotherReply = async (
@@ -425,7 +433,11 @@ describe("a Representative's reply", () => {
     held.open();
     await turn;
 
-    expect(await world.decisions()).toMatchObject([{ kind: "reply", outcome: "drop", rule: "on" }]);
+    // Its reply, and then code's hand-off for a Turn that sent nothing, each stopped by the gate.
+    expect(await world.decisions()).toMatchObject([
+      { kind: "reply", outcome: "drop", rule: "on" },
+      { kind: "code_hand_off", outcome: "drop", rule: "on" },
+    ]);
     expect(world.got()).toEqual([]);
   });
 });
@@ -519,7 +531,7 @@ describe("a proof for a blocked Customer", () => {
 
   it("doesn't go, and the decision says why", async () => {
     const world = await instance([quiet()]);
-    await world.hears("Hello", { rule: "codeRoundTrip" });
+    await world.heard("Hello", { rule: "codeRoundTrip" });
     const [line] = await world.rpc.representative.threadList({ id: world.id });
     await world.rpc.representative.customerSetBlocked({ id: line!.customer.id, blocked: true });
 
@@ -534,7 +546,7 @@ describe("a proof for a blocked Customer", () => {
   it("isn't made for a claim on a blocked Customer's address, and the decision says why", async () => {
     const other = "+15550002";
     const world = await instance([quiet(), quiet()]);
-    await world.hears("Hello");
+    await world.heard("Hello");
     const [line] = await world.rpc.representative.threadList({ id: world.id });
     await testCustomerTurn(world.deps, {
       representativeId: world.id,
@@ -555,7 +567,7 @@ describe("a proof for a blocked Customer", () => {
 
   it("doesn't go while a block is under way, and leaves no deadlock to wait for", async () => {
     const world = await instance([quiet()]);
-    await world.hears("Hello", { rule: "codeRoundTrip" });
+    await world.heard("Hello", { rule: "codeRoundTrip" });
     const [line] = await world.rpc.representative.threadList({ id: world.id });
 
     const outgoing = await getTestDb().transaction(async (tx) => {
@@ -664,7 +676,7 @@ describe("a test conversation", () => {
 describe("the owner's export", () => {
   it("holds each decision", async () => {
     const world = await instance([replies("Hi."), quiet()]);
-    await heard(world);
+    await world.hears("Hello");
 
     const exported = (await exportUserData(world.deps, world.user.id)) as unknown as {
       representative: {
@@ -739,7 +751,7 @@ describe("the outbound caps", () => {
     await heard(world);
     await times(5, () => anotherReply(world));
 
-    await world.hears("Are you there?");
+    await world.heard("Are you there?");
     await times(5, () => anotherReply(world));
 
     expect(await held()).toEqual([]);
@@ -856,7 +868,7 @@ describe("the outbound caps", () => {
     await times(2, () => anotherReply(world));
     expect(await held()).toHaveLength(1);
 
-    await world.hears("Hello again");
+    await world.heard("Hello again");
 
     expect(await held()).toEqual([]);
     expect((await world.decisions()).map(({ outcome, rule }) => [outcome, rule])).toEqual([
@@ -936,7 +948,7 @@ describe("quiet hours", () => {
     await heard(world);
     await anotherReply(world, night, true);
 
-    await world.hears("Are you there?");
+    await world.heard("Are you there?");
     pass(world, 9 * hour);
 
     expect(await held()).toEqual([]);
@@ -1038,7 +1050,7 @@ describe("quiet hours", () => {
         night,
       ),
     );
-    await world.hears("Are you there?");
+    await world.heard("Are you there?");
     expect(await held()).toEqual([]);
 
     // The Turn ends and writes its refusals again.
@@ -1393,7 +1405,7 @@ describe("a Channel's limits", () => {
 
   it("refuses the owner's own message outside the reply window, and keeps nothing held", async () => {
     const world = await instance([quiet()], undefined, new Date(), { replyWindowHours: 24 });
-    await world.hears("Hello");
+    await world.heard("Hello");
     const id = await world.threadId();
     await world.rpc.representative.threadTakeOver({ id });
     world.timer.advance(25 * hour);

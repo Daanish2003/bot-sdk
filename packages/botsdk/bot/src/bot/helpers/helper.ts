@@ -19,6 +19,8 @@ import {
 } from "../../runner/internal";
 
 import {
+  type ComputerHandle,
+  type ScreenControl,
   ComputerOperationError,
   ComputerUnavailableError,
   maxScreens,
@@ -323,7 +325,7 @@ export async function freeScreen(tx: Transaction, userId: string): Promise<numbe
 
 /**
  * The user's Screen `slot`'s lock, until `tx` ends: `start_helper` and `watch_user` take it as they
- * hand the slot out, and `closeScreen` holds it while it closes the Screen.
+ * hand the slot out, and `closeScreen` and `openHeldScreen` hold it while they run their command.
  */
 export async function lockScreen(tx: Transaction, userId: string, slot: number) {
   await tx.execute(
@@ -415,8 +417,7 @@ async function runHelperJob(
   const helper = await helperFacts(deps.db, helperId);
   if (!helper) throw new PermanentJobError(`Helper ${helperId} no longer exists`);
   if (helper.status !== "running") return;
-  const session =
-    helper.screen === null ? undefined : new BrowserSession(helper.screen, helper.botId);
+  const session = browserSessionOf(deps, helper);
   let played: PlayedHelper;
   try {
     played = await playHelper(deps, helper, ctx, waitedSince, ctx.signal, session);
@@ -444,6 +445,66 @@ async function runHelperJob(
     endHelper(deps, tx, helper, endingOf(played), played),
   );
   if (ended) await afterReport(deps, ended);
+}
+
+/** Whether the Helper or Demonstration `id` hasn't ended, so the slot it was given is still its. */
+async function holdsItsScreen(tx: Transaction, id: string): Promise<boolean> {
+  const [helper] = await tx
+    .select({ id: botHelper.id })
+    .from(botHelper)
+    .where(and(eq(botHelper.id, id), inArray(botHelper.status, ["running", "waiting"])));
+  if (helper) return true;
+  const [demonstration] = await tx
+    .select({ id: botDemonstration.id })
+    .from(botDemonstration)
+    .where(
+      and(
+        eq(botDemonstration.id, id),
+        inArray(botDemonstration.state, [...liveDemonstrationStates]),
+      ),
+    );
+  return demonstration !== undefined;
+}
+
+/** An open of a Screen for a Helper or Demonstration that ended, and only hasn't noticed yet. */
+export class ScreenHolderEndedError extends Error {
+  constructor(slot: number) {
+    super(`What Screen ${slot} was opened for has ended`);
+    this.name = "ScreenHolderEndedError";
+  }
+}
+
+/**
+ * Opens Screen `holder.slot` on `computer` with the Chrome profile `profileKey`, for the Helper or
+ * Demonstration `holder.id` that was given it. An open restarts whatever is on the slot, so it runs
+ * under the slot's lock, and throws `ScreenHolderEndedError` once the holder has ended. A slot is
+ * only handed out once its holder ended, so a late open never replaces the Screen of whatever took
+ * the slot next, nor leaves a Screen open that nothing holds, and a live holder's own open, however
+ * many times it retries, goes ahead. A `control` mode is set under the same lock, for the same reason.
+ */
+export async function openHeldScreen(
+  deps: BotSdkContext,
+  holder: { id: string; userId: string; slot: number },
+  profileKey: string,
+  computer: ComputerHandle,
+  control?: ScreenControl,
+): Promise<void> {
+  const { slot } = holder;
+  await deps.db.transaction(async (tx) => {
+    await lockScreen(tx, holder.userId, slot);
+    if (!(await holdsItsScreen(tx, holder.id))) throw new ScreenHolderEndedError(slot);
+    await computer.openScreen(slot, profileKey);
+    if (control) await computer.setScreenControl(slot, control);
+  });
+}
+
+/** The Browser tools' session of a Computer-use Helper, which reopens only the slot it holds. */
+function browserSessionOf(deps: BotSdkContext, helper: HelperFacts): BrowserSession | undefined {
+  const { id, userId, botId, screen: slot } = helper;
+  if (slot === null) return undefined;
+  return new BrowserSession(slot, (computer) =>
+    openHeldScreen(deps, { id, userId, slot }, botId, computer),
+  );
 }
 
 /**
@@ -609,7 +670,8 @@ async function playHelper(
         };
       }
       // A Screen that won't open now is opened again by the first Browser tool, which tells the
-      // Helper why it can't; anything else ends the Helper `error`.
+      // Helper why it can't; anything else ends the Helper `error`. A refused open ends the loop
+      // too, and the Helper it was refused to has already stopped, so that writes nothing.
       const unlessComputerFailed = (caught: unknown) => {
         if (caught instanceof ComputerUnavailableError) return false;
         if (caught instanceof ComputerOperationError) return false;
@@ -619,9 +681,12 @@ async function playHelper(
       // this slot is never driven; a later attempt, or a resumed Helper, connects to it as it is.
       if (!saved) {
         await ctx.step("open_screen", () =>
-          computerOf(deps, helper.userId)
-            .openScreen(session.slot, helper.botId)
-            .then(() => true, unlessComputerFailed),
+          openHeldScreen(
+            deps,
+            { id: helper.id, userId: helper.userId, slot: session.slot },
+            helper.botId,
+            computerOf(deps, helper.userId),
+          ).then(() => true, unlessComputerFailed),
         );
       }
       if (attempt) {
@@ -848,8 +913,7 @@ async function replayedHelper(deps: BotSdkContext, helper: HelperFacts, waitedSi
     now: deps.clock,
     signal: AbortSignal.abort(new Error("The Helper's job has ended")),
   });
-  const session =
-    helper.screen === null ? undefined : new BrowserSession(helper.screen, helper.botId);
+  const session = browserSessionOf(deps, helper);
   return playHelper(deps, helper, workflow.context, waitedSince, undefined, session);
 }
 

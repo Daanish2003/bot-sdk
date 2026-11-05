@@ -1,10 +1,17 @@
 import type { BotMemoryChange, MemoryTier } from "@botsdk/client/memory/changes";
 import { searchTextOf } from "@botsdk/client/message-parts";
 import type { ModelMessage } from "@tanstack/ai";
-import { and, asc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { bot, botAssignment, botTrigger, botTurn, message } from "@botsdk/bot/storage";
+import {
+  bot,
+  botAssignment,
+  botRoomMember,
+  botTrigger,
+  botTurn,
+  message,
+} from "@botsdk/bot/storage";
 import type { Database } from "@botsdk/bot/storage";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
@@ -102,8 +109,11 @@ export const botMemoryPassJob = defineJob<PassPayload, PassContext>({
   run: (payload, context) => runBotMemoryPass(context, payload.turnId, context),
 });
 
-/** The Bot's own work coming back: it may be about any Assignment the Bot holds, untrusted ones too. */
-const followOnSources: readonly string[] = ["check_in", "helper", "approval"];
+/**
+ * The Bot's own work coming back: it may be about any Assignment the Bot holds, untrusted ones too.
+ * An `agent` Trigger (a hand-off) is one too, about any Assignment held in its Room.
+ */
+const followOnSources: readonly string[] = ["check_in", "helper", "approval", "agent"];
 
 /** Whether a Trigger is one the pass may read of a Turn that was on an untrusted Assignment. */
 const passMayRead = ({ source, channel }: { source: string; channel: string }) =>
@@ -115,7 +125,8 @@ const passMayRead = ({ source, channel }: { source: string; channel: string }) =
  * channel, so it covers any feature's Assignments and the children a Bot split off from them.
  * - `skip`: the Turn took only untrusted Assignment Triggers and the Bot's own work, or follows on from the Bot's own
  *   work (a Check-in, a Helper's report, an answered Approval) while it holds an untrusted
- *   Assignment that was not ended before the Turn started. No pass reads it.
+ *   Assignment that was not ended before the Turn started, or from a hand-off while any Bot of
+ *   its Room does. No pass reads it.
  * - `user`: the Turn took such a Trigger beside others. The pass reads the user's lines and the
  *   trusted Triggers, and no line of the Bot's and no Check-in, Helper or Approval Trigger, which
  *   may be about that Assignment.
@@ -126,7 +137,12 @@ async function passScope(
   turn: { id: string; botId: string; startedAt: Date },
 ): Promise<"skip" | "user" | "all"> {
   const triggers = await db
-    .select({ source: botTrigger.source, channel: botTrigger.channel })
+    .select({
+      source: botTrigger.source,
+      channel: botTrigger.channel,
+      conversationId: botTrigger.conversationId,
+      receivedAt: botTrigger.receivedAt,
+    })
     .from(botTrigger)
     .where(eq(botTrigger.turnId, turn.id));
   if (triggers.some((each) => each.channel === untrustedAssignmentChannel)) {
@@ -134,15 +150,43 @@ async function passScope(
   }
   const followsOn = triggers.some((each) => followOnSources.includes(each.source));
   if (!followsOn) return "all";
+  const openBetween = (from: Date, to: Date) =>
+    and(
+      lte(botAssignment.createdAt, to),
+      or(isNull(botAssignment.endedAt), gte(botAssignment.endedAt, from)),
+    );
+  // A hand-off is held by any Bot of its Room, per Room, from when it came until the Turn began:
+  // another Bot's message can carry what that Bot's untrusted Assignment holds, and a busy Bot may
+  // take it after that ended.
+  const handOffs = triggers.flatMap((each) =>
+    each.source === "agent"
+      ? [
+          and(
+            inArray(
+              botAssignment.assignedBotId,
+              db
+                .select({ botId: botRoomMember.botId })
+                .from(botRoomMember)
+                .where(eq(botRoomMember.conversationId, each.conversationId)),
+            ),
+            openBetween(each.receivedAt, turn.startedAt),
+          ),
+        ]
+      : [],
+  );
   const [held] = await db
     .select({ id: botAssignment.id })
     .from(botAssignment)
     .where(
       and(
-        eq(botAssignment.assignedBotId, turn.botId),
         eq(botAssignment.assignerTrusted, false),
-        lte(botAssignment.createdAt, turn.startedAt),
-        or(isNull(botAssignment.endedAt), gte(botAssignment.endedAt, turn.startedAt)),
+        or(
+          and(
+            eq(botAssignment.assignedBotId, turn.botId),
+            openBetween(turn.startedAt, turn.startedAt),
+          ),
+          ...handOffs,
+        ),
       ),
     )
     .limit(1);
@@ -519,7 +563,7 @@ async function turnTranscript(
     .filter((input) => !onlyWhatPassMayRead || passMayRead(input))
     .map((input) =>
       input.parts
-        ? `User: ${cut(searchTextOf(input.parts))}`
+        ? `${input.source === "agent" ? "Another Bot" : "User"}: ${cut(searchTextOf(input.parts))}`
         : `Trigger (${input.source}): ${cut(input.text ?? "")}`,
     );
   for (const entry of transcript) {

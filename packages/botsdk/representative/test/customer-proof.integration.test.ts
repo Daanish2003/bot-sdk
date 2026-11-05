@@ -243,7 +243,9 @@ describe("a code round trip on SMS", () => {
     const messages = await messagesOf(deps, user.id, "+15550001");
     expect(JSON.stringify(messages)).not.toContain(code);
     expect(JSON.stringify(messages)).not.toContain("thanks");
-    expect(messages.at(-1)).toMatchObject({ author: "customer", verified: true });
+    expect(messages.findLast(({ author }) => author === "customer")).toMatchObject({
+      verified: true,
+    });
     // The Turn that follows reads the thread as verified, the question it was waiting on included.
     expect(promptOf(fake.calls.at(-1))).toContain("What's my balance?");
   });
@@ -645,7 +647,9 @@ describe("what a code allows", () => {
     timer.advance(2 * minute);
     await testCustomerTurn(deps, sms(id, "A spoofed text"));
 
-    const messages = await messagesOf(deps, user.id, "+15550001");
+    const messages = (await messagesOf(deps, user.id, "+15550001")).filter(
+      ({ author }) => author === "customer",
+    );
     expect(messages.at(-2)).toMatchObject({ text: "Still me", verified: true });
     expect(messages.at(-1)).toMatchObject({ text: "A spoofed text", verified: false });
   });
@@ -1110,7 +1114,9 @@ describe("a lapsed identity", () => {
     await testCustomerTurn(deps, telegram(id, "Thanks"));
 
     expect((await identityOf(deps, user.id, "7")).lapsedAt).toBeNull();
-    const messages = await messagesOf(deps, user.id, "7");
+    const messages = (await messagesOf(deps, user.id, "7")).filter(
+      ({ author }) => author === "customer",
+    );
     expect(messages.at(-1)).toMatchObject({ text: "Thanks", verified: true });
   });
 
@@ -1256,7 +1262,9 @@ describe("a signed link on email", () => {
     timer.advance(proofLastsMs);
     await testCustomerTurn(deps, email(id, "Later"));
 
-    const messages = await messagesOf(deps, user.id, "a@example.com");
+    const messages = (await messagesOf(deps, user.id, "a@example.com")).filter(
+      ({ author }) => author === "customer",
+    );
     expect(messages.at(-2)).toMatchObject({ text: "Now then", verified: true });
     expect(messages.at(-1)).toMatchObject({ text: "Later", verified: false });
   });
@@ -1270,7 +1278,9 @@ describe("a signed link on email", () => {
       proof: { rule: "dmarc", pass: false, policy: "reject" },
     });
 
-    const messages = await messagesOf(deps, user.id, "a@example.com");
+    const messages = (await messagesOf(deps, user.id, "a@example.com")).filter(
+      ({ author }) => author === "customer",
+    );
     expect(messages.at(-1)).toMatchObject({ text: "A forgery", verified: false });
   });
 

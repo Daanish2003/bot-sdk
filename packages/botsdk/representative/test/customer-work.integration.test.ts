@@ -7,7 +7,7 @@ import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { botAssignment } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { approveDrafts, testCustomerTurn } from "@ai-chat/test-support/test-customer";
+import { answers, approveDrafts, testCustomerTurn } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
@@ -282,7 +282,14 @@ describe("read_customer_work", () => {
   });
 
   it("follows a merge for work delivered before it, and gives it back when the merge is undone", async () => {
-    const world = await instance([readsWork(), quiet(), readsWork(), quiet()]);
+    const world = await instance([
+      readsWork(),
+      answers(),
+      quiet(),
+      readsWork(),
+      answers(),
+      quiet(),
+    ]);
     const ada = await customer(world.rpc);
     const bob = await customer(world.rpc, "+15550002");
     // Bob's delivered work: its thread is gone and its Customer is still Bob, as a merge leaves it.
@@ -299,7 +306,7 @@ describe("read_customer_work", () => {
     const [merge] = await world.rpc.representative.customerMergeList();
     await world.rpc.representative.customerMergeUndo({ id: merge!.id });
     await ask(world, "And now?");
-    expect(answersAt(world.fake, 3)).not.toContain("Bob's parcel");
+    expect(answersAt(world.fake, 4)).not.toContain("Bob's parcel");
   });
 });
 
@@ -379,7 +386,7 @@ describe("after the thread closes", () => {
   it("has the pass write no live status or result into the summary or the profile", async () => {
     const day = 24 * 60 * 60_000;
     const forCustomer = "Parcel 4471 is ready at the depot.";
-    const turns = [readsWork(), round(text("Let me check on that."))];
+    const turns = [readsWork(), answers(), round(text("Let me check on that."))];
     const reply: Round = (options) => {
       if (JSON.stringify(options.systemPrompts ?? []).includes(customerSummaryMarker)) {
         return round(text("Asked where their work is."));

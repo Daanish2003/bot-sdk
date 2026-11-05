@@ -34,6 +34,8 @@ export type FactApprovalsService = {
       why: string;
       /** The Turn that asked, for the Channel it goes out on. */
       turnId: string;
+      /** The tool call that asked, which a replay of it finds the card by, answered or not. */
+      call?: string;
     },
   ) => Promise<{ id: string; conversationId: string; expiresAt: Date }>;
   /**
@@ -65,7 +67,7 @@ function answerText(key: string, answer: "approved" | "declined") {
 /** The `factApprovals` service. */
 export function factApprovalsService(deps: BotSdkContext): FactApprovalsService {
   return {
-    post: async (tx, { userId, botId, key, value, path, why, turnId }) => {
+    post: async (tx, { userId, botId, key, value, path, why, turnId, call }) => {
       const [owner] = await tx
         .select({ botId: bot.id, conversationId: bot.conversationId })
         .from(bot)
@@ -80,6 +82,7 @@ export function factApprovalsService(deps: BotSdkContext): FactApprovalsService 
           key,
           path,
           expiresAt: expiresAt.toISOString(),
+          ...(call && { call }),
         }),
         createdAt: now,
         turnId,
