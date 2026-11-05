@@ -141,6 +141,20 @@ async function approveWhenDrafted({ rpc, tick }: JourneyWorld) {
   for (const { id } of drafts) await rpc.representative.replyDraftApprove({ id });
 }
 
+/** The gate holds the Bot's result for a Channel that can't start a conversation: the Customer hasn't read it until the owner sends it. */
+async function releaseHeldResult({ rpc, tick, visitor }: JourneyWorld) {
+  await expect
+    .poll(async () => {
+      await tick();
+      return (await rpc.representative.inbox()).held.length;
+    }, poll)
+    .toBe(1);
+  const [held] = (await rpc.representative.inbox()).held;
+  expect(held).toMatchObject({ rule: "channel", text: "Good news: your refund is on its way." });
+  expect(await visitor.heard()).not.toContain(held!.text);
+  await rpc.representative.threadHeldSend({ id: held!.id });
+}
+
 /** Waits until `text` has reached the Customer. */
 async function hears(world: JourneyWorld, text: string) {
   await expect
@@ -154,9 +168,13 @@ async function hears(world: JourneyWorld, text: string) {
 /**
  * Walks the journey from an owner who has approved Release one and switched the Representative on,
  * with `price` as a Published fact, to a rollback. The Representative's Model answers
- * `journeyRounds`, and the Bot's `botRounds`.
+ * `journeyRounds`, and the Bot's `botRounds`. With `resultHeld`, the Channel can't start a conversation, so
+ * the gate holds the Bot's result for the owner and the Customer reads it only once the owner sends it.
  */
-export async function walkJourney(world: JourneyWorld, { remembered }: { remembered: boolean }) {
+export async function walkJourney(
+  world: JourneyWorld,
+  { remembered, resultHeld = false }: { remembered: boolean; resultHeld?: boolean },
+) {
   const { rpc, representativeId: id, visitor } = world;
   const calls = () => world.modelCalls().length;
 
@@ -183,7 +201,8 @@ export async function walkJourney(world: JourneyWorld, { remembered }: { remembe
   // An Assignment: handed to the Bot, finished, and relayed through the gate once the owner approves.
   await visitor.says("I want a refund");
   await hears(world, handOffMessage);
-  await approveWhenDrafted(world);
+  if (resultHeld) await releaseHeldResult(world);
+  else await approveWhenDrafted(world);
   await hears(world, "Good news: your refund is on its way.");
   expect(await world.assignmentStatuses()).toEqual(["done"]);
   expect(world.botCalls()).toBe(2);
