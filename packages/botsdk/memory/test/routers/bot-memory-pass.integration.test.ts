@@ -1368,3 +1368,135 @@ describe("a Turn on an untrusted Assignment", () => {
     timeout,
   );
 });
+
+describe("a Turn a Bot took from another's hand-off in a Room", () => {
+  type Service = FeatureContext<"assignments">["assignments"];
+  const timeout = 30_000;
+  const poll = { timeout: 10_000 };
+  const secret = "THE-CUSTOMER-LIVES-AT-ELM-STREET";
+
+  const statuses = async (botId: string) =>
+    (
+      await getTestDb()
+        .select({ status: botTurn.status })
+        .from(botTurn)
+        .where(eq(botTurn.botId, botId))
+    ).map((turn) => turn.status);
+
+  /** A feature that hands work over as the Representative does: its text is untrusted. */
+  function assigner() {
+    const service = { current: undefined as Service | undefined };
+    const wake = { current: () => {} };
+    const onEnded = defineJob({
+      name: "repairs.assignment-ended",
+      payload: assignmentEnded,
+      run: async () => {},
+    });
+    const feature = defineFeature({
+      id: "repairs",
+      needs: ["assignments"],
+      jobs: [onEnded],
+      api: ({ assignments, jobs }) => {
+        service.current = assignments;
+        wake.current = jobs.wake;
+        return {};
+      },
+    });
+    return {
+      feature,
+      create: async (userId: string, botId: string) => {
+        await getTestDb().transaction((tx) =>
+          service.current!.create(tx, {
+            userId,
+            botId,
+            title: "Book a repair",
+            instructions: secret,
+            job: onEnded,
+          }),
+        );
+        wake.current();
+      },
+    };
+  }
+
+  /** The Bot a Room Turn call is from, by its Room section; "" for any other call. */
+  const callerOf = (call: TextOptions) => {
+    const room = (call.systemPrompts ?? [])
+      .map((prompt) => (typeof prompt === "string" ? prompt : prompt.content))
+      .find((prompt) => prompt.startsWith("[Room]"));
+    return (room && /\. You are ([^.]+)\./.exec(room)?.[1]) || "";
+  };
+
+  /**
+   * Bots Ada, Bea and Cleo in a Room. Ada's Room Turn hands the secret on to Bea, Bea's to Cleo,
+   * each ending its Turn; `held` names the Bot given an untrusted Assignment first, if any.
+   */
+  async function handedOff(held?: "Ada" | "Bea" | "Cleo") {
+    const made = assigner();
+    const replies: Record<string, string> = {
+      Ada: `@Bea, ${secret}`,
+      Bea: `BEA-REPLY @Cleo, ${secret}`,
+      Cleo: "CLEO-REPLY",
+    };
+    const sdk = await botsWith(
+      Array.from({ length: 20 }, () => (call: TextOptions) => {
+        if (!isTurnCall(call)) return ops();
+        const who = callerOf(call);
+        return who && replies[who]
+          ? round(
+              toolCall({
+                name: sendToUserToolName,
+                input: { text: replies[who], endTurn: true },
+              }),
+            )
+          : round();
+      }),
+      { names: ["Ada", "Bea", "Cleo"], features: [made.feature] },
+    );
+    const [ada, bea, cleo] = sdk.botIds as [string, string, string];
+    const ids = { Ada: ada, Bea: bea, Cleo: cleo };
+    if (held) {
+      await made.create(sdk.user.id, ids[held]);
+      await expect.poll(() => statuses(ids[held]), poll).toEqual(["complete"]);
+    }
+    const room = await sdk.client.rooms.create({ name: "Repairs", botIds: [ada, bea, cleo] });
+    await sdk.client.rooms.send({ conversationId: room.conversationId, text: "@Ada go on" });
+    await expect
+      .poll(async () => (await statuses(cleo)).length, poll)
+      .toBe(held === "Cleo" ? 2 : 1);
+    // Lets every pass queued by then run.
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    const passTexts = sdk.fake.calls.filter((call) => !isTurnCall(call)).map(userTextOf);
+    return { passTexts, ...sdk };
+  }
+
+  it.each([["Ada"], ["Bea"], ["Cleo"]] as const)(
+    "runs no pass reading the hand-off while %s holds an untrusted Assignment in the Room",
+    async (held) => {
+      const { passTexts } = await handedOff(held);
+
+      // Bea's and Cleo's replies are what their passes would show.
+      expect(passTexts.filter((text) => text.includes("BEA-REPLY"))).toEqual([]);
+      expect(passTexts.filter((text) => text.includes("CLEO-REPLY"))).toEqual([]);
+      expect(passTexts.some((text) => text.includes(secret) && text.includes("Another Bot"))).toBe(
+        false,
+      );
+    },
+    timeout,
+  );
+
+  it(
+    "runs the pass as before with no untrusted Assignment, showing the hand-off as another Bot's",
+    async () => {
+      const { passTexts } = await handedOff();
+
+      const beas = passTexts.filter((text) => text.includes("\n\nBot: BEA-REPLY"));
+      expect(beas.length).toBeGreaterThan(0);
+      for (const text of beas) {
+        expect(text).toContain(`Another Bot: @Bea, ${secret}`);
+        expect(text).not.toContain("User: @Bea");
+      }
+    },
+    timeout,
+  );
+});

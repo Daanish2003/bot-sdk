@@ -21,7 +21,7 @@ describe("the Computer-use Helper's tool schemas", () => {
   it("are JSON Schema draft 2020-12, as Anthropic's API requires", () => {
     const stub = (async () => ({})) as never;
     const tools = [
-      ...browserTools(new BrowserSession(1, "bot") as never, "bot", stub),
+      ...browserTools(new BrowserSession(1, async () => {}) as never, "bot", stub),
       askUserTool(() => "reason"),
     ];
     expect(tools.length).toBeGreaterThan(5);

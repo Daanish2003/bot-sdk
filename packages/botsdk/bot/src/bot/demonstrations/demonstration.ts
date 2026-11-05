@@ -27,6 +27,8 @@ import {
   freeScreen,
   hasLiveDemonstration,
   lockScreen,
+  openHeldScreen,
+  ScreenHolderEndedError,
   screensInUseError,
 } from "../helpers";
 import type { LoopKit } from "../agent-loop";
@@ -150,9 +152,21 @@ export function watchUserTool(deps: BotSdkContext, turn: Watcher, kit: LoopKit) 
         `${watchUserToolName}:screen`,
         toolCallId,
         async (computer) => {
-          await computer.openScreen(screen, turn.botId);
-          await computer.setScreenControl(screen, "control");
-          return { opened: true };
+          // A refused open means it has ended, which the check below tells the Bot.
+          const held = await openHeldScreen(
+            deps,
+            { id: demonstrationId, userId: turn.userId, slot: screen },
+            turn.botId,
+            computer,
+          ).then(
+            () => true,
+            (caught: unknown) => {
+              if (caught instanceof ScreenHolderEndedError) return false;
+              throw caught;
+            },
+          );
+          if (held) await computer.setScreenControl(screen, "control");
+          return { opened: held };
         },
         { capped: false },
       );

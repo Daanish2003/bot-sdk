@@ -1,12 +1,12 @@
 import { toolDefinition } from "@tanstack/ai";
-import { and, asc, eq, gt, lte, max, sql } from "drizzle-orm";
+import { and, asc, eq, gt, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import type { FeatureContext, FeatureTurn } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { rpcError } from "@botsdk/bot/rpc-error";
-import { bot, message } from "@botsdk/bot/storage";
+import { bot } from "@botsdk/bot/storage";
 import {
   factAddInput,
   factKey,
@@ -17,19 +17,10 @@ import {
 import { factTypes } from "../shared/facts";
 import { representativeFact, representativeFactProposal } from "./db/schema";
 import { factApprovalSchema } from "@botsdk/client/bot/fact-approval";
+import { lastResetOf } from "./reset-window";
 import { replayedCard } from "./replayed-card";
 import { lessonProposer } from "./customer-lessons";
 import { applyProposedFact, factOf, fieldsOf, logged } from "./facts";
-
-/** When the Bot was last reset: anything it asked before then, it has forgotten. */
-async function lastResetOf(tx: Transaction, botId: string) {
-  const [mark] = await tx
-    .select({ at: max(message.createdAt) })
-    .from(message)
-    .innerJoin(bot, eq(bot.conversationId, message.conversationId))
-    .where(and(eq(bot.id, botId), eq(message.role, "reset")));
-  return mark?.at ?? null;
-}
 
 /*
  * A Bot proposing a Published fact (ticket #1264). The tool only ever stores a proposal and posts the
