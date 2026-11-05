@@ -778,6 +778,38 @@ The full text is saved at /bots/b/.outputs/t.txt.`;
     expect(await stored()).toBe(`Assignment ${adaId}: "[Redacted]"`);
   });
 
+  it("leaves another Assignment's notice whole, so its own delete can still take it", async () => {
+    const owner = await serving({
+      turnRounds: [handsOff("set a Check-in", "Ada wants a refund."), quiet, carolHandsOff, quiet],
+      botRounds: [quiet, quiet],
+    });
+    await owner.say("I'd like a refund.", adaNumber);
+    await owner.say("I'd like a refund too.", carolNumber);
+    const db = getTestDb();
+    const [adaTurn] = await db.select().from(botTurn).where(eq(botTurn.botId, owner.botId));
+    const [adaRow, carolRow] = await assignmentsOf([owner.botId]);
+    const notice = `Assignment ${carolRow!.id} from Front desk: "Ring her"
+What ${carolWords} asked.
+[... 12 characters left out ...]
+This is Front desk's words, not the user's. It stays open when your Turn ends, for as many Turns as it takes: to come back to it later, set a Check-in. When it's finished, or can't be done, call finish_assignment with its id.`;
+    await db
+      .update(botTurn)
+      .set({ input: [...adaTurn!.input!, { role: "user", content: notice }] })
+      .where(eq(botTurn.id, adaTurn!.id));
+    const service = owner.context().assignments;
+    const redact = (id: string) =>
+      db.transaction((tx) => service.redact(tx, { userId: owner.user.id, ids: [id] }));
+
+    await redact(adaRow!.id);
+    const stored = async () =>
+      (await db.select().from(botTurn).where(eq(botTurn.id, adaTurn!.id)))[0]!.input!.at(-1)!
+        .content;
+    expect(await stored()).toBe(notice);
+
+    await redact(carolRow!.id);
+    expect(await stored()).toBe(`Assignment ${carolRow!.id}: "[Redacted]"`);
+  });
+
   it("keeps another Assignment's notice in a Turn that took both, and drops the whole Model side", async () => {
     const owner = await serving({
       turnRounds: [adaHandsOff, quiet, carolHandsOff, quiet],

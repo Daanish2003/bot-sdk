@@ -23,7 +23,13 @@ import { midTurnNote, sha256 } from "../agent-loop";
 import { hintChanged, recordBotChange, redactedText, reviewOwnerOf } from "../conversation";
 import { approvalTriggerId, denyForDeletedCustomer } from "../safety";
 import { checkInKey, checkInOfKey, lockConversationSet } from "../triggers";
-import { assignmentTitleOf, botsThatCanWork, moveToCancelled, noticePattern } from "./assignment";
+import {
+  assignmentTitleOf,
+  botsThatCanWork,
+  moveToCancelled,
+  noticeFixedWords,
+  noticePattern,
+} from "./assignment";
 
 /*
  * Redacting Assignments by reference (ticket #1288, spec #1170, ADR 0029's amendment): when a Customer
@@ -360,14 +366,16 @@ function redactedEntry(entry: ModelMessage): ModelMessage {
  */
 function redactedInput(input: ModelMessage[], ids: string[], copies: string[]): ModelMessage[] {
   const notice = noticePattern(ids);
+  const fixed = noticeFixedWords();
+  const taken = copies.filter((copy) => !fixed.some((words) => words.includes(copy)));
   // Notices first: a copy of words in a notice's fixed ending would stop the pattern matching it.
   const clean = (text: string) =>
     withoutCopies(
       text.replace(notice, (match, lead: string, id: string) => {
-        const left = withoutCopies(match.slice(lead.length), copies);
+        const left = withoutCopies(match.slice(lead.length), taken);
         return `${lead}${isRedactedCancelNotice(left) ? left : `Assignment ${id}: "${redactedText}"`}`;
       }),
-      copies,
+      taken,
     );
   return input.map((entry) => ({ ...entry, content: cleanContent(entry.content, clean) }));
 }

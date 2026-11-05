@@ -150,13 +150,14 @@ async function passScope(
   }
   const followsOn = triggers.some((each) => followOnSources.includes(each.source));
   if (!followsOn) return "all";
-  const openAt = (at: Date) =>
+  const openBetween = (from: Date, to: Date) =>
     and(
-      lte(botAssignment.createdAt, at),
-      or(isNull(botAssignment.endedAt), gte(botAssignment.endedAt, at)),
+      lte(botAssignment.createdAt, to),
+      or(isNull(botAssignment.endedAt), gte(botAssignment.endedAt, from)),
     );
-  // A hand-off is held by any Bot of its Room while it was sent, per Room: another Bot's message can
-  // carry what that Bot's untrusted Assignment holds, and a busy Bot may take it after that ended.
+  // A hand-off is held by any Bot of its Room, per Room, from when it came until the Turn began:
+  // another Bot's message can carry what that Bot's untrusted Assignment holds, and a busy Bot may
+  // take it after that ended.
   const handOffs = triggers.flatMap((each) =>
     each.source === "agent"
       ? [
@@ -168,7 +169,7 @@ async function passScope(
                 .from(botRoomMember)
                 .where(eq(botRoomMember.conversationId, each.conversationId)),
             ),
-            openAt(each.receivedAt),
+            openBetween(each.receivedAt, turn.startedAt),
           ),
         ]
       : [],
@@ -179,7 +180,13 @@ async function passScope(
     .where(
       and(
         eq(botAssignment.assignerTrusted, false),
-        or(and(eq(botAssignment.assignedBotId, turn.botId), openAt(turn.startedAt)), ...handOffs),
+        or(
+          and(
+            eq(botAssignment.assignedBotId, turn.botId),
+            openBetween(turn.startedAt, turn.startedAt),
+          ),
+          ...handOffs,
+        ),
       ),
     )
     .limit(1);

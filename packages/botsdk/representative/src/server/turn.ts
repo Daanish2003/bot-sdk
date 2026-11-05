@@ -786,10 +786,9 @@ export function turnTools(turn: Turn) {
       } else if (says(answer, "sent") || says(answer, "held")) {
         progress.refusals = 0;
       }
-      if (made) {
-        job.jobs.wake();
-        await settleHandOff(turn, made);
-      }
+      // What it stored goes to the Customer by a job, with or without an Assignment.
+      if (says(answer, "sent") || says(answer, "handedOff")) job.jobs.wake();
+      if (made) await settleHandOff(turn, made);
       // What a test conversation's checks read of a sent reply, as the arguments still hold the keys.
       // Beside the answer, which is recorded and cut as any tool's: a Checkpoint keeps no fact's value
       // or quote, and what a live Turn would send isn't cut to the long-output limit.

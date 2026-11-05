@@ -180,6 +180,18 @@ const stillOpenNote =
   `its id.`;
 
 /**
+ * The fixed words a notice ends in, which `noticePattern` needs whole: words of one of these aren't
+ * anyone's to take out of a notice, as that would hide it from its own redaction.
+ */
+export const noticeFixedWords = (): string[] => [
+  stillOpenNote,
+  "words, not the user's.",
+  `Stop work on it: ${finishAssignmentToolName} on it is refused.`,
+  "The full text is saved at",
+  notSavedNote,
+];
+
+/**
  * What the assigned Bot reads when an Assignment wakes it: the work, in the assigner's words. An
  * untrusted assigner's is fenced as untrusted data (ADR 0021), its title quoted on the first line.
  */

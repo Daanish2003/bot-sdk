@@ -955,6 +955,29 @@ describe("a Turn ending with no reply and no refusal", () => {
     expect(wake).toHaveBeenCalled();
   });
 
+  it.each([
+    [
+      "a second refusal's hand-off, with no Assignment made",
+      [guesses("10."), guesses("12.")],
+      true,
+    ],
+    ["an ordinary reply", [greets("Hello."), quiet()], false],
+  ] as Array<[string, Round[], boolean]>)(
+    "wakes the runner when %s is stored",
+    async (_name, rounds, noBot) => {
+      const { jobs, send, timer, claim, attemptsEnd, sent } = await serving(rounds, { noBot });
+      await send("How much is a haircut?");
+      timer.advance(500);
+      const wake = vi.spyOn(jobs, "wake");
+
+      await claim();
+      await attemptsEnd();
+
+      expect(await sent()).toHaveLength(1);
+      expect(wake).toHaveBeenCalled();
+    },
+  );
+
   it("sends nothing more on a reply waiting for the owner", async () => {
     const { turn, sent, assignments, drain, thread } = await serving([
       round(
