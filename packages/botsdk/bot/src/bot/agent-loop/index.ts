@@ -3,6 +3,7 @@ export {
   capOutput,
   capResult,
   capText,
+  notSavedNote,
   operateComputer,
   computerOf,
   computerOperationError,

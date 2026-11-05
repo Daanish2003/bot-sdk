@@ -36,6 +36,7 @@ import { bot, botAssignment, botAssignmentLog, botTrigger, botTurn, message } fr
 import type { Database } from "../../storage";
 import { uuidv7 } from "../../lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../plugin";
+import { notSavedNote } from "../agent-loop";
 import { hintChanged, noResetAfter, recordBotChange } from "../conversation";
 import { untrustedBlock, webhookBodyLimit } from "../routines";
 import { loadSecretValues, secretMasker } from "../safety";
@@ -123,6 +124,23 @@ const assignmentCancelPrefix = "assignment_cancel:";
 
 /** How the first line of an Assignment's Trigger text ends, naming it. */
 const quotedTitle = (title: string) => JSON.stringify(title);
+
+const patternText = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, (char) => `\\${char}`);
+
+/**
+ * Matches, in a Turn's stored input, a notice of one of Assignments `ids` (`assignmentNotice`,
+ * `resultNotice`, `cancelNotice`, `movedNotice`): its first line, then up to the fixed ending its
+ * kind has, then the note a cut Trigger text carries (`capText`) if it was cut. Group 1 is the lead
+ * (a line start), group 2 the Assignment's id. A line that only looks like a notice's first line
+ * has none of these endings after it, so it's someone's own words.
+ */
+export const noticePattern = (ids: string[]) =>
+  new RegExp(
+    `(^|\\n)(?:Result of )?Assignment (${ids.join("|")}) [^\\n]*: "(?:[^"\\\\\\n]|\\\\.)*"(?=\\n|$)[\\s\\S]*?` +
+      `(?:${patternText(stillOpenNote)}|[^\\n]*'s words, not the user's\\.` +
+      `|Stop work on it: ${patternText(finishAssignmentToolName)} on it is refused\\.[^\\n]*)` +
+      `(?:\\n(?:The full text is saved at [^\\n]*\\.|${patternText(notSavedNote)}))?$`,
+  );
 
 /**
  * Who handed an Assignment over, and whether their text is a Bot's or untrusted data: a feature's
