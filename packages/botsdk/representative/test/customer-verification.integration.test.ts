@@ -94,7 +94,7 @@ async function instance(rounds: Round[], held?: Promise<void>) {
   const adapter: AnyTextAdapter = {
     ...fake.adapter,
     chatStream: async function* (options) {
-      // The pass after a close isn't what these tests script: it hears nothing and writes nothing.
+      // The summary pass after a close isn't what these tests script: it gets an empty reply, so it uses no round.
       if (JSON.stringify(options.systemPrompts).includes(customerSummaryMarker)) {
         yield* round();
         return;
