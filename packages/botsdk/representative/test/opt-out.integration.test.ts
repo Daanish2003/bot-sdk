@@ -8,7 +8,11 @@ import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { autoSource, testCustomerTurn } from "@ai-chat/test-support/test-customer";
+import {
+  autoSource,
+  testCustomerHeard,
+  testCustomerTurn,
+} from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
@@ -232,7 +236,11 @@ describe("a Customer's STOP", () => {
 
   it("sends a blocked Customer no confirmation", async () => {
     const world = await instance([quiet()]);
-    await world.hears("Hello");
+    await testCustomerHeard(world.deps, {
+      representativeId: world.id,
+      externalId: number,
+      message: "Hello",
+    });
     const { customer } = await world.thread();
     await world.rpc.representative.customerSetBlocked({ id: customer.id, blocked: true });
 

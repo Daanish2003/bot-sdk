@@ -15,6 +15,7 @@ import {
   fakeChannel,
   promoteAutoTopic,
   startTestCustomerTurn,
+  testCustomerHeard,
   testCustomerTurn,
 } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
@@ -33,6 +34,7 @@ import {
 import { threadIdleMs } from "../src/server/idle";
 import { limitNote } from "../src/server/limits";
 import { representativeFeature } from "../src/server/plugin";
+import { handOffMessage } from "../src/server/replies";
 import { codeHandOffKind, type StoredReplyKind } from "../src/shared/replies";
 
 /*
@@ -194,6 +196,9 @@ async function instance(rounds: Round[], { standAt }: { standAt?: number } = {})
     },
     hears: (message: string, externalId = first, sent?: typeof proof) =>
       testCustomerTurn(world, { representativeId: id, externalId, message, proof: sent }),
+    /** The Customer is heard, and no Turn is left to answer them. */
+    heard: (message: string) =>
+      testCustomerHeard(world, { representativeId: id, externalId: first, message }),
     starts: (message: string, externalId = first, sent?: typeof proof) =>
       startTestCustomerTurn(world, { representativeId: id, externalId, message, proof: sent }),
     /** Moves the clock on and has the runner look, so what came due runs. */
@@ -333,7 +338,8 @@ describe("a limit note the gate wouldn't send", () => {
 
     await world.hears("Anyone?");
 
-    expect(world.got()).toEqual([]);
+    // Only what the first Turn's hand-off told them, before the limit.
+    await expect.poll(world.got, poll).toEqual([handOffMessage]);
     expect(await world.decisions()).toContainEqual(["limit_note", "drop", "channel"]);
     expect((await world.row()).limitNotedAt).toBeNull();
 
@@ -342,7 +348,7 @@ describe("a limit note the gate wouldn't send", () => {
     await expect.poll(async () => (await world.row()).turnId, poll).not.toBeNull();
     world.pass();
 
-    await expect.poll(world.got, poll).toEqual(["Hi"]);
+    await expect.poll(world.got, poll).toEqual([handOffMessage, "Hi"]);
   });
 });
 
@@ -460,8 +466,8 @@ describe("what is left for the owner", () => {
   });
 
   it("is answered by a later Turn's reply to a newer message", async () => {
-    const world = await instance([quiet(), replies("Answered"), quiet()]);
-    await world.hears("Hello");
+    const world = await instance([replies("Answered"), quiet()]);
+    await world.heard("Hello");
     await leaveForOwner(world);
     world.timer.advance(hour);
 
@@ -506,7 +512,7 @@ describe("what is left for the owner", () => {
 
   it("doesn't keep a blocked Customer's thread open", async () => {
     const world = await instance([quiet()]);
-    await world.hears("Hello");
+    await world.heard("Hello");
     const [line] = await world.rpc.representative.threadList({ id: world.id });
     await world.rpc.representative.customerSetBlocked({ id: line!.customer.id, blocked: true });
     await leaveForOwner(world);

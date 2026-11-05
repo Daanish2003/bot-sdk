@@ -468,6 +468,7 @@ describe("handing off to the Bot", () => {
     const { fake, deps, rpc } = await instance([
       handsOff({ title: "A refund", instructions: "   " }),
       handsOff({ title: "x".repeat(121), instructions: "Too long a title." }),
+      replies(),
       quiet(),
     ]);
     const { id: botId } = await rpc.bots.create({ name: "Clerk", model: botModel });

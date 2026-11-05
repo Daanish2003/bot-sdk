@@ -479,8 +479,8 @@ describe("a reply's kind and sources", () => {
 
     await turn("Hi");
 
-    // The tool never ran, so this is no refusal: nothing is outstanding and no one is handed off to.
-    expect(await sent()).toEqual([]);
+    // The tool never ran, so this is no refusal, and the Turn still ends with nothing sent: code hands off.
+    expect((await sent()).map((message) => message.text)).toEqual([handOffMessage]);
     expect(answersIn(fake.calls[1])[0]).toMatch(/validation failed/i);
   });
 

@@ -12,6 +12,7 @@ import { chatRpc } from "@ai-chat/test-support/sdk";
 import {
   autoSource,
   startTestCustomerTurn,
+  testCustomerHeard,
   testCustomerTurn,
 } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
@@ -20,6 +21,7 @@ import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter
 import { fakeMessagingAdapter, fakePushProvider } from "@botsdk/testing/fake-channel";
 import { type CustomerChannel, requestProof } from "../src/server/customer-proof";
 import { storeReply } from "../src/server/customers";
+import { handOffMessage } from "../src/server/replies";
 import {
   representativeOutboundDecision,
   representativeRelease,
@@ -54,6 +56,13 @@ const device = {
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 const quiet = () => round();
+const replies = (text: string) =>
+  round(
+    toolCall({
+      name: "reply",
+      input: { topic: "general", sources: [autoSource], text, kind: "small_talk" },
+    }),
+  );
 const flags = (id = "flag") => round(toolCall({ name: "flag_emergency", input: {}, id }));
 
 const runners: JobRunner[] = [];
@@ -155,6 +164,9 @@ async function instance(
     to,
     hears: (message: string) =>
       testCustomerTurn(world, { representativeId: id, externalId: number, message }),
+    /** The Customer is heard, and no Turn is left to answer them. */
+    heard: (message: string) =>
+      testCustomerHeard(world, { representativeId: id, externalId: number, message }),
     /** A message by the Channel itself, whose limits `hears` leaves out. */
     arrives: (message: string) =>
       receiveCustomerMessage(
@@ -221,12 +233,12 @@ describe("a keyword in the Release", () => {
   });
 
   it("is a whole word: a word holding it is just a word", async () => {
-    const world = await instance([quiet()]);
+    const world = await instance([replies("Sorry to hear it."), quiet()]);
 
     await world.hears("I was fired from my job");
 
-    expect(world.entered).toHaveLength(1);
-    expect(world.got()).toEqual([]);
+    expect(world.entered).toHaveLength(2);
+    await expect.poll(world.got, poll).toEqual(["Sorry to hear it."]);
     expect(await world.pages()).toEqual([]);
   });
 
@@ -344,7 +356,7 @@ describe("a keyword in the Release", () => {
   it("overrides a spent cap, and doesn't count against it", async () => {
     const world = await instance([quiet()]);
     await world.rpc.representative.setCaps({ id: world.id, maxPerDay: 1 });
-    await world.hears("Hello");
+    await world.heard("Hello");
     expect(await world.reply()).toEqual({ sent: true });
     // The cap is spent: everything but the script would be held.
     expect(await world.reply()).toHaveProperty("error");
@@ -409,7 +421,7 @@ describe("a keyword in the Release", () => {
 
   it("sends a blocked Customer nothing, logs why, and doesn't Page the owner", async () => {
     const world = await instance([quiet()]);
-    await world.hears("Hello");
+    await world.heard("Hello");
     const { customer } = await world.thread();
     await world.rpc.representative.customerSetBlocked({ id: customer.id, blocked: true });
 
@@ -622,11 +634,13 @@ describe("a script the Channel's limits stop", () => {
     world.limitChannel(tooShort);
     await world.arrives("fire");
 
+    // That Turn says nothing, and code's hand-off waits beside the script: the same limits stop it.
     await world.hears("Are you there?");
-    expect(await held(world)).toMatchObject([{ text: script }]);
+    expect(await held(world)).toMatchObject([{ text: script }, { text: handOffMessage }]);
 
     await world.arrives("fire!");
-    expect(await held(world)).toHaveLength(1);
+    const scripts = (await held(world)).filter(({ text }) => text === script);
+    expect(scripts).toHaveLength(1);
   });
 });
 
@@ -640,7 +654,7 @@ describe("a spending cap", () => {
     await world.hears("fire");
 
     expect(world.entered).toHaveLength(1);
-    await expect.poll(world.got, poll).toEqual([script]);
+    await expect.poll(world.got, poll).toEqual([handOffMessage, script]);
   });
 
   it("can't stop a flag in the call that spends it, which answers the batch, so no limit note follows", async () => {
@@ -709,11 +723,11 @@ describe("what the Release holds", () => {
     expect((await world.rpc.representative.diff({ id: world.id })).changes).toEqual([]);
 
     await world.hears("fire");
-    expect(world.got()).toEqual([]);
+    await expect.poll(world.got, poll).toEqual([handOffMessage]);
     expect(world.entered).toHaveLength(1);
 
     await world.hears("There's smoke");
-    await expect.poll(world.got, poll).toEqual([defaultScript]);
+    await expect.poll(world.got, poll).toEqual([handOffMessage, defaultScript]);
   });
 
   it("starts a new draft on the default text with no keywords", async () => {
@@ -745,7 +759,7 @@ describe("what the Release holds", () => {
     ).toEqual(["emergencyText", "emergencyKeywords"]);
 
     // The live Release still decides.
-    await world.hears("flood");
+    await world.heard("flood");
     expect(world.got()).toEqual([]);
     await world.hears("fire");
     await expect.poll(world.got, poll).toEqual([script]);
