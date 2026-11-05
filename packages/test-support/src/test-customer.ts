@@ -2,6 +2,7 @@ import { batchLongestMs } from "@botsdk/bot/bot/triggers";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { claimJob, type inProcessRunner } from "@botsdk/bot/runner/internal";
 import { job } from "@botsdk/bot/storage";
+import { round, toolCall } from "@botsdk/testing/fake-adapter";
 import { eq } from "drizzle-orm";
 import { expect } from "vitest";
 
@@ -38,6 +39,21 @@ export const autoTopic = "general";
  */
 export const autoFact = { key: "general.note", type: "text", value: "Noted" } as const;
 export const autoSource = { type: "fact", key: autoFact.key } as const;
+
+/**
+ * A Model's round for a Turn a test only needs to have run: it answers the Customer, and stops once it
+ * has. A Turn that stops without answering ends with code's hand-off, which leaves its thread open.
+ */
+export function answersOnce(options: { messages: unknown }) {
+  const last = (options.messages as Array<{ role: string }>).at(-1);
+  if (last?.role === "tool") return round();
+  return round(
+    toolCall({
+      name: "reply",
+      input: { topic: "general", sources: [autoSource], text: "Noted.", kind: "small_talk" },
+    }),
+  );
+}
 
 /** Promotes `autoTopic` for the owner of `representativeId`, with the fact its replies cite. */
 export async function promoteAutoTopic(representativeId: string) {

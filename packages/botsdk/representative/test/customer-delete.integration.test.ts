@@ -10,6 +10,7 @@ import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import {
+  answersOnce,
   fakeChannel,
   testCustomerTurn,
   startTestCustomerTurn,
@@ -96,7 +97,7 @@ async function instance({
   const fake = createFakeAdapter({
     rounds: Array.from({ length: 40 }, () => (options: TextOptions) => {
       if (isPassCall(options)) return round(text("Asked about hours."));
-      return turns.shift()?.() ?? round();
+      return turns.shift()?.() ?? answersOnce(options);
     }),
   });
   const entered: unknown[] = [];
