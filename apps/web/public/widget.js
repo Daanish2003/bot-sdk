@@ -186,29 +186,47 @@
     }
   }
 
+  /** Starts a session, or says why there's none. */
+  async function startSession() {
+    try {
+      const response = await post(key + "/session");
+      if (!response.ok) {
+        setUsable(false);
+        say("Chat isn't available on this page.");
+        return false;
+      }
+      token = (await response.json()).token;
+      saveToken(token);
+      return true;
+    } catch {
+      setUsable(false);
+      say("Chat isn't available right now.");
+      return false;
+    }
+  }
+
   async function begin() {
     restart.hidden = true;
     say("");
     token = loadToken();
-    if (!token) {
+    if (token) {
       try {
-        const response = await post(key + "/session");
-        if (!response.ok) {
-          setUsable(false);
-          say("Chat isn't available on this page.");
-          return;
+        const response = await post("read", { token });
+        // A stored session can end between visits: a new one takes its place, with nothing to say.
+        if (response.status === 401) {
+          token = null;
+          saveToken(null);
+        } else if (response.ok) {
+          show((await response.json()).messages);
         }
-        token = (await response.json()).token;
-        saveToken(token);
       } catch {
-        setUsable(false);
-        say("Chat isn't available right now.");
-        return;
+        // The stream's first hint reads again.
       }
     }
+    if (!token && !(await startSession())) return;
     setUsable(true);
-    await refresh();
-    if (token) void follow();
+    // Its first hint reads the thread.
+    void follow();
   }
 
   form.addEventListener("submit", async (event) => {

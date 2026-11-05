@@ -101,6 +101,44 @@ test("a visitor chats with a Representative from a shop's page and keeps the thr
   }
 });
 
+test("a returning visitor whose stored session has ended starts a new one, with nothing said", async ({
+  page: owner,
+  browser,
+}) => {
+  const shop = await startShopSite();
+  try {
+    const { key } = await ownerWithKey(owner, shop.origin);
+    const page = await visitorPage(browser);
+    const widget = await openShop(page, shop.origin, key);
+    await expect(widget.field).toBeEnabled();
+    await widget.field.fill("From my last visit");
+    await widget.send.click();
+    await expect(widget.said("From my last visit")).toBeVisible();
+
+    // The stored token no longer opens anything, as when its session ran out between visits.
+    const storeName = `botsdk-widget:${key}`;
+    await page.evaluate(
+      (name) => localStorage.setItem(name, "a-session-that-has-ended"),
+      storeName,
+    );
+    await page.reload();
+
+    await expect(widget.field).toBeEnabled();
+    await expect(widget.chat.locator(".status")).toBeEmpty();
+    await expect(widget.chat.getByRole("button", { name: "Start a new chat" })).toBeHidden();
+    await expect(widget.chat.locator(".message")).toHaveCount(0);
+    expect(await page.evaluate((name) => localStorage.getItem(name), storeName)).not.toBe(
+      "a-session-that-has-ended",
+    );
+    await widget.field.fill(`Back again ${replyMarker}`);
+    await widget.send.click();
+    await expect(widget.said("Back again")).toBeVisible();
+    await expect(widget.said(representativeReply)).toBeVisible({ timeout: 30_000 });
+  } finally {
+    shop.server.close();
+  }
+});
+
 test("a visitor whose key is disabled is told their session has ended", async ({
   page,
   browser,
