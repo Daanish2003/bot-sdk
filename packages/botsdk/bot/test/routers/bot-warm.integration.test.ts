@@ -1,9 +1,11 @@
 import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { createAnthropicChat } from "@tanstack/ai-anthropic";
 import { asc, eq, inArray, sql } from "drizzle-orm";
+import pg from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  databaseOf,
   bot as botTable,
   botPromptStart,
   botSummary,
@@ -23,7 +25,7 @@ import {
   withUsage,
 } from "@botsdk/testing/fake-adapter";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { getTestDb } from "@ai-chat/test-support/test-database";
+import { getTestDb, testDatabaseUrl } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { followSend } from "@ai-chat/test-support/follow-send";
 
@@ -592,8 +594,11 @@ describe("a warm holds no transaction across its Model call", () => {
         .finally(() => {
           settled = true;
         });
-      await expect.poll(async () => settled || (await lockQueuedOnUsage())).toBe(true);
-      held.release();
+      try {
+        await expect.poll(async () => settled || (await lockQueuedOnUsage())).toBe(true);
+      } finally {
+        held.release();
+      }
 
       await lock;
       expect(await warm).toEqual({ warmed: true });
@@ -623,6 +628,99 @@ describe("a warm holds no transaction across its Model call", () => {
     expect(fake.calls).toHaveLength(2);
     expect(await usageKinds(user.id)).toEqual(["turn", "warm"]);
   });
+
+  it("skips, seeing the row, when another warm ended while it got ready", { timeout }, async () => {
+    const preparing = hold();
+    let holding = false;
+    const { fake, user, client, botId } = await botWith(
+      [round(), warmRound(), warmRound()],
+      "anthropic:claude-sonnet-5-5",
+      {
+        hostProviders,
+        getQuota: async () => {
+          if (holding) await preparing.wait();
+          return { budgetUsd: 100, window: "month" };
+        },
+      },
+    );
+    await send(client, botId, "hi");
+    await ageCalls(user.id, 56);
+    const inCall = holdModelCall(fake, 1);
+
+    const first = client.bots.warm({ botId });
+    await inCall.reached;
+    holding = true;
+    const second = client.bots.warm({ botId });
+    await preparing.reached;
+    inCall.release();
+    expect(await first).toEqual({ warmed: true });
+    preparing.release();
+
+    expect(await second).toEqual({ warmed: false, skipped: "still_warm" });
+    expect(fake.calls).toHaveLength(2);
+    expect(await usageKinds(user.id)).toEqual(["turn", "warm"]);
+  });
+
+  // Warms holding every connection of a pool must not each wait for one more.
+  it("needs no second connection while it holds its lock", { timeout }, async () => {
+    const { fake, user, client, botId } = await botWith(
+      [round(), warmRound()],
+      "anthropic:claude-sonnet-5-5",
+    );
+    await send(client, botId, "hi");
+    await ageCalls(user.id, 56);
+    const pool = new pg.Pool({ connectionString: testDatabaseUrl, max: 1 });
+    try {
+      const small = createTestSdk({
+        memory: false,
+        logger: silent,
+        db: databaseOf({ pool }),
+        adapterFor: () => fake.adapter,
+      });
+
+      const warmed = await Promise.race([
+        chatRpc({ user, deps: small }).bots.warm({ botId }),
+        new Promise((resolve) => setTimeout(() => resolve("stuck"), 10_000)),
+      ]);
+
+      expect(warmed).toEqual({ warmed: true });
+      expect(await usageKinds(user.id)).toEqual(["turn", "warm"]);
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it(
+    "warms on, logging it, when its lock's connection dies during the call",
+    { timeout },
+    async () => {
+      const errors: unknown[][] = [];
+      const { fake, user, client, botId } = await botWith(
+        [round(), warmRound()],
+        "anthropic:claude-sonnet-5-5",
+        { logger: { error: (...args: unknown[]) => errors.push(args) } },
+      );
+      await send(client, botId, "hi");
+      await ageCalls(user.id, 56);
+      const held = holdModelCall(fake, 1);
+
+      const warm = client.bots.warm({ botId });
+      await held.reached;
+      try {
+        await getTestDb().execute(
+          sql`select pg_terminate_backend(pid) from pg_locks where locktype = 'advisory' and granted and database = (select oid from pg_database where datname = current_database()) and ((classid::bigint << 32) | objid::bigint) = hashtextextended(${`warm:${botId}`}, 0)`,
+        );
+        await expect.poll(() => errors.length).toBeGreaterThan(0);
+      } finally {
+        held.release();
+      }
+
+      expect(await warm).toEqual({ warmed: true });
+      expect(await warmLockHeld(botId)).toBe(false);
+      // The pool still works.
+      expect(await usageKinds(user.id)).toContain("turn");
+    },
+  );
 
   it("lets the next warm run after a failed call, which records nothing", { timeout }, async () => {
     const { fake, user, client, botId } = await botWith(

@@ -10,9 +10,10 @@ import {
   type TextOptions,
 } from "@tanstack/ai";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
 import type pg from "pg";
 
-import { botTurn, usage } from "../../storage";
+import { botTurn, relations, usage } from "../../storage";
 import type { Database } from "../../storage";
 import type { BotSdkContext } from "../../plugin";
 import { rpcError } from "../../rpc-error";
@@ -43,12 +44,18 @@ function warmableProvider(model: string): "anthropic" | "openai" | undefined {
   return major > 5 || (major === 5 && minor >= 6) ? "openai" : undefined;
 }
 
+/** The Drizzle instance over the connection holding a warm's lock. */
+const sessionDatabase = (client: pg.PoolClient) => drizzle({ client, relations });
+
+/** What the warm reads through: the pool, or the connection holding its lock. */
+type Reads = Pick<Database, "select">;
+
 /**
  * When the Bot last called its Model for a Turn or a warm: the newest of the user's `turn` rows of
  * the Bot's Turns and `warm` rows of the Bot, each read newest first on the user's
  * `(user_id, created_at)` index.
  */
-async function lastCallAt(db: Database, userId: string, botId: string) {
+async function lastCallAt(db: Reads, userId: string, botId: string) {
   const [turn, warm] = await Promise.all([
     db
       .select({ at: usage.createdAt })
@@ -95,46 +102,54 @@ export async function warmBot(
   if ((await latestTurnStatus(deps.db, botId)) === "running") {
     return { warmed: false, skipped: "running" };
   }
-  // One warm at a time per Bot, from the check to the record: the lock is held until the warm's
-  // row is saved, so a second tab that asks meanwhile skips, and one that asks after sees the row.
-  const result = await whileWarmLocked(deps, botId, async (): Promise<WarmResult> => {
-    const start = await latestPromptStart(deps.db, botId);
-    if (!start) return { warmed: false, skipped: "nothing_cached" };
-    // Usage rows are stamped with the host's clock, so it is compared with that. A Prompt start
-    // built after the last call (a Summary while away) has never been cached.
-    const last = await lastCallAt(deps.db, userId, botId);
-    if (
-      last &&
+  const start = await latestPromptStart(deps.db, botId);
+  if (!start) return { warmed: false, skipped: "nothing_cached" };
+  // Usage rows are stamped with the host's clock, so it is compared with that. A Prompt start
+  // built after the last call (a Summary while away) has never been cached.
+  const stillWarm = async (db: Reads) => {
+    const last = await lastCallAt(db, userId, botId);
+    return (
+      last !== undefined &&
       last >= start.builtAt &&
       Date.now() - last.getTime() < cacheLifetimeMs[provider] - warmMarginMs
-    ) {
-      return { warmed: false, skipped: "still_warm" };
-    }
-    const skipped = await warmCall(
-      deps,
-      { userId, botId, conversationId: found.conversationId, model: found.model, provider },
-      start.id,
     );
-    return skipped ? { warmed: false, skipped } : { warmed: true };
+  };
+  if (await stillWarm(deps.db)) return { warmed: false, skipped: "still_warm" };
+  // Everything the call needs is read before the lock, so warms holding every connection of a pool
+  // never wait for one more.
+  const call = await preparedCall(
+    deps,
+    { userId, botId, conversationId: found.conversationId, model: found.model, provider },
+    start.id,
+  );
+  if (typeof call === "string") return { warmed: false, skipped: call };
+  // One warm at a time per Bot, from the check to the record: the lock is held until the warm's
+  // row is saved, so a second tab that asks meanwhile skips, and one that asks after sees the row.
+  return whileWarmLocked(deps, botId, async (session) => {
+    if (await stillWarm(session)) return { warmed: false, skipped: "still_warm" };
+    const failure = await call(session);
+    return failure ? { warmed: false, skipped: failure } : { warmed: true };
   });
-  return result ?? { warmed: false, skipped: "still_warm" };
 }
 
 /**
- * Runs `work` holding the Bot's warm lock, or answers `undefined` when another warm holds it. The
- * lock is a session's, on a connection of its own with no transaction open, so it holds no table's
- * lock. A connection that fails takes the lock with it, and is not handed back.
+ * Runs `work` holding the Bot's warm lock, over the one connection that holds it, or skips as
+ * `still_warm` when another warm holds it. The lock is a session's, with no transaction open, so it
+ * holds no table's lock; like the Channel listeners' it needs a direct connection, not a
+ * transaction-mode pooler. A connection that fails takes the lock with it, and is logged and not
+ * handed back.
  */
-async function whileWarmLocked<T>(
+async function whileWarmLocked(
   deps: BotSdkContext,
   botId: string,
-  work: () => Promise<T>,
-): Promise<T | undefined> {
+  work: (session: ReturnType<typeof sessionDatabase>) => Promise<WarmResult>,
+): Promise<WarmResult> {
   const key = `warm:${botId}`;
   const session = await (deps.db.$client as pg.Pool).connect();
   let failed: Error | undefined;
   const onError = (error: Error) => {
     failed = error;
+    deps.logger.error(`The warm lock's connection for Bot ${botId} failed`, error);
   };
   session.on("error", onError);
   try {
@@ -142,13 +157,20 @@ async function whileWarmLocked<T>(
       "select pg_try_advisory_lock(hashtextextended($1, 0)) as locked",
       [key],
     );
-    if (!rows[0]?.locked) return undefined;
+    if (!rows[0]?.locked) return { warmed: false, skipped: "still_warm" };
     try {
-      return await work();
+      return await work(sessionDatabase(session));
     } finally {
-      await session
-        .query("select pg_advisory_unlock(hashtextextended($1, 0))", [key])
-        .catch(onError);
+      try {
+        const unlocked = await session.query<{ unlocked: boolean }>(
+          "select pg_advisory_unlock(hashtextextended($1, 0)) as unlocked",
+          [key],
+        );
+        if (!unlocked.rows[0]?.unlocked) onError(new Error("The lock was not held"));
+      } catch (caught) {
+        // Already logged if the connection reported it.
+        if (!failed) onError(caught as Error);
+      }
     }
   } finally {
     session.off("error", onError);
@@ -157,10 +179,11 @@ async function whileWarmLocked<T>(
 }
 
 /**
- * The warming call itself, of Prompt start `startId` and the history after it, recorded once it is
- * made. Returns why it made no call, if it made none.
+ * The warming call itself, of Prompt start `startId` and the history after it, with all it reads
+ * read: run with the warm's connection, on which its row is recorded, it answers why the call failed,
+ * if it did. Or why no call can be made.
  */
-async function warmCall(
+async function preparedCall(
   deps: BotSdkContext,
   {
     userId,
@@ -176,7 +199,11 @@ async function warmCall(
     provider: "anthropic" | "openai";
   },
   startId: string,
-): Promise<"unsupported" | "unavailable" | undefined> {
+): Promise<
+  | "unsupported"
+  | "unavailable"
+  | ((session: ReturnType<typeof sessionDatabase>) => Promise<"unavailable" | undefined>)
+> {
   const models = deps.models;
   const call = await models.resolveModelCall(userId, model);
   // The plan caches nothing (probe #664), and a broken link has nothing to warm with.
@@ -213,42 +240,52 @@ async function warmCall(
     },
   } as unknown as AnyTextAdapter;
 
-  let finished: StreamChunk[];
-  try {
-    const chunks: StreamChunk[] = [];
-    for await (const chunk of chat({
-      adapter,
-      threadId: botId,
-      messages,
-      systemPrompts: start.system.map((block) => block.text),
-    })) {
-      chunks.push(chunk);
+  return async (session) => {
+    let finished: StreamChunk[];
+    try {
+      const chunks: StreamChunk[] = [];
+      for await (const chunk of chat({
+        adapter,
+        threadId: botId,
+        messages,
+        systemPrompts: start.system.map((block) => block.text),
+      })) {
+        chunks.push(chunk);
+      }
+      // A warm stops at its one token, so Anthropic ends it `max_tokens`, with the usage it billed.
+      // Whatever that token began is dropped with these chunks.
+      finished = chunks.map((chunk) =>
+        chunk.type === EventType.RUN_ERROR && chunk.code === "max_tokens" && chunk.usage
+          ? ({ ...chunk, type: EventType.RUN_FINISHED } as unknown as StreamChunk)
+          : chunk,
+      );
+      const failed = finished.find((chunk) => chunk.type === EventType.RUN_ERROR);
+      if (failed) throw new Error(failed.message);
+    } catch (caught) {
+      deps.logger.error(`Warming the cache of Bot ${botId} failed`, caught);
+      return "unavailable";
     }
-    // A warm stops at its one token, so Anthropic ends it `max_tokens`, with the usage it billed.
-    // Whatever that token began is dropped with these chunks.
-    finished = chunks.map((chunk) =>
-      chunk.type === EventType.RUN_ERROR && chunk.code === "max_tokens" && chunk.usage
-        ? ({ ...chunk, type: EventType.RUN_FINISHED } as unknown as StreamChunk)
-        : chunk,
-    );
-    const failed = finished.find((chunk) => chunk.type === EventType.RUN_ERROR);
-    if (failed) throw new Error(failed.message);
-  } catch (caught) {
-    deps.logger.error(`Warming the cache of Bot ${botId} failed`, caught);
-    return "unavailable";
-  }
-  const reported = reportedUsageOf(finished);
-  // The call is made, so a row that fails to save is logged by `record`, and never fails the warm.
-  await meter.record({
-    kind: "warm",
-    sourceId: botId,
-    usage: models.messageUsage(reported.usage, {
-      promptCharacters: promptCharactersOf(messages),
-      parts: [],
-    }),
-    reportedCost: reported.cost,
-  });
-  return undefined;
+    const reported = reportedUsageOf(finished);
+    // On the connection already held, so no wait for a free one. The call is made, so a row that
+    // fails to save is logged, as `meter.record` does, and never fails the warm.
+    try {
+      const fire = await session.transaction((tx) =>
+        meter.recordIn(tx, {
+          kind: "warm",
+          sourceId: botId,
+          usage: models.messageUsage(reported.usage, {
+            promptCharacters: promptCharactersOf(messages),
+            parts: [],
+          }),
+          reportedCost: reported.cost,
+        }),
+      );
+      fire();
+    } catch (caught) {
+      deps.logger.error(`Recording the warm of Bot ${botId} failed`, caught);
+    }
+    return undefined;
+  };
 }
 
 /** The Bot's warming calls, oldest first, for the muted lines in its thread. */
