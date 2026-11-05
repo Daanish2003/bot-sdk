@@ -122,15 +122,28 @@ async function readTest(services: TurnServices, resultId: string) {
   await services.db
     .update(representativeTestResult)
     .set({ status: "running" })
-    .where(eq(representativeTestResult.id, resultId));
+    .where(unfinished(resultId));
   return { ...current, model: model ?? null };
 }
 
 type Outcome = Pick<typeof representativeTestResult.$inferInsert, "status" | "error"> &
   Partial<Pick<typeof representativeTestResult.$inferInsert, "transcript" | "checks">>;
 
-const write = ({ db }: TurnServices, resultId: string, outcome: Outcome) =>
-  db.update(representativeTestResult).set(outcome).where(eq(representativeTestResult.id, resultId));
+/**
+ * The result `resultId`, while it has no outcome. A Ban cancels a running job only at its next check,
+ * so a job past its last one could otherwise write over what the Ban said.
+ */
+const unfinished = (resultId: string) =>
+  and(
+    eq(representativeTestResult.id, resultId),
+    inArray(representativeTestResult.status, ["queued", "running"]),
+  );
+
+export const writeOutcome = (
+  { db }: Pick<TurnServices, "db">,
+  resultId: string,
+  outcome: Outcome,
+) => db.update(representativeTestResult).set(outcome).where(unfinished(resultId));
 
 /** What a test conversation stopped by a Ban says. */
 export const testBanned = "The owner is banned";
@@ -149,18 +162,13 @@ export const representativeTestJob = defineJob<TestPayload, TurnServices>({
     await db
       .update(representativeTestResult)
       .set({ status: "error", error: error instanceof Error ? error.message : String(error) })
-      .where(
-        and(
-          eq(representativeTestResult.id, resultId),
-          inArray(representativeTestResult.status, ["queued", "running"]),
-        ),
-      );
+      .where(unfinished(resultId));
   },
   run: async ({ resultId }, job) => {
     const start = await job.step("representative_test_start", () => readTest(job, resultId));
     if (!start) return;
     if (!start.model) {
-      await write(job, resultId, { status: "error", error: "No Model the owner can use" });
+      await writeOutcome(job, resultId, { status: "error", error: "No Model the owner can use" });
       return;
     }
     const { userId, representativeId, name, draft, conversation, model } = start;
@@ -168,12 +176,12 @@ export const representativeTestJob = defineJob<TestPayload, TurnServices>({
     // replay goes the way this one did.
     const banned = await job.step("representative_test_ban", () => job.isUserBlocked(userId));
     if (banned) {
-      await write(job, resultId, { status: "error", error: testBanned });
+      await writeOutcome(job, resultId, { status: "error", error: testBanned });
       return;
     }
     // It could never be approved, so it costs the owner nothing to find out what it would do.
     if (documentChars(draft.documents) > maxReleaseDocumentChars) {
-      await write(job, resultId, {
+      await writeOutcome(job, resultId, {
         status: "error",
         error: "The draft's documents are over the limit for a Release",
       });
@@ -185,7 +193,7 @@ export const representativeTestJob = defineJob<TestPayload, TurnServices>({
       documents = await readDocuments(job.db, draft.documents);
     } catch (caught) {
       if (!(caught instanceof DocumentGone)) throw caught;
-      await write(job, resultId, {
+      await writeOutcome(job, resultId, {
         status: "error",
         error: "A document of the draft changed while this waited",
       });
@@ -216,11 +224,11 @@ export const representativeTestJob = defineJob<TestPayload, TurnServices>({
             ? "The conversation used all its Steps"
             : undefined;
     if (reason !== undefined) {
-      await write(job, resultId, { status: "error", error: reason, transcript });
+      await writeOutcome(job, resultId, { status: "error", error: reason, transcript });
       return;
     }
     const checks = checkExpectations(conversation.expect, played.transcript, played.testRun);
-    await write(job, resultId, {
+    await writeOutcome(job, resultId, {
       status: checks.every((check) => check.passed) ? "passed" : "failed",
       error: null,
       transcript,

@@ -12,6 +12,7 @@ import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 import { representative } from "../src";
+import { testBanned, writeOutcome } from "../src/server/tests";
 import {
   representativeRelease,
   representativeTestResult,
@@ -233,6 +234,26 @@ describe("writing test conversations", () => {
 describe("a Ban", () => {
   const statusOf = async (rpc: Rpc, id: string) =>
     (await rpc.representative.get({ id })).tests[0]?.status;
+
+  it("isn't overwritten by a job past its last check when the Ban lands", async () => {
+    // Cancelling reaches a running job only at its next check, and nothing can stop a test between
+    // its last one and this write, so this is that write.
+    const { rpc } = await instance({ [opens.message]: [replies("We open at nine.")] });
+    const id = await draftWith(rpc, [opens]);
+    ban.on = true;
+    await rpc.representative.runTests({ id });
+    await expect.poll(() => statusOf(rpc, id), poll).toBe("error");
+    const [result] = await getTestDb()
+      .select({ id: representativeTestResult.id })
+      .from(representativeTestResult)
+      .where(eq(representativeTestResult.representativeId, id));
+
+    await writeOutcome({ db: getTestDb() }, result!.id, { status: "passed", error: null });
+
+    expect(await rpc.representative.get({ id })).toMatchObject({
+      tests: [{ status: "error", error: testBanned }],
+    });
+  });
 
   it("starts no test conversation while it lasts", async () => {
     const { rpc, entered } = await instance({ [opens.message]: [replies("We open at nine.")] });
