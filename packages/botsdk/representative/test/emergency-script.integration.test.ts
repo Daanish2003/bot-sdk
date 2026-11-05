@@ -587,6 +587,36 @@ describe("a script the Channel's limits stop", () => {
     expect(await held(world)).toHaveLength(1);
   });
 
+  it("goes when the owner sends it from a thread closed since: safety text doesn't go stale", async () => {
+    const world = await instance([]);
+    world.limitChannel(tooShort);
+    await world.arrives("fire");
+    const [message] = await held(world);
+    await getTestDb()
+      .update(representativeThread)
+      .set({ state: "closed" })
+      .where(eq(representativeThread.id, await world.threadId()));
+
+    await world.rpc.representative.threadHeldSend({ id: message!.id });
+
+    await expect.poll(world.got, poll).toContain(script);
+    expect(await world.decisions()).toContainEqual(["emergency_script_released", "send", "passed"]);
+  });
+
+  it("tells the owner once that a later one couldn't go, though the Page for one that went waits", async () => {
+    const world = await instance([]);
+    await world.arrives("fire");
+    await expect.poll(world.got, poll).toContain(script);
+    world.limitChannel(tooShort);
+
+    await world.arrives("fire!");
+    await world.arrives("fire!!");
+
+    const pages = (await world.pages()).filter(({ urgency }) => urgency === "emergency");
+    expect(pages).toHaveLength(2);
+    expect(pages.filter(({ text }) => text.includes("couldn't send"))).toHaveLength(1);
+  });
+
   it("isn't put out of date by what the Customer says next, and saying it again leaves one to send", async () => {
     const world = await instance([quiet()]);
     world.limitChannel(tooShort);

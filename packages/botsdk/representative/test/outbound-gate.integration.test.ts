@@ -31,7 +31,13 @@ import {
   representativeThreadMessage,
 } from "../src/server/db/schema";
 import { page } from "@botsdk/bot/storage";
-import { type GateRefusal, liveChecks, logRefusals, passGate } from "../src/server/outbound-gate";
+import {
+  enqueueHeldRelease,
+  type GateRefusal,
+  liveChecks,
+  logRefusals,
+  passGate,
+} from "../src/server/outbound-gate";
 import { representativeFeature } from "../src/server/plugin";
 import { handOffMessage } from "../src/server/replies";
 import { holdThread, takeoverNote } from "../src/server/takeover";
@@ -1112,7 +1118,38 @@ describe("quiet hours", () => {
       ["released", "hold", "caps"],
       ["released", "send", "passed"],
     ]);
-    expect(await getTestDb().select().from(page)).toMatchObject([{ cause: "outbound_held" }]);
+    const [written] = await getTestDb().select().from(page);
+    expect(written).toMatchObject({ cause: "outbound_held" });
+    // What holds it now, not the quiet hours it went past, and in the owner's words.
+    expect(written!.text).toContain("your limits on how much it may send");
+    expect(written!.text).not.toContain("caps");
+    expect((await world.rpc.representative.inbox()).held).toMatchObject([{ rule: "caps" }]);
+  });
+
+  it("doesn't let a repeat of its release send what a cap held again", async () => {
+    const world = await instance([quiet()], undefined, night);
+    await heard(world);
+    await world.rpc.representative.setCaps({ id: world.id, maxInARow: 1 });
+    await anotherReply(world, night, true);
+    await anotherReply(world, night, true);
+    pass(world, 9 * hour);
+    await expect.poll(async () => (await outcomes(world)).length, poll).toBe(4);
+    const [left] = await held();
+    await getTestDb().transaction((tx) =>
+      enqueueHeldRelease(
+        world.deps.parts.features.find(({ feature }) => feature.id === "representative")!.context
+          .jobs,
+        tx,
+        left!.id,
+        new Date(night.getTime() + 10 * hour),
+      ),
+    );
+
+    pass(world, 2 * hour);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(world.got()).toEqual(["Still here"]);
+    expect(await held()).toHaveLength(1);
   });
 
   it("leaves a held message for the owner when its topic is still a draft", async () => {
@@ -1125,8 +1162,13 @@ describe("quiet hours", () => {
 
     expect(world.got()).toEqual([]);
     expect(await held()).toHaveLength(1);
-    expect(await outcomes(world)).toContainEqual(["released", "hold", "topic"]);
+    // Still a plain held message, which isn't a Reply draft though its topic held it.
+    expect(await outcomes(world)).toContainEqual(["released", "hold", "topicAtRelease"]);
     expect(await getTestDb().select().from(page)).toMatchObject([{ cause: "outbound_held" }]);
+    expect((await world.rpc.representative.inbox()).held).toMatchObject([
+      { rule: "topicAtRelease" },
+    ]);
+    expect(await world.rpc.representative.replyDraftList()).toEqual([]);
   });
 
   it("waits again when the owner has since extended the quiet hours", async () => {
@@ -1468,6 +1510,10 @@ describe("the owner's inbox", () => {
     expect((await world.rpc.representative.inbox()).held).toHaveLength(1);
     const stranger = chatRpc({ user: await insertUser(), deps: world.deps });
 
-    expect(await stranger.representative.inbox()).toEqual({ held: [], running: [] });
+    expect(await stranger.representative.inbox()).toEqual({
+      held: [],
+      running: [],
+      truncated: { held: false, drafts: false, running: false },
+    });
   });
 });

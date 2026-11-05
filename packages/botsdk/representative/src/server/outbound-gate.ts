@@ -1,4 +1,4 @@
-import { and, asc, count, eq, gt, inArray, isNull, max, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, gt, gte, inArray, isNull, max, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import type { MessagingReach } from "@botsdk/bot/channel";
@@ -58,6 +58,17 @@ export const gateOrder = [
   "topic",
 ] as const;
 export type GateRule = (typeof gateOrder)[number];
+
+/** The rule a message going by itself is held again by, when its topic stops it. */
+const releaseTopicRule = "topicAtRelease";
+
+/** What holds a message, in the words of a Page to the owner. */
+const heldBecause: Record<string, string> = {
+  caps: "your limits on how much it may send",
+  quietHours: "quiet hours",
+  channel: "the Channel's limits",
+  [releaseTopicRule]: "its topic, which you haven't let send by itself",
+};
 
 /** Which rules each message passes: the takeover note, say, would otherwise be refused by its own thread. */
 const rulesOf: Record<OutboundKind, readonly GateRule[]> = {
@@ -521,6 +532,9 @@ export async function passGate(
     }
   }
 
+  // A held message its topic stops on the way out stays a held message: not a Reply draft, which is
+  // what a held row whose decision says `topic` is.
+  if (outgoing.releasing && rule === draftRule) rule = releaseTopicRule;
   const id = uuidv7();
   const written: GateRefusal = {
     decision: {
@@ -580,11 +594,18 @@ export async function passGate(
       cause: heldCause,
       urgency: "routine",
       title: "A message to a Customer is waiting for you",
-      text: `The Outbound gate held a message from ${row.name} to a Customer (rule: ${rule}). Open the thread to send or drop it.`,
+      text: `The Outbound gate held a message from ${row.name} to a Customer, because of ${heldBecause[rule] ?? rule}. Open the thread to send or drop it.`,
       path: `/representatives/${row.representativeId}`,
     };
   }
   await writeDecision(tx, written, outgoing.pages, outgoing.jobs);
+  // Held again: what the row says holds it is this decision, not the one it was first held by.
+  if (outcome === "hold" && outgoing.releasing) {
+    await tx
+      .update(representativeHeldMessage)
+      .set({ decisionId: id })
+      .where(eq(representativeHeldMessage.id, outgoing.releasing));
+  }
   // Written again only if its Turn's fence rolled this back. A Turn stopped like that has no say over
   // what it wrote, so it waits for nobody, and there is nothing to tell the owner.
   if (outcome !== "send") {
@@ -627,6 +648,7 @@ export async function dropHeld(
     threadId,
     heldId,
     by,
+    since,
     kind,
     rule,
     now,
@@ -634,6 +656,8 @@ export async function dropHeld(
     threadId: string;
     heldId?: string;
     by?: Sender;
+    /** Only what was held from this id on, an id being made in the order things happen. */
+    since?: string;
     kind: OutboundKind;
     rule: string;
     now: Date;
@@ -655,6 +679,7 @@ export async function dropHeld(
         eq(held.threadId, threadId),
         heldId ? eq(held.id, heldId) : ne(decision.kind, "emergency_script"),
         by && outdatedBy(by),
+        since ? gte(held.id, since) : undefined,
         isNull(held.resolution),
         ne(decision.rule, draftRule),
       ),

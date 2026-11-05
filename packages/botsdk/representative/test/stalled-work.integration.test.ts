@@ -242,6 +242,8 @@ describe("an Assignment from a Representative that is overdue", () => {
     await world.wait(11 * 60 * minute);
 
     expect(await world.notes()).toHaveLength(1);
+    // Code's fixed note: not the Representative's reply, as the caps, the Model and the transcript read it.
+    expect((await world.notes())[0]!.author).toBe("note");
     expect(await getTestDb().select().from(representativeHeldMessage)).toEqual([]);
     expect(await world.pages("assignment_overdue")).toHaveLength(1);
     expect(await world.pages("outbound_held")).toEqual([]);

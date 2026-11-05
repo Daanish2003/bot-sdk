@@ -1,6 +1,6 @@
 import { type AnyServerTool, toolDefinition } from "@tanstack/ai";
 import { ORPCError } from "@orpc/contract";
-import { and, count, eq, gt, inArray, isNotNull, max } from "drizzle-orm";
+import { and, count, eq, gt, inArray, isNotNull, isNull, max } from "drizzle-orm";
 import { z } from "zod";
 
 import { defaultModelFor } from "@botsdk/client/models/models";
@@ -37,6 +37,7 @@ import { deliverHandOffResult } from "./hand-off-result";
 import { pageNoBot, queueAssignmentDue } from "./stalled-work";
 import {
   type Heard,
+  heldNote,
   holdThreadCustomer,
   readSender,
   readThread,
@@ -60,6 +61,7 @@ import {
   representative,
   representativeHandOff,
   representativeRelease,
+  representativeHeldMessage,
   representativeThreadMessage,
 } from "./db/schema";
 import { logGap } from "./gaps";
@@ -474,7 +476,8 @@ async function handOffInCode(
     codeHandOffKind,
     now,
   );
-  if ("error" in stored) return { handedOff: false };
+  // Held, it waits for the owner to send, so the work it promises still goes to the Bot.
+  if ("error" in stored && stored.error !== heldNote) return { handedOff: false };
   // A Turn telling a Bot's result doesn't send the work round again: the owner has it from here.
   const relaying = entries.some((entry) => entry.author === "bot" && !entry.earlier);
   if (!botId) {
@@ -1212,7 +1215,20 @@ export function representativeTurnJob(
                     gt(representativeThreadMessage.position, upTo),
                   ),
                 );
-              return (row?.n ?? 0) > 0;
+              if ((row?.n ?? 0) > 0) return true;
+              // A reply the gate held is its answer too, waiting to go. This Turn's only: its id is
+              // made before anything it writes.
+              const [waiting] = await tx
+                .select({ n: count() })
+                .from(representativeHeldMessage)
+                .where(
+                  and(
+                    eq(representativeHeldMessage.threadId, threadId),
+                    isNull(representativeHeldMessage.resolution),
+                    gt(representativeHeldMessage.id, turnId),
+                  ),
+                );
+              return (waiting?.n ?? 0) > 0;
             }));
           if ((played.quotaSpent || played.capped) && !answered) {
             const now = await job.now();

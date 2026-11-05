@@ -58,14 +58,19 @@ export async function deliverHandOffResult(
   if (!thread) return;
   const now = services.clock();
   const nowSql = sql`${now.toISOString()}::timestamp`;
+  // A verified Turn's Customer is where they were last heard from verified, which they may have
+  // moved since; an unverified one's is that sender, whom nothing moves.
+  const sender = handOff.verified
+    ? { channel: thread.lastChannel, externalId: thread.lastExternalId }
+    : { channel: handOff.channel, externalId: handOff.externalId };
   const [identity] = await tx
     .select({ optedOutAt: representativeCustomerIdentity.optedOutAt })
     .from(representativeCustomerIdentity)
     .where(
       and(
         eq(representativeCustomerIdentity.userId, ended.userId),
-        eq(representativeCustomerIdentity.channel, handOff.channel),
-        eq(representativeCustomerIdentity.externalId, handOff.externalId),
+        eq(representativeCustomerIdentity.channel, sender.channel),
+        eq(representativeCustomerIdentity.externalId, sender.externalId),
       ),
     );
   // A blocked or opted-out Customer is sent nothing, so no Turn is woken for them.
@@ -87,11 +92,6 @@ export async function deliverHandOffResult(
       position: representativeThread.messageCount,
       waitingSince: representativeThread.waitingSince,
     });
-  // A verified Turn's Customer is where they were last heard from verified, which they may have
-  // moved since; an unverified one's is that sender, whom nothing moves.
-  const sender = handOff.verified
-    ? { channel: thread.lastChannel, externalId: thread.lastExternalId }
-    : { channel: handOff.channel, externalId: handOff.externalId };
   await tx.insert(representativeThreadMessage).values({
     id: uuidv7(),
     threadId,

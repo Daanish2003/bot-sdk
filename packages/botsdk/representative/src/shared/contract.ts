@@ -482,9 +482,14 @@ export type InboxThreadView = ThreadSummary & {
 
 /**
  * What the owner's inbox needs beyond their Reply drafts and Pages (ticket #1313): the messages the
- * Outbound gate held, and the threads their Representatives hold, across all of them.
+ * Outbound gate held, and the threads their Representatives hold, across all of them. `truncated` says
+ * which of the owner's lists, the drafts' too, has more than it shows.
  */
-export type OwnerInbox = { held: InboxHeldView[]; running: InboxThreadView[] };
+export type OwnerInbox = {
+  held: InboxHeldView[];
+  running: InboxThreadView[];
+  truncated: { held: boolean; drafts: boolean; running: boolean };
+};
 
 export type ThreadView = ThreadSummary & {
   representativeId: string;

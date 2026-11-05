@@ -7,7 +7,12 @@ import { defineJob } from "@botsdk/bot/runner/internal";
 import { codeHandOffKind, type StoredReplyKind } from "../shared/replies";
 import { pruneProofs } from "./customer-proof";
 import { lastMessageQuery } from "./last-message";
-import { representativeThread, representativeThreadMessage } from "./db/schema";
+import {
+  representativeCustomer,
+  representativeCustomerIdentity,
+  representativeThread,
+  representativeThreadMessage,
+} from "./db/schema";
 import { afterThreadClose } from "./customer-summary";
 import { heldWaitingQuery } from "./reply-drafts";
 import { queueThreadExpiry } from "./expiry";
@@ -29,6 +34,20 @@ export const threadIdleMs = 7 * 24 * 60 * 60_000;
 export const threadIdleJobName = "representative.thread-idle";
 
 const lastReplyKind = lastMessageQuery(representativeThreadMessage.replyKind);
+
+/**
+ * Whether what a limit left holds the thread open: not when no answer could reach its Customer, who is
+ * blocked or opted out at the thread's address, as the owner's send is refused then and it would never close.
+ */
+const leftAnswerable = sql`(${representativeThread.leftForOwnerAt} is not null
+  and not exists (select 1 from ${representativeCustomer}
+    where ${representativeCustomer.id} = ${representativeThread.customerId}
+      and ${representativeCustomer.blockedAt} is not null)
+  and not exists (select 1 from ${representativeCustomerIdentity}
+    where ${representativeCustomerIdentity.customerId} = ${representativeThread.customerId}
+      and ${representativeCustomerIdentity.channel} = ${representativeThread.lastChannel}
+      and ${representativeCustomerIdentity.externalId} = ${representativeThread.lastExternalId}
+      and ${representativeCustomerIdentity.optedOutAt} is not null))`;
 
 const threadIdlePayload = z.object({ threadId: z.uuid() });
 type ThreadIdlePayload = z.infer<typeof threadIdlePayload>;
@@ -59,7 +78,7 @@ export const threadIdleJob = defineJob<ThreadIdlePayload>({
             lte(representativeThread.updatedAt, new Date(now.getTime() - threadIdleMs)),
             sql`(${lastReplyKind}) is distinct from ${codeHandOffKind}`,
             isNull(representativeThread.limitNotedAt),
-            isNull(representativeThread.leftForOwnerAt),
+            sql`not ${leftAnswerable}`,
             sql`not ${heldWaitingQuery}`,
           ),
         )
@@ -74,7 +93,7 @@ export const threadIdleJob = defineJob<ThreadIdlePayload>({
           state: representativeThread.state,
           updatedAt: representativeThread.updatedAt,
           limitNotedAt: representativeThread.limitNotedAt,
-          leftForOwnerAt: representativeThread.leftForOwnerAt,
+          leftForOwner: sql<boolean>`${leftAnswerable}`,
           lastReplyKind: sql<StoredReplyKind | null>`(${lastReplyKind})`,
           heldWaiting: sql<boolean>`${heldWaitingQuery}`,
         })
@@ -88,7 +107,7 @@ export const threadIdleJob = defineJob<ThreadIdlePayload>({
           thread.state === "owner" ||
           thread.lastReplyKind === codeHandOffKind ||
           thread.limitNotedAt !== null ||
-          thread.leftForOwnerAt !== null ||
+          thread.leftForOwner ||
           thread.heldWaiting;
         const from = held ? now : thread.updatedAt;
         await queueIdleCheck(job, tx, threadId, from);

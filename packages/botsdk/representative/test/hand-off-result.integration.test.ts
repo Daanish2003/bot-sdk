@@ -18,7 +18,9 @@ import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import {
+  representativeCustomerIdentity,
   representativeHandOff,
+  representativeHeldMessage,
   representativeThread,
   representativeThreadMessage,
 } from "../src/server/db/schema";
@@ -26,6 +28,7 @@ import { noCustomerChannel } from "../src/server/customer-proof";
 import { representativeFeature } from "../src/server/plugin";
 import { handOffMessage } from "../src/server/replies";
 import { takeoverNote } from "../src/server/takeover";
+import { beginTurn } from "../src/server/thread-turns";
 import { receiveCustomerMessage } from "../src/server/thread-turns";
 
 /*
@@ -234,6 +237,80 @@ const turnsOf = async (threadId: string) =>
   ).length;
 
 const texts = (messages: Array<{ text: string }>) => messages.map((message) => message.text);
+
+describe("a verified Customer's result, after they moved", () => {
+  const elsewhere = "+15550009";
+
+  /** A verified Customer's Turn handed off, they have moved since, and `optedOut` has opted out. */
+  async function moved(optedOut: string) {
+    const world = await serving([handsOff(), quiet(), quiet()]);
+    await world.send("I want a refund", { rule: "sameIdentity" });
+    await world.runNext();
+    const { id, customer } = await world.thread();
+    await world.rpc.representative.customerAddIdentity({
+      id: customer.id,
+      channel: fakeChannel,
+      externalId: elsewhere,
+    });
+    await getTestDb()
+      .update(representativeThread)
+      .set({ lastExternalId: elsewhere })
+      .where(eq(representativeThread.id, id));
+    await getTestDb()
+      .update(representativeCustomerIdentity)
+      .set({ optedOutAt: noon })
+      .where(
+        and(
+          eq(representativeCustomerIdentity.customerId, customer.id),
+          eq(representativeCustomerIdentity.externalId, optedOut),
+        ),
+      );
+    await world.drain();
+    return { world, id };
+  }
+
+  it("wakes a Turn though the address they handed off from has opted out: it goes where they are", async () => {
+    const { id } = await moved(number);
+    expect(await turnsOf(id)).toBe(2);
+  });
+
+  it("wakes none when it is the address they are at now that has opted out", async () => {
+    const { id } = await moved(elsewhere);
+    expect(await turnsOf(id)).toBe(1);
+  });
+});
+
+describe("a takeover as a Turn tells a Bot's result", () => {
+  it("leaves the draft an earlier Turn wrote for an earlier question, whose batch isn't waiting", async () => {
+    const drafted = round(
+      toolCall({ name: "reply", input: { text: "About your bill", kind: "small_talk" } }),
+    );
+    const { send, runNext, thread, rpc, timer } = await serving([drafted, handsOff(), quiet()]);
+    await send("I want a refund");
+    // Up to the Bot's result on the thread, with the Turn that tells it queued and not run.
+    for (let tries = 0; tries < 30; tries += 1) {
+      await runNext();
+      if ((await thread()).messages.some((message) => message.author === "bot")) break;
+    }
+    const { id } = await thread();
+    const [row] = await getTestDb()
+      .select({ turnId: representativeThread.turnId })
+      .from(representativeThread)
+      .where(eq(representativeThread.id, id));
+    await getTestDb().transaction((tx) => beginTurn(tx, id, row!.turnId!, timer.clock.now()));
+
+    await rpc.representative.threadTakeOver({ id });
+
+    const held = await getTestDb()
+      .select({
+        text: representativeHeldMessage.text,
+        resolution: representativeHeldMessage.resolution,
+      })
+      .from(representativeHeldMessage)
+      .where(eq(representativeHeldMessage.threadId, id));
+    expect(held).toEqual([{ text: "About your bill", resolution: null }]);
+  });
+});
 
 describe("a hand-off's result", () => {
   it("isn't made by a Turn whose Customer the owner blocks during its Model call", async () => {

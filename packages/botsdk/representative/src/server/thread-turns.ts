@@ -19,10 +19,13 @@ import {
   representative,
   representativeCustomer,
   representativeThread,
+  representativeTestResult,
   representativeThreadMessage,
   representativeTurn,
 } from "./db/schema";
 import { queueIdleCheck } from "./idle";
+import { replaceTurnHeld } from "./reply-drafts";
+import { representativeTestKey, testBanned } from "./tests";
 import { waitingAfterAbort } from "./takeover";
 import { channelProof } from "./verification";
 
@@ -379,7 +382,7 @@ export async function dropBannedTurn(tx: Transaction, threadId: string, turnId: 
  * A Ban on `userId`: every Turn on their threads is cancelled, a running one too, and the threads
  * hold none. What a begun Turn hadn't answered goes back to waiting, as when the owner takes a
  * thread over. One thread to a transaction, its Customer's row first, the order a merge and a delete
- * take them in.
+ * take them in. Their test conversations stop too: a Ban applies to what spends for them.
  */
 export async function stopUserTurns(
   { db, clock, jobs }: Pick<Services, "db" | "clock" | "jobs">,
@@ -398,10 +401,24 @@ export async function stopUserTurns(
       const [now] = await tx.select().from(thread).where(eq(thread.id, id)).for("update");
       if (!now?.turnId) return;
       await jobs.cancelIn(tx, now.turnId);
+      await replaceTurnHeld(tx, id, { turnId: now.turnId, turnFrom: now.turnFrom }, clock());
       await tx
         .update(thread)
         .set({ turnId: null, ...waitingAfterAbort(now, clock()) })
         .where(eq(thread.id, id));
     });
   }
+  const result = representativeTestResult;
+  await db.transaction(async (tx) => {
+    const unfinished = await tx
+      .select({ id: result.id })
+      .from(result)
+      .innerJoin(representative, eq(representative.id, result.representativeId))
+      .where(and(eq(representative.userId, userId), inArray(result.status, ["queued", "running"])))
+      .for("update", { of: result });
+    for (const { id } of unfinished) {
+      await jobs.cancelIn(tx, representativeTestKey(id));
+      await tx.update(result).set({ status: "error", error: testBanned }).where(eq(result.id, id));
+    }
+  });
 }

@@ -26,6 +26,7 @@ import {
 import type { InboxHeldView, OwnerInbox } from "../shared/contract";
 import { combinedProfilesOf, nameIn } from "./customer-profile";
 import { getThread, listRunningThreads } from "./owner-customers";
+import { replyDraftsTruncated, settleLeftForOwner } from "./reply-drafts";
 import type { CustomerChannel } from "./customer-proof";
 import { lockThread, refusedByGate, threadClosed } from "./takeover";
 
@@ -95,7 +96,6 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
     const found = await ownedHeld(tx, userId, heldId);
     if (!found) throw heldNotFound();
     const thread = await lockThread(tx, userId, found);
-    if (thread.state === "closed") throw threadClosed();
     if (byItself && thread.state !== "representative") {
       return { blocked: false as const, threadId: found };
     }
@@ -119,11 +119,17 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
       .where(eq(held.id, heldId))
       .for("update", { of: held });
     if (!message) throw heldNotFound();
+    // The decision that held it says what it is: an emergency script keeps its own rules. It is safety
+    // text, which a thread closing doesn't put out of date.
+    const script = message.heldKind === "emergency_script";
+    if (thread.state === "closed" && !script) throw threadClosed();
+    // Held again since by something that doesn't end by itself: a repeat of this job leaves it to the owner.
+    if (byItself && message.rule !== "quietHours") {
+      return { blocked: false as const, threadId: found };
+    }
     const now = context.clock();
     const { channel: channelId, externalId } = message;
-    // The decision that held it says what it is: an emergency script keeps its own rules, and its author.
-    const script = message.heldKind === "emergency_script";
-    if (byItself && message.rule === "quietHours") {
+    if (byItself) {
       // The hours or the Customer's zone may have changed since: it goes when they end now.
       const quiet = await quietAt(tx, found, now);
       if (quiet?.quiet) {
@@ -139,7 +145,7 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
       pages: context.pages,
       channel: context.channel,
       // Only a business-started message is held for quiet hours, so it is one still.
-      businessStarted: byItself && message.rule === "quietHours",
+      businessStarted: byItself,
       // Going by itself it also passes what the owner's own send needn't: the switch, the caps and the topic's mode.
       // Held again it leaves the one held row, and Pages unless others already wait.
       ...(byItself
@@ -168,6 +174,7 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
     if (decided.outcome !== "send") {
       return { blocked: false as const, threadId: found };
     }
+    if (!byItself) await settleLeftForOwner(tx, found);
     await tx.delete(held).where(eq(held.id, heldId));
     await storeAndDeliver(
       context,
@@ -175,7 +182,8 @@ async function releaseHeld(context: Context, userId: string, heldId: string, byI
       decided.id,
       {
         threadId: found,
-        author: script ? "note" : "representative",
+        // A reply has its kind. What has none, a script or a stall note, is code's fixed words.
+        author: message.replyKind ? "representative" : "note",
         text: message.text,
         replyKind: message.replyKind,
         sources: message.sources,
@@ -230,6 +238,7 @@ export async function dropHeldMessage(context: Context, userId: string, heldId: 
       now: context.clock(),
     });
     if (dropped === 0) throw heldNotFound();
+    await settleLeftForOwner(tx, found);
     return found;
   });
   return getThread(context, userId, threadId);
@@ -291,18 +300,28 @@ export async function ownerInbox(
       ),
     )
     .orderBy(asc(representativeHeldMessage.id))
-    .limit(heldListLimit);
+    .limit(heldListLimit + 1);
+  const listed = rows.slice(0, heldListLimit);
   const profiles = await combinedProfilesOf(db, userId, [
-    ...new Set(rows.map((row) => row.customerId)),
+    ...new Set(listed.map((row) => row.customerId)),
   ]);
-  const held: InboxHeldView[] = rows.map(({ customerId, ...row }) => ({
+  const held: InboxHeldView[] = listed.map(({ customerId, ...row }) => ({
     ...row,
     representativeName: names.get(row.representativeId) ?? "",
     customerName: nameIn(profiles.get(customerId)),
   }));
-  const running = (await listRunningThreads(context, userId)).map((thread) => ({
+  const threads = await listRunningThreads(context, userId);
+  const running = threads.running.map((thread) => ({
     ...thread,
     representativeName: names.get(thread.representativeId) ?? "",
   }));
-  return { held, running };
+  return {
+    held,
+    running,
+    truncated: {
+      held: rows.length > heldListLimit,
+      drafts: await replyDraftsTruncated(context, userId),
+      running: threads.truncated,
+    },
+  };
 }

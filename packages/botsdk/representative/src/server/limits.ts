@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, isNull, not, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, not, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
@@ -159,8 +159,9 @@ export async function reachLimit(
       waitingSince: null,
     })
     .where(eq(representativeThread.id, threadId));
-  // Each time, not only with the note: a chain whose last check failed for good starts again here.
-  if (row.limitNotedAt !== null || noted) await queueLimitCheck(services, tx, threadId, now);
+  // Each time, not only with the note: a chain whose last check failed for good starts again here. With
+  // no note too, one the gate refused: nothing else looks at what waits until the Customer writes again.
+  await queueLimitCheck(services, tx, threadId, now);
   await services.pages.sendDaily(tx, {
     userId,
     cause,
@@ -170,13 +171,22 @@ export async function reachLimit(
   });
 }
 
-/** The Representative of a thread still at a limit, for its check; null ends the chain. */
+/**
+ * The Representative of a thread still at a limit, for its check; null ends the chain. A thread whose
+ * note the gate refused shows it by what waits with no Turn on the way.
+ */
 export async function limitedThread(tx: Transaction, threadId: string) {
   const [row] = await tx
     .select({ representativeId: representativeThread.representativeId })
     .from(representativeThread)
     .where(
-      and(eq(representativeThread.id, threadId), isNotNull(representativeThread.limitNotedAt)),
+      and(
+        eq(representativeThread.id, threadId),
+        or(
+          isNotNull(representativeThread.limitNotedAt),
+          and(isNotNull(representativeThread.waitingFrom), isNull(representativeThread.turnId)),
+        ),
+      ),
     );
   return row ?? null;
 }
@@ -204,7 +214,8 @@ export async function settleLimit(
     .from(representativeThread)
     .where(eq(representativeThread.id, threadId))
     .for("update");
-  if (!row || row.limitNotedAt === null || row.state === "closed") return;
+  if (!row || row.state === "closed") return;
+  if (row.limitNotedAt === null && row.waitingFrom === null) return;
   if (!lifted || row.turnId !== null) {
     await queueLimitCheck(services, tx, threadId, now);
     return;

@@ -5,7 +5,7 @@ import type { Transaction } from "@botsdk/bot/plugin";
 import type { OptOutSource } from "../shared/contract";
 import { representativeCustomerIdentity, representativeThread } from "./db/schema";
 import { type GateRefusal, passGate, storeAndDeliver, type ViaChannel } from "./outbound-gate";
-import { replaceHeld } from "./reply-drafts";
+import { replaceHeld, turnSender, waitingElsewhere } from "./reply-drafts";
 
 /*
  * A Customer opts out and comes back (ticket #1302). An opt-out belongs to an identity, with how it
@@ -122,17 +122,32 @@ export async function optOut(
 ) {
   if (!(await markOptedOut(tx, userId, heard, source, now))) return false;
   // The thread's row, so a draft a concurrent reply is writing is seen (or waits) before it is replaced.
-  await tx
-    .select({ id: representativeThread.id })
+  const [thread] = await tx
+    .select({
+      turnFrom: representativeThread.turnFrom,
+      waitingFrom: representativeThread.waitingFrom,
+    })
     .from(representativeThread)
     .where(eq(representativeThread.id, threadId))
     .for("update");
-  // Nothing waiting for this sender can go any more, a draft the owner could approve included.
-  await replaceHeld(tx, threadId, now, { ...heard, verified });
-  // Nothing waiting on this thread gets a Turn: its reply could not be sent.
+  // An opt-out is one address's: nothing waiting to go there can go any more, a draft the owner could
+  // approve included, and what another address is owed still is, verified or not.
+  await replaceHeld(tx, threadId, now, { ...heard, verified: false });
+  // What this address said gets no Turn: its reply could not be sent.
+  const waitingFrom =
+    thread?.waitingFrom == null
+      ? null
+      : await waitingElsewhere(tx, threadId, thread.waitingFrom, heard);
+  const batch =
+    thread?.turnFrom == null ? undefined : await turnSender(tx, threadId, thread.turnFrom);
+  const turnIsTheirs = batch?.channel === heard.channel && batch.externalId === heard.externalId;
   await tx
     .update(representativeThread)
-    .set({ waitingFrom: null, waitingSince: null, turnFrom: null })
+    .set({
+      waitingFrom,
+      ...(waitingFrom === null && { waitingSince: null }),
+      ...(turnIsTheirs && { turnFrom: null }),
+    })
     .where(eq(representativeThread.id, threadId));
   const decision = await passGate(tx, {
     kind: "opt_out_confirmation",

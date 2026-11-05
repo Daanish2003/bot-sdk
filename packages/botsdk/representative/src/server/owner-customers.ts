@@ -550,14 +550,18 @@ export async function listRunningThreads({ db }: Context, userId: string) {
   const rows = await threadRows(db, userId)
     .where(eq(representativeThread.state, "representative"))
     .orderBy(desc(representativeThread.updatedAt), desc(representativeThread.id))
-    .limit(runningListLimit);
+    .limit(runningListLimit + 1);
+  const listed = rows.slice(0, runningListLimit);
   const profiles = await combinedProfilesOf(db, userId, [
-    ...new Set(rows.map((row) => row.customerId)),
+    ...new Set(listed.map((row) => row.customerId)),
   ]);
-  return rows.map((row) => ({
-    ...summary(row, nameIn(profiles.get(row.customerId))),
-    representativeId: row.representativeId,
-  }));
+  return {
+    running: listed.map((row) => ({
+      ...summary(row, nameIn(profiles.get(row.customerId))),
+      representativeId: row.representativeId,
+    })),
+    truncated: rows.length > runningListLimit,
+  };
 }
 
 /** One thread of the owner's with its transcript, oldest first. */

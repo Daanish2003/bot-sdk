@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, lt, lte, sql } from "drizzle-orm";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
@@ -278,8 +278,9 @@ export async function receiveMessage(
     ...heard,
     createdAt: now,
   });
-  // What the gate held is stale now: the Customer has written since.
-  await replaceHeld(tx, threadId, now, { ...heard, verified });
+  // What the gate held is stale now: the Customer has written since. An opt-out says nothing a Turn
+  // will answer, and drops what it reaches itself.
+  if (keyword !== "stop") await replaceHeld(tx, threadId, now, { ...heard, verified });
   // After the thread's row is held, so a gate that decides after this commits sees it.
   if (keyword === "stop") {
     await optOut(services, tx, {
@@ -444,7 +445,7 @@ export async function holdThreadCustomer(tx: Transaction, threadId: string) {
 }
 
 /** What the Model hears of a reply the gate held: the owner has it, and sending it again changes nothing. */
-const heldNote =
+export const heldNote =
   "Your reply was held, because the Outbound gate holds it (a cap on messages to this Customer, quiet hours, or the Channel's limits), so nothing was sent now. The owner sends or drops it, or, if quiet hours held it, it goes when they end. Do not send it again.";
 
 /**
@@ -521,6 +522,24 @@ export async function storeReply(
     now,
     { turnFrom: null },
   );
+  // A reply to what came after a limit left something for the owner answers that too, as the owner's
+  // send does. A reply to what was already there when it was left doesn't, nor does a fixed note.
+  if (replyKind !== codeHandOffKind && replyKind !== limitNoteKind) {
+    const message = representativeThreadMessage;
+    const answered = tx
+      .select({ createdAt: message.createdAt })
+      .from(message)
+      .where(and(eq(message.threadId, threadId), eq(message.position, upTo)));
+    await tx
+      .update(representativeThread)
+      .set({ leftForOwnerAt: null })
+      .where(
+        and(
+          eq(representativeThread.id, threadId),
+          lt(representativeThread.leftForOwnerAt, answered),
+        ),
+      );
+  }
   return { sent: true };
 }
 

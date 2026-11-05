@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, isNull, min, not, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
@@ -20,7 +20,7 @@ import {
 } from "./outbound-gate";
 import { getThread, threadNotFound } from "./owner-customers";
 import { queueOwnerWait } from "./stalled-work";
-import { replaceHeld, turnSender } from "./reply-drafts";
+import { replaceHeld, replaceTurnHeld, waitingElsewhere } from "./reply-drafts";
 import { queueWaitingTurn } from "./thread-turns";
 
 /*
@@ -208,11 +208,7 @@ export async function holdThread(
   const now = clock();
   if (thread.turnId) {
     await jobs.cancelIn(tx, thread.turnId);
-    // What that Turn wrote and the gate held goes with it, as its batch waits again for a Turn after
-    // Hand back. A Turn with no batch left has answered it, and leaves nothing to answer again.
-    const sender =
-      thread.turnFrom === null ? null : await turnSender(tx, threadId, thread.turnFrom);
-    if (sender) await replaceHeld(tx, threadId, now, sender);
+    await replaceTurnHeld(tx, threadId, { turnId: thread.turnId, turnFrom: thread.turnFrom }, now);
   }
   await tx
     .update(representativeThread)
@@ -274,27 +270,11 @@ export async function sendAsOwner(
       .set({ leftForOwnerAt: null })
       .where(eq(representativeThread.id, id));
     if (thread.waitingFrom === null) return decided;
-    const message = representativeThreadMessage;
-    const [elsewhere] = await tx
-      .select({ position: min(message.position) })
-      .from(message)
-      .where(
-        and(
-          eq(message.threadId, id),
-          inArray(message.author, ["customer", "bot"]),
-          gte(message.position, thread.waitingFrom),
-          not(
-            and(
-              eq(message.channel, thread.lastChannel),
-              eq(message.externalId, thread.lastExternalId),
-            )!,
-          ),
-        ),
-      );
-    if (elsewhere?.position) {
+    const elsewhere = await waitingElsewhere(tx, id, thread.waitingFrom, to);
+    if (elsewhere !== null) {
       await tx
         .update(representativeThread)
-        .set({ waitingFrom: elsewhere.position })
+        .set({ waitingFrom: elsewhere })
         .where(eq(representativeThread.id, id));
     } else {
       await tx

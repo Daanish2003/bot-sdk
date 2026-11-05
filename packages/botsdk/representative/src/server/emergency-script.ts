@@ -158,7 +158,9 @@ export async function sendEmergencyScript(
     .from(page)
     .where(and(eq(page.userId, owner.userId), eq(page.cause, cause), isNull(page.acknowledgedAt)))
     .limit(1);
-  if (!unacknowledged) {
+  // A Page saying one went doesn't tell the owner this one waits for them, unless one is waiting already.
+  const newlyHeld = decision.outcome === "hold" && waiting.length === 0;
+  if (!unacknowledged || newlyHeld) {
     await services.pages.send(tx, {
       userId: owner.userId,
       cause,

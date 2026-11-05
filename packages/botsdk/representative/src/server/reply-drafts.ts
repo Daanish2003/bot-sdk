@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, isNull, max, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, isNull, max, min, not, or, sql } from "drizzle-orm";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
@@ -66,10 +66,17 @@ export const heldWaitingQuery = sql`exists (select 1 from ${held} where ${held.t
 
 /**
  * Replaces what waits on the thread, whose row `tx` holds, that a newer word from `by` puts out of
- * date, whichever rule held it. With no `by`, all of it, on a thread closing.
+ * date, whichever rule held it. With no `by`, all of it, on a thread closing. With `since`, only what
+ * was held from that id on.
  */
-export async function replaceHeld(tx: Transaction, threadId: string, now: Date, by?: Sender) {
-  await dropHeld(tx, { threadId, by, kind: "reply", rule: "replaced", now });
+export async function replaceHeld(
+  tx: Transaction,
+  threadId: string,
+  now: Date,
+  by?: Sender,
+  since?: string,
+) {
+  await dropHeld(tx, { threadId, by, since, kind: "reply", rule: "replaced", now });
   const waiting = tx
     .select({ id: held.id })
     .from(held)
@@ -80,6 +87,7 @@ export async function replaceHeld(tx: Transaction, threadId: string, now: Date, 
         isNull(held.resolution),
         eq(decision.rule, draftRule),
         by && outdatedBy(by),
+        since ? gte(held.id, since) : undefined,
       ),
     );
   await tx
@@ -103,6 +111,44 @@ export async function turnSender(
     .from(message)
     .where(and(eq(message.threadId, threadId), eq(message.position, turnFrom)));
   return sender;
+}
+
+/**
+ * Turn `turnId` has been stopped with its batch going back to waiting, so what it wrote and the gate
+ * held goes with it, or that batch would be answered twice. A Turn with no batch left has answered it.
+ * Only this Turn's: what an earlier one wrote answers an earlier question, whose batch isn't waiting.
+ * A Turn's id is made as it is queued, after the last one ended, so what it held has a later one.
+ */
+export async function replaceTurnHeld(
+  tx: Transaction,
+  threadId: string,
+  { turnId, turnFrom }: { turnId: string; turnFrom: number | null },
+  now: Date,
+) {
+  if (turnFrom === null) return;
+  const sender = await turnSender(tx, threadId, turnFrom);
+  if (sender) await replaceHeld(tx, threadId, now, sender, turnId);
+}
+
+/** The first thing still owed from position `from` on, once what `address` said is set aside. */
+export async function waitingElsewhere(
+  tx: Transaction,
+  threadId: string,
+  from: number,
+  address: { channel: string; externalId: string },
+) {
+  const [elsewhere] = await tx
+    .select({ position: min(message.position) })
+    .from(message)
+    .where(
+      and(
+        eq(message.threadId, threadId),
+        inArray(message.author, ["customer", "bot"]),
+        gte(message.position, from),
+        not(and(eq(message.channel, address.channel), eq(message.externalId, address.externalId))!),
+      ),
+    );
+  return elsewhere?.position ?? null;
 }
 
 /** Whether a word from `by` answers, or outdates, what was meant for `to`. */
@@ -294,29 +340,29 @@ async function sendDraft(context: Context, userId: string, id: string, words?: s
         topic: topic ?? undefined,
       },
     });
-    if (passed?.outcome !== "send" && passed?.outcome !== "hold") return passed?.rule ?? "gone";
+    if (passed?.outcome !== "send") return passed?.rule ?? "gone";
     const author = edited ? "owner" : "representative";
-    const messageId =
-      passed.outcome === "send"
-        ? await storeAndDeliver(
-            context,
-            tx,
-            passed.id,
-            { threadId, author, text, verified, replyKind, sources, ...heard },
-            now,
-            await answeredBatch(tx, threadId, { ...heard, verified }),
-          )
-        : null;
-    // Their own words are their answer to what a limit left for them (ticket #1309).
-    if (edited && messageId) {
-      await tx.update(thread).set({ leftForOwnerAt: null }).where(eq(thread.id, threadId));
-    }
+    const messageId = await storeAndDeliver(
+      context,
+      tx,
+      passed.id,
+      { threadId, author, text, verified, replyKind, sources, ...heard },
+      now,
+      await answeredBatch(tx, threadId, { ...heard, verified }),
+    );
+    // What they sent is their answer to what a limit left for them (ticket #1309).
+    await settleLeftForOwner(tx, threadId);
     await resolve(tx, id, edited ? "edited" : "approved", now, messageId);
     return null;
   });
   // After the commit, so the decision stays in the log. The draft stays waiting.
   if (dropped === channelRule) throw channelLimits();
   if (dropped) throw replyDraftNotSent();
+}
+
+/** The owner has answered the thread, whose row `tx` holds: what a limit left for them is dealt with. */
+export async function settleLeftForOwner(tx: Transaction, threadId: string) {
+  await tx.update(thread).set({ leftForOwnerAt: null }).where(eq(thread.id, threadId));
 }
 
 /** What sending a reply to `to` changes of a Turn still running: it has answered that Turn's batch. */
@@ -339,9 +385,33 @@ export const editReplyDraft = (context: Context, userId: string, id: string, tex
 /** Rejects the owner's Reply draft: nothing is sent. */
 export async function rejectReplyDraft(context: Context, userId: string, id: string) {
   await context.db.transaction(async (tx) => {
-    await holdDraft(tx, userId, id);
+    const { threadId } = await holdDraft(tx, userId, id);
     await resolve(tx, id, "rejected", context.clock());
+    await settleLeftForOwner(tx, threadId);
   });
+}
+
+/** The owner's Reply drafts that can be answered now, for a query over held rows and their thread. */
+const answerableDrafts = (userId: string) =>
+  and(
+    eq(representative.userId, userId),
+    eq(decision.rule, draftRule),
+    isNull(held.resolution),
+    eq(thread.state, "representative"),
+  );
+
+/** Whether the owner has more drafts to answer than their list shows. */
+export async function replyDraftsTruncated({ db }: Pick<Context, "db">, userId: string) {
+  const beyond = await db
+    .select({ id: held.id })
+    .from(held)
+    .innerJoin(decision, eq(decision.id, held.decisionId))
+    .innerJoin(thread, eq(thread.id, held.threadId))
+    .innerJoin(representative, eq(representative.id, thread.representativeId))
+    .where(answerableDrafts(userId))
+    .limit(1)
+    .offset(replyDraftListLimit);
+  return beyond.length > 0;
 }
 
 /**
@@ -371,14 +441,7 @@ export async function listReplyDrafts(
     .innerJoin(decision, eq(decision.id, held.decisionId))
     .innerJoin(thread, eq(thread.id, held.threadId))
     .innerJoin(representative, eq(representative.id, thread.representativeId))
-    .where(
-      and(
-        eq(representative.userId, userId),
-        eq(decision.rule, draftRule),
-        isNull(held.resolution),
-        eq(thread.state, "representative"),
-      ),
-    )
+    .where(answerableDrafts(userId))
     .orderBy(asc(held.id))
     .limit(replyDraftListLimit);
   const profiles = await profilesOf(db, userId, [...new Set(rows.map((row) => row.customerId))]);
