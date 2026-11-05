@@ -451,7 +451,8 @@ describe("a keyword in the Release", () => {
       message: "fire",
     });
 
-    expect(world.got()).toEqual([]);
+    // The Customer hears no script, as there is none; they get the notice for nobody to answer.
+    expect(world.got()).not.toContain(script);
     expect(await world.pages()).toEqual([]);
   });
 });

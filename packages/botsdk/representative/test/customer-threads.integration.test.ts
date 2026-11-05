@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { unavailableNotice } from "../src/server/unavailable-notice";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
@@ -210,7 +211,16 @@ describe("a Customer's first message", () => {
 
     expect(fake.calls).toEqual([]);
     expect(await customersOf(deps, user.id)).toMatchObject([
-      { threads: [{ messages: [{ author: "customer", text: "Hi" }] }] },
+      {
+        threads: [
+          {
+            messages: [
+              { author: "customer", text: "Hi" },
+              { author: "note", text: unavailableNotice },
+            ],
+          },
+        ],
+      },
     ]);
   });
 

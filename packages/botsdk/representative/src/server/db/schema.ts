@@ -652,7 +652,8 @@ export type OutboundKind =
   | "holding_note"
   | "reply_draft"
   | "emergency_script"
-  | "emergency_script_released";
+  | "emergency_script_released"
+  | "unavailable_notice";
 
 export type GateOutcome = "send" | "hold" | "drop";
 

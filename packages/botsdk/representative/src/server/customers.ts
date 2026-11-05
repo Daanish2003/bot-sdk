@@ -18,6 +18,7 @@ import { nameIn, profilesOf } from "./customer-profile";
 import { catchCode, customerProofLeadsTo, mayHoldCode } from "./customer-proof";
 import { saysKeyword, sendEmergencyScript, stopForScript } from "./emergency-script";
 import { overInboundLimit } from "./inbound-limit";
+import { sendUnavailableNotice } from "./unavailable-notice";
 import { liftOptOut, keywordIn, optOut } from "./opt-out";
 import { type GateRefusal, passGate, storeAndDeliver, type ViaChannel } from "./outbound-gate";
 import { afterDraftHeld, replaceHeld } from "./reply-drafts";
@@ -181,7 +182,11 @@ export async function receiveMessage(
   },
 ) {
   const [owner] = await tx
-    .select({ userId: representative.userId, releaseId: representative.liveReleaseId })
+    .select({
+      userId: representative.userId,
+      releaseId: representative.liveReleaseId,
+      enabled: representative.enabled,
+    })
     .from(representative)
     .where(eq(representative.id, representativeId))
     .for("key share");
@@ -305,6 +310,16 @@ export async function receiveMessage(
       now,
       releaseId: owner.releaseId,
     });
+  }
+  // Nobody can answer: switched off or with no approved Release. The emergency script, which a Release
+  // that exists sends, says all there is to say.
+  if (
+    script === null &&
+    keyword !== "stop" &&
+    state === "representative" &&
+    (!owner.enabled || !owner.releaseId)
+  ) {
+    await sendUnavailableNotice(services, tx, { threadId, heard, verified, now });
   }
   // Position 1 is a thread's first message: it has just been opened.
   return { threadId, turnId, waitingSince, kept, state, opened: position === 1 };
