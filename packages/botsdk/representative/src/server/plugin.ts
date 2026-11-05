@@ -103,8 +103,8 @@ export type RepresentativeOptions = {
    * since anyone can send one and so choose which IP is counted. Left out, or returning nothing for a
    * request, no per-IP limit applies to it: sessions are still limited to 10 messages per minute
    * each, but a program can start sessions without end. Set it when the widget is public. It also
-   * caps the live-reply streams one IP holds open in a process, at 50; left out, only each session's
-   * own cap of 5 applies.
+   * limits the live-reply streams of one IP: 120 opened per minute, and 50 held open in a process.
+   * Left out, only each session's own cap of 5 open streams applies.
    */
   clientIp?: ClientIp;
 };

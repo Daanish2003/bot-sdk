@@ -19,7 +19,13 @@ import {
 } from "./db/schema";
 import { receiveCustomerMessage } from "./thread-turns";
 import { hintVisitor, visitorChannel } from "./visitor-hints";
-import { clientIpOf, limitSendByIp, limitSendBySession, type ClientIp } from "./web-chat-limits";
+import {
+  clientIpOf,
+  limitSendByIp,
+  limitSendBySession,
+  limitStreamByIp,
+  type ClientIp,
+} from "./web-chat-limits";
 import {
   readWidgetSession,
   tooManyRequests,
@@ -182,7 +188,8 @@ const streamText = new TextEncoder();
 
 /**
  * The stream of the session `token` opens, until the session ends or `signal` aborts. A failed
- * subscribe throws: the page sees a failed connection, and connects again.
+ * subscribe throws: the page sees a failed connection, and connects again. A Redis that's away holds
+ * the subscribe until it's back, so a page that gives up meanwhile frees its places.
  */
 async function sessionStream(
   context: Pick<FeatureContext<"pubsub">, "db" | "keyring" | "clock" | "logger" | "pubsub">,
@@ -215,13 +222,41 @@ async function sessionStream(
     },
     cancel: () => finish(),
   });
-  let unsubscribe: () => Promise<void>;
-  try {
-    unsubscribe = await context.pubsub.subscribe(visitorChannel(externalId), () =>
-      say({ type: "changed" }),
-    );
-  } catch (caught) {
+  let checks: ReturnType<typeof setInterval> | undefined;
+  let finished!: () => void;
+  const gone = new Promise<void>((resolve) => {
+    finished = resolve;
+  });
+  const finish = () => {
+    if (!open) return;
+    open = false;
+    clearInterval(checks);
+    signal.removeEventListener("abort", close);
     release();
+    finished();
+  };
+  /** Ends the body too, which whatever is reading it is waiting on. */
+  const close = () => {
+    if (!open) return;
+    finish();
+    controller.close();
+  };
+  if (signal.aborted) close();
+  else signal.addEventListener("abort", close, { once: true });
+  const subscribing = context.pubsub.subscribe(visitorChannel(externalId), () =>
+    say({ type: "changed" }),
+  );
+  // Whenever the subscription arrives, however long after the stream has gone.
+  gone
+    .then(() => subscribing)
+    .then((unsubscribe) => unsubscribe())
+    .catch((caught: unknown) => {
+      context.logger.error("A web chat stream's subscription failed", caught);
+    });
+  try {
+    await Promise.race([subscribing, gone]);
+  } catch (caught) {
+    finish();
     throw caught;
   }
   let checking = false;
@@ -242,25 +277,7 @@ async function sessionStream(
       checking = false;
     }
   };
-  const checks = setInterval(() => void check(), sessionCheckMs);
-  const finish = () => {
-    if (!open) return;
-    open = false;
-    clearInterval(checks);
-    signal.removeEventListener("abort", close);
-    release();
-    unsubscribe().catch((caught: unknown) => {
-      context.logger.error("Ending a web chat stream's subscription failed", caught);
-    });
-  };
-  /** Ends the body too, which whatever is reading it is waiting on. */
-  const close = () => {
-    if (!open) return;
-    finish();
-    controller.close();
-  };
-  if (signal.aborted) close();
-  else signal.addEventListener("abort", close, { once: true });
+  if (open) checks = setInterval(() => void check(), sessionCheckMs);
   // After subscribing, so what changed before this is re-read, and what changes after it is hinted.
   say({ type: "changed" });
   return new Response(stream, {
@@ -317,6 +334,8 @@ export const webChatRoutes = (
     method: "POST",
     path: "/representative/widget/stream",
     handle: async (request, { context }) => {
+      const ipWait = await limitStreamByIp(context, request, clientIp);
+      if (ipWait !== null) return tooManyRequests(ipWait);
       const body = await parsedBody(request, webChatReadInput);
       if (!body) return invalid();
       const session = await readWidgetSession(context, body.token);

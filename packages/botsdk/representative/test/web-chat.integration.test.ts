@@ -824,7 +824,10 @@ describe("a visitor's stream", () => {
       post("stream", { token }, { "x-test-ip": ip }, signal);
     const stop = new AbortController();
     streams.push(stop);
-    for (let at = 0; at < maxStreamsPerIp; at++) {
+    const first = new AbortController();
+    streams.push(first);
+    await open("203.0.113.9", await startSession(), first.signal);
+    for (let at = 1; at < maxStreamsPerIp; at++) {
       const response = await open("203.0.113.9", await startSession(), stop.signal);
       expect(response.status).toBe(200);
     }
@@ -837,6 +840,87 @@ describe("a visitor's stream", () => {
       expect(response.status).toBe(200);
     }
     await openStream(await startSession());
+
+    // A stream that ends gives its IP's place back.
+    first.abort();
+    await expect
+      .poll(async () => (await open("203.0.113.9", await startSession(), stop.signal)).status, poll)
+      .toBe(200);
+  });
+
+  it("frees its place when the page gives up on a subscribe that a Redis away is holding", async () => {
+    const pubsub = createMemoryPubSub();
+    const ended = vi.fn(async () => {});
+    const held: ((end: () => Promise<void>) => void)[] = [];
+    let holding = true;
+    const { startSession, url, handler, openStream } = await world(
+      [],
+      noCustomerChannel,
+      undefined,
+      {
+        publish: (channel, message) => pubsub.publish(channel, message),
+        subscribe: (channel, listen) =>
+          holding
+            ? new Promise((resolve) => held.push(resolve))
+            : pubsub.subscribe(channel, listen),
+      },
+    );
+    const token = await startSession();
+    const stop = new AbortController();
+    const hanging = Array.from({ length: maxStreamsPerSession }, () =>
+      handler(
+        new Request(`${url}/representative/widget/stream`, {
+          method: "POST",
+          body: JSON.stringify({ token }),
+          signal: stop.signal,
+        }),
+      ),
+    );
+    await expect.poll(() => held.length, poll).toBe(maxStreamsPerSession);
+
+    stop.abort();
+    await Promise.all(hanging);
+    holding = false;
+
+    await openStream(token);
+    // The subscription that arrives once the page has gone doesn't stay.
+    for (const arrive of held) arrive(ended);
+    await expect.poll(() => ended.mock.calls.length, poll).toBe(maxStreamsPerSession);
+  });
+
+  it("gives its places back when the subscribe fails", async () => {
+    const pubsub = createMemoryPubSub();
+    let failing = true;
+    const { startSession, url, handler, openStream } = await world(
+      [],
+      noCustomerChannel,
+      undefined,
+      {
+        publish: (channel, message) => pubsub.publish(channel, message),
+        subscribe: async (channel, listen) => {
+          if (failing) throw new Error("Redis is away");
+          return pubsub.subscribe(channel, listen);
+        },
+      },
+      (request) => request.headers.get("x-test-ip"),
+    );
+    const token = await startSession();
+    // Straight to the handler: a Host's server aborts a request it has answered, which frees it too.
+    for (let at = 0; at <= maxStreamsPerSession; at++) {
+      await expect(
+        handler(
+          new Request(`${url}/representative/widget/stream`, {
+            method: "POST",
+            headers: { "x-test-ip": "203.0.113.11" },
+            body: JSON.stringify({ token }),
+          }),
+        ),
+      ).rejects.toThrow("Redis is away");
+    }
+
+    failing = false;
+
+    await openStream(token);
   });
 
   it("hints when a Ban stops a message the page may have read", async () => {

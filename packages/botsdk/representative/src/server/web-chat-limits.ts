@@ -18,6 +18,8 @@ export const webChatLimits = {
   sendsPerSession: { limit: 10, windowSeconds: 60 },
   /** Messages one IP sends, across all its sessions. */
   sendsPerIp: { limit: 30, windowSeconds: 60 },
+  /** Streams one IP opens. What it holds open is capped apart, which opening and closing never reach. */
+  streamOpensPerIp: { limit: 120, windowSeconds: 60 },
 } satisfies Record<string, Window>;
 
 /**
@@ -69,6 +71,13 @@ export const limitSendByIp = (
   request: Request,
   clientIp: ClientIp | undefined,
 ) => limitByIp(context, request, clientIp, webChatLimits.sendsPerIp, "web-chat:send:ip");
+
+/** Counts a stream's opening against its IP. Cheap, so it runs before the session is read. */
+export const limitStreamByIp = (
+  context: Counting,
+  request: Request,
+  clientIp: ClientIp | undefined,
+) => limitByIp(context, request, clientIp, webChatLimits.streamOpensPerIp, "web-chat:stream:ip");
 
 /** Counts a send against its session, which is its identity. */
 export const limitSendBySession = (context: Counting, identity: string) =>

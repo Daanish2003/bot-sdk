@@ -126,11 +126,17 @@ async function world(options: RepresentativeOptions = {}, counters?: CounterStor
       },
       body: JSON.stringify({ token: sessionToken, text: "Hello" }),
     });
+  const stream = (sessionToken: string, ip: string) =>
+    fetch(`${url}/representative/widget/stream`, {
+      method: "POST",
+      headers: { origin: shop, "content-type": "text/plain;charset=UTF-8", "x-test-ip": ip },
+      body: JSON.stringify({ token: sessionToken }),
+    });
   const turnsRun = () => {
     timer.advance(batchLongestMs);
     timer.tick();
   };
-  return { fake, start, token, send, turnsRun };
+  return { fake, start, token, send, stream, turnsRun };
 }
 
 const byHeader = (request: Request) => request.headers.get("x-test-ip");
@@ -193,6 +199,22 @@ describe("web chat limits", () => {
     expect(statuses.slice(0, perIp).every((status) => status === 202)).toBe(true);
     expect(statuses[perIp]).toBe(429);
     expect((await send(await token(), "6.6.6.6")).status).toBe(202);
+  });
+
+  it("refuses stream openings over the IP's limit, before reading any session", async () => {
+    const { stream } = await world({ clientIp: byHeader });
+    const perIp = webChatLimits.streamOpensPerIp.limit;
+    for (let opened = 0; opened < perIp; opened += 1) {
+      // A token that opens nothing: what counts is the opening.
+      expect((await stream("no session", "7.7.7.7")).status).toBe(401);
+    }
+
+    const refused = await stream("no session", "7.7.7.7");
+
+    expect(refused.status).toBe(429);
+    expect(Number(refused.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect(refused.headers.get("access-control-expose-headers")).toBe("Retry-After");
+    expect((await stream("no session", "8.8.8.8")).status).toBe(401);
   });
 
   it("counts the IP the Host reads, not a forged forwarded header", async () => {
