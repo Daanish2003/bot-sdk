@@ -89,25 +89,29 @@ type SignedPurpose = "code" | "link" | "widgetSession";
 export const signed = (secret: string, purpose: SignedPurpose, value: string) =>
   createHmac("sha256", proofKey(secret)).update(`${purpose}:${value}`).digest();
 
-/** Whether `actual` is `value`'s keyed hash under any secret of the keyring. */
+/**
+ * Whether `actual` is `value`'s keyed hash, in base64url, under any secret of the keyring. It compares
+ * the text: decoding it first would let other strings pass as the same bytes.
+ */
 export const signedByKeyring = (
   keyring: readonly string[],
   purpose: SignedPurpose,
   value: string,
-  actual: Buffer,
-) =>
-  keyring.some((secret) => {
-    const expected = signed(secret, purpose, value);
-    return expected.length === actual.length && timingSafeEqual(expected, actual);
+  actual: string,
+) => {
+  const given = Buffer.from(actual);
+  return keyring.some((secret) => {
+    const expected = Buffer.from(signed(secret, purpose, value).toString("base64url"));
+    return expected.length === given.length && timingSafeEqual(expected, given);
   });
+};
 
 const hashCode = (keyring: readonly string[], id: string, code: string) =>
   signed(keyring[0]!, "code", `${id}:${code}`).toString("base64url");
 
 /** Whether `code` is what the row's hash was made from, under any secret of the keyring. */
 const isTheCode = (keyring: readonly string[], id: string, code: string, hash: string | null) =>
-  hash !== null &&
-  signedByKeyring(keyring, "code", `${id}:${code}`, Buffer.from(hash, "base64url"));
+  hash !== null && signedByKeyring(keyring, "code", `${id}:${code}`, hash);
 
 const linkToken = (keyring: readonly string[], id: string) =>
   `${id}.${signed(keyring[0]!, "link", id).toString("base64url")}`;
@@ -637,7 +641,7 @@ export async function openProofLink(
   const [rawId, signature, extra] = token.split(".");
   const id = z.uuid().safeParse(rawId);
   if (!id.success || signature === undefined || extra !== undefined) return false;
-  if (!signedByKeyring(keyring, "link", id.data, Buffer.from(signature, "base64url"))) return false;
+  if (!signedByKeyring(keyring, "link", id.data, signature)) return false;
   const now = clock();
   return db.transaction(async (tx) => {
     const [row] = await tx

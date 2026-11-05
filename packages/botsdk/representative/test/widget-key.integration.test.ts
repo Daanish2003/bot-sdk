@@ -179,6 +179,18 @@ describe("the owner's widget key", () => {
     expect((await rpc.representative.widgetKeyGet({ id }))?.allowedOrigins).toEqual([shop]);
   });
 
+  it.each([
+    ["https://shop.example:443", "https://shop.example"],
+    ["https://münchen.example", "https://xn--mnchen-3ya.example"],
+    ["http://localhost:3000/", "http://localhost:3000"],
+  ])("stores %s as the origin a browser sends", async (given, stored) => {
+    const { deps } = await serve();
+    const { rpc, id } = await ownerWithKey(deps);
+    expect(
+      (await rpc.representative.widgetKeySetOrigins({ id, origins: [given] })).allowedOrigins,
+    ).toEqual([stored]);
+  });
+
   it("is only its owner's to manage, the same as a Representative that doesn't exist", async () => {
     const { deps } = await serve();
     const { id, key } = await ownerWithKey(deps);
@@ -290,7 +302,13 @@ describe("starting a web chat session", () => {
     const { rpc, id, key } = await ownerWithKey(deps);
 
     await rpc.representative.widgetKeyDisable({ id });
-    expect((await start(url, key)).status).toBe(403);
+    const refused = await start(url, key);
+    expect(refused.status).toBe(403);
+    // Its own site's widget can read that, to say the chat has ended; another site's can't.
+    expect(refused.headers.get("access-control-allow-origin")).toBe(shop);
+    const elsewhere = await start(url, key, "https://evil.example");
+    expect(elsewhere.status).toBe(403);
+    expect(elsewhere.headers.get("access-control-allow-origin")).toBeNull();
 
     const rotated = await rpc.representative.widgetKeyRotate({ id });
     expect((await start(url, key)).status).toBe(403);
@@ -381,6 +399,11 @@ describe("reading a session token", () => {
       );
       expect(await read(changed.join("."))).toBeNull();
     }
+    // Other text that decodes to the same signature bytes isn't the signature.
+    expect(await read(`${token}!`)).toBeNull();
+    const signature = parts[3]!;
+    const sameBytes = Buffer.from(signature, "base64url").toString("base64");
+    expect(await read([...parts.slice(0, 3), sameBytes].join("."))).toBeNull();
     for (const bad of ["", "a.b", `${token}.extra`, "....", "é.é.é.é"]) {
       expect(await read(bad)).toBeNull();
     }

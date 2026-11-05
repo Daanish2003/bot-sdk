@@ -18,11 +18,12 @@ import { serverErrorText } from "@botsdk/react/rpc-error";
 import {
   useCreateWidgetKey,
   useDisableWidgetKey,
-  useRefreshRepresentatives,
+  useRefreshWidgetKey,
   useRotateWidgetKey,
   useSetWidgetKeyOrigins,
   useWidgetKey,
 } from "@botsdk/representative/react";
+import { isWebOrigin } from "@botsdk/representative/client";
 
 /** A button that asks first, for a change that ends every session of the key. */
 function ConfirmedButton({
@@ -80,7 +81,7 @@ function ConfirmedButton({
 export function WidgetKeySection({ id }: { id: string }) {
   const i18n = useI18n();
   const { t } = i18n;
-  const refresh = useRefreshRepresentatives();
+  const refresh = useRefreshWidgetKey(id);
   const widgetKey = useWidgetKey(id);
   const done = (saved?: string) => ({
     onSuccess: async () => {
@@ -90,10 +91,22 @@ export function WidgetKeySection({ id }: { id: string }) {
     onError: (error: Error) => toast.error(serverErrorText(i18n, error)),
   });
   const create = useCreateWidgetKey(done());
-  const setOrigins = useSetWidgetKeyOrigins(done(t("representative.widgetKeyOriginsSaved")));
+  // What the owner is typing; null shows what's saved, which is what a save normalised it to.
+  const [typed, setTyped] = useState<string | null>(null);
+  const savedOrigins = done(t("representative.widgetKeyOriginsSaved"));
+  const setOrigins = useSetWidgetKeyOrigins({
+    ...savedOrigins,
+    onSuccess: async () => {
+      await savedOrigins.onSuccess();
+      setTyped(null);
+    },
+  });
   const rotate = useRotateWidgetKey(done(t("representative.widgetKeyRotated")));
   const disable = useDisableWidgetKey(done(t("representative.widgetKeyDisabledToast")));
 
+  if (widgetKey.isError) {
+    return <p className="text-sm text-destructive">{t("representative.widgetKeyLoadFailed")}</p>;
+  }
   if (widgetKey.data === undefined) return null;
   const key = widgetKey.data;
   return (
@@ -120,9 +133,7 @@ export function WidgetKeySection({ id }: { id: string }) {
                 : t("representative.widgetKeyDisabled")}
             </p>
           </div>
-          {/* Keyed by what's saved, so origins changed elsewhere reload the form. */}
           <form
-            key={key.allowedOrigins.join("\n")}
             className="space-y-2"
             onSubmit={(event) => {
               event.preventDefault();
@@ -130,6 +141,11 @@ export function WidgetKeySection({ id }: { id: string }) {
                 .split("\n")
                 .map((line) => line.trim())
                 .filter(Boolean);
+              const invalid = origins.find((origin) => !isWebOrigin(origin));
+              if (invalid !== undefined) {
+                toast.error(t("representative.widgetKeyOriginInvalid", { origin: invalid }));
+                return;
+              }
               setOrigins.mutate({ id, origins });
             }}
           >
@@ -141,7 +157,8 @@ export function WidgetKeySection({ id }: { id: string }) {
                 id="representative-widget-origins"
                 name="origins"
                 rows={3}
-                defaultValue={key.allowedOrigins.join("\n")}
+                value={typed ?? key.allowedOrigins.join("\n")}
+                onChange={(event) => setTyped(event.target.value)}
               />
               <p className="text-xs text-muted-foreground">
                 {t("representative.widgetKeyOriginsHelp")}

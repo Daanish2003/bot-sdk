@@ -777,22 +777,29 @@ export const setAssignmentDueInput = z.object({
 export const setEnabledInput = z.object({ id: z.uuid(), enabled: z.boolean() });
 export const setBotInput = z.object({ id: z.uuid(), botId: z.uuid() });
 
+/** A widget key's state. A disabled key stays disabled: only rotating gives a live key again. */
+export type WidgetKeyStatus = "live" | "disabled";
+
 /** A Representative's public widget key, as its owner sees it (ticket #1333). */
 export type WidgetKeyView = {
   key: string;
   allowedOrigins: string[];
-  status: "live" | "disabled";
+  status: WidgetKeyStatus;
 };
 
 export const maxWidgetOrigins = 50;
 /** Whether `value` is only a scheme, host and port, which is all a browser's `Origin` header says. */
-function isWebOrigin(value: string) {
+export function isWebOrigin(value: string) {
   try {
     const url = new URL(value);
     return (
       (url.protocol === "https:" || url.protocol === "http:") &&
       !url.hostname.includes("*") &&
-      value.replace(/\/$/, "").toLowerCase() === url.origin.toLowerCase()
+      !url.username &&
+      !url.password &&
+      url.pathname === "/" &&
+      !url.search &&
+      !url.hash
     );
   } catch {
     return false;

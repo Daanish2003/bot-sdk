@@ -143,6 +143,16 @@ export function useWidgetKey(id: string) {
   return useQuery(useRepresentative().widgetKeyGet.queryOptions({ input: { id } }));
 }
 
+/** Refetches a Representative's widget key, the one thing its mutations change. */
+export function useRefreshWidgetKey(id: string) {
+  const representative = useRepresentative();
+  const queryClient = useQueryClient();
+  return () =>
+    queryClient.invalidateQueries({
+      queryKey: representative.widgetKeyGet.queryKey({ input: { id } }),
+    });
+}
+
 /** Creates a Representative's widget key (`representative.widgetKeyCreate`). */
 export function useCreateWidgetKey(
   options?: ProcedureMutationOptions<Representative["widgetKeyCreate"]>,

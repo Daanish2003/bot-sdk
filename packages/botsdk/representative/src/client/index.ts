@@ -53,6 +53,7 @@ export {
   type RepresentativeTool,
   type RepresentativeView,
   type WidgetKeyView,
+  isWebOrigin,
   type TestCheck,
   type TestConversation,
   type TestResultStatus,

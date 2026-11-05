@@ -133,6 +133,7 @@ test("an owner creates a web chat key, lists its sites, rotates it and disables 
   const sites = section.getByLabel("Allowed sites");
   await sites.fill("shop.example");
   await section.getByRole("button", { name: "Save allowed sites" }).click();
+  await expect(page.getByText("isn't a site's origin").first()).toBeVisible();
   await page.reload();
   await expect(sites).toHaveValue("");
   await sites.fill("https://shop.example");

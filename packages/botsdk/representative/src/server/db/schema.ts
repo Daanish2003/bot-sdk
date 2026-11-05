@@ -31,6 +31,7 @@ import type {
   TestCheck,
   TestResultStatus,
   TranscriptEntry,
+  WidgetKeyStatus,
 } from "../../shared/contract";
 
 /**
@@ -305,9 +306,6 @@ export type MovedHold = {
   /** What the closed thread had waiting, which undoing gives back to it. */
   waitingFrom: number | null;
 };
-
-/** A widget key's state. A disabled key stays disabled: only rotating gives a live key again. */
-export type WidgetKeyStatus = "live" | "disabled";
 
 /**
  * A Representative's one public widget key (ticket #1333), which web chat sessions start with. It sits

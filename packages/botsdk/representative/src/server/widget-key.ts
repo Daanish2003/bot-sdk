@@ -116,13 +116,13 @@ export const rotateWidgetKey = (context: Context, userId: string, id: string) =>
 export const disableWidgetKey = (context: Context, userId: string, id: string) =>
   changeKey(context, userId, id, (tx) => updateKey(tx, id, { status: "disabled" }));
 
-/** The row of `key` while it is live; a rotated, disabled or unknown key has none. */
-async function liveKey({ db }: Context, key: string) {
+/** The row holding `key`; a rotated or unknown key has none. */
+async function rowOfKey({ db }: Context, key: string) {
   const [row] = await db
     .select()
     .from(representativeWidgetKey)
     .where(eq(representativeWidgetKey.key, key));
-  return row?.status === "live" ? row : null;
+  return row ?? null;
 }
 
 const sessionToken = (
@@ -151,13 +151,13 @@ export async function readWidgetSession(
   if (parts.length !== 4) return null;
   const [key, identity, expiry, signature] = parts as [string, string, string, string];
   const value = `${key}.${identity}.${expiry}`;
-  if (!signedByKeyring(keyring, "widgetSession", value, Buffer.from(signature, "base64url"))) {
+  if (!signedByKeyring(keyring, "widgetSession", value, signature)) {
     return null;
   }
   const expiresAt = new Date(Number(expiry));
   if (clock() >= expiresAt) return null;
-  const row = await liveKey({ db }, key);
-  if (!row) return null;
+  const row = await rowOfKey({ db }, key);
+  if (row?.status !== "live") return null;
   return {
     representativeId: row.representativeId,
     heard: { channel: webChatChannel, externalId: identity },
@@ -165,11 +165,21 @@ export async function readWidgetSession(
   };
 }
 
-/** The same whatever was wrong, so the route says nothing about which keys exist or what they allow. */
-const refused = () =>
+/**
+ * The same whatever was wrong, so the route says nothing about which keys exist or what they allow.
+ * Only a page on the key's own list can read it, so its widget can say the chat has ended.
+ */
+const refused = (readableBy?: string) =>
   Response.json(
     { code: "error.widgetSessionRefused", params: {} },
-    { status: 403, headers: { "cache-control": "no-store", vary: "Origin" } },
+    {
+      status: 403,
+      headers: {
+        ...(readableBy && { "access-control-allow-origin": readableBy }),
+        "cache-control": "no-store",
+        vary: "Origin",
+      },
+    },
   );
 
 /**
@@ -183,8 +193,10 @@ export const widgetSessionRoutes: PublicRoute[] = [
     path: "/representative/widget/:key/session",
     handle: async (request, { context, params }) => {
       const origin = request.headers.get("origin");
-      const row = await liveKey(context, params.key ?? "");
-      if (!row || origin === null || !row.allowedOrigins.includes(origin)) return refused();
+      if (origin === null) return refused();
+      const row = await rowOfKey(context, params.key ?? "");
+      if (!row?.allowedOrigins.includes(origin)) return refused();
+      if (row.status !== "live") return refused(origin);
       const expiresAt = new Date(context.clock().getTime() + widgetSessionLastsMs);
       return Response.json(
         { token: sessionToken(context.keyring, row.key, uuidv7(), expiresAt), expiresAt },
