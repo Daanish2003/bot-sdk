@@ -20,6 +20,7 @@ import {
 
 import {
   type ComputerHandle,
+  type ScreenControl,
   ComputerOperationError,
   ComputerUnavailableError,
   maxScreens,
@@ -479,19 +480,21 @@ export class ScreenHolderEndedError extends Error {
  * under the slot's lock, and throws `ScreenHolderEndedError` once the holder has ended. A slot is
  * only handed out once its holder ended, so a late open never replaces the Screen of whatever took
  * the slot next, nor leaves a Screen open that nothing holds, and a live holder's own open, however
- * many times it retries, goes ahead.
+ * many times it retries, goes ahead. A `control` mode is set under the same lock, for the same reason.
  */
 export async function openHeldScreen(
   deps: BotSdkContext,
   holder: { id: string; userId: string; slot: number },
   profileKey: string,
   computer: ComputerHandle,
+  control?: ScreenControl,
 ): Promise<void> {
   const { slot } = holder;
   await deps.db.transaction(async (tx) => {
     await lockScreen(tx, holder.userId, slot);
     if (!(await holdsItsScreen(tx, holder.id))) throw new ScreenHolderEndedError(slot);
     await computer.openScreen(slot, profileKey);
+    if (control) await computer.setScreenControl(slot, control);
   });
 }
 

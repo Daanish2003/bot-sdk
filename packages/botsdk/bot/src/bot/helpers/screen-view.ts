@@ -185,10 +185,12 @@ export async function screenView(
     }
     const id = "demonstrationId" in holder ? holder.demonstrationId : holder.helperId;
     // It ended since `ownedScreen` looked.
-    await openHeldScreen(sdk, { id, userId, slot }, botId, computer).catch((refused: unknown) => {
-      throw refused instanceof ScreenHolderEndedError ? endedError(holder) : refused;
-    });
-    if ("demonstrationId" in holder) await computer.setScreenControl(slot, "control");
+    const control = "demonstrationId" in holder ? "control" : undefined;
+    await openHeldScreen(sdk, { id, userId, slot }, botId, computer, control).catch(
+      (refused: unknown) => {
+        throw refused instanceof ScreenHolderEndedError ? endedError(holder) : refused;
+      },
+    );
     return computer.screenUrls(slot);
   });
   // The proxy goes on from these, not an address from before a reopen.

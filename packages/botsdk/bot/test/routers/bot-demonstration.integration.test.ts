@@ -1,6 +1,6 @@
 import type { ModelMessage, TextOptions } from "@tanstack/ai";
-import { asc, eq } from "drizzle-orm";
-import { afterEach, describe, expect, it } from "vitest";
+import { asc, eq, sql } from "drizzle-orm";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { botDemonstration, botDemonstrationEvent, botHelper, botTurn } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
@@ -317,6 +317,21 @@ describe("watch_user", { timeout: 30_000 }, () => {
   });
 });
 
+/** Holds on until a close of the user's Screen 1 waits for its lock, which fails if none ever does. */
+const closeWaitsForTheLock = (userId: string) =>
+  vi.waitFor(
+    async () => {
+      const { rows } = await getTestDb().execute(sql`
+        select count(*)::int as waiting from pg_locks
+        where locktype = 'advisory' and not granted
+          and database = (select oid from pg_database where datname = current_database())
+          and (classid::bigint << 32 | objid::bigint) = hashtextextended(${`screen:${userId}:1`}, 0)
+      `);
+      expect((rows[0] as { waiting: number }).waiting).toBe(1);
+    },
+    { timeout: 5_000 },
+  );
+
 describe("watch_user's Screen", { timeout: 30_000 }, () => {
   const opening = (botId: () => string) => (command: FakeCommandRun) =>
     command.command === `${screenScript} control 1` && botId() !== "";
@@ -344,26 +359,60 @@ describe("watch_user's Screen", { timeout: 30_000 }, () => {
   it("closes the Screen again when the user ended the Demonstration while it opened", async () => {
     let botId = "";
     let client: ReturnType<typeof chatRpc> | undefined;
+    let cancelling: Promise<unknown> | undefined;
     const setup = await botWith([round(watchUser(), ends()), round()], {
       onCommand: async (command) => {
         if (!opening(() => botId)(command)) return undefined;
         const [row] = await demonstrationsOf(botId);
-        await client!.demonstrations.cancel({ demonstrationId: row!.id });
+        cancelling = client!.demonstrations.cancel({ demonstrationId: row!.id });
+        await closeWaitsForTheLock(setup.user.id);
         return undefined;
       },
     });
     ({ botId, client } = setup);
 
     await setup.send("let me show you");
+    await cancelling;
 
     expect(await resultOf(botId, "watch_user")).toEqual([
       { error: demonstrationEndedWhileOpeningError },
     ]);
     expect(await stateOf(botId)).toBe("cancelled");
-    // The cancel closed it during control mode; watch_user closes it once more after.
+    // The cancel's close waited out the control command; watch_user closes it once more after.
     expect(screenCommands(setup.computerFake).slice(-3)).toEqual([
       `${screenScript} control 1`,
       `${screenScript} stop 1`,
+      `${screenScript} stop 1`,
+    ]);
+  });
+
+  it("switches a reopen from a live view to control under the Screen's lock", async () => {
+    let armed = false;
+    let cancelling: Promise<unknown> | undefined;
+    let demonstrationId = "";
+    let client: ReturnType<typeof chatRpc> | undefined;
+    let userId = "";
+    const setup = await botWith([round(watchUser(), ends()), round()], {
+      onCommand: async (command) => {
+        if (!armed || command.command !== `${screenScript} control 1`) return undefined;
+        armed = false;
+        cancelling = client!.demonstrations.cancel({ demonstrationId });
+        await closeWaitsForTheLock(userId);
+        return undefined;
+      },
+    });
+    ({ client } = setup);
+    userId = setup.user.id;
+    await setup.send("let me show you");
+    demonstrationId = (await demonstrationsOf(setup.botId))[0]!.id;
+    setup.computerFake.files.delete("/tmp/screens/1/token");
+    armed = true;
+
+    await client.demonstrations.view({ demonstrationId });
+    await cancelling;
+
+    expect(screenCommands(setup.computerFake).slice(-2)).toEqual([
+      `${screenScript} control 1`,
       `${screenScript} stop 1`,
     ]);
   });

@@ -158,6 +158,7 @@ export function watchUserTool(deps: BotSdkContext, turn: Watcher, kit: LoopKit) 
             { id: demonstrationId, userId: turn.userId, slot: screen },
             turn.botId,
             computer,
+            "control",
           ).then(
             () => true,
             (caught: unknown) => {
@@ -165,7 +166,6 @@ export function watchUserTool(deps: BotSdkContext, turn: Watcher, kit: LoopKit) 
               throw caught;
             },
           );
-          if (held) await computer.setScreenControl(screen, "control");
           return { opened: held };
         },
         { capped: false },

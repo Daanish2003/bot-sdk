@@ -119,7 +119,7 @@ export function maskedFormsOf(values: Iterable<string>): string[] {
 /** The masker of no Secrets: it changes nothing. */
 const unmasked = (text: string) => text;
 
-const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+export const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
  * What masks `values` in a text, built once for many texts: each value, and its base64 and

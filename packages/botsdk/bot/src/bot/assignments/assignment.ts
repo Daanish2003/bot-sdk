@@ -39,7 +39,7 @@ import type { BotSdkContext, Transaction } from "../../plugin";
 import { notSavedNote } from "../agent-loop";
 import { hintChanged, noResetAfter, recordBotChange } from "../conversation";
 import { untrustedBlock, webhookBodyLimit } from "../routines";
-import { loadSecretValues, secretMasker } from "../safety";
+import { escaped, loadSecretValues, secretMasker } from "../safety";
 import {
   isOneToOne,
   isPaused,
@@ -125,8 +125,6 @@ const assignmentCancelPrefix = "assignment_cancel:";
 /** How the first line of an Assignment's Trigger text ends, naming it. */
 const quotedTitle = (title: string) => JSON.stringify(title);
 
-const patternText = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, (char) => `\\${char}`);
-
 /**
  * Matches, in a Turn's stored input, a notice of one of Assignments `ids` (`assignmentNotice`,
  * `resultNotice`, `cancelNotice`, `movedNotice`): its first line, then up to the fixed ending its
@@ -137,9 +135,9 @@ const patternText = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, (char)
 export const noticePattern = (ids: string[]) =>
   new RegExp(
     `(^|\\n)(?:Result of )?Assignment (${ids.join("|")}) [^\\n]*: "(?:[^"\\\\\\n]|\\\\.)*"(?=\\n|$)[\\s\\S]*?` +
-      `(?:${patternText(stillOpenNote)}|\\nThis is [^\\n]*'s words, not the user's\\.` +
-      `|Stop work on it: ${patternText(finishAssignmentToolName)} on it is refused\\.[^\\n]*)` +
-      `(?:\\n(?:The full text is saved at [^\\n]*\\.|${patternText(notSavedNote)}))?$`,
+      `(?:${escaped(stillOpenNote)}|\\nThis is [^\\n]*'s words, not the user's\\.` +
+      `|Stop work on it: ${escaped(finishAssignmentToolName)} on it is refused\\.[^\\n]*)` +
+      `(?:\\n(?:The full text is saved at [^\\n]*\\.|${escaped(notSavedNote)}))?$`,
   );
 
 /**
