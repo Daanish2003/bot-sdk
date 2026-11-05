@@ -28,6 +28,9 @@ export const webChatChannel = "web";
 /** How long a session lasts, fixed. A visitor after that starts a new session, as a new identity. */
 export const widgetSessionLastsMs = 24 * 60 * 60_000;
 
+/** The Host's check on a session start request: true admits it, false or a throw refuses it. */
+export type WidgetSessionCheck = (request: Request) => boolean | Promise<boolean>;
+
 type Context = Pick<FeatureContext, "db">;
 type Row = typeof representativeWidgetKey.$inferSelect;
 
@@ -180,11 +183,31 @@ const refused = () =>
   );
 
 /**
+ * Whether the Host's check admits a session start. A check that throws refuses it, and its error is
+ * logged, so a broken abuse service fails closed.
+ */
+async function admitted(
+  check: WidgetSessionCheck,
+  request: Request,
+  logger: Pick<Console, "error">,
+): Promise<boolean> {
+  try {
+    // Only a true admits: a JS Host's truthy value (a raw verifier response, say) refuses.
+    return (await check(request)) === true;
+  } catch (error) {
+    logger.error("The widget session check threw, so the session start was refused", error);
+    return false;
+  }
+}
+
+/**
  * Session start: a POST with no body and the key in the path, which a browser sends across origins
  * with no preflight, naming the page's origin in `Origin`. That header stops other sites' pages, not
- * other programs: session and IP limits are what bound those.
+ * other programs: session and IP limits are what bound those. The Host's `check`, if it gave one,
+ * runs only for a request a live key and an allowed origin already accept, so its service isn't
+ * called for the rest.
  */
-export const widgetSessionRoutes: PublicRoute[] = [
+export const widgetSessionRoutes = (check?: WidgetSessionCheck): PublicRoute[] => [
   {
     method: "POST",
     path: "/representative/widget/:key/session",
@@ -193,6 +216,7 @@ export const widgetSessionRoutes: PublicRoute[] = [
       if (origin === null) return refused();
       const row = await rowOfKey(context, params.key ?? "");
       if (row?.status !== "live" || !row.allowedOrigins.includes(origin)) return refused();
+      if (check && !(await admitted(check, request, context.logger))) return refused();
       const expiresAt = new Date(context.clock().getTime() + widgetSessionLastsMs);
       return Response.json(
         { token: sessionToken(context.keyring, row.key, uuidv7(), expiresAt), expiresAt },

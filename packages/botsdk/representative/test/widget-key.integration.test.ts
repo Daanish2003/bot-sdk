@@ -52,9 +52,13 @@ afterEach(async () => {
 async function serve({
   secrets,
   rounds = [],
+  sessionCheck,
+  logger,
 }: {
   secrets?: string[];
   rounds?: Parameters<typeof createFakeAdapter>[0]["rounds"];
+  sessionCheck?: (request: Request) => boolean | Promise<boolean>;
+  logger?: { error: (...args: unknown[]) => void };
 } = {}) {
   const timer = fakeJobClock(new Date("2026-11-05T12:00:00Z"));
   const fake = createFakeAdapter({ rounds });
@@ -68,10 +72,11 @@ async function serve({
   });
   deps = createTestSdk({
     jobs,
-    features: [representativeFeature()],
+    features: [representativeFeature({ widgetSessionCheck: sessionCheck })],
     adapterFor: () => fake.adapter,
     clock: timer.clock.now,
     memory: false,
+    logger,
     ...(secrets && { keyEncryptionSecrets: secrets }),
   });
   await jobs.start();
@@ -410,6 +415,65 @@ describe("starting a web chat session", () => {
         .from(representativeCustomerIdentity)
         .where(eq(representativeCustomerIdentity.userId, user.id)),
     ).toEqual([]);
+  });
+
+  it("refuses a request the Host's check refuses, with no token and no identity", async () => {
+    const sessionCheck = vi.fn((_request: Request) => false);
+    const { deps, url } = await serve({ sessionCheck });
+    const { user, key } = await ownerWithKey(deps);
+
+    const refused = await start(url, key);
+
+    expect(refused.status).toBe(403);
+    expect(refused.headers.get("access-control-allow-origin")).toBe("*");
+    expect(await refused.json()).toEqual({ code: "error.widgetSessionRefused", params: {} });
+    expect(sessionCheck).toHaveBeenCalledTimes(1);
+    expect(sessionCheck.mock.calls[0]![0].headers.get("origin")).toBe(shop);
+    expect(
+      await getTestDb()
+        .select()
+        .from(representativeCustomerIdentity)
+        .where(eq(representativeCustomerIdentity.userId, user.id)),
+    ).toEqual([]);
+  });
+
+  it("starts a session the Host's check passes, sync or async", async () => {
+    const { deps, timer, url } = await serve({ sessionCheck: async () => true });
+    const { id, key } = await ownerWithKey(deps);
+
+    const { token } = await started(url, key);
+
+    expect(await readWidgetSession(servicesOf(timer), token)).toMatchObject({
+      representativeId: id,
+    });
+  });
+
+  it("refuses a request whose check throws, and logs the error", async () => {
+    const failure = new Error("verifier down");
+    const logger = { error: vi.fn() };
+    const { deps, url } = await serve({
+      sessionCheck: () => {
+        throw failure;
+      },
+      logger,
+    });
+    const { key } = await ownerWithKey(deps);
+
+    const refused = await start(url, key);
+
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({ code: "error.widgetSessionRefused", params: {} });
+    expect(logger.error).toHaveBeenCalledWith(expect.anything(), failure);
+  });
+
+  it("doesn't run the check for a request refused already, so the Host's service isn't called for it", async () => {
+    const sessionCheck = vi.fn(() => true);
+    const { deps, url } = await serve({ sessionCheck });
+    const { key } = await ownerWithKey(deps);
+
+    expect((await start(url, key, "https://evil.example")).status).toBe(403);
+    expect((await start(url, "no-such-key")).status).toBe(403);
+    expect(sessionCheck).not.toHaveBeenCalled();
   });
 });
 
