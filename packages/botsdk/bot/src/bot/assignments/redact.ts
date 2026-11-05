@@ -23,7 +23,7 @@ import { midTurnNote, sha256 } from "../agent-loop";
 import { hintChanged, recordBotChange, redactedText, reviewOwnerOf } from "../conversation";
 import { approvalTriggerId, denyForDeletedCustomer } from "../safety";
 import { checkInKey, checkInOfKey, lockConversationSet } from "../triggers";
-import { assignmentTitleOf, botsThatCanWork, moveToCancelled } from "./assignment";
+import { assignmentTitleOf, botsThatCanWork, moveToCancelled, noticePattern } from "./assignment";
 
 /*
  * Redacting Assignments by reference (ticket #1288, spec #1170, ADR 0029's amendment): when a Customer
@@ -359,9 +359,7 @@ function redactedEntry(entry: ModelMessage): ModelMessage {
  * Trigger's text comes last in one. A line that only names the Assignment is someone's own words.
  */
 function redactedInput(input: ModelMessage[], ids: string[], copies: string[]): ModelMessage[] {
-  const notice = new RegExp(
-    `(^|\\n)(?:Result of )?Assignment (${ids.join("|")}) [^\\n]*: "(?:[^"\\\\\\n]|\\\\.)*"(?=\\n|$)[\\s\\S]*$`,
-  );
+  const notice = noticePattern(ids);
   const clean = (text: string) =>
     withoutCopies(text, copies).replace(notice, (match, lead: string, id: string) =>
       isRedactedCancelNotice(match.slice(lead.length))
