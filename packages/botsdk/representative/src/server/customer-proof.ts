@@ -36,6 +36,9 @@ const maxCodeAttempts = 5;
 const sendLimit = 5;
 const sendLimitWindowMs = 60 * 60_000;
 
+/** The Channel a web chat visitor writes from. Nothing can send to it: they read their thread. */
+export const webChatChannel = "web";
+
 /** What a Channel is given to send: a code to read back, or the token of a link to open. */
 export type Proof = { kind: "code" | "link"; secret: string };
 
@@ -244,6 +247,7 @@ export async function requestProof(
     target = { id: sender.id, ...heard };
   } else if (
     claimed &&
+    claimed.channel !== webChatChannel &&
     claim &&
     found?.id === claim.id &&
     found.id !== sender.id &&

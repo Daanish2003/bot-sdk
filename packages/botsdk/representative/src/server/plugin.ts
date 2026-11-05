@@ -53,6 +53,7 @@ import { exportCustomerSummaries, customerSummaryJob } from "./customer-summary"
 import { draftDueJob } from "./draft-due";
 import { assignmentDueJob, ownerWaitJob } from "./stalled-work";
 import { stopUserTurns } from "./thread-turns";
+import { webChatRoutes, withWebChat } from "./web-chat";
 import { type WidgetSessionCheck, widgetSessionRoutes } from "./widget-key";
 import { handOffEndedJob, limitCheckJob, representativeTurnJob } from "./turn";
 
@@ -88,13 +89,14 @@ export type RepresentativeOptions = {
  * The `representative` feature (spec #1167): restricted agents that speak for the owner's
  * business, each served only through an approved, unchangeable Release. It has no Computer, and
  * Auto-review and Custom Rules, which belong to Bots, don't reach it. A Host turns it on with
- * `representative()` in `features`. `channel` is how messages reach a Customer: not an option a Host has, since no
+ * `representative()` in `features`. `customerChannel` is how messages reach a Customer: not an option a Host has, since no
  * real Channel reaches a Customer until the specs for them, so `src/index.ts` doesn't pass it on.
  */
 export function representativeFeature(
   options: RepresentativeOptions = {},
-  channel: CustomerChannel = noCustomerChannel,
+  customerChannel: CustomerChannel = noCustomerChannel,
 ) {
+  const channel = withWebChat(customerChannel);
   return defineFeature({
     id: "representative",
     needs: [
@@ -148,7 +150,11 @@ export function representativeFeature(
     },
     stopTurns: (userId, context) => stopUserTurns(context, userId),
     channelAccountOwner: (tx, id) => ownerOfHeldAccount(tx, id),
-    publicRoutes: [...proofLinkRoutes, ...widgetSessionRoutes(options.widgetSessionCheck)],
+    publicRoutes: [
+      ...proofLinkRoutes,
+      ...widgetSessionRoutes(options.widgetSessionCheck),
+      ...webChatRoutes(channel),
+    ],
     jobs: [
       representativeTurnJob(options.concurrency, channel),
       customerDeliveryJob(channel),
