@@ -16,6 +16,8 @@ import {
 } from "../shared/contract";
 import { factTypes } from "../shared/facts";
 import { representativeFact, representativeFactProposal } from "./db/schema";
+import { factApprovalSchema } from "@botsdk/client/bot/fact-approval";
+import { replayedCard } from "./replayed-card";
 import { lessonProposer } from "./customer-lessons";
 import { applyProposedFact, factOf, fieldsOf, logged } from "./facts";
 
@@ -116,12 +118,12 @@ async function proposeFact(
     );
     const now = clock();
     await tx.delete(proposal).where(and(eq(proposal.userId, userId), lte(proposal.expiresAt, now)));
+    // This call's own card, answered or not: it committed, and a crash lost the record of it, so this is a replay.
+    if (call && (await replayedCard(tx, botId, factApprovalSchema, call))) return {};
     const [waiting] = await tx
-      .select({ call: proposal.call })
+      .select({ id: proposal.id })
       .from(proposal)
       .where(and(eq(proposal.userId, userId), eq(proposal.key, key.data)));
-    // This call's own card: it committed, and a crash lost the record of it, so this is a replay.
-    if (waiting && call && waiting.call === call) return {};
     if (waiting) return { error: "A proposal for that key already waits for the user's answer." };
 
     const [current] = await tx
@@ -155,6 +157,7 @@ async function proposeFact(
       path: "/facts",
       why: input.why,
       turnId,
+      ...(call && { call }),
     });
     await tx.insert(proposal).values({
       id: uuidv7(),

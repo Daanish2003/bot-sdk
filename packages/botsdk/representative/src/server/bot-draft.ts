@@ -13,6 +13,8 @@ import {
   type PendingApproval,
 } from "../shared/contract";
 import { representative, representativeRelease } from "./db/schema";
+import { releaseApprovalSchema } from "@botsdk/client/bot/release-approval";
+import { replayedCard } from "./replayed-card";
 import { snapshotOf } from "./documents";
 import {
   emptyDraft,
@@ -133,11 +135,12 @@ async function draftFromBot(
           sql`${representative.pendingApproval}->>'botId' = ${botId}`,
         ),
       );
-    const waiting = own.find((row) => waitingApproval(row.pendingApproval, now));
-    // This call's own card: it committed, and a crash lost the record of it, so this is a replay.
+    // This call's own card, answered or not: it committed, and a crash lost the record of it, so this is a replay.
     // A Provider may use a tool call's id again in another Turn, so the Turn's counts too.
     const call = toolCallId && `${turn.id}:${toolCallId}`;
-    if (waiting && call && waiting.pendingApproval!.call === call) return { id: waiting.id };
+    const replayed = call && (await replayedCard(tx, botId, releaseApprovalSchema, call));
+    if (replayed) return { id: replayed.representativeId };
+    const waiting = own.find((row) => waitingApproval(row.pendingApproval, now));
     if (waiting) return { error: waitError };
 
     const blank = (draft: Draft) => draft.jobText.trim() === "";
@@ -189,6 +192,7 @@ async function draftFromBot(
       path: `/representatives/${id}`,
       why,
       turnId: turn.id,
+      ...(call && { call }),
     });
     const pendingApproval: PendingApproval = {
       id: card.id,
