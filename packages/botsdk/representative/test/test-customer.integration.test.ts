@@ -864,13 +864,15 @@ describe("who can reach a Turn", () => {
     );
     expect(made.routes ?? []).toEqual([]);
     // Served with no signed-in user: a signed link's page (#1256), web chat's session start (#1333),
-    // and a visitor's send and read (#1336). Only send starts a Turn, as that session's Customer.
+    // a visitor's send and read (#1336), and their stream (#1339), which only reads. Only send starts
+    // a Turn, as that session's Customer.
     expect((made.publicRoutes ?? []).map((route) => `${route.method} ${route.path}`)).toEqual([
       "GET /representative/verify/:token",
       "POST /representative/verify/:token",
       "POST /representative/widget/:key/session",
       "POST /representative/widget/send",
       "POST /representative/widget/read",
+      "POST /representative/widget/stream",
     ]);
   });
 });
