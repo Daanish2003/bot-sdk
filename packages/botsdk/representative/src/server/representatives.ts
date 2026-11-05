@@ -750,11 +750,11 @@ export async function dropApprovalsOfBot(
         ),
       )
       .for("update");
-    const mark = { at: await lastResetOf(tx, botId) };
+    const reset = await lastResetOf(tx, botId);
     const conversations = new Set<string>();
     for (const row of rows) {
       const { postedAt } = row.pendingApproval!;
-      if (mark?.at && postedAt && new Date(postedAt) > mark.at) continue;
+      if (reset && postedAt && new Date(postedAt) > reset) continue;
       const closed = await releaseApprovals.drop(tx, { userId, id: row.pendingApproval!.id });
       if (closed) conversations.add(closed.conversationId);
       await tx
