@@ -834,10 +834,10 @@ describe("a draft beside what the caps hold", () => {
     const thread = await world.rpc.representative.threadGet({ id: await world.threadId() });
     expect(thread.held).toEqual([]);
     for (const answer of [
-      world.rpc.representative.threadHeldSend({ id: draftId }),
-      world.rpc.representative.threadHeldDrop({ id: draftId }),
+      () => world.rpc.representative.threadHeldSend({ id: draftId }),
+      () => world.rpc.representative.threadHeldDrop({ id: draftId }),
     ]) {
-      await expect(answer).rejects.toSatisfy(
+      await expect(answer()).rejects.toSatisfy(
         (error) => refusalCode(error) === "error.heldMessageNotFound",
       );
     }
