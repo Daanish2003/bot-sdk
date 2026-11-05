@@ -714,7 +714,7 @@ export const representativeOutboundDecision = botsdkSchema.table(
     }),
     /**
      * The account a send used and what it got out: a failed send's `progress`, so its retry sends only
-     * the rest there, or `delivered` once all of it went. A web chat visitor reads only what was.
+     * the rest there, or, on web chat, `delivered` once nothing stopped it: the visitor reads only that.
      */
     sentOn: jsonb("sent_on").$type<
       { channelAccountId: string | null } & ({ progress: SendProgress } | { delivered: true })

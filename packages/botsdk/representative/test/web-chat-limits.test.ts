@@ -17,6 +17,16 @@ describe("an IP's key", () => {
     expect(keyOf("::FFFF:cb00:7107")).toBe("203.0.113.7");
   });
 
+  it("is the IPv4 address a NAT64 address carries", () => {
+    expect(keyOf("64:ff9b::203.0.113.7")).toBe("203.0.113.7");
+    expect(keyOf("64:ff9b::cb00:7108")).toBe("203.0.113.8");
+  });
+
+  it("keeps what only looks like an IPv6 address, rather than counting it as one", () => {
+    expect(keyOf("::1]@x.com/[")).toBe("::1]@x.com/[");
+    expect(keyOf("fe80::1%eth0")).toBe("fe80::1%eth0");
+  });
+
   it("is one for every spelling of an IPv6 address", () => {
     const spellings = [
       "2001:db8::1",

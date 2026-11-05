@@ -95,8 +95,9 @@ async function parsedBody<T>(
 }
 
 /**
- * What this session said, and what the gate passed for it, was delivered, and nothing has stopped since: on any thread
- * of its Customer with this Representative, as an idle thread closes and the next message opens another.
+ * What this session said, and what the gate passed for it, delivery let through, and nothing has
+ * stopped since: on any thread of its Customer with this Representative, as an idle thread closes and
+ * the next message opens another.
  * The Customer only finds the threads, by indexes: the owner can merge another's words on to one, so each
  * message must be this session's too. A Bot's result has no decision, and what the gate held isn't on the
  * thread until it passes. A merge can put a session's next words on an older thread, so threads come in

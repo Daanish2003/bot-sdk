@@ -243,10 +243,10 @@
         field.value = "";
       } else if (response.status === 429) {
         const seconds = Number(response.headers.get("retry-after"));
+        // The inbound limit can ask for most of an hour, which reads better in minutes.
+        const wait = seconds > 90 ? `${Math.ceil(seconds / 60)} minutes` : `${seconds} seconds`;
         say(
-          seconds
-            ? `You're sending too fast. Try again in ${seconds} seconds.`
-            : "You're sending too fast.",
+          seconds ? `You're sending too fast. Try again in ${wait}.` : "You're sending too fast.",
         );
       } else {
         say("That message can't be sent.");

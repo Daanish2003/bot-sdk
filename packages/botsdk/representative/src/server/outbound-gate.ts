@@ -8,7 +8,12 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { defineJob } from "@botsdk/bot/runner/internal";
 import { limitNoteKind, type ReplySource, type StoredReplyKind } from "../shared/replies";
-import { AccountSendError, type ChannelOf, type CustomerChannel } from "./customer-proof";
+import {
+  AccountSendError,
+  type ChannelOf,
+  type CustomerChannel,
+  webChatChannel,
+} from "./customer-proof";
 import { combinedProfilesOf } from "./customer-profile";
 import { holdThreadCustomer } from "./customers";
 import {
@@ -874,11 +879,14 @@ export const customerDeliveryJob = (channelOf: ChannelOf, concurrency: number) =
         }
         throw error;
       }
-      // What a web chat visitor reads, so it shows only once nothing has stopped it.
-      await job.db
-        .update(decision)
-        .set({ sentOn: { channelAccountId, delivered: true } })
-        .where(eq(decision.id, decisionId));
+      // What a web chat visitor reads, so it shows only once nothing has stopped it. Only there:
+      // sending again is a no-op if this fails, where another Channel's Customer would get it twice.
+      if (row.channel === webChatChannel) {
+        await job.db
+          .update(decision)
+          .set({ sentOn: { channelAccountId, delivered: true } })
+          .where(eq(decision.id, decisionId));
+      }
       hintVisitor(job, row);
     },
     onFailed: ({ decisionId }, _error, job) =>

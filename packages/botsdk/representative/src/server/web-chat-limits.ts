@@ -38,10 +38,13 @@ async function hitOn({ counters }: Counting, rule: Window, key: string): Promise
 
 /** The eight 16-bit groups of an IPv6 address, or null for anything else. */
 function ipv6Groups(address: string): number[] | null {
+  const bare = address.replace(/^\[(.*)\]$/, "$1");
+  // Only what an address is made of, so nothing else in it can make the URL parse another host.
+  if (!/^[0-9a-f:.]+$/.test(bare)) return null;
   let host: string;
   try {
     // URL parsing checks the address and writes it one way, with any IPv4 tail as hex groups.
-    host = new URL(`http://[${address.replace(/^\[|\]$/g, "")}]/`).hostname.slice(1, -1);
+    host = new URL(`http://[${bare}]/`).hostname.slice(1, -1);
   } catch {
     return null;
   }
@@ -56,7 +59,7 @@ function ipv6Groups(address: string): number[] | null {
 
 /**
  * The IP the Host says a request came from, as the key it counts under, if the Host says. An IPv4
- * address mapped into IPv6 is that IPv4 address, and an IPv6 address counts by its /64, which one
+ * address mapped into IPv6, or translated by a NAT64, is that IPv4 address, and an IPv6 address counts by its /64, which one
  * subscriber holds whole, so a second spelling or another address of the same block is no new client.
  * Anything else is trimmed, lowercased and cut to 64 characters, so it can't bloat what counts it.
  */
@@ -65,7 +68,11 @@ export function clientIpOf(request: Request, clientIp: ClientIp | undefined) {
   if (!ip) return ip;
   const groups = ip.includes(":") ? ipv6Groups(ip) : null;
   if (!groups) return ip.slice(0, 64);
-  if (groups.slice(0, 5).every((group) => group === 0) && groups[5] === 0xffff) {
+  const [a, b, c, d, e, f] = groups;
+  // Mapped (::ffff:0:0/96), or translated by a NAT64 (64:ff9b::/96): the visitor is on IPv4.
+  const mapped = a === 0 && b === 0 && f === 0xffff;
+  const translated = a === 0x64 && b === 0xff9b && f === 0;
+  if ((mapped || translated) && c === 0 && d === 0 && e === 0) {
     const [high = 0, low = 0] = groups.slice(6);
     return [high >> 8, high & 0xff, low >> 8, low & 0xff].join(".");
   }
