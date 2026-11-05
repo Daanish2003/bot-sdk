@@ -124,23 +124,19 @@ async function acceptedCredentials(
   return { credentials, checked };
 }
 
-/** The user an enabled feature names as holding account `id`, or null when none does. */
-async function holderOwner(sdk: BotSdkContext, tx: Transaction, id: string) {
-  for (const { feature, context } of sdk.parts.features) {
-    const userId = await feature.channelAccountOwner?.(tx, id, context);
-    if (userId) return userId;
+/** The enabled feature holding account `id`, and the user it names, or null when none does. */
+async function holderOf(sdk: BotSdkContext, tx: Transaction, id: string) {
+  for (const enabled of sdk.parts.features) {
+    const userId = await enabled.feature.channelAccountOwner?.(tx, id, enabled.context);
+    if (userId) return { enabled, userId };
   }
   return null;
 }
 
-/** The enabled feature that names itself as holding account `id`, or null when none does. */
+/** The enabled feature holding account `id`, or null when none does. */
 export async function featureHolding(sdk: BotSdkContext, id: string) {
-  return sdk.db.transaction(async (tx) => {
-    for (const enabled of sdk.parts.features) {
-      if (await enabled.feature.channelAccountOwner?.(tx, id, enabled.context)) return enabled;
-    }
-    return null;
-  });
+  const holder = await sdk.db.transaction((tx) => holderOf(sdk, tx, id));
+  return holder?.enabled ?? null;
 }
 
 /** Whether an account's messages have someone to reach: its Bot, or an enabled feature's holder. */
@@ -171,7 +167,8 @@ async function accountOfPlatformBot(
     .for("update", { of: channelAccount });
   if (!found) return undefined;
   if (found.userId !== null) return found;
-  return { ...found, userId: await holderOwner(sdk, tx, found.id) };
+  const holder = await holderOf(sdk, tx, found.id);
+  return { ...found, userId: holder?.userId ?? null };
 }
 
 /**

@@ -56,6 +56,7 @@ afterEach(async () => {
 
 /** A running instance with listeners over the fake platform, and a Model that says `says` in turn. */
 async function world(says: string[] = []) {
+  const ban = { on: false };
   const channel = fakeMessagingAdapter();
   const fake = createFakeAdapter({ rounds: says.flatMap((text) => [replies(text), round()]) });
   const timer = fakeJobClock(at);
@@ -70,6 +71,7 @@ async function world(says: string[] = []) {
   const deps = createTestSdk({
     jobs,
     channels: [channel.adapter],
+    users: { isBlocked: async () => ban.on },
     features: [representativeFeature()],
     adapterFor: () => fake.adapter,
     clock: timer.clock.now,
@@ -114,6 +116,9 @@ async function world(says: string[] = []) {
   };
 
   return {
+    ban,
+    timer,
+    context,
     deps,
     channel,
     fake,
@@ -195,6 +200,54 @@ describe("a stranger on a Representative's account", () => {
     await expect
       .poll(() => channel.sends.map(({ account }) => account.handle), poll)
       .toEqual(["@bot_2"]);
+  });
+
+  it("replies through the account it wrote to, of two on one platform", async () => {
+    const { channel, context, user, representativeOn, hears } = await world(["Hello."]);
+    const id = await representativeOn("1:a");
+    await connectChannelAccount(context, {
+      userId: user.id,
+      representativeId: id,
+      platform: channel.adapter.id,
+      credentials: { token: "2:b" },
+    });
+
+    await hears("@bot_2", { text: "Hi" });
+
+    await expect
+      .poll(() => channel.sends.map(({ account }) => account.handle), poll)
+      .toEqual(["@bot_2"]);
+  });
+
+  it("gets each part of a long reply once when a send fails partway", async () => {
+    const { channel, timer, representativeOn, hears } = await world(["Hello there."]);
+    await representativeOn("1:a");
+    channel.parts.maxText = 5;
+    channel.parts.failAt = 1;
+
+    await hears("@bot_1", { text: "Hi" });
+
+    await expect
+      .poll(() => {
+        timer.advance(60_000);
+        timer.tick();
+        return channel.delivered.map(({ part }) => part).join("");
+      }, poll)
+      .toContain("e.");
+    expect(channel.delivered.map(({ part }) => part)).toEqual(["Hello", " ther", "e."]);
+  });
+
+  it("is dropped while the owner is Banned: nothing is stored or sent", async () => {
+    const { ban, channel, fake, representativeOn, hears } = await world();
+    await representativeOn("1:a");
+    ban.on = true;
+
+    await hears("@bot_1", { text: "Hi" });
+
+    expect(await identities()).toEqual([]);
+    expect(await messages()).toEqual([]);
+    expect(channel.sends).toEqual([]);
+    expect(fake.calls).toEqual([]);
   });
 
   it("is told so when nobody can answer, and no Model is called", async () => {

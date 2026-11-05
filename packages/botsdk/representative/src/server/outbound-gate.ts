@@ -1,7 +1,7 @@
 import { and, asc, count, eq, gt, gte, inArray, isNull, max, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import type { MessagingReach } from "@botsdk/bot/channel";
+import { type MessagingReach, MessagingSendError } from "@botsdk/bot/channel";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { rpcError } from "@botsdk/bot/rpc-error";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
@@ -798,6 +798,8 @@ export const customerDeliveryJob = (channelOf: ChannelOf, concurrency: number) =
           externalId: decision.externalId,
           kind: decision.kind,
           representativeId: representativeThread.representativeId,
+          channelAccountId: representativeThread.channelAccountId,
+          sentOn: decision.sentOn,
           text: representativeThreadMessage.text,
           blockedAt: representativeCustomer.blockedAt,
           identityId: representativeCustomerIdentity.id,
@@ -835,11 +837,26 @@ export const customerDeliveryJob = (channelOf: ChannelOf, concurrency: number) =
         await logNotDelivered(job.db, decisionId, stopped, job.clock());
         return;
       }
-      await channelOf(job).send(
-        { channel: row.channel, externalId: row.externalId },
-        { text: row.text },
-        { representativeId: row.representativeId },
-      );
+      try {
+        await channelOf(job).send(
+          { channel: row.channel, externalId: row.externalId },
+          { text: row.text },
+          {
+            representativeId: row.representativeId,
+            channelAccountId: row.channelAccountId,
+            resume: row.sentOn,
+          },
+        );
+      } catch (error) {
+        if (error instanceof MessagingSendError) {
+          // Without it, the retry sends the parts already sent again.
+          await job.db
+            .update(decision)
+            .set({ sentOn: error.progress })
+            .where(eq(decision.id, decisionId));
+        }
+        throw error;
+      }
     },
     onFailed: ({ decisionId }, _error, { db, clock }) =>
       logNotDelivered(db, decisionId, notDelivered.failed, clock()),

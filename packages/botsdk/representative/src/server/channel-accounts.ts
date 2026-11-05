@@ -78,12 +78,19 @@ export async function listChannelAccounts(
  * Channel the Host has no adapter for has nothing to send through: web chat's visitors read the thread.
  * Proofs go nowhere until SMS (#1174) and email (#1176) word them.
  */
-export const heldAccountChannel: ChannelOf = ({ db, channelAccounts }) => ({
+export const heldAccountChannel: ChannelOf = ({ db, channelAccounts, logger }) => ({
   reach: (channel) => channelAccounts.reach(channel),
-  send: async ({ channel, externalId }, { text }, { representativeId }) => {
-    if (!channelAccounts.reach(channel)) return;
-    // Nothing records which account a Customer wrote to, so of two on one platform the oldest answers.
-    const [account] = await db
+  send: async (
+    { channel, externalId },
+    { text },
+    { representativeId, channelAccountId, resume },
+  ) => {
+    if (!channelAccounts.reach(channel)) {
+      if (channel !== "web")
+        logger.error(`A Customer's message wasn't sent: no ${channel} adapter`);
+      return;
+    }
+    const accounts = await db
       .select({ id: channelAccount.id })
       .from(representativeChannelAccount)
       .innerJoin(
@@ -97,12 +104,17 @@ export const heldAccountChannel: ChannelOf = ({ db, channelAccounts }) => ({
           eq(channelAccount.status, "active"),
         ),
       )
-      .orderBy(asc(channelAccount.id))
-      .limit(1);
+      .orderBy(asc(channelAccount.id));
+    // The one they wrote to, or the oldest once that one has gone.
+    const account = accounts.find(({ id }) => id === channelAccountId) ?? accounts[0];
     // Thrown, so the runner retries in case it comes back, and the decision log says if it never does.
     if (!account) throw new Error(`The Representative has no active ${channel} account`);
     // A private chat's id is its user's, as for a Bot's Linked identity.
-    await channelAccounts.send(account.id, { chatId: externalId, text });
+    await channelAccounts.send(account.id, {
+      chatId: externalId,
+      text,
+      ...(resume && { resume }),
+    });
   },
   sendProof: async () => {},
 });

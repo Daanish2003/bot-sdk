@@ -81,6 +81,8 @@ const customerMessage = z.object({
   /** Who sent it. The Customer's id is code's, from this identity: a Model never names one. */
   channel: z.string().min(1).max(64).refine(noNul),
   externalId: z.string().min(1).max(512).refine(noNul),
+  /** The held Channel account it came to, if it came to one. */
+  channelAccountId: z.uuid().optional(),
   /** What the Channel's Customer path says of the sender; a Channel with no rule says nothing. */
   proof: channelProof.optional(),
   message: z.string().min(1).max(maxThreadMessageLength).refine(noNul),
@@ -100,13 +102,15 @@ export async function receiveCustomerMessage(
   services: Services & Pick<FeatureContext<"pages">, "keyring" | "logger" | "pages"> & ViaChannel,
   given: CustomerMessage,
 ) {
-  const { representativeId, channel, externalId, proof, message } = customerMessage.parse(given);
+  const { representativeId, channel, externalId, channelAccountId, proof, message } =
+    customerMessage.parse(given);
   return services.db.transaction(async (tx) => {
     const now = services.clock();
     const received = await receiveMessage(tx, {
       services,
       representativeId,
       heard: { channel, externalId },
+      channelAccountId,
       proof,
       text: message,
       now,

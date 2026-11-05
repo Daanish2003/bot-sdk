@@ -167,7 +167,8 @@ export type ChannelAccountsService = {
   changed: (ids: readonly string[]) => Promise<void>;
   /**
    * Sends text through account `id`, which the feature holds, from one of its jobs: any other throw is
-   * for the runner to retry. Credentials the platform rejects mark the account as needing attention,
+   * for the runner to retry, and `MessagingSendError`'s progress, kept and passed back as `resume`, sends
+   * only the parts after it. Credentials the platform rejects mark the account as needing attention,
    * stop its listener and throw `PermanentJobError`, as nothing will send until they're saved again.
    */
   send: ChannelApi["sendHeld"];

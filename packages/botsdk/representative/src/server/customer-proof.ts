@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import type { FeatureContext, PublicRoute } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
-import type { MessagingReach } from "@botsdk/bot/channel";
+import type { MessagingReach, SendProgress } from "@botsdk/bot/channel";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { absorbCustomer } from "./customer-merge";
 import { type GateRefusal, passGate, type ViaChannel } from "./outbound-gate";
@@ -44,8 +44,15 @@ export type CustomerChannel = {
   send: (
     to: { channel: string; externalId: string },
     message: { text: string },
-    /** The Representative whose thread it's on, whose account it goes through. */
-    via: { representativeId: string },
+    /**
+     * The Representative whose thread it's on, the account the Customer last wrote to, and what an
+     * earlier attempt got out. A throw of `MessagingSendError` says how far this one got.
+     */
+    via: {
+      representativeId: string;
+      channelAccountId: string | null;
+      resume: SendProgress | null;
+    },
   ) => Promise<void>;
   sendProof: (to: { channel: string; externalId: string }, proof: Proof) => Promise<void>;
   /** What the platform of `channel` limits, as its adapter declares it; left out, nothing is limited. */
@@ -54,7 +61,7 @@ export type CustomerChannel = {
 
 /** The Channel of whatever `context` a job or the API runs with. */
 export type ChannelOf = (
-  context: Pick<FeatureContext<"channelAccounts">, "db" | "channelAccounts">,
+  context: Pick<FeatureContext<"channelAccounts">, "db" | "channelAccounts" | "logger">,
 ) => CustomerChannel;
 
 /** A Channel that reaches nobody, for what a test Customer sends. */
