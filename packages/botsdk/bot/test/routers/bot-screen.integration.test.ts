@@ -16,7 +16,7 @@ import { createScreenSocketOver } from "../../src/over";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { fakeComputerProvider, type FakeCommandRun } from "@botsdk/testing/fake-computer-provider";
-import type { CommandResult } from "../../src/computer/internal";
+import type { CommandResult, ComputerProvider } from "../../src/computer/internal";
 import { followSend } from "@ai-chat/test-support/follow-send";
 
 const model = "openai:gpt-6-luna";
@@ -43,11 +43,22 @@ const reason = "Sign in to Salesforce: enter your password and the code from you
  * `computer` on. Each Screen's noVNC port is a fake noVNC that wants E2B's traffic token; no Chrome
  * answers on the DevTools ports. The clock is the real time plus `offset.ms`. `onCommand` answers the
  * sandbox's commands. With `nextHelper`, the Bot's next Turn starts another Computer-use Helper, which
- * waits at a hand-off too.
+ * waits at a hand-off too. `provider` wraps the fake, so a test can hold a call of it. With
+ * `settled: false` it returns once the Helper's row exists, rather than once it waits.
  */
 async function waitingHelper(
   onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>,
-  { liveViewBase, nextHelper = false }: { liveViewBase?: string; nextHelper?: boolean } = {},
+  {
+    liveViewBase,
+    nextHelper = false,
+    provider = (fake) => fake,
+    settled = true,
+  }: {
+    liveViewBase?: string;
+    nextHelper?: boolean;
+    provider?: (fake: ComputerProvider) => ComputerProvider;
+    settled?: boolean;
+  } = {},
 ) {
   const novnc = await fakeNovnc();
   const offset = { ms: 0 };
@@ -87,7 +98,7 @@ async function waitingHelper(
     clock: { ...systemClock, now: clock },
   });
   deps = createTestSdk({
-    computer: computerFake.provider,
+    computer: provider(computerFake.provider),
     jobs,
     adapterFor: () => adapter,
     clock,
@@ -110,7 +121,7 @@ async function waitingHelper(
   for await (const _event of await followSend(client, { botId, id: uuidv7(), text: "deals?" }));
   await expect
     .poll(async () => (await helpersOf(botId))[0]?.status, { timeout: 10_000 })
-    .toBe("waiting");
+    .toBe(settled ? "waiting" : "running");
   const helper = (await helpersOf(botId))[0]!;
   return { novnc, offset, computerFake, deps, client, user, botId, helper };
 }
@@ -133,6 +144,42 @@ const sandboxOf = (fake: ReturnType<typeof fakeComputerProvider>) => ({
   sandboxId: fake.callsOf("create").at(-1)!.sandboxId,
   screenToken: new TextDecoder().decode(fake.files.get("/tmp/screens/1/token")),
 });
+
+/** A held call: `reached` once it got there, and it goes on after `release()`. */
+function gate() {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const state = { reached: false, armed: true };
+  return {
+    state,
+    release: () => release(),
+    /** Holds the first caller once armed; every later one goes straight through. */
+    pass: async () => {
+      if (!state.armed) return;
+      state.armed = false;
+      state.reached = true;
+      await held;
+    },
+  };
+}
+
+/** Holds the write of Screen 1's token, which an open does before its `start`, at `open`. */
+const holdingTokenWrite =
+  (open: ReturnType<typeof gate>) =>
+  (fake: ComputerProvider): ComputerProvider => ({
+    ...fake,
+    writeFile: async (id, path, content) => {
+      if (path === "/tmp/screens/1/token") await open.pass();
+      return fake.writeFile(id, path, content);
+    },
+  });
+
+/** A next Bot of the user, whose first Turn starts a Computer-use Helper on the slot a stop freed. */
+async function startOnAnotherBot(client: ReturnType<typeof chatRpc>) {
+  const { id: botId } = await client.bots.create({ name: "Grace", model });
+  for await (const _event of await followSend(client, { botId, id: uuidv7(), text: "next" }));
+  return botId;
+}
 
 /** How many database sessions, in any process, wait for the user's Screen `slot`'s lock now. */
 const waitingForScreenLock = async (userId: string, slot: number) => {
@@ -370,6 +417,165 @@ describe("stopping a Computer-use Helper", () => {
     expect(new Set(afterClose)).toEqual(
       new Set([`/usr/local/bin/ai-chat-screen start 1 ${botId}`]),
     );
+  }, 30_000);
+});
+
+describe("a late open of a Screen", () => {
+  it("makes the next Helper wait out a stopped Helper's open already under way", async () => {
+    const open = gate();
+    const { client, user, helper, botId, computerFake } = await waitingHelper(undefined, {
+      nextHelper: true,
+      settled: false,
+      // The open is under way, its `start` not yet run, and the job hasn't seen its cancel.
+      provider: holdingTokenWrite(open),
+    });
+    await expect.poll(() => open.state.reached, { timeout: 10_000 }).toBe(true);
+
+    await client.helpers.stop({ botId, helperId: helper.id });
+    const starting = startOnAnotherBot(client);
+    // The stop's close of the Screen, and the next Helper's `start_helper`.
+    await expect.poll(() => waitingForScreenLock(user.id, 1), { timeout: 10_000 }).toBe(2);
+    open.release();
+    const nextBot = await starting;
+
+    await expect
+      .poll(async () => (await helpersOf(nextBot))[0]?.status, { timeout: 10_000 })
+      .toBe("waiting");
+    const commands = screenCommands(computerFake);
+    const late = commands.lastIndexOf(`/usr/local/bin/ai-chat-screen start 1 ${botId}`);
+    expect(late).toBeGreaterThanOrEqual(0);
+    expect(late).toBeLessThan(commands.indexOf(`/usr/local/bin/ai-chat-screen start 1 ${nextBot}`));
+  }, 30_000);
+
+  it("refuses a resumed Helper's reopen once it was stopped and another Helper holds the slot", async () => {
+    const { client, user, helper, botId, computerFake } = await waitingHelper();
+    const opensAndCloses = () =>
+      screenCommands(computerFake).filter((command) =>
+        /ai-chat-screen (start|stop) /.test(command),
+      );
+    const before = opensAndCloses().length;
+
+    await getTestDb().transaction(async (tx) => {
+      await lockScreen(tx, user.id, 1);
+      // Done starts its job, whose first Browser step finds no Chrome and reopens the Screen.
+      await client.helpers.done({ helperId: helper.id });
+      await expect.poll(() => waitingForScreenLock(user.id, 1), { timeout: 10_000 }).toBe(1);
+      await client.helpers.stop({ botId, helperId: helper.id });
+      // The stop's close of the Screen queues behind the reopen.
+      await expect.poll(() => waitingForScreenLock(user.id, 1), { timeout: 10_000 }).toBe(2);
+      await tx.insert(botHelper).values({
+        id: uuidv7(),
+        botId,
+        type: "computer_use",
+        task: "Next.",
+        status: "running",
+        startedByTurnId: helper.startedByTurnId,
+        screen: 1,
+        startedAt: new Date(),
+      });
+    });
+    await expect
+      .poll(
+        async () =>
+          (
+            await getTestDb()
+              .select({ status: job.status })
+              .from(job)
+              .where(eq(job.idempotencyKey, `helper-stopped:${helper.id}`))
+          )[0]?.status,
+        { timeout: 10_000 },
+      )
+      .toBe("succeeded");
+
+    expect(opensAndCloses().slice(before)).toEqual([]);
+    expect((await helpersOf(botId))[0]?.status).toBe("stopped");
+  }, 30_000);
+
+  it("lets a Helper open its own slot again on a retried attempt", async () => {
+    const open = gate();
+    const { deps, offset, helper, botId, computerFake } = await waitingHelper(undefined, {
+      settled: false,
+      provider: holdingTokenWrite(open),
+    });
+    await expect.poll(() => open.state.reached, { timeout: 10_000 }).toBe(true);
+    // The bill of the Helper's first model call fails to save, which recorded nothing: a retry.
+    const meter = deps.models.freeModelMeter;
+    let failed = false;
+    deps.models.freeModelMeter = (...args) => ({
+      ...meter(...args),
+      recordIn: async (tx, call) => {
+        if (!failed) {
+          failed = true;
+          throw new Error("The database went away");
+        }
+        return meter(...args).recordIn(tx, call);
+      },
+    });
+    const opens = () =>
+      screenCommands(computerFake).filter(
+        (command) => command === `/usr/local/bin/ai-chat-screen start 1 ${botId}`,
+      ).length;
+    open.release();
+    const attempts = async () =>
+      (
+        await getTestDb()
+          .select({ attempts: job.attempts })
+          .from(job)
+          .where(eq(job.idempotencyKey, `helper:${helper.id}`))
+      )[0]?.attempts;
+    await expect.poll(() => failed, { timeout: 10_000 }).toBe(true);
+    const firstAttempt = opens();
+
+    // Past the retry's backoff. No Chrome answers, so the retry reopens the Screen it holds.
+    await expect
+      .poll(
+        async () => {
+          offset.ms += 11_000;
+          return (await helpersOf(botId))[0]?.status;
+        },
+        { timeout: 15_000 },
+      )
+      .toBe("waiting");
+
+    expect(await attempts()).toBe(2);
+    expect(opens()).toBeGreaterThan(firstAttempt);
+  }, 30_000);
+
+  it("refuses a late reopen from a live view once another Helper holds the slot, and leaves its Screen alone", async () => {
+    const read = gate();
+    read.state.armed = false;
+    const { client, helper, botId, computerFake } = await waitingHelper(undefined, {
+      nextHelper: true,
+      provider: (fake) => ({
+        ...fake,
+        // Past the read that finds the Screen closed, before the reopen that follows it.
+        readFile: async (id, path) => {
+          const read_ = await fake.readFile(id, path);
+          if (path === "/tmp/screens/1/token") await read.pass();
+          return read_;
+        },
+      }),
+    });
+    computerFake.files.delete("/tmp/screens/1/token");
+    read.state.armed = true;
+    const viewing = client.computer.view({ helperId: helper.id }).then(
+      () => "opened",
+      (caught: { code: string; message: string }) => `${caught.code}: ${caught.message}`,
+    );
+    await expect.poll(() => read.state.reached, { timeout: 10_000 }).toBe(true);
+
+    await client.helpers.stop({ botId, helperId: helper.id });
+    const nextBot = await startOnAnotherBot(client);
+    await expect
+      .poll(async () => (await helpersOf(nextBot))[0]?.status, { timeout: 10_000 })
+      .toBe("waiting");
+    expect((await helpersOf(nextBot))[0]?.screen).toBe(1);
+    const before = screenCommands(computerFake).length;
+
+    read.release();
+
+    expect(await viewing).toBe(`CONFLICT: This task was stopped.`);
+    expect(screenCommands(computerFake).slice(before)).toEqual([]);
   }, 30_000);
 });
 
