@@ -18,6 +18,8 @@ The owner proves who they are on each platform with a **link code**: a one-time 
 
 Unlinking takes effect at once, and messages from that identity are dropped silently again. Email keeps its own rule: the user's verified account email.
 
+_Amended 2026-11-05 ([#1331](https://github.com/Daanish2003/bot-sdk/issues/1331), spec [#1173](https://github.com/Daanish2003/bot-sdk/issues/1173), approved on [#1172](https://github.com/Daanish2003/bot-sdk/issues/1172)): a Channel account belongs to one Bot or one Representative, never both and never neither, and one Representative can hold several. Strangers on a Representative's account become Customers. A Bot's accounts don't change: strangers there are still dropped silently, and their credentials stay bound to the Bot and platform. `bot_id` becomes optional, and the `representative` feature keeps the link to its Representative in its own table, because features never add columns to core tables. Triggers in that feature's migration refuse an account with no holder or two. A held account's credentials are bound to its own id and platform, as the core can't read the feature's holder. Connecting an account moves it between one user's holders, in both directions, and another user's stays refused. Routing those strangers arrives with [#1334](https://github.com/Daanish2003/bot-sdk/issues/1334); until then what reaches a held account is dropped._
+
 ## Considered Options
 
 - **One platform bot per Host, shared by all users' Bots**: one token in the Host's env, as ADR 0023 does for Provider credentials. A user with several Bots would need a picker or `@BotName` in every chat, and a Host operator would see every user's messages pass through one bot it owns.
