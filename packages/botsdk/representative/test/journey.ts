@@ -135,9 +135,10 @@ async function approveWhenDrafted({ rpc, tick }: JourneyWorld) {
       return (await rpc.representative.replyDraftList()).length;
     }, poll)
     .toBeGreaterThan(0);
-  for (const { id } of await rpc.representative.replyDraftList()) {
-    await rpc.representative.replyDraftApprove({ id });
-  }
+  const drafts = await rpc.representative.replyDraftList();
+  // Only a reply on memory or a Bot's result is a draft: a fact's answer never waited.
+  expect(drafts).toHaveLength(1);
+  for (const { id } of drafts) await rpc.representative.replyDraftApprove({ id });
 }
 
 /** Waits until `text` has reached the Customer. */
@@ -165,20 +166,18 @@ export async function walkJourney(world: JourneyWorld, { remembered }: { remembe
   const [summary] = await rpc.representative.threadList({ id });
   const { customer } = await rpc.representative.threadGet({ id: summary!.id });
 
+  // The owner records something about the Customer; only a verified Customer is remembered by it.
+  await rpc.representative.customerProfileSet({
+    id: customer.id,
+    field: "address",
+    value: address,
+  });
   if (remembered) {
-    // An answer from memory: the Customer is remembered, so the owner's record reaches the Turn.
-    await rpc.representative.customerProfileSet({
-      id: customer.id,
-      field: "address",
-      value: address,
-    });
+    // An answer from memory: the owner's record reaches the Turn, and the reply quotes it.
     await visitor.says("What do you have on me?");
     await approveWhenDrafted(world);
     await hears(world, `You live at ${address}.`);
-    expect(JSON.stringify(world.modelCalls().at(-2)?.messages)).toContain(address);
-  } else {
-    // An unverified visitor: no Customer's memory is in any prompt.
-    expect(JSON.stringify(world.modelCalls().map((call) => call.messages))).not.toContain(address);
+    expect(JSON.stringify(world.modelCalls().map((call) => call.messages))).toContain(address);
   }
 
   // An Assignment: handed to the Bot, finished, and relayed through the gate once the owner approves.
@@ -193,6 +192,14 @@ export async function walkJourney(world: JourneyWorld, { remembered }: { remembe
   await rpc.representative.threadTakeOver({ id: summary!.id });
   const before = calls();
   await visitor.says("Anyone there?");
+  await expect
+    .poll(async () => {
+      await world.tick();
+      return (await rpc.representative.threadGet({ id: summary!.id })).messages.some(
+        ({ text }) => text === "Anyone there?",
+      );
+    }, poll)
+    .toBe(true);
   for (let tries = 0; tries < 5; tries += 1) await world.tick();
   expect(calls()).toBe(before);
   await rpc.representative.threadSend({ id: summary!.id, text: "The owner is here." });
@@ -218,4 +225,9 @@ export async function walkJourney(world: JourneyWorld, { remembered }: { remembe
   });
   await visitor.says("And again?");
   await hears(world, "Per release one, a haircut is 45 USD.");
+
+  // An unverified visitor is no one's remembered Customer: no prompt, across the whole journey, held the record.
+  if (!remembered) {
+    expect(JSON.stringify(world.modelCalls().map((call) => call.messages))).not.toContain(address);
+  }
 }
