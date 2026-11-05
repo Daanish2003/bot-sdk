@@ -20,6 +20,7 @@ import { testKeyEncryptionSecret } from "@botsdk/testing/test-sdk";
 
 import { representativeCustomerIdentity, representativeWidgetKey } from "../src/server/db/schema";
 import { representativeFeature } from "../src/server/plugin";
+import { widgetOrigin } from "../src/shared/contract";
 import { readWidgetSession } from "../src/server/widget-key";
 
 /*
@@ -172,6 +173,10 @@ describe("the owner's widget key", () => {
     "https://\u00ad.example",
     "https://.",
     "https://a..example",
+    `https://${"a".repeat(64)}.example`,
+    `https://${"a.".repeat(127)}example`,
+    // Short enough as typed, far too long once mapped to the host a browser would send.
+    `https://${"\u33af".repeat(285)}`,
     "ftp://shop.example",
     "https://user@shop.example",
     "null",
@@ -183,6 +188,8 @@ describe("the owner's widget key", () => {
     "https:\\\\shop.example",
     "https://shop.example:99999",
   ])("refuses %s as an origin", async (origin) => {
+    // The owner's form parses it once, where the server parses it twice.
+    expect(widgetOrigin.safeParse(origin).success).toBe(false);
     const { deps } = await serve();
     const { rpc, id } = await ownerWithKey(deps);
     await expect(
@@ -192,6 +199,11 @@ describe("the owner's widget key", () => {
   });
 
   it.each([
+    ["http://[::1]:3000", "http://[::1]:3000"],
+    ["https://shop.example.", "https://shop.example."],
+    ["https://my_shop.intranet", "https://my_shop.intranet"],
+    ["https://a~b.intranet", "https://a~b.intranet"],
+    ["http://127.0.0.1:8080", "http://127.0.0.1:8080"],
     ["https://shop.example:443", "https://shop.example"],
     ["https://münchen.example", "https://xn--mnchen-3ya.example"],
     ["http://localhost:3000/", "http://localhost:3000"],

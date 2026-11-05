@@ -143,12 +143,18 @@ export function useWidgetKey(id: string) {
   return useQuery(useRepresentative().widgetKeyGet.queryOptions({ input: { id } }));
 }
 
-/** Shows the widget key a mutation returned, so what's on screen can't lag behind what it did. */
+/**
+ * Shows the widget key a mutation returned, so a failed refetch can't leave a dead key on screen. The
+ * refetch then drops any older read still running, and settles changes that overlapped.
+ */
 export function useStoreWidgetKey(id: string) {
   const representative = useRepresentative();
   const queryClient = useQueryClient();
-  return (view: WidgetKeyView) =>
-    queryClient.setQueryData(representative.widgetKeyGet.queryKey({ input: { id } }), view);
+  const queryKey = representative.widgetKeyGet.queryKey({ input: { id } });
+  return (view: WidgetKeyView) => {
+    queryClient.setQueryData(queryKey, view);
+    void queryClient.invalidateQueries({ queryKey });
+  };
 }
 
 /** Creates a Representative's widget key (`representative.widgetKeyCreate`). */

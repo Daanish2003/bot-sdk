@@ -792,8 +792,17 @@ export const maxWidgetOrigins = 50;
 const isWebOrigin = (value: string) => {
   if (!/^https?:\/\/[^/?#\\@*\s]+\/?$/i.test(value)) return false;
   try {
-    // The parsed host too: encoded or mapped characters can become a host no browser would send.
-    return /^(\[[0-9a-f:.]+\]|[a-z0-9_-]+(\.[a-z0-9_-]+)*\.?)$/.test(new URL(value).hostname);
+    // The parsed host too: encoded or mapped characters can become one no browser would send. Its
+    // length caps the origin's, so the server's second parse of this schema's output also passes.
+    const host = new URL(value).hostname;
+    return (
+      host.length <= 253 &&
+      !host.includes("*") &&
+      host
+        .replace(/\.$/, "")
+        .split(".")
+        .every((label) => label.length >= 1 && label.length <= 63)
+    );
   } catch {
     return false;
   }
