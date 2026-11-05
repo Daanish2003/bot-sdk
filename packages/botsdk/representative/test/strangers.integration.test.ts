@@ -11,7 +11,7 @@ import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { fakeMessagingAdapter } from "@botsdk/testing/fake-channel";
-import { asc } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { connectChannelAccount } from "../src/server/channel-accounts";
@@ -329,6 +329,47 @@ describe("a stranger on a Representative's account", () => {
       .toContain("e.");
     expect(new Set(channel.sends.map(({ account }) => account.handle))).toEqual(
       new Set(["@bot_2"]),
+    );
+  });
+
+  it("resumes a reply on the account it fell back to, sending no part twice", async () => {
+    const { channel, context, timer, user, representativeOn } = await world(["Hello there."]);
+    const id = await representativeOn("1:a");
+    await connectChannelAccount(context, {
+      userId: user.id,
+      representativeId: id,
+      platform: channel.adapter.id,
+      credentials: { token: "2:b" },
+    });
+    channel.parts.maxText = 5;
+    channel.parts.failAt = 1;
+    const accounts = await getTestDb()
+      .select()
+      .from(channelAccount)
+      .orderBy(asc(channelAccount.id));
+    const [oldest, written] = accounts;
+    // The Customer writes to the newer account, which has gone by the time the reply goes.
+    await expect.poll(() => channel.listening.has(written!.handle), poll).toBe(true);
+    await channel.deliver(written!.handle, { text: "Hi" });
+    await expect.poll(async () => (await messages()).length, poll).toBe(1);
+    await getTestDb()
+      .update(channelAccount)
+      .set({ status: "needs_attention", reason: "Unauthorized" })
+      .where(eq(channelAccount.id, written!.id));
+    timer.advance(batchLongestMs);
+    timer.tick();
+
+    await expect.poll(sentOn, poll).toMatchObject({ channelAccountId: oldest!.id });
+    await expect
+      .poll(() => {
+        timer.advance(60_000);
+        timer.tick();
+        return channel.delivered.map(({ part }) => part).join("");
+      }, poll)
+      .toContain("e.");
+    expect(channel.delivered.map(({ part }) => part)).toEqual(["Hello", " ther", "e."]);
+    expect(new Set(channel.sends.map(({ account }) => account.handle))).toEqual(
+      new Set([oldest!.handle]),
     );
   });
 

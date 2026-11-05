@@ -8,7 +8,7 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { defineJob } from "@botsdk/bot/runner/internal";
 import { limitNoteKind, type ReplySource, type StoredReplyKind } from "../shared/replies";
-import { type ChannelOf, type CustomerChannel } from "./customer-proof";
+import { AccountSendError, type ChannelOf, type CustomerChannel } from "./customer-proof";
 import { combinedProfilesOf } from "./customer-profile";
 import { holdThreadCustomer } from "./customers";
 import {
@@ -861,10 +861,12 @@ export const customerDeliveryJob = (channelOf: ChannelOf, concurrency: number) =
         );
       } catch (error) {
         if (error instanceof MessagingSendError) {
-          // Without it, the retry sends the parts already sent again.
+          // Without it, the retry sends the parts already sent again, or on another account.
+          const sentThrough =
+            error instanceof AccountSendError ? error.channelAccountId : channelAccountId;
           await job.db
             .update(decision)
-            .set({ sentOn: { channelAccountId, progress: error.progress } })
+            .set({ sentOn: { channelAccountId: sentThrough, progress: error.progress } })
             .where(eq(decision.id, decisionId))
             .catch((saving: unknown) =>
               job.logger.error("Saving a send's progress failed", saving),

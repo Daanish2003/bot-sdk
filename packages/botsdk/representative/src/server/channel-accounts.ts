@@ -4,7 +4,8 @@ import type { ChannelAccountRow } from "@botsdk/client/bot/channel-account";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { channelAccount } from "@botsdk/bot/storage";
-import type { ChannelOf } from "./customer-proof";
+import { MessagingSendError } from "@botsdk/bot/channel";
+import { AccountSendError, type ChannelOf } from "./customer-proof";
 import { representative, representativeChannelAccount } from "./db/schema";
 import { requireOwned } from "./representatives";
 
@@ -103,13 +104,18 @@ export const heldAccountChannel: ChannelOf = ({ db, channelAccounts }) => ({
     const account = accounts.find(({ id }) => id === channelAccountId) ?? accounts[0];
     // Thrown, so the runner retries in case it comes back, and the decision log says if it never does.
     if (!account) throw new Error(`The Representative has no active ${channel} account`);
-    // A private chat's id is its user's, as for a Bot's Linked identity.
-    await channelAccounts.send(account.id, {
-      chatId: externalId,
-      text,
-      // Another account's chat has none of the parts, so it gets them all.
-      ...(resume && (channelAccountId === null || account.id === channelAccountId) && { resume }),
-    });
+    try {
+      // A private chat's id is its user's, as for a Bot's Linked identity.
+      await channelAccounts.send(account.id, {
+        chatId: externalId,
+        text,
+        // Another account's chat has none of the parts, so it gets them all.
+        ...(resume && (channelAccountId === null || account.id === channelAccountId) && { resume }),
+      });
+    } catch (error) {
+      // Its parts went out on this account, which isn't the one asked for when that one has gone.
+      throw error instanceof MessagingSendError ? new AccountSendError(account.id, error) : error;
+    }
   },
   sendProof: async () => {},
 });

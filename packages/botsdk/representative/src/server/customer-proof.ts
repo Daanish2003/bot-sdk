@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import type { FeatureContext, PublicRoute } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
-import type { MessagingReach, SendProgress } from "@botsdk/bot/channel";
+import { type MessagingReach, MessagingSendError, type SendProgress } from "@botsdk/bot/channel";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { absorbCustomer } from "./customer-merge";
 import { type GateRefusal, passGate, type ViaChannel } from "./outbound-gate";
@@ -49,7 +49,8 @@ export type CustomerChannel = {
     message: { text: string },
     /**
      * The Representative whose thread it's on, the account the Customer last wrote to, and what an
-     * earlier attempt got out. A throw of `MessagingSendError` says how far this one got.
+     * earlier attempt got out. A throw of `MessagingSendError` says how far this one got, and an
+     * `AccountSendError` also which account it went through, where a retry carries on.
      */
     via: {
       representativeId: string;
@@ -61,6 +62,17 @@ export type CustomerChannel = {
   /** What the platform of `channel` limits, as its adapter declares it; left out, nothing is limited. */
   reach?: (channel: string) => MessagingReach | undefined;
 };
+
+/** A send that failed partway through account `channelAccountId`, which its retry resumes on. */
+export class AccountSendError extends MessagingSendError {
+  readonly channelAccountId: string;
+
+  constructor(channelAccountId: string, failed: MessagingSendError) {
+    super(failed.progress, failed.cause);
+    this.name = "AccountSendError";
+    this.channelAccountId = channelAccountId;
+  }
+}
 
 /** The Channel of whatever `context` a job or the API runs with. */
 export type ChannelOf = (
