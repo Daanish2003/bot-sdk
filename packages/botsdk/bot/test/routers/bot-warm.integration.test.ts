@@ -661,6 +661,53 @@ describe("a warm holds no transaction across its Model call", () => {
     expect(await usageKinds(user.id)).toEqual(["turn", "warm"]);
   });
 
+  /** A cold Bot with a Host Model whose next Quota read waits, as a warm gets ready. */
+  async function warmHeldGettingReady() {
+    const preparing = hold();
+    let holding = false;
+    const made = await botWith([round(), warmRound()], "anthropic:claude-sonnet-5-5", {
+      hostProviders,
+      getQuota: async () => {
+        if (holding) await preparing.wait();
+        return { budgetUsd: 100, window: "month" };
+      },
+    });
+    await send(made.client, made.botId, "hi");
+    await ageCalls(made.user.id, 56);
+    holding = true;
+    return { ...made, preparing };
+  }
+
+  it("skips when a Turn started while it got ready", { timeout }, async () => {
+    const { fake, client, botId, preparing } = await warmHeldGettingReady();
+
+    const warm = client.bots.warm({ botId });
+    await preparing.reached;
+    await getTestDb().update(botTurn).set({ status: "running" }).where(eq(botTurn.botId, botId));
+    preparing.release();
+
+    expect(await warm).toEqual({ warmed: false, skipped: "running" });
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  it("makes no call when a new Prompt start arrived while it got ready", { timeout }, async () => {
+    const { fake, client, botId, preparing } = await warmHeldGettingReady();
+
+    const warm = client.bots.warm({ botId });
+    await preparing.reached;
+    const [start] = await getTestDb()
+      .select()
+      .from(botPromptStart)
+      .where(eq(botPromptStart.botId, botId));
+    await getTestDb()
+      .insert(botPromptStart)
+      .values({ ...start!, id: uuidv7(), builtAt: new Date() });
+    preparing.release();
+
+    expect(await warm).toEqual({ warmed: false, skipped: "still_warm" });
+    expect(fake.calls).toHaveLength(1);
+  });
+
   // Warms holding every connection of a pool must not each wait for one more.
   it("needs no second connection while it holds its lock", { timeout }, async () => {
     const { fake, user, client, botId } = await botWith(
@@ -717,8 +764,8 @@ describe("a warm holds no transaction across its Model call", () => {
 
       expect(await warm).toEqual({ warmed: true });
       expect(await warmLockHeld(botId)).toBe(false);
-      // The pool still works.
-      expect(await usageKinds(user.id)).toContain("turn");
+      // The call is billed, so its row goes through the pool instead.
+      expect(await usageKinds(user.id)).toEqual(["turn", "warm"]);
     },
   );
 

@@ -5,7 +5,11 @@ import type pg from "pg";
  * it does `migrate.ts`.
  */
 
-/** A node-postgres-compatible pool: `pg`'s `Pool`, or a Neon serverless `Pool`. */
+/**
+ * A node-postgres-compatible pool: `pg`'s `Pool`, or a Neon serverless `Pool`. Its connections must
+ * be direct, not through a transaction-mode pooler: migrations, Channel listeners and cache warms
+ * hold session advisory locks.
+ */
 export type PostgresPool = pg.Pool;
 
 /** The `database` slot: the Postgres the SDK keeps its data in, as `postgres()` makes it. */

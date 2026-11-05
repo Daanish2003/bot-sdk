@@ -44,33 +44,30 @@ function warmableProvider(model: string): "anthropic" | "openai" | undefined {
   return major > 5 || (major === 5 && minor >= 6) ? "openai" : undefined;
 }
 
-/** The Drizzle instance over the connection holding a warm's lock. */
-const sessionDatabase = (client: pg.PoolClient) => drizzle({ client, relations });
-
-/** What the warm reads through: the pool, or the connection holding its lock. */
-type Reads = Pick<Database, "select">;
+/** The Drizzle instance over the connection holding a warm's lock; only its `$client` differs. */
+const sessionDatabase = (client: pg.PoolClient) =>
+  drizzle({ client, relations }) as unknown as Database;
 
 /**
  * When the Bot last called its Model for a Turn or a warm: the newest of the user's `turn` rows of
  * the Bot's Turns and `warm` rows of the Bot, each read newest first on the user's
  * `(user_id, created_at)` index.
  */
-async function lastCallAt(db: Reads, userId: string, botId: string) {
-  const [turn, warm] = await Promise.all([
-    db
-      .select({ at: usage.createdAt })
-      .from(usage)
-      .innerJoin(botTurn, eq(sql`${botTurn.id}::text`, usage.sourceId))
-      .where(and(eq(usage.userId, userId), eq(usage.kind, "turn"), eq(botTurn.botId, botId)))
-      .orderBy(desc(usage.createdAt), desc(usage.id))
-      .limit(1),
-    db
-      .select({ at: usage.createdAt })
-      .from(usage)
-      .where(and(eq(usage.userId, userId), eq(usage.kind, "warm"), eq(usage.sourceId, botId)))
-      .orderBy(desc(usage.createdAt), desc(usage.id))
-      .limit(1),
-  ]);
+async function lastCallAt(db: Database, userId: string, botId: string) {
+  // One after the other: `db` may be a single connection.
+  const turn = await db
+    .select({ at: usage.createdAt })
+    .from(usage)
+    .innerJoin(botTurn, eq(sql`${botTurn.id}::text`, usage.sourceId))
+    .where(and(eq(usage.userId, userId), eq(usage.kind, "turn"), eq(botTurn.botId, botId)))
+    .orderBy(desc(usage.createdAt), desc(usage.id))
+    .limit(1);
+  const warm = await db
+    .select({ at: usage.createdAt })
+    .from(usage)
+    .where(and(eq(usage.userId, userId), eq(usage.kind, "warm"), eq(usage.sourceId, botId)))
+    .orderBy(desc(usage.createdAt), desc(usage.id))
+    .limit(1);
   const times = [turn[0]?.at, warm[0]?.at].filter((at) => at !== undefined);
   return times.length > 0 ? new Date(Math.max(...times.map((at) => at.getTime()))) : undefined;
 }
@@ -106,7 +103,7 @@ export async function warmBot(
   if (!start) return { warmed: false, skipped: "nothing_cached" };
   // Usage rows are stamped with the host's clock, so it is compared with that. A Prompt start
   // built after the last call (a Summary while away) has never been cached.
-  const stillWarm = async (db: Reads) => {
+  const stillWarm = async (db: Database) => {
     const last = await lastCallAt(db, userId, botId);
     return (
       last !== undefined &&
@@ -126,7 +123,14 @@ export async function warmBot(
   // One warm at a time per Bot, from the check to the record: the lock is held until the warm's
   // row is saved, so a second tab that asks meanwhile skips, and one that asks after sees the row.
   return whileWarmLocked(deps, botId, async (session) => {
-    if (await stillWarm(session)) return { warmed: false, skipped: "still_warm" };
+    // What it read may have moved on while it got ready and waited for a connection.
+    if ((await latestTurnStatus(session, botId)) === "running") {
+      return { warmed: false, skipped: "running" };
+    }
+    // A new Prompt start is left to the next warm, which reads it.
+    if ((await latestPromptStart(session, botId))?.id !== start.id || (await stillWarm(session))) {
+      return { warmed: false, skipped: "still_warm" };
+    }
     const failure = await call(session);
     return failure ? { warmed: false, skipped: failure } : { warmed: true };
   });
@@ -142,7 +146,7 @@ export async function warmBot(
 async function whileWarmLocked(
   deps: BotSdkContext,
   botId: string,
-  work: (session: ReturnType<typeof sessionDatabase>) => Promise<WarmResult>,
+  work: (session: Database) => Promise<WarmResult>,
 ): Promise<WarmResult> {
   const key = `warm:${botId}`;
   const session = await (deps.db.$client as pg.Pool).connect();
@@ -200,9 +204,7 @@ async function preparedCall(
   },
   startId: string,
 ): Promise<
-  | "unsupported"
-  | "unavailable"
-  | ((session: ReturnType<typeof sessionDatabase>) => Promise<"unavailable" | undefined>)
+  "unsupported" | "unavailable" | ((session: Database) => Promise<"unavailable" | undefined>)
 > {
   const models = deps.models;
   const call = await models.resolveModelCall(userId, model);
@@ -266,24 +268,26 @@ async function preparedCall(
       return "unavailable";
     }
     const reported = reportedUsageOf(finished);
-    // On the connection already held, so no wait for a free one. The call is made, so a row that
-    // fails to save is logged, as `meter.record` does, and never fails the warm.
+    const row = {
+      kind: "warm" as const,
+      sourceId: botId,
+      usage: models.messageUsage(reported.usage, {
+        promptCharacters: promptCharactersOf(messages),
+        parts: [],
+      }),
+      reportedCost: reported.cost,
+    };
+    // On the connection already held, so no wait for a free one. The call is made, so when that
+    // fails the row goes through the pool, where `record` logs a failure and never fails the warm.
+    let fire: () => void;
     try {
-      const fire = await session.transaction((tx) =>
-        meter.recordIn(tx, {
-          kind: "warm",
-          sourceId: botId,
-          usage: models.messageUsage(reported.usage, {
-            promptCharacters: promptCharactersOf(messages),
-            parts: [],
-          }),
-          reportedCost: reported.cost,
-        }),
-      );
-      fire();
+      fire = await session.transaction((tx) => meter.recordIn(tx, row));
     } catch (caught) {
-      deps.logger.error(`Recording the warm of Bot ${botId} failed`, caught);
+      deps.logger.error(`Recording the warm of Bot ${botId} on its connection failed`, caught);
+      await meter.record(row);
+      return undefined;
     }
+    fire();
     return undefined;
   };
 }
