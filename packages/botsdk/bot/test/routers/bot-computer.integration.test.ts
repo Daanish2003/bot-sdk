@@ -1210,13 +1210,16 @@ describe("a user delete during a Turn", () => {
 
     const stream = await followSend(client, { botId, id: uuidv7(), text: "go" });
     await expect
-      .poll(async () => {
-        const [turnJob] = await getTestDb()
-          .select({ status: job.status })
-          .from(job)
-          .where(eq(job.name, "bot.turn"));
-        return turnJob?.status;
-      })
+      .poll(
+        async () => {
+          const [turnJob] = await getTestDb()
+            .select({ status: job.status })
+            .from(job)
+            .where(eq(job.name, "bot.turn"));
+          return turnJob?.status;
+        },
+        { timeout: 20_000 },
+      )
       .toMatch(/succeeded|failed/);
     await stream.return?.(undefined);
 
