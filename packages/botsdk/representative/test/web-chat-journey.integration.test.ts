@@ -35,8 +35,8 @@ import {
  * The Representatives map's journey through web chat (ticket #1341): the same steps as
  * `journey.integration.test.ts`, with the Customer a widget visitor on the public routes, over real
  * HTTP, a fake Model and real Postgres. A web chat session is never verified, so no prompt may hold
- * a Customer's memory; and since web chat can't start a conversation, the Bot's result waits for the
- * owner (a Reply draft) before the visitor reads it.
+ * a Customer's memory; and since web chat can't start a conversation, the gate holds the Bot's result for
+ * the owner, who sends it, before the visitor reads it.
  */
 
 vi.setConfig({ testTimeout: 30_000 });
@@ -117,6 +117,7 @@ describe("the Representative's journey through web chat", () => {
       method: "POST",
       headers: { origin: shop },
     });
+    expect(session.status).toBe(200);
     const { token } = (await session.json()) as { token: string };
     const post = (path: string, body: unknown) =>
       fetch(`${url}/${path}`, {

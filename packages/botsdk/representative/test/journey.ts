@@ -152,7 +152,9 @@ async function releaseHeldResult({ rpc, tick, visitor }: JourneyWorld) {
   const [held] = (await rpc.representative.inbox()).held;
   expect(held).toMatchObject({ rule: "channel", text: "Good news: your refund is on its way." });
   expect(await visitor.heard()).not.toContain(held!.text);
+  expect(await rpc.representative.replyDraftList()).toEqual([]);
   await rpc.representative.threadHeldSend({ id: held!.id });
+  expect((await rpc.representative.inbox()).held).toEqual([]);
 }
 
 /** Waits until `text` has reached the Customer. */
