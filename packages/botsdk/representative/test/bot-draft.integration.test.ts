@@ -13,9 +13,9 @@ import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 import { fakeReviewer } from "@botsdk/testing/fake-reviewer";
-import { botTurn, message } from "@botsdk/bot/storage";
+import { botTrigger, botTurn, message } from "@botsdk/bot/storage";
 import { getTestDb } from "@ai-chat/test-support/test-database";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { representative } from "../src";
 import { botDraftTools } from "../src/server/bot-draft";
 import type { TestConversation } from "../src/shared/contract";
@@ -152,6 +152,13 @@ const wakes = ({ botFake }: Instance) => [
     ),
   ),
 ];
+
+/** The Triggers an answer to the Bot's Approval queued for it; with the runner stopped, wakes() can't show them. */
+const approvalTriggers = ({ botId }: Instance) =>
+  getTestDb()
+    .select({ id: botTrigger.id })
+    .from(botTrigger)
+    .where(and(eq(botTrigger.botId, botId), eq(botTrigger.source, "approval")));
 
 /** An instance whose Bot has drafted one Representative, and it waits for the owner's answer. */
 async function drafted(rounds: Round[] = [], options?: Parameters<typeof instance>[1]) {
@@ -959,6 +966,50 @@ describe("the release Approval", () => {
     await made.rpc.representative.approve({ id });
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(wakes(made)).toHaveLength(1);
+  });
+
+  it("drops the card of a pre-reset draft when answered before the reset's job has run", async () => {
+    const approving = await drafted();
+    const { id } = await onlyRepresentative(approving);
+    await runners.at(-1)!.stop();
+    await approving.rpc.bots.reset({ botId: approving.botId, name: "Ada" });
+
+    // Approve still makes the Release, but the card is dropped, not answered, and no one is woken.
+    const release = await approving.rpc.representative.approve({ id });
+    expect(release.number).toBe(1);
+    expect((await approving.rpc.representative.get({ id })).approval).toBeNull();
+    expect((await cardsOf(approving)).at(-1)!.control).toMatchObject({ answer: "dropped" });
+    expect(await approvalTriggers(approving)).toEqual([]);
+  });
+
+  it("refuses a decline of a pre-reset draft's card before the reset's job has run, and drops it", async () => {
+    const made = await drafted();
+    const { id } = await onlyRepresentative(made);
+    await runners.at(-1)!.stop();
+    await made.rpc.bots.reset({ botId: made.botId, name: "Ada" });
+
+    await expect(made.rpc.representative.declineApproval({ id })).rejects.toThrow();
+
+    expect((await made.rpc.representative.get({ id })).approval).toBeNull();
+    expect((await cardsOf(made)).at(-1)!.control).toMatchObject({ answer: "dropped" });
+    expect(await approvalTriggers(made)).toEqual([]);
+  });
+
+  it("answers a card posted after the reset normally, with the reset's job not yet run", async () => {
+    const made = await drafted();
+    const { id } = await onlyRepresentative(made);
+    await made.rpc.bots.reset({ botId: made.botId, name: "Ada" });
+    await expect
+      .poll(async () => (await made.rpc.representative.get({ id })).approval, poll)
+      .toBeNull();
+    made.script([drafts({ representativeId: id, jobText: "After the reset." }), quiet()]);
+    await made.send("Change it");
+    await runners.at(-1)!.stop();
+
+    await made.rpc.representative.declineApproval({ id });
+
+    expect((await cardsOf(made)).at(-1)!.control).toMatchObject({ answer: "declined" });
+    expect(await approvalTriggers(made)).toHaveLength(1);
   });
 
   it("leaves a card posted after the reset alone when the reset's job gets to it late", async () => {
