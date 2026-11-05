@@ -48,6 +48,11 @@ const day = 24 * 60 * 60_000;
 
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
+const ban = { on: false };
+afterEach(() => {
+  ban.on = false;
+});
+
 const runners: JobRunner[] = [];
 afterEach(async () => {
   for (const runner of runners.splice(0)) await runner.stop();
@@ -89,6 +94,7 @@ async function instance({
     features: [representative()],
     adapterFor: () => fake.adapter,
     clock: timer.clock.now,
+    users: { isBlocked: async () => ban.on },
     memory: false,
   });
   await jobs.start();
@@ -392,6 +398,21 @@ describe("a closed thread's summary", () => {
     const { rpc, say, passTime, customerOf, passCalls, passesEnded, user } = await instance();
     await say("Hello");
     await getTestDb().delete(userCredentials).where(eq(userCredentials.userId, user.id));
+
+    passTime(threadIdleMs);
+    await passesEnded();
+
+    const customer = await customerOf();
+    expect(await rpc.representative.customerSummaryList({ id: customer.id })).toMatchObject([
+      { text: null, skipped: "model_unavailable" },
+    ]);
+    expect(passCalls()).toEqual([]);
+  });
+
+  it("makes no Model call during the owner's Ban, and records a skip", async () => {
+    const { rpc, say, passTime, customerOf, passCalls, passesEnded } = await instance();
+    await say("Hello");
+    ban.on = true;
 
     passTime(threadIdleMs);
     await passesEnded();

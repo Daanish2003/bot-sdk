@@ -40,6 +40,11 @@ afterEach(async () => {
   for (const runner of runners.splice(0)) await runner.stop();
 });
 
+const ban = { on: false };
+afterEach(() => {
+  ban.on = false;
+});
+
 const replies = (text: string) =>
   round(toolCall({ name: "reply", input: { text, kind: "small_talk" } }));
 const handsOff = () =>
@@ -91,6 +96,7 @@ async function instance(
     jobs,
     features: [representative()],
     adapterFor: (id) => (id === botModel ? botFake.adapter : adapter),
+    users: { isBlocked: async () => ban.on },
     memory: false,
     computer: computer.provider,
   });
@@ -221,6 +227,42 @@ describe("writing test conversations", () => {
 
     expect((await rpc.representative.get({ id })).testStatus).toBe("none");
     expect((await rpc.representative.approve({ id })).number).toBe(1);
+  });
+});
+
+describe("a Ban", () => {
+  const statusOf = async (rpc: Rpc, id: string) =>
+    (await rpc.representative.get({ id })).tests[0]?.status;
+
+  it("starts no test conversation while it lasts", async () => {
+    const { rpc, entered } = await instance({ [opens.message]: [replies("We open at nine.")] });
+    const id = await draftWith(rpc, [opens]);
+    ban.on = true;
+
+    await rpc.representative.runTests({ id });
+
+    await expect.poll(() => statusOf(rpc, id), poll).toBe("error");
+    expect(entered).toEqual([]);
+  });
+
+  it("stops one that is running, which says so and doesn't go on", async () => {
+    let open = () => {};
+    const held = new Promise<void>((resolve) => (open = resolve));
+    const { rpc, entered, deps, user, fakes } = await instance(
+      { [opens.message]: [replies("We open at nine."), quiet()] },
+      held,
+    );
+    const id = await draftWith(rpc, [opens]);
+    await rpc.representative.runTests({ id });
+    await expect.poll(() => entered.length, poll).toBe(1);
+
+    await deps.bots.stopTurns({ userId: user.id });
+
+    expect(await statusOf(rpc, id)).toBe("error");
+    open();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await statusOf(rpc, id)).toBe("error");
+    expect(fakes.get(opens.message)!.calls.length).toBeLessThanOrEqual(1);
   });
 });
 

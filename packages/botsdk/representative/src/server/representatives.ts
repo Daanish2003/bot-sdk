@@ -43,7 +43,12 @@ import {
 import { checkLimitsNow } from "./limits";
 import { monthUsedPercent } from "./spending";
 import { botFieldsHash, draftHash } from "./test-checks";
-import { normalizedDraft, representativeTestJob, testStateOf } from "./tests";
+import {
+  normalizedDraft,
+  representativeTestJob,
+  representativeTestKey,
+  testStateOf,
+} from "./tests";
 import { isAssignmentEnded } from "./turn";
 
 type Context = Pick<FeatureContext, "db" | "clock">;
@@ -526,7 +531,12 @@ export async function queueTests(
       transcript: [],
       checks: [],
     });
-    await jobs.enqueueIn(tx, representativeTestJob, { resultId });
+    await jobs.enqueueIn(
+      tx,
+      representativeTestJob,
+      { resultId },
+      { idempotencyKey: representativeTestKey(resultId) },
+    );
   }
 }
 

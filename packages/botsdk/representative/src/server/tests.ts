@@ -132,6 +132,13 @@ type Outcome = Pick<typeof representativeTestResult.$inferInsert, "status" | "er
 const write = ({ db }: TurnServices, resultId: string, outcome: Outcome) =>
   db.update(representativeTestResult).set(outcome).where(eq(representativeTestResult.id, resultId));
 
+/** What a test conversation stopped by a Ban says. */
+export const testBanned = "The owner is banned";
+
+/** The job of a test conversation's result, by which a Ban cancels it. */
+export const representativeTestKey = (resultId: string) =>
+  `${representativeTestJobName}:${resultId}`;
+
 /** One test conversation's job: plays it on the draft with stubbed tools, then checks it. */
 export const representativeTestJob = defineJob<TestPayload, TurnServices>({
   name: representativeTestJobName,
@@ -157,6 +164,13 @@ export const representativeTestJob = defineJob<TestPayload, TurnServices>({
       return;
     }
     const { userId, representativeId, name, draft, conversation, model } = start;
+    // A test conversation spends as a Turn does, so a Ban stops it too (ticket #1299). Recorded, so a
+    // replay goes the way this one did.
+    const banned = await job.step("representative_test_ban", () => job.isUserBlocked(userId));
+    if (banned) {
+      await write(job, resultId, { status: "error", error: testBanned });
+      return;
+    }
     // It could never be approved, so it costs the owner nothing to find out what it would do.
     if (documentChars(draft.documents) > maxReleaseDocumentChars) {
       await write(job, resultId, {
