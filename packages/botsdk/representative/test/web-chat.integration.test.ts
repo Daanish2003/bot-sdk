@@ -396,6 +396,42 @@ describe("what a visitor reads", () => {
     await expect.poll(async () => (await said(token)).at(-1), poll).toEqual(["business", draft]);
   });
 
+  it("drops a held Reply draft once the visitor writes again, and answers the new message", async () => {
+    const draft = "We can do that soon.";
+    const { startSession, send, said, dueTurn, rpc } = await world([
+      round(
+        toolCall({
+          name: "reply",
+          input: { topic: "pricing", text: draft, kind: "small_talk" },
+        }),
+      ),
+      round(),
+      answers(),
+      round(),
+    ]);
+    const token = await startSession();
+    await send(token, "What would it cost?");
+    dueTurn();
+    await expect.poll(async () => (await rpc.representative.replyDraftList()).length, poll).toBe(1);
+    const [stale] = await rpc.representative.replyDraftList();
+
+    await send(token, "Actually, are you open today?");
+    dueTurn();
+
+    await expect
+      .poll(() => said(token), poll)
+      .toEqual([
+        ["customer", "What would it cost?"],
+        ["business", holdingNote],
+        ["customer", "Actually, are you open today?"],
+        ["business", "Noted."],
+      ]);
+    expect(await rpc.representative.replyDraftList()).toEqual([]);
+    await expect(rpc.representative.replyDraftApprove({ id: stale!.id })).rejects.toThrow();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect((await said(token)).flat()).not.toContain(draft);
+  });
+
   it("doesn't hold what a cap held", async () => {
     const { startSession, send, said, dueTurn, id } = await world([answers(), round()]);
     await getTestDb().update(representative).set({ maxInARow: 0 }).where(eq(representative.id, id));
