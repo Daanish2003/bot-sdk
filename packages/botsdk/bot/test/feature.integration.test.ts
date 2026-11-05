@@ -357,6 +357,25 @@ describe("a feature built with defineFeature", { timeout: 30_000 }, () => {
     expect(await getTestDb().select().from(pin).where(eq(pin.userId, user.id))).toEqual([]);
   });
 
+  it("gives a feature that needs the pub/sub the instance's own", async () => {
+    const heard: string[] = [];
+    const hinting = defineFeature({
+      id: "hinting",
+      needs: ["pubsub"],
+      afterTurn: async (_tx, turn, context) => {
+        const end = await context.pubsub.subscribe(`hinting:${turn.id}`, (message) => {
+          heard.push(message);
+        });
+        await context.pubsub.publish(`hinting:${turn.id}`, "changed");
+        await end();
+      },
+    });
+    const { client, botId } = await botWithPins([round()], [hinting]);
+    await send(client, botId, "hello");
+
+    expect(heard).toEqual(["changed"]);
+  });
+
   it("gives its context only the core services in its needs, never the whole core", async () => {
     const seen: (string | symbol)[][] = [];
     const resolves: string[] = [];

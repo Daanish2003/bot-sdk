@@ -105,7 +105,9 @@ import {
 
 /** The `representative` namespace over the feature's context. */
 export function representativeApi(
-  base: FeatureContext<"assignments" | "factApprovals" | "models" | "releaseApprovals" | "threads">,
+  base: FeatureContext<
+    "assignments" | "factApprovals" | "models" | "pubsub" | "releaseApprovals" | "threads"
+  >,
   convertDocument?: ConvertDocument,
   knowledgeFiles?: KnowledgeFiles,
   customerChannel: CustomerChannel = noCustomerChannel,

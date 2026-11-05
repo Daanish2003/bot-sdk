@@ -10,6 +10,7 @@ import { toNodeHandler } from "@botsdk/bot/http";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { createHttpHandlerOver } from "@botsdk/bot/over";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { job } from "@botsdk/bot/storage";
 import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
@@ -35,6 +36,7 @@ import { representativeFeature } from "../src/server/plugin";
 import { customerDeliveryJobName } from "../src/server/outbound-gate";
 import { holdingNote } from "../src/server/reply-drafts";
 import { unavailableNotice } from "../src/server/unavailable-notice";
+import { representativeTurnJobName } from "../src/server/thread-turns";
 import { sessionCheckMs, withWebChat } from "../src/server/web-chat";
 import { widgetSessionLastsMs } from "../src/server/widget-key";
 import type { WebChatMessage, WebChatStreamEvent } from "../src/shared/contract";
@@ -767,8 +769,19 @@ describe("a visitor's stream", () => {
 
     await expect.poll(() => decisionsOf("hold"), poll).toBe(1);
 
-    expect(stream.events).toEqual([changed, changed]);
     expect(await said(token)).toEqual([["customer", "Hello"]]);
+    await expect
+      .poll(async () => {
+        const [turn] = await getTestDb()
+          .select({ status: job.status })
+          .from(job)
+          .where(eq(job.name, representativeTurnJobName));
+        return turn?.status;
+      }, poll)
+      .toBe("succeeded");
+    // Long enough for a hint published as the Turn ended to arrive.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(stream.events).toEqual([changed, changed]);
   });
 
   it("recovers a lost hint on reconnect", async () => {
