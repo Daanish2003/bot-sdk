@@ -525,9 +525,15 @@ async function handOffInCode(
  * stored, as a failed job has nothing else: its first reply or note clears `turnFrom`, code's hand-off
  * too, a proof it sent has them answering that, and a reply the gate held for it is an answer waiting.
  * One its fence rolled back and logged `cancelled` never waited for anyone. A Turn that hasn't begun
- * left its batch waiting for the next.
+ * left its batch waiting for the next. Holds the thread, after the rows that come before its lock.
  */
-async function turnSentNothing(tx: Transaction, { threadId, turnId }: LiveThread) {
+async function turnSentNothing(
+  tx: Transaction,
+  representativeId: string,
+  { threadId, turnId }: LiveThread,
+) {
+  await reportingBot(tx, representativeId, true);
+  await holdThreadCustomer(tx, threadId);
   const [thread] = await tx
     .select({ turnFrom: representativeThread.turnFrom })
     .from(representativeThread)
@@ -566,7 +572,7 @@ async function turnSentNothing(tx: Transaction, { threadId, turnId }: LiveThread
  * thread the owner took.
  */
 async function handOffAtEnd(turn: Omit<HandOffTurn, "job"> & Pick<Turn, "job">, atLimit: boolean) {
-  const { job, thread, progress } = turn;
+  const { job, representativeId, thread, progress } = turn;
   // Code has dealt with these already: its hand-off on a second refusal, or the script.
   if (isOver(progress)) return false;
   const refusalLeft = progress.refusals === 1;
@@ -579,21 +585,20 @@ async function handOffAtEnd(turn: Omit<HandOffTurn, "job"> & Pick<Turn, "job">, 
   let made: MadeHandOff | undefined;
   const handedOff = await job.step("representative_end_hand_off", async (tx) => {
     made = undefined;
-    if (!refusalLeft && !(await turnSentNothing(tx, thread))) return false;
+    if (!refusalLeft && !(await turnSentNothing(tx, representativeId, thread))) return false;
     const ending = await handOffInCode(turn, tx, now);
     made = ending.made;
     return ending.handedOff;
   });
-  if (made) {
-    job.jobs.wake();
-    await settleHandOff(turn, made);
-  }
+  // What it stored goes to the Customer by a job, with or without an Assignment.
+  if (handedOff) job.jobs.wake();
+  if (made) await settleHandOff(turn, made);
   return handedOff;
 }
 
 /**
  * A Turn's hand-off from what's stored, in `tx`, when its loop never ran or its job has failed: nothing
- * of it is in memory. What it made is for `settleStoredHandOff`, once `tx` has committed.
+ * of it is in memory. What it stored is for `settleStoredHandOff`, once `tx` has committed.
  */
 async function handOffFromStore(
   services: TurnServices,
@@ -669,15 +674,15 @@ async function handOffFromStore(
     entries,
     progress: { ...newProgress(), handedOff: handOff !== undefined },
   };
-  if (!(await turnSentNothing(tx, thread))) return;
-  const { made } = await handOffInCode(turn, tx, services.clock());
-  return made && { turn, made };
+  if (!(await turnSentNothing(tx, representativeId, thread))) return;
+  const { handedOff, made } = await handOffInCode(turn, tx, services.clock());
+  return handedOff ? { turn, made } : undefined;
 }
 
 async function settleStoredHandOff(stored: Awaited<ReturnType<typeof handOffFromStore>>) {
   if (!stored) return;
   stored.turn.job.jobs.wake();
-  await settleHandOff(stored.turn, stored.made);
+  if (stored.made) await settleHandOff(stored.turn, stored.made);
 }
 
 /**

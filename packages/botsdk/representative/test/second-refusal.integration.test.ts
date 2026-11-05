@@ -157,6 +157,7 @@ async function serving(rounds: Round[], { noBot, tools, afterCall, before }: Opt
   return {
     fake,
     began: () => begun,
+    jobs,
     deps,
     rpc,
     id,
@@ -939,6 +940,21 @@ describe("a Turn ending with no reply and no refusal", () => {
     expect(await assignments()).toEqual([]);
   });
 
+  it("wakes the runner for the hand-off's delivery, with no Assignment made", async () => {
+    const { jobs, send, timer, claim, attemptsEnd, sent } = await serving([quiet()], {
+      noBot: true,
+    });
+    await send("How much is a haircut?");
+    timer.advance(500);
+    const wake = vi.spyOn(jobs, "wake");
+
+    await claim();
+    await attemptsEnd();
+
+    expect(textsOf(await sent())).toEqual([handOffMessage]);
+    expect(wake).toHaveBeenCalled();
+  });
+
   it("sends nothing more on a reply waiting for the owner", async () => {
     const { turn, sent, assignments, drain, thread } = await serving([
       round(
@@ -998,6 +1014,23 @@ describe("a Turn ending with no reply and no refusal", () => {
       expect(textsOf(await sent())).toEqual([handOffMessage]);
       expect(await assignments()).toHaveLength(1);
       expect(await turnHolder((await thread()).id)).toBeNull();
+    });
+
+    it("wakes the runner for the hand-off's delivery, with no Assignment made", async () => {
+      const { deps, jobs, send, timer, claim, attemptsEnd, sent } = await serving([], {
+        noBot: true,
+      });
+      const { representativeLoop } = deps.parts.features[0]!.context;
+      vi.spyOn(representativeLoop!, "run").mockRejectedValue(new PermanentJobError("Gone"));
+      await send("How much is a haircut?");
+      timer.advance(500);
+      const wake = vi.spyOn(jobs, "wake");
+
+      await claim();
+      await attemptsEnd();
+
+      expect(textsOf(await sent())).toEqual([handOffMessage]);
+      expect(wake).toHaveBeenCalled();
     });
 
     it("opens no second Assignment on a Turn that handed off before it threw", async () => {

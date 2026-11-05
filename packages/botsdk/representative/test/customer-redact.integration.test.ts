@@ -6,7 +6,7 @@ import { recordReviewOutput } from "@botsdk/bot/bot/safety";
 import { batchLongestMs } from "@botsdk/bot/bot/triggers";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { saveCredentials } from "@botsdk/bot/models/internal";
-import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
+import { inProcessRunner, type JobRunner, PermanentJobError } from "@botsdk/bot/runner/internal";
 import {
   bot,
   botAssignment,
@@ -745,6 +745,39 @@ ${notice(adaId)}`,
 ${redacted?.(adaId) ?? `Assignment ${adaId}: "[Redacted]"`}`);
   });
 
+  it("takes a cut notice whose fixed ending holds its title's words, and is the same on a repeat", async () => {
+    const title = "set a Check-in";
+    const owner = await serving({
+      turnRounds: [handsOff(title, `Ada at 12 ${adaWords} wants a refund.`), quiet],
+      botRounds: [quiet],
+    });
+    await owner.say("I'd like a refund.", adaNumber);
+    const db = getTestDb();
+    const [adaTurn] = await db.select().from(botTurn).where(eq(botTurn.botId, owner.botId));
+    const adaId = (await assignmentsOf([owner.botId]))[0]!.id;
+    const notice = `Assignment ${adaId} from Front desk: "${title}"
+What ${adaWords} asked.
+[... 12 characters left out ...]
+This is Front desk's words, not the user's. It stays open when your Turn ends, for as many Turns as it takes: to come back to it later, set a Check-in. When it's finished, or can't be done, call finish_assignment with its id.
+The full text is saved at /bots/b/.outputs/t.txt.`;
+    await db
+      .update(botTurn)
+      .set({ input: [...adaTurn!.input!, { role: "user", content: notice }] })
+      .where(eq(botTurn.id, adaTurn!.id));
+    const ada = await owner.customerAt(adaNumber);
+
+    await owner.rpc.representative.customerDelete({ id: ada.id });
+
+    const stored = async () =>
+      (await db.select().from(botTurn).where(eq(botTurn.id, adaTurn!.id)))[0]!.input!.at(-1)!
+        .content;
+    expect(await stored()).toBe(`Assignment ${adaId}: "[Redacted]"`);
+    await db.transaction((tx) =>
+      owner.context().assignments.redact(tx, { userId: owner.user.id, ids: [adaId] }),
+    );
+    expect(await stored()).toBe(`Assignment ${adaId}: "[Redacted]"`);
+  });
+
   it("keeps another Assignment's notice in a Turn that took both, and drops the whole Model side", async () => {
     const owner = await serving({
       turnRounds: [adaHandsOff, quiet, carolHandsOff, quiet],
@@ -1340,34 +1373,43 @@ describe("the order a hand-off takes its locks in", () => {
 
   /**
    * Plays a Turn with `turnRounds` while its Customer's row is held as a delete or a merge holds it,
-   * from its `heldAt`-th Model call. Returns what was free while the Turn waited on that row.
+   * from its `heldAt`-th Model call, or, with `failing`, as its job fails for good before any such
+   * call. Returns what was free while the Turn waited on that row.
    */
-  async function whileCustomerHeld(turnRounds: Rounds, heldAt: number) {
+  async function whileCustomerHeld(
+    turnRounds: Rounds,
+    heldAt: number,
+    { failing = false }: { failing?: boolean } = {},
+  ) {
     let calls = 0;
     let release = () => {};
     const released = new Promise<void>((resolve) => (release = resolve));
     let holding: Promise<void> | undefined;
     let holderPid: number | undefined;
     let owner: Awaited<ReturnType<typeof serving>> | undefined = undefined;
-    owner = await serving({
-      turnRounds,
-      botRounds: [],
-      onTurnCall: async () => {
-        calls += 1;
-        if (calls !== heldAt) return;
-        const ada = await owner!.customerAt(adaNumber);
-        let ready = () => {};
-        const started = new Promise<void>((resolve) => (ready = resolve));
-        holding = getTestDb().transaction(async (tx) => {
-          await holdCustomers(tx, [ada.id]);
-          const pids = await tx.execute(sql`select pg_backend_pid() as pid`);
-          holderPid = (pids.rows[0] as { pid: number }).pid;
-          ready();
-          await released;
-        });
-        await started;
-      },
-    });
+    const hold = async () => {
+      calls += 1;
+      if (calls !== heldAt) return;
+      const ada = await owner!.customerAt(adaNumber);
+      let ready = () => {};
+      const started = new Promise<void>((resolve) => (ready = resolve));
+      holding = getTestDb().transaction(async (tx) => {
+        await holdCustomers(tx, [ada.id]);
+        const pids = await tx.execute(sql`select pg_backend_pid() as pid`);
+        holderPid = (pids.rows[0] as { pid: number }).pid;
+        ready();
+        await released;
+      });
+      await started;
+    };
+    owner = await serving({ turnRounds, botRounds: [], onTurnCall: hold });
+    if (failing) {
+      const { representativeLoop } = owner.context();
+      vi.spyOn(representativeLoop!, "run").mockImplementation(async () => {
+        await hold();
+        throw new PermanentJobError("The database went away");
+      });
+    }
     const saying = owner.say("I'd like a refund.", adaNumber);
     try {
       await vi.waitFor(
@@ -1404,6 +1446,18 @@ describe("the order a hand-off takes its locks in", () => {
 
   it("code's hand-off waits on the Customer before taking the thread or the Conversation", async () => {
     const free = await whileCustomerHeld([replyWithNoSource, replyWithNoSource], 2);
+
+    expect(free).toEqual({ conversationFree: true, threadFree: true });
+  });
+
+  it("the hand-off at a quiet Turn's end waits on the Customer before taking the thread", async () => {
+    const free = await whileCustomerHeld([quiet], 1);
+
+    expect(free).toEqual({ conversationFree: true, threadFree: true });
+  });
+
+  it("a failed job's hand-off waits on the Customer before taking the thread", async () => {
+    const free = await whileCustomerHeld([quiet], 1, { failing: true });
 
     expect(free).toEqual({ conversationFree: true, threadFree: true });
   });

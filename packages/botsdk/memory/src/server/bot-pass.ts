@@ -141,6 +141,7 @@ async function passScope(
       source: botTrigger.source,
       channel: botTrigger.channel,
       conversationId: botTrigger.conversationId,
+      receivedAt: botTrigger.receivedAt,
     })
     .from(botTrigger)
     .where(eq(botTrigger.turnId, turn.id));
@@ -149,31 +150,36 @@ async function passScope(
   }
   const followsOn = triggers.some((each) => followOnSources.includes(each.source));
   if (!followsOn) return "all";
-  // A hand-off is held by any Bot of its Room: another Bot's message can carry what that Bot's
-  // untrusted Assignment holds, down a chain of hand-offs.
-  const handOffRooms = triggers.flatMap((each) =>
-    each.source === "agent" ? [each.conversationId] : [],
+  const openAt = (at: Date) =>
+    and(
+      lte(botAssignment.createdAt, at),
+      or(isNull(botAssignment.endedAt), gte(botAssignment.endedAt, at)),
+    );
+  // A hand-off is held by any Bot of its Room while it was sent, per Room: another Bot's message can
+  // carry what that Bot's untrusted Assignment holds, and a busy Bot may take it after that ended.
+  const handOffs = triggers.flatMap((each) =>
+    each.source === "agent"
+      ? [
+          and(
+            inArray(
+              botAssignment.assignedBotId,
+              db
+                .select({ botId: botRoomMember.botId })
+                .from(botRoomMember)
+                .where(eq(botRoomMember.conversationId, each.conversationId)),
+            ),
+            openAt(each.receivedAt),
+          ),
+        ]
+      : [],
   );
   const [held] = await db
     .select({ id: botAssignment.id })
     .from(botAssignment)
     .where(
       and(
-        handOffRooms.length > 0
-          ? or(
-              eq(botAssignment.assignedBotId, turn.botId),
-              inArray(
-                botAssignment.assignedBotId,
-                db
-                  .select({ botId: botRoomMember.botId })
-                  .from(botRoomMember)
-                  .where(inArray(botRoomMember.conversationId, handOffRooms)),
-              ),
-            )
-          : eq(botAssignment.assignedBotId, turn.botId),
         eq(botAssignment.assignerTrusted, false),
-        lte(botAssignment.createdAt, turn.startedAt),
-        or(isNull(botAssignment.endedAt), gte(botAssignment.endedAt, turn.startedAt)),
+        or(and(eq(botAssignment.assignedBotId, turn.botId), openAt(turn.startedAt)), ...handOffs),
       ),
     )
     .limit(1);

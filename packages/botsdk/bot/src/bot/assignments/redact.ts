@@ -360,11 +360,14 @@ function redactedEntry(entry: ModelMessage): ModelMessage {
  */
 function redactedInput(input: ModelMessage[], ids: string[], copies: string[]): ModelMessage[] {
   const notice = noticePattern(ids);
+  // Notices first: a copy of words in a notice's fixed ending would stop the pattern matching it.
   const clean = (text: string) =>
-    withoutCopies(text, copies).replace(notice, (match, lead: string, id: string) =>
-      isRedactedCancelNotice(match.slice(lead.length))
-        ? match
-        : `${lead}Assignment ${id}: "${redactedText}"`,
+    withoutCopies(
+      text.replace(notice, (match, lead: string, id: string) => {
+        const left = withoutCopies(match.slice(lead.length), copies);
+        return `${lead}${isRedactedCancelNotice(left) ? left : `Assignment ${id}: "${redactedText}"`}`;
+      }),
+      copies,
     );
   return input.map((entry) => ({ ...entry, content: cleanContent(entry.content, clean) }));
 }
