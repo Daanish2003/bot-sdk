@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { and, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { CounterStore } from "@botsdk/bot/chat/counters";
 import { batchLongestMs } from "@botsdk/bot/bot/triggers";
 import { toNodeHandler } from "@botsdk/bot/http";
 import { saveCredentials } from "@botsdk/bot/models/internal";
@@ -64,6 +65,7 @@ afterEach(async () => {
 async function world(
   rounds: Parameters<typeof createFakeAdapter>[0]["rounds"] = [],
   channel: CustomerChannel = noCustomerChannel,
+  counters?: CounterStore,
 ) {
   const timer = fakeJobClock(new Date("2026-11-05T12:00:00Z"));
   const fake = createFakeAdapter({ rounds });
@@ -81,6 +83,7 @@ async function world(
     adapterFor: () => fake.adapter,
     clock: timer.clock.now,
     memory: false,
+    ...(counters && { counters }),
   });
   await jobs.start();
   runners.push(jobs);
@@ -400,7 +403,10 @@ describe("what a visitor reads", () => {
 
 describe("a visitor over the inbound limit", () => {
   it("is told, rather than told it was accepted", async () => {
-    const { startSession, post, said } = await world();
+    // Counters that never refuse, so the session limit (ticket #1337) doesn't stand before this one.
+    const { startSession, post, said } = await world([], noCustomerChannel, {
+      hit: async () => ({ count: 1, resetMs: 1000 }),
+    });
     const token = await startSession();
     for (let sent = 0; sent < inboundLimit; sent += 1) {
       expect((await post("send", { token, text: `Message ${sent}` })).status).toBe(202);

@@ -17,7 +17,13 @@ import {
   representativeThreadMessage,
 } from "./db/schema";
 import { receiveCustomerMessage } from "./thread-turns";
-import { readWidgetSession, widgetResponseHeaders, type WidgetSession } from "./widget-key";
+import { limitSendByIp, limitSendBySession, type ClientIp } from "./web-chat-limits";
+import {
+  readWidgetSession,
+  tooManyRequests,
+  widgetResponseHeaders,
+  type WidgetSession,
+} from "./widget-key";
 
 /*
  * A web chat visitor sends and reads with their session token, and no signed-in user (ticket #1336).
@@ -136,15 +142,23 @@ async function readMessages(
 }
 
 /** The routes of a visitor with a session, sending by way of `channelOf`'s Channel. */
-export const webChatRoutes = (channelOf: ChannelOf): PublicRoute<"channelAccounts" | "pages">[] => [
+export const webChatRoutes = (
+  channelOf: ChannelOf,
+  clientIp?: ClientIp,
+): PublicRoute<"channelAccounts" | "counters" | "pages">[] => [
   {
     method: "POST",
     path: "/representative/widget/send",
     handle: async (request, { context }) => {
+      // The limits come before the inbound limit's scan of the owner's messages, so these bound it.
+      const ipWait = await limitSendByIp(context, request, clientIp);
+      if (ipWait !== null) return tooManyRequests(ipWait);
       const body = await parsedBody(request, webChatSendInput);
       if (!body) return invalid();
       const session = await readWidgetSession(context, body.token);
       if (!session) return ended();
+      const sessionWait = await limitSendBySession(context, session.heard.externalId);
+      if (sessionWait !== null) return tooManyRequests(sessionWait);
       const received = await receiveCustomerMessage(
         { ...context, channel: channelOf(context) },
         {

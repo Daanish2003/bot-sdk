@@ -59,6 +59,7 @@ import { exportCustomerSummaries, customerSummaryJob } from "./customer-summary"
 import { draftDueJob } from "./draft-due";
 import { assignmentDueJob, ownerWaitJob } from "./stalled-work";
 import { stopUserTurns } from "./thread-turns";
+import type { ClientIp } from "./web-chat-limits";
 import { webChatRoutes, withWebChat } from "./web-chat";
 import { type WidgetSessionCheck, widgetSessionRoutes } from "./widget-key";
 import { handOffEndedJob, limitCheckJob, representativeTurnJob } from "./turn";
@@ -95,6 +96,15 @@ export type RepresentativeOptions = {
    * ships none, so without this every request from an allowed origin on a live key starts a session.
    */
   widgetSessionCheck?: WidgetSessionCheck;
+  /**
+   * Says which IP a web chat request came from, so session starts and sends are limited per IP: 10
+   * sessions per 10 minutes and 30 messages per minute for each. Return the socket's address, or the
+   * header your own proxy sets (`x-real-ip`, say). The SDK reads no forwarded header by default,
+   * since anyone can send one and so choose which IP is counted. Left out, or returning nothing for a
+   * request, no per-IP limit applies to it: sessions are still limited to 10 messages per minute
+   * each, but a program can start sessions without end. Set it when the widget is public.
+   */
+  clientIp?: ClientIp;
 };
 
 /**
@@ -116,6 +126,7 @@ export function representativeFeature(
     needs: [
       "assignments",
       "channelAccounts",
+      "counters",
       "factApprovals",
       "models",
       "pages",
@@ -173,8 +184,8 @@ export function representativeFeature(
       receiveStranger({ ...context, channel: channelOf(context) }, message),
     publicRoutes: [
       ...proofLinkRoutes,
-      ...widgetSessionRoutes(options.widgetSessionCheck),
-      ...webChatRoutes(channelOf),
+      ...widgetSessionRoutes(options.widgetSessionCheck, options.clientIp),
+      ...webChatRoutes(channelOf, options.clientIp),
     ],
     jobs: [
       representativeTurnJob(options.concurrency, channelOf),
