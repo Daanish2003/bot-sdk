@@ -46,14 +46,17 @@ export const autoSource = { type: "fact", key: autoFact.key } as const;
  */
 export function answersOnce(options: { messages: unknown }) {
   const last = (options.messages as Array<{ role: string }>).at(-1);
-  if (last?.role === "tool") return round();
-  return round(
+  return last?.role === "tool" ? round() : answers();
+}
+
+/** The Model's round that answers the Customer, whatever the Turn did before it. */
+export const answers = () =>
+  round(
     toolCall({
       name: "reply",
       input: { topic: "general", sources: [autoSource], text: "Noted.", kind: "small_talk" },
     }),
   );
-}
 
 /** Promotes `autoTopic` for the owner of `representativeId`, with the fact its replies cite. */
 export async function promoteAutoTopic(representativeId: string) {

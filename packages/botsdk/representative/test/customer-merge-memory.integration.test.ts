@@ -10,7 +10,12 @@ import { exportUserData } from "@botsdk/bot/user-data";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { answersOnce, fakeChannel, testCustomerTurn } from "@ai-chat/test-support/test-customer";
+import {
+  answers,
+  answersOnce,
+  fakeChannel,
+  testCustomerTurn,
+} from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, text, toolCall } from "@botsdk/testing/fake-adapter";
@@ -829,7 +834,7 @@ describe("a hand-off's Customer", () => {
     await passTime(threadIdleMs);
     await say("Back again", bob);
     await merge(second.id, first.id);
-    turns.push(handsOff);
+    turns.push(handsOff, answers);
     await say("I want a refund", bob);
 
     // The hand-off's overdue note comes due on time, before the idle days.

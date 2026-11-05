@@ -7,7 +7,7 @@ import { job } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
-import { answersOnce, testCustomerTurn } from "@ai-chat/test-support/test-customer";
+import { answers, answersOnce, testCustomerTurn } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, text, toolCall } from "@botsdk/testing/fake-adapter";
@@ -336,7 +336,7 @@ describe("a closed thread's expiry", () => {
 
   it("leaves a hand-off naming its Customer after its thread expires", async () => {
     const { rpc, closedThread, passTime, settle } = await instance({
-      turnRounds: [handsOff, () => round()],
+      turnRounds: [handsOff, answers, () => round()],
     });
     const threadId = await closedThread("I want a refund");
     const [customer] = await rpc.representative.customerList();
