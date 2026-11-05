@@ -18,6 +18,8 @@ export const webChatLimits = {
   sendsPerSession: { limit: 10, windowSeconds: 60 },
   /** Messages one IP sends, across all its sessions. */
   sendsPerIp: { limit: 30, windowSeconds: 60 },
+  /** Streams one IP opens. What it holds open is capped apart, which opening and closing never reach. */
+  streamOpensPerIp: { limit: 120, windowSeconds: 60 },
 } satisfies Record<string, Window>;
 
 /**
@@ -35,9 +37,15 @@ async function hitOn({ counters }: Counting, rule: Window, key: string): Promise
 }
 
 /**
+ * The IP the Host says a request came from, if it says. Trimmed, lowercased and cut to 64 characters,
+ * so a long or oddly cased value neither bloats what counts it nor counts as a new address.
+ */
+export const clientIpOf = (request: Request, clientIp: ClientIp | undefined) =>
+  clientIp?.(request)?.trim().toLowerCase().slice(0, 64);
+
+/**
  * Counts a hit against the request's IP under `prefix`. A Host that gave no `clientIp` has no IP to
- * count, so the hit isn't limited here. The IP is trimmed, lowercased and cut to 64 characters, so a
- * long or oddly cased value neither bloats the counters nor counts as a new address.
+ * count, so the hit isn't limited here.
  */
 async function limitByIp(
   context: Counting,
@@ -46,7 +54,7 @@ async function limitByIp(
   rule: Window,
   prefix: string,
 ) {
-  const ip = clientIp?.(request)?.trim().toLowerCase().slice(0, 64);
+  const ip = clientIpOf(request, clientIp);
   return ip ? hitOn(context, rule, `${prefix}:${ip}`) : null;
 }
 
@@ -63,6 +71,13 @@ export const limitSendByIp = (
   request: Request,
   clientIp: ClientIp | undefined,
 ) => limitByIp(context, request, clientIp, webChatLimits.sendsPerIp, "web-chat:send:ip");
+
+/** Counts a stream's opening against its IP. Cheap, so it runs before the session is read. */
+export const limitStreamByIp = (
+  context: Counting,
+  request: Request,
+  clientIp: ClientIp | undefined,
+) => limitByIp(context, request, clientIp, webChatLimits.streamOpensPerIp, "web-chat:stream:ip");
 
 /** Counts a send against its session, which is its identity. */
 export const limitSendBySession = (context: Counting, identity: string) =>

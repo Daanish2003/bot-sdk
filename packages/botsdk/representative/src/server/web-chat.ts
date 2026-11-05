@@ -7,6 +7,7 @@ import {
   webChatReadInput,
   webChatSendInput,
   type WebChatMessage,
+  type WebChatStreamEvent,
 } from "../shared/contract";
 import { type ChannelOf, type CustomerChannel, webChatChannel } from "./customer-proof";
 import {
@@ -17,7 +18,14 @@ import {
   representativeThreadMessage,
 } from "./db/schema";
 import { receiveCustomerMessage } from "./thread-turns";
-import { limitSendByIp, limitSendBySession, type ClientIp } from "./web-chat-limits";
+import { hintVisitor, visitorChannel } from "./visitor-hints";
+import {
+  clientIpOf,
+  limitSendByIp,
+  limitSendBySession,
+  limitStreamByIp,
+  type ClientIp,
+} from "./web-chat-limits";
 import {
   readWidgetSession,
   tooManyRequests,
@@ -33,6 +41,9 @@ import {
  *
  * A message takes the path every Customer message does. Web chat has no platform in front of it: what
  * the gate lets through is stored on the thread, and the visitor reads it from there.
+ *
+ * The stream is a POST for the same reason, and so the token stays out of URLs and logs. That rules
+ * out `EventSource`: a page reads it with `fetch` (ticket #1339). It carries hints and no message.
  */
 
 /** The most a request's body can be: a whole message, each character at the six bytes JSON can write it in, and its token. */
@@ -141,11 +152,144 @@ async function readMessages(
   }));
 }
 
+/**
+ * How often an open stream pings and checks its session. Nothing announces a session's end, whether
+ * its time ran out or its key was rotated, disabled or deleted: this notices, with no hint to lose.
+ */
+export const sessionCheckMs = 25_000;
+
+/** The most streams one session holds open in a process: a few tabs, and a reconnect or two. */
+export const maxStreamsPerSession = 5;
+
+/**
+ * The most streams one IP holds open in a process, across its sessions. A stream holds its place for
+ * up to a day, so the limit on starting sessions alone would let an IP gather thousands.
+ */
+export const maxStreamsPerIp = 50;
+
+/** What a page refused a stream is told to wait: a place frees whenever another stream ends. */
+const streamRetrySeconds = 30;
+
+const openStreams = new Map<string, number>();
+
+/** Takes one of `most` places under `key`, and returns how to give it back, or null with none left. */
+function takeStream(key: string, most: number) {
+  const opened = openStreams.get(key) ?? 0;
+  if (opened >= most) return null;
+  openStreams.set(key, opened + 1);
+  return () => {
+    const left = openStreams.get(key)! - 1;
+    if (left > 0) openStreams.set(key, left);
+    else openStreams.delete(key);
+  };
+}
+
+const streamText = new TextEncoder();
+
+/**
+ * The stream of the session `token` opens, until the session ends or `signal` aborts. A failed
+ * subscribe throws: the page sees a failed connection, and connects again. A Redis that's away holds
+ * the subscribe until it's back: a page that gives up meanwhile is let go, and its places stay taken
+ * until then, since they are what bounds the subscribes waiting on that Redis.
+ */
+async function sessionStream(
+  context: Pick<FeatureContext<"pubsub">, "db" | "keyring" | "clock" | "logger" | "pubsub">,
+  token: string,
+  { heard: { externalId } }: WidgetSession,
+  signal: AbortSignal,
+  ip: string | null | undefined,
+) {
+  const sessionPlace = takeStream(`session:${externalId}`, maxStreamsPerSession);
+  if (!sessionPlace) return tooManyRequests(streamRetrySeconds);
+  const ipPlace = ip ? takeStream(`ip:${ip}`, maxStreamsPerIp) : () => {};
+  if (!ipPlace) {
+    sessionPlace();
+    return tooManyRequests(streamRetrySeconds);
+  }
+  const release = () => {
+    sessionPlace();
+    ipPlace();
+  };
+
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  let open = true;
+  const write = (chunk: string) => {
+    if (open) controller.enqueue(streamText.encode(chunk));
+  };
+  const say = (event: WebChatStreamEvent) => write(`data: ${JSON.stringify(event)}\n\n`);
+  const stream = new ReadableStream<Uint8Array>({
+    start: (given) => {
+      controller = given;
+    },
+    cancel: () => finish(),
+  });
+  let checks: ReturnType<typeof setInterval> | undefined;
+  let finished!: () => void;
+  const gone = new Promise<void>((resolve) => {
+    finished = resolve;
+  });
+  const finish = () => {
+    if (!open) return;
+    open = false;
+    clearInterval(checks);
+    signal.removeEventListener("abort", close);
+    finished();
+  };
+  /** Ends the body too, which whatever is reading it is waiting on. */
+  const close = () => {
+    if (!open) return;
+    finish();
+    controller.close();
+  };
+  if (signal.aborted) close();
+  else signal.addEventListener("abort", close, { once: true });
+  // In a function, so that a `PubSub` that throws rather than rejects gives its places back too.
+  const subscribing = (async () =>
+    context.pubsub.subscribe(visitorChannel(externalId), () => say({ type: "changed" })))();
+  const settled = gone.then(() => subscribing).finally(release);
+  settled
+    .then((unsubscribe) => unsubscribe())
+    .catch((caught: unknown) => {
+      context.logger.error("A web chat stream's subscription failed", caught);
+    });
+  try {
+    await Promise.race([subscribing, gone]);
+  } catch (caught) {
+    finish();
+    await settled.catch(() => {});
+    throw caught;
+  }
+  let checking = false;
+  const check = async () => {
+    // Whatever the check finds, so a slow database doesn't get a good connection cut as idle.
+    write(": ping\n\n");
+    if (checking) return;
+    checking = true;
+    try {
+      if (!(await readWidgetSession(context, token)) && open) {
+        say({ type: "ended", code: "error.widgetSessionEnded" });
+        close();
+      }
+    } catch (caught) {
+      // The next check asks again: a database that's down hasn't ended anyone's session.
+      context.logger.error("Checking a web chat stream's session failed", caught);
+    } finally {
+      checking = false;
+    }
+  };
+  if (open) checks = setInterval(() => void check(), sessionCheckMs);
+  // After subscribing, so what changed before this is re-read, and what changes after it is hinted.
+  say({ type: "changed" });
+  return new Response(stream, {
+    headers: { ...widgetResponseHeaders, "content-type": "text/event-stream" },
+  });
+}
+
 /** The routes of a visitor with a session, sending by way of `channelOf`'s Channel. */
 export const webChatRoutes = (
   channelOf: ChannelOf,
   clientIp?: ClientIp,
-): PublicRoute<"channelAccounts" | "counters" | "pages">[] => [
+): PublicRoute<"channelAccounts" | "counters" | "pages" | "pubsub">[] => [
   {
     method: "POST",
     path: "/representative/widget/send",
@@ -171,6 +315,7 @@ export const webChatRoutes = (
       if (!received) return ended();
       // Stored nowhere, so a page that heard nothing else would wait for a reply that isn't coming.
       if ("limited" in received) return refusal("error.tooManyRequests", 429);
+      hintVisitor(context, session.heard);
       return answer({}, 202);
     },
   },
@@ -183,6 +328,25 @@ export const webChatRoutes = (
       const session = await readWidgetSession(context, body.token);
       if (!session) return ended();
       return answer({ messages: await readMessages(context, session) });
+    },
+  },
+  {
+    method: "POST",
+    path: "/representative/widget/stream",
+    handle: async (request, { context }) => {
+      const ipWait = await limitStreamByIp(context, request, clientIp);
+      if (ipWait !== null) return tooManyRequests(ipWait);
+      const body = await parsedBody(request, webChatReadInput);
+      if (!body) return invalid();
+      const session = await readWidgetSession(context, body.token);
+      if (!session) return ended();
+      return sessionStream(
+        context,
+        body.token,
+        session,
+        request.signal,
+        clientIpOf(request, clientIp),
+      );
     },
   },
 ];

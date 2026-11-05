@@ -374,6 +374,7 @@ export function buildBotSdk(
     "factApprovals",
     "pages",
     "channelAccounts",
+    "pubsub",
     "counters",
     ...(options.computer ? ["computer"] : []),
   ]);

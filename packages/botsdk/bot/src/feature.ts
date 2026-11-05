@@ -23,6 +23,7 @@ import { requireAuth } from "./procedures";
 import type { RepresentativeLoopService } from "./bot/agent-loop";
 import type { AssignmentsService } from "./bot/assignments";
 import type { ChannelAccountsService } from "./bot/channels";
+import type { PubSub } from "./chat/pubsub";
 import type { MessagingFile } from "./channel/internal";
 import type { PagesService } from "./bot/pages-api";
 import type { FactApprovalsService, ReleaseApprovalsService } from "./bot/safety";
@@ -46,6 +47,7 @@ export type CoreService =
   | "factApprovals"
   | "models"
   | "pages"
+  | "pubsub"
   | "releaseApprovals"
   | "representativeLoop"
   | "threads";
@@ -60,6 +62,7 @@ type Services = {
   counters: CounterStore;
   models: ModelsApi;
   pages: PagesService;
+  pubsub: PubSub;
   factApprovals: FactApprovalsService;
   releaseApprovals: ReleaseApprovalsService;
   representativeLoop: RepresentativeLoopService;
@@ -531,6 +534,7 @@ const serviceNames: Record<CoreService, string> = {
   factApprovals: "the fact Approvals",
   models: "the Models",
   pages: "the Pages",
+  pubsub: "the pub/sub",
   releaseApprovals: "the release Approvals",
   representativeLoop: "the Representative loop",
   threads: "the Conversation threads",
@@ -674,6 +678,7 @@ export function contextOf(
     ...(needs.includes("computer") && { computer: sdk.computer }),
     ...(needs.includes("counters") && { counters: sdk.counters }),
     ...(needs.includes("models") && { models: sdk.models }),
+    ...(needs.includes("pubsub") && { pubsub: sdk.pubsub }),
     ...(needs.includes("threads") && { threads }),
   } as FeatureContext<CoreService>;
 }

@@ -789,6 +789,14 @@ export const webChatSendInput = z.strictObject({
 /** A message as a web chat visitor reads it: nothing of who wrote it for the business, or why. */
 export type WebChatMessage = { id: string; from: "customer" | "business"; text: string };
 
+/**
+ * What a web chat visitor's stream says. `changed` says only to re-read, and comes first on every
+ * connection, so a page that reconnects re-reads what it missed. `ended` is the session's last word.
+ */
+export type WebChatStreamEvent =
+  | { type: "changed" }
+  | { type: "ended"; code: "error.widgetSessionEnded" };
+
 /** A widget key's state. A disabled key stays disabled: only rotating gives a live key again. */
 export type WidgetKeyStatus = "live" | "disabled";
 

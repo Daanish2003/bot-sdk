@@ -6,10 +6,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CounterStore } from "@botsdk/bot/chat/counters";
 import { batchLongestMs } from "@botsdk/bot/bot/triggers";
+import { createMemoryPubSub, type PubSub } from "@botsdk/bot/chat/pubsub";
 import { toNodeHandler } from "@botsdk/bot/http";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { createHttpHandlerOver } from "@botsdk/bot/over";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { job } from "@botsdk/bot/storage";
 import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
@@ -32,10 +34,19 @@ import {
 } from "../src/server/db/schema";
 import { inboundLimit } from "../src/server/inbound-limit";
 import { representativeFeature } from "../src/server/plugin";
+import { customerDeliveryJobName } from "../src/server/outbound-gate";
 import { holdingNote } from "../src/server/reply-drafts";
 import { unavailableNotice } from "../src/server/unavailable-notice";
-import { withWebChat } from "../src/server/web-chat";
-import type { WebChatMessage } from "../src/shared/contract";
+import { representativeTurnJobName } from "../src/server/thread-turns";
+import type { ClientIp } from "../src/server/web-chat-limits";
+import {
+  maxStreamsPerIp,
+  maxStreamsPerSession,
+  sessionCheckMs,
+  withWebChat,
+} from "../src/server/web-chat";
+import { widgetSessionLastsMs } from "../src/server/widget-key";
+import type { WebChatMessage, WebChatStreamEvent } from "../src/shared/contract";
 
 /*
  * A web chat visitor sends and reads over the public routes (ticket #1336): real HTTP requests, shaped
@@ -53,7 +64,10 @@ const cookie = "session=the-owner";
 
 const servers: Server[] = [];
 const runners: JobRunner[] = [];
+const streams: AbortController[] = [];
 afterEach(async () => {
+  vi.useRealTimers();
+  for (const stream of streams.splice(0)) stream.abort();
   for (const runner of runners.splice(0)) await runner.stop();
   for (const server of servers.splice(0)) {
     server.closeAllConnections();
@@ -66,9 +80,12 @@ async function world(
   rounds: Parameters<typeof createFakeAdapter>[0]["rounds"] = [],
   channel: CustomerChannel = noCustomerChannel,
   counters?: CounterStore,
+  pubsub: PubSub = createMemoryPubSub(),
+  clientIp?: ClientIp,
 ) {
   const timer = fakeJobClock(new Date("2026-11-05T12:00:00Z"));
   const fake = createFakeAdapter({ rounds });
+  const ban = { on: false };
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({
     db: getTestDb(),
@@ -79,23 +96,22 @@ async function world(
   });
   deps = createTestSdk({
     jobs,
-    features: [representativeFeature({}, channel)],
+    features: [representativeFeature({ clientIp }, channel)],
     adapterFor: () => fake.adapter,
     clock: timer.clock.now,
     memory: false,
+    pubsub,
+    users: { isBlocked: async () => ban.on },
     ...(counters && { counters }),
   });
   await jobs.start();
   runners.push(jobs);
   const user = await insertUser();
-  const server = createServer(
-    toNodeHandler(
-      createHttpHandlerOver(deps, {
-        basePath,
-        getUser: (request) => (request.headers.get("cookie") === cookie ? user : null),
-      }),
-    ),
-  );
+  const handler = createHttpHandlerOver(deps, {
+    basePath,
+    getUser: (request) => (request.headers.get("cookie") === cookie ? user : null),
+  });
+  const server = createServer(toNodeHandler(handler));
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}${basePath}`;
@@ -118,9 +134,15 @@ async function world(
   await rpc.representative.widgetKeyCreate({ id });
   const { key } = await rpc.representative.widgetKeySetOrigins({ id, origins: [shop] });
 
-  const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
+  const post = (
+    path: string,
+    body: unknown,
+    headers: Record<string, string> = {},
+    signal?: AbortSignal,
+  ) =>
     fetch(`${url}/representative/widget/${path}`, {
       method: "POST",
+      signal,
       // What `fetch` sets for a string body: the type that needs no preflight.
       headers: { origin: shop, "content-type": "text/plain;charset=UTF-8", ...headers },
       body: typeof body === "string" ? body : JSON.stringify(body),
@@ -146,10 +168,38 @@ async function world(
     timer.advance(batchLongestMs);
     timer.tick();
   };
+  /** Opens the stream as a page does, with `fetch`, reading what it says as it arrives. */
+  const openStream = async (token: string) => {
+    const stop = new AbortController();
+    streams.push(stop);
+    const response = await post("stream", { token }, {}, stop.signal);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/event-stream");
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    const events: WebChatStreamEvent[] = [];
+    const seen = { raw: "", closed: false };
+    void (async () => {
+      const decoder = new TextDecoder();
+      try {
+        for await (const chunk of response.body!) {
+          const text = decoder.decode(chunk);
+          seen.raw += text;
+          for (const line of text.split("\n")) {
+            if (line.startsWith("data: ")) events.push(JSON.parse(line.slice(6)));
+          }
+        }
+        seen.closed = true;
+      } catch {
+        // This test's own abort.
+      }
+    })();
+    return { events, seen, stop: () => stop.abort() };
+  };
   const said = async (token: string) => (await read(token)).map(({ from, text }) => [from, text]);
   const threadOf = async (index = 0) => (await rpc.representative.threadList({ id }))[index]!;
   return {
     threadOf,
+    ban,
     deps,
     fake,
     user,
@@ -164,6 +214,9 @@ async function world(
     read,
     said,
     dueTurn,
+    openStream,
+    jobs,
+    handler,
   };
 }
 
@@ -583,5 +636,561 @@ describe("web chat as a Channel", () => {
     await channel.send({ channel: "web", externalId: "a" }, { text: "Hi" }, via);
     await channel.send({ channel: "sms", externalId: "b" }, { text: "Hi" }, via);
     expect(sent).toEqual([["sms", via]]);
+  });
+});
+
+const changed = { type: "changed" };
+const ended = { type: "ended", code: "error.widgetSessionEnded" };
+
+/** Waits for a reply's decision to be written, which a hint can only follow. */
+const decisionsOf = async (outcome: "send" | "hold") =>
+  (
+    await getTestDb()
+      .select({ id: representativeOutboundDecision.id })
+      .from(representativeOutboundDecision)
+      .where(
+        and(
+          eq(representativeOutboundDecision.kind, "reply"),
+          eq(representativeOutboundDecision.outcome, outcome),
+        ),
+      )
+  ).length;
+
+/** Waits out the first delivery, so that its own hint can't pass for a later one's. */
+const delivered = () =>
+  expect
+    .poll(async () => {
+      const [sent] = await getTestDb()
+        .select({ status: job.status })
+        .from(job)
+        .where(eq(job.name, customerDeliveryJobName));
+      return sent?.status;
+    }, poll)
+    .toBe("succeeded");
+
+/** What a page refused a stream reads, whatever site it is on. */
+const tooMany = async (response: Response) => {
+  expect(response.status).toBe(429);
+  expect(response.headers.get("access-control-allow-origin")).toBe("*");
+  expect(response.headers.get("access-control-expose-headers")).toBe("Retry-After");
+  expect(Number(response.headers.get("retry-after"))).toBeGreaterThan(0);
+  expect(await response.json()).toEqual({ code: "error.tooManyRequests", params: {} });
+};
+
+describe("a visitor's stream", () => {
+  it("hints at a sent reply with no words of it, and a re-read returns it", async () => {
+    const { startSession, send, said, dueTurn, openStream } = await world([answers(), round()]);
+    const token = await startSession();
+    const stream = await openStream(token);
+    await expect.poll(() => stream.events, poll).toEqual([changed]);
+
+    await send(token, "Are you open today?");
+    await expect.poll(() => stream.events, poll).toEqual([changed, changed]);
+    dueTurn();
+
+    await expect.poll(() => stream.events, poll).toEqual([changed, changed, changed]);
+    expect(await said(token)).toEqual([
+      ["customer", "Are you open today?"],
+      ["business", "Noted."],
+    ]);
+    expect(stream.seen.raw).not.toContain("Noted.");
+    expect(stream.seen.raw).not.toContain("Are you open");
+  });
+
+  it("gets no hints from another session", async () => {
+    const { startSession, send, read, dueTurn, openStream } = await world([answers(), round()]);
+    const mine = await openStream(await startSession());
+    const other = await startSession();
+    const theirs = await openStream(other);
+    await expect.poll(() => mine.events, poll).toEqual([changed]);
+
+    await send(other, "Hello");
+    dueTurn();
+    await expect.poll(async () => (await read(other)).length, poll).toBe(2);
+    await expect.poll(() => theirs.events, poll).toEqual([changed, changed, changed]);
+
+    expect(mine.events).toEqual([changed]);
+  });
+
+  describe("is refused", () => {
+    const refused = async (post: Awaited<ReturnType<typeof world>>["post"], token: string) => {
+      const response = await post("stream", { token });
+      expect(response.status).toBe(401);
+      expect(response.headers.get("access-control-allow-origin")).toBe("*");
+      expect(await response.json()).toEqual({ code: "error.widgetSessionEnded", params: {} });
+    };
+
+    it("for a bad or tampered token, in an answer the page can read", async () => {
+      const { startSession, post } = await world();
+      await refused(post, "not.a.real.token");
+      const token = await startSession();
+      await refused(post, `${token.slice(0, -2)}xx`);
+      expect((await post("stream", "not json")).status).toBe(400);
+    });
+
+    it("for an expired session", async () => {
+      const { startSession, post, timer } = await world();
+      const token = await startSession();
+      timer.advance(widgetSessionLastsMs);
+      await refused(post, token);
+    });
+
+    it.each(["widgetKeyRotate", "widgetKeyDisable"] as const)("after %s", async (change) => {
+      const { startSession, post, rpc, id } = await world();
+      const token = await startSession();
+      await rpc.representative[change]({ id });
+      await refused(post, token);
+    });
+  });
+
+  describe("with its session ending while it is open", () => {
+    /** Only the stream's check is faked: the requests and jobs keep their real timers. */
+    const fakeChecks = () => vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const nextCheck = () => vi.advanceTimersByTime(sessionCheckMs);
+
+    it("stays open and says nothing while the session is good", async () => {
+      const { startSession, openStream } = await world();
+      const token = await startSession();
+      fakeChecks();
+      const stream = await openStream(token);
+      await expect.poll(() => stream.events, poll).toEqual([changed]);
+
+      nextCheck();
+
+      await expect.poll(() => stream.seen.raw, poll).toContain(": ping");
+      expect(stream.events).toEqual([changed]);
+      expect(stream.seen.closed).toBe(false);
+    });
+
+    it.each([
+      ["disabled", "widgetKeyDisable"],
+      ["rotated", "widgetKeyRotate"],
+    ] as const)("tells the visitor when its key is %s", async (_name, change) => {
+      const { startSession, openStream, rpc, id } = await world();
+      const token = await startSession();
+      fakeChecks();
+      const stream = await openStream(token);
+      await expect.poll(() => stream.events, poll).toEqual([changed]);
+
+      await rpc.representative[change]({ id });
+      nextCheck();
+
+      await expect.poll(() => stream.events, poll).toEqual([changed, ended]);
+      await expect.poll(() => stream.seen.closed, poll).toBe(true);
+    });
+
+    it("tells the visitor when its time runs out", async () => {
+      const { startSession, openStream, timer } = await world();
+      const token = await startSession();
+      fakeChecks();
+      const stream = await openStream(token);
+      await expect.poll(() => stream.events, poll).toEqual([changed]);
+
+      timer.advance(widgetSessionLastsMs);
+      nextCheck();
+
+      await expect.poll(() => stream.events, poll).toEqual([changed, ended]);
+      await expect.poll(() => stream.seen.closed, poll).toBe(true);
+    });
+  });
+
+  it("pings on when a check can't reach the database, which hasn't ended the session", async () => {
+    const { startSession, openStream, deps } = await world();
+    const token = await startSession();
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const stream = await openStream(token);
+    await expect.poll(() => stream.events, poll).toEqual([changed]);
+    const broken = vi.spyOn(deps.db, "select").mockImplementationOnce(() => {
+      throw new Error("The database is away");
+    });
+
+    vi.advanceTimersByTime(sessionCheckMs);
+
+    await expect.poll(() => stream.seen.raw, poll).toContain(": ping");
+    expect(broken).toHaveBeenCalled();
+    expect(stream.events).toEqual([changed]);
+    expect(stream.seen.closed).toBe(false);
+  });
+
+  it("is limited per IP across sessions, and only for the IP the Host names", async () => {
+    const { startSession, post, openStream } = await world(
+      [],
+      noCustomerChannel,
+      undefined,
+      createMemoryPubSub(),
+      (request) => request.headers.get("x-test-ip"),
+    );
+    const open = (ip: string, token: string, signal: AbortSignal) =>
+      post("stream", { token }, { "x-test-ip": ip }, signal);
+    const stop = new AbortController();
+    streams.push(stop);
+    const first = new AbortController();
+    streams.push(first);
+    await open("203.0.113.9", await startSession(), first.signal);
+    for (let at = 1; at < maxStreamsPerIp; at++) {
+      const response = await open("203.0.113.9", await startSession(), stop.signal);
+      expect(response.status).toBe(200);
+    }
+
+    const token = await startSession();
+    await tooMany(await open("203.0.113.9", token, stop.signal));
+    // A refusal by IP takes no place from its session, nor from another IP.
+    for (let at = 0; at < maxStreamsPerSession; at++) {
+      const response = await open("203.0.113.10", token, stop.signal);
+      expect(response.status).toBe(200);
+    }
+    await openStream(await startSession());
+
+    // A stream that ends gives its IP's place back.
+    first.abort();
+    await expect
+      .poll(async () => (await open("203.0.113.9", await startSession(), stop.signal)).status, poll)
+      .toBe(200);
+  });
+
+  it("lets go a page that gives up on a subscribe a Redis away holds, and keeps its place till then", async () => {
+    const pubsub = createMemoryPubSub();
+    const ended = vi.fn(async () => {});
+    const held: ((end: () => Promise<void>) => void)[] = [];
+    let holding = true;
+    const { startSession, url, handler, openStream, post } = await world(
+      [],
+      noCustomerChannel,
+      undefined,
+      {
+        publish: (channel, message) => pubsub.publish(channel, message),
+        subscribe: (channel, listen) =>
+          holding
+            ? new Promise((resolve) => held.push(resolve))
+            : pubsub.subscribe(channel, listen),
+      },
+    );
+    const token = await startSession();
+    const stop = new AbortController();
+    const hanging = Array.from({ length: maxStreamsPerSession }, () =>
+      handler(
+        new Request(`${url}/representative/widget/stream`, {
+          method: "POST",
+          body: JSON.stringify({ token }),
+          signal: stop.signal,
+        }),
+      ),
+    );
+    await expect.poll(() => held.length, poll).toBe(maxStreamsPerSession);
+
+    stop.abort();
+    await Promise.all(hanging);
+    holding = false;
+    // What waits on that Redis stays bounded, however often a page gives up and comes back.
+    await tooMany(await post("stream", { token }));
+
+    // The subscription that arrives once the page has gone doesn't stay.
+    for (const arrive of held) arrive(ended);
+    await expect.poll(() => ended.mock.calls.length, poll).toBe(maxStreamsPerSession);
+    await openStream(token);
+  });
+
+  it("gives its places back when the subscribe fails", async () => {
+    const pubsub = createMemoryPubSub();
+    let failing = true;
+    const { startSession, url, handler, openStream } = await world(
+      [],
+      noCustomerChannel,
+      undefined,
+      {
+        publish: (channel, message) => pubsub.publish(channel, message),
+        // Not async: a `PubSub` may throw as well as reject.
+        subscribe: (channel, listen) => {
+          if (failing) throw new Error("Redis is away");
+          return pubsub.subscribe(channel, listen);
+        },
+      },
+      (request) => request.headers.get("x-test-ip"),
+    );
+    const token = await startSession();
+    // Straight to the handler: a Host's server aborts a request it has answered, which frees it too.
+    for (let at = 0; at <= maxStreamsPerSession; at++) {
+      await expect(
+        handler(
+          new Request(`${url}/representative/widget/stream`, {
+            method: "POST",
+            headers: { "x-test-ip": "203.0.113.11" },
+            body: JSON.stringify({ token }),
+          }),
+        ),
+      ).rejects.toThrow("Redis is away");
+    }
+
+    failing = false;
+
+    await openStream(token);
+  });
+
+  it("hints when a Ban stops a message the page may have read", async () => {
+    const { startSession, send, read, said, dueTurn, openStream, ban, jobs, timer } = await world([
+      answers(),
+      round(),
+    ]);
+    const token = await startSession();
+    await send(token, "Hello");
+    dueTurn();
+    await expect.poll(async () => (await read(token)).length, poll).toBe(2);
+    await delivered();
+    const [passed] = await getTestDb()
+      .select({ id: representativeOutboundDecision.id })
+      .from(representativeOutboundDecision)
+      .where(eq(representativeOutboundDecision.kind, "reply"));
+    const stream = await openStream(token);
+    await expect.poll(() => stream.events, poll).toEqual([changed]);
+    ban.on = true;
+
+    await getTestDb().transaction((tx) =>
+      jobs.enqueueIn(
+        tx,
+        customerDeliveryJobName,
+        { decisionId: passed!.id },
+        { idempotencyKey: "the retry" },
+      ),
+    );
+    timer.tick();
+
+    await expect.poll(() => stream.events, poll).toEqual([changed, changed]);
+    const [stopped] = await getTestDb()
+      .select({
+        outcome: representativeOutboundDecision.outcome,
+        rule: representativeOutboundDecision.rule,
+      })
+      .from(representativeOutboundDecision)
+      .where(eq(representativeOutboundDecision.rule, "owner_banned"));
+    expect(stopped).toEqual({ outcome: "drop", rule: "owner_banned" });
+    expect(await said(token)).toEqual([["customer", "Hello"]]);
+  });
+
+  it("is limited per session, and frees its place when the page goes", async () => {
+    const { startSession, post, openStream } = await world();
+    const token = await startSession();
+    const open = [];
+    for (let at = 0; at < maxStreamsPerSession; at++) open.push(await openStream(token));
+
+    await tooMany(await post("stream", { token }));
+    // Another session has its own.
+    await openStream(await startSession());
+
+    open[0]!.stop();
+
+    await expect
+      .poll(async () => {
+        const again = await post("stream", { token });
+        await again.body?.cancel();
+        return again.status;
+      }, poll)
+      .toBe(200);
+  });
+
+  it("ends its body when the request aborts, which a Host's server is waiting on", async () => {
+    const { startSession, url, handler } = await world();
+    const token = await startSession();
+    const stop = new AbortController();
+    const response = await handler(
+      new Request(`${url}/representative/widget/stream`, {
+        method: "POST",
+        body: JSON.stringify({ token }),
+        signal: stop.signal,
+      }),
+    );
+    const reader = response.body!.getReader();
+    expect((await reader.read()).done).toBe(false);
+
+    stop.abort();
+
+    expect((await reader.read()).done).toBe(true);
+  });
+
+  it("leaves a send answered while a publish waits on a Redis that's away", async () => {
+    const pubsub = createMemoryPubSub();
+    const { startSession, send } = await world([], noCustomerChannel, undefined, {
+      subscribe: (channel, handler) => pubsub.subscribe(channel, handler),
+      publish: () => new Promise(() => {}),
+    });
+
+    await send(await startSession(), "Hello");
+  });
+
+  it("hints when the owner undoes a merge, which can take words from this session", async () => {
+    const { startSession, send, said, openStream, rpc } = await world();
+    const older = await startSession();
+    await send(older, "The older thread");
+    const visitor = await startSession();
+    await send(visitor, "Before the merge");
+    const customers = await rpc.representative.customerList();
+    const identity = visitor.split(".")[1];
+    const mine = customers.find(({ identities }) =>
+      identities.some(({ externalId }) => externalId === identity),
+    )!;
+    const other = customers.find(({ id }) => id !== mine.id)!;
+    await rpc.representative.customerMerge({ id: mine.id, intoId: other.id });
+    await send(visitor, "After the merge");
+    expect((await said(visitor)).flat()).toContain("After the merge");
+    const stream = await openStream(visitor);
+    await expect.poll(() => stream.events, poll).toEqual([changed]);
+    const [merge] = await rpc.representative.customerMergeList();
+
+    await rpc.representative.customerMergeUndo({ id: merge!.id });
+
+    await expect.poll(() => stream.events, poll).toEqual([changed, changed]);
+    expect((await said(visitor)).flat()).not.toContain("After the merge");
+  });
+
+  it("makes no visible change for a message the gate held", async () => {
+    const { startSession, send, said, dueTurn, openStream, id } = await world([answers(), round()]);
+    await getTestDb().update(representative).set({ maxInARow: 0 }).where(eq(representative.id, id));
+    const token = await startSession();
+    const stream = await openStream(token);
+    await send(token, "Hello");
+    await expect.poll(() => stream.events, poll).toEqual([changed, changed]);
+    dueTurn();
+
+    await expect.poll(() => decisionsOf("hold"), poll).toBe(1);
+
+    expect(await said(token)).toEqual([["customer", "Hello"]]);
+    await expect
+      .poll(async () => {
+        const [turn] = await getTestDb()
+          .select({ status: job.status })
+          .from(job)
+          .where(eq(job.name, representativeTurnJobName));
+        return turn?.status;
+      }, poll)
+      .toBe("succeeded");
+    // Long enough for a hint published as the Turn ended to arrive.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(stream.events).toEqual([changed, changed]);
+  });
+
+  it("recovers a lost hint on reconnect", async () => {
+    const pubsub = createMemoryPubSub();
+    let losing = false;
+    const { startSession, send, read, said, dueTurn, openStream } = await world(
+      [answers(), round()],
+      noCustomerChannel,
+      undefined,
+      {
+        subscribe: (channel, handler) => pubsub.subscribe(channel, handler),
+        publish: async (channel, message) => {
+          if (losing) throw new Error("Redis is away");
+          await pubsub.publish(channel, message);
+        },
+      },
+    );
+    const token = await startSession();
+    const first = await openStream(token);
+    await expect.poll(() => first.events, poll).toEqual([changed]);
+
+    losing = true;
+    await send(token, "Hello");
+    dueTurn();
+    await expect.poll(async () => (await read(token)).length, poll).toBe(2);
+    expect(first.events).toEqual([changed]);
+    first.stop();
+
+    // A page re-reads on `changed`: the first one comes with no new message to set it off.
+    const second = await openStream(token);
+    await expect.poll(() => second.events, poll).toEqual([changed]);
+    expect(await said(token)).toEqual([
+      ["customer", "Hello"],
+      ["business", "Noted."],
+    ]);
+  });
+
+  it("ends its subscription when the page goes", async () => {
+    const pubsub = createMemoryPubSub();
+    const ends: string[] = [];
+    const { startSession, openStream } = await world([], noCustomerChannel, undefined, {
+      publish: (channel, message) => pubsub.publish(channel, message),
+      subscribe: async (channel, handler) => {
+        const end = await pubsub.subscribe(channel, handler);
+        return async () => {
+          ends.push(channel);
+          await end();
+        };
+      },
+    });
+    const stream = await openStream(await startSession());
+    await expect.poll(() => stream.events, poll).toEqual([changed]);
+    expect(ends).toEqual([]);
+
+    stream.stop();
+
+    await expect.poll(() => ends.length, poll).toBe(1);
+  });
+
+  it("hints when delivery stops a message the page may have read", async () => {
+    const { startSession, send, read, said, dueTurn, openStream, rpc, jobs, timer } = await world([
+      answers(),
+      round(),
+    ]);
+    const token = await startSession();
+    await send(token, "Hello");
+    dueTurn();
+    await expect.poll(async () => (await read(token)).length, poll).toBe(2);
+    await delivered();
+    const [passed] = await getTestDb()
+      .select({ id: representativeOutboundDecision.id })
+      .from(representativeOutboundDecision)
+      .where(eq(representativeOutboundDecision.kind, "reply"));
+    const [customer] = await rpc.representative.customerList();
+    await rpc.representative.customerSetBlocked({ id: customer!.id, blocked: true });
+    const stream = await openStream(token);
+    await expect.poll(() => stream.events, poll).toEqual([changed]);
+
+    // A worker lost after the gate passed it, whose retry finds the Customer blocked since.
+    await getTestDb().transaction((tx) =>
+      jobs.enqueueIn(
+        tx,
+        customerDeliveryJobName,
+        { decisionId: passed!.id },
+        {
+          idempotencyKey: "the retry",
+        },
+      ),
+    );
+    timer.tick();
+
+    await expect.poll(() => stream.events, poll).toEqual([changed, changed]);
+    expect(await said(token)).toEqual([["customer", "Hello"]]);
+  });
+
+  it("hints when the owner deletes the Customer, whose words go", async () => {
+    const { startSession, send, said, openStream, rpc } = await world();
+    const token = await startSession();
+    await send(token, "Hello");
+    const stream = await openStream(token);
+    await expect.poll(() => stream.events, poll).toEqual([changed]);
+    const [customer] = await rpc.representative.customerList();
+
+    await rpc.representative.customerDelete({ id: customer!.id });
+
+    await expect.poll(() => stream.events, poll).toEqual([changed, changed]);
+    expect(await said(token)).toEqual([]);
+  });
+
+  it("hints when the owner corrects the address, which takes the words from this session", async () => {
+    const { startSession, send, said, openStream, rpc } = await world();
+    const token = await startSession();
+    await send(token, "Hello");
+    const stream = await openStream(token);
+    await expect.poll(() => stream.events, poll).toEqual([changed]);
+    const [customer] = await rpc.representative.customerList();
+    const [identity] = customer!.identities;
+
+    await rpc.representative.customerUpdateIdentity({
+      id: customer!.id,
+      identityId: identity!.id,
+      channel: "sms",
+      externalId: "+15550001111",
+    });
+
+    await expect.poll(() => stream.events, poll).toEqual([changed, changed]);
+    expect(await said(token)).toEqual([]);
   });
 });
