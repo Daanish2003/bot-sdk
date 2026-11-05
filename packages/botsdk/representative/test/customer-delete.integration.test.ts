@@ -395,6 +395,59 @@ describe("deleting a Customer", () => {
     expect(JSON.stringify(left)).not.toContain(goes.identities[0]!.id);
   });
 
+  describe("what an undone merge left of them was owed", () => {
+    /** Ada's thread with Bob's words on it, a limit and the owner's list owing them from `waitingFrom`. */
+    async function owed(adaIsAnswered: boolean, waitingFrom: number) {
+      const answer = () =>
+        round(
+          toolCall({
+            name: "reply",
+            input: { text: "Hello.", kind: "small_talk", topic: "general", sources: [autoSource] },
+          }),
+        );
+      const owner = await instance({
+        turnRounds: [adaIsAnswered ? answer : () => round(), () => round(), () => round()],
+      });
+      const { rpc, say, customerAt, settle } = owner;
+      await say("Ada speaks.", adaNumber);
+      await say("Bob speaks.", bobNumber);
+      await settle();
+      const [ada, bob] = [await customerAt(adaNumber), await customerAt(bobNumber)];
+      await rpc.representative.customerMerge({ id: bob.id, intoId: ada.id });
+      await say("Bob on Ada's thread.", bobNumber);
+      await settle();
+      const [merge] = await rpc.representative.customerMergeList();
+      await rpc.representative.customerMergeUndo({ id: merge!.id });
+      await settle(threadIdleMs);
+      const shared = (await threadsOfCustomers([ada.id])).find((row) => row.state === "closed")!;
+      const noted = new Date();
+      await getTestDb()
+        .update(representativeThread)
+        .set({ waitingFrom, limitNotedAt: noted, leftForOwnerAt: noted })
+        .where(eq(representativeThread.id, shared.id));
+      await deleteCustomer(owner.context(), owner.user.id, bob.id);
+      const [row] = await getTestDb()
+        .select()
+        .from(representativeThread)
+        .where(eq(representativeThread.id, shared.id));
+      return row!;
+    }
+
+    it("clears what a limit left on the thread, when nothing else is owed", async () => {
+      const row = await owed(true, 3);
+      expect(row.waitingFrom).toBeNull();
+      expect(row.limitNotedAt).toBeNull();
+      expect(row.leftForOwnerAt).toBeNull();
+    });
+
+    it("keeps both while someone else's words are still owed", async () => {
+      const row = await owed(false, 1);
+      expect(row.waitingFrom).toBe(1);
+      expect(row.limitNotedAt).not.toBeNull();
+      expect(row.leftForOwnerAt).not.toBeNull();
+    });
+  });
+
   it("removes what an undone merge left of them on another Customer's thread, and nothing of theirs", async () => {
     const owner = await instance({ turnRounds: [() => round(), () => round(), handsOff] });
     const { rpc, say, customerAt, settle } = owner;

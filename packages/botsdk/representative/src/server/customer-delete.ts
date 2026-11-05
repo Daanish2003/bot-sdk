@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, min, notInArray, or, type SQL } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, max, min, notInArray, or, type SQL } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
@@ -109,11 +109,29 @@ async function settleThreadWait(
           .where(and(eq(message.threadId, id), eq(message.position, turnFrom)));
   const turnGoes = turnId !== null && batch === undefined;
   if (turnGoes) await context.jobs.cancelIn(tx, turnId);
+  // What a limit left for the owner is owed still if anyone's words have had no answer since. A note at
+  // a limit is owed only while something waits.
+  const [answered] = await tx
+    .select({ position: max(message.position) })
+    .from(message)
+    .where(and(eq(message.threadId, id), inArray(message.author, ["representative", "owner"])));
+  const [unanswered] = await tx
+    .select({ position: message.position })
+    .from(message)
+    .where(
+      and(
+        eq(message.threadId, id),
+        inArray(message.author, ["customer", "bot"]),
+        gt(message.position, answered?.position ?? 0),
+      ),
+    )
+    .limit(1);
   await tx
     .update(representativeThread)
     .set({
       waitingFrom: waiting,
-      ...(waiting === null && { waitingSince: null }),
+      ...(waiting === null && { waitingSince: null, limitNotedAt: null }),
+      ...(!unanswered && { leftForOwnerAt: null }),
       ...(turnGoes && { turnId: null, turnFrom: null }),
     })
     .where(eq(representativeThread.id, id));
