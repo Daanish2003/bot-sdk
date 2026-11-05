@@ -38,6 +38,7 @@ import {
   representativeHandOff,
   representativeProfileValue,
   representativeThread,
+  representativeChannelAccount,
   representativeThreadMessage,
   representativeVerification,
 } from "../src/server/db/schema";
@@ -516,15 +517,20 @@ describe("deleting a Customer", () => {
     expect(await handOffsAt(bobNumber)).toHaveLength(1);
     // Where a verified sender would have left it, on the account they wrote to.
     const accountId = uuidv7();
-    await getTestDb().insert(channelAccount).values({
-      id: accountId,
-      platform: "sms",
-      platformBotId: "1",
-      handle: "+1",
-      encrypted: "x",
-      status: "active",
-      createdAt: new Date(),
-      updatedAt: new Date(),
+    await getTestDb().transaction(async (tx) => {
+      await tx.insert(channelAccount).values({
+        id: accountId,
+        platform: "sms",
+        platformBotId: "1",
+        handle: "+1",
+        encrypted: "x",
+        status: "active",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      await tx
+        .insert(representativeChannelAccount)
+        .values({ channelAccountId: accountId, representativeId: shared.representativeId });
     });
     await getTestDb()
       .update(representativeThread)
