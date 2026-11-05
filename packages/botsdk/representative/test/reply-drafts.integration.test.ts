@@ -1198,6 +1198,18 @@ describe("promoting a topic", () => {
 });
 
 describe("suggesting a promotion", () => {
+  it("counts an approval on a name the database lowers differently from JavaScript", async () => {
+    const name = "İstanbul";
+    const world = await instance([replies("It is fine.", name), quiet()]);
+    await world.rpc.representative.topicAdd({ name });
+    await world.hears("A question");
+    await expect.poll(async () => (await world.drafts()).length, poll).toBe(1);
+
+    await world.rpc.representative.replyDraftApprove({ id: (await world.drafts())[0]!.id });
+
+    expect((await world.rpc.representative.topicList())[0]).toMatchObject({ approvedUnedited: 1 });
+  });
+
   it("shows after the twentieth unedited approval, and the topic stays draft", async () => {
     const turns = 21;
     const world = await instance(

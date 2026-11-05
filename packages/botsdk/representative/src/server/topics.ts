@@ -1,4 +1,4 @@
-import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, count, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { isUniqueViolation } from "@botsdk/bot/lib/unique-violation";
@@ -72,15 +72,18 @@ async function approvedUnedited(db: Context["db"], userId: string) {
   return new Map(rows.map((row) => [row.label, row.count]));
 }
 
+/** A topic's name lowered by the database, which is how `approvedUnedited` keys its counts: JavaScript can differ. */
+const lowerName = sql<string>`lower(${topic.name})`;
+
 /** The owner's topics, oldest first. */
 export async function listTopics({ db }: Pick<Context, "db">, userId: string) {
   const rows = await db
-    .select()
+    .select({ row: topic, label: lowerName })
     .from(topic)
     .where(eq(topic.userId, userId))
     .orderBy(asc(topic.createdAt), asc(topic.id));
   const approved = await approvedUnedited(db, userId);
-  return rows.map((row) => view(row, approved.get(row.name.toLowerCase()) ?? 0));
+  return rows.map(({ row, label }) => view(row, approved.get(label) ?? 0));
 }
 
 /**
@@ -97,10 +100,10 @@ export async function setTopicMode(
     .update(topic)
     .set({ mode })
     .where(and(eq(topic.id, id), eq(topic.userId, userId)))
-    .returning();
+    .returning({ ...getTableColumns(topic), label: lowerName });
   if (!row) throw rpcError("NOT_FOUND", "error.topicNotFound", "Topic not found");
   const approved = await approvedUnedited(context.db, userId);
-  return view(row, approved.get(row.name.toLowerCase()) ?? 0);
+  return view(row, approved.get(row.label) ?? 0);
 }
 
 /** Adds a topic, at `draft`. Refused when the owner has that name already, ignoring case. */
