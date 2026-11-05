@@ -192,7 +192,8 @@ async function admitted(
   logger: Pick<Console, "error">,
 ): Promise<boolean> {
   try {
-    return await check(request);
+    // Only a true admits: a JS Host's truthy value (a raw verifier response, say) refuses.
+    return (await check(request)) === true;
   } catch (error) {
     logger.error("The widget session check threw, so the session start was refused", error);
     return false;
