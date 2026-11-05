@@ -64,6 +64,15 @@ export type ChannelAccountsApi = {
   remove: (input: AccountInput) => Promise<void>;
 };
 
+/** What a feature saves an account it holds with. */
+export type HeldAccountInput = {
+  userId: string;
+  platform: string;
+  credentials: Record<string, string>;
+  /** Records the feature's holder of account `id`, in the save's transaction. */
+  hold: (tx: Transaction, id: string) => Promise<void>;
+};
+
 /**
  * The user's Linked identities and link codes (spec #1044). Every method throws NOT_FOUND when the
  * slot has no messaging adapter.
@@ -129,6 +138,11 @@ export type ChannelApi = {
   pushKey: () => string | null;
   /** The Channel accounts on the messaging Channels (spec #1044). */
   accounts: ChannelAccountsApi;
+  /**
+   * Adds or fixes a Channel account a feature holds, and starts its listener (ticket #1331); a feature
+   * reaches it through its `channelAccounts` service.
+   */
+  saveHeldAccount: (input: HeldAccountInput) => Promise<ChannelAccountRow>;
   /** The user's Linked identities on the messaging Channels (spec #1044). */
   identities: LinkedIdentitiesApi;
 };

@@ -88,6 +88,7 @@ async function receiveOnce(
   // Called on the logger, so a class-based one keeps its `this`. Never the text.
   const drop = (reason: string) =>
     sdk.logger.debug?.(`A ${account.platform} update was dropped: ${reason}`);
+  if (account.botId === null) return drop("a feature holds its account");
   const [owner] = await sdk.db
     .select({
       botId: bot.id,

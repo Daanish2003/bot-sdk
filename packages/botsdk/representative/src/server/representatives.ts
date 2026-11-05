@@ -127,7 +127,12 @@ async function requireOwnedBot(db: Context["db"], userId: string, botId: string)
 }
 
 /** The owner's row, or a not-found that is the same for a row that doesn't exist and another owner's. */
-async function ownedRow(db: Context["db"] | Transaction, userId: string, id: string, lock = false) {
+export async function ownedRow(
+  db: Context["db"] | Transaction,
+  userId: string,
+  id: string,
+  lock = false,
+) {
   const query = db
     .select()
     .from(representative)
