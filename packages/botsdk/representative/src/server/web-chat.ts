@@ -7,6 +7,7 @@ import {
   webChatReadInput,
   webChatSendInput,
   type WebChatMessage,
+  type WebChatStreamEvent,
 } from "../shared/contract";
 import { type CustomerChannel, webChatChannel } from "./customer-proof";
 import {
@@ -17,6 +18,7 @@ import {
   representativeThreadMessage,
 } from "./db/schema";
 import { receiveCustomerMessage } from "./thread-turns";
+import { hintVisitor, visitorChannel } from "./visitor-hints";
 import { readWidgetSession, widgetResponseHeaders, type WidgetSession } from "./widget-key";
 
 /*
@@ -27,6 +29,9 @@ import { readWidgetSession, widgetResponseHeaders, type WidgetSession } from "./
  *
  * A message takes the path every Customer message does. Web chat has no platform in front of it: what
  * the gate lets through is stored on the thread, and the visitor reads it from there.
+ *
+ * The stream is a POST for the same reason, and so the token stays out of URLs and logs. That rules
+ * out `EventSource`: a page reads it with `fetch` (ticket #1339). It carries hints and no message.
  */
 
 /** The most a request's body can be: a whole message, each character at the six bytes JSON can write it in, and its token. */
@@ -135,8 +140,70 @@ async function readMessages(
   }));
 }
 
+/**
+ * How often an open stream checks its session and pings. Nothing announces a session's end, whether
+ * its time ran out or its key was rotated, disabled or deleted: this notices, with no hint to lose.
+ */
+export const sessionCheckMs = 25_000;
+
+const streamText = new TextEncoder();
+
+/** The stream of the session `token` opens, until the session ends or `signal` aborts. */
+async function sessionStream(
+  context: Pick<FeatureContext<"pubsub">, "db" | "keyring" | "clock" | "logger" | "pubsub">,
+  token: string,
+  { heard }: WidgetSession,
+  signal: AbortSignal,
+) {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  let open = true;
+  const write = (chunk: string) => {
+    if (open) controller.enqueue(streamText.encode(chunk));
+  };
+  const say = (event: WebChatStreamEvent) => write(`data: ${JSON.stringify(event)}\n\n`);
+  const stream = new ReadableStream<Uint8Array>({
+    start: (given) => {
+      controller = given;
+    },
+    cancel: () => finish(),
+  });
+  const unsubscribe = await context.pubsub.subscribe(visitorChannel(heard.externalId), () =>
+    say({ type: "changed" }),
+  );
+  const check = async () => {
+    try {
+      const session = await readWidgetSession(context, token);
+      if (session) return write(": ping\n\n");
+      if (!open) return;
+      say({ type: "ended", code: "error.widgetSessionEnded" });
+      finish();
+      controller.close();
+    } catch (caught) {
+      // The next check asks again: a database that's down hasn't ended anyone's session.
+      context.logger.error("Checking a web chat stream's session failed", caught);
+    }
+  };
+  const checks = setInterval(() => void check(), sessionCheckMs);
+  const finish = () => {
+    if (!open) return;
+    open = false;
+    clearInterval(checks);
+    signal.removeEventListener("abort", finish);
+    unsubscribe().catch((caught: unknown) => {
+      context.logger.error("Ending a web chat stream's subscription failed", caught);
+    });
+  };
+  if (signal.aborted) finish();
+  else signal.addEventListener("abort", finish, { once: true });
+  // After subscribing, so what changed before this is re-read, and what changes after it is hinted.
+  say({ type: "changed" });
+  return new Response(stream, {
+    headers: { ...widgetResponseHeaders, "content-type": "text/event-stream" },
+  });
+}
+
 /** The routes of a visitor with a session, sending by way of `channel`. */
-export const webChatRoutes = (channel: CustomerChannel): PublicRoute<"pages">[] => [
+export const webChatRoutes = (channel: CustomerChannel): PublicRoute<"pages" | "pubsub">[] => [
   {
     method: "POST",
     path: "/representative/widget/send",
@@ -157,6 +224,7 @@ export const webChatRoutes = (channel: CustomerChannel): PublicRoute<"pages">[] 
       if (!received) return ended();
       // Stored nowhere, so a page that heard nothing else would wait for a reply that isn't coming.
       if ("limited" in received) return refusal("error.tooManyRequests", 429);
+      await hintVisitor(context, session.heard);
       return answer({}, 202);
     },
   },
@@ -169,6 +237,17 @@ export const webChatRoutes = (channel: CustomerChannel): PublicRoute<"pages">[] 
       const session = await readWidgetSession(context, body.token);
       if (!session) return ended();
       return answer({ messages: await readMessages(context, session) });
+    },
+  },
+  {
+    method: "POST",
+    path: "/representative/widget/stream",
+    handle: async (request, { context }) => {
+      const body = await parsedBody(request, webChatReadInput);
+      if (!body) return invalid();
+      const session = await readWidgetSession(context, body.token);
+      if (!session) return ended();
+      return sessionStream(context, body.token, session, request.signal);
     },
   },
 ];

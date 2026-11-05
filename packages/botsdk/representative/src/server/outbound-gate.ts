@@ -26,6 +26,7 @@ import {
 } from "./db/schema";
 import { isQuiet, quietEndsAt, zoneOr } from "./quiet-hours";
 import { modeOfLabel, sourcesBelongToLabel } from "./topics";
+import { hintVisitor } from "./visitor-hints";
 
 /*
  * The Outbound gate (ticket #1298): one code-owned check of every message to a Customer, in a fixed
@@ -762,22 +763,24 @@ const notDelivered = {
   moved: "address_changed",
 };
 
-/** Logs that the message `decisionId` passed didn't go after all. */
+/** Logs that the message `decisionId` passed didn't go after all, so a web chat session stops reading it. */
 async function logNotDelivered(
-  db: FeatureContext["db"],
+  services: Pick<FeatureContext<"pubsub">, "db" | "pubsub" | "logger">,
   decisionId: string,
   rule: string,
   now: Date,
 ) {
-  await db.transaction(async (tx) => {
+  const dropped = await services.db.transaction(async (tx) => {
     const [passed] = await tx
       .select()
       .from(representativeOutboundDecision)
       .where(eq(representativeOutboundDecision.id, decisionId));
-    if (!passed) return;
+    if (!passed) return null;
     const decision = { ...passed, id: uuidv7(), outcome: "drop" as const, rule, createdAt: now };
     await writeDecision(tx, { decision });
+    return passed;
   });
+  if (dropped) await hintVisitor(services, dropped);
 }
 
 /**
@@ -786,7 +789,7 @@ async function logNotDelivered(
  * theirs, which may be someone else's. A thread deleted since sends nothing.
  */
 export const customerDeliveryJob = (channel: CustomerChannel) =>
-  defineJob<z.infer<typeof deliveryPayload>>({
+  defineJob<z.infer<typeof deliveryPayload>, FeatureContext<"pubsub">>({
     name: customerDeliveryJobName,
     payload: deliveryPayload,
     run: async ({ decisionId }, job) => {
@@ -830,13 +833,15 @@ export const customerDeliveryJob = (channel: CustomerChannel) =>
             ? notDelivered.optedOut
             : null;
       if (stopped) {
-        await logNotDelivered(job.db, decisionId, stopped, job.clock());
+        await logNotDelivered(job, decisionId, stopped, job.clock());
         return;
       }
-      await channel.send({ channel: row.channel, externalId: row.externalId }, { text: row.text });
+      const to = { channel: row.channel, externalId: row.externalId };
+      await channel.send(to, { text: row.text });
+      await hintVisitor(job, to);
     },
-    onFailed: ({ decisionId }, _error, { db, clock }) =>
-      logNotDelivered(db, decisionId, notDelivered.failed, clock()),
+    onFailed: ({ decisionId }, _error, job) =>
+      logNotDelivered(job, decisionId, notDelivered.failed, job.clock()),
   });
 
 /** Every decision on the threads of `userId`'s Representatives, with what each held. */
