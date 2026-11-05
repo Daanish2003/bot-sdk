@@ -2,9 +2,13 @@ import { pgSchema, text, uuid } from "drizzle-orm/pg-core";
 import { Client, Pool } from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { listenerAccount } from "../src/bot/conversation";
+import { encryptCredentials } from "../src/credentials/encryption";
 import { createBotSdk } from "../src/create-chat";
 import { type AnyFeature, defineFeature } from "../src/feature";
 import type { Migration } from "../src/migrate";
+import type { BotSdkContext } from "../src/plugin";
+import { databaseOf } from "../src/storage";
 import { mcp } from "@botsdk/mcp";
 import { featureMigrations } from "../src/feature";
 import { memory } from "@botsdk/memory";
@@ -219,6 +223,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261102190646_curly_steve_rogers" },
       { feature: "core", migration: "20261104053029_customer_memory_usage" },
       { feature: "core", migration: "20261104135900_pages" },
+      { feature: "core", migration: "20261105120135_channel_account_optional_bot" },
     ]);
     // Images and PDFs are already compressed, so the bytes are kept out of line uncompressed.
     expect(
@@ -278,6 +283,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261102190646_curly_steve_rogers" },
       { feature: "core", migration: "20261104053029_customer_memory_usage" },
       { feature: "core", migration: "20261104135900_pages" },
+      { feature: "core", migration: "20261105120135_channel_account_optional_bot" },
     ]);
     expect(
       await rows(url, "update botsdk.bot_review set state = 'pending' returning state, expires_at"),
@@ -429,6 +435,66 @@ describe("chat.migrate()", () => {
     ).toEqual([]);
   });
 
+  it("leaves a Bot's Channel account as it was and decryptable, and refuses one with no holder (#1331)", async () => {
+    const url = await scratchDatabase("k1331_account");
+    const before = (folder: string) =>
+      shippedMigrations(folder).filter(
+        (migration) => migration.name < "20261105120135_channel_account_optional_bot",
+      );
+    const core = before("../botsdk/bot/src");
+    const feature = before("../botsdk/representative/src/server");
+    await rows(url, "create schema botsdk; create extension if not exists pg_trgm");
+    for (const migration of [...core, ...feature]) await rows(url, migration.sql);
+    const botId = "01966b00-0000-7000-8000-000000000001";
+    const accountId = "01966b00-0000-7000-8000-000000000002";
+    const encrypted = encryptCredentials(
+      { token: "1:a" },
+      { secrets: keyEncryptionSecrets, kind: "channel", context: `${botId}:fake` },
+    );
+    await rows(
+      url,
+      `create table botsdk.__migrations (
+         feature text not null, migration text not null,
+         applied_at timestamp with time zone not null default clock_timestamp(),
+         primary key (feature, migration));
+       insert into botsdk.__migrations (feature, migration) values
+         ${[
+           ...core.map((migration) => `('core', '${migration.name}')`),
+           ...feature.map((migration) => `('representative', '${migration.name}')`),
+         ].join(", ")};
+       insert into botsdk.conversation (id, user_id, kind, created_at, updated_at) values
+         ('01966b00-0000-7000-8000-000000000003', 'u1', 'bot', '2026-03-04 05:06:07', '2026-03-04 05:06:07');
+       insert into botsdk.bot (id, user_id, conversation_id, name, model, created_at) values
+         ('${botId}', 'u1', '01966b00-0000-7000-8000-000000000003', 'Ada', 'openai:gpt-6-luna', '2026-03-04 05:06:07');
+       insert into botsdk.channel_account (id, bot_id, platform, platform_bot_id, handle, encrypted, status, created_at, updated_at) values
+         ('${accountId}', '${botId}', 'fake', '1', '@bot_1', '${encrypted}', 'active', '2026-03-04 05:06:07', '2026-03-04 05:06:07')`,
+    );
+    const account = () => rows(url, "select * from botsdk.channel_account");
+    const stored = await account();
+
+    const chat = chatFor(url, [representative()]);
+    await chat.migrate();
+
+    expect(await account()).toEqual(stored);
+    const pool = new Pool({ connectionString: url });
+    try {
+      const found = await listenerAccount(
+        { db: databaseOf({ pool }), keyring: keyEncryptionSecrets } as unknown as BotSdkContext,
+        accountId,
+      );
+      expect(found?.account).toMatchObject({ botId, credentials: { token: "1:a" } });
+    } finally {
+      await pool.end();
+    }
+    await expect(
+      rows(
+        url,
+        `insert into botsdk.channel_account (id, platform, platform_bot_id, handle, encrypted, status, created_at, updated_at) values
+           ('01966b00-0000-7000-8000-000000000004', 'fake', '2', '@bot_2', 'x', 'active', '2026-03-04 05:06:07', '2026-03-04 05:06:07')`,
+      ),
+    ).rejects.toMatchObject({ constraint: "channel_account_one_holder" });
+  });
+
   it("leaves a new database without the vector extension", async () => {
     const url = await scratchDatabase("k743_no_vector");
 
@@ -483,6 +549,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261102190646_curly_steve_rogers" },
       { feature: "core", migration: "20261104053029_customer_memory_usage" },
       { feature: "core", migration: "20261104135900_pages" },
+      { feature: "core", migration: "20261105120135_channel_account_optional_bot" },
       { feature: "notes", migration: "0001_note" },
       { feature: "mcp", migration: "20261026182927_mcp_baseline" },
     ]);
@@ -523,6 +590,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261102190646_curly_steve_rogers" },
       { feature: "core", migration: "20261104053029_customer_memory_usage" },
       { feature: "core", migration: "20261104135900_pages" },
+      { feature: "core", migration: "20261105120135_channel_account_optional_bot" },
       { feature: "notes", migration: "0001_note" },
       { feature: "notes", migration: "0002_note_text" },
     ]);
@@ -667,6 +735,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261102190646_curly_steve_rogers" },
       { feature: "core", migration: "20261104053029_customer_memory_usage" },
       { feature: "core", migration: "20261104135900_pages" },
+      { feature: "core", migration: "20261105120135_channel_account_optional_bot" },
       { feature: "notes", migration: "0001_note" },
     ]);
   });

@@ -5,6 +5,7 @@ import { representativeApi } from "./api";
 import { botDraftTools } from "./bot-draft";
 import {
   representative,
+  representativeChannelAccount,
   representativeCustomer,
   representativeCustomerIdentity,
   representativeCustomerMerge,
@@ -27,6 +28,7 @@ import {
   representativeVerification,
   representativeWidgetKey,
 } from "./db/schema";
+import { exportHeldAccounts, ownerOfHeldAccount, removeHeldAccounts } from "./channel-accounts";
 import { threadExpiryJob } from "./expiry";
 import { threadIdleJob } from "./idle";
 import { exportMerges } from "./customer-merge";
@@ -90,6 +92,7 @@ export function representativeFeature(
     id: "representative",
     needs: [
       "assignments",
+      "channelAccounts",
       "factApprovals",
       "models",
       "pages",
@@ -100,6 +103,7 @@ export function representativeFeature(
     schema: {
       tables: {
         representative,
+        representativeChannelAccount,
         representativeCustomer,
         representativeCustomerIdentity,
         representativeCustomerMerge,
@@ -136,6 +140,7 @@ export function representativeFeature(
       await dropProposalsOfBot(context, botId, userId);
     },
     stopTurns: (userId, context) => stopUserTurns(context, userId),
+    channelAccountOwner: (tx, id) => ownerOfHeldAccount(tx, id),
     publicRoutes: [...proofLinkRoutes, ...widgetSessionRoutes],
     jobs: [
       representativeTurnJob(options.concurrency, channel),
@@ -153,7 +158,9 @@ export function representativeFeature(
     ],
     userData: {
       delete: {
-        before: async (tx, userId) => {
+        before: async (tx, userId, context) => {
+          // Before their Representatives, whose accounts would be left with no holder.
+          const heldAccounts = await removeHeldAccounts(context, tx, userId);
           // Representatives first: a Turn receiving a message holds its Representative's row, so once
           // this has passed it, no new Customer can appear behind the delete below.
           await deleteRepresentatives(tx, userId);
@@ -162,10 +169,15 @@ export function representativeFeature(
           await deleteFacts(tx, userId);
           await deleteGaps(tx, userId);
           await deleteTopics(tx, userId);
+          return heldAccounts;
+        },
+        after: async (_userId, heldAccounts, context) => {
+          await context.channelAccounts.changed(heldAccounts as string[]);
         },
       },
       export: async (tx, userId) => ({
         representatives: await exportRepresentatives(tx, userId),
+        channelAccounts: await exportHeldAccounts(tx, userId),
         customers: await exportCustomers(tx, userId),
         customerMerges: await exportMerges(tx, userId),
         outboundDecisions: await exportOutboundDecisions(tx, userId),

@@ -42,6 +42,7 @@ export {
   type ChannelApi,
   type ChannelOptions,
   type ChannelPlugin,
+  type HeldAccountInput,
   type LinkedIdentitiesApi,
   deliveryPayload,
   type DeliveryPayload,

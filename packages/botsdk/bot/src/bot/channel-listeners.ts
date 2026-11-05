@@ -6,7 +6,12 @@ import {
   type MessagingAccount,
   type MessagingAdapter,
 } from "../channel/internal";
-import { activeChannelAccountIds, listenerAccount, markNeedsAttention } from "./conversation";
+import {
+  activeChannelAccountIds,
+  hasHolder,
+  listenerAccount,
+  markNeedsAttention,
+} from "./conversation";
 import { receiveMessaging } from "./turn";
 
 /*
@@ -213,7 +218,11 @@ export function channelListeners(
   async function reconcile(id: string) {
     if (!started) return;
     const found = await listenerAccount(sdk, id);
-    const adapter = found && listening.find((candidate) => candidate.id === found.platform);
+    // A held account with no enabled feature to hold it has nobody for its messages to reach.
+    const adapter =
+      found && (await hasHolder(sdk, { id, botId: found.botId }))
+        ? listening.find((candidate) => candidate.id === found.platform)
+        : undefined;
     if (found?.status === "active" && adapter && !found.account) {
       // No key of the keyring reads the credentials: only saving them again fixes it.
       await markNeedsAttention(sdk, id, found.version, "The saved credentials can't be read");

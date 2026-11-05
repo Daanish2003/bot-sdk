@@ -1,12 +1,18 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "97944655-da22-40c6-b788-c0fc0ed5681f",
+  "id": "258c2f07-9a5c-47f3-981d-f2196b808166",
   "prevIds": ["48fa6de8-9c21-4082-94a2-dbe19a9cf4c3"],
   "ddl": [
     {
       "isRlsEnabled": false,
       "name": "representative",
+      "entityType": "tables",
+      "schema": "botsdk"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "representative_channel_account",
       "entityType": "tables",
       "schema": "botsdk"
     },
@@ -133,12 +139,6 @@
     {
       "isRlsEnabled": false,
       "name": "representative_verification",
-      "entityType": "tables",
-      "schema": "botsdk"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "representative_widget_key",
       "entityType": "tables",
       "schema": "botsdk"
     },
@@ -375,6 +375,32 @@
       "entityType": "columns",
       "schema": "botsdk",
       "table": "representative"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "channel_account_id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_channel_account"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "representative_id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_channel_account"
     },
     {
       "type": "uuid",
@@ -2730,84 +2756,6 @@
       "table": "representative_verification"
     },
     {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "representative_id",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_widget_key"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "key",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_widget_key"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "allowed_origins",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_widget_key"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "status",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_widget_key"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_widget_key"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_widget_key"
-    },
-    {
       "nameExplicit": true,
       "columns": [
         {
@@ -2834,6 +2782,27 @@
       "entityType": "indexes",
       "schema": "botsdk",
       "table": "representative"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "representative_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "representative_channel_account_representative_id_idx",
+      "entityType": "indexes",
+      "schema": "botsdk",
+      "table": "representative_channel_account"
     },
     {
       "nameExplicit": true,
@@ -3515,6 +3484,32 @@
     },
     {
       "nameExplicit": false,
+      "columns": ["channel_account_id"],
+      "schemaTo": "botsdk",
+      "tableTo": "channel_account",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "representative_channel_account_Am1mdeaqkJvN_fkey",
+      "entityType": "fks",
+      "schema": "botsdk",
+      "table": "representative_channel_account"
+    },
+    {
+      "nameExplicit": false,
+      "columns": ["representative_id"],
+      "schemaTo": "botsdk",
+      "tableTo": "representative",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "representative_channel_account_1QtmM4GPPidh_fkey",
+      "entityType": "fks",
+      "schema": "botsdk",
+      "table": "representative_channel_account"
+    },
+    {
+      "nameExplicit": false,
       "columns": ["customer_id"],
       "schemaTo": "botsdk",
       "tableTo": "representative_customer",
@@ -3865,24 +3860,19 @@
       "table": "representative_verification"
     },
     {
-      "nameExplicit": false,
-      "columns": ["representative_id"],
-      "schemaTo": "botsdk",
-      "tableTo": "representative",
-      "columnsTo": ["id"],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "representative_widget_key_6YFlOIXhvyOK_fkey",
-      "entityType": "fks",
-      "schema": "botsdk",
-      "table": "representative_widget_key"
-    },
-    {
       "columns": ["id"],
       "nameExplicit": false,
       "name": "representative_pkey",
       "schema": "botsdk",
       "table": "representative",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["channel_account_id"],
+      "nameExplicit": false,
+      "name": "representative_channel_account_pkey",
+      "schema": "botsdk",
+      "table": "representative_channel_account",
       "entityType": "pks"
     },
     {
@@ -4054,14 +4044,6 @@
       "entityType": "pks"
     },
     {
-      "columns": ["representative_id"],
-      "nameExplicit": false,
-      "name": "representative_widget_key_pkey",
-      "schema": "botsdk",
-      "table": "representative_widget_key",
-      "entityType": "pks"
-    },
-    {
       "nameExplicit": true,
       "columns": ["user_id", "channel", "external_id"],
       "nullsNotDistinct": false,
@@ -4143,27 +4125,11 @@
       "entityType": "uniques"
     },
     {
-      "nameExplicit": true,
-      "columns": ["key"],
-      "nullsNotDistinct": false,
-      "name": "representative_widget_key_key",
-      "schema": "botsdk",
-      "table": "representative_widget_key",
-      "entityType": "uniques"
-    },
-    {
       "value": "num_nonnulls(\"fixed_field\", \"field_id\") = 1",
       "name": "representative_profile_value_one_field",
       "entityType": "checks",
       "schema": "botsdk",
       "table": "representative_profile_value"
-    },
-    {
-      "value": "\"status\" in ('live', 'disabled')",
-      "name": "representative_widget_key_status",
-      "entityType": "checks",
-      "schema": "botsdk",
-      "table": "representative_widget_key"
     }
   ],
   "renames": []

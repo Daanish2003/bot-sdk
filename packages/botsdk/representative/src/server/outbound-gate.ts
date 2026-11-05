@@ -89,6 +89,8 @@ const rulesOf: Record<OutboundKind, readonly GateRule[]> = {
   emergency_script: ["blocked", "channel"],
   // That held script when the owner sends it. Still safety text, so an opt-out doesn't stop it, and they chose to pass the Channel's limits.
   emergency_script_released: ["blocked"],
+  // The fixed notice for a Customer who writes when nobody can answer: it is sent while the Representative is off, so it skips `on`, and code's own, so it skips the caps. The Customer has just written, so quiet hours don't apply.
+  unavailable_notice: ["held", "blocked", "optedOut", "channel"],
   // The draft's holding note answers a Customer who just wrote, so quiet hours don't apply. It passes
   // all a reply does but the topic and the caps: the owner's word settles a draft, and the note is code's.
   holding_note: gateOrder.filter(

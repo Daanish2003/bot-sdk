@@ -23,7 +23,7 @@ export const errorMessages = {
   "error.channelCredentialsRejected":
     "The platform rejected these credentials. Check them and try again.",
   "error.notificationRouteNotLinked": "Link your account on that Channel to send Messages there.",
-  "error.channelAccountTaken": "That bot is already connected to someone else's Bot.",
+  "error.channelAccountTaken": "That bot is already connected to someone else.",
   "error.customRuleLimit": ({ max }: { max: number }) =>
     `You can have at most ${max} active rules. Delete one to add another.`,
   "error.representativeNotFound": "Representative not found",

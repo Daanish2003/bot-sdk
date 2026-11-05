@@ -389,6 +389,10 @@ describe("what each message passes", () => {
     "a proof code or link": { kind: "proof", passes: ["blocked", "optedOut", "channel"] },
     "the opt-out confirmation": { kind: "opt_out_confirmation", passes: ["blocked", "channel"] },
     "the emergency script": { kind: "emergency_script", passes: ["blocked", "channel"] },
+    "the notice for nobody to answer": {
+      kind: "unavailable_notice",
+      passes: ["held", "blocked", "optedOut", "channel"],
+    },
   };
 
   // The owner's rules drop what they stop and the limits hold it, except that a Channel's limits hold

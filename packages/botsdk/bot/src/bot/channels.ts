@@ -25,8 +25,10 @@ import {
   listLinkedIdentities,
   pageIn,
   removeChannelAccount,
+  removeHeldChannelAccounts,
   rotateChannelAccountKeys,
   saveChannelAccount,
+  saveHeldChannelAccount,
   sendDelivery,
   sendPage,
   setMessagingPlatforms,
@@ -100,6 +102,14 @@ export function createChannels(sdk: BotSdkContext, options: ChannelOptions): Cha
         await accountsChanged(sdk, await removeChannelAccount(sdk, messaging, input));
       },
     },
+    saveHeldAccount: async (input) => {
+      const { row, changed } = await saveHeldChannelAccount(sdk, messaging, {
+        ...input,
+        ...parseInput(saveHeldChannelAccountInput, input),
+      });
+      await accountsChanged(sdk, changed);
+      return row;
+    },
     identities: {
       list: ({ userId }) => listLinkedIdentities(sdk, messaging, userId),
       unlink: ({ userId, ...rest }) =>
@@ -113,6 +123,31 @@ export function createChannels(sdk: BotSdkContext, options: ChannelOptions): Cha
   );
   return channels;
 }
+
+/** What a feature's `needs: ["channelAccounts"]` gives it: the accounts it holds (ticket #1331). */
+export type ChannelAccountsService = {
+  /**
+   * Adds or fixes an account the feature holds, once the platform accepts its credentials, and starts
+   * its listener. `hold` records the feature's holder in the save's transaction. A platform bot on one
+   * of the user's Bots moves here. One on another user's holder is refused with CONFLICT, and
+   * credentials the platform rejects with BAD_REQUEST.
+   */
+  save: ChannelApi["saveHeldAccount"];
+  /** Deletes accounts the feature holds, in the caller's transaction. Call `changed` once it commits. */
+  removeIn: typeof removeHeldChannelAccounts;
+  /** Tells the listeners that these accounts changed. Never throws. */
+  changed: (ids: readonly string[]) => Promise<void>;
+};
+
+/** The `channelAccounts` core service, over whichever Channels the instance ends up with. */
+export const channelAccountsService = (sdk: BotSdkContext): ChannelAccountsService => ({
+  save: (input) => sdk.channels.saveHeldAccount(input),
+  removeIn: removeHeldChannelAccounts,
+  changed: (ids) => accountsChanged(sdk, ids),
+});
+
+/** Adds or fixes a Channel account a feature holds (ticket #1331): a Bot's save, with no Bot. */
+const saveHeldChannelAccountInput = saveChannelAccountInput.omit({ botId: true });
 
 /**
  * The Channels besides web (spec #761) that the user talks to their Bots on, each an adapter, as

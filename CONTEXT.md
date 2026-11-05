@@ -291,7 +291,7 @@ Anything that sends to a Bot or shows what it sends: the user's apps (web, deskt
 _Avoid_: App, surface, client, platform
 
 **Channel account**:
-The bot one Bot is on a messaging Channel such as Telegram, Slack or SMS: the user made it on that platform and added it to the Bot. It belongs to that one Bot only, so each Bot is its own contact there.
+The bot one Bot or one Representative is on a messaging Channel such as Telegram, Slack or SMS: the user made it on that platform and added it to its holder. It has exactly one holder, so each Bot is its own contact there, and one Representative can hold several.
 _Avoid_: Connection (that is an MCP sign-in), integration, bot token
 
 **Linked identity**:
