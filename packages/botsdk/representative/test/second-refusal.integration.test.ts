@@ -1019,6 +1019,31 @@ describe("a Turn ending with no reply and no refusal", () => {
       expect(await turnHolder((await thread()).id)).toBeNull();
     });
 
+    it("sends no hand-off on a Turn whose reply waits for the owner when it throws", async () => {
+      const { deps, turn, sent, assignments, drain, thread } = await serving([
+        round(
+          toolCall({
+            name: "reply",
+            input: {
+              topic: "unlisted topic",
+              sources: [autoSource],
+              text: "Hi.",
+              kind: "small_talk",
+            },
+          }),
+        ),
+        quiet(),
+      ]);
+      loopThrows(deps, true);
+
+      await turn();
+      await drain();
+
+      expect(await sent()).toEqual([]);
+      expect(await assignments()).toEqual([]);
+      expect(await turnHolder((await thread()).id)).toBeNull();
+    });
+
     it("sends nothing on a thread the owner took over", async () => {
       const { deps, turn, sent, drain, thread, rpc } = await serving([]);
       const { representativeLoop } = deps.parts.features[0]!.context;
