@@ -17,7 +17,7 @@ export const unavailableNotice = "We can't answer right now. Please try again la
 
 /**
  * Sends the notice to `heard` on thread `threadId`, whose row `tx` holds, unless this thread has had one
- * already. The gate drops it for a blocked or opted-out Customer, and logs that.
+ * already. The caller sends none to a blocked or opted-out Customer; the gate checks them too.
  */
 export async function sendUnavailableNotice(
   services: Pick<FeatureContext, "jobs"> & ViaChannel,

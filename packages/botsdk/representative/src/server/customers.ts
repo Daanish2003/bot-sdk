@@ -315,7 +315,6 @@ export async function receiveMessage(
   // that exists sends, says all there is to say. A blocked or opted-out Customer is told nothing, and a
   // code is answered by the proof flow.
   if (
-    script === null &&
     !kept &&
     stored === text &&
     state === "representative" &&
