@@ -25,6 +25,7 @@ import type { AssignmentsService } from "./bot/assignments";
 import type { ChannelAccountsService } from "./bot/channels";
 import type { PagesService } from "./bot/pages-api";
 import type { FactApprovalsService, ReleaseApprovalsService } from "./bot/safety";
+import type { CounterStore } from "./chat/counters";
 import type { ComputerApi } from "./computer/internal";
 import type { ModelsApi } from "./models/internal";
 import type { EnqueueOptions, JobDefinition } from "./runner/internal";
@@ -40,6 +41,7 @@ export type CoreService =
   | "assignments"
   | "channelAccounts"
   | "computer"
+  | "counters"
   | "factApprovals"
   | "models"
   | "pages"
@@ -54,6 +56,7 @@ type Services = {
   assignments: AssignmentsService;
   channelAccounts: ChannelAccountsService;
   computer: ComputerApi;
+  counters: CounterStore;
   models: ModelsApi;
   pages: PagesService;
   factApprovals: FactApprovalsService;
@@ -501,6 +504,7 @@ const serviceNames: Record<CoreService, string> = {
   assignments: "the Assignments",
   channelAccounts: "the Channel accounts",
   computer: "the Computer",
+  counters: "the rate limit counters",
   factApprovals: "the fact Approvals",
   models: "the Models",
   pages: "the Pages",
@@ -645,6 +649,7 @@ export function contextOf(
   return {
     ...base,
     ...(needs.includes("computer") && { computer: sdk.computer }),
+    ...(needs.includes("counters") && { counters: sdk.counters }),
     ...(needs.includes("models") && { models: sdk.models }),
     ...(needs.includes("threads") && { threads }),
   } as FeatureContext<CoreService>;
