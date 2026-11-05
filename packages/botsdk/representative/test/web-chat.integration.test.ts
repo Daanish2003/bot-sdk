@@ -848,12 +848,12 @@ describe("a visitor's stream", () => {
       .toBe(200);
   });
 
-  it("frees its place when the page gives up on a subscribe that a Redis away is holding", async () => {
+  it("lets go a page that gives up on a subscribe a Redis away holds, and keeps its place till then", async () => {
     const pubsub = createMemoryPubSub();
     const ended = vi.fn(async () => {});
     const held: ((end: () => Promise<void>) => void)[] = [];
     let holding = true;
-    const { startSession, url, handler, openStream } = await world(
+    const { startSession, url, handler, openStream, post } = await world(
       [],
       noCustomerChannel,
       undefined,
@@ -881,11 +881,13 @@ describe("a visitor's stream", () => {
     stop.abort();
     await Promise.all(hanging);
     holding = false;
+    // What waits on that Redis stays bounded, however often a page gives up and comes back.
+    await tooMany(await post("stream", { token }));
 
-    await openStream(token);
     // The subscription that arrives once the page has gone doesn't stay.
     for (const arrive of held) arrive(ended);
     await expect.poll(() => ended.mock.calls.length, poll).toBe(maxStreamsPerSession);
+    await openStream(token);
   });
 
   it("gives its places back when the subscribe fails", async () => {
@@ -897,7 +899,8 @@ describe("a visitor's stream", () => {
       undefined,
       {
         publish: (channel, message) => pubsub.publish(channel, message),
-        subscribe: async (channel, listen) => {
+        // Not async: a `PubSub` may throw as well as reject.
+        subscribe: (channel, listen) => {
           if (failing) throw new Error("Redis is away");
           return pubsub.subscribe(channel, listen);
         },

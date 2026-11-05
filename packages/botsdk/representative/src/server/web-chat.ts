@@ -189,7 +189,8 @@ const streamText = new TextEncoder();
 /**
  * The stream of the session `token` opens, until the session ends or `signal` aborts. A failed
  * subscribe throws: the page sees a failed connection, and connects again. A Redis that's away holds
- * the subscribe until it's back, so a page that gives up meanwhile frees its places.
+ * the subscribe until it's back: a page that gives up meanwhile is let go, and its places stay taken
+ * until then, since they are what bounds the subscribes waiting on that Redis.
  */
 async function sessionStream(
   context: Pick<FeatureContext<"pubsub">, "db" | "keyring" | "clock" | "logger" | "pubsub">,
@@ -232,7 +233,6 @@ async function sessionStream(
     open = false;
     clearInterval(checks);
     signal.removeEventListener("abort", close);
-    release();
     finished();
   };
   /** Ends the body too, which whatever is reading it is waiting on. */
@@ -243,12 +243,11 @@ async function sessionStream(
   };
   if (signal.aborted) close();
   else signal.addEventListener("abort", close, { once: true });
-  const subscribing = context.pubsub.subscribe(visitorChannel(externalId), () =>
-    say({ type: "changed" }),
-  );
-  // Whenever the subscription arrives, however long after the stream has gone.
-  gone
-    .then(() => subscribing)
+  // In a function, so that a `PubSub` that throws rather than rejects gives its places back too.
+  const subscribing = (async () =>
+    context.pubsub.subscribe(visitorChannel(externalId), () => say({ type: "changed" })))();
+  const settled = gone.then(() => subscribing).finally(release);
+  settled
     .then((unsubscribe) => unsubscribe())
     .catch((caught: unknown) => {
       context.logger.error("A web chat stream's subscription failed", caught);
@@ -257,6 +256,7 @@ async function sessionStream(
     await Promise.race([subscribing, gone]);
   } catch (caught) {
     finish();
+    await settled.catch(() => {});
     throw caught;
   }
   let checking = false;
