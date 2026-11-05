@@ -97,7 +97,10 @@ const maxListed = 50;
 /** The `pages` namespace over the core context. */
 export function pagesApi(sdk: BotSdkContext) {
   return {
-    /** The user's Pages they haven't acknowledged, newest first. */
+    /**
+     * The user's Pages they haven't acknowledged, emergencies first and each newest first, so the
+     * limit never takes an emergency for the sake of newer routine ones.
+     */
     list: async ({ userId }: { userId: string }): Promise<PageRow[]> =>
       sdk.db
         .select({
@@ -111,7 +114,11 @@ export function pagesApi(sdk: BotSdkContext) {
         })
         .from(page)
         .where(and(eq(page.userId, userId), isNull(page.acknowledgedAt)))
-        .orderBy(desc(page.createdAt), desc(page.id))
+        .orderBy(
+          sql`case when ${page.urgency} = 'emergency' then 0 else 1 end`,
+          desc(page.createdAt),
+          desc(page.id),
+        )
         .limit(maxListed),
 
     /**

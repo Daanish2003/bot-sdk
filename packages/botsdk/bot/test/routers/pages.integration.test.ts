@@ -543,3 +543,19 @@ describe("Pages", () => {
     expect(account).toMatchObject({ account: { status: "needs_attention" } });
   });
 });
+
+describe("the list of Pages", () => {
+  it("keeps an older emergency in what it shows, however many newer routine Pages there are", async () => {
+    const { page, client, timer } = await ownerWithPages();
+    const { id } = await page({ urgency: "emergency" });
+    for (let each = 0; each < 50; each += 1) {
+      timer.advance(1_000);
+      await page();
+    }
+
+    const listed = await client.pages.list();
+
+    expect(listed).toHaveLength(50);
+    expect(listed[0]).toMatchObject({ id, urgency: "emergency" });
+  });
+});
