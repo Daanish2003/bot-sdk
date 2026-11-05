@@ -163,7 +163,7 @@ describe("the inbound limit", () => {
 
     const received = await world.arrives("One more");
 
-    expect(received).toEqual({ jobId: null, limited: true });
+    expect(received).toEqual({ jobId: null, limited: true, retryAfterMs: hourMs });
     expect(await world.stored(number)).toBe(inboundLimit);
     expect(world.logged).toHaveLength(1);
   });
@@ -182,7 +182,11 @@ describe("the inbound limit", () => {
   it("hears the identity again an hour later", async () => {
     const world = await instance([round(), round()]);
     await world.alreadySent(number, inboundLimit);
-    expect(await world.arrives("Too soon")).toEqual({ jobId: null, limited: true });
+    expect(await world.arrives("Too soon")).toEqual({
+      jobId: null,
+      limited: true,
+      retryAfterMs: hourMs,
+    });
 
     world.timer.advance(hourMs + 1);
     const later = await world.arrives("Back again");

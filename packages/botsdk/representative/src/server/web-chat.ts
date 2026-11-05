@@ -314,7 +314,9 @@ export const webChatRoutes = (
       );
       if (!received) return ended();
       // Stored nowhere, so a page that heard nothing else would wait for a reply that isn't coming.
-      if ("limited" in received) return refusal("error.tooManyRequests", 429);
+      if (received.limited) {
+        return tooManyRequests(Math.max(1, Math.ceil(received.retryAfterMs / 1000)));
+      }
       hintVisitor(context, session.heard);
       return answer({}, 202);
     },

@@ -469,8 +469,28 @@ describe("a visitor over the inbound limit", () => {
 
     expect(over.status).toBe(429);
     expect(over.headers.get("access-control-allow-origin")).toBe("*");
+    expect(over.headers.get("access-control-expose-headers")).toBe("Retry-After");
     expect(await over.json()).toEqual({ code: "error.tooManyRequests", params: {} });
     expect((await said(token)).flat()).not.toContain("One too many");
+  });
+
+  it("is told to wait until the oldest message of the hour ages out of it", async () => {
+    const { startSession, post, timer } = await world([], noCustomerChannel, {
+      hit: async () => ({ count: 1, resetMs: 1000 }),
+    });
+    const token = await startSession();
+    expect((await post("send", { token, text: "The oldest" })).status).toBe(202);
+    timer.advance(20 * 60_000);
+    for (let sent = 1; sent < inboundLimit; sent += 1) {
+      expect((await post("send", { token, text: `Message ${sent}` })).status).toBe(202);
+    }
+    timer.advance(10 * 60_000);
+
+    const over = await post("send", { token, text: "One too many" });
+
+    expect(over.status).toBe(429);
+    // The oldest was sent 30 minutes ago, so it leaves the hour in 30.
+    expect(over.headers.get("retry-after")).toBe(String(30 * 60));
   });
 });
 

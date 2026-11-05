@@ -160,7 +160,8 @@ async function judgeMessage(
  * its emergency script at once (ticket #1308): it gets no Turn and a running one stops, as the owner
  * has been Paged and the Customer told what to do, and it reaches them through an owner's hold, an
  * opt-out or a Representative switched off. One over the identity's inbound limit is logged and
- * stored nowhere (ticket #1311), unless it is a keyword or an emergency: `{ limited: true }`.
+ * stored nowhere (ticket #1311), unless it is a keyword or an emergency: `{ limited: true }`, with
+ * the milliseconds until the identity is heard again.
  */
 export async function receiveMessage(
   tx: Transaction,
@@ -198,15 +199,15 @@ export async function receiveMessage(
   // reports an emergency, is exempt, so a limit never stops a Customer doing either (ticket #1311).
   // On what they said, not what is stored: a code in the message mustn't hide an emergency.
   const script = await scriptSaidIn(tx, owner.releaseId, text);
-  if (
-    keywordIn(heard.channel, text) === null &&
-    script === null &&
-    (await overInboundLimit(tx, owner.userId, heard, now))
-  ) {
+  const retryAfterMs =
+    keywordIn(heard.channel, text) === null && script === null
+      ? await overInboundLimit(tx, owner.userId, heard, now)
+      : null;
+  if (retryAfterMs !== null) {
     services.logger.error(
       `Inbound limit: a message from ${heard.channel} ${heard.externalId} was not processed`,
     );
-    return { limited: true as const };
+    return { limited: true as const, retryAfterMs };
   }
   const { identityId, customerId: heldCustomerId } = await holdSender(
     tx,
