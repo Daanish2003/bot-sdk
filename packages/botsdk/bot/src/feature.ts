@@ -24,7 +24,7 @@ import type { RepresentativeLoopService } from "./bot/agent-loop";
 import type { AssignmentsService } from "./bot/assignments";
 import type { ChannelAccountsService } from "./bot/channels";
 import type { PubSub } from "./chat/pubsub";
-import type { MessagingFile } from "./channel/internal";
+import type { AuthVerdict, DmarcPolicy, MessagingFile } from "./channel/internal";
 import type { PagesService } from "./bot/pages-api";
 import type { FactApprovalsService, ReleaseApprovalsService } from "./bot/safety";
 import type { CounterStore } from "./chat/counters";
@@ -144,6 +144,29 @@ export type StrangerMessage = {
   text: string;
   /** What's attached, as the platform describes it: nothing has been downloaded. */
   files: readonly MessagingFile[];
+};
+
+/**
+ * An inbound email to an address no Bot has, as a feature's `onEmail` gets it (spec #1176). The core
+ * has already dropped a redelivery, an automatic reply, mail from the Channel's own domain, and mail
+ * with no Message-ID or no text.
+ */
+export type StrangerEmail = {
+  /** The recipients' bare addresses, lowercase. */
+  to: string[];
+  /** The sender's bare address, lowercase. */
+  from: string;
+  /** The Message-ID, without its angle brackets. */
+  messageId: string;
+  subject: string;
+  /**
+   * What the mail says, as a Bot reads it: the new text with the quoted history stripped, the
+   * subject first unless it replies in a thread, attachments named, and a forward fenced as untrusted.
+   */
+  text: string;
+  headers: Record<string, string>;
+  /** The provider's DMARC verdict, and the policy the sender's domain publishes. */
+  dmarc: { verdict: AuthVerdict; policy: DmarcPolicy };
 };
 
 /** The Turn a feature's `tools` and `afterTurn` are called for. */
@@ -381,6 +404,13 @@ export type FeatureDefinition<
    * update is dropped.
    */
   onStranger?: (message: StrangerMessage, context: FeatureContext<Needs>) => Promise<void>;
+  /**
+   * Takes an inbound email to an address no Bot has (spec #1176): true when one of its recipients is
+   * an address the feature gives out, whatever the feature then made of it, and false to leave it
+   * dropped. Bot addresses come first, and the Bot rule (only the owner's verified email, with a DMARC
+   * pass) never reaches this. A throw is logged and the mail is dropped.
+   */
+  onEmail?: (mail: StrangerEmail, context: FeatureContext<Needs>) => Promise<boolean>;
   /**
    * What the Turn changed of the feature, read from its transcript as the Turn ends (stopped and
    * lost ones too, from what they recorded), with no reads or writes: the core stores it on the

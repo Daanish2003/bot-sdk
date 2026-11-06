@@ -126,5 +126,9 @@
   {
     "name": "20261105164323_thread_channel_account",
     "sql": "ALTER TABLE \"botsdk\".\"representative_outbound_decision\" ADD COLUMN \"sent_on\" jsonb;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_thread\" ADD COLUMN \"channel_account_id\" uuid;--> statement-breakpoint\nCREATE INDEX \"representative_thread_channel_account_idx\" ON \"botsdk\".\"representative_thread\" (\"channel_account_id\");--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_thread\" ADD CONSTRAINT \"representative_thread_bseS0b32iFZM_fkey\" FOREIGN KEY (\"channel_account_id\") REFERENCES \"botsdk\".\"channel_account\"(\"id\") ON DELETE SET NULL;"
+  },
+  {
+    "name": "20261106051124_representative_email_address",
+    "sql": "CREATE TABLE \"botsdk\".\"representative_email_address\" (\n\t\"representative_id\" uuid PRIMARY KEY,\n\t\"address\" text NOT NULL CONSTRAINT \"representative_email_address_address\" UNIQUE,\n\t\"created_at\" timestamp NOT NULL\n);\n--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_email_address\" ADD CONSTRAINT \"representative_email_address_AZlCdFfaxSkv_fkey\" FOREIGN KEY (\"representative_id\") REFERENCES \"botsdk\".\"representative\"(\"id\") ON DELETE CASCADE;"
   }
 ]

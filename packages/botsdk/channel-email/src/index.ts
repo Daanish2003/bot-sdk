@@ -67,7 +67,8 @@ function mailpitAddress(header: string): { Email: string; Name?: string } {
  * References headers.
  *
  * Mailpit gives no SPF, DKIM or DMARC verdict, so this provider vouches for every mail it holds with
- * an aligned DMARC pass. That is safe only where nobody else can reach Mailpit or the inbound route:
+ * an aligned DMARC pass, under policy `none`: it wakes a Bot, and a Representative's sender arrives as
+ * an unverified Customer. That is safe only where nobody else can reach Mailpit or the inbound route:
  * a Host mounts it only on localhost. A webhook that doesn't name a message Mailpit holds is refused.
  */
 export function mailpitEmailProvider({
@@ -120,7 +121,7 @@ export function mailpitEmailProvider({
             return readCapped(part, maxBytes);
           },
         })),
-        authentication: { spf: "none", dkim: "none", dmarc: "pass" },
+        authentication: { spf: "none", dkim: "none", dmarc: "pass", dmarcPolicy: "none" },
       };
       return mail;
     },

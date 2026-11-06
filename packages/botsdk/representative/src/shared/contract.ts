@@ -807,6 +807,9 @@ export type WidgetKeyView = {
   status: WidgetKeyStatus;
 };
 
+/** A Representative's email address, as its owner sees it (ticket #1346): whoever writes to it is a Customer. */
+export type EmailAddressView = { address: string };
+
 export const maxWidgetOrigins = 50;
 /** Whether `value` is only a scheme, host and port, which is all a browser's `Origin` header says. */
 const isWebOrigin = (value: string) => {
@@ -901,6 +904,10 @@ export const representativeContract = {
   widgetKeyRotate: oc.input(idInput).output(type<WidgetKeyView>()),
   /** Disables the key and ends all its sessions. Only rotating gives a live key again. */
   widgetKeyDisable: oc.input(idInput).output(type<WidgetKeyView>()),
+  /** The Representative's email address, made on the first read; null when the Host has no email Channel. */
+  emailAddressGet: oc.input(idInput).output(type<EmailAddressView | null>()),
+  /** Gives it a new email address; the old one stops at once. Null as for `emailAddressGet`. */
+  emailAddressRotate: oc.input(idInput).output(type<EmailAddressView | null>()),
   /** The owner's Customers, oldest first. */
   customerList: oc.output(type<CustomerView[]>()),
   /** Adds a Customer by hand, with its first identity. Refused when the owner already has that identity. */

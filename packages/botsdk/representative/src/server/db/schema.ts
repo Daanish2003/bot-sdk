@@ -332,6 +332,19 @@ export const representativeWidgetKey = botsdkSchema.table(
 );
 
 /**
+ * A Representative's one email address (ticket #1346): `<name>.<8 random chars>@<inbound domain>`,
+ * lowercase, as a Bot's is. Made the first time the owner reads it; a rotation replaces it, so the old
+ * address stops at once. Whoever writes to it is a Customer.
+ */
+export const representativeEmailAddress = botsdkSchema.table("representative_email_address", {
+  representativeId: uuid("representative_id")
+    .primaryKey()
+    .references((): AnyPgColumn => representative.id, { onDelete: "cascade" }),
+  address: text("address").notNull().unique("representative_email_address_address"),
+  createdAt: timestamp("created_at").notNull(),
+});
+
+/**
  * One merge of a Customer into another (ticket #1257), kept once undone. The absorbed Customer's row
  * stays, with no identities or threads, so that undoing gives each back to it: `identityIds` and
  * `threadIds` are what moved, and `movedHolds` the holds it moved that haven't been handed back since.

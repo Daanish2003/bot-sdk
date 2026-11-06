@@ -26,6 +26,7 @@ import {
 } from "../shared/contract";
 import {
   representative,
+  representativeEmailAddress,
   representativeHandOff,
   representativeRelease,
   representativeTestResult,
@@ -944,6 +945,10 @@ export async function exportRepresentatives(tx: Transaction, userId: string) {
       })
       .from(representativeWidgetKey)
       .where(eq(representativeWidgetKey.representativeId, row.id));
+    const [email] = await tx
+      .select({ address: representativeEmailAddress.address })
+      .from(representativeEmailAddress)
+      .where(eq(representativeEmailAddress.representativeId, row.id));
     exported.push({
       id: row.id,
       name: row.name,
@@ -953,6 +958,7 @@ export async function exportRepresentatives(tx: Transaction, userId: string) {
       draft: row.draft,
       documents: await exportDocuments(tx, row.id),
       widgetKey: widgetKey ?? null,
+      emailAddress: email?.address ?? null,
       pendingApproval: row.pendingApproval,
       createdAt: row.createdAt,
       testResults: testResults.map(

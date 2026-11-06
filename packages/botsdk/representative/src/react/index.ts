@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { type ProcedureMutationOptions, useOrpc } from "@botsdk/react/provider";
-import type { RepresentativeContract, WidgetKeyView } from "../shared/contract";
+import type { EmailAddressView, RepresentativeContract, WidgetKeyView } from "../shared/contract";
 
 /*
  * The `representative` feature's hooks: TanStack Query over its procedures, for a UI inside a
@@ -183,6 +183,28 @@ export function useDisableWidgetKey(
   options?: ProcedureMutationOptions<Representative["widgetKeyDisable"]>,
 ) {
   return useMutation(useRepresentative().widgetKeyDisable.mutationOptions(options));
+}
+
+/** A Representative's email address, null without an email Channel (`representative.emailAddressGet`). */
+export function useEmailAddress(id: string) {
+  return useQuery(useRepresentative().emailAddressGet.queryOptions({ input: { id } }));
+}
+
+/** Shows the address a rotation returned, so the old one is never left on screen. */
+export function useStoreEmailAddress(id: string) {
+  const representative = useRepresentative();
+  const queryClient = useQueryClient();
+  const queryKey = representative.emailAddressGet.queryKey({ input: { id } });
+  return (view: EmailAddressView | null) => {
+    queryClient.setQueryData(queryKey, view);
+  };
+}
+
+/** Gives a Representative a new email address; the old one stops (`representative.emailAddressRotate`). */
+export function useRotateEmailAddress(
+  options?: ProcedureMutationOptions<Representative["emailAddressRotate"]>,
+) {
+  return useMutation(useRepresentative().emailAddressRotate.mutationOptions(options));
 }
 
 /** Chooses the Bot a Representative reports to (`representative.setBot`). */

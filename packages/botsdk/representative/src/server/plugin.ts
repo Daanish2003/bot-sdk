@@ -10,6 +10,7 @@ import {
   representativeCustomerIdentity,
   representativeCustomerMerge,
   representativeDocument,
+  representativeEmailAddress,
   representativeFact,
   representativeFactLog,
   representativeGap,
@@ -42,6 +43,7 @@ import { type ChannelOf, type CustomerChannel, proofLinkRoutes } from "./custome
 import { deleteCustomers, exportCustomers } from "./customers";
 import { dropProposalsOfBot, factProposalTools } from "./fact-proposals";
 import { receiveStranger } from "./strangers";
+import { receiveEmail } from "./email-address";
 import { deleteFacts, exportFacts } from "./facts";
 import { deleteGaps, exportGaps } from "./gaps";
 import representativeMigrations from "./migrations.json" with { type: "json" };
@@ -145,6 +147,7 @@ export function representativeFeature(
         representativeCustomerIdentity,
         representativeCustomerMerge,
         representativeDocument,
+        representativeEmailAddress,
         representativeFact,
         representativeFactLog,
         representativeGap,
@@ -185,6 +188,7 @@ export function representativeFeature(
     channelAccountOwner: (tx, id) => ownerOfHeldAccount(tx, id),
     onStranger: (message, context) =>
       receiveStranger({ ...context, channel: channelOf(context) }, message),
+    onEmail: (mail, context) => receiveEmail({ ...context, channel: channelOf(context) }, mail),
     publicRoutes: [
       ...proofLinkRoutes,
       ...widgetSessionRoutes(options.widgetSessionCheck, options.clientIp),

@@ -12,6 +12,7 @@ import {
 } from "../../storage";
 
 import { withoutNul } from "../../lib/without-nul";
+import { enabledFeatures, type StrangerEmail } from "../../feature";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { sentFileBlobKey, storeMailFiles } from "../conversation";
 
@@ -26,7 +27,8 @@ import { bareAddress, type EmailChannel, type InboundMail } from "../../channel/
  * (case-insensitive) and the provider's DMARC verdict is a pass. It becomes Trigger
  * `email:<Message-ID>`, carrying a new user Message on channel `email`, so a redelivery makes
  * none. A reply in a Room's thread (spec #1055) goes into that Room instead, routed as a Message
- * the user sent there (`roomOfThread`). Anything else is dropped silently and logged.
+ * the user sent there (`roomOfThread`). A mail to an address no Bot has goes to the features'
+ * `onEmail` (spec #1176). Anything else is dropped silently and logged.
  */
 export async function receiveEmail(
   sdk: BotSdkContext,
@@ -64,7 +66,7 @@ async function deliver(
   const text = emailText(mail, channel.domain);
   if (!text) return "no text";
   const owner = await botAt(sdk, mail.to);
-  if (!owner) return "no Bot has the address";
+  if (!owner) return toFeature(sdk, mail, messageId, text);
   const verified = await verifiedEmail(owner.userId);
   if (!verified || bareAddress(mail.from) !== verified.trim().toLowerCase()) {
     return "the sender isn't the Bot's user";
@@ -137,6 +139,54 @@ async function deliver(
   });
   if (handed === "refused") return "no Bot has the address";
   return handed === "seen" ? redelivery : null;
+}
+
+/** How many of the newest Message-IDs handed to a feature each SDK instance remembers. */
+const recentLimit = 1_000;
+
+/**
+ * The Message-IDs of the mail each SDK instance handed a feature lately. A feature's mail leaves no
+ * Trigger to dedupe on, so this is what drops a provider's redelivery, which comes within minutes.
+ */
+const recentBySdk = new WeakMap<BotSdkContext, Set<string>>();
+
+/**
+ * Hands a mail to an address no Bot has to the first enabled feature whose `onEmail` takes it (spec
+ * #1176); why it was dropped, or `null` once one took it. A feature's throw is logged and drops it.
+ */
+async function toFeature(
+  sdk: BotSdkContext,
+  mail: InboundMail,
+  messageId: string,
+  text: string,
+): Promise<string | null> {
+  const takers = enabledFeatures(sdk).filter(({ feature }) => feature.onEmail);
+  if (takers.length === 0) return "no Bot has the address";
+  let recent = recentBySdk.get(sdk);
+  if (!recent) recentBySdk.set(sdk, (recent = new Set()));
+  if (recent.has(messageId)) return redelivery;
+  // Remembered before it is handed over, so a copy delivered meanwhile is dropped.
+  recent.add(messageId);
+  if (recent.size > recentLimit) recent.delete(recent.values().next().value!);
+  const given: StrangerEmail = {
+    to: mail.to.map(bareAddress),
+    from: bareAddress(mail.from),
+    messageId,
+    subject: mail.subject,
+    text,
+    headers: mail.headers,
+    dmarc: { verdict: mail.authentication.dmarc, policy: mail.authentication.dmarcPolicy },
+  };
+  for (const { feature, context } of takers) {
+    try {
+      if (await feature.onEmail!(given, context)) return null;
+    } catch (error) {
+      sdk.logger.error("An inbound email to a feature's address was dropped", error);
+      return null;
+    }
+  }
+  recent.delete(messageId);
+  return "no Bot has the address";
 }
 
 /**

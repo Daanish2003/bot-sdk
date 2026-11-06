@@ -174,6 +174,8 @@ export type ChannelAccountsService = {
   send: ChannelApi["sendHeld"];
   /** What `platform`'s adapter declares it limits; undefined when the Host has no such adapter. */
   reach: ChannelApi["reach"];
+  /** The domain the email Channel receives mail for, where a feature's addresses go; null without one. */
+  emailDomain: () => string | null;
 };
 
 /** The `channelAccounts` core service, over whichever Channels the instance ends up with. */
@@ -183,6 +185,14 @@ export const channelAccountsService = (sdk: BotSdkContext): ChannelAccountsServi
   changed: (ids) => accountsChanged(sdk, ids),
   send: (id, message) => sdk.channels.sendHeld(id, message),
   reach: (platform) => sdk.channels.reach(platform),
+  emailDomain: () => {
+    // `sdk.channels.emailDomain` throws only when the Host gave no email adapter.
+    try {
+      return sdk.channels.emailDomain();
+    } catch {
+      return null;
+    }
+  },
 });
 
 /** Adds or fixes a Channel account a feature holds (ticket #1331): a Bot's save, with no Bot. */

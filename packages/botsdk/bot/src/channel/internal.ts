@@ -1,12 +1,15 @@
 // The channel service's entry point inside the SDK (#889): the core imports it only through this
 // file. index.ts stays the public package export.
 export {
+  type AuthVerdict,
   bareAddress,
+  type DmarcPolicy,
   type EmailChannel,
   type EmailProvider,
   type InboundMail,
   type MailFile,
   MailFileTooLargeError,
+  newEmailAddress,
   type OutboundMail,
 } from "./email";
 export {

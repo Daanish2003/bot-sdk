@@ -87,6 +87,7 @@ import {
   listReplyDrafts,
   rejectReplyDraft,
 } from "./reply-drafts";
+import { getEmailAddress, rotateEmailAddress } from "./email-address";
 import { handBackThread, sendAsOwner, takeOverThread } from "./takeover";
 import { addTopic, listTopics, removeTopic, setTopicMode } from "./topics";
 import {
@@ -106,7 +107,13 @@ import {
 /** The `representative` namespace over the feature's context. */
 export function representativeApi(
   base: FeatureContext<
-    "assignments" | "factApprovals" | "models" | "pubsub" | "releaseApprovals" | "threads"
+    | "assignments"
+    | "channelAccounts"
+    | "factApprovals"
+    | "models"
+    | "pubsub"
+    | "releaseApprovals"
+    | "threads"
   >,
   convertDocument?: ConvertDocument,
   knowledgeFiles?: KnowledgeFiles,
@@ -198,6 +205,12 @@ export function representativeApi(
 
     widgetKeyDisable: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
       disableWidgetKey(context, userId, parseInput(idInput, rest).id),
+
+    emailAddressGet: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      getEmailAddress(context, userId, parseInput(idInput, rest).id),
+
+    emailAddressRotate: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      rotateEmailAddress(context, userId, parseInput(idInput, rest).id),
 
     setBot: async ({ userId, ...rest }: WithUser<typeof setBotInput>) => {
       const { id, botId } = parseInput(setBotInput, rest);

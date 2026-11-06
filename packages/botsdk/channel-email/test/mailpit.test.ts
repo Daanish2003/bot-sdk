@@ -74,7 +74,8 @@ describe("mailpitEmailProvider.parseInbound", () => {
       files: [
         { name: "notes.pdf", contentType: "application/pdf", size: 3, read: expect.any(Function) },
       ],
-      authentication: { spf: "none", dkim: "none", dmarc: "pass" },
+      // A pass with no enforcing policy: a lab sender wakes a Bot, but is no verified Customer.
+      authentication: { spf: "none", dkim: "none", dmarc: "pass", dmarcPolicy: "none" },
     });
   });
 

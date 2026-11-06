@@ -808,6 +808,8 @@ describe("who can reach a Turn", () => {
       "documentPick",
       "documentRemove",
       "documentUpload",
+      "emailAddressGet",
+      "emailAddressRotate",
       "factAdd",
       "factDelete",
       "factEdit",
@@ -874,5 +876,8 @@ describe("who can reach a Turn", () => {
       "POST /representative/widget/read",
       "POST /representative/widget/stream",
     ]);
+    // The core's hooks: a stranger on a held account (#1334), and mail to a Representative's address (#1346).
+    expect(typeof made.onStranger).toBe("function");
+    expect(typeof made.onEmail).toBe("function");
   });
 });

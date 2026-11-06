@@ -75,6 +75,16 @@ export const representativeMessages = {
   "representative.widgetKeyDisableConfirm":
     "Disable this key? All its chats end, and only rotating gives you a key that works again.",
   "representative.widgetKeyDisabledToast": "Key disabled",
+  "representative.emailAddress": "Email address",
+  "representative.emailAddressHelp":
+    "Anyone who emails this address becomes a Customer. Mail from a domain that enforces DMARC counts as verified; any other sender gets public help until they verify.",
+  "representative.emailAddressCopy": "Copy address",
+  "representative.emailAddressCopied": "Address copied",
+  "representative.emailAddressRotate": "Rotate address",
+  "representative.emailAddressRotateConfirm":
+    "Rotate this address? The old one stops working at once, and Customers who write to it get no answer.",
+  "representative.emailAddressRotated": "Address rotated",
+  "representative.emailAddressLoadFailed": "The email address couldn't be loaded. Try again.",
   "representative.assignmentDue": "Work due time",
   "representative.assignmentDueHelp":
     "How long work it hands to a Bot may run. Past it, you are Paged and the Customer gets one note saying the team is still on it. It counts for hand-offs made after you save.",
