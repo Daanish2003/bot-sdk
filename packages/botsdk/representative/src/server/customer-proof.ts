@@ -58,7 +58,12 @@ export type CustomerChannel = {
       resume: SendProgress | null;
     },
   ) => Promise<void>;
-  sendProof: (to: { channel: string; externalId: string }, proof: Proof) => Promise<void>;
+  /** Sends a proof from the Representative's side of the thread; `via` names the Representative. */
+  sendProof: (
+    to: { channel: string; externalId: string },
+    proof: Proof,
+    via: { representativeId: string },
+  ) => Promise<void>;
   /** What the platform of `channel` limits, as its adapter declares it; left out, nothing is limited. */
   reach?: (channel: string) => MessagingReach | undefined;
 };

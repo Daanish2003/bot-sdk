@@ -13,7 +13,7 @@ import { mcpServersOf } from "./src/mcp-server";
  * data and which features it has. `src/services.ts` builds the SDK from it, with its other options;
  * `scripts/migrate.ts` and `botsdk migrate` migrate the features it lists. It reads `process.env`,
  * not Varlock's ENV, so plain Node loads it with only the variables it reads: `DATABASE_URL`,
- * `E2B_*` and `MCP_SERVER_*`.
+ * `BETTER_AUTH_URL`, `E2B_*` and `MCP_SERVER_*`.
  */
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -47,6 +47,13 @@ export default {
     // Representatives (spec #1167): restricted agents that speak for the owner, through approved Releases.
     // Their uploads convert with Knowledge's parsers, which need no Computer. Knowledge files can be
     // picked only where Knowledge is on, which needs the Computer.
-    representative({ convertDocument, ...(e2b && { knowledgeFiles }) }),
+    representative({
+      convertDocument,
+      ...(e2b && { knowledgeFiles }),
+      // Where the signed link in a proof mail opens (ticket #1348): the API's URL.
+      ...(process.env.BETTER_AUTH_URL && {
+        linkUrl: `${process.env.BETTER_AUTH_URL.replace(/\/+$/, "")}/api/chat`,
+      }),
+    }),
   ],
 } as const satisfies Pick<BotSdkOptions, "database" | "features">;

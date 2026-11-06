@@ -9,7 +9,7 @@ import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc, createTestChat } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
-import { createFakeAdapter, round } from "@botsdk/testing/fake-adapter";
+import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { answers, autoSource, promoteAutoTopic } from "@ai-chat/test-support/test-customer";
 import { fakeEmailProvider } from "@botsdk/testing/fake-channel";
 import { and, asc, eq } from "drizzle-orm";
@@ -51,12 +51,15 @@ afterEach(async () => {
 async function world({
   withEmail = true,
   replying = false,
-}: { withEmail?: boolean; replying?: boolean } = {}) {
+  verifying = false,
+}: { withEmail?: boolean; replying?: boolean; verifying?: boolean } = {}) {
   // A replying Representative answers each Customer message, then stops.
   const fake = createFakeAdapter({
-    rounds: replying
-      ? [answers(), round(), answers(), round(), answers(), round()]
-      : [round(), round(), round()],
+    rounds: verifying
+      ? [round(toolCall({ name: "verify_customer", input: {}, id: "verify" })), round()]
+      : replying
+        ? [answers(), round(), answers(), round(), answers(), round()]
+        : [round(), round(), round()],
   });
   const email = fakeEmailProvider();
   const timer = fakeJobClock(at);
@@ -75,7 +78,7 @@ async function world({
       channels: [emailChannel({ provider: email.provider, domain, appUrl: "https://app.example" })],
     }),
     users: { verifiedEmail: async (userId) => (userId === user.id ? ownerEmail : null) },
-    features: [representative()],
+    features: [representative({ linkUrl: "http://localhost/api/chat" })],
     adapterFor: () => fake.adapter,
     clock: timer.clock.now,
     memory: false,
@@ -92,7 +95,12 @@ async function world({
   const { id } = await rpc.representative.create({ name: "Front Désk" });
   await rpc.representative.updateDraft({
     id,
-    draft: { jobText: "Answer questions.", model, ...(replying && { tools: ["reply"] }) },
+    draft: {
+      jobText: "Answer questions.",
+      model,
+      ...(replying && { tools: ["reply"] }),
+      ...(verifying && { tools: ["verify_customer"] }),
+    },
   });
   await rpc.representative.approve({ id });
   await rpc.representative.setEnabled({ id, enabled: true });
@@ -154,7 +162,7 @@ async function world({
       .from(representativeOutboundDecision)
       .orderBy(asc(representativeOutboundDecision.createdAt));
 
-  return { deps, rpc, user, id, fake, email, deliver, turnRuns, startReply, decisions };
+  return { deps, rpc, user, id, fake, email, timer, deliver, turnRuns, startReply, decisions };
 }
 
 /** The Customers' messages on Representative `id`'s threads, oldest first. */
@@ -486,5 +494,64 @@ describe("a Representative's reply to an email Customer", () => {
     expect(deps.channels.reach("email")).toEqual({ canStartConversation: true });
     // A Channel the Host lacks declares nothing.
     expect(deps.channels.reach("sms")).toBeUndefined();
+  });
+});
+
+describe("a signed link to an email Customer", () => {
+  const linkOf = (text: string) =>
+    /http:\/\/localhost\/api\/chat\/representative\/verify\/\S+/.exec(text)![0];
+  const verifiedAt = async (userId: string) =>
+    (
+      await getTestDb()
+        .select({ at: representativeCustomerIdentity.verifiedContactAt })
+        .from(representativeCustomerIdentity)
+        .where(eq(representativeCustomerIdentity.userId, userId))
+    )[0]!.at;
+
+  /** An unverified sender's mail, the Turn it starts, and the mail the Representative sends back. */
+  async function asked() {
+    const w = await world({ verifying: true });
+    const address = (await w.rpc.representative.emailAddressGet({ id: w.id }))!.address;
+    await w.deliver(address, {
+      authentication: { spf: "none", dkim: "none", dmarc: "none", dmarcPolicy: "none" },
+    });
+    await w.turnRuns(2);
+    await expect.poll(() => w.email.sent.length, poll).toBe(1);
+    return { ...w, address, mail: w.email.sent[0]! };
+  }
+
+  it("is emailed from the Representative's address, and only a click on it verifies", async () => {
+    const { deps, user, address, mail } = await asked();
+    expect(mail.to).toBe(sender);
+    expect(mail.from).toContain(address);
+    expect(await verifiedAt(user.id)).toBeNull();
+
+    const chat = createTestChat({ deps });
+    const url = linkOf(mail.text);
+    expect((await chat.fetch(new Request(url))).status).toBe(200);
+    expect(await verifiedAt(user.id)).toBeNull();
+
+    expect((await chat.fetch(new Request(url, { method: "POST" }))).status).toBe(200);
+    expect(await verifiedAt(user.id)).not.toBeNull();
+  });
+
+  it("works once", async () => {
+    const { deps, mail } = await asked();
+    const chat = createTestChat({ deps });
+    const url = linkOf(mail.text);
+
+    expect((await chat.fetch(new Request(url, { method: "POST" }))).status).toBe(200);
+    expect((await chat.fetch(new Request(url, { method: "POST" }))).status).toBe(410);
+  });
+
+  it("expires", async () => {
+    const { deps, user, mail, timer } = await asked();
+    timer.advance(61 * 60_000);
+
+    const opened = await createTestChat({ deps }).fetch(
+      new Request(linkOf(mail.text), { method: "POST" }),
+    );
+    expect(opened.status).toBe(410);
+    expect(await verifiedAt(user.id)).toBeNull();
   });
 });

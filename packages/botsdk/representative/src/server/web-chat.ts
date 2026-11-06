@@ -60,8 +60,8 @@ export const withWebChat = (channel: CustomerChannel): CustomerChannel => ({
   send: async (to, message, via) => {
     if (to.channel !== webChatChannel) await channel.send(to, message, via);
   },
-  sendProof: async (to, proof) => {
-    if (to.channel !== webChatChannel) await channel.sendProof(to, proof);
+  sendProof: async (to, proof, via) => {
+    if (to.channel !== webChatChannel) await channel.sendProof(to, proof, via);
   },
   reach: (name) =>
     name === webChatChannel ? { canStartConversation: false } : channel.reach?.(name),
