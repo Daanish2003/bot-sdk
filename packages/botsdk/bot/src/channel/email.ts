@@ -70,7 +70,7 @@ export type OutboundMail = {
   messageId: string;
   inReplyTo?: string;
   references?: string[];
-  /** Further headers, such as `List-Unsubscribe`; the ones above win. */
+  /** Further headers, such as `List-Unsubscribe`; not the ones above, which the provider sets. */
   headers?: Record<string, string>;
   attachments?: { name: string; contentType: string; content: Uint8Array }[];
 };

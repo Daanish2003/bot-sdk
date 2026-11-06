@@ -23,21 +23,16 @@ const tokenOf = (secret: string, identityId: string, representativeId: string) =
   `${identityId}.${representativeId}.${signed(secret, "unsubscribe", `${identityId}.${representativeId}`)}`;
 
 /**
- * `mail` with the unsubscribe headers and footer for its recipient, who must be a Customer of the
- * Representative with an identity on record and the Host must have said where its HTTP layer is
- * (`appUrl`); otherwise it is returned as it is.
+ * `mail` with the unsubscribe headers and footer for its recipient, who must have an email identity
+ * under the Representative's owner and the Host must have given `linkUrl`; otherwise it is returned as it is.
  */
 export async function withUnsubscribe(
-  {
-    db,
-    keyring,
-    channelAccounts,
-  }: Pick<FeatureContext<"channelAccounts">, "db" | "keyring" | "channelAccounts">,
+  { db, keyring, linkUrl }: Pick<FeatureContext, "db" | "keyring"> & { linkUrl?: string },
   representativeId: string,
   mail: OutboundMail,
 ): Promise<OutboundMail> {
-  const base = channelAccounts.linkBase();
-  if (base === null) return mail;
+  const base = linkUrl?.replace(/\/+$/, "");
+  if (!base) return mail;
   const [found] = await db
     .select({ id: representativeCustomerIdentity.id })
     .from(representativeCustomerIdentity)
@@ -178,3 +173,14 @@ export const unsubscribeRoutes = (channelOf: ChannelOf): PublicRoute<"channelAcc
         : page(410, "<p>This link isn't valid.</p>"),
   },
 ];
+
+/** Sends `mail` to a Customer of the Representative, with the unsubscribe headers and footer (every mail to one has them). */
+export async function sendCustomerMail(
+  context: Pick<FeatureContext<"channelAccounts">, "db" | "keyring" | "channelAccounts"> & {
+    linkUrl?: string;
+  },
+  representativeId: string,
+  mail: OutboundMail,
+) {
+  await context.channelAccounts.sendEmail(await withUnsubscribe(context, representativeId, mail));
+}

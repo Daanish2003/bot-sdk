@@ -591,9 +591,11 @@ function CustomerCard({
                 <p className="text-xs text-muted-foreground">
                   {t("representative.customers.optedOut", {
                     source: t(
-                      identity.optedOut.source === "keyword"
-                        ? "representative.customers.optOutKeyword"
-                        : "representative.customers.optOutRepresentative",
+                      {
+                        keyword: "representative.customers.optOutKeyword",
+                        representative: "representative.customers.optOutRepresentative",
+                        link: "representative.customers.optOutLink",
+                      }[identity.optedOut.source],
                     ),
                     date: new Date(identity.optedOut.at).toLocaleString(i18n.locale),
                   })}

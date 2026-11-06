@@ -940,7 +940,7 @@ export function turnTools(turn: Turn) {
         // whether it fails may tell the Model, or the Customer, that the identity was on record. A
         // proof that fails to go is lost, and the Customer asks again when none comes.
         void Promise.resolve()
-          .then(() => sendsProofs.sendProof(to, proof))
+          .then(() => sendsProofs.sendProof(to, proof, { representativeId }))
           .catch((error: unknown) => {
             job.logger.error(`Representative ${representativeId}: a proof didn't go`, error);
           });

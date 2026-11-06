@@ -7,7 +7,7 @@ import { channelAccount } from "@botsdk/bot/storage";
 import { MessagingSendError } from "@botsdk/bot/channel";
 import { AccountSendError, type ChannelOf } from "./customer-proof";
 import { representative, representativeChannelAccount } from "./db/schema";
-import { customerEmailChannel, sendEmail } from "./email-address";
+import { customerEmailChannel, sendEmail, sendProofEmail } from "./email-address";
 import { requireOwned } from "./representatives";
 
 /*
@@ -77,9 +77,12 @@ export async function listChannelAccounts(
 /**
  * How messages reach a Customer through the accounts Representatives hold: the gate's delivery goes
  * through the Representative's account on the Channel, and the gate reads that adapter's limits.
- * Proofs go nowhere until SMS (#1174) and email (#1176) word them.
+ * A signed link goes by email (#1348); a code goes nowhere until SMS (#1174) words it.
  */
-export const heldAccountChannel: ChannelOf = ({ db, keyring, channelAccounts }) => ({
+export const heldAccountChannel = (
+  { db, keyring, channelAccounts }: Parameters<ChannelOf>[0],
+  { linkUrl }: { linkUrl?: string } = {},
+): ReturnType<ChannelOf> => ({
   reach: (channel) => channelAccounts.reach(channel),
   send: async (
     { channel, externalId },
@@ -87,7 +90,10 @@ export const heldAccountChannel: ChannelOf = ({ db, keyring, channelAccounts }) 
     { representativeId, channelAccountId, resume },
   ) => {
     if (channel === customerEmailChannel) {
-      return sendEmail({ db, keyring, channelAccounts }, { representativeId, externalId, text });
+      return sendEmail(
+        { db, keyring, channelAccounts, linkUrl },
+        { representativeId, externalId, text },
+      );
     }
     const accounts = await db
       .select({ id: channelAccount.id })
@@ -121,7 +127,21 @@ export const heldAccountChannel: ChannelOf = ({ db, keyring, channelAccounts }) 
       throw error instanceof MessagingSendError ? new AccountSendError(account.id, error) : error;
     }
   },
-  sendProof: async () => {},
+  sendProof: async (to, proof, { representativeId }) => {
+    // A code is read back on a platform that can reach its sender (SMS, #1174); a link goes by email.
+    if (to.channel !== customerEmailChannel || proof.kind !== "link") return;
+    // Thrown, and logged by the Turn: the Host forgot the option.
+    if (!linkUrl) throw new Error("The representative feature has no linkUrl for a signed link");
+    const base = linkUrl.replace(/\/+$/, "");
+    await sendProofEmail(
+      { db, keyring, channelAccounts, linkUrl },
+      {
+        representativeId,
+        externalId: to.externalId,
+        url: `${base}/representative/verify/${proof.secret}`,
+      },
+    );
+  },
 });
 
 /** The user whose Representative holds Channel account `id`, or null when none does. */

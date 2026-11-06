@@ -93,6 +93,12 @@ export type RepresentativeOptions = {
    */
   knowledgeFiles?: KnowledgeFiles;
   /**
+   * Where the SDK's API is served: the Host's app URL and `basePath`, such as
+   * `https://app.example/api/chat`. The signed link in a proof mail opens a page under it. Without
+   * it, an email Customer can't be sent a link and so can't verify.
+   */
+  linkUrl?: string;
+  /**
    * Checks each web chat session start request before a session is given: a request it returns false
    * for, or throws on, gets the same refusal as a wrong origin, and a throw is logged. This is where a
    * Host filters public traffic, with the service it chooses (Turnstile, hCaptcha, its own). The SDK
@@ -124,7 +130,8 @@ export function representativeFeature(
   options: RepresentativeOptions = {},
   channel?: CustomerChannel,
 ) {
-  const channelOf: ChannelOf = (context) => withWebChat(channel ?? heldAccountChannel(context));
+  const channelOf: ChannelOf = (context) =>
+    withWebChat(channel ?? heldAccountChannel(context, options));
   const { deliveryConcurrency = 20 } = options;
   return defineFeature({
     id: "representative",

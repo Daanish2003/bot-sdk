@@ -103,11 +103,6 @@ export type ChannelApi = {
   /** The email Channel's inbound domain. Throws when the Host gave no email adapter. */
   emailDomain: () => string;
   /**
-   * Where a link in a mail opens the Host's HTTP layer, `<appUrl><basePath>`; `null` while the Host
-   * gave no app URL or the instance has no link base yet (`liveViewBase`).
-   */
-  linkBase: () => string | null;
-  /**
    * The Bots' hook after they save a Bot Message, in the same transaction: when the reply goes by
    * email too (the Turn took an email, or the Bot speaks first and the user's notification
    * settings say so), marks the Message emailed and enqueues its `channel.deliver` job; when it is

@@ -80,10 +80,6 @@ export function createChannels(sdk: BotSdkContext, options: ChannelOptions): Cha
       if (!email) throw new Error("The channel plugin has no email adapter");
       return email.domain;
     },
-    linkBase: () => {
-      const { base } = sdk.liveView;
-      return appUrl && base !== null ? `${appUrl}${base}` : null;
-    },
     deliverIn: async (tx, sent) => {
       if (email || push || messaging.length > 0) {
         await deliverIn(sdk, tx, { email, push, messaging }, sent);
@@ -187,8 +183,6 @@ export type ChannelAccountsService = {
   sendEmail: ChannelApi["sendEmail"];
   /** The domain the email Channel receives mail for, where a feature's addresses go; null without one. */
   emailDomain: () => string | null;
-  /** Where a link in a mail to a Customer opens, `<appUrl><basePath>`; null when the Host has not said. */
-  linkBase: () => string | null;
 };
 
 /** The `channelAccounts` core service, over whichever Channels the instance ends up with. */
@@ -207,7 +201,6 @@ export const channelAccountsService = (sdk: BotSdkContext): ChannelAccountsServi
       return null;
     }
   },
-  linkBase: () => sdk.channels.linkBase(),
 });
 
 /** Adds or fixes a Channel account a feature holds (ticket #1331): a Bot's save, with no Bot. */
