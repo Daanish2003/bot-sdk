@@ -1,14 +1,19 @@
 import { and, asc, count, eq, gt, gte, inArray, isNull, max, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import type { MessagingReach } from "@botsdk/bot/channel";
+import { type MessagingReach, MessagingSendError } from "@botsdk/bot/channel";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { rpcError } from "@botsdk/bot/rpc-error";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { defineJob } from "@botsdk/bot/runner/internal";
 import { limitNoteKind, type ReplySource, type StoredReplyKind } from "../shared/replies";
-import { type CustomerChannel } from "./customer-proof";
+import {
+  AccountSendError,
+  type ChannelOf,
+  type CustomerChannel,
+  webChatChannel,
+} from "./customer-proof";
 import { combinedProfilesOf } from "./customer-profile";
 import { holdThreadCustomer } from "./customers";
 import {
@@ -26,6 +31,7 @@ import {
 } from "./db/schema";
 import { isQuiet, quietEndsAt, zoneOr } from "./quiet-hours";
 import { modeOfLabel, sourcesBelongToLabel } from "./topics";
+import { hintVisitor } from "./visitor-hints";
 
 /*
  * The Outbound gate (ticket #1298): one code-owned check of every message to a Customer, in a fixed
@@ -89,6 +95,8 @@ const rulesOf: Record<OutboundKind, readonly GateRule[]> = {
   emergency_script: ["blocked", "channel"],
   // That held script when the owner sends it. Still safety text, so an opt-out doesn't stop it, and they chose to pass the Channel's limits.
   emergency_script_released: ["blocked"],
+  // The fixed notice for a Customer who writes when nobody can answer: it is sent while the Representative is off, so it skips `on`, and code's own, so it skips the caps. The Customer has just written, so quiet hours don't apply.
+  unavailable_notice: ["held", "blocked", "optedOut", "channel"],
   // The draft's holding note answers a Customer who just wrote, so quiet hours don't apply. It passes
   // all a reply does but the topic and the caps: the owner's word settles a draft, and the note is code's.
   holding_note: gateOrder.filter(
@@ -758,35 +766,40 @@ const notDelivered = {
   blocked: "blocked",
   optedOut: "optedOut",
   moved: "address_changed",
+  banned: "owner_banned",
 };
 
-/** Logs that the message `decisionId` passed didn't go after all. */
+/** Logs that the message `decisionId` passed didn't go after all, so a web chat session stops reading it. */
 async function logNotDelivered(
-  db: FeatureContext["db"],
+  services: Pick<FeatureContext<"pubsub">, "db" | "pubsub" | "logger">,
   decisionId: string,
   rule: string,
   now: Date,
 ) {
-  await db.transaction(async (tx) => {
+  const dropped = await services.db.transaction(async (tx) => {
     const [passed] = await tx
       .select()
       .from(representativeOutboundDecision)
       .where(eq(representativeOutboundDecision.id, decisionId));
-    if (!passed) return;
+    if (!passed) return null;
     const decision = { ...passed, id: uuidv7(), outcome: "drop" as const, rule, createdAt: now };
     await writeDecision(tx, { decision });
+    return passed;
   });
+  if (dropped) hintVisitor(services, dropped);
 }
 
 /**
  * Sends what the gate passed. A throw is the runner's to retry, so this can run well after the
  * decision: a Customer blocked or opted out since gets nothing, and neither does an address no longer
- * theirs, which may be someone else's. A thread deleted since sends nothing.
+ * theirs, which may be someone else's. During the owner's Ban their line says only what is meant for a
+ * Customer regardless. A thread deleted since sends nothing.
  */
-export const customerDeliveryJob = (channel: CustomerChannel) =>
-  defineJob<z.infer<typeof deliveryPayload>>({
+export const customerDeliveryJob = (channelOf: ChannelOf, concurrency: number) =>
+  defineJob<z.infer<typeof deliveryPayload>, FeatureContext<"channelAccounts" | "pubsub">>({
     name: customerDeliveryJobName,
     payload: deliveryPayload,
+    concurrency,
     run: async ({ decisionId }, job) => {
       const decision = representativeOutboundDecision;
       const [row] = await job.db
@@ -794,6 +807,10 @@ export const customerDeliveryJob = (channel: CustomerChannel) =>
           channel: decision.channel,
           externalId: decision.externalId,
           kind: decision.kind,
+          representativeId: representativeThread.representativeId,
+          userId: representative.userId,
+          channelAccountId: representativeThread.channelAccountId,
+          sentOn: decision.sentOn,
           text: representativeThreadMessage.text,
           blockedAt: representativeCustomer.blockedAt,
           identityId: representativeCustomerIdentity.id,
@@ -805,6 +822,7 @@ export const customerDeliveryJob = (channel: CustomerChannel) =>
           eq(representativeThreadMessage.id, decision.messageId),
         )
         .innerJoin(representativeThread, eq(representativeThread.id, decision.threadId))
+        .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
         .innerJoin(
           representativeCustomer,
           eq(representativeCustomer.id, representativeThread.customerId),
@@ -820,21 +838,59 @@ export const customerDeliveryJob = (channel: CustomerChannel) =>
         .where(eq(decision.id, decisionId));
       if (!row) return;
       // Only what passes the gate's opt-out rule is held to it: the rest is meant for them regardless.
+      const optional = rulesOf[row.kind].includes("optedOut");
       const stopped = row.blockedAt
         ? notDelivered.blocked
         : !row.identityId
           ? notDelivered.moved
-          : row.optedOutAt && rulesOf[row.kind].includes("optedOut")
+          : row.optedOutAt && optional
             ? notDelivered.optedOut
-            : null;
+            : optional && (await job.isUserBlocked(row.userId))
+              ? notDelivered.banned
+              : null;
       if (stopped) {
-        await logNotDelivered(job.db, decisionId, stopped, job.clock());
+        await logNotDelivered(job, decisionId, stopped, job.clock());
         return;
       }
-      await channel.send({ channel: row.channel, externalId: row.externalId }, { text: row.text });
+      // The parts of one message stay together, wherever the Customer has written since.
+      const channelAccountId = row.sentOn ? row.sentOn.channelAccountId : row.channelAccountId;
+      try {
+        await channelOf(job).send(
+          { channel: row.channel, externalId: row.externalId },
+          { text: row.text },
+          {
+            representativeId: row.representativeId,
+            channelAccountId,
+            resume: row.sentOn && "progress" in row.sentOn ? row.sentOn.progress : null,
+          },
+        );
+      } catch (error) {
+        if (error instanceof MessagingSendError) {
+          // Without it, the retry sends the parts already sent again, or on another account.
+          const sentThrough =
+            error instanceof AccountSendError ? error.channelAccountId : channelAccountId;
+          await job.db
+            .update(decision)
+            .set({ sentOn: { channelAccountId: sentThrough, progress: error.progress } })
+            .where(eq(decision.id, decisionId))
+            .catch((saving: unknown) =>
+              job.logger.error("Saving a send's progress failed", saving),
+            );
+        }
+        throw error;
+      }
+      // What a web chat visitor reads, so it shows only once nothing has stopped it. Only there:
+      // sending again is a no-op if this fails, where another Channel's Customer would get it twice.
+      if (row.channel === webChatChannel) {
+        await job.db
+          .update(decision)
+          .set({ sentOn: { channelAccountId, delivered: true } })
+          .where(eq(decision.id, decisionId));
+      }
+      hintVisitor(job, row);
     },
-    onFailed: ({ decisionId }, _error, { db, clock }) =>
-      logNotDelivered(db, decisionId, notDelivered.failed, clock()),
+    onFailed: ({ decisionId }, _error, job) =>
+      logNotDelivered(job, decisionId, notDelivered.failed, job.clock()),
   });
 
 /** Every decision on the threads of `userId`'s Representatives, with what each held. */

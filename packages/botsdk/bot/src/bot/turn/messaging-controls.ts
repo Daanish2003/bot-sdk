@@ -20,7 +20,7 @@ import { approveRule, decideReview, denyRule } from "../safety";
 import { answerChoice } from "../triggers";
 
 type Account = MessagingAccount & { platform: string };
-type Owner = { userId: string; conversationId: string };
+type Owner = { botId: string; userId: string; conversationId: string };
 
 type Run = {
   sdk: BotSdkContext;
@@ -212,7 +212,7 @@ function pick(choice: ChoiceControl, text: string): string | undefined {
 
 const choose = (run: Run, messageId: string, answer: { option: string } | { other: string }) =>
   answerChoice(run.sdk, run.owner.userId, {
-    botId: run.account.botId,
+    botId: run.owner.botId,
     messageId,
     answer,
     channel: run.account.platform,
@@ -344,7 +344,7 @@ async function decide(
   if (shownIn) await edit(run, shownIn, outcome);
   if (webhook) {
     const lead = "Get its webhook URL in the app";
-    const page = run.appUrl && `${run.appUrl}/bots/${run.account.botId}`;
+    const page = run.appUrl && `${run.appUrl}/bots/${run.owner.botId}`;
     try {
       await notice(run, `Approved. ${page ? `[${lead}](${page})` : `${lead}.`}`);
     } catch (error) {

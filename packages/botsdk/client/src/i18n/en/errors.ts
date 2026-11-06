@@ -23,10 +23,15 @@ export const errorMessages = {
   "error.channelCredentialsRejected":
     "The platform rejected these credentials. Check them and try again.",
   "error.notificationRouteNotLinked": "Link your account on that Channel to send Messages there.",
-  "error.channelAccountTaken": "That bot is already connected to someone else's Bot.",
+  "error.channelAccountTaken": "That bot is already connected to someone else.",
   "error.customRuleLimit": ({ max }: { max: number }) =>
     `You can have at most ${max} active rules. Delete one to add another.`,
   "error.representativeNotFound": "Representative not found",
+  "error.widgetKeyNotFound": "This Representative has no widget key yet.",
+  "error.widgetKeyTaken": "This Representative already has a widget key.",
+  "error.widgetSessionRefused": "This chat can't be started from here.",
+  "error.widgetSessionEnded": "This chat has ended. Reload the page to start a new one.",
+  "error.widgetMessageInvalid": "That message can't be sent.",
   "error.customerNotFound": "Customer not found",
   "error.profileFieldNotFound": "Profile field not found",
   "error.profileFieldTaken": "You already have a profile field of that name.",

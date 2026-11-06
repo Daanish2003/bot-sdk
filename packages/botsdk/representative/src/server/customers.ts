@@ -21,6 +21,7 @@ import { overInboundLimit } from "./inbound-limit";
 import { liftOptOut, keywordIn, optOut } from "./opt-out";
 import { type GateRefusal, passGate, storeAndDeliver, type ViaChannel } from "./outbound-gate";
 import { afterDraftHeld, replaceHeld } from "./reply-drafts";
+import { sendUnavailableNotice } from "./unavailable-notice";
 import { type ChannelProof, judgeSender } from "./verification";
 import { normalizedRelease } from "../shared/contract";
 import {
@@ -159,7 +160,8 @@ async function judgeMessage(
  * its emergency script at once (ticket #1308): it gets no Turn and a running one stops, as the owner
  * has been Paged and the Customer told what to do, and it reaches them through an owner's hold, an
  * opt-out or a Representative switched off. One over the identity's inbound limit is logged and
- * stored nowhere (ticket #1311), unless it is a keyword or an emergency: `{ limited: true }`.
+ * stored nowhere (ticket #1311), unless it is a keyword or an emergency: `{ limited: true }`, with
+ * the milliseconds until the identity is heard again.
  */
 export async function receiveMessage(
   tx: Transaction,
@@ -167,6 +169,7 @@ export async function receiveMessage(
     services,
     representativeId,
     heard,
+    channelAccountId,
     proof,
     text,
     now,
@@ -175,13 +178,19 @@ export async function receiveMessage(
       ViaChannel;
     representativeId: string;
     heard: Heard;
+    /** The held Channel account it came to, which replies go through. */
+    channelAccountId?: string;
     proof: ChannelProof | undefined;
     text: string;
     now: Date;
   },
 ) {
   const [owner] = await tx
-    .select({ userId: representative.userId, releaseId: representative.liveReleaseId })
+    .select({
+      userId: representative.userId,
+      releaseId: representative.liveReleaseId,
+      enabled: representative.enabled,
+    })
     .from(representative)
     .where(eq(representative.id, representativeId))
     .for("key share");
@@ -190,15 +199,15 @@ export async function receiveMessage(
   // reports an emergency, is exempt, so a limit never stops a Customer doing either (ticket #1311).
   // On what they said, not what is stored: a code in the message mustn't hide an emergency.
   const script = await scriptSaidIn(tx, owner.releaseId, text);
-  if (
-    keywordIn(heard.channel, text) === null &&
-    script === null &&
-    (await overInboundLimit(tx, owner.userId, heard, now))
-  ) {
+  const retryAfterMs =
+    keywordIn(heard.channel, text) === null && script === null
+      ? await overInboundLimit(tx, owner.userId, heard, now)
+      : null;
+  if (retryAfterMs !== null) {
     services.logger.error(
       `Inbound limit: a message from ${heard.channel} ${heard.externalId} was not processed`,
     );
-    return { limited: true as const };
+    return { limited: true as const, retryAfterMs };
   }
   const { identityId, customerId: heldCustomerId } = await holdSender(
     tx,
@@ -242,6 +251,7 @@ export async function receiveMessage(
       representativeId,
       lastChannel: heard.channel,
       lastExternalId: heard.externalId,
+      channelAccountId,
       messageCount: 1,
       ...(!kept && { waitingFrom: 1, waitingSince: now }),
       createdAt: now,
@@ -251,7 +261,11 @@ export async function receiveMessage(
       target: [representativeThread.customerId, representativeThread.representativeId],
       targetWhere: sql`state <> 'closed'`,
       set: {
-        ...(verified && { lastChannel: heard.channel, lastExternalId: heard.externalId }),
+        ...(verified && {
+          lastChannel: heard.channel,
+          lastExternalId: heard.externalId,
+          ...(channelAccountId && { channelAccountId }),
+        }),
         messageCount: sql`${representativeThread.messageCount} + 1`,
         ...(!kept && {
           waitingFrom: sql`coalesce(${representativeThread.waitingFrom}, ${representativeThread.messageCount} + 1)`,
@@ -305,6 +319,17 @@ export async function receiveMessage(
       now,
       releaseId: owner.releaseId,
     });
+  }
+  // Nobody can answer: switched off or with no approved Release. The emergency script, which a Release
+  // that exists sends, says all there is to say. A blocked or opted-out Customer is told nothing, and a
+  // code is answered by the proof flow.
+  if (
+    !kept &&
+    stored === text &&
+    state === "representative" &&
+    (!owner.enabled || !owner.releaseId)
+  ) {
+    await sendUnavailableNotice(services, tx, { threadId, heard, verified, now });
   }
   // Position 1 is a thread's first message: it has just been opened.
   return { threadId, turnId, waitingSince, kept, state, opened: position === 1 };

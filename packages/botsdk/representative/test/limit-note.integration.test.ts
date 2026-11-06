@@ -28,6 +28,7 @@ import {
 } from "../src/server/db/schema";
 import { limitCheckJobName, limitNote, reachLimit } from "../src/server/limits";
 import { representativeFeature } from "../src/server/plugin";
+import { unavailableNotice } from "../src/server/unavailable-notice";
 
 /*
  * A Representative at a limit (ticket #1309), through the real Turn path: a fake Model on the Host's
@@ -551,8 +552,9 @@ describe("the owner, at a limit", () => {
     await world.rpc.representative.setEnabled({ id: world.id, enabled: true });
     world.lift();
     world.pass(hour);
-    await world.settle(() => world.got().length === 2);
-    expect(world.got()).toEqual([limitNote, "Hello, how can I help?"]);
+    await world.settle(() => world.got().length === 3);
+    // The Customer was told nobody could answer, and a late answer is better than none (ticket #1332).
+    expect(world.got()).toEqual([limitNote, unavailableNotice, "Hello, how can I help?"]);
     const prompt = JSON.stringify(world.entered[0]);
     expect(prompt).toContain("Hello");
     expect(prompt).toContain("Anyone there?");

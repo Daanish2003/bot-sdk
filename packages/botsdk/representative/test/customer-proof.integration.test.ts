@@ -14,6 +14,7 @@ import {
   testCustomerTurn,
   type TestCustomerTurn,
 } from "@ai-chat/test-support/test-customer";
+import { otherSpelling } from "@ai-chat/test-support/signatures";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
@@ -403,6 +404,19 @@ describe("what a code allows", () => {
     await blocker;
 
     expect(await asked).toBeNull();
+  });
+
+  it("passes only the stored hash as it was written, not another spelling of its bytes", async () => {
+    const { deps, id, user, code } = await codeSent([quiet()]);
+    const [row] = await getTestDb().select().from(representativeVerification);
+    await getTestDb()
+      .update(representativeVerification)
+      .set({ codeHash: otherSpelling(row!.codeHash!) })
+      .where(eq(representativeVerification.id, row!.id));
+
+    await testCustomerTurn(deps, sms(id, code));
+
+    expect((await standingOn(deps, user.id)).verifiedContactAt).toBeNull();
   });
 
   it("stores only a hash of a code", async () => {
@@ -813,9 +827,9 @@ describe("a code to an identity on record, from web chat", () => {
   it("gets through when two senders claim each other at the same moment", async () => {
     const { deps } = await instance([quiet(), quiet()]);
     const { user, id } = await owner(deps);
-    const heard = (externalId: string) => ({ channel: "web", externalId });
-    await testCustomerTurn(deps, { ...web(id, "Hi"), externalId: "session-a" });
-    await testCustomerTurn(deps, { ...web(id, "Hi"), externalId: "session-b" });
+    const heard = (externalId: string) => ({ channel: "chat", externalId });
+    await testCustomerTurn(deps, { ...web(id, "Hi"), channel: "chat", externalId: "session-a" });
+    await testCustomerTurn(deps, { ...web(id, "Hi"), channel: "chat", externalId: "session-b" });
     const customers = await customersOf(deps, user.id);
     const threadOf = (externalId: string) =>
       customers.find((customer) =>
@@ -1245,6 +1259,18 @@ describe("a signed link on email", () => {
 
     expect((await post(deps, token)).status).toBe(200);
     expect(await verifiedAt(deps, user.id)).not.toBeNull();
+  });
+
+  it("refuses another spelling of a link's signature, and the link itself still works", async () => {
+    const { deps, user, token } = await linkSent();
+    const [id, signature] = token.split(".") as [string, string];
+
+    for (const spelling of [otherSpelling(signature), `${signature}!`, `${signature}=`]) {
+      expect((await post(deps, `${id}.${spelling}`)).status).toBe(410);
+    }
+    expect(await verifiedAt(deps, user.id)).toBeNull();
+
+    expect((await post(deps, token)).status).toBe(200);
   });
 
   it("verifies once", async () => {

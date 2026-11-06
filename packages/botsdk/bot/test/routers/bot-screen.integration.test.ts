@@ -13,6 +13,7 @@ import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter
 import { fakeNovnc } from "@ai-chat/test-support/fake-novnc";
 import { chatRpc, createTestChat } from "@ai-chat/test-support/sdk";
 import { createScreenSocketOver } from "../../src/over";
+import { otherSpelling } from "@ai-chat/test-support/signatures";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { fakeComputerProvider, type FakeCommandRun } from "@botsdk/testing/fake-computer-provider";
@@ -680,12 +681,13 @@ describe("the live view's proxy", () => {
       await handler(pageRequest("/api/chat/screens/vnc.html")),
       await handler(pageRequest(url.replace(token, "not-a-token"))),
       await handler(pageRequest(url.replace(token, forged))),
+      await handler(pageRequest(url.replace(token, otherSpelling(token)))),
     ];
     // Ten minutes on, the link has expired.
     offset.ms = 11 * minuteMs;
     refused.push(await handler(pageRequest(url)));
 
-    expect(refused.map((response) => response.status)).toEqual([403, 403, 403, 403]);
+    expect(refused.map((response) => response.status)).toEqual([403, 403, 403, 403, 403]);
     await expect(screenSocketOf(deps).upgrade(socketRequest(url))).rejects.toMatchObject({
       status: 403,
     });

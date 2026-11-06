@@ -709,6 +709,13 @@ CREATE INDEX "page_user_id_created_at_idx" ON "botsdk"."page" ("user_id","create
 insert into botsdk.__migrations (feature, migration) values ('core', '20261104135900_pages');
 commit;
 
+-- core/20261105120135_channel_account_optional_bot
+begin;
+ALTER TABLE "botsdk"."channel_account" ALTER COLUMN "bot_id" DROP NOT NULL;
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261105120135_channel_account_optional_bot');
+commit;
+
 -- notes/0001_note
 begin;
 create table botsdk.test_note (id text primary key, bot_id uuid references botsdk.bot(id) on delete cascade)

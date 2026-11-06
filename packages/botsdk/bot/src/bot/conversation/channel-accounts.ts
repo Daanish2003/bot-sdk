@@ -1,5 +1,5 @@
 import type { ChannelAccountRow } from "@botsdk/client/bot/channel-account";
-import { and, asc, eq, gt, inArray } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull } from "drizzle-orm";
 
 import {
   decryptCredentials,
@@ -13,21 +13,28 @@ import { uuidv7 } from "../../lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { rpcError } from "../../rpc-error";
 import { bot, channelAccount } from "../../storage";
-import type { MessagingAccount, MessagingAdapter } from "../../channel/internal";
+import type { HeldAccountInput, MessagingAccount, MessagingAdapter } from "../../channel/internal";
 import { findBot } from "./store";
 
 /*
- * The Channel accounts of the Bots (spec #1044, ADR 0033): one per Bot and messaging platform, its
- * credentials encrypted under the keyring with a key of their own kind.
+ * The Channel accounts (spec #1044, ADR 0033), each held by one Bot, one per Bot and messaging
+ * platform, or by one holder a feature keeps in its own table (ticket #1331), its credentials encrypted
+ * under the keyring with a key of their own kind.
  */
 
 type AccountRow = typeof channelAccount.$inferSelect;
 
-/** The keyring options of an account's credentials, bound to its Bot and platform. */
-const encryption = (sdk: BotSdkContext, botId: string, platform: string) => ({
+/** What binds an account's credentials: its platform and Bot, or, held by a feature, its own id. */
+type AccountKey = Pick<AccountRow, "id" | "botId" | "platform">;
+
+/**
+ * The keyring options of an account's credentials. A held account binds to its own id, as the core
+ * can't read who a feature's holder is.
+ */
+const encryption = (sdk: BotSdkContext, { id, botId, platform }: AccountKey) => ({
   secrets: sdk.keyring,
   kind: "channel" as const,
-  context: `${botId}:${platform}`,
+  context: `${botId ?? id}:${platform}`,
 });
 
 /** The messaging adapter of `platform`, or NOT_FOUND. */
@@ -91,13 +98,138 @@ const takenError = () =>
   rpcError(
     "CONFLICT",
     "error.channelAccountTaken",
-    "That platform bot is already connected to someone else's Bot",
+    "That platform bot is already connected to someone else",
   );
+
+/** Only the fields `adapter` takes, each given, once the platform accepts them; else BAD_REQUEST. */
+async function acceptedCredentials(
+  sdk: BotSdkContext,
+  adapter: MessagingAdapter,
+  given: Record<string, string>,
+) {
+  const rejected = () =>
+    rpcError(
+      "BAD_REQUEST",
+      "error.channelCredentialsRejected",
+      "The platform rejected these credentials",
+    );
+  const credentials: Record<string, string> = {};
+  for (const field of adapter.credentialFields) {
+    const value = given[field]?.trim();
+    if (!value) throw rejected();
+    credentials[field] = value;
+  }
+  const checked = await adapter.check(credentials, { fetch: sdk.fetch });
+  if ("rejected" in checked) throw rejected();
+  return { credentials, checked };
+}
+
+/** The enabled feature holding account `id`, and the user it names, or null when none does. */
+async function holderOf(sdk: BotSdkContext, tx: Transaction, id: string) {
+  for (const enabled of sdk.parts.features) {
+    const userId = await enabled.feature.channelAccountOwner?.(tx, id, enabled.context);
+    if (userId) return { enabled, userId };
+  }
+  return null;
+}
+
+/** The enabled feature holding account `id`, or null when none does. */
+export async function featureHolding(sdk: BotSdkContext, id: string) {
+  const holder = await sdk.db.transaction((tx) => holderOf(sdk, tx, id));
+  return holder?.enabled ?? null;
+}
+
+/** Whether an account's messages have someone to reach: its Bot, or an enabled feature's holder. */
+export async function hasHolder(
+  sdk: BotSdkContext,
+  { id, botId }: Pick<AccountRow, "id" | "botId">,
+): Promise<boolean> {
+  return botId !== null || (await featureHolding(sdk, id)) !== null;
+}
+
+/**
+ * The account already on this platform bot, locked, and the user whose it is: a Bot's user, or the
+ * one the feature holding it names. No enabled feature naming one leaves `userId` null.
+ */
+async function accountOfPlatformBot(
+  sdk: BotSdkContext,
+  tx: Transaction,
+  platform: string,
+  platformBotId: string,
+) {
+  const [found] = await tx
+    .select({ id: channelAccount.id, botId: channelAccount.botId, userId: bot.userId })
+    .from(channelAccount)
+    .leftJoin(bot, eq(bot.id, channelAccount.botId))
+    .where(
+      and(eq(channelAccount.platform, platform), eq(channelAccount.platformBotId, platformBotId)),
+    )
+    .for("update", { of: channelAccount });
+  if (!found) return undefined;
+  if (found.userId !== null) return found;
+  const holder = await holderOf(sdk, tx, found.id);
+  return { ...found, userId: holder?.userId ?? null };
+}
+
+/**
+ * Writes the account at `key`, active, with `credentials` encrypted. A Bot's existing account on the
+ * platform takes the new platform bot; a held one keeps its own row and id, which its credentials bind to.
+ */
+async function writeAccount(
+  sdk: BotSdkContext,
+  tx: Transaction,
+  key: AccountKey,
+  checked: { platformBotId: string; handle: string },
+  credentials: Record<string, string>,
+) {
+  const now = sdk.clock();
+  const encrypted = encryptCredentials(credentials, encryption(sdk, key));
+  const [saved] = await tx
+    .insert(channelAccount)
+    .values({
+      ...key,
+      platformBotId: checked.platformBotId,
+      handle: checked.handle,
+      encrypted,
+      status: "active",
+      reason: null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: key.botId ? [channelAccount.botId, channelAccount.platform] : channelAccount.id,
+      set: {
+        platformBotId: checked.platformBotId,
+        handle: checked.handle,
+        encrypted,
+        status: "active",
+        reason: null,
+        updatedAt: now,
+      },
+    })
+    .returning();
+  return saved!;
+}
+
+/**
+ * Runs `write`, once more on a clash: a save of the same platform bot raced it, and the row that
+ * save wrote is there to move or refuse.
+ */
+async function retryingClash<T>(write: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await write();
+    } catch (error) {
+      if (!isUniqueViolation(error, "channel_account_platform_bot_unique")) throw error;
+      if (attempt === 2) throw takenError();
+    }
+  }
+}
 
 /**
  * Adds or fixes the Bot's Channel account on `platform` once the platform accepts `credentials`.
- * A platform bot on another of the user's Bots moves here. Returns the platform's row and the ids
- * of the accounts whose listeners must change (this one, and the one it moved from).
+ * A platform bot on another of the user's Bots, or a holder of a feature's, moves here. Returns the
+ * platform's row and the ids of the accounts whose listeners must change (this one, and the one it moved from).
  */
 export async function saveChannelAccount(
   sdk: BotSdkContext,
@@ -111,83 +243,77 @@ export async function saveChannelAccount(
 ): Promise<{ row: ChannelAccountRow; changed: string[] }> {
   await ownBot(sdk, adapters, userId, botId);
   const adapter = adapterOf(adapters, platform);
-  const rejected = () =>
-    rpcError(
-      "BAD_REQUEST",
-      "error.channelCredentialsRejected",
-      "The platform rejected these credentials",
-    );
-  // Only the fields the platform takes, each given.
-  const credentials: Record<string, string> = {};
-  for (const field of adapter.credentialFields) {
-    const value = given[field]?.trim();
-    if (!value) throw rejected();
-    credentials[field] = value;
-  }
-  const checked = await adapter.check(credentials, { fetch: sdk.fetch });
-  if ("rejected" in checked) throw rejected();
-
-  const encrypted = encryptCredentials(credentials, encryption(sdk, botId, platform));
-  const now = sdk.clock();
-  const write = () =>
+  const { credentials, checked } = await acceptedCredentials(sdk, adapter, given);
+  return retryingClash(() =>
     sdk.db.transaction(async (tx) => {
       const changed: string[] = [];
-      const [elsewhere] = await tx
-        .select({ id: channelAccount.id, botId: channelAccount.botId, userId: bot.userId })
-        .from(channelAccount)
-        .innerJoin(bot, eq(bot.id, channelAccount.botId))
-        .where(
-          and(
-            eq(channelAccount.platform, platform),
-            eq(channelAccount.platformBotId, checked.platformBotId),
-          ),
-        )
-        .for("update");
+      const elsewhere = await accountOfPlatformBot(sdk, tx, platform, checked.platformBotId);
       if (elsewhere && elsewhere.botId !== botId) {
         if (elsewhere.userId !== userId) throw takenError();
-        // A platform bot is on one Bot only: it moves to this one.
+        // A platform bot is on one holder only: it moves to this Bot.
         await tx.delete(channelAccount).where(eq(channelAccount.id, elsewhere.id));
         changed.push(elsewhere.id);
       }
-      const [saved] = await tx
-        .insert(channelAccount)
-        .values({
-          id: uuidv7(),
-          botId,
-          platform,
-          platformBotId: checked.platformBotId,
-          handle: checked.handle,
-          encrypted,
-          status: "active",
-          reason: null,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: [channelAccount.botId, channelAccount.platform],
-          set: {
-            platformBotId: checked.platformBotId,
-            handle: checked.handle,
-            encrypted,
-            status: "active",
-            reason: null,
-            updatedAt: now,
-          },
-        })
-        .returning();
-      changed.push(saved!.id);
+      const saved = await writeAccount(
+        sdk,
+        tx,
+        { id: uuidv7(), botId, platform },
+        checked,
+        credentials,
+      );
+      changed.push(saved.id);
       return { row: rowOf(adapter, saved), changed };
-    });
-  // A clash means a save of the same platform bot raced this one: once more, the row it wrote is
-  // there to move or refuse.
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await write();
-    } catch (error) {
-      if (!isUniqueViolation(error, "channel_account_platform_bot_unique")) throw error;
-      if (attempt === 2) throw takenError();
-    }
-  }
+    }),
+  );
+}
+
+/**
+ * Adds or fixes a Channel account a feature holds, once the platform accepts `credentials`, with no
+ * Bot. `hold` records the feature's holder in the same transaction. A platform bot the user has on a
+ * Bot moves here; one the user's feature already holds keeps its row, for `hold` to keep or move; one
+ * of another user's is refused. Returns the row and the ids of the accounts whose listeners must change.
+ */
+export async function saveHeldChannelAccount(
+  sdk: BotSdkContext,
+  adapters: readonly MessagingAdapter[],
+  { userId, platform, credentials: given, lock, hold }: HeldAccountInput,
+): Promise<{ row: ChannelAccountRow; changed: string[] }> {
+  const adapter = adapterOf(adapters, platform);
+  const { credentials, checked } = await acceptedCredentials(sdk, adapter, given);
+  return retryingClash(() =>
+    sdk.db.transaction(async (tx) => {
+      await lock(tx);
+      const changed: string[] = [];
+      const elsewhere = await accountOfPlatformBot(sdk, tx, platform, checked.platformBotId);
+      if (elsewhere && elsewhere.userId !== userId) throw takenError();
+      if (elsewhere?.botId) {
+        await tx.delete(channelAccount).where(eq(channelAccount.id, elsewhere.id));
+        changed.push(elsewhere.id);
+      }
+      const id = elsewhere && !elsewhere.botId ? elsewhere.id : uuidv7();
+      const saved = await writeAccount(
+        sdk,
+        tx,
+        { id, botId: null, platform },
+        checked,
+        credentials,
+      );
+      await hold(tx, id);
+      changed.push(id);
+      return { row: rowOf(adapter, saved), changed };
+    }),
+  );
+}
+
+/** Deletes the accounts `ids` a feature holds, in the caller's transaction. A Bot's stay. */
+export async function removeHeldChannelAccounts(
+  tx: Transaction,
+  ids: readonly string[],
+): Promise<void> {
+  if (ids.length === 0) return;
+  await tx
+    .delete(channelAccount)
+    .where(and(inArray(channelAccount.id, [...ids]), isNull(channelAccount.botId)));
 }
 
 /** Removes the Bot's Channel account on `platform`; the ids of the accounts removed. */
@@ -240,7 +366,7 @@ export async function channelAccountIdsOf(
 export async function listenerAccount(sdk: BotSdkContext, id: string) {
   const [row] = await sdk.db.select().from(channelAccount).where(eq(channelAccount.id, id));
   if (!row) return null;
-  const decrypted = decryptCredentials(row.encrypted, encryption(sdk, row.botId, row.platform));
+  const decrypted = decryptCredentials(row.encrypted, encryption(sdk, row));
   const account: MessagingAccount | null = decrypted.ok
     ? {
         id: row.id,
@@ -252,6 +378,7 @@ export async function listenerAccount(sdk: BotSdkContext, id: string) {
     : null;
   return {
     account,
+    botId: row.botId,
     platform: row.platform,
     status: row.status,
     version: row.encrypted,
@@ -286,7 +413,7 @@ async function rotateOnce(sdk: BotSdkContext, batchSize: number) {
       .orderBy(asc(channelAccount.id))
       .limit(batchSize);
     for (const row of rows) {
-      const options = encryption(sdk, row.botId, row.platform);
+      const options = encryption(sdk, row);
       const decrypted = decryptCredentials(row.encrypted, options);
       if (!decrypted.ok) {
         result.unreadable += 1;

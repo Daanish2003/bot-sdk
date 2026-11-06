@@ -48,7 +48,7 @@ import type { ReviewsApi } from "./bot/reviews-api";
 import type { RulesApi } from "./bot/rules-api";
 import type { NotificationsApi } from "./bot/notifications-api";
 import { type PagesApi, pagesService } from "./bot/pages-api";
-import { channel, createChannels, noChannels } from "./bot/channels";
+import { channel, channelAccountsService, createChannels, noChannels } from "./bot/channels";
 import { hintChanged } from "./bot/conversation";
 import type { ChannelAdapter, ChannelApi } from "./channel/internal";
 import { computerSleepJob, createComputer } from "./computer/internal";
@@ -373,6 +373,9 @@ export function buildBotSdk(
     "releaseApprovals",
     "factApprovals",
     "pages",
+    "channelAccounts",
+    "pubsub",
+    "counters",
     ...(options.computer ? ["computer"] : []),
   ]);
   const ids = new Set<string>();
@@ -419,6 +422,7 @@ export function buildBotSdk(
   const releaseApprovals = releaseApprovalsService(sdk);
   const factApprovals = factApprovalsService(sdk);
   const pages = pagesService(sdk);
+  const channelAccounts = channelAccountsService(sdk);
   const enabled = features.map((feature) =>
     enableFeature(
       sdk,
@@ -429,6 +433,7 @@ export function buildBotSdk(
       releaseApprovals,
       factApprovals,
       pages,
+      channelAccounts,
     ),
   );
   const plugins = [...core, ...enabled.map(featurePlugin)];

@@ -28,6 +28,7 @@
     "./sdk": "./src/sdk.ts",
     "./setup": "./src/setup.ts",
     "./test-database": "./src/test-database.ts",
+    "./signatures": "./src/signatures.ts",
     "./test-customer": "./src/test-customer.ts",
     "./users": "./src/users.ts"
   },

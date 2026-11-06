@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { claimJob, inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { batchLongestMs } from "@botsdk/bot/bot/triggers";
-import { botAssignment, job, usage } from "@botsdk/bot/storage";
+import { botAssignment, channelAccount, job, usage } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
@@ -38,6 +38,7 @@ import {
   representativeHandOff,
   representativeProfileValue,
   representativeThread,
+  representativeChannelAccount,
   representativeThreadMessage,
   representativeVerification,
 } from "../src/server/db/schema";
@@ -514,10 +515,26 @@ describe("deleting a Customer", () => {
     await settle(threadIdleMs);
     const shared = (await threadsOfCustomers([ada.id])).find((row) => row.state === "closed")!;
     expect(await handOffsAt(bobNumber)).toHaveLength(1);
-    // Where a verified sender would have left it.
+    // Where a verified sender would have left it, on the account they wrote to.
+    const accountId = uuidv7();
+    await getTestDb().transaction(async (tx) => {
+      await tx.insert(channelAccount).values({
+        id: accountId,
+        platform: "sms",
+        platformBotId: "1",
+        handle: "+1",
+        encrypted: "x",
+        status: "active",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      await tx
+        .insert(representativeChannelAccount)
+        .values({ channelAccountId: accountId, representativeId: shared.representativeId });
+    });
     await getTestDb()
       .update(representativeThread)
-      .set({ lastExternalId: bobNumber })
+      .set({ lastExternalId: bobNumber, channelAccountId: accountId })
       .where(eq(representativeThread.id, shared.id));
     const [theirHandOff] = await handOffsAt(bobNumber);
 
@@ -534,10 +551,15 @@ describe("deleting a Customer", () => {
     expect(left.map((row) => row.text)).toEqual(["Ada speaks."]);
     expect(left.map((row) => row.externalId)).toEqual([adaNumber]);
     const [thread] = await getTestDb()
-      .select({ lastExternalId: representativeThread.lastExternalId })
+      .select({
+        lastExternalId: representativeThread.lastExternalId,
+        channelAccountId: representativeThread.channelAccountId,
+      })
       .from(representativeThread)
       .where(eq(representativeThread.id, shared.id));
     expect(thread?.lastExternalId).toBe(adaNumber);
+    // Bob wrote to it, and Ada may never have.
+    expect(thread?.channelAccountId).toBeNull();
     expect(await handOffsAt(bobNumber)).toEqual([]);
     expect(
       await getTestDb()

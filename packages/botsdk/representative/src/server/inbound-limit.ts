@@ -1,4 +1,4 @@
-import { and, count, eq, gt } from "drizzle-orm";
+import { and, desc, eq, gt } from "drizzle-orm";
 
 import type { Transaction } from "@botsdk/bot/plugin";
 import { representative, representativeThread, representativeThreadMessage } from "./db/schema";
@@ -13,16 +13,20 @@ import { representative, representativeThread, representativeThreadMessage } fro
 export const inboundLimit = 60;
 const windowMs = 60 * 60_000;
 
-/** Whether the owner's identity at `heard` has already sent the limit's worth of messages in the last hour. */
+/**
+ * How long until the owner's identity at `heard` is heard again, in milliseconds, when it has already
+ * sent the limit's worth of messages in the last hour; null while it hasn't. It's heard again once the
+ * oldest of its newest `inboundLimit` messages leaves the hour.
+ */
 export async function overInboundLimit(
   tx: Transaction,
   userId: string,
   heard: { channel: string; externalId: string },
   now: Date,
-) {
+): Promise<number | null> {
   const message = representativeThreadMessage;
-  const [row] = await tx
-    .select({ n: count() })
+  const [oldest] = await tx
+    .select({ createdAt: message.createdAt })
     .from(message)
     .innerJoin(representativeThread, eq(representativeThread.id, message.threadId))
     .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
@@ -34,6 +38,9 @@ export async function overInboundLimit(
         eq(message.externalId, heard.externalId),
         gt(message.createdAt, new Date(now.getTime() - windowMs)),
       ),
-    );
-  return row!.n >= inboundLimit;
+    )
+    .orderBy(desc(message.createdAt))
+    .offset(inboundLimit - 1)
+    .limit(1);
+  return oldest ? oldest.createdAt.getTime() + windowMs - now.getTime() : null;
 }

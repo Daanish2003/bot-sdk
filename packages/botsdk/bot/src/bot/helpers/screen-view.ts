@@ -36,7 +36,7 @@ const viewKey = (secret: string) => {
 };
 
 const signature = (secret: string, payload: string) =>
-  createHmac("sha256", viewKey(secret)).update(payload).digest();
+  createHmac("sha256", viewKey(secret)).update(payload).digest("base64url");
 
 /** What holds a Screen: a Computer-use Helper, or a Demonstration (spec #713). */
 export type ScreenHolder = { helperId: string } | { demonstrationId: string };
@@ -55,16 +55,17 @@ function mintViewToken(sdk: BotSdkContext, { holder, userId }: Omit<View, "expir
   const payload = Buffer.from(JSON.stringify({ ...held, u: userId, e: expires })).toString(
     "base64url",
   );
-  return `${payload}.${signature(secret, payload).toString("base64url")}`;
+  return `${payload}.${signature(secret, payload)}`;
 }
 
 /** The view a token names, when any keyring secret signed it and it hasn't expired; else null. */
 function verifyViewToken(sdk: BotSdkContext, token: string): View | null {
   const [payload, signed, ...rest] = token.split(".");
   if (!payload || !signed || rest.length > 0) return null;
-  const given = Buffer.from(signed, "base64url");
+  // Compares the text: decoding it first would let other strings pass as the same bytes.
+  const given = Buffer.from(signed);
   const valid = sdk.keyring.some((secret) => {
-    const expected = signature(secret, payload);
+    const expected = Buffer.from(signature(secret, payload));
     return expected.length === given.length && timingSafeEqual(expected, given);
   });
   if (!valid) return null;

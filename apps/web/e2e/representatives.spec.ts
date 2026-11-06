@@ -105,6 +105,71 @@ test("an owner uploads documents to a draft, sees them in the diff, and the cap 
   await expect(page.locator('[data-document="hours.md"]')).toBeVisible();
 });
 
+test("an owner creates a web chat key, lists its sites, rotates it and disables it", async ({
+  page,
+  request,
+}) => {
+  await signInAsSeededUser(page);
+  await page.goto("/representatives");
+  await page.getByLabel("Name").fill("Widget desk");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(page).toHaveURL(/\/representatives\/[\w-]+$/);
+
+  const section = page.locator("[data-representative-widget-key]");
+  const key = section.getByLabel("Public key");
+  await section.getByRole("button", { name: "Create web chat key" }).click();
+  await expect(key).not.toHaveValue("");
+  const first = await key.inputValue();
+  const startFrom = (origin: string, widgetKey: string) =>
+    request.post(`/api/chat/representative/widget/${widgetKey}/session`, {
+      headers: { origin },
+    });
+
+  // With no site listed, nobody can start a chat.
+  await expect(section.getByText("Live", { exact: true })).toBeVisible();
+  expect((await startFrom("https://shop.example", first)).status()).toBe(403);
+
+  // Something that isn't an origin is refused, and what the owner listed holds after a reload.
+  const sites = section.getByLabel("Allowed sites");
+  await sites.fill("shop.example");
+  await section.getByRole("button", { name: "Save allowed sites" }).click();
+  await expect(page.getByText("isn't a site's origin").first()).toBeVisible();
+  await page.reload();
+  await expect(sites).toHaveValue("");
+  await sites.fill("https://shop.example");
+  await section.getByRole("button", { name: "Save allowed sites" }).click();
+  await expect(page.getByText("Allowed sites saved").first()).toBeVisible();
+  await page.reload();
+  await expect(sites).toHaveValue("https://shop.example");
+  const started = await startFrom("https://shop.example", first);
+  expect(started.status()).toBe(200);
+  expect(started.headers()["access-control-allow-origin"]).toBe("https://shop.example");
+  expect((await startFrom("https://evil.example", first)).status()).toBe(403);
+
+  // Rotating asks first, then ends the old key.
+  await section.getByRole("button", { name: "Rotate key" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(key).toHaveValue(first);
+  await section.getByRole("button", { name: "Rotate key" }).click();
+  await dialog.getByRole("button", { name: "Rotate key" }).click();
+  await expect(key).not.toHaveValue(first);
+  const second = await key.inputValue();
+  expect((await startFrom("https://shop.example", first)).status()).toBe(403);
+  expect((await startFrom("https://shop.example", second)).status()).toBe(200);
+
+  // A disabled key says so, starts nothing, and rotating gives a live one.
+  await section.getByRole("button", { name: "Disable key" }).click();
+  await dialog.getByRole("button", { name: "Disable key" }).click();
+  await expect(section.getByText("Its chats have ended")).toBeVisible();
+  await expect(section.getByRole("button", { name: "Disable key" })).toHaveCount(0);
+  expect((await startFrom("https://shop.example", second)).status()).toBe(403);
+  await section.getByRole("button", { name: "Rotate key" }).click();
+  await dialog.getByRole("button", { name: "Rotate key" }).click();
+  await expect(section.getByText("Live", { exact: true })).toBeVisible();
+  expect((await startFrom("https://shop.example", await key.inputValue())).status()).toBe(200);
+});
+
 test("an owner can't open another owner's Representative", async ({ page, browser }) => {
   await signInAsSeededUser(page);
   await page.goto("/representatives");

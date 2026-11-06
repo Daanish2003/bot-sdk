@@ -13,7 +13,8 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-import { bot, botAssignment, botsdkSchema } from "@botsdk/bot/storage";
+import type { SendProgress } from "@botsdk/bot/channel";
+import { bot, botAssignment, botsdkSchema, channelAccount } from "@botsdk/bot/storage";
 import { defaultSpendingCaps } from "../../shared/contract";
 import type { ChannelProofRule } from "../verification";
 import type { ReplySource, StoredReplyKind } from "../../shared/replies";
@@ -31,6 +32,7 @@ import type {
   TestCheck,
   TestResultStatus,
   TranscriptEntry,
+  WidgetKeyStatus,
 } from "../../shared/contract";
 
 /**
@@ -307,6 +309,29 @@ export type MovedHold = {
 };
 
 /**
+ * A Representative's one public widget key (ticket #1333), which web chat sessions start with. It sits
+ * in a page, so it's no secret; what limits it is its allowed origins. It has no Channel account row,
+ * having no credentials or listener, and its one holder is its Representative.
+ */
+export const representativeWidgetKey = botsdkSchema.table(
+  "representative_widget_key",
+  {
+    representativeId: uuid("representative_id")
+      .primaryKey()
+      .references((): AnyPgColumn => representative.id, { onDelete: "cascade" }),
+    key: text("key").notNull().unique("representative_widget_key_key"),
+    /** Exact origins, as a browser's `Origin` header says them. None allows nobody. */
+    allowedOrigins: jsonb("allowed_origins").$type<string[]>().notNull(),
+    status: text("status").$type<WidgetKeyStatus>().notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    check("representative_widget_key_status", sql`${table.status} in ('live', 'disabled')`),
+  ],
+);
+
+/**
  * One merge of a Customer into another (ticket #1257), kept once undone. The absorbed Customer's row
  * stays, with no identities or threads, so that undoing gives each back to it: `identityIds` and
  * `threadIds` are what moved, and `movedHolds` the holds it moved that haven't been handed back since.
@@ -404,6 +429,10 @@ export const representativeThread = botsdkSchema.table(
     state: text("state").$type<ThreadState>().notNull().default("representative"),
     lastChannel: text("last_channel").notNull(),
     lastExternalId: text("last_external_id").notNull(),
+    /** The held Channel account the Customer last wrote to, which replies go through. */
+    channelAccountId: uuid("channel_account_id").references((): AnyPgColumn => channelAccount.id, {
+      onDelete: "set null",
+    }),
     messageCount: integer("message_count").notNull().default(0),
     turnId: uuid("turn_id"),
     turnFrom: integer("turn_from"),
@@ -420,6 +449,7 @@ export const representativeThread = botsdkSchema.table(
       .where(sql`${table.state} <> 'closed'`),
     index("representative_thread_customer_idx").on(table.customerId),
     index("representative_thread_representative_idx").on(table.representativeId),
+    index("representative_thread_channel_account_idx").on(table.channelAccountId),
   ],
 );
 
@@ -652,7 +682,8 @@ export type OutboundKind =
   | "holding_note"
   | "reply_draft"
   | "emergency_script"
-  | "emergency_script_released";
+  | "emergency_script_released"
+  | "unavailable_notice";
 
 export type GateOutcome = "send" | "hold" | "drop";
 
@@ -681,6 +712,13 @@ export const representativeOutboundDecision = botsdkSchema.table(
     messageId: uuid("message_id").references((): AnyPgColumn => representativeThreadMessage.id, {
       onDelete: "set null",
     }),
+    /**
+     * The account a send used and what it got out: a failed send's `progress`, so its retry sends only
+     * the rest there, or, on web chat, `delivered` once nothing stopped it: the visitor reads only that.
+     */
+    sentOn: jsonb("sent_on").$type<
+      { channelAccountId: string | null } & ({ progress: SendProgress } | { delivered: true })
+    >(),
     createdAt: timestamp("created_at").notNull(),
   },
   (table) => [
@@ -749,4 +787,24 @@ export const representativeTopic = botsdkSchema.table(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [uniqueIndex("representative_topic_name").on(table.userId, sql`lower(${table.name})`)],
+);
+
+/**
+ * A Channel account a Representative holds (ticket #1331, ADR 0033), kept here because a feature adds
+ * no column to a core table. Triggers in this table's migration refuse an account with no holder or
+ * two, so deleting a Representative deletes its accounts first. One Representative holds any number.
+ */
+export const representativeChannelAccount = botsdkSchema.table(
+  "representative_channel_account",
+  {
+    channelAccountId: uuid("channel_account_id")
+      .primaryKey()
+      .references((): AnyPgColumn => channelAccount.id, { onDelete: "cascade" }),
+    representativeId: uuid("representative_id")
+      .notNull()
+      .references((): AnyPgColumn => representative.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    index("representative_channel_account_representative_id_idx").on(table.representativeId),
+  ],
 );

@@ -32,6 +32,7 @@ import {
   topicAddInput,
   topicSetModeInput,
   updateDraftInput,
+  widgetKeySetOriginsInput,
 } from "../shared/contract";
 import { type ConvertDocument, type KnowledgeFiles, knowledgeChoices } from "./documents";
 import { addFact, deleteFact, editFact, listFactLog, listFacts } from "./facts";
@@ -88,6 +89,13 @@ import {
 } from "./reply-drafts";
 import { handBackThread, sendAsOwner, takeOverThread } from "./takeover";
 import { addTopic, listTopics, removeTopic, setTopicMode } from "./topics";
+import {
+  createWidgetKey,
+  disableWidgetKey,
+  getWidgetKey,
+  rotateWidgetKey,
+  setWidgetKeyOrigins,
+} from "./widget-key";
 
 /*
  * The `representative` namespace's domain methods: what a Host calls in-process as
@@ -97,7 +105,9 @@ import { addTopic, listTopics, removeTopic, setTopicMode } from "./topics";
 
 /** The `representative` namespace over the feature's context. */
 export function representativeApi(
-  base: FeatureContext<"assignments" | "factApprovals" | "models" | "releaseApprovals" | "threads">,
+  base: FeatureContext<
+    "assignments" | "factApprovals" | "models" | "pubsub" | "releaseApprovals" | "threads"
+  >,
   convertDocument?: ConvertDocument,
   knowledgeFiles?: KnowledgeFiles,
   customerChannel: CustomerChannel = noCustomerChannel,
@@ -173,6 +183,21 @@ export function representativeApi(
 
     setAssignmentDue: async ({ userId, ...rest }: WithUser<typeof setAssignmentDueInput>) =>
       setAssignmentDue(context, userId, parseInput(setAssignmentDueInput, rest)),
+
+    widgetKeyGet: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      getWidgetKey(context, userId, parseInput(idInput, rest).id),
+
+    widgetKeyCreate: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      createWidgetKey(context, userId, parseInput(idInput, rest).id),
+
+    widgetKeySetOrigins: async ({ userId, ...rest }: WithUser<typeof widgetKeySetOriginsInput>) =>
+      setWidgetKeyOrigins(context, userId, parseInput(widgetKeySetOriginsInput, rest)),
+
+    widgetKeyRotate: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      rotateWidgetKey(context, userId, parseInput(idInput, rest).id),
+
+    widgetKeyDisable: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      disableWidgetKey(context, userId, parseInput(idInput, rest).id),
 
     setBot: async ({ userId, ...rest }: WithUser<typeof setBotInput>) => {
       const { id, botId } = parseInput(setBotInput, rest);

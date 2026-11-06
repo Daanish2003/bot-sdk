@@ -36,6 +36,7 @@ import { grouped } from "./customers";
 import { lastMessageQuery } from "./last-message";
 import { heldWaitingQuery } from "./reply-drafts";
 import { isVerified } from "./verification";
+import { hintVisitor } from "./visitor-hints";
 
 /*
  * What the owner sees and does with their Customers and threads (ticket #1251). Every read and write
@@ -254,7 +255,7 @@ export async function addIdentity(
  * no Turn or word of the owner's treats it as another sender's. What came before stays as it was said.
  */
 export async function updateIdentity(
-  context: Context,
+  context: Context & Pick<FeatureContext<"pubsub">, "logger" | "pubsub">,
   userId: string,
   {
     id,
@@ -263,7 +264,7 @@ export async function updateIdentity(
     externalId,
   }: { id: string; identityId: string; channel: string; externalId: string },
 ) {
-  await context.db.transaction(async (tx) => {
+  const moved = await context.db.transaction(async (tx) => {
     await lockCustomer(tx, userId, id);
     const { channel: oldChannel, externalId: oldExternalId } = representativeCustomerIdentity;
     const sameAddress = sql`${oldChannel} = ${channel} and ${oldExternalId} = ${externalId}`;
@@ -347,7 +348,7 @@ export async function updateIdentity(
         );
       await tx
         .update(representativeThread)
-        .set({ lastChannel: channel, lastExternalId: externalId })
+        .set({ lastChannel: channel, lastExternalId: externalId, channelAccountId: null })
         .where(
           and(
             eq(representativeThread.customerId, id),
@@ -357,7 +358,13 @@ export async function updateIdentity(
           ),
         );
     }
+    return held && !held.same ? held : null;
   });
+  // The session at either address reads a different thread now.
+  if (moved) {
+    hintVisitor(context, moved);
+    hintVisitor(context, { channel, externalId });
+  }
   return readCustomer(context, userId, id);
 }
 

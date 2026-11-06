@@ -776,7 +776,7 @@ describe("a Turn replayed after its owner was deleted", () => {
 });
 
 describe("who can reach a Turn", () => {
-  it("has no way in from the package, the owner's API or a route", () => {
+  it("has no way in from the package or the owner's API, and one route, a web chat visitor's", () => {
     const made = representative();
 
     expect(Object.keys(packageRoot)).toEqual(["representative"]);
@@ -853,15 +853,26 @@ describe("who can reach a Turn", () => {
       "topicRemove",
       "topicSetMode",
       "updateDraft",
+      "widgetKeyCreate",
+      "widgetKeyDisable",
+      "widgetKeyGet",
+      "widgetKeyRotate",
+      "widgetKeySetOrigins",
     ]);
     expect(Object.keys(made.api!({ db: getTestDb() } as never)).sort()).toEqual(
       Object.keys(representativeContract).sort(),
     );
     expect(made.routes ?? []).toEqual([]);
-    // The one thing served with no signed-in user is a signed link's page (#1256): it starts no Turn.
+    // Served with no signed-in user: a signed link's page (#1256), web chat's session start (#1333),
+    // a visitor's send and read (#1336), and their stream (#1339), which only reads. Only send starts
+    // a Turn, as that session's Customer.
     expect((made.publicRoutes ?? []).map((route) => `${route.method} ${route.path}`)).toEqual([
       "GET /representative/verify/:token",
       "POST /representative/verify/:token",
+      "POST /representative/widget/:key/session",
+      "POST /representative/widget/send",
+      "POST /representative/widget/read",
+      "POST /representative/widget/stream",
     ]);
   });
 });

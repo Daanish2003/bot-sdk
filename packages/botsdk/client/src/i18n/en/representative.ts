@@ -48,6 +48,33 @@ export const representativeMessages = {
   "representative.businessTimeZone": "Business time zone",
   "representative.saveQuietHours": "Save quiet hours",
   "representative.quietHoursSaved": "Quiet hours saved",
+  "representative.widgetKey": "Web chat key",
+  "representative.widgetKeyHelp":
+    "The public key a chat widget on your site uses. It isn't a secret, so it can sit in your page. Only the sites you list here can start a chat with it.",
+  "representative.widgetKeyCreate": "Create web chat key",
+  "representative.widgetKeyValue": "Public key",
+  "representative.widgetKeyLive": "Live",
+  "representative.widgetKeyDisabled":
+    "Disabled. Its chats have ended. Rotate the key to get a new one that works.",
+  "representative.widgetKeyOrigins": "Allowed sites",
+  "representative.widgetKeyOriginsHelp":
+    "One origin per line, such as https://www.example.com. With none listed, no site can start a chat. Taking a site off stops new chats, and chats already running go on.",
+  "representative.widgetKeySaveOrigins": "Save allowed sites",
+  "representative.widgetKeyOriginsSaved": "Allowed sites saved",
+  "representative.widgetKeyCancel": "Cancel",
+  "representative.widgetKeyLoadFailed": "The web chat key couldn't be loaded. Try again.",
+  "representative.widgetKeyTooManyOrigins": ({ max }: { max: number }) =>
+    `List at most ${max} sites.`,
+  "representative.widgetKeyOriginInvalid": ({ origin }: { origin: string }) =>
+    `"${origin}" isn't a site's origin. Write it like https://www.example.com, with no path.`,
+  "representative.widgetKeyRotate": "Rotate key",
+  "representative.widgetKeyRotateConfirm":
+    "Rotate this key? All its chats end, and your site needs the new key.",
+  "representative.widgetKeyRotated": "Key rotated",
+  "representative.widgetKeyDisable": "Disable key",
+  "representative.widgetKeyDisableConfirm":
+    "Disable this key? All its chats end, and only rotating gives you a key that works again.",
+  "representative.widgetKeyDisabledToast": "Key disabled",
   "representative.assignmentDue": "Work due time",
   "representative.assignmentDueHelp":
     "How long work it hands to a Bot may run. Past it, you are Paged and the Customer gets one note saying the team is still on it. It counts for hand-offs made after you save.",

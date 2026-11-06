@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import type { BotSdkPlugin, Transaction } from "../plugin";
 import type { EmailChannel, InboundMail } from "./email";
-import type { MessagingAdapter } from "./messaging";
+import type { MessagingAdapter, MessagingReach, SendProgress } from "./messaging";
 import type { WebPushChannel } from "./push";
 
 /**
@@ -62,6 +62,17 @@ export type ChannelAccountsApi = {
   ) => Promise<ChannelAccountRow>;
   /** Removes the Bot's Channel account on `platform` and stops its listener. */
   remove: (input: AccountInput) => Promise<void>;
+};
+
+/** What a feature saves an account it holds with. */
+export type HeldAccountInput = {
+  userId: string;
+  platform: string;
+  credentials: Record<string, string>;
+  /** Locks the feature's holder, first in the save's transaction: before any account's row. */
+  lock: (tx: Transaction) => Promise<void>;
+  /** Records the feature's holder of account `id`, in the save's transaction. */
+  hold: (tx: Transaction, id: string) => Promise<void>;
 };
 
 /**
@@ -129,6 +140,18 @@ export type ChannelApi = {
   pushKey: () => string | null;
   /** The Channel accounts on the messaging Channels (spec #1044). */
   accounts: ChannelAccountsApi;
+  /**
+   * Adds or fixes a Channel account a feature holds, and starts its listener (ticket #1331); a feature
+   * reaches it through its `channelAccounts` service.
+   */
+  saveHeldAccount: (input: HeldAccountInput) => Promise<ChannelAccountRow>;
+  /** Sends `message` through account `id`, which a feature holds. See `ChannelAccountsService`. */
+  sendHeld: (
+    id: string,
+    message: { chatId: string; text: string; resume?: SendProgress },
+  ) => Promise<void>;
+  /** What the messaging adapter of `platform` limits, or undefined when the Host has no such adapter. */
+  reach: (platform: string) => MessagingReach | undefined;
   /** The user's Linked identities on the messaging Channels (spec #1044). */
   identities: LinkedIdentitiesApi;
 };

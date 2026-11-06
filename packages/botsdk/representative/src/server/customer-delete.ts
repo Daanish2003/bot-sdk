@@ -35,6 +35,7 @@ import {
 import { threadExpiryKey } from "./expiry";
 import { customerNotFound } from "./owner-customers";
 import { queueWaitingTurn } from "./thread-turns";
+import { hintVisitor } from "./visitor-hints";
 
 /*
  * Deleting a Customer (ticket #1287, spec #1170, ADR 0035): a hard delete, of them and everyone merged
@@ -46,8 +47,8 @@ import { queueWaitingTurn } from "./thread-turns";
  */
 
 type Context = Pick<
-  FeatureContext<"assignments" | "threads">,
-  "db" | "clock" | "jobs" | "assignments" | "threads"
+  FeatureContext<"assignments" | "pubsub" | "threads">,
+  "db" | "clock" | "jobs" | "assignments" | "logger" | "pubsub" | "threads"
 >;
 
 /**
@@ -231,7 +232,12 @@ async function removeFromOtherThreads(
     if (addresses.some((one) => one.channel === lastChannel && one.externalId === lastExternalId)) {
       await tx
         .update(thread)
-        .set({ lastChannel: newest.channel, lastExternalId: newest.externalId })
+        // Which account that address wrote to isn't kept, so the oldest answers until it writes again.
+        .set({
+          lastChannel: newest.channel,
+          lastExternalId: newest.externalId,
+          channelAccountId: null,
+        })
         .where(eq(thread.id, id));
     }
   }
@@ -372,9 +378,10 @@ export async function deleteCustomer(
       userId,
       ids: assignmentIds,
     });
-    return { assignmentIds, conversationIds };
+    return { assignmentIds, conversationIds, identities };
   });
   context.jobs.wake();
+  for (const identity of done.identities) hintVisitor(context, identity);
   for (const conversationId of done.conversationIds) {
     await context.threads.hintChanged(conversationId);
   }

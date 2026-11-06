@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Web chat example</title>
+  </head>
+  <body>
+    <h1>A shop's page</h1>
+    <p>
+      Open this page with <code>?key=YOUR_PUBLIC_KEY</code>, and <code>&amp;api=URL</code> when the
+      chat's server is on another origin. The chat is in the corner.
+    </p>
+    <!--
+      The page's one line of embed is the script tag below. This page adds it from the query string so
+      one file serves any key; a real page writes its own key into `data-key`. A public key is no secret.
+      This page's origin must be on the key's allowed sites.
+    -->
+    <script>
+      const key = new URLSearchParams(location.search).get("key");
+      const api = new URLSearchParams(location.search).get("api");
+      if (key) {
+        const widget = document.createElement("script");
+        widget.src = "/widget.js";
+        widget.dataset.key = key;
+        if (api) widget.dataset.api = api;
+        document.body.append(widget);
+      }
+    </script>
+  </body>
+</html>

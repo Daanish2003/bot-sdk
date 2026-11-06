@@ -156,3 +156,15 @@ ai-chat/
 ## Better Auth Schema Generation
 
 After changing auth plugins or schema options, run `pnpm run auth:generate` from the project root. The script runs the Better Auth CLI through `varlock run` from the owning app directory, loading the auth instance from `src/services.ts`. Review the schema changes, then use your ORM's migration workflow to apply them.
+
+## Web chat widget
+
+A Representative's web chat goes on any page with one script tag and its public key (the owner creates the key on the Representative's page and lists the sites that may use it). The key is no secret.
+
+```html
+<script src="https://your-host/widget.js" data-key="PUBLIC_KEY" defer></script>
+```
+
+The widget talks to `/api/chat` on the script's own origin. Add `data-api="https://your-host/api/chat"` when the SDK is mounted elsewhere. A visitor needs no account, keeps the thread on reload, sees replies as they arrive, and is told when the session has ended. Everything the widget shows is set as text, never as HTML.
+
+`apps/web/public/widget-example.html` is a page that uses it: open it with `?key=PUBLIC_KEY`, plus `&api=https://your-host/api/chat` when it is served from another origin. The page's origin must be on the key's allowed sites.
