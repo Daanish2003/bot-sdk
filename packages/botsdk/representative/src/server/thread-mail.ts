@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
@@ -20,8 +20,9 @@ export function messageIdsOf(header: string | undefined): string[] {
 
 /** `ids` after the stored `chain`, with any already there left where they were. */
 function joined(chain: readonly string[], ids: readonly string[]): string[] {
-  const seen = new Set(chain);
-  return [...chain, ...ids.filter((id) => !seen.has(id) && seen.add(id))].slice(-chainLimit);
+  // An id met again moves to its newest place, so the last is always the newest mail.
+  const fresh = new Set(ids);
+  return [...chain.filter((id) => !fresh.has(id)), ...fresh].slice(-chainLimit);
 }
 
 /** Adds `ids` to the thread's chain under its row's lock, and sets `subject` when given. */
@@ -78,7 +79,8 @@ export async function threadMailOf(
         eq(representativeThread.lastExternalId, externalId),
       ),
     )
-    .orderBy(desc(representativeThread.updatedAt))
+    // The open thread first: a reply answers the conversation the Customer is in.
+    .orderBy(sql`${representativeThread.state} = 'closed'`, desc(representativeThread.updatedAt))
     .limit(1);
   return row ?? null;
 }

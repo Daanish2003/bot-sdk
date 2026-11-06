@@ -394,6 +394,19 @@ describe("a Representative's reply to an email Customer", () => {
     expect(await customerMessagesOf(id)).toHaveLength(2);
   });
 
+  it("is still sent when the Customer's mail names hundreds of earlier mails", async () => {
+    const { rpc, id, email, deliver, turnRuns } = await world({ replying: true });
+    const { address } = (await rpc.representative.emailAddressGet({ id }))!;
+    const many = Array.from({ length: 300 }, (_, index) => `<m${index}@mail.example>`);
+
+    await deliver(address, { headers: { References: many.join(" ") } });
+    await turnRuns(2);
+    await expect.poll(() => email.sent.length, poll).toBe(1);
+
+    expect(email.sent[0]!.references).toHaveLength(50);
+    expect(email.sent[0]!.references!.at(-1)).toBe("<first@mail.example>");
+  });
+
   it("declares that email can start a conversation and has no reply window", async () => {
     const { deps } = await world();
 
