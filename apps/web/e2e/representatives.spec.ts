@@ -170,6 +170,41 @@ test("an owner creates a web chat key, lists its sites, rotates it and disables 
   expect((await startFrom("https://shop.example", await key.inputValue())).status()).toBe(200);
 });
 
+test("an owner sees, copies and rotates a Representative's email address", async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await signInAsSeededUser(page);
+  await page.goto("/representatives");
+  await page.getByLabel("Name").fill("Mail desk");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(page).toHaveURL(/\/representatives\/[\w-]+$/);
+
+  const section = page.locator("[data-representative-email-address]");
+  const address = section.getByLabel("Email address");
+  await expect(address).toHaveValue(/^mail-desk\.[a-z0-9]{8}@/);
+  const first = await address.inputValue();
+  await page.reload();
+  await expect(address).toHaveValue(first);
+
+  await section.getByRole("button", { name: "Copy address" }).click();
+  await expect(page.getByText("Address copied").first()).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(first);
+
+  // Rotating asks first, and the new address stays.
+  await section.getByRole("button", { name: "Rotate address" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(address).toHaveValue(first);
+  await section.getByRole("button", { name: "Rotate address" }).click();
+  await dialog.getByRole("button", { name: "Rotate address" }).click();
+  await expect(address).not.toHaveValue(first);
+  const second = await address.inputValue();
+  await page.reload();
+  await expect(address).toHaveValue(second);
+});
+
 test("an owner can't open another owner's Representative", async ({ page, browser }) => {
   await signInAsSeededUser(page);
   await page.goto("/representatives");
