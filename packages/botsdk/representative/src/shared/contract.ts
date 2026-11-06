@@ -337,7 +337,7 @@ export type DraftDiff = {
 };
 
 /** How an identity opted out of hearing from the business: a Channel's keyword, or a Representative's flag. */
-export type OptOutSource = "keyword" | "representative";
+export type OptOutSource = "keyword" | "representative" | "link";
 
 /** One way of reaching a Customer: a Channel, that Channel's id for them, whether it is verified now, and whether they opted out of it. */
 export type CustomerIdentityView = {

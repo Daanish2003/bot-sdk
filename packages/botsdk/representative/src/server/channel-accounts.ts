@@ -79,7 +79,7 @@ export async function listChannelAccounts(
  * through the Representative's account on the Channel, and the gate reads that adapter's limits.
  * Proofs go nowhere until SMS (#1174) and email (#1176) word them.
  */
-export const heldAccountChannel: ChannelOf = ({ db, channelAccounts }) => ({
+export const heldAccountChannel: ChannelOf = ({ db, keyring, channelAccounts }) => ({
   reach: (channel) => channelAccounts.reach(channel),
   send: async (
     { channel, externalId },
@@ -87,7 +87,7 @@ export const heldAccountChannel: ChannelOf = ({ db, channelAccounts }) => ({
     { representativeId, channelAccountId, resume },
   ) => {
     if (channel === customerEmailChannel) {
-      return sendEmail({ db, channelAccounts }, { representativeId, externalId, text });
+      return sendEmail({ db, keyring, channelAccounts }, { representativeId, externalId, text });
     }
     const accounts = await db
       .select({ id: channelAccount.id })
