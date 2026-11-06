@@ -56,7 +56,7 @@ async function world({
   // A replying Representative answers each Customer message, then stops.
   const fake = createFakeAdapter({
     rounds: verifying
-      ? [round(toolCall({ name: "verify_customer", input: {}, id: "verify" })), round()]
+      ? [round(toolCall({ name: "verify_customer", input: {}, id: "verify" })), round(), round()]
       : replying
         ? [answers(), round(), answers(), round(), answers(), round()]
         : [round(), round(), round()],
@@ -509,9 +509,20 @@ describe("a signed link to an email Customer", () => {
     )[0]!.at;
 
   /** An unverified sender's mail, the Turn it starts, and the mail the Representative sends back. */
-  async function asked() {
+  async function asked({ memory = false } = {}) {
     const w = await world({ verifying: true });
     const address = (await w.rpc.representative.emailAddressGet({ id: w.id }))!.address;
+    if (memory) {
+      const customer = await w.rpc.representative.customerCreate({
+        channel: "email",
+        externalId: sender,
+      });
+      await w.rpc.representative.customerProfileSet({
+        id: customer.id,
+        field: "address",
+        value: "12 Mill Lane",
+      });
+    }
     await w.deliver(address, {
       authentication: { spf: "none", dkim: "none", dmarc: "none", dmarcPolicy: "none" },
     });
@@ -533,6 +544,21 @@ describe("a signed link to an email Customer", () => {
 
     expect((await chat.fetch(new Request(url, { method: "POST" }))).status).toBe(200);
     expect(await verifiedAt(user.id)).not.toBeNull();
+  });
+
+  it("gives the Customer's memory only after the link is used", async () => {
+    const w = await asked({ memory: true });
+    const url = linkOf(w.mail.text);
+    // The first Turn, before the link: memory stays out of its prompt.
+    expect(w.fake.calls.map(promptOf).join()).not.toContain("12 Mill Lane");
+
+    const chat = createTestChat({ deps: w.deps });
+    expect((await chat.fetch(new Request(url, { method: "POST" }))).status).toBe(200);
+    await w.deliver(w.address, { messageId: "<second@mail.example>", text: "And Monday?" });
+    await w.turnRuns(3);
+
+    expect(promptOf(w.fake.calls[2])).toContain("And Monday?");
+    expect(promptOf(w.fake.calls[2])).toContain("12 Mill Lane");
   });
 
   it("works once", async () => {
