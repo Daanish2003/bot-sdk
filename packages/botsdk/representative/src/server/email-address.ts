@@ -1,10 +1,12 @@
 import { eq, inArray } from "drizzle-orm";
 
-import { newEmailAddress } from "@botsdk/bot/channel/internal";
+import { namedAddress, newEmailAddress, replySubject } from "@botsdk/bot/channel/internal";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { FeatureContext, StrangerEmail } from "@botsdk/bot/feature";
 import { maxThreadMessageLength, type EmailAddressView } from "../shared/contract";
-import { representativeEmailAddress } from "./db/schema";
+import { representative, representativeEmailAddress } from "./db/schema";
 import { ownedRow } from "./representatives";
+import { keepSentMail, messageIdsOf, threadMailOf } from "./thread-mail";
 import { receiveCustomerMessage } from "./thread-turns";
 
 /*
@@ -73,6 +75,14 @@ export async function rotateEmailAddress(
   });
 }
 
+/** The Message-IDs a mail answers: its References, else its In-Reply-To (headers are case-insensitive). */
+function referencesOf(headers: Record<string, string>): string[] {
+  const named = (name: string) =>
+    Object.entries(headers).find(([key]) => key.toLowerCase() === name)?.[1];
+  const references = messageIdsOf(named("references"));
+  return references.length > 0 ? references : messageIdsOf(named("in-reply-to"));
+}
+
 /**
  * Takes a mail the core found no Bot for: false when none of its recipients is a Representative's
  * address. Otherwise its sender is a Customer of that Representative, verified only by a DMARC pass
@@ -104,8 +114,53 @@ export async function receiveEmail(
         policy: mail.dmarc.policy,
       },
       message: mail.text.slice(0, maxThreadMessageLength),
+      mail: {
+        messageId: mail.messageId,
+        subject: mail.subject,
+        references: referencesOf(mail.headers),
+      },
     });
     return true;
   }
   return false;
+}
+
+/**
+ * Emails a reply to the Customer at `externalId` from the Representative's address (ticket #1347), in
+ * the subject thread of their mail: "Re:" its subject, answering their latest mail, with the whole
+ * chain as References. A throw, such as the provider's, is for the runner to retry.
+ */
+export async function sendEmail(
+  { db, channelAccounts }: Pick<Context, "db" | "channelAccounts">,
+  {
+    representativeId,
+    externalId,
+    text,
+  }: { representativeId: string; externalId: string; text: string },
+) {
+  const domain = channelAccounts.emailDomain();
+  const [from] = await db
+    .select({ address: representativeEmailAddress.address, name: representative.name })
+    .from(representativeEmailAddress)
+    .innerJoin(representative, eq(representative.id, representativeEmailAddress.representativeId))
+    .where(eq(representativeEmailAddress.representativeId, representativeId));
+  // Thrown, so the runner retries in case the Host adds the Channel or the owner reads the address.
+  if (domain === null || !from) throw new Error("The Representative has no email address");
+  const thread = await threadMailOf(db, { representativeId, externalId });
+  const messageId = `${uuidv7()}@${domain}`;
+  const last = thread?.messageIds.at(-1);
+  await channelAccounts.sendEmail({
+    from: namedAddress(from.name, from.address),
+    to: externalId,
+    subject: replySubject(thread?.subject ?? "", from.name),
+    text,
+    messageId: `<${messageId}>`,
+    ...(thread &&
+      last && {
+        inReplyTo: `<${last}>`,
+        references: thread.messageIds.map((id) => `<${id}>`),
+      }),
+  });
+  // After the send: a failure here retries the send, which the Customer sees twice, rather than losing the chain.
+  if (thread) await db.transaction((tx) => keepSentMail(tx, thread.threadId, messageId));
 }

@@ -24,6 +24,7 @@ import {
   representativeTurn,
 } from "./db/schema";
 import { queueIdleCheck } from "./idle";
+import { keepThreadMail } from "./thread-mail";
 import { replaceTurnHeld } from "./reply-drafts";
 import { representativeTestKey, testBanned } from "./tests";
 import { waitingAfterAbort } from "./takeover";
@@ -86,6 +87,15 @@ const customerMessage = z.object({
   /** What the Channel's Customer path says of the sender; a Channel with no rule says nothing. */
   proof: channelProof.optional(),
   message: z.string().min(1).max(maxThreadMessageLength).refine(noNul),
+  /** The mail it came as (ticket #1347), which a reply by email answers in the same subject thread. */
+  mail: z
+    .object({
+      messageId: z.string().min(1).max(998).refine(noNul),
+      subject: z.string().max(998).refine(noNul),
+      /** The Message-IDs its References header names, oldest first. */
+      references: z.array(z.string().min(1).max(998).refine(noNul)).max(200),
+    })
+    .optional(),
 });
 export type CustomerMessage = z.infer<typeof customerMessage>;
 
@@ -103,7 +113,7 @@ export async function receiveCustomerMessage(
   services: Services & Pick<FeatureContext<"pages">, "keyring" | "logger" | "pages"> & ViaChannel,
   given: CustomerMessage,
 ) {
-  const { representativeId, channel, externalId, channelAccountId, proof, message } =
+  const { representativeId, channel, externalId, channelAccountId, proof, message, mail } =
     customerMessage.parse(given);
   return services.db.transaction(async (tx) => {
     const now = services.clock();
@@ -122,6 +132,7 @@ export async function receiveCustomerMessage(
       return { jobId: null, limited: true as const, retryAfterMs: received.retryAfterMs };
     }
     const { threadId, turnId, waitingSince, kept, state, opened } = received;
+    if (mail) await keepThreadMail(tx, threadId, mail);
     // With the message, so a thread is never left without its closing job.
     if (opened) await queueIdleCheck(services, tx, threadId, now);
     // Kept for the owner, and nothing more: no model call, no reply and no Assignment.

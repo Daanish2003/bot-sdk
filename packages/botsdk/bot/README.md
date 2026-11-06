@@ -350,6 +350,17 @@ A provider is the seam to a mail service (`EmailProvider`: `parseInbound` and `s
 - `@botsdk/channel-email`: a local Mailpit. Its received-message webhook POSTs to the inbound route, and the provider fetches that mail from Mailpit's REST API, so it refuses a webhook for a message Mailpit doesn't hold. Mailpit gives no SPF, DKIM or DMARC verdict, so the provider vouches for every mail it holds: use it only on a Host that listens on localhost.
 - `fakeEmailProvider` from `@botsdk/testing/fake-channel`: for tests and evals. An inbound request's body is the mail as JSON, with its own `authentication`, and each sent mail is kept in `sent`. It vouches for whatever it is sent, so never mount it on a route others can reach.
 
+### Real sending and receiving: the domain
+
+Mailpit needs no domain. A Host that mails real people sets up the domain it passes as `domain` (spec #1176, ticket #1347); the SDK builds none of it. With your mail service's own values:
+
+- **MX:** point the domain's MX records at the service, so it receives mail for every address on the domain, and set its inbound webhook to `POST <basePath>/channels/email`.
+- **SPF:** a TXT record on the domain that lists the service as an allowed sender (`v=spf1 include:<service's include> ~all`).
+- **DKIM:** the service's DKIM key as the TXT or CNAME records it names, so each mail it sends is signed for your domain.
+- **DMARC:** a TXT record at `_dmarc.<domain>`. Start with `v=DMARC1; p=none; rua=mailto:<you>` to watch reports, then move to `quarantine` or `reject` once SPF and DKIM align.
+
+A Representative's replies go out from its address on this domain, in the Customer's subject thread: a "Re:" subject, `In-Reply-To` the Customer's latest mail, and `References` the whole chain. Without DKIM and SPF for the domain they are likely to land in spam, and the domain's own DMARC policy says nothing of the Customer's: a Customer counts as verified only when their domain publishes an enforcing policy and the mail passes it.
+
 ## Keeping a Bot's thread in sync: `conversations.changes`
 
 Every change to a Bot's thread (a Message, a Turn starting or ending, a Secret, Routine, review, Helper, Check-in or Summary) is written to the Conversation's change log in the same transaction, with a sequence number (ADR 0026). `bots.get` returns the thread with its newest number as `lastSeq`, the cursor. `conversations.changes({ conversationId, since })` (the thread's `conversationId` from `bots.get`) returns the changes after the cursor, oldest first, each with what it points at as it is now, or `{ reload: true }` when the log (the newest 500 per Conversation) no longer holds them all, so the thread must be read afresh with `bots.get`.

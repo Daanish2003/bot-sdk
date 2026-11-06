@@ -10,6 +10,7 @@ import { chatRpc, createTestChat } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round } from "@botsdk/testing/fake-adapter";
+import { answers, promoteAutoTopic } from "@ai-chat/test-support/test-customer";
 import { fakeEmailProvider } from "@botsdk/testing/fake-channel";
 import { and, asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -44,8 +45,16 @@ afterEach(async () => {
 });
 
 /** An instance with the email Channel over the fake provider, and an owner's enabled Representative. */
-async function world({ withEmail = true }: { withEmail?: boolean } = {}) {
-  const fake = createFakeAdapter({ rounds: [round(), round(), round()] });
+async function world({
+  withEmail = true,
+  replying = false,
+}: { withEmail?: boolean; replying?: boolean } = {}) {
+  // A replying Representative answers each Customer message, then stops.
+  const fake = createFakeAdapter({
+    rounds: replying
+      ? [answers(), round(), answers(), round(), answers(), round()]
+      : [round(), round(), round()],
+  });
   const email = fakeEmailProvider();
   const timer = fakeJobClock(at);
   const user = await insertUser();
@@ -78,9 +87,13 @@ async function world({ withEmail = true }: { withEmail?: boolean } = {}) {
   });
   const rpc = chatRpc({ user, deps });
   const { id } = await rpc.representative.create({ name: "Front Désk" });
-  await rpc.representative.updateDraft({ id, draft: { jobText: "Answer questions.", model } });
+  await rpc.representative.updateDraft({
+    id,
+    draft: { jobText: "Answer questions.", model, ...(replying && { tools: ["reply"] }) },
+  });
   await rpc.representative.approve({ id });
   await rpc.representative.setEnabled({ id, enabled: true });
+  if (replying) await promoteAutoTopic(id);
 
   // One instance, as a Host has: it remembers the mail it took lately.
   const chat = createTestChat({ deps });
@@ -327,5 +340,65 @@ describe("a Bot's address, beside a Representative's", () => {
 
     expect(await customerMessagesOf(id)).toHaveLength(1);
     expect(await identitiesOf(user.id)).toEqual([{ channel: "email", externalId: sender }]);
+  });
+});
+
+describe("a Representative's reply to an email Customer", () => {
+  it("goes out by email from the Representative's address in the Customer's subject thread", async () => {
+    const { rpc, id, email, deliver, turnRuns } = await world({ replying: true });
+    const { address } = (await rpc.representative.emailAddressGet({ id }))!;
+
+    await deliver(address, { messageId: "<first@mail.example>", subject: "Opening hours" });
+    await turnRuns(2);
+    await expect.poll(() => email.sent.length, poll).toBe(1);
+
+    expect(email.sent[0]).toMatchObject({
+      from: `"Front Désk" <${address}>`,
+      to: sender,
+      subject: "Re: Opening hours",
+      text: "Noted.",
+      inReplyTo: "<first@mail.example>",
+      references: ["<first@mail.example>"],
+    });
+    expect(email.sent[0]!.messageId).toMatch(/^<[^<>s]+@reps.example>$/);
+  });
+
+  it("carries the full References chain on the next reply, and the Customer's answer lands on the same thread", async () => {
+    const { rpc, id, email, deliver, turnRuns } = await world({ replying: true });
+    const { address } = (await rpc.representative.emailAddressGet({ id }))!;
+
+    await deliver(address, { messageId: "<first@mail.example>", subject: "Opening hours" });
+    await turnRuns(2);
+    await expect.poll(() => email.sent.length, poll).toBe(1);
+    const ours = email.sent[0]!.messageId;
+
+    await deliver(address, {
+      messageId: "<second@mail.example>",
+      subject: "Re: Opening hours",
+      text: "And on Monday?",
+      headers: { "In-Reply-To": ours, References: `<first@mail.example> ${ours}` },
+    });
+    await turnRuns(4);
+    await expect.poll(() => email.sent.length, poll).toBe(2);
+
+    expect(email.sent[1]).toMatchObject({
+      subject: "Re: Opening hours",
+      inReplyTo: "<second@mail.example>",
+      references: ["<first@mail.example>", ours, "<second@mail.example>"],
+    });
+    const threads = await getTestDb()
+      .select({ id: representativeThread.id })
+      .from(representativeThread)
+      .where(eq(representativeThread.representativeId, id));
+    expect(threads).toHaveLength(1);
+    expect(await customerMessagesOf(id)).toHaveLength(2);
+  });
+
+  it("declares that email can start a conversation and has no reply window", async () => {
+    const { deps } = await world();
+
+    expect(deps.channels.reach("email")).toEqual({ canStartConversation: true });
+    // A Channel the Host lacks declares nothing.
+    expect(deps.channels.reach("sms")).toBeUndefined();
   });
 });

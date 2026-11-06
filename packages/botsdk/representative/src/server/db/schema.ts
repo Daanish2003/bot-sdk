@@ -345,6 +345,19 @@ export const representativeEmailAddress = botsdkSchema.table("representative_ema
 });
 
 /**
+ * What a thread's email needs to be answered in the same subject thread (ticket #1347): the subject
+ * of the Customer's latest mail, and the Message-IDs of the mail so far, oldest first, without angle
+ * brackets: the References a reply carries, the last of them its In-Reply-To.
+ */
+export const representativeThreadMail = botsdkSchema.table("representative_thread_mail", {
+  threadId: uuid("thread_id")
+    .primaryKey()
+    .references((): AnyPgColumn => representativeThread.id, { onDelete: "cascade" }),
+  subject: text("subject").notNull(),
+  messageIds: jsonb("message_ids").$type<string[]>().notNull(),
+});
+
+/**
  * One merge of a Customer into another (ticket #1257), kept once undone. The absorbed Customer's row
  * stays, with no identities or threads, so that undoing gives each back to it: `identityIds` and
  * `threadIds` are what moved, and `movedHolds` the holds it moved that haven't been handed back since.

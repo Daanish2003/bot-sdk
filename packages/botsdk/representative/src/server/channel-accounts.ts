@@ -7,6 +7,7 @@ import { channelAccount } from "@botsdk/bot/storage";
 import { MessagingSendError } from "@botsdk/bot/channel";
 import { AccountSendError, type ChannelOf } from "./customer-proof";
 import { representative, representativeChannelAccount } from "./db/schema";
+import { customerEmailChannel, sendEmail } from "./email-address";
 import { requireOwned } from "./representatives";
 
 /*
@@ -85,6 +86,9 @@ export const heldAccountChannel: ChannelOf = ({ db, channelAccounts }) => ({
     { text },
     { representativeId, channelAccountId, resume },
   ) => {
+    if (channel === customerEmailChannel) {
+      return sendEmail({ db, channelAccounts }, { representativeId, externalId, text });
+    }
     const accounts = await db
       .select({ id: channelAccount.id })
       .from(representativeChannelAccount)

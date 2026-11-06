@@ -132,7 +132,12 @@ export function createChannels(sdk: BotSdkContext, options: ChannelOptions): Cha
         throw new PermanentJobError(error.message);
       }
     },
+    sendEmail: async (mail) => {
+      if (!email) throw new PermanentJobError("The channel plugin has no email adapter");
+      await email.provider.send(mail);
+    },
     reach: (platform) => {
+      if (platform === "email") return email ? { canStartConversation: true } : undefined;
       const adapter = messaging.find((candidate) => candidate.id === platform);
       if (!adapter) return undefined;
       const { canStartConversation, replyWindowHours, maxLength } = adapter;
@@ -174,6 +179,8 @@ export type ChannelAccountsService = {
   send: ChannelApi["sendHeld"];
   /** What `platform`'s adapter declares it limits; undefined when the Host has no such adapter. */
   reach: ChannelApi["reach"];
+  /** Sends one mail through the email Channel, from an address the feature gives out (spec #1176). */
+  sendEmail: ChannelApi["sendEmail"];
   /** The domain the email Channel receives mail for, where a feature's addresses go; null without one. */
   emailDomain: () => string | null;
 };
@@ -185,6 +192,7 @@ export const channelAccountsService = (sdk: BotSdkContext): ChannelAccountsServi
   changed: (ids) => accountsChanged(sdk, ids),
   send: (id, message) => sdk.channels.sendHeld(id, message),
   reach: (platform) => sdk.channels.reach(platform),
+  sendEmail: (mail) => sdk.channels.sendEmail(mail),
   emailDomain: () => {
     // `sdk.channels.emailDomain` throws only when the Host gave no email adapter.
     try {
