@@ -10,14 +10,17 @@ import { chatRpc, createTestChat } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round } from "@botsdk/testing/fake-adapter";
-import { answers, promoteAutoTopic } from "@ai-chat/test-support/test-customer";
+import { answers, autoSource, promoteAutoTopic } from "@ai-chat/test-support/test-customer";
 import { fakeEmailProvider } from "@botsdk/testing/fake-channel";
 import { and, asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { representative } from "../src";
+import { heldAccountChannel } from "../src/server/channel-accounts";
+import { storeReply } from "../src/server/customers";
 import {
   representativeCustomerIdentity,
+  representativeOutboundDecision,
   representativeThread,
   representativeThreadMessage,
 } from "../src/server/db/schema";
@@ -118,7 +121,40 @@ async function world({
     await expect.poll(() => fake.calls.length, poll).toBe(calls);
   };
 
-  return { deps, rpc, user, id, fake, email, deliver, turnRuns };
+  /** A reply the business starts on the Customer's thread (so not an answer), as the gate sees it at `now`. */
+  const startReply = async (now: Date) => {
+    const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
+    const [thread] = await getTestDb()
+      .select({ id: representativeThread.id })
+      .from(representativeThread)
+      .where(eq(representativeThread.representativeId, id));
+    return getTestDb().transaction((tx) =>
+      storeReply(
+        { ...feature.context, channel: heldAccountChannel(feature.context) },
+        tx,
+        {
+          threadId: thread!.id,
+          upTo: 1,
+          heard: { channel: "email", externalId: sender },
+          verified: false,
+          businessStarted: true,
+        },
+        { text: "Still here", sources: [autoSource], topic: "general" },
+        "small_talk",
+        now,
+      ),
+    );
+  };
+  const decisions = () =>
+    getTestDb()
+      .select({
+        outcome: representativeOutboundDecision.outcome,
+        rule: representativeOutboundDecision.rule,
+      })
+      .from(representativeOutboundDecision)
+      .orderBy(asc(representativeOutboundDecision.createdAt));
+
+  return { deps, rpc, user, id, fake, email, deliver, turnRuns, startReply, decisions };
 }
 
 /** The Customers' messages on Representative `id`'s threads, oldest first. */
@@ -405,6 +441,43 @@ describe("a Representative's reply to an email Customer", () => {
 
     expect(email.sent[0]!.references).toHaveLength(50);
     expect(email.sent[0]!.references!.at(-1)).toBe("<first@mail.example>");
+  });
+
+  it("holds what the business starts at night, and sends the same by day", async () => {
+    const { rpc, id, email, deliver, turnRuns, startReply, decisions } = await world({
+      replying: true,
+    });
+    const { address } = (await rpc.representative.emailAddressGet({ id }))!;
+    await deliver(address);
+    await turnRuns(2);
+    await expect.poll(() => email.sent.length, poll).toBe(1);
+
+    const held = await startReply(new Date("2026-10-22T23:00:00.000Z"));
+
+    expect(held).toMatchObject({ error: expect.stringContaining("held") });
+    expect(email.sent).toHaveLength(1);
+    expect(await decisions()).toContainEqual({ outcome: "hold", rule: "quietHours" });
+
+    await startReply(new Date("2026-10-22T09:00:00.000Z"));
+    await expect.poll(() => email.sent.length, poll).toBe(2);
+  });
+
+  it("holds the sixth message in a row, by the caps", async () => {
+    const { rpc, id, email, deliver, turnRuns, startReply, decisions } = await world({
+      replying: true,
+    });
+    const { address } = (await rpc.representative.emailAddressGet({ id }))!;
+    await deliver(address);
+    await turnRuns(2);
+    await expect.poll(() => email.sent.length, poll).toBe(1);
+
+    const day = new Date("2026-10-22T09:00:00.000Z");
+    for (let each = 0; each < 4; each += 1) await startReply(day);
+    const sixth = await startReply(day);
+
+    expect(sixth).toMatchObject({ error: expect.stringContaining("held") });
+    await expect.poll(() => email.sent.length, poll).toBe(5);
+    expect(await decisions()).toContainEqual({ outcome: "hold", rule: "caps" });
   });
 
   it("declares that email can start a conversation and has no reply window", async () => {
