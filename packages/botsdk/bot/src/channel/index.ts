@@ -24,7 +24,6 @@ export {
 } from "./messaging";
 export {
   emailChannel,
-  newEmailAddress,
   type AuthVerdict,
   type DmarcPolicy,
   type EmailChannel,

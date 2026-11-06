@@ -27,8 +27,9 @@ import { bareAddress, type EmailChannel, type InboundMail } from "../../channel/
  * (case-insensitive) and the provider's DMARC verdict is a pass. It becomes Trigger
  * `email:<Message-ID>`, carrying a new user Message on channel `email`, so a redelivery makes
  * none. A reply in a Room's thread (spec #1055) goes into that Room instead, routed as a Message
- * the user sent there (`roomOfThread`). A mail to an address no Bot has goes to the features'
- * `onEmail` (spec #1176). Anything else is dropped silently and logged.
+ * the user sent there (`roomOfThread`). A mail that wakes no Bot that way goes to the features'
+ * `onEmail` (spec #1176), which take it when it was sent to one of their addresses too. Anything
+ * else is dropped silently and logged.
  */
 export async function receiveEmail(
   sdk: BotSdkContext,
@@ -66,12 +67,14 @@ async function deliver(
   const text = emailText(mail, channel.domain);
   if (!text) return "no text";
   const owner = await botAt(sdk, mail.to);
-  if (!owner) return toFeature(sdk, mail, messageId, text);
+  // Mail the Bot rule refuses still reaches a feature whose address it was also sent to.
+  const inbound = { mail, messageId, text };
+  if (!owner) return toFeature(sdk, inbound, "no Bot has the address");
   const verified = await verifiedEmail(owner.userId);
   if (!verified || bareAddress(mail.from) !== verified.trim().toLowerCase()) {
-    return "the sender isn't the Bot's user";
+    return toFeature(sdk, inbound, "the sender isn't the Bot's user");
   }
-  if (mail.authentication.dmarc !== "pass") return "no DMARC pass";
+  if (mail.authentication.dmarc !== "pass") return toFeature(sdk, inbound, "no DMARC pass");
   // The Quota and the Ban as for a webhook: read outside the transaction, and the mail is dropped.
   const call = await sdk.models.resolveModelCall(owner.userId, owner.model);
   if (!call) return "the Bot's Model isn't available";
@@ -151,17 +154,17 @@ const recentLimit = 1_000;
 const recentBySdk = new WeakMap<BotSdkContext, Set<string>>();
 
 /**
- * Hands a mail to an address no Bot has to the first enabled feature whose `onEmail` takes it (spec
- * #1176); why it was dropped, or `null` once one took it. A feature's throw is logged and drops it.
+ * Hands a mail that woke no Bot to the first enabled feature whose `onEmail` takes it (spec #1176):
+ * `null` once one took it, else why it was dropped, `otherwise` when no feature holds a recipient. A
+ * feature's throw fails the inbound request, so the provider delivers the mail again.
  */
 async function toFeature(
   sdk: BotSdkContext,
-  mail: InboundMail,
-  messageId: string,
-  text: string,
+  { mail, messageId, text }: { mail: InboundMail; messageId: string; text: string },
+  otherwise: string,
 ): Promise<string | null> {
   const takers = enabledFeatures(sdk).filter(({ feature }) => feature.onEmail);
-  if (takers.length === 0) return "no Bot has the address";
+  if (takers.length === 0) return otherwise;
   let recent = recentBySdk.get(sdk);
   if (!recent) recentBySdk.set(sdk, (recent = new Set()));
   if (recent.has(messageId)) return redelivery;
@@ -177,16 +180,16 @@ async function toFeature(
     headers: mail.headers,
     dmarc: { verdict: mail.authentication.dmarc, policy: mail.authentication.dmarcPolicy },
   };
-  for (const { feature, context } of takers) {
-    try {
+  try {
+    for (const { feature, context } of takers) {
       if (await feature.onEmail!(given, context)) return null;
-    } catch (error) {
-      sdk.logger.error("An inbound email to a feature's address was dropped", error);
-      return null;
     }
+  } catch (error) {
+    recent.delete(messageId);
+    throw error;
   }
   recent.delete(messageId);
-  return "no Bot has the address";
+  return otherwise;
 }
 
 /**

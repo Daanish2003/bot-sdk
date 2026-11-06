@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
-import { newEmailAddress } from "@botsdk/bot/channel";
+import { newEmailAddress } from "@botsdk/bot/channel/internal";
 import type { FeatureContext, StrangerEmail } from "@botsdk/bot/feature";
 import { maxThreadMessageLength, type EmailAddressView } from "../shared/contract";
 import { representativeEmailAddress } from "./db/schema";
@@ -15,7 +15,7 @@ import { receiveCustomerMessage } from "./thread-turns";
  */
 
 /** The Channel a Customer's email comes on. */
-export const emailChannel = "email";
+export const customerEmailChannel = "email";
 
 type Context = Pick<FeatureContext<"channelAccounts">, "db" | "clock" | "channelAccounts">;
 
@@ -82,15 +82,21 @@ export async function receiveEmail(
   services: Parameters<typeof receiveCustomerMessage>[0],
   mail: StrangerEmail,
 ): Promise<boolean> {
+  if (mail.to.length === 0) return false;
+  const rows = await services.db
+    .select({
+      address: representativeEmailAddress.address,
+      representativeId: representativeEmailAddress.representativeId,
+    })
+    .from(representativeEmailAddress)
+    .where(inArray(representativeEmailAddress.address, mail.to));
+  // The first recipient that is a Representative's address decides, as for a Bot's.
   for (const to of mail.to) {
-    const [held] = await services.db
-      .select({ representativeId: representativeEmailAddress.representativeId })
-      .from(representativeEmailAddress)
-      .where(eq(representativeEmailAddress.address, to));
+    const held = rows.find((row) => row.address === to);
     if (!held) continue;
     await receiveCustomerMessage(services, {
       representativeId: held.representativeId,
-      channel: emailChannel,
+      channel: customerEmailChannel,
       externalId: mail.from,
       proof: {
         rule: "dmarc",

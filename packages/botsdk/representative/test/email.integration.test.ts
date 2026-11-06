@@ -315,4 +315,17 @@ describe("a Bot's address, beside a Representative's", () => {
     await deliver(address, { from: ownerEmail, messageId: unique(), text: "From the owner" });
     expect(await triggers()).toEqual([{ channel: "email" }]);
   });
+
+  it("leaves a stranger's mail sent to both to the Representative", async () => {
+    const { deps, rpc, user, id, deliver, turnRuns } = await world();
+    const { id: botId } = await deps.bots.create({ userId: user.id, name: "Ada", model });
+    const bots = (await rpc.channels.email.address({ botId })).address;
+    const { address } = (await rpc.representative.emailAddressGet({ id }))!;
+
+    expect((await deliver(bots, { to: [bots, address] })).status).toBe(202);
+    await turnRuns(1);
+
+    expect(await customerMessagesOf(id)).toHaveLength(1);
+    expect(await identitiesOf(user.id)).toEqual([{ channel: "email", externalId: sender }]);
+  });
 });

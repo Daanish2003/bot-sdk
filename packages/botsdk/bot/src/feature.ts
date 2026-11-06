@@ -147,7 +147,7 @@ export type StrangerMessage = {
 };
 
 /**
- * An inbound email to an address no Bot has, as a feature's `onEmail` gets it (spec #1176). The core
+ * An inbound email that woke no Bot, as a feature's `onEmail` gets it (spec #1176). The core
  * has already dropped a redelivery, an automatic reply, mail from the Channel's own domain, and mail
  * with no Message-ID or no text.
  */
@@ -405,10 +405,10 @@ export type FeatureDefinition<
    */
   onStranger?: (message: StrangerMessage, context: FeatureContext<Needs>) => Promise<void>;
   /**
-   * Takes an inbound email to an address no Bot has (spec #1176): true when one of its recipients is
-   * an address the feature gives out, whatever the feature then made of it, and false to leave it
-   * dropped. Bot addresses come first, and the Bot rule (only the owner's verified email, with a DMARC
-   * pass) never reaches this. A throw is logged and the mail is dropped.
+   * Takes an inbound email that woke no Bot (spec #1176): true when one of its recipients is an
+   * address the feature gives out, whatever the feature then made of it, and false to leave it dropped.
+   * A Bot's address comes first: only mail the Bot rule refuses (anyone but the owner's verified
+   * email, or no DMARC pass) reaches this. A throw fails the inbound request, and the provider retries.
    */
   onEmail?: (mail: StrangerEmail, context: FeatureContext<Needs>) => Promise<boolean>;
   /**
