@@ -77,19 +77,24 @@ async function addressIn(
  */
 async function senderOf({ db, clock, channelAccounts }: MailContext, representativeId: string) {
   const domain = channelAccounts.emailDomain();
-  const sender =
-    domain === null
-      ? null
-      : await db.transaction(async (tx) => {
-          const [row] = await tx
-            .select({ name: representative.name })
-            .from(representative)
-            .where(eq(representative.id, representativeId))
-            .for("key share");
-          if (!row) return null;
-          const address = await addressIn(tx, clock, { representativeId, name: row.name, domain });
-          return { name: row.name, address, domain };
-        });
+  if (domain === null) throw new Error("The Representative has no email address");
+  const [found] = await db
+    .select({ address: representativeEmailAddress.address, name: representative.name })
+    .from(representativeEmailAddress)
+    .innerJoin(representative, eq(representative.id, representativeEmailAddress.representativeId))
+    .where(eq(representativeEmailAddress.representativeId, representativeId));
+  if (found) return { ...found, domain };
+  // Only its first mail makes one, under the Representative's row.
+  const sender = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ name: representative.name })
+      .from(representative)
+      .where(eq(representative.id, representativeId))
+      .for("key share");
+    if (!row) return null;
+    const address = await addressIn(tx, clock, { representativeId, name: row.name, domain });
+    return { name: row.name, address, domain };
+  });
   if (!sender) throw new Error("The Representative has no email address");
   return sender;
 }
@@ -178,7 +183,7 @@ export async function receiveEmail(
     // Taken, so the provider doesn't send it again: the Customer's limit drops it, as for any Channel.
     if (received?.limited) {
       services.logger.error(
-        `Representative ${held.representativeId}: dropped an email from ${mail.from}, over the Customer's inbound limit`,
+        `Representative ${held.representativeId}: dropped an email over the Customer's inbound limit`,
       );
     }
     return true;

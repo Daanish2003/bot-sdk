@@ -84,7 +84,7 @@
     { type: "button", class: "verify", hidden: "" },
     "Verify by email",
   );
-  /** Whether the visitor passed a code, which hides the button until their session ends. */
+  /** Whether the visitor passed a code on this page, which hides the button until their session ends. */
   let verified = false;
   const emailField = element("input", {
     type: "email",
@@ -145,8 +145,10 @@
 
   const end = () => {
     token = null;
-    // A new session is a new, unverified visitor, who may verify again.
+    // A new session is a new, unverified visitor, who may verify again, and sees nothing typed before.
     verified = false;
+    emailField.value = "";
+    codeField.value = "";
     following++;
     if (stream) stream.abort();
     saveToken(null);

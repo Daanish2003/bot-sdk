@@ -359,8 +359,9 @@ export const representativeThreadMail = botsdkSchema.table("representative_threa
 });
 
 /**
- * Each mail a Representative's address took, by Message-ID, so a provider's redelivery, which can
- * come to another process or after a restart, is stored once.
+ * Each mail a Representative's address took, by its Message-ID's SHA-256 (fixed in size, however
+ * long the header), so a provider's redelivery, which can come to another process or after a
+ * restart, is stored once.
  */
 export const representativeInboundMail = botsdkSchema.table(
   "representative_inbound_mail",
@@ -368,12 +369,12 @@ export const representativeInboundMail = botsdkSchema.table(
     representativeId: uuid("representative_id")
       .notNull()
       .references((): AnyPgColumn => representative.id, { onDelete: "cascade" }),
-    messageId: text("message_id").notNull(),
+    messageHash: text("message_hash").notNull(),
   },
   (table) => [
     primaryKey({
       name: "representative_inbound_mail_pkey",
-      columns: [table.representativeId, table.messageId],
+      columns: [table.representativeId, table.messageHash],
     }),
   ],
 );

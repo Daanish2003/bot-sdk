@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "87c21a27-2b80-4084-bbe8-e8157b4e3dbd",
+  "id": "19e65927-b063-4829-b702-0c47c29fe226",
   "prevIds": ["9c77153b-0ac1-47fb-98d8-6be5156974bb"],
   "ddl": [
     {
@@ -1734,7 +1734,7 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "message_id",
+      "name": "message_hash",
       "entityType": "columns",
       "schema": "botsdk",
       "table": "representative_inbound_mail"
@@ -4178,7 +4178,7 @@
       "table": "representative_widget_key"
     },
     {
-      "columns": ["representative_id", "message_id"],
+      "columns": ["representative_id", "message_hash"],
       "nameExplicit": true,
       "name": "representative_inbound_mail_pkey",
       "entityType": "pks",

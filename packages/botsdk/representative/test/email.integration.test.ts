@@ -779,7 +779,7 @@ describe("mail to a Representative's address, again (#1176 review)", () => {
     expect(logged.filter(({ text }) => text.includes(`Representative ${id}`))).toHaveLength(2);
   });
 
-  it("over the Customer's inbound limit is logged with the Representative and the sender", async () => {
+  it("over the Customer's inbound limit is logged with the Representative", async () => {
     const { rpc, id, deliver, logged } = await world();
     const { address } = (await rpc.representative.emailAddressGet({ id }))!;
 
@@ -787,7 +787,9 @@ describe("mail to a Representative's address, again (#1176 review)", () => {
 
     expect(await customerMessagesOf(id)).toHaveLength(60);
     expect(
-      logged.filter(({ text }) => text.includes(`Representative ${id}`) && text.includes(sender)),
+      logged.filter(
+        ({ text }) => text.includes(`Representative ${id}`) && text.includes("inbound limit"),
+      ),
     ).toHaveLength(1);
   });
 });
@@ -847,5 +849,21 @@ describe("a code by email (#1176 review)", () => {
 
     expect(email.sent).toEqual([]);
     expect(logged.filter(({ text }) => text.includes(`Representative ${id}`))).toHaveLength(1);
+  });
+});
+
+describe("a mail with a long Message-ID (#1176 review)", () => {
+  it("is taken, however many bytes its Message-ID holds", async () => {
+    const { rpc, id, deliver, turnRuns } = await world();
+    const { address } = (await rpc.representative.emailAddressGet({ id }))!;
+    // Random CJK characters: three bytes each, and nothing to compress.
+    const local = Array.from({ length: 900 }, () =>
+      String.fromCodePoint(0x4e00 + Math.floor(Math.random() * 0x5000)),
+    ).join("");
+
+    expect((await deliver(address, { messageId: `<${local}@mail.example>` })).status).toBe(202);
+    await turnRuns(1);
+
+    expect(await customerMessagesOf(id)).toHaveLength(1);
   });
 });

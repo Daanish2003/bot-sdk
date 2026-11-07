@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { and, desc, eq, sql } from "drizzle-orm";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
@@ -68,9 +70,9 @@ export async function isNewMail(tx: Transaction, representativeId: string, messa
   if (!held) return true;
   const taken = await tx
     .insert(representativeInboundMail)
-    .values({ representativeId, messageId })
+    .values({ representativeId, messageHash: createHash("sha256").update(messageId).digest("hex") })
     .onConflictDoNothing()
-    .returning({ messageId: representativeInboundMail.messageId });
+    .returning({ messageHash: representativeInboundMail.messageHash });
   return taken.length > 0;
 }
 

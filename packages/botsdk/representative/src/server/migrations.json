@@ -136,7 +136,7 @@
     "sql": "CREATE TABLE \"botsdk\".\"representative_thread_mail\" (\n\t\"thread_id\" uuid PRIMARY KEY,\n\t\"subject\" text NOT NULL,\n\t\"message_ids\" jsonb NOT NULL\n);\n--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_thread_mail\" ADD CONSTRAINT \"representative_thread_mail_bPgeKgiNnvzw_fkey\" FOREIGN KEY (\"thread_id\") REFERENCES \"botsdk\".\"representative_thread\"(\"id\") ON DELETE CASCADE;"
   },
   {
-    "name": "20261107145448_representative_inbound_mail",
-    "sql": "CREATE TABLE \"botsdk\".\"representative_inbound_mail\" (\n\t\"representative_id\" uuid,\n\t\"message_id\" text,\n\tCONSTRAINT \"representative_inbound_mail_pkey\" PRIMARY KEY(\"representative_id\",\"message_id\")\n);\n--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_inbound_mail\" ADD CONSTRAINT \"representative_inbound_mail_yedZzhrabbM3_fkey\" FOREIGN KEY (\"representative_id\") REFERENCES \"botsdk\".\"representative\"(\"id\") ON DELETE CASCADE;"
+    "name": "20261107151824_representative_inbound_mail",
+    "sql": "CREATE TABLE \"botsdk\".\"representative_inbound_mail\" (\n\t\"representative_id\" uuid,\n\t\"message_hash\" text,\n\tCONSTRAINT \"representative_inbound_mail_pkey\" PRIMARY KEY(\"representative_id\",\"message_hash\")\n);\n--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_inbound_mail\" ADD CONSTRAINT \"representative_inbound_mail_yedZzhrabbM3_fkey\" FOREIGN KEY (\"representative_id\") REFERENCES \"botsdk\".\"representative\"(\"id\") ON DELETE CASCADE;"
   }
 ]
