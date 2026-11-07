@@ -786,6 +786,22 @@ export const webChatSendInput = z.strictObject({
   text: storable(z.string().trim().min(1).max(maxThreadMessageLength)),
 });
 
+/** What a web chat visitor gives to have a code sent to an email address on record (ticket #1350). */
+export const webChatCodeRequestInput = z.strictObject({
+  token: z.string(),
+  email: z.string().trim().toLowerCase().max(320).pipe(z.email()),
+});
+
+/** The code a web chat visitor enters: six digits, however they spaced them. */
+export const webChatCodeCheckInput = z.strictObject({
+  token: z.string(),
+  code: z
+    .string()
+    .max(64)
+    .transform((code) => code.replace(/[\s-]/g, ""))
+    .pipe(z.string().regex(/^\d{6}$/)),
+});
+
 /** A message as a web chat visitor reads it: nothing of who wrote it for the business, or why. */
 export type WebChatMessage = { id: string; from: "customer" | "business"; text: string };
 

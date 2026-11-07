@@ -44,6 +44,10 @@ const minute = 60_000;
 const day = 24 * 60 * minute;
 
 const roundTrip = { rule: "codeRoundTrip" } as const;
+/**
+ * The code-to-record rule, on a stand-in Channel ("chat"): a claim in the chat sends the code. Web chat
+ * has the rule too, but its visitors ask in the chat window instead (#1350, web-chat.integration).
+ */
 const toRecord = { rule: "codeToRecord" } as const;
 
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
@@ -529,7 +533,7 @@ describe("what a code allows", () => {
     await rpc.representative.customerCreate({ channel: "email", externalId: "a@example.com" });
     const web: TestCustomerTurn = {
       representativeId: id,
-      channel: "web",
+      channel: "chat",
       externalId: "session-1",
       proof: toRecord,
       message: "I'm a",
@@ -696,10 +700,10 @@ describe("what a code allows", () => {
   });
 });
 
-describe("a code to an identity on record, from web chat", () => {
+describe("a code to an identity on record, claimed in the chat", () => {
   const web = (id: string, message: string): TestCustomerTurn => ({
     representativeId: id,
-    channel: "web",
+    channel: "chat",
     externalId: "session-1",
     proof: toRecord,
     message,
@@ -1054,7 +1058,7 @@ describe("a code to an identity on record, from web chat", () => {
     ]);
     const { id, rpc } = await owner(deps);
     await rpc.representative.customerCreate({ channel: "email", externalId: "a@example.com" });
-    await rpc.representative.customerCreate({ channel: "web", externalId: "session-1" });
+    await rpc.representative.customerCreate({ channel: "chat", externalId: "session-1" });
     await rpc.representative.updateDraft({
       id,
       draft: {
@@ -1172,7 +1176,7 @@ describe("a lapsed identity", () => {
     timer.advance(91 * day);
     await testCustomerTurn(deps, {
       representativeId: id,
-      channel: "web",
+      channel: "chat",
       externalId: "session-1",
       proof: toRecord,
       message: "I'm that Telegram account",

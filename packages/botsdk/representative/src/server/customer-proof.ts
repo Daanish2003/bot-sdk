@@ -14,7 +14,7 @@ import {
   representativeThread,
   representativeVerification,
 } from "./db/schema";
-import { type ChannelProofRule, hasLapsed, proofLastsMs } from "./verification";
+import { type ChannelProofRule, hasLapsed, isVerified, proofLastsMs } from "./verification";
 
 /*
  * A Customer proves who they are with a code or a signed link (ticket #1256). The `verify_customer`
@@ -105,6 +105,14 @@ export const proofAnswer = {
 /** The answers that depend on nothing about the claim, so they tell nobody who is a Customer. */
 export const noProofAnswer = {
   answer: "Who this sender is can't be proved on this Channel, so don't ask them for a code.",
+};
+/**
+ * On web chat the visitor asks for a code in the chat window, by an email address the Model never
+ * sees (ticket #1350), so this answer is the same whoever they are.
+ */
+export const webChatProofAnswer = {
+  answer:
+    'Offer the visitor a code by email: they press "Verify by email" in the chat window and enter an email address on record. If it can receive a code, one is sent there, and they enter it in the chat window. Do not ask for the address or the code here, and do not say whether any address is on record.',
 };
 export const alreadyVerifiedAnswer = {
   answer: "This sender is already verified, so no proof is needed.",
@@ -235,6 +243,7 @@ export async function requestProof(
     claimed,
     now,
     channel,
+    verifiedTargetOnly = false,
   }: {
     keyring: readonly string[];
     userId: string;
@@ -249,6 +258,8 @@ export async function requestProof(
     claimed: { channel: string; externalId: string } | null;
     now: Date;
     channel: Pick<CustomerChannel, "reach">;
+    /** Only an identity the Customer has verified, and that hasn't lapsed, may receive it (#1350). */
+    verifiedTargetOnly?: boolean;
   },
 ): Promise<SentProof | null> {
   if (!proofRule || (verified && !claimed)) return null;
@@ -286,6 +297,7 @@ export async function requestProof(
     found?.id === claim.id &&
     found.id !== sender.id &&
     !hasLapsed(found, now) &&
+    (!verifiedTargetOnly || isVerified(found, now)) &&
     (found.customerId === sender.customerId
       ? !verified
       : !lapsed && !reachesSender && (await isOnlyIdentity(tx, sender.customerId)))
@@ -628,6 +640,67 @@ export async function catchCode(
       and(eq(representativeVerification.id, held.id), isNull(representativeVerification.usedAt)),
     );
   return codeNotes.dead;
+}
+
+/**
+ * Passes a code given apart from any message, as a web chat visitor enters it in the chat window
+ * (ticket #1350): true when it is the sender's live code and proves them, as `catchCode` does for a
+ * code in a message. A wrong one spends one of the code's tries. False for anything else, a code that
+ * went nowhere, expired, was used or has no tries left alike, and for a blocked Customer's, so the
+ * answer tells nobody which. The caller holds the sender's Customer, and the one the code leads to.
+ */
+export async function passCode(
+  tx: Transaction,
+  {
+    services,
+    identityId,
+    customerId,
+    blocked,
+    code,
+    now,
+  }: {
+    services: MergeServices;
+    identityId: string;
+    customerId: string;
+    blocked: boolean;
+    code: string;
+    now: Date;
+  },
+): Promise<boolean> {
+  // The identity before its verification, the order the owner's edit takes them in.
+  await tx
+    .select({ id: representativeCustomerIdentity.id })
+    .from(representativeCustomerIdentity)
+    .where(eq(representativeCustomerIdentity.id, identityId))
+    .for("update");
+  const [newest] = await tx
+    .select()
+    .from(representativeVerification)
+    .where(eq(representativeVerification.senderIdentityId, identityId))
+    .orderBy(desc(representativeVerification.createdAt), desc(representativeVerification.id))
+    .limit(1)
+    .for("update");
+  if (newest?.kind !== "code" || !isLive(newest, now) || blocked) return false;
+  if (!isTheCode(services.keyring, newest.id, code, newest.codeHash)) {
+    await tx
+      .update(representativeVerification)
+      .set({ attempts: newest.attempts + 1 })
+      .where(eq(representativeVerification.id, newest.id));
+    return false;
+  }
+  await tx
+    .update(representativeVerification)
+    .set({ usedAt: now })
+    .where(eq(representativeVerification.id, newest.id));
+  const merged = await mergeIntoTarget(services, tx, {
+    senderId: identityId,
+    customerId,
+    targetId: newest.targetIdentityId,
+    now,
+  });
+  if (!merged) return false;
+  await proved(identityId, now, tx);
+  return true;
 }
 
 /**

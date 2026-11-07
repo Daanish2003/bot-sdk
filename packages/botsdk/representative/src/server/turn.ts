@@ -29,6 +29,8 @@ import {
   proofAnswer,
   requestProof,
   type SentProof,
+  webChatChannel,
+  webChatProofAnswer,
 } from "./customer-proof";
 import { recordMovedHandOff } from "./customer-merge";
 import { memoryPrompt, noMemory, readCustomerMemory, type CustomerMemory } from "./customer-memory";
@@ -915,6 +917,11 @@ export function turnTools(turn: Turn) {
         said.externalId === thread.heard.externalId
           ? null
           : said;
+      // A web chat visitor asks for their code in the chat window, by an address the Model never
+      // sees (ticket #1350): nothing is sent from here.
+      if (thread?.heard.channel === webChatChannel) {
+        return thread.verified && !claimed ? alreadyVerifiedAnswer : webChatProofAnswer;
+      }
       // Set only by a live write, so a replay sends nothing twice.
       let outgoing: SentProof | null = null;
       const answer = await kit.liveActivity("verify_customer", context?.toolCallId, async (tx) => {

@@ -35,6 +35,10 @@ const model = "openai:gpt-6-luna";
 const silent = { error: () => {} };
 const minute = 60_000;
 
+/**
+ * The code-to-record rule, on a stand-in Channel ("chat"): a claim in the chat sends the code. Web chat
+ * has the rule too, but its visitors ask in the chat window instead (#1350, web-chat.integration).
+ */
 const toRecord = { rule: "codeToRecord" } as const;
 const sameIdentity = { rule: "sameIdentity" } as const;
 
@@ -153,7 +157,7 @@ const threadsOf = async (rpc: Rpc, id: string) => rpc.representative.threadList(
 /** Two Customers who have each written to the Representative, so each has an open thread. */
 async function twoWithThreads(deps: TestDeps, rpc: Rpc, id: string) {
   await testCustomerTurn(deps, say(id, "sms", "+15550001", "Ada's secret is the blue door"));
-  await testCustomerTurn(deps, say(id, "web", "session-1", "Bob's secret is the red door"));
+  await testCustomerTurn(deps, say(id, "chat", "session-1", "Bob's secret is the red door"));
   return {
     ada: await customerOf(rpc, "+15550001"),
     bob: await customerOf(rpc, "session-1"),
@@ -181,7 +185,7 @@ describe("an owner merging two Customers", () => {
         how: "owner",
         survivor: { id: ada.id },
         absorbed: { id: bob.id },
-        identities: [{ channel: "web", externalId: "session-1" }],
+        identities: [{ channel: "chat", externalId: "session-1" }],
         undoneAt: null,
       },
     ]);
@@ -203,7 +207,7 @@ describe("an owner merging two Customers", () => {
     ]);
 
     // The absorbed identity's next message goes on in the surviving thread.
-    await testCustomerTurn(deps, say(id, "web", "session-1", "Me again"));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "Me again"));
     const after = await rpc.representative.threadGet({ id: adaThread.id });
     expect(after.messages.map((message) => message.text)).toContain("Me again");
     expect((await threadsOf(rpc, id)).filter((each) => each.holder !== "closed")).toHaveLength(1);
@@ -212,7 +216,7 @@ describe("an owner merging two Customers", () => {
   it("moves an open thread the other has no match for, still open", async () => {
     const { deps } = await instance(quietly(4));
     const { rpc, id } = await owner(deps);
-    await testCustomerTurn(deps, say(id, "web", "session-1", "Hello"));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "Hello"));
     const bob = await customerOf(rpc, "session-1");
     const ada = await rpc.representative.customerCreate({
       channel: "sms",
@@ -253,7 +257,7 @@ describe("an owner merging two Customers", () => {
     await rpc.representative.setEnabled({ id, enabled: false });
     await testCustomerTurn(deps, say(id, "sms", "+15550001", "Hi"));
     await rpc.representative.setEnabled({ id, enabled: true });
-    const { jobId } = await startTestCustomerTurn(deps, say(id, "web", "session-1", "Hello"));
+    const { jobId } = await startTestCustomerTurn(deps, say(id, "chat", "session-1", "Hello"));
     timer.advance(batchLongestMs);
     timer.tick();
     await expect.poll(() => entered.length).toBe(1);
@@ -291,7 +295,7 @@ describe("an owner merging two Customers", () => {
     const { ada, bob } = await twoWithThreads(deps, rpc, id);
 
     await rpc.representative.customerMerge({ id: bob.id, intoId: ada.id });
-    await testCustomerTurn(deps, say(id, "web", "session-1", "What's Ada's secret?"));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "What's Ada's secret?"));
 
     const prompt = promptOf(fake.calls.at(-1) as never);
     expect(prompt).toContain("What's Ada's secret?");
@@ -419,7 +423,7 @@ describe("an owner undoing a merge", () => {
     });
 
     // Its next message starts a new thread, the one open thread for that Customer.
-    await testCustomerTurn(deps, say(id, "web", "session-1", "Back on my own"));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "Back on my own"));
     const open = (await threadsOf(rpc, id)).filter((each) => each.holder !== "closed");
     expect(open.map((each) => each.customer.id).sort()).toEqual([ada.id, bob.id].sort());
   });
@@ -427,7 +431,7 @@ describe("an owner undoing a merge", () => {
   it("gives back an open thread that moved, open, and doing it twice changes nothing", async () => {
     const { deps } = await instance(quietly(4));
     const { rpc, id } = await owner(deps);
-    await testCustomerTurn(deps, say(id, "web", "session-1", "Hello"));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "Hello"));
     const bob = await customerOf(rpc, "session-1");
     const ada = await rpc.representative.customerCreate({
       channel: "sms",
@@ -467,7 +471,7 @@ describe("an owner undoing a merge", () => {
     const adaThread = (await threadsOf(rpc, id)).find((each) => each.customer.id === ada.id)!;
     await rpc.representative.customerMerge({ id: bob.id, intoId: ada.id });
     // Heard from the absorbed identity, verified, so what is sent now goes to it.
-    await testCustomerTurn(deps, say(id, "web", "session-1", "Bob's new secret", sameIdentity));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "Bob's new secret", sameIdentity));
     expect((await rpc.representative.threadGet({ id: adaThread.id })).lastHeard.externalId).toBe(
       "session-1",
     );
@@ -516,13 +520,13 @@ describe("an owner undoing a merge", () => {
       id: bob.id,
       intoId: (await customerOf(rpc, "+15550001")).id,
     });
-    await testCustomerTurn(deps, say(id, "web", "session-1", "Bob's words", sameIdentity));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "Bob's words", sameIdentity));
     const moved = await customerOf(rpc, "session-1");
     const identity = moved.identities.find((each) => each.externalId === "session-1")!;
     await rpc.representative.customerUpdateIdentity({
       id: moved.id,
       identityId: identity.id,
-      channel: "web",
+      channel: "chat",
       externalId: "session-2",
     });
     const [merge] = await rpc.representative.customerMergeList();
@@ -595,7 +599,7 @@ describe("an owner undoing a merge", () => {
     expect((await rpc.representative.threadGet({ id: adaThread.id })).holder).toBe(
       "representative",
     );
-    await testCustomerTurn(deps, say(id, "web", "session-1", "Are you there?"));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "Are you there?"));
     expect(fake.calls).toHaveLength(calls);
     const open = (await threadsOf(rpc, id)).filter((each) => each.holder !== "closed");
     expect(open.map((each) => each.id).sort()).toEqual([adaThread.id, bobThread.id].sort());
@@ -611,7 +615,7 @@ describe("an owner undoing a merge", () => {
     const threads = await threadsOf(rpc, id);
     const bobThread = threads.find((each) => each.customer.id === bob.id)!;
     await rpc.representative.threadTakeOver({ id: bobThread.id });
-    await testCustomerTurn(deps, say(id, "web", "session-1", "Still waiting"));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "Still waiting"));
     await rpc.representative.customerMerge({ id: bob.id, intoId: ada.id });
     const [merge] = await rpc.representative.customerMergeList();
 
@@ -633,7 +637,7 @@ describe("an owner undoing a merge", () => {
     const { deps } = await instance(quietly(4));
     const { rpc, id } = await owner(deps);
     const { ada, bob } = await twoWithThreads(deps, rpc, id);
-    await testCustomerTurn(deps, say(id, "web", "session-2", "Carl here"));
+    await testCustomerTurn(deps, say(id, "chat", "session-2", "Carl here"));
     const carl = await customerOf(rpc, "session-2");
     const threads = await threadsOf(rpc, id);
     const threadOf = (customerId: string) =>
@@ -676,7 +680,7 @@ describe("an owner undoing a merge", () => {
     const adaThread = threads.find((each) => each.customer.id === ada.id)!;
     await rpc.representative.threadTakeOver({ id: adaThread.id });
     await rpc.representative.customerMerge({ id: bob.id, intoId: ada.id });
-    await testCustomerTurn(deps, say(id, "web", "session-1", "Bob, in Ada's thread"));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "Bob, in Ada's thread"));
     const [merge] = await rpc.representative.customerMergeList();
     const calls = fake.calls.length;
 
@@ -697,7 +701,7 @@ describe("an owner undoing a merge", () => {
 
   it("doesn't keep a hold on a mixed thread when only the merge made it", async () => {
     const { deps, rpc, id, ada, adaThread, merge } = await heldThenMerged(quietly(4));
-    await testCustomerTurn(deps, say(id, "web", "session-1", "Bob, in Ada's thread"));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "Bob, in Ada's thread"));
 
     await rpc.representative.customerMergeUndo({ id: merge.id });
 
@@ -731,14 +735,14 @@ describe("an owner undoing a merge", () => {
       channel: "email",
       externalId: "ada@example.com",
     });
-    await testCustomerTurn(deps, say(id, "web", "session-1", "I'm Ada", toRecord));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "I'm Ada", toRecord));
     await expect.poll(() => sent.length).toBe(1);
     const bob = await customerOf(rpc, "session-1");
     await rpc.representative.customerMerge({ id: bob.id, intoId: ada.id });
     const [merge] = await rpc.representative.customerMergeList();
     await rpc.representative.customerMergeUndo({ id: merge!.id });
 
-    await testCustomerTurn(deps, say(id, "web", "session-1", sent[0]!.secret, toRecord));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", sent[0]!.secret, toRecord));
 
     expect((await customerOf(rpc, "session-1")).id).toBe(bob.id);
     expect(await rpc.representative.customerMergeList()).toHaveLength(1);
@@ -765,12 +769,12 @@ describe("a code merging a new identity's Customer", () => {
     const ada = await customerOf(rpc, "ada@example.com");
     const adaThread = (await threadsOf(rpc, id))[0]!;
 
-    await testCustomerTurn(deps, say(id, "web", "session-1", "I'm Ada", toRecord));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "I'm Ada", toRecord));
     await expect.poll(() => sent.length).toBe(1);
     const bob = await customerOf(rpc, "session-1");
     expect(bob.id).not.toBe(ada.id);
 
-    await testCustomerTurn(deps, say(id, "web", "session-1", sent[0]!.secret, toRecord));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", sent[0]!.secret, toRecord));
 
     expect((await rpc.representative.customerList()).map((each) => each.id)).toEqual([ada.id]);
     expect(await rpc.representative.customerMergeList()).toMatchObject([
@@ -794,10 +798,10 @@ describe("a code merging a new identity's Customer", () => {
       channel: "email",
       externalId: "ada@example.com",
     });
-    await testCustomerTurn(deps, say(id, "web", "session-1", "I'm Ada", toRecord));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "I'm Ada", toRecord));
     await expect.poll(() => sent.length).toBe(1);
     const bob = await customerOf(rpc, "session-1");
-    await testCustomerTurn(deps, say(id, "web", "session-1", sent[0]!.secret, toRecord));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", sent[0]!.secret, toRecord));
     expect((await customerOf(rpc, "session-1")).id).toBe(ada.id);
     const [merge] = await rpc.representative.customerMergeList();
 
@@ -815,16 +819,16 @@ describe("a code merging a new identity's Customer", () => {
     ]);
     const { rpc, id } = await owner(deps);
     await rpc.representative.customerCreate({ channel: "email", externalId: "ada@example.com" });
-    await testCustomerTurn(deps, say(id, "web", "session-1", "I'm Ada", toRecord));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "I'm Ada", toRecord));
     await expect.poll(() => sent.length).toBe(1);
-    await testCustomerTurn(deps, say(id, "web", "session-1", sent[0]!.secret, toRecord));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", sent[0]!.secret, toRecord));
     const [merge] = await rpc.representative.customerMergeList();
 
     await rpc.representative.customerMergeUndo({ id: merge!.id });
 
     const [identity] = (await customerOf(rpc, "session-1")).identities;
     expect(identity).toMatchObject({ verified: false });
-    await testCustomerTurn(deps, say(id, "web", "session-1", "Who am I?", toRecord));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "Who am I?", toRecord));
     const { messages } = await rpc.representative.threadGet({
       id: (await threadsOf(rpc, id)).find((each) => each.holder !== "closed")!.id,
     });
@@ -851,9 +855,9 @@ describe("a code merging a new identity's Customer", () => {
       }),
     );
 
-    await testCustomerTurn(deps, say(id, "web", "session-1", "I'm Ada", toRecord));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "I'm Ada", toRecord));
     await expect.poll(() => sent.length).toBe(1);
-    await testCustomerTurn(deps, say(id, "web", "session-1", "Tell me my secret", toRecord));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "Tell me my secret", toRecord));
 
     expect(await rpc.representative.customerList()).toHaveLength(2);
     expect(await rpc.representative.customerMergeList()).toEqual([]);
@@ -870,11 +874,11 @@ describe("a code merging a new identity's Customer", () => {
     ]);
     const { rpc, id } = await owner(deps);
     await rpc.representative.customerCreate({ channel: "email", externalId: "ada@example.com" });
-    await testCustomerTurn(deps, say(id, "web", "session-1", "I'm Ada", toRecord));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "I'm Ada", toRecord));
     await expect.poll(() => sent.length).toBe(1);
     const wrong = sent[0]!.secret === "000000" ? "000001" : "000000";
 
-    await testCustomerTurn(deps, say(id, "web", "session-1", wrong, toRecord));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", wrong, toRecord));
 
     expect(await rpc.representative.customerList()).toHaveLength(2);
     expect(await rpc.representative.customerMergeList()).toEqual([]);
@@ -1003,7 +1007,7 @@ describe("a code merging a new identity's Customer", () => {
       channel: "email",
       externalId: "ada@example.com",
     });
-    await testCustomerTurn(deps, say(id, "web", "session-1", "I'm Ada", toRecord));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "I'm Ada", toRecord));
     await expect.poll(() => sent.length).toBe(1);
     deps.timer.advance(11 * minute);
 
@@ -1027,7 +1031,7 @@ describe("a code merging a new identity's Customer", () => {
     await held;
 
     try {
-      await testCustomerTurn(deps, say(id, "web", "session-1", "Order 987654", toRecord));
+      await testCustomerTurn(deps, say(id, "chat", "session-1", "Order 987654", toRecord));
     } finally {
       release();
       await hold;
@@ -1067,7 +1071,7 @@ describe("a code merging a new identity's Customer", () => {
       channel: "email",
       externalId: "ada@example.com",
     });
-    await testCustomerTurn(deps, say(id, "web", "session-1", "I'm Ada", toRecord));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "I'm Ada", toRecord));
     await expect.poll(() => sent.length).toBe(1);
     const bob = await customerOf(rpc, "session-1");
     await rpc.representative.customerAddIdentity({
@@ -1076,7 +1080,7 @@ describe("a code merging a new identity's Customer", () => {
       externalId: "bob@example.com",
     });
 
-    await testCustomerTurn(deps, say(id, "web", "session-1", sent[0]!.secret, toRecord));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", sent[0]!.secret, toRecord));
 
     expect((await customerOf(rpc, "session-1")).id).toBe(bob.id);
     expect((await customerOf(rpc, "ada@example.com")).id).toBe(ada.id);
@@ -1099,11 +1103,11 @@ describe("a code merging a new identity's Customer", () => {
       channel: "email",
       externalId: "ada@example.com",
     });
-    await testCustomerTurn(deps, say(id, "web", "session-1", "I'm Ada", toRecord));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "I'm Ada", toRecord));
     await expect.poll(() => sent.length).toBe(1);
     await rpc.representative.customerSetBlocked({ id: ada.id, blocked: true });
 
-    await testCustomerTurn(deps, say(id, "web", "session-1", sent[0]!.secret, toRecord));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", sent[0]!.secret, toRecord));
 
     expect(await rpc.representative.customerMergeList()).toEqual([]);
     expect(await rpc.representative.customerList()).toHaveLength(2);
@@ -1119,12 +1123,12 @@ describe("a code merging a new identity's Customer", () => {
       channel: "email",
       externalId: "ada@example.com",
     });
-    await testCustomerTurn(deps, say(id, "web", "session-1", "I'm Ada", toRecord));
+    await testCustomerTurn(deps, say(id, "chat", "session-1", "I'm Ada", toRecord));
     await expect.poll(() => sent.length).toBe(1);
 
     await Promise.all([
-      testCustomerTurn(deps, say(id, "web", "session-1", sent[0]!.secret, toRecord)),
-      testCustomerTurn(deps, say(id, "web", "session-1", "And another thing", toRecord)),
+      testCustomerTurn(deps, say(id, "chat", "session-1", sent[0]!.secret, toRecord)),
+      testCustomerTurn(deps, say(id, "chat", "session-1", "And another thing", toRecord)),
     ]);
     timer.advance(minute);
 

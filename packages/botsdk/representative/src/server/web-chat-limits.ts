@@ -20,6 +20,14 @@ export const webChatLimits = {
   sendsPerIp: { limit: 30, windowSeconds: 60 },
   /** Streams one IP opens. What it holds open is capped apart, which opening and closing never reach. */
   streamOpensPerIp: { limit: 120, windowSeconds: 60 },
+  /** Codes one session asks for by email (ticket #1350). */
+  codeRequestsPerSession: { limit: 5, windowSeconds: 3600 },
+  /** Codes one IP asks for, across its sessions. */
+  codeRequestsPerIp: { limit: 20, windowSeconds: 3600 },
+  /** Codes one session enters. Each code also takes only five tries. */
+  codeChecksPerSession: { limit: 10, windowSeconds: 600 },
+  /** Codes one IP enters, across its sessions. */
+  codeChecksPerIp: { limit: 30, windowSeconds: 600 },
 } satisfies Record<string, Window>;
 
 /**
@@ -121,3 +129,25 @@ export const limitStreamByIp = (
 /** Counts a send against its session, which is its identity. */
 export const limitSendBySession = (context: Counting, identity: string) =>
   hitOn(context, webChatLimits.sendsPerSession, `web-chat:send:session:${identity}`);
+
+/** Counts a code request against its IP. Cheap, so it runs before the session is read. */
+export const limitCodeRequestByIp = (
+  context: Counting,
+  request: Request,
+  clientIp: ClientIp | undefined,
+) => limitByIp(context, request, clientIp, webChatLimits.codeRequestsPerIp, "web-chat:code:ip");
+
+/** Counts a code request against its session. */
+export const limitCodeRequestBySession = (context: Counting, identity: string) =>
+  hitOn(context, webChatLimits.codeRequestsPerSession, `web-chat:code:session:${identity}`);
+
+/** Counts an entered code against its IP. Cheap, so it runs before the session is read. */
+export const limitCodeCheckByIp = (
+  context: Counting,
+  request: Request,
+  clientIp: ClientIp | undefined,
+) => limitByIp(context, request, clientIp, webChatLimits.codeChecksPerIp, "web-chat:check:ip");
+
+/** Counts an entered code against its session. */
+export const limitCodeCheckBySession = (context: Counting, identity: string) =>
+  hitOn(context, webChatLimits.codeChecksPerSession, `web-chat:check:session:${identity}`);

@@ -125,8 +125,16 @@ export const heldAccountChannel = (
     }
   },
   sendProof: async (to, proof, { representativeId }) => {
-    // A code is read back on a platform that can reach its sender (SMS, #1174); a link goes by email.
-    if (to.channel !== customerEmailChannel || proof.kind !== "link") return;
+    // A code is read back on a platform that can reach its sender (SMS, #1174); a link goes by email,
+    // and so does a code a web chat visitor asked for by an address on record (#1350).
+    if (to.channel !== customerEmailChannel) return;
+    if (proof.kind === "code") {
+      await sendProofEmail(
+        { db, channelAccounts },
+        { representativeId, externalId: to.externalId, code: proof.secret },
+      );
+      return;
+    }
     // Thrown, and logged by the Turn: the Host forgot the option.
     if (!linkUrl) throw new Error("The representative feature has no linkUrl for a signed link");
     const base = linkUrl.replace(/\/+$/, "");

@@ -32,6 +32,7 @@ export const errorMessages = {
   "error.widgetSessionRefused": "This chat can't be started from here.",
   "error.widgetSessionEnded": "This chat has ended. Reload the page to start a new one.",
   "error.widgetMessageInvalid": "That message can't be sent.",
+  "error.widgetCodeWrong": "That code is wrong or has expired. Ask for a new one.",
   "error.customerNotFound": "Customer not found",
   "error.profileFieldNotFound": "Profile field not found",
   "error.profileFieldTaken": "You already have a profile field of that name.",
