@@ -67,7 +67,7 @@ async function visitorThread(tx: Transaction, { representativeId, heard }: Widge
 
 /**
  * Makes a code for the session if `email` is a verified email identity on record, and sends it once
- * that commits. Nothing it finds changes what the visitor is told, and the send isn't waited for.
+ * that commits. Its route doesn't wait for it: nothing it finds changes what the visitor is told.
  */
 async function requestCode(
   context: Context,
@@ -97,16 +97,10 @@ async function requestCode(
   });
   if (!outgoing) return;
   const { to, proof } = outgoing;
-  void Promise.resolve()
-    .then(() =>
-      channel.sendProof(to, proof, {
-        representativeId: session.representativeId,
-        chatWindow: true,
-      }),
-    )
-    .catch((error: unknown) => {
-      context.logger.error(`Representative ${session.representativeId}: a code didn't go`, error);
-    });
+  await channel.sendProof(to, proof, {
+    representativeId: session.representativeId,
+    chatWindow: true,
+  });
 }
 
 /** Code requests still at work, which a test waits for before it clears the database. */

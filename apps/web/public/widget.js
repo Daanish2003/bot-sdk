@@ -84,6 +84,8 @@
     { type: "button", class: "verify", hidden: "" },
     "Verify by email",
   );
+  /** Whether the visitor passed a code, which hides the button for good. */
+  let verified = false;
   const emailField = element("input", {
     type: "email",
     "aria-label": "Your email address",
@@ -108,8 +110,8 @@
     status.textContent = text;
   };
   const show = (messages) => {
-    // A code is for a visitor with a thread, so only once they've written.
-    verifyButton.hidden = !messages.some((message) => message.from === "customer");
+    // A code is for a visitor with a thread, so only once they've written, and not once verified.
+    verifyButton.hidden = verified || !messages.some((message) => message.from === "customer");
     log.replaceChildren(
       ...messages.map((message) =>
         element("div", { class: "message", "data-from": message.from }, message.text),
@@ -344,6 +346,8 @@
         codeField.value = "";
         emailField.value = "";
         verifyStep(null);
+        verified = true;
+        verifyButton.hidden = true;
         say("You're verified.");
       } else if (response.status === 429) {
         tooFast(response);
