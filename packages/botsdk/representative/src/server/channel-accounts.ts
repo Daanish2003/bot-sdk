@@ -80,7 +80,7 @@ export async function listChannelAccounts(
  * A signed link goes by email (#1348); a code goes nowhere until SMS (#1174) words it.
  */
 export const heldAccountChannel = (
-  { db, keyring, channelAccounts }: Parameters<ChannelOf>[0],
+  { db, clock, keyring, logger, channelAccounts }: Parameters<ChannelOf>[0],
   { linkUrl }: { linkUrl?: string } = {},
 ): ReturnType<ChannelOf> => ({
   reach: (channel) => channelAccounts.reach(channel),
@@ -91,7 +91,7 @@ export const heldAccountChannel = (
   ) => {
     if (channel === customerEmailChannel) {
       return sendEmail(
-        { db, keyring, channelAccounts, linkUrl },
+        { db, clock, keyring, logger, channelAccounts, linkUrl },
         { representativeId, externalId, text },
       );
     }
@@ -133,9 +133,15 @@ export const heldAccountChannel = (
     // record (#1350). No other code goes by email: none of those checks stood in front of it.
     if (to.channel !== customerEmailChannel) return;
     if (proof.kind === "code") {
-      if (!chatWindow) return;
+      if (!chatWindow) {
+        // Its code is made and goes nowhere, and the Model is told the same either way.
+        logger.error(
+          `Representative ${representativeId}: a code for an email address, asked for outside the chat window, was not sent`,
+        );
+        return;
+      }
       await sendProofEmail(
-        { db, keyring, channelAccounts, linkUrl },
+        { db, clock, keyring, logger, channelAccounts, linkUrl },
         { representativeId, externalId: to.externalId, code: proof.secret },
       );
       return;
@@ -144,7 +150,7 @@ export const heldAccountChannel = (
     if (!linkUrl) throw new Error("The representative feature has no linkUrl for a signed link");
     const base = linkUrl.replace(/\/+$/, "");
     await sendProofEmail(
-      { db, keyring, channelAccounts, linkUrl },
+      { db, clock, keyring, logger, channelAccounts, linkUrl },
       {
         representativeId,
         externalId: to.externalId,

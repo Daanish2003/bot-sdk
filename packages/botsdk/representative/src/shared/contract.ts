@@ -560,23 +560,36 @@ export const threadSendInput = z.object({
 export const maxCustomerNameLength = 100;
 /** Channel ids are lower case, so `SMS` and `sms` are one Channel. */
 const channelField = storable(z.string().trim().toLowerCase().min(1).max(64));
-const externalIdField = storable(z.string().trim().min(1).max(512));
-export const customerCreateInput = z.object({
-  name: storable(z.string().trim().min(1).max(maxCustomerNameLength)).optional(),
-  channel: channelField,
-  externalId: externalIdField,
-});
-export const customerAddIdentityInput = z.object({
-  id: z.uuid(),
-  channel: channelField,
-  externalId: externalIdField,
-});
-export const customerUpdateIdentityInput = z.object({
-  id: z.uuid(),
-  identityId: z.uuid(),
-  channel: channelField,
-  externalId: externalIdField,
-});
+/** The longest address an identity holds. */
+export const maxExternalIdLength = 512;
+const externalIdField = storable(z.string().trim().min(1).max(maxExternalIdLength));
+/**
+ * An address as identities hold it: an email address in lower case, as inbound mail and a code
+ * request give it, so one person's address is one identity whatever case it was typed in.
+ */
+export const identityAddress = (channel: string, externalId: string) =>
+  channel === "email" ? externalId.toLowerCase() : externalId;
+const withIdentityAddress = <Input extends { channel: string; externalId: string }>(
+  input: Input,
+) => ({ ...input, externalId: identityAddress(input.channel, input.externalId) });
+export const customerCreateInput = z
+  .object({
+    name: storable(z.string().trim().min(1).max(maxCustomerNameLength)).optional(),
+    channel: channelField,
+    externalId: externalIdField,
+  })
+  .transform(withIdentityAddress);
+export const customerAddIdentityInput = z
+  .object({ id: z.uuid(), channel: channelField, externalId: externalIdField })
+  .transform(withIdentityAddress);
+export const customerUpdateIdentityInput = z
+  .object({
+    id: z.uuid(),
+    identityId: z.uuid(),
+    channel: channelField,
+    externalId: externalIdField,
+  })
+  .transform(withIdentityAddress);
 export const customerSetBlockedInput = z.object({ id: z.uuid(), blocked: z.boolean() });
 export const customerClearOptOutInput = z.object({ id: z.uuid(), identityId: z.uuid() });
 export const customerMergeInput = z.object({ id: z.uuid(), intoId: z.uuid() });

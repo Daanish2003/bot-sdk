@@ -138,6 +138,8 @@ export async function unsubscribe(
         verified: false,
         source: "link",
         now,
+        // The page says it: no mail follows a one-click unsubscribe.
+        confirm: false,
       });
     } else {
       await markOptedOut(tx, owner.userId, heard, "link", now);
@@ -180,13 +182,34 @@ export const unsubscribeRoutes = (channelOf: ChannelOf): PublicRoute<"channelAcc
   },
 ];
 
-/** Sends `mail` to a Customer of the Representative, with the unsubscribe headers and footer (every mail to one has them). */
+/** What sending a Customer email needs: `linkUrl` is the Host's option, which the unsubscribe link opens under. */
+export type MailContext = Pick<
+  FeatureContext<"channelAccounts">,
+  "db" | "clock" | "keyring" | "logger" | "channelAccounts"
+> & { linkUrl?: string };
+
+/** The instances, by their Channel service, already warned that their Customer mail has no unsubscribe. */
+const warnedNoLink = new WeakSet<object>();
+
+/**
+ * Sends `mail` to a Customer of the Representative, with the unsubscribe headers and footer (every
+ * mail to one has them). With no `linkUrl` it goes without them, as a Host's missing option mustn't
+ * stop a reply, and the instance warns once.
+ */
 export async function sendCustomerMail(
-  context: Pick<FeatureContext<"channelAccounts">, "db" | "keyring" | "channelAccounts"> & {
-    linkUrl?: string;
-  },
+  context: MailContext,
   representativeId: string,
   mail: OutboundMail,
 ) {
-  await context.channelAccounts.sendEmail(await withUnsubscribe(context, representativeId, mail));
+  const { logger, channelAccounts, linkUrl } = context;
+  if (!linkUrl && !warnedNoLink.has(channelAccounts)) {
+    warnedNoLink.add(channelAccounts);
+    const warning =
+      "The representative feature has no linkUrl, so its Customer emails go with no way to unsubscribe";
+    // A Host's logger may warn; the feature's is typed for errors only.
+    const warn = (logger as Partial<Pick<Console, "warn">>).warn;
+    if (warn) warn.call(logger, warning);
+    else logger.error(warning);
+  }
+  await channelAccounts.sendEmail(await withUnsubscribe(context, representativeId, mail));
 }

@@ -6,6 +6,7 @@ import {
   index,
   integer,
   jsonb,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -356,6 +357,26 @@ export const representativeThreadMail = botsdkSchema.table("representative_threa
   subject: text("subject").notNull(),
   messageIds: jsonb("message_ids").$type<string[]>().notNull(),
 });
+
+/**
+ * Each mail a Representative's address took, by Message-ID, so a provider's redelivery, which can
+ * come to another process or after a restart, is stored once.
+ */
+export const representativeInboundMail = botsdkSchema.table(
+  "representative_inbound_mail",
+  {
+    representativeId: uuid("representative_id")
+      .notNull()
+      .references((): AnyPgColumn => representative.id, { onDelete: "cascade" }),
+    messageId: text("message_id").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: "representative_inbound_mail_pkey",
+      columns: [table.representativeId, table.messageId],
+    }),
+  ],
+);
 
 /**
  * One merge of a Customer into another (ticket #1257), kept once undone. The absorbed Customer's row

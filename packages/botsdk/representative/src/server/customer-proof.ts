@@ -84,7 +84,10 @@ export class AccountSendError extends MessagingSendError {
 
 /** The Channel of whatever `context` a job or the API runs with. */
 export type ChannelOf = (
-  context: Pick<FeatureContext<"channelAccounts">, "db" | "keyring" | "channelAccounts">,
+  context: Pick<
+    FeatureContext<"channelAccounts">,
+    "db" | "clock" | "keyring" | "logger" | "channelAccounts"
+  >,
 ) => CustomerChannel;
 
 /** A Channel that reaches nobody, for what a test Customer sends. */

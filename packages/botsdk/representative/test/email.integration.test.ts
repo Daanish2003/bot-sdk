@@ -34,7 +34,6 @@ import {
 vi.setConfig({ testTimeout: 30_000 });
 
 const poll = { timeout: 10_000 };
-const silent = { error: () => {} };
 const model = "openai:gpt-6-luna";
 const domain = "reps.example";
 const ownerEmail = "owner@example.com";
@@ -52,7 +51,13 @@ async function world({
   withEmail = true,
   replying = false,
   verifying = false,
-}: { withEmail?: boolean; replying?: boolean; verifying?: boolean } = {}) {
+  linkUrl = "http://localhost/api/chat",
+}: {
+  withEmail?: boolean;
+  replying?: boolean;
+  verifying?: boolean;
+  linkUrl?: string | null;
+} = {}) {
   // A replying Representative answers each Customer message, then stops.
   const fake = createFakeAdapter({
     rounds: verifying
@@ -65,24 +70,30 @@ async function world({
   const timer = fakeJobClock(at);
   const user = await insertUser();
   let deps: TestDeps | undefined;
+  /** What the instance logged, each with its level. */
+  const logged: { level: string; text: string }[] = [];
+  const log = (level: string) => (text: unknown) => void logged.push({ level, text: String(text) });
+  const logger = { error: log("error"), warn: log("warn") };
   const jobs = inProcessRunner({
     db: getTestDb(),
-    logger: silent,
+    logger,
     drainMs: 50,
     clock: timer.clock,
     jobs: () => deps!.parts.jobs,
   });
-  deps = createTestSdk({
+  const options: Parameters<typeof createTestSdk>[0] = {
     jobs,
     ...(withEmail && {
       channels: [emailChannel({ provider: email.provider, domain, appUrl: "http://localhost" })],
     }),
     users: { verifiedEmail: async (userId) => (userId === user.id ? ownerEmail : null) },
-    features: [representative({ linkUrl: "http://localhost/api/chat" })],
+    features: [representative(linkUrl === null ? {} : { linkUrl })],
+    logger,
     adapterFor: () => fake.adapter,
     clock: timer.clock.now,
     memory: false,
-  });
+  };
+  deps = createTestSdk(options);
   await jobs.start();
   runners.push(jobs);
   await saveCredentials(deps, user.id, {
@@ -109,8 +120,8 @@ async function world({
   // One instance, as a Host has: it remembers the mail it took lately.
   const chat = createTestChat({ deps });
   /** Posts a mail from `sender`, with `mail` overriding any field, as the provider does: signed out. */
-  const deliver = (to: string, mail: Parameters<typeof email.request>[0] = {}) =>
-    chat.fetch(
+  const deliver = (to: string, mail: Parameters<typeof email.request>[0] = {}, through = chat) =>
+    through.fetch(
       email.request({
         from: `Sam <${sender}>`,
         to: [to],
@@ -175,6 +186,9 @@ async function world({
     turnRuns,
     startReply,
     decisions,
+    logged,
+    /** Another instance on the same database and runner, as after a restart or on a second server. */
+    another: () => createTestChat({ deps: createTestSdk(options) }),
   };
 }
 
@@ -546,17 +560,18 @@ describe("a Customer unsubscribing from a Representative's email", () => {
 
   it("opts the identity out on a one-click POST, and the gate then blocks later replies", async () => {
     const { request, optedOut, startReply, decisions, email } = await answered();
+    const before = await decisions();
 
     const response = await request("POST", undefined, "List-Unsubscribe=One-Click");
 
     expect(response.status).toBe(200);
     expect(await optedOut()).not.toBeNull();
+    // The page is the confirmation: no mail goes after a one-click unsubscribe (RFC 8058).
+    expect(await decisions()).toEqual(before);
     const refused = await startReply(at);
     expect(refused).toMatchObject({ error: expect.any(String) });
     expect(await decisions()).toContainEqual({ outcome: "drop", rule: "optedOut" });
-    // The one confirmation, sent through the gate, and nothing after it.
-    await expect.poll(() => email.sent.length, poll).toBe(2);
-    expect(email.sent[1]!.text).toContain("You won't get any more messages");
+    expect(email.sent).toHaveLength(1);
   });
 
   it("only asks on opening the link: a mail scanner's GET opts nobody out", async () => {
@@ -702,5 +717,135 @@ describe("a signed link to an email Customer", () => {
     );
     expect(opened.status).toBe(410);
     expect(await verifiedAt(user.id)).toBeNull();
+  });
+});
+
+describe("an email address an owner types (#1176 review)", () => {
+  it("is stored in lower case, so the Customer's own mail lands on their record", async () => {
+    const { rpc, user, id, deliver, turnRuns } = await world();
+    const { address } = (await rpc.representative.emailAddressGet({ id }))!;
+    const customer = await rpc.representative.customerCreate({
+      channel: "email",
+      externalId: " Sam@Example.COM ",
+    });
+    const added = await rpc.representative.customerAddIdentity({
+      id: customer.id,
+      channel: "email",
+      externalId: "Ann@Example.com",
+    });
+    const ann = added.identities.find(({ externalId }) => externalId === "ann@example.com")!;
+    await rpc.representative.customerUpdateIdentity({
+      id: customer.id,
+      identityId: ann.id,
+      channel: "EMAIL",
+      externalId: "Annie@Example.com",
+    });
+
+    await deliver(address);
+    await turnRuns(1);
+
+    expect(
+      (await identitiesOf(user.id)).toSorted((a, b) => a.externalId.localeCompare(b.externalId)),
+    ).toEqual([
+      { channel: "email", externalId: "annie@example.com" },
+      { channel: "email", externalId: sender },
+    ]);
+  });
+});
+
+describe("mail to a Representative's address, again (#1176 review)", () => {
+  it("is stored once when another instance takes the redelivery, as after a restart", async () => {
+    const { rpc, id, deliver, turnRuns, another } = await world();
+    const { address } = (await rpc.representative.emailAddressGet({ id }))!;
+
+    await deliver(address);
+    expect((await deliver(address, {}, another())).status).toBe(202);
+    await turnRuns(1);
+
+    expect(await customerMessagesOf(id)).toHaveLength(1);
+  });
+
+  it("from an empty or overlong sender is dropped and logged, so the provider stops sending it", async () => {
+    const { rpc, user, id, deliver, logged } = await world();
+    const { address } = (await rpc.representative.emailAddressGet({ id }))!;
+
+    expect((await deliver(address, { from: "<>" })).status).toBe(202);
+    const long = `${"a".repeat(600)}@example.com`;
+    expect((await deliver(address, { from: long, messageId: "<long@mail.example>" })).status).toBe(
+      202,
+    );
+
+    expect(await identitiesOf(user.id)).toEqual([]);
+    expect(logged.filter(({ text }) => text.includes(`Representative ${id}`))).toHaveLength(2);
+  });
+
+  it("over the Customer's inbound limit is logged with the Representative and the sender", async () => {
+    const { rpc, id, deliver, logged } = await world();
+    const { address } = (await rpc.representative.emailAddressGet({ id }))!;
+
+    for (let n = 0; n <= 60; n++) await deliver(address, { messageId: `<${n}@mail.example>` });
+
+    expect(await customerMessagesOf(id)).toHaveLength(60);
+    expect(
+      logged.filter(({ text }) => text.includes(`Representative ${id}`) && text.includes(sender)),
+    ).toHaveLength(1);
+  });
+});
+
+describe("a Customer email with no linkUrl (#1176 review)", () => {
+  it("still goes, with no unsubscribe, and the instance warns once", async () => {
+    const { rpc, id, deliver, turnRuns, email, logged } = await world({
+      replying: true,
+      linkUrl: null,
+    });
+    const { address } = (await rpc.representative.emailAddressGet({ id }))!;
+
+    await deliver(address);
+    await turnRuns(2);
+    await expect.poll(() => email.sent.length, poll).toBe(1);
+    await deliver(address, { messageId: "<second@mail.example>", text: "And Monday?" });
+    await turnRuns(4);
+    await expect.poll(() => email.sent.length, poll).toBe(2);
+
+    expect(email.sent[0]!.headers?.["List-Unsubscribe"]).toBeUndefined();
+    expect(logged.filter(({ text }) => text.includes("linkUrl"))).toEqual([
+      { level: "warn", text: expect.stringContaining("unsubscribe") },
+    ]);
+  });
+});
+
+describe("a code by email (#1176 review)", () => {
+  it("goes from a Representative whose address the owner never opened, which is made for it", async () => {
+    const { deps, rpc, email } = await world();
+    const { id } = await rpc.representative.create({ name: "Back Office" });
+    await rpc.representative.customerCreate({ channel: "email", externalId: sender });
+    const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
+    const channel = heldAccountChannel(feature.context, { linkUrl: "http://localhost/api/chat" });
+
+    await channel.sendProof(
+      { channel: "email", externalId: sender },
+      { kind: "code", secret: "482913" },
+      { representativeId: id, chatWindow: true },
+    );
+
+    const { address } = (await rpc.representative.emailAddressGet({ id }))!;
+    expect(email.sent).toHaveLength(1);
+    expect(email.sent[0]!.from).toContain(address);
+  });
+
+  it("is logged when it goes nowhere, outside the chat window", async () => {
+    const { deps, rpc, id, email, logged } = await world();
+    await rpc.representative.customerCreate({ channel: "email", externalId: sender });
+    const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
+    const channel = heldAccountChannel(feature.context);
+
+    await channel.sendProof(
+      { channel: "email", externalId: sender },
+      { kind: "code", secret: "111111" },
+      { representativeId: id },
+    );
+
+    expect(email.sent).toEqual([]);
+    expect(logged.filter(({ text }) => text.includes(`Representative ${id}`))).toHaveLength(1);
   });
 });

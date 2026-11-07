@@ -793,11 +793,25 @@ describe("a code to an identity on record, claimed in the chat", () => {
     expect(answerIn(fake.calls[1])).not.toContain("on its way");
   });
 
+  it("finds a claimed email address whatever case it is given in (#1176 review)", async () => {
+    const { deps, sent } = await instance([
+      verifies({ channel: "email", externalId: "A@Example.COM" }),
+      quiet(),
+    ]);
+    const { id, rpc } = await owner(deps);
+    await rpc.representative.customerCreate({ channel: "email", externalId: "a@example.com" });
+
+    await testCustomerTurn(deps, web(id, "I'm a"));
+
+    await expect.poll(() => sent.length).toBe(1);
+    expect(sent[0]).toMatchObject({ channel: "email", externalId: "a@example.com" });
+  });
+
   it("keeps a code on its way when a later claim leads nowhere", async () => {
     const { deps, sent } = await instance([
       verifies({ channel: "email", externalId: "a@example.com" }),
       quiet(),
-      verifies({ channel: "email", externalId: "A@EXAMPLE.COM" }),
+      verifies({ channel: "email", externalId: "nobody@example.com" }),
       quiet(),
       quiet(),
     ]);

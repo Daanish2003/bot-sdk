@@ -20,6 +20,9 @@ const databaseUrl = process.env.DATABASE_URL;
 // Never pg's defaults (localhost:5432): `botsdk migrate` must not migrate or drop on another database.
 if (!databaseUrl) throw new Error("Set DATABASE_URL");
 
+/** Where the Bot SDK's HTTP layer is mounted (src/routes/api/chat/$.ts): its mail's links open under it. */
+export const basePath = "/api/chat";
+
 /** The self-hosted E2B the Computers run on, or none: the server builds its Computer from it. */
 export const e2b = e2bConfigOf(process.env);
 
@@ -52,7 +55,7 @@ export default {
       ...(e2b && { knowledgeFiles }),
       // Where the signed link in a proof mail opens (ticket #1348): the API's URL.
       ...(process.env.BETTER_AUTH_URL && {
-        linkUrl: `${process.env.BETTER_AUTH_URL.replace(/\/+$/, "")}/api/chat`,
+        linkUrl: `${process.env.BETTER_AUTH_URL.replace(/\/+$/, "")}${basePath}`,
       }),
     }),
   ],

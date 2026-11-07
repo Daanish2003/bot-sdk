@@ -149,7 +149,9 @@ const recentLimit = 1_000;
 
 /**
  * The Message-IDs of the mail each SDK instance handed a feature lately. A feature's mail leaves no
- * Trigger to dedupe on, so this is what drops a provider's redelivery, which comes within minutes.
+ * Trigger to dedupe on, so this drops a provider's redelivery, which comes within minutes, before
+ * the feature is asked. It is a fast path only: one to another process, or after a restart, reaches
+ * the feature, which keeps what it took itself.
  */
 const recentBySdk = new WeakMap<BotSdkContext, Set<string>>();
 

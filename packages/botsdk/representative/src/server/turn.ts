@@ -12,6 +12,7 @@ import { defineJob, type JobContext, PermanentJobError } from "@botsdk/bot/runne
 import {
   maxGapQuestionLength,
   maxDocumentNameLength,
+  identityAddress,
   maxFactTopicLength,
   maxThreadMessageLength,
   noNul,
@@ -908,7 +909,11 @@ export function turnTools(turn: Turn) {
         }),
     }).server(async ({ channel, externalId }, context) => {
       const now = await job.now();
-      const said = channel && externalId ? { channel, externalId } : null;
+      // An email address is matched in lower case, as identities hold it.
+      const said =
+        channel && externalId
+          ? { channel, externalId: identityAddress(channel, externalId) }
+          : null;
       // A verified sender claiming the address they write from claims nothing, and that tells nobody
       // anything about who is a Customer.
       const claimed =

@@ -2,7 +2,12 @@ import { and, desc, eq, sql } from "drizzle-orm";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
-import { representativeThread, representativeThreadMail } from "./db/schema";
+import {
+  representative,
+  representativeInboundMail,
+  representativeThread,
+  representativeThreadMail,
+} from "./db/schema";
 
 /*
  * What a thread's email needs to be answered in the same subject thread (ticket #1347). A Customer's
@@ -45,6 +50,28 @@ async function extendChain(
     .insert(representativeThreadMail)
     .values({ threadId, ...row })
     .onConflictDoUpdate({ target: representativeThreadMail.threadId, set: row });
+}
+
+/**
+ * Whether a mail to the Representative's address is new: false for a redelivery of one it took
+ * already, which a provider can send to another process or after a restart. In the transaction that
+ * stores the message, so a copy delivered meanwhile waits for it and is then refused. True when the
+ * Representative is gone, for the caller to find.
+ */
+export async function isNewMail(tx: Transaction, representativeId: string, messageId: string) {
+  // The Representative's row first, as a Customer's message takes it.
+  const [held] = await tx
+    .select({ id: representative.id })
+    .from(representative)
+    .where(eq(representative.id, representativeId))
+    .for("key share");
+  if (!held) return true;
+  const taken = await tx
+    .insert(representativeInboundMail)
+    .values({ representativeId, messageId })
+    .onConflictDoNothing()
+    .returning({ messageId: representativeInboundMail.messageId });
+  return taken.length > 0;
 }
 
 /** Records a Customer's mail on its thread, in the transaction that stores the message. */

@@ -9,7 +9,7 @@ import { emailChannel } from "@botsdk/bot/channel";
 import { fakeImageAdapter } from "@botsdk/bot/models";
 import { log } from "evlog";
 
-import botsdkConfig, { e2b } from "../botsdk.config";
+import botsdkConfig, { basePath, e2b } from "../botsdk.config";
 import { isBanActive } from "./admin/ban";
 import { appName, sender } from "./email";
 import { emailProviderOf } from "./email-provider";
@@ -147,9 +147,6 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     }),
   ],
 }));
-
-// Where the Bot SDK's HTTP layer is mounted (src/routes/api/chat/$.ts).
-const basePath = "/api/chat";
 
 // The Bot SDK over HTTP (spec #873): every RPC call and route under /api/chat, for the signed-in
 // user, and the public ones (the Routine webhook, email inbound, the live view's pages).
