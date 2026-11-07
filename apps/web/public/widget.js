@@ -79,7 +79,11 @@
    * Verifying by a code sent to an email address on record (ticket #1350): the address and the code
    * go only to their own routes, never into the chat, so no Model reads them.
    */
-  const verifyButton = element("button", { type: "button", class: "verify" }, "Verify by email");
+  const verifyButton = element(
+    "button",
+    { type: "button", class: "verify", hidden: "" },
+    "Verify by email",
+  );
   const emailField = element("input", {
     type: "email",
     "aria-label": "Your email address",
@@ -104,6 +108,8 @@
     status.textContent = text;
   };
   const show = (messages) => {
+    // A code is for a visitor with a thread, so only once they've written.
+    verifyButton.hidden = !messages.some((message) => message.from === "customer");
     log.replaceChildren(
       ...messages.map((message) =>
         element("div", { class: "message", "data-from": message.from }, message.text),

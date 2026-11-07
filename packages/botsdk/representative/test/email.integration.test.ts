@@ -595,10 +595,16 @@ describe("a code a web chat visitor asked for by email (#1350)", () => {
     const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
     const channel = heldAccountChannel(feature.context, { linkUrl: "http://localhost/api/chat" });
 
+    // A code from anywhere but the chat window goes nowhere by email.
+    await channel.sendProof(
+      { channel: "email", externalId: sender },
+      { kind: "code", secret: "111111" },
+      { representativeId: id },
+    );
     await channel.sendProof(
       { channel: "email", externalId: sender },
       { kind: "code", secret: "482913" },
-      { representativeId: id },
+      { representativeId: id, chatWindow: true },
     );
 
     expect(email.sent).toHaveLength(1);

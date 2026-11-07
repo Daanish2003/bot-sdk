@@ -918,9 +918,10 @@ export function turnTools(turn: Turn) {
           ? null
           : said;
       // A web chat visitor asks for their code in the chat window, by an address the Model never
-      // sees (ticket #1350): nothing is sent from here.
+      // sees (ticket #1350): nothing is sent from here. One already verified can't link another
+      // identity there, as their Customer has two now, so they're told only that they're verified.
       if (thread?.heard.channel === webChatChannel) {
-        return thread.verified && !claimed ? alreadyVerifiedAnswer : webChatProofAnswer;
+        return thread.verified ? alreadyVerifiedAnswer : webChatProofAnswer;
       }
       // Set only by a live write, so a replay sends nothing twice.
       let outgoing: SentProof | null = null;

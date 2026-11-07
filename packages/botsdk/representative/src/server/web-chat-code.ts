@@ -98,11 +98,24 @@ async function requestCode(
   if (!outgoing) return;
   const { to, proof } = outgoing;
   void Promise.resolve()
-    .then(() => channel.sendProof(to, proof, { representativeId: session.representativeId }))
+    .then(() =>
+      channel.sendProof(to, proof, {
+        representativeId: session.representativeId,
+        chatWindow: true,
+      }),
+    )
     .catch((error: unknown) => {
       context.logger.error(`Representative ${session.representativeId}: a code didn't go`, error);
     });
 }
+
+/** Code requests still at work, which a test waits for before it clears the database. */
+const pending = new Set<Promise<void>>();
+
+/** Resolves once every code request under way has finished. */
+export const codeRequestsSettled = async () => {
+  await Promise.all(pending);
+};
 
 /** Whether `code` is the session's live code, which then joins it to its Customer and proves it. */
 async function checkCode(
@@ -165,8 +178,14 @@ export const webChatCodeRoutes = (
       if (!session) return ended();
       const sessionWait = await limitCodeRequestBySession(context, session.heard.externalId);
       if (sessionWait !== null) return tooManyRequests(sessionWait);
-      await requestCode(context, channelOf(context), session, body.email);
-      // The same answer whatever was found, so it tells nobody which addresses are on record.
+      // Not waited for, and the same answer whatever is found: neither what it says nor how long it
+      // takes may tell anyone which addresses are on record.
+      const work = requestCode(context, channelOf(context), session, body.email)
+        .catch((error: unknown) => {
+          context.logger.error("A web chat code request failed", error);
+        })
+        .finally(() => pending.delete(work));
+      pending.add(work);
       return answer({}, 202);
     },
   },

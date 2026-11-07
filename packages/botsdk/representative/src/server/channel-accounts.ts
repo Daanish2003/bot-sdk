@@ -127,11 +127,13 @@ export const heldAccountChannel = (
       throw error instanceof MessagingSendError ? new AccountSendError(account.id, error) : error;
     }
   },
-  sendProof: async (to, proof, { representativeId }) => {
+  sendProof: async (to, proof, { representativeId, chatWindow = false }) => {
     // A code is read back on a platform that can reach its sender (SMS, #1174); a link goes by email,
-    // and so does a code a web chat visitor asked for by an address on record (#1350).
+    // and so does a code a web chat visitor asked for in the chat window, by a verified address on
+    // record (#1350). No other code goes by email: none of those checks stood in front of it.
     if (to.channel !== customerEmailChannel) return;
     if (proof.kind === "code") {
+      if (!chatWindow) return;
       await sendProofEmail(
         { db, keyring, channelAccounts, linkUrl },
         { representativeId, externalId: to.externalId, code: proof.secret },

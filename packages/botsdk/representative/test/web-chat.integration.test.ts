@@ -47,6 +47,7 @@ import {
   sessionCheckMs,
   withWebChat,
 } from "../src/server/web-chat";
+import { codeRequestsSettled } from "../src/server/web-chat-code";
 import { widgetSessionLastsMs } from "../src/server/widget-key";
 import type { WebChatMessage, WebChatStreamEvent } from "../src/shared/contract";
 
@@ -68,6 +69,7 @@ const servers: Server[] = [];
 const runners: JobRunner[] = [];
 const streams: AbortController[] = [];
 afterEach(async () => {
+  await codeRequestsSettled();
   vi.useRealTimers();
   for (const stream of streams.splice(0)) stream.abort();
   for (const runner of runners.splice(0)) await runner.stop();
@@ -698,13 +700,17 @@ describe("a code by email (#1350)", () => {
    * email, and `unverified`, which the owner added and nobody has proved.
    */
   async function codeWorld(clientIp?: ClientIp) {
-    const proofs: Array<{ to: { channel: string; externalId: string }; proof: Proof }> = [];
+    const proofs: Array<{
+      to: { channel: string; externalId: string };
+      proof: Proof;
+      via: { chatWindow?: boolean };
+    }> = [];
     const made = await world(
       Array(8).fill(round()),
       {
         ...noCustomerChannel,
-        sendProof: async (to, proof) => {
-          proofs.push({ to, proof });
+        sendProof: async (to, proof, via) => {
+          proofs.push({ to, proof, via });
         },
       },
       undefined,
@@ -763,11 +769,11 @@ describe("a code by email (#1350)", () => {
     const { askFor, proofs, startSession, writtenSession } = await codeWorld();
 
     expect(await askFor(await startSession(), onRecord)).toEqual({ status: 202, body: {} });
+    await codeRequestsSettled();
     // A later request that does send shows the earlier one had its chance to.
     await askFor(await writtenSession(), onRecord);
     await expect.poll(() => proofs.length, poll).toBe(1);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(proofs).toHaveLength(1);
+    expect(proofs.map(({ via }) => via.chatWindow)).toEqual([true]);
   });
 
   it("joins the session to the Customer on record with the right code, and its next message is verified", async () => {

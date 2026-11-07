@@ -24,7 +24,7 @@ import { type ChannelProofRule, hasLapsed, isVerified, proofLastsMs } from "./ve
  */
 
 /** How long a code can be passed. */
-const codeLifetimeMs = 10 * 60_000;
+export const codeLifetimeMs = 10 * 60_000;
 
 /** How long a signed link can be opened. Mail is slower than a text. */
 const linkLifetimeMs = 60 * 60_000;
@@ -58,11 +58,14 @@ export type CustomerChannel = {
       resume: SendProgress | null;
     },
   ) => Promise<void>;
-  /** Sends a proof from the Representative's side of the thread; `via` names the Representative. */
+  /**
+   * Sends a proof from the Representative's side of the thread; `via` names the Representative, and
+   * says when a web chat visitor asked for the code in the chat window (#1350), to be entered there.
+   */
   sendProof: (
     to: { channel: string; externalId: string },
     proof: Proof,
-    via: { representativeId: string },
+    via: { representativeId: string; chatWindow?: boolean },
   ) => Promise<void>;
   /** What the platform of `channel` limits, as its adapter declares it; left out, nothing is limited. */
   reach?: (channel: string) => MessagingReach | undefined;
@@ -538,6 +541,40 @@ const proved = (identityId: string, now: Date, tx: Transaction) =>
     .where(eq(representativeCustomerIdentity.id, identityId));
 
 /**
+ * Uses up the sender's right code, and proves them by it: true unless what held when it was sent no
+ * longer does (`mergeIntoTarget`), and the code is spent either way.
+ */
+async function useCode(
+  services: MergeServices,
+  tx: Transaction,
+  {
+    identityId,
+    customerId,
+    code,
+    now,
+  }: {
+    identityId: string;
+    customerId: string;
+    code: { id: string; targetIdentityId: string };
+    now: Date;
+  },
+) {
+  await tx
+    .update(representativeVerification)
+    .set({ usedAt: now })
+    .where(eq(representativeVerification.id, code.id));
+  const merged = await mergeIntoTarget(services, tx, {
+    senderId: identityId,
+    customerId,
+    targetId: code.targetIdentityId,
+    now,
+  });
+  if (!merged) return false;
+  await proved(identityId, now, tx);
+  return true;
+}
+
+/**
  * What to store for a Customer's message, which is the message itself unless it holds a code: then a
  * note, and the sender's correct code proves the identity. Every six digits in a message is one try,
  * and only the tries left are looked at, so a message full of guesses gets no more than five guesses
@@ -588,19 +625,8 @@ export async function catchCode(
     const tried = candidates.slice(0, live ? maxCodeAttempts - newest.attempts : maxCodeAttempts);
     if (tried.some((code) => isTheCode(keyring, newest.id, code, newest.codeHash))) {
       if (!live || blocked) return codeNotes.dead;
-      await tx
-        .update(representativeVerification)
-        .set({ usedAt: now })
-        .where(eq(representativeVerification.id, newest.id));
-      const merged = await mergeIntoTarget(services, tx, {
-        senderId: identityId,
-        customerId,
-        targetId: newest.targetIdentityId,
-        now,
-      });
-      if (!merged) return codeNotes.dead;
-      await proved(identityId, now, tx);
-      return codeNotes.passed;
+      const passed = await useCode(services, tx, { identityId, customerId, code: newest, now });
+      return passed ? codeNotes.passed : codeNotes.dead;
     }
     if (live && !blocked) {
       await tx
@@ -688,19 +714,7 @@ export async function passCode(
       .where(eq(representativeVerification.id, newest.id));
     return false;
   }
-  await tx
-    .update(representativeVerification)
-    .set({ usedAt: now })
-    .where(eq(representativeVerification.id, newest.id));
-  const merged = await mergeIntoTarget(services, tx, {
-    senderId: identityId,
-    customerId,
-    targetId: newest.targetIdentityId,
-    now,
-  });
-  if (!merged) return false;
-  await proved(identityId, now, tx);
-  return true;
+  return useCode(services, tx, { identityId, customerId, code: newest, now });
 }
 
 /**
