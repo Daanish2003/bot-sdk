@@ -125,6 +125,12 @@ export async function unsubscribe(
       .orderBy(desc(representativeThread.updatedAt))
       .limit(1);
     if (thread && (await holdThreadCustomer(tx, thread.id))) {
+      // The thread's row, as `optOut` needs it held.
+      await tx
+        .select({ id: representativeThread.id })
+        .from(representativeThread)
+        .where(eq(representativeThread.id, thread.id))
+        .for("update");
       await optOut({ jobs, channel }, tx, {
         userId: owner.userId,
         threadId: thread.id,
