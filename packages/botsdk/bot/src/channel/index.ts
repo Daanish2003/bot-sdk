@@ -25,6 +25,7 @@ export {
 export {
   emailChannel,
   type AuthVerdict,
+  type DmarcPolicy,
   type EmailChannel,
   type EmailProvider,
   type InboundMail,

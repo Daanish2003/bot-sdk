@@ -60,25 +60,25 @@ export const withWebChat = (channel: CustomerChannel): CustomerChannel => ({
   send: async (to, message, via) => {
     if (to.channel !== webChatChannel) await channel.send(to, message, via);
   },
-  sendProof: async (to, proof) => {
-    if (to.channel !== webChatChannel) await channel.sendProof(to, proof);
+  sendProof: async (to, proof, via) => {
+    if (to.channel !== webChatChannel) await channel.sendProof(to, proof, via);
   },
   reach: (name) =>
     name === webChatChannel ? { canStartConversation: false } : channel.reach?.(name),
 });
 
-const answer = (body: unknown, status = 200) =>
+export const answer = (body: unknown, status = 200) =>
   Response.json(body, { status, headers: widgetResponseHeaders });
 
-const refusal = (code: string, status: number) => answer({ code, params: {} }, status);
+export const refusal = (code: string, status: number) => answer({ code, params: {} }, status);
 
 /** Tells a visitor their token no longer opens anything, whatever was wrong with it. */
-const ended = () => refusal("error.widgetSessionEnded", 401);
+export const ended = () => refusal("error.widgetSessionEnded", 401);
 
-const invalid = () => refusal("error.widgetMessageInvalid", 400);
+export const invalid = () => refusal("error.widgetMessageInvalid", 400);
 
 /** The body as `schema` has it, or null for one too long, not JSON, or not that shape. */
-async function parsedBody<T>(
+export async function parsedBody<T>(
   request: Request,
   schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false } },
 ): Promise<T | null> {
@@ -316,7 +316,9 @@ export const webChatRoutes = (
         {
           representativeId: session.representativeId,
           ...session.heard,
-          // No proof: until a Channel can send a code, every web chat session stays unverified.
+          // A code sent to an identity on record, and entered in the chat window, proves a session
+          // for an hour (ticket #1350, `web-chat-code.ts`). Until then it is unverified.
+          proof: { rule: "codeToRecord" },
           message: body.text,
         },
       );

@@ -39,6 +39,7 @@ import {
   representativeProfileValue,
   representativeThread,
   representativeChannelAccount,
+  representativeThreadMail,
   representativeThreadMessage,
   representativeVerification,
 } from "../src/server/db/schema";
@@ -1340,6 +1341,13 @@ describe("the completeness of a Customer's delete", () => {
       verified: true,
       createdAt: new Date(),
     });
+    await getTestDb()
+      .insert(representativeThreadMail)
+      .values({
+        threadId: adaThread!.id,
+        subject: "Opening hours",
+        messageIds: ["first@mail.example"],
+      });
     const { reached, customerTable, edges } = await rowsLinkedTo([ada.id, bob.id]);
     // Every table a chain of foreign keys ties to a Customer must be seeded above, so a new one
     // can't pass unchecked.
@@ -1387,6 +1395,8 @@ describe("the completeness of a Customer's delete", () => {
       "representative_outbound_decision.external_id",
       "representative_thread.last_external_id",
       "representative_thread.turn_id",
+      // Mail's Message-IDs, not rows: they go with their thread's row.
+      "representative_thread_mail.message_ids",
       "representative_thread_message.assignment_id",
       "representative_thread_message.external_id",
     ];

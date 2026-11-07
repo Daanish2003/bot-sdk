@@ -6,6 +6,7 @@ import {
   index,
   integer,
   jsonb,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -279,7 +280,7 @@ export const representativeCustomerIdentity = botsdkSchema.table(
     provenUntil: timestamp("proven_until"),
     /** When they opted out of hearing from the business (ticket #1302); null when they haven't, or have come back. */
     optedOutAt: timestamp("opted_out_at"),
-    /** How they opted out: a Channel's keyword, or a Representative's flag; null with `optedOutAt`. */
+    /** How they opted out: a Channel's keyword, a Representative's flag, or a mail's unsubscribe link; null with `optedOutAt`. */
     optOutSource: text("opt_out_source").$type<OptOutSource>(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
@@ -328,6 +329,53 @@ export const representativeWidgetKey = botsdkSchema.table(
   },
   (table) => [
     check("representative_widget_key_status", sql`${table.status} in ('live', 'disabled')`),
+  ],
+);
+
+/**
+ * A Representative's one email address (ticket #1346): `<name>.<8 random chars>@<inbound domain>`,
+ * lowercase, as a Bot's is. Made the first time the owner reads it; a rotation replaces it, so the old
+ * address stops at once. Whoever writes to it is a Customer.
+ */
+export const representativeEmailAddress = botsdkSchema.table("representative_email_address", {
+  representativeId: uuid("representative_id")
+    .primaryKey()
+    .references((): AnyPgColumn => representative.id, { onDelete: "cascade" }),
+  address: text("address").notNull().unique("representative_email_address_address"),
+  createdAt: timestamp("created_at").notNull(),
+});
+
+/**
+ * What a thread's email needs to be answered in the same subject thread (ticket #1347): the subject
+ * of the Customer's latest mail, and the Message-IDs of the mail so far, oldest first, without angle
+ * brackets: the References a reply carries, the last of them its In-Reply-To.
+ */
+export const representativeThreadMail = botsdkSchema.table("representative_thread_mail", {
+  threadId: uuid("thread_id")
+    .primaryKey()
+    .references((): AnyPgColumn => representativeThread.id, { onDelete: "cascade" }),
+  subject: text("subject").notNull(),
+  messageIds: jsonb("message_ids").$type<string[]>().notNull(),
+});
+
+/**
+ * Each mail a Representative's address took, by its Message-ID's SHA-256 (fixed in size, however
+ * long the header), so a provider's redelivery, which can come to another process or after a
+ * restart, is stored once.
+ */
+export const representativeInboundMail = botsdkSchema.table(
+  "representative_inbound_mail",
+  {
+    representativeId: uuid("representative_id")
+      .notNull()
+      .references((): AnyPgColumn => representative.id, { onDelete: "cascade" }),
+    messageHash: text("message_hash").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: "representative_inbound_mail_pkey",
+      columns: [table.representativeId, table.messageHash],
+    }),
   ],
 );
 

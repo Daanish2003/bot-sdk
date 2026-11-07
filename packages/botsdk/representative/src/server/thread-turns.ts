@@ -8,7 +8,12 @@ import type { Transaction } from "@botsdk/bot/plugin";
 import type { ViaChannel } from "./outbound-gate";
 import { queueOwnerWait } from "./stalled-work";
 import { job } from "@botsdk/bot/storage";
-import { maxThreadMessageLength, noNul } from "../shared/contract";
+import {
+  identityAddress,
+  maxExternalIdLength,
+  maxThreadMessageLength,
+  noNul,
+} from "../shared/contract";
 import {
   holdThreadCustomer,
   receiveMessage,
@@ -24,6 +29,7 @@ import {
   representativeTurn,
 } from "./db/schema";
 import { queueIdleCheck } from "./idle";
+import { isNewMail, keepThreadMail } from "./thread-mail";
 import { replaceTurnHeld } from "./reply-drafts";
 import { representativeTestKey, testBanned } from "./tests";
 import { waitingAfterAbort } from "./takeover";
@@ -80,12 +86,21 @@ const customerMessage = z.object({
   representativeId: z.uuid(),
   /** Who sent it. The Customer's id is code's, from this identity: a Model never names one. */
   channel: z.string().min(1).max(64).refine(noNul),
-  externalId: z.string().min(1).max(512).refine(noNul),
+  externalId: z.string().min(1).max(maxExternalIdLength).refine(noNul),
   /** The held Channel account it came to, if it came to one. */
   channelAccountId: z.uuid().optional(),
   /** What the Channel's Customer path says of the sender; a Channel with no rule says nothing. */
   proof: channelProof.optional(),
   message: z.string().min(1).max(maxThreadMessageLength).refine(noNul),
+  /** The mail it came as (ticket #1347), which a reply by email answers in the same subject thread. */
+  mail: z
+    .object({
+      messageId: z.string().min(1).max(998).refine(noNul),
+      subject: z.string().max(998).refine(noNul),
+      /** The Message-IDs its References header names, oldest first. */
+      references: z.array(z.string().min(1).max(998).refine(noNul)).max(200),
+    })
+    .optional(),
 });
 export type CustomerMessage = z.infer<typeof customerMessage>;
 
@@ -94,7 +109,7 @@ export type CustomerMessage = z.infer<typeof customerMessage>;
  * Representative doesn't exist and nothing was stored. Otherwise `jobId` is the job of the Turn now
  * holding the thread, which a later Turn follows if it has already begun, or null when the message
  * is kept with no Turn: a blocked or opted-out Customer's, one that set off the emergency script, or
- * one on a thread the owner holds.
+ * one on a thread the owner holds; and for a mail's redelivery, which stores nothing.
  * No RPC or API method reaches this. The core's stranger hook does (`strangers.ts`), a web chat
  * visitor's send route does (ticket #1336), and so does the test Customer entry point in the private
  * `@ai-chat/test-support` package.
@@ -103,9 +118,12 @@ export async function receiveCustomerMessage(
   services: Services & Pick<FeatureContext<"pages">, "keyring" | "logger" | "pages"> & ViaChannel,
   given: CustomerMessage,
 ) {
-  const { representativeId, channel, externalId, channelAccountId, proof, message } =
+  const { representativeId, channel, channelAccountId, proof, message, mail, ...parsed } =
     customerMessage.parse(given);
+  const externalId = identityAddress(channel, parsed.externalId);
   return services.db.transaction(async (tx) => {
+    // A mail's redelivery is stored once, and starts nothing.
+    if (mail && !(await isNewMail(tx, representativeId, mail.messageId))) return { jobId: null };
     const now = services.clock();
     const received = await receiveMessage(tx, {
       services,
@@ -122,6 +140,7 @@ export async function receiveCustomerMessage(
       return { jobId: null, limited: true as const, retryAfterMs: received.retryAfterMs };
     }
     const { threadId, turnId, waitingSince, kept, state, opened } = received;
+    if (mail) await keepThreadMail(tx, threadId, mail);
     // With the message, so a thread is never left without its closing job.
     if (opened) await queueIdleCheck(services, tx, threadId, now);
     // Kept for the owner, and nothing more: no model call, no reply and no Assignment.

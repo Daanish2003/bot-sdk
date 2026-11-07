@@ -101,6 +101,48 @@ test("a visitor chats with a Representative from a shop's page and keeps the thr
   }
 });
 
+test("a visitor asks for a code by email in the chat window, and a wrong one unlocks nothing (#1350)", async ({
+  page: owner,
+  browser,
+}) => {
+  const shop = await startShopSite();
+  try {
+    const { key } = await ownerWithKey(owner, shop.origin);
+    const page = await visitorPage(browser);
+    const preflights: string[] = [];
+    page.on("request", (request) => {
+      if (request.method() === "OPTIONS") preflights.push(request.url());
+    });
+    const widget = await openShop(page, shop.origin, key);
+    await expect(widget.field).toBeEnabled();
+    await widget.field.fill("I'd like my order history");
+    await widget.send.click();
+    await expect(widget.said("I'd like my order history")).toBeVisible();
+
+    await widget.chat.getByRole("button", { name: "Verify by email" }).click();
+    await widget.chat.getByLabel("Your email address").fill("nobody@example.com");
+    const asked = page.waitForResponse((response) => response.url().endsWith("/widget/code"));
+    await widget.chat.getByRole("button", { name: "Send code" }).click();
+    expect((await asked).status()).toBe(202);
+    // The same words whether or not the address is on record.
+    await expect(widget.chat.getByRole("status")).toHaveText(
+      "If that address is on record, we've emailed a code to it. Enter it below.",
+    );
+
+    await widget.chat.getByLabel("Code from the email").fill("123456");
+    await widget.chat.getByRole("button", { name: "Verify", exact: true }).click();
+    await expect(widget.chat.getByRole("status")).toHaveText(
+      "That code is wrong or has expired. Ask for a new one if you need to.",
+    );
+    // Neither the address nor the code went into the chat.
+    await expect(widget.chat.locator(".message", { hasText: "nobody@example.com" })).toHaveCount(0);
+    await expect(widget.chat.locator(".message", { hasText: "123456" })).toHaveCount(0);
+    expect(preflights).toEqual([]);
+  } finally {
+    shop.server.close();
+  }
+});
+
 test("a returning visitor whose stored session has ended starts a new one, with nothing said", async ({
   page: owner,
   browser,

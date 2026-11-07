@@ -107,7 +107,13 @@ async function customerOfIdentity(tx: Transaction, identityId: string) {
  * does, since waiting for that later, with its identity held, could deadlock with this sender's next
  * message.
  */
-async function holdSender(tx: Transaction, userId: string, heard: Heard, text: string, now: Date) {
+export async function holdSender(
+  tx: Transaction,
+  userId: string,
+  heard: Heard,
+  text: string,
+  now: Date,
+) {
   const merges = mayHoldCode(text);
   for (;;) {
     const { identityId, customerId } = await findOrMakeIdentity(tx, userId, heard);

@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CounterStore } from "@botsdk/bot/chat/counters";
@@ -24,10 +24,12 @@ import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter
 import {
   type CustomerChannel,
   noCustomerChannel,
-  noProofAnswer,
+  type Proof,
+  webChatProofAnswer,
 } from "../src/server/customer-proof";
 import {
   representative,
+  representativeCustomerIdentity,
   representativeOutboundDecision,
   representativeThreadMessage,
   representativeVerification,
@@ -45,6 +47,7 @@ import {
   sessionCheckMs,
   withWebChat,
 } from "../src/server/web-chat";
+import { codeRequestsSettled } from "../src/server/web-chat-code";
 import { widgetSessionLastsMs } from "../src/server/widget-key";
 import type { WebChatMessage, WebChatStreamEvent } from "../src/shared/contract";
 
@@ -66,6 +69,7 @@ const servers: Server[] = [];
 const runners: JobRunner[] = [];
 const streams: AbortController[] = [];
 afterEach(async () => {
+  await codeRequestsSettled();
   vi.useRealTimers();
   for (const stream of streams.splice(0)) stream.abort();
   for (const runner of runners.splice(0)) await runner.stop();
@@ -652,7 +656,7 @@ describe("a switched-off Representative", () => {
 });
 
 describe("an unverified session", () => {
-  it("isn't offered a code, sends none, and still gets an answer", async () => {
+  it("is offered a code by email in the chat window, has none sent from the chat, and still gets an answer", async () => {
     const proofs: unknown[] = [];
     const { startSession, send, read, said, dueTurn, fake } = await world(
       [
@@ -679,8 +683,177 @@ describe("an unverified session", () => {
 
     await expect.poll(async () => (await read(token)).length, poll).toBe(2);
     expect((await said(token)).at(-1)).toEqual(["business", "Noted."]);
-    expect(JSON.stringify(fake.calls[1]!.messages)).toContain(noProofAnswer.answer);
+    const toolAnswer = (fake.calls[1]!.messages as Array<{ role: string; content: string }>).find(
+      ({ role }) => role === "tool",
+    );
+    expect(JSON.parse(toolAnswer!.content)).toEqual(webChatProofAnswer);
     expect(proofs).toEqual([]);
+  });
+});
+
+describe("a code by email (#1350)", () => {
+  const onRecord = "ada@example.com";
+  const unverified = "bob@example.com";
+
+  /**
+   * A world whose proofs are kept, with two email Customers on record: `onRecord`, verified by
+   * email, and `unverified`, which the owner added and nobody has proved.
+   */
+  async function codeWorld(clientIp?: ClientIp) {
+    const proofs: Array<{
+      to: { channel: string; externalId: string };
+      proof: Proof;
+      via: { chatWindow?: boolean };
+    }> = [];
+    const made = await world(
+      Array(8).fill(round()),
+      {
+        ...noCustomerChannel,
+        sendProof: async (to, proof, via) => {
+          proofs.push({ to, proof, via });
+        },
+      },
+      undefined,
+      undefined,
+      clientIp,
+    );
+    const ada = await made.rpc.representative.customerCreate({
+      channel: "email",
+      externalId: onRecord,
+    });
+    await made.rpc.representative.customerCreate({ channel: "email", externalId: unverified });
+    await getTestDb()
+      .update(representativeCustomerIdentity)
+      .set({ verifiedContactAt: made.timer.clock.now() })
+      .where(eq(representativeCustomerIdentity.externalId, onRecord));
+    const askFor = async (token: string, email: string) => {
+      const response = await made.post("code", { token, email });
+      return { status: response.status, body: await response.json() };
+    };
+    const enter = (token: string, code: string) => made.post("code/check", { token, code });
+    /** The Customer the session's identity is on. */
+    const standing = async (token: string) => {
+      const [identity] = await getTestDb()
+        .select({ customerId: representativeCustomerIdentity.customerId })
+        .from(representativeCustomerIdentity)
+        .where(eq(representativeCustomerIdentity.externalId, token.split(".")[1]!));
+      return identity?.customerId;
+    };
+    /** A session that has written, so it has a thread to verify. */
+    const writtenSession = async () => {
+      const token = await made.startSession();
+      await made.send(token, "Hi, it's Ada");
+      return token;
+    };
+    return { ...made, proofs, ada, askFor, enter, standing, writtenSession };
+  }
+
+  it("answers the same for an address on record, one not on record and an unverified one, and only the verified one gets a code", async () => {
+    const { askFor, proofs, writtenSession } = await codeWorld();
+    const token = await writtenSession();
+
+    const answered = [
+      await askFor(token, "nobody@example.com"),
+      await askFor(token, unverified),
+      await askFor(token, ` ${onRecord.toUpperCase()} `),
+    ];
+
+    expect(answered).toEqual(Array(3).fill({ status: 202, body: {} }));
+    await expect.poll(() => proofs.length, poll).toBe(1);
+    expect(proofs[0]!.to).toEqual({ channel: "email", externalId: onRecord });
+    expect(proofs[0]!.proof.kind).toBe("code");
+    expect(proofs[0]!.proof.secret).toMatch(/^\d{6}$/);
+  });
+
+  it("sends nothing for a session that hasn't written, and answers it the same", async () => {
+    const { askFor, proofs, startSession, writtenSession } = await codeWorld();
+
+    expect(await askFor(await startSession(), onRecord)).toEqual({ status: 202, body: {} });
+    await codeRequestsSettled();
+    // A later request that does send shows the earlier one had its chance to.
+    await askFor(await writtenSession(), onRecord);
+    await expect.poll(() => proofs.length, poll).toBe(1);
+    expect(proofs.map(({ via }) => via.chatWindow)).toEqual([true]);
+  });
+
+  it("joins the session to the Customer on record with the right code, and its next message is verified", async () => {
+    const { askFor, enter, proofs, standing, ada, writtenSession, send } = await codeWorld();
+    const token = await writtenSession();
+    expect(await standing(token)).not.toBe(ada.id);
+    await askFor(token, onRecord);
+    await expect.poll(() => proofs.length, poll).toBe(1);
+
+    const response = await enter(token, proofs[0]!.proof.secret);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ verified: true });
+    expect(await standing(token)).toBe(ada.id);
+    await send(token, "Where is my order?");
+    const [newest] = await getTestDb()
+      .select({
+        text: representativeThreadMessage.text,
+        verified: representativeThreadMessage.verified,
+      })
+      .from(representativeThreadMessage)
+      .where(eq(representativeThreadMessage.externalId, token.split(".")[1]!))
+      .orderBy(desc(representativeThreadMessage.position))
+      .limit(1);
+    expect(newest).toEqual({ text: "Where is my order?", verified: true });
+    // Used once: entering it again unlocks nothing more.
+    expect((await enter(token, proofs[0]!.proof.secret)).status).toBe(400);
+  });
+
+  it("unlocks nothing with a wrong code, and voids the code after five wrong tries", async () => {
+    const { askFor, enter, proofs, standing, ada, writtenSession } = await codeWorld();
+    const token = await writtenSession();
+    await askFor(token, onRecord);
+    await expect.poll(() => proofs.length, poll).toBe(1);
+    const code = proofs[0]!.proof.secret;
+    const wrong = code === "000000" ? "111111" : "000000";
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const response = await enter(token, wrong);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ code: "error.widgetCodeWrong", params: {} });
+    }
+
+    expect((await enter(token, code)).status).toBe(400);
+    expect(await standing(token)).not.toBe(ada.id);
+  });
+
+  it("unlocks nothing with an expired code", async () => {
+    const { askFor, enter, proofs, standing, ada, writtenSession, timer } = await codeWorld();
+    const token = await writtenSession();
+    await askFor(token, onRecord);
+    await expect.poll(() => proofs.length, poll).toBe(1);
+
+    timer.advance(10 * 60_000);
+
+    expect((await enter(token, proofs[0]!.proof.secret)).status).toBe(400);
+    expect(await standing(token)).not.toBe(ada.id);
+  });
+
+  it("limits how many codes a session asks for", async () => {
+    const { askFor, writtenSession } = await codeWorld();
+    const token = await writtenSession();
+
+    for (let ask = 0; ask < 5; ask++) expect((await askFor(token, unverified)).status).toBe(202);
+
+    expect(await askFor(token, unverified)).toEqual({
+      status: 429,
+      body: { code: "error.tooManyRequests", params: {} },
+    });
+  });
+
+  it("limits how many codes one IP asks for, across its sessions", async () => {
+    const { askFor, startSession } = await codeWorld(() => "203.0.113.9");
+
+    for (let session = 0; session < 5; session++) {
+      const token = await startSession();
+      for (let ask = 0; ask < 4; ask++) expect((await askFor(token, unverified)).status).toBe(202);
+    }
+
+    expect((await askFor(await startSession(), unverified)).status).toBe(429);
   });
 });
 

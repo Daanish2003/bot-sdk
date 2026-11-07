@@ -12,6 +12,7 @@ import {
 } from "../../storage";
 
 import { withoutNul } from "../../lib/without-nul";
+import { enabledFeatures, type StrangerEmail } from "../../feature";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { sentFileBlobKey, storeMailFiles } from "../conversation";
 
@@ -26,7 +27,9 @@ import { bareAddress, type EmailChannel, type InboundMail } from "../../channel/
  * (case-insensitive) and the provider's DMARC verdict is a pass. It becomes Trigger
  * `email:<Message-ID>`, carrying a new user Message on channel `email`, so a redelivery makes
  * none. A reply in a Room's thread (spec #1055) goes into that Room instead, routed as a Message
- * the user sent there (`roomOfThread`). Anything else is dropped silently and logged.
+ * the user sent there (`roomOfThread`). A mail that wakes no Bot that way goes to the features'
+ * `onEmail` (spec #1176), which take it when it was sent to one of their addresses too. Anything
+ * else is dropped silently and logged.
  */
 export async function receiveEmail(
   sdk: BotSdkContext,
@@ -64,12 +67,14 @@ async function deliver(
   const text = emailText(mail, channel.domain);
   if (!text) return "no text";
   const owner = await botAt(sdk, mail.to);
-  if (!owner) return "no Bot has the address";
+  // Mail the Bot rule refuses still reaches a feature whose address it was also sent to.
+  const inbound = { mail, messageId, text };
+  if (!owner) return toFeature(sdk, inbound, "no Bot has the address");
   const verified = await verifiedEmail(owner.userId);
   if (!verified || bareAddress(mail.from) !== verified.trim().toLowerCase()) {
-    return "the sender isn't the Bot's user";
+    return toFeature(sdk, inbound, "the sender isn't the Bot's user");
   }
-  if (mail.authentication.dmarc !== "pass") return "no DMARC pass";
+  if (mail.authentication.dmarc !== "pass") return toFeature(sdk, inbound, "no DMARC pass");
   // The Quota and the Ban as for a webhook: read outside the transaction, and the mail is dropped.
   const call = await sdk.models.resolveModelCall(owner.userId, owner.model);
   if (!call) return "the Bot's Model isn't available";
@@ -137,6 +142,56 @@ async function deliver(
   });
   if (handed === "refused") return "no Bot has the address";
   return handed === "seen" ? redelivery : null;
+}
+
+/** How many of the newest Message-IDs handed to a feature each SDK instance remembers. */
+const recentLimit = 1_000;
+
+/**
+ * The Message-IDs of the mail each SDK instance handed a feature lately. A feature's mail leaves no
+ * Trigger to dedupe on, so this drops a provider's redelivery, which comes within minutes, before
+ * the feature is asked. It is a fast path only: one to another process, or after a restart, reaches
+ * the feature, which keeps what it took itself.
+ */
+const recentBySdk = new WeakMap<BotSdkContext, Set<string>>();
+
+/**
+ * Hands a mail that woke no Bot to the first enabled feature whose `onEmail` takes it (spec #1176):
+ * `null` once one took it, else why it was dropped, `otherwise` when no feature holds a recipient. A
+ * feature's throw fails the inbound request, so the provider delivers the mail again.
+ */
+async function toFeature(
+  sdk: BotSdkContext,
+  { mail, messageId, text }: { mail: InboundMail; messageId: string; text: string },
+  otherwise: string,
+): Promise<string | null> {
+  const takers = enabledFeatures(sdk).filter(({ feature }) => feature.onEmail);
+  if (takers.length === 0) return otherwise;
+  let recent = recentBySdk.get(sdk);
+  if (!recent) recentBySdk.set(sdk, (recent = new Set()));
+  if (recent.has(messageId)) return redelivery;
+  // Remembered before it is handed over, so a copy delivered meanwhile is dropped.
+  recent.add(messageId);
+  if (recent.size > recentLimit) recent.delete(recent.values().next().value!);
+  const given: StrangerEmail = {
+    to: mail.to.map(bareAddress),
+    from: bareAddress(mail.from),
+    messageId,
+    subject: mail.subject,
+    text,
+    headers: mail.headers,
+    dmarc: { verdict: mail.authentication.dmarc, policy: mail.authentication.dmarcPolicy },
+  };
+  try {
+    for (const { feature, context } of takers) {
+      if (await feature.onEmail!(given, context)) return null;
+    }
+  } catch (error) {
+    recent.delete(messageId);
+    throw error;
+  }
+  recent.delete(messageId);
+  return otherwise;
 }
 
 /**

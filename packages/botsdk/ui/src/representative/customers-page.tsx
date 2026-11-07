@@ -593,7 +593,9 @@ function CustomerCard({
                     source: t(
                       identity.optedOut.source === "keyword"
                         ? "representative.customers.optOutKeyword"
-                        : "representative.customers.optOutRepresentative",
+                        : identity.optedOut.source === "link"
+                          ? "representative.customers.optOutLink"
+                          : "representative.customers.optOutRepresentative",
                     ),
                     date: new Date(identity.optedOut.at).toLocaleString(i18n.locale),
                   })}

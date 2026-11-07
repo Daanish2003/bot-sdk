@@ -337,7 +337,7 @@ export type DraftDiff = {
 };
 
 /** How an identity opted out of hearing from the business: a Channel's keyword, or a Representative's flag. */
-export type OptOutSource = "keyword" | "representative";
+export type OptOutSource = "keyword" | "representative" | "link";
 
 /** One way of reaching a Customer: a Channel, that Channel's id for them, whether it is verified now, and whether they opted out of it. */
 export type CustomerIdentityView = {
@@ -560,23 +560,36 @@ export const threadSendInput = z.object({
 export const maxCustomerNameLength = 100;
 /** Channel ids are lower case, so `SMS` and `sms` are one Channel. */
 const channelField = storable(z.string().trim().toLowerCase().min(1).max(64));
-const externalIdField = storable(z.string().trim().min(1).max(512));
-export const customerCreateInput = z.object({
-  name: storable(z.string().trim().min(1).max(maxCustomerNameLength)).optional(),
-  channel: channelField,
-  externalId: externalIdField,
-});
-export const customerAddIdentityInput = z.object({
-  id: z.uuid(),
-  channel: channelField,
-  externalId: externalIdField,
-});
-export const customerUpdateIdentityInput = z.object({
-  id: z.uuid(),
-  identityId: z.uuid(),
-  channel: channelField,
-  externalId: externalIdField,
-});
+/** The longest address an identity holds. */
+export const maxExternalIdLength = 512;
+const externalIdField = storable(z.string().trim().min(1).max(maxExternalIdLength));
+/**
+ * An address as identities hold it: an email address in lower case, as inbound mail and a code
+ * request give it, so one person's address is one identity whatever case it was typed in.
+ */
+export const identityAddress = (channel: string, externalId: string) =>
+  channel === "email" ? externalId.toLowerCase() : externalId;
+const withIdentityAddress = <Input extends { channel: string; externalId: string }>(
+  input: Input,
+) => ({ ...input, externalId: identityAddress(input.channel, input.externalId) });
+export const customerCreateInput = z
+  .object({
+    name: storable(z.string().trim().min(1).max(maxCustomerNameLength)).optional(),
+    channel: channelField,
+    externalId: externalIdField,
+  })
+  .transform(withIdentityAddress);
+export const customerAddIdentityInput = z
+  .object({ id: z.uuid(), channel: channelField, externalId: externalIdField })
+  .transform(withIdentityAddress);
+export const customerUpdateIdentityInput = z
+  .object({
+    id: z.uuid(),
+    identityId: z.uuid(),
+    channel: channelField,
+    externalId: externalIdField,
+  })
+  .transform(withIdentityAddress);
 export const customerSetBlockedInput = z.object({ id: z.uuid(), blocked: z.boolean() });
 export const customerClearOptOutInput = z.object({ id: z.uuid(), identityId: z.uuid() });
 export const customerMergeInput = z.object({ id: z.uuid(), intoId: z.uuid() });
@@ -786,6 +799,22 @@ export const webChatSendInput = z.strictObject({
   text: storable(z.string().trim().min(1).max(maxThreadMessageLength)),
 });
 
+/** What a web chat visitor gives to have a code sent to an email address on record (ticket #1350). */
+export const webChatCodeRequestInput = z.strictObject({
+  token: z.string(),
+  email: z.string().trim().toLowerCase().max(320).pipe(z.email()),
+});
+
+/** The code a web chat visitor enters: six digits, however they spaced them. */
+export const webChatCodeCheckInput = z.strictObject({
+  token: z.string(),
+  code: z
+    .string()
+    .max(64)
+    .transform((code) => code.replace(/[\s-]/g, ""))
+    .pipe(z.string().regex(/^\d{6}$/)),
+});
+
 /** A message as a web chat visitor reads it: nothing of who wrote it for the business, or why. */
 export type WebChatMessage = { id: string; from: "customer" | "business"; text: string };
 
@@ -806,6 +835,9 @@ export type WidgetKeyView = {
   allowedOrigins: string[];
   status: WidgetKeyStatus;
 };
+
+/** A Representative's email address, as its owner sees it (ticket #1346): whoever writes to it is a Customer. */
+export type EmailAddressView = { address: string };
 
 export const maxWidgetOrigins = 50;
 /** Whether `value` is only a scheme, host and port, which is all a browser's `Origin` header says. */
@@ -901,6 +933,10 @@ export const representativeContract = {
   widgetKeyRotate: oc.input(idInput).output(type<WidgetKeyView>()),
   /** Disables the key and ends all its sessions. Only rotating gives a live key again. */
   widgetKeyDisable: oc.input(idInput).output(type<WidgetKeyView>()),
+  /** The Representative's email address, made on the first read; null when the Host has no email Channel. */
+  emailAddressGet: oc.input(idInput).output(type<EmailAddressView | null>()),
+  /** Gives it a new email address; the old one stops at once. Null as for `emailAddressGet`. */
+  emailAddressRotate: oc.input(idInput).output(type<EmailAddressView | null>()),
   /** The owner's Customers, oldest first. */
   customerList: oc.output(type<CustomerView[]>()),
   /** Adds a Customer by hand, with its first identity. Refused when the owner already has that identity. */

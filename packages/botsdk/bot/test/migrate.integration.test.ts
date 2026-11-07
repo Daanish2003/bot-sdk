@@ -1,3 +1,4 @@
+import { getTableName } from "drizzle-orm";
 import { pgSchema, text, uuid } from "drizzle-orm/pg-core";
 import { Client, Pool } from "pg";
 import { afterEach, describe, expect, it } from "vitest";
@@ -808,6 +809,15 @@ describe("chat.start()", () => {
 
   it("lists each SDK feature with tables under the id and migrations the feature has", () => {
     expect(sdkFeatureMigrations()).toEqual(featureMigrations([memory(), mcp(), representative()]));
+  });
+
+  it("has each SDK feature declare every table its migrations make, so removing it drops them all", () => {
+    for (const { id, schema } of [memory(), mcp(), representative()]) {
+      const sql = (schema?.migrations ?? []).map((migration) => migration.sql).join("\n");
+      const made = [...sql.matchAll(/CREATE TABLE "botsdk"\."(\w+)"/g)].map((match) => match[1]);
+      const declared = Object.values(schema?.tables ?? {}).map((table) => getTableName(table));
+      expect(declared.toSorted(), id).toEqual(made.toSorted());
+    }
   });
 
   it("throws, naming the feature, while an enabled feature's migrations aren't all applied", async () => {

@@ -12,6 +12,7 @@ import { defineJob, type JobContext, PermanentJobError } from "@botsdk/bot/runne
 import {
   maxGapQuestionLength,
   maxDocumentNameLength,
+  identityAddress,
   maxFactTopicLength,
   maxThreadMessageLength,
   noNul,
@@ -29,6 +30,8 @@ import {
   proofAnswer,
   requestProof,
   type SentProof,
+  webChatChannel,
+  webChatProofAnswer,
 } from "./customer-proof";
 import { recordMovedHandOff } from "./customer-merge";
 import { memoryPrompt, noMemory, readCustomerMemory, type CustomerMemory } from "./customer-memory";
@@ -906,7 +909,11 @@ export function turnTools(turn: Turn) {
         }),
     }).server(async ({ channel, externalId }, context) => {
       const now = await job.now();
-      const said = channel && externalId ? { channel, externalId } : null;
+      // An email address is matched in lower case, as identities hold it.
+      const said =
+        channel && externalId
+          ? { channel, externalId: identityAddress(channel, externalId) }
+          : null;
       // A verified sender claiming the address they write from claims nothing, and that tells nobody
       // anything about who is a Customer.
       const claimed =
@@ -915,6 +922,12 @@ export function turnTools(turn: Turn) {
         said.externalId === thread.heard.externalId
           ? null
           : said;
+      // A web chat visitor asks for their code in the chat window, by an address the Model never
+      // sees (ticket #1350): nothing is sent from here. One already verified can't link another
+      // identity there, as their Customer has two now, so they're told only that they're verified.
+      if (thread?.heard.channel === webChatChannel) {
+        return thread.verified ? alreadyVerifiedAnswer : webChatProofAnswer;
+      }
       // Set only by a live write, so a replay sends nothing twice.
       let outgoing: SentProof | null = null;
       const answer = await kit.liveActivity("verify_customer", context?.toolCallId, async (tx) => {
@@ -940,7 +953,7 @@ export function turnTools(turn: Turn) {
         // whether it fails may tell the Model, or the Customer, that the identity was on record. A
         // proof that fails to go is lost, and the Customer asks again when none comes.
         void Promise.resolve()
-          .then(() => sendsProofs.sendProof(to, proof))
+          .then(() => sendsProofs.sendProof(to, proof, { representativeId }))
           .catch((error: unknown) => {
             job.logger.error(`Representative ${representativeId}: a proof didn't go`, error);
           });

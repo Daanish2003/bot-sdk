@@ -4,7 +4,7 @@ import type { PageUrgency } from "@botsdk/client/bot/pages";
 import { z } from "zod";
 
 import type { BotSdkPlugin, Transaction } from "../plugin";
-import type { EmailChannel, InboundMail } from "./email";
+import type { EmailChannel, InboundMail, OutboundMail } from "./email";
 import type { MessagingAdapter, MessagingReach, SendProgress } from "./messaging";
 import type { WebPushChannel } from "./push";
 
@@ -150,7 +150,15 @@ export type ChannelApi = {
     id: string,
     message: { chatId: string; text: string; resume?: SendProgress },
   ) => Promise<void>;
-  /** What the messaging adapter of `platform` limits, or undefined when the Host has no such adapter. */
+  /**
+   * Sends one mail through the email adapter (spec #1176), for a feature's address; throws with no
+   * email adapter, and a provider's throw is for the runner to retry.
+   */
+  sendEmail: (mail: OutboundMail) => Promise<void>;
+  /**
+   * What the adapter of `platform` limits, or undefined when the Host has none: email can start a
+   * conversation and has no reply window.
+   */
   reach: (platform: string) => MessagingReach | undefined;
   /** The user's Linked identities on the messaging Channels (spec #1044). */
   identities: LinkedIdentitiesApi;

@@ -53,6 +53,7 @@ export {
   type RepresentativeTool,
   type RepresentativeView,
   type WidgetKeyView,
+  type EmailAddressView,
   maxWidgetOrigins,
   widgetOrigin,
   type TestCheck,

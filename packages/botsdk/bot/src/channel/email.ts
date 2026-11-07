@@ -1,3 +1,5 @@
+import { randomInt } from "node:crypto";
+
 /** What a `MailFile`'s `read` throws past its `maxBytes`: the file is left out, as expected. */
 export class MailFileTooLargeError extends Error {
   constructor(maxBytes: number) {
@@ -21,6 +23,9 @@ export type MailFile = {
 /** A provider's verdict on one sender check of a mail it received. */
 export type AuthVerdict = "pass" | "fail" | "none";
 
+/** The DMARC policy the sender's domain publishes (its `p=`); `none` also when it publishes none. */
+export type DmarcPolicy = "none" | "quarantine" | "reject";
+
 /** One mail as a provider received it, parsed. */
 export type InboundMail = {
   /** The From header, `Name <address>` or a bare address. */
@@ -42,9 +47,15 @@ export type InboundMail = {
   files?: MailFile[];
   /**
    * The provider's sender checks. A DMARC `pass` is an aligned one: DMARC passes only when an SPF or
-   * DKIM pass is for the From's domain.
+   * DKIM pass is for the From's domain. `dmarcPolicy` is what that domain asks receivers to do with
+   * a fail: only a pass under a policy other than `none` shows the domain enforces DMARC.
    */
-  authentication: { spf: AuthVerdict; dkim: AuthVerdict; dmarc: AuthVerdict };
+  authentication: {
+    spf: AuthVerdict;
+    dkim: AuthVerdict;
+    dmarc: AuthVerdict;
+    dmarcPolicy: DmarcPolicy;
+  };
 };
 
 /** One mail a provider sends. */
@@ -59,6 +70,8 @@ export type OutboundMail = {
   messageId: string;
   inReplyTo?: string;
   references?: string[];
+  /** Further headers, such as `List-Unsubscribe`; not the ones above, which the provider sets. */
+  headers?: Record<string, string>;
   attachments?: { name: string; contentType: string; content: Uint8Array }[];
 };
 
@@ -102,6 +115,31 @@ export function emailChannel({
     domain: domain.toLowerCase(),
     appUrl: appUrl.replace(/\/+$/, ""),
   };
+}
+
+const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+
+/** A name as an address's local part: lowercase letters, digits and dashes, or `bot`. */
+function localName(name: string): string {
+  const slug = name
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40)
+    .replace(/-+$/, "");
+  return slug || "bot";
+}
+
+/**
+ * A new address for a Bot or a Representative called `name`: `<name>.<8 random chars>@<domain>`,
+ * about 41 bits of chance.
+ */
+export function newEmailAddress(name: string, domain: string): string {
+  let suffix = "";
+  for (let index = 0; index < 8; index++) suffix += alphabet[randomInt(alphabet.length)];
+  return `${localName(name)}.${suffix}@${domain}`;
 }
 
 /** The bare address of `Name <address>` or `address`, lowercase. */

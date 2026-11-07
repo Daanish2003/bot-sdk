@@ -51,7 +51,7 @@ type Heard = { channel: string; externalId: string };
  * Opts the owner's identity at `heard` out. False when it was out already, or is no identity of
  * theirs: nothing changed, so nothing more is sent.
  */
-async function markOptedOut(
+export async function markOptedOut(
   tx: Transaction,
   userId: string,
   heard: Heard,
@@ -95,7 +95,8 @@ export async function liftOptOut(tx: Transaction, userId: string, heard: Heard) 
 /**
  * Opts an identity out, and sends the fixed confirmation if the gate passes it: it skips the opt-out
  * rule, and nothing else a Customer who just asked to stop could object to. A blocked Customer gets
- * none. The thread's row must be held by `tx`, as the writes to the thread need it.
+ * none, and nor does one who used an email's unsubscribe link, whose page says it. The thread's row
+ * must be held by `tx`, as the writes to the thread need it.
  */
 export async function optOut(
   services: Pick<FeatureContext, "jobs"> & ViaChannel,
@@ -109,6 +110,7 @@ export async function optOut(
     now,
     releaseId,
     refusals,
+    confirm = true,
   }: {
     userId: string;
     threadId: string;
@@ -118,6 +120,8 @@ export async function optOut(
     now: Date;
     releaseId?: string | null;
     refusals?: GateRefusal[];
+    /** False when the Customer is told some other way: a one-click unsubscribe sends nothing more (RFC 8058). */
+    confirm?: boolean;
   },
 ) {
   if (!(await markOptedOut(tx, userId, heard, source, now))) return false;
@@ -149,6 +153,7 @@ export async function optOut(
       ...(turnIsTheirs && { turnFrom: null }),
     })
     .where(eq(representativeThread.id, threadId));
+  if (!confirm) return true;
   const decision = await passGate(tx, {
     kind: "opt_out_confirmation",
     threadId,

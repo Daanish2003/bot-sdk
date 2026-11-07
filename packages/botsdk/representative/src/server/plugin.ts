@@ -10,20 +10,24 @@ import {
   representativeCustomerIdentity,
   representativeCustomerMerge,
   representativeDocument,
+  representativeEmailAddress,
   representativeFact,
   representativeFactLog,
   representativeGap,
   representativeFactProposal,
   representativeHandOff,
   representativeHeldMessage,
+  representativeInboundMail,
   representativeOutboundDecision,
   representativeProfileField,
   representativeProfileValue,
   representativeRelease,
   representativeTestResult,
   representativeThread,
+  representativeThreadMail,
   representativeThreadMessage,
   representativeTopic,
+  representativeTurn,
   representativeCustomerSummary,
   representativeVerification,
   representativeWidgetKey,
@@ -42,6 +46,7 @@ import { type ChannelOf, type CustomerChannel, proofLinkRoutes } from "./custome
 import { deleteCustomers, exportCustomers } from "./customers";
 import { dropProposalsOfBot, factProposalTools } from "./fact-proposals";
 import { receiveStranger } from "./strangers";
+import { receiveEmail } from "./email-address";
 import { deleteFacts, exportFacts } from "./facts";
 import { deleteGaps, exportGaps } from "./gaps";
 import representativeMigrations from "./migrations.json" with { type: "json" };
@@ -60,7 +65,9 @@ import { draftDueJob } from "./draft-due";
 import { assignmentDueJob, ownerWaitJob } from "./stalled-work";
 import { stopUserTurns } from "./thread-turns";
 import type { ClientIp } from "./web-chat-limits";
+import { unsubscribeRoutes } from "./email-unsubscribe";
 import { webChatRoutes, withWebChat } from "./web-chat";
+import { webChatCodeRoutes } from "./web-chat-code";
 import { type WidgetSessionCheck, widgetSessionRoutes } from "./widget-key";
 import { handOffEndedJob, limitCheckJob, representativeTurnJob } from "./turn";
 
@@ -89,6 +96,12 @@ export type RepresentativeOptions = {
    * picks. Without it the picker isn't offered and uploads still work.
    */
   knowledgeFiles?: KnowledgeFiles;
+  /**
+   * Where the SDK's API is served: the Host's app URL and `basePath`, such as
+   * `https://app.example/api/chat`. The signed link in a proof mail opens a page under it. Without
+   * it, an email Customer can't be sent a link and so can't verify.
+   */
+  linkUrl?: string;
   /**
    * Checks each web chat session start request before a session is given: a request it returns false
    * for, or throws on, gets the same refusal as a wrong origin, and a throw is logged. This is where a
@@ -121,7 +134,8 @@ export function representativeFeature(
   options: RepresentativeOptions = {},
   channel?: CustomerChannel,
 ) {
-  const channelOf: ChannelOf = (context) => withWebChat(channel ?? heldAccountChannel(context));
+  const channelOf: ChannelOf = (context) =>
+    withWebChat(channel ?? heldAccountChannel(context, options));
   const { deliveryConcurrency = 20 } = options;
   return defineFeature({
     id: "representative",
@@ -145,20 +159,24 @@ export function representativeFeature(
         representativeCustomerIdentity,
         representativeCustomerMerge,
         representativeDocument,
+        representativeEmailAddress,
         representativeFact,
         representativeFactLog,
         representativeGap,
         representativeFactProposal,
         representativeHandOff,
         representativeHeldMessage,
+        representativeInboundMail,
         representativeOutboundDecision,
         representativeProfileField,
         representativeProfileValue,
         representativeRelease,
         representativeTestResult,
         representativeThread,
+        representativeThreadMail,
         representativeThreadMessage,
         representativeTopic,
+        representativeTurn,
         representativeCustomerSummary,
         representativeVerification,
         representativeWidgetKey,
@@ -185,10 +203,13 @@ export function representativeFeature(
     channelAccountOwner: (tx, id) => ownerOfHeldAccount(tx, id),
     onStranger: (message, context) =>
       receiveStranger({ ...context, channel: channelOf(context) }, message),
+    onEmail: (mail, context) => receiveEmail({ ...context, channel: channelOf(context) }, mail),
     publicRoutes: [
       ...proofLinkRoutes,
       ...widgetSessionRoutes(options.widgetSessionCheck, options.clientIp),
       ...webChatRoutes(channelOf, options.clientIp),
+      ...webChatCodeRoutes(channelOf, options.clientIp),
+      ...unsubscribeRoutes(channelOf),
     ],
     jobs: [
       representativeTurnJob(options.concurrency, channelOf),
