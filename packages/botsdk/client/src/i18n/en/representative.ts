@@ -377,6 +377,7 @@ export const representativeMessages = {
     `Opted out (${source}) on ${date}. Nothing is sent to this identity.`,
   "representative.customers.optOutKeyword": "their keyword",
   "representative.customers.optOutRepresentative": "a Representative's flag",
+  "representative.customers.optOutLink": "their unsubscribe link",
   "representative.customers.clearOptOut": "Clear opt-out",
   "representative.customers.optOutCleared": "Opt-out cleared",
   "representative.customers.blockedBadge": "Blocked",

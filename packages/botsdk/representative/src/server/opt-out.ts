@@ -51,7 +51,7 @@ type Heard = { channel: string; externalId: string };
  * Opts the owner's identity at `heard` out. False when it was out already, or is no identity of
  * theirs: nothing changed, so nothing more is sent.
  */
-async function markOptedOut(
+export async function markOptedOut(
   tx: Transaction,
   userId: string,
   heard: Heard,

@@ -80,7 +80,7 @@ export async function listChannelAccounts(
  * A signed link goes by email (#1348); a code goes nowhere until SMS (#1174) words it.
  */
 export const heldAccountChannel = (
-  { db, channelAccounts }: Parameters<ChannelOf>[0],
+  { db, keyring, channelAccounts }: Parameters<ChannelOf>[0],
   { linkUrl }: { linkUrl?: string } = {},
 ): ReturnType<ChannelOf> => ({
   reach: (channel) => channelAccounts.reach(channel),
@@ -90,7 +90,10 @@ export const heldAccountChannel = (
     { representativeId, channelAccountId, resume },
   ) => {
     if (channel === customerEmailChannel) {
-      return sendEmail({ db, channelAccounts }, { representativeId, externalId, text });
+      return sendEmail(
+        { db, keyring, channelAccounts, linkUrl },
+        { representativeId, externalId, text },
+      );
     }
     const accounts = await db
       .select({ id: channelAccount.id })
@@ -130,7 +133,7 @@ export const heldAccountChannel = (
     if (to.channel !== customerEmailChannel) return;
     if (proof.kind === "code") {
       await sendProofEmail(
-        { db, channelAccounts },
+        { db, keyring, channelAccounts, linkUrl },
         { representativeId, externalId: to.externalId, code: proof.secret },
       );
       return;
@@ -139,7 +142,7 @@ export const heldAccountChannel = (
     if (!linkUrl) throw new Error("The representative feature has no linkUrl for a signed link");
     const base = linkUrl.replace(/\/+$/, "");
     await sendProofEmail(
-      { db, channelAccounts },
+      { db, keyring, channelAccounts, linkUrl },
       {
         representativeId,
         externalId: to.externalId,

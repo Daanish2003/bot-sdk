@@ -75,7 +75,7 @@ async function world({
   deps = createTestSdk({
     jobs,
     ...(withEmail && {
-      channels: [emailChannel({ provider: email.provider, domain, appUrl: "https://app.example" })],
+      channels: [emailChannel({ provider: email.provider, domain, appUrl: "http://localhost" })],
     }),
     users: { verifiedEmail: async (userId) => (userId === user.id ? ownerEmail : null) },
     features: [representative({ linkUrl: "http://localhost/api/chat" })],
@@ -162,7 +162,20 @@ async function world({
       .from(representativeOutboundDecision)
       .orderBy(asc(representativeOutboundDecision.createdAt));
 
-  return { deps, rpc, user, id, fake, email, timer, deliver, turnRuns, startReply, decisions };
+  return {
+    deps,
+    rpc,
+    user,
+    id,
+    fake,
+    email,
+    chat,
+    timer,
+    deliver,
+    turnRuns,
+    startReply,
+    decisions,
+  };
 }
 
 /** The Customers' messages on Representative `id`'s threads, oldest first. */
@@ -400,7 +413,7 @@ describe("a Representative's reply to an email Customer", () => {
       from: `"Front Désk" <${address}>`,
       to: sender,
       subject: "Re: Opening hours",
-      text: "Noted.",
+      text: expect.stringContaining("Noted."),
       inReplyTo: "<first@mail.example>",
       references: ["<first@mail.example>"],
     });
@@ -497,6 +510,107 @@ describe("a Representative's reply to an email Customer", () => {
   });
 });
 
+describe("a Customer unsubscribing from a Representative's email", () => {
+  /** A Customer who has been answered once, and the link in the answer. */
+  async function answered() {
+    const w = await world({ replying: true });
+    const { address } = (await w.rpc.representative.emailAddressGet({ id: w.id }))!;
+    await w.deliver(address);
+    await w.turnRuns(2);
+    await expect.poll(() => w.email.sent.length, poll).toBe(1);
+    const mail = w.email.sent[0]!;
+    const url = /<(http:\/\/localhost[^>]+)>/.exec(mail.headers?.["List-Unsubscribe"] ?? "")?.[1];
+    const path = url ? new URL(url).pathname : "/missing";
+    const request = (method: string, to = path, body?: string) =>
+      w.chat.fetch(new Request(`http://localhost${to}`, { method, body }));
+    const optedOut = async () => {
+      const [row] = await getTestDb()
+        .select({ at: representativeCustomerIdentity.optedOutAt })
+        .from(representativeCustomerIdentity)
+        .where(eq(representativeCustomerIdentity.externalId, sender));
+      return row?.at ?? null;
+    };
+    return { ...w, mail, url, path, request, optedOut };
+  }
+
+  it("is offered by headers and a footer link on every mail, both to one signed link", async () => {
+    const { mail, url } = await answered();
+
+    expect(url).toMatch(/^http:\/\/localhost\/api\/chat\/representative\/unsubscribe\/.+/);
+    expect(mail.headers).toEqual({
+      "List-Unsubscribe": `<${url}>`,
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    });
+    expect(mail.text).toContain(`Unsubscribe: ${url}`);
+  });
+
+  it("opts the identity out on a one-click POST, and the gate then blocks later replies", async () => {
+    const { request, optedOut, startReply, decisions, email } = await answered();
+
+    const response = await request("POST", undefined, "List-Unsubscribe=One-Click");
+
+    expect(response.status).toBe(200);
+    expect(await optedOut()).not.toBeNull();
+    const refused = await startReply(at);
+    expect(refused).toMatchObject({ error: expect.any(String) });
+    expect(await decisions()).toContainEqual({ outcome: "drop", rule: "optedOut" });
+    // The one confirmation, sent through the gate, and nothing after it.
+    await expect.poll(() => email.sent.length, poll).toBe(2);
+    expect(email.sent[1]!.text).toContain("You won't get any more messages");
+  });
+
+  it("only asks on opening the link: a mail scanner's GET opts nobody out", async () => {
+    const { request, optedOut } = await answered();
+
+    const response = await request("GET");
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("<form");
+    expect(await optedOut()).toBeNull();
+  });
+
+  it("opts out nobody on a forged or altered token", async () => {
+    const { request, optedOut, path } = await answered();
+    const [identityId, representativeId, signature] = path.split("/").at(-1)!.split(".");
+    const base = "/api/chat/representative/unsubscribe/";
+    const forged = [
+      `${base}${identityId}.${representativeId}.${signature!.slice(0, -2)}AA`,
+      `${base}${identityId}.${uuidv7()}.${signature}`,
+      `${base}${uuidv7()}.${representativeId}.${signature}`,
+      `${base}${identityId}.${representativeId}`,
+      `${base}${identityId}.${representativeId}.${signature}.x`,
+      `${base}nonsense`,
+    ];
+
+    for (const to of forged) expect((await request("POST", to)).status).toBe(410);
+    expect(await optedOut()).toBeNull();
+  });
+});
+
+describe("a code a web chat visitor asked for by email (#1350)", () => {
+  it("is emailed from the Representative's address to the identity on record, as a Customer email", async () => {
+    const { deps, rpc, id, email } = await world();
+    const address = (await rpc.representative.emailAddressGet({ id }))!.address;
+    await rpc.representative.customerCreate({ channel: "email", externalId: sender });
+    const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
+    const channel = heldAccountChannel(feature.context, { linkUrl: "http://localhost/api/chat" });
+
+    await channel.sendProof(
+      { channel: "email", externalId: sender },
+      { kind: "code", secret: "482913" },
+      { representativeId: id },
+    );
+
+    expect(email.sent).toHaveLength(1);
+    const [mail] = email.sent;
+    expect(mail!.to).toBe(sender);
+    expect(mail!.from).toContain(address);
+    expect(mail!.subject).toBe("Your code for Front Désk");
+    expect(mail!.text).toContain("Your code is 482913. Enter it in the chat window");
+    expect(mail!.headers?.["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
+  });
+});
+
 describe("a signed link to an email Customer", () => {
   const linkOf = (text: string) =>
     /http:\/\/localhost\/api\/chat\/representative\/verify\/\S+/.exec(text)![0];
@@ -535,6 +649,9 @@ describe("a signed link to an email Customer", () => {
     const { deps, user, address, mail } = await asked();
     expect(mail.to).toBe(sender);
     expect(mail.from).toContain(address);
+    // A proof mail is a Customer email too (ticket #1349).
+    expect(mail.headers?.["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
+    expect(mail.text).toContain("/representative/unsubscribe/");
     expect(await verifiedAt(user.id)).toBeNull();
 
     const chat = createTestChat({ deps });

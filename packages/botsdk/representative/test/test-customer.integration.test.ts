@@ -865,9 +865,10 @@ describe("who can reach a Turn", () => {
       Object.keys(representativeContract).sort(),
     );
     expect(made.routes ?? []).toEqual([]);
-    // Served with no signed-in user: a signed link's page (#1256), web chat's session start (#1333),
-    // a visitor's send and read (#1336), their stream (#1339), which only reads, and asking for and
-    // entering a code by email (#1350). Only send starts a Turn, as that session's Customer.
+    // Served with no signed-in user: a signed link's page (#1256), the unsubscribe link (#1349), web
+    // chat's session start (#1333), a visitor's send and read (#1336), their stream (#1339), which
+    // only reads, and asking for and entering a code by email (#1350). Only send starts a Turn, as
+    // that session's Customer.
     expect((made.publicRoutes ?? []).map((route) => `${route.method} ${route.path}`)).toEqual([
       "GET /representative/verify/:token",
       "POST /representative/verify/:token",
@@ -877,6 +878,8 @@ describe("who can reach a Turn", () => {
       "POST /representative/widget/stream",
       "POST /representative/widget/code",
       "POST /representative/widget/code/check",
+      "GET /representative/unsubscribe/:token",
+      "POST /representative/unsubscribe/:token",
     ]);
     // The core's hooks: a stranger on a held account (#1334), and mail to a Representative's address (#1346).
     expect(typeof made.onStranger).toBe("function");

@@ -62,6 +62,7 @@ import { draftDueJob } from "./draft-due";
 import { assignmentDueJob, ownerWaitJob } from "./stalled-work";
 import { stopUserTurns } from "./thread-turns";
 import type { ClientIp } from "./web-chat-limits";
+import { unsubscribeRoutes } from "./email-unsubscribe";
 import { webChatRoutes, withWebChat } from "./web-chat";
 import { webChatCodeRoutes } from "./web-chat-code";
 import { type WidgetSessionCheck, widgetSessionRoutes } from "./widget-key";
@@ -202,6 +203,7 @@ export function representativeFeature(
       ...widgetSessionRoutes(options.widgetSessionCheck, options.clientIp),
       ...webChatRoutes(channelOf, options.clientIp),
       ...webChatCodeRoutes(channelOf, options.clientIp),
+      ...unsubscribeRoutes(channelOf),
     ],
     jobs: [
       representativeTurnJob(options.concurrency, channelOf),

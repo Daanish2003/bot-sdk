@@ -126,7 +126,7 @@ export function mailpitEmailProvider({
       return mail;
     },
     send: async (mail) => {
-      const headers: Record<string, string> = { "Message-ID": mail.messageId };
+      const headers: Record<string, string> = { ...mail.headers, "Message-ID": mail.messageId };
       if (mail.inReplyTo) headers["In-Reply-To"] = mail.inReplyTo;
       if (mail.references?.length) headers.References = mail.references.join(" ");
       const response = await fetcher(`${base}/api/v1/send`, {

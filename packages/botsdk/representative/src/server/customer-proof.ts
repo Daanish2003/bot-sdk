@@ -81,7 +81,7 @@ export class AccountSendError extends MessagingSendError {
 
 /** The Channel of whatever `context` a job or the API runs with. */
 export type ChannelOf = (
-  context: Pick<FeatureContext<"channelAccounts">, "db" | "channelAccounts">,
+  context: Pick<FeatureContext<"channelAccounts">, "db" | "keyring" | "channelAccounts">,
 ) => CustomerChannel;
 
 /** A Channel that reaches nobody, for what a test Customer sends. */
@@ -129,7 +129,7 @@ const proofKey = (secret: string) => {
   return key;
 };
 
-type SignedPurpose = "code" | "link" | "widgetSession";
+type SignedPurpose = "code" | "link" | "widgetSession" | "unsubscribe";
 
 export const signed = (secret: string, purpose: SignedPurpose, value: string) =>
   createHmac("sha256", proofKey(secret)).update(`${purpose}:${value}`).digest("base64url");
