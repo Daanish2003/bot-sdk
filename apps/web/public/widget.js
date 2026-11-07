@@ -59,7 +59,9 @@
      .status:empty { display: none; }
      form { display: flex; gap: 6px; padding: 8px; border-top: 1px solid #ddd; }
      input { flex: 1; min-width: 0; padding: 6px; font: inherit; }
-     button { font: inherit; }`,
+     button { font: inherit; }
+     [hidden] { display: none; }
+     .verify { align-self: flex-start; margin: 0 8px; padding: 0; border: 0; background: none; color: #1d4ed8; text-decoration: underline; cursor: pointer; }`,
   );
   const log = element("div", { class: "log", role: "log", "aria-live": "polite" });
   const status = element("div", { class: "status", role: "status" });
@@ -72,8 +74,30 @@
   const form = element("form");
   form.append(field, sendButton);
   const restart = element("button", { type: "button", hidden: "" }, "Start a new chat");
+
+  /*
+   * Verifying by a code sent to an email address on record (ticket #1350): the address and the code
+   * go only to their own routes, never into the chat, so no Model reads them.
+   */
+  const verifyButton = element("button", { type: "button", class: "verify" }, "Verify by email");
+  const emailField = element("input", {
+    type: "email",
+    "aria-label": "Your email address",
+    autocomplete: "email",
+  });
+  const emailForm = element("form", { hidden: "" });
+  emailForm.append(emailField, element("button", { type: "submit" }, "Send code"));
+  const codeField = element("input", {
+    type: "text",
+    "aria-label": "Code from the email",
+    autocomplete: "one-time-code",
+    inputmode: "numeric",
+  });
+  const codeForm = element("form", { hidden: "" });
+  codeForm.append(codeField, element("button", { type: "submit" }, "Verify"));
+
   const panel = element("section", { class: "panel", "aria-label": "Chat" });
-  panel.append(log, status, restart, form);
+  panel.append(log, status, restart, verifyButton, emailForm, codeForm, form);
   shadow.append(style, panel);
 
   const say = (text) => {
@@ -90,6 +114,12 @@
   const setUsable = (usable) => {
     field.disabled = !usable;
     sendButton.disabled = !usable;
+    verifyButton.disabled = !usable;
+  };
+  /** Shows one step of verifying, or none. */
+  const verifyStep = (step) => {
+    emailForm.hidden = step !== "email";
+    codeForm.hidden = step !== "code";
   };
 
   /* The session. */
@@ -111,6 +141,7 @@
     if (stream) stream.abort();
     saveToken(null);
     setUsable(false);
+    verifyStep(null);
     restart.hidden = false;
     say("Your chat session has ended.");
   };
@@ -261,6 +292,63 @@
     }
     await refresh();
   });
+  /** Says how long to wait after a 429, in the words a send's limit uses. */
+  const tooFast = (response) => {
+    const seconds = Number(response.headers.get("retry-after"));
+    const wait = seconds > 90 ? `${Math.ceil(seconds / 60)} minutes` : `${seconds} seconds`;
+    say(seconds ? `Too many tries. Try again in ${wait}.` : "Too many tries.");
+  };
+
+  verifyButton.addEventListener("click", () => {
+    say("");
+    verifyStep("email");
+    emailField.focus();
+  });
+
+  emailForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const email = emailField.value.trim();
+    if (!email || !token) return;
+    try {
+      const response = await post("code", { token, email });
+      if (response.status === 401) return end();
+      if (response.status === 202) {
+        // The same whatever the address: the route never says whether it is on record.
+        say("If that address is on record, we've emailed a code to it. Enter it below.");
+        verifyStep("code");
+        codeField.focus();
+      } else if (response.status === 429) {
+        tooFast(response);
+      } else {
+        say("Enter an email address.");
+      }
+    } catch {
+      say("Couldn't ask for a code. Try again.");
+    }
+  });
+
+  codeForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const code = codeField.value.trim();
+    if (!code || !token) return;
+    try {
+      const response = await post("code/check", { token, code });
+      if (response.status === 401) return end();
+      if (response.ok) {
+        codeField.value = "";
+        emailField.value = "";
+        verifyStep(null);
+        say("You're verified.");
+      } else if (response.status === 429) {
+        tooFast(response);
+      } else {
+        say("That code is wrong or has expired. Ask for a new one if you need to.");
+      }
+    } catch {
+      say("Couldn't check the code. Try again.");
+    }
+  });
+
   restart.addEventListener("click", () => {
     setUsable(false);
     show([]);
