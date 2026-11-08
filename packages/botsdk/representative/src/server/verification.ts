@@ -58,9 +58,11 @@ export const isVerified = (
  * Whether this message's sender is verified, and the identity's standing after it. This message's
  * proof counts, or a code or signed link passed in the last hour on a Channel that has a rule: the
  * 90-day standing never vouches for it, so spoofed mail from a verified address proves nothing, and
- * it neither takes that standing away nor keeps it from lapsing. A lapsed identity stays lapsed under
- * the same-identity rule, which can't tell the number's next holder from the last, until a code to
- * another identity on record clears it (`customer-proof.ts`).
+ * it doesn't take that standing away. Nor does it keep the standing from lapsing, except on SMS (the
+ * code round trip): there any text from a number in standing renews it, so the number lapses only
+ * after 90 days with no contact at all, and its holder can still be texted a code. A lapsed identity
+ * stays lapsed under the same-identity rule, which can't tell the number's next holder from the last,
+ * until a code to another identity on record clears it (`customer-proof.ts`).
  */
 export function judgeSender(
   standing: IdentityStanding & { provenUntil: Date | null },
@@ -79,8 +81,14 @@ export function judgeSender(
       ? proof.pass && proof.policy !== "none"
       : proof?.rule === "sameIdentity" && lapsedAt === null);
   if (verified) return { verified, standing: { verifiedContactAt: now, lapsedAt: null } };
+  // A number in standing (never lapsed, not lapsing now) renews it by any text on SMS.
+  const renewed =
+    proof?.rule === "codeRoundTrip" && lapsedAt === null && standing.verifiedContactAt !== null;
   return {
     verified,
-    standing: { verifiedContactAt: lapsedNow ? null : standing.verifiedContactAt, lapsedAt },
+    standing: {
+      verifiedContactAt: renewed ? now : lapsedNow ? null : standing.verifiedContactAt,
+      lapsedAt,
+    },
   };
 }
