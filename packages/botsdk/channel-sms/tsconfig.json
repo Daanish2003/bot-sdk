@@ -1,8 +1,9 @@
 {
   "extends": "@ai-chat/config/tsconfig.base.json",
   "compilerOptions": {
-    "noEmit": true
+    "noEmit": true,
+    "allowImportingTsExtensions": true
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts"],
+  "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts", "lab-phone/**/*.ts"],
   "exclude": ["node_modules"]
 }
