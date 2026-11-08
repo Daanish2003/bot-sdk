@@ -789,6 +789,9 @@ describe("who can reach a Turn", () => {
     ]);
     expect(Object.keys(representativeContract).sort()).toEqual([
       "approve",
+      "channelAccountConnect",
+      "channelAccountList",
+      "channelAccountRemove",
       "create",
       "customerAddIdentity",
       "customerClearOptOut",

@@ -485,6 +485,27 @@ describe("a stranger on a Representative's account", () => {
     ]);
   });
 
+  it("reads no memory of an unverified number's Customer into the prompt, until the platform vouches for its senders", async () => {
+    const { channel, fake, rpc, representativeOn, hears } = await world(["One.", "Two."]);
+    await representativeOn("1:a");
+    const ada = await rpc.representative.customerCreate({ channel: "fake", externalId: "1001" });
+    await rpc.representative.customerProfileSet({
+      id: ada.id,
+      field: "language",
+      value: "Dutch",
+    });
+    const prompts = () => fake.calls.map((call) => JSON.stringify(call.messages));
+
+    await hears("@bot_1", { text: "Hi" });
+    await expect.poll(() => channel.delivered.length, poll).toBe(1);
+    expect(prompts().join("")).not.toContain("Dutch");
+
+    channel.adapter.verifiesSender = true;
+    await hears("@bot_1", { text: "Hi again" });
+    await expect.poll(() => channel.delivered.length, poll).toBe(2);
+    expect(prompts().at(-1)).toContain("Dutch");
+  });
+
   it("makes no second message with a resent update", async () => {
     const { channel, representativeOn, hears } = await world(["Only once."]);
     await representativeOn("1:a");
