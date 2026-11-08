@@ -27,8 +27,9 @@ function textOf({ text, files }: StrangerMessage) {
  * where numbers are spoofed, a code to the number and back (#1359). Any other Channel proves nobody.
  */
 function proofOf({ channel, sender }: StrangerMessage): ChannelProof | undefined {
-  if (sender.verified) return { rule: "sameIdentity" };
-  return channel === smsChannel ? { rule: "codeRoundTrip" } : undefined;
+  // A number can be spoofed, whatever the adapter says, so SMS never takes the platform's word.
+  if (channel === smsChannel) return { rule: "codeRoundTrip" };
+  return sender.verified ? { rule: "sameIdentity" } : undefined;
 }
 
 /** Takes the core's inbound message as a Customer's, for the Representative holding its account. */

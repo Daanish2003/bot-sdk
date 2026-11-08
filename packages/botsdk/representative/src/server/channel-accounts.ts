@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
 
 import type { ChannelAccountRow } from "@botsdk/client/bot/channel-account";
 import type { FeatureContext } from "@botsdk/bot/feature";
@@ -201,13 +201,13 @@ export const heldAccountChannel = (
             eq(representativeThread.lastExternalId, to.externalId),
             ne(representativeThread.state, "closed"),
           ),
-        );
-      const account = await accountFor(
-        db,
-        representativeId,
-        to.channel,
-        thread?.channelAccountId ?? null,
-      );
+        )
+        .orderBy(desc(representativeThread.updatedAt))
+        .limit(1);
+      // Only a number that has written to this line gets a text from it: a claim of a number that
+      // hasn't goes nowhere, as it did before SMS.
+      if (!thread) return;
+      const account = await accountFor(db, representativeId, to.channel, thread.channelAccountId);
       if (!account) throw new Error(`The Representative has no active ${to.channel} account`);
       await channelAccounts.send(account.id, {
         chatId: to.externalId,
