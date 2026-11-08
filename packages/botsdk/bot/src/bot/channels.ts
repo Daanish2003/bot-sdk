@@ -144,6 +144,8 @@ export function createChannels(sdk: BotSdkContext, options: ChannelOptions): Cha
       const { canStartConversation, replyWindowHours, maxLength } = adapter;
       return { canStartConversation, replyWindowHours, maxLength };
     },
+    platforms: () =>
+      messaging.map((adapter) => ({ platform: adapter.id, fields: [...adapter.credentialFields] })),
     identities: {
       list: ({ userId }) => listLinkedIdentities(sdk, messaging, userId),
       unlink: ({ userId, ...rest }) =>
@@ -180,6 +182,8 @@ export type ChannelAccountsService = {
   send: ChannelApi["sendHeld"];
   /** What `platform`'s adapter declares it limits; undefined when the Host has no such adapter. */
   reach: ChannelApi["reach"];
+  /** Each messaging platform the Host offers, with the credential fields an account on it takes. */
+  platforms: ChannelApi["platforms"];
   /** Sends one mail through the email Channel, from an address the feature gives out (spec #1176). */
   sendEmail: ChannelApi["sendEmail"];
   /** The domain the email Channel receives mail for, where a feature's addresses go; null without one. */
@@ -193,6 +197,7 @@ export const channelAccountsService = (sdk: BotSdkContext): ChannelAccountsServi
   changed: (ids) => accountsChanged(sdk, ids),
   send: (id, message) => sdk.channels.sendHeld(id, message),
   reach: (platform) => sdk.channels.reach(platform),
+  platforms: () => sdk.channels.platforms(),
   sendEmail: (mail) => sdk.channels.sendEmail(mail),
   emailDomain: () => {
     // `sdk.channels.emailDomain` throws only when the Host gave no email adapter.

@@ -6,6 +6,7 @@ import type { Transaction } from "@botsdk/bot/plugin";
 import { channelAccount } from "@botsdk/bot/storage";
 import { MessagingSendError } from "@botsdk/bot/channel";
 import { AccountSendError, type ChannelOf } from "./customer-proof";
+import type { ChannelAccountsView } from "../shared/contract";
 import { representative, representativeChannelAccount } from "./db/schema";
 import { customerEmailChannel, sendEmail, sendProofEmail } from "./email-address";
 import { requireOwned } from "./representatives";
@@ -13,7 +14,7 @@ import { requireOwned } from "./representatives";
 /*
  * The Channel accounts a Representative holds (ticket #1331, ADR 0033). The core stores and encrypts
  * them and runs their listeners; this keeps who holds each. Connecting one moves it here from wherever
- * the owner has it. There's no owner UI until SMS (#1174).
+ * the owner has it. The owner connects, sees and removes them on the Representative's page (#1358).
  */
 
 type Context = Pick<FeatureContext<"channelAccounts">, "db" | "channelAccounts">;
@@ -72,6 +73,58 @@ export async function listChannelAccounts(
     .innerJoin(channelAccount, eq(channelAccount.id, representativeChannelAccount.channelAccountId))
     .where(eq(representativeChannelAccount.representativeId, representativeId))
     .orderBy(asc(channelAccount.id));
+}
+
+/** What the owner sees of the Representative's Channel accounts: where one can be connected, and what it holds. */
+export async function channelAccountsView(
+  context: Pick<Context, "db" | "channelAccounts">,
+  userId: string,
+  representativeId: string,
+): Promise<ChannelAccountsView> {
+  return {
+    platforms: context.channelAccounts.platforms(),
+    accounts: await listChannelAccounts(context, userId, representativeId),
+  };
+}
+
+/** Connects an account (see `connectChannelAccount`) and returns the owner's view of the Representative's accounts. */
+export async function connectChannelAccountView(
+  context: Context,
+  input: Parameters<typeof connectChannelAccount>[1],
+): Promise<ChannelAccountsView> {
+  await connectChannelAccount(context, input);
+  return channelAccountsView(context, input.userId, input.representativeId);
+}
+
+/**
+ * Removes one of the Representative's Channel accounts and stops its listener. An account it doesn't
+ * hold, another owner's included, is left alone: removing is done once the account isn't there.
+ */
+export async function removeChannelAccount(
+  context: Context,
+  userId: string,
+  representativeId: string,
+  channelAccountId: string,
+): Promise<ChannelAccountsView> {
+  const removed = await context.db.transaction(async (tx) => {
+    await requireOwned(tx, userId, representativeId, true);
+    const held = await tx
+      .select({ id: representativeChannelAccount.channelAccountId })
+      .from(representativeChannelAccount)
+      .where(
+        and(
+          eq(representativeChannelAccount.representativeId, representativeId),
+          eq(representativeChannelAccount.channelAccountId, channelAccountId),
+        ),
+      );
+    await context.channelAccounts.removeIn(
+      tx,
+      held.map((row) => row.id),
+    );
+    return held.map((row) => row.id);
+  });
+  await context.channelAccounts.changed(removed);
+  return channelAccountsView(context, userId, representativeId);
 }
 
 /**

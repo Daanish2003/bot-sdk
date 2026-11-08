@@ -1,7 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { type ProcedureMutationOptions, useOrpc } from "@botsdk/react/provider";
-import type { EmailAddressView, RepresentativeContract, WidgetKeyView } from "../shared/contract";
+import type {
+  ChannelAccountsView,
+  EmailAddressView,
+  RepresentativeContract,
+  WidgetKeyView,
+} from "../shared/contract";
 
 /*
  * The `representative` feature's hooks: TanStack Query over its procedures, for a UI inside a
@@ -205,6 +210,38 @@ export function useRotateEmailAddress(
   options?: ProcedureMutationOptions<Representative["emailAddressRotate"]>,
 ) {
   return useMutation(useRepresentative().emailAddressRotate.mutationOptions(options));
+}
+
+/** The platforms a Representative's Channel accounts can be on, and the accounts it holds (`representative.channelAccountList`). */
+export function useChannelAccounts(id: string) {
+  return useQuery(useRepresentative().channelAccountList.queryOptions({ input: { id } }));
+}
+
+/** Shows the accounts a change returned, and has every other Representative's accounts re-read: a connect can move one. */
+export function useStoreChannelAccounts(id: string) {
+  const representative = useRepresentative();
+  const queryClient = useQueryClient();
+  const queryKey = representative.channelAccountList.queryKey({ input: { id } });
+  return (view: ChannelAccountsView) => {
+    queryClient.setQueryData(queryKey, view);
+    void queryClient.invalidateQueries({
+      queryKey: representative.channelAccountList.key(),
+    });
+  };
+}
+
+/** Connects a platform bot or number to a Representative (`representative.channelAccountConnect`). */
+export function useConnectChannelAccount(
+  options?: ProcedureMutationOptions<Representative["channelAccountConnect"]>,
+) {
+  return useMutation(useRepresentative().channelAccountConnect.mutationOptions(options));
+}
+
+/** Removes one of a Representative's Channel accounts (`representative.channelAccountRemove`). */
+export function useRemoveChannelAccount(
+  options?: ProcedureMutationOptions<Representative["channelAccountRemove"]>,
+) {
+  return useMutation(useRepresentative().channelAccountRemove.mutationOptions(options));
 }
 
 /** Chooses the Bot a Representative reports to (`representative.setBot`). */

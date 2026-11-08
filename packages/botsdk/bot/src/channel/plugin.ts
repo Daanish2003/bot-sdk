@@ -160,6 +160,8 @@ export type ChannelApi = {
    * conversation and has no reply window.
    */
   reach: (platform: string) => MessagingReach | undefined;
+  /** Each messaging platform the Host offers, in its order, with the credential fields an account on it takes. */
+  platforms: () => { platform: string; fields: string[] }[];
   /** The user's Linked identities on the messaging Channels (spec #1044). */
   identities: LinkedIdentitiesApi;
 };

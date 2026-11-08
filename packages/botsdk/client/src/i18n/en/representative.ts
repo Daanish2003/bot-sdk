@@ -85,6 +85,26 @@ export const representativeMessages = {
     "Rotate this address? The old one stops working at once, and Customers who write to it get no answer.",
   "representative.emailAddressRotated": "Address rotated",
   "representative.emailAddressLoadFailed": "The email address couldn't be loaded. Try again.",
+  "representative.channelAccounts": "Channel accounts",
+  "representative.channelAccountsHelp":
+    "A number or bot connected here answers as this Representative. Whoever writes to it becomes a Customer, and counts as unverified until they prove who they are, unless the platform vouches for its senders. Your own phone counts as a Customer too.",
+  "representative.channelAccountPlatform": ({ platform }: { platform: string }) =>
+    platform.charAt(0).toUpperCase() + platform.slice(1),
+  "representative.channelAccountField": ({ field }: { field: string }) =>
+    field.charAt(0).toUpperCase() + field.slice(1),
+  "representative.channelAccountNone": "Nothing is connected yet.",
+  "representative.channelAccountConnect": ({ platform }: { platform: string }) =>
+    `Connect ${platform}`,
+  "representative.channelAccountSave": "Connect",
+  "representative.channelAccountCancel": "Cancel",
+  "representative.channelAccountAttention": "Needs attention",
+  "representative.channelAccountRemove": "Remove",
+  "representative.channelAccountRemoveFor": ({ handle }: { handle: string }) => `Remove ${handle}`,
+  "representative.channelAccountConnected": "Account connected",
+  "representative.channelAccountRemoved": "Account removed",
+  "representative.channelAccountNeedsAttention": ({ reason }: { reason: string }) =>
+    `Needs attention: ${reason}`,
+  "representative.channelAccountLoadFailed": "The Channel accounts couldn't be loaded. Try again.",
   "representative.assignmentDue": "Work due time",
   "representative.assignmentDueHelp":
     "How long work it hands to a Bot may run. Past it, you are Paged and the Customer gets one note saying the team is still on it. It counts for hand-offs made after you save.",

@@ -1,6 +1,8 @@
 import { oc, type } from "@orpc/contract";
 import { z } from "zod";
 
+import { platformSchema } from "@botsdk/client/bot/channel-account";
+
 import { checkFactValue, factTypes, type FactType } from "./facts";
 import type { ReplyProof } from "./replies";
 
@@ -839,6 +841,27 @@ export type WidgetKeyView = {
 /** A Representative's email address, as its owner sees it (ticket #1346): whoever writes to it is a Customer. */
 export type EmailAddressView = { address: string };
 
+/** A messaging platform the Host offers, and the credential fields an account on it takes (ticket #1358). */
+export type ChannelAccountPlatformView = { platform: string; fields: string[] };
+
+/** A Channel account a Representative holds, as its owner sees it: never the credentials (ticket #1358). */
+export type HeldChannelAccountView = {
+  id: string;
+  platform: string;
+  /** The platform bot's display handle: for SMS, the number. */
+  handle: string;
+  status: "active" | "needs_attention";
+  /** Why the platform rejected the credentials, while the status is `needs_attention`. */
+  reason: string | null;
+  createdAt: Date;
+};
+
+/** What a Representative's owner sees of its Channel accounts: the platforms to connect on, and what it holds. */
+export type ChannelAccountsView = {
+  platforms: ChannelAccountPlatformView[];
+  accounts: HeldChannelAccountView[];
+};
+
 export const maxWidgetOrigins = 50;
 /** Whether `value` is only a scheme, host and port, which is all a browser's `Origin` header says. */
 const isWebOrigin = (value: string) => {
@@ -870,6 +893,13 @@ export const widgetKeySetOriginsInput = z.object({
   id: z.uuid(),
   origins: z.array(widgetOrigin).max(maxWidgetOrigins),
 });
+
+export const channelAccountConnectInput = z.object({
+  id: z.uuid(),
+  platform: platformSchema,
+  credentials: z.record(z.string().max(100), z.string().trim().min(1).max(4096)),
+});
+export const channelAccountRemoveInput = z.object({ id: z.uuid(), channelAccountId: z.uuid() });
 
 export const representativeContract = {
   /** The owner's Representatives, oldest first. */
@@ -937,6 +967,16 @@ export const representativeContract = {
   emailAddressGet: oc.input(idInput).output(type<EmailAddressView | null>()),
   /** Gives it a new email address; the old one stops at once. Null as for `emailAddressGet`. */
   emailAddressRotate: oc.input(idInput).output(type<EmailAddressView | null>()),
+  /** The messaging platforms the Host offers and the Channel accounts the Representative holds, oldest first. Never their credentials. */
+  channelAccountList: oc.input(idInput).output(type<ChannelAccountsView>()),
+  /**
+   * Connects the platform bot behind `credentials` to the Representative, once the platform accepts
+   * them, and starts its listener. One on another of the owner's holders moves here; a Representative
+   * may hold several.
+   */
+  channelAccountConnect: oc.input(channelAccountConnectInput).output(type<ChannelAccountsView>()),
+  /** Removes one of the Representative's Channel accounts, and its listener stops. */
+  channelAccountRemove: oc.input(channelAccountRemoveInput).output(type<ChannelAccountsView>()),
   /** The owner's Customers, oldest first. */
   customerList: oc.output(type<CustomerView[]>()),
   /** Adds a Customer by hand, with its first identity. Refused when the owner already has that identity. */

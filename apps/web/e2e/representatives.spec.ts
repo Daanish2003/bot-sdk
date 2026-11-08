@@ -205,6 +205,39 @@ test("an owner sees, copies and rotates a Representative's email address", async
   await expect(address).toHaveValue(second);
 });
 
+test("an owner sees a Representative's Channel accounts and gets a refusal for credentials the platform won't take", async ({
+  page,
+}) => {
+  await signInAsSeededUser(page);
+  await page.goto("/representatives");
+  await page.getByLabel("Name").fill("Text desk");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(page).toHaveURL(/\/representatives\/[\w-]+$/);
+
+  // The form is the platform's own fields, and the Host's platforms are listed.
+  const section = page.locator("[data-representative-channel-accounts]");
+  await expect(section.getByText("Nothing is connected yet.")).toBeVisible();
+  await section.getByRole("button", { name: "Connect Telegram" }).click();
+  const token = section.getByLabel("Token");
+  const save = section.getByRole("button", { name: "Connect", exact: true });
+  await expect(save).toBeDisabled();
+  await token.fill("1:not-a-real-token");
+  await expect(save).toBeEnabled();
+
+  // The platform is asked first; its refusal leaves nothing connected, here or after a reload.
+  await save.click();
+  await expect(page.locator('[data-sonner-toast][data-type="error"]').first()).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(section.getByRole("listitem")).toHaveCount(0);
+  await page.reload();
+  await expect(section.getByText("Nothing is connected yet.")).toBeVisible();
+
+  await section.getByRole("button", { name: "Connect Telegram" }).click();
+  await section.getByRole("button", { name: "Cancel" }).click();
+  await expect(section.getByLabel("Token")).toHaveCount(0);
+});
+
 test("an owner can't open another owner's Representative", async ({ page, browser }) => {
   await signInAsSeededUser(page);
   await page.goto("/representatives");
