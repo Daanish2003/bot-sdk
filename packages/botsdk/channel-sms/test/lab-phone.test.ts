@@ -137,7 +137,7 @@ describe("the lab phone's server, run directly", () => {
   // It accepts any key and posts signed requests anywhere, so off Docker it stays on this machine
   // (#1174 review); docker compose sets HOST=0.0.0.0 inside its container.
   it("listens on 127.0.0.1 unless HOST says otherwise", async () => {
-    const env = { ...process.env, PORT: "0" };
+    const env: NodeJS.ProcessEnv = { ...process.env, PORT: "0" };
     delete env.HOST;
     const server = spawn(process.execPath, ["server.ts"], {
       cwd: fileURLToPath(new URL("../lab-phone/", import.meta.url)),

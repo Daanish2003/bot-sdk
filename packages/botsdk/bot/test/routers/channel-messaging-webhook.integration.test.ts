@@ -305,6 +305,27 @@ describe("a messaging Channel's webhook route", () => {
     expect(await triggersOf(conversationId)).toHaveLength(1);
   });
 
+  it("doesn't keep the instance's stop waiting on a body that never ends (#1174 review)", async () => {
+    const { deps, url, post } = await webhookBot();
+    const part = started[0]!.part;
+    const body = new ReadableStream<Uint8Array>({
+      start: (controller) => controller.enqueue(new TextEncoder().encode("[")),
+    });
+    void post(
+      new Request(url, { method: "POST", body, duplex: "half" } as RequestInit & {
+        duplex: "half";
+      }),
+    ).catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const stopped = await Promise.race([
+      part.stop!(deps).then(() => "stopped"),
+      new Promise((resolve) => setTimeout(() => resolve("stuck"), 2_000)),
+    ]);
+
+    expect(stopped).toBe("stopped");
+  });
+
   it("answers before the work after accepting is done", async () => {
     let release!: () => void;
     let held: Promise<boolean> | null = null;

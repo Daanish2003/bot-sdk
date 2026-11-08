@@ -62,16 +62,7 @@ export function messagingWebhookRoutes(
       public: true,
       handle: async (request, { sdk, params }) => {
         if (sdk.lifecycle.stopping) return new Response("Try again later", { status: 503 });
-        // Kept from here, so a `stop` while the request is still being read waits for it too.
-        const answered = answer(sdk, adapter, appUrl, request, params.account);
-        track(
-          sdk,
-          answered.then(
-            () => undefined,
-            () => undefined,
-          ),
-        );
-        return answered;
+        return answer(sdk, adapter, appUrl, request, params.account);
       },
     }));
 }
@@ -96,23 +87,34 @@ async function answer(
   }
   const body = await readBody(request, bodyLimit);
   if (body === null) return new Response("Payload too large", { status: 413 });
-  const account = { ...found.account, platform: adapter.id };
-  let read: Awaited<ReturnType<NonNullable<MessagingAdapter["webhook"]>>>;
-  try {
-    read = await adapter.webhook!(
-      found.account,
-      { headers: request.headers, body },
-      { fetch: sdk.fetch },
-    );
-  } catch (error) {
-    sdk.logger.error(`A ${adapter.id} webhook request couldn't be read`, error);
-    return unavailable();
-  }
-  if ("rejected" in read) return new Response(read.rejected, { status: 400 });
-  const fresh = await unseen(sdk, account, read.updates);
-  // The work runs after the response, kept while it does.
-  track(sdk, handIn(sdk, adapter, account, found.version, fresh, appUrl));
-  return new Response(null, { status: 202 });
+  // A stop that began while the body was read can't wait for this request, so it is turned away.
+  // From here on the request is kept, so a stop waits for it to be checked and handed in; a body that
+  // never ends never holds it up.
+  if (sdk.lifecycle.stopping) return unavailable();
+  const { account: held, version } = found;
+  const accepted = (async () => {
+    const account = { ...held, platform: adapter.id };
+    let read: Awaited<ReturnType<NonNullable<MessagingAdapter["webhook"]>>>;
+    try {
+      read = await adapter.webhook!(held, { headers: request.headers, body }, { fetch: sdk.fetch });
+    } catch (error) {
+      sdk.logger.error(`A ${adapter.id} webhook request couldn't be read`, error);
+      return unavailable();
+    }
+    if ("rejected" in read) return new Response(read.rejected, { status: 400 });
+    const fresh = await unseen(sdk, account, read.updates);
+    // The work runs after the response, kept while it does.
+    track(sdk, handIn(sdk, adapter, account, version, fresh, appUrl));
+    return new Response(null, { status: 202 });
+  })();
+  track(
+    sdk,
+    accepted.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+  return accepted;
 }
 
 /**
