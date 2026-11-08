@@ -291,8 +291,12 @@ Anything that sends to a Bot or shows what it sends: the user's apps (web, deskt
 _Avoid_: App, surface, client, platform
 
 **Channel account**:
-The bot one Bot or one Representative is on a messaging Channel such as Telegram, Slack or SMS: the user made it on that platform and added it to its holder. It has exactly one holder, so each Bot is its own contact there, and one Representative can hold several.
+The bot one Bot or one Representative is on a messaging Channel such as Telegram, Slack or SMS: the user made it on that platform and added it to its holder. It has exactly one holder, so each Bot is its own contact there, and one Representative can hold several. A Bot's SMS Channel account can also take Calls on the same number.
 _Avoid_: Connection (that is an MCP sign-in), integration, bot token
+
+**Call**:
+The user phoning one of their Bots on its SMS number. A voice model only talks: each request the caller makes becomes a Trigger that runs a normal Turn, and what the Bot sends with SendToUser is spoken back. While a Call is live, the Bot's Messages are spoken on it as well as kept in the Conversation; nothing is answered by voice that needs a Rich control, so Approvals and other controls go to the app. A Call ends when the caller hangs up or at 10 minutes.
+_Avoid_: Voice session, phone chat
 
 **Linked identity**:
 The user's own account on a messaging Channel, such as their Telegram account, their Slack member in one workspace or their phone number, proved by sending a link code to one of their Bots. All the user's Bots know it; a message from any other sender is dropped unanswered. A linked phone number, proved only by texting the code, also lets the user call their Bots; a call from any other number is declined before it is answered.
