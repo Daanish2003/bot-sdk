@@ -278,6 +278,9 @@ importers:
       '@botsdk/channel-email':
         specifier: workspace:*
         version: link:../../packages/botsdk/channel-email
+      '@botsdk/channel-sms':
+        specifier: workspace:*
+        version: link:../../packages/botsdk/channel-sms
       '@botsdk/channel-telegram':
         specifier: workspace:*
         version: link:../../packages/botsdk/channel-telegram
@@ -615,6 +618,22 @@ importers:
       zod:
         specifier: 'catalog:'
         version: 4.6.5
+    devDependencies:
+      '@ai-chat/config':
+        specifier: workspace:*
+        version: link:../../config
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+
+  packages/botsdk/channel-sms:
+    dependencies:
+      '@botsdk/bot':
+        specifier: workspace:*
+        version: link:../bot
+      '@botsdk/client':
+        specifier: workspace:*
+        version: link:../client
     devDependencies:
       '@ai-chat/config':
         specifier: workspace:*
