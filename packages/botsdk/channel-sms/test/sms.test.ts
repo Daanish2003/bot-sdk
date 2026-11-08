@@ -211,6 +211,36 @@ describe("send", () => {
     expect(measure(text).units).toBeLessThanOrEqual(459);
   });
 
+  it.each(["", "a"])(
+    "cuts a UCS-2 text with options without splitting an emoji (lead %j)",
+    async (lead) => {
+      reply = { status: 200, body: { data: { id: "o" } } };
+      const options = "Reply 1 or 2";
+      const control = [
+        { type: "paragraph" as const, children: [{ type: "text" as const, text: options }] },
+      ];
+      await adapter().send(
+        account,
+        { chatId: "+1555", text: lead + "😀".repeat(150), control },
+        call,
+      );
+      const text = (requests[0]!.body as { text: string }).text;
+      expect(text.endsWith(`${cutMarker}\n\n${options}`)).toBe(true);
+      expect(text).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/);
+      expect(measure(text).units).toBeLessThanOrEqual(201);
+    },
+  );
+
+  it("sends options whole, alone, when they leave no room for the text", async () => {
+    reply = { status: 200, body: { data: { id: "o" } } };
+    const options = "x".repeat(455);
+    const control = [
+      { type: "paragraph" as const, children: [{ type: "text" as const, text: options }] },
+    ];
+    await adapter().send(account, { chatId: "+1555", text: "word ".repeat(200), control }, call);
+    expect((requests[0]!.body as { text: string }).text).toBe(options);
+  });
+
   it("keeps a short reply whole with its options", async () => {
     reply = { status: 200, body: { data: { id: "o" } } };
     const control = [

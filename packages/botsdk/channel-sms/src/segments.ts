@@ -85,7 +85,8 @@ export function fitWithTail(text: string, tail: string): string {
   if (fits(joined)) return joined;
   if (!tail) return fitSegments(text).text;
   const build = (length: number) => `${text.slice(0, length).trimEnd()}${cutMarker}\n\n${tail}`;
-  if (!fits(build(0))) return fitSegments(joined).text;
+  // Even the marker leaves no room: the options go alone, whole, rather than cut.
+  if (!fits(build(0))) return fits(tail) ? tail : fitSegments(joined).text;
   // The longest prefix that still fits: more characters never take fewer units.
   let low = 0;
   let high = text.length;
@@ -94,6 +95,9 @@ export function fitWithTail(text: string, tail: string): string {
     if (fits(build(middle))) low = middle;
     else high = middle - 1;
   }
-  const word = text.slice(0, low).search(/\s\S*$/);
+  // Never between the halves of a surrogate pair.
+  if (/[\uD800-\uDBFF]$/.test(text.slice(0, low))) low -= 1;
+  // Back to a word break, unless the cut already falls on one or the break would waste half the room.
+  const word = /\s/.test(text[low] ?? "") ? low : text.slice(0, low).search(/\s\S*$/);
   return build(word * 2 >= low ? word : low);
 }
