@@ -60,7 +60,7 @@ async function callApi<Data>(
   const error = envelope.errors?.[0];
   const detail = error?.detail ?? error?.title ?? response.statusText ?? "no description";
   if (rejectsOn.includes(response.status)) {
-    throw new CredentialsRejectedError(error?.title ?? response.statusText);
+    throw new CredentialsRejectedError(error?.title || response.statusText || "Rejected");
   }
   if (!response.ok) throw new TelnyxApiError(path, response.status, detail);
   return envelope.data;
@@ -80,6 +80,7 @@ type InboundEvent = {
       id?: string;
       text?: string;
       from?: { phone_number?: string };
+      to?: { phone_number?: string }[];
     };
   };
 };
@@ -134,7 +135,8 @@ export function sms({
       const timestamp = headers.get("telnyx-timestamp");
       if (!key || !signature || !timestamp) return { rejected: "Missing signature" };
       const age = Math.abs(Date.now() / 1000 - Number(timestamp));
-      if (!Number.isFinite(age) || age > toleranceSeconds) return { rejected: "Stale timestamp" };
+      if (!/^\d+$/.test(timestamp) || age > toleranceSeconds)
+        return { rejected: "Stale timestamp" };
       const signed = verify(
         null,
         Buffer.from(`${timestamp}|${body}`),
@@ -154,6 +156,11 @@ export function sms({
       if (event.data?.event_type !== "message.received" || !payload?.id || !from) {
         return { updates: [] };
       }
+      // The profile may serve several numbers: a message to another one is not this account's.
+      const to = payload.to ?? [];
+      if (to.length > 0 && !to.some((t) => t.phone_number === account.credentials.number)) {
+        return { updates: [] };
+      }
       const text = payload.text ?? "";
       if (!text.trim()) return { updates: [] };
       const update: MessagingUpdate = {
@@ -171,6 +178,8 @@ export function sms({
         .filter(Boolean)
         .join("\n\n");
       const { text } = fitSegments(source);
+      // Nothing to say (a Message of only a file): Telnyx refuses empty text, and a retry would too.
+      if (!text.trim()) return { messageIds: [] };
       // Telnyx joins a long text into one multipart SMS itself, so one request is one reply and a
       // failure leaves nothing half-sent: no MessagingSendError, the core simply retries.
       const sent = await callApi<{ id: string }>(

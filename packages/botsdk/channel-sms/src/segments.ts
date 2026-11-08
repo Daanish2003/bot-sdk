@@ -64,6 +64,7 @@ export function fitSegments(text: string): { text: string; cut: boolean } {
     end += char.length;
     if (/\s/.test(char)) wordEnd = end - char.length;
   }
-  const kept = text.slice(0, wordEnd > 0 ? wordEnd : end).trimEnd();
+  // A word break in the first half would drop most of the room (a long link, text with no spaces).
+  const kept = text.slice(0, wordEnd * 2 >= end ? wordEnd : end).trimEnd();
   return { text: `${kept}${cutMarker}`, cut: true };
 }

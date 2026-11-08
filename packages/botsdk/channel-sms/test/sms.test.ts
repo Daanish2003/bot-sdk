@@ -145,6 +145,17 @@ describe("webhook", () => {
     expect(first).toEqual(second);
   });
 
+  it("ignores a message sent to another number", async () => {
+    const to = [{ phone_number: "+15557776666" }];
+    expect(await adapter().webhook!(account, request(event({ to })), call)).toEqual({
+      updates: [],
+    });
+    const mine = [{ phone_number: "+15550001111" }];
+    expect(await adapter().webhook!(account, request(event({ to: mine })), call)).toMatchObject({
+      updates: [{ sourceId: "msg-1" }],
+    });
+  });
+
   it("ignores media, a media-only message and other events", async () => {
     const media = [{ url: "https://x/y.jpg" }];
     expect(await adapter().webhook!(account, request(event({ media })), call)).toMatchObject({
@@ -218,6 +229,12 @@ describe("segments", () => {
     expect(result.cut).toBe(true);
     expect(result.text.endsWith(`word${cutMarker}`)).toBe(true);
     expect(measure(result.text).units).toBeLessThanOrEqual(459);
+  });
+
+  it("hard-cuts text with no usable word break", () => {
+    const result = fitSegments(`See ${"x".repeat(600)}`);
+    expect(result.text.length).toBeGreaterThan(400);
+    expect(result.text.endsWith(cutMarker)).toBe(true);
   });
 
   it("cuts a longer UCS-2 reply within 3 x 67 units, never inside a surrogate pair", () => {
