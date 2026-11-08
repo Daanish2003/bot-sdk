@@ -322,6 +322,23 @@ describe("a code round trip on SMS", () => {
   });
 });
 
+describe("a number the owner typed", () => {
+  it("is the identity a text from it reaches, however it was spaced", async () => {
+    const { rpc, texts } = await world([round()]);
+    const ada = await rpc.representative.customerCreate({
+      channel: "sms",
+      externalId: "+1 (555) 0001",
+    });
+
+    await texts("Hello");
+
+    await expect.poll(async () => (await threadMessages()).length, poll).toBeGreaterThan(0);
+    const customers = await rpc.representative.customerList();
+    expect(customers.map(({ id }) => id)).toEqual([ada.id]);
+    expect(customers[0]!.identities.map(({ externalId }) => externalId)).toEqual(["+15550001"]);
+  });
+});
+
 describe("a code a web chat visitor asked for by text (#1361)", () => {
   it("is texted through the Representative's account to a number that has never written to it, only from the chat window", async () => {
     const { channel, deps, id } = await world([]);
