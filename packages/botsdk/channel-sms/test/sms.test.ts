@@ -198,6 +198,58 @@ describe("send", () => {
     );
   });
 
+  it("cuts the text, not a control's options", async () => {
+    reply = { status: 200, body: { data: { id: "o" } } };
+    const options = "Reply 1 for yes or 2 for no";
+    const control = [
+      { type: "paragraph" as const, children: [{ type: "text" as const, text: options }] },
+    ];
+    await adapter().send(account, { chatId: "+1555", text: "word ".repeat(200), control }, call);
+    const text = (requests[0]!.body as { text: string }).text;
+    expect(text.endsWith(options)).toBe(true);
+    expect(text).toContain(cutMarker);
+    expect(measure(text).units).toBeLessThanOrEqual(459);
+  });
+
+  it.each(["", "a"])(
+    "cuts a UCS-2 text with options without splitting an emoji (lead %j)",
+    async (lead) => {
+      reply = { status: 200, body: { data: { id: "o" } } };
+      const options = "Reply 1 or 2";
+      const control = [
+        { type: "paragraph" as const, children: [{ type: "text" as const, text: options }] },
+      ];
+      await adapter().send(
+        account,
+        { chatId: "+1555", text: lead + "😀".repeat(150), control },
+        call,
+      );
+      const text = (requests[0]!.body as { text: string }).text;
+      expect(text.endsWith(`${cutMarker}\n\n${options}`)).toBe(true);
+      expect(text).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/);
+      expect(measure(text).units).toBeLessThanOrEqual(201);
+    },
+  );
+
+  it("sends options whole, alone, when they leave no room for the text", async () => {
+    reply = { status: 200, body: { data: { id: "o" } } };
+    const options = "x".repeat(455);
+    const control = [
+      { type: "paragraph" as const, children: [{ type: "text" as const, text: options }] },
+    ];
+    await adapter().send(account, { chatId: "+1555", text: "word ".repeat(200), control }, call);
+    expect((requests[0]!.body as { text: string }).text).toBe(options);
+  });
+
+  it("keeps a short reply whole with its options", async () => {
+    reply = { status: 200, body: { data: { id: "o" } } };
+    const control = [
+      { type: "paragraph" as const, children: [{ type: "text" as const, text: "Reply 1 or 2" }] },
+    ];
+    await adapter().send(account, { chatId: "+1555", text: "Pick one", control }, call);
+    expect((requests[0]!.body as { text: string }).text).toBe("Pick one\n\nReply 1 or 2");
+  });
+
   it("cuts a long reply and says so", async () => {
     reply = { status: 200, body: { data: { id: "o" } } };
     await adapter().send(account, { chatId: "+1555", text: "word ".repeat(200) }, call);

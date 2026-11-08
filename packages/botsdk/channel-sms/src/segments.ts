@@ -68,3 +68,36 @@ export function fitSegments(text: string): { text: string; cut: boolean } {
   const kept = text.slice(0, wordEnd * 2 >= end ? wordEnd : end).trimEnd();
   return { text: `${kept}${cutMarker}`, cut: true };
 }
+
+/** Whether `text` takes no more than three segments in its own encoding. */
+function fits(text: string): boolean {
+  const { encoding, units } = measure(text);
+  return units <= (encoding === "gsm7" ? gsmLimit : ucsLimit);
+}
+
+/**
+ * `text` followed by `tail` (a control's options) as it is sent: whole when it fits, otherwise the
+ * text is cut on a word boundary and ends in `cutMarker`, and the tail stays whole after it. When
+ * the tail alone can't fit, the two are cut together, as `fitSegments` does.
+ */
+export function fitWithTail(text: string, tail: string): string {
+  const joined = [text, tail].filter(Boolean).join("\n\n");
+  if (fits(joined)) return joined;
+  if (!tail) return fitSegments(text).text;
+  const build = (length: number) => `${text.slice(0, length).trimEnd()}${cutMarker}\n\n${tail}`;
+  // Even the marker leaves no room: the options go alone, whole, rather than cut.
+  if (!fits(build(0))) return fits(tail) ? tail : fitSegments(joined).text;
+  // The longest prefix that still fits: more characters never take fewer units.
+  let low = 0;
+  let high = text.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (fits(build(middle))) low = middle;
+    else high = middle - 1;
+  }
+  // Never between the halves of a surrogate pair.
+  if (/[\uD800-\uDBFF]$/.test(text.slice(0, low))) low -= 1;
+  // Back to a word break, unless the cut already falls on one or the break would waste half the room.
+  const word = /\s/.test(text[low] ?? "") ? low : text.slice(0, low).search(/\s\S*$/);
+  return build(word * 2 >= low ? word : low);
+}

@@ -11,7 +11,7 @@ import type {
 } from "@botsdk/bot/channel";
 import { blocksText, plainText } from "@botsdk/client/message-format";
 
-import { fitSegments, gsmLimit } from "./segments";
+import { fitWithTail, gsmLimit } from "./segments";
 
 export { cutMarker, fitSegments, measure } from "./segments";
 
@@ -109,6 +109,8 @@ export function sms({
     // In the lab a business has to be registered to start a conversation; there is no reply window.
     canStartConversation: false,
     maxLength: gsmLimit,
+    // The send below cuts a longer reply itself, so the Outbound gate must pass it.
+    cutsLongMessages: true,
 
     async check({ apiKey, publicKey: key, number }, call) {
       if (!publicKey(key)) return { rejected: "The webhook public key isn't a base64 Ed25519 key" };
@@ -174,10 +176,10 @@ export function sms({
     },
 
     async send(account: Account, message: OutboundMessage, call): Promise<SentMessage> {
-      const source = [plainText(message.text), message.control ? blocksText(message.control) : ""]
-        .filter(Boolean)
-        .join("\n\n");
-      const { text } = fitSegments(source);
+      const text = fitWithTail(
+        plainText(message.text),
+        message.control ? blocksText(message.control) : "",
+      );
       // Nothing to say (a Message of only a file): Telnyx refuses empty text, and a retry would too.
       if (!text.trim()) return { messageIds: [] };
       // Telnyx joins a long text into one multipart SMS itself, so one request is one reply and a

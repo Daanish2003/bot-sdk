@@ -150,6 +150,11 @@ export type MessagingReach = {
   replyWindowHours?: number;
   /** The most characters of one message the Outbound gate lets through. Left out, any length. */
   maxLength?: number;
+  /**
+   * True when the adapter cuts a longer message to `maxLength` itself, saying so. The gate then lets it
+   * through, as a cut message is still the reply; left out, a longer one is held.
+   */
+  cutsLongMessages?: boolean;
 };
 
 /**

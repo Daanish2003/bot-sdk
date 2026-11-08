@@ -141,8 +141,8 @@ export function createChannels(sdk: BotSdkContext, options: ChannelOptions): Cha
       if (platform === "email") return email ? { canStartConversation: true } : undefined;
       const adapter = messaging.find((candidate) => candidate.id === platform);
       if (!adapter) return undefined;
-      const { canStartConversation, replyWindowHours, maxLength } = adapter;
-      return { canStartConversation, replyWindowHours, maxLength };
+      const { canStartConversation, replyWindowHours, maxLength, cutsLongMessages } = adapter;
+      return { canStartConversation, replyWindowHours, maxLength, cutsLongMessages };
     },
     platforms: () =>
       messaging.map((adapter) => ({ platform: adapter.id, fields: [...adapter.credentialFields] })),
