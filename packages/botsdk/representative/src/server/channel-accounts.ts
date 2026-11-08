@@ -1,13 +1,13 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
 
 import type { ChannelAccountRow } from "@botsdk/client/bot/channel-account";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { channelAccount } from "@botsdk/bot/storage";
 import { MessagingSendError } from "@botsdk/bot/channel";
-import { AccountSendError, type ChannelOf } from "./customer-proof";
+import { AccountSendError, type ChannelOf, smsChannel } from "./customer-proof";
 import type { ChannelAccountsView } from "../shared/contract";
-import { representative, representativeChannelAccount } from "./db/schema";
+import { representative, representativeChannelAccount, representativeThread } from "./db/schema";
 import { customerEmailChannel, sendEmail, sendProofEmail } from "./email-address";
 import { requireOwned } from "./representatives";
 
@@ -127,6 +127,28 @@ export async function removeChannelAccount(
   return channelAccountsView(context, userId, representativeId);
 }
 
+/** The Representative's active account on `channel`: `preferred` while it's there, or the oldest. */
+async function accountFor(
+  db: Context["db"],
+  representativeId: string,
+  channel: string,
+  preferred: string | null,
+) {
+  const accounts = await db
+    .select({ id: channelAccount.id })
+    .from(representativeChannelAccount)
+    .innerJoin(channelAccount, eq(channelAccount.id, representativeChannelAccount.channelAccountId))
+    .where(
+      and(
+        eq(representativeChannelAccount.representativeId, representativeId),
+        eq(channelAccount.platform, channel),
+        eq(channelAccount.status, "active"),
+      ),
+    )
+    .orderBy(asc(channelAccount.id));
+  return accounts.find(({ id }) => id === preferred) ?? accounts[0];
+}
+
 /**
  * How messages reach a Customer through the accounts Representatives hold: the gate's delivery goes
  * through the Representative's account on the Channel, and the gate reads that adapter's limits.
@@ -148,23 +170,7 @@ export const heldAccountChannel = (
         { representativeId, externalId, text },
       );
     }
-    const accounts = await db
-      .select({ id: channelAccount.id })
-      .from(representativeChannelAccount)
-      .innerJoin(
-        channelAccount,
-        eq(channelAccount.id, representativeChannelAccount.channelAccountId),
-      )
-      .where(
-        and(
-          eq(representativeChannelAccount.representativeId, representativeId),
-          eq(channelAccount.platform, channel),
-          eq(channelAccount.status, "active"),
-        ),
-      )
-      .orderBy(asc(channelAccount.id));
-    // The one they wrote to, or the oldest once that one has gone.
-    const account = accounts.find(({ id }) => id === channelAccountId) ?? accounts[0];
+    const account = await accountFor(db, representativeId, channel, channelAccountId);
     // Thrown, so the runner retries in case it comes back, and the decision log says if it never does.
     if (!account) throw new Error(`The Representative has no active ${channel} account`);
     try {
@@ -181,6 +187,34 @@ export const heldAccountChannel = (
     }
   },
   sendProof: async (to, proof, { representativeId, chatWindow = false }) => {
+    if (to.channel === smsChannel) {
+      // The code is the text itself, from the account that heard the Customer, to the number it
+      // heard. It isn't a thread message, so no prompt or export holds it.
+      if (proof.kind !== "code") return;
+      const [thread] = await db
+        .select({ channelAccountId: representativeThread.channelAccountId })
+        .from(representativeThread)
+        .where(
+          and(
+            eq(representativeThread.representativeId, representativeId),
+            eq(representativeThread.lastChannel, to.channel),
+            eq(representativeThread.lastExternalId, to.externalId),
+            ne(representativeThread.state, "closed"),
+          ),
+        )
+        .orderBy(desc(representativeThread.updatedAt))
+        .limit(1);
+      // Only a number that has written to this line gets a text from it: a claim of a number that
+      // hasn't goes nowhere, as it did before SMS.
+      if (!thread) return;
+      const account = await accountFor(db, representativeId, to.channel, thread.channelAccountId);
+      if (!account) throw new Error(`The Representative has no active ${to.channel} account`);
+      await channelAccounts.send(account.id, {
+        chatId: to.externalId,
+        text: `Your verification code is ${proof.secret}. Reply with it to confirm it's you.`,
+      });
+      return;
+    }
     // A code is read back on a platform that can reach its sender (SMS, #1174); a link goes by email,
     // and so does a code a web chat visitor asked for in the chat window, by a verified address on
     // record (#1350). No other code goes by email: none of those checks stood in front of it.
