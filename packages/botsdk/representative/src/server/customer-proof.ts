@@ -121,7 +121,7 @@ export const noProofAnswer = {
  */
 export const webChatProofAnswer = {
   answer:
-    'Offer the visitor a code by email: they press "Verify by email" in the chat window and enter an email address on record. If it can receive a code, one is sent there, and they enter it in the chat window. Do not ask for the address or the code here, and do not say whether any address is on record.',
+    'Offer the visitor a code by email or text: they press "Verify by email or text" in the chat window and enter an email address or phone number on record. If it can receive a code, one is sent there, and they enter it in the chat window. Do not ask for the address, number or code here, and do not say whether any is on record.',
 };
 export const alreadyVerifiedAnswer = {
   answer: "This sender is already verified, so no proof is needed.",

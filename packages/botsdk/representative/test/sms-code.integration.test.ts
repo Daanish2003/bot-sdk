@@ -13,7 +13,7 @@ import { fakeMessagingAdapter } from "@botsdk/testing/fake-channel";
 import { asc } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { connectChannelAccount } from "../src/server/channel-accounts";
+import { connectChannelAccount, heldAccountChannel } from "../src/server/channel-accounts";
 import {
   representativeCustomerIdentity,
   representativeThreadMessage,
@@ -113,6 +113,8 @@ async function world(rounds: ReturnType<typeof round>[]) {
     fake,
     timer,
     rpc,
+    deps,
+    id,
     /** A Customer on file under the number, with something the Model may only read once they're verified. */
     knownAs: async () => {
       const ada = await rpc.representative.customerCreate({ channel: "sms", externalId: number });
@@ -241,5 +243,27 @@ describe("a code round trip on SMS", () => {
     expect(prompts(fake).slice(before).join("")).not.toContain("Dutch");
     // The standing ended, so the number has to prove itself again.
     expect(await identity()).toMatchObject({ lapsedAt: expect.any(Date) });
+  });
+});
+
+describe("a code a web chat visitor asked for by text (#1361)", () => {
+  it("is texted through the Representative's account to a number that has never written to it, only from the chat window", async () => {
+    const { channel, deps, id } = await world([]);
+    const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
+    const held = heldAccountChannel(feature.context);
+    const to = { channel: "sms", externalId: "+15559990" };
+    await expect.poll(() => channel.listening.has("@bot_1"), poll).toBe(true);
+
+    await held.sendProof(to, { kind: "code", secret: "111111" }, { representativeId: id });
+    expect(channel.delivered).toEqual([]);
+    await held.sendProof(
+      to,
+      { kind: "code", secret: "482913" },
+      { representativeId: id, chatWindow: true },
+    );
+
+    expect(channel.delivered.map(({ chatId }) => chatId)).toEqual(["+15559990"]);
+    expect(codeSent(channel)).toBe("482913");
+    expect(channel.delivered[0]!.part).toContain("chat window");
   });
 });

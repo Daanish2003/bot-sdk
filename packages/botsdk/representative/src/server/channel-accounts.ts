@@ -205,13 +205,22 @@ export const heldAccountChannel = (
         .orderBy(desc(representativeThread.updatedAt))
         .limit(1);
       // Only a number that has written to this line gets a text from it: a claim of a number that
-      // hasn't goes nowhere, as it did before SMS.
-      if (!thread) return;
-      const account = await accountFor(db, representativeId, to.channel, thread.channelAccountId);
+      // hasn't goes nowhere, as it did before SMS. A code a web chat visitor asked for in the chat
+      // window (#1361) is for a number on record that may never have written, so it goes through the
+      // Representative's oldest active account; the request checked the number first.
+      if (!thread && !chatWindow) return;
+      const account = await accountFor(
+        db,
+        representativeId,
+        to.channel,
+        thread?.channelAccountId ?? null,
+      );
       if (!account) throw new Error(`The Representative has no active ${to.channel} account`);
       await channelAccounts.send(account.id, {
         chatId: to.externalId,
-        text: `Your verification code is ${proof.secret}. Reply with it to confirm it's you.`,
+        text: chatWindow
+          ? `Your verification code is ${proof.secret}. Enter it in the chat window to confirm it's you.`
+          : `Your verification code is ${proof.secret}. Reply with it to confirm it's you.`,
       });
       return;
     }

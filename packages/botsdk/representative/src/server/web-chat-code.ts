@@ -3,7 +3,13 @@ import { and, eq, ne } from "drizzle-orm";
 import type { FeatureContext, PublicRoute } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { webChatCodeCheckInput, webChatCodeRequestInput } from "../shared/contract";
-import { type ChannelOf, type CustomerChannel, passCode, requestProof } from "./customer-proof";
+import {
+  type ChannelOf,
+  type CustomerChannel,
+  passCode,
+  requestProof,
+  smsChannel,
+} from "./customer-proof";
 import { holdSender } from "./customers";
 import {
   representative,
@@ -25,7 +31,8 @@ import { readWidgetSession, tooManyRequests, type WidgetSession } from "./widget
 
 /*
  * A web chat visitor proves who they are with a code sent to an email address on record (ticket
- * #1350). They give the address in the chat window, never in the chat, so no Model reads it. The code
+ * #1350), or texted to a phone number on record (ticket #1361). They give it in the chat window,
+ * never in the chat, so no Model reads it. The code
  * goes only to an email identity the owner's records hold as verified, and the request is answered
  * the same whether or not one went. The right code, entered in the chat window, joins the session to
  * that Customer, as a code passed in a message does (`customer-proof.ts`), and proves it for an hour.
@@ -66,14 +73,14 @@ async function visitorThread(tx: Transaction, { representativeId, heard }: Widge
 }
 
 /**
- * Makes a code for the session if `email` is a verified email identity on record, and sends it once
+ * Makes a code for the session if `claimed` is a verified email or SMS identity on record, and sends it once
  * that commits. Its route doesn't wait for it: nothing it finds changes what the visitor is told.
  */
 async function requestCode(
   context: Context,
   channel: CustomerChannel,
   session: WidgetSession,
-  email: string,
+  claimed: { channel: string; externalId: string },
 ) {
   const outgoing = await context.db.transaction(async (tx) => {
     const now = context.clock();
@@ -89,7 +96,7 @@ async function requestCode(
         proofRule: "codeToRecord",
         releaseId: found.releaseId,
       },
-      claimed: { channel: customerEmailChannel, externalId: email },
+      claimed,
       now,
       channel,
       verifiedTargetOnly: true,
@@ -174,7 +181,11 @@ export const webChatCodeRoutes = (
       if (sessionWait !== null) return tooManyRequests(sessionWait);
       // Not waited for, and the same answer whatever is found: neither what it says nor how long it
       // takes may tell anyone which addresses are on record.
-      const work = requestCode(context, channelOf(context), session, body.email)
+      const claimed =
+        "email" in body
+          ? { channel: customerEmailChannel, externalId: body.email }
+          : { channel: smsChannel, externalId: body.phone };
+      const work = requestCode(context, channelOf(context), session, claimed)
         .catch((error: unknown) => {
           context.logger.error("A web chat code request failed", error);
         })
