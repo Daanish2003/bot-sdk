@@ -94,6 +94,12 @@ The notes below were mostly written on Windows. On Linux, where they disagree, t
 - **The branch reviewer's background skill run reports late (#1176):** the reviewer handed back 7 hand-found findings, and its `code-review` run added 5 more bugs (R8–R12) a few minutes later. Wait for the reviewer's update before the fix agent finishes, or send the late findings to the same fix agent, which worked here.
 - **A feature's table list can miss a table (#1176):** `representative_thread_mail` and the older `representative_turn` were missing from `schema.tables`, so removing and re-enabling the feature would fail its migration. `migrate.integration` now checks every feature declares every table its migrations create.
 - **"Merge without waiting for CI" needs `--admin` (#1176):** `gh pr merge --merge` was refused by the base branch policy while checks ran. On the owner's explicit ask, `--admin` merged it. Report CI on the merge afterwards.
+- **Read the map comment by id (#1174):** `gh issue view --comments --json` fails ("specify only one of --comments or --json"). `gh api repos/<owner>/<repo>/issues/comments/<id> --jq .body` reads it, and `-X PATCH -F body=@file` writes it.
+- **Check a SHA before sending it to an agent (#1174):** #1360 was given a wrong base SHA and had to be corrected. Run `git rev-parse --short` on the tip in the same call that writes the message.
+- **"Nothing happens" tests need a red (#1174):** #1359's wrong-code test waited 300 ms and asserted no text, and it had never failed. Sent back, a mutation turned it red and the wait became a poll. Ask for the mutation on any absence assertion.
+- **Ask what happened to earlier findings (#1174):** #1360's agent reported done with 0 of 6 inherited review findings fixed, in its notes. Check every report for the findings it was given.
+- **Starting the CI watcher in the integration worktree locked it again (#1174):** `rm -rf` on that folder failed "Device or resource busy" until `TaskStop` on the watcher, then went through. `rm -rf` of the other unregistered worktree folder went through the first time. Start watchers from the main checkout (see above).
+- **Bot-reply e2e at `--workers=2` (#1174):** the fix agent saw 2–3 bots-spec tests time out at 2 workers, on the base too, while the full suite passed 100/100 at 2 workers on the integration tip with nothing else running. Run the full e2e with no agents running.
 
 ## Worktrees and git
 
