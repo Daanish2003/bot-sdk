@@ -5,8 +5,13 @@ import { BotMemoryChip, BotMemoryPopover } from "@botsdk/ui/memory";
 import { BotSkillChip, BotSkillsPopover } from "@botsdk/ui/skills";
 import { createFileRoute, getRouteApi } from "@tanstack/react-router";
 
+import { CallsPrototype } from "./-prototype-calls";
+
 export const Route = createFileRoute("/bots/$botId")({
   component: BotPage,
+  // PROTOTYPE (#1366): `?variant=a|b|c` swaps the Conversation for the Call UI prototype.
+  validateSearch: (search: Record<string, unknown>): { variant?: string } =>
+    typeof search.variant === "string" ? { variant: search.variant } : {},
 });
 
 const botsRoute = getRouteApi("/bots");
@@ -15,6 +20,8 @@ function BotPage() {
   const { botId } = Route.useParams();
   // Memory, Skills and Knowledge are features only with a Computer; without one, their controls are hidden.
   const { computerFeaturesOn } = botsRoute.useLoaderData();
+  const { variant } = Route.useSearch();
+  if (variant && !import.meta.env.PROD) return <CallsPrototype variant={variant} />;
   return (
     <BotConversation
       botId={botId}
