@@ -9,6 +9,7 @@ import type { BotSdkContext } from "../../src/plugin";
 const reachOf = (adapter: object) =>
   createChannels({} as BotSdkContext, {
     adapters: [{ ...fakeMessagingAdapter({ id: "sms" }).adapter, ...adapter }],
+    verifiedEmail: async () => null,
   }).reach("sms");
 
 describe("a platform's reach", () => {
