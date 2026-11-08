@@ -50,7 +50,7 @@ afterEach(async () => {
 });
 
 /** `real`: the Customer channel sends through the real `sms()` adapter, over a fetch that records the texts it posts, and declares its reach. */
-async function instance(real = false) {
+async function instance(real = false, declared: MessagingReach = smsReach) {
   const posted: string[] = [];
   const realSms = sms();
   const smsFetch = (async (_url: unknown, init?: { body?: string }) => {
@@ -81,7 +81,7 @@ async function instance(real = false) {
       else await messaging.adapter.send(account, { chatId: to.externalId, text }, { fetch });
     },
     sendProof: async () => {},
-    reach: () => (real ? realSms : smsReach),
+    reach: () => (real ? realSms : declared),
   };
   const timer = fakeJobClock(noon);
   let made: TestDeps | undefined;
@@ -220,6 +220,16 @@ describe("the Channel rule on SMS", () => {
     await world.heard("Hello");
 
     expect(await world.reply("Hi")).toEqual({ sent: true });
+  });
+
+  it("still holds a reply over maxLength when the adapter doesn't say it cuts", async () => {
+    const world = await instance(false, { canStartConversation: false, maxLength: 459 });
+    await world.heard("Hello");
+
+    const long = await world.reply("word ".repeat(120));
+
+    expect(long).toMatchObject({ error: expect.stringContaining("held") });
+    expect(await world.decisions()).toEqual([["reply", "hold", "channel"]]);
   });
 
   it("lets the real adapter cut a reply over 459 characters, and say so", async () => {
