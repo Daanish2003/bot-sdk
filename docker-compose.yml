@@ -102,6 +102,26 @@ services:
       - "${MAILPIT_PORT:-8025}:8025"
     restart: unless-stopped
 
+  # A stand-in for Telnyx (spec #1174, packages/botsdk/channel-sms/lab-phone): its page on 4010 shows
+  # the texts the app sent and sends a text to the app, signed with its own key. It holds texts in
+  # memory and accepts any API key, so only run it where nothing else can reach it. Set the webhook
+  # URL on the page (http://host.docker.internal:3001/api/chat/channels/sms/<accountId>), or here.
+  lab-phone:
+    image: node:24-slim
+    container_name: ai-chat-lab-phone
+    working_dir: /lab-phone
+    command: ["node", "server.ts"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      LAB_PHONE_WEBHOOK_URL: ${LAB_PHONE_WEBHOOK_URL:-}
+      LAB_PHONE_SEED: ${LAB_PHONE_SEED:-lab-phone}
+    volumes:
+      - ./packages/botsdk/channel-sms/lab-phone:/lab-phone:ro
+    ports:
+      - "127.0.0.1:${LAB_PHONE_PORT:-4010}:4010"
+    restart: unless-stopped
+
   # S3-compatible file storage (ADR 0015), for apps/web's S3_* variables and the S3 store's tests.
   rustfs:
     image: rustfs/rustfs:1.0.1
