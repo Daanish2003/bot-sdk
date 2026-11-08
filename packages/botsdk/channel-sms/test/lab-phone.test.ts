@@ -1,6 +1,8 @@
+import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { MessagingUpdate } from "@botsdk/bot/channel";
@@ -128,5 +130,27 @@ describe("the lab phone through the Telnyx adapter", () => {
       },
     });
     expect(response.status).toBe(403);
+  });
+});
+
+describe("the lab phone's server, run directly", () => {
+  // It accepts any key and posts signed requests anywhere, so off Docker it stays on this machine
+  // (#1174 review); docker compose sets HOST=0.0.0.0 inside its container.
+  it("listens on 127.0.0.1 unless HOST says otherwise", async () => {
+    const env = { ...process.env, PORT: "0" };
+    delete env.HOST;
+    const server = spawn(process.execPath, ["server.ts"], {
+      cwd: fileURLToPath(new URL("../lab-phone/", import.meta.url)),
+      env,
+    });
+    try {
+      const line = await new Promise<string>((resolve, reject) => {
+        server.stdout.on("data", (data: Buffer) => resolve(data.toString()));
+        server.on("exit", (code) => reject(new Error(`The server exited with ${code}`)));
+      });
+      expect(line).toMatch(/^Lab phone on http:\/\/127\.0\.0\.1:\d+;/);
+    } finally {
+      server.kill();
+    }
   });
 });
