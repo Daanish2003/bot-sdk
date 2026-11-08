@@ -801,11 +801,25 @@ export const webChatSendInput = z.strictObject({
   text: storable(z.string().trim().min(1).max(maxThreadMessageLength)),
 });
 
-/** What a web chat visitor gives to have a code sent to an email address on record (ticket #1350). */
-export const webChatCodeRequestInput = z.strictObject({
-  token: z.string(),
-  email: z.string().trim().toLowerCase().max(320).pipe(z.email()),
-});
+/**
+ * What a web chat visitor gives to have a code sent to an email address on record (ticket #1350), or
+ * texted to a phone number on record (ticket #1361): one or the other. A number is international, with
+ * its spaces, dashes and brackets taken out, as an SMS identity holds it.
+ */
+export const webChatCodeRequestInput = z.union([
+  z.strictObject({
+    token: z.string(),
+    email: z.string().trim().toLowerCase().max(320).pipe(z.email()),
+  }),
+  z.strictObject({
+    token: z.string(),
+    phone: z
+      .string()
+      .max(40)
+      .transform((phone) => phone.replace(/[\s().-]/g, ""))
+      .pipe(z.string().regex(/^\+\d{7,15}$/)),
+  }),
+]);
 
 /** The code a web chat visitor enters: six digits, however they spaced them. */
 export const webChatCodeCheckInput = z.strictObject({

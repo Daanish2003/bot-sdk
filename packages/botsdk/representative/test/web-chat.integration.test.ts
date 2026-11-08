@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CounterStore } from "@botsdk/bot/chat/counters";
@@ -694,6 +694,8 @@ describe("an unverified session", () => {
 describe("a code by email (#1350)", () => {
   const onRecord = "ada@example.com";
   const unverified = "bob@example.com";
+  const phoneOnRecord = "+15550123";
+  const phoneUnverified = "+15550124";
 
   /**
    * A world whose proofs are kept, with two email Customers on record: `onRecord`, verified by
@@ -722,12 +724,18 @@ describe("a code by email (#1350)", () => {
       externalId: onRecord,
     });
     await made.rpc.representative.customerCreate({ channel: "email", externalId: unverified });
+    await made.rpc.representative.customerCreate({ channel: "sms", externalId: phoneOnRecord });
+    await made.rpc.representative.customerCreate({ channel: "sms", externalId: phoneUnverified });
     await getTestDb()
       .update(representativeCustomerIdentity)
       .set({ verifiedContactAt: made.timer.clock.now() })
-      .where(eq(representativeCustomerIdentity.externalId, onRecord));
+      .where(inArray(representativeCustomerIdentity.externalId, [onRecord, phoneOnRecord]));
     const askFor = async (token: string, email: string) => {
       const response = await made.post("code", { token, email });
+      return { status: response.status, body: await response.json() };
+    };
+    const askForPhone = async (token: string, phone: string) => {
+      const response = await made.post("code", { token, phone });
       return { status: response.status, body: await response.json() };
     };
     const enter = (token: string, code: string) => made.post("code/check", { token, code });
@@ -745,7 +753,7 @@ describe("a code by email (#1350)", () => {
       await made.send(token, "Hi, it's Ada");
       return token;
     };
-    return { ...made, proofs, ada, askFor, enter, standing, writtenSession };
+    return { ...made, proofs, ada, askFor, askForPhone, enter, standing, writtenSession };
   }
 
   it("answers the same for an address on record, one not on record and an unverified one, and only the verified one gets a code", async () => {
@@ -763,6 +771,64 @@ describe("a code by email (#1350)", () => {
     expect(proofs[0]!.to).toEqual({ channel: "email", externalId: onRecord });
     expect(proofs[0]!.proof.kind).toBe("code");
     expect(proofs[0]!.proof.secret).toMatch(/^\d{6}$/);
+  });
+
+  it("answers the same for a number on record, one not on record and an unverified one, and only the verified one gets a code by text (#1361)", async () => {
+    const { askForPhone, proofs, writtenSession } = await codeWorld();
+    const token = await writtenSession();
+
+    const answered = [
+      await askForPhone(token, "+15559999"),
+      await askForPhone(token, phoneUnverified),
+      await askForPhone(token, " +1 (555) 0123 "),
+    ];
+
+    expect(answered).toEqual(Array(3).fill({ status: 202, body: {} }));
+    await expect.poll(() => proofs.length, poll).toBe(1);
+    await codeRequestsSettled();
+    expect(proofs).toHaveLength(1);
+    expect(proofs[0]!.to).toEqual({ channel: "sms", externalId: phoneOnRecord });
+    expect(proofs[0]!.via.chatWindow).toBe(true);
+    expect(proofs[0]!.proof.secret).toMatch(/^\d{6}$/);
+  });
+
+  it("joins the session to the Customer on record with the code texted to their number (#1361)", async () => {
+    const { askForPhone, enter, proofs, standing, writtenSession } = await codeWorld();
+    const token = await writtenSession();
+    await askForPhone(token, phoneOnRecord);
+    await expect.poll(() => proofs.length, poll).toBe(1);
+
+    expect((await enter(token, proofs[0]!.proof.secret)).status).toBe(200);
+
+    const [identity] = await getTestDb()
+      .select({ customerId: representativeCustomerIdentity.customerId })
+      .from(representativeCustomerIdentity)
+      .where(eq(representativeCustomerIdentity.externalId, phoneOnRecord));
+    expect(await standing(token)).toBe(identity!.customerId);
+  });
+
+  it("refuses a request that gives both an address and a number, or a number that is not one (#1361)", async () => {
+    const { post, writtenSession } = await codeWorld();
+    const token = await writtenSession();
+
+    for (const body of [
+      { token, email: onRecord, phone: phoneOnRecord },
+      { token, phone: "call me" },
+      { token, phone: "5550123" },
+    ]) {
+      expect((await post("code", body)).status).toBe(400);
+    }
+  });
+
+  it("limits how many codes a session asks for by number as it does by address (#1361)", async () => {
+    const { askForPhone, writtenSession } = await codeWorld();
+    const token = await writtenSession();
+
+    for (let ask = 0; ask < 5; ask++) {
+      expect((await askForPhone(token, phoneUnverified)).status).toBe(202);
+    }
+
+    expect((await askForPhone(token, phoneUnverified)).status).toBe(429);
   });
 
   it("sends nothing for a session that hasn't written, and answers it the same", async () => {
