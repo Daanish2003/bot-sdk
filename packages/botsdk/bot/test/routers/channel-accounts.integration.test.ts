@@ -184,6 +184,29 @@ describe("channels.accounts", () => {
     },
   );
 
+  it(
+    "still shows a Bot's account saved on such a platform before, so its owner can remove it",
+    timeout,
+    async () => {
+      const sms = fakeMessagingAdapter({ id: "sms", verifiesSender: true });
+      const deps = createTestSdk({ channels: [sms.adapter] });
+      const { client, botId } = await aBot(deps);
+      await client.channels.accounts.save({
+        botId,
+        platform: "sms",
+        credentials: { token: "1:a" },
+      });
+      delete (sms.adapter as { verifiesSender?: boolean }).verifiesSender;
+
+      const [row] = await client.channels.accounts.list({ botId });
+
+      expect(row).toMatchObject({ platform: "sms", account: { handle: "@bot_1" } });
+      await client.channels.accounts.remove({ botId, platform: "sms" });
+      expect(await accountRow(botId)).toBeUndefined();
+      expect(await client.channels.accounts.list({ botId })).toEqual([]);
+    },
+  );
+
   it("refuses another user's Bot and an unknown platform", timeout, async () => {
     const { deps } = messagingSdk();
     const ada = await aBot(deps);

@@ -87,7 +87,8 @@ const wakesBot = (adapter: MessagingAdapter) => adapter.verifiesSender === true;
 
 /**
  * Each messaging platform the Host offers whose senders are verified, in its order, with the Bot's
- * Channel account there.
+ * Channel account there; and any other the Bot already holds an account on, saved before, so its
+ * owner can still see and remove it.
  */
 export async function listChannelAccounts(
   sdk: BotSdkContext,
@@ -96,7 +97,9 @@ export async function listChannelAccounts(
 ): Promise<ChannelAccountRow[]> {
   await ownBot(sdk, adapters, userId, botId);
   const rows = await sdk.db.select().from(channelAccount).where(eq(channelAccount.botId, botId));
-  return adapters.filter(wakesBot).map((adapter) =>
+  const shown = (adapter: MessagingAdapter) =>
+    wakesBot(adapter) || rows.some((row) => row.platform === adapter.id);
+  return adapters.filter(shown).map((adapter) =>
     rowOf(
       adapter,
       rows.find((row) => row.platform === adapter.id),
