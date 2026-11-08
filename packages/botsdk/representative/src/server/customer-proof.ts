@@ -39,6 +39,9 @@ const sendLimitWindowMs = 60 * 60_000;
 /** The Channel a web chat visitor writes from. Nothing can send to it: they read their thread. */
 export const webChatChannel = "web";
 
+/** The Channel of a text-message account. Its senders can be spoofed, so a code to the number proves them. */
+export const smsChannel = "sms";
+
 /** What a Channel is given to send: a code to read back, or the token of a link to open. */
 export type Proof = { kind: "code" | "link"; secret: string };
 
