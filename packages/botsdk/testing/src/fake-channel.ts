@@ -249,10 +249,12 @@ export function fakeMessagingAdapter({
       return { rejected: "The signature is wrong" };
     }
     try {
-      return { updates: JSON.parse(body) as MessagingUpdate[] };
+      const updates: unknown = JSON.parse(body);
+      if (Array.isArray(updates)) return { updates: updates as MessagingUpdate[] };
     } catch {
-      return { rejected: "The body isn't JSON" };
+      // Answered as any other body it can't read.
     }
+    return { rejected: "The body isn't a list of updates" };
   };
 
   const adapter: MessagingAdapter<"token"> = {

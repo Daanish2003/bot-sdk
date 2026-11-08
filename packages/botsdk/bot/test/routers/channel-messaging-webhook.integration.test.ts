@@ -181,6 +181,63 @@ describe("a messaging Channel's webhook route", () => {
     expect(await triggersOf(conversationId)).toEqual([]);
   });
 
+  it("answers 404 for an account id that isn't one", async () => {
+    const { fake, post } = await webhookBot();
+
+    const response = await post(
+      fake.webhookRequest("https://host.example/api/chat/channels/fake/abc", token),
+    );
+
+    expect(response.status).toBe(404);
+  });
+
+  it("answers 404 for an account whose credentials can't be read, and marks it", async () => {
+    const { fake, url, accountId, post } = await webhookBot();
+    await getTestDb()
+      .update(channelAccount)
+      .set({ encrypted: "unreadable" })
+      .where(eq(channelAccount.id, accountId));
+
+    const response = await post(fake.webhookRequest(url, token, [{ text: "Hi" }]));
+
+    expect(response.status).toBe(404);
+    const [row] = await getTestDb()
+      .select({ status: channelAccount.status, reason: channelAccount.reason })
+      .from(channelAccount)
+      .where(eq(channelAccount.id, accountId));
+    expect(row).toEqual({
+      status: "needs_attention",
+      reason: "The saved credentials can't be read",
+    });
+  });
+
+  it("answers 413 to a body over the limit, unread", async () => {
+    const { fake, conversationId, url, post } = await webhookBot();
+
+    const response = await post(
+      fake.webhookRequest(url, token, [{ text: "x".repeat(300 * 1024) }]),
+    );
+
+    expect(response.status).toBe(413);
+    expect(await triggersOf(conversationId)).toEqual([]);
+  });
+
+  it("answers 503 while the instance stops, and when the adapter throws, so the platform retries", async () => {
+    const { fake, deps, conversationId, url, post } = await webhookBot();
+    const webhook = fake.adapter.webhook;
+
+    deps.lifecycle.stopping = true;
+    const stopping = await post(fake.webhookRequest(url, token, [{ sourceId: "5", text: "Hi" }]));
+    deps.lifecycle.stopping = false;
+    fake.adapter.webhook = () => Promise.reject(new Error("fetch failed: ECONNRESET"));
+    const failing = await post(fake.webhookRequest(url, token, [{ sourceId: "5", text: "Hi" }]));
+    fake.adapter.webhook = webhook;
+    const retried = await post(fake.webhookRequest(url, token, [{ sourceId: "5", text: "Hi" }]));
+
+    expect([stopping.status, failing.status, retried.status]).toEqual([503, 503, 202]);
+    await expect.poll(async () => (await triggersOf(conversationId)).length, poll).toBe(1);
+  });
+
   it("answers 404 for an account it doesn't have", async () => {
     const { fake, post } = await webhookBot();
 
