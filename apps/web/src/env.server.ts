@@ -21,4 +21,13 @@ if (
   throw new Error("MAILPIT_API_URL needs a localhost BETTER_AUTH_URL");
 }
 
+// The lab phone accepts any API key (spec #1174), and SMS_API_BASE sends it every account's Telnyx
+// key, so it is for a Host on this machine only.
+if (
+  ENV.SMS_API_BASE &&
+  !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(ENV.BETTER_AUTH_URL)
+) {
+  throw new Error("SMS_API_BASE needs a localhost BETTER_AUTH_URL");
+}
+
 export { ENV };

@@ -92,6 +92,8 @@ export async function startLabPhone({
     const signature = sign(null, Buffer.from(`${timestamp}|${body}`), privateKey).toString(
       "base64",
     );
+    // Recorded before the call, so an instant reply from the app lands below it.
+    texts.push({ id, direction: "in", from, to, text, at: new Date().toISOString() });
     try {
       const response = await fetch(target, {
         method: "POST",
@@ -102,7 +104,6 @@ export async function startLabPhone({
         },
         body,
       });
-      texts.push({ id, direction: "in", from, to, text, at: new Date().toISOString() });
       return response.ok ? "Sent." : `The app answered ${response.status}.`;
     } catch (error) {
       return `Could not reach the app: ${error instanceof Error ? error.message : String(error)}`;
@@ -141,6 +142,11 @@ ${note ? `<p role="status">${escapeHtml(note)}</p>` : ""}
     void (async () => {
       const url = new URL(request.url ?? "/", "http://lab-phone");
       const method = request.method ?? "GET";
+      // A page on another origin can't post a form here: it would make the lab phone call any URL.
+      const origin = request.headers.origin;
+      if (method === "POST" && origin && new URL(origin).host !== request.headers.host) {
+        return json(response, 403, { errors: [{ title: "Cross-origin post refused" }] });
+      }
 
       if (method === "GET" && url.pathname === "/v2/phone_numbers") {
         const number = url.searchParams.get("filter[phone_number]");

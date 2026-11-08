@@ -119,7 +119,7 @@ services:
     volumes:
       - ./packages/botsdk/channel-sms/lab-phone:/lab-phone:ro
     ports:
-      - "${LAB_PHONE_PORT:-4010}:4010"
+      - "127.0.0.1:${LAB_PHONE_PORT:-4010}:4010"
     restart: unless-stopped
 
   # S3-compatible file storage (ADR 0015), for apps/web's S3_* variables and the S3 store's tests.

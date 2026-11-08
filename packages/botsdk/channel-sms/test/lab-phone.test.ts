@@ -118,4 +118,15 @@ describe("the lab phone through the Telnyx adapter", () => {
     expect(updates).toEqual([]);
     expect(rejected).toEqual(["Bad signature"]);
   });
+
+  it("refuses a post from another origin", async () => {
+    const response = await fetch(`${phone.url}/webhook-url`, {
+      ...form({ url: appUrl }),
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        origin: "http://evil.example",
+      },
+    });
+    expect(response.status).toBe(403);
+  });
 });
