@@ -1,4 +1,5 @@
 import { ENV } from "./env";
+import { smsApiBaseOf } from "./sms-api-base";
 import { ssrfAllowHostsOf } from "./ssrf-allow";
 
 // The SSRF allowance is for the end-to-end tests too: refused unless BETTER_AUTH_URL is localhost.
@@ -21,13 +22,7 @@ if (
   throw new Error("MAILPIT_API_URL needs a localhost BETTER_AUTH_URL");
 }
 
-// The lab phone accepts any API key (spec #1174), and SMS_API_BASE sends it every account's Telnyx
-// key, so it is for a Host on this machine only.
-if (
-  ENV.SMS_API_BASE &&
-  !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(ENV.BETTER_AUTH_URL)
-) {
-  throw new Error("SMS_API_BASE needs a localhost BETTER_AUTH_URL");
-}
+// The lab phone in place of Telnyx is for a Host on this machine only, as above.
+export const smsApiBase = smsApiBaseOf(ENV);
 
 export { ENV };
