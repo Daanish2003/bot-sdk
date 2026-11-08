@@ -278,6 +278,33 @@ describe("a messaging Channel's webhook route", () => {
     expect(checks).toBe(1);
   });
 
+  it("keeps the instance's stop waiting for a request it was still reading (#1174 review)", async () => {
+    const { fake, deps, conversationId, url, post } = await webhookBot();
+    const webhook = fake.adapter.webhook!;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let reading!: () => void;
+    const read = new Promise<void>((resolve) => (reading = resolve));
+    fake.adapter.webhook = async (...args) => {
+      reading();
+      await held;
+      return webhook(...args);
+    };
+    const part = started[0]!.part;
+
+    const answered = post(fake.webhookRequest(url, token, [{ sourceId: "9", text: "Hi" }]));
+    await read;
+    let stopped = false;
+    const stopping = part.stop!(deps).then(() => (stopped = true));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(stopped).toBe(false);
+    release();
+    await stopping;
+    expect((await answered).status).toBe(202);
+    expect(await triggersOf(conversationId)).toHaveLength(1);
+  });
+
   it("answers before the work after accepting is done", async () => {
     let release!: () => void;
     let held: Promise<boolean> | null = null;

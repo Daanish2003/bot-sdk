@@ -22,21 +22,24 @@ const bodyLimit = 256 * 1024;
 
 const accountId = z.uuid();
 
-/** Each instance's accepted work still running, which the `channel` plugin's `stop` waits for. */
-const workBySdk = new WeakMap<BotSdkContext, Set<Promise<void>>>();
+/**
+ * Each instance's webhook work still running, which the `channel` plugin's `stop` waits for. Kept
+ * by its lifecycle, which every context over the instance's parts shares.
+ */
+const workBySdk = new WeakMap<BotSdkContext["lifecycle"], Set<Promise<void>>>();
 
-/** Resolves once every accepted webhook request of `sdk` has been handed in or dropped. */
+/** Resolves once every webhook request of `sdk` has been answered and its updates handed in. */
 export async function settleWebhooks(sdk: BotSdkContext): Promise<void> {
-  const work = workBySdk.get(sdk);
+  const work = workBySdk.get(sdk.lifecycle);
   while (work && work.size > 0) await Promise.all(work);
 }
 
-/** Runs `task` after the response, kept until it settles, so `stop` can wait for it. */
-function afterResponse(sdk: BotSdkContext, task: () => Promise<void>) {
-  let work = workBySdk.get(sdk);
-  if (!work) workBySdk.set(sdk, (work = new Set()));
-  const running = task().finally(() => work.delete(running));
-  work.add(running);
+/** Keeps `running` until it settles, so `stop` can wait for it. It must not reject. */
+function track(sdk: BotSdkContext, running: Promise<void>) {
+  let work = workBySdk.get(sdk.lifecycle);
+  if (!work) workBySdk.set(sdk.lifecycle, (work = new Set()));
+  const kept = running.finally(() => work.delete(kept));
+  work.add(kept);
 }
 
 /**
@@ -58,42 +61,58 @@ export function messagingWebhookRoutes(
       path: `/channels/${adapter.id}/:account`,
       public: true,
       handle: async (request, { sdk, params }) => {
-        const notFound = () => new Response("Not found", { status: 404 });
-        const unavailable = () => new Response("Try again later", { status: 503 });
-        if (sdk.lifecycle.stopping) return unavailable();
-        if (!accountId.safeParse(params.account).success) return notFound();
-        const found = await listenerAccount(sdk, params.account!);
-        if (found?.platform !== adapter.id || found.status !== "active") return notFound();
-        if (!found.account) {
-          // No key of the keyring reads the credentials: only saving them again fixes it.
-          await markNeedsAttention(
-            sdk,
-            params.account!,
-            found.version,
-            "The saved credentials can't be read",
-          );
-          return notFound();
-        }
-        const body = await readBody(request, bodyLimit);
-        if (body === null) return new Response("Payload too large", { status: 413 });
-        const account = { ...found.account, platform: adapter.id };
-        let read: Awaited<ReturnType<NonNullable<MessagingAdapter["webhook"]>>>;
-        try {
-          read = await adapter.webhook!(
-            found.account,
-            { headers: request.headers, body },
-            { fetch: sdk.fetch },
-          );
-        } catch (error) {
-          sdk.logger.error(`A ${adapter.id} webhook request couldn't be read`, error);
-          return unavailable();
-        }
-        if ("rejected" in read) return new Response(read.rejected, { status: 400 });
-        const fresh = await unseen(sdk, account, read.updates);
-        afterResponse(sdk, () => handIn(sdk, adapter, account, found.version, fresh, appUrl));
-        return new Response(null, { status: 202 });
+        if (sdk.lifecycle.stopping) return new Response("Try again later", { status: 503 });
+        // Kept from here, so a `stop` while the request is still being read waits for it too.
+        const answered = answer(sdk, adapter, appUrl, request, params.account);
+        track(
+          sdk,
+          answered.then(
+            () => undefined,
+            () => undefined,
+          ),
+        );
+        return answered;
       },
     }));
+}
+
+/** Answers one webhook request: `messagingWebhookRoutes` says how. */
+async function answer(
+  sdk: BotSdkContext,
+  adapter: MessagingAdapter,
+  appUrl: string | null,
+  request: Request,
+  id: string | undefined,
+): Promise<Response> {
+  const notFound = () => new Response("Not found", { status: 404 });
+  const unavailable = () => new Response("Try again later", { status: 503 });
+  if (!accountId.safeParse(id).success) return notFound();
+  const found = await listenerAccount(sdk, id!);
+  if (found?.platform !== adapter.id || found.status !== "active") return notFound();
+  if (!found.account) {
+    // No key of the keyring reads the credentials: only saving them again fixes it.
+    await markNeedsAttention(sdk, id!, found.version, "The saved credentials can't be read");
+    return notFound();
+  }
+  const body = await readBody(request, bodyLimit);
+  if (body === null) return new Response("Payload too large", { status: 413 });
+  const account = { ...found.account, platform: adapter.id };
+  let read: Awaited<ReturnType<NonNullable<MessagingAdapter["webhook"]>>>;
+  try {
+    read = await adapter.webhook!(
+      found.account,
+      { headers: request.headers, body },
+      { fetch: sdk.fetch },
+    );
+  } catch (error) {
+    sdk.logger.error(`A ${adapter.id} webhook request couldn't be read`, error);
+    return unavailable();
+  }
+  if ("rejected" in read) return new Response(read.rejected, { status: 400 });
+  const fresh = await unseen(sdk, account, read.updates);
+  // The work runs after the response, kept while it does.
+  track(sdk, handIn(sdk, adapter, account, found.version, fresh, appUrl));
+  return new Response(null, { status: 202 });
 }
 
 /**
