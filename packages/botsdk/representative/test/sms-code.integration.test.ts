@@ -201,10 +201,12 @@ describe("a code round trip on SMS", () => {
     await expect.poll(() => codeSent(channel), poll).toBeDefined();
     const wrong = codeSent(channel) === "000000" ? "111111" : "000000";
 
-    await texts(`here: ${wrong}`);
+    await texts(wrong);
 
-    await expect.poll(async () => (await threadMessages()).length, poll).toBeGreaterThan(2);
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    // The note the wrong code left in the thread shows it was looked at and refused.
+    await expect
+      .poll(async () => (await threadMessages()).map(({ text }) => text).join(" "), poll)
+      .toContain("It was wrong");
     expect((await identity()).verifiedContactAt).toBeNull();
     expect(prompts(fake).join("")).not.toContain("Dutch");
   });
