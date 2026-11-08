@@ -3,6 +3,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { PermanentJobError } from "@botsdk/bot";
 import { CredentialsRejectedError } from "@botsdk/bot/channel";
 
 import { cutMarker, fitSegments, measure, sms, TelnyxApiError } from "../src";
@@ -187,15 +188,19 @@ describe("send", () => {
     });
   });
 
-  it("maps a 401 to a credentials rejection and any other failure to a retried error", async () => {
+  it("maps a 401 to a credentials rejection, a refusal to a permanent error, and the rest to a retried one", async () => {
+    const send = () => adapter().send(account, { chatId: "+1555", text: "x" }, call);
     reply = { status: 401, body: { errors: [{ title: "Unauthorized" }] } };
-    await expect(
-      adapter().send(account, { chatId: "+1555", text: "x" }, call),
-    ).rejects.toBeInstanceOf(CredentialsRejectedError);
-    reply = { status: 400, body: { errors: [{ detail: "bad number" }] } };
-    await expect(adapter().send(account, { chatId: "+1555", text: "x" }, call)).rejects.toThrow(
-      TelnyxApiError,
-    );
+    await expect(send()).rejects.toBeInstanceOf(CredentialsRejectedError);
+    // Telnyx refuses these for good (an invalid number, one that texted STOP), so no retry helps.
+    for (const status of [400, 403, 404, 422]) {
+      reply = { status, body: { errors: [{ detail: "bad number" }] } };
+      await expect(send()).rejects.toBeInstanceOf(PermanentJobError);
+    }
+    for (const status of [408, 429, 500, 503]) {
+      reply = { status, body: { errors: [{ detail: "later" }] } };
+      await expect(send()).rejects.toThrow(TelnyxApiError);
+    }
   });
 
   it("cuts the text, not a control's options", async () => {

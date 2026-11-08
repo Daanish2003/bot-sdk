@@ -1,5 +1,6 @@
 import { createPublicKey, verify } from "node:crypto";
 
+import { PermanentJobError } from "@botsdk/bot";
 import { CredentialsRejectedError } from "@botsdk/bot/channel";
 import type {
   MessagingAccount,
@@ -24,7 +25,10 @@ const toleranceSeconds = 5 * 60;
 /** The DER prefix of an Ed25519 public key (SPKI), before its 32 raw bytes. */
 const spkiPrefix = Buffer.from("302a300506032b6570032100", "hex");
 
-/** A failed Telnyx call that isn't about the credentials: the core retries it. */
+/**
+ * A failed Telnyx call that isn't about the credentials: the core retries it. A send Telnyx refuses
+ * for good is a `PermanentJobError` instead (`isRefusal`).
+ */
 export class TelnyxApiError extends Error {
   readonly status: number;
 
@@ -34,6 +38,13 @@ export class TelnyxApiError extends Error {
     this.status = status;
   }
 }
+
+/**
+ * Whether Telnyx refused a request for good: a 4xx other than a timeout (408) or a rate limit (429),
+ * such as an invalid `to` or a number that texted STOP. Retrying it would fail the same way.
+ */
+const isRefusal = (status: number) =>
+  status >= 400 && status < 500 && status !== 408 && status !== 429;
 
 type Account = MessagingAccount<"apiKey" | "publicKey" | "number">;
 
@@ -183,7 +194,8 @@ export function sms({
       // Nothing to say (a Message of only a file): Telnyx refuses empty text, and a retry would too.
       if (!text.trim()) return { messageIds: [] };
       // Telnyx joins a long text into one multipart SMS itself, so one request is one reply and a
-      // failure leaves nothing half-sent: no MessagingSendError, the core simply retries.
+      // failure leaves nothing half-sent: no MessagingSendError, the core simply retries, unless
+      // Telnyx refused it for good.
       const sent = await callApi<{ id: string }>(
         base,
         account.credentials.apiKey,
@@ -191,7 +203,12 @@ export function sms({
         { from: account.credentials.number, to: message.chatId, text },
         call,
         [401],
-      );
+      ).catch((error: unknown) => {
+        if (error instanceof TelnyxApiError && isRefusal(error.status)) {
+          throw new PermanentJobError(error.message);
+        }
+        throw error;
+      });
       return { messageIds: sent?.id ? [sent.id] : [] };
     },
 
