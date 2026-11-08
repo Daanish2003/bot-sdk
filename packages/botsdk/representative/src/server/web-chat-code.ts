@@ -31,7 +31,8 @@ import { readWidgetSession, tooManyRequests, type WidgetSession } from "./widget
 
 /*
  * A web chat visitor proves who they are with a code sent to an email address on record (ticket
- * #1350), or texted to a phone number on record (ticket #1361). They give the address or number in the chat window, never in the chat, so no Model reads it. The code
+ * #1350), or texted to a phone number on record (ticket #1361). They give it in the chat window,
+ * never in the chat, so no Model reads it. The code
  * goes only to an email identity the owner's records hold as verified, and the request is answered
  * the same whether or not one went. The right code, entered in the chat window, joins the session to
  * that Customer, as a code passed in a message does (`customer-proof.ts`), and proves it for an hour.

@@ -89,7 +89,7 @@
   const emailField = element("input", {
     type: "text",
     "aria-label": "Your email address or phone number",
-    autocomplete: "email",
+    autocomplete: "off",
   });
   const emailForm = element("form", { hidden: "" });
   emailForm.append(emailField, element("button", { type: "submit" }, "Send code"));

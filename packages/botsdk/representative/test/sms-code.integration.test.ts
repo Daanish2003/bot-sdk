@@ -264,5 +264,6 @@ describe("a code a web chat visitor asked for by text (#1361)", () => {
 
     expect(channel.delivered.map(({ chatId }) => chatId)).toEqual(["+15559990"]);
     expect(codeSent(channel)).toBe("482913");
+    expect(channel.delivered[0]!.part).toContain("chat window");
   });
 });

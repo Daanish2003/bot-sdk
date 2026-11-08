@@ -218,7 +218,9 @@ export const heldAccountChannel = (
       if (!account) throw new Error(`The Representative has no active ${to.channel} account`);
       await channelAccounts.send(account.id, {
         chatId: to.externalId,
-        text: `Your verification code is ${proof.secret}. Reply with it to confirm it's you.`,
+        text: chatWindow
+          ? `Your verification code is ${proof.secret}. Enter it in the chat window to confirm it's you.`
+          : `Your verification code is ${proof.secret}. Reply with it to confirm it's you.`,
       });
       return;
     }
