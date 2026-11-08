@@ -46,6 +46,11 @@ const account = { id: "acc", botId: "bot", platformBotId: "x", handle: "x", cred
 const adapter = () => sms({ apiBase: url });
 
 describe("check", () => {
+  it("takes the number as a field that isn't secret, and the keys as secrets", () => {
+    expect(adapter().credentialFields).toEqual(["apiKey", "publicKey", "number"]);
+    expect(adapter().plainCredentialFields).toEqual(["number"]);
+  });
+
   it("looks the number up with the API key", async () => {
     reply = { status: 200, body: { data: [{ phone_number: "+15550001111" }] } };
     expect(await adapter().check(credentials, call)).toEqual({

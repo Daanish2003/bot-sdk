@@ -145,7 +145,17 @@ export function createChannels(sdk: BotSdkContext, options: ChannelOptions): Cha
       return { canStartConversation, replyWindowHours, maxLength, cutsLongMessages };
     },
     platforms: () =>
-      messaging.map((adapter) => ({ platform: adapter.id, fields: [...adapter.credentialFields] })),
+      messaging.map((adapter) => ({
+        platform: adapter.id,
+        fields: [...adapter.credentialFields],
+        plainFields: [...(adapter.plainCredentialFields ?? [])],
+      })),
+    webhookUrl: (platform, accountId) => {
+      const adapter = messaging.find((candidate) => candidate.id === platform);
+      const base = sdk.liveView.base;
+      if (!adapter?.webhook || appUrl === null || base === null) return null;
+      return `${appUrl}${base}/channels/${platform}/${accountId}`;
+    },
     identities: {
       list: ({ userId }) => listLinkedIdentities(sdk, messaging, userId),
       unlink: ({ userId, ...rest }) =>
@@ -184,6 +194,8 @@ export type ChannelAccountsService = {
   reach: ChannelApi["reach"];
   /** Each messaging platform the Host offers, with the credential fields an account on it takes. */
   platforms: ChannelApi["platforms"];
+  /** The URL a webhook platform posts an account's updates to, or null. See `ChannelApi`. */
+  webhookUrl: ChannelApi["webhookUrl"];
   /** Sends one mail through the email Channel, from an address the feature gives out (spec #1176). */
   sendEmail: ChannelApi["sendEmail"];
   /** The domain the email Channel receives mail for, where a feature's addresses go; null without one. */
@@ -198,6 +210,7 @@ export const channelAccountsService = (sdk: BotSdkContext): ChannelAccountsServi
   send: (id, message) => sdk.channels.sendHeld(id, message),
   reach: (platform) => sdk.channels.reach(platform),
   platforms: () => sdk.channels.platforms(),
+  webhookUrl: (platform, accountId) => sdk.channels.webhookUrl(platform, accountId),
   sendEmail: (mail) => sdk.channels.sendEmail(mail),
   emailDomain: () => {
     // `sdk.channels.emailDomain` throws only when the Host gave no email adapter.

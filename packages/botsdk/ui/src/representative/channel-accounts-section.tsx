@@ -84,6 +84,22 @@ export function ChannelAccountsSection({ id }: { id: string }) {
               >
                 {t("representative.channelAccountRemove")}
               </Button>
+              {account.webhookUrl && (
+                <div className="w-full space-y-1">
+                  <Input
+                    readOnly
+                    aria-label={t("representative.channelAccountWebhookUrl", {
+                      handle: account.handle,
+                    })}
+                    className="font-mono text-xs"
+                    value={account.webhookUrl}
+                    onFocus={(event) => event.target.select()}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t("representative.channelAccountWebhookHelp")}
+                  </p>
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -122,7 +138,10 @@ export function ChannelAccountsSection({ id }: { id: string }) {
   );
 }
 
-/** The credentials a platform takes, one password field each, checked with the platform on connect. */
+/**
+ * The credentials a platform takes, one field each, checked with the platform on connect: a password
+ * field, but for one the platform says isn't secret (an SMS number), which shows what is typed.
+ */
 function ConnectForm({
   id,
   platform,
@@ -153,7 +172,7 @@ function ConnectForm({
       {platform.fields.map((field) => (
         <Input
           key={field}
-          type="password"
+          type={platform.plainFields.includes(field) ? "text" : "password"}
           autoComplete="off"
           aria-label={t("representative.channelAccountField", { field })}
           placeholder={t("representative.channelAccountField", { field })}

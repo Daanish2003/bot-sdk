@@ -115,6 +115,8 @@ export function sms({
     id: "sms",
     // Numbers can be spoofed, so `verifiesSender` is left out.
     credentialFields: ["apiKey", "publicKey", "number"],
+    // The number is no secret, so the owner sees what they type (an E.164 typo is easy to make).
+    plainCredentialFields: ["number"],
     // No files: MMS for Customers is out of scope.
     limits: { download: 0, upload: 0 },
     // In the lab a business has to be registered to start a conversation; there is no reply window.

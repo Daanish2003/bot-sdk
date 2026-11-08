@@ -89,7 +89,7 @@ export const representativeMessages = {
   "representative.channelAccountsHelp":
     "A number or bot connected here answers as this Representative. Whoever writes to it becomes a Customer, and counts as unverified until they prove who they are, unless the platform vouches for its senders. Your own phone counts as a Customer too.",
   "representative.channelAccountPlatform": ({ platform }: { platform: string }) =>
-    platform.charAt(0).toUpperCase() + platform.slice(1),
+    platform === "sms" ? "SMS" : platform.charAt(0).toUpperCase() + platform.slice(1),
   "representative.channelAccountField": ({ field }: { field: string }) =>
     field.charAt(0).toUpperCase() + field.slice(1),
   "representative.channelAccountNone": "Nothing is connected yet.",
@@ -104,6 +104,10 @@ export const representativeMessages = {
   "representative.channelAccountRemoved": "Account removed",
   "representative.channelAccountNeedsAttention": ({ reason }: { reason: string }) =>
     `Needs attention: ${reason}`,
+  "representative.channelAccountWebhookUrl": ({ handle }: { handle: string }) =>
+    `Webhook URL for ${handle}`,
+  "representative.channelAccountWebhookHelp":
+    "Set this as the webhook URL on the platform (for Telnyx, on the messaging profile), so its messages reach this Representative.",
   "representative.channelAccountLoadFailed": "The Channel accounts couldn't be loaded. Try again.",
   "representative.assignmentDue": "Work due time",
   "representative.assignmentDueHelp":

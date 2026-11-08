@@ -81,9 +81,13 @@ export async function channelAccountsView(
   userId: string,
   representativeId: string,
 ): Promise<ChannelAccountsView> {
+  const accounts = await listChannelAccounts(context, userId, representativeId);
   return {
     platforms: context.channelAccounts.platforms(),
-    accounts: await listChannelAccounts(context, userId, representativeId),
+    accounts: accounts.map((account) => ({
+      ...account,
+      webhookUrl: context.channelAccounts.webhookUrl(account.platform, account.id),
+    })),
   };
 }
 

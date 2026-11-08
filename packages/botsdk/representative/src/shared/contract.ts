@@ -865,8 +865,15 @@ export type WidgetKeyView = {
 /** A Representative's email address, as its owner sees it (ticket #1346): whoever writes to it is a Customer. */
 export type EmailAddressView = { address: string };
 
-/** A messaging platform the Host offers, and the credential fields an account on it takes (ticket #1358). */
-export type ChannelAccountPlatformView = { platform: string; fields: string[] };
+/**
+ * A messaging platform the Host offers, the credential fields an account on it takes (ticket #1358),
+ * and those of them that aren't secret, shown as typed.
+ */
+export type ChannelAccountPlatformView = {
+  platform: string;
+  fields: string[];
+  plainFields: string[];
+};
 
 /** A Channel account a Representative holds, as its owner sees it: never the credentials (ticket #1358). */
 export type HeldChannelAccountView = {
@@ -877,6 +884,8 @@ export type HeldChannelAccountView = {
   status: "active" | "needs_attention";
   /** Why the platform rejected the credentials, while the status is `needs_attention`. */
   reason: string | null;
+  /** Where to point the platform's webhook, for a platform that posts to one (SMS); else null. */
+  webhookUrl: string | null;
   createdAt: Date;
 };
 

@@ -176,6 +176,11 @@ export type MessagingAdapter<Field extends string = string> = MessagingReach & {
   verifiesSender?: boolean;
   /** The credentials a Channel account takes, by field name, such as `["token"]`. */
   credentialFields: readonly Field[];
+  /**
+   * The fields of `credentialFields` that aren't secret, such as a phone number, which a form shows
+   * as typed. Left out, every field is secret. They are stored encrypted all the same.
+   */
+  plainCredentialFields?: readonly Field[];
   /** The platform's file limits, in bytes: what `download` can fetch, and what `send` can send. */
   limits: { download: number; upload: number };
   /**
