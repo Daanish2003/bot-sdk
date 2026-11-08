@@ -203,8 +203,27 @@ describe("a code round trip on SMS", () => {
     await expect.poll(() => codeSent(channel), poll).toMatch(/^\d{6}$/);
     expect(channel.sends.map(({ account }) => account.handle)).toEqual(["@bot_1"]);
     expect(channel.delivered.map(({ chatId }) => chatId)).toEqual(["+15550001"]);
+    // The claim came from this number, so the reply that carries the code is what passes it.
+    expect(channel.delivered[0]!.part).toContain("Reply with it");
     expect(JSON.stringify(await threadMessages())).not.toContain(codeSent(channel)!);
     expect((await identity()).verifiedContactAt).toBeNull();
+  });
+
+  it("doesn't tell the number's holder to reply when someone elsewhere claimed it", async () => {
+    const { channel, deps, id, texts } = await world([round()]);
+    await texts("Hello");
+    await expect.poll(async () => (await threadMessages()).length, poll).toBeGreaterThan(0);
+    const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
+
+    // A sender on another Channel claimed the number, which has an open thread on this line.
+    await heldAccountChannel(feature.context).sendProof(
+      { channel: "sms", externalId: "+15550001" },
+      { kind: "code", secret: "482913" },
+      { representativeId: id },
+    );
+
+    expect(codeSent(channel)).toBe("482913");
+    expect(channel.delivered.at(-1)!.part).not.toContain("Reply");
   });
 
   it("verifies the identity by the right code, and the next Turn has the Customer's memory", async () => {

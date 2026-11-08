@@ -63,12 +63,13 @@ export type CustomerChannel = {
   ) => Promise<void>;
   /**
    * Sends a proof from the Representative's side of the thread; `via` names the Representative, and
-   * says when a web chat visitor asked for the code in the chat window (#1350), to be entered there.
+   * says when a web chat visitor asked for the code in the chat window (#1350), to be entered there,
+   * and when the claim came from `to` itself (`fromTarget`), whose reply then carries the code.
    */
   sendProof: (
     to: { channel: string; externalId: string },
     proof: Proof,
-    via: { representativeId: string; chatWindow?: boolean },
+    via: { representativeId: string; chatWindow?: boolean; fromTarget?: boolean },
   ) => Promise<void>;
   /** What the platform of `channel` limits, as its adapter declares it; left out, nothing is limited. */
   reach?: (channel: string) => MessagingReach | undefined;
