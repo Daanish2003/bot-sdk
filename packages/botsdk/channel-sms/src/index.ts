@@ -96,6 +96,9 @@ type InboundEvent = {
   };
 };
 
+/** A number as Telnyx writes it, E.164: an owner may type it with spaces, dashes, dots or brackets. */
+const e164 = (number: string) => number.replace(/[\s().-]/g, "").replace(/^00/, "+");
+
 /**
  * The Telnyx SMS messaging adapter (spec #1174) over Telnyx's v2 API with plain `fetch` and
  * `node:crypto`: `check` looks the number up, the webhook takes `message.received` events, and
@@ -125,7 +128,8 @@ export function sms({
     // The send below cuts a longer reply itself, so the Outbound gate must pass it.
     cutsLongMessages: true,
 
-    async check({ apiKey, publicKey: key, number }, call) {
+    async check({ apiKey, publicKey: key, number: typed }, call) {
+      const number = e164(typed);
       if (!publicKey(key)) return { rejected: "The webhook public key isn't a base64 Ed25519 key" };
       try {
         const found = await callApi<unknown[]>(
@@ -173,7 +177,7 @@ export function sms({
       }
       // The profile may serve several numbers: a message to another one is not this account's.
       const to = payload.to ?? [];
-      if (to.length > 0 && !to.some((t) => t.phone_number === account.credentials.number)) {
+      if (to.length > 0 && !to.some((t) => t.phone_number === e164(account.credentials.number))) {
         return { updates: [] };
       }
       const text = payload.text ?? "";
@@ -202,7 +206,7 @@ export function sms({
         base,
         account.credentials.apiKey,
         "/v2/messages",
-        { from: account.credentials.number, to: message.chatId, text },
+        { from: e164(account.credentials.number), to: message.chatId, text },
         call,
         [401],
       ).catch((error: unknown) => {

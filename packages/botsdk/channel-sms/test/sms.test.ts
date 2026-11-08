@@ -307,3 +307,22 @@ describe("segments", () => {
     expect(result.text).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/);
   });
 });
+
+describe("a number typed with spaces or dashes", () => {
+  // The Number field shows what the owner types (#1174 review), so it is taken as E.164.
+  const typed = { ...credentials, number: "+1 555-000 1111" };
+  const typedAccount = { ...account, credentials: typed };
+
+  it("is looked up, held and sent from in E.164", async () => {
+    reply = { status: 200, body: { data: [{ phone_number: "+15550001111" }] } };
+    expect(await adapter().check(typed, call)).toEqual({
+      platformBotId: "+15550001111",
+      handle: "+15550001111",
+    });
+    expect(requests[0]?.url).toContain("filter[phone_number]=%2B15550001111&");
+
+    reply = { status: 200, body: { data: { id: "out-1" } } };
+    await adapter().send(typedAccount, { chatId: "+15559998888", text: "Hi" }, call);
+    expect(requests[1]?.body).toMatchObject({ from: "+15550001111" });
+  });
+});
