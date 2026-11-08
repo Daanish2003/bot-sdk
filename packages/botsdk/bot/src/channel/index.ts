@@ -18,6 +18,7 @@ export {
   type MessagingReach,
   MessagingSendError,
   type MessagingUpdate,
+  type MessagingWebhookRequest,
   type OutboundMessage,
   type SendProgress,
   type SentMessage,

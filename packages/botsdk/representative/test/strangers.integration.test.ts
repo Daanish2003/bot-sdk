@@ -5,7 +5,7 @@ import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { botTrigger, channelAccount, linkedIdentity } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
-import { chatRpc } from "@ai-chat/test-support/sdk";
+import { chatRpc, createTestChat } from "@ai-chat/test-support/sdk";
 import { autoSource, promoteAutoTopic } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
@@ -57,10 +57,13 @@ afterEach(async () => {
   for (const runner of runners.splice(0)) await runner.stop();
 });
 
-/** A running instance with listeners over the fake platform, and a Model that says `says` in turn. */
-async function world(says: string[] = []) {
+/**
+ * A running instance with listeners over the fake platform, and a Model that says `says` in turn.
+ * With `webhook`, the platform posts to each account's webhook route instead (ticket #1355).
+ */
+async function world(says: string[] = [], { webhook = false }: { webhook?: boolean } = {}) {
   const ban = { on: false };
-  const channel = fakeMessagingAdapter();
+  const channel = fakeMessagingAdapter({ webhook });
   const fake = createFakeAdapter({ rounds: says.flatMap((text) => [replies(text), round()]) });
   const timer = fakeJobClock(at);
   let made: TestDeps | undefined;
@@ -183,6 +186,37 @@ const decisions = async () =>
   ).map(({ kind, outcome, rule }) => [kind, outcome, rule]);
 
 describe("a stranger on a Representative's account", () => {
+  it("reaches the Representative through a webhook route, and a retry of it is taken once", async () => {
+    const { channel, deps, timer, representativeOn } = await world(["Hello there."], {
+      webhook: true,
+    });
+    await representativeOn("1:a");
+    const [account] = await getTestDb()
+      .select({ id: channelAccount.id })
+      .from(channelAccount)
+      .where(eq(channelAccount.platformBotId, "1"));
+    const chat = createTestChat({ deps });
+    const posted = () =>
+      chat.fetch(
+        channel.webhookRequest(
+          `https://host.example/api/chat/channels/fake/${account!.id}`,
+          "1:a",
+          [{ sourceId: "41", text: "Hi" }],
+        ),
+      );
+
+    expect((await posted()).status).toBe(202);
+    expect((await posted()).status).toBe(202);
+    timer.advance(batchLongestMs);
+    timer.tick();
+
+    await expect
+      .poll(() => channel.delivered.map(({ chatId, part }) => [chatId, part]), poll)
+      .toEqual([["1001", "Hello there."]]);
+    expect((await messages()).filter(({ text }) => text === "Hi")).toHaveLength(1);
+    expect(await identities()).toEqual([{ channel: "fake", externalId: "1001" }]);
+  });
+
   it("becomes a Customer, a Turn runs, and the gate's reply goes out through that account", async () => {
     const { channel, fake, representativeOn, hears } = await world(["Hello there."]);
     await representativeOn("1:a");

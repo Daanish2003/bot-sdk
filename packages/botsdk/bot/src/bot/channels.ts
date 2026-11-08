@@ -17,6 +17,7 @@ import {
 } from "../channel/internal";
 import { channelRouter } from "./routers/channel";
 import { accountsChanged, channelListeners } from "./channel-listeners";
+import { messagingWebhookRoutes, settleWebhooks } from "./channel-webhooks";
 import {
   channelAccountIdsOf,
   channelUserDelete,
@@ -209,8 +210,8 @@ const saveHeldChannelAccountInput = saveChannelAccountInput.omit({ botId: true }
 /**
  * The Channels besides web (spec #761) that the user talks to their Bots on, each an adapter, as
  * the core's `sdk.channels` with their router. It owns turning an inbound into a Trigger, the
- * sender check and dedupe, and runs the messaging Channel accounts' listeners while the SDK runs
- * (spec #1044).
+ * sender check and dedupe, runs the messaging Channel accounts' listeners while the SDK runs
+ * (spec #1044), and serves the webhook route of each messaging adapter that has one (ticket #1355).
  */
 export function channel(options: ChannelOptions): ChannelPlugin {
   const { messaging } = adaptersOf(options.adapters);
@@ -220,6 +221,9 @@ export function channel(options: ChannelOptions): ChannelPlugin {
     if (reservedIds.has(adapter.id) || platforms.has(adapter.id)) {
       throw new Error(`The messaging adapter id "${adapter.id}" is taken`);
     }
+    if (adapter.listen && adapter.webhook) {
+      throw new Error(`The messaging adapter "${adapter.id}" declares both listen and webhook`);
+    }
     platforms.add(adapter.id);
   }
   // Each instance the plugin is composed into runs, and stops, its own listeners.
@@ -227,7 +231,7 @@ export function channel(options: ChannelOptions): ChannelPlugin {
   return {
     id: "channel",
     router: { channels: channelRouter },
-    routes: emailInboundRoutes(options.adapters),
+    routes: [...emailInboundRoutes(options.adapters), ...messagingWebhookRoutes(messaging, appUrl)],
     init: (sdk) => {
       sdk.channels = createChannels(sdk, options);
     },
@@ -238,6 +242,7 @@ export function channel(options: ChannelOptions): ChannelPlugin {
     },
     stop: async (sdk) => {
       await listeners.get(sdk)?.stop();
+      await settleWebhooks(sdk);
     },
     rotateKeys: (sdk) => rotateChannelAccountKeys(sdk),
     deleteUser: channelUserDelete,
