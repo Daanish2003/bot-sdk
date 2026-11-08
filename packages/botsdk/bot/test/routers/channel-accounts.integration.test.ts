@@ -45,7 +45,7 @@ async function startListeners(deps: TestDeps) {
 
 /** An instance with the fake messaging adapter (and `pubsub`, to share it with another instance). */
 function messagingSdk(
-  fake = fakeMessagingAdapter(),
+  fake = fakeMessagingAdapter({ verifiesSender: true }),
   { pubsub, keyring }: { pubsub?: PubSub; keyring?: string[] } = {},
 ) {
   const deps = createTestSdk({
@@ -157,6 +157,30 @@ describe("channels.accounts", () => {
         }),
       ).rejects.toMatchObject({ code: "CONFLICT", data: { code: "error.channelAccountTaken" } });
       expect(await accountRow(grace)).toMatchObject({ platformBotId: "77" });
+    },
+  );
+
+  it(
+    "offers a Bot only platforms that verify their senders, and refuses connecting one that doesn't",
+    timeout,
+    async () => {
+      // SMS: a caller ID can be spoofed, so a text from the user's number can't wake their Bot.
+      const sms = fakeMessagingAdapter({ id: "sms" });
+      const deps = createTestSdk({
+        channels: [fakeMessagingAdapter({ verifiesSender: true }).adapter, sms.adapter],
+      });
+      const { client, botId } = await aBot(deps);
+
+      expect((await client.channels.accounts.list({ botId })).map((row) => row.platform)).toEqual([
+        "fake",
+      ]);
+      await expect(
+        client.channels.accounts.save({ botId, platform: "sms", credentials: { token: "1:a" } }),
+      ).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+        data: { code: "error.channelSenderUnverified" },
+      });
+      expect(await accountRow(botId)).toBeUndefined();
     },
   );
 
@@ -337,8 +361,8 @@ describe("the Channel accounts' listeners", () => {
     timeout,
     async () => {
       const pubsub = createMemoryPubSub();
-      const first = messagingSdk(fakeMessagingAdapter(), { pubsub });
-      const second = messagingSdk(fakeMessagingAdapter(), { pubsub });
+      const first = messagingSdk(fakeMessagingAdapter({ verifiesSender: true }), { pubsub });
+      const second = messagingSdk(fakeMessagingAdapter({ verifiesSender: true }), { pubsub });
       const { client, botId } = await aBot(first.deps);
       await client.channels.accounts.save({
         botId,
@@ -362,7 +386,7 @@ describe("the Channel accounts' listeners", () => {
     timeout,
     async () => {
       const pubsub = createMemoryPubSub();
-      const first = messagingSdk(fakeMessagingAdapter(), { pubsub });
+      const first = messagingSdk(fakeMessagingAdapter({ verifiesSender: true }), { pubsub });
       const second = messagingSdk(first.fake, { pubsub });
       const { client, botId } = await aBot(first.deps);
       await client.channels.accounts.save({
@@ -407,7 +431,9 @@ describe("the Channel accounts' listeners", () => {
 
 describe("rotateKeys", () => {
   it("re-encrypts the Channel accounts' credentials under the new key", timeout, async () => {
-    const { deps, fake } = messagingSdk(fakeMessagingAdapter(), { keyring: [keyA] });
+    const { deps, fake } = messagingSdk(fakeMessagingAdapter({ verifiesSender: true }), {
+      keyring: [keyA],
+    });
     const { client, botId } = await aBot(deps);
     await client.channels.accounts.save({ botId, platform: "fake", credentials: { token: "1:a" } });
     const before = await accountRow(botId);
@@ -431,7 +457,9 @@ describe("rotateKeys", () => {
   });
 
   it("marks an account whose credentials no key reads as needing attention", timeout, async () => {
-    const { deps, fake } = messagingSdk(fakeMessagingAdapter(), { keyring: [keyA] });
+    const { deps, fake } = messagingSdk(fakeMessagingAdapter({ verifiesSender: true }), {
+      keyring: [keyA],
+    });
     const { botId, client } = await aBot(deps);
     await client.channels.accounts.save({ botId, platform: "fake", credentials: { token: "1:a" } });
 

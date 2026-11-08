@@ -38,7 +38,7 @@ afterEach(async () => {
   for (const { part, deps } of started.splice(0)) await part.stop!(deps);
 });
 
-function sdkWith(fake = fakeMessagingAdapter(), keyring = [keyA]) {
+function sdkWith(fake = fakeMessagingAdapter({ verifiesSender: true }), keyring = [keyA]) {
   const deps = createTestSdk({
     channels: [fake.adapter],
     features: [representativeFeature()],

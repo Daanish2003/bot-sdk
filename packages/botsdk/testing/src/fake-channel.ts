@@ -170,12 +170,14 @@ export function writtenOf({ text, control }: Pick<OutboundMessage, "text" | "con
  * network error. It splits a Message into parts as a platform does (`parts`): what it writes in pieces of
  * at most `maxText` characters, then one part per file, each its own message in `delivered`.
  * With `webhook`, it has no listener: the platform posts to the account's webhook route instead,
- * and `webhookRequest` makes a request signed as the platform would (ticket #1355).
+ * and `webhookRequest` makes a request signed as the platform would (ticket #1355). With
+ * `verifiesSender`, it declares that its senders can't be spoofed, which a Bot's account needs.
  */
 export function fakeMessagingAdapter({
   id = "fake",
   webhook = false,
-}: { id?: string; webhook?: boolean } = {}) {
+  verifiesSender = false,
+}: { id?: string; webhook?: boolean; verifiesSender?: boolean } = {}) {
   const listening = new Map<string, FakeListener>();
   /** Each send, with what the fake reported it sent. */
   const sends: {
@@ -260,6 +262,7 @@ export function fakeMessagingAdapter({
   const adapter: MessagingAdapter<"token"> = {
     kind: "messaging",
     id,
+    ...(verifiesSender && { verifiesSender }),
     credentialFields: ["token"],
     limits: { download: 20 * 1024 * 1024, upload: 50 * 1024 * 1024 },
     check: async ({ token }) =>

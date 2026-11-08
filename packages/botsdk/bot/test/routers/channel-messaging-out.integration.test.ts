@@ -65,7 +65,7 @@ async function telegramBot(
 ) {
   const timer = fakeJobClock(at);
   const brain = createFakeAdapter({ rounds });
-  const fake = fakeMessagingAdapter({ id: platform });
+  const fake = fakeMessagingAdapter({ id: platform, verifiesSender: true });
   const logged: string[] = [];
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({

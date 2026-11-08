@@ -138,8 +138,12 @@ async function world(says: string[] = [], { webhook = false }: { webhook?: boole
       timer.advance(batchLongestMs);
       timer.tick();
     },
-    /** A Bot on the platform bot behind `token`. */
+    /**
+     * A Bot on the platform bot behind `token`. Only a platform that verifies its senders may wake a
+     * Bot, so the platform does from here on.
+     */
     botOn: async (token: string) => {
+      channel.adapter.verifiesSender = true;
       const { id: botId } = await deps.bots.create({ userId: user.id, name: "Ada", model });
       await deps.channels.accounts.save({
         userId: user.id,

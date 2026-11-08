@@ -52,7 +52,7 @@ async function webhookBot({
 } = {}) {
   const timer = fakeJobClock(at);
   const brain = createFakeAdapter({ rounds: [round(), round(), round()] });
-  const fake = fakeMessagingAdapter({ webhook: true });
+  const fake = fakeMessagingAdapter({ webhook: true, verifiesSender: true });
   /** An instance over the test database with the fake platform, as several processes would be. */
   const instance = () => {
     let deps: TestDeps | undefined;
