@@ -204,7 +204,7 @@ describe("the Channel rule on SMS", () => {
     expect(await world.reply("Hi")).toEqual({ sent: true });
   });
 
-  it("passes a reply over maxLength to the adapter, which cuts it, rather than holding it", async () => {
+  it("passes a reply over maxLength to the adapter (which cuts it, in #1356) rather than holding it", async () => {
     const world = await instance();
     await world.heard("Hello");
 
