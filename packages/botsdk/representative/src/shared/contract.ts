@@ -566,11 +566,21 @@ const channelField = storable(z.string().trim().toLowerCase().min(1).max(64));
 export const maxExternalIdLength = 512;
 const externalIdField = storable(z.string().trim().min(1).max(maxExternalIdLength));
 /**
- * An address as identities hold it: an email address in lower case, as inbound mail and a code
- * request give it, so one person's address is one identity whatever case it was typed in.
+ * A phone number in E.164, as Telnyx gives a sender's: its spaces, dashes, dots and brackets taken
+ * out, and an international `00` prefix written `+`.
+ */
+const e164 = (number: string) => number.replace(/[\s().-]/g, "").replace(/^00/, "+");
+/**
+ * An address as identities hold it, so one person's address is one identity however it was typed:
+ * an email address in lower case, as inbound mail and a code request give it, and an SMS number in
+ * E.164, as a text from it gives it.
  */
 export const identityAddress = (channel: string, externalId: string) =>
-  channel === "email" ? externalId.toLowerCase() : externalId;
+  channel === "email"
+    ? externalId.toLowerCase()
+    : channel === "sms"
+      ? e164(externalId)
+      : externalId;
 const withIdentityAddress = <Input extends { channel: string; externalId: string }>(
   input: Input,
 ) => ({ ...input, externalId: identityAddress(input.channel, input.externalId) });
@@ -816,7 +826,7 @@ export const webChatCodeRequestInput = z.union([
     phone: z
       .string()
       .max(40)
-      .transform((phone) => phone.replace(/[\s().-]/g, ""))
+      .transform(e164)
       .pipe(z.string().regex(/^\+\d{7,15}$/)),
   }),
 ]);
@@ -855,8 +865,15 @@ export type WidgetKeyView = {
 /** A Representative's email address, as its owner sees it (ticket #1346): whoever writes to it is a Customer. */
 export type EmailAddressView = { address: string };
 
-/** A messaging platform the Host offers, and the credential fields an account on it takes (ticket #1358). */
-export type ChannelAccountPlatformView = { platform: string; fields: string[] };
+/**
+ * A messaging platform the Host offers, the credential fields an account on it takes (ticket #1358),
+ * and those of them that aren't secret, shown as typed.
+ */
+export type ChannelAccountPlatformView = {
+  platform: string;
+  fields: string[];
+  plainFields: string[];
+};
 
 /** A Channel account a Representative holds, as its owner sees it: never the credentials (ticket #1358). */
 export type HeldChannelAccountView = {
@@ -867,6 +884,8 @@ export type HeldChannelAccountView = {
   status: "active" | "needs_attention";
   /** Why the platform rejected the credentials, while the status is `needs_attention`. */
   reason: string | null;
+  /** Where to point the platform's webhook, for a platform that posts to one (SMS); else null. */
+  webhookUrl: string | null;
   createdAt: Date;
 };
 

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { matchQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { type ProcedureMutationOptions, useOrpc } from "@botsdk/react/provider";
 import type {
@@ -224,8 +224,10 @@ export function useStoreChannelAccounts(id: string) {
   const queryKey = representative.channelAccountList.queryKey({ input: { id } });
   return (view: ChannelAccountsView) => {
     queryClient.setQueryData(queryKey, view);
+    // The others, which an account moved here may have come from; this one is what was stored.
     void queryClient.invalidateQueries({
       queryKey: representative.channelAccountList.key(),
+      predicate: (query) => !matchQuery({ queryKey, exact: true }, query),
     });
   };
 }

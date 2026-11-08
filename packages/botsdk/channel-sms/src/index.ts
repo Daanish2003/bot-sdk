@@ -1,5 +1,6 @@
 import { createPublicKey, verify } from "node:crypto";
 
+import { PermanentJobError } from "@botsdk/bot";
 import { CredentialsRejectedError } from "@botsdk/bot/channel";
 import type {
   MessagingAccount,
@@ -24,7 +25,10 @@ const toleranceSeconds = 5 * 60;
 /** The DER prefix of an Ed25519 public key (SPKI), before its 32 raw bytes. */
 const spkiPrefix = Buffer.from("302a300506032b6570032100", "hex");
 
-/** A failed Telnyx call that isn't about the credentials: the core retries it. */
+/**
+ * A failed Telnyx call that isn't about the credentials: the core retries it. A send Telnyx refuses
+ * for good is a `PermanentJobError` instead (`isRefusal`).
+ */
 export class TelnyxApiError extends Error {
   readonly status: number;
 
@@ -34,6 +38,13 @@ export class TelnyxApiError extends Error {
     this.status = status;
   }
 }
+
+/**
+ * Whether Telnyx refused a request for good: a 4xx other than a timeout (408) or a rate limit (429),
+ * such as an invalid `to` or a number that texted STOP. Retrying it would fail the same way.
+ */
+const isRefusal = (status: number) =>
+  status >= 400 && status < 500 && status !== 408 && status !== 429;
 
 type Account = MessagingAccount<"apiKey" | "publicKey" | "number">;
 
@@ -85,6 +96,9 @@ type InboundEvent = {
   };
 };
 
+/** A number as Telnyx writes it, E.164: an owner may type it with spaces, dashes, dots or brackets. */
+const e164 = (number: string) => number.replace(/[\s().-]/g, "").replace(/^00/, "+");
+
 /**
  * The Telnyx SMS messaging adapter (spec #1174) over Telnyx's v2 API with plain `fetch` and
  * `node:crypto`: `check` looks the number up, the webhook takes `message.received` events, and
@@ -104,6 +118,8 @@ export function sms({
     id: "sms",
     // Numbers can be spoofed, so `verifiesSender` is left out.
     credentialFields: ["apiKey", "publicKey", "number"],
+    // The number is no secret, so the owner sees what they type (an E.164 typo is easy to make).
+    plainCredentialFields: ["number"],
     // No files: MMS for Customers is out of scope.
     limits: { download: 0, upload: 0 },
     // In the lab a business has to be registered to start a conversation; there is no reply window.
@@ -112,7 +128,8 @@ export function sms({
     // The send below cuts a longer reply itself, so the Outbound gate must pass it.
     cutsLongMessages: true,
 
-    async check({ apiKey, publicKey: key, number }, call) {
+    async check({ apiKey, publicKey: key, number: typed }, call) {
+      const number = e164(typed);
       if (!publicKey(key)) return { rejected: "The webhook public key isn't a base64 Ed25519 key" };
       try {
         const found = await callApi<unknown[]>(
@@ -160,7 +177,7 @@ export function sms({
       }
       // The profile may serve several numbers: a message to another one is not this account's.
       const to = payload.to ?? [];
-      if (to.length > 0 && !to.some((t) => t.phone_number === account.credentials.number)) {
+      if (to.length > 0 && !to.some((t) => t.phone_number === e164(account.credentials.number))) {
         return { updates: [] };
       }
       const text = payload.text ?? "";
@@ -183,15 +200,21 @@ export function sms({
       // Nothing to say (a Message of only a file): Telnyx refuses empty text, and a retry would too.
       if (!text.trim()) return { messageIds: [] };
       // Telnyx joins a long text into one multipart SMS itself, so one request is one reply and a
-      // failure leaves nothing half-sent: no MessagingSendError, the core simply retries.
+      // failure leaves nothing half-sent: no MessagingSendError, the core simply retries, unless
+      // Telnyx refused it for good.
       const sent = await callApi<{ id: string }>(
         base,
         account.credentials.apiKey,
         "/v2/messages",
-        { from: account.credentials.number, to: message.chatId, text },
+        { from: e164(account.credentials.number), to: message.chatId, text },
         call,
         [401],
-      );
+      ).catch((error: unknown) => {
+        if (error instanceof TelnyxApiError && isRefusal(error.status)) {
+          throw new PermanentJobError(error.message);
+        }
+        throw error;
+      });
       return { messageIds: sent?.id ? [sent.id] : [] };
     },
 

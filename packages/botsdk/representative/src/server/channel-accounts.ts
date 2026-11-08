@@ -81,9 +81,13 @@ export async function channelAccountsView(
   userId: string,
   representativeId: string,
 ): Promise<ChannelAccountsView> {
+  const accounts = await listChannelAccounts(context, userId, representativeId);
   return {
     platforms: context.channelAccounts.platforms(),
-    accounts: await listChannelAccounts(context, userId, representativeId),
+    accounts: accounts.map((account) => ({
+      ...account,
+      webhookUrl: context.channelAccounts.webhookUrl(account.platform, account.id),
+    })),
   };
 }
 
@@ -186,7 +190,7 @@ export const heldAccountChannel = (
       throw error instanceof MessagingSendError ? new AccountSendError(account.id, error) : error;
     }
   },
-  sendProof: async (to, proof, { representativeId, chatWindow = false }) => {
+  sendProof: async (to, proof, { representativeId, chatWindow = false, fromTarget = false }) => {
     if (to.channel === smsChannel) {
       // The code is the text itself, from the account that heard the Customer, to the number it
       // heard. It isn't a thread message, so no prompt or export holds it.
@@ -218,9 +222,14 @@ export const heldAccountChannel = (
       if (!account) throw new Error(`The Representative has no active ${to.channel} account`);
       await channelAccounts.send(account.id, {
         chatId: to.externalId,
-        text: chatWindow
-          ? `Your verification code is ${proof.secret}. Enter it in the chat window to confirm it's you.`
-          : `Your verification code is ${proof.secret}. Reply with it to confirm it's you.`,
+        text: `Your verification code is ${proof.secret}. ${
+          chatWindow
+            ? "Enter it in the chat window to confirm it's you."
+            : fromTarget
+              ? "Reply with it to confirm it's you."
+              : // Someone elsewhere claimed this number, and only they can pass the code there.
+                "Enter it where you asked for it. If you didn't ask, ignore this text."
+        }`,
       });
       return;
     }

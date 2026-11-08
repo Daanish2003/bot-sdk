@@ -22,6 +22,8 @@ export const errorMessages = {
   "error.channelPlatformNotFound": "This messaging Channel isn't offered here.",
   "error.channelCredentialsRejected":
     "The platform rejected these credentials. Check them and try again.",
+  "error.channelSenderUnverified":
+    "This platform can't confirm who sent a message, so it can't wake a Bot. Connect it to a Representative instead.",
   "error.notificationRouteNotLinked": "Link your account on that Channel to send Messages there.",
   "error.channelAccountTaken": "That bot is already connected to someone else.",
   "error.customRuleLimit": ({ max }: { max: number }) =>

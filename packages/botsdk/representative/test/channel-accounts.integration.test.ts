@@ -38,7 +38,7 @@ afterEach(async () => {
   for (const { part, deps } of started.splice(0)) await part.stop!(deps);
 });
 
-function sdkWith(fake = fakeMessagingAdapter(), keyring = [keyA]) {
+function sdkWith(fake = fakeMessagingAdapter({ verifiesSender: true }), keyring = [keyA]) {
   const deps = createTestSdk({
     channels: [fake.adapter],
     features: [representativeFeature()],
@@ -451,7 +451,7 @@ describe("the owner's API for a Representative's Channel accounts (ticket #1358)
     await startListeners();
 
     expect(await client.representative.channelAccountList({ id: representativeId })).toEqual({
-      platforms: [{ platform: "fake", fields: ["token"] }],
+      platforms: [{ platform: "fake", fields: ["token"], plainFields: [] }],
       accounts: [],
     });
 
@@ -462,7 +462,8 @@ describe("the owner's API for a Representative's Channel accounts (ticket #1358)
     });
 
     expect(connected.accounts).toMatchObject([
-      { platform: "fake", handle: "@bot_1", status: "active", reason: null },
+      // A listening platform takes no webhook, so there is no URL to give it.
+      { platform: "fake", handle: "@bot_1", status: "active", reason: null, webhookUrl: null },
     ]);
     expect(JSON.stringify(connected)).not.toContain("secret-token");
     expect(await client.representative.channelAccountList({ id: representativeId })).toEqual(
@@ -478,6 +479,31 @@ describe("the owner's API for a Representative's Channel accounts (ticket #1358)
     expect(removed.accounts).toEqual([]);
     expect(await getTestDb().select().from(channelAccount)).toEqual([]);
     await expect.poll(() => fake.listening.has("@bot_1"), poll).toBe(false);
+  });
+
+  it("gives a webhook platform's account the URL to point the platform at, and says which fields aren't secret", async () => {
+    const fake = fakeMessagingAdapter({ webhook: true });
+    // A number, say: the owner sees what they type.
+    fake.adapter.plainCredentialFields = ["token"];
+    const deps = createTestSdk({
+      channels: [fake.adapter],
+      features: [representativeFeature()],
+      keyEncryptionSecrets: [keyA],
+      appUrl: "https://app.example",
+      liveViewBase: "/api/chat",
+    });
+    const { client, representativeId } = await anOwner(deps);
+
+    const { platforms, accounts } = await client.representative.channelAccountConnect({
+      id: representativeId,
+      platform: "fake",
+      credentials: { token: "1:a" },
+    });
+
+    expect(platforms).toEqual([{ platform: "fake", fields: ["token"], plainFields: ["token"] }]);
+    expect(accounts.map(({ webhookUrl }) => webhookUrl)).toEqual([
+      `https://app.example/api/chat/channels/fake/${accounts[0]!.id}`,
+    ]);
   });
 
   it("refuses another user's Representative, and removes nothing it doesn't hold", async () => {

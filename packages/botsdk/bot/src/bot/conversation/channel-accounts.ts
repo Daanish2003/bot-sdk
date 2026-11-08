@@ -78,7 +78,18 @@ function rowOf(adapter: MessagingAdapter, account: AccountRow | undefined): Chan
   };
 }
 
-/** Each messaging platform the Host offers, in its order, with the Bot's Channel account there. */
+/**
+ * Whether a Bot can take an account on `adapter`: only when the platform authenticates each sender.
+ * The Bot wakes for its user's Linked identity, so a spoofable sender (an SMS caller ID) would speak
+ * with the user's authority.
+ */
+const wakesBot = (adapter: MessagingAdapter) => adapter.verifiesSender === true;
+
+/**
+ * Each messaging platform the Host offers whose senders are verified, in its order, with the Bot's
+ * Channel account there; and any other the Bot already holds an account on, saved before, so its
+ * owner can still see and remove it.
+ */
 export async function listChannelAccounts(
   sdk: BotSdkContext,
   adapters: readonly MessagingAdapter[],
@@ -86,7 +97,9 @@ export async function listChannelAccounts(
 ): Promise<ChannelAccountRow[]> {
   await ownBot(sdk, adapters, userId, botId);
   const rows = await sdk.db.select().from(channelAccount).where(eq(channelAccount.botId, botId));
-  return adapters.map((adapter) =>
+  const shown = (adapter: MessagingAdapter) =>
+    wakesBot(adapter) || rows.some((row) => row.platform === adapter.id);
+  return adapters.filter(shown).map((adapter) =>
     rowOf(
       adapter,
       rows.find((row) => row.platform === adapter.id),
@@ -228,7 +241,8 @@ async function retryingClash<T>(write: () => Promise<T>): Promise<T> {
 
 /**
  * Adds or fixes the Bot's Channel account on `platform` once the platform accepts `credentials`.
- * A platform bot on another of the user's Bots, or a holder of a feature's, moves here. Returns the
+ * A platform that can't verify its senders is refused with BAD_REQUEST. A platform bot on another of
+ * the user's Bots, or a holder of a feature's, moves here. Returns the
  * platform's row and the ids of the accounts whose listeners must change (this one, and the one it moved from).
  */
 export async function saveChannelAccount(
@@ -243,6 +257,13 @@ export async function saveChannelAccount(
 ): Promise<{ row: ChannelAccountRow; changed: string[] }> {
   await ownBot(sdk, adapters, userId, botId);
   const adapter = adapterOf(adapters, platform);
+  if (!wakesBot(adapter)) {
+    throw rpcError(
+      "BAD_REQUEST",
+      "error.channelSenderUnverified",
+      "This platform can't verify its senders, so a Bot can't hold an account on it",
+    );
+  }
   const { credentials, checked } = await acceptedCredentials(sdk, adapter, given);
   return retryingClash(() =>
     sdk.db.transaction(async (tx) => {

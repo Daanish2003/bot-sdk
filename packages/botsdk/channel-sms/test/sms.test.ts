@@ -3,6 +3,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { PermanentJobError } from "@botsdk/bot";
 import { CredentialsRejectedError } from "@botsdk/bot/channel";
 
 import { cutMarker, fitSegments, measure, sms, TelnyxApiError } from "../src";
@@ -45,6 +46,11 @@ const account = { id: "acc", botId: "bot", platformBotId: "x", handle: "x", cred
 const adapter = () => sms({ apiBase: url });
 
 describe("check", () => {
+  it("takes the number as a field that isn't secret, and the keys as secrets", () => {
+    expect(adapter().credentialFields).toEqual(["apiKey", "publicKey", "number"]);
+    expect(adapter().plainCredentialFields).toEqual(["number"]);
+  });
+
   it("looks the number up with the API key", async () => {
     reply = { status: 200, body: { data: [{ phone_number: "+15550001111" }] } };
     expect(await adapter().check(credentials, call)).toEqual({
@@ -187,15 +193,19 @@ describe("send", () => {
     });
   });
 
-  it("maps a 401 to a credentials rejection and any other failure to a retried error", async () => {
+  it("maps a 401 to a credentials rejection, a refusal to a permanent error, and the rest to a retried one", async () => {
+    const send = () => adapter().send(account, { chatId: "+1555", text: "x" }, call);
     reply = { status: 401, body: { errors: [{ title: "Unauthorized" }] } };
-    await expect(
-      adapter().send(account, { chatId: "+1555", text: "x" }, call),
-    ).rejects.toBeInstanceOf(CredentialsRejectedError);
-    reply = { status: 400, body: { errors: [{ detail: "bad number" }] } };
-    await expect(adapter().send(account, { chatId: "+1555", text: "x" }, call)).rejects.toThrow(
-      TelnyxApiError,
-    );
+    await expect(send()).rejects.toBeInstanceOf(CredentialsRejectedError);
+    // Telnyx refuses these for good (an invalid number, one that texted STOP), so no retry helps.
+    for (const status of [400, 403, 404, 422]) {
+      reply = { status, body: { errors: [{ detail: "bad number" }] } };
+      await expect(send()).rejects.toBeInstanceOf(PermanentJobError);
+    }
+    for (const status of [408, 429, 500, 503]) {
+      reply = { status, body: { errors: [{ detail: "later" }] } };
+      await expect(send()).rejects.toThrow(TelnyxApiError);
+    }
   });
 
   it("cuts the text, not a control's options", async () => {
@@ -295,5 +305,24 @@ describe("segments", () => {
     expect(result.text.length).toBeLessThanOrEqual(201);
     expect(result.text.endsWith(cutMarker)).toBe(true);
     expect(result.text).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/);
+  });
+});
+
+describe("a number typed with spaces or dashes", () => {
+  // The Number field shows what the owner types (#1174 review), so it is taken as E.164.
+  const typed = { ...credentials, number: "+1 555-000 1111" };
+  const typedAccount = { ...account, credentials: typed };
+
+  it("is looked up, held and sent from in E.164", async () => {
+    reply = { status: 200, body: { data: [{ phone_number: "+15550001111" }] } };
+    expect(await adapter().check(typed, call)).toEqual({
+      platformBotId: "+15550001111",
+      handle: "+15550001111",
+    });
+    expect(requests[0]?.url).toContain("filter[phone_number]=%2B15550001111&");
+
+    reply = { status: 200, body: { data: { id: "out-1" } } };
+    await adapter().send(typedAccount, { chatId: "+15559998888", text: "Hi" }, call);
+    expect(requests[1]?.body).toMatchObject({ from: "+15550001111" });
   });
 });

@@ -32,7 +32,7 @@ type Fake = ReturnType<typeof fakeMessagingAdapter>;
 
 /** An instance with the fake messaging adapter, whose clock `clock.now` moves. */
 function messagingSdk(logger?: Logger) {
-  const fake = fakeMessagingAdapter();
+  const fake = fakeMessagingAdapter({ verifiesSender: true });
   const clock = { now: Date.now() };
   const deps = createTestSdk({
     channels: [fake.adapter],

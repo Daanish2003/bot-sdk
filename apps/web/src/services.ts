@@ -15,7 +15,7 @@ import { isBanActive } from "./admin/ban";
 import { appName, sender } from "./email";
 import { emailProviderOf } from "./email-provider";
 import { webPushChannelsOf } from "./push-channel";
-import { ENV, ssrfAllowHosts } from "./env.server";
+import { ENV, smsApiBase, ssrfAllowHosts } from "./env.server";
 import { blobStoreOf } from "./blob-store";
 import { getQuota } from "./admin/quota";
 import {
@@ -141,7 +141,7 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     telegram(),
     // SMS (spec #1174): Telnyx, or the lab phone when SMS_API_BASE points at it. The keys and the
     // number are per Channel account.
-    sms({ apiBase: ENV.SMS_API_BASE || undefined }),
+    sms({ apiBase: smsApiBase }),
     // Web push (spec #1024): on only with the Host's VAPID key pair (VAPID_*).
     ...webPushChannelsOf({
       VAPID_PUBLIC_KEY: ENV.VAPID_PUBLIC_KEY,

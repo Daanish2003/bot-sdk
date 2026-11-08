@@ -239,7 +239,8 @@ describe("the Channel rule on SMS", () => {
     expect(await world.reply("word ".repeat(120))).toEqual({ sent: true });
 
     expect(await world.decisions()).toEqual([["reply", "send", "passed"]]);
-    expect(world.posted).toHaveLength(1);
+    // The reply goes out by a delivery job, which may not have run yet.
+    await expect.poll(() => world.posted.length, poll).toBe(1);
     expect(world.posted[0]!.endsWith(cutMarker)).toBe(true);
     expect(world.posted[0]!.length).toBeLessThanOrEqual(459);
   });

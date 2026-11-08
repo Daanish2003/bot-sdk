@@ -1,6 +1,7 @@
 import { batchLongestMs } from "@botsdk/bot/bot/triggers";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import type { BotSdkPlugin } from "@botsdk/bot/plugin";
+import { job } from "@botsdk/bot/storage";
 import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
@@ -8,12 +9,14 @@ import { chatRpc } from "@ai-chat/test-support/sdk";
 import { autoSource, promoteAutoTopic } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
-import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
+import { createFakeAdapter, round, text, toolCall } from "@botsdk/testing/fake-adapter";
 import { fakeMessagingAdapter } from "@botsdk/testing/fake-channel";
-import { asc } from "drizzle-orm";
+import type { TextOptions } from "@tanstack/ai";
+import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { connectChannelAccount, heldAccountChannel } from "../src/server/channel-accounts";
+import { customerSummaryMarker } from "../src/server/customer-summary";
 import {
   representativeCustomerIdentity,
   representativeThreadMessage,
@@ -53,10 +56,24 @@ afterEach(async () => {
   for (const runner of runners.splice(0)) await runner.stop();
 });
 
-/** A running instance whose Model plays `rounds` in turn, and whose SMS account is a fake platform's. */
+/** Whether a Model call is the Customer memory pass a closed thread queues, not a Turn's. */
+const isPassCall = (options: TextOptions) =>
+  JSON.stringify(options.systemPrompts ?? []).includes(customerSummaryMarker);
+
+/**
+ * A running instance whose Model plays `rounds` in turn for the Turns (a leap past the idle close
+ * also makes a memory pass, answered apart), and whose SMS account is a fake platform's.
+ */
 async function world(rounds: ReturnType<typeof round>[]) {
   const channel = fakeMessagingAdapter({ id: "sms" });
-  const fake = createFakeAdapter({ rounds });
+  const turns = [...rounds];
+  const fake = createFakeAdapter({
+    rounds: Array.from(
+      { length: 40 },
+      () => (options: TextOptions) =>
+        isPassCall(options) ? round(text("A summary.")) : turns.shift()!,
+    ),
+  });
   const timer = fakeJobClock(at);
   let made: TestDeps | undefined;
   const jobs = inProcessRunner({
@@ -150,12 +167,32 @@ const threadMessages = () =>
 
 const identity = async () => (await getTestDb().select().from(representativeCustomerIdentity))[0]!;
 
-const prompts = (fake: { calls: { messages: unknown }[] }) =>
-  fake.calls.map((call) => JSON.stringify(call.messages));
+/**
+ * Waits until no job is running, so a clock leap can't outlast one's lease: a Turn caught mid-run
+ * would time out and come back only after its retry delay.
+ */
+const settled = () =>
+  expect
+    .poll(
+      async () => (await getTestDb().select().from(job).where(eq(job.status, "running"))).length,
+      poll,
+    )
+    .toBe(0);
+
+/** The Turns' Model calls, without the memory passes. */
+const turnCalls = (fake: { calls: TextOptions[] }) =>
+  fake.calls.filter((call) => !isPassCall(call));
+
+const prompts = (fake: { calls: TextOptions[] }) =>
+  turnCalls(fake).map((call) => JSON.stringify(call.messages));
 
 /** The six-digit code in the text the line sent. */
 const codeSent = (channel: { delivered: { part: string }[] }) =>
   channel.delivered.map(({ part }) => /\b\d{6}\b/.exec(part)?.[0]).find(Boolean);
+
+/** Each text the line sent that carried a code. */
+const codeTexts = <Text extends { part: string }>(channel: { delivered: Text[] }) =>
+  channel.delivered.filter(({ part }) => /\b\d{6}\b/.test(part));
 
 describe("a code round trip on SMS", () => {
   it("texts the code to the sender's number through the account that heard them, and stores no message of it", async () => {
@@ -166,8 +203,27 @@ describe("a code round trip on SMS", () => {
     await expect.poll(() => codeSent(channel), poll).toMatch(/^\d{6}$/);
     expect(channel.sends.map(({ account }) => account.handle)).toEqual(["@bot_1"]);
     expect(channel.delivered.map(({ chatId }) => chatId)).toEqual(["+15550001"]);
+    // The claim came from this number, so the reply that carries the code is what passes it.
+    expect(channel.delivered[0]!.part).toContain("Reply with it");
     expect(JSON.stringify(await threadMessages())).not.toContain(codeSent(channel)!);
     expect((await identity()).verifiedContactAt).toBeNull();
+  });
+
+  it("doesn't tell the number's holder to reply when someone elsewhere claimed it", async () => {
+    const { channel, deps, id, texts } = await world([round()]);
+    await texts("Hello");
+    await expect.poll(async () => (await threadMessages()).length, poll).toBeGreaterThan(0);
+    const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
+
+    // A sender on another Channel claimed the number, which has an open thread on this line.
+    await heldAccountChannel(feature.context).sendProof(
+      { channel: "sms", externalId: "+15550001" },
+      { kind: "code", secret: "482913" },
+      { representativeId: id },
+    );
+
+    expect(codeSent(channel)).toBe("482913");
+    expect(channel.delivered.at(-1)!.part).not.toContain("Reply");
   });
 
   it("verifies the identity by the right code, and the next Turn has the Customer's memory", async () => {
@@ -210,13 +266,19 @@ describe("a code round trip on SMS", () => {
       .poll(async () => (await threadMessages()).map(({ text }) => text).join(" "), poll)
       .toContain("It was wrong");
     // The Turn that message started has built its prompt, so the check below can fail.
-    await expect.poll(() => fake.calls.length, poll).toBeGreaterThanOrEqual(3);
+    await expect.poll(() => turnCalls(fake).length, poll).toBeGreaterThanOrEqual(3);
     expect((await identity()).verifiedContactAt).toBeNull();
     expect(prompts(fake).join("")).not.toContain("Dutch");
   });
 
-  it("lapses after 90 days without contact, and the Customer's memory is shut again", async () => {
-    const { channel, fake, timer, knownAs, texts } = await world([verifies(), round(), round()]);
+  it("lapses after 90 days without contact, the Customer's memory is shut again, and the number gets no code", async () => {
+    const { channel, fake, timer, knownAs, texts } = await world([
+      verifies(),
+      round(),
+      round(),
+      verifies(),
+      round(),
+    ]);
     await knownAs();
     await texts("It is me, Ada");
     await expect.poll(() => codeSent(channel), poll).toBeDefined();
@@ -224,25 +286,75 @@ describe("a code round trip on SMS", () => {
     await expect.poll(async () => (await identity()).verifiedContactAt, poll).not.toBeNull();
 
     // The Turn the code started has run its Model call.
-    await expect.poll(() => fake.calls.length, poll).toBe(3);
+    await expect.poll(() => turnCalls(fake).length, poll).toBe(3);
+    await settled();
     timer.advance(91 * day);
-    const before = prompts(fake).length;
     await texts("Back again");
 
+    // Its Turn asked for a code, and ran on: the prompt it built is the one checked below.
+    // A leap makes other jobs due too, so the runner is ticked until the Turn has run.
+    await expect.poll(() => (timer.tick(), turnCalls(fake).length), poll).toBe(5);
     // Stored state: a 91-day leap also meets the idle job, which moves the message to a new thread.
-    await expect
-      .poll(
-        async () => (await threadMessages()).filter(({ author }) => author === "customer").length,
-        poll,
-      )
-      .toBe(3);
     expect((await threadMessages()).findLast(({ author }) => author === "customer")).toMatchObject({
       text: "Back again",
       verified: false,
     });
-    expect(prompts(fake).slice(before).join("")).not.toContain("Dutch");
-    // The standing ended, so the number has to prove itself again.
-    expect(await identity()).toMatchObject({ lapsedAt: expect.any(Date) });
+    expect(prompts(fake).slice(3).join("")).not.toContain("Dutch");
+    // The standing ended, so the number's next holder must not get a code to prove it: none goes.
+    expect(codeTexts(channel)).toHaveLength(1);
+    expect(await identity()).toMatchObject({ verifiedContactAt: null, lapsedAt: expect.any(Date) });
+  });
+
+  it("doesn't lapse while the Customer keeps texting, verified or not, and texts a code to their number at day 120", async () => {
+    const { channel, fake, timer, knownAs, texts } = await world([
+      verifies(),
+      round(),
+      round(),
+      replies("Sure."),
+      round(),
+      replies("Sure."),
+      round(),
+      verifies(),
+      round(),
+    ]);
+    await knownAs();
+    await texts("It is me, Ada");
+    await expect.poll(() => codeSent(channel), poll).toBeDefined();
+    await texts(codeSent(channel)!);
+    await expect.poll(() => turnCalls(fake).length, poll).toBe(3);
+    await settled();
+
+    // Unverified texts, each long after the hour a code vouches for and within 90 days of the last.
+    for (const [index, days] of [40, 40].entries()) {
+      timer.advance(days * day);
+      await texts(`A question, ${index}`);
+      await expect.poll(() => (timer.tick(), turnCalls(fake).length), poll).toBe(5 + 2 * index);
+      await settled();
+    }
+    timer.advance(40 * day);
+    await texts("About my order");
+
+    await expect.poll(() => (timer.tick(), turnCalls(fake).length), poll).toBe(9);
+    const codes = codeTexts(channel);
+    expect(codes.map(({ chatId }) => chatId)).toEqual(["+15550001", "+15550001"]);
+    expect(await identity()).toMatchObject({ lapsedAt: null, verifiedContactAt: expect.any(Date) });
+  });
+});
+
+describe("a number the owner typed", () => {
+  it("is the identity a text from it reaches, however it was spaced", async () => {
+    const { rpc, texts } = await world([round()]);
+    const ada = await rpc.representative.customerCreate({
+      channel: "sms",
+      externalId: "+1 (555) 0001",
+    });
+
+    await texts("Hello");
+
+    await expect.poll(async () => (await threadMessages()).length, poll).toBeGreaterThan(0);
+    const customers = await rpc.representative.customerList();
+    expect(customers.map(({ id }) => id)).toEqual([ada.id]);
+    expect(customers[0]!.identities.map(({ externalId }) => externalId)).toEqual(["+15550001"]);
   });
 });
 
