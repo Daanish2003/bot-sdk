@@ -271,7 +271,7 @@ One display on the Computer, with its own Chrome and Chrome profile, for one act
 _Avoid_: Display, desktop, browser
 
 **Auto-review**:
-A separate model's check of a Bot's risky tool call before it runs. Every shell command is risky, and so is every browser or desktop action that does more than look. A call it passes runs without asking; one it blocks waits for an Approval. It takes only the user's own Messages, a Routine the user approved, or their Custom Rules as permission, so text from a webhook or a web page can't talk it into anything.
+A separate model's check of a Bot's risky tool call before it runs. Every shell command is risky, and so is every browser or desktop action that does more than look. A call it passes runs without asking; one it blocks waits for an Approval. It takes only the user's own Messages (what the user said on a call counts, read as a transcript that may be mis-heard), a Routine the user approved, or their Custom Rules as permission, so text from a webhook or a web page can't talk it into anything.
 _Avoid_: Guardrail, moderation, safety check
 
 **Custom Rule**:
@@ -295,7 +295,7 @@ The bot one Bot or one Representative is on a messaging Channel such as Telegram
 _Avoid_: Connection (that is an MCP sign-in), integration, bot token
 
 **Linked identity**:
-The user's own account on a messaging Channel, such as their Telegram account, their Slack member in one workspace or their phone number, proved by sending a link code to one of their Bots. All the user's Bots know it; a message from any other sender is dropped unanswered.
+The user's own account on a messaging Channel, such as their Telegram account, their Slack member in one workspace or their phone number, proved by sending a link code to one of their Bots. All the user's Bots know it; a message from any other sender is dropped unanswered. A linked phone number, proved only by texting the code, also lets the user call their Bots; a call from any other number is declined before it is answered.
 _Avoid_: Account link, alias, handle
 
 **SendToUser**:
