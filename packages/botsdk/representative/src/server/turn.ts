@@ -949,11 +949,13 @@ export function turnTools(turn: Turn) {
       if (outgoing && thread) {
         const { to, proof } = outgoing as SentProof;
         const sendsProofs = thread.channel;
+        const fromTarget =
+          to.channel === thread.heard.channel && to.externalId === thread.heard.externalId;
         // Not awaited, and nothing it throws reaches the Model: neither how long a Channel takes nor
         // whether it fails may tell the Model, or the Customer, that the identity was on record. A
         // proof that fails to go is lost, and the Customer asks again when none comes.
         void Promise.resolve()
-          .then(() => sendsProofs.sendProof(to, proof, { representativeId }))
+          .then(() => sendsProofs.sendProof(to, proof, { representativeId, fromTarget }))
           .catch((error: unknown) => {
             job.logger.error(`Representative ${representativeId}: a proof didn't go`, error);
           });

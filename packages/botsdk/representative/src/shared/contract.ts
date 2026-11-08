@@ -1,6 +1,8 @@
 import { oc, type } from "@orpc/contract";
 import { z } from "zod";
 
+import { platformSchema } from "@botsdk/client/bot/channel-account";
+
 import { checkFactValue, factTypes, type FactType } from "./facts";
 import type { ReplyProof } from "./replies";
 
@@ -564,11 +566,21 @@ const channelField = storable(z.string().trim().toLowerCase().min(1).max(64));
 export const maxExternalIdLength = 512;
 const externalIdField = storable(z.string().trim().min(1).max(maxExternalIdLength));
 /**
- * An address as identities hold it: an email address in lower case, as inbound mail and a code
- * request give it, so one person's address is one identity whatever case it was typed in.
+ * A phone number in E.164, as Telnyx gives a sender's: its spaces, dashes, dots and brackets taken
+ * out, and an international `00` prefix written `+`.
+ */
+const e164 = (number: string) => number.replace(/[\s().-]/g, "").replace(/^00/, "+");
+/**
+ * An address as identities hold it, so one person's address is one identity however it was typed:
+ * an email address in lower case, as inbound mail and a code request give it, and an SMS number in
+ * E.164, as a text from it gives it.
  */
 export const identityAddress = (channel: string, externalId: string) =>
-  channel === "email" ? externalId.toLowerCase() : externalId;
+  channel === "email"
+    ? externalId.toLowerCase()
+    : channel === "sms"
+      ? e164(externalId)
+      : externalId;
 const withIdentityAddress = <Input extends { channel: string; externalId: string }>(
   input: Input,
 ) => ({ ...input, externalId: identityAddress(input.channel, input.externalId) });
@@ -799,11 +811,25 @@ export const webChatSendInput = z.strictObject({
   text: storable(z.string().trim().min(1).max(maxThreadMessageLength)),
 });
 
-/** What a web chat visitor gives to have a code sent to an email address on record (ticket #1350). */
-export const webChatCodeRequestInput = z.strictObject({
-  token: z.string(),
-  email: z.string().trim().toLowerCase().max(320).pipe(z.email()),
-});
+/**
+ * What a web chat visitor gives to have a code sent to an email address on record (ticket #1350), or
+ * texted to a phone number on record (ticket #1361): one or the other. A number is international, with
+ * its spaces, dashes and brackets taken out, as an SMS identity holds it.
+ */
+export const webChatCodeRequestInput = z.union([
+  z.strictObject({
+    token: z.string(),
+    email: z.string().trim().toLowerCase().max(320).pipe(z.email()),
+  }),
+  z.strictObject({
+    token: z.string(),
+    phone: z
+      .string()
+      .max(40)
+      .transform(e164)
+      .pipe(z.string().regex(/^\+\d{7,15}$/)),
+  }),
+]);
 
 /** The code a web chat visitor enters: six digits, however they spaced them. */
 export const webChatCodeCheckInput = z.strictObject({
@@ -839,6 +865,36 @@ export type WidgetKeyView = {
 /** A Representative's email address, as its owner sees it (ticket #1346): whoever writes to it is a Customer. */
 export type EmailAddressView = { address: string };
 
+/**
+ * A messaging platform the Host offers, the credential fields an account on it takes (ticket #1358),
+ * and those of them that aren't secret, shown as typed.
+ */
+export type ChannelAccountPlatformView = {
+  platform: string;
+  fields: string[];
+  plainFields: string[];
+};
+
+/** A Channel account a Representative holds, as its owner sees it: never the credentials (ticket #1358). */
+export type HeldChannelAccountView = {
+  id: string;
+  platform: string;
+  /** The platform bot's display handle: for SMS, the number. */
+  handle: string;
+  status: "active" | "needs_attention";
+  /** Why the platform rejected the credentials, while the status is `needs_attention`. */
+  reason: string | null;
+  /** Where to point the platform's webhook, for a platform that posts to one (SMS); else null. */
+  webhookUrl: string | null;
+  createdAt: Date;
+};
+
+/** What a Representative's owner sees of its Channel accounts: the platforms to connect on, and what it holds. */
+export type ChannelAccountsView = {
+  platforms: ChannelAccountPlatformView[];
+  accounts: HeldChannelAccountView[];
+};
+
 export const maxWidgetOrigins = 50;
 /** Whether `value` is only a scheme, host and port, which is all a browser's `Origin` header says. */
 const isWebOrigin = (value: string) => {
@@ -870,6 +926,13 @@ export const widgetKeySetOriginsInput = z.object({
   id: z.uuid(),
   origins: z.array(widgetOrigin).max(maxWidgetOrigins),
 });
+
+export const channelAccountConnectInput = z.object({
+  id: z.uuid(),
+  platform: platformSchema,
+  credentials: z.record(z.string().max(100), z.string().trim().min(1).max(4096)),
+});
+export const channelAccountRemoveInput = z.object({ id: z.uuid(), channelAccountId: z.uuid() });
 
 export const representativeContract = {
   /** The owner's Representatives, oldest first. */
@@ -937,6 +1000,16 @@ export const representativeContract = {
   emailAddressGet: oc.input(idInput).output(type<EmailAddressView | null>()),
   /** Gives it a new email address; the old one stops at once. Null as for `emailAddressGet`. */
   emailAddressRotate: oc.input(idInput).output(type<EmailAddressView | null>()),
+  /** The messaging platforms the Host offers and the Channel accounts the Representative holds, oldest first. Never their credentials. */
+  channelAccountList: oc.input(idInput).output(type<ChannelAccountsView>()),
+  /**
+   * Connects the platform bot behind `credentials` to the Representative, once the platform accepts
+   * them, and starts its listener. One on another of the owner's holders moves here; a Representative
+   * may hold several.
+   */
+  channelAccountConnect: oc.input(channelAccountConnectInput).output(type<ChannelAccountsView>()),
+  /** Removes one of the Representative's Channel accounts, and its listener stops. */
+  channelAccountRemove: oc.input(channelAccountRemoveInput).output(type<ChannelAccountsView>()),
   /** The owner's Customers, oldest first. */
   customerList: oc.output(type<CustomerView[]>()),
   /** Adds a Customer by hand, with its first identity. Refused when the owner already has that identity. */

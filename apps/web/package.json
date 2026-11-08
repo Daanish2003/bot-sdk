@@ -23,6 +23,7 @@
     "@botsdk/blobs-s3": "workspace:*",
     "@botsdk/bot": "workspace:*",
     "@botsdk/channel-email": "workspace:*",
+    "@botsdk/channel-sms": "workspace:*",
     "@botsdk/channel-telegram": "workspace:*",
     "@botsdk/channel-web-push": "workspace:*",
     "@botsdk/client": "workspace:*",

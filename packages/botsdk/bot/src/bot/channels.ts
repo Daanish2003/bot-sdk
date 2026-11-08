@@ -17,6 +17,7 @@ import {
 } from "../channel/internal";
 import { channelRouter } from "./routers/channel";
 import { accountsChanged, channelListeners } from "./channel-listeners";
+import { messagingWebhookRoutes, settleWebhooks } from "./channel-webhooks";
 import {
   channelAccountIdsOf,
   channelUserDelete,
@@ -140,8 +141,20 @@ export function createChannels(sdk: BotSdkContext, options: ChannelOptions): Cha
       if (platform === "email") return email ? { canStartConversation: true } : undefined;
       const adapter = messaging.find((candidate) => candidate.id === platform);
       if (!adapter) return undefined;
-      const { canStartConversation, replyWindowHours, maxLength } = adapter;
-      return { canStartConversation, replyWindowHours, maxLength };
+      const { canStartConversation, replyWindowHours, maxLength, cutsLongMessages } = adapter;
+      return { canStartConversation, replyWindowHours, maxLength, cutsLongMessages };
+    },
+    platforms: () =>
+      messaging.map((adapter) => ({
+        platform: adapter.id,
+        fields: [...adapter.credentialFields],
+        plainFields: [...(adapter.plainCredentialFields ?? [])],
+      })),
+    webhookUrl: (platform, accountId) => {
+      const adapter = messaging.find((candidate) => candidate.id === platform);
+      const base = sdk.liveView.base;
+      if (!adapter?.webhook || appUrl === null || base === null) return null;
+      return `${appUrl}${base}/channels/${platform}/${accountId}`;
     },
     identities: {
       list: ({ userId }) => listLinkedIdentities(sdk, messaging, userId),
@@ -179,6 +192,10 @@ export type ChannelAccountsService = {
   send: ChannelApi["sendHeld"];
   /** What `platform`'s adapter declares it limits; undefined when the Host has no such adapter. */
   reach: ChannelApi["reach"];
+  /** Each messaging platform the Host offers, with the credential fields an account on it takes. */
+  platforms: ChannelApi["platforms"];
+  /** The URL a webhook platform posts an account's updates to, or null. See `ChannelApi`. */
+  webhookUrl: ChannelApi["webhookUrl"];
   /** Sends one mail through the email Channel, from an address the feature gives out (spec #1176). */
   sendEmail: ChannelApi["sendEmail"];
   /** The domain the email Channel receives mail for, where a feature's addresses go; null without one. */
@@ -192,6 +209,8 @@ export const channelAccountsService = (sdk: BotSdkContext): ChannelAccountsServi
   changed: (ids) => accountsChanged(sdk, ids),
   send: (id, message) => sdk.channels.sendHeld(id, message),
   reach: (platform) => sdk.channels.reach(platform),
+  platforms: () => sdk.channels.platforms(),
+  webhookUrl: (platform, accountId) => sdk.channels.webhookUrl(platform, accountId),
   sendEmail: (mail) => sdk.channels.sendEmail(mail),
   emailDomain: () => {
     // `sdk.channels.emailDomain` throws only when the Host gave no email adapter.
@@ -209,8 +228,8 @@ const saveHeldChannelAccountInput = saveChannelAccountInput.omit({ botId: true }
 /**
  * The Channels besides web (spec #761) that the user talks to their Bots on, each an adapter, as
  * the core's `sdk.channels` with their router. It owns turning an inbound into a Trigger, the
- * sender check and dedupe, and runs the messaging Channel accounts' listeners while the SDK runs
- * (spec #1044).
+ * sender check and dedupe, runs the messaging Channel accounts' listeners while the SDK runs
+ * (spec #1044), and serves the webhook route of each messaging adapter that has one (ticket #1355).
  */
 export function channel(options: ChannelOptions): ChannelPlugin {
   const { messaging } = adaptersOf(options.adapters);
@@ -220,6 +239,9 @@ export function channel(options: ChannelOptions): ChannelPlugin {
     if (reservedIds.has(adapter.id) || platforms.has(adapter.id)) {
       throw new Error(`The messaging adapter id "${adapter.id}" is taken`);
     }
+    if (adapter.listen && adapter.webhook) {
+      throw new Error(`The messaging adapter "${adapter.id}" declares both listen and webhook`);
+    }
     platforms.add(adapter.id);
   }
   // Each instance the plugin is composed into runs, and stops, its own listeners.
@@ -227,7 +249,7 @@ export function channel(options: ChannelOptions): ChannelPlugin {
   return {
     id: "channel",
     router: { channels: channelRouter },
-    routes: emailInboundRoutes(options.adapters),
+    routes: [...emailInboundRoutes(options.adapters), ...messagingWebhookRoutes(messaging, appUrl)],
     init: (sdk) => {
       sdk.channels = createChannels(sdk, options);
     },
@@ -238,6 +260,7 @@ export function channel(options: ChannelOptions): ChannelPlugin {
     },
     stop: async (sdk) => {
       await listeners.get(sdk)?.stop();
+      await settleWebhooks(sdk);
     },
     rotateKeys: (sdk) => rotateChannelAccountKeys(sdk),
     deleteUser: channelUserDelete,

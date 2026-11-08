@@ -119,17 +119,17 @@ test("a visitor asks for a code by email in the chat window, and a wrong one unl
     await widget.send.click();
     await expect(widget.said("I'd like my order history")).toBeVisible();
 
-    await widget.chat.getByRole("button", { name: "Verify by email" }).click();
-    await widget.chat.getByLabel("Your email address").fill("nobody@example.com");
+    await widget.chat.getByRole("button", { name: "Verify by email or text" }).click();
+    await widget.chat.getByLabel("Your email address or phone number").fill("nobody@example.com");
     const asked = page.waitForResponse((response) => response.url().endsWith("/widget/code"));
     await widget.chat.getByRole("button", { name: "Send code" }).click();
     expect((await asked).status()).toBe(202);
     // The same words whether or not the address is on record.
     await expect(widget.chat.getByRole("status")).toHaveText(
-      "If that address is on record, we've emailed a code to it. Enter it below.",
+      "If that address or number is on record, we've sent a code to it. Enter it below.",
     );
 
-    await widget.chat.getByLabel("Code from the email").fill("123456");
+    await widget.chat.getByLabel("Code we sent").fill("123456");
     await widget.chat.getByRole("button", { name: "Verify", exact: true }).click();
     await expect(widget.chat.getByRole("status")).toHaveText(
       "That code is wrong or has expired. Ask for a new one if you need to.",

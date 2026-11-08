@@ -2,6 +2,8 @@ import type { FeatureContext } from "@botsdk/bot/feature";
 import { parseInput, type WithUser } from "@botsdk/bot/rpc-error";
 import {
   approveInput,
+  channelAccountConnectInput,
+  channelAccountRemoveInput,
   customerAddIdentityInput,
   customerCreateInput,
   customerMergeInput,
@@ -88,6 +90,11 @@ import {
   rejectReplyDraft,
 } from "./reply-drafts";
 import { getEmailAddress, rotateEmailAddress } from "./email-address";
+import {
+  channelAccountsView,
+  connectChannelAccountView,
+  removeChannelAccount,
+} from "./channel-accounts";
 import { handBackThread, sendAsOwner, takeOverThread } from "./takeover";
 import { addTopic, listTopics, removeTopic, setTopicMode } from "./topics";
 import {
@@ -211,6 +218,30 @@ export function representativeApi(
 
     emailAddressRotate: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
       rotateEmailAddress(context, userId, parseInput(idInput, rest).id),
+
+    channelAccountList: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
+      channelAccountsView(context, userId, parseInput(idInput, rest).id),
+
+    channelAccountConnect: async ({
+      userId,
+      ...rest
+    }: WithUser<typeof channelAccountConnectInput>) => {
+      const { id, platform, credentials } = parseInput(channelAccountConnectInput, rest);
+      return connectChannelAccountView(context, {
+        userId,
+        representativeId: id,
+        platform,
+        credentials,
+      });
+    },
+
+    channelAccountRemove: async ({
+      userId,
+      ...rest
+    }: WithUser<typeof channelAccountRemoveInput>) => {
+      const { id, channelAccountId } = parseInput(channelAccountRemoveInput, rest);
+      return removeChannelAccount(context, userId, id, channelAccountId);
+    },
 
     setBot: async ({ userId, ...rest }: WithUser<typeof setBotInput>) => {
       const { id, botId } = parseInput(setBotInput, rest);

@@ -38,7 +38,7 @@ afterEach(async () => {
   for (const { part, deps } of started.splice(0)) await part.stop!(deps);
 });
 
-function sdkWith(fake = fakeMessagingAdapter(), keyring = [keyA]) {
+function sdkWith(fake = fakeMessagingAdapter({ verifiesSender: true }), keyring = [keyA]) {
   const deps = createTestSdk({
     channels: [fake.adapter],
     features: [representativeFeature()],
@@ -441,5 +441,111 @@ describe("connecting an account to a Representative", () => {
 
     expect(await getTestDb().select().from(channelAccount)).toHaveLength(1);
     await expect.poll(() => [...fake.listening.keys()], poll).toEqual(["@bot_2"]);
+  });
+});
+
+describe("the owner's API for a Representative's Channel accounts (ticket #1358)", () => {
+  it("lists the platforms the Host offers with their fields, then connects, lists and removes an account", async () => {
+    const { deps, fake, startListeners } = sdkWith();
+    const { client, representativeId } = await anOwner(deps);
+    await startListeners();
+
+    expect(await client.representative.channelAccountList({ id: representativeId })).toEqual({
+      platforms: [{ platform: "fake", fields: ["token"], plainFields: [] }],
+      accounts: [],
+    });
+
+    const connected = await client.representative.channelAccountConnect({
+      id: representativeId,
+      platform: "fake",
+      credentials: { token: "1:secret-token" },
+    });
+
+    expect(connected.accounts).toMatchObject([
+      // A listening platform takes no webhook, so there is no URL to give it.
+      { platform: "fake", handle: "@bot_1", status: "active", reason: null, webhookUrl: null },
+    ]);
+    expect(JSON.stringify(connected)).not.toContain("secret-token");
+    expect(await client.representative.channelAccountList({ id: representativeId })).toEqual(
+      connected,
+    );
+    await expect.poll(() => fake.listening.has("@bot_1"), poll).toBe(true);
+
+    const removed = await client.representative.channelAccountRemove({
+      id: representativeId,
+      channelAccountId: connected.accounts[0]!.id,
+    });
+
+    expect(removed.accounts).toEqual([]);
+    expect(await getTestDb().select().from(channelAccount)).toEqual([]);
+    await expect.poll(() => fake.listening.has("@bot_1"), poll).toBe(false);
+  });
+
+  it("gives a webhook platform's account the URL to point the platform at, and says which fields aren't secret", async () => {
+    const fake = fakeMessagingAdapter({ webhook: true });
+    // A number, say: the owner sees what they type.
+    fake.adapter.plainCredentialFields = ["token"];
+    const deps = createTestSdk({
+      channels: [fake.adapter],
+      features: [representativeFeature()],
+      keyEncryptionSecrets: [keyA],
+      appUrl: "https://app.example",
+      liveViewBase: "/api/chat",
+    });
+    const { client, representativeId } = await anOwner(deps);
+
+    const { platforms, accounts } = await client.representative.channelAccountConnect({
+      id: representativeId,
+      platform: "fake",
+      credentials: { token: "1:a" },
+    });
+
+    expect(platforms).toEqual([{ platform: "fake", fields: ["token"], plainFields: ["token"] }]);
+    expect(accounts.map(({ webhookUrl }) => webhookUrl)).toEqual([
+      `https://app.example/api/chat/channels/fake/${accounts[0]!.id}`,
+    ]);
+  });
+
+  it("refuses another user's Representative, and removes nothing it doesn't hold", async () => {
+    const { deps, fake } = sdkWith();
+    const ada = await anOwner(deps);
+    const grace = await anOwner(deps);
+    const kept = await grace.client.representative.channelAccountConnect({
+      id: grace.representativeId,
+      platform: "fake",
+      credentials: { token: "2:a" },
+    });
+    fake.rejected.add("9:revoked");
+
+    await expect(
+      grace.client.representative.channelAccountList({ id: ada.representativeId }),
+    ).rejects.toMatchObject({ data: { code: "error.representativeNotFound" } });
+    await expect(
+      grace.client.representative.channelAccountConnect({
+        id: ada.representativeId,
+        platform: "fake",
+        credentials: { token: "1:a" },
+      }),
+    ).rejects.toMatchObject({ data: { code: "error.representativeNotFound" } });
+    await expect(
+      ada.client.representative.channelAccountConnect({
+        id: ada.representativeId,
+        platform: "fake",
+        credentials: { token: "9:revoked" },
+      }),
+    ).rejects.toMatchObject({ data: { code: "error.channelCredentialsRejected" } });
+    // Grace's account, named through Ada's Representative or Grace's through another owner's.
+    await ada.client.representative.channelAccountRemove({
+      id: ada.representativeId,
+      channelAccountId: kept.accounts[0]!.id,
+    });
+    await expect(
+      grace.client.representative.channelAccountRemove({
+        id: ada.representativeId,
+        channelAccountId: kept.accounts[0]!.id,
+      }),
+    ).rejects.toMatchObject({ data: { code: "error.representativeNotFound" } });
+
+    expect(await getTestDb().select().from(channelAccount)).toHaveLength(1);
   });
 });
