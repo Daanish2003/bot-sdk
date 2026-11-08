@@ -109,6 +109,8 @@ export function sms({
     // In the lab a business has to be registered to start a conversation; there is no reply window.
     canStartConversation: false,
     maxLength: gsmLimit,
+    // The send below cuts a longer reply itself, so the Outbound gate must pass it.
+    cutsLongMessages: true,
 
     async check({ apiKey, publicKey: key, number }, call) {
       if (!publicKey(key)) return { rejected: "The webhook public key isn't a base64 Ed25519 key" };

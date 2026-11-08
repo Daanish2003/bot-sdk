@@ -16,6 +16,7 @@ import {
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round } from "@botsdk/testing/fake-adapter";
+import { cutMarker, sms } from "../../channel-sms/src";
 import { fakeMessagingAdapter } from "@botsdk/testing/fake-channel";
 import type { CustomerChannel } from "../src/server/customer-proof";
 import { storeReply } from "../src/server/customers";
@@ -48,7 +49,21 @@ afterEach(async () => {
   for (const runner of runners.splice(0)) await runner.stop();
 });
 
-async function instance() {
+/** `real`: the Customer channel sends through the real `sms()` adapter, over a fetch that records the texts it posts, and declares its reach. */
+async function instance(real = false) {
+  const posted: string[] = [];
+  const realSms = sms();
+  const smsFetch = (async (_url: unknown, init?: { body?: string }) => {
+    posted.push((JSON.parse(init?.body ?? "{}") as { text: string }).text);
+    return Response.json({ data: { id: "o" } });
+  }) as unknown as typeof fetch;
+  const smsAccount = {
+    id: "account",
+    botId: "bot",
+    platformBotId: "x",
+    handle: "x",
+    credentials: { apiKey: "KEY", publicKey: "", number: "+15550001111" },
+  };
   const fake = createFakeAdapter({ rounds: [round(), round(), round(), round()] });
   const adapter: AnyTextAdapter = fake.adapter;
   const messaging = fakeMessagingAdapter({ id: "sms" });
@@ -61,10 +76,12 @@ async function instance() {
   };
   const channel: CustomerChannel = {
     send: async (to, { text }) => {
-      await messaging.adapter.send(account, { chatId: to.externalId, text }, { fetch });
+      if (real)
+        await realSms.send(smsAccount, { chatId: to.externalId, text }, { fetch: smsFetch });
+      else await messaging.adapter.send(account, { chatId: to.externalId, text }, { fetch });
     },
     sendProof: async () => {},
-    reach: () => smsReach,
+    reach: () => (real ? realSms : smsReach),
   };
   const timer = fakeJobClock(noon);
   let made: TestDeps | undefined;
@@ -104,6 +121,7 @@ async function instance() {
   const threadId = async () => (await rpc.representative.threadList({ id }))[0]!.id;
   return {
     messaging,
+    posted,
     rpc,
     id,
     threadId,
@@ -202,6 +220,18 @@ describe("the Channel rule on SMS", () => {
     await world.heard("Hello");
 
     expect(await world.reply("Hi")).toEqual({ sent: true });
+  });
+
+  it("lets the real adapter cut a reply over 459 characters, and say so", async () => {
+    const world = await instance(true);
+    await world.heard("Hello");
+
+    expect(await world.reply("word ".repeat(120))).toEqual({ sent: true });
+
+    expect(await world.decisions()).toEqual([["reply", "send", "passed"]]);
+    expect(world.posted).toHaveLength(1);
+    expect(world.posted[0]!.endsWith(cutMarker)).toBe(true);
+    expect(world.posted[0]!.length).toBeLessThanOrEqual(459);
   });
 
   it("passes a reply over maxLength to the adapter (which cuts it, in #1356) rather than holding it", async () => {
