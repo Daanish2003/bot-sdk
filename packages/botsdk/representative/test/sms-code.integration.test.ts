@@ -207,6 +207,8 @@ describe("a code round trip on SMS", () => {
     await expect
       .poll(async () => (await threadMessages()).map(({ text }) => text).join(" "), poll)
       .toContain("It was wrong");
+    // The Turn that message started has built its prompt, so the check below can fail.
+    await expect.poll(() => fake.calls.length, poll).toBeGreaterThanOrEqual(3);
     expect((await identity()).verifiedContactAt).toBeNull();
     expect(prompts(fake).join("")).not.toContain("Dutch");
   });
