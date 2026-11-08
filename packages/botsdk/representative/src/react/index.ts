@@ -217,13 +217,16 @@ export function useChannelAccounts(id: string) {
   return useQuery(useRepresentative().channelAccountList.queryOptions({ input: { id } }));
 }
 
-/** Shows the accounts a change returned. */
+/** Shows the accounts a change returned, and has every other Representative's accounts re-read: a connect can move one. */
 export function useStoreChannelAccounts(id: string) {
   const representative = useRepresentative();
   const queryClient = useQueryClient();
   const queryKey = representative.channelAccountList.queryKey({ input: { id } });
   return (view: ChannelAccountsView) => {
     queryClient.setQueryData(queryKey, view);
+    void queryClient.invalidateQueries({
+      queryKey: representative.channelAccountList.key(),
+    });
   };
 }
 

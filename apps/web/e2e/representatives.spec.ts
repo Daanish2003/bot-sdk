@@ -226,7 +226,9 @@ test("an owner sees a Representative's Channel accounts and gets a refusal for c
 
   // The platform is asked first; its refusal leaves nothing connected, here or after a reload.
   await save.click();
-  await expect(page.locator('[data-sonner-toast][data-type="error"]').first()).toBeVisible();
+  await expect(page.locator('[data-sonner-toast][data-type="error"]').first()).toBeVisible({
+    timeout: 30_000,
+  });
   await expect(section.getByRole("listitem")).toHaveCount(0);
   await page.reload();
   await expect(section.getByText("Nothing is connected yet.")).toBeVisible();

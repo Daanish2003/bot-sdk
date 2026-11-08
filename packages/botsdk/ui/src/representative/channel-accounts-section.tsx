@@ -66,9 +66,9 @@ export function ChannelAccountsSection({ id }: { id: string }) {
               {account.status === "needs_attention" && (
                 <span role="alert" className="flex items-center gap-1 text-xs text-destructive">
                   <TriangleAlertIcon aria-hidden className="size-4" />
-                  {t("representative.channelAccountNeedsAttention", {
-                    reason: account.reason ?? "",
-                  })}
+                  {account.reason
+                    ? t("representative.channelAccountNeedsAttention", { reason: account.reason })
+                    : t("representative.channelAccountAttention")}
                 </span>
               )}
               <Button
@@ -170,7 +170,7 @@ function ConnectForm({
           {t("representative.channelAccountSave")}
         </Button>
         <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
-          {t("representative.widgetKeyCancel")}
+          {t("representative.channelAccountCancel")}
         </Button>
       </div>
     </form>

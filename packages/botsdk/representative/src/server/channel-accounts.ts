@@ -98,7 +98,7 @@ export async function connectChannelAccountView(
 
 /**
  * Removes one of the Representative's Channel accounts and stops its listener. An account it doesn't
- * hold, another owner's included, is left alone and the same NOT_FOUND as a Representative that isn't theirs.
+ * hold, another owner's included, is left alone: removing is done once the account isn't there.
  */
 export async function removeChannelAccount(
   context: Context,

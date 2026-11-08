@@ -87,7 +87,7 @@ export const representativeMessages = {
   "representative.emailAddressLoadFailed": "The email address couldn't be loaded. Try again.",
   "representative.channelAccounts": "Channel accounts",
   "representative.channelAccountsHelp":
-    "A number or bot connected here answers as this Representative. Whoever writes to it becomes a Customer, and counts as unverified until they prove who they are. Your own phone counts as a Customer too.",
+    "A number or bot connected here answers as this Representative. Whoever writes to it becomes a Customer, and counts as unverified until they prove who they are, unless the platform vouches for its senders. Your own phone counts as a Customer too.",
   "representative.channelAccountPlatform": ({ platform }: { platform: string }) =>
     platform.charAt(0).toUpperCase() + platform.slice(1),
   "representative.channelAccountField": ({ field }: { field: string }) =>
@@ -96,6 +96,8 @@ export const representativeMessages = {
   "representative.channelAccountConnect": ({ platform }: { platform: string }) =>
     `Connect ${platform}`,
   "representative.channelAccountSave": "Connect",
+  "representative.channelAccountCancel": "Cancel",
+  "representative.channelAccountAttention": "Needs attention",
   "representative.channelAccountRemove": "Remove",
   "representative.channelAccountRemoveFor": ({ handle }: { handle: string }) => `Remove ${handle}`,
   "representative.channelAccountConnected": "Account connected",
