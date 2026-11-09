@@ -39,7 +39,7 @@ const callEndBody = z.object({
   ),
 });
 
-/** A Call as the end finds it: its thread, caller and owner. */
+/** A Call as the end finds it, before its locks: its thread, its caller's number then, and its owner. */
 export type CallToEnd = {
   id: string;
   threadId: string;
@@ -47,23 +47,8 @@ export type CallToEnd = {
   userId: string;
 };
 
-/**
- * Closes `call` in `tx` with its `call` entry reading `text`, and says whether it did: a Call already
- * closed, or whose thread a delete has taken, adds nothing. Every end goes through here, a Voice agent's
- * and a lost Call's alike (ticket #1387), and wakes the Turn that reviews it, as a Bot's result does. On
- * a thread the owner took over the entry waits for them and no Turn runs; a blocked or opted-out caller
- * gets no Turn either.
- */
-export async function closeCall(
-  services: Pick<FeatureContext, "db" | "clock" | "jobs">,
-  tx: Transaction,
-  now: Date,
-  call: CallToEnd,
-  { status, text }: { status: "ended" | "ended_no_transcript"; text: string },
-) {
-  const { threadId, externalId } = call;
-  // The caller's Customer before their thread, as for a message: a delete holds it, then looks for
-  // their words on every thread, and the status below finds a Call that delete has taken.
+/** The caller's identity at `externalId` under `userId`, if the owner knows that number. */
+async function callerAt(tx: Transaction, userId: string, externalId: string) {
   const [caller] = await tx
     .select({
       customerId: representativeCustomerIdentity.customerId,
@@ -72,11 +57,32 @@ export async function closeCall(
     .from(representativeCustomerIdentity)
     .where(
       and(
-        eq(representativeCustomerIdentity.userId, call.userId),
+        eq(representativeCustomerIdentity.userId, userId),
         eq(representativeCustomerIdentity.channel, smsChannel),
         eq(representativeCustomerIdentity.externalId, externalId),
       ),
     );
+  return caller;
+}
+
+/**
+ * Closes `call` in `tx` with its `call` entry reading `text`, and says whether its caller is blocked; false
+ * when it adds nothing, as a Call already closed or whose thread a delete has taken does. Every end goes
+ * through here, a Voice agent's and a lost Call's alike (ticket #1387), and wakes the Turn that reviews
+ * it, as a Bot's result does. On a thread the owner took over the entry waits for them and no Turn runs;
+ * a blocked or opted-out caller gets no Turn, and no owner's wait, as their message would.
+ */
+export async function closeCall(
+  services: Pick<FeatureContext, "db" | "clock" | "jobs">,
+  tx: Transaction,
+  now: Date,
+  call: CallToEnd,
+  { status, text }: { status: "ended" | "ended_no_transcript"; text: string },
+) {
+  const { threadId } = call;
+  // The caller's Customer before their thread, as for a message: a delete holds it, then looks for
+  // their words on every thread, and the status below finds a Call that delete has taken.
+  let caller = await callerAt(tx, call.userId, call.externalId);
   if (caller) {
     await tx
       .select({ id: representativeCustomer.id })
@@ -87,6 +93,17 @@ export async function closeCall(
   // The thread's lock first, as a delete and a merge take it before the rows under it.
   const thread = await tryLockThread(tx, call.userId, threadId);
   if (!thread) return false;
+  // The Call's row last, as a request takes it too, and only now its number: a correction that
+  // held the caller's row as this waited has rewritten it.
+  const [held] = await tx
+    .select({ externalId: representativeCall.externalId })
+    .from(representativeCall)
+    .where(and(eq(representativeCall.id, call.id), eq(representativeCall.status, "in_progress")))
+    .for("update");
+  if (!held) return false;
+  const { externalId } = held;
+  if (externalId !== call.externalId) caller = await callerAt(tx, call.userId, externalId);
+  const kept = thread.blockedAt !== null || (caller?.optedOutAt ?? null) !== null;
   const messageId = uuidv7();
   const [ended] = await tx
     .update(representativeCall)
@@ -95,7 +112,7 @@ export async function closeCall(
     .returning({ id: representativeCall.id });
   if (!ended) return false;
   const nowSql = sql`${now.toISOString()}::timestamp`;
-  const wakes = thread.state === "representative" && !thread.blockedAt && !caller?.optedOutAt;
+  const wakes = thread.state === "representative" && !kept;
   const [updated] = await tx
     .update(representativeThread)
     .set({
@@ -132,10 +149,10 @@ export async function closeCall(
       turnId: thread.turnId,
       waitingSince: updated!.waitingSince!,
     });
-  } else if (thread.state === "owner") {
+  } else if (thread.state === "owner" && !kept) {
     await queueOwnerWait(services, tx, threadId, now);
   }
-  return true;
+  return { blocked: thread.blockedAt !== null };
 }
 
 /** Ends the Call `callId` on `account` with its transcript. An unknown or finished Call changes nothing. */

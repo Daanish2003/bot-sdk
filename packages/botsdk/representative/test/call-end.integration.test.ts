@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
 import type { AnyTextAdapter } from "@tanstack/ai";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { exportUserData } from "@botsdk/bot/user-data";
@@ -22,6 +22,7 @@ import { noCustomerChannel } from "../src/server/customer-proof";
 import { maxThreadMessageLength } from "../src/shared/contract";
 import {
   representativeCall,
+  representativeCustomer,
   representativeCustomerIdentity,
   representativeThread,
   representativeThreadMessage,
@@ -378,6 +379,51 @@ describe("the transcript", () => {
   });
 });
 
+describe("a correction of the caller's number during the end", () => {
+  it("writes the corrected number to the entry, read after the locks", async () => {
+    const { hook, callStarts, entries, calls } = await world();
+    await callStarts();
+    const corrected = "+15550009";
+    const [{ customerId } = { customerId: "" }] = await getTestDb()
+      .select({ customerId: representativeCustomerIdentity.customerId })
+      .from(representativeCustomerIdentity)
+      .where(eq(representativeCustomerIdentity.externalId, caller));
+    let sent: Promise<Response> | undefined;
+    await getTestDb().transaction(async (holder) => {
+      // As a correction does: the Customer's row first, then the identity and the Call.
+      await holder
+        .select({ id: representativeCustomer.id })
+        .from(representativeCustomer)
+        .where(eq(representativeCustomer.id, customerId))
+        .for("update");
+      sent = hook("end", { callId: "call-1", transcript: said });
+      await expect
+        .poll(
+          async () => {
+            const { rows } = await getTestDb().execute<{ n: number }>(
+              sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`,
+            );
+            return rows[0]!.n;
+          },
+          { timeout: 10_000 },
+        )
+        .toBeGreaterThan(0);
+      await holder
+        .update(representativeCustomerIdentity)
+        .set({ externalId: corrected })
+        .where(eq(representativeCustomerIdentity.externalId, caller));
+      await holder
+        .update(representativeCall)
+        .set({ externalId: corrected })
+        .where(eq(representativeCall.callId, "call-1"));
+    });
+    expect((await sent!).status).toBe(200);
+
+    expect(await entries()).toMatchObject([{ author: "call", externalId: corrected }]);
+    expect((await calls())[0]).toMatchObject({ status: "ended", externalId: corrected });
+  });
+});
+
 describe("what a transcript can't do", () => {
   it("proves nothing with a code read aloud, and leaves the code for its owner", async () => {
     const { user, callStarts, callEnds, text, entries, codes, settle } = await world([
@@ -571,6 +617,25 @@ describe("a Call with no end", () => {
 
     expect((await w.calls())[0]).toMatchObject({ status: "ended" });
     expect((await w.entries()).map((entry) => entry.text)).toEqual([saidAsText]);
+    expect(await pages()).toEqual([]);
+  });
+
+  it("Pages no one when the caller is blocked, though the entry is kept", async () => {
+    const w = await dropped();
+    await getTestDb()
+      .update(representativeCustomer)
+      .set({ blockedAt: start })
+      .where(
+        eq(
+          representativeCustomer.id,
+          (await getTestDb().select().from(representativeThread))[0]!.customerId,
+        ),
+      );
+
+    await w.settle(callEndDueMs + 60_000);
+
+    expect((await w.calls())[0]).toMatchObject({ status: "ended_no_transcript" });
+    expect(await w.entries()).toHaveLength(1);
     expect(await pages()).toEqual([]);
   });
 

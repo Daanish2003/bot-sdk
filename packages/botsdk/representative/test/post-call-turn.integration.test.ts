@@ -32,6 +32,7 @@ import {
   representativeThread,
   representativeThreadMessage,
 } from "../src/server/db/schema";
+import { ownerWaitJobName } from "../src/server/stalled-work";
 import { inboundLimit } from "../src/server/inbound-limit";
 import { representativeFeature } from "../src/server/plugin";
 import { waitingElsewhere } from "../src/server/reply-drafts";
@@ -684,6 +685,50 @@ describe("a taken-over thread", () => {
     await settle(2 * 60 * 60_000 + 1_000);
 
     expect((await rpc.pages.list()).map(({ cause }) => cause)).toEqual(["owner_wait"]);
+  });
+});
+
+describe("a kept caller on a taken-over thread", () => {
+  /** The owner's wait a Call's end queued, by its job's name, not its Page: a later Hand back ends both. */
+  const ownerWaits = () => getTestDb().select().from(job).where(eq(job.name, ownerWaitJobName));
+
+  it("queues no wait for the owner for a blocked caller", async () => {
+    const blocked = await world();
+    await blocked.callStarts();
+    await blocked.rpc.representative.threadTakeOver({ id: await blocked.threadId() });
+    await getTestDb()
+      .update(representativeCustomer)
+      .set({ blockedAt: noon })
+      .where(eq(representativeCustomer.id, (await blocked.threadRow()).customerId));
+
+    await blocked.callEnds();
+
+    expect(await ownerWaits()).toEqual([]);
+    expect((await blocked.entries()).map((entry) => entry.author)).toContain("call");
+  });
+
+  it("queues no wait for the owner for a caller who opted out", async () => {
+    const { rpc, callStarts, callEnds, threadId } = await world();
+    await callStarts();
+    await rpc.representative.threadTakeOver({ id: await threadId() });
+    await getTestDb()
+      .update(representativeCustomerIdentity)
+      .set({ optedOutAt: noon })
+      .where(eq(representativeCustomerIdentity.externalId, caller));
+
+    await callEnds();
+
+    expect(await ownerWaits()).toEqual([]);
+  });
+
+  it("queues the owner's wait for a caller who is neither", async () => {
+    const { rpc, callStarts, callEnds, threadId } = await world();
+    await callStarts();
+    await rpc.representative.threadTakeOver({ id: await threadId() });
+
+    await callEnds();
+
+    expect(await ownerWaits()).toHaveLength(1);
   });
 });
 
