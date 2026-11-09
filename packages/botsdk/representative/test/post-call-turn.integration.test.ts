@@ -884,7 +884,7 @@ describe("flagging a Call", () => {
   });
 
   it("Pages at most once for one Call, however often it flags", async () => {
-    const { calls, settle } = await world([
+    const { calls, settle, fake } = await world([
       round(flags("First thing.", "one"), flags("Second thing.", "two")),
       round(flags("Third thing.", "three")),
       quiet,
@@ -894,6 +894,7 @@ describe("flagging a Call", () => {
     await settle();
 
     expect(await pages()).toHaveLength(1);
+    expect(JSON.stringify(fake.calls[1]!.messages)).toContain("flagged already");
   });
 
   it("Pages once for each Call", async () => {

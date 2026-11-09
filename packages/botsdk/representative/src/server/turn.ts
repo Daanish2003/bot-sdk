@@ -1089,7 +1089,12 @@ export function turnTools(turn: Turn) {
         if (thread !== null && callId) {
           // The Customer's row before the thread's, the order a merge and a delete take them in.
           await holdThreadCustomer(tx, thread.threadId);
-          await flagCall(job, tx, { threadId: thread.threadId, callId, what });
+          if (!(await flagCall(job, tx, { threadId: thread.threadId, callId, what }))) {
+            return {
+              flagged: false,
+              note: "This call has been flagged already, so the owner was not alerted again.",
+            };
+          }
         }
         return {
           flagged: true,
