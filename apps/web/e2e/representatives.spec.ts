@@ -281,7 +281,17 @@ test("an owner connects phone calls, sees the secret once, regenerates it, and a
   const secret = account.getByLabel("Secret");
   const first = await secret.inputValue();
   expect(first.length).toBeGreaterThanOrEqual(32);
+
+  // The greeting changes in place, and the secret stays.
+  await account.getByRole("button", { name: "Change greeting" }).click();
+  await account.getByLabel("Greeting").fill("Phone desk, how can I help?");
+  await account.getByRole("button", { name: "Save greeting" }).click();
+  await expect(account.getByText("Greeting: Phone desk, how can I help?")).toBeVisible();
+  await expect(secret).toHaveValue(first);
   await page.reload();
+  await expect(
+    section.locator("[data-voice-account]").getByText("Greeting: Phone desk, how can I help?"),
+  ).toBeVisible();
   await expect(section.locator("[data-voice-account]").getByLabel("Hook URL")).toBeVisible();
   await expect(section.getByLabel("Secret")).toHaveCount(0);
 

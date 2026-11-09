@@ -21,6 +21,7 @@ import {
 import {
   useConnectVoiceAccount,
   useRegenerateVoiceSecret,
+  useSetVoiceGreeting,
   useRemoveChannelAccount,
 } from "@botsdk/representative/react";
 
@@ -105,9 +106,12 @@ export function VoiceAccountSection({
           </div>
           {account.voice && (
             <>
-              <p className="text-xs text-muted-foreground">
-                {t("representative.voiceGreetingFor", { greeting: account.voice.greeting })}
-              </p>
+              <GreetingRow
+                id={id}
+                channelAccountId={account.id}
+                greeting={account.voice.greeting}
+                onView={onView}
+              />
               <p className="text-xs text-muted-foreground">
                 {account.voice.smsPaired
                   ? t("representative.voicePaired")
@@ -166,6 +170,84 @@ export function VoiceAccountSection({
         </div>
       ))}
     </section>
+  );
+}
+
+/** The greeting, with an edit in place: the secret and number stay, so the Voice agent keeps working. */
+function GreetingRow({
+  id,
+  channelAccountId,
+  greeting,
+  onView,
+}: {
+  id: string;
+  channelAccountId: string;
+  greeting: string;
+  onView: (view: ChannelAccountsView) => void;
+}) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(greeting);
+  const save = useSetVoiceGreeting({
+    onSuccess: (view) => {
+      toast.success(t("representative.voiceGreetingSaved"));
+      onView(view);
+      setEditing(false);
+    },
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  if (!editing) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-xs text-muted-foreground">
+          {t("representative.voiceGreetingFor", { greeting })}
+        </p>
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          onClick={() => {
+            setValue(greeting);
+            setEditing(true);
+          }}
+        >
+          {t("representative.voiceGreetingChange")}
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <form
+      className="space-y-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!save.isPending) save.mutate({ id, channelAccountId, greeting: value });
+      }}
+    >
+      <Input
+        type="text"
+        autoComplete="off"
+        aria-label={t("representative.voiceGreeting")}
+        maxLength={maxVoiceGreetingLength}
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+      />
+      <div className="flex gap-2">
+        <Button type="submit" size="sm" disabled={save.isPending}>
+          {t("representative.voiceGreetingSave")}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={save.isPending}
+          onClick={() => setEditing(false)}
+        >
+          {t("representative.voiceCancel")}
+        </Button>
+      </div>
+    </form>
   );
 }
 

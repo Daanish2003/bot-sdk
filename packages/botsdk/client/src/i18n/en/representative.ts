@@ -124,6 +124,9 @@ export const representativeMessages = {
   "representative.voiceNumberLabel": ({ number }: { number: string }) => `Calls to ${number}`,
   "representative.voiceGreetingFor": ({ greeting }: { greeting: string }) =>
     `Greeting: ${greeting}`,
+  "representative.voiceGreetingChange": "Change greeting",
+  "representative.voiceGreetingSave": "Save greeting",
+  "representative.voiceGreetingSaved": "Greeting saved",
   "representative.voiceHookUrl": "Hook URL",
   "representative.voiceHookUrlHelp":
     "Give this to the Voice agent. It calls /start, /request and /end under it, with the secret as a bearer token.",

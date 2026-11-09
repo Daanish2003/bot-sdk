@@ -959,6 +959,12 @@ export const voiceAccountConnectInput = z.object({
   number: z.string().trim().min(1).max(40),
   greeting: z.string().trim().max(maxVoiceGreetingLength).optional(),
 });
+export const voiceAccountSetGreetingInput = z.object({
+  id: z.uuid(),
+  channelAccountId: z.uuid(),
+  /** Empty is the default greeting, as when connecting. */
+  greeting: z.string().trim().max(maxVoiceGreetingLength),
+});
 export const voiceAccountRegenerateInput = z.object({ id: z.uuid(), channelAccountId: z.uuid() });
 export const channelAccountRemoveInput = z.object({ id: z.uuid(), channelAccountId: z.uuid() });
 
@@ -1041,6 +1047,10 @@ export const representativeContract = {
    * made here and returned once. The same number again replaces the account and its secret.
    */
   voiceAccountConnect: oc.input(voiceAccountConnectInput).output(type<VoiceAccountSecret>()),
+  /** Changes a voice account's greeting. Its number and secret stay, so the Voice agent keeps working. */
+  voiceAccountSetGreeting: oc
+    .input(voiceAccountSetGreetingInput)
+    .output(type<ChannelAccountsView>()),
   /** Gives a voice account a new secret, returned once; the old one stops at once. */
   voiceAccountRegenerate: oc.input(voiceAccountRegenerateInput).output(type<VoiceAccountSecret>()),
   /** Removes one of the Representative's Channel accounts, and its listener stops. */

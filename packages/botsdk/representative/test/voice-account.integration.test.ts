@@ -13,7 +13,7 @@ import { fakeMessagingAdapter } from "@botsdk/testing/fake-channel";
 import { representativeChannelAccount } from "../src/server/db/schema";
 import { representativeFeature } from "../src/server/plugin";
 import { voice } from "../src/server/voice-adapter";
-import { defaultVoiceGreeting } from "../src/shared/contract";
+import { defaultVoiceGreeting, maxVoiceGreetingLength } from "../src/shared/contract";
 
 /*
  * A voice account on a Representative (ticket #1381, ADR 0036): connected with a number and a
@@ -299,5 +299,87 @@ describe("the voice adapter", () => {
     await expect(
       context.channelAccounts.send(view.accounts[0]!.id, { chatId: number, text: "hi" }),
     ).rejects.toThrow();
+  });
+});
+
+describe("changing the greeting", () => {
+  it("changes only the greeting: the account, number and secret stay, with no new approval", async () => {
+    const { deps, context } = sdk();
+    const { client, representativeId } = await anOwner(deps);
+    const { secret, view } = await client.representative.voiceAccountConnect({
+      id: representativeId,
+      number,
+      greeting: "Old greeting.",
+    });
+    const accountId = view.accounts[0]!.id;
+
+    const changed = await client.representative.voiceAccountSetGreeting({
+      id: representativeId,
+      channelAccountId: accountId,
+      greeting: "  New greeting.  ",
+    });
+
+    expect(changed.accounts.map(({ id }) => id)).toEqual([accountId]);
+    expect(changed.accounts[0]!.voice!.greeting).toBe("New greeting.");
+    expect(await context.channelAccounts.credentialsOf(accountId, "voice")).toEqual({
+      number,
+      greeting: "New greeting.",
+      secret,
+    });
+    expect(JSON.stringify(changed)).not.toContain(secret);
+  });
+
+  it("goes back to the default for an empty greeting, as connecting does, and refuses a too long one", async () => {
+    const { deps, context } = sdk();
+    const { client, representativeId } = await anOwner(deps);
+    const { secret, view } = await client.representative.voiceAccountConnect({
+      id: representativeId,
+      number,
+      greeting: "Custom.",
+    });
+    const accountId = view.accounts[0]!.id;
+
+    const emptied = await client.representative.voiceAccountSetGreeting({
+      id: representativeId,
+      channelAccountId: accountId,
+      greeting: "  ",
+    });
+    expect(emptied.accounts[0]!.voice!.greeting).toBe(defaultVoiceGreeting);
+
+    const tooLong = "x".repeat(maxVoiceGreetingLength + 1);
+    await expect(
+      client.representative.voiceAccountSetGreeting({
+        id: representativeId,
+        channelAccountId: accountId,
+        greeting: tooLong,
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      client.representative.voiceAccountConnect({
+        id: representativeId,
+        number: "+15557654321",
+        greeting: tooLong,
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(await context.channelAccounts.credentialsOf(accountId, "voice")).toEqual({
+      number,
+      greeting: defaultVoiceGreeting,
+      secret,
+    });
+  });
+
+  it("refuses an account that isn't a voice account of this Representative", async () => {
+    const { deps } = sdk();
+    const { client, representativeId } = await anOwner(deps);
+    const other = await anOwner(deps);
+    const mine = await client.representative.voiceAccountConnect({ id: representativeId, number });
+
+    await expect(
+      other.client.representative.voiceAccountSetGreeting({
+        id: other.representativeId,
+        channelAccountId: mine.view.accounts[0]!.id,
+        greeting: "Hijacked.",
+      }),
+    ).rejects.toMatchObject({ data: { code: "error.voiceAccountNotFound" } });
   });
 });

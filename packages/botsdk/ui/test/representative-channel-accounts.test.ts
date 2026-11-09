@@ -111,7 +111,10 @@ const voiceId = "0195c6a0-0000-7000-8000-000000000009";
  * A stand-in for the voice RPCs: the Host offers voice, an SMS account holds `smsNumber`, and connecting
  * makes one voice account whose secret is only in the answer. `calls` records what each RPC got.
  */
-function fakeVoiceServer(calls: { connect: unknown[]; regenerate: unknown[] }, connected = false) {
+function fakeVoiceServer(
+  calls: { connect: unknown[]; regenerate: unknown[]; greeting?: unknown[] },
+  connected = false,
+) {
   const sms = {
     id: accountId,
     platform: "sms",
@@ -149,6 +152,11 @@ function fakeVoiceServer(calls: { connect: unknown[]; regenerate: unknown[] }, c
         calls.connect.push(input);
         held = [sms, voiceAccount];
         return { secret: "first-secret", view: view() };
+      }),
+      voiceAccountSetGreeting: os.handler(({ input }) => {
+        calls.greeting?.push(input);
+        voiceAccount.voice.greeting = (input as { greeting: string }).greeting;
+        return view();
       }),
       voiceAccountRegenerate: os.handler(({ input }) => {
         calls.regenerate.push(input);
@@ -235,5 +243,35 @@ describe("a Representative's phone calls", () => {
       expect((screen.getByLabelText("Secret") as HTMLInputElement).value).toBe("second-secret"),
     );
     expect(calls.regenerate).toEqual([{ id, channelAccountId: voiceId }]);
+  });
+
+  it("changes the greeting from the account row, with the secret left alone", async () => {
+    const calls = {
+      connect: [] as unknown[],
+      regenerate: [] as unknown[],
+      greeting: [] as unknown[],
+    };
+    render(
+      providerFor(createElement(ChannelAccountsSection, { id }), {
+        fetch: fakeVoiceServer(calls, true),
+        features: [representativeClient()],
+        messages: {},
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Change greeting" }));
+    const input = screen.getByLabelText("Greeting") as HTMLInputElement;
+    expect(input.value).toBe("Hello, thanks for calling. How can I help?");
+    fireEvent.change(input, { target: { value: "Hi, Front desk here." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save greeting" }));
+
+    await waitFor(() =>
+      expect(calls.greeting).toEqual([
+        { id, channelAccountId: voiceId, greeting: "Hi, Front desk here." },
+      ]),
+    );
+    expect(await screen.findByText("Greeting: Hi, Front desk here.")).toBeTruthy();
+    expect(calls.regenerate).toEqual([]);
+    expect(screen.queryByLabelText("Secret")).toBeNull();
   });
 });
