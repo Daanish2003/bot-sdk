@@ -100,8 +100,7 @@ export function waitingOn(
   if (turnDue) return "representative";
   if (botWorking) return "bot";
   if (codeHandedOff || leftForOwner || heldWaiting) return "owner";
-  // A thread a Call opened has no message until the Call ends: nobody owes anyone a word yet.
-  return speaking || lastAuthor === null ? null : "customer";
+  return speaking ? null : "customer";
 }
 
 /** `userId`'s Customers named by `ids` (all of them when omitted), oldest first, with their identities; none merged away. */
@@ -491,17 +490,21 @@ function summary(row: ThreadRow, customerName: string | null): ThreadSummary {
     },
     lastHeard: { channel: row.lastChannel, externalId: row.lastExternalId },
     holder,
-    waitingOn: waitingOn(
-      row.state,
-      row.lastAuthor,
-      row.blockedAt !== null,
-      row.turnId !== null || row.waitingFrom !== null,
-      row.botWorking,
-      row.lastReplyKind === codeHandOffKind,
-      row.limitNotedAt !== null && row.waitingFrom !== null,
-      row.leftForOwnerAt !== null,
-      row.heldWaiting,
-    ),
+    // A thread a Call opened has no message until the Call ends: nobody owes anyone a word yet.
+    waitingOn:
+      row.messageCount === 0
+        ? null
+        : waitingOn(
+            row.state,
+            row.lastAuthor,
+            row.blockedAt !== null,
+            row.turnId !== null || row.waitingFrom !== null,
+            row.botWorking,
+            row.lastReplyKind === codeHandOffKind,
+            row.limitNotedAt !== null && row.waitingFrom !== null,
+            row.leftForOwnerAt !== null,
+            row.heldWaiting,
+          ),
     messageCount: row.messageCount,
     updatedAt: row.updatedAt,
   };
@@ -617,8 +620,9 @@ export async function getThread(
     .from(representativeCall)
     .where(eq(representativeCall.threadId, threadId))
     .orderBy(asc(representativeCall.startedAt));
+  const byId = new Map(messages.map((message) => [message.id, message]));
   for (const call of calls) {
-    const message = messages.find(({ id }) => id === call.messageId);
+    const message = call.messageId === null ? undefined : byId.get(call.messageId);
     if (message) {
       const { messageId: _messageId, ...times } = call;
       message.call = { ...times, lines: transcriptLines(message.text) };

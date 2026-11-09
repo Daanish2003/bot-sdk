@@ -99,7 +99,7 @@ function CallGroup({ message }: { message: ThreadMessageView }) {
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
             <span aria-hidden className="h-px flex-1 bg-border" />
             <span>
-              {status === "ended_no_transcript"
+              {status === "ended_no_transcript" || lines.length === 0
                 ? t("representative.threadCallNoTranscript")
                 : capped
                   ? t("representative.threadCallCapped", { minutes })

@@ -9,31 +9,29 @@ import { smsChannel } from "./customer-proof";
 import {
   representative,
   representativeCall,
+  representativeCustomer,
+  representativeCustomerIdentity,
   representativeThread,
   representativeThreadMessage,
 } from "./db/schema";
-import { tryLockThread } from "./takeover";
+import { activeAt, tryLockThread } from "./takeover";
 import { callIdField, voiceHookRoute, type VoiceHookAccount } from "./voice-hook";
 
 /*
  * Call end (ticket #1384, ADR 0036): a Voice agent posts the transcript, which joins the Customer's
  * thread as one `call` entry. It isn't a Customer's message: what a Voice agent reports proves nothing
  * and goes through no check for a code, since a code read aloud must not pass as proof, and it wakes no
- * Turn here. The Call's status makes a repeat harmless.
+ * Turn here. The Call's status makes a repeat harmless. One too long for a thread message loses its end.
  */
 
 const callEndBody = z.object({
   callId: callIdField,
-  transcript: z
-    .array(
-      z.object({
-        role: z.enum(["caller", "agent"]),
-        text: z.string().refine(noNul),
-      }),
-    )
-    .refine(
-      (lines) => lines.reduce((sum, { text }) => sum + text.length, 0) <= maxThreadMessageLength,
-    ),
+  transcript: z.array(
+    z.object({
+      role: z.enum(["caller", "agent"]),
+      text: z.string().refine(noNul),
+    }),
+  ),
 });
 
 /** Ends the Call `callId` on `account` with its transcript. An unknown or finished Call changes nothing. */
@@ -60,6 +58,25 @@ async function endCall(
         ),
       );
     if (!call) return;
+    // The caller's Customer before their thread, as for a message: a delete holds it, then looks for
+    // their words on every thread, and the status below finds a Call that delete has taken.
+    const [caller] = await tx
+      .select({ customerId: representativeCustomerIdentity.customerId })
+      .from(representativeCustomerIdentity)
+      .where(
+        and(
+          eq(representativeCustomerIdentity.userId, call.userId),
+          eq(representativeCustomerIdentity.channel, smsChannel),
+          eq(representativeCustomerIdentity.externalId, call.externalId),
+        ),
+      );
+    if (caller) {
+      await tx
+        .select({ id: representativeCustomer.id })
+        .from(representativeCustomer)
+        .where(eq(representativeCustomer.id, caller.customerId))
+        .for("key share");
+    }
     // The thread's lock first, as a delete and a merge take it before the rows under it.
     const thread = await tryLockThread(tx, call.userId, call.threadId);
     if (!thread) return;
@@ -74,9 +91,7 @@ async function endCall(
       .update(representativeThread)
       .set({
         messageCount: sql`${representativeThread.messageCount} + 1`,
-        ...(thread.state !== "closed" && {
-          updatedAt: sql`greatest(${representativeThread.updatedAt}, ${now.toISOString()}::timestamp)`,
-        }),
+        ...(thread.state !== "closed" && activeAt(now)),
       })
       .where(eq(representativeThread.id, call.threadId))
       .returning({ position: representativeThread.messageCount });
@@ -85,7 +100,7 @@ async function endCall(
       threadId: call.threadId,
       position: updated!.position,
       author: "call",
-      text: transcriptText(transcript),
+      text: transcriptText(transcript).slice(0, maxThreadMessageLength),
       // Every caller is unverified: the number is only what the vendor reports.
       verified: false,
       channel: smsChannel,

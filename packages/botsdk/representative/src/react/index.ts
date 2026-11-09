@@ -462,7 +462,11 @@ export function useThreads(id: string) {
 
 /** One thread with its transcript (`representative.threadGet`). */
 export function useThread(id: string) {
-  return useQuery(useRepresentative().threadGet.queryOptions({ input: { id } }));
+  return useQuery({
+    ...useRepresentative().threadGet.queryOptions({ input: { id } }),
+    // While a Call is on the line, the view watches for it to end.
+    refetchInterval: (query) => (query.state.data?.liveCall ? 2_000 : false),
+  });
 }
 
 /** Takes a thread over from its Representative (`representative.threadTakeOver`). */

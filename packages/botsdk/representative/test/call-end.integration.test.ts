@@ -18,6 +18,7 @@ import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { noCustomerChannel } from "../src/server/customer-proof";
+import { maxThreadMessageLength } from "../src/shared/contract";
 import {
   representativeCall,
   representativeCustomerIdentity,
@@ -311,6 +312,20 @@ describe("the transcript", () => {
 
     expect(await entries()).toMatchObject([{ author: "call", text: "" }]);
     expect((await calls())[0]!.status).toBe("ended");
+  });
+
+  it("keeps what fits of a transcript too long for a thread message, and still reads as lines", async () => {
+    const { rpc, callStarts, callEnds, entries, threadId } = await world();
+    await callStarts();
+
+    await callEnds([
+      { role: "caller", text: "x".repeat(maxThreadMessageLength) },
+      { role: "agent", text: "Goodbye." },
+    ]);
+
+    expect((await entries())[0]!.text).toHaveLength(maxThreadMessageLength);
+    const thread = await rpc.representative.threadGet({ id: await threadId() });
+    expect(thread.messages[0]!.call!.lines.map(({ role }) => role)).toEqual(["caller"]);
   });
 
   it("joins the thread the Customer already has", async () => {

@@ -362,11 +362,10 @@ test("a phone call shows live on its thread, then as one group between dividers,
   // A retry of the same end changes nothing.
   expect((await hook("end", { callId, transcript })).status()).toBe(200);
 
-  await page.reload();
-  await thread.getByRole("button", { name: /^Read / }).click();
+  // The open thread sees it end with no reload.
+  await expect(thread.locator("[data-call-live]")).toHaveCount(0, { timeout: 15_000 });
   const group = thread.locator("[data-call-group]");
   await expect(group).toHaveCount(1);
-  await expect(thread.locator("[data-call-live]")).toHaveCount(0);
   await expect(group).toContainText("Call started");
   await expect(group).toContainText(/Call ended · 1 min · hung up/);
   await expect(group.locator('[data-call-line="caller"]')).toContainText("📞 by phone");
@@ -380,6 +379,14 @@ test("a phone call shows live on its thread, then as one group between dividers,
   await expect(
     section.locator("[data-voice-account]").locator("[data-voice-last-call]"),
   ).toHaveText("Last call just now");
+
+  // A Call with nothing said says so, rather than how it ended.
+  const silent = `${callId}-silent`;
+  await hook("start", { callId: silent, caller: "+15557654321" });
+  expect((await hook("end", { callId: silent, transcript: [] })).status()).toBe(200);
+  await page.reload();
+  await thread.getByRole("button", { name: /^Read / }).click();
+  await expect(thread.locator("[data-call-group]").last()).toContainText("no transcript");
 });
 
 test("an owner can't open another owner's Representative", async ({ page, browser }) => {

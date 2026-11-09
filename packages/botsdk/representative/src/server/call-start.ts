@@ -23,6 +23,7 @@ import {
 import { declineReason } from "./declines";
 import { type DocumentText, readDocuments } from "./documents";
 import { queueIdleCheck } from "./idle";
+import { activeAt } from "./takeover";
 import { factsBlock, releasePrompts, topicsBlock } from "./prompt-parts";
 import { factsInEffect } from "./replies";
 import { topicNamesByMode } from "./topics";
@@ -151,9 +152,7 @@ async function recordCall(
       .onConflictDoUpdate({
         target: [representativeThread.customerId, representativeThread.representativeId],
         targetWhere: sql`state <> 'closed'`,
-        set: {
-          updatedAt: sql`greatest(${representativeThread.updatedAt}, ${now.toISOString()}::timestamp)`,
-        },
+        set: activeAt(now),
       })
       .returning({ id: representativeThread.id, createdAt: representativeThread.createdAt });
     const threadId = thread!.id;

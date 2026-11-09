@@ -21,6 +21,7 @@ export function transcriptLines(text: string): CallLine[] {
   if (text === "") return [];
   return text.split("\n").map((line) => {
     const role = line.startsWith(labels.caller) ? "caller" : "agent";
-    return { role, text: line.slice(labels[role].length) };
+    // A transcript cut at the longest a message may be can end part-way through a label.
+    return { role, text: line.startsWith(labels[role]) ? line.slice(labels[role].length) : line };
   });
 }
