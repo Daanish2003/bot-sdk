@@ -23,6 +23,7 @@ import {
   representativeCall,
   representativeCustomer,
   representativeThread,
+  representativeThreadMessage,
 } from "../src/server/db/schema";
 import { customerSummaryMarker } from "../src/server/customer-summary";
 import { noCustomerChannel } from "../src/server/customer-proof";
@@ -543,9 +544,12 @@ describe("an owner undoing a merge", () => {
   });
 
   it("moves their Calls with a corrected number, wherever a merge has left them", async () => {
-    const { deps } = await instance(quietly(4));
+    const { deps } = await instance(quietly(8));
     const { rpc, id } = await owner(deps);
     const { ada, bob } = await twoWithThreads(deps, rpc, id);
+    const someoneElse = await owner(deps);
+    await twoWithThreads(deps, someoneElse.rpc, someoneElse.id);
+    const [theirThread] = await threadsOf(someoneElse.rpc, someoneElse.id);
     const threads = await threadsOf(rpc, id);
     const threadOf = (customerId: string) =>
       threads.find((each) => each.customer.id === customerId)!.id;
@@ -555,19 +559,31 @@ describe("an owner undoing a merge", () => {
       channel: "sms",
       externalId: was,
     });
-    const call = (callId: string, customerId: string, externalId: string) => ({
+    const call = (callId: string, threadId: string, externalId: string) => ({
       id: uuidv7(),
       callId,
-      threadId: threadOf(customerId),
+      threadId,
       externalId,
       startedAt: new Date(),
+    });
+    const onHerThread = call("on-her-thread", threadOf(ada.id), was);
+    const entryId = uuidv7();
+    await getTestDb().insert(representativeThreadMessage).values({
+      id: entryId,
+      threadId: onHerThread.threadId,
+      position: 1000,
+      author: "call",
+      channel: "sms",
+      externalId: was,
+      text: "Caller: fix the AC at 12 Elm Street.",
     });
     await getTestDb()
       .insert(representativeCall)
       .values([
-        call("on-his-thread", bob.id, was),
-        call("on-her-thread", ada.id, was),
-        call("hers", ada.id, adasNumber),
+        call("on-his-thread", threadOf(bob.id), was),
+        { ...onHerThread, messageId: entryId },
+        call("hers", threadOf(ada.id), adasNumber),
+        call("another-owners", theirThread!.id, was),
       ]);
 
     await rpc.representative.customerUpdateIdentity({
@@ -584,7 +600,21 @@ describe("an owner undoing a merge", () => {
       "on-his-thread": now,
       "on-her-thread": now,
       hers: adasNumber,
+      "another-owners": was,
     });
+
+    await rpc.representative.customerDelete({ id: bob.id });
+
+    const left = await getTestDb()
+      .select({ callId: representativeCall.callId })
+      .from(representativeCall);
+    expect(left.map((each) => each.callId).sort()).toEqual(["another-owners", "hers"]);
+    expect(
+      await getTestDb()
+        .select({ id: representativeThreadMessage.id })
+        .from(representativeThreadMessage)
+        .where(eq(representativeThreadMessage.id, entryId)),
+    ).toEqual([]);
   });
 
   it("gives back a thread held only because of the merge, and no other", async () => {

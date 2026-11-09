@@ -340,15 +340,28 @@ export async function updateIdentity(
         );
       // A delete finds their Calls by number, on any thread a merge has left them on.
       if (held.channel === smsChannel && channel === smsChannel) {
+        const call = representativeCall;
+        const theirCalls = and(
+          eq(call.externalId, held.externalId),
+          inArray(
+            call.threadId,
+            tx
+              .select({ id: representativeThread.id })
+              .from(representativeThread)
+              .innerJoin(
+                representative,
+                eq(representative.id, representativeThread.representativeId),
+              )
+              .where(eq(representative.userId, userId)),
+          ),
+        );
         await tx
-          .update(representativeCall)
+          .update(message)
           .set({ externalId })
           .where(
-            and(
-              eq(representativeCall.externalId, held.externalId),
-              sql`exists (select 1 from ${representativeThread} join ${representative} on ${representative.id} = ${representativeThread.representativeId} where ${representativeThread.id} = ${representativeCall.threadId} and ${representative.userId} = ${userId})`,
-            ),
+            inArray(message.id, tx.select({ id: call.messageId }).from(call).where(theirCalls)),
           );
+        await tx.update(call).set({ externalId }).where(theirCalls);
       }
       // What waits for the owner goes where this Customer now is, as what the thread sends next does.
       await tx
