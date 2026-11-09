@@ -422,6 +422,56 @@ describe("a correction of the caller's number during the end", () => {
     expect(await entries()).toMatchObject([{ author: "call", externalId: corrected }]);
     expect((await calls())[0]).toMatchObject({ status: "ended", externalId: corrected });
   });
+
+  it("takes the thread's lock before rewriting the Call, the order a request takes them in", async () => {
+    const { rpc, callStarts, threadId, calls } = await world();
+    await callStarts();
+    const corrected = "+15550009";
+    const thread = await threadId();
+    const [identity] = await getTestDb()
+      .select()
+      .from(representativeCustomerIdentity)
+      .where(eq(representativeCustomerIdentity.externalId, caller));
+    let sent: Promise<unknown> | undefined;
+    await getTestDb().transaction(async (holder) => {
+      await holder
+        .select({ id: representativeThread.id })
+        .from(representativeThread)
+        .where(eq(representativeThread.id, thread))
+        .for("update");
+      sent = rpc.representative.customerUpdateIdentity({
+        id: identity!.customerId,
+        identityId: identity!.id,
+        channel: identity!.channel,
+        externalId: corrected,
+      });
+      // The correction now waits on the thread's row, which this transaction holds.
+      await expect
+        .poll(
+          async () => {
+            const { rows } = await getTestDb().execute<{ n: number }>(
+              sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`,
+            );
+            return rows[0]!.n;
+          },
+          { timeout: 10_000 },
+        )
+        .toBeGreaterThan(0);
+      // It holds no Call while it waits: a request holds the thread and then wants the Call.
+      await expect(
+        getTestDb().transaction((tx) =>
+          tx
+            .select({ id: representativeCall.id })
+            .from(representativeCall)
+            .where(eq(representativeCall.callId, "call-1"))
+            .for("update", { noWait: true }),
+        ),
+      ).resolves.toHaveLength(1);
+    });
+    await sent;
+
+    expect((await calls())[0]).toMatchObject({ externalId: corrected });
+  });
 });
 
 describe("what a transcript can't do", () => {
@@ -660,6 +710,40 @@ describe("a Call with no end", () => {
     const [entry] = await w.entries();
     expect(entry!.text).toContain("Book a repair visit");
     expect(entry!.text).toContain("after 5pm");
+  });
+
+  it("carries a request that landed while it waited for the thread", async () => {
+    const w = await dropped();
+    const thread = await w.threadId();
+    let settled: Promise<void> | undefined;
+    await getTestDb().transaction(async (holder) => {
+      await holder
+        .select({ id: representativeThread.id })
+        .from(representativeThread)
+        .where(eq(representativeThread.id, thread))
+        .for("update");
+      settled = w.settle(callEndDueMs + 60_000);
+      // The job has read the Call and now waits on the thread's row, which this transaction holds.
+      await expect
+        .poll(
+          async () => {
+            const { rows } = await getTestDb().execute<{ n: number }>(
+              sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`,
+            );
+            return rows[0]!.n;
+          },
+          { timeout: 10_000 },
+        )
+        .toBeGreaterThan(0);
+      await holder
+        .update(representativeCall)
+        .set({ requests: [{ request: "Book a repair visit", emergency: false }] })
+        .where(eq(representativeCall.callId, "call-1"));
+    });
+    await settled;
+
+    const [entry] = await w.entries();
+    expect(entry!.text).toContain("Book a repair visit");
   });
 
   it("leaves a Call that ended normally alone", async () => {

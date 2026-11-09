@@ -355,6 +355,18 @@ export async function updateIdentity(
               .where(eq(representative.userId, userId)),
           ),
         );
+        // Each thread's lock before its Calls, the order a Call's request and end take them in.
+        await tx
+          .select({ id: representativeThread.id })
+          .from(representativeThread)
+          .where(
+            inArray(
+              representativeThread.id,
+              tx.select({ id: call.threadId }).from(call).where(theirCalls),
+            ),
+          )
+          .orderBy(representativeThread.id)
+          .for("update");
         await tx
           .update(message)
           .set({ externalId })

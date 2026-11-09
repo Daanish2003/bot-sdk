@@ -71,7 +71,6 @@ export const callLostJob = defineJob<z.infer<typeof callLostPayload>, FeatureCon
           id: representativeCall.id,
           threadId: representativeCall.threadId,
           externalId: representativeCall.externalId,
-          requests: representativeCall.requests,
           userId: representative.userId,
           representativeId: representative.id,
           name: representative.name,
@@ -83,7 +82,7 @@ export const callLostJob = defineJob<z.infer<typeof callLostPayload>, FeatureCon
       if (!call) return;
       const closed = await closeCall(job, tx, now, call, {
         status: "ended_no_transcript",
-        text: lostText(call.requests),
+        text: lostText,
       });
       // A blocked caller Pages no one, as their emergency wouldn't.
       if (!closed || closed.blocked) return;

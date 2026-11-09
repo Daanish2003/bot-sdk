@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
-import { maxThreadMessageLength, noNul } from "../shared/contract";
+import { maxThreadMessageLength, noNul, type RecordedRequest } from "../shared/contract";
 import { transcriptText } from "./call-transcript";
 import { smsChannel } from "./customer-proof";
 import {
@@ -66,8 +66,9 @@ async function callerAt(tx: Transaction, userId: string, externalId: string) {
 }
 
 /**
- * Closes `call` in `tx` with its `call` entry reading `text`, and says whether its caller is blocked; false
- * when it adds nothing, as a Call already closed or whose thread a delete has taken does. Every end goes
+ * Closes `call` in `tx` with its `call` entry reading what `text` makes of its requests, read under the
+ * locks so none that landed during the wait is lost, and says whether its caller is blocked; false when
+ * it adds nothing, as a Call already closed or whose thread a delete has taken does. Every end goes
  * through here, a Voice agent's and a lost Call's alike (ticket #1387), and wakes the Turn that reviews
  * it, as a Bot's result does. On a thread the owner took over the entry waits for them and no Turn runs;
  * a blocked or opted-out caller gets no Turn, and no owner's wait, as their message would.
@@ -77,7 +78,13 @@ export async function closeCall(
   tx: Transaction,
   now: Date,
   call: CallToEnd,
-  { status, text }: { status: "ended" | "ended_no_transcript"; text: string },
+  {
+    status,
+    text,
+  }: {
+    status: "ended" | "ended_no_transcript";
+    text: (requests: readonly RecordedRequest[]) => string;
+  },
 ) {
   const { threadId } = call;
   // The caller's Customer before their thread, as for a message: a delete holds it, then looks for
@@ -96,21 +103,19 @@ export async function closeCall(
   // The Call's row last, as a request takes it too, and only now its number: a correction that
   // held the caller's row as this waited has rewritten it.
   const [held] = await tx
-    .select({ externalId: representativeCall.externalId })
+    .select({ externalId: representativeCall.externalId, requests: representativeCall.requests })
     .from(representativeCall)
     .where(and(eq(representativeCall.id, call.id), eq(representativeCall.status, "in_progress")))
     .for("update");
   if (!held) return false;
-  const { externalId } = held;
+  const { externalId, requests } = held;
   if (externalId !== call.externalId) caller = await callerAt(tx, call.userId, externalId);
   const kept = thread.blockedAt !== null || (caller?.optedOutAt ?? null) !== null;
   const messageId = uuidv7();
-  const [ended] = await tx
+  await tx
     .update(representativeCall)
     .set({ status, endedAt: now, messageId })
-    .where(and(eq(representativeCall.id, call.id), eq(representativeCall.status, "in_progress")))
-    .returning({ id: representativeCall.id });
-  if (!ended) return false;
+    .where(eq(representativeCall.id, call.id));
   const nowSql = sql`${now.toISOString()}::timestamp`;
   const wakes = thread.state === "representative" && !kept;
   const [updated] = await tx
@@ -133,7 +138,7 @@ export async function closeCall(
     threadId,
     position: updated!.position,
     author: "call",
-    text: text.slice(0, maxThreadMessageLength),
+    text: text(requests).slice(0, maxThreadMessageLength),
     // Every caller is unverified: the number is only what the vendor reports.
     verified: false,
     heldForOwner: thread.state === "owner",
@@ -179,7 +184,10 @@ async function endCall(
         ),
       );
     if (!call) return;
-    await closeCall(context, tx, now, call, { status: "ended", text: transcriptText(transcript) });
+    await closeCall(context, tx, now, call, {
+      status: "ended",
+      text: () => transcriptText(transcript),
+    });
   });
   return { ok: true };
 }
